@@ -256,8 +256,8 @@ The repository has Vitest, `happy-dom`, and `fake-indexeddb`, but no Playwright/
 
 Evidence collected:
 
-- Deterministic unit model: 318 Vitest cases in the K-327C focused run. Each actor derives its physical lock name; a test-only named-lock registry selects queues, and a serialized physical-source registry supplies exactly one authority/source graph per physical digest.
-- Evidence: the K-327B identity/schema/order matrix remains intact; K-327C adds duplicate-decoded-key rejection at root and every nested shape, canonical-byte rejection, explicit byte-format versioning, malformed-root and missing-authority/candidate symmetry, structured total-rejection assertions, exact-byte restart stability, and positive/negative null-prototype normalization tests.
+- Deterministic unit model: 336 Vitest executions with 336 distinct generated test names in the K-327D focused run. The duplicate candidate-null semantic fixture was removed rather than counted twice. Each actor derives its physical lock name; a test-only named-lock registry selects queues, and a serialized physical-source registry supplies exactly one authority/source graph per physical digest.
+- Evidence: the K-327B/K-327C identity, schema, ordering, duplicate, canonical-byte, missing-evidence, and null-prototype matrices remain intact. K-327D adds UTF-8 envelope/component/record/count bounds, exact JSON whitespace, shape-independent depth, explicit lone-surrogate behavior, complete decoded-key cases, live capability controls, observed before/after restart results, and accurate candidate-parser staging.
 - Exact focused partition: 219 existing identity/protocol/schema cases; 8 null-prototype cases; 8 standalone duplicate-key/scoping cases; 2 canonical restart success/stability cases; 29 completed persisted graph corruption cases; 25 malformed-root cases (including 4 missing/null authority/candidate cases); 6 duplicate-key root/nested persisted-envelope cases; 14 noncanonical-equivalent byte cases; and 7 ordering/crash/stale-account cases = 318.
 - Fake storage evidence: existing local database suites continue to exercise fake IndexedDB; the new model intentionally does not claim browser storage behavior.
 - Real two-tab, page reload, browser-process restart, suspension, and PWA evidence: not collected.
@@ -299,11 +299,33 @@ This two-step append-only protocol keeps hashing/canonicalization outside long I
 
 ### Persisted serialization and exact rehydration
 
-The deterministic model stores authority and candidate as canonical JSON bytes, not reusable runtime objects. Persisted root schema version `1` explicitly binds byte-format version `1`. Restart first scans JSON with a bounded recursive reader that compares every object key after JSON escape decoding, including keys inside logical scope and array-element objects. A duplicate decoded key is rejected before any schema object is returned. The reader uses null-prototype temporary maps so `__proto__`, `constructor`, and `prototype` cannot alter parsing semantics.
+The deterministic test model receives a JavaScript string, but the architecture contract is an immutable UTF-8 encoded canonical JSON byte sequence. Limits are measured in UTF-8 bytes, never UTF-16 code units. The harness uses an allocation-free counter exactly equivalent to `TextEncoder`: valid surrogate pairs count as four bytes and each unpaired UTF-16 surrogate counts as the three-byte U+FFFD replacement. Bound checks stop scanning as soon as the maximum is exceeded. The 1 MiB envelope bound is checked before reader construction, token scanning, raw-value slicing, schema parsing, hashing, or canonical serialization.
 
-After duplicate-safe construction, restart validates exact root, authority, candidate, source-record, and graph bindings, reconstructs the one canonical compact JSON representation in fixed field order, and requires byte-for-byte equality with the supplied string. Serializer v1 uses `JSON.stringify` field/array order, compact separators, literal forward slashes and supported non-ASCII characters, JSON escapes for controls, and ordinary finite decimal integer spelling. Leading/trailing/inter-token whitespace, BOM, LF/CRLF suffixes, reordered keys, alternate numeric spellings such as `1e0` or `-0`, optional forward-slash escaping, Unicode/surrogate/control escape alternatives, and escaped spellings of otherwise literal keys/values are rejected as `NONCANONICAL_PERSISTED_BYTES`. Rejection never normalizes, rewrites, synthesizes, or recaptures evidence. Only then may a fresh registry/coordinator be constructed. Tests prove object and nested-reference identity is lost across a valid boundary and that the exact canonical input bytes survive restart unchanged.
+Persisted root schema version `1` explicitly binds byte-format version `1`. Restart then uses a recursive duplicate-aware JSON reader. Container depth is checked before entering every object or array: root scalar depth is zero, root container depth is one, and no empty or non-empty terminal container may exceed depth 64. JSON whitespace is exactly SPACE, TAB, LF, or CR. NBSP, BOM, vertical tab, form feed outside strings, line/paragraph separators, narrow no-break space, and other Unicode whitespace are syntax errors. Every object owns a fresh decoded-key set; duplicate decoded keys are rejected before any schema object is returned. Null-prototype temporary maps and own data properties prevent `__proto__`, `constructor`, or `prototype` semantics.
 
-Finalization rereads both canonical persisted records and performs one compare-and-set only when discriminator, schema/coordinator/byte-format version, physical digest, logical-scope digest, handoff session, candidate ID, revision, snapshot digest, root digest, manifest digest, entity count, source records, and recomputed record digest all agree. Candidate fields are never used to repair authority. A same-session replacement, same digest with another ID, other session/root/scope, lower/higher/unsafe revision, malformed or valid-format mismatched digest, unknown version/type, missing/extra field, absent authority/candidate, conflicting candidate field, duplicate key, noncanonical bytes, or malformed JSON is a total restart rejection: no state machine, finalization, writable restoration, terminal state, evidence rewrite, candidate/authority synthesis, or source recapture occurs.
+After duplicate-safe construction, restart checks these byte and collection limits before graph hashing or coordinator construction:
+
+| Evidence | Maximum | Unit |
+|---|---:|---|
+| Complete serialized restart envelope | 1,048,576 | UTF-8 bytes |
+| Canonical authority payload | 16,384 | UTF-8 bytes |
+| Canonical candidate payload | 786,432 | UTF-8 bytes |
+| Source records | 4,096 | records |
+| One canonical `[id,value]` source record | 131,072 | UTF-8 bytes |
+| All canonical source records combined | 524,288 | UTF-8 bytes |
+| Source-record ID | 1,024 | UTF-8 bytes |
+| Source-record value | 131,072 | UTF-8 bytes |
+| JSON container depth | 64 | object/array containers |
+
+Count is checked before record iteration. Per-record and overflow-safe aggregate byte counts are checked before snapshot digest computation. Authority/candidate raw slices are bounded before their schema parsers, and validated canonical forms are bounded again. Each resource check allows equality (independent schema constraints still apply); limit plus one is rejected with bounded codes such as `PERSISTED_ENVELOPE_TOO_LARGE`, `PERSISTED_AUTHORITY_TOO_LARGE`, `PERSISTED_CANDIDATE_TOO_LARGE`, `PERSISTED_SOURCE_RECORD_COUNT_EXCEEDED`, `PERSISTED_SOURCE_RECORD_TOO_LARGE`, or `PERSISTED_SOURCE_RECORDS_TOO_LARGE`. Errors expose exactly the stable code and never contain payloads.
+
+Serializer v1 uses `JSON.stringify` fixed field/array order, compact separators, literal forward slashes and supported non-ASCII characters, JSON escapes for controls, and ordinary finite decimal integer spelling. JavaScript lone-surrogate strings are allowed consistently with `JSON.parse`; well-formed `JSON.stringify` emits them as `\ud800`-style escapes. A literal unpaired surrogate is therefore noncanonical, and pre-parse UTF-8 measurement follows TextEncoder replacement semantics. No NFC/NFD normalization occurs. Leading/trailing/inter-token whitespace, BOM, LF/CRLF suffixes, reordered keys, alternate numeric spellings such as `1e0` or `-0`, optional forward-slash escaping, Unicode/surrogate/control escape alternatives, and escaped spellings of otherwise literal keys/values are rejected as `NONCANONICAL_PERSISTED_BYTES`.
+
+Byte-format version `1` binds the UTF-8 representation, exact JSON grammar, field and order rules, string/number/surrogate policy, all size/count/depth limits above, and fail-closed behavior for unsupported future versions. Format evolution requires a new byte-format version and separate migration review; version 1 bytes are never normalized into a later format. Rejection never repairs, rewrites, synthesizes, deletes, or recaptures evidence. Only after root/schema bounds, record bounds, graph binding, and exact canonical equality may a fresh registry be created; an actual coordinator is counted only when constructed.
+
+Finalization rereads both canonical persisted records and performs one compare-and-set only when discriminator, schema/coordinator/byte-format version, physical digest, logical-scope digest, handoff session, candidate ID, revision, snapshot digest, root digest, manifest digest, entity count, source records, and recomputed record digest all agree. Candidate fields are never used to repair authority. A same-session replacement, same digest with another ID, other session/root/scope, lower/higher/unsafe revision, malformed or valid-format mismatched digest, unknown version/type, missing/extra field, absent authority/candidate, conflicting candidate field, duplicate key, noncanonical bytes, oversized graph, or malformed JSON is a total restart rejection.
+
+No-effect evidence is observable rather than expected-value driven. Counted test-only boundaries record persistence reads/writes, authority/candidate/terminal writes, envelope rewrite attempts, source reads/captures/recaptures/mutations, record creation/deletion, coordinator construction, and finalization invocation. The structured result derives rewrite, synthesis, deletion, terminal production, and writable restoration from before/after root bytes, authority/candidate bytes, record counts, source count, and authority state. Positive controls prove every modeled effect counter can increment. Rejection tests assert the resulting counters and state differences; they do not populate success/failure constants.
 
 ## State machine and restart behavior
 
@@ -324,7 +346,7 @@ Unknown state, unknown version, missing scope, digest mismatch, impossible trans
 - After pending commit, before capture: restart sees pending; writers reject; resume/cancel is explicit.
 - During capture/hash: pending remains; partial external computation is not evidence.
 - After append-only snapshot candidate commit, before terminal authority: restart sees `snapshot_committed_pending_finalization`; writers remain blocked, the candidate is ineligible, cancellation is forbidden, and retry may only validate the same candidate/revision and perform the terminal CAS. It never rebuilds, replaces, or silently discards the candidate.
-- K-327C restart evidence crosses canonical, duplicate-safe JSON rehydration into a new registry/context. The original and rehydrated authority, logical-scope, candidate, and record-array references are distinct. One common structured rejection result covers raw syntax, duplicate keys, schema, graph binding, and canonical-byte failures and always proves no promotion, writable restoration, candidate/authority synthesis, source recapture, persistence write, evidence mutation, or skipped assertion path.
+- K-327D restart evidence crosses bounded, canonical, duplicate-safe JSON rehydration into a new registry/context. The original and rehydrated authority, logical-scope, candidate, and record-array references are distinct. One common structured rejection result covers raw size, syntax, duplicate keys, schema, graph bounds, binding, and canonical-byte failures. Counted capabilities and before/after durable observations prove no promotion, writable restoration, candidate/authority synthesis, source recapture, persistence write, evidence mutation, or skipped assertion path.
 - After terminal commit: restart revalidates; never re-enables writers.
 - Browser/OS power loss inherits the browser's IDB durability limitations; exact real-browser crash/power evidence remains a rollout prerequisite.
 
@@ -382,8 +404,8 @@ Future K-326 must re-read the singleton physical-root authority and validate ter
 
 ### Expected files
 
-- New `src/lib/localDatabase/legacyPhysicalSourceIdentity.ts` with strict unknown-input physical/scope parsers, own-data/accessor rejection, fresh validated values, UTF-8 canonical serialization, exact production allowlists, malformed-input side-effect instrumentation, and complete physical/logical distinction matrices.
-- New `src/lib/localDatabase/legacySourceHandoff.ts` with versioned discriminated authority/candidate and persisted-byte schemas, duplicate-decoded-key rejection, exact canonical JSON equality, singleton physical-root authority, logical scope validation under lock, exact pending-candidate CAS, serialized rehydration, total restart rejection, cancellation boundaries, and privacy-safe errors.
+- New `src/lib/localDatabase/legacyPhysicalSourceIdentity.ts` with strict unknown-input physical/scope parsers, own-data/accessor rejection, fresh validated values, versioned UTF-8 canonical serialization, exact production allowlists, malformed-input side-effect instrumentation, and complete physical/logical distinction matrices.
+- New `src/lib/localDatabase/legacySourceHandoff.ts` with versioned discriminated authority/candidate byte schemas, pre-decode resource bounds, duplicate-decoded-key rejection, exact canonical JSON equality, singleton physical-root authority, logical scope validation under lock, exact pending-candidate CAS, serialized rehydration, total restart rejection, cancellation boundaries, and privacy-safe errors.
 - New `src/lib/localDatabase/legacySourceCoordinator.ts` and tests wrapping Web Locks with internal physical lock-name derivation, no injected lock/queue identity, and unsupported-environment failure.
 - Additive local database schema/constants/validation changes for authority and immutable snapshot metadata (reuse an existing generic store only if strict key/type isolation is proved).
 - Coordinated changes to `src/lib/notePersistence.ts`, `src/lib/noteIndexedDb.ts`, `src/components/views/noteUtils.ts`, `src/store/useNotesStore.ts`, onboarding, cleanup, and the K-96/K-97 developer/audit writers.
@@ -392,7 +414,7 @@ Future K-326 must re-read the singleton physical-root authority and validate ter
 
 ### Implementation order
 
-1. Add versioned canonical physical identity, separate logical authority identity, singleton root-authority/candidate schemas, explicit persisted-byte format version, duplicate-aware JSON parsing at every nesting level, production-safe strict unknown-input validators, bounded errors, and additive populated-version upgrade tests. Parsed or arbitrary objects never reach canonicalization; live identity is constructed from validated primitives, and persisted evidence must match one exact canonical serializer output before state-machine construction.
+1. Persist each safety-critical authority and immutable candidate payload in IndexedDB as a structured-clone `Uint8Array` containing byte-format-v1 UTF-8 canonical JSON. A wrapper may contain only indexed key/version/digest metadata; structured-clone objects or JavaScript strings are not alternate authoritative representations. Validate `Uint8Array.byteLength` before decoding, reject invalid UTF-8 without replacement, then apply the exact envelope/component/count/depth limits, duplicate-aware parser, schema, graph binding, digest binding, and canonical byte equality before state-machine construction. Add populated-version upgrade tests. Unsupported format versions and imported/recovered evidence fail closed without repair.
 2. Add an internal Web Lock coordinator deriving `absinthe:legacy-source-handoff:v1:<physical digest>` with no account inputs, queue injection, lease fallback, or `steal`; include bounded pre-grant abort and deterministic named-lock tests.
 3. Move authority, revision, Notes/folders evidence, and conversion progress into IDB transactional scope. Treat localStorage plus legacy IndexedDB as one combined mutation domain under the IDB-anchored coordinator until localStorage becomes non-authoritative.
 4. Convert every writer in the inventory; static tests reject bypasses and direct authoritative localStorage writes.
@@ -400,6 +422,12 @@ Future K-326 must re-read the singleton physical-root authority and validate ter
 6. Add K-325 snapshot adapter; keep K-326 production classification unchanged until a separate review proves the adapter.
 7. Run Chromium two-page order/crash/reload/account tests; document Firefox/WebKit/PWA/private-mode support matrix.
 8. Obtain persistence/concurrency and security/privacy review before any eligibility change.
+
+### Required persisted storage decision
+
+K-328 has one selected representation: safety-critical authority and candidate values are immutable `Uint8Array` UTF-8 canonical JSON payloads in IndexedDB. The authority payload may advance only through its reviewed CAS transitions; the committed candidate payload is append-only. Indexed wrapper fields are lookup metadata, not an alternate trusted graph. A read checks structured-clone type and `byteLength` before strict UTF-8 decoding, then applies byte-format version 1, exact JSON whitespace, duplicate detection, shape-independent depth 64, component/count/record limits, schema, graph and digest binding, and exact re-encoded byte equality. Invalid UTF-8, unsupported version, oversize input, malformed graph, imported/recovered evidence, or noncanonical bytes fail closed with no rewrite or repair.
+
+These limits are part of byte-format version 1: envelope 1 MiB, authority 16 KiB, candidate 768 KiB, record count 4,096, one record 128 KiB, all records 512 KiB, record ID 1 KiB, and record value 128 KiB. A future limit, encoding, serializer, surrogate, or storage-type change requires a new version and migration review. K-328 must test actual bounded IndexedDB reads, real counted writes/captures, before/after store state, crash/restart at exact limits, two-tab Web Locks, and unsupported browser/version fail-closed behavior. K-326 eligibility remains separately gated.
 
 ### Required K-328 tests
 
@@ -415,7 +443,10 @@ Future K-326 must re-read the singleton physical-root authority and validate ter
 - candidate/session/root/scope/revision/snapshot/root/manifest digest/discriminator/schema/coordinator/byte-format mismatch, malformed JSON, impossible state, and unknown-version rejection without writable restoration or repair;
 - duplicate decoded keys at root, authority, logical scope, candidate, nested/array-element objects, including escaped-equivalent spellings, rejected before schema construction;
 - canonical-byte matrix covering BOM, whitespace/newline, property order, escaped key/value spelling, alternate numeric spelling, truncation, primitives, special keys, and bounded deep nesting, with exact input-byte preservation and no normalization;
-- structured restart-stage accounting for raw parse, duplicate scan, schema, binding, canonical equality, and coordinator construction, with the same total no-effect assertions for every rejection;
+- boundary matrices for 1 MiB envelope, 16 KiB authority, 768 KiB candidate, 4,096 records, 128 KiB per record, 512 KiB aggregate records, 1 KiB IDs, 128 KiB values, and depth 64, covering exact limit and limit plus one, multibyte UTF-8, surrogate pairs, empty terminal containers, oversized malformed input, and overflow-safe totals;
+- exact JSON whitespace tests for SPACE/TAB/LF/CR and grammar rejection of NBSP, BOM, vertical tab, form feed outside strings, line/paragraph separators, narrow no-break space, and other Unicode whitespace;
+- structured restart-stage accounting for raw bounds, parse, duplicate scan, schema, graph bounds/binding, canonical equality, and actual coordinator construction, with counted persistence/source/finalization capabilities and real IndexedDB before/after state assertions for every rejection;
+- crash/restart tests at exact resource bounds, bounded IDB reads before decode/parse, invalid UTF-8 rejection, and positive controls proving storage/capture counters are live;
 - `Object.prototype` and null-prototype positive input normalization plus malformed negative cases, always returning fresh ordinary records;
 - writer-first and handoff-first stale-account traces asserting unchanged source, revision, authority identity, session, candidate, and digests after rejection;
 - Web Locks absent, insecure context, IDB failure/quota, pending timeout;
@@ -441,14 +472,14 @@ The new deterministic harness is `src/lib/localDatabase/crossContextSourceHandof
 
 | Command | Result |
 |---|---|
-| `npm test -- --run src/lib/localDatabase/crossContextSourceHandoffSpike.test.ts` | 318/318 passed, 1.23 s |
-| `npm test -- --run src/lib/localDatabase/localFirstCutover.test.ts` | 77/77 passed, 4.01 s |
-| `npm test -- --run src/lib/localDatabase/legacyNotesMigration.test.ts` | 150/150 passed, 2.59 s |
-| `npm test -- --run src/lib/localDatabase/` | 833/833 passed across 9 files, 3.61 s |
-| `npm test -- --run src/lib/recovery` | 70/70 passed across 2 files, 14.37 s |
-| `npm run typecheck` | passed, 27.91 s wall time |
-| `npm run build` | passed, 12.52 s Vite build; existing dynamic-import and chunk-size warnings only |
-| `npm test -- --maxWorkers=4` | 5,111 passed / 7 skipped across 578 passed / 1 skipped files, 203.93 s |
+| `npm test -- --run src/lib/localDatabase/crossContextSourceHandoffSpike.test.ts` | 336/336 passed, 1.79 s |
+| `npm test -- --run src/lib/localDatabase/localFirstCutover.test.ts` | 77/77 passed, 3.12 s |
+| `npm test -- --run src/lib/localDatabase/legacyNotesMigration.test.ts` | 150/150 passed, 1.97 s |
+| `npm test -- --run src/lib/localDatabase/` | 851/851 passed across 9 files, 3.29 s |
+| `npm test -- --run src/lib/recovery` | 70/70 passed across 2 files, 10.41 s |
+| `npm run typecheck` | passed, 25.2 s wall time |
+| `npm run build` | passed, 11.06 s Vite build / 12.3 s wall time; existing dynamic-import and chunk-size warnings only |
+| `npm test -- --maxWorkers=4` | 5,129 passed / 7 skipped across 578 passed / 1 skipped files, 204.45 s / 206.3 s wall time |
 | `git diff --check` | passed before publication |
 
 Backend tests were not run because no backend file changed. No real-browser evidence was collected for the reasons stated above.
@@ -487,13 +518,13 @@ No UI exists. The future UI must flush or abort, display read-only explicitly, a
 
 Durable pending/snapshot/terminal state adds recovery branches. Strict validation and no automatic repair are required.
 
-### Actual defects found and closed in K-327A/K-327B/K-327C
+### Actual defects found and closed in K-327A/K-327B/K-327C/K-327D
 
-K-327 initially mixed account scope into the physical lock digest and the harness manually shared a queue, allowing real lock-name aliasing to be hidden. K-327A separates physical exclusion from logical authority, makes the test registry select queues by derived name, and adds same-root/different-scope, different-root, stale-tab, and pre-finalization restart evidence. K-327B closes truthiness/serialization-based identity aliases and replaces in-memory restart proof with strict persisted-record rehydration. K-327C closes the remaining evidence gaps: plain `JSON.parse` silently normalized duplicate keys, semantically equivalent noncanonical bytes could be rewritten, restart corruption tests could return before common assertions, missing authority was not symmetric with missing candidate, null-prototype acceptance was implicit, and the document listed two nonexistent durable states. The already-known production defect remains: current localStorage/legacy-IDB writers are not yet cross-context serializable, so K-326G correctly continues to block them.
+K-327 initially mixed account scope into the physical lock digest and the harness manually shared a queue, allowing real lock-name aliasing to be hidden. K-327A separates physical exclusion from logical authority, makes the test registry select queues by derived name, and adds same-root/different-scope, different-root, stale-tab, and pre-finalization restart evidence. K-327B closes truthiness/serialization-based identity aliases and replaces in-memory restart proof with strict persisted-record rehydration. K-327C closes duplicate-key, noncanonical-byte, missing-evidence, null-prototype, and durable-state gaps. K-327D closes unbounded persisted input, UTF-16/UTF-8 ambiguity, broad JavaScript whitespace, shape-dependent depth, expected-value no-effect fields, duplicate semantic accounting, inaccurate candidate-parser staging, incomplete Unicode duplicate coverage, and the missing K-328 persisted-format decision. The already-known production defect remains: current localStorage/legacy-IDB writers are not yet cross-context serializable, so K-326G correctly continues to block them.
 
 ### Unresolved architecture decisions
 
-No owner decision is required for the high-level architecture. K-328 must decide the additive store layout and exact browser support floor without weakening the contract.
+The authoritative representation is no longer open: K-328 must use bounded byte-format-v1 UTF-8 canonical JSON in IndexedDB `Uint8Array` payloads. K-328 still must choose additive store/index names and establish the exact browser support floor without weakening that contract.
 
 ## Non-goals and runtime safety
 
@@ -501,4 +532,4 @@ K-327 performs no production K-326 eligibility change, source handoff activation
 
 ## Next action
 
-`K-327C — Focused Canonical-Evidence Architecture Review`
+`K-327D — Focused Bounded-Evidence Architecture Review`

@@ -9,6 +9,14 @@ const SCHEMA_VERSION = 1 as const;
 const COORDINATOR_VERSION = 1 as const;
 const PERSISTED_BYTE_FORMAT_VERSION = 1 as const;
 const MAX_PERSISTED_JSON_DEPTH = 64;
+const MAX_PERSISTED_ENVELOPE_UTF8_BYTES = 1024 * 1024;
+const MAX_AUTHORITY_UTF8_BYTES = 16 * 1024;
+const MAX_CANDIDATE_UTF8_BYTES = 768 * 1024;
+const MAX_SOURCE_RECORD_COUNT = 4096;
+const MAX_SOURCE_RECORD_UTF8_BYTES = 128 * 1024;
+const MAX_TOTAL_SOURCE_RECORD_UTF8_BYTES = 512 * 1024;
+const MAX_SOURCE_RECORD_ID_UTF8_BYTES = 1024;
+const MAX_SOURCE_RECORD_VALUE_UTF8_BYTES = 128 * 1024;
 const MAX_IDENTITY_LENGTH = 256;
 const MAX_ORIGIN_LENGTH = 2048;
 const MAX_RECORD_VALUE_LENGTH = 1_048_576;
@@ -94,11 +102,13 @@ class ProtocolError extends Error {
 
 type RestartFailureStage =
   | 'raw_input'
+  | 'raw_bounds'
   | 'duplicate_scan'
   | 'root_schema'
   | 'authority_schema'
   | 'candidate_schema'
   | 'source_schema'
+  | 'graph_bounds'
   | 'graph_binding'
   | 'canonical_bytes';
 
@@ -110,6 +120,7 @@ interface RestartMetrics {
   rootSchemaValidated: number;
   authorityParserInvoked: number;
   authoritySchemaValidated: number;
+  candidateFieldInspected: number;
   candidateParserInvoked: number;
   candidateSchemaValidated: number;
   sourceSchemaValidated: number;
@@ -118,9 +129,19 @@ interface RestartMetrics {
   canonicalEqualityChecked: number;
   coordinatorConstructed: number;
   finalizationAttempted: number;
+  persistenceReadAttempted: number;
   persistenceWriteAttempted: number;
-  evidenceRewritten: number;
-  sourceRecaptured: number;
+  authorityWriteAttempted: number;
+  candidateWriteAttempted: number;
+  terminalWriteAttempted: number;
+  rootRewriteAttempted: number;
+  sourceReadAttempted: number;
+  sourceCaptureAttempted: number;
+  sourceRecaptureAttempted: number;
+  snapshotDigestAttempted: number;
+  sourceMutationAttempted: number;
+  recordCreateAttempted: number;
+  recordDeleteAttempted: number;
 }
 
 function restartMetrics(): RestartMetrics {
@@ -132,6 +153,7 @@ function restartMetrics(): RestartMetrics {
     rootSchemaValidated: 0,
     authorityParserInvoked: 0,
     authoritySchemaValidated: 0,
+    candidateFieldInspected: 0,
     candidateParserInvoked: 0,
     candidateSchemaValidated: 0,
     sourceSchemaValidated: 0,
@@ -140,9 +162,19 @@ function restartMetrics(): RestartMetrics {
     canonicalEqualityChecked: 0,
     coordinatorConstructed: 0,
     finalizationAttempted: 0,
+    persistenceReadAttempted: 0,
     persistenceWriteAttempted: 0,
-    evidenceRewritten: 0,
-    sourceRecaptured: 0,
+    authorityWriteAttempted: 0,
+    candidateWriteAttempted: 0,
+    terminalWriteAttempted: 0,
+    rootRewriteAttempted: 0,
+    sourceReadAttempted: 0,
+    sourceCaptureAttempted: 0,
+    sourceRecaptureAttempted: 0,
+    snapshotDigestAttempted: 0,
+    sourceMutationAttempted: 0,
+    recordCreateAttempted: 0,
+    recordDeleteAttempted: 0,
   };
 }
 
@@ -172,6 +204,33 @@ function metrics(): BoundaryMetrics {
 
 function fail(code: string): never {
   throw new ProtocolError(code);
+}
+
+function utf8ByteLength(value: string, stopAfter = Number.MAX_SAFE_INTEGER): number {
+  let bytes = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code <= 0x7f) {
+      bytes += 1;
+    } else if (code <= 0x7ff) {
+      bytes += 2;
+    } else if (code >= 0xd800 && code <= 0xdbff
+      && index + 1 < value.length
+      && value.charCodeAt(index + 1) >= 0xdc00
+      && value.charCodeAt(index + 1) <= 0xdfff) {
+      bytes += 4;
+      index += 1;
+    } else {
+      // TextEncoder replaces each unpaired UTF-16 surrogate with U+FFFD (three UTF-8 bytes).
+      bytes += 3;
+    }
+    if (bytes > stopAfter) return bytes;
+  }
+  return bytes;
+}
+
+function requireUtf8Bound(value: string, maximum: number, code: string): void {
+  if (utf8ByteLength(value, maximum) > maximum) return fail(code);
 }
 
 function strictRecord(
@@ -361,10 +420,15 @@ function logicalScopeDigest(input: unknown): string {
 }
 
 function parseRecords(input: unknown, code: string): ReadonlyArray<readonly [string, string]> {
-  const strictArray = (value: unknown, expectedLength: number | null): unknown[] => {
+  const strictArray = (
+    value: unknown,
+    expectedLength: number | null,
+    maximumLength: number | null = null,
+  ): unknown[] => {
     if (!Array.isArray(value) || nodeTypes.isProxy(value)
       || Object.getPrototypeOf(value) !== Array.prototype
-      || (expectedLength !== null && value.length !== expectedLength)) {
+      || (expectedLength !== null && value.length !== expectedLength)
+      || (maximumLength !== null && value.length > maximumLength)) {
       return fail(code);
     }
     let descriptors: PropertyDescriptorMap;
@@ -390,13 +454,25 @@ function parseRecords(input: unknown, code: string): ReadonlyArray<readonly [str
       return descriptor.value;
     });
   };
-  const inputRecords = strictArray(input, null);
+  if (Array.isArray(input) && !nodeTypes.isProxy(input) && input.length > MAX_SOURCE_RECORD_COUNT) {
+    return fail('PERSISTED_SOURCE_RECORD_COUNT_EXCEEDED');
+  }
+  const inputRecords = strictArray(input, null, MAX_SOURCE_RECORD_COUNT);
   const records: Array<readonly [string, string]> = [];
   const seen = new Set<string>();
+  let totalBytes = 0;
   for (const entry of inputRecords) {
     const pair = strictArray(entry, 2);
     const id = strictString(pair[0], code);
     const value = strictString(pair[1], code, { allowEmpty: true, max: MAX_RECORD_VALUE_LENGTH });
+    requireUtf8Bound(id, MAX_SOURCE_RECORD_ID_UTF8_BYTES, 'PERSISTED_SOURCE_RECORD_TOO_LARGE');
+    requireUtf8Bound(value, MAX_SOURCE_RECORD_VALUE_UTF8_BYTES, 'PERSISTED_SOURCE_RECORD_TOO_LARGE');
+    const recordBytes = utf8ByteLength(JSON.stringify([id, value]));
+    if (recordBytes > MAX_SOURCE_RECORD_UTF8_BYTES) return fail('PERSISTED_SOURCE_RECORD_TOO_LARGE');
+    totalBytes += recordBytes;
+    if (!Number.isSafeInteger(totalBytes) || totalBytes > MAX_TOTAL_SOURCE_RECORD_UTF8_BYTES) {
+      return fail('PERSISTED_SOURCE_RECORDS_TOO_LARGE');
+    }
     if (seen.has(id)) return fail(code);
     seen.add(id);
     records.push(Object.freeze([id, value] as const));
@@ -478,6 +554,7 @@ function parsePersistedAuthority(input: unknown): Readonly<PersistedHandoffAutho
   if (state === 'handoff_pending' && (authority.handoffSessionId === null || !none)) return fail(code);
   if ((state === 'snapshot_committed_pending_finalization' || state === 'read_only_handoff')
     && (authority.handoffSessionId === null || !all)) return fail(code);
+  requireUtf8Bound(JSON.stringify(authority), MAX_AUTHORITY_UTF8_BYTES, 'PERSISTED_AUTHORITY_TOO_LARGE');
   return Object.freeze(authority);
 }
 
@@ -511,6 +588,7 @@ function parsePersistedCandidate(input: unknown): Readonly<PersistedSnapshotCand
     records,
   };
   if (candidate.entityCount !== candidate.records.length) return fail(code);
+  requireUtf8Bound(JSON.stringify(candidate), MAX_CANDIDATE_UTF8_BYTES, 'PERSISTED_CANDIDATE_TOO_LARGE');
   return Object.freeze(candidate);
 }
 
@@ -537,11 +615,13 @@ class StrictJsonReader {
   }
 
   private value(depth: number): unknown {
-    if (depth > MAX_PERSISTED_JSON_DEPTH) return fail('PERSISTED_JSON_DEPTH_EXCEEDED');
     this.whitespace();
     const token = this.bytes[this.offset];
-    if (token === '{') return this.object(depth + 1);
-    if (token === '[') return this.array(depth + 1);
+    if (token === '{' || token === '[') {
+      const nextDepth = depth + 1;
+      if (nextDepth > MAX_PERSISTED_JSON_DEPTH) return fail('PERSISTED_JSON_DEPTH_EXCEEDED');
+      return token === '{' ? this.object(nextDepth) : this.array(nextDepth);
+    }
     if (token === '"') return this.string();
     if (this.bytes.startsWith('true', this.offset)) { this.offset += 4; return true; }
     if (this.bytes.startsWith('false', this.offset)) { this.offset += 5; return false; }
@@ -629,12 +709,17 @@ class StrictJsonReader {
   }
 
   private whitespace(): void {
-    while (/\s/.test(this.bytes[this.offset] ?? '')) this.offset += 1;
+    while (true) {
+      const character = this.bytes[this.offset];
+      if (character !== ' ' && character !== '\t' && character !== '\n' && character !== '\r') return;
+      this.offset += 1;
+    }
   }
 }
 
 function parseJsonUnknown(bytes: string): unknown {
   if (typeof bytes !== 'string' || bytes.length === 0) return fail('CORRUPT_PERSISTED_RECORD');
+  requireUtf8Bound(bytes, MAX_PERSISTED_ENVELOPE_UTF8_BYTES, 'PERSISTED_ENVELOPE_TOO_LARGE');
   return new StrictJsonReader(bytes).read();
 }
 
@@ -731,10 +816,28 @@ interface DurableSlot {
   source: Map<string, string>;
 }
 
+interface DurableEvidenceObservation {
+  rootBytes: string;
+  authorityBytes: string | null;
+  candidateBytes: string | null;
+  authorityRecordCount: number;
+  candidateRecordCount: number;
+  sourceRecordCount: number;
+  authorityState: AuthorityState | null;
+}
+
 class DurablePhysicalSourceRegistry {
   private readonly slots = new Map<string, DurableSlot>();
 
-  constructor(private readonly evidence: BoundaryMetrics) {}
+  constructor(
+    private readonly evidence: BoundaryMetrics,
+    private readonly observed?: RestartMetrics,
+    private readonly rehydrated = false,
+  ) {}
+
+  private observe(counter: keyof RestartMetrics): void {
+    if (this.observed) this.observed[counter] += 1;
+  }
 
   initialize(identityInput: unknown, scopeInput: unknown): void {
     const identity = parsePhysicalSourceIdentity(identityInput);
@@ -756,6 +859,9 @@ class DurablePhysicalSourceRegistry {
       rootDigest: null,
       manifestDigest: null,
     };
+    this.observe('persistenceWriteAttempted');
+    this.observe('authorityWriteAttempted');
+    this.observe('recordCreateAttempted');
     this.slots.set(digest, { authorityBytes: serializeAuthority(authority), candidateBytes: null, source: new Map() });
     this.evidence.authorityWrites += 1;
   }
@@ -767,16 +873,20 @@ class DurablePhysicalSourceRegistry {
   }
 
   readAuthority(digest: string): Readonly<PersistedHandoffAuthorityV1> {
+    this.observe('persistenceReadAttempted');
     this.evidence.authorityReads += 1;
     return parseCanonicalAuthorityBytes(this.slot(digest).authorityBytes);
   }
 
   readCandidate(digest: string): Readonly<PersistedSnapshotCandidateV1> | null {
+    this.observe('persistenceReadAttempted');
     const bytes = this.slot(digest).candidateBytes;
     return bytes === null ? null : parseCanonicalCandidateBytes(bytes);
   }
 
   sourceRecords(digest: string): ReadonlyArray<readonly [string, string]> {
+    this.observe('persistenceReadAttempted');
+    this.observe('sourceReadAttempted');
     return Object.freeze([...this.slot(digest).source.entries()]
       .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
       .map(entry => Object.freeze([entry[0], entry[1]] as const)));
@@ -790,6 +900,8 @@ class DurablePhysicalSourceRegistry {
     const slot = this.slot(digest);
     const current = parseCanonicalAuthorityBytes(slot.authorityBytes);
     if (serializeAuthority(current) !== serializeAuthority(expected)) return fail('AUTHORITY_CAS_MISMATCH');
+    this.observe('persistenceWriteAttempted');
+    this.observe('authorityWriteAttempted');
     slot.authorityBytes = serializeAuthority(next);
     this.evidence.authorityWrites += 1;
   }
@@ -808,6 +920,9 @@ class DurablePhysicalSourceRegistry {
     }
     const source = new Map(slot.source);
     source.set(id, value);
+    this.observe('persistenceWriteAttempted');
+    this.observe('authorityWriteAttempted');
+    this.observe('sourceMutationAttempted');
     slot.source = source;
     slot.authorityBytes = serializeAuthority(next);
     this.evidence.authorityWrites += 1;
@@ -825,6 +940,10 @@ class DurablePhysicalSourceRegistry {
       return fail('AUTHORITY_CAS_MISMATCH');
     }
     exactCandidateBinding(next, candidate);
+    this.observe('persistenceWriteAttempted');
+    this.observe('authorityWriteAttempted');
+    this.observe('candidateWriteAttempted');
+    this.observe('recordCreateAttempted');
     slot.candidateBytes = serializeCandidate(candidate);
     slot.authorityBytes = serializeAuthority(next);
     this.evidence.authorityWrites += 1;
@@ -847,6 +966,9 @@ class DurablePhysicalSourceRegistry {
     }
     exactCandidateBinding(current, currentCandidate);
     const terminal = parsePersistedAuthority({ ...current, state: 'read_only_handoff' });
+    this.observe('persistenceWriteAttempted');
+    this.observe('authorityWriteAttempted');
+    this.observe('terminalWriteAttempted');
     slot.authorityBytes = serializeAuthority(terminal);
     this.evidence.authorityWrites += 1;
   }
@@ -855,6 +977,7 @@ class DurablePhysicalSourceRegistry {
     const digest = physicalSourceDigest(identityInput);
     const authority = this.readAuthority(digest);
     const candidate = this.readCandidate(digest);
+    const sourceRecords = parseRecords(this.sourceRecords(digest), 'CORRUPT_PERSISTED_RECORD');
     const root: SerializedRootV1 = {
       recordType: ROOT_RECORD_TYPE,
       byteFormatVersion: PERSISTED_BYTE_FORMAT_VERSION,
@@ -862,9 +985,55 @@ class DurablePhysicalSourceRegistry {
       physicalSourceDigest: digest,
       authority,
       candidate,
-      sourceRecords: this.sourceRecords(digest),
+      sourceRecords,
     };
-    return JSON.stringify(root);
+    const bytes = JSON.stringify(root);
+    requireUtf8Bound(bytes, MAX_PERSISTED_ENVELOPE_UTF8_BYTES, 'PERSISTED_ENVELOPE_TOO_LARGE');
+    return bytes;
+  }
+
+  captureSourceRecords(digest: string): ReadonlyArray<readonly [string, string]> {
+    this.observe('sourceCaptureAttempted');
+    if (this.rehydrated) this.observe('sourceRecaptureAttempted');
+    return this.sourceRecords(digest);
+  }
+
+  observeRootRewriteForControl(): void {
+    this.observe('persistenceWriteAttempted');
+    this.observe('rootRewriteAttempted');
+  }
+
+  observeRecordDeleteForControl(): void {
+    this.observe('persistenceWriteAttempted');
+    this.observe('recordDeleteAttempted');
+  }
+
+  inspectDurableState(identityInput: unknown): DurableEvidenceObservation {
+    const digest = physicalSourceDigest(identityInput);
+    const slot = this.slot(digest);
+    const authority = parseCanonicalAuthorityBytes(slot.authorityBytes);
+    const candidate = slot.candidateBytes === null ? null : parseCanonicalCandidateBytes(slot.candidateBytes);
+    const sourceRecords = Object.freeze([...slot.source.entries()]
+      .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+      .map(entry => Object.freeze([entry[0], entry[1]] as const)));
+    const root: SerializedRootV1 = {
+      recordType: ROOT_RECORD_TYPE,
+      byteFormatVersion: PERSISTED_BYTE_FORMAT_VERSION,
+      schemaVersion: SCHEMA_VERSION,
+      physicalSourceDigest: digest,
+      authority,
+      candidate,
+      sourceRecords,
+    };
+    return {
+      rootBytes: JSON.stringify(root),
+      authorityBytes: slot.authorityBytes,
+      candidateBytes: slot.candidateBytes,
+      authorityRecordCount: 1,
+      candidateRecordCount: candidate === null ? 0 : 1,
+      sourceRecordCount: sourceRecords.length,
+      authorityState: authority.state,
+    };
   }
 
   static fromSerializedRoot(
@@ -873,10 +1042,19 @@ class DurablePhysicalSourceRegistry {
     restart = restartMetrics(),
   ): DurablePhysicalSourceRegistry {
     restart.rawInputRead += 1;
+    try {
+      requireUtf8Bound(bytes, MAX_PERSISTED_ENVELOPE_UTF8_BYTES, 'PERSISTED_ENVELOPE_TOO_LARGE');
+    } catch (error) {
+      throw new ProtocolError(
+        error instanceof ProtocolError ? error.code : 'PERSISTED_ENVELOPE_TOO_LARGE',
+        'raw_bounds',
+      );
+    }
     restart.duplicateScanAttempted += 1;
     let unknownRoot: unknown;
+    const reader = new StrictJsonReader(bytes);
     try {
-      unknownRoot = parseJsonUnknown(bytes);
+      unknownRoot = reader.read();
       restart.duplicateScanCompleted += 1;
       restart.jsonValueConstructed += 1;
     } catch (error) {
@@ -898,6 +1076,15 @@ class DurablePhysicalSourceRegistry {
       throw new ProtocolError(error instanceof ProtocolError ? error.code : code, 'root_schema');
     }
     const physicalDigest = strictDigest(root.physicalSourceDigest, code);
+    try {
+      const authorityBytes = reader.topLevelRawValues.get('authority');
+      const candidateBytes = reader.topLevelRawValues.get('candidate');
+      if (authorityBytes === undefined || candidateBytes === undefined) return fail(code);
+      requireUtf8Bound(authorityBytes, MAX_AUTHORITY_UTF8_BYTES, 'PERSISTED_AUTHORITY_TOO_LARGE');
+      requireUtf8Bound(candidateBytes, MAX_CANDIDATE_UTF8_BYTES, 'PERSISTED_CANDIDATE_TOO_LARGE');
+    } catch (error) {
+      throw new ProtocolError(error instanceof ProtocolError ? error.code : code, 'graph_bounds');
+    }
     let authority: Readonly<PersistedHandoffAuthorityV1>;
     try {
       restart.authorityParserInvoked += 1;
@@ -908,8 +1095,13 @@ class DurablePhysicalSourceRegistry {
     }
     let candidate: Readonly<PersistedSnapshotCandidateV1> | null;
     try {
-      restart.candidateParserInvoked += 1;
-      candidate = root.candidate === null ? null : parsePersistedCandidate(root.candidate);
+      restart.candidateFieldInspected += 1;
+      if (root.candidate === null) {
+        candidate = null;
+      } else {
+        restart.candidateParserInvoked += 1;
+        candidate = parsePersistedCandidate(root.candidate);
+      }
       restart.candidateSchemaValidated += 1;
     } catch (error) {
       throw new ProtocolError(error instanceof ProtocolError ? error.code : code, 'candidate_schema');
@@ -919,7 +1111,11 @@ class DurablePhysicalSourceRegistry {
       sourceRecords = parseRecords(root.sourceRecords, code);
       restart.sourceSchemaValidated += 1;
     } catch (error) {
-      throw new ProtocolError(error instanceof ProtocolError ? error.code : code, 'source_schema');
+      const failureCode = error instanceof ProtocolError ? error.code : code;
+      throw new ProtocolError(
+        failureCode,
+        failureCode.startsWith('PERSISTED_SOURCE_') ? 'graph_bounds' : 'source_schema',
+      );
     }
     const candidateRequired = authority.state === 'snapshot_committed_pending_finalization'
       || authority.state === 'read_only_handoff';
@@ -954,14 +1150,17 @@ class DurablePhysicalSourceRegistry {
     if (JSON.stringify(canonicalRoot) !== bytes) {
       throw new ProtocolError('NONCANONICAL_PERSISTED_BYTES', 'canonical_bytes');
     }
-    const registry = new DurablePhysicalSourceRegistry(evidence);
+    const registry = new DurablePhysicalSourceRegistry(evidence, restart, true);
     registry.slots.set(physicalDigest, {
       authorityBytes: serializeAuthority(authority),
       candidateBytes: candidate ? serializeCandidate(candidate) : null,
       source: new Map(sourceRecords),
     });
-    restart.coordinatorConstructed += 1;
     return registry;
+  }
+
+  get observableCapabilities(): RestartMetrics | undefined {
+    return this.observed;
   }
 
   get size(): number {
@@ -995,7 +1194,10 @@ class HandoffContext {
     private readonly scopeInput: unknown,
     private readonly evidence: BoundaryMetrics,
     private readonly coordinatorAvailable = true,
-  ) {}
+    private readonly observed?: RestartMetrics,
+  ) {
+    if (this.observed) this.observed.coordinatorConstructed += 1;
+  }
 
   get lockName(): string {
     return derivePhysicalLockName(this.physicalInput, this.evidence);
@@ -1073,7 +1275,11 @@ class HandoffContext {
       if (authority.state === 'handoff_pending') {
         await hooks.afterPendingCommit?.();
         if (hooks.crashAfterPending) return fail('CONTEXT_CRASHED');
-        const records = this.sources.sourceRecords(digest);
+        const records = parseRecords(
+          this.sources.captureSourceRecords(digest),
+          'CORRUPT_PERSISTED_RECORD',
+        );
+        if (this.observed) this.observed.snapshotDigestAttempted += 1;
         const snapshotDigest = computeSnapshotDigest(records);
         const candidateId = `candidate-${snapshotDigest.slice(0, 24)}`;
         const rootDigest = computeRootDigest(
@@ -1120,6 +1326,7 @@ class HandoffContext {
       if (!candidate) return fail('CORRUPT_PERSISTED_RECORD');
       exactCandidateBinding(authority, candidate);
       // HANDOFF_LINEARIZATION_POINT: one exact CAS binds the persisted candidate terminally.
+      if (this.observed) this.observed.finalizationAttempted += 1;
       this.sources.finalizeCandidate(digest, authority, candidate);
       return candidate;
     });
@@ -1182,7 +1389,15 @@ function environment(
     locks,
     sources: durableSources,
     context: (physical = rootA, scope = userA, available = true) => (
-      new HandoffContext(locks, durableSources, physical, scope, evidence, available)
+      new HandoffContext(
+        locks,
+        durableSources,
+        physical,
+        scope,
+        evidence,
+        available,
+        durableSources.observableCapabilities,
+      )
     ),
   };
 }
@@ -1381,29 +1596,66 @@ interface RestartRejectionResult {
   authorityBytesAfter: string | null;
   candidateBytesBefore: string | null;
   candidateBytesAfter: string | null;
+  authorityRecordCountBefore: number;
+  authorityRecordCountAfter: number;
+  candidateRecordCountBefore: number;
+  candidateRecordCountAfter: number;
+  sourceRecordCountBefore: number;
+  sourceRecordCountAfter: number;
+  authorityStateBefore: AuthorityState | null;
+  authorityStateAfter: AuthorityState | null;
   metrics: RestartMetrics;
-  writableRestored: false;
-  terminalProduced: false;
-  authoritySynthesized: false;
-  candidateSynthesized: false;
-  recordDeleted: false;
-  additionalEvidenceCreated: false;
-  payloadExposed: false;
+  evidenceRewritten: boolean;
+  sourceRecaptured: boolean;
+  writableRestored: boolean;
+  terminalProduced: boolean;
+  authoritySynthesized: boolean;
+  candidateSynthesized: boolean;
+  recordDeleted: boolean;
+  additionalEvidenceCreated: boolean;
+  payloadExposed: boolean;
 }
 
-function rawEvidenceSnapshot(bytes: string): {
-  authorityBytes: string | null;
-  candidateBytes: string | null;
-} {
+function rawEvidenceSnapshot(bytes: string): DurableEvidenceObservation {
+  const absent: DurableEvidenceObservation = {
+    rootBytes: bytes,
+    authorityBytes: null,
+    candidateBytes: null,
+    authorityRecordCount: 0,
+    candidateRecordCount: 0,
+    sourceRecordCount: 0,
+    authorityState: null,
+  };
+  if (utf8ByteLength(bytes, MAX_PERSISTED_ENVELOPE_UTF8_BYTES)
+    > MAX_PERSISTED_ENVELOPE_UTF8_BYTES) return absent;
   const reader = new StrictJsonReader(bytes);
+  let parsed: unknown;
   try {
-    reader.read();
+    parsed = reader.read();
   } catch {
     // The immutable root bytes remain the authoritative snapshot when a nested value is unreadable.
   }
+  const root = typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+    ? parsed as Record<string, unknown>
+    : null;
+  const authority = root && typeof root.authority === 'object' && root.authority !== null
+    ? root.authority as Record<string, unknown>
+    : null;
+  const authorityState = authority && typeof authority.state === 'string'
+    && ['writable', 'handoff_pending', 'snapshot_committed_pending_finalization', 'read_only_handoff']
+      .includes(authority.state)
+    ? authority.state as AuthorityState
+    : null;
+  const authorityBytes = reader.topLevelRawValues.get('authority') ?? null;
+  const candidateBytes = reader.topLevelRawValues.get('candidate') ?? null;
   return {
-    authorityBytes: reader.topLevelRawValues.get('authority') ?? null,
-    candidateBytes: reader.topLevelRawValues.get('candidate') ?? null,
+    rootBytes: bytes,
+    authorityBytes,
+    candidateBytes,
+    authorityRecordCount: authorityBytes !== null && authorityBytes !== 'null' ? 1 : 0,
+    candidateRecordCount: candidateBytes !== null && candidateBytes !== 'null' ? 1 : 0,
+    sourceRecordCount: root && Array.isArray(root.sourceRecords) ? root.sourceRecords.length : 0,
+    authorityState,
   };
 }
 
@@ -1412,24 +1664,33 @@ async function attemptRejectedRestart(bytes: string): Promise<RestartRejectionRe
   const evidence = metrics();
   const inputBytesBefore = bytes;
   const rawBefore = rawEvidenceSnapshot(bytes);
+  let before: DurableEvidenceObservation = rawBefore;
+  let sources: DurablePhysicalSourceRegistry | undefined;
   let code = 'RESTART_UNEXPECTEDLY_ACCEPTED';
+  let errorMessage = code;
   let stage: RestartFailureStage = 'raw_input';
   try {
-    const sources = DurablePhysicalSourceRegistry.fromSerializedRoot(bytes, evidence, stages);
-    const before = sources.serializeRoot(rootA);
-    stages.finalizationAttempted += 1;
+    sources = DurablePhysicalSourceRegistry.fromSerializedRoot(bytes, evidence, stages);
+    before = sources.inspectDurableState(rootA);
     try {
       await environment(evidence, sources).context().handoff();
     } catch (error) {
       code = error instanceof ProtocolError ? error.code : 'CORRUPT_PERSISTED_RECORD';
+      errorMessage = error instanceof Error ? error.message : code;
       stage = error instanceof ProtocolError && error.stage ? error.stage : 'graph_binding';
     }
-    if (sources.serializeRoot(rootA) !== before) stages.evidenceRewritten += 1;
   } catch (error) {
     code = error instanceof ProtocolError ? error.code : 'CORRUPT_PERSISTED_RECORD';
+    errorMessage = error instanceof Error ? error.message : code;
     stage = error instanceof ProtocolError && error.stage ? error.stage : 'raw_input';
   }
   if (code === 'RESTART_UNEXPECTEDLY_ACCEPTED') return fail(code);
+  const after = sources ? sources.inspectDurableState(rootA) : rawEvidenceSnapshot(bytes);
+  const evidenceRewritten = before.rootBytes !== after.rootBytes
+    || before.authorityBytes !== after.authorityBytes
+    || before.candidateBytes !== after.candidateBytes;
+  const beforeRecordCount = before.authorityRecordCount + before.candidateRecordCount;
+  const afterRecordCount = after.authorityRecordCount + after.candidateRecordCount;
   return {
     accepted: false,
     code,
@@ -1437,17 +1698,28 @@ async function attemptRejectedRestart(bytes: string): Promise<RestartRejectionRe
     inputBytesBefore,
     inputBytesAfter: bytes,
     authorityBytesBefore: rawBefore.authorityBytes,
-    authorityBytesAfter: rawEvidenceSnapshot(bytes).authorityBytes,
+    authorityBytesAfter: after.authorityBytes,
     candidateBytesBefore: rawBefore.candidateBytes,
-    candidateBytesAfter: rawEvidenceSnapshot(bytes).candidateBytes,
+    candidateBytesAfter: after.candidateBytes,
+    authorityRecordCountBefore: before.authorityRecordCount,
+    authorityRecordCountAfter: after.authorityRecordCount,
+    candidateRecordCountBefore: before.candidateRecordCount,
+    candidateRecordCountAfter: after.candidateRecordCount,
+    sourceRecordCountBefore: before.sourceRecordCount,
+    sourceRecordCountAfter: after.sourceRecordCount,
+    authorityStateBefore: before.authorityState,
+    authorityStateAfter: after.authorityState,
     metrics: stages,
-    writableRestored: false,
-    terminalProduced: false,
-    authoritySynthesized: false,
-    candidateSynthesized: false,
-    recordDeleted: false,
-    additionalEvidenceCreated: false,
-    payloadExposed: false,
+    evidenceRewritten,
+    sourceRecaptured: stages.sourceRecaptureAttempted > 0,
+    writableRestored: before.authorityState !== 'writable' && after.authorityState === 'writable',
+    terminalProduced: before.authorityState !== 'read_only_handoff'
+      && after.authorityState === 'read_only_handoff',
+    authoritySynthesized: before.authorityRecordCount === 0 && after.authorityRecordCount > 0,
+    candidateSynthesized: before.candidateRecordCount === 0 && after.candidateRecordCount > 0,
+    recordDeleted: afterRecordCount < beforeRecordCount,
+    additionalEvidenceCreated: afterRecordCount > beforeRecordCount,
+    payloadExposed: errorMessage !== code || (bytes.length > 0 && errorMessage.includes(bytes)),
   };
 }
 
@@ -1458,9 +1730,13 @@ function expectTotalRestartRejection(result: RestartRejectionResult, original: s
   expect(result.inputBytesAfter).toBe(original);
   expect(result.authorityBytesAfter).toBe(result.authorityBytesBefore);
   expect(result.candidateBytesAfter).toBe(result.candidateBytesBefore);
+  expect(result.authorityRecordCountAfter).toBe(result.authorityRecordCountBefore);
+  expect(result.candidateRecordCountAfter).toBe(result.candidateRecordCountBefore);
+  expect(result.sourceRecordCountAfter).toBe(result.sourceRecordCountBefore);
+  expect(result.authorityStateAfter).toBe(result.authorityStateBefore);
   expect(result.metrics.persistenceWriteAttempted).toBe(0);
-  expect(result.metrics.evidenceRewritten).toBe(0);
-  expect(result.metrics.sourceRecaptured).toBe(0);
+  expect(result.evidenceRewritten).toBe(false);
+  expect(result.sourceRecaptured).toBe(false);
   expect(result.writableRestored).toBe(false);
   expect(result.terminalProduced).toBe(false);
   expect(result.authoritySynthesized).toBe(false);
@@ -1739,6 +2015,10 @@ describe('K-327C duplicate-aware JSON boundary', () => {
     ['nested escaped equivalent key', '{"outer":{"userId":1,"user\\u0049d":2}}'],
     ['escaped quote key', '{"a\\\"b":1,"a\\u0022b":2}'],
     ['escaped backslash key', '{"a\\\\b":1,"a\\u005cb":2}'],
+    ['solidus key', '{"a/b":1,"a\\/b":2}'],
+    ['BMP key', '{"한":1,"\\uD55C":2}'],
+    ['surrogate-pair key', '{"😀":1,"\\uD83D\\uDE00":2}'],
+    ['lone-surrogate key', '{"\\ud800":1,"\\uD800":2}'],
   ])('rejects duplicate decoded %s before returning a value', (_label, bytes) => {
     expect(() => parseJsonUnknown(bytes)).toThrowError(expect.objectContaining({
       code: 'DUPLICATE_PERSISTED_JSON_KEY',
@@ -1749,6 +2029,265 @@ describe('K-327C duplicate-aware JSON boundary', () => {
     expect(parseJsonUnknown('{"left":{"id":1},"right":{"id":2}}')).toEqual({
       left: { id: 1 }, right: { id: 2 },
     });
+  });
+
+  it('keeps parent and child duplicate scopes independent', () => {
+    expect(parseJsonUnknown('{"id":1,"child":{"id":2}}')).toEqual({ id: 1, child: { id: 2 } });
+  });
+});
+
+describe('K-327D bounded canonical persisted evidence', () => {
+  const nestedArrays = (depth: number, terminal = '0'): string => (
+    `${'['.repeat(depth)}${terminal}${']'.repeat(depth)}`
+  );
+  const nestedObjects = (depth: number, terminal = '0'): string => (
+    `${'{"value":'.repeat(depth)}${terminal}${'}'.repeat(depth)}`
+  );
+  const alternating = (depth: number): string => {
+    let value = '0';
+    for (let index = 0; index < depth; index += 1) {
+      value = index % 2 === 0 ? `[${value}]` : `{"value":${value}}`;
+    }
+    return value;
+  };
+
+  it('enforces the UTF-8 envelope limit before reader construction', async () => {
+    const exact = JSON.stringify('a'.repeat(MAX_PERSISTED_ENVELOPE_UTF8_BYTES - 2));
+    const over = JSON.stringify('a'.repeat(MAX_PERSISTED_ENVELOPE_UTF8_BYTES - 1));
+    expect(utf8ByteLength(exact)).toBe(MAX_PERSISTED_ENVELOPE_UTF8_BYTES);
+    expect(parseJsonUnknown(exact)).toHaveLength(MAX_PERSISTED_ENVELOPE_UTF8_BYTES - 2);
+    expect(() => parseJsonUnknown(over)).toThrowError(expect.objectContaining({
+      code: 'PERSISTED_ENVELOPE_TOO_LARGE',
+    }));
+
+    const result = await attemptRejectedRestart(over);
+    expectTotalRestartRejection(result, over);
+    expect(result).toMatchObject({ code: 'PERSISTED_ENVELOPE_TOO_LARGE', stage: 'raw_bounds' });
+    expect(result.metrics.duplicateScanAttempted).toBe(0);
+    expect(result.metrics.jsonValueConstructed).toBe(0);
+  });
+
+  it('measures multibyte and surrogate-pair input in UTF-8 bytes rather than UTF-16 units', () => {
+    const multibyte = JSON.stringify('한'.repeat(Math.floor(MAX_PERSISTED_ENVELOPE_UTF8_BYTES / 3)));
+    const emoji = JSON.stringify('😀'.repeat(Math.floor(MAX_PERSISTED_ENVELOPE_UTF8_BYTES / 4)));
+    expect(multibyte.length).toBeLessThan(MAX_PERSISTED_ENVELOPE_UTF8_BYTES);
+    expect(emoji.length).toBeLessThan(MAX_PERSISTED_ENVELOPE_UTF8_BYTES);
+    expect(utf8ByteLength(multibyte)).toBeGreaterThan(MAX_PERSISTED_ENVELOPE_UTF8_BYTES);
+    expect(utf8ByteLength(emoji)).toBeGreaterThan(MAX_PERSISTED_ENVELOPE_UTF8_BYTES);
+    expect(() => parseJsonUnknown(multibyte)).toThrowError(expect.objectContaining({
+      code: 'PERSISTED_ENVELOPE_TOO_LARGE',
+    }));
+    expect(() => parseJsonUnknown(emoji)).toThrowError(expect.objectContaining({
+      code: 'PERSISTED_ENVELOPE_TOO_LARGE',
+    }));
+  });
+
+  it('rejects oversized malformed and otherwise valid JSON at the raw bound', async () => {
+    for (const bytes of [
+      `[${'a'.repeat(MAX_PERSISTED_ENVELOPE_UTF8_BYTES)}`,
+      JSON.stringify('a'.repeat(MAX_PERSISTED_ENVELOPE_UTF8_BYTES)),
+    ]) {
+      const result = await attemptRejectedRestart(bytes);
+      expectTotalRestartRejection(result, bytes);
+      expect(result).toMatchObject({ code: 'PERSISTED_ENVELOPE_TOO_LARGE', stage: 'raw_bounds' });
+      expect(result.metrics.duplicateScanAttempted).toBe(0);
+    }
+  });
+
+  it('enforces authority and candidate raw UTF-8 limits at limit plus one', async () => {
+    const canonical = await pendingSerializedRoot();
+    for (const [field, maximum, expectedStage] of [
+      ['authority', MAX_AUTHORITY_UTF8_BYTES, 'authority_schema'],
+      ['candidate', MAX_CANDIDATE_UTF8_BYTES, 'candidate_schema'],
+    ] as const) {
+      const exact = mutateSerializedRoot(canonical, root => {
+        root[field] = 'a'.repeat(maximum - 2);
+      });
+      const exactReader = new StrictJsonReader(exact);
+      exactReader.read();
+      expect(utf8ByteLength(exactReader.topLevelRawValues.get(field)!)).toBe(maximum);
+      const exactResult = await attemptRejectedRestart(exact);
+      expectTotalRestartRejection(exactResult, exact);
+      expect(exactResult.stage).toBe(expectedStage);
+
+      const over = mutateSerializedRoot(canonical, root => {
+        root[field] = 'a'.repeat(maximum - 1);
+      });
+      const overResult = await attemptRejectedRestart(over);
+      expectTotalRestartRejection(overResult, over);
+      expect(overResult).toMatchObject({
+        code: field === 'authority' ? 'PERSISTED_AUTHORITY_TOO_LARGE' : 'PERSISTED_CANDIDATE_TOO_LARGE',
+        stage: 'graph_bounds',
+      });
+    }
+  });
+
+  it('enforces source record count at the exact limit and limit plus one', () => {
+    const atLimit = Array.from({ length: MAX_SOURCE_RECORD_COUNT }, (_, index) => (
+      [index.toString().padStart(4, '0'), '']
+    ));
+    expect(parseRecords(atLimit, 'CORRUPT_PERSISTED_RECORD')).toHaveLength(MAX_SOURCE_RECORD_COUNT);
+    expect(() => parseRecords(
+      [...atLimit, ['overflow', '']],
+      'CORRUPT_PERSISTED_RECORD',
+    )).toThrowError(expect.objectContaining({ code: 'PERSISTED_SOURCE_RECORD_COUNT_EXCEEDED' }));
+  });
+
+  it('enforces per-record and total canonical UTF-8 byte limits', () => {
+    const exactRecord = (id: string): [string, string] => {
+      const emptyBytes = utf8ByteLength(JSON.stringify([id, '']));
+      return [id, 'a'.repeat(MAX_SOURCE_RECORD_UTF8_BYTES - emptyBytes)];
+    };
+    const one = exactRecord('id-0');
+    expect(utf8ByteLength(JSON.stringify(one))).toBe(MAX_SOURCE_RECORD_UTF8_BYTES);
+    expect(parseRecords([one], 'CORRUPT_PERSISTED_RECORD')).toHaveLength(1);
+    expect(() => parseRecords(
+      [[one[0], `${one[1]}a`]],
+      'CORRUPT_PERSISTED_RECORD',
+    )).toThrowError(expect.objectContaining({ code: 'PERSISTED_SOURCE_RECORD_TOO_LARGE' }));
+
+    const exactTotal = Array.from({ length: 4 }, (_, index) => exactRecord(`id-${index}`));
+    expect(exactTotal.reduce((sum, record) => sum + utf8ByteLength(JSON.stringify(record)), 0))
+      .toBe(MAX_TOTAL_SOURCE_RECORD_UTF8_BYTES);
+    expect(parseRecords(exactTotal, 'CORRUPT_PERSISTED_RECORD')).toHaveLength(4);
+    expect(() => parseRecords(
+      [...exactTotal, ['overflow', '']],
+      'CORRUPT_PERSISTED_RECORD',
+    )).toThrowError(expect.objectContaining({ code: 'PERSISTED_SOURCE_RECORDS_TOO_LARGE' }));
+  });
+
+  it('accepts only the four JSON whitespace characters between tokens', () => {
+    expect(parseJsonUnknown('[ 1,\t2,\n3,\r4 ]')).toEqual([1, 2, 3, 4]);
+    for (const whitespace of ['\u00a0', '\ufeff', '\u000b', '\u000c', '\u2028', '\u2029', '\u202f']) {
+      expect(() => parseJsonUnknown(`[1,${whitespace}2]`)).toThrowError(expect.objectContaining({
+        code: 'CORRUPT_PERSISTED_RECORD',
+      }));
+    }
+    expect(parseJsonUnknown('"\uFEFF"')).toBe('\uFEFF');
+  });
+
+  it('applies the container-entry depth limit equally to arrays, objects, and mixed shapes', () => {
+    for (const atLimit of [
+      nestedArrays(MAX_PERSISTED_JSON_DEPTH),
+      nestedObjects(MAX_PERSISTED_JSON_DEPTH),
+      alternating(MAX_PERSISTED_JSON_DEPTH),
+      nestedArrays(MAX_PERSISTED_JSON_DEPTH - 1, '[]'),
+      nestedObjects(MAX_PERSISTED_JSON_DEPTH - 1, '{}'),
+    ]) expect(() => parseJsonUnknown(atLimit)).not.toThrow();
+
+    for (const over of [
+      nestedArrays(MAX_PERSISTED_JSON_DEPTH + 1),
+      nestedObjects(MAX_PERSISTED_JSON_DEPTH + 1),
+      alternating(MAX_PERSISTED_JSON_DEPTH + 1),
+      nestedArrays(MAX_PERSISTED_JSON_DEPTH, '[]'),
+      nestedObjects(MAX_PERSISTED_JSON_DEPTH, '{}'),
+    ]) expect(() => parseJsonUnknown(over)).toThrowError(expect.objectContaining({
+      code: 'PERSISTED_JSON_DEPTH_EXCEEDED',
+    }));
+
+    expect(parseJsonUnknown(`[${nestedArrays(MAX_PERSISTED_JSON_DEPTH - 1)},${nestedArrays(
+      MAX_PERSISTED_JSON_DEPTH - 1,
+    )}]`)).toHaveLength(2);
+  });
+
+  it('uses the JSON.stringify lone-surrogate policy and TextEncoder-equivalent UTF-8 sizing', () => {
+    const loneHigh = parseJsonUnknown('"\\ud800"');
+    const loneLow = parseJsonUnknown('"\\udc00"');
+    expect(loneHigh).toBe('\ud800');
+    expect(loneLow).toBe('\udc00');
+    expect(JSON.stringify(loneHigh)).toBe('"\\ud800"');
+    expect(JSON.stringify(loneLow)).toBe('"\\udc00"');
+    expect(utf8ByteLength(loneHigh as string)).toBe(3);
+    expect(utf8ByteLength(loneLow as string)).toBe(3);
+  });
+});
+
+describe('K-327D observable restart capabilities', () => {
+  it('derives successful restart effects from live coordinator, persistence, and terminal boundaries', async () => {
+    const canonical = await pendingSerializedRoot();
+    const observed = restartMetrics();
+    const sources = DurablePhysicalSourceRegistry.fromSerializedRoot(canonical, metrics(), observed);
+    expect(observed).toMatchObject({
+      coordinatorConstructed: 0,
+      finalizationAttempted: 0,
+      persistenceWriteAttempted: 0,
+      sourceRecaptureAttempted: 0,
+    });
+
+    const restarted = environment(metrics(), sources);
+    const context = restarted.context();
+    expect(observed.coordinatorConstructed).toBe(1);
+    await expect(context.handoff()).resolves.toMatchObject({ entityCount: 1 });
+    expect(observed).toMatchObject({
+      finalizationAttempted: 1,
+      persistenceWriteAttempted: 1,
+      authorityWriteAttempted: 1,
+      terminalWriteAttempted: 1,
+      sourceCaptureAttempted: 0,
+      sourceRecaptureAttempted: 0,
+    });
+  });
+
+  it('proves source capture, source mutation, candidate writes, and root-rewrite counters are live', async () => {
+    const observed = restartMetrics();
+    const sources = new DurablePhysicalSourceRegistry(metrics(), observed);
+    const env = environment(metrics(), sources);
+    sources.initialize(rootA, userA);
+    await env.context().write('note-a', 'v1');
+    await expect(env.context().handoff({ crashAfterCandidateCommit: true }))
+      .rejects.toMatchObject({ code: 'CONTEXT_CRASHED' });
+    expect(observed).toMatchObject({
+      persistenceWriteAttempted: 4,
+      authorityWriteAttempted: 4,
+      candidateWriteAttempted: 1,
+      sourceMutationAttempted: 1,
+      sourceCaptureAttempted: 1,
+      sourceRecaptureAttempted: 0,
+      snapshotDigestAttempted: 1,
+      recordCreateAttempted: 2,
+    });
+    sources.observeRootRewriteForControl();
+    sources.observeRecordDeleteForControl();
+    expect(observed.rootRewriteAttempted).toBe(1);
+    expect(observed.recordDeleteAttempted).toBe(1);
+    expect(observed.persistenceWriteAttempted).toBe(6);
+  });
+
+  it('detects an explicitly invoked recapture boundary on a restarted registry', async () => {
+    const observed = restartMetrics();
+    const sources = DurablePhysicalSourceRegistry.fromSerializedRoot(
+      await pendingSerializedRoot(),
+      metrics(),
+      observed,
+    );
+    expect(observed.sourceRecaptureAttempted).toBe(0);
+    sources.captureSourceRecords(physicalSourceDigest(rootA));
+    expect(observed.sourceCaptureAttempted).toBe(1);
+    expect(observed.sourceRecaptureAttempted).toBe(1);
+  });
+
+  it('rejects an oversized captured record before snapshot hashing or candidate persistence', async () => {
+    const observed = restartMetrics();
+    const sources = new DurablePhysicalSourceRegistry(metrics(), observed);
+    const env = environment(metrics(), sources);
+    sources.initialize(rootA, userA);
+    await env.context().write('note-a', 'a'.repeat(MAX_SOURCE_RECORD_VALUE_UTF8_BYTES + 1));
+    await expect(env.context().handoff()).rejects.toMatchObject({
+      code: 'PERSISTED_SOURCE_RECORD_TOO_LARGE',
+    });
+    expect(observed.sourceCaptureAttempted).toBe(1);
+    expect(observed.snapshotDigestAttempted).toBe(0);
+    expect(observed.candidateWriteAttempted).toBe(0);
+  });
+
+  it('inspects a null candidate field without claiming the candidate parser ran', () => {
+    const source = new DurablePhysicalSourceRegistry(metrics());
+    source.initialize(rootA, userA);
+    const observed = restartMetrics();
+    DurablePhysicalSourceRegistry.fromSerializedRoot(source.serializeRoot(rootA), metrics(), observed);
+    expect(observed.candidateFieldInspected).toBe(1);
+    expect(observed.candidateParserInvoked).toBe(0);
+    expect(observed.candidateSchemaValidated).toBe(1);
   });
 });
 
@@ -1823,7 +2362,6 @@ describe('K-327C canonical serialized pending-snapshot restart and exact finaliz
     ['malformed digest', root => { nestedRecord(root, 'candidate').snapshotDigest = 'not-a-digest'; }],
     ['empty digest', root => { nestedRecord(root, 'candidate').rootDigest = ''; }],
     ['object digest', root => { nestedRecord(root, 'candidate').manifestDigest = {}; }],
-    ['missing candidate record', root => { root.candidate = null; }],
     ['extra root field', root => { root.conflictingCandidate = nestedRecord(root, 'candidate'); }],
     ['extra candidate field', root => { nestedRecord(root, 'candidate').extra = true; }],
     ['missing candidate field', root => { delete nestedRecord(root, 'candidate').candidateId; }],
@@ -1872,13 +2410,21 @@ describe('K-327C canonical serialized pending-snapshot restart and exact finaliz
     )],
   ];
 
-  it.each(malformedRootCases)('%s fails closed before coordinator construction', async (_label, mutate) => {
+  it.each(malformedRootCases)('%s fails closed before coordinator construction', async (label, mutate) => {
     const canonical = await pendingSerializedRoot();
     const malformed = mutate(canonical);
     const result = await attemptRejectedRestart(malformed);
     expectTotalRestartRejection(result, malformed);
     expect(result.metrics.coordinatorConstructed).toBe(0);
     expect(result.metrics.finalizationAttempted).toBe(0);
+    if (label === 'null candidate') {
+      expect(result.metrics.candidateFieldInspected).toBe(1);
+      expect(result.metrics.candidateParserInvoked).toBe(0);
+    }
+    if (label === 'missing candidate') {
+      expect(result.metrics.candidateFieldInspected).toBe(0);
+      expect(result.metrics.candidateParserInvoked).toBe(0);
+    }
   });
 
   const duplicateRootCases: Array<readonly [string, (canonical: string) => string]> = [
@@ -1993,8 +2539,7 @@ describe('K-327C canonical serialized pending-snapshot restart and exact finaliz
       duplicateScanCompleted: 1,
       jsonValueConstructed: 1,
       canonicalEqualityChecked: 1,
-      coordinatorConstructed: 1,
-      evidenceRewritten: 0,
+      coordinatorConstructed: 0,
       persistenceWriteAttempted: 0,
     });
   });
