@@ -157,6 +157,11 @@ interface RestartMetrics {
   authorityCreateAttempted: number;
   candidateCreateAttempted: number;
   candidateDeleteAttempted: number;
+  candidateCreateBoundaryAttempted: number;
+  candidateExistingKeyDetected: number;
+  candidateCollisionDetected: number;
+  candidateFullBindingMismatchDetected: number;
+  candidateOverwriteAttempted: number;
 }
 
 function restartMetrics(): RestartMetrics {
@@ -193,6 +198,11 @@ function restartMetrics(): RestartMetrics {
     authorityCreateAttempted: 0,
     candidateCreateAttempted: 0,
     candidateDeleteAttempted: 0,
+    candidateCreateBoundaryAttempted: 0,
+    candidateExistingKeyDetected: 0,
+    candidateCollisionDetected: 0,
+    candidateFullBindingMismatchDetected: 0,
+    candidateOverwriteAttempted: 0,
   };
 }
 
@@ -1064,10 +1074,37 @@ class DurablePhysicalSourceRegistry {
     expected: Readonly<PersistedHandoffAuthorityV1>,
     next: Readonly<PersistedHandoffAuthorityV1>,
     candidate: Readonly<PersistedSnapshotCandidateV1>,
-  ): void {
+  ): 'created' | 'existing_identical' {
+    return this.commitCandidateAtStoreBoundary(
+      digest,
+      expected,
+      next,
+      candidate,
+      candidate.candidateId,
+    );
+  }
+
+  /** Test-only collision injection at the same candidate-store create boundary. */
+  probeCandidateCreateAtStoreKey(
+    digest: string,
+    expected: Readonly<PersistedHandoffAuthorityV1>,
+    next: Readonly<PersistedHandoffAuthorityV1>,
+    candidate: Readonly<PersistedSnapshotCandidateV1>,
+    storeKey: string,
+  ): 'created' | 'existing_identical' {
+    return this.commitCandidateAtStoreBoundary(digest, expected, next, candidate, storeKey);
+  }
+
+  private commitCandidateAtStoreBoundary(
+    digest: string,
+    expected: Readonly<PersistedHandoffAuthorityV1>,
+    next: Readonly<PersistedHandoffAuthorityV1>,
+    candidate: Readonly<PersistedSnapshotCandidateV1>,
+    storeKey: string,
+  ): 'created' | 'existing_identical' {
     const slot = this.slot(digest);
     const current = parseCanonicalAuthorityBytes(slot.authorityBytes);
-    if (serializeAuthority(current) !== serializeAuthority(expected) || slot.candidateBytesById.size !== 0) {
+    if (serializeAuthority(current) !== serializeAuthority(expected)) {
       return fail('AUTHORITY_CAS_MISMATCH');
     }
     exactCandidateBinding(next, candidate);
@@ -1078,6 +1115,31 @@ class DurablePhysicalSourceRegistry {
       return fail('PERSISTED_TRANSACTION_TOO_LARGE');
     }
     requireUtf8Bound(candidateBytes, MAX_CANDIDATE_PAYLOAD_UTF8_BYTES, 'PERSISTED_CANDIDATE_TOO_LARGE');
+    this.observe('candidateCreateBoundaryAttempted');
+    const existingBytes = slot.candidateBytesById.get(storeKey);
+    if (existingBytes !== undefined) {
+      this.observe('candidateExistingKeyDetected');
+      const existingCandidate = parseCanonicalCandidateBytes(existingBytes);
+      exactCandidateBinding(current, existingCandidate);
+      if (storeKey === candidate.candidateId
+        && existingBytes === candidateBytes
+        && authorityBytes === slot.authorityBytes) {
+        return 'existing_identical';
+      }
+      this.observe('candidateCollisionDetected');
+      if (storeKey !== candidate.candidateId
+        || existingCandidate.snapshotDigest !== candidate.snapshotDigest
+        || existingCandidate.rootDigest !== candidate.rootDigest
+        || existingCandidate.manifestDigest !== candidate.manifestDigest
+        || existingBytes !== candidateBytes
+        || authorityBytes !== slot.authorityBytes) {
+        this.observe('candidateFullBindingMismatchDetected');
+      }
+      return fail('CANDIDATE_KEY_COLLISION');
+    }
+    if (slot.candidateBytesById.size !== 0 || storeKey !== candidate.candidateId) {
+      return fail('PERSISTED_EVIDENCE_MISMATCH');
+    }
     this.observe('persistenceWriteAttempted');
     this.observe('authorityWriteAttempted');
     this.observe('candidateWriteAttempted');
@@ -1086,6 +1148,7 @@ class DurablePhysicalSourceRegistry {
     slot.candidateBytesById.set(candidate.candidateId, candidateBytes);
     slot.authorityBytes = authorityBytes;
     this.evidence.authorityWrites += 1;
+    return 'created';
   }
 
   finalizeCandidate(
@@ -1753,6 +1816,21 @@ function candidateFixture(): {
   return { authority: authority as PersistedHandoffAuthorityV1, candidate: candidate as PersistedSnapshotCandidateV1 };
 }
 
+function bindAuthorityToCandidate(
+  authority: Readonly<PersistedHandoffAuthorityV1>,
+  candidate: Readonly<PersistedSnapshotCandidateV1>,
+): Readonly<PersistedHandoffAuthorityV1> {
+  return parsePersistedAuthority({
+    ...authority,
+    state: 'snapshot_committed_pending_finalization',
+    handoffSessionId: candidate.handoffSessionId,
+    snapshotCandidateId: candidate.candidateId,
+    snapshotDigest: candidate.snapshotDigest,
+    rootDigest: candidate.rootDigest,
+    manifestDigest: candidate.manifestDigest,
+  });
+}
+
 interface CanonicalBudgetGraph {
   scope: Readonly<LogicalAuthorityScopeV1>;
   authority: Readonly<PersistedHandoffAuthorityV1>;
@@ -2416,15 +2494,25 @@ describe('K-327G fixed production identifier policies', () => {
 
   it.each([
     ['wrong prefix', `snapshot-${'a'.repeat(24)}`],
+    ['uppercase digest', `candidate-${'A'.repeat(24)}`],
     ['short digest', `candidate-${'a'.repeat(23)}`],
     ['long digest', `candidate-${'a'.repeat(25)}`],
     ['invalid digest character', `candidate-${'a'.repeat(23)}g`],
     ['former 153-byte fixture', 'c'.repeat(153)],
+    ['former 154-byte fixture', 'c'.repeat(154)],
+    ['leading whitespace', ` candidate-${'a'.repeat(24)}`],
     ['Unicode lookalike', `candidat\u0435-${'a'.repeat(24)}`],
     ['embedded NUL', `candidate-${'a'.repeat(12)}\0${'a'.repeat(11)}`],
     ['trailing whitespace', `candidate-${'a'.repeat(24)} `],
-  ])('rejects candidate ID %s', (_label, value) => {
+  ])('rejects candidate ID %s with total schema-stage no-effect evidence', async (_label, value) => {
     expect(() => strictCandidateId(value, 'CORRUPT_PERSISTED_RECORD')).toThrowError(ProtocolError);
+    const canonical = await pendingPersistedArtifacts();
+    const malformed = mutateArtifactPayload(canonical, 'candidate', candidate => {
+      candidate.candidateId = value;
+    });
+    const result = await attemptRejectedRestart(malformed);
+    expectTotalRestartRejection(result, malformed);
+    expect(result).toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD', stage: 'candidate_schema' });
   });
 
   it.each([
@@ -2441,27 +2529,54 @@ describe('K-327G fixed production identifier policies', () => {
   it.each([
     ['revision over maximum', `handoff-${'b'.repeat(16)}-9007199254740992`],
     ['negative revision', `handoff-${'b'.repeat(16)}--1`],
+    ['negative zero revision', `handoff-${'b'.repeat(16)}--0`],
+    ['leading plus revision', `handoff-${'b'.repeat(16)}-+1`],
+    ['decimal revision', `handoff-${'b'.repeat(16)}-1.0`],
+    ['exponent revision', `handoff-${'b'.repeat(16)}-1e3`],
+    ['Unicode digit revision', `handoff-${'b'.repeat(16)}-\uff11`],
     ['leading-zero revision', `handoff-${'b'.repeat(16)}-01`],
+    ['uppercase digest', `handoff-${'B'.repeat(16)}-1`],
+    ['short digest', `handoff-${'b'.repeat(15)}-1`],
+    ['long digest', `handoff-${'b'.repeat(17)}-1`],
     ['invalid digest character', `handoff-${'b'.repeat(15)}g-1`],
     ['wrong separator', `handoff-${'b'.repeat(16)}_1`],
     ['wrong prefix', `session-${'b'.repeat(16)}-1`],
     ['former 128-byte fixture', 'h'.repeat(128)],
     ['embedded NUL', `handoff-${'b'.repeat(8)}\0${'b'.repeat(7)}-1`],
-    ['trailing whitespace', `handoff-${'b'.repeat(16)}-1 `],
-  ])('rejects session ID %s', (_label, value) => {
+    ['surrounding whitespace', ` handoff-${'b'.repeat(16)}-1 `],
+  ])('rejects session ID %s with total schema-stage no-effect evidence', async (_label, value) => {
     expect(() => strictHandoffSessionId(value, 'CORRUPT_PERSISTED_RECORD')).toThrowError(ProtocolError);
+    const canonical = await pendingPersistedArtifacts();
+    const malformed = mutateArtifactPayload(canonical, 'candidate', candidate => {
+      candidate.handoffSessionId = value;
+    });
+    const result = await attemptRejectedRestart(malformed);
+    expectTotalRestartRejection(result, malformed);
+    expect(result).toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD', stage: 'candidate_schema' });
   });
 
-  it('rejects generated-format identifiers when their bound digest or revision differs', () => {
-    const { authority, candidate } = candidateFixture();
-    expect(() => parsePersistedCandidate({
-      ...candidate,
-      candidateId: createCandidateId('f'.repeat(64)),
-    })).toThrowError(ProtocolError);
-    expect(() => parsePersistedAuthority({
-      ...authority,
-      handoffSessionId: createHandoffSessionId(authority.physicalSourceDigest, 2),
-    })).toThrowError(ProtocolError);
+  it.each([
+    ['candidate snapshot derivation', 'candidateId', (candidate: PersistedSnapshotCandidateV1) => (
+      createCandidateId('f'.repeat(64))
+    )],
+    ['session physical-digest derivation', 'handoffSessionId', (candidate: PersistedSnapshotCandidateV1) => (
+      createHandoffSessionId('f'.repeat(64), candidate.sourceRevision)
+    )],
+    ['session revision derivation', 'handoffSessionId', (candidate: PersistedSnapshotCandidateV1) => (
+      createHandoffSessionId(candidate.physicalSourceDigest, candidate.sourceRevision + 1)
+    )],
+  ] as const)('rejects valid syntax with wrong %s using total no-effect evidence', async (
+    _label,
+    field,
+    derive,
+  ) => {
+    const canonical = await pendingPersistedArtifacts();
+    const malformed = mutateArtifactPayload(canonical, 'candidate', candidate => {
+      candidate[field] = derive(candidate as unknown as PersistedSnapshotCandidateV1);
+    });
+    const result = await attemptRejectedRestart(malformed);
+    expectTotalRestartRejection(result, malformed);
+    expect(result).toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD', stage: 'candidate_schema' });
   });
 
   it.each([
@@ -2485,6 +2600,98 @@ describe('K-327G fixed production identifier policies', () => {
     expect(result).toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD', stage });
     expect(result.metrics.coordinatorConstructed).toBe(0);
     expect(result.metrics.persistenceWriteAttempted).toBe(0);
+  });
+});
+
+describe('K-327H direct candidate-store collision policy', () => {
+  async function committedCandidate(): Promise<{
+    digest: string;
+    authority: Readonly<PersistedHandoffAuthorityV1>;
+    candidate: Readonly<PersistedSnapshotCandidateV1>;
+    sources: DurablePhysicalSourceRegistry;
+    observed: RestartMetrics;
+  }> {
+    const observed = restartMetrics();
+    const boundary = metrics();
+    const sources = new DurablePhysicalSourceRegistry(boundary, observed);
+    const env = environment(boundary, sources);
+    sources.initialize(rootA, userA);
+    await env.context().write('note-a', 'v1');
+    await expect(env.context().handoff({ crashAfterPending: true }))
+      .rejects.toMatchObject({ code: 'CONTEXT_CRASHED' });
+    const digest = physicalSourceDigest(rootA);
+    const pending = sources.readAuthority(digest);
+    const graph = buildBudgetGraph([['note-a', 'v1']], {
+      sourceRevision: pending.sourceRevision,
+    });
+    const authority = bindAuthorityToCandidate(pending, graph.candidate);
+    expect(sources.commitCandidate(digest, pending, authority, graph.candidate)).toBe('created');
+    return { digest, authority, candidate: graph.candidate, sources, observed };
+  }
+
+  it('treats same-key byte-identical full-bound creation as idempotent zero mutation', async () => {
+    const { digest, authority, candidate, sources, observed } = await committedCandidate();
+    const before = sources.inspectDurableState(rootA);
+    const beforeCapabilities = capabilitySnapshot(observed);
+    const beforeBoundaryAttempts = observed.candidateCreateBoundaryAttempted;
+    const beforeExisting = observed.candidateExistingKeyDetected;
+    const beforeCollisions = observed.candidateCollisionDetected;
+
+    expect(sources.commitCandidate(digest, authority, authority, candidate))
+      .toBe('existing_identical');
+
+    expect(sources.inspectDurableState(rootA)).toEqual(before);
+    expect(capabilityDelta(beforeCapabilities, observed)).toEqual(Object.fromEntries(
+      CAPABILITY_COUNTERS.map(counter => [counter, 0]),
+    ));
+    expect(observed.candidateCreateBoundaryAttempted - beforeBoundaryAttempts).toBe(1);
+    expect(observed.candidateExistingKeyDetected - beforeExisting).toBe(1);
+    expect(observed.candidateCollisionDetected - beforeCollisions).toBe(0);
+    expect(observed.candidateFullBindingMismatchDetected).toBe(0);
+    expect(observed.candidateOverwriteAttempted).toBe(0);
+    expect(sources.candidateCount(rootA)).toBe(1);
+    const existing = sources.readCandidate(digest)!;
+    expect(serializeCandidate(existing)).toBe(serializeCandidate(candidate));
+    exactCandidateBinding(authority, existing);
+  });
+
+  it('rejects a same-store-key different valid candidate with full-binding zero overwrite', async () => {
+    const { digest, authority, candidate, sources, observed } = await committedCandidate();
+    const conflictingGraph = buildBudgetGraph([['note-a', 'different-v2']], {
+      sourceRevision: authority.sourceRevision,
+    });
+    const conflictingAuthority = bindAuthorityToCandidate(authority, conflictingGraph.candidate);
+    exactCandidateBinding(conflictingAuthority, conflictingGraph.candidate);
+    expect(conflictingGraph.candidate.candidateId).not.toBe(candidate.candidateId);
+    expect(serializeCandidate(conflictingGraph.candidate)).not.toBe(serializeCandidate(candidate));
+    const before = sources.inspectDurableState(rootA);
+    const beforeCapabilities = capabilitySnapshot(observed);
+    const beforeBoundaryAttempts = observed.candidateCreateBoundaryAttempted;
+    const beforeExisting = observed.candidateExistingKeyDetected;
+    const beforeCollisions = observed.candidateCollisionDetected;
+    const beforeBindingMismatch = observed.candidateFullBindingMismatchDetected;
+
+    expect(() => sources.probeCandidateCreateAtStoreKey(
+      digest,
+      authority,
+      conflictingAuthority,
+      conflictingGraph.candidate,
+      candidate.candidateId,
+    )).toThrowError(expect.objectContaining({ code: 'CANDIDATE_KEY_COLLISION' }));
+
+    expect(sources.inspectDurableState(rootA)).toEqual(before);
+    expect(capabilityDelta(beforeCapabilities, observed)).toEqual(Object.fromEntries(
+      CAPABILITY_COUNTERS.map(counter => [counter, 0]),
+    ));
+    expect(observed.candidateCreateBoundaryAttempted - beforeBoundaryAttempts).toBe(1);
+    expect(observed.candidateExistingKeyDetected - beforeExisting).toBe(1);
+    expect(observed.candidateCollisionDetected - beforeCollisions).toBe(1);
+    expect(observed.candidateFullBindingMismatchDetected - beforeBindingMismatch).toBe(1);
+    expect(observed.candidateOverwriteAttempted).toBe(0);
+    expect(sources.candidateCount(rootA)).toBe(1);
+    const existing = sources.readCandidate(digest)!;
+    expect(serializeCandidate(existing)).toBe(serializeCandidate(candidate));
+    exactCandidateBinding(authority, existing);
   });
 });
 
@@ -3326,12 +3533,15 @@ describe('K-327G separate-payload restart and exact finalization', () => {
     ['missing candidate field', 'candidate', candidate => { delete candidate.candidateId; }],
   ];
 
-  it.each(corruptions)('%s is a total structured restart rejection', async (_label, target, mutate) => {
+  it.each(corruptions)('%s is a total structured restart rejection', async (label, target, mutate) => {
     const corrupted = mutateArtifactPayload(await pendingPersistedArtifacts(), target, mutate);
     const result = await attemptRejectedRestart(corrupted);
     expectTotalRestartRejection(result, corrupted);
     expect(result.metrics.coordinatorConstructed).toBe(0);
     expect(result.metrics.finalizationAttempted).toBe(0);
+    if (label === 'internally valid same-session replacement') {
+      expect(result).toMatchObject({ code: 'PERSISTED_EVIDENCE_MISMATCH', stage: 'graph_binding' });
+    }
   });
 
   const malformedArtifactCases: Array<readonly [string, (canonical: PersistedArtifactSetV1) => unknown]> = [
