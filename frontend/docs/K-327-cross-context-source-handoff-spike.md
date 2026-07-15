@@ -119,7 +119,7 @@ The physical source is the complete legacy Notes mutation domain. During convers
 6. object store `notes`;
 7. physical source version `1`.
 
-Unknown input is accepted only after a plain-own-data-record validator rejects arrays, proxies, custom prototypes, boxed values, functions, accessors, inherited fields, unknown keys, missing keys, wrong primitive types, empty/edge-whitespace strings, and object/`toJSON` coercion. Validation returns a fresh record; arbitrary input is never passed to `JSON.stringify`. Origin must equal `new URL(value).origin`, use `http:` or `https:`, and contain no path, credentials, query, fragment, trailing slash, or noncanonical casing. Database/store names are exact case-sensitive primitive strings. The deterministic model also has explicitly named secondary fixture family/backend/version values solely to prove root separation; they imply no production support. K-328 must allowlist only source-confirmed production values.
+Unknown input is accepted only after a plain-own-data-record validator rejects arrays, proxies, custom prototypes other than `null`, boxed values, functions, accessors, inherited fields, unknown keys, missing keys, wrong primitive types, empty/edge-whitespace strings, and object/`toJSON` coercion. `Object.prototype` and null-prototype input records are the only accepted record shapes; both are copied into fresh ordinary `Object.prototype` outputs before canonicalization. Arbitrary input is never passed to `JSON.stringify`. Origin must equal `new URL(value).origin`, use `http:` or `https:`, and contain no path, credentials, query, fragment, trailing slash, or noncanonical casing. Database/store names are exact case-sensitive primitive strings. The deterministic model also has explicitly named secondary fixture family/backend/version values solely to prove root separation; they imply no production support. K-328 must allowlist only source-confirmed production values.
 
 Canonical bytes are a fixed-position UTF-8 JSON array containing discriminator `absinthe_legacy_physical_source_v1` followed by schema version, origin, family, backend, database, store, and physical version. Fixed positions make serialization delimiter-safe, locale-independent, and property-order-independent. The lock is `absinthe:legacy-source-handoff:v1:<sha256(UTF8(canonical tuple))>`. User, project, namespace, device, session, route, and repository-instance fields are forbidden from this tuple. The same physical domain therefore has one lock across logout/login, project/device changes, stale tabs, and reloads; each physical field independently distinguishes another root. Malformed physical input fails before canonicalization, hashing, registry lookup, queue creation, or authority access.
 
@@ -256,8 +256,9 @@ The repository has Vitest, `happy-dom`, and `fake-indexeddb`, but no Playwright/
 
 Evidence collected:
 
-- Deterministic unit model: 257 Vitest cases in the K-327B focused run. Each actor derives its physical lock name; a test-only named-lock registry selects queues, and a serialized physical-source registry supplies exactly one authority/source graph per physical digest.
-- Evidence: 127 malformed physical-identity cases with zero canonicalization/hash/lookup/queue/authority effects; toJSON alias regression; six physical-root distinctions; four logical invariance cases; 35 malformed scope cases rejected under the common lock; 45 authority/candidate schema cases including strict nested snapshot arrays; one serialized restart success; 30 restart/corruption cases; writer-first and handoff-first stale-account ordering; writer crash; cancellation; absent/duplicate authority; unsupported coordinator.
+- Deterministic unit model: 318 Vitest cases in the K-327C focused run. Each actor derives its physical lock name; a test-only named-lock registry selects queues, and a serialized physical-source registry supplies exactly one authority/source graph per physical digest.
+- Evidence: the K-327B identity/schema/order matrix remains intact; K-327C adds duplicate-decoded-key rejection at root and every nested shape, canonical-byte rejection, explicit byte-format versioning, malformed-root and missing-authority/candidate symmetry, structured total-rejection assertions, exact-byte restart stability, and positive/negative null-prototype normalization tests.
+- Exact focused partition: 219 existing identity/protocol/schema cases; 8 null-prototype cases; 8 standalone duplicate-key/scoping cases; 2 canonical restart success/stability cases; 29 completed persisted graph corruption cases; 25 malformed-root cases (including 4 missing/null authority/candidate cases); 6 duplicate-key root/nested persisted-envelope cases; 14 noncanonical-equivalent byte cases; and 7 ordering/crash/stale-account cases = 318.
 - Fake storage evidence: existing local database suites continue to exercise fake IndexedDB; the new model intentionally does not claim browser storage behavior.
 - Real two-tab, page reload, browser-process restart, suspension, and PWA evidence: not collected.
 
@@ -298,9 +299,11 @@ This two-step append-only protocol keeps hashing/canonicalization outside long I
 
 ### Persisted serialization and exact rehydration
 
-The deterministic model stores authority and candidate as JSON bytes, not reusable runtime objects. Restart exports a versioned root envelope, serializes it, discards the original coordinator/registry/objects, parses bytes as `unknown`, validates every plain-record descriptor and primitive again, constructs fresh authority/scope/candidate/record arrays, and starts a new lock registry and context. Tests prove object and nested-reference identity is lost across this boundary.
+The deterministic model stores authority and candidate as canonical JSON bytes, not reusable runtime objects. Persisted root schema version `1` explicitly binds byte-format version `1`. Restart first scans JSON with a bounded recursive reader that compares every object key after JSON escape decoding, including keys inside logical scope and array-element objects. A duplicate decoded key is rejected before any schema object is returned. The reader uses null-prototype temporary maps so `__proto__`, `constructor`, and `prototype` cannot alter parsing semantics.
 
-Finalization rereads both persisted records and performs one compare-and-set only when discriminator, schema/coordinator version, physical digest, logical-scope digest, handoff session, candidate ID, revision, snapshot digest, root digest, manifest digest, entity count, and recomputed record digest all agree. Candidate fields are never used to repair authority. A same-session replacement, same digest with another ID, other session/root/scope, lower/higher/unsafe revision, malformed or valid-format mismatched digest, unknown version/type, missing/extra field, absent candidate, conflicting candidate field, or malformed JSON leaves the source write-blocked and cannot promote terminal authority.
+After duplicate-safe construction, restart validates exact root, authority, candidate, source-record, and graph bindings, reconstructs the one canonical compact JSON representation in fixed field order, and requires byte-for-byte equality with the supplied string. Serializer v1 uses `JSON.stringify` field/array order, compact separators, literal forward slashes and supported non-ASCII characters, JSON escapes for controls, and ordinary finite decimal integer spelling. Leading/trailing/inter-token whitespace, BOM, LF/CRLF suffixes, reordered keys, alternate numeric spellings such as `1e0` or `-0`, optional forward-slash escaping, Unicode/surrogate/control escape alternatives, and escaped spellings of otherwise literal keys/values are rejected as `NONCANONICAL_PERSISTED_BYTES`. Rejection never normalizes, rewrites, synthesizes, or recaptures evidence. Only then may a fresh registry/coordinator be constructed. Tests prove object and nested-reference identity is lost across a valid boundary and that the exact canonical input bytes survive restart unchanged.
+
+Finalization rereads both canonical persisted records and performs one compare-and-set only when discriminator, schema/coordinator/byte-format version, physical digest, logical-scope digest, handoff session, candidate ID, revision, snapshot digest, root digest, manifest digest, entity count, source records, and recomputed record digest all agree. Candidate fields are never used to repair authority. A same-session replacement, same digest with another ID, other session/root/scope, lower/higher/unsafe revision, malformed or valid-format mismatched digest, unknown version/type, missing/extra field, absent authority/candidate, conflicting candidate field, duplicate key, noncanonical bytes, or malformed JSON is a total restart rejection: no state machine, finalization, writable restoration, terminal state, evidence rewrite, candidate/authority synthesis, or source recapture occurs.
 
 ## State machine and restart behavior
 
@@ -310,10 +313,10 @@ Finalization rereads both persisted records and performs one compare-and-set onl
 | `handoff_pending` | rejected | absent or uncommitted capture | ineligible | ineligible | reacquire lock; resume capture or explicitly cancel after graph validation | allowed only before snapshot commit |
 | `snapshot_committed_pending_finalization` | rejected | append-only candidate, bound to physical/logical authority and revision | ineligible | ineligible | reacquire physical lock; validate exact candidate and unchanged revision; finalize idempotently or remain blocked | forbidden |
 | `read_only_handoff` | rejected permanently | immutable and exact | eligible | potentially eligible after K-325/K-326 revalidation | idempotently revalidate; no mutation | forbidden |
-| `handoff_failed` | rejected unless failure is proven pre-exclusion and an explicit cancellation transaction restores writable | absent or retained diagnostic reference | ineligible | ineligible | bounded diagnosis; no automatic repair | only the same strict precommit cancellation rule |
-| `cancelled_precommit` | writable only after the atomic cancellation transition | absent | ineligible | ineligible | terminal attempt record; new session required | already cancelled |
 
 Unknown state, unknown version, missing scope, digest mismatch, impossible transition, snapshot/authority mismatch, or malformed record is `CORRUPT_PERSISTED_RECORD` and fail-closed. No durable state requires a process-local capability to interpret.
+
+`handoff_failed` and `cancelled_precommit` are operation outcomes, not durable authority states. A failure before exclusion leaves `writable`; a failure after exclusion leaves the last valid pending state for explicit diagnosis/resume. Pre-snapshot cancellation is one validated atomic transition from `handoff_pending` back to `writable`; no synthetic cancellation state is persisted.
 
 ### Crash boundaries
 
@@ -321,7 +324,7 @@ Unknown state, unknown version, missing scope, digest mismatch, impossible trans
 - After pending commit, before capture: restart sees pending; writers reject; resume/cancel is explicit.
 - During capture/hash: pending remains; partial external computation is not evidence.
 - After append-only snapshot candidate commit, before terminal authority: restart sees `snapshot_committed_pending_finalization`; writers remain blocked, the candidate is ineligible, cancellation is forbidden, and retry may only validate the same candidate/revision and perform the terminal CAS. It never rebuilds, replaces, or silently discards the candidate.
-- K-327B restart evidence crosses JSON serialization and strict unknown-input parsing into a new registry/context. The original and rehydrated authority, logical-scope, candidate, and record-array references are distinct. Corruption tests change one persisted field at a time and prove no promotion, writable restoration, candidate synthesis, source recapture, or evidence mutation.
+- K-327C restart evidence crosses canonical, duplicate-safe JSON rehydration into a new registry/context. The original and rehydrated authority, logical-scope, candidate, and record-array references are distinct. One common structured rejection result covers raw syntax, duplicate keys, schema, graph binding, and canonical-byte failures and always proves no promotion, writable restoration, candidate/authority synthesis, source recapture, persistence write, evidence mutation, or skipped assertion path.
 - After terminal commit: restart revalidates; never re-enables writers.
 - Browser/OS power loss inherits the browser's IDB durability limitations; exact real-browser crash/power evidence remains a rollout prerequisite.
 
@@ -380,7 +383,7 @@ Future K-326 must re-read the singleton physical-root authority and validate ter
 ### Expected files
 
 - New `src/lib/localDatabase/legacyPhysicalSourceIdentity.ts` with strict unknown-input physical/scope parsers, own-data/accessor rejection, fresh validated values, UTF-8 canonical serialization, exact production allowlists, malformed-input side-effect instrumentation, and complete physical/logical distinction matrices.
-- New `src/lib/localDatabase/legacySourceHandoff.ts` with versioned discriminated authority/candidate schemas, singleton physical-root authority, logical scope validation under lock, exact pending-candidate CAS, serialized rehydration, corruption rejection, cancellation boundaries, and privacy-safe errors.
+- New `src/lib/localDatabase/legacySourceHandoff.ts` with versioned discriminated authority/candidate and persisted-byte schemas, duplicate-decoded-key rejection, exact canonical JSON equality, singleton physical-root authority, logical scope validation under lock, exact pending-candidate CAS, serialized rehydration, total restart rejection, cancellation boundaries, and privacy-safe errors.
 - New `src/lib/localDatabase/legacySourceCoordinator.ts` and tests wrapping Web Locks with internal physical lock-name derivation, no injected lock/queue identity, and unsupported-environment failure.
 - Additive local database schema/constants/validation changes for authority and immutable snapshot metadata (reuse an existing generic store only if strict key/type isolation is proved).
 - Coordinated changes to `src/lib/notePersistence.ts`, `src/lib/noteIndexedDb.ts`, `src/components/views/noteUtils.ts`, `src/store/useNotesStore.ts`, onboarding, cleanup, and the K-96/K-97 developer/audit writers.
@@ -389,7 +392,7 @@ Future K-326 must re-read the singleton physical-root authority and validate ter
 
 ### Implementation order
 
-1. Add versioned canonical physical identity, separate logical authority identity, singleton root-authority/candidate schemas, production-safe strict unknown-input validators, bounded errors, and additive populated-version upgrade tests. Parsed or arbitrary objects never reach canonicalization; live identity is constructed from validated primitives, and persisted evidence always crosses JSON/structured-clone data before parsing.
+1. Add versioned canonical physical identity, separate logical authority identity, singleton root-authority/candidate schemas, explicit persisted-byte format version, duplicate-aware JSON parsing at every nesting level, production-safe strict unknown-input validators, bounded errors, and additive populated-version upgrade tests. Parsed or arbitrary objects never reach canonicalization; live identity is constructed from validated primitives, and persisted evidence must match one exact canonical serializer output before state-machine construction.
 2. Add an internal Web Lock coordinator deriving `absinthe:legacy-source-handoff:v1:<physical digest>` with no account inputs, queue injection, lease fallback, or `steal`; include bounded pre-grant abort and deterministic named-lock tests.
 3. Move authority, revision, Notes/folders evidence, and conversion progress into IDB transactional scope. Treat localStorage plus legacy IndexedDB as one combined mutation domain under the IDB-anchored coordinator until localStorage becomes non-authoritative.
 4. Convert every writer in the inventory; static tests reject bypasses and direct authoritative localStorage writes.
@@ -409,7 +412,11 @@ Future K-326 must re-read the singleton physical-root authority and validate ter
 - every physical field independently changing canonical bytes/digest/lock/queue/authority key, while every logical field leaves the physical lock unchanged;
 - malformed physical/scope matrices covering primitives, objects, arrays, boxed values, accessors, inherited keys, proxies, unknown/extra/missing fields, and `toJSON`, with no malformed physical lookup or queue creation;
 - snapshot candidate crash before terminal finalization, serialization into unknown input, fresh rehydration in a new runtime, exact candidate promotion, duplicate retry, and cancellation rejection;
-- candidate/session/root/scope/revision/snapshot/root/manifest digest/discriminator/schema/coordinator mismatch, malformed JSON, impossible state, and unknown-version rejection without writable restoration or repair;
+- candidate/session/root/scope/revision/snapshot/root/manifest digest/discriminator/schema/coordinator/byte-format mismatch, malformed JSON, impossible state, and unknown-version rejection without writable restoration or repair;
+- duplicate decoded keys at root, authority, logical scope, candidate, nested/array-element objects, including escaped-equivalent spellings, rejected before schema construction;
+- canonical-byte matrix covering BOM, whitespace/newline, property order, escaped key/value spelling, alternate numeric spelling, truncation, primitives, special keys, and bounded deep nesting, with exact input-byte preservation and no normalization;
+- structured restart-stage accounting for raw parse, duplicate scan, schema, binding, canonical equality, and coordinator construction, with the same total no-effect assertions for every rejection;
+- `Object.prototype` and null-prototype positive input normalization plus malformed negative cases, always returning fresh ordinary records;
 - writer-first and handoff-first stale-account traces asserting unchanged source, revision, authority identity, session, candidate, and digests after rejection;
 - Web Locks absent, insecure context, IDB failure/quota, pending timeout;
 - preflight editor flush failure and explicit write rejection;
@@ -434,16 +441,14 @@ The new deterministic harness is `src/lib/localDatabase/crossContextSourceHandof
 
 | Command | Result |
 |---|---|
-| `npm test -- --run src/lib/localDatabase/crossContextSourceHandoffSpike.test.ts` | 257/257 passed, 0.478 s |
-| `npm test -- --run src/lib/localDatabase/localFirstCutover.test.ts` | 77/77 passed, 4.65 s |
-| `npm test -- --run src/lib/localDatabase/legacyNotesMigration.test.ts` | 150/150 passed, 3.13 s |
-| `npm test -- --run src/lib/recoverySafetyPolicy.test.ts` | 18/18 passed, 1.29 s |
-| `npm test -- --run src/lib/notePersistenceDurability.test.ts` | 7/7 passed, 2.15 s; this is the repository's actual replacement for the requested nonexistent `notePersistence.test.ts` path |
-| `npm test -- --run src/lib/localDatabase/` | 772/772 passed across 9 files, 4.58 s |
-| `npm test -- --run src/lib/recovery` | 70/70 passed across 2 files, 13.83 s |
-| `npm run typecheck` | passed, 26.1 s wall time |
-| `npm run build` | passed, 11.41 s Vite build (12.7 s wall time); existing dynamic-import and chunk-size warnings only |
-| `npm test -- --maxWorkers=4` | 5,050 passed / 7 skipped across 578 passed / 1 skipped files, 203.65 s |
+| `npm test -- --run src/lib/localDatabase/crossContextSourceHandoffSpike.test.ts` | 318/318 passed, 1.23 s |
+| `npm test -- --run src/lib/localDatabase/localFirstCutover.test.ts` | 77/77 passed, 4.01 s |
+| `npm test -- --run src/lib/localDatabase/legacyNotesMigration.test.ts` | 150/150 passed, 2.59 s |
+| `npm test -- --run src/lib/localDatabase/` | 833/833 passed across 9 files, 3.61 s |
+| `npm test -- --run src/lib/recovery` | 70/70 passed across 2 files, 14.37 s |
+| `npm run typecheck` | passed, 27.91 s wall time |
+| `npm run build` | passed, 12.52 s Vite build; existing dynamic-import and chunk-size warnings only |
+| `npm test -- --maxWorkers=4` | 5,111 passed / 7 skipped across 578 passed / 1 skipped files, 203.93 s |
 | `git diff --check` | passed before publication |
 
 Backend tests were not run because no backend file changed. No real-browser evidence was collected for the reasons stated above.
@@ -482,9 +487,9 @@ No UI exists. The future UI must flush or abort, display read-only explicitly, a
 
 Durable pending/snapshot/terminal state adds recovery branches. Strict validation and no automatic repair are required.
 
-### Actual defects found and closed in K-327A/K-327B
+### Actual defects found and closed in K-327A/K-327B/K-327C
 
-K-327 initially mixed account scope into the physical lock digest and the harness manually shared a queue, allowing real lock-name aliasing to be hidden. K-327A separates physical exclusion from logical authority, makes the test registry select queues by derived name, and adds same-root/different-scope, different-root, stale-tab, and pre-finalization restart evidence. K-327B closes two further model-evidence gaps: truthiness/serialization-based identity handling could alias malicious objects, and the restart proof reused in-memory evidence instead of rehydrating strict persisted records. The already-known production defect remains: current localStorage/legacy-IDB writers are not yet cross-context serializable, so K-326G correctly continues to block them.
+K-327 initially mixed account scope into the physical lock digest and the harness manually shared a queue, allowing real lock-name aliasing to be hidden. K-327A separates physical exclusion from logical authority, makes the test registry select queues by derived name, and adds same-root/different-scope, different-root, stale-tab, and pre-finalization restart evidence. K-327B closes truthiness/serialization-based identity aliases and replaces in-memory restart proof with strict persisted-record rehydration. K-327C closes the remaining evidence gaps: plain `JSON.parse` silently normalized duplicate keys, semantically equivalent noncanonical bytes could be rewritten, restart corruption tests could return before common assertions, missing authority was not symmetric with missing candidate, null-prototype acceptance was implicit, and the document listed two nonexistent durable states. The already-known production defect remains: current localStorage/legacy-IDB writers are not yet cross-context serializable, so K-326G correctly continues to block them.
 
 ### Unresolved architecture decisions
 
@@ -496,4 +501,4 @@ K-327 performs no production K-326 eligibility change, source handoff activation
 
 ## Next action
 
-`K-327B — Focused Persisted-Evidence Architecture Review`
+`K-327C — Focused Canonical-Evidence Architecture Review`
