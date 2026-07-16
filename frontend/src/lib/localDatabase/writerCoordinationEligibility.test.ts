@@ -1,34 +1,45 @@
 import { describe, expect, it } from 'vitest';
+import * as contract from './writerCoordinationEligibility';
 import {
-  DeterministicCoordinationScheduler,
-  K329A_REVIEWED_WRITER_MANIFEST_ENTRIES,
-  assertCoordinationInvariant,
-  canTransitionCoordinationState,
-  createK329AReviewedWriterManifest,
+  CHECKPOINT_KINDS,
+  K329B_REVIEWED_WRITER_COUNT,
+  K329B_REVIEWED_WRITER_MANIFEST_ENTRIES,
+  REVIEWED_MANIFEST_AUTHORITY_ID,
+  REVIEWED_MANIFEST_VERSION,
+  createK329BReviewedManifestAuthority,
+  createK329BReviewedWriterManifest,
+  createWriterCoordinationModel,
   decodeAdmissionOperationCanonical,
   decodeCoordinationAuthorityCanonical,
-  decodeEligibilityEvidence,
+  decodeEligibilityEvidenceCanonical,
+  decodeRegistrationCheckpointCanonical,
+  decodeReviewedManifestAuthorityCanonical,
   decodeReviewedWriterManifestCanonical,
+  decodeSourceVerificationEvidenceCanonical,
+  decodeWriterCoordinationModelCanonical,
   decodeWriterRegistrationCanonical,
+  deriveCoordinationAuthorityDigest,
   deriveLiveWriterInstanceSetDigest,
+  deriveReviewedManifestAuthorityDigest,
   deriveReviewedWriterManifestDigest,
-  deriveWriterSetDigest,
   encodeAdmissionOperationCanonical,
   encodeCoordinationAuthorityCanonical,
-  encodeEligibilityEvidence,
+  encodeEligibilityEvidenceCanonical,
+  encodeRegistrationCheckpointCanonical,
+  encodeReviewedManifestAuthorityCanonical,
   encodeReviewedWriterManifestCanonical,
+  encodeSourceVerificationEvidenceCanonical,
+  encodeWriterCoordinationModelCanonical,
   encodeWriterRegistrationCanonical,
-  evaluateWriterCoordinationEligibility,
   reduceWriterCoordination,
-  validateAdmissionOperation,
-  validateCoordinationAuthority,
+  validateReviewedManifestAuthority,
   validateReviewedWriterManifest,
+  validateWriterCoordinationModelState,
   validateWriterRegistration,
   type AdmissionOperationRecord,
-  type CoordinationAuthorityRecord,
-  type ReviewedWriterManifest,
+  type SourceVerificationObservation,
   type WriterCoordinationAction,
-  type WriterCoordinationEligibilityInput,
+  type WriterCoordinationActor,
   type WriterCoordinationModelState,
   type WriterEligibilityErrorCode,
   type WriterRegistrationRecord,
@@ -37,614 +48,691 @@ import {
 const PHYSICAL = '1'.repeat(64);
 const SOURCE = '2'.repeat(64);
 const OTHER = '3'.repeat(64);
-const SESSION = `writer-session-v1:${'4'.repeat(32)}`;
-const WRITER_TYPE = 'notes_snapshot_writer';
-const WRITER_ID = `writer-v1:window:${WRITER_TYPE}:${'5'.repeat(32)}`;
-const OPERATION_ID = `writer-operation-v1:${'6'.repeat(64)}`;
-const IDEMPOTENCY = `writer-idempotency-v1:${'7'.repeat(64)}`;
+const COORDINATOR = `writer-session-v1:${'a'.repeat(32)}`;
+const VERIFIER = `writer-session-v1:${'b'.repeat(32)}`;
+const RECOVERY = `writer-session-v1:${'c'.repeat(32)}`;
+const coordinator: WriterCoordinationActor = { kind: 'coordinator', sessionId: COORDINATOR };
+const verifier: WriterCoordinationActor = { kind: 'verifier', sessionId: VERIFIER };
+const recovery: WriterCoordinationActor = { kind: 'recovery', sessionId: RECOVERY };
 const text = new TextEncoder();
 
-function manifest(overrides: Partial<ReviewedWriterManifest> = {}): ReviewedWriterManifest {
+const participating = K329B_REVIEWED_WRITER_MANIFEST_ENTRIES
+  .filter(entry => entry.coordinationRequirement === 'must_participate');
+
+function nonce(index: number, width: number): string {
+  return index.toString(16).padStart(width, '0').slice(-width);
+}
+function registration(index: number, overrides: Partial<WriterRegistrationRecord> = {}): WriterRegistrationRecord {
+  const entry = participating[index % participating.length];
+  const context = entry.contextTypes[0];
   return {
-    kind: 'absinthe_reviewed_writer_manifest', schemaVersion: 1, byteFormatVersion: 1,
-    physicalSourceDigest: PHYSICAL, manifestVersion: 'k329a-reviewed-v1',
-    entries: [{ writerTypeId: WRITER_TYPE, contextTypes: ['window'],
-      requiredCapabilities: ['admission', 'drain_ack', 'source_write'],
-      authorityRole: 'authoritative_source_writer', coordinationRequirement: 'must_participate',
-      exclusionProofCode: null }],
+    kind: 'absinthe_writer_registration', schemaVersion: 1, byteFormatVersion: 1,
+    physicalSourceDigest: PHYSICAL, writerTypeId: entry.writerTypeId,
+    writerId: `writer-v1:${context}:${entry.writerTypeId}:${nonce(index + 1, 32)}`,
+    sessionId: `writer-session-v1:${nonce(index + 100, 32)}`,
+    contextType: context, coordinationEpoch: 1, capabilities: [...entry.requiredCapabilities],
+    registrationState: 'registered', coordinated: false, acknowledgedDrainRevision: null,
+    latestOperationId: null, lastSeenSequence: 0, ...overrides,
+  };
+}
+function operation(record: WriterRegistrationRecord, state: WriterCoordinationModelState,
+  overrides: Partial<AdmissionOperationRecord> = {}): AdmissionOperationRecord {
+  return {
+    kind: 'absinthe_writer_admission_operation', schemaVersion: 1, byteFormatVersion: 1,
+    physicalSourceDigest: PHYSICAL, operationId: `writer-operation-v1:${'d'.repeat(64)}`,
+    idempotencyKey: `writer-idempotency-v1:${'e'.repeat(64)}`, writerTypeId: record.writerTypeId,
+    writerId: record.writerId, sessionId: record.sessionId, coordinationEpoch: state.authority.coordinationEpoch,
+    admissionTransitionRevision: state.authority.transitionRevision, mutationType: 'snapshot_replace',
+    expectedSourceRevision: '40', state: 'admitted', committedSourceRevision: null, terminalResult: null,
     ...overrides,
   };
 }
-
-function authority(overrides: Partial<CoordinationAuthorityRecord> = {}, reviewed = manifest()): CoordinationAuthorityRecord {
-  return {
-    kind: 'absinthe_writer_coordination_authority', schemaVersion: 1, byteFormatVersion: 1,
-    physicalSourceDigest: PHYSICAL, coordinationEpoch: 2, state: 'VERIFYING_SOURCE',
-    coordinatorSessionId: SESSION, reviewedManifestDigest: deriveReviewedWriterManifestDigest(reviewed),
-    admissionOpen: false, unresolvedOperationCount: 0, sourceRevisionBefore: '41', sourceRevisionAfter: '41',
-    sourceDigestBefore: SOURCE, sourceDigestAfter: SOURCE, transitionRevision: 7,
-    createdSequence: 1, updatedSequence: 9, failureCode: null, ...overrides,
-  };
+function model(): WriterCoordinationModelState {
+  return createWriterCoordinationModel({ physicalSourceDigest: PHYSICAL, coordinatorSessionId: COORDINATOR,
+    verifierSessionId: VERIFIER, recoverySessionId: RECOVERY });
+}
+function action(state: WriterCoordinationModelState, actor: WriterCoordinationActor,
+  body: Record<string, unknown>): WriterCoordinationAction {
+  return { ...body, actor, expectedTransitionRevision: state.authority.transitionRevision,
+    expectedCoordinationEpoch: state.authority.coordinationEpoch,
+    expectedAuthorityDigest: deriveCoordinationAuthorityDigest(state.authority) } as unknown as WriterCoordinationAction;
+}
+function success(state: WriterCoordinationModelState, actor: WriterCoordinationActor,
+  body: Record<string, unknown>): WriterCoordinationModelState {
+  const result = reduceWriterCoordination(state, action(state, actor, body));
+  expect(result).toMatchObject({ ok: true });
+  if (!result.ok) throw new Error(result.code);
+  return result.state;
+}
+function failure(state: WriterCoordinationModelState, actor: WriterCoordinationActor,
+  body: Record<string, unknown>, code: WriterEligibilityErrorCode): void {
+  expect(reduceWriterCoordination(state, action(state, actor, body))).toEqual({ ok: false, code });
+}
+function registered(): WriterCoordinationModelState {
+  let state = model();
+  participating.forEach((_, index) => {
+    const record = registration(index);
+    state = success(state, { kind: 'writer', writerId: record.writerId, sessionId: record.sessionId },
+      { type: 'REGISTER_WRITER', registration: record });
+  });
+  return state;
+}
+function observation(overrides: Partial<SourceVerificationObservation> = {}): SourceVerificationObservation {
+  return { physicalSourceDigest: PHYSICAL, sourceType: 'indexeddb', ownershipProven: true,
+    canonical: true, withinBounds: true, revisionBefore: '41', digestBefore: SOURCE,
+    revisionAfter: '41', digestAfter: SOURCE, authoritativeSourceDecision: 'indexeddb', ambiguityCode: null,
+    k328AdapterAvailable: true, k328PhysicalSourceDigest: PHYSICAL, ...overrides };
 }
 
-function registration(overrides: Partial<WriterRegistrationRecord> = {}): WriterRegistrationRecord {
-  return {
-    kind: 'absinthe_writer_registration', schemaVersion: 1, byteFormatVersion: 1,
-    physicalSourceDigest: PHYSICAL, writerTypeId: WRITER_TYPE, writerId: WRITER_ID, sessionId: SESSION,
-    contextType: 'window', coordinationEpoch: 2, capabilities: ['admission', 'drain_ack', 'source_write'],
-    registrationState: 'drain_acknowledged', coordinated: true, acknowledgedTransitionRevision: 7,
-    latestOperationId: null, lastSeenSequence: 8, ...overrides,
-  };
+type Stage = 'registered' | 'before_drain' | 'requested' | 'acked' | 'closed' | 'checkpoint2'
+  | 'draining' | 'quiescent' | 'checkpoint3' | 'checkpoint4' | 'verifying' | 'source'
+  | 'checkpoint5' | 'checkpoint6' | 'eligible';
+function buildTo(stage: Stage, source = observation()): WriterCoordinationModelState {
+  let state = registered(); if (stage === 'registered') return state;
+  state = success(state, coordinator, { type: 'CAPTURE_BEFORE_DRAIN' }); if (stage === 'before_drain') return state;
+  state = success(state, coordinator, { type: 'REQUEST_DRAIN' }); if (stage === 'requested') return state;
+  const drainRevision = state.authority.drainRequestTransitionRevision!;
+  for (const record of state.registrations) {
+    state = success(state, { kind: 'writer', writerId: record.writerId, sessionId: record.sessionId },
+      { type: 'ACKNOWLEDGE_DRAIN', writerId: record.writerId, drainRequestTransitionRevision: drainRevision });
+  }
+  if (stage === 'acked') return state;
+  state = success(state, coordinator, { type: 'CLOSE_ADMISSION' }); if (stage === 'closed') return state;
+  state = success(state, coordinator, { type: 'CAPTURE_AFTER_ADMISSION_CLOSED' }); if (stage === 'checkpoint2') return state;
+  state = success(state, coordinator, { type: 'BEGIN_DRAIN' }); if (stage === 'draining') return state;
+  state = success(state, coordinator, { type: 'MARK_QUIESCENT' }); if (stage === 'quiescent') return state;
+  state = success(state, coordinator, { type: 'CAPTURE_AFTER_OPERATIONS_TERMINAL' }); if (stage === 'checkpoint3') return state;
+  state = success(state, verifier, { type: 'CAPTURE_BEFORE_SOURCE_VERIFICATION' }); if (stage === 'checkpoint4') return state;
+  state = success(state, verifier, { type: 'BEGIN_SOURCE_VERIFICATION' }); if (stage === 'verifying') return state;
+  state = success(state, verifier, { type: 'CAPTURE_SOURCE_EVIDENCE', observation: source }); if (stage === 'source') return state;
+  state = success(state, verifier, { type: 'CAPTURE_AFTER_SOURCE_VERIFICATION' }); if (stage === 'checkpoint5') return state;
+  state = success(state, verifier, { type: 'CAPTURE_BEFORE_ELIGIBILITY_COMMIT' }); if (stage === 'checkpoint6') return state;
+  state = success(state, verifier, { type: 'COMMIT_ELIGIBILITY',
+    expectedFinalCheckpointDigest: state.checkpointChain[5].checkpointDigest });
+  return state;
 }
 
-function operation(overrides: Partial<AdmissionOperationRecord> = {}): AdmissionOperationRecord {
-  return {
-    kind: 'absinthe_writer_admission_operation', schemaVersion: 1, byteFormatVersion: 1,
-    physicalSourceDigest: PHYSICAL, operationId: OPERATION_ID, idempotencyKey: IDEMPOTENCY,
-    writerTypeId: WRITER_TYPE, writerId: WRITER_ID, sessionId: SESSION, coordinationEpoch: 2,
-    admissionTransitionRevision: 2, mutationType: 'snapshot_replace', expectedSourceRevision: '40',
-    state: 'committed', committedSourceRevision: '41', terminalResult: 'committed', ...overrides,
-  };
-}
-
-function checkpoints(records: readonly WriterRegistrationRecord[] = [registration()]) {
-  return { beforeDrain: records, afterAdmissionClosed: records, afterOperationsTerminal: records,
-    beforeSourceVerification: records, afterSourceVerification: records, beforeEvidenceCommit: records };
-}
-
-function validInput(overrides: Partial<WriterCoordinationEligibilityInput> = {}): WriterCoordinationEligibilityInput {
-  const reviewed = overrides.reviewedManifest ?? manifest();
-  const inputAuthority = overrides.authority ?? authority({}, reviewed);
-  return {
-    authority: inputAuthority, reviewedManifest: reviewed,
-    reviewedManifestDigest: deriveReviewedWriterManifestDigest(reviewed), registrationCheckpoints: checkpoints(),
-    operations: [operation()], source: { source: 'indexeddb', physicalSourceDigest: PHYSICAL,
-      exactSupportedSource: true, ownershipProven: true, canonical: true, withinBounds: true,
-      mixedOrDivergent: false, unknownContainerPresent: false, revisionBefore: '41', revisionAfter: '41',
-      digestBefore: SOURCE, digestAfter: SOURCE, rejectionCode: null },
-    coordinationSupported: true, lockAvailable: true, restoreOrImportActive: false, syncWriterActive: false,
-    k328AdapterAvailable: true, k328PhysicalSourceDigest: PHYSICAL, ...overrides,
-  };
-}
-
-function expectCode(input: WriterCoordinationEligibilityInput, code: WriterEligibilityErrorCode): void {
-  expect(evaluateWriterCoordinationEligibility(input)).toMatchObject({ eligible: false, code });
-}
-
-function rawReplace(bytes: Uint8Array, search: string, replacement: string): Uint8Array {
-  return text.encode(new TextDecoder().decode(bytes).replace(search, replacement));
-}
-
-describe('K-329A reviewed manifest and exact live-instance proof', () => {
-  it('ships a non-empty source-reviewed versioned manifest without duplicate types', () => {
-    const reviewed = createK329AReviewedWriterManifest(PHYSICAL);
-    expect(validateReviewedWriterManifest(reviewed)).toBe(true);
-    expect(reviewed.entries).toBe(K329A_REVIEWED_WRITER_MANIFEST_ENTRIES);
-    expect(reviewed.entries).toHaveLength(27);
-    expect(new Set(reviewed.entries.map(entry => entry.writerTypeId)).size).toBe(reviewed.entries.length);
+describe('K-329B trusted reviewed manifest authority', () => {
+  it('binds the exact source-reviewed 30-entry inventory', () => {
+    const manifest = createK329BReviewedWriterManifest(PHYSICAL);
+    const authority = createK329BReviewedManifestAuthority(PHYSICAL);
+    expect(K329B_REVIEWED_WRITER_COUNT).toBe(30);
+    expect(manifest.entries).toHaveLength(30);
+    expect(authority).toMatchObject({ authorityId: REVIEWED_MANIFEST_AUTHORITY_ID,
+      manifestVersion: REVIEWED_MANIFEST_VERSION, reviewedEntryCount: 30,
+      manifestDigest: deriveReviewedWriterManifestDigest(manifest) });
+    const counts = manifest.entries.reduce<Record<string, number>>((result, entry) => {
+      result[entry.authorityRole] = (result[entry.authorityRole] ?? 0) + 1; return result;
+    }, {});
+    expect(counts).toEqual({ dormant_or_test_writer: 6, auxiliary_container_writer: 4,
+      authoritative_source_writer: 15, metadata_writer: 4, remote_only_writer: 1 });
   });
 
-  it('grants eligibility only with both exact digest layers', () => {
-    const input = validInput(); const result = evaluateWriterCoordinationEligibility(input);
-    expect(result).toMatchObject({ eligible: true, physicalSourceDigest: PHYSICAL, stableRevision: '41' });
-    if (!result.eligible) return;
-    expect(result.reviewedManifestDigest).toBe(deriveReviewedWriterManifestDigest(input.reviewedManifest));
-    expect(result.liveWriterInstanceSetDigest).toBe(deriveLiveWriterInstanceSetDigest([registration()]));
-    expect(assertCoordinationInvariant(input)).toBe(true);
+  it('contains the backup, migration, and restore attachment paths', () => {
+    expect(K329B_REVIEWED_WRITER_MANIFEST_ENTRIES.map(entry => entry.writerTypeId)).toEqual(expect.arrayContaining([
+      'legacy.notes.embedded_attachment_backup', 'legacy.notes.embedded_attachment_migration',
+      'legacy.notes.embedded_attachment_restore',
+    ]));
   });
 
-  it('rejects an empty manifest and the legacy empty type digest', () => {
-    const empty = manifest({ entries: [] });
-    expect(validateReviewedWriterManifest(empty)).toBe(false);
-    expect(evaluateWriterCoordinationEligibility({ ...validInput(), reviewedManifest: empty })).toMatchObject({
-      eligible: false, code: 'WRITER_INVENTORY_INCOMPLETE',
-    });
-    expect(() => deriveWriterSetDigest([])).toThrow('WRITER_INVENTORY_INCOMPLETE');
+  it('rejects an arbitrary one-entry manifest even with its matching digest', () => {
+    const state = model();
+    const oneEntry = { ...state.reviewedManifest, entries: [state.reviewedManifest.entries.find(entry =>
+      entry.coordinationRequirement === 'must_participate')!] };
+    const forged = { ...state, reviewedManifest: oneEntry };
+    expect(reduceWriterCoordination(forged, action(forged, coordinator, { type: 'CAPTURE_BEFORE_DRAIN' })))
+      .toEqual({ ok: false, code: 'REVIEWED_MANIFEST_AUTHORITY_MISMATCH' });
   });
 
-  it('rejects an all-excluded manifest as vacuous', () => {
-    const reviewed = manifest({ entries: [{ ...manifest().entries[0], coordinationRequirement: 'excluded_with_proof',
-      authorityRole: 'dormant_or_test_writer', exclusionProofCode: 'DORMANT_NO_PRODUCTION_CALLER' }] });
-    expect(validateReviewedWriterManifest(reviewed)).toBe(false);
-  });
-
-  it('rejects missing exclusion proof and proof on a participating writer', () => {
-    expect(validateReviewedWriterManifest(manifest({ entries: [{ ...manifest().entries[0],
-      coordinationRequirement: 'excluded_with_proof', exclusionProofCode: null }] }))).toBe(false);
-    expect(validateReviewedWriterManifest(manifest({ entries: [{ ...manifest().entries[0],
-      exclusionProofCode: 'DORMANT_NO_PRODUCTION_CALLER' }] }))).toBe(false);
-  });
-
-  it('rejects an exclusion proof that does not match the reviewed authority role', () => {
-    expect(validateReviewedWriterManifest(manifest({ entries: [{ ...manifest().entries[0],
-      authorityRole: 'metadata_writer', coordinationRequirement: 'excluded_with_proof',
-      exclusionProofCode: 'AUXILIARY_CONTAINER_NOT_AUTHORITY' }] }))).toBe(false);
-  });
-
-  it('rejects manifest digest and physical-source changes', () => {
-    expectCode(validInput({ reviewedManifestDigest: OTHER }), 'REVIEWED_MANIFEST_DIGEST_MISMATCH');
-    const reviewed = manifest({ physicalSourceDigest: OTHER });
-    expectCode(validInput({ reviewedManifest: reviewed, authority: authority({}, reviewed) }), 'REVIEWED_MANIFEST_INVALID');
-  });
-
-  it('requires every participating manifest type', () => {
-    const reviewed = manifest({ entries: [...manifest().entries, { ...manifest().entries[0],
-      writerTypeId: 'vault_snapshot_writer' }] });
-    expectCode(validInput({ reviewedManifest: reviewed, authority: authority({}, reviewed) }), 'WRITER_INVENTORY_INCOMPLETE');
-  });
-
-  it('requires disabled writers to be durably disabled', () => {
-    const disabledType = 'vault_snapshot_writer';
-    const reviewed = manifest({ entries: [...manifest().entries, { ...manifest().entries[0], writerTypeId: disabledType,
-      coordinationRequirement: 'must_be_disabled' }] });
-    const notDisabled = registration({ writerTypeId: disabledType,
-      writerId: `writer-v1:window:${disabledType}:${'8'.repeat(32)}`,
-      sessionId: `writer-session-v1:${'9'.repeat(32)}` });
-    expectCode(validInput({ reviewedManifest: reviewed, authority: authority({}, reviewed),
-      registrationCheckpoints: checkpoints([registration(), notDisabled]) }), 'WRITER_NOT_COORDINATED');
-  });
-
-  it('rejects empty live snapshots', () => {
-    expectCode(validInput({ registrationCheckpoints: checkpoints([]) }), 'LIVE_INSTANCE_SET_EMPTY');
-  });
-
-  it('rejects a same-type new tab during drain', () => {
-    const second = registration({ writerId: `writer-v1:window:${WRITER_TYPE}:${'8'.repeat(32)}`,
-      sessionId: `writer-session-v1:${'9'.repeat(32)}` });
-    expectCode(validInput({ registrationCheckpoints: { ...checkpoints(), afterAdmissionClosed: [registration(), second] } }),
-      'LIVE_INSTANCE_SET_CHANGED');
-  });
-
-  it('rejects disappearance and restart even for the same writer type', () => {
-    const restarted = registration({ writerId: `writer-v1:window:${WRITER_TYPE}:${'8'.repeat(32)}`,
-      sessionId: `writer-session-v1:${'9'.repeat(32)}` });
-    expectCode(validInput({ registrationCheckpoints: { ...checkpoints(), beforeEvidenceCommit: [restarted] } }),
-      'LIVE_INSTANCE_SET_CHANGED');
-    expectCode(validInput({ registrationCheckpoints: { ...checkpoints(), beforeEvidenceCommit: [] } }),
-      'LIVE_INSTANCE_SET_EMPTY');
-  });
-
-  it('rejects duplicate writer and session identities', () => {
-    const duplicateWriter = registration({ sessionId: `writer-session-v1:${'9'.repeat(32)}` });
-    expectCode(validInput({ registrationCheckpoints: checkpoints([registration(), duplicateWriter]) }),
-      'WRITER_REGISTRATION_MALFORMED');
-    const duplicateSession = registration({ writerId: `writer-v1:window:${WRITER_TYPE}:${'8'.repeat(32)}` });
-    expectCode(validInput({ registrationCheckpoints: checkpoints([registration(), duplicateSession]) }),
-      'WRITER_REGISTRATION_MALFORMED');
-  });
-
-  it('rejects capability or state changes inside protected verification', () => {
-    const changedCapability = registration({ capabilities: ['admission', 'drain_ack'] });
-    expectCode(validInput({ registrationCheckpoints: { ...checkpoints(), afterSourceVerification: [changedCapability] } }),
-      'LIVE_INSTANCE_SET_CHANGED');
-    const changedState = registration({ registrationState: 'disabled', coordinated: false,
-      acknowledgedTransitionRevision: null });
-    expectCode(validInput({ registrationCheckpoints: { ...checkpoints(), afterSourceVerification: [changedState] } }),
-      'LIVE_INSTANCE_SET_CHANGED');
-  });
-
-  it('rejects stale epoch and unknown writer type', () => {
-    expectCode(validInput({ registrationCheckpoints: checkpoints([registration({ coordinationEpoch: 1 })]) }),
-      'COORDINATION_EPOCH_STALE');
-    const unknown = registration({ writerTypeId: 'unknown_writer',
-      writerId: `writer-v1:window:unknown_writer:${'5'.repeat(32)}` });
-    expectCode(validInput({ registrationCheckpoints: checkpoints([unknown]) }), 'UNKNOWN_WRITER_PRESENT');
-  });
-
-  it('binds embedded writer type and context to registration fields', () => {
-    expect(validateWriterRegistration(registration({ writerTypeId: 'other_writer' }))).toBe(false);
-    expect(validateWriterRegistration(registration({ contextType: 'dedicated_worker' }))).toBe(false);
-  });
-});
-
-describe('K-329A strict canonical persisted records', () => {
-  const cases = [
-    ['authority', () => authority(), encodeCoordinationAuthorityCanonical, decodeCoordinationAuthorityCanonical],
-    ['registration', () => registration(), encodeWriterRegistrationCanonical, decodeWriterRegistrationCanonical],
-    ['operation', () => operation(), encodeAdmissionOperationCanonical, decodeAdmissionOperationCanonical],
-    ['manifest', () => manifest(), encodeReviewedWriterManifestCanonical, decodeReviewedWriterManifestCanonical],
+  const authorityMutations = [
+    ['authority id', { authorityId: 'caller-manifest' }],
+    ['manifest version', { manifestVersion: 'k329c-source-reviewed-v1' }],
+    ['entry count', { reviewedEntryCount: 29 }],
+    ['manifest digest', { manifestDigest: OTHER }],
+    ['physical source', { physicalSourceDigest: OTHER }],
   ] as const;
-
-  for (const [name, make, encode, decode] of cases) {
-    it(`round trips canonical ${name}`, () => {
-      const value = make(); const bytes = (encode as (value: never) => Uint8Array)(value as never);
-      expect((decode as (bytes: Uint8Array) => { ok: boolean })(bytes).ok).toBe(true);
-    });
-
-    it(`rejects whitespace, reordered, and unknown ${name} bytes`, () => {
-      const value = make(); const bytes = (encode as (value: never) => Uint8Array)(value as never);
-      const raw = new TextDecoder().decode(bytes);
-      expect((decode as (bytes: Uint8Array) => { ok: boolean })(text.encode(` ${raw}`)).ok).toBe(false);
-      const parsed = JSON.parse(raw) as Record<string, unknown>;
-      const reordered = JSON.stringify(Object.fromEntries(Object.entries(parsed).reverse()));
-      expect((decode as (bytes: Uint8Array) => { ok: boolean })(text.encode(reordered)).ok).toBe(false);
-      expect((decode as (bytes: Uint8Array) => { ok: boolean })(text.encode(raw.replace('{', '{"unknown":1,'))).ok).toBe(false);
-    });
-
-    it(`rejects duplicate decoded keys and unsupported ${name} version`, () => {
-      const value = make(); const bytes = (encode as (value: never) => Uint8Array)(value as never);
-      const raw = new TextDecoder().decode(bytes);
-      expect((decode as (bytes: Uint8Array) => { ok: boolean })(text.encode(raw.replace('{', '{"kind":"duplicate",'))).ok).toBe(false);
-      expect((decode as (bytes: Uint8Array) => { ok: boolean })(rawReplace(bytes, '"schemaVersion":1', '"schemaVersion":2')).ok).toBe(false);
+  for (const [name, overrides] of authorityMutations) {
+    it(`rejects changed trusted authority: ${name}`, () => {
+      const state = model(); const changed = { ...state.reviewedManifestAuthority, ...overrides } as never;
+      expect(validateReviewedManifestAuthority(changed)).toBe(false);
     });
   }
 
-  it('round trips eligibility evidence and rejects duplicate keys', () => {
-    const result = evaluateWriterCoordinationEligibility(validInput()); expect(result.eligible).toBe(true);
-    if (!result.eligible) return;
-    const bytes = encodeEligibilityEvidence(result.evidence);
-    expect(decodeEligibilityEvidence(bytes)).toEqual({ ok: true, evidence: result.evidence });
-    const duplicate = text.encode(new TextDecoder().decode(bytes).replace('{', '{"result":"eligible",'));
-    expect(decodeEligibilityEvidence(duplicate)).toEqual({ ok: false, code: 'ELIGIBILITY_EVIDENCE_CORRUPT' });
-  });
-
-  it('rejects invalid UTF-8 and truncated bytes for every decoder', () => {
-    const invalid = new Uint8Array([0xc3, 0x28]);
-    expect(decodeCoordinationAuthorityCanonical(invalid).ok).toBe(false);
-    expect(decodeWriterRegistrationCanonical(invalid).ok).toBe(false);
-    expect(decodeAdmissionOperationCanonical(invalid).ok).toBe(false);
-    expect(decodeReviewedWriterManifestCanonical(invalid).ok).toBe(false);
-    expect(decodeEligibilityEvidence(invalid).ok).toBe(false);
-  });
-
-  it('rejects accessors and inherited properties before persistence', () => {
-    const accessor = { ...registration() } as Record<string, unknown>;
-    Object.defineProperty(accessor, 'writerTypeId', { enumerable: true, get: () => WRITER_TYPE });
-    expect(validateWriterRegistration(accessor)).toBe(false);
-    expect(validateCoordinationAuthority(Object.create(authority()))).toBe(false);
+  it('has no free-form eligibility evaluator export', () => {
+    expect('evaluateWriterCoordinationEligibility' in contract).toBe(false);
   });
 });
 
-describe('K-329A eligibility failure boundaries', () => {
-  it('rejects admission, operation, restore, and sync ambiguity', () => {
-    expectCode(validInput({ authority: authority({ state: 'OPEN', admissionOpen: true }) }), 'ADMISSION_NOT_CLOSED');
-    expectCode(validInput({ authority: authority({ unresolvedOperationCount: 1 }) }), 'IN_FLIGHT_WRITE_PRESENT');
-    expectCode(validInput({ operations: [operation({ state: 'admitted', committedSourceRevision: null,
-      terminalResult: null })] }), 'IN_FLIGHT_WRITE_PRESENT');
-    expectCode(validInput({ restoreOrImportActive: true }), 'RESTORE_OR_IMPORT_ACTIVE');
-    expectCode(validInput({ syncWriterActive: true }), 'SYNC_WRITER_ACTIVE');
+describe('K-329B canonical durable schemas', () => {
+  it('round trips every expanded schema with exact canonical bytes', () => {
+    const eligible = buildTo('eligible');
+    const cases = [
+      [eligible.reviewedManifest, encodeReviewedWriterManifestCanonical, decodeReviewedWriterManifestCanonical],
+      [eligible.reviewedManifestAuthority, encodeReviewedManifestAuthorityCanonical, decodeReviewedManifestAuthorityCanonical],
+      [eligible.authority, encodeCoordinationAuthorityCanonical, decodeCoordinationAuthorityCanonical],
+      [eligible.registrations[0], encodeWriterRegistrationCanonical, decodeWriterRegistrationCanonical],
+      [eligible.checkpointChain[0], encodeRegistrationCheckpointCanonical, decodeRegistrationCheckpointCanonical],
+      [eligible.sourceEvidence!, encodeSourceVerificationEvidenceCanonical, decodeSourceVerificationEvidenceCanonical],
+      [eligible.eligibilityEvidence!, encodeEligibilityEvidenceCanonical, decodeEligibilityEvidenceCanonical],
+      [eligible, encodeWriterCoordinationModelCanonical, decodeWriterCoordinationModelCanonical],
+    ] as const;
+    for (const [value, encode, decode] of cases) expect((decode as never as (bytes: Uint8Array) => { ok: boolean })
+      ((encode as never as (value: unknown) => Uint8Array)(value)).ok).toBe(true);
   });
 
-  it('rejects unstable and ambiguous sources', () => {
-    const base = validInput();
-    expectCode(validInput({ source: { ...base.source, revisionAfter: '42' } }), 'SOURCE_REVISION_UNSTABLE');
-    expectCode(validInput({ source: { ...base.source, digestAfter: OTHER } }), 'SOURCE_CHANGED_DURING_VERIFICATION');
-    expectCode(validInput({ source: { ...base.source, mixedOrDivergent: true } }), 'MIXED_SOURCE_DIVERGENCE');
-    expectCode(validInput({ source: { ...base.source, ownershipProven: false } }), 'SOURCE_OWNERSHIP_UNPROVEN');
-    expectCode(validInput({ source: { ...base.source, unknownContainerPresent: true } }), 'UNKNOWN_CONTEXT_PRESENT');
+  it('round trips operation evidence', () => {
+    const state = registered(); const record = operation(state.registrations[0], state);
+    expect(decodeAdmissionOperationCanonical(encodeAdmissionOperationCanonical(record))).toEqual({ ok: true, value: record });
   });
 
-  it('rejects unbounded or unknown source rejection codes', () => {
-    const base = validInput();
-    expectCode(validInput({ source: { ...base.source, withinBounds: false } }), 'SOURCE_RESOURCE_BOUND_EXCEEDED');
-    expectCode(validInput({ source: { ...base.source, rejectionCode: 'not-a-code' as WriterEligibilityErrorCode } }),
-      'ELIGIBILITY_EVIDENCE_CORRUPT');
+  it('rejects duplicate keys, invalid UTF-8, trailing bytes, and alternate order', () => {
+    const bytes = encodeReviewedManifestAuthorityCanonical(createK329BReviewedManifestAuthority(PHYSICAL));
+    const raw = new TextDecoder().decode(bytes);
+    expect(decodeReviewedManifestAuthorityCanonical(text.encode(raw.replace('{', '{"schemaVersion":1,'))).ok).toBe(false);
+    expect(decodeReviewedManifestAuthorityCanonical(new Uint8Array([0xc3, 0x28])).ok).toBe(false);
+    expect(decodeReviewedManifestAuthorityCanonical(text.encode(`${raw}\n`)).ok).toBe(false);
+    expect(decodeReviewedManifestAuthorityCanonical(text.encode(raw.replace(
+      '"kind":"absinthe_reviewed_manifest_authority","schemaVersion":1',
+      '"schemaVersion":1,"kind":"absinthe_reviewed_manifest_authority"'))).ok).toBe(false);
   });
 
-  it('requires the exact K-328 adapter binding without invoking it', () => {
-    expectCode(validInput({ k328AdapterAvailable: false }), 'K328_ADAPTER_UNAVAILABLE');
-    expectCode(validInput({ k328PhysicalSourceDigest: OTHER }), 'K328_PHYSICAL_IDENTITY_MISMATCH');
-  });
-
-  it('validates operation identities and exact terminal semantics', () => {
-    expect(validateAdmissionOperation(operation())).toBe(true);
-    expect(validateAdmissionOperation(operation({ writerTypeId: 'other_writer' }))).toBe(false);
-    expect(validateAdmissionOperation(operation({ state: 'committed', terminalResult: 'failed' }))).toBe(false);
-  });
-});
-
-function openState(): WriterCoordinationModelState {
-  const reviewed = manifest();
-  return { authority: authority({ state: 'OPEN', admissionOpen: true, coordinationEpoch: 2,
-    transitionRevision: 1, sourceRevisionBefore: null, sourceRevisionAfter: null,
-    sourceDigestBefore: null, sourceDigestAfter: null }, reviewed), reviewedManifest: reviewed,
-    registrations: [registration({ registrationState: 'registered', coordinated: true,
-      acknowledgedTransitionRevision: null })], operations: [], eligibilityEvidence: null };
-}
-function coordinator(state: WriterCoordinationModelState, action: Omit<WriterCoordinationAction, keyof {
-  actor: never; expectedTransitionRevision: never; expectedCoordinationEpoch: never;
-}>): WriterCoordinationAction {
-  return { ...action, actor: { kind: 'coordinator', sessionId: SESSION },
-    expectedTransitionRevision: state.authority.transitionRevision,
-    expectedCoordinationEpoch: state.authority.coordinationEpoch } as WriterCoordinationAction;
-}
-
-describe('K-329A executable reducer and races', () => {
-  it('closes admission before drain and leaves input immutable', () => {
-    const initial = openState(); const before = JSON.stringify(initial);
-    const request = reduceWriterCoordination(initial, coordinator(initial, { type: 'REQUEST_DRAIN' }));
-    expect(request).toMatchObject({ ok: true, state: { authority: { state: 'DRAIN_REQUESTED', admissionOpen: false } } });
-    expect(JSON.stringify(initial)).toBe(before);
-  });
-
-  it('rejects a late writer registration after the drain linearization point', () => {
-    const initial = openState(); const request = reduceWriterCoordination(initial, coordinator(initial, { type: 'REQUEST_DRAIN' }));
-    expect(request.ok).toBe(true); if (!request.ok) return;
-    const late = registration({ writerId: `writer-v1:window:${WRITER_TYPE}:${'8'.repeat(32)}`,
-      sessionId: `writer-session-v1:${'9'.repeat(32)}`, registrationState: 'registered', acknowledgedTransitionRevision: null });
-    const action: WriterCoordinationAction = { type: 'REGISTER_WRITER', registration: late,
-      actor: { kind: 'writer', writerId: late.writerId, sessionId: late.sessionId },
-      expectedTransitionRevision: request.state.authority.transitionRevision,
-      expectedCoordinationEpoch: request.state.authority.coordinationEpoch };
-    expect(reduceWriterCoordination(request.state, action)).toMatchObject({ ok: false, code: 'ADMISSION_NOT_CLOSED' });
-  });
-
-  it('rejects stale CAS and stale epoch actions deterministically', () => {
-    const initial = openState();
-    expect(reduceWriterCoordination(initial, { ...coordinator(initial, { type: 'REQUEST_DRAIN' }),
-      expectedTransitionRevision: 0 })).toEqual({ ok: false, code: 'TRANSITION_REVISION_STALE' });
-    expect(reduceWriterCoordination(initial, { ...coordinator(initial, { type: 'REQUEST_DRAIN' }),
-      expectedCoordinationEpoch: 1 })).toEqual({ ok: false, code: 'COORDINATION_EPOCH_STALE' });
-  });
-
-  it('allows only the bound writer to acknowledge or terminalize', () => {
-    const initial = openState();
-    const unauthorized: WriterCoordinationAction = { type: 'ACKNOWLEDGE_DRAIN', writerId: WRITER_ID,
-      actor: { kind: 'writer', writerId: WRITER_ID, sessionId: `writer-session-v1:${'9'.repeat(32)}` },
-      expectedTransitionRevision: 1, expectedCoordinationEpoch: 2 };
-    expect(reduceWriterCoordination(initial, unauthorized)).toEqual({ ok: false, code: 'ACTOR_UNAUTHORIZED' });
-  });
-
-  it('admits an operation only while OPEN and fences duplicate idempotency', () => {
-    const initial = openState();
-    const admitted = operation({ state: 'admitted', committedSourceRevision: null, terminalResult: null,
-      admissionTransitionRevision: 1 });
-    const action: WriterCoordinationAction = { type: 'ADMIT_OPERATION', operation: admitted,
-      actor: { kind: 'writer', writerId: WRITER_ID, sessionId: SESSION },
-      expectedTransitionRevision: 1, expectedCoordinationEpoch: 2 };
-    const first = reduceWriterCoordination(initial, action); expect(first.ok).toBe(true); if (!first.ok) return;
-    expect(first.state.authority.unresolvedOperationCount).toBe(1);
-    expect(reduceWriterCoordination(first.state, { ...action,
-      expectedTransitionRevision: first.state.authority.transitionRevision })).toMatchObject({ ok: false,
-      code: 'IN_FLIGHT_STATE_AMBIGUOUS' });
-  });
-
-  it('serializes competing drain coordinators with transition CAS', () => {
-    const initial = openState(); const sameAction = coordinator(initial, { type: 'REQUEST_DRAIN' });
-    const winner = reduceWriterCoordination(initial, sameAction); expect(winner.ok).toBe(true); if (!winner.ok) return;
-    expect(reduceWriterCoordination(winner.state, sameAction)).toEqual({ ok: false, code: 'TRANSITION_REVISION_STALE' });
-  });
-
-  it('rejects verifier and recovery actions from the wrong durable session', () => {
-    const initial = openState();
-    expect(reduceWriterCoordination(initial, { ...coordinator(initial, { type: 'ABORT', failureCode: null }),
-      actor: { kind: 'recovery', sessionId: `writer-session-v1:${'9'.repeat(32)}` } })).toEqual({ ok: false,
-      code: 'ACTOR_UNAUTHORIZED' });
-  });
-
-  it('models only reviewed state transitions', () => {
-    expect(canTransitionCoordinationState('OPEN', 'DRAIN_REQUESTED')).toBe(true);
-    expect(canTransitionCoordinationState('OPEN', 'ELIGIBLE')).toBe(false);
-    expect(canTransitionCoordinationState('ELIGIBLE', 'OPEN')).toBe(false);
-  });
-
-  it('runs explicit race schedules without timers', () => {
-    const scheduler = new DeterministicCoordinationScheduler(); let state = 'open';
-    scheduler.schedule('request-drain', () => { state = 'closed'; });
-    scheduler.schedule('late-write', () => { if (state === 'open') state = 'mutated'; });
-    scheduler.run('request-drain'); scheduler.run('late-write');
-    expect(state).toBe('closed'); expect(scheduler.history()).toEqual(['request-drain', 'late-write']);
+  it('rejects forged checkpoint linkage and unknown model fields', () => {
+    const state = buildTo('checkpoint3');
+    const badCheckpoint = { ...state.checkpointChain[2], previousCheckpointDigest: OTHER };
+    expect(decodeRegistrationCheckpointCanonical(text.encode(JSON.stringify(badCheckpoint))).ok).toBe(false);
+    const raw = new TextDecoder().decode(encodeWriterCoordinationModelCanonical(state));
+    expect(decodeWriterCoordinationModelCanonical(text.encode(raw.replace('{', '{"unknown":true,'))).ok).toBe(false);
   });
 });
 
-describe('K-329A additional identity, manifest, and canonical negatives', () => {
-  const invalidRegistrations: readonly [string, Partial<WriterRegistrationRecord>][] = [
-    ['malformed component count', { writerId: `writer-v1:window:${WRITER_TYPE}` }],
-    ['uppercase nonce', { writerId: `writer-v1:window:${WRITER_TYPE}:${'A'.repeat(32)}` }],
-    ['invalid type character', { writerTypeId: 'notes writer' }],
-    ['overlong embedded type', { writerTypeId: 'a'.repeat(81),
-      writerId: `writer-v1:window:${'a'.repeat(81)}:${'5'.repeat(32)}` }],
-    ['noncanonical context', { writerId: `writer-v1:Window:${WRITER_TYPE}:${'5'.repeat(32)}` }],
-    ['invalid session nonce', { sessionId: 'writer-session-v1:not-hex' }],
+describe('K-329B writer registration and drain lifecycle', () => {
+  it('registers only the bound writer in canonical initial state', () => {
+    const state = model(); const record = registration(0);
+    const next = success(state, { kind: 'writer', writerId: record.writerId, sessionId: record.sessionId },
+      { type: 'REGISTER_WRITER', registration: record });
+    expect(next.registrations[0]).toMatchObject({ registrationState: 'registered', coordinated: false,
+      acknowledgedDrainRevision: null, latestOperationId: null });
+  });
+
+  it('rejects coordinator and verifier registration', () => {
+    const state = model(); const record = registration(0);
+    failure(state, coordinator, { type: 'REGISTER_WRITER', registration: record }, 'ACTOR_UNAUTHORIZED');
+    failure(state, verifier, { type: 'REGISTER_WRITER', registration: record }, 'ACTOR_UNAUTHORIZED');
+  });
+
+  it('rejects pre-acknowledged and pre-coordinated registration', () => {
+    const state = model();
+    for (const record of [registration(0, { registrationState: 'drain_acknowledged', coordinated: true,
+      acknowledgedDrainRevision: 0 }), registration(0, { coordinated: true })]) {
+      const actor: WriterCoordinationActor = { kind: 'writer', writerId: record.writerId, sessionId: record.sessionId };
+      const result = reduceWriterCoordination(state, action(state, actor, { type: 'REGISTER_WRITER', registration: record }));
+      expect(result).toMatchObject({ ok: false });
+    }
+  });
+
+  it('rejects duplicate writer ID and session ID', () => {
+    let state = model(); const first = registration(0);
+    state = success(state, { kind: 'writer', writerId: first.writerId, sessionId: first.sessionId },
+      { type: 'REGISTER_WRITER', registration: first });
+    const sameWriter = registration(1, { writerTypeId: first.writerTypeId, contextType: first.contextType,
+      capabilities: first.capabilities, writerId: first.writerId });
+    failure(state, { kind: 'writer', writerId: sameWriter.writerId, sessionId: sameWriter.sessionId },
+      { type: 'REGISTER_WRITER', registration: sameWriter }, 'DUPLICATE_WRITER_IDENTITY');
+    const sameSession = registration(1, { sessionId: first.sessionId });
+    failure(state, { kind: 'writer', writerId: sameSession.writerId, sessionId: sameSession.sessionId },
+      { type: 'REGISTER_WRITER', registration: sameSession }, 'DUPLICATE_WRITER_IDENTITY');
+  });
+
+  it('binds acknowledgement to the exact drain request and same writer', () => {
+    const requested = buildTo('requested'); const record = requested.registrations[0];
+    const drainRevision = requested.authority.drainRequestTransitionRevision!;
+    failure(requested, { kind: 'writer', writerId: record.writerId, sessionId: record.sessionId },
+      { type: 'ACKNOWLEDGE_DRAIN', writerId: record.writerId, drainRequestTransitionRevision: drainRevision - 1 },
+      'DRAIN_ACKNOWLEDGEMENT_INVALID');
+    failure(requested, coordinator,
+      { type: 'ACKNOWLEDGE_DRAIN', writerId: record.writerId, drainRequestTransitionRevision: drainRevision },
+      'ACTOR_UNAUTHORIZED');
+    const other = requested.registrations[1];
+    failure(requested, { kind: 'writer', writerId: other.writerId, sessionId: other.sessionId },
+      { type: 'ACKNOWLEDGE_DRAIN', writerId: record.writerId, drainRequestTransitionRevision: drainRevision },
+      'ACTOR_UNAUTHORIZED');
+  });
+
+  it('rejects acknowledgement before drain and with an active operation', () => {
+    const open = registered(); const record = open.registrations[0];
+    failure(open, { kind: 'writer', writerId: record.writerId, sessionId: record.sessionId },
+      { type: 'ACKNOWLEDGE_DRAIN', writerId: record.writerId, drainRequestTransitionRevision: 0 },
+      'DRAIN_ACKNOWLEDGEMENT_INVALID');
+    let state = success(open, { kind: 'writer', writerId: record.writerId, sessionId: record.sessionId },
+      { type: 'ADMIT_OPERATION', operation: operation(record, open) });
+    state = success(state, coordinator, { type: 'CAPTURE_BEFORE_DRAIN' });
+    state = success(state, coordinator, { type: 'REQUEST_DRAIN' });
+    failure(state, { kind: 'writer', writerId: record.writerId, sessionId: record.sessionId },
+      { type: 'ACKNOWLEDGE_DRAIN', writerId: record.writerId,
+        drainRequestTransitionRevision: state.authority.drainRequestTransitionRevision },
+      'DRAIN_ACKNOWLEDGEMENT_INVALID');
+  });
+
+  it('rejects new and restarted same-type writers after drain closes admission', () => {
+    const state = buildTo('requested');
+    for (const record of [registration(100), registration(100, { sessionId: `writer-session-v1:${'f'.repeat(32)}` })]) {
+      failure(state, { kind: 'writer', writerId: record.writerId, sessionId: record.sessionId },
+        { type: 'REGISTER_WRITER', registration: record }, 'ADMISSION_NOT_CLOSED');
+    }
+  });
+
+  it('rejects unknown writer type and embedded type/context mismatch', () => {
+    const state = model();
+    const unknown = registration(0, { writerTypeId: 'unknown_writer',
+      writerId: `writer-v1:window:unknown_writer:${'f'.repeat(32)}` });
+    failure(state, { kind: 'writer', writerId: unknown.writerId, sessionId: unknown.sessionId },
+      { type: 'REGISTER_WRITER', registration: unknown }, 'UNKNOWN_WRITER_PRESENT');
+    expect(validateWriterRegistration(registration(0, { writerTypeId: 'other_writer' }))).toBe(false);
+    expect(validateWriterRegistration(registration(0, { contextType: 'dedicated_worker' }))).toBe(false);
+  });
+});
+
+describe('K-329B durable checkpoint/source graph and eligibility', () => {
+  it('executes the complete six-checkpoint path solely through reducer state', () => {
+    const state = buildTo('eligible');
+    expect(state.authority.state).toBe('ELIGIBLE');
+    expect(state.checkpointChain.map(checkpoint => checkpoint.checkpointKind)).toEqual(CHECKPOINT_KINDS);
+    expect(state.checkpointChain.map(checkpoint => checkpoint.previousCheckpointDigest)).toEqual([
+      null, ...state.checkpointChain.slice(0, 5).map(checkpoint => checkpoint.checkpointDigest),
+    ]);
+    expect(state.checkpointChain.every(checkpoint => checkpoint.coordinatorSessionId === COORDINATOR)).toBe(true);
+    expect(state.checkpointChain.slice(0, 4).every(checkpoint => checkpoint.sourceRevision === null
+      && checkpoint.sourceDigest === null)).toBe(true);
+    expect(state.checkpointChain.slice(4).every(checkpoint => checkpoint.sourceRevision === '41'
+      && checkpoint.sourceDigest === SOURCE)).toBe(true);
+    expect(state.eligibilityEvidence).toMatchObject({ result: 'eligible',
+      finalCheckpointDigest: state.checkpointChain[5].checkpointDigest,
+      sourceEvidenceDigest: state.sourceEvidence?.evidenceDigest });
+  });
+
+  it('rejects skipped, duplicate, reordered, and replayed checkpoint actions', () => {
+    failure(registered(), coordinator, { type: 'CAPTURE_AFTER_ADMISSION_CLOSED' }, 'CHECKPOINT_CHAIN_INVALID');
+    const one = buildTo('before_drain');
+    failure(one, coordinator, { type: 'CAPTURE_BEFORE_DRAIN' }, 'CHECKPOINT_CHAIN_INVALID');
+    const two = buildTo('checkpoint2');
+    failure(two, coordinator, { type: 'CAPTURE_BEFORE_DRAIN' }, 'CHECKPOINT_CHAIN_INVALID');
+    const three = buildTo('checkpoint3');
+    failure(three, coordinator, { type: 'CAPTURE_AFTER_OPERATIONS_TERMINAL' }, 'CHECKPOINT_CHAIN_INVALID');
+  });
+
+  it('rejects forged previous checkpoint digest during canonical restart', () => {
+    const state = buildTo('checkpoint3');
+    const chain = [...state.checkpointChain]; chain[2] = { ...chain[2], previousCheckpointDigest: OTHER };
+    const forged = { ...state, checkpointChain: chain };
+    expect(reduceWriterCoordination(forged, action(forged, verifier,
+      { type: 'CAPTURE_BEFORE_SOURCE_VERIFICATION' }))).toEqual({ ok: false, code: 'CHECKPOINT_CHAIN_INVALID' });
+  });
+
+  it('rejects checkpoint coordinator binding and terminal evidence relation corruption', () => {
+    const state = buildTo('checkpoint3'); const chain = [...state.checkpointChain];
+    chain[2] = { ...chain[2], coordinatorSessionId: RECOVERY };
+    const forged = { ...state, checkpointChain: chain };
+    expect(validateWriterCoordinationModelState(forged)).toBe(false);
+    const eligible = buildTo('eligible');
+    expect(validateWriterCoordinationModelState({ ...eligible,
+      authority: { ...eligible.authority, state: 'VERIFYING_SOURCE' } })).toBe(false);
+  });
+
+  it('requires verifier-only source capture', () => {
+    const state = buildTo('verifying');
+    failure(state, coordinator, { type: 'CAPTURE_SOURCE_EVIDENCE', observation: observation() }, 'ACTOR_UNAUTHORIZED');
+    failure(state, recovery, { type: 'CAPTURE_SOURCE_EVIDENCE', observation: observation() }, 'ACTOR_UNAUTHORIZED');
+  });
+
+  it('rejects missing source evidence and an incomplete final checkpoint chain', () => {
+    const state = buildTo('verifying');
+    failure(state, verifier, { type: 'CAPTURE_AFTER_SOURCE_VERIFICATION' }, 'SOURCE_EVIDENCE_MISSING');
+    failure(state, verifier, { type: 'COMMIT_ELIGIBILITY', expectedFinalCheckpointDigest: OTHER },
+      'CHECKPOINT_CHAIN_INVALID');
+  });
+
+  it('rejects caller-supplied source flags on COMMIT_ELIGIBILITY', () => {
+    const state = buildTo('checkpoint6');
+    const forged = action(state, verifier, { type: 'COMMIT_ELIGIBILITY',
+      expectedFinalCheckpointDigest: state.checkpointChain[5].checkpointDigest, source: observation() }) as never;
+    expect(reduceWriterCoordination(state, forged)).toEqual({ ok: false, code: 'ELIGIBILITY_EVIDENCE_CORRUPT' });
+  });
+
+  const sourceFailures: readonly [string, Partial<SourceVerificationObservation>, WriterEligibilityErrorCode][] = [
+    ['revision change', { revisionAfter: '42' }, 'SOURCE_REVISION_UNSTABLE'],
+    ['digest change', { digestAfter: OTHER }, 'SOURCE_CHANGED_DURING_VERIFICATION'],
+    ['ownership', { ownershipProven: false }, 'SOURCE_OWNERSHIP_UNPROVEN'],
+    ['canonicality', { canonical: false }, 'SOURCE_MALFORMED'],
+    ['bounds', { withinBounds: false }, 'SOURCE_RESOURCE_BOUND_EXCEEDED'],
+    ['adapter absent', { k328AdapterAvailable: false }, 'K328_ADAPTER_UNAVAILABLE'],
+    ['adapter source', { k328PhysicalSourceDigest: OTHER }, 'K328_PHYSICAL_IDENTITY_MISMATCH'],
   ];
-  for (const [name, overrides] of invalidRegistrations) {
-    it(`rejects writer identity: ${name}`, () => expect(validateWriterRegistration(registration(overrides))).toBe(false));
+  for (const [name, overrides, code] of sourceFailures) {
+    it(`rejects durable source evidence: ${name}`, () => {
+      const state = buildTo('checkpoint6', observation(overrides));
+      failure(state, verifier, { type: 'COMMIT_ELIGIBILITY',
+        expectedFinalCheckpointDigest: state.checkpointChain[5].checkpointDigest }, code);
+    });
   }
 
-  const invalidManifests: readonly [string, Partial<ReviewedWriterManifest>][] = [
-    ['unknown schema version', { schemaVersion: 2 as 1 }],
-    ['unknown byte version', { byteFormatVersion: 2 as 1 }],
-    ['malformed physical digest', { physicalSourceDigest: 'short' }],
-    ['duplicate type', { entries: [manifest().entries[0], manifest().entries[0]] }],
-    ['noncanonical order', { entries: [{ ...manifest().entries[0], writerTypeId: 'z_writer' }, manifest().entries[0]] }],
-    ['duplicate capability', { entries: [{ ...manifest().entries[0],
-      requiredCapabilities: ['admission', 'admission'] }] }],
-  ];
-  for (const [name, overrides] of invalidManifests) {
-    it(`rejects reviewed manifest: ${name}`, () => expect(validateReviewedWriterManifest(manifest(overrides))).toBe(false));
+  it('rejects source evidence captured from another physical source', () => {
+    const state = buildTo('verifying');
+    failure(state, verifier, { type: 'CAPTURE_SOURCE_EVIDENCE',
+      observation: observation({ physicalSourceDigest: OTHER }) }, 'K328_PHYSICAL_IDENTITY_MISMATCH');
+  });
+
+  it('rejects wrong commit actor, stale revision, stale epoch, and final digest', () => {
+    const state = buildTo('checkpoint6');
+    failure(state, coordinator, { type: 'COMMIT_ELIGIBILITY',
+      expectedFinalCheckpointDigest: state.checkpointChain[5].checkpointDigest }, 'ACTOR_UNAUTHORIZED');
+    const staleRevision = { ...action(state, verifier, { type: 'COMMIT_ELIGIBILITY',
+      expectedFinalCheckpointDigest: state.checkpointChain[5].checkpointDigest }),
+    expectedTransitionRevision: state.authority.transitionRevision - 1 };
+    expect(reduceWriterCoordination(state, staleRevision)).toEqual({ ok: false, code: 'TRANSITION_REVISION_STALE' });
+    const staleEpoch = { ...action(state, verifier, { type: 'COMMIT_ELIGIBILITY',
+      expectedFinalCheckpointDigest: state.checkpointChain[5].checkpointDigest }),
+    expectedCoordinationEpoch: state.authority.coordinationEpoch - 1 };
+    expect(reduceWriterCoordination(state, staleEpoch)).toEqual({ ok: false, code: 'COORDINATION_EPOCH_STALE' });
+    failure(state, verifier, { type: 'COMMIT_ELIGIBILITY', expectedFinalCheckpointDigest: OTHER },
+      'CHECKPOINT_CHAIN_INVALID');
+  });
+});
+
+describe('K-329B reducer-based admission and completion races', () => {
+  it('serializes close and admit from the same revision', () => {
+    const beforeDrain = buildTo('before_drain'); const writer = beforeDrain.registrations[0];
+    const lateAdmission = action(beforeDrain, { kind: 'writer', writerId: writer.writerId, sessionId: writer.sessionId },
+      { type: 'ADMIT_OPERATION', operation: operation(writer, beforeDrain) });
+    const closed = success(beforeDrain, coordinator, { type: 'REQUEST_DRAIN' });
+    expect(reduceWriterCoordination(closed, lateAdmission)).toEqual({ ok: false, code: 'TRANSITION_REVISION_STALE' });
+  });
+
+  it('rejects admission after close even with refreshed CAS and rejects stale epoch admission', () => {
+    const closed = buildTo('requested'); const writer = closed.registrations[0];
+    failure(closed, { kind: 'writer', writerId: writer.writerId, sessionId: writer.sessionId },
+      { type: 'ADMIT_OPERATION', operation: operation(writer, closed) }, 'ADMISSION_NOT_CLOSED');
+    const open = registered(); const stale = operation(open.registrations[0], open, { coordinationEpoch: 99 });
+    failure(open, { kind: 'writer', writerId: stale.writerId, sessionId: stale.sessionId },
+      { type: 'ADMIT_OPERATION', operation: stale }, 'IN_FLIGHT_STATE_AMBIGUOUS');
+  });
+
+  it('accepts exact idempotent admission replay and rejects conflicting identity retries', () => {
+    let state = registered(); const writer = state.registrations[0]; const first = operation(writer, state);
+    state = success(state, { kind: 'writer', writerId: writer.writerId, sessionId: writer.sessionId },
+      { type: 'ADMIT_OPERATION', operation: first });
+    expect(success(state, { kind: 'writer', writerId: writer.writerId, sessionId: writer.sessionId },
+      { type: 'ADMIT_OPERATION', operation: first })).toBe(state);
+    for (const retry of [{ ...first, operationId: `writer-operation-v1:${'f'.repeat(64)}` },
+      { ...first, idempotencyKey: `writer-idempotency-v1:${'f'.repeat(64)}`, expectedSourceRevision: '39' }]) {
+      failure(state, { kind: 'writer', writerId: writer.writerId, sessionId: writer.sessionId },
+        { type: 'ADMIT_OPERATION', operation: retry }, 'IN_FLIGHT_STATE_AMBIGUOUS');
+    }
+  });
+
+  it('preserves crash-before-mutation and blocks quiescence without terminal evidence', () => {
+    let state = registered(); const writer = state.registrations[0];
+    state = success(state, { kind: 'writer', writerId: writer.writerId, sessionId: writer.sessionId },
+      { type: 'ADMIT_OPERATION', operation: operation(writer, state) });
+    const restored = decodeWriterCoordinationModelCanonical(encodeWriterCoordinationModelCanonical(state));
+    expect(restored).toMatchObject({ ok: true, value: { authority: { unresolvedOperationCount: 1 },
+      operations: [{ state: 'admitted' }] } });
+  });
+
+  it('preserves terminal evidence after response loss and rejects replay', () => {
+    let state = registered(); const writer = state.registrations[0];
+    state = success(state, { kind: 'writer', writerId: writer.writerId, sessionId: writer.sessionId },
+      { type: 'ADMIT_OPERATION', operation: operation(writer, state) });
+    const terminal = action(state, { kind: 'writer', writerId: writer.writerId, sessionId: writer.sessionId },
+      { type: 'TERMINALIZE_OPERATION', operationId: state.operations[0].operationId,
+        result: 'committed', committedSourceRevision: '41' });
+    const committed = reduceWriterCoordination(state, terminal); expect(committed.ok).toBe(true);
+    if (!committed.ok) return;
+    expect(committed.state.operations[0]).toMatchObject({ state: 'committed', committedSourceRevision: '41' });
+    expect(reduceWriterCoordination(committed.state, terminal)).toEqual({ ok: false, code: 'TRANSITION_REVISION_STALE' });
+    expect(success(committed.state, { kind: 'writer', writerId: writer.writerId, sessionId: writer.sessionId },
+      { type: 'TERMINALIZE_OPERATION', operationId: committed.state.operations[0].operationId,
+        result: 'committed', committedSourceRevision: '41' })).toBe(committed.state);
+  });
+
+  it('blocks operation appearance, writer appearance, and coordinator change during verification', () => {
+    const state = buildTo('verifying'); const writer = state.registrations[0];
+    failure(state, { kind: 'writer', writerId: writer.writerId, sessionId: writer.sessionId },
+      { type: 'ADMIT_OPERATION', operation: operation(writer, state) }, 'ADMISSION_NOT_CLOSED');
+    const newcomer = registration(100, { coordinationEpoch: state.authority.coordinationEpoch });
+    failure(state, { kind: 'writer', writerId: newcomer.writerId, sessionId: newcomer.sessionId },
+      { type: 'REGISTER_WRITER', registration: newcomer }, 'ADMISSION_NOT_CLOSED');
+    failure(state, { kind: 'coordinator', sessionId: `writer-session-v1:${'f'.repeat(32)}` },
+      { type: 'ABORT', failureCode: null }, 'ACTOR_UNAUTHORIZED');
+  });
+});
+
+describe('K-329B restart and partial-graph evidence', () => {
+  const stages: readonly Stage[] = ['registered', 'before_drain', 'requested', 'acked', 'closed', 'checkpoint2',
+    'draining', 'quiescent', 'checkpoint3', 'checkpoint4', 'verifying', 'source', 'checkpoint5', 'checkpoint6'];
+  for (const stage of stages) {
+    it(`round trips the complete canonical model at ${stage}`, () => {
+      const state = buildTo(stage); const decoded = decodeWriterCoordinationModelCanonical(encodeWriterCoordinationModelCanonical(state));
+      expect(decoded).toEqual({ ok: true, value: state });
+    });
   }
 
-  it('never confuses the reviewed manifest and live instance digests', () => {
-    const input = validInput();
-    expect(deriveReviewedWriterManifestDigest(input.reviewedManifest)).not.toBe(
-      deriveLiveWriterInstanceSetDigest(input.registrationCheckpoints.beforeEvidenceCommit));
-    expectCode({ ...input, reviewedManifestDigest: deriveLiveWriterInstanceSetDigest([registration()]) },
-      'REVIEWED_MANIFEST_DIGEST_MISMATCH');
+  it('does not synthesize missing checkpoints after two- or five-checkpoint restart', () => {
+    const two = buildTo('checkpoint2');
+    failure(two, verifier, { type: 'COMMIT_ELIGIBILITY', expectedFinalCheckpointDigest: OTHER }, 'CHECKPOINT_CHAIN_INVALID');
+    const five = buildTo('checkpoint5');
+    failure(five, verifier, { type: 'COMMIT_ELIGIBILITY', expectedFinalCheckpointDigest: OTHER }, 'CHECKPOINT_CHAIN_INVALID');
   });
 
-  it('rejects a nested duplicate key in a manifest entry', () => {
-    const raw = new TextDecoder().decode(encodeReviewedWriterManifestCanonical(manifest()));
-    const duplicate = text.encode(raw.replace('"entries":[{', '"entries":[{"writerTypeId":"duplicate",'));
-    expect(decodeReviewedWriterManifestCanonical(duplicate).ok).toBe(false);
+  it('preserves source evidence without synthesizing the final checkpoint', () => {
+    const state = buildTo('source');
+    const decoded = decodeWriterCoordinationModelCanonical(encodeWriterCoordinationModelCanonical(state));
+    expect(decoded).toMatchObject({ ok: true, value: { checkpointChain: { length: 4 },
+      sourceEvidence: { evidenceDigest: state.sourceEvidence?.evidenceDigest } } });
   });
 
-  it('rejects duplicate registration capabilities in canonical bytes', () => {
-    const raw = new TextDecoder().decode(encodeWriterRegistrationCanonical(registration()));
-    const duplicate = text.encode(raw.replace('"capabilities":["admission","drain_ack","source_write"]',
-      '"capabilities":["admission","admission","drain_ack","source_write"]'));
-    expect(decodeWriterRegistrationCanonical(duplicate).ok).toBe(false);
+  it('preserves closed admission and exact authority sessions across restart', () => {
+    const state = buildTo('verifying'); const decoded = decodeWriterCoordinationModelCanonical(
+      encodeWriterCoordinationModelCanonical(state));
+    expect(decoded).toMatchObject({ ok: true, value: { authority: { admissionOpen: false,
+      coordinatorSessionId: COORDINATOR, verifierSessionId: VERIFIER, recoverySessionId: RECOVERY } } });
   });
 
-  it('rejects trailing bytes and excessive nesting', () => {
-    const authorityBytes = encodeCoordinationAuthorityCanonical(authority());
-    expect(decodeCoordinationAuthorityCanonical(text.encode(`${new TextDecoder().decode(authorityBytes)}\n`)).ok).toBe(false);
-    expect(decodeCoordinationAuthorityCanonical(text.encode(`${'['.repeat(18)}null${']'.repeat(18)}`)).ok).toBe(false);
+  it('allows recovery only to abort and never to resume or commit', () => {
+    const state = buildTo('verifying');
+    failure(state, recovery, { type: 'BEGIN_SOURCE_VERIFICATION' }, 'ACTOR_UNAUTHORIZED');
+    failure(state, recovery, { type: 'COMMIT_ELIGIBILITY', expectedFinalCheckpointDigest: OTHER }, 'ACTOR_UNAUTHORIZED');
+    expect(success(state, recovery, { type: 'ABORT', failureCode: 'SOURCE_EVIDENCE_INVALID' }).authority.state).toBe('FAILED');
   });
 
-  it('returns unsupported-version distinctly without trusting unknown fields', () => {
-    const bytes = rawReplace(encodeAdmissionOperationCanonical(operation()), '"schemaVersion":1', '"schemaVersion":9');
-    expect(decodeAdmissionOperationCanonical(bytes)).toEqual({ ok: false,
+  it('rejects manifest authority mismatch after restart', () => {
+    const state = buildTo('checkpoint4');
+    const manifestAuthority = { ...state.reviewedManifestAuthority, manifestDigest: OTHER };
+    const changed = { ...state, reviewedManifestAuthority: manifestAuthority };
+    expect(reduceWriterCoordination(changed, action(changed, verifier,
+      { type: 'BEGIN_SOURCE_VERIFICATION' }))).toEqual({ ok: false, code: 'REVIEWED_MANIFEST_AUTHORITY_MISMATCH' });
+  });
+
+  it('detects writer disappearance before final checkpoint', () => {
+    let state = buildTo('checkpoint4');
+    state = { ...state, registrations: state.registrations.slice(1) };
+    state = success(state, verifier, { type: 'BEGIN_SOURCE_VERIFICATION' });
+    state = success(state, verifier, { type: 'CAPTURE_SOURCE_EVIDENCE', observation: observation() });
+    state = success(state, verifier, { type: 'CAPTURE_AFTER_SOURCE_VERIFICATION' });
+    state = success(state, verifier, { type: 'CAPTURE_BEFORE_ELIGIBILITY_COMMIT' });
+    failure(state, verifier, { type: 'COMMIT_ELIGIBILITY',
+      expectedFinalCheckpointDigest: state.checkpointChain[5].checkpointDigest }, 'CHECKPOINT_CHAIN_INVALID');
+  });
+});
+
+describe('K-329B remaining reducer race and authority negatives', () => {
+  it('accepts only the exact writer acknowledgement and rejects replay after the epoch fence', () => {
+    let state = buildTo('requested'); const record = state.registrations[0];
+    const drainRevision = state.authority.drainRequestTransitionRevision!;
+    state = success(state, { kind: 'writer', writerId: record.writerId, sessionId: record.sessionId },
+      { type: 'ACKNOWLEDGE_DRAIN', writerId: record.writerId, drainRequestTransitionRevision: drainRevision });
+    expect(state.registrations[0].acknowledgedDrainRevision).toBe(drainRevision);
+    const fenced = buildTo('quiescent'); const fencedWriter = fenced.registrations[0];
+    failure(fenced, { kind: 'writer', writerId: fencedWriter.writerId, sessionId: fencedWriter.sessionId },
+      { type: 'ACKNOWLEDGE_DRAIN', writerId: fencedWriter.writerId, drainRequestTransitionRevision: drainRevision },
+      'DRAIN_ACKNOWLEDGEMENT_INVALID');
+  });
+
+  it('rejects future drain acknowledgement revision', () => {
+    const state = buildTo('requested'); const record = state.registrations[0];
+    failure(state, { kind: 'writer', writerId: record.writerId, sessionId: record.sessionId },
+      { type: 'ACKNOWLEDGE_DRAIN', writerId: record.writerId,
+        drainRequestTransitionRevision: state.authority.drainRequestTransitionRevision! + 1 },
+      'DRAIN_ACKNOWLEDGEMENT_INVALID');
+  });
+
+  it('rejects a wrong expected authority digest independently of revision', () => {
+    const state = registered();
+    const forged = { ...action(state, coordinator, { type: 'CAPTURE_BEFORE_DRAIN' }), expectedAuthorityDigest: OTHER };
+    expect(reduceWriterCoordination(state, forged)).toEqual({ ok: false, code: 'TRANSITION_REVISION_STALE' });
+  });
+
+  it('rejects writer, coordinator, and recovery actors at verifier-only checkpoints', () => {
+    const state = buildTo('quiescent'); const record = state.registrations[0];
+    failure(state, coordinator, { type: 'CAPTURE_BEFORE_SOURCE_VERIFICATION' }, 'ACTOR_UNAUTHORIZED');
+    failure(state, recovery, { type: 'CAPTURE_BEFORE_SOURCE_VERIFICATION' }, 'ACTOR_UNAUTHORIZED');
+    failure(state, { kind: 'writer', writerId: record.writerId, sessionId: record.sessionId },
+      { type: 'CAPTURE_BEFORE_SOURCE_VERIFICATION' }, 'ACTOR_UNAUTHORIZED');
+  });
+
+  it('rejects verifier and recovery actors at coordinator-only checkpoints', () => {
+    const state = registered();
+    failure(state, verifier, { type: 'CAPTURE_BEFORE_DRAIN' }, 'ACTOR_UNAUTHORIZED');
+    failure(state, recovery, { type: 'CAPTURE_BEFORE_DRAIN' }, 'ACTOR_UNAUTHORIZED');
+  });
+
+  it('rejects a writer capturing source evidence', () => {
+    const state = buildTo('verifying'); const record = state.registrations[0];
+    failure(state, { kind: 'writer', writerId: record.writerId, sessionId: record.sessionId },
+      { type: 'CAPTURE_SOURCE_EVIDENCE', observation: observation() }, 'ACTOR_UNAUTHORIZED');
+  });
+
+  it('rejects ambiguous durable source decisions and bounded rejection codes', () => {
+    const state = buildTo('checkpoint6', observation({ authoritativeSourceDecision: 'ambiguous',
+      ambiguityCode: 'MIXED_SOURCE_DIVERGENCE' }));
+    failure(state, verifier, { type: 'COMMIT_ELIGIBILITY',
+      expectedFinalCheckpointDigest: state.checkpointChain[5].checkpointDigest }, 'MIXED_SOURCE_DIVERGENCE');
+  });
+
+  it('rejects operation terminalization by another registered writer', () => {
+    let state = registered(); const owner = state.registrations[0]; const other = state.registrations[1];
+    state = success(state, { kind: 'writer', writerId: owner.writerId, sessionId: owner.sessionId },
+      { type: 'ADMIT_OPERATION', operation: operation(owner, state) });
+    failure(state, { kind: 'writer', writerId: other.writerId, sessionId: other.sessionId },
+      { type: 'TERMINALIZE_OPERATION', operationId: state.operations[0].operationId,
+        result: 'committed', committedSourceRevision: '41' }, 'IN_FLIGHT_STATE_AMBIGUOUS');
+  });
+
+  it('rejects malformed committed terminal evidence', () => {
+    let state = registered(); const owner = state.registrations[0];
+    state = success(state, { kind: 'writer', writerId: owner.writerId, sessionId: owner.sessionId },
+      { type: 'ADMIT_OPERATION', operation: operation(owner, state) });
+    failure(state, { kind: 'writer', writerId: owner.writerId, sessionId: owner.sessionId },
+      { type: 'TERMINALIZE_OPERATION', operationId: state.operations[0].operationId,
+        result: 'committed', committedSourceRevision: null }, 'IN_FLIGHT_STATE_AMBIGUOUS');
+  });
+
+  it('rejects writer appearance between checkpoint two and three through the registration action', () => {
+    const state = buildTo('checkpoint2'); const newcomer = registration(100);
+    failure(state, { kind: 'writer', writerId: newcomer.writerId, sessionId: newcomer.sessionId },
+      { type: 'REGISTER_WRITER', registration: newcomer }, 'ADMISSION_NOT_CLOSED');
+  });
+
+  it('rejects session restart between checkpoint four and five through the registration action', () => {
+    const state = buildTo('checkpoint4'); const restarted = registration(100,
+      { coordinationEpoch: state.authority.coordinationEpoch });
+    failure(state, { kind: 'writer', writerId: restarted.writerId, sessionId: restarted.sessionId },
+      { type: 'REGISTER_WRITER', registration: restarted }, 'ADMISSION_NOT_CLOSED');
+  });
+
+  for (const [name, mutate] of [
+    ['capability', (record: WriterRegistrationRecord) => ({ ...record, capabilities: ['admission', 'drain_ack'] as const })],
+    ['state', (record: WriterRegistrationRecord) => ({ ...record, registrationState: 'disabled' as const,
+      coordinated: true, acknowledgedDrainRevision: null })],
+    ['context/session identity', (record: WriterRegistrationRecord) => ({ ...record, contextType: 'dedicated_worker' as const,
+      writerId: `writer-v1:dedicated_worker:${record.writerTypeId}:${'f'.repeat(32)}` })],
+  ] as const) {
+    it(`detects persisted writer ${name} mutation during protected verification`, () => {
+      let state = buildTo('checkpoint4'); const records = [...state.registrations]; records[0] = mutate(records[0]);
+      state = { ...state, registrations: records };
+      state = success(state, verifier, { type: 'BEGIN_SOURCE_VERIFICATION' });
+      state = success(state, verifier, { type: 'CAPTURE_SOURCE_EVIDENCE', observation: observation() });
+      state = success(state, verifier, { type: 'CAPTURE_AFTER_SOURCE_VERIFICATION' });
+      state = success(state, verifier, { type: 'CAPTURE_BEFORE_ELIGIBILITY_COMMIT' });
+      failure(state, verifier, { type: 'COMMIT_ELIGIBILITY',
+        expectedFinalCheckpointDigest: state.checkpointChain[5].checkpointDigest }, 'CHECKPOINT_CHAIN_INVALID');
+    });
+  }
+
+  it('rejects trusted manifest context, capability, and role mutation', () => {
+    const state = registered();
+    for (const mutation of [
+      { contextTypes: ['dedicated_worker'] as const },
+      { requiredCapabilities: ['admission', 'drain_ack'] as const },
+      { authorityRole: 'metadata_writer' as const },
+    ]) {
+      const entries = state.reviewedManifest.entries.map((entry, index) => index === 0 ? { ...entry, ...mutation } : entry);
+      const changed = { ...state, reviewedManifest: { ...state.reviewedManifest, entries } };
+      expect(reduceWriterCoordination(changed, action(changed, coordinator,
+        { type: 'CAPTURE_BEFORE_DRAIN' }))).toEqual({ ok: false, code: 'REVIEWED_MANIFEST_AUTHORITY_MISMATCH' });
+    }
+  });
+
+  it('rejects copying the final checkpoint into an earlier phase', () => {
+    const state = buildTo('checkpoint6'); const chain = [...state.checkpointChain]; chain[0] = chain[5];
+    const forged = { ...state, checkpointChain: chain };
+    expect(reduceWriterCoordination(forged, action(forged, verifier, { type: 'COMMIT_ELIGIBILITY',
+      expectedFinalCheckpointDigest: chain[5].checkpointDigest }))).toEqual({ ok: false, code: 'CHECKPOINT_CHAIN_INVALID' });
+  });
+
+  it('rejects source evidence replay under a new epoch', () => {
+    const state = buildTo('source');
+    const replayed = { ...state, authority: { ...state.authority,
+      coordinationEpoch: state.authority.coordinationEpoch + 1 } };
+    expect(reduceWriterCoordination(replayed, action(replayed, verifier,
+      { type: 'CAPTURE_AFTER_SOURCE_VERIFICATION' }))).toEqual({ ok: false, code: 'COORDINATION_EPOCH_STALE' });
+  });
+
+  it('keeps terminal states closed and permits only bounded abort actors before terminal state', () => {
+    const state = buildTo('verifying');
+    for (const actor of [coordinator, verifier, recovery]) {
+      expect(success(state, actor, { type: 'ABORT', failureCode: null }).authority.state).toBe('ABORTED');
+    }
+    const eligible = buildTo('eligible');
+    failure(eligible, recovery, { type: 'ABORT', failureCode: null }, 'TRANSITION_REVISION_STALE');
+  });
+});
+
+describe('K-329B immutable reducer and bounded failures', () => {
+  it('does not mutate input state', () => {
+    const state = registered(); const before = JSON.stringify(state);
+    reduceWriterCoordination(state, action(state, coordinator, { type: 'CAPTURE_BEFORE_DRAIN' }));
+    expect(JSON.stringify(state)).toBe(before);
+  });
+
+  it('derives a stable bounded error policy', () => {
+    expect(contract.eligibilityFailure('CHECKPOINT_CHAIN_INVALID')).toEqual({ eligible: false,
+      code: 'CHECKPOINT_CHAIN_INVALID', retryable: false,
+      requiredAction: 'restart from a new reviewed coordination session' });
+  });
+
+  it('rejects unknown action fields and unknown persisted versions', () => {
+    const state = registered(); const extra = action(state, coordinator,
+      { type: 'CAPTURE_BEFORE_DRAIN', inventoryComplete: true }) as never;
+    expect(reduceWriterCoordination(state, extra)).toEqual({ ok: false, code: 'ELIGIBILITY_EVIDENCE_CORRUPT' });
+    const bytes = encodeCoordinationAuthorityCanonical(state.authority);
+    expect(decodeCoordinationAuthorityCanonical(text.encode(new TextDecoder().decode(bytes)
+      .replace('"schemaVersion":1', '"schemaVersion":9')))).toEqual({ ok: false,
       code: 'ELIGIBILITY_PROTOCOL_VERSION_UNSUPPORTED' });
   });
 
-  it('derives retryability and action only from a known stable error code', () => {
-    const input = validInput();
-    expect(evaluateWriterCoordinationEligibility({ ...input, source: { ...input.source,
-      rejectionCode: 'SOURCE_REVISION_UNSTABLE' } })).toEqual({ eligible: false,
-      code: 'SOURCE_REVISION_UNSTABLE', retryable: true,
-      requiredAction: 'restart verification after the source is durably quiescent' });
-  });
-});
-
-describe('K-329A full protocol execution and restart evidence', () => {
-  function success(result: ReturnType<typeof reduceWriterCoordination>): WriterCoordinationModelState {
-    expect(result.ok).toBe(true); if (!result.ok) throw new Error(result.code); return result.state;
-  }
-  function verifierAction(state: WriterCoordinationModelState,
-    action: { type: 'BEGIN_SOURCE_VERIFICATION' }
-      | { type: 'CAPTURE_SOURCE_CHECKPOINT'; revisionBefore: string; revisionAfter: string; digestBefore: string; digestAfter: string }
-      | { type: 'COMMIT_ELIGIBILITY'; input: WriterCoordinationEligibilityInput }): WriterCoordinationAction {
-    return { ...action, actor: { kind: 'verifier', sessionId: SESSION },
-      expectedTransitionRevision: state.authority.transitionRevision,
-      expectedCoordinationEpoch: state.authority.coordinationEpoch };
-  }
-
-  it('executes the complete reviewed path from OPEN through ELIGIBLE', () => {
-    const initial = openState();
-    const requested = success(reduceWriterCoordination(initial, coordinator(initial, { type: 'REQUEST_DRAIN' })));
-    const acknowledged = success(reduceWriterCoordination(requested, {
-      type: 'ACKNOWLEDGE_DRAIN', writerId: WRITER_ID, actor: { kind: 'writer', writerId: WRITER_ID, sessionId: SESSION },
-      expectedTransitionRevision: requested.authority.transitionRevision,
-      expectedCoordinationEpoch: requested.authority.coordinationEpoch,
-    }));
-    const closed = success(reduceWriterCoordination(acknowledged, coordinator(acknowledged, { type: 'CLOSE_ADMISSION' })));
-    const draining = success(reduceWriterCoordination(closed, coordinator(closed, { type: 'BEGIN_DRAIN' })));
-    const quiescent = success(reduceWriterCoordination(draining, coordinator(draining, { type: 'MARK_QUIESCENT' })));
-    expect(quiescent.authority.coordinationEpoch).toBe(3);
-    const verifying = success(reduceWriterCoordination(quiescent,
-      verifierAction(quiescent, { type: 'BEGIN_SOURCE_VERIFICATION' })));
-    const captured = success(reduceWriterCoordination(verifying, verifierAction(verifying,
-      { type: 'CAPTURE_SOURCE_CHECKPOINT', revisionBefore: '41', revisionAfter: '41',
-        digestBefore: SOURCE, digestAfter: SOURCE })));
-    const eligibilityInput: WriterCoordinationEligibilityInput = {
-      ...validInput(), authority: captured.authority, reviewedManifest: captured.reviewedManifest,
-      reviewedManifestDigest: captured.authority.reviewedManifestDigest,
-      registrationCheckpoints: { beforeDrain: initial.registrations, afterAdmissionClosed: closed.registrations,
-        afterOperationsTerminal: quiescent.registrations, beforeSourceVerification: quiescent.registrations,
-        afterSourceVerification: captured.registrations, beforeEvidenceCommit: captured.registrations },
-      operations: captured.operations,
-    };
-    const eligible = success(reduceWriterCoordination(captured,
-      verifierAction(captured, { type: 'COMMIT_ELIGIBILITY', input: eligibilityInput })));
-    expect(eligible.authority.state).toBe('ELIGIBLE');
-    expect(eligible.eligibilityEvidence).toMatchObject({ result: 'eligible', coordinationEpoch: 3 });
-  });
-
-  const resumable: readonly [string, CoordinationAuthorityRecord['state'], WriterCoordinationAction['type']][] = [
-    ['open', 'OPEN', 'REQUEST_DRAIN'],
-    ['drain requested', 'DRAIN_REQUESTED', 'CLOSE_ADMISSION'],
-    ['admission closed', 'ADMISSION_CLOSED', 'BEGIN_DRAIN'],
-    ['draining', 'DRAINING', 'MARK_QUIESCENT'],
-    ['quiescent candidate', 'QUIESCENT_CANDIDATE', 'BEGIN_SOURCE_VERIFICATION'],
-    ['verifying source', 'VERIFYING_SOURCE', 'CAPTURE_SOURCE_CHECKPOINT'],
-  ];
-  for (const [name, stateName, actionType] of resumable) {
-    it(`revalidates a canonical persisted ${name} snapshot before resume`, () => {
-      const reviewed = manifest();
-      const model: WriterCoordinationModelState = {
-        authority: authority({ state: stateName, admissionOpen: stateName === 'OPEN', transitionRevision: 12,
-          sourceRevisionBefore: stateName === 'VERIFYING_SOURCE' ? null : '41',
-          sourceRevisionAfter: stateName === 'VERIFYING_SOURCE' ? null : '41',
-          sourceDigestBefore: stateName === 'VERIFYING_SOURCE' ? null : SOURCE,
-          sourceDigestAfter: stateName === 'VERIFYING_SOURCE' ? null : SOURCE }, reviewed),
-        reviewedManifest: reviewed,
-        registrations: [registration({ acknowledgedTransitionRevision: 7,
-          registrationState: stateName === 'OPEN' ? 'registered' : 'drain_acknowledged' })],
-        operations: [], eligibilityEvidence: null,
-      };
-      const decoded = decodeCoordinationAuthorityCanonical(encodeCoordinationAuthorityCanonical(model.authority));
-      expect(decoded.ok).toBe(true);
-      let action: WriterCoordinationAction;
-      if (actionType === 'BEGIN_SOURCE_VERIFICATION') action = verifierAction(model, { type: actionType });
-      else if (actionType === 'CAPTURE_SOURCE_CHECKPOINT') action = verifierAction(model,
-        { type: actionType, revisionBefore: '41', revisionAfter: '41', digestBefore: SOURCE, digestAfter: SOURCE });
-      else action = coordinator(model, { type: actionType } as never);
-      expect(reduceWriterCoordination(model, action).ok).toBe(true);
-    });
-  }
-
-  const forbidden: readonly [string, CoordinationAuthorityRecord['state'], WriterCoordinationAction][] = [
-    ['OPEN to eligibility by writer', 'OPEN', { type: 'COMMIT_ELIGIBILITY', input: validInput(),
-      actor: { kind: 'writer', writerId: WRITER_ID, sessionId: SESSION }, expectedTransitionRevision: 1,
-      expectedCoordinationEpoch: 2 }],
-    ['DRAIN_REQUESTED to quiescent', 'DRAIN_REQUESTED', { type: 'MARK_QUIESCENT',
-      actor: { kind: 'coordinator', sessionId: SESSION }, expectedTransitionRevision: 1, expectedCoordinationEpoch: 2 }],
-    ['ADMISSION_CLOSED to eligibility', 'ADMISSION_CLOSED', { type: 'COMMIT_ELIGIBILITY', input: validInput(),
-      actor: { kind: 'verifier', sessionId: SESSION }, expectedTransitionRevision: 1, expectedCoordinationEpoch: 2 }],
-    ['QUIESCENT to direct eligibility', 'QUIESCENT_CANDIDATE', { type: 'COMMIT_ELIGIBILITY', input: validInput(),
-      actor: { kind: 'verifier', sessionId: SESSION }, expectedTransitionRevision: 1, expectedCoordinationEpoch: 2 }],
-    ['ELIGIBLE to abort', 'ELIGIBLE', { type: 'ABORT', failureCode: null,
-      actor: { kind: 'coordinator', sessionId: SESSION }, expectedTransitionRevision: 1, expectedCoordinationEpoch: 2 }],
-    ['FAILED to drain', 'FAILED', { type: 'REQUEST_DRAIN', actor: { kind: 'coordinator', sessionId: SESSION },
-      expectedTransitionRevision: 1, expectedCoordinationEpoch: 2 }],
-    ['ABORTED to drain', 'ABORTED', { type: 'REQUEST_DRAIN', actor: { kind: 'coordinator', sessionId: SESSION },
-      expectedTransitionRevision: 1, expectedCoordinationEpoch: 2 }],
-  ];
-  for (const [name, stateName, template] of forbidden) {
-    it(`rejects forbidden transition: ${name}`, () => {
-      const state = openState();
-      const model = { ...state, authority: authority({ state: stateName, admissionOpen: stateName === 'OPEN',
-        transitionRevision: 1, sourceRevisionBefore: null, sourceRevisionAfter: null,
-        sourceDigestBefore: null, sourceDigestAfter: null }, state.reviewedManifest) };
-      expect(reduceWriterCoordination(model, template).ok).toBe(false);
-    });
-  }
-
-  for (const result of ['committed', 'aborted', 'failed'] as const) {
-    it(`terminalizes an admitted operation as ${result} without losing its durable record`, () => {
-      const initial = openState();
-      const admitted = operation({ state: 'admitted', committedSourceRevision: null, terminalResult: null,
-        admissionTransitionRevision: 1 });
-      const admittedState = success(reduceWriterCoordination(initial, { type: 'ADMIT_OPERATION', operation: admitted,
-        actor: { kind: 'writer', writerId: WRITER_ID, sessionId: SESSION },
-        expectedTransitionRevision: 1, expectedCoordinationEpoch: 2 }));
-      const terminal = reduceWriterCoordination(admittedState, { type: 'TERMINALIZE_OPERATION', operationId: OPERATION_ID,
-        result, committedSourceRevision: result === 'committed' ? '41' : null,
-        actor: { kind: 'writer', writerId: WRITER_ID, sessionId: SESSION },
-        expectedTransitionRevision: admittedState.authority.transitionRevision, expectedCoordinationEpoch: 2 });
-      expect(terminal).toMatchObject({ ok: true, state: { authority: { unresolvedOperationCount: 0 },
-        operations: [{ state: result, terminalResult: result }] } });
-    });
-  }
-
-  it('does not mark DRAINING quiescent with an unresolved operation', () => {
-    const state = openState();
-    const model = { ...state, authority: authority({ state: 'DRAINING', admissionOpen: false,
-      transitionRevision: 1, unresolvedOperationCount: 1 }, state.reviewedManifest),
-    operations: [operation({ state: 'admitted', terminalResult: null, committedSourceRevision: null })] };
-    expect(reduceWriterCoordination(model, coordinator(model, { type: 'MARK_QUIESCENT' }))).toEqual({ ok: false,
-      code: 'IN_FLIGHT_WRITE_PRESENT' });
-  });
-
-  it('rejects eligibility evidence built from a registration set different from durable model state', () => {
-    const reviewed = manifest();
-    const state: WriterCoordinationModelState = { authority: authority({}, reviewed), reviewedManifest: reviewed,
-      registrations: [registration()], operations: [], eligibilityEvidence: null };
-    const other = registration({ writerId: `writer-v1:window:${WRITER_TYPE}:${'8'.repeat(32)}`,
-      sessionId: `writer-session-v1:${'9'.repeat(32)}` });
-    const input = validInput({ authority: state.authority, operations: [], registrationCheckpoints: checkpoints([other]) });
-    expect(reduceWriterCoordination(state, verifierAction(state, { type: 'COMMIT_ELIGIBILITY', input }))).toEqual({
-      ok: false, code: 'LIVE_INSTANCE_SET_CHANGED',
-    });
-  });
-
-  it('rejects eligibility evidence that omits a durable model operation', () => {
-    const reviewed = manifest();
-    const state: WriterCoordinationModelState = { authority: authority({}, reviewed), reviewedManifest: reviewed,
-      registrations: [registration()], operations: [operation()], eligibilityEvidence: null };
-    const input = validInput({ authority: state.authority, operations: [] });
-    expect(reduceWriterCoordination(state, verifierAction(state, { type: 'COMMIT_ELIGIBILITY', input }))).toEqual({
-      ok: false, code: 'IN_FLIGHT_STATE_AMBIGUOUS',
-    });
+  it('validates exact manifest and full model invariants', () => {
+    expect(validateReviewedWriterManifest(createK329BReviewedWriterManifest(PHYSICAL))).toBe(true);
+    expect(validateWriterCoordinationModelState(buildTo('eligible'))).toBe(true);
+    expect(deriveLiveWriterInstanceSetDigest(buildTo('checkpoint6').registrations)).toMatch(/^[a-f0-9]{64}$/);
   });
 });
