@@ -934,6 +934,38 @@ describe('K-329C source and eligibility lifecycle relations', () => {
     }, 'SOURCE_EVIDENCE_CHECKPOINT_MISMATCH');
   });
 
+  it('rejects canonical restart state whose source evidence carries a different K-328 physical source binding', () => {
+    const original = buildTo('checkpoint6');
+    expect(validateWriterCoordinationModelState(original)).toBe(true);
+    expect(decodeWriterCoordinationModelCanonical(encodeWriterCoordinationModelCanonical(original)).ok).toBe(true);
+
+    const forged = cloneModel(original);
+    replaceSourceEvidence(forged, { k328PhysicalSourceDigest: OTHER });
+    expect(decodeSourceVerificationEvidenceCanonical(
+      encodeSourceVerificationEvidenceCanonical(forged.sourceEvidence!),
+    )).toMatchObject({ ok: true });
+
+    const chain = [...forged.checkpointChain];
+    const { checkpointDigest: _checkpointFiveDigest, ...checkpointFiveContent } = {
+      ...chain[4], sourceEvidenceDigest: forged.sourceEvidence!.evidenceDigest };
+    chain[4] = { ...checkpointFiveContent,
+      checkpointDigest: deriveRegistrationCheckpointDigest(checkpointFiveContent) };
+    const { checkpointDigest: _checkpointSixDigest, ...checkpointSixContent } = {
+      ...chain[5], previousCheckpointDigest: chain[4].checkpointDigest,
+      sourceEvidenceDigest: forged.sourceEvidence!.evidenceDigest };
+    chain[5] = { ...checkpointSixContent,
+      checkpointDigest: deriveRegistrationCheckpointDigest(checkpointSixContent) };
+    forged.checkpointChain = chain;
+
+    expect(validateWriterCoordinationModelState(forged)).toBe(false);
+    expect(validateWriterCoordinationModelRelations(forged)).toBe('SOURCE_EVIDENCE_CHECKPOINT_MISMATCH');
+    expect(decodeWriterCoordinationModelCanonical(text.encode(JSON.stringify(forged)))).toEqual({ ok: false,
+      code: 'ELIGIBILITY_EVIDENCE_CORRUPT' });
+    expect(reduceWriterCoordination(forged, action(forged, verifier, { type: 'COMMIT_ELIGIBILITY',
+      expectedFinalCheckpointDigest: forged.checkpointChain[5].checkpointDigest }))).toEqual({ ok: false,
+      code: 'SOURCE_EVIDENCE_CHECKPOINT_MISMATCH' });
+  });
+
   it.each([
     ['stale final checkpoint', (state: WriterCoordinationModelState) => {
       state.eligibilityEvidence = { ...state.eligibilityEvidence!, finalCheckpointDigest: OTHER };
@@ -946,6 +978,25 @@ describe('K-329C source and eligibility lifecycle relations', () => {
     }],
   ] as const)('rejects eligibility restart tamper: %s', (_name, mutate) => {
     expectRestartRejected(buildTo('eligible'), mutate, 'ELIGIBILITY_EVIDENCE_RELATION_MISMATCH');
+  });
+
+  it('rejects canonical restart state whose eligibility evidence carries a different K-328 physical source binding', () => {
+    const original = buildTo('eligible');
+    expect(validateWriterCoordinationModelState(original)).toBe(true);
+    expect(decodeWriterCoordinationModelCanonical(encodeWriterCoordinationModelCanonical(original)).ok).toBe(true);
+
+    const forged = cloneModel(original);
+    forged.eligibilityEvidence = { ...forged.eligibilityEvidence!, k328PhysicalSourceDigest: OTHER };
+    expect(decodeEligibilityEvidenceCanonical(
+      encodeEligibilityEvidenceCanonical(forged.eligibilityEvidence),
+    )).toMatchObject({ ok: true });
+    expect(validateWriterCoordinationModelState(forged)).toBe(false);
+    expect(validateWriterCoordinationModelRelations(forged)).toBe('ELIGIBILITY_EVIDENCE_RELATION_MISMATCH');
+    expect(decodeWriterCoordinationModelCanonical(text.encode(JSON.stringify(forged)))).toEqual({ ok: false,
+      code: 'ELIGIBILITY_EVIDENCE_CORRUPT' });
+    expect(reduceWriterCoordination(forged, action(forged, verifier, { type: 'COMMIT_ELIGIBILITY',
+      expectedFinalCheckpointDigest: forged.checkpointChain[5].checkpointDigest }))).toEqual({ ok: false,
+      code: 'ELIGIBILITY_EVIDENCE_RELATION_MISMATCH' });
   });
 });
 

@@ -201,7 +201,7 @@ The successful evidence binds all current-graph digests/counts, exact K-328 phys
 
 Tests restore canonical full-model bytes for `OPEN`, `DRAIN_REQUESTED`, `ADMISSION_CLOSED`, `DRAINING`, `QUIESCENT_CANDIDATE`, and `VERIFYING_SOURCE`, plus partial checkpoint/source-capture stages, unresolved operations, missing acknowledgements, and manifest-authority mismatch. Restart preserves closed admission, epochs, operations, registrations, checkpoint chain, source evidence, and authority; it does not synthesize or repair evidence. Canonically encoded tampering of writer identity/session/capabilities/lifecycle/acknowledgement, operation ownership/state/idempotency/source commit, source predecessor/revision/epoch/verifier/source, or eligibility bindings is rejected before decode returns.
 
-All race evidence is reducer-driven. Tests cover close/admit on shared revisions, token use after close, stale epochs, duplicate/conflicting idempotency, crash before mutation, response loss after terminalization, missing terminal evidence, same-type new tabs, session restart/disappearance, capability/context/state mutation, writer insertion/restart/removal between checkpoints, source revision/digest changes, wrong actors/sources/epochs/K-328 bindings, partial chains, copied snapshots, stale CAS, unresolved operations, and arbitrary/forged manifests. No standalone boolean or string scheduler grants eligibility.
+All race evidence is reducer-driven. Tests cover close/admit on shared revisions, token use after close, stale epochs, duplicate/conflicting idempotency, crash before mutation, response loss after terminalization, missing terminal evidence, same-type new tabs, session restart/disappearance, capability/context/state mutation, writer insertion/restart/removal between checkpoints, source revision/digest changes, wrong actors/sources/epochs/K-328 bindings, partial chains, copied snapshots, stale CAS, unresolved operations, and arbitrary/forged manifests. Canonical restart tests explicitly alter both `sourceEvidence.k328PhysicalSourceDigest` and `eligibilityEvidence.k328PhysicalSourceDigest`: each individual record remains canonically encodable, while whole-model relation validation and decode reject the inconsistent physical-source binding without repair. No standalone boolean or string scheduler grants eligibility.
 
 ## Atomicity and current blockers
 
@@ -225,18 +225,22 @@ The permanent suite covers authority substitution, canonical codecs, lifecycle, 
 
 `K329C_REMAINS_PURE_MODEL_TEST_AND_DOCUMENTATION_ONLY`
 
-Validation on the K-329C working tree before commit:
+Validation on the K-329D working tree before commit:
 
 | Command | Result |
 |---|---|
-| `npm test -- --run src/lib/localDatabase/writerCoordinationEligibility` | 120 passed; 7.16 s |
-| `npm test -- --run src/lib/localDatabase/crossContextHandoff` | 73 passed across 2 files; 0.79 s |
-| `npm test -- --run src/lib/localDatabase/crossContextSourceHandoffSpike.test.ts` | 391 passed; 2.00 s |
-| `npm test -- --run src/lib/localDatabase/localFirstCutover.test.ts` | 77 passed; 2.52 s |
-| `npm test -- --run src/lib/localDatabase/legacyNotesMigration.test.ts` | 150 passed; 1.61 s |
-| `npm test -- --run src/lib/localDatabase/` | 1,099 passed across 12 files; 9.86 s |
-| `npm test -- --run src/lib/recovery` | 70 passed across 2 files; 14.12 s |
-| `npm run typecheck` | passed; 26.4 s |
-| `npm run build` | passed; 14.51 s; existing mixed dynamic/static import and chunk-size warnings only |
+| `npm test -- --run src/lib/localDatabase/writerCoordinationEligibility` | 122 passed; 7.27 s |
+| `npm test -- --run src/lib/localDatabase/crossContextHandoff` | 73 passed across 2 files; 1.49 s |
+| `npm test -- --run src/lib/localDatabase/crossContextSourceHandoffSpike.test.ts` | 391 passed; 2.12 s |
+| `npm test -- --run src/lib/localDatabase/localFirstCutover.test.ts` | 77 passed; 3.16 s |
+| `npm test -- --run src/lib/localDatabase/legacyNotesMigration.test.ts` | 150 passed; 1.72 s |
+| `npm test -- --run src/lib/localDatabase/` | 1,101 passed across 12 files; 9.14 s |
+| `npm test -- --run src/lib/recovery` | 70 passed across 2 files; 12.07 s |
+| `npm run typecheck` | passed; 25.8 s |
+| `npm run build` | passed; 12.63 s; existing mixed dynamic/static import and chunk-size warnings only |
 | `git diff --check` | passed; line-ending conversion notices only |
-| `npm test -- --maxWorkers=4` | 5,377 passed / 7 skipped across 581 passed / 1 skipped files; 195.18 s; no flakes observed |
+| `npm test -- --maxWorkers=4` | 5,379 passed / 7 skipped across 581 passed / 1 skipped files; 196.75 s; no flakes or reruns observed |
+
+The production implementation remains unchanged, and `NO_PRODUCTION_SOURCE_CAN_YET_BE_ELIGIBLE` remains mandatory.
+
+Next action: `K-329D — Focused Evidence Test Review`.
