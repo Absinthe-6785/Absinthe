@@ -8,6 +8,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:k328-browser": "node scripts/run-k328-browser-tests.mjs",
     "recovery:export": "node scripts/recovery-package-cli.mjs export",
     "recovery:verify": "node scripts/recovery-package-cli.mjs verify",
     "audit:discovery": "node scripts/run-discovery-rediscovery-audit.mjs",

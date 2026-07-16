@@ -1,0 +1,488 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>K-328 isolated browser fixture</title>
+<script type="module">
+  import {
+    HANDOFF_AUTHORITY_STORE,
+    HANDOFF_CANDIDATE_STORE,
+    HANDOFF_DATABASE_NAME,
+    inspectHandoffObjectCounts,
+    openBlockedHandoffUpgradeForTest,
+    openHandoffDatabase,
+    persistEvidenceAtomic,
+    persistEvidenceAtCandidateStoreKeyForTest,
+    readValidatedHandoffEvidence,
+  } from '/src/lib/localDatabase/crossContextHandoff/database.ts';
+  import { runCrossContextReadOnlyHandoff, validateCrossContextHandoffRestart }
+    from '/src/lib/localDatabase/crossContextHandoff/handoff.ts';
+  import { derivePhysicalSourceIdentity } from '/src/lib/localDatabase/crossContextHandoff/identity.ts';
+  import { buildTerminalEvidence, validateEvidenceGraph }
+    from '/src/lib/localDatabase/crossContextHandoff/records.ts';
+  import { bytesEqual } from '/src/lib/localDatabase/crossContextHandoff/canonical.ts';
+  import { withPhysicalSourceLock } from '/src/lib/localDatabase/crossContextHandoff/webLocks.ts';
+
+  const physical = (sourceOrigin = location.origin) => ({
+    schemaVersion: 1,
+    origin: sourceOrigin,
+    sourceFamily: 'legacy_notes',
+    backend: 'combined_localstorage_indexeddb',
+    databaseName: 'absinthe-notes-v1',
+    objectStoreName: 'notes',
+    physicalSourceVersion: 1,
+  });
+  const scope = {
+    schemaVersion: 1,
+    userId: 'browser-user', projectRef: 'browser-project',
+    namespaceId: 'browser-namespace', deviceId: 'browser-device',
+  };
+  const waitRequest = request => new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error ?? new Error('request_failed'));
+  });
+  const waitTransaction = transaction => new Promise((resolve, reject) => {
+    transaction.oncomplete = () => resolve();
+    transaction.onabort = () => reject(transaction.error ?? new Error('transaction_aborted'));
+    transaction.onerror = () => undefined;
+  });
+  const reset = () => new Promise((resolve, reject) => {
+    const request = indexedDB.deleteDatabase(HANDOFF_DATABASE_NAME);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+    request.onblocked = () => reject(new Error('delete_blocked'));
+  });
+  const source = value => ({
+    adapter: 'isolated_browser_fixture', isolatedForHandoff: true,
+    readSnapshot: async () => ({ revision: 7, records: [['note-a', value]] }),
+  });
+  const run = (value, sourceOrigin = location.origin) => runCrossContextReadOnlyHandoff({
+    physicalSource: physical(sourceOrigin), logicalScope: scope, source: source(value),
+  });
+  const restart = () => validateCrossContextHandoffRestart({ physicalSource: physical() });
+  const validatedEvidence = sourceOrigin => validateCrossContextHandoffRestart({
+    physicalSource: physical(sourceOrigin),
+  });
+  const validatedBinding = async sourceOrigin => {
+    const evidence = await validatedEvidence(sourceOrigin);
+    return {
+      authority: {
+        state: evidence.authority.state,
+        physicalSourceDigest: evidence.authority.physicalSourceDigest,
+        candidateId: evidence.authority.snapshotCandidateId,
+        sessionId: evidence.authority.handoffSessionId,
+        sourceRevision: evidence.authority.sourceRevision,
+        snapshotDigest: evidence.authority.snapshotDigest,
+        rootDigest: evidence.authority.rootDigest,
+        manifestDigest: evidence.authority.manifestDigest,
+      },
+      candidate: {
+        physicalSourceDigest: evidence.candidate.physicalSourceDigest,
+        candidateId: evidence.candidate.candidateId,
+        sessionId: evidence.candidate.handoffSessionId,
+        sourceRevision: evidence.candidate.sourceRevision,
+        snapshotDigest: evidence.candidate.snapshotDigest,
+        rootDigest: evidence.candidate.rootDigest,
+        manifestDigest: evidence.candidate.manifestDigest,
+      },
+    };
+  };
+  const crossBindingCode = async (authorityOrigin, candidateOrigin) => {
+    const [authorityEvidence, candidateEvidence] = await Promise.all([
+      validatedEvidence(authorityOrigin),
+      validatedEvidence(candidateOrigin),
+    ]);
+    try {
+      await validateEvidenceGraph(authorityEvidence.authority, candidateEvidence.candidate);
+      return 'unexpected_success';
+    } catch (error) {
+      return error.code ?? 'unknown';
+    }
+  };
+  const counts = async () => {
+    const db = await openHandoffDatabase();
+    try { return await inspectHandoffObjectCounts(db); } finally { db.close(); }
+  };
+  const graph = async (value, sourceOrigin = location.origin) => {
+    const derived = await derivePhysicalSourceIdentity(physical(sourceOrigin));
+    return buildTerminalEvidence({
+      physicalSourceDigest: derived.digest, logicalScope: scope, sourceRevision: 7,
+      records: [['note-a', value]],
+    });
+  };
+
+  const duplicateAdd = async () => {
+    const derived = await derivePhysicalSourceIdentity(physical());
+    const db = await openHandoffDatabase();
+    try {
+      const evidence = await readValidatedHandoffEvidence(db, derived.digest);
+      const transaction = db.transaction(HANDOFF_CANDIDATE_STORE, 'readwrite');
+      const result = await new Promise(resolve => {
+        const request = transaction.objectStore(HANDOFF_CANDIDATE_STORE)
+          .add(evidence.candidateBytes, evidence.candidate.candidateId);
+        request.onsuccess = () => resolve('unexpected_success');
+        request.onerror = event => {
+          event.preventDefault();
+          transaction.abort();
+          resolve(request.error?.name ?? 'unknown_error');
+        };
+      });
+      await waitTransaction(transaction).catch(() => undefined);
+      return result;
+    } finally { db.close(); }
+  };
+
+  const abortAtomic = async failurePointForTest => {
+    await reset();
+    const value = await graph('abort');
+    const db = await openHandoffDatabase();
+    try {
+      let code = 'none';
+      try {
+        await persistEvidenceAtomic({ db, ...value, expectedAuthorityBytes: null, failurePointForTest });
+      } catch (error) { code = error.code ?? 'unknown'; }
+      return { code, counts: await inspectHandoffObjectCounts(db) };
+    } finally { db.close(); }
+  };
+
+  const persistWithKey = async (value, storeKey) => {
+    const derived = await derivePhysicalSourceIdentity(physical());
+    const lock = await withPhysicalSourceLock({
+      physicalSource: derived,
+      operation: async () => {
+        const candidateGraph = await graph(value);
+        const db = await openHandoffDatabase();
+        try {
+          const input = { db, ...candidateGraph, expectedAuthorityBytes: null };
+          return storeKey
+            ? await persistEvidenceAtCandidateStoreKeyForTest(input, storeKey)
+            : await persistEvidenceAtomic(input);
+        } finally { db.close(); }
+      },
+    });
+    if (lock.status === 'acquired') return { status: lock.value };
+    if (lock.status === 'operation_failed') return { status: 'error', code: lock.error.code };
+    return { status: lock.status };
+  };
+
+  const emptyMismatchAbsenceAcrossReopen = async (value, injectedKey) => {
+    const candidateGraph = await graph(value);
+    const inspect = async () => {
+      const db = await openHandoffDatabase();
+      try {
+        const transaction = db.transaction(
+          [HANDOFF_AUTHORITY_STORE, HANDOFF_CANDIDATE_STORE],
+          'readonly',
+        );
+        const authorityStore = transaction.objectStore(HANDOFF_AUTHORITY_STORE);
+        const candidateStore = transaction.objectStore(HANDOFF_CANDIDATE_STORE);
+        const done = waitTransaction(transaction);
+        const [injected, payload, authority] = await Promise.all([
+          waitRequest(candidateStore.get(injectedKey)),
+          waitRequest(candidateStore.get(candidateGraph.candidate.candidateId)),
+          waitRequest(authorityStore.get(candidateGraph.authority.physicalSourceDigest)),
+        ]);
+        await done;
+        return {
+          injectedAbsent: injected === undefined,
+          payloadAbsent: payload === undefined,
+          authorityAbsent: authority === undefined,
+          counts: await inspectHandoffObjectCounts(db),
+        };
+      } finally {
+        db.close();
+      }
+    };
+    return {
+      payloadCandidateId: candidateGraph.candidate.candidateId,
+      physicalSourceDigest: candidateGraph.authority.physicalSourceDigest,
+      beforeClose: await inspect(),
+      afterReopen: await inspect(),
+    };
+  };
+
+  const candidateId = async value => (await graph(value)).candidate.candidateId;
+  const evidenceBytes = async () => {
+    const derived = await derivePhysicalSourceIdentity(physical());
+    const db = await openHandoffDatabase();
+    try {
+      const evidence = await readValidatedHandoffEvidence(db, derived.digest);
+      return {
+        candidate: Array.from(evidence.candidateBytes), authority: Array.from(evidence.authorityBytes),
+      };
+    } finally { db.close(); }
+  };
+
+  const corruptCandidate = async () => {
+    const derived = await derivePhysicalSourceIdentity(physical());
+    const db = await openHandoffDatabase();
+    try {
+      const evidence = await readValidatedHandoffEvidence(db, derived.digest);
+      const transaction = db.transaction(HANDOFF_CANDIDATE_STORE, 'readwrite');
+      transaction.objectStore(HANDOFF_CANDIDATE_STORE)
+        .put(new Uint8Array([0xc3, 0x28]), evidence.candidate.candidateId);
+      await waitTransaction(transaction);
+    } finally { db.close(); }
+  };
+
+  const versionChangeBehavior = async () => {
+    await reset();
+    const db = await openHandoffDatabase();
+    const upgrade = indexedDB.open(HANDOFF_DATABASE_NAME, 2);
+    const upgradeResult = await new Promise(resolve => {
+      upgrade.onupgradeneeded = () => upgrade.transaction.abort();
+      upgrade.onerror = event => {
+        event.preventDefault();
+        resolve(upgrade.error?.name ?? 'upgrade_error');
+      };
+      upgrade.onsuccess = () => { upgrade.result.close(); resolve('unexpected_success'); };
+      upgrade.onblocked = () => resolve('blocked');
+    });
+    let priorConnectionClosed = false;
+    try { db.transaction(HANDOFF_AUTHORITY_STORE, 'readonly'); } catch (error) {
+      priorConnectionClosed = error?.name === 'InvalidStateError';
+    }
+    db.close();
+    const reopened = await openHandoffDatabase();
+    reopened.close();
+    return { upgradeResult, priorConnectionClosed };
+  };
+
+  let blockedOpenScenario = null;
+  const startBlockedOpenScenario = async () => {
+    await reset();
+    const events = [];
+    const blocker = await openHandoffDatabase();
+    events.push('blocker_open');
+    blocker.onversionchange = () => { events.push('blocker_versionchange_observed'); };
+    const state = {
+      blocker,
+      events,
+      blockedObserved: false,
+      callerRejected: false,
+      rejectionCode: null,
+      blockerReleased: false,
+      lateSuccessObserved: false,
+      lateConnectionClosed: false,
+      leakCheckPassed: false,
+      cleanReopenPassed: false,
+    };
+    blockedOpenScenario = state;
+    void openBlockedHandoffUpgradeForTest({
+      onBlocked: () => {
+        state.blockedObserved = true;
+        events.push('blocked_observed');
+      },
+      onLateSuccessClosed: lateDb => {
+        state.lateSuccessObserved = true;
+        events.push('late_success_observed');
+        try {
+          lateDb.transaction(HANDOFF_AUTHORITY_STORE, 'readonly');
+        } catch (error) {
+          state.lateConnectionClosed = error?.name === 'InvalidStateError';
+        }
+        if (state.lateConnectionClosed) events.push('late_connection_closed');
+      },
+    }).then(
+      db => {
+        db.close();
+        state.rejectionCode = 'unexpected_success';
+      },
+      error => {
+        state.callerRejected = true;
+        state.rejectionCode = error.code ?? 'unknown';
+        events.push('caller_rejected');
+      },
+    );
+    return true;
+  };
+  const blockedOpenState = () => {
+    if (!blockedOpenScenario) return null;
+    const { blocker: _blocker, ...state } = blockedOpenScenario;
+    return { ...state, events: [...state.events] };
+  };
+  const releaseBlockedOpenScenario = () => {
+    if (!blockedOpenScenario || !blockedOpenScenario.callerRejected) return false;
+    blockedOpenScenario.blockerReleased = true;
+    blockedOpenScenario.events.push('blocker_released');
+    blockedOpenScenario.blocker.close();
+    return true;
+  };
+  const finishBlockedOpenScenario = async () => {
+    const state = blockedOpenScenario;
+    if (!state || !state.lateSuccessObserved || !state.lateConnectionClosed) {
+      throw new Error('blocked_scenario_not_settled');
+    }
+    await new Promise((resolve, reject) => {
+      const request = indexedDB.deleteDatabase(HANDOFF_DATABASE_NAME);
+      request.onblocked = () => reject(new Error('late_connection_leaked'));
+      request.onerror = () => reject(request.error ?? new Error('delete_failed'));
+      request.onsuccess = () => resolve();
+    });
+    state.leakCheckPassed = true;
+    state.events.push('leak_check_passed');
+    const reopened = await openHandoffDatabase();
+    try {
+      const counts = await inspectHandoffObjectCounts(reopened);
+      state.cleanReopenPassed = counts.authority === 0 && counts.candidate === 0;
+    } finally {
+      reopened.close();
+    }
+    if (state.cleanReopenPassed) state.events.push('clean_reopen_passed');
+    return blockedOpenState();
+  };
+
+  const malformedSchema = async kind => {
+    await reset();
+    const request = indexedDB.open(HANDOFF_DATABASE_NAME, 1);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (kind === 'missing_authority') {
+        db.createObjectStore(HANDOFF_CANDIDATE_STORE);
+        return;
+      }
+      if (kind === 'missing_candidate') {
+        db.createObjectStore(HANDOFF_AUTHORITY_STORE);
+        return;
+      }
+      const authority = kind === 'key_path'
+        ? db.createObjectStore(HANDOFF_AUTHORITY_STORE, { keyPath: 'id' })
+        : kind === 'auto_increment'
+          ? db.createObjectStore(HANDOFF_AUTHORITY_STORE, { autoIncrement: true })
+          : db.createObjectStore(HANDOFF_AUTHORITY_STORE);
+      db.createObjectStore(HANDOFF_CANDIDATE_STORE);
+      if (kind === 'extra_store') db.createObjectStore('unexpected');
+      if (kind === 'index') authority.createIndex('unexpected', 'id');
+    };
+    (await waitRequest(request)).close();
+    try {
+      const db = await openHandoffDatabase();
+      db.close();
+      return 'unexpected_success';
+    } catch (error) {
+      return error.code ?? 'unknown';
+    }
+  };
+
+  const controlledHandoffs = new Map();
+  const startControlledHandoff = (token, value, sourceOrigin = location.origin) => {
+    let release;
+    const released = new Promise(resolve => { release = resolve; });
+    const state = {
+      requested: true,
+      lockRequested: false,
+      lockEntered: false,
+      sourceEntered: false,
+      released: false,
+      done: false,
+      result: null,
+      errorCode: null,
+      sourceReads: 0,
+      effects: [],
+      release: () => { state.released = true; release(); },
+    };
+    controlledHandoffs.set(token, state);
+    const controlledSource = {
+      adapter: 'isolated_controlled_browser_fixture', isolatedForHandoff: true,
+      readSnapshot: async () => {
+        state.sourceReads += 1;
+        if (state.sourceReads === 1) {
+          state.sourceEntered = true;
+          await released;
+        }
+        return { revision: 7, records: [['note-a', value]] };
+      },
+    };
+    void runCrossContextReadOnlyHandoff({
+      physicalSource: physical(sourceOrigin),
+      logicalScope: scope,
+      source: controlledSource,
+      observer: {
+        onEffect: effect => {
+          state.effects.push(effect);
+          if (effect === 'lock_request') state.lockRequested = true;
+          if (effect === 'lock_acquired') state.lockEntered = true;
+        },
+      },
+    }).then(
+      result => { state.result = result; state.done = true; },
+      error => { state.errorCode = error.code ?? 'unknown'; state.done = true; },
+    );
+    return true;
+  };
+  const controlledState = token => {
+    const state = controlledHandoffs.get(token);
+    if (!state) return null;
+    return {
+      requested: state.requested,
+      lockRequested: state.lockRequested,
+      lockEntered: state.lockEntered,
+      sourceEntered: state.sourceEntered,
+      released: state.released,
+      done: state.done,
+      result: state.result,
+      errorCode: state.errorCode,
+      sourceReads: state.sourceReads,
+      candidateCreateRequests: state.effects.filter(effect => effect === 'candidate_create_request').length,
+      candidateCommittedWrites: state.effects.filter(effect => effect === 'candidate_committed_write').length,
+      authorityCommittedWrites: state.effects.filter(effect => effect === 'authority_committed_write').length,
+    };
+  };
+  const releaseControlledHandoff = token => controlledHandoffs.get(token)?.release();
+  const lockQueueState = async sourceOrigin => {
+    const derived = await derivePhysicalSourceIdentity(physical(sourceOrigin));
+    const snapshot = await navigator.locks.query();
+    return {
+      lockName: derived.lockName,
+      held: snapshot.held.filter(lock => lock.name === derived.lockName).length,
+      pending: snapshot.pending.filter(lock => lock.name === derived.lockName).length,
+    };
+  };
+
+  const holds = new Map();
+  const hold = async token => {
+    const derived = await derivePhysicalSourceIdentity(physical());
+    let release;
+    const released = new Promise(resolve => { release = resolve; });
+    const state = { entered: false, done: false, status: 'pending', release, controller: null };
+    holds.set(token, state);
+    void withPhysicalSourceLock({
+      physicalSource: derived,
+      operation: async () => { state.entered = true; await released; return token; },
+    }).then(result => { state.done = true; state.status = result.status; });
+    return true;
+  };
+  const holdAbortable = async token => {
+    const derived = await derivePhysicalSourceIdentity(physical());
+    const controller = new AbortController();
+    const state = { entered: false, done: false, status: 'pending', release: () => {}, controller };
+    holds.set(token, state);
+    void withPhysicalSourceLock({
+      physicalSource: derived, signal: controller.signal,
+      operation: async () => { state.entered = true; return token; },
+    }).then(result => { state.done = true; state.status = result.status; });
+    return true;
+  };
+  const holdState = token => {
+    const state = holds.get(token);
+    return state ? { entered: state.entered, done: state.done, status: state.status } : null;
+  };
+  const release = token => { holds.get(token)?.release(); };
+  const abortHold = token => { holds.get(token)?.controller?.abort(); };
+  const failInsideLock = async () => {
+    const derived = await derivePhysicalSourceIdentity(physical());
+    const result = await withPhysicalSourceLock({
+      physicalSource: derived,
+      operation: () => { throw new Error('fixture_failure'); },
+    });
+    return result.status;
+  };
+
+  window.k328 = {
+    reset, run, restart, counts, duplicateAdd, abortAtomic, persistWithKey, candidateId,
+    emptyMismatchAbsenceAcrossReopen,
+    evidenceBytes, corruptCandidate, versionChangeBehavior, hold, holdAbortable, holdState, release, abortHold,
+    failInsideLock, malformedSchema, startControlledHandoff, controlledState,
+    releaseControlledHandoff, lockQueueState, validatedBinding, crossBindingCode,
+    startBlockedOpenScenario, blockedOpenState, releaseBlockedOpenScenario, finishBlockedOpenScenario,
+    schema: { database: HANDOFF_DATABASE_NAME, stores: [HANDOFF_AUTHORITY_STORE, HANDOFF_CANDIDATE_STORE] },
+  };
+</script>

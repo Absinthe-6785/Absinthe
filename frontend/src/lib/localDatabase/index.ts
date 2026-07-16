@@ -4,6 +4,7 @@ export * from './legacyNotesMigration';
 export * from './legacyNotesAuthority';
 export * from './legacyNotesSourceAdapters';
 export * from './localFirstCutover';
+export * from './crossContextHandoff';
 export * from './outboxIdentity';
 export * from './repository';
 export {
