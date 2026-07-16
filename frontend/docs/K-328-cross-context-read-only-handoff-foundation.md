@@ -62,7 +62,7 @@ User, project, namespace, and device never enter this tuple or lock name. They f
 
 `withPhysicalSourceLock` requests an exclusive native lock. There is no lease, localStorage lock, `steal`, `ifAvailable`, or unlocked fallback. Unsupported Web Locks fail closed. Pre-grant abort never invokes the operation. Acquisition failures and callback failures are distinct, the callback is limited to one invocation, and diagnostics contain only stable codes.
 
-The Chromium harness proves two same-origin pages serialize on the same physical lock, an aborted waiter never enters, callback failure releases the native lock, and distinct physical origins progress independently. Firefox, WebKit, PWA, private-mode, and storage-bucket behavior are not claimed.
+The Chromium harness runs two actual concurrent handoff calls from two same-origin pages. Explicit request, lock-entry, Web Locks queue, and release barriers prove that one call creates the evidence graph and the queued call returns the validated terminal replay. A separate same-origin test holds two distinct physical-source lock names concurrently and persists two independent graphs, proving that there is no origin-global lock. An aborted waiter never enters, callback failure releases the native lock, and different origins remain supplemental isolation evidence. Firefox, WebKit, PWA, private-mode, and storage-bucket behavior are not claimed.
 
 ## IndexedDB schema
 
@@ -77,7 +77,7 @@ The Chromium harness proves two same-origin pages serialize on the same physical
 | Indexes | none |
 | Values | immutable canonical-JSON UTF-8 `Uint8Array` |
 
-The database is separate from `absinthe-local-v2`, `absinthe-notes-v1`, attachment databases, and all current Notes stores. Initial creation is additive within this new database. Unknown existing layouts fail open validation; no store is cleared, recreated, upgraded in place, or repaired. `onversionchange` closes open connections. `onblocked` returns a bounded failure, and a late successful open is immediately closed.
+The database is separate from `absinthe-local-v2`, `absinthe-notes-v1`, attachment databases, and all current Notes stores. Initial creation is additive within this new database. Every successful open and reopen validates exactly two stores, their exact names, `keyPath === null`, `autoIncrement === false`, and zero indexes. Extra or missing stores, a key path, auto-increment, or any index fail closed with `DATABASE_SCHEMA_INVALID`; the connection is closed and no repair or upgrade is attempted. No store is cleared, recreated, upgraded in place, or repaired. `onversionchange` closes open connections. `onblocked` returns a bounded failure, and a late successful open is immediately closed.
 
 ## Snapshot capture and identifiers
 
@@ -92,7 +92,7 @@ Syntax alone is insufficient. Restart rederives the complete snapshot, candidate
 
 ## Candidate and authority records
 
-The candidate owns the sole immutable ordered snapshot and contains the candidate/session IDs, physical and logical digests, revision, full snapshot/root/manifest digests, entity count, and records. The authority contains no duplicate snapshot. It binds the logical scope, physical digest, revision, session, candidate, and full digest chain.
+The candidate owns the sole immutable ordered snapshot and contains the candidate/session IDs, physical and logical digests, revision, full snapshot/root/manifest digests, entity count, and records. The authority contains no duplicate snapshot. It binds the logical scope, physical digest, revision, session, candidate, and full digest chain. Persistence synchronously detaches both caller inputs before its first await, completes full graph validation, and encodes only the detached validated return values. A controlled validation barrier proves that caller mutation after the call begins cannot change the candidate key, candidate bytes, authority bytes, digests, or committed records.
 
 Durable lifecycle:
 
@@ -115,7 +115,7 @@ Candidate creation uses `IDBObjectStore.add()`, never `put()`. Authority changes
 | Same store key, different valid canonical bytes/binding | `CANDIDATE_KEY_COLLISION` | none |
 | Store key/payload ID mismatch | `PERSISTED_EVIDENCE_MISMATCH` | none |
 
-The browser collision test injects only the object-store lookup key after both candidate payloads pass normal generation and validation. It tests storage-key collision policy, not SHA-256 collision probability. Production identifier parsing is unchanged and the injection is absent from the public directory export.
+The browser collision test injects only the object-store lookup key after both candidate payloads pass normal generation and validation. A mismatched injected key may address only an already-existing candidate; if the key is absent, `PERSISTED_EVIDENCE_MISMATCH` is returned before `add()` or authority mutation, leaving both stores unchanged. It tests storage-key collision policy, not SHA-256 collision probability. Production identifier parsing is unchanged and the injection is absent from the public directory export.
 
 ## Resource contract
 
@@ -133,11 +133,11 @@ The browser collision test injects only the object-store lookup key after both c
 | Source-record value | 20,000 bytes |
 | JSON depth | 64 |
 
-Production budget validation preserves `1,302 + 503,794 + 3,904 = 509,000` and rejects the 1,303-byte authority plus-one case. Authority/candidate ceilings are raw rejection ceilings, not invented reachable exact payload maxima. All persisted bytes are bounded before fatal UTF-8 decoding, schema construction, digesting, or mutation.
+An actual production-built graph with 4,096 valid records, exactly 499,000 aggregate tuple bytes, maximum safe source revision, and valid bounded logical identifiers serializes to exactly 1,302 authority bytes and 503,794 candidate bytes. It passes the production validator and fake-indexeddb transaction path, preserving `1,302 + 503,794 + 3,904 = 509,000`. Adding one valid source byte is rejected by the production aggregate bound before candidate construction. Authority/candidate ceilings remain raw rejection ceilings. All persisted bytes are bounded before fatal UTF-8 decoding, schema construction, digesting, or mutation.
 
 ## Restart, malformed bytes, and privacy
 
-Restart performs a bounded authority read, learns the immutable candidate key, then rereads authority and candidate together and rejects an authority change between observations. It verifies structured-clone `Uint8Array`, byte ceilings, fatal UTF-8 decoding, JSON depth, exact schema, canonical re-encoding, key/payload equality, identifier derivation, and the full graph. Missing, malformed, noncanonical, mismatched, over-limit, or unknown evidence fails closed without repair.
+Restart performs a bounded authority read, learns the immutable candidate key, then rereads authority and candidate together and rejects an authority change between observations. It verifies structured-clone `Uint8Array`, byte ceilings, fatal UTF-8 decoding, JSON depth, exact schema, canonical re-encoding, key/payload equality, identifier derivation, and the full graph. Production-path tests cover missing candidates; malformed authority/candidate bytes; noncanonical JSON; invalid UTF-8; key/payload mismatch; wrong physical, session, snapshot, root, and manifest bindings; over-limit records; unknown authority state; changed authority after the first-read hint; and candidate deletion before the atomic reread. Every case preserves the remaining durable bytes without repair, deletion, or rewrite.
 
 `MALFORMED_UTF8_BYTE_BOUNDARY_IMPLEMENTED_AND_TESTED`: the stores intentionally contain byte arrays, so malformed UTF-8 is representable and is rejected by fatal `TextDecoder` before JSON parsing. No malformed-byte claim is made for ordinary JavaScript strings.
 
@@ -159,9 +159,9 @@ Normal production use has no observer. Every effect has a positive unit or brows
 
 ## Real browser evidence
 
-`npm run test:k328-browser` launches two isolated Vite origins and headless installed Google Chrome through CDP without adding a browser dependency. The production modules execute in real pages using native IndexedDB and `navigator.locks`. This managed Windows environment required Chrome's `--no-sandbox` launch flag because the sandboxed GPU process repeatedly terminated; the test does not claim browser-sandbox evidence, while the IndexedDB and Web Locks implementations under test remain native browser APIs.
+`npm run test:k328-browser` launches two isolated Vite origins on OS-assigned ports and headless installed Google Chrome with an OS-assigned DevTools port through CDP without adding a browser dependency. The production modules execute in real pages using native IndexedDB and `navigator.locks`. Correctness ordering uses explicit request, held/pending lock, entry, and release barriers; fixed 10 ms/150 ms assertions are absent. Startup polling is bounded, and pages, Chrome, both Vite servers, and the temporary profile are closed in `finally`. This managed Windows environment required Chrome's `--no-sandbox` launch flag because the sandboxed GPU process repeatedly terminated; the test does not claim browser-sandbox evidence, while the IndexedDB and Web Locks implementations under test remain native browser APIs.
 
-Collected evidence includes schema creation, candidate/authority commit, real `add()` `ConstraintError`, zero-write replay, page-close/reopen validation, two transaction abort boundaries, versionchange closure/reopen, Web Lock ordering/abort/failure release, same-store-key two-context collision, malformed UTF-8 rejection, and different-origin independence.
+Collected evidence includes exact schema rejection cases, candidate/authority commit, real `add()` `ConstraintError`, zero-write replay, page-close/reopen validation, two transaction abort boundaries, versionchange closure/reopen, empty injected-key rejection, existing-key collision, two actual concurrent same-source handoffs, same-origin different-source overlap, Web Lock abort/failure release, malformed UTF-8 rejection, and supplemental different-origin independence.
 
 This is page-close/reopen restart evidence, not OS crash or power-loss durability. Browser-process crash, storage eviction, quota, Firefox/WebKit, and forced close during an in-flight transaction remain future gates.
 

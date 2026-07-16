@@ -1,16 +1,12 @@
 import { spawn } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createServer as createViteServer } from 'vite';
 
 const chromePath = process.env.CHROME_PATH
   ?? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
-const vitePort = 41828;
-const secondVitePort = 41829;
-const debugPort = 9328;
-const origin = `http://127.0.0.1:${vitePort}`;
-const secondOrigin = `http://127.0.0.1:${secondVitePort}`;
 const fixturePath = '/tests/k328-browser-fixture.html';
 const started = Date.now();
 const results = [];
@@ -23,10 +19,23 @@ function assertion(condition, name, detail = '') {
 async function waitForHttp(url, timeout = 20_000) {
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) {
-    try { if ((await fetch(url)).ok) return; } catch { /* retry */ }
+    try { if ((await fetch(url)).ok) return; } catch { /* startup polling */ }
     await new Promise(resolve => setTimeout(resolve, 100));
   }
   throw new Error(`Timed out waiting for ${url}`);
+}
+
+async function waitForDevToolsPort(profile, timeout = 20_000) {
+  const file = join(profile, 'DevToolsActivePort');
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    try {
+      const [port] = (await readFile(file, 'utf8')).trim().split(/\r?\n/);
+      if (/^[0-9]+$/.test(port)) return Number(port);
+    } catch { /* startup polling */ }
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+  throw new Error('Timed out waiting for Chrome DevToolsActivePort');
 }
 
 class Cdp {
@@ -81,7 +90,7 @@ class Cdp {
   close() { this.socket.close(); }
 }
 
-async function newPage(url) {
+async function newPage(url, debugPort) {
   const response = await fetch(`http://127.0.0.1:${debugPort}/json/new?${encodeURIComponent(url)}`, { method: 'PUT' });
   const target = await response.json();
   const cdp = new Cdp(target.webSocketDebuggerUrl);
@@ -91,15 +100,16 @@ async function newPage(url) {
     if (await cdp.evaluate('Boolean(window.k328)')) return { cdp, targetId: target.id };
     await new Promise(resolve => setTimeout(resolve, 50));
   }
+  cdp.close();
   throw new Error('fixture did not initialize');
 }
 
-async function closePage(page) {
-  await fetch(`http://127.0.0.1:${debugPort}/json/close/${page.targetId}`);
+async function closePage(page, debugPort) {
+  await fetch(`http://127.0.0.1:${debugPort}/json/close/${page.targetId}`).catch(() => undefined);
   page.cdp.close();
 }
 
-async function waitFor(page, expression, timeout = 5_000) {
+async function waitFor(page, expression, timeout = 10_000) {
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) {
     if (await page.cdp.evaluate(expression)) return;
@@ -108,33 +118,58 @@ async function waitFor(page, expression, timeout = 5_000) {
   throw new Error(`Timed out: ${expression}`);
 }
 
+async function viteOrigin(server) {
+  const address = server.httpServer?.address();
+  if (!address || typeof address === 'string') throw new Error('Vite did not expose a TCP address');
+  return `http://127.0.0.1:${address.port}`;
+}
+
 const profile = await mkdtemp(join(tmpdir(), 'absinthe-k328-chrome-'));
 const frontendRoot = fileURLToPath(new URL('..', import.meta.url));
-const commandShell = process.env.ComSpec ?? 'cmd.exe';
-const vite = spawn(commandShell, ['/d', '/s', '/c', `npm run dev -- --host 127.0.0.1 --port ${vitePort} --strictPort`], {
-  cwd: frontendRoot, stdio: 'ignore', windowsHide: true,
-});
-const viteSecond = spawn(commandShell, ['/d', '/s', '/c', `npm run dev -- --host 127.0.0.1 --port ${secondVitePort} --strictPort`], {
-  cwd: frontendRoot, stdio: 'ignore', windowsHide: true,
-});
-const chrome = spawn(chromePath, [
-  '--headless=new', `--remote-debugging-port=${debugPort}`, `--user-data-dir=${profile}`,
-  '--remote-allow-origins=*', '--no-first-run', '--disable-default-apps',
-  '--disable-background-networking', '--disable-gpu', '--disable-gpu-compositing',
-  '--disable-features=SkiaGraphite,DawnGraphite,Vulkan', '--no-sandbox', 'about:blank',
-], { stdio: 'ignore', windowsHide: true });
-
+let vite;
+let viteSecond;
+let chrome;
+let debugPort;
 let pageA;
 let pageB;
 let pageOther;
+
 try {
+  vite = await createViteServer({
+    root: frontendRoot, configFile: false, logLevel: 'silent',
+    server: { host: '127.0.0.1', port: 0, strictPort: false },
+  });
+  viteSecond = await createViteServer({
+    root: frontendRoot, configFile: false, logLevel: 'silent',
+    server: { host: '127.0.0.1', port: 0, strictPort: false },
+  });
+  await Promise.all([vite.listen(), viteSecond.listen()]);
+  const origin = await viteOrigin(vite);
+  const secondOrigin = await viteOrigin(viteSecond);
+
+  chrome = spawn(chromePath, [
+    '--headless=new', '--remote-debugging-port=0', `--user-data-dir=${profile}`,
+    '--remote-allow-origins=*', '--no-first-run', '--disable-default-apps',
+    '--disable-background-networking', '--disable-gpu', '--disable-gpu-compositing',
+    '--disable-features=SkiaGraphite,DawnGraphite,Vulkan', '--no-sandbox', 'about:blank',
+  ], { stdio: 'ignore', windowsHide: true });
+  debugPort = await waitForDevToolsPort(profile);
   await Promise.all([
-    waitForHttp(`${origin}${fixturePath}`), waitForHttp(`${secondOrigin}${fixturePath}`),
+    waitForHttp(`${origin}${fixturePath}`),
+    waitForHttp(`${secondOrigin}${fixturePath}`),
     waitForHttp(`http://127.0.0.1:${debugPort}/json/version`),
   ]);
-  pageA = await newPage(`${origin}${fixturePath}`);
-  pageB = await newPage(`${origin}${fixturePath}`);
-  pageOther = await newPage(`${secondOrigin}${fixturePath}`);
+  const browserVersion = (await (await fetch(`http://127.0.0.1:${debugPort}/json/version`)).json()).Browser;
+  pageA = await newPage(`${origin}${fixturePath}`, debugPort);
+  pageB = await newPage(`${origin}${fixturePath}`, debugPort);
+  pageOther = await newPage(`${secondOrigin}${fixturePath}`, debugPort);
+
+  for (const kind of ['extra_store', 'missing_authority', 'missing_candidate', 'key_path', 'auto_increment', 'index']) {
+    assertion(
+      await pageA.cdp.evaluate(`window.k328.malformedSchema(${JSON.stringify(kind)})`) === 'DATABASE_SCHEMA_INVALID',
+      `exact schema rejects ${kind}`,
+    );
+  }
 
   await pageA.cdp.evaluate('window.k328.reset()');
   const created = await pageA.cdp.evaluate('window.k328.run("A")');
@@ -144,8 +179,8 @@ try {
   assertion((await pageA.cdp.evaluate('window.k328.run("A")')).status === 'existing_identical', 'real identical replay is zero-write');
 
   const beforeClose = await pageA.cdp.evaluate('window.k328.evidenceBytes()');
-  await closePage(pageA);
-  pageA = await newPage(`${origin}${fixturePath}`);
+  await closePage(pageA, debugPort);
+  pageA = await newPage(`${origin}${fixturePath}`, debugPort);
   const restarted = await pageA.cdp.evaluate('window.k328.restart().then(v => ({state:v.authority.state,id:v.candidate.candidateId}))');
   assertion(restarted.state === 'read_only_handoff', 'page-close/reopen restart validation');
   assertion(JSON.stringify(await pageA.cdp.evaluate('window.k328.evidenceBytes()')) === JSON.stringify(beforeClose), 'restart does not rewrite evidence');
@@ -160,13 +195,56 @@ try {
 
   await pageA.cdp.evaluate('window.k328.reset()');
   const collisionKey = await pageA.cdp.evaluate('window.k328.candidateId("first")');
-  const firstPromise = pageA.cdp.evaluate(`window.k328.persistWithKey("first", ${JSON.stringify(collisionKey)})`);
-  await new Promise(resolve => setTimeout(resolve, 10));
-  const secondPromise = pageB.cdp.evaluate(`window.k328.persistWithKey("second", ${JSON.stringify(collisionKey)})`);
-  const [first, second] = await Promise.all([firstPromise, secondPromise]);
-  assertion(first.status === 'created', 'same-key race first candidate created');
-  assertion(second.code === 'CANDIDATE_KEY_COLLISION', 'same-key race conflicting caller rejected');
-  assertion((await pageA.cdp.evaluate('window.k328.counts()')).candidate === 1, 'same-key race preserves one candidate');
+  const emptyMismatch = await pageB.cdp.evaluate(`window.k328.persistWithKey("second", ${JSON.stringify(collisionKey)})`);
+  assertion(emptyMismatch.code === 'PERSISTED_EVIDENCE_MISMATCH', 'empty injected mismatch fails before write');
+  assertion(JSON.stringify(await pageA.cdp.evaluate('window.k328.counts()')) === '{"authority":0,"candidate":0}', 'empty injected mismatch leaves zero records');
+  const first = await pageA.cdp.evaluate(`window.k328.persistWithKey("first", ${JSON.stringify(collisionKey)})`);
+  const second = await pageB.cdp.evaluate(`window.k328.persistWithKey("second", ${JSON.stringify(collisionKey)})`);
+  assertion(first.status === 'created', 'existing-key collision fixture creates original candidate');
+  assertion(second.code === 'CANDIDATE_KEY_COLLISION', 'existing-key collision rejects conflicting caller');
+  assertion((await pageA.cdp.evaluate('window.k328.counts()')).candidate === 1, 'existing-key collision preserves one candidate');
+
+  await pageA.cdp.evaluate('window.k328.reset()');
+  await pageA.cdp.evaluate('window.k328.startControlledHandoff("same-a", "same")');
+  await waitFor(pageA, 'window.k328.controlledState("same-a")?.lockEntered === true && window.k328.controlledState("same-a")?.sourceEntered === true');
+  await pageB.cdp.evaluate('window.k328.startControlledHandoff("same-b", "same")');
+  await waitFor(pageB, 'window.k328.controlledState("same-b")?.lockRequested === true');
+  await waitFor(pageB, 'window.k328.lockQueueState(location.origin).then(v => v.pending === 1)');
+  assertion(await pageB.cdp.evaluate('window.k328.controlledState("same-b")?.lockEntered === false'), 'same-source second handoff is explicitly queued');
+  await pageA.cdp.evaluate('window.k328.releaseControlledHandoff("same-a")');
+  await waitFor(pageA, 'window.k328.controlledState("same-a")?.done === true');
+  await waitFor(pageB, 'window.k328.controlledState("same-b")?.lockEntered === true && window.k328.controlledState("same-b")?.done === true');
+  const sameA = await pageA.cdp.evaluate('window.k328.controlledState("same-a")');
+  const sameB = await pageB.cdp.evaluate('window.k328.controlledState("same-b")');
+  assertion(sameA.result.status === 'created' && sameB.result.status === 'existing_identical', 'two actual same-source handoffs produce create then validated replay');
+  assertion(sameA.result.candidateId === sameB.result.candidateId, 'same-source callers bind one candidate ID');
+  assertion(sameA.candidateCommittedWrites + sameB.candidateCommittedWrites === 1, 'same-source callers commit exactly one candidate create');
+  assertion(sameB.candidateCommittedWrites === 0 && sameB.authorityCommittedWrites === 0, 'terminal replay performs zero committed writes');
+  assertion(JSON.stringify(await pageA.cdp.evaluate('window.k328.counts()')) === '{"authority":1,"candidate":1}', 'same-source concurrent handoff leaves one evidence graph');
+
+  await pageA.cdp.evaluate('window.k328.reset()');
+  const sourceA = 'https://legacy-source-a.example.test';
+  const sourceB = 'https://legacy-source-b.example.test';
+  await pageA.cdp.evaluate(`window.k328.startControlledHandoff("distinct-a", "A", ${JSON.stringify(sourceA)})`);
+  await pageB.cdp.evaluate(`window.k328.startControlledHandoff("distinct-b", "B", ${JSON.stringify(sourceB)})`);
+  await Promise.all([
+    waitFor(pageA, 'window.k328.controlledState("distinct-a")?.sourceEntered === true'),
+    waitFor(pageB, 'window.k328.controlledState("distinct-b")?.sourceEntered === true'),
+  ]);
+  const [lockA, lockB] = await Promise.all([
+    pageA.cdp.evaluate(`window.k328.lockQueueState(${JSON.stringify(sourceA)})`),
+    pageB.cdp.evaluate(`window.k328.lockQueueState(${JSON.stringify(sourceB)})`),
+  ]);
+  assertion(lockA.lockName !== lockB.lockName && lockA.held === 1 && lockB.held === 1, 'same-origin distinct physical sources hold different locks concurrently');
+  await Promise.all([
+    pageA.cdp.evaluate('window.k328.releaseControlledHandoff("distinct-a")'),
+    pageB.cdp.evaluate('window.k328.releaseControlledHandoff("distinct-b")'),
+  ]);
+  await Promise.all([
+    waitFor(pageA, 'window.k328.controlledState("distinct-a")?.done === true'),
+    waitFor(pageB, 'window.k328.controlledState("distinct-b")?.done === true'),
+  ]);
+  assertion(JSON.stringify(await pageA.cdp.evaluate('window.k328.counts()')) === '{"authority":2,"candidate":2}', 'same-origin distinct sources persist separate evidence graphs');
 
   await pageA.cdp.evaluate('window.k328.reset()');
   await pageA.cdp.evaluate('window.k328.run("valid")');
@@ -174,18 +252,10 @@ try {
   const corruptCode = await pageA.cdp.evaluate('window.k328.restart().then(() => "unexpected", e => e.code)');
   assertion(corruptCode === 'CANDIDATE_CORRUPT', 'malformed persisted UTF-8 fails closed');
 
-  await pageA.cdp.evaluate('window.k328.hold("same-a")');
-  await waitFor(pageA, 'window.k328.holdState("same-a")?.entered === true');
-  await pageB.cdp.evaluate('window.k328.hold("same-b")');
-  await new Promise(resolve => setTimeout(resolve, 150));
-  assertion(await pageB.cdp.evaluate('window.k328.holdState("same-b")?.entered === false'), 'same physical source serializes two contexts');
-  await pageA.cdp.evaluate('window.k328.release("same-a")');
-  await waitFor(pageB, 'window.k328.holdState("same-b")?.entered === true');
-  await pageB.cdp.evaluate('window.k328.release("same-b")');
-
   await pageA.cdp.evaluate('window.k328.hold("abort-a")');
   await waitFor(pageA, 'window.k328.holdState("abort-a")?.entered === true');
   await pageB.cdp.evaluate('window.k328.holdAbortable("abort-b")');
+  await waitFor(pageB, 'window.k328.lockQueueState(location.origin).then(v => v.pending === 1)');
   await pageB.cdp.evaluate('window.k328.abortHold("abort-b")');
   await waitFor(pageB, 'window.k328.holdState("abort-b")?.done === true');
   assertion(await pageB.cdp.evaluate('window.k328.holdState("abort-b")?.status === "aborted" && window.k328.holdState("abort-b")?.entered === false'), 'aborted waiter never enters');
@@ -208,13 +278,31 @@ try {
   await pageOther.cdp.evaluate('window.k328.release("origin-b")');
 
   console.log(JSON.stringify({
-    browser: 'Google Chrome (headless Chromium)', passed: results.length, failed: 0,
-    durationMs: Date.now() - started, cases: results,
+    browser: browserVersion,
+    noSandbox: true,
+    dynamicPorts: { vite: true, devTools: true },
+    passed: results.length,
+    failed: 0,
+    durationMs: Date.now() - started,
+    cases: results,
   }, null, 2));
 } finally {
   for (const page of [pageA, pageB, pageOther]) {
-    if (page) await closePage(page).catch(() => undefined);
+    if (page && debugPort) await closePage(page, debugPort).catch(() => undefined);
   }
-  chrome.kill(); vite.kill(); viteSecond.kill();
+  if (chrome) {
+    chrome.kill();
+    await new Promise(resolve => {
+      if (chrome.exitCode !== null) resolve();
+      else {
+        chrome.once('exit', resolve);
+        setTimeout(resolve, 5_000);
+      }
+    });
+  }
+  await Promise.all([
+    vite?.close().catch(() => undefined),
+    viteSecond?.close().catch(() => undefined),
+  ]);
   await rm(profile, { recursive: true, force: true }).catch(() => undefined);
 }

@@ -1,6 +1,6 @@
 import { IDBFactory } from 'fake-indexeddb';
-import { describe, expect, it } from 'vitest';
-import { assertJsonDepth, bytesEqual, canonicalizeSourceEntries, utf8ByteLength } from './canonical';
+import { describe, expect, it, vi } from 'vitest';
+import { assertJsonDepth, bytesEqual, canonicalizeSourceEntries, utf8ByteLength, utf8Bytes } from './canonical';
 import {
   HANDOFF_AUTHORITY_STORE,
   HANDOFF_CANDIDATE_STORE,
@@ -8,9 +8,11 @@ import {
   openHandoffDatabase,
   persistEvidenceAtomic,
   persistEvidenceAtCandidateStoreKeyForTest,
+  persistEvidenceWithValidationBarrierForTest,
   persistAuthorityCas,
   readHandoffAuthority,
   readValidatedHandoffEvidence,
+  readValidatedHandoffEvidenceWithHintBarrierForTest,
 } from './database';
 import { runCrossContextReadOnlyHandoff, validateCrossContextHandoffRestart } from './handoff';
 import { deriveLogicalScopeDigest, derivePhysicalSourceIdentity, validatePhysicalSourceIdentity } from './identity';
@@ -56,6 +58,78 @@ async function graph(records: unknown = [['note-a', '{"title":"A"}']]): Promise<
   const derived = await derivePhysicalSourceIdentity(physical);
   return buildTerminalEvidence({ physicalSourceDigest: derived.digest, logicalScope: scope, sourceRevision: 7, records });
 }
+
+function waitForRequest<T>(request: IDBRequest<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+function waitForTransaction(transaction: IDBTransaction): Promise<void> {
+  return new Promise((resolve, reject) => {
+    transaction.oncomplete = () => resolve();
+    transaction.onabort = () => reject(transaction.error);
+    transaction.onerror = () => undefined;
+  });
+}
+
+async function createRawDatabase(
+  indexedDB: IDBFactory,
+  databaseName: string,
+  configure: (db: IDBDatabase) => void,
+): Promise<void> {
+  const request = indexedDB.open(databaseName, 1);
+  request.onupgradeneeded = () => configure(request.result);
+  const db = await waitForRequest(request);
+  db.close();
+}
+
+async function rawStoreWrite(
+  db: IDBDatabase,
+  storeName: string,
+  key: string,
+  value: Uint8Array,
+): Promise<void> {
+  const transaction = db.transaction(storeName, 'readwrite');
+  transaction.objectStore(storeName).put(value, key);
+  await waitForTransaction(transaction);
+}
+
+async function rawStoreDelete(db: IDBDatabase, storeName: string, key: string): Promise<void> {
+  const transaction = db.transaction(storeName, 'readwrite');
+  transaction.objectStore(storeName).delete(key);
+  await waitForTransaction(transaction);
+}
+
+async function rawStoreRead(db: IDBDatabase, storeName: string, key: string): Promise<Uint8Array | undefined> {
+  const transaction = db.transaction(storeName, 'readonly');
+  const done = waitForTransaction(transaction);
+  const value = await waitForRequest(transaction.objectStore(storeName).get(key)) as Uint8Array | undefined;
+  await done;
+  return value;
+}
+
+function highWaterRecords(extraBytes = 0): string[][] {
+  const records = Array.from({ length: HANDOFF_LIMITS.sourceRecordCount }, (_, index) => [
+    `id-${index.toString().padStart(4, '0')}`,
+    '',
+  ]);
+  const baseBytes = records.reduce((total, record) => total + utf8ByteLength(JSON.stringify(record)), 0);
+  let remaining = HANDOFF_LIMITS.aggregateSourceTupleBytes - baseBytes + extraBytes;
+  for (const record of records) {
+    const take = Math.min(HANDOFF_LIMITS.sourceRecordValueBytes, remaining);
+    record[1] = 'v'.repeat(take);
+    remaining -= take;
+  }
+  if (remaining !== 0) throw new Error('high-water fixture cannot reconcile');
+  return records;
+}
+
+const highWaterScope = {
+  schemaVersion: 1 as const,
+  userId: 'u'.repeat(256), projectRef: 'p'.repeat(256), namespaceId: 'n', deviceId: 'd',
+};
 
 describe('K-328 physical identity and identifiers', () => {
   it('derives one account-independent physical lock name', async () => {
@@ -137,6 +211,34 @@ describe('K-328 canonical source capture', () => {
       + HANDOFF_LIMITS.applicationReserveBytes).toBe(HANDOFF_LIMITS.transactionWriteBytes);
     expect(() => assertHandoffWriteBudget(1_302, HANDOFF_LIMITS.demonstratedCandidateHighWaterBytes)).not.toThrow();
     expect(() => assertHandoffWriteBudget(1_303, HANDOFF_LIMITS.demonstratedCandidateHighWaterBytes)).toThrow();
+  });
+
+  it('reproduces the 503,794-byte high-water through the production builder and database path', async () => {
+    const indexedDB = new IDBFactory();
+    const derived = await derivePhysicalSourceIdentity(physical);
+    const value = await buildTerminalEvidence({
+      physicalSourceDigest: derived.digest,
+      logicalScope: highWaterScope,
+      sourceRevision: Number.MAX_SAFE_INTEGER,
+      records: highWaterRecords(),
+    });
+    const authorityBytes = encodeAuthority(value.authority);
+    const candidateBytes = encodeCandidate(value.candidate);
+    expect(value.candidate.records).toHaveLength(4_096);
+    expect(authorityBytes.byteLength).toBe(1_302);
+    expect(candidateBytes.byteLength).toBe(HANDOFF_LIMITS.demonstratedCandidateHighWaterBytes);
+    expect(authorityBytes.byteLength + candidateBytes.byteLength + HANDOFF_LIMITS.applicationReserveBytes)
+      .toBe(HANDOFF_LIMITS.transactionWriteBytes);
+    const db = await openHandoffDatabase({ indexedDB, databaseName: 'k328-production-high-water' });
+    await expect(persistEvidenceAtomic({ db, ...value, expectedAuthorityBytes: null })).resolves.toBe('created');
+    await expect(inspectHandoffObjectCounts(db)).resolves.toEqual({ authority: 1, candidate: 1 });
+    db.close();
+    await expect(buildTerminalEvidence({
+      physicalSourceDigest: derived.digest,
+      logicalScope: highWaterScope,
+      sourceRevision: Number.MAX_SAFE_INTEGER,
+      records: highWaterRecords(1),
+    })).rejects.toMatchObject({ code: 'SOURCE_RESOURCE_BOUND_EXCEEDED' });
   });
 
   it('enforces JSON depth 64 and rejects depth 65', () => {
@@ -224,6 +326,70 @@ describe('K-328 Web Locks wrapper', () => {
   });
 });
 
+describe('K-328 exact IndexedDB schema validation', () => {
+  const malformedSchemas: readonly [string, (db: IDBDatabase) => void][] = [
+    ['extra object store', db => {
+      db.createObjectStore(HANDOFF_AUTHORITY_STORE);
+      db.createObjectStore(HANDOFF_CANDIDATE_STORE);
+      db.createObjectStore('unexpected');
+    }],
+    ['missing authority store', db => { db.createObjectStore(HANDOFF_CANDIDATE_STORE); }],
+    ['missing candidate store', db => { db.createObjectStore(HANDOFF_AUTHORITY_STORE); }],
+    ['non-null key path', db => {
+      db.createObjectStore(HANDOFF_AUTHORITY_STORE, { keyPath: 'id' });
+      db.createObjectStore(HANDOFF_CANDIDATE_STORE);
+    }],
+    ['auto-increment store', db => {
+      db.createObjectStore(HANDOFF_AUTHORITY_STORE, { autoIncrement: true });
+      db.createObjectStore(HANDOFF_CANDIDATE_STORE);
+    }],
+    ['unexpected index', db => {
+      db.createObjectStore(HANDOFF_AUTHORITY_STORE).createIndex('unexpected', 'id');
+      db.createObjectStore(HANDOFF_CANDIDATE_STORE);
+    }],
+  ];
+
+  it.each(malformedSchemas)('fails closed for %s without upgrading or repairing', async (name, configure) => {
+    const indexedDB = new IDBFactory();
+    const databaseName = `k328-schema-${name.replaceAll(' ', '-')}`;
+    await createRawDatabase(indexedDB, databaseName, configure);
+    await expect(openHandoffDatabase({ indexedDB, databaseName })).rejects.toMatchObject({
+      code: 'DATABASE_SCHEMA_INVALID', operation: 'validate_handoff_schema',
+    });
+    const raw = await waitForRequest(indexedDB.open(databaseName, 1));
+    expect(raw.version).toBe(1);
+    raw.close();
+  });
+
+  it('revalidates the exact two out-of-line zero-index stores on reopen', async () => {
+    const indexedDB = new IDBFactory();
+    const databaseName = 'k328-schema-correct-reopen';
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const db = await openHandoffDatabase({ indexedDB, databaseName });
+      const transaction = db.transaction([HANDOFF_AUTHORITY_STORE, HANDOFF_CANDIDATE_STORE], 'readonly');
+      for (const storeName of [HANDOFF_AUTHORITY_STORE, HANDOFF_CANDIDATE_STORE]) {
+        const store = transaction.objectStore(storeName);
+        expect(store.keyPath).toBeNull();
+        expect(store.autoIncrement).toBe(false);
+        expect(store.indexNames).toHaveLength(0);
+      }
+      db.close();
+    }
+  });
+
+  it('fails a blocked open and closes any late success', async () => {
+    const request: Partial<IDBOpenDBRequest> = {};
+    const close = vi.fn();
+    const indexedDB = { open: () => request as IDBOpenDBRequest } as unknown as IDBFactory;
+    const opening = openHandoffDatabase({ indexedDB });
+    request.onblocked?.({} as Event);
+    await expect(opening).rejects.toMatchObject({ code: 'DATABASE_OPEN_BLOCKED' });
+    Object.defineProperty(request, 'result', { value: { close } });
+    request.onsuccess?.({} as Event);
+    expect(close).toHaveBeenCalledOnce();
+  });
+});
+
 describe('K-328 IndexedDB persistence and restart', () => {
   it('creates the isolated schema and atomically commits one graph', async () => {
     const indexedDB = new IDBFactory();
@@ -249,6 +415,32 @@ describe('K-328 IndexedDB persistence and restart', () => {
     db.close();
   });
 
+  it('persists only detached validated evidence when caller inputs mutate after validation starts', async () => {
+    const indexedDB = new IDBFactory();
+    const db = await openHandoffDatabase({ indexedDB, databaseName: 'k328-detached-validation' });
+    const original = await graph([['note-a', 'before']]);
+    const mutable = structuredClone(original);
+    let signalDetached!: () => void;
+    let releaseValidation!: () => void;
+    const detached = new Promise<void>(resolve => { signalDetached = resolve; });
+    const released = new Promise<void>(resolve => { releaseValidation = resolve; });
+    const committing = persistEvidenceWithValidationBarrierForTest(
+      { db, authority: mutable.authority, candidate: mutable.candidate, expectedAuthorityBytes: null },
+      async () => { signalDetached(); await released; },
+    );
+    await detached;
+    mutable.authority.manifestDigest = 'f'.repeat(64);
+    mutable.candidate.manifestDigest = 'e'.repeat(64);
+    mutable.candidate.records[0]![1] = 'after';
+    releaseValidation();
+    await expect(committing).resolves.toBe('created');
+    const persisted = await readValidatedHandoffEvidence(db, original.authority.physicalSourceDigest);
+    expect(bytesEqual(persisted!.authorityBytes, encodeAuthority(original.authority))).toBe(true);
+    expect(bytesEqual(persisted!.candidateBytes, encodeCandidate(original.candidate))).toBe(true);
+    expect(persisted!.candidate.records).toEqual([['note-a', 'before']]);
+    db.close();
+  });
+
   it('rejects a same-store-key conflicting candidate and preserves original bytes', async () => {
     const indexedDB = new IDBFactory();
     const db = await openHandoffDatabase({ indexedDB, databaseName: 'k328-collision' });
@@ -262,6 +454,25 @@ describe('K-328 IndexedDB persistence and restart', () => {
     const after = await readValidatedHandoffEvidence(db, first.authority.physicalSourceDigest);
     expect(bytesEqual(after!.candidateBytes, before!.candidateBytes)).toBe(true);
     expect(bytesEqual(after!.authorityBytes, before!.authorityBytes)).toBe(true);
+    db.close();
+  });
+
+  it('rejects an absent mismatched injected key before any candidate or authority write', async () => {
+    const indexedDB = new IDBFactory();
+    const db = await openHandoffDatabase({ indexedDB, databaseName: 'k328-empty-key-mismatch' });
+    const first = await graph([['note-a', 'first']]);
+    const second = await graph([['note-a', 'second']]);
+    const effects: HandoffEffect[] = [];
+    await expect(persistEvidenceAtCandidateStoreKeyForTest({
+      db, ...second, expectedAuthorityBytes: null,
+      observer: { onEffect: effect => effects.push(effect) },
+    }, first.candidate.candidateId)).rejects.toMatchObject({
+      code: 'PERSISTED_EVIDENCE_MISMATCH', operation: 'candidate_store_key',
+    });
+    expect(await inspectHandoffObjectCounts(db)).toEqual({ authority: 0, candidate: 0 });
+    expect(effects).not.toContain('candidate_create_request');
+    expect(effects).not.toContain('candidate_committed_write');
+    expect(effects).not.toContain('authority_committed_write');
     db.close();
   });
 
@@ -295,6 +506,145 @@ describe('K-328 IndexedDB persistence and restart', () => {
   it('rejects malformed UTF-8 candidate bytes without repair', async () => {
     await expect(decodeCandidateBytes(new Uint8Array([0xc3, 0x28])))
       .rejects.toMatchObject({ code: 'CANDIDATE_CORRUPT' });
+  });
+
+  it('fails closed across the production restart corruption matrix without rewriting bytes', async () => {
+    const base = await graph([['note-a', 'A']]);
+    const conflicting = await graph([['note-a', 'B']]);
+    const cases = [
+      {
+        name: 'malformed authority bytes', store: HANDOFF_AUTHORITY_STORE,
+        key: base.authority.physicalSourceDigest, bytes: new Uint8Array([0x7b]), code: 'NONCANONICAL_PERSISTED_BYTES',
+      },
+      {
+        name: 'malformed candidate bytes', store: HANDOFF_CANDIDATE_STORE,
+        key: base.candidate.candidateId, bytes: utf8Bytes('{'), code: 'NONCANONICAL_PERSISTED_BYTES',
+      },
+      {
+        name: 'noncanonical JSON', store: HANDOFF_AUTHORITY_STORE,
+        key: base.authority.physicalSourceDigest,
+        bytes: utf8Bytes(`${JSON.stringify(base.authority)} `), code: 'NONCANONICAL_PERSISTED_BYTES',
+      },
+      {
+        name: 'invalid UTF-8', store: HANDOFF_CANDIDATE_STORE,
+        key: base.candidate.candidateId, bytes: new Uint8Array([0xc3, 0x28]), code: 'CANDIDATE_CORRUPT',
+      },
+      {
+        name: 'object-store key/payload ID mismatch', store: HANDOFF_CANDIDATE_STORE,
+        key: base.candidate.candidateId, bytes: encodeCandidate(conflicting.candidate), code: 'PERSISTED_EVIDENCE_MISMATCH',
+      },
+      {
+        name: 'wrong physical-source digest', store: HANDOFF_CANDIDATE_STORE,
+        key: base.candidate.candidateId,
+        bytes: utf8Bytes(JSON.stringify({ ...base.candidate, physicalSourceDigest: 'b'.repeat(64) })),
+        code: 'CANDIDATE_CORRUPT',
+      },
+      {
+        name: 'wrong session ID', store: HANDOFF_CANDIDATE_STORE,
+        key: base.candidate.candidateId,
+        bytes: utf8Bytes(JSON.stringify({ ...base.candidate, handoffSessionId: `handoff-${'b'.repeat(16)}-7` })),
+        code: 'CANDIDATE_CORRUPT',
+      },
+      {
+        name: 'wrong snapshot digest', store: HANDOFF_CANDIDATE_STORE,
+        key: base.candidate.candidateId,
+        bytes: utf8Bytes(JSON.stringify({ ...base.candidate, snapshotDigest: 'b'.repeat(64) })),
+        code: 'CANDIDATE_CORRUPT',
+      },
+      {
+        name: 'wrong root digest', store: HANDOFF_CANDIDATE_STORE,
+        key: base.candidate.candidateId,
+        bytes: utf8Bytes(JSON.stringify({ ...base.candidate, rootDigest: 'b'.repeat(64) })),
+        code: 'PERSISTED_EVIDENCE_MISMATCH',
+      },
+      {
+        name: 'wrong manifest digest', store: HANDOFF_CANDIDATE_STORE,
+        key: base.candidate.candidateId,
+        bytes: utf8Bytes(JSON.stringify({ ...base.candidate, manifestDigest: 'b'.repeat(64) })),
+        code: 'PERSISTED_EVIDENCE_MISMATCH',
+      },
+      {
+        name: 'over-limit authority', store: HANDOFF_AUTHORITY_STORE,
+        key: base.authority.physicalSourceDigest,
+        bytes: new Uint8Array(HANDOFF_LIMITS.authorityPayloadBytes + 1), code: 'AUTHORITY_CORRUPT',
+      },
+      {
+        name: 'over-limit candidate', store: HANDOFF_CANDIDATE_STORE,
+        key: base.candidate.candidateId,
+        bytes: new Uint8Array(HANDOFF_LIMITS.candidatePayloadBytes + 1), code: 'CANDIDATE_CORRUPT',
+      },
+      {
+        name: 'unknown authority state', store: HANDOFF_AUTHORITY_STORE,
+        key: base.authority.physicalSourceDigest,
+        bytes: utf8Bytes(JSON.stringify({ ...base.authority, state: 'unknown' })), code: 'AUTHORITY_CORRUPT',
+      },
+    ] as const;
+
+    for (const [index, corruption] of cases.entries()) {
+      const indexedDB = new IDBFactory();
+      const db = await openHandoffDatabase({ indexedDB, databaseName: `k328-restart-matrix-${index}` });
+      await persistEvidenceAtomic({ db, ...base, expectedAuthorityBytes: null });
+      await rawStoreWrite(db, corruption.store, corruption.key, corruption.bytes);
+      const before = await rawStoreRead(db, corruption.store, corruption.key);
+      await expect(readValidatedHandoffEvidence(db, base.authority.physicalSourceDigest), corruption.name)
+        .rejects.toMatchObject({ code: corruption.code });
+      const after = await rawStoreRead(db, corruption.store, corruption.key);
+      expect(bytesEqual(after!, before!), corruption.name).toBe(true);
+      db.close();
+    }
+  });
+
+  it('reports a missing candidate without repairing or deleting the remaining authority', async () => {
+    const indexedDB = new IDBFactory();
+    const db = await openHandoffDatabase({ indexedDB, databaseName: 'k328-restart-missing-candidate' });
+    const value = await graph();
+    await persistEvidenceAtomic({ db, ...value, expectedAuthorityBytes: null });
+    const authorityBefore = await rawStoreRead(db, HANDOFF_AUTHORITY_STORE, value.authority.physicalSourceDigest);
+    await rawStoreDelete(db, HANDOFF_CANDIDATE_STORE, value.candidate.candidateId);
+    await expect(readValidatedHandoffEvidence(db, value.authority.physicalSourceDigest))
+      .rejects.toMatchObject({ code: 'RESTART_VALIDATION_FAILED', operation: 'missing_candidate' });
+    expect(await inspectHandoffObjectCounts(db)).toEqual({ authority: 1, candidate: 0 });
+    expect(bytesEqual(
+      (await rawStoreRead(db, HANDOFF_AUTHORITY_STORE, value.authority.physicalSourceDigest))!,
+      authorityBefore!,
+    )).toBe(true);
+    db.close();
+  });
+
+  it('rejects a changed authority between hint and atomic reread without repair', async () => {
+    const indexedDB = new IDBFactory();
+    const db = await openHandoffDatabase({ indexedDB, databaseName: 'k328-restart-stale-hint' });
+    const value = await graph();
+    await persistEvidenceAtomic({ db, ...value, expectedAuthorityBytes: null });
+    const changed = encodeAuthority(withAuthorityState(value.authority, 'snapshot_committed_pending_finalization'));
+    await expect(readValidatedHandoffEvidenceWithHintBarrierForTest(
+      db,
+      value.authority.physicalSourceDigest,
+      () => rawStoreWrite(db, HANDOFF_AUTHORITY_STORE, value.authority.physicalSourceDigest, changed),
+    )).rejects.toMatchObject({ code: 'AUTHORITY_CAS_CONFLICT', operation: 'authority_changed_during_restart' });
+    expect(bytesEqual(
+      (await rawStoreRead(db, HANDOFF_AUTHORITY_STORE, value.authority.physicalSourceDigest))!,
+      changed,
+    )).toBe(true);
+    db.close();
+  });
+
+  it('rejects a candidate deleted between hint and atomic reread without authority repair', async () => {
+    const indexedDB = new IDBFactory();
+    const db = await openHandoffDatabase({ indexedDB, databaseName: 'k328-restart-delete-race' });
+    const value = await graph();
+    await persistEvidenceAtomic({ db, ...value, expectedAuthorityBytes: null });
+    const authorityBefore = await rawStoreRead(db, HANDOFF_AUTHORITY_STORE, value.authority.physicalSourceDigest);
+    await expect(readValidatedHandoffEvidenceWithHintBarrierForTest(
+      db,
+      value.authority.physicalSourceDigest,
+      () => rawStoreDelete(db, HANDOFF_CANDIDATE_STORE, value.candidate.candidateId),
+    )).rejects.toMatchObject({ code: 'RESTART_VALIDATION_FAILED', operation: 'missing_candidate' });
+    expect(bytesEqual(
+      (await rawStoreRead(db, HANDOFF_AUTHORITY_STORE, value.authority.physicalSourceDigest))!,
+      authorityBefore!,
+    )).toBe(true);
+    db.close();
   });
 
   it('commits through the dormant entry point and validates a fresh restart', async () => {

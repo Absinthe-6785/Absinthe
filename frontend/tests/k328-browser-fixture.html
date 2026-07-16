@@ -19,9 +19,9 @@
   import { bytesEqual } from '/src/lib/localDatabase/crossContextHandoff/canonical.ts';
   import { withPhysicalSourceLock } from '/src/lib/localDatabase/crossContextHandoff/webLocks.ts';
 
-  const physical = () => ({
+  const physical = (sourceOrigin = location.origin) => ({
     schemaVersion: 1,
-    origin: location.origin,
+    origin: sourceOrigin,
     sourceFamily: 'legacy_notes',
     backend: 'combined_localstorage_indexeddb',
     databaseName: 'absinthe-notes-v1',
@@ -52,16 +52,16 @@
     adapter: 'isolated_browser_fixture', isolatedForHandoff: true,
     readSnapshot: async () => ({ revision: 7, records: [['note-a', value]] }),
   });
-  const run = value => runCrossContextReadOnlyHandoff({
-    physicalSource: physical(), logicalScope: scope, source: source(value),
+  const run = (value, sourceOrigin = location.origin) => runCrossContextReadOnlyHandoff({
+    physicalSource: physical(sourceOrigin), logicalScope: scope, source: source(value),
   });
   const restart = () => validateCrossContextHandoffRestart({ physicalSource: physical() });
   const counts = async () => {
     const db = await openHandoffDatabase();
     try { return await inspectHandoffObjectCounts(db); } finally { db.close(); }
   };
-  const graph = async value => {
-    const derived = await derivePhysicalSourceIdentity(physical());
+  const graph = async (value, sourceOrigin = location.origin) => {
+    const derived = await derivePhysicalSourceIdentity(physical(sourceOrigin));
     return buildTerminalEvidence({
       physicalSourceDigest: derived.digest, logicalScope: scope, sourceRevision: 7,
       records: [['note-a', value]],
@@ -169,6 +169,113 @@
     return { upgradeResult, priorConnectionClosed };
   };
 
+  const malformedSchema = async kind => {
+    await reset();
+    const request = indexedDB.open(HANDOFF_DATABASE_NAME, 1);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (kind === 'missing_authority') {
+        db.createObjectStore(HANDOFF_CANDIDATE_STORE);
+        return;
+      }
+      if (kind === 'missing_candidate') {
+        db.createObjectStore(HANDOFF_AUTHORITY_STORE);
+        return;
+      }
+      const authority = kind === 'key_path'
+        ? db.createObjectStore(HANDOFF_AUTHORITY_STORE, { keyPath: 'id' })
+        : kind === 'auto_increment'
+          ? db.createObjectStore(HANDOFF_AUTHORITY_STORE, { autoIncrement: true })
+          : db.createObjectStore(HANDOFF_AUTHORITY_STORE);
+      db.createObjectStore(HANDOFF_CANDIDATE_STORE);
+      if (kind === 'extra_store') db.createObjectStore('unexpected');
+      if (kind === 'index') authority.createIndex('unexpected', 'id');
+    };
+    (await waitRequest(request)).close();
+    try {
+      const db = await openHandoffDatabase();
+      db.close();
+      return 'unexpected_success';
+    } catch (error) {
+      return error.code ?? 'unknown';
+    }
+  };
+
+  const controlledHandoffs = new Map();
+  const startControlledHandoff = (token, value, sourceOrigin = location.origin) => {
+    let release;
+    const released = new Promise(resolve => { release = resolve; });
+    const state = {
+      requested: true,
+      lockRequested: false,
+      lockEntered: false,
+      sourceEntered: false,
+      released: false,
+      done: false,
+      result: null,
+      errorCode: null,
+      sourceReads: 0,
+      effects: [],
+      release: () => { state.released = true; release(); },
+    };
+    controlledHandoffs.set(token, state);
+    const controlledSource = {
+      adapter: 'isolated_controlled_browser_fixture', isolatedForHandoff: true,
+      readSnapshot: async () => {
+        state.sourceReads += 1;
+        if (state.sourceReads === 1) {
+          state.sourceEntered = true;
+          await released;
+        }
+        return { revision: 7, records: [['note-a', value]] };
+      },
+    };
+    void runCrossContextReadOnlyHandoff({
+      physicalSource: physical(sourceOrigin),
+      logicalScope: scope,
+      source: controlledSource,
+      observer: {
+        onEffect: effect => {
+          state.effects.push(effect);
+          if (effect === 'lock_request') state.lockRequested = true;
+          if (effect === 'lock_acquired') state.lockEntered = true;
+        },
+      },
+    }).then(
+      result => { state.result = result; state.done = true; },
+      error => { state.errorCode = error.code ?? 'unknown'; state.done = true; },
+    );
+    return true;
+  };
+  const controlledState = token => {
+    const state = controlledHandoffs.get(token);
+    if (!state) return null;
+    return {
+      requested: state.requested,
+      lockRequested: state.lockRequested,
+      lockEntered: state.lockEntered,
+      sourceEntered: state.sourceEntered,
+      released: state.released,
+      done: state.done,
+      result: state.result,
+      errorCode: state.errorCode,
+      sourceReads: state.sourceReads,
+      candidateCreateRequests: state.effects.filter(effect => effect === 'candidate_create_request').length,
+      candidateCommittedWrites: state.effects.filter(effect => effect === 'candidate_committed_write').length,
+      authorityCommittedWrites: state.effects.filter(effect => effect === 'authority_committed_write').length,
+    };
+  };
+  const releaseControlledHandoff = token => controlledHandoffs.get(token)?.release();
+  const lockQueueState = async sourceOrigin => {
+    const derived = await derivePhysicalSourceIdentity(physical(sourceOrigin));
+    const snapshot = await navigator.locks.query();
+    return {
+      lockName: derived.lockName,
+      held: snapshot.held.filter(lock => lock.name === derived.lockName).length,
+      pending: snapshot.pending.filter(lock => lock.name === derived.lockName).length,
+    };
+  };
+
   const holds = new Map();
   const hold = async token => {
     const derived = await derivePhysicalSourceIdentity(physical());
@@ -211,7 +318,8 @@
   window.k328 = {
     reset, run, restart, counts, duplicateAdd, abortAtomic, persistWithKey, candidateId,
     evidenceBytes, corruptCandidate, versionChangeBehavior, hold, holdAbortable, holdState, release, abortHold,
-    failInsideLock,
+    failInsideLock, malformedSchema, startControlledHandoff, controlledState,
+    releaseControlledHandoff, lockQueueState,
     schema: { database: HANDOFF_DATABASE_NAME, stores: [HANDOFF_AUTHORITY_STORE, HANDOFF_CANDIDATE_STORE] },
   };
 </script>

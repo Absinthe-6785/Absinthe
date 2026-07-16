@@ -188,7 +188,15 @@ const AUTHORITY_KEYS = [
 ] as const;
 
 export async function validateAuthority(input: unknown): Promise<PersistedHandoffAuthorityV1> {
+  return validateCapturedAuthority(captureAuthorityInput(input));
+}
+
+function captureAuthorityInput(input: unknown): Record<string, unknown> {
   const value = strictRecord(input, AUTHORITY_KEYS, 'AUTHORITY_CORRUPT');
+  return Object.freeze({ ...value, logicalScope: validateLogicalScope(value.logicalScope) });
+}
+
+async function validateCapturedAuthority(value: Record<string, unknown>): Promise<PersistedHandoffAuthorityV1> {
   if (value.recordType !== 'absinthe_handoff_authority' || value.schemaVersion !== 1
     || value.coordinatorVersion !== 1 || typeof value.state !== 'string'
     || !['writable', 'handoff_pending', 'snapshot_committed_pending_finalization', 'read_only_handoff'].includes(value.state)) {
@@ -239,13 +247,21 @@ const CANDIDATE_KEYS = [
 ] as const;
 
 export async function validateCandidate(input: unknown): Promise<PersistedSnapshotCandidateV1> {
+  return validateCapturedCandidate(captureCandidateInput(input));
+}
+
+function captureCandidateInput(input: unknown): Record<string, unknown> {
   const value = strictRecord(input, CANDIDATE_KEYS, 'CANDIDATE_CORRUPT');
+  return Object.freeze({ ...value, records: canonicalizeSourceEntries(value.records) });
+}
+
+async function validateCapturedCandidate(value: Record<string, unknown>): Promise<PersistedSnapshotCandidateV1> {
   if (value.recordType !== 'absinthe_handoff_snapshot_candidate' || value.schemaVersion !== 1
     || value.coordinatorVersion !== 1 || typeof value.entityCount !== 'number'
     || !Number.isSafeInteger(value.entityCount) || value.entityCount < 0) {
     throw new CrossContextHandoffError('CANDIDATE_CORRUPT', 'validate_candidate');
   }
-  const records = canonicalizeSourceEntries(value.records);
+  const records = value.records as readonly (readonly [string, string])[];
   const result: PersistedSnapshotCandidateV1 = Object.freeze({
     recordType: 'absinthe_handoff_snapshot_candidate', schemaVersion: 1, coordinatorVersion: 1,
     candidateId: candidateId(value.candidateId),
@@ -271,9 +287,15 @@ export async function validateCandidate(input: unknown): Promise<PersistedSnapsh
 export async function validateEvidenceGraph(
   authorityInput: unknown,
   candidateInput: unknown,
+  testBoundary?: { afterInputsDetached(): Promise<void> },
 ): Promise<{ authority: PersistedHandoffAuthorityV1; candidate: PersistedSnapshotCandidateV1 }> {
-  const authority = await validateAuthority(authorityInput);
-  const candidate = await validateCandidate(candidateInput);
+  // Capture both graphs synchronously before the first await. Callers may retain
+  // mutable aliases, but no caller-owned value is read after this point.
+  const authoritySnapshot = captureAuthorityInput(authorityInput);
+  const candidateSnapshot = captureCandidateInput(candidateInput);
+  await testBoundary?.afterInputsDetached();
+  const authority = await validateCapturedAuthority(authoritySnapshot);
+  const candidate = await validateCapturedCandidate(candidateSnapshot);
   const rootDigest = await sha256Hex(JSON.stringify([
     'absinthe_handoff_root_v1', candidate.physicalSourceDigest, candidate.logicalScopeDigest,
     candidate.sourceRevision, candidate.snapshotDigest,

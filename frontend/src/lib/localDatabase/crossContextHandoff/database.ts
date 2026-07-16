@@ -27,6 +27,27 @@ export interface HandoffDatabaseOptions {
   observer?: HandoffObserver;
 }
 
+function validateExactHandoffSchema(db: IDBDatabase): void {
+  const expected = [HANDOFF_AUTHORITY_STORE, HANDOFF_CANDIDATE_STORE].sort();
+  const actual = [...db.objectStoreNames].sort();
+  if (actual.length !== expected.length || actual.some((name, index) => name !== expected[index])) {
+    throw new CrossContextHandoffError('DATABASE_SCHEMA_INVALID', 'validate_handoff_schema');
+  }
+  let transaction: IDBTransaction;
+  try {
+    transaction = db.transaction(expected, 'readonly');
+    for (const name of expected) {
+      const store = transaction.objectStore(name);
+      if (store.keyPath !== null || store.autoIncrement || store.indexNames.length !== 0) {
+        throw new CrossContextHandoffError('DATABASE_SCHEMA_INVALID', 'validate_handoff_schema');
+      }
+    }
+  } catch (error) {
+    if (error instanceof CrossContextHandoffError) throw error;
+    throw new CrossContextHandoffError('DATABASE_SCHEMA_INVALID', 'validate_handoff_schema');
+  }
+}
+
 function factory(options?: HandoffDatabaseOptions): IDBFactory {
   const value = options?.indexedDB ?? globalThis.indexedDB;
   if (!value) throw new CrossContextHandoffError('DATABASE_OPEN_FAILED', 'indexeddb_unavailable');
@@ -75,11 +96,12 @@ export function openHandoffDatabase(options: HandoffDatabaseOptions = {}): Promi
         db.close();
         return;
       }
-      if (!db.objectStoreNames.contains(HANDOFF_AUTHORITY_STORE)
-        || !db.objectStoreNames.contains(HANDOFF_CANDIDATE_STORE)) {
+      try {
+        validateExactHandoffSchema(db);
+      } catch (error) {
         settled = true;
         db.close();
-        reject(new CrossContextHandoffError('DATABASE_UPGRADE_FAILED', 'validate_handoff_schema'));
+        reject(error);
         return;
       }
       settled = true;
@@ -183,16 +205,24 @@ export async function persistAuthorityCas(input: {
 
 async function persistEvidenceAtCandidateStoreKey(
   input: PersistEvidenceInput,
-  candidateStoreKey: string,
-  collisionTestBoundary: boolean,
+  testBoundary?: {
+    candidateStoreKey?: string;
+    afterInputsDetached?(): Promise<void>;
+  },
 ): Promise<'created' | 'existing_identical'> {
-  await validateEvidenceGraph(input.authority, input.candidate);
-  const authorityBytes = encodeAuthority(input.authority);
-  const candidateBytes = encodeCandidate(input.candidate);
+  const validated = await validateEvidenceGraph(
+    input.authority,
+    input.candidate,
+    testBoundary?.afterInputsDetached
+      ? { afterInputsDetached: testBoundary.afterInputsDetached }
+      : undefined,
+  );
+  const { authority, candidate } = validated;
+  const authorityBytes = encodeAuthority(authority);
+  const candidateBytes = encodeCandidate(candidate);
   assertHandoffWriteBudget(authorityBytes.byteLength, candidateBytes.byteLength);
-  if (!collisionTestBoundary && candidateStoreKey !== input.candidate.candidateId) {
-    throw new CrossContextHandoffError('PERSISTED_EVIDENCE_MISMATCH', 'candidate_store_key');
-  }
+  const candidateStoreKey = testBoundary?.candidateStoreKey ?? candidate.candidateId;
+  const injectedMismatchedKey = candidateStoreKey !== candidate.candidateId;
   observe(input.observer, 'transaction_start');
   const transaction = input.db.transaction(
     [HANDOFF_AUTHORITY_STORE, HANDOFF_CANDIDATE_STORE],
@@ -205,11 +235,15 @@ async function persistEvidenceAtCandidateStoreKey(
     const candidateStore = transaction.objectStore(HANDOFF_CANDIDATE_STORE);
     observe(input.observer, 'persistence_read');
     const [existingAuthorityRaw, existingCandidateRaw] = await Promise.all([
-      requestResult(authorityStore.get(input.authority.physicalSourceDigest), 'read_authority'),
+      requestResult(authorityStore.get(authority.physicalSourceDigest), 'read_authority'),
       requestResult(candidateStore.get(candidateStoreKey), 'read_candidate'),
     ]);
     const existingAuthority = existingAuthorityRaw as Uint8Array | undefined;
     const existingCandidate = existingCandidateRaw as Uint8Array | undefined;
+
+    if (injectedMismatchedKey && existingCandidate === undefined) {
+      throw new CrossContextHandoffError('PERSISTED_EVIDENCE_MISMATCH', 'candidate_store_key');
+    }
 
     if (existingCandidate !== undefined) {
       const parsed = await decodeCandidateBytes(existingCandidate);
@@ -242,8 +276,8 @@ async function persistEvidenceAtCandidateStoreKey(
       throw new CrossContextHandoffError('TRANSACTION_ABORTED', 'injected_after_candidate_request');
     }
     const authorityRequest = existingAuthority === undefined
-      ? authorityStore.add(authorityBytes, input.authority.physicalSourceDigest)
-      : authorityStore.put(authorityBytes, input.authority.physicalSourceDigest);
+      ? authorityStore.add(authorityBytes, authority.physicalSourceDigest)
+      : authorityStore.put(authorityBytes, authority.physicalSourceDigest);
     if ((input.failurePointForTest ?? 'none') === 'after_both_requests') {
       throw new CrossContextHandoffError('TRANSACTION_ABORTED', 'injected_after_both_requests');
     }
@@ -265,7 +299,7 @@ async function persistEvidenceAtCandidateStoreKey(
 }
 
 export function persistEvidenceAtomic(input: PersistEvidenceInput): Promise<'created' | 'existing_identical'> {
-  return persistEvidenceAtCandidateStoreKey(input, input.candidate.candidateId, false);
+  return persistEvidenceAtCandidateStoreKey(input);
 }
 
 /**
@@ -276,13 +310,22 @@ export function persistEvidenceAtCandidateStoreKeyForTest(
   input: PersistEvidenceInput,
   candidateStoreKey: string,
 ): Promise<'created' | 'existing_identical'> {
-  return persistEvidenceAtCandidateStoreKey(input, candidateStoreKey, true);
+  return persistEvidenceAtCandidateStoreKey(input, { candidateStoreKey });
 }
 
-export async function readValidatedHandoffEvidence(
+/** Test-only deterministic pause after both inputs have been detached. */
+export function persistEvidenceWithValidationBarrierForTest(
+  input: PersistEvidenceInput,
+  afterInputsDetached: () => Promise<void>,
+): Promise<'created' | 'existing_identical'> {
+  return persistEvidenceAtCandidateStoreKey(input, { afterInputsDetached });
+}
+
+async function readValidatedHandoffEvidenceInternal(
   db: IDBDatabase,
   physicalSourceDigest: string,
   observer?: HandoffObserver,
+  afterAuthorityHint?: () => Promise<void>,
 ): Promise<ValidatedHandoffEvidence | null> {
   const authorityTransaction = db.transaction(HANDOFF_AUTHORITY_STORE, 'readonly');
   const authorityDone = transactionCompletion(authorityTransaction, 'read_handoff_authority');
@@ -299,6 +342,7 @@ export async function readValidatedHandoffEvidence(
   if (authority.physicalSourceDigest !== physicalSourceDigest || authority.snapshotCandidateId === null) {
     throw new CrossContextHandoffError('RESTART_VALIDATION_FAILED', 'authority_lookup_binding');
   }
+  await afterAuthorityHint?.();
   // Re-read authority with its referenced candidate in one transaction. The
   // first bounded read is needed to learn the immutable candidate key; the
   // second read prevents an authority change between those observations.
@@ -335,6 +379,23 @@ export async function readValidatedHandoffEvidence(
     authorityBytes: new Uint8Array(authorityRaw),
     candidateBytes: new Uint8Array(candidateRaw),
   });
+}
+
+export function readValidatedHandoffEvidence(
+  db: IDBDatabase,
+  physicalSourceDigest: string,
+  observer?: HandoffObserver,
+): Promise<ValidatedHandoffEvidence | null> {
+  return readValidatedHandoffEvidenceInternal(db, physicalSourceDigest, observer);
+}
+
+/** Test-only restart race boundary after the bounded authority hint read. */
+export function readValidatedHandoffEvidenceWithHintBarrierForTest(
+  db: IDBDatabase,
+  physicalSourceDigest: string,
+  afterAuthorityHint: () => Promise<void>,
+): Promise<ValidatedHandoffEvidence | null> {
+  return readValidatedHandoffEvidenceInternal(db, physicalSourceDigest, undefined, afterAuthorityHint);
 }
 
 export async function inspectHandoffObjectCounts(db: IDBDatabase): Promise<{ authority: number; candidate: number }> {
