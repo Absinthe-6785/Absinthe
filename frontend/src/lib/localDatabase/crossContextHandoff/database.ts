@@ -54,14 +54,27 @@ function factory(options?: HandoffDatabaseOptions): IDBFactory {
   return value;
 }
 
-export function openHandoffDatabase(options: HandoffDatabaseOptions = {}): Promise<IDBDatabase> {
+interface OpenHandoffDatabaseTestBoundary {
+  readonly requestedVersion: number;
+  readonly allowExistingVersionUpgrade: boolean;
+  readonly onBlocked?: () => void;
+  readonly onLateSuccessClosed?: (db: IDBDatabase) => void;
+}
+
+function openHandoffDatabaseInternal(
+  options: HandoffDatabaseOptions = {},
+  testBoundary?: OpenHandoffDatabaseTestBoundary,
+): Promise<IDBDatabase> {
   observe(options.observer, 'database_open');
   return new Promise((resolve, reject) => {
     let settled = false;
     let upgraded = false;
     let request: IDBOpenDBRequest;
     try {
-      request = factory(options).open(options.databaseName ?? HANDOFF_DATABASE_NAME, HANDOFF_DATABASE_VERSION);
+      request = factory(options).open(
+        options.databaseName ?? HANDOFF_DATABASE_NAME,
+        testBoundary?.requestedVersion ?? HANDOFF_DATABASE_VERSION,
+      );
     } catch {
       reject(new CrossContextHandoffError('DATABASE_OPEN_FAILED', 'open_handoff_database'));
       return;
@@ -70,15 +83,18 @@ export function openHandoffDatabase(options: HandoffDatabaseOptions = {}): Promi
       upgraded = true;
       const db = request.result;
       const oldVersion = (event as IDBVersionChangeEvent).oldVersion;
-      if (oldVersion !== 0) {
+      if (oldVersion !== 0 && !testBoundary?.allowExistingVersionUpgrade) {
         request.transaction?.abort();
         return;
       }
-      db.createObjectStore(HANDOFF_AUTHORITY_STORE);
-      db.createObjectStore(HANDOFF_CANDIDATE_STORE);
+      if (oldVersion === 0) {
+        db.createObjectStore(HANDOFF_AUTHORITY_STORE);
+        db.createObjectStore(HANDOFF_CANDIDATE_STORE);
+      }
     };
     request.onblocked = () => {
       if (settled) return;
+      testBoundary?.onBlocked?.();
       settled = true;
       reject(new CrossContextHandoffError('DATABASE_OPEN_BLOCKED', 'open_handoff_database'));
     };
@@ -94,6 +110,7 @@ export function openHandoffDatabase(options: HandoffDatabaseOptions = {}): Promi
       const db = request.result;
       if (settled) {
         db.close();
+        testBoundary?.onLateSuccessClosed?.(db);
         return;
       }
       try {
@@ -108,6 +125,28 @@ export function openHandoffDatabase(options: HandoffDatabaseOptions = {}): Promi
       db.onversionchange = () => db.close();
       resolve(db);
     };
+  });
+}
+
+export function openHandoffDatabase(options: HandoffDatabaseOptions = {}): Promise<IDBDatabase> {
+  return openHandoffDatabaseInternal(options);
+}
+
+/**
+ * Test-only real-IDB upgrade boundary. It exercises the production blocked/open
+ * settlement path without changing the version or upgrade policy used by
+ * openHandoffDatabase(). It is intentionally absent from the public barrel.
+ */
+export function openBlockedHandoffUpgradeForTest(input: {
+  readonly options?: HandoffDatabaseOptions;
+  readonly onBlocked: () => void;
+  readonly onLateSuccessClosed: (db: IDBDatabase) => void;
+}): Promise<IDBDatabase> {
+  return openHandoffDatabaseInternal(input.options, {
+    requestedVersion: HANDOFF_DATABASE_VERSION + 1,
+    allowExistingVersionUpgrade: true,
+    onBlocked: input.onBlocked,
+    onLateSuccessClosed: input.onLateSuccessClosed,
   });
 }
 

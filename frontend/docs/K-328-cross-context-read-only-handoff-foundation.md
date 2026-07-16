@@ -64,6 +64,8 @@ User, project, namespace, and device never enter this tuple or lock name. They f
 
 The Chromium harness runs two actual concurrent handoff calls from two same-origin pages. Explicit request, lock-entry, Web Locks queue, and release barriers prove that one call creates the evidence graph and the queued call returns the validated terminal replay. A separate same-origin test holds two distinct physical-source lock names concurrently and persists two independent graphs, proving that there is no origin-global lock. An aborted waiter never enters, callback failure releases the native lock, and different origins remain supplemental isolation evidence. Firefox, WebKit, PWA, private-mode, and storage-bucket behavior are not claimed.
 
+K-328B reads both same-source results back through the production restart validator and compares the complete physical, session, revision, snapshot, root, manifest, authority, and candidate binding. The distinct-source case independently restarts both physical sources, validates each authority/candidate graph, and proves that swapping their candidates is rejected with `PERSISTED_EVIDENCE_MISMATCH`. Result states are asserted directly rather than inferred from object counts.
+
 ## IndexedDB schema
 
 | Property | Value |
@@ -117,6 +119,8 @@ Candidate creation uses `IDBObjectStore.add()`, never `put()`. Authority changes
 
 The browser collision test injects only the object-store lookup key after both candidate payloads pass normal generation and validation. A mismatched injected key may address only an already-existing candidate; if the key is absent, `PERSISTED_EVIDENCE_MISMATCH` is returned before `add()` or authority mutation, leaving both stores unchanged. It tests storage-key collision policy, not SHA-256 collision probability. Production identifier parsing is unchanged and the injection is absent from the public directory export.
 
+The empty-key regression directly reads the injected candidate key, the payload candidate ID, and the authority key before close and again after a normal production reopen. All remain absent and both object counts remain zero in fake-indexeddb and real Chrome; observer counters are supplemental rather than the durable proof.
+
 ## Resource contract
 
 | Bound | Value |
@@ -161,7 +165,9 @@ Normal production use has no observer. Every effect has a positive unit or brows
 
 `npm run test:k328-browser` launches two isolated Vite origins on OS-assigned ports and headless installed Google Chrome with an OS-assigned DevTools port through CDP without adding a browser dependency. The production modules execute in real pages using native IndexedDB and `navigator.locks`. Correctness ordering uses explicit request, held/pending lock, entry, and release barriers; fixed 10 ms/150 ms assertions are absent. Startup polling is bounded, and pages, Chrome, both Vite servers, and the temporary profile are closed in `finally`. This managed Windows environment required Chrome's `--no-sandbox` launch flag because the sandboxed GPU process repeatedly terminated; the test does not claim browser-sandbox evidence, while the IndexedDB and Web Locks implementations under test remain native browser APIs.
 
-Collected evidence includes exact schema rejection cases, candidate/authority commit, real `add()` `ConstraintError`, zero-write replay, page-close/reopen validation, two transaction abort boundaries, versionchange closure/reopen, empty injected-key rejection, existing-key collision, two actual concurrent same-source handoffs, same-origin different-source overlap, Web Lock abort/failure release, malformed UTF-8 rejection, and supplemental different-origin independence.
+K-328B adds a real Chrome blocked-open sequence. An isolated raw version-1 holder deliberately delays its `versionchange` close while a test-only version-2 request exercises the same production open settlement state machine. Chrome emits `blocked`; the caller receives `DATABASE_OPEN_BLOCKED` before the holder is released; the request later succeeds and its connection is immediately closed. A subsequent delete succeeds without `blocked`, proving no late connection leak, and a normal production version-1 reopen recreates and validates the exact empty schema. The temporary version-2 database is deleted inside the isolated browser profile. The public production open version and upgrade policy are unchanged, and the test-only entrypoint is absent from the public barrel.
+
+The current browser suite passes 49/49 cases on Chrome 150.0.7871.116. Collected evidence includes exact schema rejection cases, real blocked/late-success settlement, candidate/authority commit, real `add()` `ConstraintError`, zero-write replay, page-close/reopen validation, two transaction abort boundaries, versionchange closure/reopen, empty injected-key direct absence across reopen, existing-key collision, two actual concurrent same-source handoffs with full shared binding, same-origin different-source overlap with independent restart and cross-binding rejection, Web Lock abort/failure release, malformed UTF-8 rejection, and supplemental different-origin independence.
 
 This is page-close/reopen restart evidence, not OS crash or power-loss durability. Browser-process crash, storage eviction, quota, Firefox/WebKit, and forced close during an in-flight transaction remain future gates.
 

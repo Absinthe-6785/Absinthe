@@ -171,6 +171,44 @@ try {
     );
   }
 
+  await pageA.cdp.evaluate('window.k328.startBlockedOpenScenario()');
+  await waitFor(pageA, 'window.k328.blockedOpenState()?.blockedObserved === true');
+  await waitFor(pageA, 'window.k328.blockedOpenState()?.callerRejected === true');
+  const blockedBeforeRelease = await pageA.cdp.evaluate('window.k328.blockedOpenState()');
+  assertion(
+    blockedBeforeRelease.rejectionCode === 'DATABASE_OPEN_BLOCKED'
+      && blockedBeforeRelease.blockerReleased === false,
+    'real blocked open rejects fail closed before blocker release',
+  );
+  assertion(
+    blockedBeforeRelease.events.indexOf('blocked_observed')
+      < blockedBeforeRelease.events.indexOf('caller_rejected'),
+    'real Chrome blocked event precedes caller rejection',
+  );
+  assertion(
+    await pageA.cdp.evaluate('window.k328.releaseBlockedOpenScenario()') === true,
+    'blocked connection releases only after caller rejection',
+  );
+  await waitFor(pageA, 'window.k328.blockedOpenState()?.lateSuccessObserved === true');
+  await waitFor(pageA, 'window.k328.blockedOpenState()?.lateConnectionClosed === true');
+  const blockedComplete = await pageA.cdp.evaluate('window.k328.finishBlockedOpenScenario()');
+  const blockedOrder = [
+    'blocker_open', 'blocked_observed', 'caller_rejected', 'blocker_released',
+    'late_success_observed', 'late_connection_closed', 'leak_check_passed', 'clean_reopen_passed',
+  ];
+  const blockedIndexes = blockedOrder.map(event => blockedComplete.events.indexOf(event));
+  assertion(
+    blockedIndexes.every((value, index) => value >= 0
+      && (index === 0 || blockedIndexes[index - 1] < value)),
+    'blocked open follows the explicit real-browser settlement order',
+  );
+  assertion(blockedComplete.lateConnectionClosed === true,
+    'late-success connection is immediately closed');
+  assertion(blockedComplete.leakCheckPassed === true,
+    'late-success connection does not block database deletion');
+  assertion(blockedComplete.cleanReopenPassed === true,
+    'production open succeeds with exact clean schema after blocked scenario');
+
   await pageA.cdp.evaluate('window.k328.reset()');
   const created = await pageA.cdp.evaluate('window.k328.run("A")');
   assertion(created.status === 'created', 'real IndexedDB candidate/authority creation');
@@ -198,6 +236,23 @@ try {
   const emptyMismatch = await pageB.cdp.evaluate(`window.k328.persistWithKey("second", ${JSON.stringify(collisionKey)})`);
   assertion(emptyMismatch.code === 'PERSISTED_EVIDENCE_MISMATCH', 'empty injected mismatch fails before write');
   assertion(JSON.stringify(await pageA.cdp.evaluate('window.k328.counts()')) === '{"authority":0,"candidate":0}', 'empty injected mismatch leaves zero records');
+  const emptyAbsence = await pageA.cdp.evaluate(
+    `window.k328.emptyMismatchAbsenceAcrossReopen("second", ${JSON.stringify(collisionKey)})`,
+  );
+  assertion(
+    emptyAbsence.payloadCandidateId !== collisionKey
+      && emptyAbsence.beforeClose.injectedAbsent
+      && emptyAbsence.beforeClose.payloadAbsent
+      && emptyAbsence.beforeClose.authorityAbsent
+      && emptyAbsence.beforeClose.counts.authority === 0
+      && emptyAbsence.beforeClose.counts.candidate === 0
+      && emptyAbsence.afterReopen.injectedAbsent
+      && emptyAbsence.afterReopen.payloadAbsent
+      && emptyAbsence.afterReopen.authorityAbsent
+      && emptyAbsence.afterReopen.counts.authority === 0
+      && emptyAbsence.afterReopen.counts.candidate === 0,
+    'empty injected mismatch remains direct-key absent across production reopen',
+  );
   const first = await pageA.cdp.evaluate(`window.k328.persistWithKey("first", ${JSON.stringify(collisionKey)})`);
   const second = await pageB.cdp.evaluate(`window.k328.persistWithKey("second", ${JSON.stringify(collisionKey)})`);
   assertion(first.status === 'created', 'existing-key collision fixture creates original candidate');
@@ -220,6 +275,36 @@ try {
   assertion(sameA.result.candidateId === sameB.result.candidateId, 'same-source callers bind one candidate ID');
   assertion(sameA.candidateCommittedWrites + sameB.candidateCommittedWrites === 1, 'same-source callers commit exactly one candidate create');
   assertion(sameB.candidateCommittedWrites === 0 && sameB.authorityCommittedWrites === 0, 'terminal replay performs zero committed writes');
+  assertion(
+    sameA.result.physicalSourceDigest === sameB.result.physicalSourceDigest
+      && sameA.result.sessionId === sameB.result.sessionId
+      && sameA.result.sourceRevision === sameB.result.sourceRevision,
+    'same-source results agree on physical, session, and revision binding',
+  );
+  const [sameBindingA, sameBindingB] = await Promise.all([
+    pageA.cdp.evaluate('window.k328.validatedBinding(location.origin)'),
+    pageB.cdp.evaluate('window.k328.validatedBinding(location.origin)'),
+  ]);
+  assertion(JSON.stringify(sameBindingA) === JSON.stringify(sameBindingB),
+    'same-source restart reads return one complete shared binding');
+  assertion(
+    sameBindingA.authority.state === 'read_only_handoff'
+      && sameBindingA.authority.physicalSourceDigest === sameBindingA.candidate.physicalSourceDigest
+      && sameBindingA.authority.candidateId === sameBindingA.candidate.candidateId
+      && sameBindingA.authority.sessionId === sameBindingA.candidate.sessionId
+      && sameBindingA.authority.sourceRevision === sameBindingA.candidate.sourceRevision
+      && sameBindingA.authority.snapshotDigest === sameBindingA.candidate.snapshotDigest
+      && sameBindingA.authority.rootDigest === sameBindingA.candidate.rootDigest
+      && sameBindingA.authority.manifestDigest === sameBindingA.candidate.manifestDigest,
+    'same-source persisted authority and candidate full binding validates',
+  );
+  assertion(
+    sameA.result.candidateId === sameBindingA.candidate.candidateId
+      && sameA.result.physicalSourceDigest === sameBindingA.candidate.physicalSourceDigest
+      && sameA.result.sessionId === sameBindingA.candidate.sessionId
+      && sameA.result.sourceRevision === sameBindingA.candidate.sourceRevision,
+    'same-source results reference the restart-validated graph',
+  );
   assertion(JSON.stringify(await pageA.cdp.evaluate('window.k328.counts()')) === '{"authority":1,"candidate":1}', 'same-source concurrent handoff leaves one evidence graph');
 
   await pageA.cdp.evaluate('window.k328.reset()');
@@ -244,6 +329,42 @@ try {
     waitFor(pageA, 'window.k328.controlledState("distinct-a")?.done === true'),
     waitFor(pageB, 'window.k328.controlledState("distinct-b")?.done === true'),
   ]);
+  const distinctA = await pageA.cdp.evaluate('window.k328.controlledState("distinct-a")');
+  const distinctB = await pageB.cdp.evaluate('window.k328.controlledState("distinct-b")');
+  assertion(
+    distinctA.errorCode === null && distinctB.errorCode === null
+      && distinctA.result.status === 'created' && distinctB.result.status === 'created',
+    'same-origin distinct-source handoffs both complete successfully',
+  );
+  const [bindingA, bindingB] = await Promise.all([
+    pageA.cdp.evaluate(`window.k328.validatedBinding(${JSON.stringify(sourceA)})`),
+    pageB.cdp.evaluate(`window.k328.validatedBinding(${JSON.stringify(sourceB)})`),
+  ]);
+  assertion(
+    bindingA.authority.physicalSourceDigest !== bindingB.authority.physicalSourceDigest
+      && distinctA.result.physicalSourceDigest === bindingA.authority.physicalSourceDigest
+      && distinctB.result.physicalSourceDigest === bindingB.authority.physicalSourceDigest,
+    'distinct-source results and authorities retain distinct physical bindings',
+  );
+  assertion(
+    bindingA.authority.candidateId === bindingA.candidate.candidateId
+      && bindingA.authority.physicalSourceDigest === bindingA.candidate.physicalSourceDigest
+      && bindingA.authority.snapshotDigest === bindingA.candidate.snapshotDigest
+      && bindingA.authority.rootDigest === bindingA.candidate.rootDigest
+      && bindingA.authority.manifestDigest === bindingA.candidate.manifestDigest
+      && bindingB.authority.candidateId === bindingB.candidate.candidateId
+      && bindingB.authority.physicalSourceDigest === bindingB.candidate.physicalSourceDigest
+      && bindingB.authority.snapshotDigest === bindingB.candidate.snapshotDigest
+      && bindingB.authority.rootDigest === bindingB.candidate.rootDigest
+      && bindingB.authority.manifestDigest === bindingB.candidate.manifestDigest,
+    'distinct-source restart reads validate each complete authority-candidate binding',
+  );
+  const [crossAB, crossBA] = await Promise.all([
+    pageA.cdp.evaluate(`window.k328.crossBindingCode(${JSON.stringify(sourceA)}, ${JSON.stringify(sourceB)})`),
+    pageB.cdp.evaluate(`window.k328.crossBindingCode(${JSON.stringify(sourceB)}, ${JSON.stringify(sourceA)})`),
+  ]);
+  assertion(crossAB === 'PERSISTED_EVIDENCE_MISMATCH' && crossBA === 'PERSISTED_EVIDENCE_MISMATCH',
+    'distinct-source authority-candidate cross-binding is rejected both ways');
   assertion(JSON.stringify(await pageA.cdp.evaluate('window.k328.counts()')) === '{"authority":2,"candidate":2}', 'same-origin distinct sources persist separate evidence graphs');
 
   await pageA.cdp.evaluate('window.k328.reset()');

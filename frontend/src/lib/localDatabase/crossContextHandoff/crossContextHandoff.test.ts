@@ -459,7 +459,8 @@ describe('K-328 IndexedDB persistence and restart', () => {
 
   it('rejects an absent mismatched injected key before any candidate or authority write', async () => {
     const indexedDB = new IDBFactory();
-    const db = await openHandoffDatabase({ indexedDB, databaseName: 'k328-empty-key-mismatch' });
+    const databaseName = 'k328-empty-key-mismatch';
+    const db = await openHandoffDatabase({ indexedDB, databaseName });
     const first = await graph([['note-a', 'first']]);
     const second = await graph([['note-a', 'second']]);
     const effects: HandoffEffect[] = [];
@@ -473,7 +474,25 @@ describe('K-328 IndexedDB persistence and restart', () => {
     expect(effects).not.toContain('candidate_create_request');
     expect(effects).not.toContain('candidate_committed_write');
     expect(effects).not.toContain('authority_committed_write');
+    expect(await rawStoreRead(db, HANDOFF_CANDIDATE_STORE, first.candidate.candidateId)).toBeUndefined();
+    expect(await rawStoreRead(db, HANDOFF_CANDIDATE_STORE, second.candidate.candidateId)).toBeUndefined();
+    expect(await rawStoreRead(
+      db,
+      HANDOFF_AUTHORITY_STORE,
+      second.authority.physicalSourceDigest,
+    )).toBeUndefined();
     db.close();
+
+    const reopened = await openHandoffDatabase({ indexedDB, databaseName });
+    expect(await rawStoreRead(reopened, HANDOFF_CANDIDATE_STORE, first.candidate.candidateId)).toBeUndefined();
+    expect(await rawStoreRead(reopened, HANDOFF_CANDIDATE_STORE, second.candidate.candidateId)).toBeUndefined();
+    expect(await rawStoreRead(
+      reopened,
+      HANDOFF_AUTHORITY_STORE,
+      second.authority.physicalSourceDigest,
+    )).toBeUndefined();
+    expect(await inspectHandoffObjectCounts(reopened)).toEqual({ authority: 0, candidate: 0 });
+    reopened.close();
   });
 
   it.each(['after_candidate_request', 'after_both_requests'] as const)(

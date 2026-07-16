@@ -7,6 +7,7 @@
     HANDOFF_CANDIDATE_STORE,
     HANDOFF_DATABASE_NAME,
     inspectHandoffObjectCounts,
+    openBlockedHandoffUpgradeForTest,
     openHandoffDatabase,
     persistEvidenceAtomic,
     persistEvidenceAtCandidateStoreKeyForTest,
@@ -15,7 +16,8 @@
   import { runCrossContextReadOnlyHandoff, validateCrossContextHandoffRestart }
     from '/src/lib/localDatabase/crossContextHandoff/handoff.ts';
   import { derivePhysicalSourceIdentity } from '/src/lib/localDatabase/crossContextHandoff/identity.ts';
-  import { buildTerminalEvidence } from '/src/lib/localDatabase/crossContextHandoff/records.ts';
+  import { buildTerminalEvidence, validateEvidenceGraph }
+    from '/src/lib/localDatabase/crossContextHandoff/records.ts';
   import { bytesEqual } from '/src/lib/localDatabase/crossContextHandoff/canonical.ts';
   import { withPhysicalSourceLock } from '/src/lib/localDatabase/crossContextHandoff/webLocks.ts';
 
@@ -56,6 +58,45 @@
     physicalSource: physical(sourceOrigin), logicalScope: scope, source: source(value),
   });
   const restart = () => validateCrossContextHandoffRestart({ physicalSource: physical() });
+  const validatedEvidence = sourceOrigin => validateCrossContextHandoffRestart({
+    physicalSource: physical(sourceOrigin),
+  });
+  const validatedBinding = async sourceOrigin => {
+    const evidence = await validatedEvidence(sourceOrigin);
+    return {
+      authority: {
+        state: evidence.authority.state,
+        physicalSourceDigest: evidence.authority.physicalSourceDigest,
+        candidateId: evidence.authority.snapshotCandidateId,
+        sessionId: evidence.authority.handoffSessionId,
+        sourceRevision: evidence.authority.sourceRevision,
+        snapshotDigest: evidence.authority.snapshotDigest,
+        rootDigest: evidence.authority.rootDigest,
+        manifestDigest: evidence.authority.manifestDigest,
+      },
+      candidate: {
+        physicalSourceDigest: evidence.candidate.physicalSourceDigest,
+        candidateId: evidence.candidate.candidateId,
+        sessionId: evidence.candidate.handoffSessionId,
+        sourceRevision: evidence.candidate.sourceRevision,
+        snapshotDigest: evidence.candidate.snapshotDigest,
+        rootDigest: evidence.candidate.rootDigest,
+        manifestDigest: evidence.candidate.manifestDigest,
+      },
+    };
+  };
+  const crossBindingCode = async (authorityOrigin, candidateOrigin) => {
+    const [authorityEvidence, candidateEvidence] = await Promise.all([
+      validatedEvidence(authorityOrigin),
+      validatedEvidence(candidateOrigin),
+    ]);
+    try {
+      await validateEvidenceGraph(authorityEvidence.authority, candidateEvidence.candidate);
+      return 'unexpected_success';
+    } catch (error) {
+      return error.code ?? 'unknown';
+    }
+  };
   const counts = async () => {
     const db = await openHandoffDatabase();
     try { return await inspectHandoffObjectCounts(db); } finally { db.close(); }
@@ -122,6 +163,42 @@
     return { status: lock.status };
   };
 
+  const emptyMismatchAbsenceAcrossReopen = async (value, injectedKey) => {
+    const candidateGraph = await graph(value);
+    const inspect = async () => {
+      const db = await openHandoffDatabase();
+      try {
+        const transaction = db.transaction(
+          [HANDOFF_AUTHORITY_STORE, HANDOFF_CANDIDATE_STORE],
+          'readonly',
+        );
+        const authorityStore = transaction.objectStore(HANDOFF_AUTHORITY_STORE);
+        const candidateStore = transaction.objectStore(HANDOFF_CANDIDATE_STORE);
+        const done = waitTransaction(transaction);
+        const [injected, payload, authority] = await Promise.all([
+          waitRequest(candidateStore.get(injectedKey)),
+          waitRequest(candidateStore.get(candidateGraph.candidate.candidateId)),
+          waitRequest(authorityStore.get(candidateGraph.authority.physicalSourceDigest)),
+        ]);
+        await done;
+        return {
+          injectedAbsent: injected === undefined,
+          payloadAbsent: payload === undefined,
+          authorityAbsent: authority === undefined,
+          counts: await inspectHandoffObjectCounts(db),
+        };
+      } finally {
+        db.close();
+      }
+    };
+    return {
+      payloadCandidateId: candidateGraph.candidate.candidateId,
+      physicalSourceDigest: candidateGraph.authority.physicalSourceDigest,
+      beforeClose: await inspect(),
+      afterReopen: await inspect(),
+    };
+  };
+
   const candidateId = async value => (await graph(value)).candidate.candidateId;
   const evidenceBytes = async () => {
     const derived = await derivePhysicalSourceIdentity(physical());
@@ -167,6 +244,90 @@
     const reopened = await openHandoffDatabase();
     reopened.close();
     return { upgradeResult, priorConnectionClosed };
+  };
+
+  let blockedOpenScenario = null;
+  const startBlockedOpenScenario = async () => {
+    await reset();
+    const events = [];
+    const blocker = await openHandoffDatabase();
+    events.push('blocker_open');
+    blocker.onversionchange = () => { events.push('blocker_versionchange_observed'); };
+    const state = {
+      blocker,
+      events,
+      blockedObserved: false,
+      callerRejected: false,
+      rejectionCode: null,
+      blockerReleased: false,
+      lateSuccessObserved: false,
+      lateConnectionClosed: false,
+      leakCheckPassed: false,
+      cleanReopenPassed: false,
+    };
+    blockedOpenScenario = state;
+    void openBlockedHandoffUpgradeForTest({
+      onBlocked: () => {
+        state.blockedObserved = true;
+        events.push('blocked_observed');
+      },
+      onLateSuccessClosed: lateDb => {
+        state.lateSuccessObserved = true;
+        events.push('late_success_observed');
+        try {
+          lateDb.transaction(HANDOFF_AUTHORITY_STORE, 'readonly');
+        } catch (error) {
+          state.lateConnectionClosed = error?.name === 'InvalidStateError';
+        }
+        if (state.lateConnectionClosed) events.push('late_connection_closed');
+      },
+    }).then(
+      db => {
+        db.close();
+        state.rejectionCode = 'unexpected_success';
+      },
+      error => {
+        state.callerRejected = true;
+        state.rejectionCode = error.code ?? 'unknown';
+        events.push('caller_rejected');
+      },
+    );
+    return true;
+  };
+  const blockedOpenState = () => {
+    if (!blockedOpenScenario) return null;
+    const { blocker: _blocker, ...state } = blockedOpenScenario;
+    return { ...state, events: [...state.events] };
+  };
+  const releaseBlockedOpenScenario = () => {
+    if (!blockedOpenScenario || !blockedOpenScenario.callerRejected) return false;
+    blockedOpenScenario.blockerReleased = true;
+    blockedOpenScenario.events.push('blocker_released');
+    blockedOpenScenario.blocker.close();
+    return true;
+  };
+  const finishBlockedOpenScenario = async () => {
+    const state = blockedOpenScenario;
+    if (!state || !state.lateSuccessObserved || !state.lateConnectionClosed) {
+      throw new Error('blocked_scenario_not_settled');
+    }
+    await new Promise((resolve, reject) => {
+      const request = indexedDB.deleteDatabase(HANDOFF_DATABASE_NAME);
+      request.onblocked = () => reject(new Error('late_connection_leaked'));
+      request.onerror = () => reject(request.error ?? new Error('delete_failed'));
+      request.onsuccess = () => resolve();
+    });
+    state.leakCheckPassed = true;
+    state.events.push('leak_check_passed');
+    const reopened = await openHandoffDatabase();
+    try {
+      const counts = await inspectHandoffObjectCounts(reopened);
+      state.cleanReopenPassed = counts.authority === 0 && counts.candidate === 0;
+    } finally {
+      reopened.close();
+    }
+    if (state.cleanReopenPassed) state.events.push('clean_reopen_passed');
+    return blockedOpenState();
   };
 
   const malformedSchema = async kind => {
@@ -317,9 +478,11 @@
 
   window.k328 = {
     reset, run, restart, counts, duplicateAdd, abortAtomic, persistWithKey, candidateId,
+    emptyMismatchAbsenceAcrossReopen,
     evidenceBytes, corruptCandidate, versionChangeBehavior, hold, holdAbortable, holdState, release, abortHold,
     failInsideLock, malformedSchema, startControlledHandoff, controlledState,
-    releaseControlledHandoff, lockQueueState,
+    releaseControlledHandoff, lockQueueState, validatedBinding, crossBindingCode,
+    startBlockedOpenScenario, blockedOpenState, releaseBlockedOpenScenario, finishBlockedOpenScenario,
     schema: { database: HANDOFF_DATABASE_NAME, stores: [HANDOFF_AUTHORITY_STORE, HANDOFF_CANDIDATE_STORE] },
   };
 </script>
