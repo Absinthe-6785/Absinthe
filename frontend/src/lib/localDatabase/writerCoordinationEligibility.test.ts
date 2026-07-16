@@ -19,9 +19,12 @@ import {
   decodeWriterCoordinationModelCanonical,
   decodeWriterRegistrationCanonical,
   deriveCoordinationAuthorityDigest,
+  deriveCurrentCoordinationGraph,
   deriveLiveWriterInstanceSetDigest,
+  deriveRegistrationCheckpointDigest,
   deriveReviewedManifestAuthorityDigest,
   deriveReviewedWriterManifestDigest,
+  deriveSourceVerificationEvidenceDigest,
   encodeAdmissionOperationCanonical,
   encodeCoordinationAuthorityCanonical,
   encodeEligibilityEvidenceCanonical,
@@ -35,6 +38,7 @@ import {
   validateReviewedManifestAuthority,
   validateReviewedWriterManifest,
   validateWriterCoordinationModelState,
+  validateWriterCoordinationModelRelations,
   validateWriterRegistration,
   type AdmissionOperationRecord,
   type SourceVerificationObservation,
@@ -144,12 +148,58 @@ function buildTo(stage: Stage, source = observation()): WriterCoordinationModelS
   state = success(state, coordinator, { type: 'CAPTURE_AFTER_OPERATIONS_TERMINAL' }); if (stage === 'checkpoint3') return state;
   state = success(state, verifier, { type: 'CAPTURE_BEFORE_SOURCE_VERIFICATION' }); if (stage === 'checkpoint4') return state;
   state = success(state, verifier, { type: 'BEGIN_SOURCE_VERIFICATION' }); if (stage === 'verifying') return state;
-  state = success(state, verifier, { type: 'CAPTURE_SOURCE_EVIDENCE', observation: source }); if (stage === 'source') return state;
-  state = success(state, verifier, { type: 'CAPTURE_AFTER_SOURCE_VERIFICATION' }); if (stage === 'checkpoint5') return state;
+  state = success(state, verifier, { type: 'CAPTURE_SOURCE_EVIDENCE', observation: source });
+  if (stage === 'source' || stage === 'checkpoint5') return state;
   state = success(state, verifier, { type: 'CAPTURE_BEFORE_ELIGIBILITY_COMMIT' }); if (stage === 'checkpoint6') return state;
   state = success(state, verifier, { type: 'COMMIT_ELIGIBILITY',
     expectedFinalCheckpointDigest: state.checkpointChain[5].checkpointDigest });
   return state;
+}
+
+function buildTerminalOperationToCheckpoint6(): WriterCoordinationModelState {
+  let state = registered(); const owner = state.registrations[0];
+  state = success(state, { kind: 'writer', writerId: owner.writerId, sessionId: owner.sessionId },
+    { type: 'ADMIT_OPERATION', operation: operation(owner, state) });
+  state = success(state, coordinator, { type: 'CAPTURE_BEFORE_DRAIN' });
+  state = success(state, coordinator, { type: 'REQUEST_DRAIN' });
+  state = success(state, { kind: 'writer', writerId: owner.writerId, sessionId: owner.sessionId },
+    { type: 'TERMINALIZE_OPERATION', operationId: state.operations[0].operationId,
+      result: 'committed', committedSourceRevision: '41' });
+  const drainRevision = state.authority.drainRequestTransitionRevision!;
+  for (const record of state.registrations) {
+    state = success(state, { kind: 'writer', writerId: record.writerId, sessionId: record.sessionId },
+      { type: 'ACKNOWLEDGE_DRAIN', writerId: record.writerId, drainRequestTransitionRevision: drainRevision });
+  }
+  state = success(state, coordinator, { type: 'CLOSE_ADMISSION' });
+  state = success(state, coordinator, { type: 'CAPTURE_AFTER_ADMISSION_CLOSED' });
+  state = success(state, coordinator, { type: 'BEGIN_DRAIN' });
+  state = success(state, coordinator, { type: 'MARK_QUIESCENT' });
+  state = success(state, coordinator, { type: 'CAPTURE_AFTER_OPERATIONS_TERMINAL' });
+  state = success(state, verifier, { type: 'CAPTURE_BEFORE_SOURCE_VERIFICATION' });
+  state = success(state, verifier, { type: 'BEGIN_SOURCE_VERIFICATION' });
+  state = success(state, verifier, { type: 'CAPTURE_SOURCE_EVIDENCE', observation: observation() });
+  return success(state, verifier, { type: 'CAPTURE_BEFORE_ELIGIBILITY_COMMIT' });
+}
+
+function cloneModel(state: WriterCoordinationModelState): WriterCoordinationModelState {
+  return JSON.parse(new TextDecoder().decode(encodeWriterCoordinationModelCanonical(state))) as WriterCoordinationModelState;
+}
+
+function expectFullGraphTamperRejected(base: WriterCoordinationModelState,
+  mutate: (state: WriterCoordinationModelState) => void, code: WriterEligibilityErrorCode): void {
+  const forged = cloneModel(base); mutate(forged);
+  expect(validateWriterCoordinationModelState(forged)).toBe(false);
+  expect(validateWriterCoordinationModelRelations(forged)).toBe(code);
+  expect(decodeWriterCoordinationModelCanonical(text.encode(JSON.stringify(forged)))).toEqual({ ok: false,
+    code: 'ELIGIBILITY_EVIDENCE_CORRUPT' });
+  expect(reduceWriterCoordination(forged, action(forged, verifier, { type: 'COMMIT_ELIGIBILITY',
+    expectedFinalCheckpointDigest: forged.checkpointChain[5].checkpointDigest }))).toEqual({ ok: false, code });
+}
+
+function replaceSourceEvidence(state: WriterCoordinationModelState,
+  patch: Partial<NonNullable<WriterCoordinationModelState['sourceEvidence']>>): void {
+  const current = state.sourceEvidence!; const { evidenceDigest: _ignored, ...content } = { ...current, ...patch };
+  state.sourceEvidence = { ...content, evidenceDigest: deriveSourceVerificationEvidenceDigest(content) };
 }
 
 describe('K-329B trusted reviewed manifest authority', () => {
@@ -405,7 +455,6 @@ describe('K-329B durable checkpoint/source graph and eligibility', () => {
     ['canonicality', { canonical: false }, 'SOURCE_MALFORMED'],
     ['bounds', { withinBounds: false }, 'SOURCE_RESOURCE_BOUND_EXCEEDED'],
     ['adapter absent', { k328AdapterAvailable: false }, 'K328_ADAPTER_UNAVAILABLE'],
-    ['adapter source', { k328PhysicalSourceDigest: OTHER }, 'K328_PHYSICAL_IDENTITY_MISMATCH'],
   ];
   for (const [name, overrides, code] of sourceFailures) {
     it(`rejects durable source evidence: ${name}`, () => {
@@ -419,6 +468,12 @@ describe('K-329B durable checkpoint/source graph and eligibility', () => {
     const state = buildTo('verifying');
     failure(state, verifier, { type: 'CAPTURE_SOURCE_EVIDENCE',
       observation: observation({ physicalSourceDigest: OTHER }) }, 'K328_PHYSICAL_IDENTITY_MISMATCH');
+  });
+
+  it('rejects source evidence with a mismatched K-328 physical binding before persistence', () => {
+    const state = buildTo('verifying');
+    failure(state, verifier, { type: 'CAPTURE_SOURCE_EVIDENCE',
+      observation: observation({ k328PhysicalSourceDigest: OTHER }) }, 'K328_PHYSICAL_IDENTITY_MISMATCH');
   });
 
   it('rejects wrong commit actor, stale revision, stale epoch, and final digest', () => {
@@ -523,10 +578,10 @@ describe('K-329B restart and partial-graph evidence', () => {
     failure(five, verifier, { type: 'COMMIT_ELIGIBILITY', expectedFinalCheckpointDigest: OTHER }, 'CHECKPOINT_CHAIN_INVALID');
   });
 
-  it('preserves source evidence without synthesizing the final checkpoint', () => {
+  it('persists source evidence with checkpoint five without synthesizing checkpoint six', () => {
     const state = buildTo('source');
     const decoded = decodeWriterCoordinationModelCanonical(encodeWriterCoordinationModelCanonical(state));
-    expect(decoded).toMatchObject({ ok: true, value: { checkpointChain: { length: 4 },
+    expect(decoded).toMatchObject({ ok: true, value: { checkpointChain: { length: 5 },
       sourceEvidence: { evidenceDigest: state.sourceEvidence?.evidenceDigest } } });
   });
 
@@ -553,14 +608,10 @@ describe('K-329B restart and partial-graph evidence', () => {
   });
 
   it('detects writer disappearance before final checkpoint', () => {
-    let state = buildTo('checkpoint4');
-    state = { ...state, registrations: state.registrations.slice(1) };
-    state = success(state, verifier, { type: 'BEGIN_SOURCE_VERIFICATION' });
-    state = success(state, verifier, { type: 'CAPTURE_SOURCE_EVIDENCE', observation: observation() });
-    state = success(state, verifier, { type: 'CAPTURE_AFTER_SOURCE_VERIFICATION' });
-    state = success(state, verifier, { type: 'CAPTURE_BEFORE_ELIGIBILITY_COMMIT' });
-    failure(state, verifier, { type: 'COMMIT_ELIGIBILITY',
-      expectedFinalCheckpointDigest: state.checkpointChain[5].checkpointDigest }, 'CHECKPOINT_CHAIN_INVALID');
+    const state = buildTo('checkpoint4');
+    const changed = { ...state, registrations: state.registrations.slice(1) };
+    expect(reduceWriterCoordination(changed, action(changed, verifier,
+      { type: 'BEGIN_SOURCE_VERIFICATION' }))).toEqual({ ok: false, code: 'CURRENT_GRAPH_CHECKPOINT_MISMATCH' });
   });
 });
 
@@ -657,14 +708,10 @@ describe('K-329B remaining reducer race and authority negatives', () => {
       writerId: `writer-v1:dedicated_worker:${record.writerTypeId}:${'f'.repeat(32)}` })],
   ] as const) {
     it(`detects persisted writer ${name} mutation during protected verification`, () => {
-      let state = buildTo('checkpoint4'); const records = [...state.registrations]; records[0] = mutate(records[0]);
-      state = { ...state, registrations: records };
-      state = success(state, verifier, { type: 'BEGIN_SOURCE_VERIFICATION' });
-      state = success(state, verifier, { type: 'CAPTURE_SOURCE_EVIDENCE', observation: observation() });
-      state = success(state, verifier, { type: 'CAPTURE_AFTER_SOURCE_VERIFICATION' });
-      state = success(state, verifier, { type: 'CAPTURE_BEFORE_ELIGIBILITY_COMMIT' });
-      failure(state, verifier, { type: 'COMMIT_ELIGIBILITY',
-        expectedFinalCheckpointDigest: state.checkpointChain[5].checkpointDigest }, 'CHECKPOINT_CHAIN_INVALID');
+      const state = buildTo('checkpoint4'); const records = [...state.registrations]; records[0] = mutate(records[0]);
+      const changed = { ...state, registrations: records };
+      expect(reduceWriterCoordination(changed, action(changed, verifier,
+        { type: 'BEGIN_SOURCE_VERIFICATION' }))).toEqual({ ok: false, code: 'CURRENT_GRAPH_CHECKPOINT_MISMATCH' });
     });
   }
 
@@ -704,6 +751,201 @@ describe('K-329B remaining reducer race and authority negatives', () => {
     }
     const eligible = buildTo('eligible');
     failure(eligible, recovery, { type: 'ABORT', failureCode: null }, 'TRANSITION_REVISION_STALE');
+  });
+});
+
+describe('K-329C current-graph checkpoint rebinding', () => {
+  const full = () => buildTo('checkpoint6');
+
+  it.each([
+    ['different writer and session', (state: WriterCoordinationModelState) => {
+      const record = state.registrations[0]; state.registrations = [{ ...record,
+        writerId: `writer-v1:${record.contextType}:${record.writerTypeId}:${'f'.repeat(32)}`,
+        sessionId: `writer-session-v1:${'e'.repeat(32)}` }, ...state.registrations.slice(1)];
+    }],
+    ['same writer and new session', (state: WriterCoordinationModelState) => {
+      state.registrations = [{ ...state.registrations[0], sessionId: `writer-session-v1:${'e'.repeat(32)}` },
+        ...state.registrations.slice(1)];
+    }],
+    ['new writer and same session', (state: WriterCoordinationModelState) => {
+      const record = state.registrations[0]; state.registrations = [{ ...record,
+        writerId: `writer-v1:${record.contextType}:${record.writerTypeId}:${'f'.repeat(32)}` },
+      ...state.registrations.slice(1)];
+    }],
+    ['capability mutation', (state: WriterCoordinationModelState) => {
+      state.registrations = [{ ...state.registrations[0], capabilities: ['admission', 'source_write'] },
+        ...state.registrations.slice(1)];
+    }],
+    ['lifecycle mutation', (state: WriterCoordinationModelState) => {
+      state.registrations = [{ ...state.registrations[0], registrationState: 'disabled', coordinated: true,
+        acknowledgedDrainRevision: null }, ...state.registrations.slice(1)];
+    }],
+    ['acknowledgement revision mutation', (state: WriterCoordinationModelState) => {
+      state.registrations = [{ ...state.registrations[0],
+        acknowledgedDrainRevision: state.registrations[0].acknowledgedDrainRevision! + 1 },
+      ...state.registrations.slice(1)];
+    }],
+    ['registration removal', (state: WriterCoordinationModelState) => {
+      state.registrations = state.registrations.slice(1);
+    }],
+    ['extra same-type registration', (state: WriterCoordinationModelState) => {
+      const record = state.registrations[0]; state.registrations = [...state.registrations, { ...record,
+        writerId: `writer-v1:${record.contextType}:${record.writerTypeId}:${'f'.repeat(32)}`,
+        sessionId: `writer-session-v1:${'e'.repeat(32)}` }];
+    }],
+  ] as const)('rejects %s after checkpoint six at validate, decode, and commit', (_name, mutate) => {
+    expectFullGraphTamperRejected(full(), mutate, 'CURRENT_GRAPH_CHECKPOINT_MISMATCH');
+  });
+
+  it('derives one canonical current graph and binds checkpoint six exactly', () => {
+    const state = full(); const graph = deriveCurrentCoordinationGraph(state); const final = state.checkpointChain[5];
+    expect(graph).toEqual({ stableWriterIdentityDigest: final.stableIdentityDigest,
+      liveWriterInstanceDigest: final.liveInstanceDigest, operationSetDigest: final.operationDigest,
+      unresolvedOperationDigest: final.unresolvedOperationDigest,
+      unresolvedOperationCount: final.unresolvedOperationCount, registrationCount: final.registrationCount,
+      operationCount: final.operationCount });
+    expect(graph.unresolvedOperationDigest).toBe(contract.ZERO_UNRESOLVED_OPERATION_DIGEST);
+  });
+});
+
+describe('K-329C operation and registration relations', () => {
+  const terminal = () => buildTerminalOperationToCheckpoint6();
+
+  it('rejects a terminal operation with no registration', () => {
+    expectFullGraphTamperRejected(terminal(), state => { state.registrations = []; },
+      'OPERATION_REGISTRATION_RELATION_INVALID');
+  });
+
+  it.each([
+    ['wrong session', (state: WriterCoordinationModelState) => {
+      state.operations = [{ ...state.operations[0], sessionId: `writer-session-v1:${'e'.repeat(32)}` }];
+    }],
+    ['wrong source', (state: WriterCoordinationModelState) => {
+      state.operations = [{ ...state.operations[0], physicalSourceDigest: OTHER }];
+    }],
+    ['stale epoch', (state: WriterCoordinationModelState) => {
+      state.operations = [{ ...state.operations[0], coordinationEpoch: state.authority.coordinationEpoch - 1 }];
+    }],
+    ['removed owner registration', (state: WriterCoordinationModelState) => {
+      state.registrations = state.registrations.slice(1);
+    }],
+    ['wrong writer type and identity', (state: WriterCoordinationModelState) => {
+      const original = state.operations[0]; const other = state.registrations[1];
+      state.operations = [{ ...original, writerTypeId: other.writerTypeId,
+        writerId: `writer-v1:${other.contextType}:${other.writerTypeId}:${'f'.repeat(32)}` }];
+    }],
+  ] as const)('rejects operation relation: %s', (_name, mutate) => {
+    expectFullGraphTamperRejected(terminal(), mutate, 'OPERATION_REGISTRATION_RELATION_INVALID');
+  });
+
+  it.each([
+    ['operation removal', (state: WriterCoordinationModelState) => { state.operations = []; }],
+    ['missing latest operation', (state: WriterCoordinationModelState) => {
+      state.registrations = [{ ...state.registrations[0], latestOperationId: null }, ...state.registrations.slice(1)];
+    }],
+    ['active operation under acknowledged writer', (state: WriterCoordinationModelState) => {
+      state.operations = [{ ...state.operations[0], state: 'admitted', terminalResult: null,
+        committedSourceRevision: null }];
+    }],
+  ] as const)('rejects reverse registration relation: %s', (_name, mutate) => {
+    expectFullGraphTamperRejected(terminal(), mutate, 'REGISTRATION_OPERATION_RELATION_INVALID');
+  });
+
+  it.each([
+    ['terminal operation addition', (state: WriterCoordinationModelState) => {
+      state.operations = [...state.operations, { ...state.operations[0],
+        operationId: `writer-operation-v1:${'a'.repeat(64)}`,
+        idempotencyKey: `writer-idempotency-v1:${'b'.repeat(64)}` }];
+    }],
+    ['idempotency-key mutation', (state: WriterCoordinationModelState) => {
+      state.operations = [{ ...state.operations[0], idempotencyKey: `writer-idempotency-v1:${'b'.repeat(64)}` }];
+    }],
+    ['source-commit mutation', (state: WriterCoordinationModelState) => {
+      state.operations = [{ ...state.operations[0], committedSourceRevision: '42' }];
+    }],
+  ] as const)('rejects operation graph divergence: %s', (_name, mutate) => {
+    expectFullGraphTamperRejected(terminal(), mutate, 'CURRENT_GRAPH_CHECKPOINT_MISMATCH');
+  });
+
+  it('binds both unresolved count and canonical unresolved digest', () => {
+    expectFullGraphTamperRejected(terminal(), state => {
+      const owner = state.registrations[0]; const admitted = { ...state.operations[0],
+        operationId: `writer-operation-v1:${'a'.repeat(64)}`,
+        idempotencyKey: `writer-idempotency-v1:${'b'.repeat(64)}`,
+        state: 'admitted' as const, terminalResult: null, committedSourceRevision: null };
+      state.operations = [...state.operations, admitted];
+      state.registrations = [{ ...owner, registrationState: 'registered', coordinated: false,
+        acknowledgedDrainRevision: null, latestOperationId: admitted.operationId }, ...state.registrations.slice(1)];
+      state.authority = { ...state.authority, unresolvedOperationCount: 1 };
+      const graph = deriveCurrentCoordinationGraph(state);
+      expect(graph.unresolvedOperationCount).toBe(1);
+      expect(graph.unresolvedOperationDigest).not.toBe(contract.ZERO_UNRESOLVED_OPERATION_DIGEST);
+    }, 'CURRENT_GRAPH_CHECKPOINT_MISMATCH');
+  });
+});
+
+describe('K-329C source and eligibility lifecycle relations', () => {
+  function expectRestartRejected(base: WriterCoordinationModelState,
+    mutate: (state: WriterCoordinationModelState) => void, code: WriterEligibilityErrorCode): void {
+    const forged = cloneModel(base); mutate(forged);
+    expect(validateWriterCoordinationModelState(forged)).toBe(false);
+    expect(validateWriterCoordinationModelRelations(forged)).toBe(code);
+    expect(decodeWriterCoordinationModelCanonical(text.encode(JSON.stringify(forged)))).toEqual({ ok: false,
+      code: 'ELIGIBILITY_EVIDENCE_CORRUPT' });
+  }
+
+  it.each([
+    ['no checkpoint chain', (state: WriterCoordinationModelState) => { state.checkpointChain = []; },
+      'SOURCE_EVIDENCE_CHECKPOINT_MISMATCH'],
+    ['checkpoint four missing', (state: WriterCoordinationModelState) => {
+      state.checkpointChain = state.checkpointChain.slice(0, 3);
+    }, 'SOURCE_EVIDENCE_CHECKPOINT_MISMATCH'],
+    ['checkpoint five missing', (state: WriterCoordinationModelState) => {
+      state.checkpointChain = state.checkpointChain.slice(0, 4);
+    }, 'SOURCE_EVIDENCE_CHECKPOINT_MISMATCH'],
+    ['wrong predecessor', (state: WriterCoordinationModelState) => {
+      replaceSourceEvidence(state, { previousCheckpointDigest: state.checkpointChain[2].checkpointDigest });
+    }, 'SOURCE_EVIDENCE_CHECKPOINT_MISMATCH'],
+    ['wrong capture revision', (state: WriterCoordinationModelState) => {
+      replaceSourceEvidence(state, { transitionRevision: state.sourceEvidence!.transitionRevision + 1 });
+    }, 'SOURCE_EVIDENCE_LIFECYCLE_MISMATCH'],
+    ['wrong epoch', (state: WriterCoordinationModelState) => {
+      replaceSourceEvidence(state, { coordinationEpoch: state.sourceEvidence!.coordinationEpoch + 1 });
+    }, 'SOURCE_EVIDENCE_CHECKPOINT_MISMATCH'],
+    ['wrong verifier', (state: WriterCoordinationModelState) => {
+      replaceSourceEvidence(state, { captureActorSessionId: RECOVERY });
+    }, 'SOURCE_EVIDENCE_CHECKPOINT_MISMATCH'],
+    ['wrong physical source', (state: WriterCoordinationModelState) => {
+      replaceSourceEvidence(state, { physicalSourceDigest: OTHER });
+    }, 'SOURCE_EVIDENCE_CHECKPOINT_MISMATCH'],
+    ['evidence attached in OPEN', (state: WriterCoordinationModelState) => {
+      state.authority = { ...state.authority, state: 'OPEN', admissionOpen: true };
+    }, 'SOURCE_EVIDENCE_LIFECYCLE_MISMATCH'],
+  ] as const)('rejects source restart tamper: %s', (_name, mutate, code) => {
+    expectRestartRejected(buildTo('source'), mutate, code);
+  });
+
+  it('rejects checkpoint five that does not bind the exact source evidence', () => {
+    expectRestartRejected(buildTo('checkpoint5'), state => {
+      const chain = [...state.checkpointChain]; const { checkpointDigest: _ignored, ...content } = {
+        ...chain[4], sourceEvidenceDigest: OTHER };
+      chain[4] = { ...content, checkpointDigest: deriveRegistrationCheckpointDigest(content) };
+      state.checkpointChain = chain;
+    }, 'SOURCE_EVIDENCE_CHECKPOINT_MISMATCH');
+  });
+
+  it.each([
+    ['stale final checkpoint', (state: WriterCoordinationModelState) => {
+      state.eligibilityEvidence = { ...state.eligibilityEvidence!, finalCheckpointDigest: OTHER };
+    }],
+    ['stale source evidence', (state: WriterCoordinationModelState) => {
+      state.eligibilityEvidence = { ...state.eligibilityEvidence!, sourceEvidenceDigest: OTHER };
+    }],
+    ['stale current graph', (state: WriterCoordinationModelState) => {
+      state.eligibilityEvidence = { ...state.eligibilityEvidence!, stableIdentityDigest: OTHER };
+    }],
+  ] as const)('rejects eligibility restart tamper: %s', (_name, mutate) => {
+    expectRestartRejected(buildTo('eligible'), mutate, 'ELIGIBILITY_EVIDENCE_RELATION_MISMATCH');
   });
 });
 

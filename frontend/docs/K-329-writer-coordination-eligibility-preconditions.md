@@ -1,4 +1,4 @@
-# K-329B — Production writer coordination and eligibility preconditions
+# K-329C — Production writer coordination and eligibility preconditions
 
 ## Verdict and scope
 
@@ -8,7 +8,7 @@
 
 `NO_PRODUCTION_SOURCE_CAN_YET_BE_ELIGIBLE`
 
-K-329B is a pure, deterministic architecture model. It adds no production caller, storage schema, browser API, timer, network operation, UI, worker, service worker, K-328 invocation, source mutation, or eligibility activation. K-326G is unchanged and remains fail-closed.
+K-329C is a pure, deterministic architecture model. It adds no production caller, storage schema, browser API, timer, network operation, UI, worker, service worker, K-328 invocation, source mutation, or eligibility activation. K-326G is unchanged and remains fail-closed.
 
 The selected future composition is one physical-source Web Lock plus a durable coordination authority, exact code-reviewed manifest authority, writer/self registration, exact drain acknowledgements, durable admitted-operation evidence, epoch fencing in the authoritative source transaction, six chained checkpoints, and verifier-captured source evidence. BroadcastChannel and heartbeats may be advisory only.
 
@@ -86,9 +86,27 @@ sourceEvidence | null
 eligibilityEvidence | null
 ```
 
-The full model and each record type have fixed-order UTF-8 canonical encoders and strict decoders. Decoding rejects invalid UTF-8, duplicate keys, extra/missing/accessor/inherited fields, unknown versions, invalid ordering, wrong digest bindings, non-canonical bytes, and byte/count ceilings. Successful decode returns detached data and exact re-encoding. Registrations and operations are canonicalized by locale-independent ordinal identifiers. No persisted bytes are repaired or normalized after decode.
+The full model and each record type have fixed-order UTF-8 canonical encoders and strict decoders. Decoding rejects invalid UTF-8, duplicate keys, extra/missing/accessor/inherited fields, unknown versions, invalid ordering, wrong digest bindings, non-canonical bytes, and byte/count ceilings. It then validates every cross-record relation before returning detached data: operations to registrations, registrations to operations, checkpoints to the current graph, source evidence to its lifecycle/checkpoints, and eligibility evidence to the source/final checkpoint/current graph. Canonical structure alone is not trusted. No persisted bytes are repaired or normalized after decode.
 
 The model ceiling is 1 MiB; individual authority/manifest-authority/registration/operation/checkpoint/source/eligibility records have explicit lower ceilings. Restart tests round-trip the entire graph rather than reconstructing evidence from caller flags.
+
+### Canonical current graph and deterministic validation order
+
+`deriveCurrentCoordinationGraph(state)` is the single pure derivation used by checkpoint capture, whole-model validation/decoding, restart tests, and eligibility commit. It returns:
+
+```text
+stableWriterIdentityDigest
+liveWriterInstanceDigest
+operationSetDigest
+unresolvedOperationDigest
+unresolvedOperationCount
+registrationCount
+operationCount
+```
+
+Stable identity includes physical source, epoch, writer type/ID/session, context, and the sorted capability set. Live identity additionally includes registration lifecycle, coordinated state, exact drain acknowledgement, and latest-operation reference. The operation digest contains every canonical operation field. The unresolved digest is a separately domain-separated canonical digest of admitted operations; zero unresolved operations has one exact constant digest.
+
+Validation order is deterministic: top-level schema/bounds; authority; trusted manifest reconstruction; registration structure; operation structure; operation-to-registration relations; registration-to-operation relations; checkpoint structure/chain; current-graph derivation and checkpoint rebinding; source-evidence lifecycle/checkpoint relations; eligibility-evidence relations; canonical byte comparison. Relation failures are bounded and payload-free.
 
 ## Authority, writer, and operation lifecycle
 
@@ -120,9 +138,9 @@ The immutable ordered chain is:
 5. `AFTER_SOURCE_VERIFICATION`
 6. `BEFORE_ELIGIBILITY_COMMIT`
 
-Each phase has a distinct reducer action. There is no generic checkpoint API. The reducer derives source binding, state, epoch, transition revision, actor/session, manifest-authority digest, stable writer identity digest, live instance digest, operation digest/count, unresolved count, prior checkpoint digest, source-evidence digest, and self digest from current state.
+Each phase has a distinct reducer action. There is no generic checkpoint API. The reducer derives source binding, state, epoch, transition revision, actor/session, manifest-authority digest, stable writer identity digest, live instance digest, operation digest/count, unresolved digest/count, registration count, prior checkpoint digest, source-evidence digest, and self digest from current state.
 
-Checkpoints 1–3 are coordinator-only; 4–6 are verifier-only. Exact phase state/order is enforced. Skip, duplicate, reorder, replay, forged predecessor, copied final state, wrong actor/session, changed manifest, changed writer identity, late/restarted writer, changed capability/context/state, operation mutation, source replay, or stale epoch/revision fails. The protected live-instance digest from checkpoint 3 must remain equal through checkpoints 4–6.
+Checkpoints 1–3 are coordinator-only; 4–6 are verifier-only. Checkpoint 1 is a historical pre-drain baseline. Checkpoint 2 binds the admission-closed graph. Checkpoint 3 binds the terminalized, zero-unresolved graph after the explicit epoch fence; that transition may legitimately differ from checkpoint 2. Every current-graph field is then protected unchanged across checkpoints 3–6. Checkpoint 6 must exactly equal a fresh derivation from the current reducer state. Writer replacement/disappearance, session/capability/lifecycle/acknowledgement mutation, operation addition/removal/mutation, or unresolved-operation divergence therefore fails during validation, decode, and commit.
 
 ## Source verification evidence
 
@@ -137,7 +155,7 @@ captureActor/session, epoch, transition revision, previous checkpoint digest,
 evidence digest
 ```
 
-The reducer supplies actor/session, epoch, revision, predecessor, and evidence digest; callers cannot add source flags at commit. The after-source and pre-commit checkpoints bind the exact source-evidence digest. Wrong source/K-328 binding, missing adapter, ambiguous source, unproven ownership, malformed or over-budget source, changed revision/digest, wrong actor/session, stale epoch, or missing evidence fails with a stable bounded code. K-329B models the evidence but does not invoke K-328.
+The reducer supplies actor/session, epoch, revision, predecessor, and evidence digest; callers cannot add source flags at commit. Source-evidence creation and checkpoint 5 are one pure reducer transition, so no persistable state can contain source evidence without its first binding checkpoint. Whole-model relation validation requires the exact `VERIFYING_SOURCE` lifecycle, authority-bound verifier, current epoch, capture revision, checkpoint-4 predecessor, and checkpoint-5/6 source digest/revision bindings. Wrong or misplaced evidence is rejected before decode returns. Wrong source/K-328 binding, missing adapter, ambiguous source, unproven ownership, malformed or over-budget source, changed revision/digest, wrong actor/session, stale epoch, or missing evidence fails with a stable bounded code. K-329C models the evidence but does not invoke K-328.
 
 ## Actor matrix
 
@@ -159,11 +177,13 @@ The reducer supplies actor/session, epoch, revision, predecessor, and evidence d
 
 `COMMIT_ELIGIBILITY` accepts only the common CAS envelope and `expectedFinalCheckpointDigest`. It accepts no manifest, manifest completeness boolean, registration/operation array, checkpoint array, source observation, ownership flag, revision, digest, or K-328 flag.
 
-The reducer derives the decision from durable state and requires:
+The reducer re-derives the current graph immediately before approval and requires:
 
 - exact trusted manifest/authority/source binding;
 - valid six-record chain, order, predecessor digests, actors, phases, epochs, revisions, and manifest binding;
-- stable identity across all checkpoints and stable protected live set through source verification;
+- exact checkpoint-3-through-6 protected graph equality and checkpoint-6 equality with the freshly derived current graph;
+- exact operation-to-registration and registration-to-operation ownership/lifecycle relations;
+- both zero unresolved count and the exact canonical zero-unresolved digest;
 - exact persisted source evidence and both source-bound checkpoints;
 - full manifest coverage, exact acknowledgements, and required disabled writers absent;
 - closed admission and `VERIFYING_SOURCE` authority state;
@@ -171,7 +191,7 @@ The reducer derives the decision from durable state and requires:
 - exact final checkpoint digest and verifier actor/session;
 - exact current CAS revision, epoch, and authority digest.
 
-The successful evidence is reducer-derived and stored in the next model state. No free-form eligibility evaluator is exported or retained.
+The successful evidence binds all current-graph digests/counts, exact K-328 physical binding, source revision/digest, source-evidence digest, and checkpoint-6 digest. Decode revalidates these relations after restart. No free-form eligibility evaluator is exported or retained.
 
 `COMMIT_ELIGIBILITY_CONSUMES_ONLY_DURABLE_REDUCER_STATE`
 
@@ -179,7 +199,7 @@ The successful evidence is reducer-derived and stored in the next model state. N
 
 ## Restart, races, and immutability evidence
 
-Tests restore canonical full-model bytes for `OPEN`, `DRAIN_REQUESTED`, `ADMISSION_CLOSED`, `DRAINING`, `QUIESCENT_CANDIDATE`, and `VERIFYING_SOURCE`, plus two/five checkpoints, missing/present source evidence without the final checkpoint, unresolved operations, missing acknowledgements, and manifest-authority mismatch. Restart preserves closed admission, epochs, operations, registrations, checkpoint chain, source evidence, and authority; it does not synthesize a checkpoint or eligibility.
+Tests restore canonical full-model bytes for `OPEN`, `DRAIN_REQUESTED`, `ADMISSION_CLOSED`, `DRAINING`, `QUIESCENT_CANDIDATE`, and `VERIFYING_SOURCE`, plus partial checkpoint/source-capture stages, unresolved operations, missing acknowledgements, and manifest-authority mismatch. Restart preserves closed admission, epochs, operations, registrations, checkpoint chain, source evidence, and authority; it does not synthesize or repair evidence. Canonically encoded tampering of writer identity/session/capabilities/lifecycle/acknowledgement, operation ownership/state/idempotency/source commit, source predecessor/revision/epoch/verifier/source, or eligibility bindings is rejected before decode returns.
 
 All race evidence is reducer-driven. Tests cover close/admit on shared revisions, token use after close, stale epochs, duplicate/conflicting idempotency, crash before mutation, response loss after terminalization, missing terminal evidence, same-type new tabs, session restart/disappearance, capability/context/state mutation, writer insertion/restart/removal between checkpoints, source revision/digest changes, wrong actors/sources/epochs/K-328 bindings, partial chains, copied snapshots, stale CAS, unresolved operations, and arbitrary/forged manifests. No standalone boolean or string scheduler grants eligibility.
 
@@ -203,20 +223,20 @@ Therefore `NO_PRODUCTION_SOURCE_CAN_YET_BE_ELIGIBLE` remains mandatory.
 
 The permanent suite covers authority substitution, canonical codecs, lifecycle, actor matrix, checkpoints, source evidence, CAS/epoch races, restart, partial graphs, and reducer-only commit. K-329B source imports only the pure SHA-256 helper. Static reachability checks show no production caller, storage upgrade, Notes writer modification, K-328 invocation, UI/network/worker hook, or activation path.
 
-`K329B_REMAINS_PURE_MODEL_AND_DOCUMENTATION_ONLY`
+`K329C_REMAINS_PURE_MODEL_TEST_AND_DOCUMENTATION_ONLY`
 
-Validation on the K-329B working tree before commit:
+Validation on the K-329C working tree before commit:
 
 | Command | Result |
 |---|---|
-| `npm test -- --run src/lib/localDatabase/writerCoordinationEligibility` | 85 passed; 4.73 s |
-| `npm test -- --run src/lib/localDatabase/crossContextHandoff` | 73 passed; 1.48 s |
-| `npm test -- --run src/lib/localDatabase/crossContextSourceHandoffSpike.test.ts` | 391 passed; 2.16 s |
-| `npm test -- --run src/lib/localDatabase/localFirstCutover.test.ts` | 77 passed; 2.68 s |
-| `npm test -- --run src/lib/localDatabase/legacyNotesMigration.test.ts` | 150 passed; 2.39 s |
-| `npm test -- --run src/lib/localDatabase/` | 1,064 passed; 5.79 s |
-| `npm test -- --run src/lib/recovery` | 70 passed; 11.66 s |
-| `npm run typecheck` | passed; 23.7 s |
-| `npm run build` | passed; 12.63 s; existing mixed dynamic/static import and chunk-size warnings only |
+| `npm test -- --run src/lib/localDatabase/writerCoordinationEligibility` | 120 passed; 7.16 s |
+| `npm test -- --run src/lib/localDatabase/crossContextHandoff` | 73 passed across 2 files; 0.79 s |
+| `npm test -- --run src/lib/localDatabase/crossContextSourceHandoffSpike.test.ts` | 391 passed; 2.00 s |
+| `npm test -- --run src/lib/localDatabase/localFirstCutover.test.ts` | 77 passed; 2.52 s |
+| `npm test -- --run src/lib/localDatabase/legacyNotesMigration.test.ts` | 150 passed; 1.61 s |
+| `npm test -- --run src/lib/localDatabase/` | 1,099 passed across 12 files; 9.86 s |
+| `npm test -- --run src/lib/recovery` | 70 passed across 2 files; 14.12 s |
+| `npm run typecheck` | passed; 26.4 s |
+| `npm run build` | passed; 14.51 s; existing mixed dynamic/static import and chunk-size warnings only |
 | `git diff --check` | passed; line-ending conversion notices only |
-| `npm test -- --maxWorkers=4` | 5,342 passed / 7 skipped; 181.07 s; no flakes observed |
+| `npm test -- --maxWorkers=4` | 5,377 passed / 7 skipped across 581 passed / 1 skipped files; 195.18 s; no flakes observed |

@@ -1,6 +1,6 @@
 import { sha256Hex } from './outboxIdentity';
 
-/** K-329B pure architecture model. No storage, browser, timer, network, or K-328 caller. */
+/** K-329C pure architecture model. No storage, browser, timer, network, or K-328 caller. */
 export const WRITER_COORDINATION_SCHEMA_VERSION = 1 as const;
 export const WRITER_COORDINATION_BYTE_FORMAT_VERSION = 1 as const;
 export const WRITER_COORDINATION_STRATEGY =
@@ -70,6 +70,9 @@ export const WRITER_ELIGIBILITY_ERROR_CODES = [
   'ELIGIBILITY_EVIDENCE_CORRUPT', 'ELIGIBILITY_PROTOCOL_VERSION_UNSUPPORTED',
   'REVIEWED_MANIFEST_AUTHORITY_MISMATCH', 'CHECKPOINT_CHAIN_INVALID',
   'SOURCE_EVIDENCE_MISSING', 'SOURCE_EVIDENCE_INVALID',
+  'CURRENT_GRAPH_CHECKPOINT_MISMATCH', 'OPERATION_REGISTRATION_RELATION_INVALID',
+  'REGISTRATION_OPERATION_RELATION_INVALID', 'SOURCE_EVIDENCE_LIFECYCLE_MISMATCH',
+  'SOURCE_EVIDENCE_CHECKPOINT_MISMATCH', 'ELIGIBILITY_EVIDENCE_RELATION_MISMATCH',
   'ACTOR_UNAUTHORIZED', 'TRANSITION_REVISION_STALE',
 ] as const;
 export type WriterEligibilityErrorCode = typeof WRITER_ELIGIBILITY_ERROR_CODES[number];
@@ -106,6 +109,12 @@ const ERROR_POLICY: Record<WriterEligibilityErrorCode, { retryable: boolean; req
   CHECKPOINT_CHAIN_INVALID: { retryable: false, requiredAction: 'restart from a new reviewed coordination session' },
   SOURCE_EVIDENCE_MISSING: { retryable: true, requiredAction: 'capture source evidence through the verifier action' },
   SOURCE_EVIDENCE_INVALID: { retryable: false, requiredAction: 'reject the source candidate without repair' },
+  CURRENT_GRAPH_CHECKPOINT_MISMATCH: { retryable: false, requiredAction: 'reject the current graph without repairing checkpoint evidence' },
+  OPERATION_REGISTRATION_RELATION_INVALID: { retryable: false, requiredAction: 'reject the orphaned or mismatched operation graph' },
+  REGISTRATION_OPERATION_RELATION_INVALID: { retryable: false, requiredAction: 'reject the inconsistent registration operation reference' },
+  SOURCE_EVIDENCE_LIFECYCLE_MISMATCH: { retryable: false, requiredAction: 'reject source evidence outside its exact verifier lifecycle' },
+  SOURCE_EVIDENCE_CHECKPOINT_MISMATCH: { retryable: false, requiredAction: 'reject source evidence not bound to the exact checkpoint chain' },
+  ELIGIBILITY_EVIDENCE_RELATION_MISMATCH: { retryable: false, requiredAction: 'reject stale or orphaned eligibility evidence' },
   ACTOR_UNAUTHORIZED: { retryable: false, requiredAction: 'use the actor bound to the transition' },
   TRANSITION_REVISION_STALE: { retryable: true, requiredAction: 'reread authority and retry with current CAS' },
 };
@@ -260,6 +269,8 @@ export interface RegistrationCheckpointRecord {
   stableIdentityDigest: string;
   liveInstanceDigest: string;
   operationDigest: string;
+  unresolvedOperationDigest: string;
+  registrationCount: number;
   operationCount: number;
   unresolvedOperationCount: number;
   previousCheckpointDigest: string | null;
@@ -308,10 +319,28 @@ export interface EligibilityEvidenceRecord {
   reviewedManifestAuthorityDigest: string;
   finalCheckpointDigest: string;
   sourceEvidenceDigest: string;
+  k328PhysicalSourceDigest: string;
+  stableIdentityDigest: string;
+  liveInstanceDigest: string;
+  operationDigest: string;
+  unresolvedOperationDigest: string;
+  registrationCount: number;
+  operationCount: number;
+  unresolvedOperationCount: number;
   stableRevision: string;
   stableSourceDigest: string;
   authorityTransitionRevision: number;
   result: 'eligible';
+}
+
+export interface CurrentCoordinationGraph {
+  stableWriterIdentityDigest: string;
+  liveWriterInstanceDigest: string;
+  operationSetDigest: string;
+  unresolvedOperationDigest: string;
+  unresolvedOperationCount: number;
+  registrationCount: number;
+  operationCount: number;
 }
 
 export interface WriterCoordinationModelState {
@@ -425,7 +454,8 @@ const OPERATION_KEYS = ['kind', 'schemaVersion', 'byteFormatVersion', 'physicalS
   'expectedSourceRevision', 'state', 'committedSourceRevision', 'terminalResult'] as const;
 const CHECKPOINT_KEYS = ['kind', 'schemaVersion', 'byteFormatVersion', 'checkpointKind', 'physicalSourceDigest',
   'coordinationEpoch', 'transitionRevision', 'authorityState', 'coordinatorSessionId', 'actorKind', 'actorSessionId',
-  'reviewedManifestAuthorityDigest', 'stableIdentityDigest', 'liveInstanceDigest', 'operationDigest', 'operationCount',
+  'reviewedManifestAuthorityDigest', 'stableIdentityDigest', 'liveInstanceDigest', 'operationDigest',
+  'unresolvedOperationDigest', 'registrationCount', 'operationCount',
   'unresolvedOperationCount', 'previousCheckpointDigest', 'sourceEvidenceDigest', 'sourceRevision', 'sourceDigest',
   'checkpointDigest'] as const;
 const SOURCE_OBSERVATION_KEYS = ['physicalSourceDigest', 'sourceType', 'ownershipProven', 'canonical', 'withinBounds',
@@ -436,7 +466,9 @@ const SOURCE_EVIDENCE_KEYS = ['kind', 'schemaVersion', 'byteFormatVersion', ...S
   'evidenceDigest'] as const;
 const ELIGIBILITY_KEYS = ['kind', 'schemaVersion', 'byteFormatVersion', 'strategy', 'physicalSourceDigest',
   'coordinationEpoch', 'authoritativeSource', 'reviewedManifestAuthorityDigest', 'finalCheckpointDigest',
-  'sourceEvidenceDigest', 'stableRevision', 'stableSourceDigest', 'authorityTransitionRevision', 'result'] as const;
+  'sourceEvidenceDigest', 'k328PhysicalSourceDigest', 'stableIdentityDigest', 'liveInstanceDigest', 'operationDigest',
+  'unresolvedOperationDigest', 'registrationCount', 'operationCount', 'unresolvedOperationCount',
+  'stableRevision', 'stableSourceDigest', 'authorityTransitionRevision', 'result'] as const;
 const MODEL_KEYS = ['kind', 'schemaVersion', 'byteFormatVersion', 'authority', 'reviewedManifestAuthority',
   'reviewedManifest', 'registrations', 'operations', 'checkpointChain', 'sourceEvidence', 'eligibilityEvidence'] as const;
 
@@ -712,13 +744,14 @@ function registrationIdentity(record: WriterRegistrationRecord): string {
     record.physicalSourceDigest, record.coordinationEpoch].join('|');
 }
 export function deriveStableWriterIdentityDigest(registrations: readonly WriterRegistrationRecord[]): string {
-  if (!validRegistrationSet(registrations, false)) throw new Error('WRITER_REGISTRATION_MALFORMED');
+  if (!validRegistrationSet(registrations, true)) throw new Error('WRITER_REGISTRATION_MALFORMED');
   return digestJson(['absinthe_stable_writer_identity_set_v1', [...registrations]
     .sort((a, b) => registrationIdentity(a) < registrationIdentity(b) ? -1 : 1)
-    .map(record => [record.writerTypeId, record.writerId, record.sessionId, record.contextType, record.physicalSourceDigest])]);
+    .map(record => [record.physicalSourceDigest, record.coordinationEpoch, record.writerTypeId, record.writerId,
+      record.sessionId, record.contextType, record.capabilities])]);
 }
 export function deriveLiveWriterInstanceSetDigest(registrations: readonly WriterRegistrationRecord[]): string {
-  if (!validRegistrationSet(registrations, false)) throw new Error('WRITER_REGISTRATION_MALFORMED');
+  if (!validRegistrationSet(registrations, true)) throw new Error('WRITER_REGISTRATION_MALFORMED');
   return digestJson(['absinthe_live_writer_instance_set_v2', [...registrations]
     .sort((a, b) => registrationIdentity(a) < registrationIdentity(b) ? -1 : 1)
     .map(record => [record.writerTypeId, record.writerId, record.sessionId, record.contextType,
@@ -743,18 +776,91 @@ export function deriveOperationSetDigest(operations: readonly AdmissionOperation
     .map(record => decoder.decode(encodeAdmissionOperationCanonical(record))).sort()]);
 }
 
+export function deriveUnresolvedOperationDigest(operations: readonly AdmissionOperationRecord[]): string {
+  if (!validOperationSet(operations)) throw new Error('IN_FLIGHT_STATE_AMBIGUOUS');
+  return digestJson(['absinthe_unresolved_operation_set_v1', operations
+    .filter(record => record.state === 'admitted')
+    .map(record => decoder.decode(encodeAdmissionOperationCanonical(record))).sort()]);
+}
+
+export const ZERO_UNRESOLVED_OPERATION_DIGEST = deriveUnresolvedOperationDigest([]);
+
+function operationRegistrationRelationError(state: WriterCoordinationModelState): WriterEligibilityErrorCode | null {
+  for (const operation of state.operations) {
+    const matches = state.registrations.filter(registration => registration.writerId === operation.writerId
+      && registration.sessionId === operation.sessionId && registration.writerTypeId === operation.writerTypeId
+      && registration.physicalSourceDigest === operation.physicalSourceDigest
+      && registration.coordinationEpoch === operation.coordinationEpoch);
+    if (matches.length !== 1 || !state.reviewedManifest.entries.some(entry => entry.writerTypeId === operation.writerTypeId)) {
+      return 'OPERATION_REGISTRATION_RELATION_INVALID';
+    }
+  }
+  return null;
+}
+
+function registrationOperationRelationError(state: WriterCoordinationModelState): WriterEligibilityErrorCode | null {
+  for (const registration of state.registrations) {
+    const owned = state.operations.filter(operation => operation.writerId === registration.writerId
+      && operation.sessionId === registration.sessionId);
+    if (registration.latestOperationId === null) {
+      if (owned.length !== 0) return 'REGISTRATION_OPERATION_RELATION_INVALID';
+    } else {
+      const latest = state.operations.filter(operation => operation.operationId === registration.latestOperationId
+        && operation.writerId === registration.writerId && operation.sessionId === registration.sessionId
+        && operation.writerTypeId === registration.writerTypeId
+        && operation.physicalSourceDigest === registration.physicalSourceDigest
+        && operation.coordinationEpoch === registration.coordinationEpoch);
+      if (latest.length !== 1) return 'REGISTRATION_OPERATION_RELATION_INVALID';
+    }
+    if (owned.some(operation => operation.state === 'admitted')
+      && (registration.registrationState !== 'registered' || registration.coordinated
+        || registration.acknowledgedDrainRevision !== null)) {
+      return 'REGISTRATION_OPERATION_RELATION_INVALID';
+    }
+  }
+  return null;
+}
+
+export function deriveCurrentCoordinationGraph(state: WriterCoordinationModelState): CurrentCoordinationGraph {
+  if (!validRegistrationSet(state.registrations, true) || !validOperationSet(state.operations)) {
+    throw new Error('ELIGIBILITY_EVIDENCE_CORRUPT');
+  }
+  if (state.registrations.some(record => record.physicalSourceDigest !== state.authority.physicalSourceDigest
+    || record.coordinationEpoch !== state.authority.coordinationEpoch)
+    || state.operations.some(record => record.physicalSourceDigest !== state.authority.physicalSourceDigest
+      || record.coordinationEpoch !== state.authority.coordinationEpoch)) {
+    throw new Error('OPERATION_REGISTRATION_RELATION_INVALID');
+  }
+  const operationError = operationRegistrationRelationError(state); if (operationError) throw new Error(operationError);
+  const registrationError = registrationOperationRelationError(state); if (registrationError) throw new Error(registrationError);
+  const unresolvedOperationCount = state.operations.filter(operation => operation.state === 'admitted').length;
+  return Object.freeze({
+    stableWriterIdentityDigest: deriveStableWriterIdentityDigest(state.registrations),
+    liveWriterInstanceDigest: deriveLiveWriterInstanceSetDigest(state.registrations),
+    operationSetDigest: deriveOperationSetDigest(state.operations),
+    unresolvedOperationDigest: deriveUnresolvedOperationDigest(state.operations),
+    unresolvedOperationCount,
+    registrationCount: state.registrations.length,
+    operationCount: state.operations.length,
+  });
+}
+
 function checkpointContent(record: Omit<RegistrationCheckpointRecord, 'checkpointDigest'>): unknown[] {
   return ['absinthe_writer_checkpoint_v1', record.kind, record.schemaVersion, record.byteFormatVersion,
     record.checkpointKind, record.physicalSourceDigest, record.coordinationEpoch, record.transitionRevision,
     record.authorityState, record.coordinatorSessionId, record.actorKind, record.actorSessionId,
     record.reviewedManifestAuthorityDigest,
-    record.stableIdentityDigest, record.liveInstanceDigest, record.operationDigest, record.operationCount,
+    record.stableIdentityDigest, record.liveInstanceDigest, record.operationDigest, record.unresolvedOperationDigest,
+    record.registrationCount, record.operationCount,
     record.unresolvedOperationCount, record.previousCheckpointDigest, record.sourceEvidenceDigest,
     record.sourceRevision, record.sourceDigest];
 }
 function checkpointWithoutDigest(record: RegistrationCheckpointRecord): Omit<RegistrationCheckpointRecord, 'checkpointDigest'> {
   const { checkpointDigest: _ignored, ...content } = record; return content;
 }
+export function deriveRegistrationCheckpointDigest(
+  record: Omit<RegistrationCheckpointRecord, 'checkpointDigest'>,
+): string { return digestJson(checkpointContent(record)); }
 export function validateRegistrationCheckpoint(value: unknown): value is RegistrationCheckpointRecord {
   if (!exactRecord(value, CHECKPOINT_KEYS)) return false;
   const record = value as unknown as RegistrationCheckpointRecord;
@@ -766,6 +872,7 @@ export function validateRegistrationCheckpoint(value: unknown): value is Registr
     && ['coordinator', 'verifier'].includes(record.actorKind) && SESSION_ID.test(record.actorSessionId)
     && HASH.test(record.reviewedManifestAuthorityDigest) && HASH.test(record.stableIdentityDigest)
     && HASH.test(record.liveInstanceDigest) && HASH.test(record.operationDigest)
+    && HASH.test(record.unresolvedOperationDigest) && safeInteger(record.registrationCount)
     && safeInteger(record.operationCount) && safeInteger(record.unresolvedOperationCount)
     && (record.previousCheckpointDigest === null || HASH.test(record.previousCheckpointDigest))
     && (record.sourceEvidenceDigest === null || HASH.test(record.sourceEvidenceDigest))
@@ -774,7 +881,7 @@ export function validateRegistrationCheckpoint(value: unknown): value is Registr
     && ((record.sourceEvidenceDigest === null && record.sourceRevision === null && record.sourceDigest === null)
       || (record.sourceEvidenceDigest !== null && record.sourceRevision !== null && record.sourceDigest !== null))
     && HASH.test(record.checkpointDigest)
-    && record.checkpointDigest === digestJson(checkpointContent(checkpointWithoutDigest(record)));
+    && record.checkpointDigest === deriveRegistrationCheckpointDigest(checkpointWithoutDigest(record));
 }
 function orderedCheckpoint(value: RegistrationCheckpointRecord): RegistrationCheckpointRecord {
   return { kind: value.kind, schemaVersion: value.schemaVersion, byteFormatVersion: value.byteFormatVersion,
@@ -784,7 +891,8 @@ function orderedCheckpoint(value: RegistrationCheckpointRecord): RegistrationChe
     actorKind: value.actorKind, actorSessionId: value.actorSessionId,
     reviewedManifestAuthorityDigest: value.reviewedManifestAuthorityDigest,
     stableIdentityDigest: value.stableIdentityDigest, liveInstanceDigest: value.liveInstanceDigest,
-    operationDigest: value.operationDigest, operationCount: value.operationCount,
+    operationDigest: value.operationDigest, unresolvedOperationDigest: value.unresolvedOperationDigest,
+    registrationCount: value.registrationCount, operationCount: value.operationCount,
     unresolvedOperationCount: value.unresolvedOperationCount,
     previousCheckpointDigest: value.previousCheckpointDigest, sourceEvidenceDigest: value.sourceEvidenceDigest,
     sourceRevision: value.sourceRevision, sourceDigest: value.sourceDigest,
@@ -819,6 +927,9 @@ function sourceEvidenceContent(record: Omit<SourceVerificationEvidence, 'evidenc
 function sourceWithoutDigest(record: SourceVerificationEvidence): Omit<SourceVerificationEvidence, 'evidenceDigest'> {
   const { evidenceDigest: _ignored, ...content } = record; return content;
 }
+export function deriveSourceVerificationEvidenceDigest(
+  record: Omit<SourceVerificationEvidence, 'evidenceDigest'>,
+): string { return digestJson(sourceEvidenceContent(record)); }
 export function validateSourceVerificationEvidence(value: unknown): value is SourceVerificationEvidence {
   if (!exactRecord(value, SOURCE_EVIDENCE_KEYS)) return false;
   const record = value as unknown as SourceVerificationEvidence;
@@ -835,7 +946,7 @@ export function validateSourceVerificationEvidence(value: unknown): value is Sou
     && record.captureActorKind === 'verifier' && SESSION_ID.test(record.captureActorSessionId)
     && safeInteger(record.coordinationEpoch, 1) && safeInteger(record.transitionRevision)
     && HASH.test(record.previousCheckpointDigest) && HASH.test(record.evidenceDigest)
-    && record.evidenceDigest === digestJson(sourceEvidenceContent(sourceWithoutDigest(record)));
+    && record.evidenceDigest === deriveSourceVerificationEvidenceDigest(sourceWithoutDigest(record));
 }
 function orderedSourceEvidence(value: SourceVerificationEvidence): SourceVerificationEvidence {
   return { kind: value.kind, schemaVersion: value.schemaVersion, byteFormatVersion: value.byteFormatVersion,
@@ -863,6 +974,11 @@ function validateEligibilityEvidence(value: unknown): value is EligibilityEviden
     && HASH.test(record.physicalSourceDigest) && safeInteger(record.coordinationEpoch, 1)
     && record.authoritativeSource === 'indexeddb' && HASH.test(record.reviewedManifestAuthorityDigest)
     && HASH.test(record.finalCheckpointDigest) && HASH.test(record.sourceEvidenceDigest)
+    && HASH.test(record.k328PhysicalSourceDigest)
+    && HASH.test(record.stableIdentityDigest) && HASH.test(record.liveInstanceDigest)
+    && HASH.test(record.operationDigest) && HASH.test(record.unresolvedOperationDigest)
+    && safeInteger(record.registrationCount) && safeInteger(record.operationCount)
+    && safeInteger(record.unresolvedOperationCount)
     && SOURCE_REVISION.test(record.stableRevision) && HASH.test(record.stableSourceDigest)
     && safeInteger(record.authorityTransitionRevision) && record.result === 'eligible';
 }
@@ -872,6 +988,11 @@ function orderedEligibility(value: EligibilityEvidenceRecord): EligibilityEviden
     coordinationEpoch: value.coordinationEpoch, authoritativeSource: value.authoritativeSource,
     reviewedManifestAuthorityDigest: value.reviewedManifestAuthorityDigest,
     finalCheckpointDigest: value.finalCheckpointDigest, sourceEvidenceDigest: value.sourceEvidenceDigest,
+    k328PhysicalSourceDigest: value.k328PhysicalSourceDigest,
+    stableIdentityDigest: value.stableIdentityDigest, liveInstanceDigest: value.liveInstanceDigest,
+    operationDigest: value.operationDigest, unresolvedOperationDigest: value.unresolvedOperationDigest,
+    registrationCount: value.registrationCount, operationCount: value.operationCount,
+    unresolvedOperationCount: value.unresolvedOperationCount,
     stableRevision: value.stableRevision, stableSourceDigest: value.stableSourceDigest,
     authorityTransitionRevision: value.authorityTransitionRevision, result: value.result };
 }
@@ -917,6 +1038,120 @@ function checkpointSemanticsValid(state: WriterCoordinationModelState): boolean 
   return true;
 }
 
+function checkpointMatchesGraph(checkpoint: RegistrationCheckpointRecord, graph: CurrentCoordinationGraph): boolean {
+  return checkpoint.stableIdentityDigest === graph.stableWriterIdentityDigest
+    && checkpoint.liveInstanceDigest === graph.liveWriterInstanceDigest
+    && checkpoint.operationDigest === graph.operationSetDigest
+    && checkpoint.unresolvedOperationDigest === graph.unresolvedOperationDigest
+    && checkpoint.registrationCount === graph.registrationCount
+    && checkpoint.operationCount === graph.operationCount
+    && checkpoint.unresolvedOperationCount === graph.unresolvedOperationCount;
+}
+
+function protectedCheckpointGraphValid(state: WriterCoordinationModelState, graph: CurrentCoordinationGraph): boolean {
+  if (state.checkpointChain.length < 3) return true;
+  const protectedCheckpoint = state.checkpointChain[2];
+  if (protectedCheckpoint.unresolvedOperationCount !== 0
+    || protectedCheckpoint.unresolvedOperationDigest !== ZERO_UNRESOLVED_OPERATION_DIGEST) return false;
+  for (const checkpoint of state.checkpointChain.slice(3)) {
+    if (!checkpointMatchesGraph(checkpoint, {
+      stableWriterIdentityDigest: protectedCheckpoint.stableIdentityDigest,
+      liveWriterInstanceDigest: protectedCheckpoint.liveInstanceDigest,
+      operationSetDigest: protectedCheckpoint.operationDigest,
+      unresolvedOperationDigest: protectedCheckpoint.unresolvedOperationDigest,
+      unresolvedOperationCount: protectedCheckpoint.unresolvedOperationCount,
+      registrationCount: protectedCheckpoint.registrationCount,
+      operationCount: protectedCheckpoint.operationCount,
+    })) return false;
+  }
+  return checkpointMatchesGraph(state.checkpointChain[state.checkpointChain.length - 1], graph);
+}
+
+function sourceEvidenceRelationError(state: WriterCoordinationModelState): WriterEligibilityErrorCode | null {
+  const source = state.sourceEvidence;
+  if (!source) {
+    return state.checkpointChain.length >= 5 ? 'SOURCE_EVIDENCE_CHECKPOINT_MISMATCH' : null;
+  }
+  if (!validateSourceVerificationEvidence(source) || state.checkpointChain.length < 5) {
+    return 'SOURCE_EVIDENCE_CHECKPOINT_MISMATCH';
+  }
+  const predecessor = state.checkpointChain[3];
+  if (predecessor.checkpointKind !== 'BEFORE_SOURCE_VERIFICATION'
+    || source.previousCheckpointDigest !== predecessor.checkpointDigest
+    || source.physicalSourceDigest !== state.authority.physicalSourceDigest
+    || source.captureActorSessionId !== state.authority.verifierSessionId
+    || source.coordinationEpoch !== state.authority.coordinationEpoch) {
+    return 'SOURCE_EVIDENCE_CHECKPOINT_MISMATCH';
+  }
+  if ((source.authoritativeSourceDecision === 'indexeddb') !== (source.ambiguityCode === null)) {
+    return 'SOURCE_EVIDENCE_LIFECYCLE_MISMATCH';
+  }
+  if (source.k328AdapterAvailable && source.k328PhysicalSourceDigest !== state.authority.physicalSourceDigest) {
+    return 'SOURCE_EVIDENCE_CHECKPOINT_MISMATCH';
+  }
+  const postEvidenceCheckpoints = state.checkpointChain.length - 4;
+  const expectedRevision = source.transitionRevision + postEvidenceCheckpoints;
+  if (state.authority.state === 'VERIFYING_SOURCE') {
+    if (state.authority.transitionRevision !== expectedRevision) return 'SOURCE_EVIDENCE_LIFECYCLE_MISMATCH';
+  } else if (state.authority.state === 'ELIGIBLE') {
+    if (state.checkpointChain.length !== 6 || state.authority.transitionRevision !== source.transitionRevision + 3) {
+      return 'SOURCE_EVIDENCE_LIFECYCLE_MISMATCH';
+    }
+  } else if (state.authority.state === 'ABORTED' || state.authority.state === 'FAILED') {
+    if (state.authority.transitionRevision !== expectedRevision + 1) return 'SOURCE_EVIDENCE_LIFECYCLE_MISMATCH';
+  } else return 'SOURCE_EVIDENCE_LIFECYCLE_MISMATCH';
+  for (const checkpoint of state.checkpointChain.slice(4)) {
+    if (checkpoint.sourceEvidenceDigest !== source.evidenceDigest
+      || checkpoint.sourceRevision !== source.revisionAfter || checkpoint.sourceDigest !== source.digestAfter) {
+      return 'SOURCE_EVIDENCE_CHECKPOINT_MISMATCH';
+    }
+  }
+  return null;
+}
+
+function eligibilityEvidenceRelationError(state: WriterCoordinationModelState,
+  graph: CurrentCoordinationGraph): WriterEligibilityErrorCode | null {
+  const evidence = state.eligibilityEvidence;
+  if (!evidence) return state.authority.state === 'ELIGIBLE' ? 'ELIGIBILITY_EVIDENCE_RELATION_MISMATCH' : null;
+  const source = state.sourceEvidence; const final = state.checkpointChain[5];
+  if (state.authority.state !== 'ELIGIBLE' || !source || !final || state.checkpointChain.length !== 6
+    || evidence.physicalSourceDigest !== state.authority.physicalSourceDigest
+    || evidence.coordinationEpoch !== state.authority.coordinationEpoch
+    || evidence.reviewedManifestAuthorityDigest !== state.authority.reviewedManifestAuthorityDigest
+    || evidence.finalCheckpointDigest !== final.checkpointDigest
+    || evidence.sourceEvidenceDigest !== source.evidenceDigest
+    || evidence.k328PhysicalSourceDigest !== source.k328PhysicalSourceDigest
+    || evidence.stableRevision !== source.revisionAfter || evidence.stableSourceDigest !== source.digestAfter
+    || evidence.authorityTransitionRevision !== state.authority.transitionRevision
+    || evidence.stableIdentityDigest !== graph.stableWriterIdentityDigest
+    || evidence.liveInstanceDigest !== graph.liveWriterInstanceDigest
+    || evidence.operationDigest !== graph.operationSetDigest
+    || evidence.unresolvedOperationDigest !== graph.unresolvedOperationDigest
+    || evidence.registrationCount !== graph.registrationCount || evidence.operationCount !== graph.operationCount
+    || evidence.unresolvedOperationCount !== graph.unresolvedOperationCount) {
+    return 'ELIGIBILITY_EVIDENCE_RELATION_MISMATCH';
+  }
+  return sourceEvidenceError(source, state) === null ? null : 'ELIGIBILITY_EVIDENCE_RELATION_MISMATCH';
+}
+
+/** Deterministic cross-record validation order used by encoding, decoding, reducer entry, and commit. */
+export function validateWriterCoordinationModelRelations(state: WriterCoordinationModelState): WriterEligibilityErrorCode | null {
+  const operationError = operationRegistrationRelationError(state); if (operationError) return operationError;
+  const registrationError = registrationOperationRelationError(state); if (registrationError) return registrationError;
+  let graph: CurrentCoordinationGraph;
+  try { graph = deriveCurrentCoordinationGraph(state); }
+  catch (error) {
+    return error instanceof Error && WRITER_ELIGIBILITY_ERROR_CODES.includes(error.message as WriterEligibilityErrorCode)
+      ? error.message as WriterEligibilityErrorCode : 'ELIGIBILITY_EVIDENCE_CORRUPT';
+  }
+  if (state.authority.unresolvedOperationCount !== graph.unresolvedOperationCount) {
+    return 'CURRENT_GRAPH_CHECKPOINT_MISMATCH';
+  }
+  if (!protectedCheckpointGraphValid(state, graph)) return 'CURRENT_GRAPH_CHECKPOINT_MISMATCH';
+  const sourceError = sourceEvidenceRelationError(state); if (sourceError) return sourceError;
+  return eligibilityEvidenceRelationError(state, graph);
+}
+
 function validateManifestCoverage(state: WriterCoordinationModelState, final: boolean): WriterEligibilityErrorCode | null {
   const manifest = new Map(state.reviewedManifest.entries.map(entry => [entry.writerTypeId, entry]));
   for (const record of state.registrations) {
@@ -956,17 +1191,7 @@ export function validateWriterCoordinationModelState(value: unknown): value is W
     || !checkpointSemanticsValid(state)
     || (state.sourceEvidence !== null && !validateSourceVerificationEvidence(state.sourceEvidence))
     || (state.eligibilityEvidence !== null && !validateEligibilityEvidence(state.eligibilityEvidence))) return false;
-  if (state.sourceEvidence && (state.sourceEvidence.physicalSourceDigest !== state.authority.physicalSourceDigest
-    || state.sourceEvidence.captureActorSessionId !== state.authority.verifierSessionId)) return false;
-  if ((state.authority.state === 'ELIGIBLE') !== (state.eligibilityEvidence !== null)) return false;
-  if (state.eligibilityEvidence && (state.checkpointChain.length !== CHECKPOINT_KINDS.length || !state.sourceEvidence
-    || state.eligibilityEvidence.physicalSourceDigest !== state.authority.physicalSourceDigest
-    || state.eligibilityEvidence.coordinationEpoch !== state.authority.coordinationEpoch
-    || state.eligibilityEvidence.reviewedManifestAuthorityDigest !== state.authority.reviewedManifestAuthorityDigest
-    || state.eligibilityEvidence.finalCheckpointDigest !== state.checkpointChain[5].checkpointDigest
-    || state.eligibilityEvidence.sourceEvidenceDigest !== state.sourceEvidence.evidenceDigest
-    || state.eligibilityEvidence.authorityTransitionRevision !== state.authority.transitionRevision)) return false;
-  return state.authority.unresolvedOperationCount === state.operations.filter(operation => operation.state === 'admitted').length;
+  return validateWriterCoordinationModelRelations(state) === null;
 }
 
 function orderedModel(value: WriterCoordinationModelState): WriterCoordinationModelState {
@@ -1104,11 +1329,9 @@ function appendCheckpoint(state: WriterCoordinationModelState, actor: WriterCoor
     && state.sourceEvidence.coordinationEpoch !== state.authority.coordinationEpoch) {
     return { ok: false, code: 'COORDINATION_EPOCH_STALE' };
   }
-  let stableIdentityDigest: string; let liveInstanceDigest: string; let operationDigest: string;
+  let graph: CurrentCoordinationGraph;
   try {
-    stableIdentityDigest = deriveStableWriterIdentityDigest(state.registrations);
-    liveInstanceDigest = deriveLiveWriterInstanceSetDigest(state.registrations);
-    operationDigest = deriveOperationSetDigest(state.operations);
+    graph = deriveCurrentCoordinationGraph(state);
   } catch { return { ok: false, code: 'WRITER_REGISTRATION_MALFORMED' }; }
   const authority = nextAuthority(state.authority, {});
   const content: Omit<RegistrationCheckpointRecord, 'checkpointDigest'> = {
@@ -1118,14 +1341,16 @@ function appendCheckpoint(state: WriterCoordinationModelState, actor: WriterCoor
     authorityState: authority.state, coordinatorSessionId: authority.coordinatorSessionId,
     actorKind: actor.kind, actorSessionId: actor.sessionId,
     reviewedManifestAuthorityDigest: authority.reviewedManifestAuthorityDigest,
-    stableIdentityDigest, liveInstanceDigest, operationDigest, operationCount: state.operations.length,
-    unresolvedOperationCount: authority.unresolvedOperationCount,
+    stableIdentityDigest: graph.stableWriterIdentityDigest, liveInstanceDigest: graph.liveWriterInstanceDigest,
+    operationDigest: graph.operationSetDigest, unresolvedOperationDigest: graph.unresolvedOperationDigest,
+    registrationCount: graph.registrationCount, operationCount: graph.operationCount,
+    unresolvedOperationCount: graph.unresolvedOperationCount,
     previousCheckpointDigest: expectedIndex === 0 ? null : state.checkpointChain[expectedIndex - 1].checkpointDigest,
     sourceEvidenceDigest,
     sourceRevision: expectedIndex >= 4 ? state.sourceEvidence?.revisionAfter ?? null : null,
     sourceDigest: expectedIndex >= 4 ? state.sourceEvidence?.digestAfter ?? null : null,
   };
-  const checkpoint: RegistrationCheckpointRecord = { ...content, checkpointDigest: digestJson(checkpointContent(content)) };
+  const checkpoint: RegistrationCheckpointRecord = { ...content, checkpointDigest: deriveRegistrationCheckpointDigest(content) };
   return { ok: true, state: withState(state, { authority, checkpointChain: [...state.checkpointChain, checkpoint] }) };
 }
 
@@ -1156,6 +1381,11 @@ function eligibilityFromDurableState(state: WriterCoordinationModelState):
     return { ok: false, code: 'REVIEWED_MANIFEST_AUTHORITY_MISMATCH' };
   }
   if (!checkpointChainValid(state.checkpointChain, false)) return { ok: false, code: 'CHECKPOINT_CHAIN_INVALID' };
+  const relationError = validateWriterCoordinationModelRelations(state);
+  if (relationError) return { ok: false, code: relationError };
+  let currentGraph: CurrentCoordinationGraph;
+  try { currentGraph = deriveCurrentCoordinationGraph(state); }
+  catch { return { ok: false, code: 'CURRENT_GRAPH_CHECKPOINT_MISMATCH' }; }
   for (let index = 0; index < state.checkpointChain.length; index += 1) {
     const checkpoint = state.checkpointChain[index];
     const expectedActor = checkpointActor(checkpoint.checkpointKind);
@@ -1170,13 +1400,9 @@ function eligibilityFromDurableState(state: WriterCoordinationModelState):
       return { ok: false, code: 'CHECKPOINT_CHAIN_INVALID' };
     }
   }
-  const identity = state.checkpointChain[0].stableIdentityDigest;
-  if (state.checkpointChain.some(checkpoint => checkpoint.stableIdentityDigest !== identity)) {
-    return { ok: false, code: 'CHECKPOINT_CHAIN_INVALID' };
-  }
-  const protectedDigest = state.checkpointChain[2].liveInstanceDigest;
-  if (state.checkpointChain.slice(3).some(checkpoint => checkpoint.liveInstanceDigest !== protectedDigest)) {
-    return { ok: false, code: 'CHECKPOINT_CHAIN_INVALID' };
+  if (!protectedCheckpointGraphValid(state, currentGraph)
+    || !checkpointMatchesGraph(state.checkpointChain[5], currentGraph)) {
+    return { ok: false, code: 'CURRENT_GRAPH_CHECKPOINT_MISMATCH' };
   }
   const source = state.sourceEvidence;
   if (!source) return { ok: false, code: 'SOURCE_EVIDENCE_MISSING' };
@@ -1188,7 +1414,9 @@ function eligibilityFromDurableState(state: WriterCoordinationModelState):
   }
   const coverage = validateManifestCoverage(state, true); if (coverage) return { ok: false, code: coverage };
   if (state.authority.state !== 'VERIFYING_SOURCE' || state.authority.admissionOpen) return { ok: false, code: 'ADMISSION_NOT_CLOSED' };
-  if (state.authority.unresolvedOperationCount !== 0 || state.operations.some(operation => operation.state === 'admitted')) {
+  if (currentGraph.unresolvedOperationCount !== 0
+    || currentGraph.unresolvedOperationDigest !== ZERO_UNRESOLVED_OPERATION_DIGEST
+    || state.authority.unresolvedOperationCount !== 0 || state.operations.some(operation => operation.state === 'admitted')) {
     return { ok: false, code: 'IN_FLIGHT_WRITE_PRESENT' };
   }
   const final = state.checkpointChain[5];
@@ -1199,12 +1427,19 @@ function eligibilityFromDurableState(state: WriterCoordinationModelState):
     coordinationEpoch: state.authority.coordinationEpoch, authoritativeSource: 'indexeddb',
     reviewedManifestAuthorityDigest: state.authority.reviewedManifestAuthorityDigest,
     finalCheckpointDigest: final.checkpointDigest, sourceEvidenceDigest: source.evidenceDigest,
+    k328PhysicalSourceDigest: source.k328PhysicalSourceDigest!,
+    stableIdentityDigest: currentGraph.stableWriterIdentityDigest,
+    liveInstanceDigest: currentGraph.liveWriterInstanceDigest,
+    operationDigest: currentGraph.operationSetDigest,
+    unresolvedOperationDigest: currentGraph.unresolvedOperationDigest,
+    registrationCount: currentGraph.registrationCount, operationCount: currentGraph.operationCount,
+    unresolvedOperationCount: currentGraph.unresolvedOperationCount,
     stableRevision: source.revisionAfter, stableSourceDigest: source.digestAfter,
     authorityTransitionRevision: nextRevision, result: 'eligible',
   } };
 }
 
-/** Pure reducer. A future storage layer must CAS the canonical model bytes; K-329B does not persist them. */
+/** Pure reducer. A future storage layer must CAS the canonical model bytes; K-329C does not persist them. */
 export function reduceWriterCoordination(state: WriterCoordinationModelState,
   action: WriterCoordinationAction): WriterCoordinationReduction {
   if (state && typeof state === 'object'
@@ -1224,6 +1459,11 @@ export function reduceWriterCoordination(state: WriterCoordinationModelState,
   if (state && typeof state === 'object' && Array.isArray(state.checkpointChain)
     && state.authority && !checkpointSemanticsValid(state)) {
     return { ok: false, code: 'CHECKPOINT_CHAIN_INVALID' };
+  }
+  if (state && typeof state === 'object' && state.authority && state.reviewedManifest
+    && Array.isArray(state.registrations) && Array.isArray(state.operations) && Array.isArray(state.checkpointChain)) {
+    const relationError = validateWriterCoordinationModelRelations(state);
+    if (relationError) return { ok: false, code: relationError };
   }
   if (!validateWriterCoordinationModelState(state)) return { ok: false, code: 'ELIGIBILITY_EVIDENCE_CORRUPT' };
   if (!validateActionShape(action)) return { ok: false, code: 'ELIGIBILITY_EVIDENCE_CORRUPT' };
@@ -1357,6 +1597,8 @@ export function reduceWriterCoordination(state: WriterCoordinationModelState,
         { state: 'QUIESCENT_CANDIDATE', admissionOpen: false,
           coordinationEpoch: state.authority.coordinationEpoch + 1 }),
         registrations: state.registrations.map(record => ({ ...record,
+          coordinationEpoch: state.authority.coordinationEpoch + 1 })),
+        operations: state.operations.map(record => ({ ...record,
           coordinationEpoch: state.authority.coordinationEpoch + 1 })) }) };
     case 'CAPTURE_AFTER_OPERATIONS_TERMINAL':
       return appendCheckpoint(state, action.actor, 'AFTER_OPERATIONS_TERMINAL');
@@ -1374,6 +1616,10 @@ export function reduceWriterCoordination(state: WriterCoordinationModelState,
       if (action.observation.physicalSourceDigest !== state.authority.physicalSourceDigest) {
         return { ok: false, code: 'K328_PHYSICAL_IDENTITY_MISMATCH' };
       }
+      if (action.observation.k328AdapterAvailable
+        && action.observation.k328PhysicalSourceDigest !== state.authority.physicalSourceDigest) {
+        return { ok: false, code: 'K328_PHYSICAL_IDENTITY_MISMATCH' };
+      }
       const authority = nextAuthority(state.authority, {});
       const content: Omit<SourceVerificationEvidence, 'evidenceDigest'> = {
         kind: 'absinthe_writer_source_verification_evidence', schemaVersion: 1, byteFormatVersion: 1,
@@ -1382,9 +1628,10 @@ export function reduceWriterCoordination(state: WriterCoordinationModelState,
         previousCheckpointDigest: state.checkpointChain[3].checkpointDigest,
       };
       const sourceEvidence: SourceVerificationEvidence = { ...content,
-        evidenceDigest: digestJson(sourceEvidenceContent(content)) };
+        evidenceDigest: deriveSourceVerificationEvidenceDigest(content) };
       if (!validateSourceVerificationEvidence(sourceEvidence)) return { ok: false, code: 'SOURCE_EVIDENCE_INVALID' };
-      return { ok: true, state: withState(state, { authority, sourceEvidence }) };
+      return appendCheckpoint(withState(state, { authority, sourceEvidence }), action.actor,
+        'AFTER_SOURCE_VERIFICATION');
     }
     case 'CAPTURE_AFTER_SOURCE_VERIFICATION':
       return appendCheckpoint(state, action.actor, 'AFTER_SOURCE_VERIFICATION');
