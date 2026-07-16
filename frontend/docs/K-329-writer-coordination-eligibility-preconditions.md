@@ -27,6 +27,7 @@ Stable IDs identify reviewed writer *types*, not ephemeral browser instances. On
 | Writer ID | File/function | Context | Physical source | Trigger | Mutation shape | Commit signal | Cross-context coordinated | Drainable | Known risk |
 |---|---|---|---|---|---|---|---|---|---|
 | `legacy.notes.local_snapshot` | `notePersistence.ts/saveNotesToLocalStorageResult`, `noteUtils.ts/saveNotes` fallback | page/window | localStorage `notes-v2` | any bridged page action | full-array replace | synchronous `setItem` return | no | no | production; no durable revision |
+| `legacy.notes.backup_durability` | `notePersistence.ts/backupNotesBeforeDurabilityWrite` | page/window | timestamped localStorage backup keys | pre-migration/rescue writes | bounded backup payload write | synchronous `setItem` return | no | not authoritative | production auxiliary container; explicitly excluded from source authority, never from inventory |
 | `legacy.notes.idb_snapshot` | `noteIndexedDb.ts/saveNotesToIndexedDb` | page/window async task | `absinthe-notes-v1/notes` | persistence facade | `getAllKeys`, `clear`, then all `put`s | IDB `transaction.oncomplete`; later revision write separate | no | no | production; full-store rewrite and non-atomic revision |
 | `legacy.notes.idb_delete` | `noteIndexedDb.ts/deleteNoteFromIndexedDb` | page/window async task | same IDB store | permanent delete facade | record delete | IDB `transaction.oncomplete` | no | no | production; recovery-blocked now |
 | `legacy.notes.idb_clear` | `noteIndexedDb.ts/clearIndexedDbNotes` | page/window async task | same IDB store | reset/cleanup | full-store clear | IDB `transaction.oncomplete` | no | no | production destructive; recovery-blocked now |
@@ -39,7 +40,10 @@ Stable IDs identify reviewed writer *types*, not ephemeral browser instances. On
 | `legacy.notes.storage_migration` | `noteUtils.ts/migrateLegacyStorageIfNeeded` | synchronous page load | historical/current localStorage keys | first load | merge plus Notes/folder/active/marker writes | no aggregate atomic commit | no | no | production migration; every tab may enter |
 | `legacy.notes.cross_tab_merge` | `useNotesStore.ts/applyStorageMerge` | storage-event page/background tab | Notes/folders and IDB revision | storage event | merge then source writeback | sync or unawaited promise | no; event is notification only | no | production stale-tab writer |
 | `legacy.notes.remote_hydration_merge` | `useNotesStore.ts/hydrateFromDB` | authenticated page job | local Notes/folders | remote hydration | remote/local merge and local full replace | async function completion does not bind local write promise | no | no | production sync writer; K-319 disables now |
+| `legacy.notes.notes_sync_metadata` | `notesSyncClient.ts/setLastSyncTimestamp`, `clearNotesSyncMetadata`, `markFolderBootstrapComplete` | page/window | Notes sync timestamp/bootstrap localStorage keys | sync lifecycle | metadata set/remove | synchronous localStorage return | no | not authoritative | production metadata writer; included with explicit metadata-only exclusion proof |
 | `legacy.notes.restore_import` | `useVaultRestoreFlow.ts/confirmRestore`, store restore/undo | restore/import page job | Notes/folders + restore snapshot | user restore/import | selected merge/replace and fan-out | pipeline promise across many effects | no | no | production restore writer; K-319 disables now |
+| `legacy.notes.vault_restore_snapshot` | `vaultRestoreSnapshot.ts/savePreRestoreSnapshot`, `clearPreRestoreSnapshot` | restore job/page | pre-restore localStorage snapshot | restore preparation/cleanup | snapshot set/remove | synchronous localStorage return | no | not authoritative | production auxiliary container; classified, not silently omitted |
+| `legacy.notes.vault_snapshot_auto` | `vaultSnapshotAuto.ts` via `vaultSnapshotStore.ts` | page/restore pipeline | snapshot index, metadata, chunks/payload localStorage keys | automatic/export/restore snapshot creation | multi-key snapshot writes and retention removes | multiple synchronous writes | no | not authoritative | production auxiliary preservation writer; classified, not treated as live Notes authority |
 | `legacy.notes.reset_cleanup` | `resetAllNotes`, clear functions, `persistenceCleanup.ts` | page/startup cleanup | localStorage + legacy IDB | reset/startup cleanup | remove/clear/seed | multiple sync/async effects | no | no | production destructive writer; K-319 disables now |
 | `legacy.notes.onboarding_marker` | `notesOnboarding.ts` marker functions | page/window | `notes-seeded-v1` | startup/seed | scalar set/remove | best-effort synchronous return | no | no | production authority-adjacent metadata |
 | `legacy.notes.lifecycle_remote_flush` | store body timer, `pagehide`, `beforeunload` | timer/lifecycle page | remote API/in-memory pending map | debounce/navigation | remote mutation | best effort; navigation may terminate it | no | no | production remote writer; never quiescence proof |
@@ -52,6 +56,41 @@ Stable IDs identify reviewed writer *types*, not ephemeral browser instances. On
 | `legacy.notes.readers` | `loadNotesFromIndexedDb`, K-325/K-328 adapters | page/dormant job | legacy sources | explicit read | none | read result only | not applicable | not applicable | read-only source, not a writer |
 
 `COMPLETE_PRODUCTION_WRITER_INVENTORY_ESTABLISHED`
+
+K-329A materializes this review as the non-empty, versioned
+`K329A_REVIEWED_WRITER_MANIFEST_ENTRIES` (27 stable writer types) and
+`createK329AReviewedWriterManifest(physicalSourceDigest)`. Each entry is one of
+`must_participate`, `must_be_disabled`, or `excluded_with_proof`; exclusion is a
+typed, source-reviewed claim, not absence from the manifest. The manifest must
+contain at least one participating authoritative writer, has unique
+locale-independent writer-type ordering, and is bound to the exact physical
+source digest.
+
+### Categorized manifest inventory (exact 27)
+
+| Category | Count | Stable writer types | Eligibility treatment |
+|---|---:|---|---|
+| Authoritative physical-source writers | 13 | `cross_tab_merge`, `idb_clear`, `idb_delete`, `idb_snapshot`, `init_rescue_seed`, `local_snapshot`, `persistence_facade`, `persistence_migration`, `remote_hydration_merge`, `reset_cleanup`, `restore_import`, `storage_migration`, `store_actions` (all under `legacy.notes.*`) | ordinary writers must participate; destructive, fallback, restore, reset, and hydration paths must be durably disabled where the manifest says so |
+| Auxiliary local-container writers | 3 | `backup_durability`, `vault_restore_snapshot`, `vault_snapshot_auto` | included in manifest; excluded only by `AUXILIARY_CONTAINER_NOT_AUTHORITY` |
+| Metadata writers | 4 | `folder_metadata`, `idb_metadata`, `notes_sync_metadata`, `onboarding_marker` | included in manifest; excluded only by `METADATA_NOT_SOURCE_AUTHORITY` |
+| Remote-only writers | 1 | `lifecycle_remote_flush` | included; excluded only by `REMOTE_ONLY_NO_LOCAL_SOURCE_MUTATION` |
+| Dormant/test-only writers | 6 | `handoff.k328_evidence`, three legacy audit writers, `local_first.k325_migration`, `local_first.k326_cutover` | included; excluded by exact dormant/test reachability proof |
+
+The auxiliary classifications are narrow. Durability backups use timestamped
+localStorage keys and preserve full payloads but are never read by source
+authority selection; they can influence later recovery only through an explicit
+separate restore, which itself blocks eligibility. Automatic vault snapshots
+write/remove snapshot index, metadata, chunks, and payloads; those containers
+are preservation evidence, not live Notes authority, and snapshot completion
+does not authorize a later Notes write. Restore undo snapshots are likewise
+auxiliary, while any active restore/import remains an explicit eligibility
+blocker. Sync timestamp and folder-bootstrap keys are metadata only; their
+mutation alone does not change the authoritative Notes store, but the separate
+remote hydration writer is `must_be_disabled`. Thus all four reviewed omission
+areas are visible in the manifest without falsely expanding the authoritative
+source set.
+
+`SOURCE_GROUNDED_WRITER_INVENTORY_COMPLETE_FOR_BASE`
 
 The source-grounded inventory is complete for reachable migration-critical Notes mutation boundaries at this base. Future code, dynamically injected scripts, extensions, compromised same-origin code, and unreviewed contexts remain outside the cooperative application boundary; any newly discovered writer forces `WRITER_INVENTORY_INCOMPLETE` or `UNKNOWN_WRITER_PRESENT`.
 
@@ -101,7 +140,8 @@ Selected composition:
 ```text
 physical-source Web Lock
 + durable IndexedDB coordination authority
-+ exact reviewed writer-type set digest
++ exact non-empty reviewed-writer manifest digest
++ exact live writer-instance/session/context/state digest at six checkpoints
 + durable writer registrations and drain acknowledgements
 + durable admission/in-flight records
 + monotonic epoch fencing in the authoritative source transaction
@@ -113,7 +153,7 @@ BroadcastChannel may improve UX but has no authority. Heartbeat/last-seen is dia
 
 ## Writer identity contract
 
-- `writerTypeId`: reviewed lowercase identifier matching `[a-z0-9][a-z0-9._:-]{0,159}`; stable across releases until its mutation contract changes.
+- `writerTypeId`: reviewed lowercase identifier matching `[a-z0-9][a-z0-9._-]{0,79}`; stable across releases until its mutation contract changes.
 - `writerId`: `writer-v1:<contextType>:<writerTypeId>:<32 lowercase hex random instance nonce>`; one browser context/job instance.
 - `sessionId`: `writer-session-v1:<32 lowercase hex random nonce>`; regenerated on restart.
 - `operationId`: `writer-operation-v1:<64 lowercase hex>`; digest-derived from protocol version, physical digest, writer/session, and an internal operation nonce.
@@ -126,7 +166,22 @@ BroadcastChannel may improve UX but has no authority. Heartbeat/last-seen is dia
 
 ## Durable schema contracts
 
-All records are strict own-data objects, canonical compact JSON encoded as UTF-8 byte format v1. Unknown/missing/extra/accessor/inherited fields, duplicate keys, noncanonical bytes, invalid UTF-8, unknown versions, and over-limit bytes reject without repair.
+All records are strict own-data objects, canonical compact JSON encoded as UTF-8 byte format v1. Unknown/missing/extra/accessor/inherited fields, duplicate decoded keys, noncanonical key order or whitespace, invalid UTF-8, unknown versions, excessive nesting, and over-limit bytes reject without repair. K-329A exposes fixed-order encoders and duplicate-aware canonical decoders for authority, registration, operation, reviewed manifest, and eligibility evidence; ordinary `JSON.parse` is not the persisted trust boundary.
+
+### Reviewed writer manifest — 16,384-byte ceiling
+
+Exact fields:
+
+```text
+kind, schemaVersion, byteFormatVersion, physicalSourceDigest,
+manifestVersion, entries
+```
+
+Each entry has fixed-order fields `writerTypeId`, `contextTypes`,
+`requiredCapabilities`, `authorityRole`, `coordinationRequirement`, and
+`exclusionProofCode`. Entries are non-empty, unique, sorted by writer type, and
+include at least one `must_participate` writer. The canonical manifest SHA-256
+is separate from the live-instance SHA-256.
 
 ### Coordination authority — 4,096-byte ceiling
 
@@ -134,7 +189,7 @@ Exact fields:
 
 ```text
 kind, schemaVersion, byteFormatVersion, physicalSourceDigest,
-coordinationEpoch, state, coordinatorSessionId, expectedWriterSetDigest,
+coordinationEpoch, state, coordinatorSessionId, reviewedManifestDigest,
 admissionOpen, unresolvedOperationCount,
 sourceRevisionBefore, sourceRevisionAfter,
 sourceDigestBefore, sourceDigestAfter,
@@ -154,7 +209,7 @@ capabilities, registrationState, coordinated,
 acknowledgedTransitionRevision, latestOperationId, lastSeenSequence
 ```
 
-Capabilities are the sorted unique subset of `admission`, `drain_ack`, and `source_write`. States are `registered`, `drain_acknowledged`, or `disabled`. An acknowledgement is valid only for the exact authority transition revision.
+Capabilities are the sorted unique subset of `admission`, `drain_ack`, and `source_write`. States are `registered`, `drain_acknowledged`, or `disabled`. The context and writer type embedded in `writerId` must exactly equal the separate record fields. Duplicate writer IDs and duplicate session IDs reject. An acknowledgement is valid only for the exact authority transition revision.
 
 ### Admission/in-flight operation — 4,096-byte ceiling per record
 
@@ -176,11 +231,16 @@ Exact fields:
 ```text
 kind, schemaVersion, byteFormatVersion, strategy,
 physicalSourceDigest, coordinationEpoch, authoritativeSource,
-writerSetDigest, stableRevision, stableSourceDigest,
+reviewedManifestDigest, liveWriterInstanceSetDigest,
+stableRevision, stableSourceDigest,
 authorityTransitionRevision, result
 ```
 
-It contains no writer instance IDs or source payload. Its SHA-256 is returned as `evidenceDigest`. K-328 may be called only by a future reviewed runtime after rereading and validating this exact evidence and physical identity.
+It contains no writer instance IDs or source payload. The live digest commits to
+the exact registered writer/session/context/physical/epoch/capability/state/ack
+set without revealing those identities. Its SHA-256 is returned as
+`evidenceDigest`. K-328 may be called only by a future reviewed runtime after
+rereading and validating this exact evidence and physical identity.
 
 ## Admission and drain protocol
 
@@ -198,16 +258,30 @@ Current localStorage payload writes cannot satisfy step 4 and must be removed as
 ### Drain and verification
 
 1. Coordinator acquires the same physical-source Web Lock and rereads strict authority/registry.
-2. CAS `OPEN -> DRAIN_REQUESTED` while atomically setting `admissionOpen=false`, recording writer-set digest and source revision/digest before drain. Epoch remains E so already-admitted E operations may finish.
+2. CAS `OPEN -> DRAIN_REQUESTED` while atomically setting `admissionOpen=false`, recording the reviewed-manifest digest and source revision/digest before drain. Epoch remains E so already-admitted E operations may finish.
 3. Advisory drain messages may be sent. Each writer durably acknowledges the exact transition revision; missing messages/acks remain missing.
 4. CAS `DRAIN_REQUESTED -> ADMISSION_CLOSED -> DRAINING`. New durable admission transactions now fail their state CAS.
 5. Wait for all reviewed registrations to be durably acknowledged/disabled and all admitted operations to be terminal. A timer produces only `DRAIN_TIMEOUT_UNPROVEN`.
 6. With zero unresolved operations, CAS to `QUIESCENT_CANDIDATE` and increment epoch E -> E+1. Old tokens cannot mutate because the authoritative source transaction requires the current epoch.
-7. CAS to `VERIFYING_SOURCE`; capture authoritative revision/digest, reread registry/writer-set digest, then reread source revision/digest under the same physical coordination regime.
-8. Require identical writer-set, revision, digest, ownership, generation, physical identity, supported source type, resource bounds, and exact K-328 adapter binding.
+7. CAS to `VERIFYING_SOURCE`; capture authoritative revision/digest and exact live registration snapshots before drain, after admission close, after operations terminal, before source verification, after source verification, and immediately before evidence commit.
+8. Require the same writer/session/context/physical/epoch identity at all six checkpoints, unchanged capability identity throughout, and an identical full live-state digest from terminal-operation proof through evidence commit. Then require identical revision, digest, ownership, generation, physical identity, supported source type, resource bounds, and exact K-328 adapter binding.
 9. Emit canonical eligibility evidence. Only a later reviewed implementation may CAS `VERIFYING_SOURCE -> ELIGIBLE` and invoke K-328. K-329 does neither.
 
 If coordinator crashes, durable state resumes without inferred transitions. `OPEN` admits normally; `DRAIN_REQUESTED`/`ADMISSION_CLOSED` resume exact drain; `DRAINING` retains unresolved rows; `QUIESCENT_CANDIDATE` repeats strict registry checks; `VERIFYING_SOURCE` repeats authoritative reads; terminal states never reopen. Unknown state is corruption.
+
+### Executable transition model
+
+`reduceWriterCoordination` is a pure immutable reducer for the durable protocol.
+Every action carries an actor, expected coordination epoch, and expected
+transition revision. Coordinator, writer, verifier, and recovery actors are
+session-bound; writer actions additionally bind the exact writer instance.
+Stale CAS yields `TRANSITION_REVISION_STALE`, stale epochs yield
+`COORDINATION_EPOCH_STALE`, and role/session mismatch yields
+`ACTOR_UNAUTHORIZED`. Registration and operation admission exist only while
+`OPEN`; the drain CAS closes admission before any later acknowledgement. The
+reducer performs no storage, timer, message, lock, K-328, or network operation;
+a later durable implementation must commit each successful reduction with the
+same epoch/revision CAS.
 
 ## State machine
 
@@ -255,11 +329,13 @@ Eligibility defaults to false. The pure evaluator grants only when every require
 
 | Condition | Eligible | Code if false | Retryable | Required action |
 |---|---:|---|---:|---|
-| inventory complete | no | `WRITER_INVENTORY_INCOMPLETE` | no | review every production writer |
+| non-empty reviewed manifest valid | no | `REVIEWED_MANIFEST_INVALID` / `WRITER_INVENTORY_INCOMPLETE` | no | review every production writer and typed exclusion |
+| reviewed manifest digest exact | no | `REVIEWED_MANIFEST_DIGEST_MISMATCH` | no | replace only through source-review work |
 | no unknown writer/context | no | `UNKNOWN_WRITER_PRESENT` / `UNKNOWN_CONTEXT_PRESENT` | no | classify and coordinate/disable |
 | every writer coordinated | no | `WRITER_NOT_COORDINATED` | no | route through durable admission |
 | strict registration records | no | `WRITER_REGISTRATION_MALFORMED` | no | implementation correction; no repair |
-| writer set unchanged | no | `WRITER_SET_CHANGED` | yes | restart drain |
+| live instance set non-empty | no | `LIVE_INSTANCE_SET_EMPTY` | no | register every required live instance |
+| live instance identities/states stable | no | `LIVE_INSTANCE_SET_CHANGED` | yes | restart drain with exact snapshots |
 | Web Locks/IDB supported | no | `COORDINATION_UNSUPPORTED` | no | supported secure environment |
 | physical lock acquired | no | `COORDINATION_LOCK_UNAVAILABLE` | yes | retry; no steal/lease fallback |
 | current epoch | no | `COORDINATION_EPOCH_STALE` | yes | discard stale token |
@@ -301,24 +377,18 @@ Each event must carry an effect class: `attempted`, `durably_committed`, `observ
 
 `writerCoordinationEligibility.ts` is a pure model with no browser globals or side effects. `writerCoordinationEligibility.test.ts` uses explicit immutable snapshots; no sleeps, timers, message timing, or production integration.
 
-Focused result: 64/64 passing scenarios:
-
-| Category | Executions | Covered evidence |
-|---|---:|---|
-| Happy path/invariants | 4 | one/multiple writers, canonical evidence, default false |
-| Admission/new-write races | 7 | two explicit scheduler orderings, post-close token, earlier admitted completion, stale token, debounce, restore/sync |
-| In-flight/idempotency | 6 | missing ack/response, crash boundaries, idempotent retry, duplicate record |
-| Writer-set changes | 6 | new tab, unknown worker, disappearance, restart, stale row, digest change |
-| Coordinator restart | 4 | before/after close, during drain, before evidence commit |
-| Source stability/ambiguity | 18 | revision/digest/malformed/bounds and required mixed-source cases |
-| Corruption/byte boundaries | 6 | exact records, unknown version, duplicate key, invalid UTF-8, size, canonical bytes |
-| State transitions | 13 | allowed chain and forbidden shortcuts/terminal reopening |
+Focused K-329A result: 83/83 passing scenarios. Coverage includes a concrete
+27-type source-reviewed manifest, separate manifest/live digests, all six live
+registration checkpoints, same-type tab/restart/disappearance races, duplicate
+writer/session identities, embedded identity binding, strict canonical codecs
+for all five durable schemas, invalid UTF-8/duplicate/unknown/reordered bytes,
+source and K-328 binding failures, and actor/CAS/epoch reducer races.
 
 Executable invariants:
 
 - eligibility implies durable admission closure;
 - eligibility implies zero unresolved admitted operations;
-- eligibility implies exact coordinated/disabled writer coverage and stable writer-set digest;
+- eligibility implies exact manifest coverage plus stable live writer-instance digest;
 - eligibility implies stable source revision and digest;
 - eligibility implies exactly one supported IndexedDB authority;
 - evidence binds one physical digest and epoch;
@@ -332,22 +402,17 @@ Executable invariants:
 
 | Command | Result |
 |---|---|
-| `npm test -- --run src/lib/localDatabase/writerCoordinationEligibility.test.ts` | 64/64 passed |
-| `npm test -- --run src/lib/localDatabase/crossContextHandoff` | 73/73 passed across 2 files |
-| `npm test -- --run src/lib/localDatabase/crossContextSourceHandoffSpike.test.ts` | 391/391 passed |
-| `npm test -- --run src/lib/localDatabase/localFirstCutover.test.ts` | 77/77 passed |
-| `npm test -- --run src/lib/localDatabase/legacyNotesMigration.test.ts` | 150/150 passed |
-| `npm test -- --run src/lib/localDatabase/` | 1,043/1,043 passed across 12 files |
-| `npm test -- --run src/lib/recovery` | 70/70 passed across 2 files |
-| `npm run typecheck` | passed |
-| `npm run build` | passed; existing dynamic-import/chunk-size warnings only |
-| first `npm test -- --maxWorkers=4` | 5,318 passed / 7 skipped; one unrelated K-320 ZIP-byte assertion crossed a one-second header boundary |
-| `npm test -- --run src/lib/recoveryExportPackage.test.ts` | immediate diagnostic rerun 52/52 passed without source changes |
-| pre-scheduler full rerun | 5,319 passed / 7 skipped across 581 passed / 1 skipped files |
-| final `npm test -- --maxWorkers=4` | 5,321 passed / 7 skipped across 581 passed / 1 skipped files |
+| `npm test -- --run src/lib/localDatabase/writerCoordinationEligibility` | 83/83 passed in 0.40 s |
+| `npm test -- --run src/lib/localDatabase/crossContextHandoff` | 73/73 passed across 2 files in 1.45 s |
+| `npm test -- --run src/lib/localDatabase/crossContextSourceHandoffSpike.test.ts` | 391/391 passed in 2.47 s |
+| `npm test -- --run src/lib/localDatabase/localFirstCutover.test.ts` | 77/77 passed in 3.03 s |
+| `npm test -- --run src/lib/localDatabase/legacyNotesMigration.test.ts` | 150/150 passed in 2.17 s |
+| `npm test -- --run src/lib/localDatabase/` | 1,062/1,062 passed across 12 files in 2.92 s |
+| `npm test -- --run src/lib/recovery` | 70/70 passed across 2 files in 11.86 s |
+| `npm run typecheck` | passed in 23.7 s |
+| `npm run build` | passed in 11.19 s; existing dynamic-import/chunk-size warnings only |
+| `npm test -- --maxWorkers=4` | 5,340 passed / 7 skipped across 581 passed / 1 skipped files in 200.28 s |
 | `git diff --check` | passed |
-
-The first full-suite failure and successful reruns are both retained here; no K-320 implementation was changed.
 
 ## Crash and restart semantics
 
@@ -429,4 +494,4 @@ Therefore no current production source can be eligible, no K-328 capture may beg
 
 ## Next action
 
-`K-329 — Focused Architecture Review`
+`K-329A — Focused Correction Review`
