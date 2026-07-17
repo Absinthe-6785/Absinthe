@@ -224,6 +224,180 @@ function classifyReceiptGraph(input: Readonly<{
   return input.admission ? 'ADMITTED_SOURCE_UNCOMMITTED' : 'NO_OPERATION';
 }
 
+type ReceiptBackedOperationFixture = Readonly<{
+  namespaceFingerprint: string;
+  generationId: string;
+  operationId: string;
+  coordinationEpoch: number;
+  admissionReceiptDigest: string;
+  receiptDigest: string | null;
+  previousSourceRevision: string | null;
+  committedSourceRevision: string | null;
+  sourceAuthorityRevision: string;
+  entitySetDigestMatches: boolean;
+  outboxSetDigestMatches: boolean;
+  admitted: boolean;
+  terminal: 'absent' | 'committed' | 'failed' | 'aborted';
+  terminalReceiptDigest: string | null;
+}>;
+
+type ReconcileCommittedSourceReceiptInput = Readonly<{
+  namespaceFingerprint: string;
+  generationId: string;
+  operationId: string;
+}>;
+
+type ReceiptReconciliationResult =
+  | Readonly<{ ok: true; operation: ReceiptBackedOperationFixture; reused: boolean }>
+  | Readonly<{ ok: false; code:
+      | 'RECONCILIATION_RECEIPT_NOT_FOUND'
+      | 'RECONCILIATION_OPERATION_NOT_ADMITTED'
+      | 'RECONCILIATION_RECEIPT_DIGEST_MISMATCH'
+      | 'RECONCILIATION_SOURCE_REVISION_MISMATCH'
+      | 'RECONCILIATION_TERMINAL_CONFLICT'
+      | 'RECONCILIATION_STALE_EPOCH' }>;
+
+function reconcileCommittedSourceReceiptFixture(
+  persisted: ReceiptBackedOperationFixture,
+  input: ReconcileCommittedSourceReceiptInput,
+  currentEpoch: number,
+): ReceiptReconciliationResult {
+  if (persisted.namespaceFingerprint !== input.namespaceFingerprint
+    || persisted.generationId !== input.generationId
+    || persisted.operationId !== input.operationId
+    || !persisted.admitted) {
+    return { ok: false, code: 'RECONCILIATION_OPERATION_NOT_ADMITTED' };
+  }
+  if (persisted.coordinationEpoch !== currentEpoch) {
+    return { ok: false, code: 'RECONCILIATION_STALE_EPOCH' };
+  }
+  if (persisted.receiptDigest === null || persisted.previousSourceRevision === null
+    || persisted.committedSourceRevision === null) {
+    return { ok: false, code: 'RECONCILIATION_RECEIPT_NOT_FOUND' };
+  }
+  if (!persisted.entitySetDigestMatches || !persisted.outboxSetDigestMatches) {
+    return { ok: false, code: 'RECONCILIATION_RECEIPT_DIGEST_MISMATCH' };
+  }
+  if (BigInt(persisted.committedSourceRevision) !== BigInt(persisted.previousSourceRevision) + 1n
+    || BigInt(persisted.sourceAuthorityRevision) < BigInt(persisted.committedSourceRevision)) {
+    return { ok: false, code: 'RECONCILIATION_SOURCE_REVISION_MISMATCH' };
+  }
+  if (persisted.terminal === 'failed' || persisted.terminal === 'aborted') {
+    return { ok: false, code: 'RECONCILIATION_TERMINAL_CONFLICT' };
+  }
+  if (persisted.terminal === 'committed') {
+    if (persisted.terminalReceiptDigest !== persisted.receiptDigest) {
+      return { ok: false, code: 'RECONCILIATION_TERMINAL_CONFLICT' };
+    }
+    return { ok: true, operation: persisted, reused: true };
+  }
+  return {
+    ok: true,
+    reused: false,
+    operation: Object.freeze({
+      ...persisted,
+      terminal: 'committed',
+      terminalReceiptDigest: persisted.receiptDigest,
+    }),
+  };
+}
+
+function receiptBackedOperation(
+  overrides: Partial<ReceiptBackedOperationFixture> = {},
+): ReceiptBackedOperationFixture {
+  return Object.freeze({
+    namespaceFingerprint: 'namespace-digest',
+    generationId: 'generation-a',
+    operationId: 'operation-a',
+    coordinationEpoch: 7,
+    admissionReceiptDigest: 'admission-digest',
+    receiptDigest: 'receipt-digest',
+    previousSourceRevision: '40',
+    committedSourceRevision: '41',
+    sourceAuthorityRevision: '41',
+    entitySetDigestMatches: true,
+    outboxSetDigestMatches: true,
+    admitted: true,
+    terminal: 'absent',
+    terminalReceiptDigest: null,
+    ...overrides,
+  });
+}
+
+type DrainAdmissionDecision =
+  | 'SOURCE_COMMIT_ALLOWED'
+  | 'RECONCILE_ONLY'
+  | 'NEW_ADMISSION_CLOSED'
+  | 'STALE_EPOCH'
+  | 'OPERATION_ALREADY_TERMINAL';
+
+function evaluateDrainAwareAdmission(input: Readonly<{
+  admittedBeforeDrain: boolean;
+  drainState: 'open' | 'requested' | 'closed' | 'quiescent';
+  admissionEpoch: number;
+  currentEpoch: number;
+  terminal: boolean;
+  receiptExists: boolean;
+}>): DrainAdmissionDecision {
+  if (input.admissionEpoch !== input.currentEpoch) return 'STALE_EPOCH';
+  if (!input.admittedBeforeDrain && input.drainState !== 'open') return 'NEW_ADMISSION_CLOSED';
+  if (input.terminal) return 'OPERATION_ALREADY_TERMINAL';
+  if (input.receiptExists) return 'RECONCILE_ONLY';
+  return 'SOURCE_COMMIT_ALLOWED';
+}
+
+type BootstrapEvidenceFixture = Readonly<{
+  namespaceFingerprint: string;
+  generationId: string;
+  revision: '0';
+  aggregateEntityDigest: string;
+  generationManifestDigest: string;
+  outboxBaselineDigest: string;
+  bootstrapEvidenceDigest: string;
+}>;
+
+type BootstrapResult =
+  | Readonly<{ ok: true; authority: BootstrapEvidenceFixture; reused: boolean }>
+  | Readonly<{ ok: false; code: 'SOURCE_AUTHORITY_BOOTSTRAP_CONFLICT' }>;
+
+function bootstrapSourceAuthorityFixture(
+  existing: BootstrapEvidenceFixture | null,
+  candidate: Omit<BootstrapEvidenceFixture, 'revision'>,
+): BootstrapResult {
+  const authority = Object.freeze({ ...candidate, revision: '0' as const });
+  if (existing === null) return { ok: true, authority, reused: false };
+  const canonical = (value: BootstrapEvidenceFixture): readonly string[] => [
+    value.namespaceFingerprint,
+    value.generationId,
+    value.revision,
+    value.aggregateEntityDigest,
+    value.generationManifestDigest,
+    value.outboxBaselineDigest,
+    value.bootstrapEvidenceDigest,
+  ];
+  const existingCanonical = canonical(existing);
+  const candidateCanonical = canonical(authority);
+  if (existingCanonical.some((value, index) => value !== candidateCanonical[index])) {
+    return { ok: false, code: 'SOURCE_AUTHORITY_BOOTSTRAP_CONFLICT' };
+  }
+  return { ok: true, authority: existing, reused: true };
+}
+
+const K331B_FUTURE_TASK_ORDER = Object.freeze([
+  'K-332_SOURCE_AUTHORITY_AND_PROTOCOL_CONTRACT',
+  'K-333_PROTOCOL_AND_REPOSITORY_MODEL_EXTENSION',
+  'K-334_DORMANT_SOURCE_TRANSACTION_REPOSITORY',
+  'K-335_DORMANT_COORDINATION_CLIENT',
+]);
+
+const CENTRAL_MUTATION_MANIFEST_POLICY = Object.freeze({
+  role: 'AUDIT_AND_ADMISSION_INVENTORY',
+  routesMutations: false,
+  invokesFunctions: false,
+  overridesCoordinationAuthority: false,
+  wrapperReferenceCardinality: 'EXACTLY_ONE_ENTRY',
+});
+
 const FIRST_WRITE_PROTOCOL_POLICY = Object.freeze({
   compatibilityDescriptor: 'transient',
   transition: 'ATOMIC_REGISTER_AND_ADMIT',
@@ -520,6 +694,152 @@ describe('K-331 dormant production-writer admission definition', () => {
     expect(PHYSICAL_SINK_REACHABILITY).toEqual({
       clearIndexedDbNotes: 'PRODUCTION_REACHABLE_VIA_RESET',
       deleteNoteFromIndexedDb: 'DORMANT_VIA_UNREFERENCED_FACADE',
+    });
+  });
+
+  it('architecture fixture: repository reconciliation accepts lookup identity but no caller receipt truth', () => {
+    const input: ReconcileCommittedSourceReceiptInput = Object.freeze({
+      namespaceFingerprint: 'namespace-digest', generationId: 'generation-a', operationId: 'operation-a',
+    });
+    expect(Object.keys(input).sort()).toEqual(['generationId', 'namespaceFingerprint', 'operationId']);
+    expect(reconcileCommittedSourceReceiptFixture(receiptBackedOperation(), input, 7))
+      .toMatchObject({ ok: true, reused: false, operation: { terminal: 'committed', terminalReceiptDigest: 'receipt-digest' } });
+  });
+
+  it('architecture fixture: exact receipt reconciliation retry is idempotent', () => {
+    const persisted = receiptBackedOperation({ terminal: 'committed', terminalReceiptDigest: 'receipt-digest' });
+    const result = reconcileCommittedSourceReceiptFixture(persisted, {
+      namespaceFingerprint: persisted.namespaceFingerprint,
+      generationId: persisted.generationId,
+      operationId: persisted.operationId,
+    }, 7);
+    expect(result).toEqual({ ok: true, operation: persisted, reused: true });
+  });
+
+  it('architecture fixture: committed receipt conflicts with failure or abort terminal state', () => {
+    for (const terminal of ['failed', 'aborted'] as const) {
+      const persisted = receiptBackedOperation({ terminal });
+      expect(reconcileCommittedSourceReceiptFixture(persisted, {
+        namespaceFingerprint: persisted.namespaceFingerprint,
+        generationId: persisted.generationId,
+        operationId: persisted.operationId,
+      }, 7)).toEqual({ ok: false, code: 'RECONCILIATION_TERMINAL_CONFLICT' });
+    }
+  });
+
+  it('architecture fixture: missing receipt cannot be projected as source success', () => {
+    const persisted = receiptBackedOperation({ receiptDigest: null, previousSourceRevision: null,
+      committedSourceRevision: null });
+    expect(reconcileCommittedSourceReceiptFixture(persisted, {
+      namespaceFingerprint: persisted.namespaceFingerprint,
+      generationId: persisted.generationId,
+      operationId: persisted.operationId,
+    }, 7)).toEqual({ ok: false, code: 'RECONCILIATION_RECEIPT_NOT_FOUND' });
+  });
+
+  it('architecture fixture: unknown operation and stale epoch fail reconciliation closed', () => {
+    const persisted = receiptBackedOperation();
+    expect(reconcileCommittedSourceReceiptFixture(persisted, {
+      namespaceFingerprint: persisted.namespaceFingerprint,
+      generationId: persisted.generationId,
+      operationId: 'operation-unknown',
+    }, 7)).toEqual({ ok: false, code: 'RECONCILIATION_OPERATION_NOT_ADMITTED' });
+    expect(reconcileCommittedSourceReceiptFixture(persisted, {
+      namespaceFingerprint: persisted.namespaceFingerprint,
+      generationId: persisted.generationId,
+      operationId: persisted.operationId,
+    }, 8)).toEqual({ ok: false, code: 'RECONCILIATION_STALE_EPOCH' });
+  });
+
+  it('architecture fixture: reconciliation rereads source revision plus entity and outbox evidence', () => {
+    const advancedAuthority = receiptBackedOperation({ sourceAuthorityRevision: '42' });
+    expect(reconcileCommittedSourceReceiptFixture(advancedAuthority, {
+      namespaceFingerprint: advancedAuthority.namespaceFingerprint,
+      generationId: advancedAuthority.generationId,
+      operationId: advancedAuthority.operationId,
+    }, 7)).toMatchObject({ ok: true });
+    for (const overrides of [
+      { sourceAuthorityRevision: '40' },
+      { entitySetDigestMatches: false },
+      { outboxSetDigestMatches: false },
+    ] satisfies Array<Partial<ReceiptBackedOperationFixture>>) {
+      const persisted = receiptBackedOperation(overrides);
+      const result = reconcileCommittedSourceReceiptFixture(persisted, {
+        namespaceFingerprint: persisted.namespaceFingerprint,
+        generationId: persisted.generationId,
+        operationId: persisted.operationId,
+      }, 7);
+      expect(result).toMatchObject({ ok: false });
+    }
+  });
+
+  it('architecture fixture: drain closes new admissions but preserves exact pre-drain work', () => {
+    expect(evaluateDrainAwareAdmission({ admittedBeforeDrain: true, drainState: 'open', admissionEpoch: 7,
+      currentEpoch: 7, terminal: false, receiptExists: false })).toBe('SOURCE_COMMIT_ALLOWED');
+    expect(evaluateDrainAwareAdmission({ admittedBeforeDrain: true, drainState: 'requested', admissionEpoch: 7,
+      currentEpoch: 7, terminal: false, receiptExists: false })).toBe('SOURCE_COMMIT_ALLOWED');
+    expect(evaluateDrainAwareAdmission({ admittedBeforeDrain: true, drainState: 'closed', admissionEpoch: 7,
+      currentEpoch: 7, terminal: false, receiptExists: true })).toBe('RECONCILE_ONLY');
+    expect(evaluateDrainAwareAdmission({ admittedBeforeDrain: false, drainState: 'requested', admissionEpoch: 7,
+      currentEpoch: 7, terminal: false, receiptExists: false })).toBe('NEW_ADMISSION_CLOSED');
+  });
+
+  it('architecture fixture: only an epoch transition fences a previous admitted operation', () => {
+    expect(evaluateDrainAwareAdmission({ admittedBeforeDrain: true, drainState: 'requested', admissionEpoch: 7,
+      currentEpoch: 8, terminal: false, receiptExists: false })).toBe('STALE_EPOCH');
+  });
+
+  it('architecture fixture: source authority bootstrap binds revision zero to the verified snapshot', () => {
+    const result = bootstrapSourceAuthorityFixture(null, {
+      namespaceFingerprint: 'namespace-digest', generationId: 'generation-a',
+      aggregateEntityDigest: 'entity-digest', generationManifestDigest: 'manifest-digest',
+      outboxBaselineDigest: 'outbox-digest', bootstrapEvidenceDigest: 'bootstrap-digest',
+    });
+    expect(result).toMatchObject({ ok: true, reused: false, authority: {
+      revision: '0', aggregateEntityDigest: 'entity-digest', generationManifestDigest: 'manifest-digest',
+    } });
+  });
+
+  it('architecture fixture: exact bootstrap retry is idempotent and creates no mutation receipt', () => {
+    const candidate = Object.freeze({
+      namespaceFingerprint: 'namespace-digest', generationId: 'generation-a',
+      aggregateEntityDigest: 'entity-digest', generationManifestDigest: 'manifest-digest',
+      outboxBaselineDigest: 'outbox-digest', bootstrapEvidenceDigest: 'bootstrap-digest',
+    });
+    const first = bootstrapSourceAuthorityFixture(null, candidate);
+    if (!first.ok) throw new Error(first.code);
+    const retry = bootstrapSourceAuthorityFixture(first.authority, candidate);
+    expect(retry).toEqual({ ok: true, authority: first.authority, reused: true });
+    expect(Object.keys(first.authority)).not.toContain('operationId');
+    expect(Object.keys(first.authority)).not.toContain('receiptDigest');
+  });
+
+  it('architecture fixture: conflicting bootstrap evidence fails closed', () => {
+    const first = bootstrapSourceAuthorityFixture(null, {
+      namespaceFingerprint: 'namespace-digest', generationId: 'generation-a',
+      aggregateEntityDigest: 'entity-digest', generationManifestDigest: 'manifest-digest',
+      outboxBaselineDigest: 'outbox-digest', bootstrapEvidenceDigest: 'bootstrap-digest',
+    });
+    if (!first.ok) throw new Error(first.code);
+    expect(bootstrapSourceAuthorityFixture(first.authority, {
+      namespaceFingerprint: 'namespace-digest', generationId: 'generation-a',
+      aggregateEntityDigest: 'changed-entity-digest', generationManifestDigest: 'manifest-digest',
+      outboxBaselineDigest: 'outbox-digest', bootstrapEvidenceDigest: 'changed-bootstrap-digest',
+    })).toEqual({ ok: false, code: 'SOURCE_AUTHORITY_BOOTSTRAP_CONFLICT' });
+  });
+
+  it('policy snapshot: protocol evolution precedes the dormant source repository', () => {
+    expect(K331B_FUTURE_TASK_ORDER.indexOf('K-333_PROTOCOL_AND_REPOSITORY_MODEL_EXTENSION'))
+      .toBeLessThan(K331B_FUTURE_TASK_ORDER.indexOf('K-334_DORMANT_SOURCE_TRANSACTION_REPOSITORY'));
+  });
+
+  it('policy snapshot: the central mutation manifest audits admission but never routes mutations', () => {
+    expect(CENTRAL_MUTATION_MANIFEST_POLICY).toEqual({
+      role: 'AUDIT_AND_ADMISSION_INVENTORY',
+      routesMutations: false,
+      invokesFunctions: false,
+      overridesCoordinationAuthority: false,
+      wrapperReferenceCardinality: 'EXACTLY_ONE_ENTRY',
     });
   });
 });
