@@ -11,6 +11,7 @@ import {
   type WriterCoordinationActor,
   type WriterCoordinationModelState,
   type WriterRegistrationRecord,
+  type SourceVerificationObservation,
 } from './writerCoordinationEligibility';
 
 const PHYSICAL_SOURCE = '1'.repeat(64);
@@ -18,6 +19,7 @@ const COORDINATOR_SESSION = `writer-session-v1:${'a'.repeat(32)}`;
 const VERIFIER_SESSION = `writer-session-v1:${'b'.repeat(32)}`;
 const RECOVERY_SESSION = `writer-session-v1:${'c'.repeat(32)}`;
 const coordinator: WriterCoordinationActor = { kind: 'coordinator', sessionId: COORDINATOR_SESSION };
+const verifier: WriterCoordinationActor = { kind: 'verifier', sessionId: VERIFIER_SESSION };
 const participating = K329B_REVIEWED_WRITER_MANIFEST_ENTRIES
   .filter(entry => entry.coordinationRequirement === 'must_participate');
 
@@ -118,7 +120,7 @@ function operation(
   };
 }
 
-type IntegrationPreflight = {
+type IntegrationPolicySnapshot = {
   webLocksAvailable: boolean;
   protocolVersion: number;
   expectedProtocolVersion: number;
@@ -128,7 +130,7 @@ type IntegrationPreflight = {
   syncPaused: boolean;
 };
 
-function integrationPreflight(input: IntegrationPreflight): string | null {
+function integrationPolicySnapshot(input: IntegrationPolicySnapshot): string | null {
   if (!input.webLocksAvailable) return 'WEB_LOCKS_UNAVAILABLE';
   if (input.protocolVersion !== input.expectedProtocolVersion) return 'UNSUPPORTED_PROTOCOL_VERSION';
   if (input.maintenanceOwner !== null && input.maintenanceOwner !== input.writerSessionId) {
@@ -136,6 +138,132 @@ function integrationPreflight(input: IntegrationPreflight): string | null {
   }
   if (input.writerKind === 'sync' && input.syncPaused) return 'SYNC_APPLY_PAUSED';
   return null;
+}
+
+type SourceReceiptFixture = Readonly<{
+  operationId: string;
+  writerSessionId: string;
+  mutationDigest: string;
+  previousSourceRevision: string;
+  committedSourceRevision: string;
+  outboxMutationId: string;
+  receiptDigest: string;
+}>;
+
+type SourceAuthorityFixture = Readonly<{
+  revision: string;
+  receipts: Readonly<Record<string, SourceReceiptFixture>>;
+  outboxMutationIds: readonly string[];
+}>;
+
+type SourceMutationFixture = Readonly<{
+  operationId: string;
+  writerSessionId: string;
+  mutationDigest: string;
+  expectedSourceRevision: string;
+}>;
+
+type SourceCommitFixtureResult =
+  | Readonly<{ ok: true; state: SourceAuthorityFixture; receipt: SourceReceiptFixture; reused: boolean }>
+  | Readonly<{ ok: false; code: 'SOURCE_REVISION_MISMATCH' | 'OPERATION_IDENTITY_MISMATCH' }>;
+
+function commitSourceFixture(state: SourceAuthorityFixture, input: SourceMutationFixture): SourceCommitFixtureResult {
+  const existing = state.receipts[input.operationId];
+  if (existing) {
+    if (existing.writerSessionId !== input.writerSessionId
+      || existing.mutationDigest !== input.mutationDigest
+      || existing.previousSourceRevision !== input.expectedSourceRevision) {
+      return { ok: false, code: 'OPERATION_IDENTITY_MISMATCH' };
+    }
+    return { ok: true, state, receipt: existing, reused: true };
+  }
+  if (input.expectedSourceRevision !== state.revision) {
+    return { ok: false, code: 'SOURCE_REVISION_MISMATCH' };
+  }
+  const committedSourceRevision = (BigInt(state.revision) + 1n).toString(10);
+  const receipt: SourceReceiptFixture = Object.freeze({
+    operationId: input.operationId,
+    writerSessionId: input.writerSessionId,
+    mutationDigest: input.mutationDigest,
+    previousSourceRevision: state.revision,
+    committedSourceRevision,
+    outboxMutationId: `outbox:${input.operationId}`,
+    receiptDigest: `receipt:${input.operationId}:${committedSourceRevision}:${input.mutationDigest}`,
+  });
+  return {
+    ok: true,
+    reused: false,
+    receipt,
+    state: Object.freeze({
+      revision: committedSourceRevision,
+      receipts: Object.freeze({ ...state.receipts, [input.operationId]: receipt }),
+      outboxMutationIds: Object.freeze([...state.outboxMutationIds, receipt.outboxMutationId]),
+    }),
+  };
+}
+
+type ReconciliationClassification =
+  | 'NO_OPERATION'
+  | 'ADMITTED_SOURCE_UNCOMMITTED'
+  | 'RECONCILE_TERMINAL_FROM_RECEIPT'
+  | 'COMMITTED'
+  | 'CORRUPT_PERSISTED_GRAPH';
+
+function classifyReceiptGraph(input: Readonly<{
+  admission: boolean;
+  receipt: boolean;
+  entityRevisionAdvanced: boolean;
+  outbox: boolean;
+  terminalCommitted: boolean;
+}>): ReconciliationClassification {
+  if (input.receipt) {
+    if (!input.admission || !input.entityRevisionAdvanced || !input.outbox) return 'CORRUPT_PERSISTED_GRAPH';
+    return input.terminalCommitted ? 'COMMITTED' : 'RECONCILE_TERMINAL_FROM_RECEIPT';
+  }
+  if (input.terminalCommitted || input.entityRevisionAdvanced || input.outbox) return 'CORRUPT_PERSISTED_GRAPH';
+  return input.admission ? 'ADMITTED_SOURCE_UNCOMMITTED' : 'NO_OPERATION';
+}
+
+const FIRST_WRITE_PROTOCOL_POLICY = Object.freeze({
+  compatibilityDescriptor: 'transient',
+  transition: 'ATOMIC_REGISTER_AND_ADMIT',
+  durableRegisteredIdleBoundary: false,
+});
+
+const K331A_FIELD_CLASSIFICATION = Object.freeze({
+  reused: Object.freeze([
+    'writerTypeId', 'contextType', 'capabilities', 'mutationType', 'writerId', 'sessionId', 'operationId',
+    'coordinationEpoch', 'admissionTransitionRevision', 'expectedSourceRevision', 'physicalSourceDigest',
+    'manifestVersion', 'authorityDigest', 'terminalState', 'drainState', 'checkpointChain',
+  ]),
+  persistedNew: Object.freeze([
+    'contextId', 'semanticMutationKind', 'protocolVersion', 'sourceImplementationId',
+    'sourceTransactionReceiptDigest', 'committedSourceRevision', 'maintenanceOwnerIdentity',
+  ]),
+  transient: Object.freeze(['webLockState', 'pendingPromise', 'uiState', 'runtimeCallback', 'visibilityState']),
+});
+
+const PHYSICAL_SINK_REACHABILITY = Object.freeze({
+  clearIndexedDbNotes: 'PRODUCTION_REACHABLE_VIA_RESET',
+  deleteNoteFromIndexedDb: 'DORMANT_VIA_UNREFERENCED_FACADE',
+});
+
+function sourceObservation(): SourceVerificationObservation {
+  return {
+    physicalSourceDigest: PHYSICAL_SOURCE,
+    sourceType: 'indexeddb',
+    ownershipProven: true,
+    canonical: true,
+    withinBounds: true,
+    revisionBefore: '41',
+    digestBefore: '2'.repeat(64),
+    revisionAfter: '41',
+    digestAfter: '2'.repeat(64),
+    authoritativeSourceDecision: 'indexeddb',
+    ambiguityCode: null,
+    k328AdapterAvailable: true,
+    k328PhysicalSourceDigest: PHYSICAL_SOURCE,
+  };
 }
 
 describe('K-331 dormant production-writer admission definition', () => {
@@ -212,6 +340,11 @@ describe('K-331 dormant production-writer admission definition', () => {
     let state = registerAll();
     state = apply(state, coordinator, { type: 'CAPTURE_BEFORE_DRAIN' });
     state = apply(state, coordinator, { type: 'REQUEST_DRAIN' });
+    expect(state.authority).toMatchObject({
+      state: 'DRAIN_REQUESTED',
+      admissionOpen: false,
+      drainRequestTransitionRevision: state.authority.transitionRevision,
+    });
     const owner = state.registrations[0];
     expect(reduceWriterCoordination(state, action(
       state,
@@ -266,26 +399,26 @@ describe('K-331 dormant production-writer admission definition', () => {
     expect(reduceWriterCoordination(state, stale)).toEqual({ ok: false, code: 'COORDINATION_EPOCH_STALE' });
   });
 
-  it('fails closed when Web Locks are unsupported', () => {
-    expect(integrationPreflight({ webLocksAvailable: false, protocolVersion: 1, expectedProtocolVersion: 1,
+  it('policy snapshot: Web Locks unsupported fails closed', () => {
+    expect(integrationPolicySnapshot({ webLocksAvailable: false, protocolVersion: 1, expectedProtocolVersion: 1,
       maintenanceOwner: null, writerSessionId: 'session-a', writerKind: 'interactive', syncPaused: false }))
       .toBe('WEB_LOCKS_UNAVAILABLE');
   });
 
-  it('rejects mixed writer-coordination protocol versions', () => {
-    expect(integrationPreflight({ webLocksAvailable: true, protocolVersion: 1, expectedProtocolVersion: 2,
+  it('policy snapshot: mixed writer-coordination protocol versions are rejected', () => {
+    expect(integrationPolicySnapshot({ webLocksAvailable: true, protocolVersion: 1, expectedProtocolVersion: 2,
       maintenanceOwner: null, writerSessionId: 'session-a', writerKind: 'interactive', syncPaused: false }))
       .toBe('UNSUPPORTED_PROTOCOL_VERSION');
   });
 
-  it('enforces exclusive maintenance admission', () => {
-    expect(integrationPreflight({ webLocksAvailable: true, protocolVersion: 1, expectedProtocolVersion: 1,
+  it('policy snapshot: maintenance admission is exclusive', () => {
+    expect(integrationPolicySnapshot({ webLocksAvailable: true, protocolVersion: 1, expectedProtocolVersion: 1,
       maintenanceOwner: 'maintenance-session', writerSessionId: 'interactive-session',
       writerKind: 'interactive', syncPaused: false })).toBe('MAINTENANCE_ADMISSION_EXCLUSIVE');
   });
 
-  it('pauses sync apply while the drain policy is active', () => {
-    expect(integrationPreflight({ webLocksAvailable: true, protocolVersion: 1, expectedProtocolVersion: 1,
+  it('policy snapshot: sync apply pauses while the drain policy is active', () => {
+    expect(integrationPolicySnapshot({ webLocksAvailable: true, protocolVersion: 1, expectedProtocolVersion: 1,
       maintenanceOwner: null, writerSessionId: 'sync-session', writerKind: 'sync', syncPaused: true }))
       .toBe('SYNC_APPLY_PAUSED');
   });
@@ -297,5 +430,96 @@ describe('K-331 dormant production-writer admission definition', () => {
     expect(decoded).toMatchObject({ ok: true });
     if (!decoded.ok) throw new Error(decoded.code);
     expect(encodeWriterCoordinationModelCanonical(decoded.value)).toEqual(first);
+  });
+
+  it('architecture fixture: exact source retry returns the existing receipt without another revision', () => {
+    const initial: SourceAuthorityFixture = Object.freeze({ revision: '40', receipts: Object.freeze({}), outboxMutationIds: Object.freeze([]) });
+    const input: SourceMutationFixture = Object.freeze({
+      operationId: 'operation-a', writerSessionId: 'session-a', mutationDigest: 'digest-a', expectedSourceRevision: '40',
+    });
+    const first = commitSourceFixture(initial, input);
+    expect(first).toMatchObject({ ok: true, reused: false, state: { revision: '41', outboxMutationIds: ['outbox:operation-a'] } });
+    if (!first.ok) throw new Error(first.code);
+    const retry = commitSourceFixture(first.state, input);
+    expect(retry).toMatchObject({ ok: true, reused: true, state: { revision: '41', outboxMutationIds: ['outbox:operation-a'] } });
+    if (!retry.ok) throw new Error(retry.code);
+    expect(retry.receipt).toBe(first.receipt);
+  });
+
+  it('architecture fixture: conflicting source receipt reuse fails closed', () => {
+    const initial: SourceAuthorityFixture = Object.freeze({ revision: '40', receipts: Object.freeze({}), outboxMutationIds: Object.freeze([]) });
+    const first = commitSourceFixture(initial, {
+      operationId: 'operation-a', writerSessionId: 'session-a', mutationDigest: 'digest-a', expectedSourceRevision: '40',
+    });
+    if (!first.ok) throw new Error(first.code);
+    expect(commitSourceFixture(first.state, {
+      operationId: 'operation-a', writerSessionId: 'session-a', mutationDigest: 'digest-b', expectedSourceRevision: '40',
+    })).toEqual({ ok: false, code: 'OPERATION_IDENTITY_MISMATCH' });
+  });
+
+  it('architecture fixture: receipt reconciliation has no ambiguous success classification', () => {
+    expect(classifyReceiptGraph({ admission: true, receipt: false, entityRevisionAdvanced: false,
+      outbox: false, terminalCommitted: false })).toBe('ADMITTED_SOURCE_UNCOMMITTED');
+    expect(classifyReceiptGraph({ admission: true, receipt: true, entityRevisionAdvanced: true,
+      outbox: true, terminalCommitted: false })).toBe('RECONCILE_TERMINAL_FROM_RECEIPT');
+    expect(classifyReceiptGraph({ admission: true, receipt: true, entityRevisionAdvanced: true,
+      outbox: true, terminalCommitted: true })).toBe('COMMITTED');
+    expect(classifyReceiptGraph({ admission: true, receipt: false, entityRevisionAdvanced: false,
+      outbox: false, terminalCommitted: true })).toBe('CORRUPT_PERSISTED_GRAPH');
+    expect(classifyReceiptGraph({ admission: false, receipt: true, entityRevisionAdvanced: true,
+      outbox: true, terminalCommitted: false })).toBe('CORRUPT_PERSISTED_GRAPH');
+    expect(classifyReceiptGraph({ admission: true, receipt: true, entityRevisionAdvanced: true,
+      outbox: false, terminalCommitted: false })).toBe('CORRUPT_PERSISTED_GRAPH');
+    expect(classifyReceiptGraph({ admission: true, receipt: false, entityRevisionAdvanced: true,
+      outbox: false, terminalCommitted: false })).toBe('CORRUPT_PERSISTED_GRAPH');
+  });
+
+  it('behavioral model evidence: checkpoint 5 and source evidence commit in one reducer transition', () => {
+    let state = registerAll();
+    state = apply(state, coordinator, { type: 'CAPTURE_BEFORE_DRAIN' });
+    state = apply(state, coordinator, { type: 'REQUEST_DRAIN' });
+    const drainRevision = state.authority.drainRequestTransitionRevision!;
+    for (const record of state.registrations) {
+      state = apply(state, { kind: 'writer', writerId: record.writerId, sessionId: record.sessionId }, {
+        type: 'ACKNOWLEDGE_DRAIN', writerId: record.writerId, drainRequestTransitionRevision: drainRevision,
+      });
+    }
+    state = apply(state, coordinator, { type: 'CLOSE_ADMISSION' });
+    state = apply(state, coordinator, { type: 'CAPTURE_AFTER_ADMISSION_CLOSED' });
+    state = apply(state, coordinator, { type: 'BEGIN_DRAIN' });
+    state = apply(state, coordinator, { type: 'MARK_QUIESCENT' });
+    state = apply(state, coordinator, { type: 'CAPTURE_AFTER_OPERATIONS_TERMINAL' });
+    state = apply(state, verifier, { type: 'CAPTURE_BEFORE_SOURCE_VERIFICATION' });
+    state = apply(state, verifier, { type: 'BEGIN_SOURCE_VERIFICATION' });
+    expect(state).toMatchObject({ sourceEvidence: null, checkpointChain: expect.any(Array) });
+    expect(state.checkpointChain).toHaveLength(4);
+    state = apply(state, verifier, { type: 'CAPTURE_SOURCE_EVIDENCE', observation: sourceObservation() });
+    expect(state.sourceEvidence).not.toBeNull();
+    expect(state.checkpointChain).toHaveLength(5);
+    expect(state.checkpointChain[4].sourceEvidenceDigest).toBe(state.sourceEvidence!.evidenceDigest);
+  });
+
+  it('policy snapshot: first write atomically registers and admits without a durable idle boundary', () => {
+    expect(FIRST_WRITE_PROTOCOL_POLICY).toEqual({
+      compatibilityDescriptor: 'transient',
+      transition: 'ATOMIC_REGISTER_AND_ADMIT',
+      durableRegisteredIdleBoundary: false,
+    });
+  });
+
+  it('policy snapshot: existing, new persisted, and transient protocol fields do not overlap', () => {
+    const sets = Object.values(K331A_FIELD_CLASSIFICATION).map(values => new Set(values));
+    for (let left = 0; left < sets.length; left += 1) {
+      for (let right = left + 1; right < sets.length; right += 1) {
+        expect([...sets[left]].filter(value => sets[right].has(value))).toEqual([]);
+      }
+    }
+  });
+
+  it('source topology snapshot: IDB clear is reachable while the delete facade is dormant', () => {
+    expect(PHYSICAL_SINK_REACHABILITY).toEqual({
+      clearIndexedDbNotes: 'PRODUCTION_REACHABLE_VIA_RESET',
+      deleteNoteFromIndexedDb: 'DORMANT_VIA_UNREFERENCED_FACADE',
+    });
   });
 });

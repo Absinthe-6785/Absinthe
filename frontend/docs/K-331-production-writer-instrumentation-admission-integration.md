@@ -23,6 +23,14 @@
 
 `PRODUCTION_MUTATION_ATOMICITY_ARCHITECTURE_SELECTED: SOURCE_MIGRATION_PREREQUISITE`
 
+`CANONICAL_LOCAL_FIRST_SOURCE_TRANSACTION_AUTHORITY_SELECTED`
+
+`CANONICAL_SOURCE_DATABASE_SELECTED: ABSINTHE_LOCAL_V2`
+
+`INDEXEDDB_IS_AUTHORITY_AND_ZUSTAND_IS_A_DERIVED_PROJECTION`
+
+`TERMINAL_EVIDENCE_ARCHITECTURE_SELECTED: SOURCE_RECEIPT_RECONCILIATION`
+
 `WRITER_REGISTRATION_TIMING_SELECTED: HYBRID`
 
 `WEB_LOCKS_SERIALIZE_TRANSITIONS_BUT_DURABLE_REGISTRY_REMAINS_AUTHORITY`
@@ -35,25 +43,36 @@ The future flow is:
 
 ```text
 detached mutation request
-  -> context compatibility check and lazy writer-session registration
+  -> transient context compatibility check
   -> short exclusive coordination Web Lock
-  -> K-330 durable admission CAS
-  -> one authoritative IndexedDB transaction:
-       revalidate admission + entity/tombstone mutation + outbox + source revision + terminal result
+  -> atomic K-330 first-writer registration + operation admission CAS
+  -> one authoritative absinthe-local-v2 IndexedDB transaction:
+       reread admission + validate revision + entity/tombstone mutation + outbox
+       + source revision + immutable source transaction receipt
+  -> idempotently reconcile the K-330 operation terminal projection from the receipt
   -> K-330 checkpoint/evidence transition under fresh CAS
 ```
 
 The current mixed source cannot safely execute that flow. K-330 admission in one database followed
 by a legacy source write in another database or localStorage leaves an irreducibly ambiguous crash
 window. Awaiting promises in order does not close it. Production admission therefore remains dormant
-until the Notes authority and outbox/terminal evidence share one IndexedDB transaction domain. A
+until the Notes authority, outbox, revision, and source receipt share one IndexedDB transaction domain. A
 generic durable-intent reconciliation protocol is rejected because a missing terminal record cannot
 prove whether a full-array localStorage or legacy IndexedDB replacement committed.
 
-**Inferred requirement**: the K-329 reviewed manifest must receive a separately reviewed protocol
-revision before production integration. Its physical writer types are useful audit categories, but
-K-331 needs semantic operation kinds, context identity, protocol version, maintenance exclusivity,
-and the startup D-day migration trigger. K-331 does not modify that frozen manifest.
+**Selected future source architecture**: extend `absinthe-local-v2`, which already owns `entities`,
+`outbox`, generations, and `writer_coordination_state`. Add source-authority metadata and immutable
+source mutation receipts in a reviewed additive schema upgrade. The source transaction reads the
+admitted operation from the coordination envelope in the same IndexedDB transaction, but writes the
+receipt rather than rewriting the large K-330 envelope. If a crash occurs before terminalization,
+the exact receipt deterministically reconciles the terminal projection without replaying the source.
+
+**Inferred requirement**: source transaction authority and receipt semantics must be reviewed before
+the K-329/K-330 protocol revision. That revision reuses existing writer type, context type,
+capabilities, mutation type, identities, epoch, admission revision, expected source revision,
+physical-source binding, manifest/digest fields, terminal state, drain state, and checkpoints. Only
+the genuinely new bindings listed below may extend the canonical codec. K-331A does not implement
+that schema or protocol revision.
 
 **Unresolved owner decisions**: none for this architecture definition. Product behavior for a future
 user-visible `COORDINATION_UNAVAILABLE` failure and operator UX for abandoned operations remain later
@@ -91,7 +110,7 @@ later reviewed manifest revision must preserve the distinctions below.
 | `notes.recovery.attachment_restore` | RECOVERY_WRITER | `restoreEmbeddedAttachmentMigrationBackup`; explicit confirmed restore | backup read/hash then `updateNote` | backup/local attachment evidence + Notes source | dedicated recovery session | `ATTACHMENT_REFERENCE_RESTORE`; exclusive; exact backup binding | `legacy.notes.embedded_attachment_restore` |
 | `notes.sink.idb_snapshot` | physical sink, not a semantic session | `saveNotesToIndexedDb`; persistence facade | `absinthe-notes-v1/notes` | one clear-and-put IDB transaction; revision localStorage later | caller's session only | require admitted token inside transaction | `legacy.notes.idb_snapshot` |
 | `notes.sink.local_snapshot` | physical sink, not a semantic session | `saveNotesToLocalStorageResult` / `saveNotes` fallback | `notes-v2` | one `setItem`; cannot join K-330 IDB | caller's session only | forbidden after future source migration | `legacy.notes.local_snapshot` |
-| `notes.sink.idb_delete_clear` | physical sink, not a semantic session | `deleteNoteFromIndexedDb`, `clearIndexedDbNotes` | `absinthe-notes-v1/notes` | separate delete/clear transactions; revision later | caller's session only | require exclusive admitted token; disabled for eligibility | `legacy.notes.idb_delete` / `idb_clear` |
+| `notes.sink.idb_delete_clear` | physical sink category, not a semantic session | `clearIndexedDbNotes` is production-reachable through reset; `deleteNoteFromIndexedDb` is only behind the unreferenced `deleteNoteFromPersistence` facade | `absinthe-notes-v1/notes` | separate destructive transactions; revision later | reset caller's exclusive session; no production delete caller today | clear requires future exclusive maintenance admission; delete remains dormant/unreferenced | `legacy.notes.idb_clear`; `legacy.notes.idb_delete` remains disabled |
 
 ### Confirmed exclusions and non-writers
 
@@ -108,6 +127,16 @@ later reviewed manifest revision must preserve the distinctions below.
   outbox enqueue/replay, logout/account-change Notes clear, conflict-resolution writer, or local-first
   generation initialization caller was found at this base. Their absence is part of the reviewed
   topology, not permission to add one without a manifest review.
+
+The 20-writer topology is an exact-base reviewed snapshot, not an automatically future-proof list.
+The selected later drift guard is `CENTRAL_MANIFEST`: a versioned semantic mutation manifest will bind
+every semantic writer kind to its source entry point, capability, sink class, and reviewed source
+implementation. Tests will require uniqueness and full manifest coverage before a production path can
+be admitted. K-331A does not add production markers or imports.
+
+`WRITER_TOPOLOGY_DRIFT_GUARD_STRATEGY_SELECTED: CENTRAL_MANIFEST`
+
+`IDB_CLEAR_IS_PRODUCTION_REACHABLE_WHILE_IDB_DELETE_FACADE_IS_CURRENTLY_DORMANT`
 
 ## Writer classification contract
 
@@ -172,18 +201,35 @@ reviewed protocol migration/new epoch.
 
 `WRITER_REGISTRATION_TIMING_SELECTED: HYBRID`
 
-A lightweight context compatibility record is established when the Notes runtime initializes so a
-startup writer cannot mutate before compatibility is known. A durable semantic writer session is
-created lazily at its first operation. An idle tab that never initializes Notes has no writer session;
-startup init/hydration naturally demand their sessions immediately. This avoids pre-registering every
-UI capability while closing the first-operation race under the same coordination lock/CAS.
+A transient context compatibility descriptor is computed when a future Notes runtime initializes. It
+contains protocol version, build/source implementation ID, context type, supported writer kinds and
+capabilities, and namespace/generation binding. It has no object-store record or durable key and is not
+authority. The runtime-only lookup identity is the tuple
+`[namespaceFingerprint, generationId, contextId]`; every authority-bearing field is copied into and
+validated from the durable writer registration and operation instead.
+
+The first mutation uses a future `REGISTER_AND_ADMIT_FIRST_OPERATION` K-330 action. One CAS transition
+under the coordination lock validates the reviewed manifest and compatibility input, creates the fresh
+writer/session registration, and admits the exact first operation in the same durable envelope. There
+is no durable registered-idle boundary for the first write. A crash before commit leaves neither
+record; a crash after commit leaves one admitted operation that can enter or exactly retry the source
+transaction. Repeating the same registration/operation tuple returns the existing admitted result;
+any changed identity, capability, digest, revision, or operation fails closed. No source or memory
+mutation may begin until that transition commits.
+
+Later operations reuse the exact live session and require an ordinary admission CAS. Reload, browser
+restore, or process restart never reuses the transient descriptor, context ID, writer ID, or session.
+An idle context has no durable registration. One context may host several semantic writer kinds, but
+each kind has a separate immutable writer/session identity.
+
+`FIRST_WRITE_PROTOCOL_SELECTED: ATOMIC_REGISTER_AND_ADMIT`
 
 | State | Initiator and durable transition | Mutation permission | Restart/invalid transition |
 |---|---|---|---|
 | `UNREGISTERED` | fresh context | none | register or fail `WRITER_NOT_REGISTERED` |
-| `REGISTERING` | client acquires coordination lock; no durable state yet | none | crash leaves no registration |
-| `REGISTERED_IDLE` | K-330 registration CAS | may seek admission | restart does not reuse session |
-| `OPERATION_ADMITTED` | K-330 admission CAS | only exact operation may enter source tx | missing terminal remains unresolved |
+| `REGISTERING` | future combined register/admit action is being prepared; no durable state yet | none | crash leaves no registration or admission |
+| `REGISTERED_IDLE` | only after a previously admitted operation terminalizes; never the first-write commit boundary | may seek later admission | restart does not reuse session |
+| `OPERATION_ADMITTED` | first write: combined registration/admission CAS; later writes: admission CAS | only exact operation may enter source tx | receipt absence means source-uncommitted; receipt presence is reconciled without replay |
 | `OPERATION_IN_FLIGHT` | runtime-only view of admitted source transaction | exact operation only | durable state remains admitted until terminal evidence |
 | `DRAIN_REQUESTED` | coordinator durable revision | no fresh semantic work should start; already admitted may resolve | exact drain revision required |
 | `DRAINING` | all required acknowledgement/closure evidence | only terminalization/reconciliation | unknown operation blocks |
@@ -222,9 +268,12 @@ invalid after drain closure or epoch transition. Exact same identity and canonic
 same ID with any different field fails. Attempts do not change operation identity. A retry either
 reconciles the exact admitted record or creates a new causally linked operation after a proven abort.
 
-Terminal states are `COMMITTED`, `ABORTED_BEFORE_SOURCE`, `FAILED_BEFORE_SOURCE`, and `AMBIGUOUS`.
-Only the source-owning transaction may write `COMMITTED` with its new source revision. No caller may
-claim commit from memory state, network status, or promise ordering.
+The existing K-329 operation states remain `admitted`, `committed`, `aborted`, and `failed`; K-331A
+does not add an `AMBIGUOUS` terminal state. An admitted record remains unresolved until exact source
+evidence exists. The future source transaction writes an immutable committed receipt; the coordination
+repository may then project `committed` only after verifying that receipt. Proven pre-source abort or
+failure may use the existing terminal states. Any contradictory durable graph is corruption, not a
+normal terminal state. No caller may claim commit from memory, network status, or promise ordering.
 
 `ALL_PRODUCTION_SOURCE_MUTATIONS_REQUIRE_PREMUTATION_OPERATION_ADMISSION`
 
@@ -248,6 +297,167 @@ outbox, source-revision metadata, and transaction-bindable terminal receipt. It 
 coordination envelope/admission or an immutable admission receipt inside that transaction. K-330's
 current repository opens a private one-store transaction, so a later reviewed API must expose a safe
 transaction-owning integration; merely calling it before and after the source repository is not atomic.
+
+## K-331A canonical source transaction architecture
+
+### Canonical database decision
+
+| Option | Decision | Reason |
+|---|---|---|
+| extend `absinthe-local-v2` | selected | `entities`, tombstones, outbox, generations, and K-330 coordination already share one IndexedDB transaction domain; an additive upgrade can add revision/receipt stores without moving authority |
+| separate canonical Notes database | rejected | admission validation and source receipt would cross database boundaries and recreate the crash ambiguity |
+| move or mirror K-330 authority | rejected | creates dual-authority/migration risk without an atomicity benefit because the coordination store is already in `absinthe-local-v2` |
+
+`CANONICAL_SOURCE_DATABASE_SELECTED: ABSINTHE_LOCAL_V2`
+
+The additive schema is future work. It must preserve every K-321 through K-330 record and must not
+open, migrate, or delete the legacy Notes source until a separately reviewed migration task.
+
+### Minimal source store map
+
+| Store | Key | Authority | Mutation transaction | Migration source / digest role |
+|---|---|---|---|---|
+| `database_meta` | `namespaceKey` | active generation and schema compatibility | read/validate | existing K-321; active-generation fence |
+| `generations` | `[namespaceKey, generationId]` | generation status | read/validate | existing K-321; rejects stale/inactive generation |
+| `entities` | `[namespaceKey, generationId, domain, entityId]` | canonical Note/folder envelope, including active/tombstone fields | read/write | existing K-321/K-325 staged data; entity/result digest input |
+| `outbox` | `[namespaceKey, generationId, mutationId]` | durable remote-delivery intent | write exactly once | existing K-322; mutation ID/digest bound into receipt |
+| `source_authority` | `[namespaceKey, generationId]` | one canonical source revision and implementation/protocol binding | read/write once per mutation | new additive store; revision and aggregate authority digest |
+| `source_mutation_receipts` | `[namespaceKey, generationId, operationId]` | immutable proof of exact local source commit | read/add | new additive store; receipt digest and exact-retry authority |
+| `writer_coordination_state` | existing K-330 physical-source/generation key | admitted operation and later terminal projection | read during source tx; later K-330 CAS writes terminal | existing K-330; admission and authority digest validation |
+| `attachment_state` | `[namespaceKey, generationId, attachmentId]` | attachment metadata only | only when a reviewed Note metadata mutation requires it | existing K-321; never proves blob existence |
+
+No new `notes` or `note_tombstones` store is selected: `entities` with `domain='notes'` already stores
+the payload envelope and explicit tombstone fields. Folders use `domain='folders'`; a note move and any
+folder mutation that must be invariant together are one bulk source transaction with one revision and
+receipt. Attachment blobs remain outside this database. A Note may commit a bounded attachment
+reference/metadata intent, but the receipt must declare `attachmentBlobAtomicity='not_claimed'` and
+must never assert that a separate blob write committed.
+
+### Transaction owner and memory authority
+
+The future `LocalFirstSourceTransactionAuthority.commitMutation` is the only boundary allowed to own
+canonical mutation. It opens one strict read-write transaction across metadata, generations, entities,
+outbox, source authority, source receipts, and the coordination state needed for admission validation.
+It controls this sequence:
+
+1. read and validate active namespace/generation and source implementation;
+2. decode the current K-330 envelope and verify the immutable admission receipt/operation;
+3. read the global source revision and affected entity envelopes;
+4. validate expected source/entity revisions, capability, mutation kind, input digest, and no prior
+   conflicting receipt;
+5. apply active entity/tombstone/folder changes;
+6. add exactly one outbox record for each canonical remote mutation in the bounded operation;
+7. increment the global source revision once;
+8. add one immutable source mutation receipt binding the entire write set and outbox-set digest;
+9. commit or abort every write together.
+
+The source receipt is the terminal local outcome. K-330's `committed` operation is a later idempotent
+coordination projection of that outcome. Callers cannot separately write entities/outbox/revision,
+claim success, bypass revision validation, or reuse an admission for another digest. On any validation,
+request, quota, abort, or commit error, the transaction aborts and Zustand is not updated.
+
+IndexedDB becomes authority and Zustand becomes a post-commit projection. A later UI task may add an
+optimistic visual overlay, but it must be tagged with the exact operation and prior revision, cannot be
+read as authority, and must disappear/reconcile from the committed IndexedDB result. Restart always
+reconstructs from IndexedDB.
+
+`SOURCE_TRANSACTION_OWNER_EXCLUSIVELY_CONTROLS_ENTITY_OUTBOX_REVISION_AND_RECEIPT`
+
+`INDEXEDDB_IS_AUTHORITY_AND_ZUSTAND_IS_A_DERIVED_PROJECTION`
+
+### Source revision contract
+
+The namespace/generation source revision is a canonical nonnegative decimal string with at most 16
+digits. It is compared and incremented with exact decimal-string/BigInt logic, never converted to a
+JavaScript `number`. Revision exhaustion fails closed before writes. One successful source transaction,
+including a bounded bulk mutation, increments it exactly once. Abort, validation failure, and exact
+receipt retry do not increment it. The previous and committed values are stored in the source receipt,
+every outbox record for the operation, and the later K-330 terminal projection. Restart reads the same
+`source_authority` record; timestamps do not affect ordering.
+
+`SOURCE_REVISION_IS_MONOTONIC_TRANSACTION_BOUND_AND_RESTART_STABLE`
+
+### Source transaction receipt
+
+The immutable receipt contains only bounded identity/evidence metadata:
+
+```text
+receiptVersion, namespaceFingerprint, generationId, coordinationEpoch,
+operationId, writerTypeId, writerId, writerSessionId, semanticMutationKind,
+previousSourceRevision, committedSourceRevision, affectedEntitySetDigest,
+affectedEntityCount, outboxMutationSetDigest, outboxMutationCount,
+canonicalMutationInputDigest, committedResultDigest, admissionReceiptDigest,
+protocolVersion, sourceImplementationId, commitSequence,
+attachmentBlobAtomicity='not_claimed', receiptDigest
+```
+
+`receiptDigest` hashes a fixed-order canonical encoding of all preceding fields. Entity/outbox set
+digests hash sorted bounded identities and per-record digests, not Note bodies, titles, attachment
+content, raw user/project identifiers, or auth data. `commitSequence` is the committed source revision;
+wall-clock time may be diagnostic outside the authority digest but is not commit proof.
+
+`SOURCE_TRANSACTION_RECEIPT_PROVES_LOCAL_COMMIT_WITHOUT_EXPOSING_USER_CONTENT`
+
+### Admission handoff and terminal reconciliation
+
+The admission receipt is an immutable canonical view of the admitted K-330 operation:
+
+```text
+namespaceFingerprint, generationId, coordinationEpoch,
+writerTypeId, writerId, writerSessionId, operationId, semanticMutationKind,
+expectedSourceRevision, admissionTransitionRevision, authorityDigest,
+capabilityDigest, canonicalMutationInputDigest, protocolVersion,
+sourceImplementationId, admissionReceiptDigest
+```
+
+The source transaction rereads `writer_coordination_state` and rejects a stale epoch, generation,
+operation, writer/session, mutation kind, expected revision, capability/input digest, protocol, source
+implementation, terminal operation, or previously consumed admission with a conflicting receipt.
+
+After source commit, a short coordination transition reads the immutable source receipt, verifies its
+digest and exact relation to the admitted operation, and projects `committed` plus the committed source
+revision/receipt digest into K-330. A crash between those transactions is safe: restart performs only
+that projection. It never replays the entity/outbox transaction. Terminal success without the exact
+receipt, or a receipt without an admitted operation, is corruption and blocks drain/eligibility.
+
+`ADMISSION_RECEIPT_IS_SINGLE_OPERATION_BOUND_AND_SOURCE_TRANSACTION_VERIFIABLE`
+
+`TERMINAL_EVIDENCE_ARCHITECTURE_SELECTED: SOURCE_RECEIPT_RECONCILIATION`
+
+### Retry and crash/restart matrix
+
+| Admission | Source receipt | Entity revision | Outbox | K-330 terminal | Classification | Automatic action |
+|---|---|---|---|---|---|---|
+| absent | absent | unchanged | absent | absent | no operation | none |
+| present | absent | unchanged | absent | absent | admitted, source-uncommitted | retry the exact source transaction or prove pre-source abort; never create a new identity blindly |
+| present | present | advanced exactly | complete matching set | absent | committed, terminal projection pending | verify receipt and idempotently terminalize K-330; no source replay |
+| present | present | advanced exactly | complete matching set | exact committed | committed | return the existing receipt |
+| present | absent | unchanged | absent | committed | corrupt persisted graph | fail closed; block drain and eligibility |
+| absent/unknown | present | advanced or unknown | present/unknown | any | receipt for unknown/unadmitted operation | fail closed; no adoption |
+| present | present | advanced | missing/mismatched | any | corrupt source transaction graph | fail closed; no repair |
+| present | absent | advanced | absent/present | any | bypass/corruption | fail closed; legacy writer evidence required |
+| present | absent | unchanged | present | any | corrupt source transaction graph | fail closed; no remote delivery |
+
+The same operation ID plus identical writer/session, expected revision, mutation kind, canonical input,
+admission digest, and source implementation returns the existing receipt without writes. Any mismatch
+returns `OPERATION_IDENTITY_MISMATCH` or an exact equivalent. Exact retry never increments revision or
+adds outbox records. A new operation after an unknown network outcome is permitted only after the local
+receipt/terminal state of the prior operation is known; remote retry keeps the original outbox identity.
+
+`EXACT_RETRY_RETURNS_THE_EXISTING_RECEIPT_WITHOUT_REAPPLYING_SOURCE_MUTATION`
+
+`SOURCE_RECEIPT_RECONCILIATION_HAS_NO_AMBIGUOUS_SUCCESS_STATE`
+
+### Local and remote terminality
+
+The local transaction commits source state and outbox only. Remote delivery is asynchronous and uses
+the immutable outbox/idempotency identity. Remote success/failure cannot change whether the local
+mutation committed. Delayed responses revalidate generation and epoch before any separate local
+follow-up. Writer drain requires local admitted operations to have receipts and terminal projections;
+it does not require every outbox record to be remotely acknowledged. Remote-delivery drain/quiescence
+is a separate later policy and cannot be used as local source evidence.
+
+`LOCAL_SOURCE_COMMIT_AND_REMOTE_DELIVERY_HAVE_SEPARATE_EXPLICIT_TERMINALITY`
 
 ## Web Locks and durable registry responsibilities
 
@@ -276,20 +486,22 @@ fallback would require separately reviewed, durable proof that no second context
 | Phase | Durable meaning | New operations | Existing operations / restart |
 |---|---|---|---|
 | `DRAIN_NOT_REQUESTED` | admission open at revision R | allowed under CAS | normal exact terminalization |
-| `DRAIN_REQUESTED` | request revision D persisted | clients stop new intent; coordinator proceeds to closure | admitted operations may finish/abort |
-| `NEW_ADMISSIONS_CLOSED` | admission-open=false at exact closure revision C | none; CAS makes this global | restart observes closed state |
+| `REQUEST_DRAIN_AND_CLOSE_NEW_ADMISSIONS` | `REQUEST_DRAIN` atomically persists `DRAIN_REQUESTED`, `admissionOpen=false`, and request revision D | none after D; CAS makes this global | admitted operations may finish or reconcile; restart observes the closed state |
 | `IN_FLIGHT_OPERATIONS_RESOLVING` | unresolved set digest/count persisted | none | terminalize exact records or mark ambiguous |
 | `ALL_OPERATIONS_TERMINAL` | unresolved count/digest exactly zero | none | canonical full graph round-trips |
 | `WRITERS_QUIESCENT` | all required sessions acknowledge D and epoch advances | none | old epoch is permanently stale |
-| `CHECKPOINT_CAPTURED` | immutable checkpoint chain binds graph | none | mutation invalidates verification |
-| `SOURCE_EVIDENCE_COMMITTED` | stable source evidence and final checkpoint committed | none | only eligibility evaluation may follow |
+| `CHECKPOINT_5_AND_SOURCE_EVIDENCE_COMMITTED` | one `CAPTURE_SOURCE_EVIDENCE` reducer transition stores source evidence and checkpoint 5 together | none | no durable checkpoint-5-without-evidence state exists |
+| `ELIGIBILITY_EVIDENCE_PENDING` | checkpoint 6/eligibility commit has not yet completed | none | exact graph/evidence revalidation only |
 
-`NO_NEW_OPERATION_CAN_BE_ADMITTED_AFTER_DRAIN_CLOSURE_REVISION`
+`REQUEST_DRAIN_IS_THE_DURABLE_ADMISSION_CLOSURE_LINEARIZATION_POINT`
+
+`CLOSE_ADMISSION` remains the later lifecycle transition after exact acknowledgements; it is not the
+initial closure and must not be presented as creating a second admission boundary.
 
 An operation admitted before closure may complete only through its exact source transaction. It may
 abort only with proof that source mutation never began. Compensation is not a terminal proof and is
 not selected. Retry in a new epoch requires an exact prior abort; otherwise the operation is
-`AMBIGUOUS`, remains durable, and blocks quiescence, source evidence, and eligibility. Drain
+unresolved, remains durable, and blocks quiescence, source evidence, and eligibility. Drain
 cancellation is allowed only before closure and with zero admitted operations; it aborts the authority
 session and starts a new epoch rather than reopening the same revision. After closure, owner action is
 required; evidence is never deleted.
@@ -300,14 +512,14 @@ required; evidence is never deleted.
 
 | Crash point | Durable/source state | Restart classification | Automatic action | Owner action / eligibility |
 |---|---|---|---|---|
-| before registration commit | no session / unchanged | unregistered | create fresh session | none; not eligible until inventory complete |
-| after registration commit | idle session / unchanged | abandoned candidate after new context appears | preserve old registration | close/revoke with evidence; blocks exact coverage meanwhile |
-| before admission | no operation / unchanged | safe retry | reread CAS and retry | none |
-| after admission, before source read | admitted / unchanged but not transaction-proven | unresolved | no replay | reconcile; blocks drain |
-| after source read, before mutation | admitted / unchanged if transaction never wrote | unresolved | transaction aborts if open | prove abort or mark ambiguous |
-| during one source transaction | admitted / old-or-new atomic source | unresolved terminal | inspect transaction-bound receipt | without receipt, ambiguous and blocking |
-| after source commit, before terminal update in current mixed design | admitted / changed | ambiguous | none | source rearchitecture required; blocks eligibility |
-| after atomic terminal/source commit | committed / changed | terminal | reread exact record | may checkpoint |
+| before atomic first register/admit commit | no session/operation; unchanged | unregistered | retry the exact combined transition | none; not eligible until inventory complete |
+| after atomic first register/admit commit | registration plus admitted operation; source unchanged | admitted, source-uncommitted | exact source transaction may run/retry | blocks drain until receipt or proven abort |
+| before later admission | existing idle session; no operation | safe retry | reread CAS and retry | none |
+| after admission, before source read | admitted; receipt absent; source unchanged | admitted, source-uncommitted | exact source transaction may run/retry | blocks drain |
+| after source read, before mutation commit | admitted; transaction aborts old or commits complete new state | source-uncommitted if receipt absent | exact retry only after reread | contradictory graph is corruption |
+| during one source transaction | old graph or entity/outbox/revision/receipt all committed | deterministic old/new | receipt absence permits exact retry; receipt presence forbids replay | no ambiguous success |
+| after source receipt commit, before K-330 terminal projection | receipt/entity/outbox committed; operation still admitted | committed, projection pending | verify receipt and terminalize K-330 | no source replay; blocks drain only until projection |
+| after receipt and K-330 terminal | exact committed graph | terminal | return existing receipt | may checkpoint |
 | after terminal, before checkpoint | terminal / stable | resumable | recapture next checkpoint under CAS | none |
 | during drain | phase persisted / unchanged or exact terminals | resume phase | reread envelope | stale/ambiguous sessions block |
 | after checkpoint 4 (before source capture) | chain through pre-verification | resumable verifier stage | repeat stable source observation | no eligibility yet |
@@ -316,9 +528,10 @@ required; evidence is never deleted.
 | during epoch transition | old or new complete envelope | deterministic epoch | reread | old contexts stale if new won |
 | stale tab resumes after epoch | old session/operation identity | `WRITER_STALE_EPOCH` | reject | fresh identity only; no inherited operation |
 
-No unknown state is normalized to success. Current cross-database/localStorage paths specifically lack
-the transaction-bound receipt needed to distinguish the source-commit crash, which is why activation
-is blocked.
+No unknown state is normalized to success. Checkpoint 5 cannot exist without source evidence because
+`CAPTURE_SOURCE_EVIDENCE` writes both in one K-329 reducer transition. The selected receipt architecture
+makes a receipt-present/terminal-absent restart deterministic, but current cross-database/localStorage
+paths produce no such receipt and remain ineligible until separately migrated.
 
 ## Stale contexts, debounce, sync, and maintenance
 
@@ -373,32 +586,26 @@ is blocked.
 Errors are stable codes plus bounded context enums only. No Note content, raw namespace/user values,
 storage dumps, tokens, stack/cause, or browser exception messages are exposed.
 
-## Future API and integration placement
+## Future source authority and integration placement
 
-The minimal future interface is explicit rather than a generic callback wrapper:
+The source transaction authority is defined before, and separately from, any production-facing
+coordination client. This is a conceptual responsibility boundary, not an implemented interface:
 
 ```ts
-interface WriterCoordinationClient {
-  establishContext(input: DetachedContextInput): Promise<CompatibleContext>;
-  registerWriter(input: RegisterWriterInput): Promise<RegisteredWriterSession>;
-  admitOperation(input: AdmitOperationInput): Promise<AdmittedOperation>;
-  commitSourceMutation(input: TransactionBoundMutationInput): Promise<CommittedOperation>;
-  abortBeforeSource(input: AbortOperationInput): Promise<TerminalOperation>;
-  observeDrainState(input: BoundSessionInput): Promise<DrainState>;
-  acknowledgeDrain(input: DrainAcknowledgementInput): Promise<void>;
-  closeWriter(input: CloseWriterInput): Promise<void>;
+interface LocalFirstSourceTransactionAuthority {
+  commitMutation(input: DetachedAdmittedMutationInput): Promise<CommittedMutationReceipt>;
 }
 ```
 
-Every input is detached/canonical/bounded. Registration/admission/drain/close acquire the one
-coordination lock and use exact K-330 CAS. `commitSourceMutation` must own the entity/outbox/source
-revision/terminal transaction; callers cannot supply a callback that escapes the transaction.
-Registration, admission, completion, abort, and close are exact-idempotent. Caller obligations are to
-stop on any error, retain the immutable operation ID, and never fall back to a direct source helper.
+Its input is detached/canonical/bounded. The authority owns the IndexedDB transaction described above;
+callers cannot provide callbacks or handles that escape it. A later coordination client may establish
+context, atomically register/admit, reconcile terminal evidence, observe/acknowledge drain, and close a
+writer, but its types must be derived from the reviewed receipt/admission contracts rather than
+inventing transaction semantics first.
 
 | Writer | Current function | Future wrapper location | Registration / admission | Source / terminal | Drain |
 |---|---|---|---|---|---|
-| interactive variants | `store/useNotesStore.ts` actions | new Notes mutation facade immediately before Zustand `set` | window session; semantic operation | local-first transaction API; terminal in same tx | reject new; finish exact admitted |
+| interactive variants | `store/useNotesStore.ts` actions | new Notes mutation facade before any authoritative mutation | window session; semantic operation | local-first source receipt, then memory projection and K-330 terminal reconciliation | reject new; finish exact admitted |
 | body flush/retry | `useNotesStore.ts` timer/flush/retry | future outbox delivery facade | remote-delivery session; claim not source admission | outbox claim/ack only | pause claims; no timer flush |
 | cross-tab | `useNotesStore.ts/applyStorageMerge` | cross-context apply facade | cross-context window session | local-first revision-aware tx | discard stale event/closure |
 | remote apply | `useNotesStore.ts/hydrateFromDB` | sync apply facade after detached response validation | sync session; `REMOTE_APPLY` batch | local-first entity/outbox/source tx | pause/discard stale response |
@@ -409,22 +616,68 @@ stop on any error, retain the immutable operation ID, and never fall back to a d
 | attachment mutate/restore | attachment migration modules/review panel | attachment maintenance facade | maintenance/recovery session | transactionally bind Note reference or retain ambiguity | exclusive |
 | physical sinks | `noteIndexedDb.ts`, `notePersistence.ts`, `noteUtils.ts` | replace with token-requiring source adapter; later remove fallback writes | never self-register | refuse without transaction-bound admission | no direct mutation |
 
+## Exact K-329/K-330 protocol field audit
+
+| Concept | Existing field/authority | Reusable | Change needed |
+|---|---|---:|---|
+| writer type | `writerTypeId`, reviewed manifest | yes | semantic manifest entries must preserve finer K-331 writer distinctions |
+| context type | `contextType`, manifest `contextTypes` | yes | no duplicate field |
+| capabilities | registration `capabilities`, manifest `requiredCapabilities` | yes | add only reviewed fine-grained values if source transaction enforcement needs them |
+| mutation type | operation `mutationType` | yes as physical class | add a finer semantic mutation discriminator, bound to manifest and receipt |
+| identities | `writerId`, `sessionId`, `operationId`, `idempotencyKey` | yes | add explicit `contextId` only for multi-writer context binding |
+| epoch/admission | `coordinationEpoch`, `admissionTransitionRevision` | yes | include in admission/receipt digests |
+| source revision | `expectedSourceRevision`, `committedSourceRevision` | yes | canonical decimal validation/increment belongs to source authority |
+| physical source | `physicalSourceDigest` | yes | bind to source implementation/protocol identity |
+| manifest/protocol | `manifestVersion`, schema/byte format, authority digest | partially | add an explicit coordination/source protocol version and source implementation ID |
+| terminal state | operation `state`, `terminalResult` | yes | add source receipt digest; no new ambiguous-success terminal |
+| drain | authority state, `admissionOpen`, drain revision | yes | terminology correction only |
+| checkpoints/source evidence | checkpoint chain, source evidence/digests | yes | checkpoint 5 remains atomic with source evidence |
+| maintenance exclusivity | derivable today only from manifest policy/graph | no | add one durable bounded maintenance owner identity/operation binding if required by the reviewed reducer |
+
+Genuinely new persisted fields are limited to `contextId`, semantic mutation discriminator,
+coordination/source protocol version, source implementation ID, admission receipt digest, source
+transaction receipt digest, committed source revision binding, and a maintenance owner binding if the
+future reducer cannot derive it uniquely. Web Lock state, pending promises, UI state, browser
+visibility, and in-flight callbacks remain transient.
+
+Each new authority field requires fixed canonical order, strict decode validation, inclusion in the
+relevant registration/operation/admission/receipt/authority digest, a reviewed manifest/protocol
+version, and a K-330 envelope version upgrade. Old records receive no permissive default: they remain
+valid only for the frozen old protocol and cannot join a new epoch. Mixed-version contexts fail
+`UNSUPPORTED_PROTOCOL_VERSION`. Additive source stores require an IndexedDB format upgrade with
+populated-version preservation tests; K-331A makes no schema change.
+
+`K329_K330_PROTOCOL_EXTENSION_REQUIREMENTS_ARE_EXACT_MINIMAL_AND_NON_DUPLICATIVE`
+
+`PROTOCOL_EVOLUTION_REQUIRED_BUT_NOT_IMPLEMENTED_IN_K331A`
+
 ## Deterministic evidence and production non-reachability
 
 `frontend/src/lib/localDatabase/productionWriterAdmissionDefinition.test.ts` is test-only. It composes
-the existing K-329 pure reducer/canonical codec rather than duplicating K-329 persistence or adding a
-runtime client. It proves: two tab sessions, capability rejection, exact/conflicting duplicate
-operation IDs, pre-drain completion, post-request admission rejection, durable unresolved restart,
-ambiguous crash blocking, stale epoch rejection, Web Locks fail-closed, protocol mismatch,
-maintenance exclusivity, and sync pause. It has no sleep, timing threshold, storage, network,
+the existing K-329 pure reducer/canonical codec rather than adding a runtime client. Evidence classes
+are deliberately separated:
+
+- **behavioral K-329 evidence**: registration/capability validation, exact/conflicting operation IDs,
+  admitted completion, `REQUEST_DRAIN` closure, durable restart, stale epoch, canonical round-trip,
+  and checkpoint-5/source-evidence atomicity;
+- **architecture fixtures**: source receipt exact retry/conflict and the complete receipt/terminal
+  reconciliation classification. They prove internal consistency of the selected contract, not a
+  production repository implementation;
+- **policy snapshots**: unsupported Web Locks, protocol mismatch, maintenance exclusivity, sync pause,
+  atomic first-write selection, and existing/new/transient field separation;
+- **source topology snapshot**: reachable clear versus dormant delete facade, manually grounded in the
+  reviewed exact-base call graph. It is not an automated future topology audit.
+
+No test claims that the source transaction repository, production client, Web Locks adapter, or writer
+instrumentation exists. The harness has no sleep, timing threshold, storage, network,
 `navigator.locks`, K-328, or production import.
 
-`K331_DETERMINISTIC_HARNESS_PROVES_ADMISSION_AND_DRAIN_CONTRACT`
+`K331A_EVIDENCE_DISTINGUISHES_BEHAVIORAL_PROOF_FROM_POLICY_SNAPSHOT`
 
 The K-331 change contains only this test and this document. It adds no production module or import,
 does not alter any writer, and does not make the test helper reachable from an application bundle.
 
-`K331_HAS_NO_PRODUCTION_COORDINATION_CALLER_OR_RUNTIME_EFFECT`
+`K331A_HAS_NO_PRODUCTION_RUNTIME_EFFECT`
 
 - no production K-330 caller or writer registration;
 - no production Web Locks call;
@@ -437,17 +690,18 @@ does not alter any writer, and does not make the test helper reachable from an a
 
 **Architecture blockers**
 
-- The frozen K-329 manifest and protocol do not yet encode K-331 semantic writer kinds, context ID,
-  protocol/build/source implementation, fine-grained capabilities, maintenance exclusivity, or the
-  D-day migration trigger. A reviewed versioned extension is required; no in-place mutation.
-- K-330 does not expose a transaction-owning source/outbox/terminal integration API.
+- The selected `absinthe-local-v2` source authority and receipt model are architecture only; their
+  additive stores, codecs, repository, and migration plan do not exist.
+- The frozen K-329/K-330 protocol requires only the exact versioned additions identified above; no
+  in-place mutation or permissive old-record default is allowed.
 
 **Source transaction blockers**
 
 - Current authority is memory + a separate legacy IDB or localStorage fallback.
 - Full-array replacement, marker/revision writes, remote effects, restore, attachment writes, and
   cleanup span transaction domains.
-- The crash after source commit/before K-330 terminalization is not deterministically reconcilable.
+- Current legacy source commits produce no immutable source receipt. Receipt reconciliation becomes
+  safe only after source migration; it must not be retrofitted as proof for legacy full-array writes.
 
 **Production implementation blockers**
 
@@ -467,45 +721,49 @@ does not alter any writer, and does not make the test helper reachable from an a
 
 Recommended sequence:
 
-1. **K-332 — Dormant Writer Coordination Client Interface**: reviewed protocol/manifest v2, typed
-   detached API, K-330 adapter, no callers or Web Locks.
-2. **K-333 — Web Locks Coordination Adapter**: dormant capability-gated adapter, one lock name,
-   ordering/error/platform tests, no Notes writers.
-3. **K-334 — First Production Writer Instrumentation Slice**: one interactive path behind an
-   unavailable-by-default capability; no source-of-truth switch.
-4. **K-335 — Remaining Writer Instrumentation**: cross-tab, debounce, sync, restore, migration,
+1. **K-332 — Define Canonical Local-First Source Transaction Authority**: finalize the additive
+   database/store layout, revision/receipt codec, transaction ownership, and migration plan; dormant.
+2. **K-333 — Implement Dormant Source Transaction Repository**: atomic
+   entity/tombstone/outbox/revision/receipt writes and exact restart/idempotency tests; no callers.
+3. **K-334 — Extend K-329/K-330 Protocol for Source Receipts**: minimal fields, canonical codec,
+   digests, schema/version evolution, and atomic first register/admit; no activation.
+4. **K-335 — Dormant Coordination Client**: built against the reviewed source receipt authority; no
+   production callers.
+5. **K-336 — Web Locks Adapter**: dormant, bounded, and fail-closed when unsupported.
+6. **K-337 — First Disabled Writer Instrumentation Slice**: one narrow path behind an unavailable-by-
+   default capability; no cutover.
+7. **K-338 — Remaining Writer Instrumentation**: cross-tab, debounce, sync, restore, migration,
    recovery, maintenance, D-day, and attachment paths.
-5. **K-336 — Drain and Quiescence Runtime**: observe real writers and prove closure, without
-   eligibility activation.
-6. **K-337 — Admission-to-Source Transaction Integration**: migrate authority into one transaction
-   domain and prove crash/restart atomicity.
-7. **K-338 — K-328 Consumer and Eligibility Evaluation**: only after complete instrumentation and
-   browser evidence; K-326G remains fail-closed until exact prerequisites pass.
+8. **K-339 — Drain Runtime and Browser Evidence**: exact closure/quiescence and cross-context proof.
+9. **K-340 — K-328 Consumer and Eligibility Evaluation**: only after source migration,
+   instrumentation, and browser evidence; K-326G remains fail-closed.
 
-## Validation at the K-331 working head
+`SOURCE_TRANSACTION_AUTHORITY_PRECEDES_COORDINATION_CLIENT_AND_WRITER_INSTRUMENTATION`
+
+## Validation on the K-331A precommit working tree
 
 | Check | Result |
 |---|---|
-| K-331 focused definition harness | 14 passed; 1 file; 1.05 s |
-| K-330 dormant repository | 51 passed; 1 file; 8.58 s |
-| K-329 eligibility model | 122 passed; 1 file; 8.78 s |
-| K-328 cross-context handoff | 73 passed; 2 files; 1.29 s |
-| K-327 source-handoff spike | 391 passed; 1 file; 2.27 s |
-| K-326 local-first cutover | 78 passed; 1 file; 3.50 s |
-| K-325 legacy Notes migration | 164 passed; 1 file; 2.64 s |
-| all `localDatabase` | 1,181 passed; 14 files; 12.12 s |
-| recovery | 70 passed; 2 files; 15.82 s |
-| typecheck | passed |
-| build | passed; 2,480 modules; 16.25 s; existing mixed-import/chunk-size warnings only |
-| full frontend | 5,459 passed / 7 skipped; 583 passed / 1 skipped files; 206.99 s |
+| K-331/K-331A focused definition harness | 21 passed; 1 file; 1.49 s |
+| K-330 dormant repository | 51 passed; 1 file; 9.07 s |
+| K-329 eligibility model | 122 passed; 1 file; 8.81 s |
+| K-328 cross-context handoff | 73 passed; 2 files; 0.914 s |
+| K-327 source-handoff spike | 391 passed; 1 file; 2.26 s |
+| K-326 local-first cutover | 78 passed; 1 file; 4.03 s |
+| K-325 legacy Notes migration | 164 passed; 1 file; 3.66 s |
+| all `localDatabase` | 1,188 passed; 14 files; 11.55 s |
+| recovery | 70 passed; 2 files; 13.47 s |
+| typecheck | passed; 21.7 s |
+| build | passed; 2,480 modules; Vite 10.64 s; existing mixed-import/chunk-size warnings only |
+| `git diff --check` | passed; line-ending notices only |
+| full frontend | 5,466 passed / 7 skipped; 583 passed / 1 skipped files; 196.97 s |
 
-All final commands passed on their first final-sequence run. The focused K-331 test was also run once
-before its final deterministic-encoding assertion was refined; neither run failed. No flakes or
-failure-driven reruns occurred. `git diff --check` and final scope statistics are recorded at commit
-time so the document does not claim a pre-staging result for untracked files.
+All final commands passed. The focused harness and typecheck were also run during editing before the
+final validation sequence; no run failed. The full suite ran once. No flakes or failure-driven reruns
+occurred. Exact-head CI is reported on PR #589 after push and is not claimed by this precommit table.
 
 ## Non-goals
 
-K-331 does not implement K-332 or later work, production coordination, Web Locks, source migration,
+K-331A does not implement K-332 or later work, production coordination, Web Locks, source migration,
 outbox delivery, sync changes, restore/migration execution, source eligibility, cutover, K-328
 consumption, UI, startup hooks, network behavior, service workers, or recovery-policy bypasses.
