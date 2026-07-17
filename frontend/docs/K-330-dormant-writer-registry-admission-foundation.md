@@ -46,6 +46,12 @@ target version, manifest, result, or evidence digests. A semantic upgrade test r
 evidence under version `4`, revalidates the target, and proves K-326 can consume it only as a dormant
 planning prerequisite while runtime mode remains `legacy`.
 
+String representations of supported numeric versions (`"3"` and `"4"`) and representative
+non-number persisted values (`null`, boolean, object, and array) are rejected through the production
+persisted-session read and resume paths. The repository returns `CORRUPT_PERSISTED_RECORD` without
+coercion, normalization, fallback, deletion, metadata mutation, session-row rewrite, or digest rebinding.
+This is representative malformed-value coverage, not an exhaustive enumeration of JavaScript values.
+
 ### Rejected split-store design
 
 Separate stores for registrations, operations, checkpoints, source evidence, eligibility evidence,
@@ -215,27 +221,26 @@ cross-context unsafe. Existing stores are never cleared or deleted.
 
 ## Validation
 
-Validation totals at the K-330 implementation head:
+Validation totals at the K-330B working head:
 
 | Command | Result |
 |---|---|
-| K-330 focused repository | 51 passed; 1 file; 7.44 s; fake-indexeddb |
-| K-329 model | 122 passed; 1 file; 11.57 s |
-| K-328 handoff | 73 passed; 2 files; 3.31 s |
-| K-327 spike | 391 passed; 1 file; 4.32 s |
-| K-326 cutover | 78 passed; 1 file; 3.02 s |
-| K-325 migration | 158 passed; 1 file; 1.59 s |
-| K-322 outbox/upgrade | 35 passed; 1 file; 1.41 s |
-| localDatabase | 1,161 passed; 13 files; 12.34 s |
-| recovery | 70 passed; 2 files; 17.36 s |
-| typecheck | passed; 30.8 s shell time |
-| build | passed; 2,480 modules; 17.30 s; existing mixed-import/chunk-size warnings only |
+| K-330 focused repository | 51 passed; 1 file; 6.37 s; fake-indexeddb |
+| K-329 model | 122 passed; 1 file; 6.87 s |
+| K-328 handoff | 73 passed; 2 files; 1.04 s |
+| K-327 spike | 391 passed; 1 file; 1.76 s |
+| K-326 cutover | 78 passed; 1 file; 2.88 s |
+| K-325 migration | 164 passed; 1 file; 2.10 s |
+| K-322 outbox/upgrade | 35 passed; 1 file; 1.31 s |
+| localDatabase | 1,167 passed; 13 files; 8.72 s |
+| recovery | 70 passed; 2 files; 9.44 s |
+| typecheck | passed; 20.5 s shell time |
+| build | passed; 2,480 modules; 11.37 s; existing mixed-import/chunk-size warnings only |
 | `git diff --check` | passed |
-| full frontend | 5,439 passed / 7 skipped; 582 passed / 1 skipped files; 198.93 s |
+| full frontend | 5,445 passed / 7 skipped; 582 passed / 1 skipped files; 205.83 s |
 
-No flaky or nondeterministic failure occurred in the final sequence. Two K-326 test expectations were
-corrected while the new planning-prerequisite test was being authored; no source contract was weakened.
-The final exact working tree passed every command above without rerun.
+No flaky or nondeterministic failure occurred in the final K-330B sequence. Every command passed on
+its first run; no source contract or production implementation changed.
 
 ## Residual blockers
 

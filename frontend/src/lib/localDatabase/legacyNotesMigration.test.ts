@@ -1104,6 +1104,35 @@ describe('K-325 legacy Notes migration and shadow verification', () => {
     },
   );
 
+  it.each([
+    ['string 3', '3'],
+    ['string 4', '4'],
+    ['null', null],
+    ['boolean true', true],
+    ['empty object', {}],
+    ['single-value array', [3]],
+  ] as const)('rejects persisted K-325 target version %s without coercion or rewrite', async (_label, databaseVersion) => {
+    const fixture = await verifiedFixture();
+    const key: IDBValidKey = [fixture.repository.namespaceKey, toLegacyNotesMigrationStorageId('verified')];
+    await mutateRaw(LOCAL_DATABASE_STORES.migrationState, key, value => ({
+      ...value, target: { ...value.target, databaseVersion },
+    }));
+    const beforeSession = (await getAllRaw(LOCAL_DATABASE_STORES.migrationState))
+      .find(value => value.migrationSessionId === 'verified');
+    const beforeMetadata = await getAllRaw(LOCAL_DATABASE_STORES.databaseMeta);
+
+    await expect(fixture.repository.getLegacyNotesMigrationSession('verified'))
+      .rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+    await expect(fixture.repository.resumeLegacyNotesMigration(fixture.source, 'verified', T1))
+      .rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+
+    const afterSession = (await getAllRaw(LOCAL_DATABASE_STORES.migrationState))
+      .find(value => value.migrationSessionId === 'verified');
+    expect(afterSession).toEqual(beforeSession);
+    expect(afterSession.target.databaseVersion).toEqual(databaseVersion);
+    expect(await getAllRaw(LOCAL_DATABASE_STORES.databaseMeta)).toEqual(beforeMetadata);
+  });
+
   it('accepts a legitimate current-version K-325 session without rewriting its target version', async () => {
     const fixture = await verifiedFixture();
     await expect(fixture.repository.getLegacyNotesMigrationSession('verified')).resolves.toMatchObject({
