@@ -17,12 +17,24 @@ export const LEGACY_NOTES_MIGRATION_VERSION = 1 as const;
 export const LEGACY_NOTES_CONVERSION_VERSION = 1 as const;
 export const MAX_LEGACY_MIGRATION_ENTRIES = 5_000;
 export const MAX_LEGACY_MIGRATION_MANIFEST_BYTES = 4 * 1024 * 1024;
+export const SUPPORTED_LEGACY_MIGRATION_TARGET_DATABASE_VERSIONS = Object.freeze([3, 4] as const);
 const MAX_LEGACY_NOTE_BYTES = 128 * 1024;
 const MAX_LEGACY_MIGRATION_SESSIONS_PER_NAMESPACE = 256;
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const HASH = /^[a-f0-9]{64}$/;
 const ACTIVE_STATUSES = new Set(['capturing', 'staged', 'verifying']);
 const LEGACY_NOTES_MIGRATION_STORAGE_PREFIX = 'k325:legacy-notes:';
+
+/**
+ * The persisted version binds the database format whose target evidence was verified. Version 4
+ * added only the unrelated writer-coordination store, so version-3 K-325 evidence remains valid.
+ * Future formats must be reviewed and added explicitly rather than accepted by a range check.
+ */
+export function isCompatibleLegacyMigrationTargetDatabaseVersion(value: unknown): value is number {
+  return Number.isSafeInteger(value)
+    && (SUPPORTED_LEGACY_MIGRATION_TARGET_DATABASE_VERSIONS as readonly number[]).includes(value as number)
+    && (value as number) <= LOCAL_DATABASE_VERSION;
+}
 
 export type LegacyNotesOwnershipEvidence =
   | { kind: 'bound'; namespaceKey: string }
@@ -681,7 +693,7 @@ function persistedSession(value: unknown, namespaceKey: string): LegacyNotesMigr
     || !Number.isSafeInteger(session.source.entryCount) || session.source.entryCount < 0
     || !session.target || !exactKeys(session.target, targetKeys) || !SAFE_ID.test(session.target.generationId)
     || session.target.generationId !== `migration-${session.migrationSessionId}`
-    || session.target.databaseVersion !== LOCAL_DATABASE_VERSION
+    || !isCompatibleLegacyMigrationTargetDatabaseVersion(session.target.databaseVersion)
     || !['capturing', 'staged', 'verifying', 'verified', 'cancelled', 'failed'].includes(session.status)
     || !failureValid || !validTimestamp(session.createdAt) || !validTimestamp(session.updatedAt)
     || Date.parse(session.updatedAt) < Date.parse(session.createdAt)

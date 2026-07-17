@@ -37,6 +37,15 @@ The store is additive. Existing stores, rows, indexes, active generation, entiti
 checkpoints, restore/migration state, attachment metadata, and cutover evidence are not cleared,
 rewritten, or re-keyed. A populated version-3 upgrade test proves unrelated data survives.
 
+K-325 migration `target.databaseVersion` records the database format whose target snapshot and
+evidence were verified; it is not reinterpreted as the latest application version. The compatibility
+contract explicitly accepts versions `3` and `4` under current database version `4`. Version `3`
+remains valid because version `4` only adds the unrelated empty coordination store. Future versions,
+versions before `3`, and malformed values fail closed. The upgrade does not rewrite the K-325 row,
+target version, manifest, result, or evidence digests. A semantic upgrade test reopens exact version-3
+evidence under version `4`, revalidates the target, and proves K-326 can consume it only as a dormant
+planning prerequisite while runtime mode remains `legacy`.
+
 ### Rejected split-store design
 
 Separate stores for registrations, operations, checkpoints, source evidence, eligibility evidence,
@@ -179,6 +188,9 @@ bounded transaction failure.
 Permanent test-capability failure injection aborts immediately after an IndexedDB write request and
 before completion. It is rejected for developer capability. This proves initialization, registration,
 source/checkpoint, eligibility/checkpoint, and replacement writes leave the previous state intact.
+Post-invocation mutation tests also prove that both valid and stale CAS tokens are detached before the
+transaction reaches its comparison. Canonical repository-restart tests reject eligibility evidence
+without checkpoint 6 and registration evidence from a different coordination epoch without repair.
 
 ## K-328 and Web Locks boundaries
 
@@ -207,24 +219,23 @@ Validation totals at the K-330 implementation head:
 
 | Command | Result |
 |---|---|
-| K-330 focused repository | 47 passed; 1 file; 7.50 s; fake-indexeddb |
-| K-329 model | 122 passed; 1 file; 8.13 s |
-| K-328 handoff | 73 passed; 2 files; 1.25 s |
-| K-327 spike | 391 passed; 1 file; 2.02 s |
-| K-326 cutover | 77 passed; 1 file; 2.91 s |
-| K-325 migration | 150 passed; 1 file; 2.32 s |
-| localDatabase | 1,148 passed; 13 files; 11.12 s |
-| recovery | 70 passed; 2 files; 12.92 s |
-| typecheck | passed; 29.1 s |
-| build | passed; 2,480 modules; 13.93 s; existing mixed-import/chunk-size warnings only |
-| `git diff --check` | passed; line-ending conversion notices only |
-| full frontend | 5,426 passed / 7 skipped; 582 passed / 1 skipped files; 226.31 s |
+| K-330 focused repository | 51 passed; 1 file; 7.44 s; fake-indexeddb |
+| K-329 model | 122 passed; 1 file; 11.57 s |
+| K-328 handoff | 73 passed; 2 files; 3.31 s |
+| K-327 spike | 391 passed; 1 file; 4.32 s |
+| K-326 cutover | 78 passed; 1 file; 3.02 s |
+| K-325 migration | 158 passed; 1 file; 1.59 s |
+| K-322 outbox/upgrade | 35 passed; 1 file; 1.41 s |
+| localDatabase | 1,161 passed; 13 files; 12.34 s |
+| recovery | 70 passed; 2 files; 17.36 s |
+| typecheck | passed; 30.8 s shell time |
+| build | passed; 2,480 modules; 17.30 s; existing mixed-import/chunk-size warnings only |
+| `git diff --check` | passed |
+| full frontend | 5,439 passed / 7 skipped; 582 passed / 1 skipped files; 198.93 s |
 
-No flaky or nondeterministic failure occurred. During implementation, one fixture expectation and
-two intermediate TypeScript transform errors in a CAS hardening edit were corrected before the
-final validation sequence. Initial focused and full-suite shell invocations were also ended by a
-five-second orchestration limit before producing test results. The final exact working tree passed
-every command above without rerun.
+No flaky or nondeterministic failure occurred in the final sequence. Two K-326 test expectations were
+corrected while the new planning-prerequisite test was being authored; no source contract was weakened.
+The final exact working tree passed every command above without rerun.
 
 ## Residual blockers
 

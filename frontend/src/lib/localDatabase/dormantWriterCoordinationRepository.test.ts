@@ -424,6 +424,28 @@ describe('K-330 canonical envelope and restart rejection', () => {
       await rawPut(repository, textEncoder.encode(JSON.stringify(parsed)));
       await expect(repository.readSnapshot()).rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
     });
+
+  it('rejects canonical eligibility evidence without checkpoint 6 on repository restart', async () => {
+    const repository = await open(); const eligible = await buildTo(repository, 'eligible');
+    const parsed = JSON.parse(textDecoder.decode(await unsafeEnvelope(eligible))) as {
+      coordinationModel: WriterCoordinationModelState; canonicalModelDigest: string;
+    };
+    parsed.coordinationModel.checkpointChain = parsed.coordinationModel.checkpointChain.slice(0, 5);
+    parsed.canonicalModelDigest = sha256Hex(JSON.stringify(parsed.coordinationModel));
+    await rawPut(repository, textEncoder.encode(JSON.stringify(parsed)));
+    await expect(repository.readSnapshot()).rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+  });
+
+  it('rejects a canonical mixed-epoch registration graph on repository restart', async () => {
+    const repository = await open(); const registered = await buildTo(repository, 'registered');
+    const parsed = JSON.parse(textDecoder.decode(await unsafeEnvelope(registered))) as {
+      coordinationModel: WriterCoordinationModelState; canonicalModelDigest: string;
+    };
+    parsed.coordinationModel.registrations[0].coordinationEpoch += 1;
+    parsed.canonicalModelDigest = sha256Hex(JSON.stringify(parsed.coordinationModel));
+    await rawPut(repository, textEncoder.encode(JSON.stringify(parsed)));
+    await expect(repository.readSnapshot()).rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+  });
 });
 
 describe('K-330 repository lifecycle and CAS', () => {
@@ -464,6 +486,30 @@ describe('K-330 repository lifecycle and CAS', () => {
       action: action(state, coordinator, { type: 'ABORT', failureCode: null }), cas: unsafe,
     })).rejects.toMatchObject({ code: 'WRITER_COORDINATION_REVISION_MISMATCH' });
     expect(accessed).toBe(false);
+  });
+
+  it('detaches mutable CAS evidence before the transactional comparison', async () => {
+    const repository = await open(); const state = await initialize(repository); const record = registration(0);
+    const valid = cas(state);
+    const accepted = repository.registerWriter({
+      action: action(state, { kind: 'writer', writerId: record.writerId, sessionId: record.sessionId },
+        { type: 'REGISTER_WRITER', registration: record }) as never,
+      cas: valid,
+    });
+    Object.assign(valid, {
+      databaseGeneration: 'generation-mutated', coordinationEpoch: 99,
+      transitionRevision: 99, authorityDigest: OTHER,
+    });
+    await expect(accepted).resolves.toMatchObject({ registrations: [{ writerId: record.writerId }] });
+
+    const current = (await repository.readSnapshot());
+    if (current.status !== 'valid') throw new Error('expected persisted coordination state');
+    const stale = { ...current.cas, transitionRevision: current.cas.transitionRevision - 1 };
+    const rejected = repository.applyAction({
+      action: action(current.state, coordinator, { type: 'ABORT', failureCode: null }), cas: stale,
+    });
+    Object.assign(stale, current.cas);
+    await expect(rejected).rejects.toMatchObject({ code: 'WRITER_COORDINATION_REVISION_MISMATCH' });
   });
 
   it('rejects unknown and duplicate writer identities through the K-329 reducer', async () => {
@@ -592,6 +638,22 @@ describe('K-330 repository lifecycle and CAS', () => {
     const developer = await open({ developer: true });
     await expect(developer.replaceValidatedSnapshotForTest({ state: replacement.state, cas: cas(replaced) }))
       .rejects.toMatchObject({ code: 'DORMANT_WRITER_COORDINATION_CAPABILITY_REQUIRED' });
+  });
+
+  it('aborts test-only replacement without exposing any part of the replacement', async () => {
+    const repository = await open(); const state = await initialize(repository);
+    const replacement = reduceWriterCoordination(state, action(state, coordinator, {
+      type: 'ABORT', failureCode: null,
+    }));
+    expect(replacement.ok).toBe(true);
+    if (!replacement.ok) throw new Error(replacement.code);
+    const before = await repository.readSnapshot();
+    await expect(repository.replaceValidatedSnapshotForTest({
+      state: replacement.state, cas: cas(state), failurePointForTest: 'after_write_request',
+    })).rejects.toMatchObject({ code: 'DORMANT_WRITER_COORDINATION_TRANSACTION_ABORTED' });
+    repository.close();
+    const reopened = await open();
+    await expect(reopened.readSnapshot()).resolves.toEqual(before);
   });
 });
 

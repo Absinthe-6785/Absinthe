@@ -271,6 +271,22 @@ afterEach(async () => {
 });
 
 describe('K-326 local-first cutover foundation', () => {
+  it('accepts compatible version-3 K-325 evidence as a dormant version-4 planning prerequisite', async () => {
+    const repo = await repository(); const source = sourceAdapter(repo); await prepareVerified(repo, source);
+    await mutateRaw(LOCAL_DATABASE_STORES.migrationState,
+      [repo.namespaceKey, 'k325:legacy-notes:verified'], value => ({
+        ...value, target: { ...value.target, databaseVersion: 3 },
+      }));
+    const { session } = await plan(repo, source);
+    expect(session).toMatchObject({ status: 'planned', plan: { migrationSessionId: 'verified' } });
+    expect(await repo.getLegacyNotesMigrationSession('verified')).toMatchObject({
+      target: { databaseVersion: 3 }, status: 'verified',
+    });
+    expect(await repo.getLocalFirstRuntimeMode()).toMatchObject({ mode: 'legacy', activeGenerationId: 'generation-1' });
+    expect((await repo.readDatabaseMetadata()).activeGenerationId).toBe('generation-1');
+    expect(await repo.getGeneration('migration-verified')).toMatchObject({ status: 'preparing' });
+  });
+
   it('permanently documents the raw localStorage guard/write race that K-326G refuses to trust', () => {
     const tabBEpoch = captureOperationEpoch();
     const authorization = createRecoveryCutoverAuthorization({
