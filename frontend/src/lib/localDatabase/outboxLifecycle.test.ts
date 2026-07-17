@@ -167,7 +167,7 @@ describe('K-322 atomic mutation identity and schema', () => {
     expect((await upgradedRepository.readDatabaseMetadata()).databaseFormatVersion).toBe(LOCAL_DATABASE_VERSION);
   });
 
-  it('upgrades a populated v2 database to v3 without rewriting entities, tombstones, outbox identity, or metadata scope', async () => {
+  it('upgrades a populated v2 database to the current schema without rewriting entities, tombstones, outbox identity, or metadata scope', async () => {
     const fingerprint = await namespaceFingerprint(namespace);
     const legacy = await rawOpen(2, db => {
       const meta = db.createObjectStore(LOCAL_DATABASE_STORES.databaseMeta, { keyPath: 'namespaceKey' });
@@ -242,7 +242,7 @@ describe('K-322 atomic mutation identity and schema', () => {
 
     const upgradedRepository = await openLocalDatabase(namespace, { capability, mutationIdFactory: mutationId, clock: () => T0 });
     openRepositories.push(upgradedRepository);
-    expect((await upgradedRepository.readDatabaseMetadata()).databaseFormatVersion).toBe(3);
+    expect((await upgradedRepository.readDatabaseMetadata()).databaseFormatVersion).toBe(LOCAL_DATABASE_VERSION);
     expect(await upgradedRepository.getEntity('notes', 'pending-note')).toEqual(live);
     expect(await upgradedRepository.getEntity('notes', 'deleted-note')).toEqual(tombstone);
     expect(await upgradedRepository.listOutboxMutations({ limit: 10 })).toEqual([acknowledged, pending]);
@@ -251,6 +251,7 @@ describe('K-322 atomic mutation identity and schema', () => {
     expect([...restore.indexNames]).toEqual(expect.arrayContaining([
       'by_namespace_package_id', 'by_namespace_package_digest', 'by_namespace_staging_generation',
     ]));
+    expect(upgraded.objectStoreNames.contains(LOCAL_DATABASE_STORES.writerCoordinationState)).toBe(true);
     upgraded.close();
   });
 });

@@ -1,5 +1,5 @@
 export const LOCAL_DATABASE_NAME = 'absinthe-local-v2';
-export const LOCAL_DATABASE_VERSION = 3;
+export const LOCAL_DATABASE_VERSION = 4;
 export const LOCAL_SCHEMA_VERSION = 1;
 
 export type LocalDatabaseNamespace = Readonly<{

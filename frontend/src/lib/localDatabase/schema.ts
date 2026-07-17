@@ -3,7 +3,7 @@ import { LOCAL_DATABASE_VERSION } from './types';
 export const LOCAL_DATABASE_STORES = {
   databaseMeta: 'database_meta', generations: 'generations', entities: 'entities', outbox: 'outbox',
   syncCheckpoints: 'sync_checkpoints', restoreSessions: 'restore_sessions', migrationState: 'migration_state',
-  attachmentState: 'attachment_state',
+  attachmentState: 'attachment_state', writerCoordinationState: 'writer_coordination_state',
 } as const;
 
 function index(store: IDBObjectStore, name: string, keyPath: string | string[], options?: IDBIndexParameters): void {
@@ -11,7 +11,7 @@ function index(store: IDBObjectStore, name: string, keyPath: string | string[], 
 }
 
 export function createLocalDatabaseSchema(db: IDBDatabase, oldVersion: number, transaction: IDBTransaction): void {
-  if (![0, 1, 2].includes(oldVersion)) throw new DOMException('Unsupported schema upgrade', 'VersionError');
+  if (![0, 1, 2, 3].includes(oldVersion)) throw new DOMException('Unsupported schema upgrade', 'VersionError');
 
   if (oldVersion === 0) {
   const meta = db.createObjectStore(LOCAL_DATABASE_STORES.databaseMeta, { keyPath: 'namespaceKey' });
@@ -61,7 +61,11 @@ export function createLocalDatabaseSchema(db: IDBDatabase, oldVersion: number, t
     index(restore, 'by_namespace_staging_generation', ['namespaceKey', 'stagingGenerationId'], { unique: true });
   }
 
-  if (oldVersion === 1 || oldVersion === 2) {
+  if (oldVersion < 4) {
+    db.createObjectStore(LOCAL_DATABASE_STORES.writerCoordinationState);
+  }
+
+  if (oldVersion === 1 || oldVersion === 2 || oldVersion === 3) {
     const metadata = transaction.objectStore(LOCAL_DATABASE_STORES.databaseMeta);
     const request = metadata.openCursor();
     request.onsuccess = () => {

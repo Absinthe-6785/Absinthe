@@ -2,6 +2,7 @@ import 'fake-indexeddb/auto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   LEGACY_NOTES_INDEXED_DB_NAME, LEGACY_NOTES_INDEXED_DB_STORE, LOCAL_DATABASE_NAME, LOCAL_DATABASE_STORES,
+  LOCAL_DATABASE_VERSION,
   closeLocalDatabase, createDormantLocalDatabaseCapability, createLegacyNotesIndexedDbAdapter,
   createLegacyNotesLocalStorageAdapter, legacyNotesAuthorityReference, openLocalDatabase,
   type LegacyNotesSourceAuthorityRecordV1,
@@ -107,6 +108,55 @@ async function getAllRaw(storeName: string): Promise<any[]> {
   const values = await new Promise<any[]>((resolve, reject) => {
     request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error);
   }); db.close(); return values;
+}
+
+type StoreSnapshot = {
+  name: string;
+  keyPath: string | string[] | null;
+  autoIncrement: boolean;
+  indexes: Array<{ name: string; keyPath: string | string[]; multiEntry: boolean; unique: boolean }>;
+  values: any[];
+};
+
+async function snapshotVersion3Stores(): Promise<StoreSnapshot[]> {
+  const db = await newDb();
+  const names = Object.values(LOCAL_DATABASE_STORES)
+    .filter(name => name !== LOCAL_DATABASE_STORES.writerCoordinationState);
+  const tx = db.transaction(names, 'readonly');
+  const snapshots = await Promise.all(names.map(async name => {
+    const store = tx.objectStore(name);
+    const request = store.getAll();
+    const values = await new Promise<any[]>((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error);
+    });
+    const indexes = [...store.indexNames].map(indexName => {
+      const index = store.index(indexName);
+      return { name: index.name, keyPath: index.keyPath as string | string[], multiEntry: index.multiEntry, unique: index.unique };
+    });
+    return { name, keyPath: store.keyPath, autoIncrement: store.autoIncrement, indexes, values };
+  }));
+  await new Promise<void>((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onabort = () => reject(tx.error); });
+  db.close();
+  return snapshots;
+}
+
+async function recreateAsVersion3(snapshots: StoreSnapshot[]): Promise<void> {
+  await deleteDatabase(LOCAL_DATABASE_NAME);
+  await new Promise<void>((resolve, reject) => {
+    const request = indexedDB.open(LOCAL_DATABASE_NAME, 3);
+    request.onupgradeneeded = () => {
+      for (const snapshot of snapshots) {
+        const options: IDBObjectStoreParameters = snapshot.keyPath === null
+          ? { autoIncrement: snapshot.autoIncrement }
+          : { keyPath: snapshot.keyPath, autoIncrement: snapshot.autoIncrement };
+        const store = request.result.createObjectStore(snapshot.name, options);
+        for (const index of snapshot.indexes) store.createIndex(index.name, index.keyPath, index);
+        for (const value of snapshot.values) store.put(value);
+      }
+    };
+    request.onsuccess = () => { request.result.close(); resolve(); };
+    request.onerror = () => reject(request.error);
+  });
 }
 async function migrationSafetySnapshot(repository: LocalDatabaseRepository) {
   return {
@@ -1008,6 +1058,90 @@ describe('K-325 legacy Notes migration and shadow verification', () => {
     await repository.verifyLegacyNotesMigration(source, 'verified', T1);
     return { repository, source, staged };
   }
+
+  it('preserves exact version-3 K-325 evidence through the additive version-4 upgrade', async () => {
+    const fixture = await verifiedFixture();
+    const sessionKey: IDBValidKey = [fixture.repository.namespaceKey, toLegacyNotesMigrationStorageId('verified')];
+    await mutateRaw(LOCAL_DATABASE_STORES.migrationState, sessionKey, value => ({
+      ...value, target: { ...value.target, databaseVersion: 3 },
+    }));
+    await mutateRaw(LOCAL_DATABASE_STORES.databaseMeta, fixture.repository.namespaceKey, value => ({
+      ...value, databaseFormatVersion: 3,
+    }));
+    const beforeSession = (await getAllRaw(LOCAL_DATABASE_STORES.migrationState))
+      .find(value => value.migrationSessionId === 'verified');
+    const beforeEntities = await getAllRaw(LOCAL_DATABASE_STORES.entities);
+    const version3 = await snapshotVersion3Stores();
+    repositories.splice(0).forEach(closeLocalDatabase);
+    await recreateAsVersion3(version3);
+
+    const reopened = await openLocalDatabase(base, { capability, clock: () => T1 });
+    repositories.push(reopened);
+    await expect(reopened.getLegacyNotesMigrationSession('verified')).resolves.toMatchObject({
+      status: 'verified', target: { databaseVersion: 3 },
+    });
+    await expect(reopened.resumeLegacyNotesMigration(fixture.source, 'verified', T1))
+      .resolves.toMatchObject({ entryCount: 1 });
+    expect((await getAllRaw(LOCAL_DATABASE_STORES.migrationState))
+      .find(value => value.migrationSessionId === 'verified')).toEqual(beforeSession);
+    expect(await getAllRaw(LOCAL_DATABASE_STORES.entities)).toEqual(beforeEntities);
+    expect((await reopened.readDatabaseMetadata()).databaseFormatVersion).toBe(LOCAL_DATABASE_VERSION);
+    const upgraded = await newDb();
+    expect(upgraded.version).toBe(4);
+    expect(upgraded.objectStoreNames.contains(LOCAL_DATABASE_STORES.writerCoordinationState)).toBe(true);
+    upgraded.close();
+  });
+
+  it.each([5, 2, 1.5, 0, -1, Number.MAX_SAFE_INTEGER])(
+    'rejects unsupported or malformed persisted K-325 target version %s', async databaseVersion => {
+      const fixture = await verifiedFixture();
+      await mutateRaw(LOCAL_DATABASE_STORES.migrationState,
+        [fixture.repository.namespaceKey, toLegacyNotesMigrationStorageId('verified')], value => ({
+          ...value, target: { ...value.target, databaseVersion },
+        }));
+      await expect(fixture.repository.getLegacyNotesMigrationSession('verified'))
+        .rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+    },
+  );
+
+  it.each([
+    ['string 3', '3'],
+    ['string 4', '4'],
+    ['null', null],
+    ['boolean true', true],
+    ['empty object', {}],
+    ['single-value array', [3]],
+  ] as const)('rejects persisted K-325 target version %s without coercion or rewrite', async (_label, databaseVersion) => {
+    const fixture = await verifiedFixture();
+    const key: IDBValidKey = [fixture.repository.namespaceKey, toLegacyNotesMigrationStorageId('verified')];
+    await mutateRaw(LOCAL_DATABASE_STORES.migrationState, key, value => ({
+      ...value, target: { ...value.target, databaseVersion },
+    }));
+    const beforeSession = (await getAllRaw(LOCAL_DATABASE_STORES.migrationState))
+      .find(value => value.migrationSessionId === 'verified');
+    const beforeMetadata = await getAllRaw(LOCAL_DATABASE_STORES.databaseMeta);
+
+    await expect(fixture.repository.getLegacyNotesMigrationSession('verified'))
+      .rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+    await expect(fixture.repository.resumeLegacyNotesMigration(fixture.source, 'verified', T1))
+      .rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+
+    const afterSession = (await getAllRaw(LOCAL_DATABASE_STORES.migrationState))
+      .find(value => value.migrationSessionId === 'verified');
+    expect(afterSession).toEqual(beforeSession);
+    expect(afterSession.target.databaseVersion).toEqual(databaseVersion);
+    expect(await getAllRaw(LOCAL_DATABASE_STORES.databaseMeta)).toEqual(beforeMetadata);
+  });
+
+  it('accepts a legitimate current-version K-325 session without rewriting its target version', async () => {
+    const fixture = await verifiedFixture();
+    await expect(fixture.repository.getLegacyNotesMigrationSession('verified')).resolves.toMatchObject({
+      target: { databaseVersion: 4 }, status: 'verified',
+    });
+    const raw = (await getAllRaw(LOCAL_DATABASE_STORES.migrationState))
+      .find(value => value.migrationSessionId === 'verified');
+    expect(raw.target.databaseVersion).toBe(4);
+  });
 
   it.each([
     ['missing target entity', async (fixture: Awaited<ReturnType<typeof verifiedFixture>>) => {
