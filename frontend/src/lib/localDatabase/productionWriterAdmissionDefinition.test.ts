@@ -231,11 +231,17 @@ type ReceiptBackedOperationFixture = Readonly<{
   coordinationEpoch: number;
   admissionReceiptDigest: string;
   receiptDigest: string | null;
-  previousSourceRevision: string | null;
-  committedSourceRevision: string | null;
-  sourceAuthorityRevision: string;
-  entitySetDigestMatches: boolean;
-  outboxSetDigestMatches: boolean;
+  previousSourceRevision: unknown;
+  committedSourceRevision: unknown;
+  sourceAuthorityRevision: unknown;
+  sourceAuthorityChainDigest: string;
+  receiptChain: readonly SourceRevisionEvidenceFixture[];
+  currentEntitySourceRevision: unknown;
+  currentEntityLifecycle: 'active' | 'tombstoned' | 'resurrected';
+  currentEntityDigestMatchesReceipt: boolean;
+  currentAuthorityDigestMatchesChain: boolean;
+  immutableOutboxIntentMatches: boolean;
+  outboxDeliveryStatus: 'pending' | 'retry_wait' | 'acknowledged';
   admitted: boolean;
   terminal: 'absent' | 'committed' | 'failed' | 'aborted';
   terminalReceiptDigest: string | null;
@@ -255,7 +261,76 @@ type ReceiptReconciliationResult =
       | 'RECONCILIATION_RECEIPT_DIGEST_MISMATCH'
       | 'RECONCILIATION_SOURCE_REVISION_MISMATCH'
       | 'RECONCILIATION_TERMINAL_CONFLICT'
-      | 'RECONCILIATION_STALE_EPOCH' }>;
+      | 'RECONCILIATION_STALE_EPOCH'
+      | 'RECONCILIATION_CORRUPT_PERSISTED_STATE' }>;
+
+type DecodeSourceRevisionResult =
+  | Readonly<{ ok: true; canonical: string; value: bigint }>
+  | Readonly<{ ok: false; code:
+      | 'SOURCE_REVISION_NOT_STRING'
+      | 'SOURCE_REVISION_NON_CANONICAL'
+      | 'SOURCE_REVISION_OUT_OF_RANGE' }>;
+
+type DecodeSourceRevisionErrorCode = Extract<DecodeSourceRevisionResult, { ok: false }>['code'];
+
+function decodeSourceRevision(value: unknown): DecodeSourceRevisionResult {
+  if (typeof value !== 'string') return { ok: false, code: 'SOURCE_REVISION_NOT_STRING' };
+  if (value.length > 16) return { ok: false, code: 'SOURCE_REVISION_OUT_OF_RANGE' };
+  if (!/^(?:0|[1-9][0-9]*)$/.test(value)) return { ok: false, code: 'SOURCE_REVISION_NON_CANONICAL' };
+  return { ok: true, canonical: value, value: BigInt(value) };
+}
+
+type SourceRevisionEvidenceFixture = Readonly<{
+  operationId: string;
+  previousSourceRevision: string;
+  committedSourceRevision: string;
+  previousChainDigest: string;
+  receiptDigest: string;
+  committedAuthorityDigest: string;
+  chainDigest: string;
+}>;
+
+function revisionEvidence(
+  operationId: string,
+  previousSourceRevision: string,
+  committedSourceRevision: string,
+  previousChainDigest: string,
+  receiptDigest = `receipt:${operationId}:${committedSourceRevision}`,
+): SourceRevisionEvidenceFixture {
+  return Object.freeze({
+    operationId,
+    previousSourceRevision,
+    committedSourceRevision,
+    previousChainDigest,
+    receiptDigest,
+    committedAuthorityDigest: `authority:${committedSourceRevision}`,
+    chainDigest: `chain:${previousChainDigest}:${operationId}:${committedSourceRevision}`,
+  });
+}
+
+function validReceiptLineage(
+  receiptRevision: bigint,
+  currentRevision: bigint,
+  receiptDigest: string,
+  lineage: readonly SourceRevisionEvidenceFixture[],
+  currentChainDigest: string,
+): boolean {
+  if (lineage.length === 0) return false;
+  let expectedPrevious = receiptRevision - 1n;
+  let expectedPreviousChain = lineage[0].previousChainDigest;
+  const committed = new Set<string>();
+  for (const evidence of lineage) {
+    const previous = decodeSourceRevision(evidence.previousSourceRevision);
+    const next = decodeSourceRevision(evidence.committedSourceRevision);
+    if (!previous.ok || !next.ok || previous.value !== expectedPrevious || next.value !== previous.value + 1n
+      || evidence.previousChainDigest !== expectedPreviousChain || committed.has(evidence.committedSourceRevision)) return false;
+    if (next.value === receiptRevision && evidence.receiptDigest !== receiptDigest) return false;
+    committed.add(evidence.committedSourceRevision);
+    expectedPrevious = next.value;
+    expectedPreviousChain = evidence.chainDigest;
+  }
+  return expectedPrevious === currentRevision && expectedPreviousChain === currentChainDigest;
+}
 
 function reconcileCommittedSourceReceiptFixture(
   persisted: ReceiptBackedOperationFixture,
@@ -275,12 +350,28 @@ function reconcileCommittedSourceReceiptFixture(
     || persisted.committedSourceRevision === null) {
     return { ok: false, code: 'RECONCILIATION_RECEIPT_NOT_FOUND' };
   }
-  if (!persisted.entitySetDigestMatches || !persisted.outboxSetDigestMatches) {
+  const previousRevision = decodeSourceRevision(persisted.previousSourceRevision);
+  const committedRevision = decodeSourceRevision(persisted.committedSourceRevision);
+  const authorityRevision = decodeSourceRevision(persisted.sourceAuthorityRevision);
+  const entityRevision = decodeSourceRevision(persisted.currentEntitySourceRevision);
+  if (!previousRevision.ok || !committedRevision.ok || !authorityRevision.ok || !entityRevision.ok) {
+    return { ok: false, code: 'RECONCILIATION_CORRUPT_PERSISTED_STATE' };
+  }
+  if (!persisted.immutableOutboxIntentMatches) {
     return { ok: false, code: 'RECONCILIATION_RECEIPT_DIGEST_MISMATCH' };
   }
-  if (BigInt(persisted.committedSourceRevision) !== BigInt(persisted.previousSourceRevision) + 1n
-    || BigInt(persisted.sourceAuthorityRevision) < BigInt(persisted.committedSourceRevision)) {
+  if (committedRevision.value !== previousRevision.value + 1n
+    || authorityRevision.value < committedRevision.value
+    || entityRevision.value < committedRevision.value
+    || !validReceiptLineage(committedRevision.value, authorityRevision.value,
+      persisted.receiptDigest, persisted.receiptChain, persisted.sourceAuthorityChainDigest)) {
     return { ok: false, code: 'RECONCILIATION_SOURCE_REVISION_MISMATCH' };
+  }
+  if (!persisted.currentAuthorityDigestMatchesChain) {
+    return { ok: false, code: 'RECONCILIATION_SOURCE_REVISION_MISMATCH' };
+  }
+  if (entityRevision.value === committedRevision.value && !persisted.currentEntityDigestMatchesReceipt) {
+    return { ok: false, code: 'RECONCILIATION_RECEIPT_DIGEST_MISMATCH' };
   }
   if (persisted.terminal === 'failed' || persisted.terminal === 'aborted') {
     return { ok: false, code: 'RECONCILIATION_TERMINAL_CONFLICT' };
@@ -315,8 +406,14 @@ function receiptBackedOperation(
     previousSourceRevision: '40',
     committedSourceRevision: '41',
     sourceAuthorityRevision: '41',
-    entitySetDigestMatches: true,
-    outboxSetDigestMatches: true,
+    sourceAuthorityChainDigest: revisionEvidence('operation-a', '40', '41', 'bootstrap-chain', 'receipt-digest').chainDigest,
+    receiptChain: Object.freeze([revisionEvidence('operation-a', '40', '41', 'bootstrap-chain', 'receipt-digest')]),
+    currentEntitySourceRevision: '41',
+    currentEntityLifecycle: 'active',
+    currentEntityDigestMatchesReceipt: true,
+    currentAuthorityDigestMatchesChain: true,
+    immutableOutboxIntentMatches: true,
+    outboxDeliveryStatus: 'pending',
     admitted: true,
     terminal: 'absent',
     terminalReceiptDigest: null,
@@ -347,41 +444,357 @@ function evaluateDrainAwareAdmission(input: Readonly<{
 }
 
 type BootstrapEvidenceFixture = Readonly<{
+  authorityRecordVersion: 'source-authority-bootstrap-v1';
   namespaceFingerprint: string;
+  namespaceKeyDigest: string;
   generationId: string;
   revision: '0';
+  activeGeneration: true;
+  databaseName: 'absinthe-local-v2';
+  databaseSchemaVersion: number;
+  sourceProtocolVersion: string;
+  sourceImplementationId: string;
+  entityCount: number;
+  noteCount: number;
+  folderCount: number;
+  tombstoneCount: number;
+  relationshipCount: number;
+  relationshipDigest: string;
   aggregateEntityDigest: string;
+  attachmentMetadataCount: number;
+  attachmentMetadataDigest: string;
+  attachmentBlobAtomicity: 'not_claimed';
+  outboxCount: number;
   generationManifestDigest: string;
   outboxBaselineDigest: string;
+  checkpointDigest: string;
+  checkpointCount: number;
+  checkpointVersion: string;
+  coordinationEpoch: number;
+  coordinationStateDigest: string;
+  admissionOpen: false;
+  admittedOperationCount: 0;
+  unresolvedOperationCount: 0;
+  inFlightSourceCommitCount: 0;
+  pendingReceiptReconciliationCount: 0;
+  allWritersQuiescent: true;
+  coordinationQuiescent: true;
+  epochTransitionInProgress: false;
+  activeRestoreSession: false;
+  activeMigrationSession: false;
+  activeRecoverySession: false;
+  conflictingMaintenanceOwner: false;
+  bootstrapMethodVersion: string;
   bootstrapEvidenceDigest: string;
 }>;
 
 type BootstrapResult =
   | Readonly<{ ok: true; authority: BootstrapEvidenceFixture; reused: boolean }>
-  | Readonly<{ ok: false; code: 'SOURCE_AUTHORITY_BOOTSTRAP_CONFLICT' }>;
+  | Readonly<{ ok: false; code:
+      | 'SOURCE_AUTHORITY_BOOTSTRAP_CONFLICT'
+      | 'SOURCE_AUTHORITY_BOOTSTRAP_NOT_QUIESCENT'
+      | 'SOURCE_AUTHORITY_BOOTSTRAP_SESSION_CONFLICT' }>;
+
+type BootstrapCandidateFixture = Omit<BootstrapEvidenceFixture,
+  'revision' | 'admissionOpen' | 'admittedOperationCount' | 'unresolvedOperationCount'
+  | 'inFlightSourceCommitCount' | 'pendingReceiptReconciliationCount'
+  | 'allWritersQuiescent' | 'coordinationQuiescent' | 'epochTransitionInProgress'
+  | 'activeRestoreSession' | 'activeMigrationSession' | 'activeRecoverySession'
+  | 'conflictingMaintenanceOwner'> & Readonly<{
+    admittedOperationCount: number;
+    unresolvedOperationCount: number;
+    admissionOpen: boolean;
+    inFlightSourceCommitCount: number;
+    pendingReceiptReconciliationCount: number;
+    allWritersQuiescent: boolean;
+    coordinationQuiescent: boolean;
+    epochTransitionInProgress: boolean;
+    activeRestoreSession: boolean;
+    activeMigrationSession: boolean;
+    activeRecoverySession: boolean;
+    conflictingMaintenanceOwner: boolean;
+  }>;
+
+const ATTACHMENT_METADATA_AUTHORITY_POLICY = Object.freeze({
+  authorityBearing: Object.freeze([
+    'attachmentId', 'referencedBy', 'localAvailability', 'remoteAvailability', 'checksumState',
+    'syncState', 'storageLocatorReference', 'createdAt', 'updatedAt', 'generationId',
+  ]),
+  excluded: Object.freeze(['blobBytes', 'externalProviderPayload', 'cacheBytes']),
+  attachmentBlobAtomicity: 'not_claimed',
+});
+
+function bootstrapCandidate(
+  overrides: Partial<BootstrapCandidateFixture> = {},
+): BootstrapCandidateFixture {
+  return Object.freeze({
+    authorityRecordVersion: 'source-authority-bootstrap-v1',
+    namespaceFingerprint: 'namespace-digest',
+    namespaceKeyDigest: 'namespace-key-digest',
+    generationId: 'generation-a',
+    activeGeneration: true,
+    databaseName: 'absinthe-local-v2',
+    databaseSchemaVersion: 4,
+    sourceProtocolVersion: 'source-protocol-v1',
+    sourceImplementationId: 'local-first-source-v1',
+    entityCount: 108,
+    noteCount: 103,
+    folderCount: 5,
+    tombstoneCount: 2,
+    relationshipCount: 108,
+    relationshipDigest: 'relationship-digest',
+    aggregateEntityDigest: 'entity-digest',
+    attachmentMetadataCount: 3,
+    attachmentMetadataDigest: 'attachment-metadata-digest',
+    attachmentBlobAtomicity: 'not_claimed',
+    outboxCount: 0,
+    generationManifestDigest: 'manifest-digest',
+    outboxBaselineDigest: 'outbox-digest',
+    checkpointDigest: 'checkpoint-digest',
+    checkpointCount: 1,
+    checkpointVersion: 'checkpoint-v1',
+    coordinationEpoch: 7,
+    coordinationStateDigest: 'coordination-digest',
+    admissionOpen: false,
+    admittedOperationCount: 0,
+    unresolvedOperationCount: 0,
+    inFlightSourceCommitCount: 0,
+    pendingReceiptReconciliationCount: 0,
+    allWritersQuiescent: true,
+    coordinationQuiescent: true,
+    epochTransitionInProgress: false,
+    activeRestoreSession: false,
+    activeMigrationSession: false,
+    activeRecoverySession: false,
+    conflictingMaintenanceOwner: false,
+    bootstrapMethodVersion: 'bootstrap-v1',
+    bootstrapEvidenceDigest: 'bootstrap-digest',
+    ...overrides,
+  });
+}
 
 function bootstrapSourceAuthorityFixture(
   existing: BootstrapEvidenceFixture | null,
-  candidate: Omit<BootstrapEvidenceFixture, 'revision'>,
+  candidate: BootstrapCandidateFixture,
 ): BootstrapResult {
-  const authority = Object.freeze({ ...candidate, revision: '0' as const });
+  if (candidate.admissionOpen || candidate.admittedOperationCount !== 0
+    || candidate.unresolvedOperationCount !== 0 || candidate.inFlightSourceCommitCount !== 0
+    || candidate.pendingReceiptReconciliationCount !== 0 || !candidate.allWritersQuiescent
+    || !candidate.coordinationQuiescent || candidate.epochTransitionInProgress) {
+    return { ok: false, code: 'SOURCE_AUTHORITY_BOOTSTRAP_NOT_QUIESCENT' };
+  }
+  if (candidate.activeRestoreSession || candidate.activeMigrationSession || candidate.activeRecoverySession
+    || candidate.conflictingMaintenanceOwner) {
+    return { ok: false, code: 'SOURCE_AUTHORITY_BOOTSTRAP_SESSION_CONFLICT' };
+  }
+  const authority = Object.freeze({ ...candidate, revision: '0' as const,
+    admissionOpen: false as const,
+    admittedOperationCount: 0 as const, unresolvedOperationCount: 0 as const,
+    inFlightSourceCommitCount: 0 as const, pendingReceiptReconciliationCount: 0 as const,
+    allWritersQuiescent: true as const, coordinationQuiescent: true as const,
+    epochTransitionInProgress: false as const, activeRestoreSession: false as const,
+    activeMigrationSession: false as const, activeRecoverySession: false as const,
+    conflictingMaintenanceOwner: false as const });
   if (existing === null) return { ok: true, authority, reused: false };
-  const canonical = (value: BootstrapEvidenceFixture): readonly string[] => [
-    value.namespaceFingerprint,
-    value.generationId,
-    value.revision,
-    value.aggregateEntityDigest,
-    value.generationManifestDigest,
-    value.outboxBaselineDigest,
-    value.bootstrapEvidenceDigest,
-  ];
+  const canonical = (value: BootstrapEvidenceFixture): string => JSON.stringify([
+    value.authorityRecordVersion, value.namespaceFingerprint, value.namespaceKeyDigest,
+    value.generationId, value.revision, value.activeGeneration, value.databaseName,
+    value.databaseSchemaVersion, value.sourceProtocolVersion, value.sourceImplementationId,
+    value.entityCount, value.noteCount, value.folderCount, value.tombstoneCount,
+    value.relationshipCount, value.relationshipDigest, value.aggregateEntityDigest,
+    value.attachmentMetadataCount, value.attachmentMetadataDigest, value.attachmentBlobAtomicity,
+    value.outboxCount, value.generationManifestDigest, value.outboxBaselineDigest,
+    value.checkpointDigest, value.checkpointCount, value.checkpointVersion,
+    value.coordinationEpoch, value.coordinationStateDigest,
+    value.admissionOpen, value.admittedOperationCount, value.unresolvedOperationCount,
+    value.inFlightSourceCommitCount, value.pendingReceiptReconciliationCount,
+    value.allWritersQuiescent, value.coordinationQuiescent, value.epochTransitionInProgress,
+    value.activeRestoreSession, value.activeMigrationSession, value.activeRecoverySession,
+    value.conflictingMaintenanceOwner, value.bootstrapMethodVersion, value.bootstrapEvidenceDigest,
+  ]);
   const existingCanonical = canonical(existing);
   const candidateCanonical = canonical(authority);
-  if (existingCanonical.some((value, index) => value !== candidateCanonical[index])) {
+  if (existingCanonical !== candidateCanonical) {
     return { ok: false, code: 'SOURCE_AUTHORITY_BOOTSTRAP_CONFLICT' };
   }
   return { ok: true, authority: existing, reused: true };
 }
+
+type RestoreChunkReceiptFixture = Readonly<{
+  restoreSessionId: string;
+  chunkIndex: number;
+  previousChunkReceiptDigest: string;
+  previousSourceRevision: string;
+  committedSourceRevision: string;
+  chunkInputDigest: string;
+  chunkResultDigest: string;
+  affectedEntityDigest: string;
+  affectedEntityCount: number;
+  attachmentMetadataDigest: string;
+  attachmentMetadataCount: number;
+  immutableOutboxIntentDigest: string;
+  immutableOutboxIntentCount: number;
+  checkpointEffectDigest: string;
+  chunkReceiptDigest: string;
+}>;
+
+type RestoreFinalManifestFixture = Readonly<{
+  restoreSessionId: string;
+  baseSourceRevision: string;
+  finalCommittedSourceRevision: string;
+  orderedChunkChainDigest: string;
+  completeAuthorityDigest: string;
+  finalEntityCount: number;
+  finalEntityDigest: string;
+  finalAttachmentMetadataCount: number;
+  finalAttachmentMetadataDigest: string;
+  finalOutboxCount: number;
+  finalOutboxIntentDigest: string;
+  finalCheckpointDigest: string;
+  protocolVersion: string;
+  completionState: 'complete';
+  evidenceOnly: true;
+  sourceRevisionIncremented: false;
+}>;
+
+type ChunkedRestoreFixture = Readonly<{
+  restoreSessionId: string;
+  namespaceFingerprint: string;
+  generationId: string;
+  maintenanceOwnerDigest: string;
+  baseSourceRevision: string;
+  planDigest: string;
+  restoreManifestDigest: string;
+  protocolVersion: string;
+  plannedChunkDigests: readonly string[];
+  receipts: readonly RestoreChunkReceiptFixture[];
+  recordedCursor: number;
+  status: 'in_progress' | 'finalized' | 'corrupt';
+  finalManifest: RestoreFinalManifestFixture | null;
+}>;
+
+type RestoreChunkResult =
+  | Readonly<{ ok: true; state: ChunkedRestoreFixture; receipt: RestoreChunkReceiptFixture; reused: boolean }>
+  | Readonly<{ ok: false; code: 'RESTORE_CHUNK_SKIPPED' | 'RESTORE_CHUNK_CONFLICT' | 'RESTORE_CHAIN_CORRUPT' }>;
+
+function restoreFixture(): ChunkedRestoreFixture {
+  return Object.freeze({
+    restoreSessionId: 'restore-session-a',
+    namespaceFingerprint: 'namespace-digest',
+    generationId: 'generation-a',
+    maintenanceOwnerDigest: 'maintenance-owner-digest',
+    baseSourceRevision: '10',
+    planDigest: 'restore-plan-digest',
+    restoreManifestDigest: 'restore-manifest-digest',
+    protocolVersion: 'restore-protocol-v1',
+    plannedChunkDigests: Object.freeze(['chunk-input-0', 'chunk-input-1']),
+    receipts: Object.freeze([]),
+    recordedCursor: 0,
+    status: 'in_progress',
+    finalManifest: null,
+  });
+}
+
+function commitRestoreChunkFixture(
+  state: ChunkedRestoreFixture,
+  chunkIndex: number,
+  chunkInputDigest: string,
+): RestoreChunkResult {
+  if (state.status !== 'in_progress') return { ok: false, code: 'RESTORE_CHAIN_CORRUPT' };
+  const existing = state.receipts[chunkIndex];
+  if (existing) {
+    return existing.chunkInputDigest === chunkInputDigest
+      ? { ok: true, state, receipt: existing, reused: true }
+      : { ok: false, code: 'RESTORE_CHUNK_CONFLICT' };
+  }
+  if (chunkIndex !== state.receipts.length || state.plannedChunkDigests[chunkIndex] !== chunkInputDigest) {
+    return { ok: false, code: chunkIndex > state.receipts.length ? 'RESTORE_CHUNK_SKIPPED' : 'RESTORE_CHUNK_CONFLICT' };
+  }
+  const previous = state.receipts.at(-1);
+  const previousRevision = previous?.committedSourceRevision ?? state.baseSourceRevision;
+  const decoded = decodeSourceRevision(previousRevision);
+  if (!decoded.ok) return { ok: false, code: 'RESTORE_CHAIN_CORRUPT' };
+  const committedSourceRevision = (decoded.value + 1n).toString(10);
+  const previousChunkReceiptDigest = previous?.chunkReceiptDigest ?? 'restore-chain-root';
+  const receipt = Object.freeze({
+    restoreSessionId: state.restoreSessionId,
+    chunkIndex,
+    previousChunkReceiptDigest,
+    previousSourceRevision: previousRevision,
+    committedSourceRevision,
+    chunkInputDigest,
+    chunkResultDigest: `chunk-result:${chunkIndex}`,
+    affectedEntityDigest: `entities:${chunkIndex}`,
+    affectedEntityCount: 54,
+    attachmentMetadataDigest: `attachments:${chunkIndex}`,
+    attachmentMetadataCount: 2,
+    immutableOutboxIntentDigest: `outbox-intent:${chunkIndex}`,
+    immutableOutboxIntentCount: 54,
+    checkpointEffectDigest: `checkpoint:${chunkIndex}`,
+    chunkReceiptDigest: `chunk-receipt:${previousChunkReceiptDigest}:${chunkIndex}:${committedSourceRevision}`,
+  });
+  return { ok: true, receipt, reused: false, state: Object.freeze({
+    ...state, receipts: Object.freeze([...state.receipts, receipt]), recordedCursor: chunkIndex + 1,
+  }) };
+}
+
+type RestoreFinalizeResult =
+  | Readonly<{ ok: true; state: ChunkedRestoreFixture; manifest: RestoreFinalManifestFixture }>
+  | Readonly<{ ok: false; code: 'RESTORE_FINALIZATION_INCOMPLETE' | 'RESTORE_FINAL_DIGEST_MISMATCH' }>;
+
+function finalizeRestoreFixture(
+  state: ChunkedRestoreFixture,
+  completeAuthorityDigestMatches: boolean,
+): RestoreFinalizeResult {
+  if (state.receipts.length !== state.plannedChunkDigests.length) {
+    return { ok: false, code: 'RESTORE_FINALIZATION_INCOMPLETE' };
+  }
+  if (!completeAuthorityDigestMatches) return { ok: false, code: 'RESTORE_FINAL_DIGEST_MISMATCH' };
+  const last = state.receipts.at(-1)!;
+  const manifest = Object.freeze({
+    restoreSessionId: state.restoreSessionId,
+    baseSourceRevision: state.baseSourceRevision,
+    finalCommittedSourceRevision: last.committedSourceRevision,
+    orderedChunkChainDigest: last.chunkReceiptDigest,
+    completeAuthorityDigest: 'restored-authority-digest',
+    finalEntityCount: 108,
+    finalEntityDigest: 'final-entity-digest',
+    finalAttachmentMetadataCount: 4,
+    finalAttachmentMetadataDigest: 'final-attachment-digest',
+    finalOutboxCount: 108,
+    finalOutboxIntentDigest: 'final-outbox-intent-digest',
+    finalCheckpointDigest: 'final-checkpoint-digest',
+    protocolVersion: state.protocolVersion,
+    completionState: 'complete' as const,
+    evidenceOnly: true as const,
+    sourceRevisionIncremented: false as const,
+  });
+  return { ok: true, manifest, state: Object.freeze({ ...state, status: 'finalized', finalManifest: manifest }) };
+}
+
+function restoreRestartCursor(state: ChunkedRestoreFixture): number | null {
+  for (let index = 0; index < state.receipts.length; index += 1) {
+    const current = state.receipts[index];
+    const previous = state.receipts[index - 1];
+    if (current.chunkIndex !== index
+      || current.previousChunkReceiptDigest !== (previous?.chunkReceiptDigest ?? 'restore-chain-root')
+      || current.previousSourceRevision !== (previous?.committedSourceRevision ?? state.baseSourceRevision)) return null;
+  }
+  return state.recordedCursor === state.receipts.length ? state.receipts.length : null;
+}
+
+function restoreEligible(state: ChunkedRestoreFixture): boolean {
+  return state.status === 'finalized' && state.finalManifest !== null
+    && state.finalManifest.completionState === 'complete'
+    && state.finalManifest.orderedChunkChainDigest === state.receipts.at(-1)?.chunkReceiptDigest
+    && restoreRestartCursor(state) === state.plannedChunkDigests.length;
+}
+
+const PER_ENTITY_SOURCE_REVISION_POLICY = Object.freeze({
+  selection: 'PER_ENTITY_SOURCE_REVISION_BINDING_REQUIRED',
+  fields: Object.freeze(['createdSourceRevision', 'lastMutatedSourceRevision', 'deletedSourceRevision']),
+  directDigestComparison: 'ONLY_WHEN_ENTITY_LAST_MUTATED_REVISION_EQUALS_RECEIPT_REVISION',
+});
 
 const K331B_FUTURE_TASK_ORDER = Object.freeze([
   'K-332_SOURCE_AUTHORITY_AND_PROTOCOL_CONTRACT',
@@ -751,17 +1164,65 @@ describe('K-331 dormant production-writer admission definition', () => {
     }, 8)).toEqual({ ok: false, code: 'RECONCILIATION_STALE_EPOCH' });
   });
 
-  it('architecture fixture: reconciliation rereads source revision plus entity and outbox evidence', () => {
-    const advancedAuthority = receiptBackedOperation({ sourceAuthorityRevision: '42' });
+  it('architecture fixture: revision-5 receipt remains valid after revision-6 changes the same entity', () => {
+    const first = revisionEvidence('operation-a', '4', '5', 'bootstrap-chain', 'receipt-digest');
+    const second = revisionEvidence('operation-b', '5', '6', first.chainDigest);
+    const advancedAuthority = receiptBackedOperation({
+      previousSourceRevision: '4',
+      committedSourceRevision: '5',
+      sourceAuthorityRevision: '6',
+      sourceAuthorityChainDigest: second.chainDigest,
+      receiptChain: Object.freeze([first, second]),
+      currentEntitySourceRevision: '6',
+      currentEntityDigestMatchesReceipt: false,
+      outboxDeliveryStatus: 'acknowledged',
+    });
     expect(reconcileCommittedSourceReceiptFixture(advancedAuthority, {
       namespaceFingerprint: advancedAuthority.namespaceFingerprint,
       generationId: advancedAuthority.generationId,
       operationId: advancedAuthority.operationId,
     }, 7)).toMatchObject({ ok: true });
+  });
+
+  it('architecture fixture: receipt lineage rejects gaps, duplicates, and broken links', () => {
+    const first = revisionEvidence('operation-a', '40', '41', 'bootstrap-chain', 'receipt-digest');
+    const validSecond = revisionEvidence('operation-b', '41', '42', first.chainDigest);
+    const cases: readonly (readonly SourceRevisionEvidenceFixture[])[] = [
+      [first, revisionEvidence('operation-b', '42', '43', first.chainDigest)],
+      [first, Object.freeze({ ...validSecond, committedSourceRevision: '41' })],
+      [first, revisionEvidence('operation-b', '41', '42', 'wrong-chain')],
+    ];
+    for (const receiptChain of cases) {
+      const persisted = receiptBackedOperation({ sourceAuthorityRevision: '42', currentEntitySourceRevision: '42',
+        sourceAuthorityChainDigest: validSecond.chainDigest, receiptChain: Object.freeze(receiptChain) });
+      expect(reconcileCommittedSourceReceiptFixture(persisted, {
+        namespaceFingerprint: persisted.namespaceFingerprint,
+        generationId: persisted.generationId,
+        operationId: persisted.operationId,
+      }, 7)).toEqual({ ok: false, code: 'RECONCILIATION_SOURCE_REVISION_MISMATCH' });
+    }
+  });
+
+  it('architecture fixture: later tombstone or resurrection remains valid only through the same lineage', () => {
+    const first = revisionEvidence('operation-a', '40', '41', 'bootstrap-chain', 'receipt-digest');
+    const second = revisionEvidence('operation-b', '41', '42', first.chainDigest);
+    for (const currentEntityLifecycle of ['tombstoned', 'resurrected'] as const) {
+      const persisted = receiptBackedOperation({ sourceAuthorityRevision: '42',
+        currentEntitySourceRevision: '42', currentEntityLifecycle, currentEntityDigestMatchesReceipt: false,
+        sourceAuthorityChainDigest: second.chainDigest, receiptChain: Object.freeze([first, second]) });
+      expect(reconcileCommittedSourceReceiptFixture(persisted, {
+        namespaceFingerprint: persisted.namespaceFingerprint,
+        generationId: persisted.generationId,
+        operationId: persisted.operationId,
+      }, 7)).toMatchObject({ ok: true });
+    }
+  });
+
+  it('architecture fixture: same-revision evidence is compared directly and immutable outbox intent is stable', () => {
     for (const overrides of [
-      { sourceAuthorityRevision: '40' },
-      { entitySetDigestMatches: false },
-      { outboxSetDigestMatches: false },
+      { currentEntityDigestMatchesReceipt: false },
+      { immutableOutboxIntentMatches: false },
+      { currentAuthorityDigestMatchesChain: false },
     ] satisfies Array<Partial<ReceiptBackedOperationFixture>>) {
       const persisted = receiptBackedOperation(overrides);
       const result = reconcileCommittedSourceReceiptFixture(persisted, {
@@ -770,6 +1231,44 @@ describe('K-331 dormant production-writer admission definition', () => {
         operationId: persisted.operationId,
       }, 7);
       expect(result).toMatchObject({ ok: false });
+    }
+    const deliveryAdvanced = receiptBackedOperation({ outboxDeliveryStatus: 'acknowledged' });
+    expect(reconcileCommittedSourceReceiptFixture(deliveryAdvanced, {
+      namespaceFingerprint: deliveryAdvanced.namespaceFingerprint,
+      generationId: deliveryAdvanced.generationId,
+      operationId: deliveryAdvanced.operationId,
+    }, 7)).toMatchObject({ ok: true });
+  });
+
+  it('architecture fixture: source revisions are decoded strictly before bigint conversion', () => {
+    for (const revision of ['0', '1', '41', '9999999999999999']) {
+      expect(decodeSourceRevision(revision)).toMatchObject({ ok: true, canonical: revision });
+    }
+    const rejected: ReadonlyArray<readonly [unknown, DecodeSourceRevisionErrorCode]> = [
+      [1, 'SOURCE_REVISION_NOT_STRING'], [null, 'SOURCE_REVISION_NOT_STRING'],
+      [true, 'SOURCE_REVISION_NOT_STRING'], [{}, 'SOURCE_REVISION_NOT_STRING'],
+      [[], 'SOURCE_REVISION_NOT_STRING'], [Object(1n), 'SOURCE_REVISION_NOT_STRING'],
+      ['', 'SOURCE_REVISION_NON_CANONICAL'], [' ', 'SOURCE_REVISION_NON_CANONICAL'],
+      [' 1', 'SOURCE_REVISION_NON_CANONICAL'], ['1 ', 'SOURCE_REVISION_NON_CANONICAL'],
+      ['+1', 'SOURCE_REVISION_NON_CANONICAL'], ['-1', 'SOURCE_REVISION_NON_CANONICAL'],
+      ['00', 'SOURCE_REVISION_NON_CANONICAL'], ['01', 'SOURCE_REVISION_NON_CANONICAL'],
+      ['1.0', 'SOURCE_REVISION_NON_CANONICAL'], ['1e3', 'SOURCE_REVISION_NON_CANONICAL'],
+      ['١', 'SOURCE_REVISION_NON_CANONICAL'], ['10000000000000000', 'SOURCE_REVISION_OUT_OF_RANGE'],
+    ];
+    for (const [revision, code] of rejected) {
+      expect(() => decodeSourceRevision(revision)).not.toThrow();
+      expect(decodeSourceRevision(revision)).toEqual({ ok: false, code });
+    }
+  });
+
+  it('architecture fixture: malformed persisted revisions map to bounded reconciliation corruption', () => {
+    for (const revision of ['01', '-1', '10000000000000000', 41, null, {}]) {
+      const persisted = receiptBackedOperation({ sourceAuthorityRevision: revision });
+      expect(reconcileCommittedSourceReceiptFixture(persisted, {
+        namespaceFingerprint: persisted.namespaceFingerprint,
+        generationId: persisted.generationId,
+        operationId: persisted.operationId,
+      }, 7)).toEqual({ ok: false, code: 'RECONCILIATION_CORRUPT_PERSISTED_STATE' });
     }
   });
 
@@ -790,22 +1289,21 @@ describe('K-331 dormant production-writer admission definition', () => {
   });
 
   it('architecture fixture: source authority bootstrap binds revision zero to the verified snapshot', () => {
-    const result = bootstrapSourceAuthorityFixture(null, {
-      namespaceFingerprint: 'namespace-digest', generationId: 'generation-a',
-      aggregateEntityDigest: 'entity-digest', generationManifestDigest: 'manifest-digest',
-      outboxBaselineDigest: 'outbox-digest', bootstrapEvidenceDigest: 'bootstrap-digest',
-    });
+    const result = bootstrapSourceAuthorityFixture(null, bootstrapCandidate());
     expect(result).toMatchObject({ ok: true, reused: false, authority: {
-      revision: '0', aggregateEntityDigest: 'entity-digest', generationManifestDigest: 'manifest-digest',
+      authorityRecordVersion: 'source-authority-bootstrap-v1', revision: '0',
+      databaseName: 'absinthe-local-v2', aggregateEntityDigest: 'entity-digest',
+      noteCount: 103, folderCount: 5, tombstoneCount: 2, relationshipCount: 108,
+      relationshipDigest: 'relationship-digest', attachmentMetadataDigest: 'attachment-metadata-digest',
+      checkpointCount: 1, checkpointVersion: 'checkpoint-v1',
+      generationManifestDigest: 'manifest-digest', admittedOperationCount: 0, unresolvedOperationCount: 0,
+      admissionOpen: false, inFlightSourceCommitCount: 0, pendingReceiptReconciliationCount: 0,
+      allWritersQuiescent: true, coordinationQuiescent: true, epochTransitionInProgress: false,
     } });
   });
 
   it('architecture fixture: exact bootstrap retry is idempotent and creates no mutation receipt', () => {
-    const candidate = Object.freeze({
-      namespaceFingerprint: 'namespace-digest', generationId: 'generation-a',
-      aggregateEntityDigest: 'entity-digest', generationManifestDigest: 'manifest-digest',
-      outboxBaselineDigest: 'outbox-digest', bootstrapEvidenceDigest: 'bootstrap-digest',
-    });
+    const candidate = bootstrapCandidate();
     const first = bootstrapSourceAuthorityFixture(null, candidate);
     if (!first.ok) throw new Error(first.code);
     const retry = bootstrapSourceAuthorityFixture(first.authority, candidate);
@@ -815,17 +1313,109 @@ describe('K-331 dormant production-writer admission definition', () => {
   });
 
   it('architecture fixture: conflicting bootstrap evidence fails closed', () => {
-    const first = bootstrapSourceAuthorityFixture(null, {
-      namespaceFingerprint: 'namespace-digest', generationId: 'generation-a',
-      aggregateEntityDigest: 'entity-digest', generationManifestDigest: 'manifest-digest',
-      outboxBaselineDigest: 'outbox-digest', bootstrapEvidenceDigest: 'bootstrap-digest',
-    });
+    const first = bootstrapSourceAuthorityFixture(null, bootstrapCandidate());
     if (!first.ok) throw new Error(first.code);
-    expect(bootstrapSourceAuthorityFixture(first.authority, {
-      namespaceFingerprint: 'namespace-digest', generationId: 'generation-a',
-      aggregateEntityDigest: 'changed-entity-digest', generationManifestDigest: 'manifest-digest',
-      outboxBaselineDigest: 'outbox-digest', bootstrapEvidenceDigest: 'changed-bootstrap-digest',
-    })).toEqual({ ok: false, code: 'SOURCE_AUTHORITY_BOOTSTRAP_CONFLICT' });
+    for (const candidate of [
+      bootstrapCandidate({ aggregateEntityDigest: 'changed-entity-digest' }),
+      bootstrapCandidate({ attachmentMetadataDigest: 'changed-attachment-digest' }),
+      bootstrapCandidate({ generationId: 'generation-b' }),
+    ]) {
+      expect(bootstrapSourceAuthorityFixture(first.authority, candidate))
+        .toEqual({ ok: false, code: 'SOURCE_AUTHORITY_BOOTSTRAP_CONFLICT' });
+    }
+  });
+
+  it('architecture fixture: revision-zero bootstrap requires an exclusive quiescent boundary', () => {
+    for (const candidate of [
+      bootstrapCandidate({ admissionOpen: true }),
+      bootstrapCandidate({ admittedOperationCount: 1 }),
+      bootstrapCandidate({ unresolvedOperationCount: 1 }),
+      bootstrapCandidate({ inFlightSourceCommitCount: 1 }),
+      bootstrapCandidate({ pendingReceiptReconciliationCount: 1 }),
+      bootstrapCandidate({ allWritersQuiescent: false }),
+      bootstrapCandidate({ coordinationQuiescent: false }),
+      bootstrapCandidate({ epochTransitionInProgress: true }),
+    ]) {
+      expect(bootstrapSourceAuthorityFixture(null, candidate))
+        .toEqual({ ok: false, code: 'SOURCE_AUTHORITY_BOOTSTRAP_NOT_QUIESCENT' });
+    }
+    for (const candidate of [
+      bootstrapCandidate({ activeRestoreSession: true }),
+      bootstrapCandidate({ activeMigrationSession: true }),
+      bootstrapCandidate({ activeRecoverySession: true }),
+      bootstrapCandidate({ conflictingMaintenanceOwner: true }),
+    ]) {
+      expect(bootstrapSourceAuthorityFixture(null, candidate))
+        .toEqual({ ok: false, code: 'SOURCE_AUTHORITY_BOOTSTRAP_SESSION_CONFLICT' });
+    }
+  });
+
+  it('policy snapshot: attachment metadata is authority-bearing while blob bytes remain external', () => {
+    expect(ATTACHMENT_METADATA_AUTHORITY_POLICY).toEqual({
+      authorityBearing: ['attachmentId', 'referencedBy', 'localAvailability', 'remoteAvailability',
+        'checksumState', 'syncState', 'storageLocatorReference', 'createdAt', 'updatedAt', 'generationId'],
+      excluded: ['blobBytes', 'externalProviderPayload', 'cacheBytes'],
+      attachmentBlobAtomicity: 'not_claimed',
+    });
+  });
+
+  it('architecture fixture: restore chunks advance an ordered source-revision receipt chain', () => {
+    const first = commitRestoreChunkFixture(restoreFixture(), 0, 'chunk-input-0');
+    expect(first).toMatchObject({ ok: true, reused: false, receipt: {
+      chunkIndex: 0, previousSourceRevision: '10', committedSourceRevision: '11',
+      previousChunkReceiptDigest: 'restore-chain-root',
+    } });
+    if (!first.ok) throw new Error(first.code);
+    expect(commitRestoreChunkFixture(first.state, 0, 'chunk-input-0'))
+      .toMatchObject({ ok: true, reused: true, receipt: first.receipt });
+    expect(commitRestoreChunkFixture(first.state, 0, 'changed-input'))
+      .toEqual({ ok: false, code: 'RESTORE_CHUNK_CONFLICT' });
+    const second = commitRestoreChunkFixture(first.state, 1, 'chunk-input-1');
+    expect(second).toMatchObject({ ok: true, reused: false, receipt: {
+      chunkIndex: 1, previousSourceRevision: '11', committedSourceRevision: '12',
+      previousChunkReceiptDigest: first.receipt.chunkReceiptDigest,
+    } });
+  });
+
+  it('architecture fixture: restore restart cursor is derived only from the durable ordered chain', () => {
+    expect(restoreRestartCursor(restoreFixture())).toBe(0);
+    expect(commitRestoreChunkFixture(restoreFixture(), 1, 'chunk-input-1'))
+      .toEqual({ ok: false, code: 'RESTORE_CHUNK_SKIPPED' });
+    const first = commitRestoreChunkFixture(restoreFixture(), 0, 'chunk-input-0');
+    if (!first.ok) throw new Error(first.code);
+    expect(restoreRestartCursor(first.state)).toBe(1);
+    const corrupt = Object.freeze({ ...first.state, receipts: Object.freeze([
+      Object.freeze({ ...first.receipt, previousChunkReceiptDigest: 'wrong-chain' }),
+    ]) });
+    expect(restoreRestartCursor(corrupt)).toBeNull();
+  });
+
+  it('architecture fixture: final restore manifest is evidence-only and does not increment revision', () => {
+    expect(finalizeRestoreFixture(restoreFixture(), true))
+      .toEqual({ ok: false, code: 'RESTORE_FINALIZATION_INCOMPLETE' });
+    const first = commitRestoreChunkFixture(restoreFixture(), 0, 'chunk-input-0');
+    if (!first.ok) throw new Error(first.code);
+    const second = commitRestoreChunkFixture(first.state, 1, 'chunk-input-1');
+    if (!second.ok) throw new Error(second.code);
+    expect(finalizeRestoreFixture(second.state, false))
+      .toEqual({ ok: false, code: 'RESTORE_FINAL_DIGEST_MISMATCH' });
+    const finalized = finalizeRestoreFixture(second.state, true);
+    expect(finalized).toMatchObject({ ok: true, manifest: {
+      baseSourceRevision: '10', finalCommittedSourceRevision: '12', evidenceOnly: true,
+      sourceRevisionIncremented: false,
+    } });
+    if (!finalized.ok) throw new Error('restore finalization failed');
+    expect(finalized.state.status).toBe('finalized');
+    expect(restoreEligible(finalized.state)).toBe(true);
+  });
+
+  it('policy snapshot: entity evidence is revision-scoped and restore eligibility requires finalization', () => {
+    expect(PER_ENTITY_SOURCE_REVISION_POLICY).toEqual({
+      selection: 'PER_ENTITY_SOURCE_REVISION_BINDING_REQUIRED',
+      fields: ['createdSourceRevision', 'lastMutatedSourceRevision', 'deletedSourceRevision'],
+      directDigestComparison: 'ONLY_WHEN_ENTITY_LAST_MUTATED_REVISION_EQUALS_RECEIPT_REVISION',
+    });
+    expect(restoreEligible(restoreFixture())).toBe(false);
   });
 
   it('policy snapshot: protocol evolution precedes the dormant source repository', () => {

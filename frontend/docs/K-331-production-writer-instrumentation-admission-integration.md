@@ -35,6 +35,14 @@
 
 `EXISTING_GENERATION_SOURCE_AUTHORITY_BOOTSTRAP_SELECTED`
 
+`SOURCE_REVISION_LINEAGE_ARCHITECTURE_SELECTED: APPEND_ONLY_RECEIPT_HASH_CHAIN`
+
+`PER_ENTITY_SOURCE_REVISION_BINDING_REQUIRED`
+
+`DELAYED_RECONCILIATION_USES_REVISION_AWARE_IMMUTABLE_EVIDENCE`
+
+`CHUNKED_RESTORE_HAS_ORDERED_RECEIPTS_RESTART_CURSOR_AND_FINALIZATION_FENCE`
+
 `PROTOCOL_EVOLUTION_PRECEDES_SOURCE_REPOSITORY_IMPLEMENTATION`
 
 `CENTRAL_MUTATION_MANIFEST_IS_AUDIT_ONLY_AUTHORITY`
@@ -79,7 +87,7 @@ the exact receipt deterministically reconciles the terminal projection without r
 the K-329/K-330 protocol revision. That revision reuses existing writer type, context type,
 capabilities, mutation type, identities, epoch, admission revision, expected source revision,
 physical-source binding, manifest/digest fields, terminal state, drain state, and checkpoints. Only
-the genuinely new bindings listed below may extend the canonical codec. K-331B does not implement
+the genuinely new bindings listed below may extend the canonical codec. K-331C does not implement
 that schema or protocol revision.
 
 **Unresolved owner decisions**: none for this architecture definition. Product behavior for a future
@@ -340,8 +348,8 @@ open, migrate, or delete the legacy Notes source until a separately reviewed mig
 | `generations` | `[namespaceKey, generationId]` | generation status | read/validate | existing K-321; rejects stale/inactive generation |
 | `entities` | `[namespaceKey, generationId, domain, entityId]` | canonical Note/folder envelope, including active/tombstone fields | read/write | existing K-321/K-325 staged data; entity/result digest input |
 | `outbox` | `[namespaceKey, generationId, mutationId]` | durable remote-delivery intent | write exactly once | existing K-322; mutation ID/digest bound into receipt |
-| `source_authority` | `[namespaceKey, generationId]` | one canonical source revision and implementation/protocol binding | read/write once per mutation | new additive store; revision and aggregate authority digest |
-| `source_mutation_receipts` | `[namespaceKey, generationId, operationId]` | immutable proof of exact local source commit | read/add | new additive store; receipt digest and exact-retry authority |
+| `source_authority` | `[namespaceKey, generationId]` | current canonical source revision, complete authority digest, receipt-chain head digest, bootstrap digest, and implementation/protocol binding | read/write once per mutation | new additive store; current-state authority plus append-only lineage head |
+| `source_mutation_receipts` | `[namespaceKey, generationId, operationId]` | immutable proof of exact local source commit and one hash-chain link | read/add | new additive store; previous/committed revision, previous/new chain digest, committed authority digest, receipt digest, and exact-retry authority |
 | `writer_coordination_state` | existing K-330 physical-source/generation key | admitted operation and later terminal projection | read during source tx; later K-330 CAS writes terminal | existing K-330; admission and authority digest validation |
 | `attachment_state` | `[namespaceKey, generationId, attachmentId]` | attachment metadata only | only when a reviewed Note metadata mutation requires it | existing K-321; never proves blob existence |
 
@@ -386,9 +394,13 @@ reconstructs from IndexedDB.
 
 ### Source revision contract
 
-The namespace/generation source revision is a canonical nonnegative decimal string with at most 16
-digits. It is compared and incremented with exact decimal-string/BigInt logic, never converted to a
-JavaScript `number`. Revision exhaustion fails closed before writes. One successful source transaction,
+The namespace/generation source revision is a canonical nonnegative ASCII decimal string with at most
+16 digits: exactly `0` or a nonzero digit followed only by ASCII digits. A strict decoder rejects an
+empty value, whitespace, signs, leading zeroes, decimals, exponent notation, non-ASCII digits,
+non-string values, and out-of-range length **before** calling `BigInt`. It is compared and incremented
+with exact decimal-string/BigInt logic, never converted to a JavaScript `number`. Decoder failures map
+to a bounded persisted-corruption code without preserving the rejected value. Revision exhaustion
+fails closed before writes. One successful source transaction,
 including a bounded bulk mutation, increments it exactly once. Abort, validation failure, and exact
 receipt retry do not increment it. The previous and committed values are stored in the source receipt,
 every outbox record for the operation, and the later K-330 terminal projection. Restart reads the same
@@ -402,6 +414,10 @@ implementation/protocol. Revision zero is evidence of the preexisting snapshot, 
 mutation; the first ordinary transaction advances it to `"1"`.
 
 `SOURCE_REVISION_IS_MONOTONIC_TRANSACTION_BOUND_AND_RESTART_STABLE`
+
+`SOURCE_REVISION_IS_STRICTLY_DECODED_BEFORE_BIGINT_CONVERSION`
+
+`MALFORMED_SOURCE_REVISION_DECODES_TO_BOUNDED_CORRUPTION`
 
 `SOURCE_AUTHORITY_REVISION_ZERO_BINDS_TO_A_VERIFIED_EXISTING_GENERATION_SNAPSHOT`
 
@@ -424,7 +440,25 @@ digests hash sorted bounded identities and per-record digests, not Note bodies, 
 content, raw user/project identifiers, or auth data. `commitSequence` is the committed source revision;
 wall-clock time may be diagnostic outside the authority digest but is not commit proof.
 
+Each receipt also forms one immutable source-revision lineage link. The link binds
+`previousSourceRevision`, `committedSourceRevision`, `previousChainDigest`, `receiptDigest`,
+`committedAuthorityDigest`, and the resulting `chainDigest`. The `source_authority` row advances the
+current revision, current complete-authority digest, and chain-head digest in the same source
+transaction. No later transaction rewrites or deletes an earlier receipt. A chain from a historical
+receipt to the current authority must contain every consecutive revision exactly once; a gap,
+duplicate, fork, broken digest link, decreasing revision, or receipt/authority mismatch is corruption.
+
+The receipt binds the immutable outbox delivery **intent**: mutation identity, semantic operation,
+entity identity, payload/result digest, base/local revision, and idempotency identity. Later delivery
+status, attempt count, lease, retry time, and remote acknowledgement are mutable delivery state and are
+not re-hashed as if they were the original source commit. Reconciliation verifies the immutable intent
+projection and may observe any valid later delivery status.
+
 `SOURCE_TRANSACTION_RECEIPT_PROVES_LOCAL_COMMIT_WITHOUT_EXPOSING_USER_CONTENT`
+
+`SOURCE_REVISION_LINEAGE_IS_APPEND_ONLY_AND_RECEIPT_VERIFIABLE`
+
+`RECONCILIATION_VERIFIES_IMMUTABLE_OUTBOX_INTENT_NOT_LATEST_DELIVERY_STATUS`
 
 ### Admission handoff and terminal reconciliation
 
@@ -464,10 +498,25 @@ revision, source authority, entity/outbox evidence, and current terminal state. 
 receipt, result, revision, digest, writer/session identity, or terminal truth is accepted.
 
 Revision verification proves that the receipt's previous-to-committed transition is exactly one and
-belongs to the persisted source-authority/receipt chain. The current global revision may be greater
-when a later independent transaction committed before reconciliation; it must never be lower than the
-receipt revision. Reconciliation therefore does not incorrectly reject an older valid receipt merely
-because source authority advanced through later immutable receipts.
+belongs to the persisted append-only source-authority/receipt hash chain. The current global revision
+may be greater when a later independent transaction committed before reconciliation; it must never be
+lower than the receipt revision. The repository walks or verifies a bounded indexed chain proof from
+the target receipt to the current chain head. It therefore does not incorrectly reject an older valid
+receipt merely because source authority advanced through later immutable receipts.
+
+Per-entity evidence is revision-scoped. Every canonical entity envelope must bind
+`createdSourceRevision`, `lastMutatedSourceRevision`, and, for a tombstone, `deletedSourceRevision`.
+Reconciliation directly compares the entity/result digest from receipt revision R only if the entity's
+current `lastMutatedSourceRevision` is R. If it is later than R, the later state is valid only when the
+receipt chain proves each intervening source transaction and its committed authority digest. It is not
+compared to R as though no later mutation occurred. A lower entity revision, missing chain link, or
+unexplained state remains corruption.
+
+Concretely, operation O5 may commit receipt R5 while changing entity A at revision 5, and operation O6
+may later commit R6 while changing A again at revision 6. If R5's K-330 terminal projection is still
+missing, R5 remains reconcilable: the repository proves R5, the immutable outbox intent, and the
+R5-to-R6 chain. It does not require A's revision-6 row to equal R5's revision-5 result digest. The same
+rule covers a later tombstone or explicit resurrection when its later receipt lineage is valid.
 
 The action is repository-recovery authority with a distinct discriminator; its canonical codec and
 K-330 envelope version are future K-333 work. The reducer precondition is one exact admitted operation
@@ -502,6 +551,18 @@ delivery failure do not prove local source failure.
 `COMMITTED_SOURCE_RECEIPT_PREVENTS_FAILURE_OR_ABORT_TERMINALIZATION`
 
 `RECONCILIATION_IS_A_READ_AUTHORITY_AND_K330_PROJECTION_TRANSACTION_ONLY`
+
+`A_VALID_OLD_RECEIPT_REMAINS_RECONCILABLE_AFTER_LATER_VALID_SOURCE_TRANSACTIONS`
+
+`DELAYED_RECONCILIATION_VERIFIES_RECEIPT_LINEAGE_NOT_LATEST_ENTITY_EQUALITY`
+
+`ENTITY_EVIDENCE_COMPARISON_IS_REVISION_SCOPED_NOT_LATEST_STATE_SCOPED`
+
+`PER_ENTITY_SOURCE_REVISION_BINDING_REQUIRED`
+
+`SOURCE_AUTHORITY_BINDS_CURRENT_STATE_AND_APPEND_ONLY_RECEIPT_LINEAGE`
+
+`RECONCILIATION_DISTINGUISHES_VALID_LATER_MUTATION_FROM_LINEAGE_CORRUPTION`
 
 ### Retry and crash/restart matrix
 
@@ -550,6 +611,10 @@ receipt/terminal state of the prior operation is known; remote retry keeps the o
 | `RECONCILIATION_CORRUPT_PERSISTED_STATE` | non-retryable corruption | bounded code; no raw payload |
 | `SOURCE_AUTHORITY_NOT_BOOTSTRAPPED` | retry after exclusive bootstrap | internal implementation blocker |
 | `SOURCE_AUTHORITY_BOOTSTRAP_CONFLICT` | non-retryable corruption | owner intervention; no overwrite |
+| `SOURCE_AUTHORITY_BOOTSTRAP_NOT_QUIESCENT` | retry only after a newly proven closed/quiescent boundary | bounded internal blocker; no bootstrap write |
+| `SOURCE_AUTHORITY_BOOTSTRAP_SESSION_CONFLICT` | retry only after conflicting owner/session resolves | bounded internal blocker; no authority adoption |
+| `SOURCE_AUTHORITY_BOOTSTRAP_CORRUPT_PERSISTED_STATE` | non-retryable corruption | bounded decoder/record reason only; block eligibility |
+| `SOURCE_REVISION_NOT_STRING` / `NON_CANONICAL` / `OUT_OF_RANGE` | internal total-decoder result | mapped to boundary corruption; rejected value never exposed |
 
 All contexts are bounded enums/identities already represented by digests. No error contains raw user
 content, storage payload, auth data, stack/cause, or browser exception text.
@@ -587,20 +652,38 @@ admission. The reconciliation action follows the same epoch rule and cannot revi
 
 `EPOCH_TRANSITION_IS_THE_ONLY_NORMAL_FENCE_FOR_PREVIOUS_EPOCH_ADMISSIONS`
 
-### K-331B existing-generation source-authority bootstrap
+### K-331C complete revision-zero source-authority bootstrap
 
 Bootstrap runs before the first ordinary source-authority mutation and only while an exclusive
 maintenance/migration owner blocks ordinary writers. Inside one `absinthe-local-v2` transaction it:
 
-1. rereads and validates the namespace, exact active generation, source implementation, database and
-   schema versions, generation manifest, and exclusive owner;
-2. reads the complete canonical entity set and derives one fixed-order aggregate entity-state digest,
-   entity/tombstone/folder counts, and bounded aggregate evidence;
-3. reads and binds the existing outbox/checkpoint baseline digest/count;
-4. builds canonical bootstrap evidence from authority version, namespace fingerprint, generation ID,
-   source revision `"0"`, aggregate digests/counts, generation manifest digest, database/schema
-   version, bootstrap method, and source protocol/implementation version;
-5. adds exactly one `source_authority` record or aborts the whole transaction.
+1. rereads and validates the namespace, exact active generation, existing `source_authority` row (if
+   any), source implementation, database and schema versions, generation manifest, and exclusive
+   maintenance owner;
+2. proves the coordination boundary is quiescent with `admissionOpen=false`, every writer terminal or
+   quiescent, `admittedOperationCount=0`, `unresolvedOperationCount=0`, no in-flight source commit, no
+   pending receipt reconciliation, no epoch transition in progress, and the exact coordination
+   epoch/state digest; admission stays closed for the entire transaction;
+3. rejects any active/conflicting restore, migration, recovery, cleanup, cutover, or other maintenance
+   session rather than guessing which actor is authoritative;
+4. reads the complete active-generation entity authority: Notes/entities, folders, tombstones, and
+   normalized relation evidence, with fixed-order counts and aggregate digests;
+5. reads all generation-scoped `attachment_state` metadata and binds its count/digest. The inspected
+   `AttachmentStateRecord` authority fields are namespace/generation, attachment ID, `referencedBy`,
+   local/remote availability, checksum state, sync state, storage-locator reference, and created/updated
+   timestamps. The current type has no size, MIME, provider, or recoverability fields, so the contract
+   does not invent them. Blob bytes, cache bytes, and provider payloads remain external and the evidence
+   states `attachmentBlobAtomicity='not_claimed'`;
+6. reads and binds the complete existing outbox count/immutable-intent digest, checkpoint digest,
+   active-generation record, generation manifest, and source protocol/implementation identifiers;
+7. builds one fixed-order revision-zero evidence value containing authority-record version, physical
+   database name, namespace fingerprint/key digest (the physical row key remains the canonical
+   namespace key), generation, active status, schema/protocol/implementation versions, explicit
+   Note/folder/tombstone/relation counts and relationship digest, aggregate entity evidence,
+   attachment/outbox counts and digests, checkpoint count/version/digest, coordination
+   epoch/quiescence proof, session-conflict booleans, bootstrap method version, and the final bootstrap
+   evidence digest;
+8. adds exactly one `source_authority` record or aborts the whole transaction.
 
 Revision `"0"` represents the verified preexisting snapshot. Bootstrap creates no ordinary operation
 receipt, writer/session/operation identity, upload outbox entry, remote mutation, or user-visible
@@ -610,9 +693,13 @@ semantic source change. The first ordinary committed mutation advances `"0"` to 
 Crash before transaction commit leaves no authority row and retry rereads the complete snapshot.
 Crash after commit finds the exact row and returns idempotent success. An existing row with the exact
 bootstrap evidence digest is an exact retry; any mismatch is `SOURCE_AUTHORITY_BOOTSTRAP_CONFLICT`.
-Exclusive ownership plus manifest/entity/outbox rereads prevents concurrent source change; any changed
-evidence aborts. A later bypass that changes entities without the required revision/receipt progression
-causes graph verification to fail and blocks eligibility.
+The retry compares the complete canonical evidence, not only its claimed digest. A different entity,
+folder, tombstone, relation, attachment metadata record, outbox intent, checkpoint, manifest,
+generation, namespace, protocol, implementation, coordination epoch/state, or bootstrap method cannot
+rebind revision zero. Exclusive ownership, zero admitted/unresolved operations, and all-source rereads
+prevent concurrent source change; any changed evidence aborts. A later bypass that changes authority
+without the required revision/receipt progression causes graph verification to fail and blocks
+eligibility.
 
 `EXISTING_GENERATION_SOURCE_AUTHORITY_BOOTSTRAP_SELECTED`
 
@@ -622,6 +709,72 @@ causes graph verification to fail and blocks eligibility.
 
 `SOURCE_AUTHORITY_BOOTSTRAP_IS_ATOMIC_IDEMPOTENT_AND_EXCLUSIVE`
 
+`REVISION_ZERO_BINDS_COMPLETE_GENERATION_AUTHORITY_AND_QUIESCENCE`
+
+`BOOTSTRAP_REQUIRES_ZERO_ADMITTED_ZERO_UNRESOLVED_AND_QUIESCENT_COORDINATION`
+
+`ATTACHMENT_METADATA_IS_SOURCE_AUTHORITY_WHILE_BLOB_BYTES_REMAIN_EXTERNAL`
+
+`BOOTSTRAP_READS_COMPLETE_AUTHORITY_AND_WRITES_ONLY_REVISION_ZERO_EVIDENCE`
+
+`SOURCE_AUTHORITY_REVISION_ZERO_PROVES_COMPLETE_CONTENT_FREE_BOOTSTRAP_EVIDENCE`
+
+`REVISION_ZERO_CANNOT_BE_REBOUND_TO_A_DIFFERENT_GENERATION_SNAPSHOT`
+
+`REVISION_ZERO_BINDS_NOTES_FOLDERS_TOMBSTONES_ATTACHMENTS_OUTBOX_AND_CHECKPOINTS`
+
+The current K-321 repository can write `attachment_state` in a standalone active-generation
+transaction and does not advance a source revision because the K-331 source authority is not
+implemented. Under the selected future contract, any canonical metadata change affecting ownership,
+references, availability, integrity, recoverability, remote locator identity, or sync intent must go
+through the source transaction owner and advance the global revision, whether or not a Note entity also
+changes. Attachment conversion/restore must use the same authority boundary; its current split legacy
+transactions are not admissible proof. Timestamp changes are authority-bearing only when the canonical
+metadata record truly changes, never as a touch-only side effect.
+
+### K-331C chunked restore revision lineage
+
+A restore too large for one bounded transaction is an exclusive maintenance sequence, never an
+implicit multi-transaction success. Its immutable plan binds the restore session, namespace,
+generation, base source revision, ordered chunk count, and ordered input digests. Admission remains
+closed and eligibility remains false until exact finalization.
+
+Each chunk is one ordinary source-authority transaction and therefore advances the global source
+revision exactly once. Its immutable receipt additionally binds restore session, zero-based chunk
+index, preceding chunk-receipt digest, previous/committed source revisions, chunk input/result digest,
+affected entity-set digest, attachment-metadata digest, and immutable outbox-intent digest. Chunk N is
+legal only after receipt N-1, with consecutive revision and digest links. Exact same-input retry returns
+the existing receipt without a write or revision increment; conflicting retry, skipped index, chain
+fork, or changed plan is corruption.
+
+The durable restart cursor is derived from the longest verified contiguous receipt prefix, not trusted
+as a free-standing mutable integer. Restart revalidates the ordered chain from the plan/base revision
+before admitting the next chunk. Cancellation or failure after a partial prefix retains those receipts
+as committed source history; it never normalizes the generation to complete, rewinds source revision,
+or makes it eligible.
+
+After all planned chunks commit, a final read-only verification computes the complete authority digest
+and exact ordered chain head. The final restore manifest records session, base/final committed
+revisions, ordered chain digest, complete entity count/digest, attachment metadata count/digest,
+outbox immutable-intent count/digest, checkpoint digest, protocol version, completion state, and
+complete authority digest. It is evidence-only: creating it does not mutate an
+entity/outbox/checkpoint and does not increment source revision. Missing chunks, digest mismatch, an
+active conflicting session, or changed authority prevents finalization and therefore eligibility.
+Planned, in-progress, interrupted, verifying, finalization-pending, cancelled-after-partial, and
+corrupt sessions are all ineligible. Eligibility may proceed only after the final manifest commits,
+the complete digest still matches current authority, coordination is quiescent with no unresolved
+operation, and the session is terminal complete.
+
+`RESTORE_CHUNKS_FORM_AN_ORDERED_HASH_CHAIN_WITH_EXACT_RETRY`
+
+`RESTORE_RESTART_CURSOR_IS_DERIVED_FROM_DURABLE_CHUNK_RECEIPTS`
+
+`RESTORE_FINAL_MANIFEST_IS_EVIDENCE_ONLY_AND_DOES_NOT_INCREMENT_SOURCE_REVISION`
+
+`ELIGIBILITY_REMAINS_BLOCKED_UNTIL_EXACT_RESTORE_FINALIZATION`
+
+`PARTIAL_RESTORE_NEVER_NORMALIZES_TO_COMPLETE_OR_ELIGIBLE`
+
 ### Global revision rules
 
 | Change class | Revision behavior | Outbox/receipt behavior |
@@ -629,7 +782,7 @@ causes graph verification to fail and blocks eligibility.
 | ordinary local mutation | increment once per atomic transaction | exact upload outbox set plus one source receipt |
 | remote apply | increment once per atomic apply transaction | no upload echo for the same remote mutation; checkpoint may commit atomically; one source receipt |
 | bounded bulk mutation | increment once for the whole atomic bounded affected set | affected-set digest binds all changes; one receipt |
-| restore | one increment only for a proven bounded atomic restore; otherwise a maintenance session with explicit chunk receipts/revisions and final committed manifest | never claim an unbounded restore fits one transaction |
+| restore | one increment for a proven bounded atomic restore; otherwise exactly one increment per committed ordered chunk | immutable chunk receipts form a source-revision hash chain; final manifest is evidence-only and does not increment |
 | later migration | each explicit source-changing transaction increments once and has reviewed receipt semantics | no implicit multi-transaction success |
 | bootstrap | revision `"0"`; no increment because it records a verified existing snapshot | bootstrap evidence only; no ordinary receipt/outbox |
 
@@ -816,13 +969,30 @@ inventing transaction semantics first.
 | atomic first registration | separate actions today | `REGISTER_AND_ADMIT_FIRST_OPERATION` | one envelope transition | compatibility input | new action codec | authority digest |
 | admission handle | operation fields exist | canonical admission handle/digest | digest/bound fields | detached bounded handle | new strict structure | admission + receipt |
 | source receipt | no | immutable receipt and receipt digest | new receipt store | no | new strict codec | terminal/source authority |
+| source receipt lineage | no | previous/new chain digest plus committed authority digest | source receipt + authority chain head | bounded proof input only | new strict receipt/authority codec | receipt chain/head |
+| per-entity source revision | no | created/last-mutated/deleted source revision | entity envelope | no | entity version evolution | entity/result/authority digest |
+| outbox intent/delivery split | partial | immutable source intent projection separated from mutable delivery status | outbox | no | outbox version evolution | receipt hashes intent only |
 | terminal success binding | committed revision exists | receipt digest binding; failure-after-receipt prohibition | operation/envelope | no | envelope/action version | authority digest |
 | receipt reconciliation | no | repository-owned `RECONCILE_COMMITTED_RECEIPT` | K-330 result only | bounded lookup input | new action/error codec | envelope/terminal digest |
 | drain state/checkpoint chain | yes | pre-drain operation remains valid until terminal/epoch | yes | no | reducer rule/version | authority/checkpoint |
 | maintenance exclusivity | partially derivable | durable owner binding if not unique | conditional | lock runtime | codec only if added | authority digest |
-| bootstrap evidence | no | revision-zero snapshot/manifest/baseline binding | source authority row | scan working set | new authority codec | bootstrap evidence digest |
+| bootstrap evidence | no | complete entity/folder/tombstone/relation, attachment metadata, outbox/checkpoint, generation, quiescence, and session-conflict binding | source authority row | complete bounded scan | new authority codec | bootstrap evidence digest |
+| chunked restore lineage | partial restore session model | immutable ordered chunk receipts, derived restart cursor, evidence-only final manifest | source receipt + restore session/manifest | bounded next-chunk input | restore/receipt codec evolution | chunk chain/final authority digest |
 | context identity | session/context type exist | explicit `contextId` only if required | conditional | fresh runtime identity | codec only if added | registration/admission |
 | Web Lock, promise, callbacks, visibility | no durable authority | none | no | yes | none | none |
+
+K-331C narrows the future K-333/K-334 ownership as follows:
+
+| K-331C concept | Persisted | Transient | Codec impact | Digest impact | Schema impact | Future owner |
+|---|---|---|---|---|---|---|
+| complete revision-zero evidence | complete counts/digests, quiescence and session flags in `source_authority` | bounded complete-store scan | strict versioned authority record; reject unknown/missing fields | bootstrap and current-authority digests | additive `source_authority` store/record only | K-333 protocol; K-334 repository |
+| attachment metadata authority | full generation-scoped metadata digest/count; no blob | blob/provider/cache access remains outside proof | fixed-order metadata projection | bootstrap/current authority and affected-set digests | reuse `attachment_state`; source transaction must include it when affected | K-333 projection; K-334 transaction |
+| coordination quiescence | epoch/state digest plus exact zero counts/false flags | exclusive lock/transaction lifetime | bounded bootstrap precondition/error values | bootstrap evidence digest | no duplicate coordination store | K-333 preconditions; K-334 transaction |
+| receipt hash chain | previous/committed revisions, previous/new chain digests, receipt and committed-authority digest | bounded lookup/range proof | strict receipt/authority evolution | receipt, chain head and authority digest | additive receipt store plus authority fields | K-333 codec; K-334 append-only writes |
+| per-entity source revision | created/last-mutated/deleted revision | none | strict entity-envelope evolution | entity and complete-authority digest | additive populated-record migration required | K-333 field contract; K-334 migration/repository |
+| immutable outbox intent | identity/payload/base-local revision/idempotency projection | latest delivery observation | explicit intent-versus-delivery projection | receipt hashes immutable intent only | existing outbox record version may need additive fields | K-333 contract; K-334 verification |
+| chunked restore sequence | session/plan, ordered chunk receipts, derived cursor projection, final manifest | next-chunk input | strict session/chunk/final codecs and stable errors | chunk chain and complete final authority digest | future versioned restore/receipt fields; no runtime added here | K-333 protocol; K-334 repository |
+| strict revision decoding | canonical decimal strings only | parsed `bigint` after validation | shared total decoder and bounded error mapping | canonical string only | no store by itself; applies to all evolved records | K-333 codec; K-334 boundary use |
 
 New stable reconciliation errors are the bounded codes listed above. Every new authority field/action
 requires fixed canonical order, strict unknown-field rejection, canonical codec round-trip, relevant
@@ -831,13 +1001,13 @@ receipt/revision/writer fields from repository reads; its caller input is not in
 truth. Old records receive no permissive default and cannot join a new epoch.
 
 Mixed-version contexts fail `UNSUPPORTED_PROTOCOL_VERSION`. Additive source stores require a future
-IndexedDB format upgrade with populated-version preservation tests; K-331B makes no schema change.
+IndexedDB format upgrade with populated-version preservation tests; K-331C makes no schema change.
 
 `K329_K330_PROTOCOL_EXTENSION_REQUIREMENTS_ARE_EXACT_MINIMAL_AND_NON_DUPLICATIVE`
 
-`K331B_PROTOCOL_REQUIREMENTS_INCLUDE_RECONCILIATION_AUTHORITY_AND_DRAIN_VALIDITY`
+`K331C_PROTOCOL_REQUIREMENTS_CLOSE_BOOTSTRAP_LINEAGE_RESTORE_AND_DECODING_GAPS`
 
-`PROTOCOL_EVOLUTION_REQUIRED_BUT_NOT_IMPLEMENTED_IN_K331B`
+`PROTOCOL_EVOLUTION_REQUIRED_BUT_NOT_IMPLEMENTED_IN_K331C`
 
 ## Deterministic evidence and production non-reachability
 
@@ -849,9 +1019,11 @@ are deliberately separated:
   admitted completion, `REQUEST_DRAIN` closure, durable restart, stale epoch, canonical round-trip,
   and checkpoint-5/source-evidence atomicity;
 - **architecture fixtures**: source receipt exact retry/conflict, repository-owned reconciliation
-  lookup/read-set/terminal cases, drain-aware exact admission, and revision-zero bootstrap
-  idempotency/conflict. They prove internal consistency of the selected contract, not a production
-  repository, reducer action, codec, store, or migration implementation;
+  lookup/read-set/terminal cases, append-only delayed-reconciliation lineage, immutable outbox intent,
+  strict revision decoding, drain-aware exact admission, complete revision-zero bootstrap
+  idempotency/conflict/quiescence, attachment metadata authority, and ordered chunked-restore
+  receipt/restart/finalization behavior. They prove internal consistency of the selected contract, not
+  a production repository, reducer action, codec, store, migration, or restore implementation;
 - **policy snapshots**: unsupported Web Locks, protocol mismatch, maintenance exclusivity, sync pause,
   atomic first-write selection, existing/new/transient field separation, protocol-before-repository
   task order, and audit-only manifest role;
@@ -862,12 +1034,14 @@ No test claims that the source transaction repository, production client, Web Lo
 instrumentation exists. The harness has no sleep, timing threshold, storage, network,
 `navigator.locks`, K-328, or production import.
 
-`K331B_EVIDENCE_COVERS_RECONCILIATION_DRAIN_BOOTSTRAP_AND_TASK_ORDER_CONTRACTS`
+`K331C_EVIDENCE_COVERS_COMPLETE_BOOTSTRAP_LINEAGE_RESTORE_AND_DECODING_CONTRACTS`
+
+`K331C_EVIDENCE_LABELING_REMAINS_HONEST_AND_NON_IMPLEMENTATION_CLAIMING`
 
 The K-331 change contains only this test and this document. It adds no production module or import,
 does not alter any writer, and does not make the test helper reachable from an application bundle.
 
-`K331B_HAS_NO_PRODUCTION_RUNTIME_EFFECT`
+`K331C_HAS_NO_PRODUCTION_RUNTIME_EFFECT`
 
 - no production K-330 caller or writer registration;
 - no production Web Locks call;
@@ -935,31 +1109,34 @@ Recommended sequence:
 
 `PROTOCOL_EVOLUTION_PRECEDES_SOURCE_REPOSITORY_IMPLEMENTATION`
 
-## Validation on the K-331B precommit working tree
+## Validation on the K-331C precommit working tree
 
 | Check | Result |
 |---|---|
-| K-331/K-331A/K-331B focused definition harness | 34 passed; 1 file; 1.36 s; tests 351 ms |
-| K-330 dormant repository | 51 passed; 1 file; 8.78 s; tests 8.22 s |
-| K-329 eligibility model | 122 passed; 1 file; 8.46 s; tests 8.04 s |
-| K-328 cross-context handoff | 73 passed; 2 files; 820 ms; tests 800 ms |
-| K-327 source-handoff spike | 391 passed; 1 file; 2.10 s; tests 1.70 s |
-| K-326 local-first cutover | 78 passed; 1 file; 2.71 s; tests 1.67 s |
-| K-325 legacy Notes migration | 164 passed; 1 file; 1.83 s; tests 949 ms |
-| all `localDatabase` | 1,201 passed; 14 files; 11.34 s; aggregate tests 29.91 s |
-| recovery | 70 passed; 2 files; 13.72 s; tests 12.28 s |
-| typecheck | passed; final run 24.4 s |
-| build | passed; 2,480 modules; Vite 11.46 s; wall 13.1 s; existing mixed-import/chunk-size warnings only |
+| K-331/K-331A/K-331B/K-331C focused definition harness | 45 passed; 1 file; final 1.87 s; tests 566 ms |
+| K-330 dormant repository | 51 passed; 1 file; 12.97 s; tests 11.52 s |
+| K-329 eligibility model | 122 passed; 1 file; 12.16 s; tests 11.62 s |
+| K-328 cross-context handoff | 73 passed; 2 files; 1.06 s; tests 992 ms |
+| K-327 source-handoff spike | 391 passed; 1 file; 2.50 s; tests 1.99 s |
+| K-326 local-first cutover | 78 passed; 1 file; 4.01 s; tests 2.02 s |
+| K-325 legacy Notes migration | 164 passed; 1 file; 2.17 s; tests 1.07 s |
+| all `localDatabase` | 1,212 passed; 14 files; final 10.78 s; aggregate tests 29.17 s |
+| recovery | 70 passed; 2 files; 11.33 s; tests 10.68 s |
+| typecheck | passed; final run 25.2 s |
+| build | passed; 2,480 modules; Vite 16.90 s; wall 18.1 s; existing mixed-import/chunk-size warnings only |
 | `git diff --check` | passed; line-ending notices only |
-| full frontend | 5,479 passed / 7 skipped; 583 passed / 1 skipped files; 218.01 s |
+| full frontend | 5,490 passed / 7 skipped; 583 passed / 1 skipped files; final 195.20 s |
 
-All final commands passed. The focused harness and typecheck each ran twice during the correction and
-both runs passed. The full suite ran once. No flakes or failure-driven reruns occurred. The harness has
+All final commands passed. The focused harness and typecheck ran during correction and all runs passed.
+The predecessor suites were run in parallel, so their wall durations are evidence only, not a
+performance comparison. The full suite ran twice: the first passed, then the receipt fixture was
+strengthened to bind the current authority chain-head digest, and the exact final tree passed again.
+This was not a failure-driven rerun; there were no flakes. The harness has
 no `.only`, `.skip`, sleep, timer, timing threshold, browser storage, network, or production import.
 Exact-head CI is reported on PR #589 after push and is not claimed by this precommit table.
 
 ## Non-goals
 
-K-331B does not implement K-332 or later work, production coordination, Web Locks, source migration,
+K-331C does not implement K-332 or later work, production coordination, Web Locks, source migration,
 outbox delivery, sync changes, restore/migration execution, source eligibility, cutover, K-328
 consumption, UI, startup hooks, network behavior, service workers, or recovery-policy bypasses.
