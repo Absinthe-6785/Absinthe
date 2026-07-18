@@ -13,7 +13,7 @@ import {
   type WriterRegistrationRecord,
   type SourceVerificationObservation,
 } from './writerCoordinationEligibility';
-import * as k331e from './productionWriterAdmissionK331E.testSupport';
+import * as k331f from './productionWriterAdmissionK331F.testSupport';
 
 const PHYSICAL_SOURCE = '1'.repeat(64);
 const COORDINATOR_SESSION = `writer-session-v1:${'a'.repeat(32)}`;
@@ -527,7 +527,7 @@ type AttachmentProjectionFixture = Readonly<{
 
 function attachmentAuthorityDigestFixture(input: AttachmentProjectionFixture): string {
   const canonical = input.canonical;
-  return k331e.sha256Hex('ABSINTHE_ATTACHMENT_CANONICAL_AUTHORITY_V1', [canonical.attachmentId,
+  return k331f.sha256Hex('ABSINTHE_ATTACHMENT_CANONICAL_AUTHORITY_V1', [canonical.attachmentId,
     canonical.generationId, [...canonical.canonicalReferenceIds].sort(), canonical.contentChecksum,
     canonical.storageObjectIdentity, canonical.createdSourceRevision,
     canonical.lastMutatedSourceRevision, canonical.deletedSourceRevision ?? null]);
@@ -788,7 +788,7 @@ function commitRestoreChunkFixture(
     sourceImplementationId: 'local-first-source-v1',
   });
   const receipt = Object.freeze({ ...receiptWithoutDigest,
-    chunkReceiptDigest: k331e.sha256Hex(k331e.K331E_DOMAINS.restoreChunk,
+    chunkReceiptDigest: k331f.sha256Hex(k331f.K331F_DOMAINS.restoreChunk,
       [canonicalRestoreChunkReceiptPreimage(receiptWithoutDigest)]) });
   return { ok: true, receipt, reused: false, state: Object.freeze({
     ...state, receipts: Object.freeze([...state.receipts, receipt]), recordedCursor: chunkIndex + 1,
@@ -959,6 +959,7 @@ function sourceObservation(): SourceVerificationObservation {
   };
 }
 
+/* K-331E fixture helpers were superseded by K-331F's independent-authority model.
 function k331eSegmentReceipts(segmentIndex: number): readonly k331e.SourceReceipt[] {
   const first = segmentIndex * k331e.K331E_LIMITS.segmentSize + 1;
   return Object.freeze(Array.from({ length: k331e.K331E_LIMITS.segmentSize }, (_, leafIndex) => {
@@ -1019,6 +1020,56 @@ function k331eSourceAuthority(accumulator: k331e.RestoreAccumulator): k331e.Sour
     protocolVersion: 1 as const, implementationId: 'local-first-source-v1' });
   return Object.freeze({ ...withoutDigest,
     completeAuthorityDigest: k331e.sourceAuthorityProjectionDigest(withoutDigest) });
+}
+*/
+
+function unwrapK331f<T>(result: k331f.ProtocolResult<T>): T {
+  if (!result.ok) throw new Error(`unexpected fixture failure: ${result.code}`);
+  return result.value;
+}
+
+function k331fProofFixture(segmentCount = 3, targetSegment = 1, targetLeaf = 5,
+  mutationKind: k331f.MutationKind = 'NOTE_UPSERT') {
+  const segments: k331f.SourceReceipt[][] = [];
+  const checkpoints: k331f.SegmentCheckpoint[] = [];
+  for (let segmentIndex = 0; segmentIndex < segmentCount; segmentIndex += 1) {
+    const receipts: k331f.SourceReceipt[] = [];
+    let previous: string | null = null;
+    for (let leafIndex = 0; leafIndex < k331f.K331F_LIMITS.segmentSize; leafIndex += 1) {
+      const committed = String(segmentIndex * k331f.K331F_LIMITS.segmentSize + leafIndex + 1);
+      const receipt = unwrapK331f(k331f.createSourceReceipt({ operationId: `operation-${committed}`,
+        previousSourceRevision: String(Number(committed) - 1), committedSourceRevision: committed,
+        mutationKind: segmentIndex === targetSegment && leafIndex === targetLeaf
+          ? mutationKind : 'NOTE_UPSERT', previousReceiptChainDigest: previous }));
+      receipts.push(receipt);
+      previous = receipt.receiptDigest;
+    }
+    segments.push(receipts);
+    checkpoints.push(unwrapK331f(k331f.createSegmentCheckpoint(receipts,
+      checkpoints.at(-1)?.checkpointDigest ?? null)));
+  }
+  let state = k331f.emptyMmrState();
+  for (const checkpoint of checkpoints) state = unwrapK331f(k331f.appendMmrCheckpoint(state, checkpoint));
+  const authority = unwrapK331f(k331f.createSourceAuthority(
+    String(segmentCount * k331f.K331F_LIMITS.segmentSize), k331f.sha256Hex('SOURCE_STATE', [segmentCount]), state));
+  const receipts = segments[targetSegment];
+  const proof: k331f.HistoricalProofMaterial = Object.freeze({ kind: 'absinthe_historical_proof', version: 1,
+    receipt: receipts[targetLeaf], segmentLeafCount: receipts.length,
+    segmentPath: unwrapK331f(k331f.segmentMerkleProof(receipts.map(receipt =>
+      k331f.sha256Hex(k331f.K331F_DOMAINS.receiptLeaf, [receipt.committedSourceRevision,
+        receipt.receiptDigest, receipt.segmentIndex, receipt.leafIndex])), targetLeaf)),
+    checkpoint: checkpoints[targetSegment],
+    mmrProofEncoded: k331f.encodeMmrProof(unwrapK331f(k331f.createMmrProof(checkpoints, targetSegment))) });
+  return Object.freeze({ proof, current: Object.freeze({ sourceAuthorityRecord: authority,
+    referencedMmrStateRecord: state }), checkpoints, state, authority });
+}
+
+function k331fBootstrapScope(): k331f.BootstrapScope {
+  return Object.freeze({ namespaceFingerprint: 'namespace-a', generationId: 'generation-a',
+    sessionId: 'bootstrap-a', baselineDigest: k331f.sha256Hex('BASELINE', ['a']),
+    manifestDigest: k331f.sha256Hex('MANIFEST', ['a']), schemaVersion: 1, protocolVersion: 1,
+    attachmentClassificationDigest: k331f.sha256Hex('ATTACHMENT_CLASSES', ['v1']),
+    categoryDefinitionVersion: 1 });
 }
 
 describe('K-331 dormant production-writer admission definition', () => {
@@ -1496,7 +1547,7 @@ describe('K-331 dormant production-writer admission definition', () => {
     if (!first.ok) throw new Error(first.code);
     const { chunkReceiptDigest: _digest, ...receiptPreimage } = first.receipt;
     expect(first.receipt.chunkReceiptDigest)
-      .toBe(k331e.sha256Hex(k331e.K331E_DOMAINS.restoreChunk,
+      .toBe(k331f.sha256Hex(k331f.K331F_DOMAINS.restoreChunk,
         [canonicalRestoreChunkReceiptPreimage(receiptPreimage)]));
     expect(commitRestoreChunkFixture(first.state, 0, 'chunk-input-0'))
       .toMatchObject({ ok: true, reused: true, receipt: first.receipt });
@@ -1546,6 +1597,7 @@ describe('K-331 dormant production-writer admission definition', () => {
     });
   });
 
+  /* K-331E proof tests were superseded by the stricter K-331F suite below.
   it('K-331E: revision coordinates are unique and revision zero has no receipt leaf', () => {
     expect(k331e.revisionCoordinate('1')).toEqual({ revision: '1', segmentIndex: 0, leafIndex: 0 });
     expect(k331e.revisionCoordinate('64')).toEqual({ revision: '64', segmentIndex: 0, leafIndex: 63 });
@@ -1937,5 +1989,290 @@ describe('K-331 dormant production-writer admission definition', () => {
     expect(Object.keys(k331e.K331E_STABLE_ERRORS)).toHaveLength(26);
     expect(new Set(Object.values(k331e.K331E_STABLE_ERRORS)))
       .toEqual(new Set(['NON_RETRYABLE', 'OWNER_INTERVENTION', 'CORRUPTION', 'RESTART_REQUIRED', 'RETRYABLE']));
+  });
+  */
+
+  it('K-331F: canonical encoding distinguishes missing, explicit null, and present values', () => {
+    expect(k331f.canonicalDigest('DOMAIN', [undefined])).toEqual({
+      ok: false, code: 'CANONICAL_REQUIRED_FIELD_MISSING',
+    });
+    expect(k331f.sha256Hex('DOMAIN', [k331f.optionalAbsent]))
+      .not.toBe(k331f.sha256Hex('DOMAIN', [k331f.explicitNull]));
+    expect(k331f.sha256Hex('DOMAIN', [k331f.optionalPresent('x')]))
+      .not.toBe(k331f.sha256Hex('DOMAIN', [k331f.optionalAbsent]));
+  });
+
+  it('K-331F: receipt decoder rejects unknown, missing, mixed-version, digest, and coordinate corruption', () => {
+    const receipt = unwrapK331f(k331f.createSourceReceipt({ operationId: 'operation-a',
+      previousSourceRevision: '0', committedSourceRevision: '1' }));
+    expect(k331f.decodeSourceReceipt(Object.freeze({ ...receipt, extra: true })))
+      .toEqual({ ok: false, code: 'LINEAGE_RECORD_DECODE_FAILED' });
+    const { committedResultDigest: _missing, ...missing } = receipt;
+    expect(k331f.decodeSourceReceipt(missing)).toEqual({ ok: false, code: 'LINEAGE_RECORD_DECODE_FAILED' });
+    expect(k331f.decodeSourceReceipt(Object.freeze({ ...receipt, version: 2 })))
+      .toEqual({ ok: false, code: 'PROTOCOL_VERSION_UNSUPPORTED' });
+    expect(k331f.decodeSourceReceipt(Object.freeze({ ...receipt,
+      receiptDigest: receipt.receiptDigest.toUpperCase() })))
+      .toEqual({ ok: false, code: 'LINEAGE_DIGEST_INVALID' });
+    expect(k331f.decodeSourceReceipt(Object.freeze({ ...receipt, leafIndex: 1 })))
+      .toEqual({ ok: false, code: 'LINEAGE_COORDINATE_MISMATCH' });
+    expect(k331f.decodeSourceReceipt(Object.freeze({ ...receipt, previousReceiptChainDigest: 'chain-1' })))
+      .toEqual({ ok: false, code: 'LINEAGE_DIGEST_INVALID' });
+  });
+
+  it('K-331F: checkpoint cross-record validation rejects foreign namespace despite contiguous revisions', () => {
+    const first = unwrapK331f(k331f.createSourceReceipt({ operationId: 'operation-1',
+      previousSourceRevision: '0', committedSourceRevision: '1' }));
+    const foreign = unwrapK331f(k331f.createSourceReceipt({ namespaceFingerprint: 'namespace-b',
+      operationId: 'operation-2', previousSourceRevision: '1', committedSourceRevision: '2',
+      previousReceiptChainDigest: first.receiptDigest }));
+    expect(k331f.createSegmentCheckpoint([first, foreign], null))
+      .toEqual({ ok: false, code: 'LINEAGE_NAMESPACE_GENERATION_MISMATCH' });
+  });
+
+  it('K-331F: verifies historical evidence against independently read current authority', () => {
+    const fixture = k331fProofFixture();
+    expect(k331f.verifyHistoricalReceipt(fixture.proof, fixture.current)).toMatchObject({
+      ok: true, value: { receipt: { committedSourceRevision: '70' } },
+    });
+  });
+
+  it('K-331F: rejects a self-consistent stale proof after current authority advances', () => {
+    const stale = k331fProofFixture(3);
+    const fourth = k331fProofFixture(4);
+    expect(k331f.verifyHistoricalReceipt(stale.proof, fourth.current))
+      .toEqual({ ok: false, code: 'LINEAGE_STALE_AUTHORITY_PROOF' });
+    expect(k331f.verifyHistoricalReceipt(stale.proof, Object.freeze({
+      sourceAuthorityRecord: stale.authority, referencedMmrStateRecord: null,
+    }))).toEqual({ ok: false, code: 'LINEAGE_MMR_STATE_MISSING' });
+  });
+
+  it('K-331F: rejects a current authority pointer that does not bind the fetched MMR record', () => {
+    const fixture = k331fProofFixture();
+    const wrong = k331f.emptyMmrState('namespace-a', 'generation-a', 'another-state');
+    expect(k331f.verifyHistoricalReceipt(fixture.proof, Object.freeze({
+      sourceAuthorityRecord: fixture.authority, referencedMmrStateRecord: wrong,
+    }))).toEqual({ ok: false, code: 'LINEAGE_AUTHORITY_POINTER_MISMATCH' });
+  });
+
+  it('K-331F: verifies compacted evidence without the raw proof record and retries idempotently', () => {
+    const fixture = k331fProofFixture();
+    const current = k331f.postCompactionAuthority(fixture.current,
+      unwrapK331f(k331f.decodeSourceReceipt(fixture.proof.receipt)));
+    const first = unwrapK331f(k331f.compactReceipt(Object.freeze({ retentionState: 'RAW_ONLY',
+      proof: fixture.proof }), current));
+    expect(first.retentionState).toBe('INDEX_ONLY');
+    expect('proof' in first).toBe(false);
+    const second = unwrapK331f(k331f.compactReceipt(first, current));
+    expect(second).toEqual(first);
+    if (second.retentionState === 'INDEX_ONLY') {
+      expect(k331f.verifyCompactedReceipt(second.index, current)).toMatchObject({ ok: true });
+    }
+  });
+
+  it('K-331F: compacted evidence remains authority-bound and rejects identity tampering', () => {
+    const fixture = k331fProofFixture();
+    const index = unwrapK331f(k331f.createCompactedReceiptIndex(fixture.proof, fixture.current));
+    const advanced = k331fProofFixture(4);
+    const receipt = unwrapK331f(k331f.decodeSourceReceipt(fixture.proof.receipt));
+    expect(k331f.verifyCompactedReceipt(index, k331f.postCompactionAuthority(advanced.current, receipt)))
+      .toEqual({ ok: false, code: 'LINEAGE_STALE_AUTHORITY_PROOF' });
+    expect(k331f.verifyCompactedReceipt(Object.freeze({ ...index,
+      operationEvidence: Object.freeze({ ...index.operationEvidence, operationId: 'different' }) }),
+    k331f.postCompactionAuthority(fixture.current, receipt)))
+      .toEqual({ ok: false, code: 'LINEAGE_COMPACTION_INDEX_CONFLICT' });
+    const current = k331f.postCompactionAuthority(fixture.current, receipt);
+    expect(k331f.verifyCompactedReceipt(index, Object.freeze({ ...current,
+      immutableOutboxEvidence: Object.freeze({ operationId: receipt.operationId,
+        immutableOutboxIntentDigest: k331f.sha256Hex('OTHER_OUTBOX', ['x']) }) })))
+      .toEqual({ ok: false, code: 'OPERATION_IDENTITY_MISMATCH' });
+    expect(k331f.verifyCompactedReceipt(index, Object.freeze({ ...current,
+      terminalRecord: Object.freeze({ operationId: receipt.operationId, status: 'failed',
+        receiptDigest: receipt.receiptDigest, resultDigest: receipt.committedResultDigest }) })))
+      .toEqual({ ok: false, code: 'OPERATION_IDENTITY_MISMATCH' });
+    expect(k331f.verifyCompactedReceipt(index, Object.freeze({ ...current,
+      k330OperationRecord: Object.freeze({ operationId: receipt.operationId,
+        writerSessionDigest: receipt.writerSessionDigest,
+        admissionDigest: k331f.sha256Hex('OTHER_ADMISSION', ['x']),
+        canonicalInputDigest: receipt.canonicalInputDigest }) })))
+      .toEqual({ ok: false, code: 'OPERATION_IDENTITY_MISMATCH' });
+  });
+
+  it('K-331F: purge authority requires the latest authenticated compacted tombstone', () => {
+    const fixture = k331fProofFixture(3, 1, 5, 'NOTE_TOMBSTONE');
+    const index = unwrapK331f(k331f.createCompactedReceiptIndex(fixture.proof, fixture.current));
+    const lifecycle = Object.freeze({ entityIdentityDigest: index.receiptEvidence.affectedRecordIdentityDigest,
+      lifecycle: 'tombstoned' as const, latestRevision: index.receiptEvidence.committedSourceRevision,
+      latestCompactedIndexDigest: index.indexDigest, purgeOperationId: 'purge-operation-a',
+      expectedPurgeRevision: String(Number(index.receiptEvidence.committedSourceRevision) + 1),
+      resultingAuthorityDigest: k331f.sha256Hex('PURGE_AUTHORITY', ['a']) });
+    expect(k331f.createPurgeCertificate(index, fixture.current, lifecycle)).toMatchObject({ ok: true });
+    expect(k331f.createPurgeCertificate(index, fixture.current, Object.freeze({ ...lifecycle,
+      latestRevision: '71' }))).toEqual({ ok: false, code: 'PURGE_TOMBSTONE_NOT_LATEST' });
+    expect(k331f.createPurgeCertificate(index, fixture.current, Object.freeze({ ...lifecycle,
+      expectedPurgeRevision: String(Number(index.receiptEvidence.committedSourceRevision) + 2) })))
+      .toEqual({ ok: false, code: 'SOURCE_REVISION_TRANSITION_INVALID' });
+  });
+
+  it('K-331F: attachment classification is exhaustive, exclusive, and authority-aware', () => {
+    const fields = Object.keys(k331f.ATTACHMENT_FIELD_CLASSIFICATION);
+    expect(k331f.validateAttachmentClassification(fields)).toEqual({ ok: true, value: true });
+    expect(k331f.validateAttachmentClassification(fields.slice(1)))
+      .toEqual({ ok: false, code: 'ATTACHMENT_AUTHORITY_CLASSIFICATION_MISMATCH' });
+    expect(k331f.validateAttachmentClassification([...fields, fields[0]]))
+      .toEqual({ ok: false, code: 'ATTACHMENT_AUTHORITY_CLASSIFICATION_MISMATCH' });
+    expect(k331f.ATTACHMENT_FIELD_CLASSIFICATION.title).toBe('canonical_source_changing');
+    expect(k331f.ATTACHMENT_FIELD_CLASSIFICATION.signedUrl).toBe('transient_secret');
+    expect(k331f.ATTACHMENT_FIELD_CLASSIFICATION.remoteChecksum).toBe('derived_verified');
+    expect(k331f.createAttachmentPromotion(Object.freeze({
+      attachmentIdentityDigest: k331f.sha256Hex('ATTACHMENT', ['a']), previousSourceRevision: '70',
+      committedSourceRevision: '71', verifiedRecoveryIdentityDigest: k331f.sha256Hex('RECOVERY', ['a']),
+      verificationDigest: k331f.sha256Hex('VERIFICATION', ['a']), providerMigrationDigest: null,
+    }))).toMatchObject({ ok: true });
+    expect(k331f.createAttachmentPromotion(Object.freeze({
+      attachmentIdentityDigest: k331f.sha256Hex('ATTACHMENT', ['a']), previousSourceRevision: '70',
+      committedSourceRevision: '72', verifiedRecoveryIdentityDigest: k331f.sha256Hex('RECOVERY', ['a']),
+      verificationDigest: k331f.sha256Hex('VERIFICATION', ['a']), providerMigrationDigest: null,
+    }))).toEqual({ ok: false, code: 'ATTACHMENT_PROMOTION_EVIDENCE_INVALID' });
+  });
+
+  it('K-331F: bootstrap ordering uses normalized unsigned UTF-8 and rejects normalized collisions', () => {
+    const scope = k331fBootstrapScope();
+    expect(k331f.compareCanonicalKeys('z', 'é')).toBeLessThan(0);
+    expect(k331f.createIteratorObservation(scope, 'notes', ['é', 'é'], null))
+      .toEqual({ ok: false, code: 'BOOTSTRAP_DUPLICATE_NORMALIZED_KEY' });
+    expect(k331f.createIteratorObservation(scope, 'notes', ['b', 'a'], null))
+      .toEqual({ ok: false, code: 'BOOTSTRAP_KEY_ORDER_INVALID' });
+  });
+
+  it('K-331F: bootstrap accumulator binds baseline, scope, prior digest, and terminal evidence', () => {
+    const scope = k331fBootstrapScope();
+    const empty = k331f.emptyBootstrapAccumulator(scope, 'notes');
+    const observation = unwrapK331f(k331f.createIteratorObservation(scope, 'notes', ['a', 'b'], null));
+    const accumulated = unwrapK331f(k331f.appendBootstrapObservation(scope, empty, observation,
+      empty.accumulatorDigest));
+    const terminal = unwrapK331f(k331f.createTerminalIteratorEvidence(scope, accumulated, observation,
+      2, k331f.sha256Hex('SNAPSHOT', ['notes'])));
+    expect(k331f.appendBootstrapObservation(scope, accumulated, observation, empty.accumulatorDigest))
+      .toEqual({ ok: false, code: 'BOOTSTRAP_BASELINE_MISMATCH' });
+    expect(k331f.finalizeBootstrapGraph(Object.freeze({ scope, accumulators: [accumulated],
+      terminalObservations: [terminal], k330RegistryDigest: k331f.sha256Hex('REGISTRY', ['q']),
+      quiescenceEvidenceDigest: k331f.sha256Hex('QUIESCENCE', ['q']), currentSourceAuthority: null })))
+      .toMatchObject({ ok: true });
+    const otherScope = Object.freeze({ ...scope, baselineDigest: k331f.sha256Hex('BASELINE', ['other']) });
+    expect(k331f.appendBootstrapObservation(otherScope, accumulated, observation,
+      accumulated.accumulatorDigest)).toEqual({ ok: false, code: 'BOOTSTRAP_BASELINE_MISMATCH' });
+  });
+
+  it('K-331F: bootstrap finalization derives blockers from the persisted graph', () => {
+    const scope = k331fBootstrapScope();
+    const accumulator = k331f.emptyBootstrapAccumulator(scope, 'notes');
+    const observation = unwrapK331f(k331f.createIteratorObservation(scope, 'notes', [], null));
+    expect(k331f.finalizeBootstrapGraph(Object.freeze({ scope, accumulators: [accumulator],
+      terminalObservations: [], k330RegistryDigest: k331f.sha256Hex('REGISTRY', ['q']),
+      quiescenceEvidenceDigest: k331f.sha256Hex('QUIESCENCE', ['q']), currentSourceAuthority: null })))
+      .toEqual({ ok: false, code: 'BOOTSTRAP_TERMINAL_EVIDENCE_INVALID' });
+    const linked = unwrapK331f(k331f.appendBootstrapObservation(scope, accumulator, observation,
+      accumulator.accumulatorDigest));
+    const terminal = unwrapK331f(k331f.createTerminalIteratorEvidence(scope, linked, observation, 0,
+      k331f.sha256Hex('SNAPSHOT', ['notes'])));
+    expect(k331f.finalizeBootstrapGraph(Object.freeze({ scope, accumulators: [linked],
+      terminalObservations: [terminal], k330RegistryDigest: 'bad',
+      quiescenceEvidenceDigest: k331f.sha256Hex('QUIESCENCE', ['q']), currentSourceAuthority: null })))
+      .toEqual({ ok: false, code: 'BOOTSTRAP_NOT_QUIESCENT' });
+  });
+
+  it('K-331F: restore accumulator binds exact ordered chunk set and cursor', () => {
+    const chunks = [k331f.sha256Hex('CHUNK', [0]), k331f.sha256Hex('CHUNK', [1])];
+    const scope: k331f.RestoreScope = Object.freeze({ namespaceFingerprint: 'namespace-a',
+      generationId: 'generation-a', sessionId: 'restore-a', packageDigest: k331f.sha256Hex('PACKAGE', ['a']),
+      orderedChunkDigests: Object.freeze(chunks) });
+    const empty = unwrapK331f(k331f.emptyRestoreAccumulator(scope));
+    expect(k331f.appendRestoreChunk(scope, empty, chunks[1], empty.accumulatorDigest))
+      .toEqual({ ok: false, code: 'RESTORE_CURSOR_INVALID' });
+    const first = unwrapK331f(k331f.appendRestoreChunk(scope, empty, chunks[0], empty.accumulatorDigest));
+    const complete = unwrapK331f(k331f.appendRestoreChunk(scope, first, chunks[1], first.accumulatorDigest));
+    const authority = k331fProofFixture().authority;
+    const mmrState = k331f.restoreMmrStateFor(complete.scopeDigest, complete.sealedCheckpointDigests);
+    expect(k331f.finalizeRestoreGraph(Object.freeze({ scope, accumulator: complete,
+      sessionAccumulatorDigest: complete.accumulatorDigest,
+      sessionMmrStateRecordId: mmrState.recordId, sessionMmrStateDigest: mmrState.stateDigest,
+      independentlyReadMmrState: mmrState,
+      k330RegistryDigest: k331f.sha256Hex('REGISTRY', ['q']),
+      quiescenceEvidenceDigest: k331f.sha256Hex('QUIESCENCE', ['q']), currentSourceAuthority: authority })))
+      .toMatchObject({ ok: true });
+    expect(k331f.appendRestoreChunk(scope, Object.freeze({ ...first,
+      openChunkDigests: Object.freeze([k331f.sha256Hex('TAMPER', ['open'])]) }), chunks[1],
+    first.accumulatorDigest)).toEqual({ ok: false, code: 'RESTORE_CURSOR_INVALID' });
+  });
+
+  it('K-331F: restore finalization rejects incomplete, stale-session, and cross-generation graphs', () => {
+    const chunk = k331f.sha256Hex('CHUNK', [0]);
+    const scope: k331f.RestoreScope = Object.freeze({ namespaceFingerprint: 'namespace-a',
+      generationId: 'generation-a', sessionId: 'restore-a', packageDigest: k331f.sha256Hex('PACKAGE', ['a']),
+      orderedChunkDigests: Object.freeze([chunk]) });
+    const empty = unwrapK331f(k331f.emptyRestoreAccumulator(scope));
+    const authority = k331fProofFixture().authority;
+    const emptyMmr = k331f.restoreMmrStateFor(empty.scopeDigest, empty.sealedCheckpointDigests);
+    const common = { scope, accumulator: empty, k330RegistryDigest: k331f.sha256Hex('REGISTRY', ['q']),
+      quiescenceEvidenceDigest: k331f.sha256Hex('QUIESCENCE', ['q']), currentSourceAuthority: authority };
+    expect(k331f.finalizeRestoreGraph(Object.freeze({ ...common,
+      sessionMmrStateRecordId: emptyMmr.recordId, sessionMmrStateDigest: emptyMmr.stateDigest,
+      independentlyReadMmrState: emptyMmr,
+      sessionAccumulatorDigest: empty.accumulatorDigest })))
+      .toEqual({ ok: false, code: 'RESTORE_ACCUMULATOR_INVALID' });
+    const complete = unwrapK331f(k331f.appendRestoreChunk(scope, empty, chunk, empty.accumulatorDigest));
+    const completeMmr = k331f.restoreMmrStateFor(complete.scopeDigest, complete.sealedCheckpointDigests);
+    expect(k331f.finalizeRestoreGraph(Object.freeze({ ...common, accumulator: complete,
+      sessionMmrStateRecordId: completeMmr.recordId, sessionMmrStateDigest: completeMmr.stateDigest,
+      independentlyReadMmrState: completeMmr,
+      sessionAccumulatorDigest: k331f.sha256Hex('STALE', ['session']) })))
+      .toEqual({ ok: false, code: 'RESTORE_ACCUMULATOR_INVALID' });
+    expect(k331f.finalizeRestoreGraph(Object.freeze({ ...common, accumulator: complete,
+      sessionAccumulatorDigest: complete.accumulatorDigest,
+      sessionMmrStateRecordId: completeMmr.recordId, sessionMmrStateDigest: completeMmr.stateDigest,
+      independentlyReadMmrState: Object.freeze({ ...completeMmr,
+        root: k331f.sha256Hex('TAMPER', ['mmr']) }) })))
+      .toEqual({ ok: false, code: 'RESTORE_ACCUMULATOR_INVALID' });
+  });
+
+  it('K-331F: every persisted record class has a strict record-specific envelope codec', () => {
+    expect(k331f.PERSISTED_RECORD_CLASSES).toHaveLength(23);
+    for (const recordClass of k331f.PERSISTED_RECORD_CLASSES) {
+      const fixture = k331f.makeStrictCodecFixture(recordClass);
+      expect(k331f.decodePersistedRecord(recordClass, fixture)).toEqual({ ok: true, value: true });
+      expect(k331f.decodePersistedRecord(recordClass, Object.freeze({ ...fixture, extra: true })))
+        .toEqual({ ok: false, code: 'LINEAGE_RECORD_DECODE_FAILED' });
+      expect(k331f.decodePersistedRecord(recordClass, Object.freeze({ ...fixture, version: 2 })))
+        .toEqual({ ok: false, code: 'PROTOCOL_VERSION_UNSUPPORTED' });
+    }
+  });
+
+  it('K-331F: relationship compatibility is explicit and rejects partial or mixed graphs', () => {
+    for (const [name, versions] of Object.entries(k331f.RELATIONSHIP_VERSION_MATRICES)) {
+      expect(k331f.validateRelationshipVersions(
+        name as keyof typeof k331f.RELATIONSHIP_VERSION_MATRICES, versions)).toEqual({ ok: true, value: true });
+      const entries = Object.entries(versions);
+      expect(k331f.validateRelationshipVersions(
+        name as keyof typeof k331f.RELATIONSHIP_VERSION_MATRICES,
+        Object.fromEntries(entries.slice(1)))).toEqual({ ok: false, code: 'MIXED_PROTOCOL_VERSION_EVIDENCE' });
+      expect(k331f.validateRelationshipVersions(
+        name as keyof typeof k331f.RELATIONSHIP_VERSION_MATRICES,
+        { ...versions, [entries[0][0]]: 2 })).toEqual({ ok: false, code: 'MIXED_PROTOCOL_VERSION_EVIDENCE' });
+    }
+  });
+
+  it('K-331F: proof and protocol ceilings are coherent and error taxonomy is bounded', () => {
+    expect(k331f.K331F_LIMITS.maxSegmentMerklePathNodes).toBe(6);
+    expect(k331f.K331F_LIMITS.maxMmrComponentNodes).toBe(92);
+    expect(k331f.K331F_LIMITS.maxCompleteHistoricalProofNodes).toBe(98);
+    expect(k331f.K331F_LIMITS.maxHistoricalProofNodes).toBe(104);
+    expect(new Set(Object.values(k331f.K331F_STABLE_ERRORS))).toEqual(new Set([
+      'NON_RETRYABLE', 'OWNER_INTERVENTION', 'CORRUPTION', 'RESTART_REQUIRED', 'RETRYABLE',
+    ]));
+    const oversized = JSON.stringify(['absinthe_mmr_proof', 1, 1, 0, 0,
+      Array.from({ length: 93 }, () => ['right', 'a'.repeat(64)]), []]);
+    expect(k331f.decodeMmrProof(oversized))
+      .toEqual({ ok: false, code: 'LINEAGE_PROOF_NODE_LIMIT_EXCEEDED' });
   });
 });

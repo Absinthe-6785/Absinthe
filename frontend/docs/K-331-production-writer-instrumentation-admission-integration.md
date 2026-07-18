@@ -1049,11 +1049,13 @@ Historical K-331D claimed verdicts below are superseded and are not accepted imp
 - `K331D_HAS_NO_PRODUCTION_RUNTIME_EFFECT`
 - `NO_PRODUCTION_SOURCE_CAN_YET_BE_ELIGIBLE`
 
-### K-331E normative executable segment, MMR, and bounded-finalization contract
+### Historical K-331E executable contract (superseded; non-normative)
 
-K-331E replaces every K-331D asserted proof flag with raw canonical records, proof nodes, and
-deterministic verification. The executable model remains test-only architecture evidence. K-333 owns
-the future protocol codecs/actions and K-334 owns additive persistence and transactions.
+K-331E replaced every K-331D asserted proof flag with raw canonical records, proof nodes, and
+deterministic verification. K-331F found remaining independent-authority, compacted-evidence,
+bootstrap, restore, codec, and bound gaps. This section is retained as review history only; the K-331F
+contract below is authoritative. The executable model remains test-only architecture evidence. K-333
+owns the future protocol codecs/actions and K-334 owns additive persistence and transactions.
 
 #### Revision coordinates and supported domain
 
@@ -1323,13 +1325,125 @@ purge, and restore transactions must implement only K-333 semantics and cannot i
 
 `K334_CAN_IMPLEMENT_SELECTED_PROTOCOL_WITHOUT_INVENTING_AUTHORITY_SEMANTICS`
 
-The 64 focused tests are deterministic architecture fixtures. They compute real digests and verify raw
+The historical focused tests were deterministic architecture fixtures. They computed real digests and verified raw
 proof material, but do not establish production persistence, browser transaction behavior, performance,
 or cryptographic-library integration. There are no production imports/callers for K-331E.
 
 `K331E_FIXTURES_DERIVE_SECURITY_PROPERTIES_FROM_RAW_EVIDENCE`
 
 `K331E_HAS_NO_PRODUCTION_RUNTIME_EFFECT`
+
+`NO_PRODUCTION_SOURCE_CAN_YET_BE_ELIGIBLE`
+
+### K-331F authoritative independent-proof verification contract
+
+K-331F replaces the K-331E model with a test-only executable verifier whose decisions are derived from
+strictly decoded persisted records and an independently read current authority graph. It adds no store,
+schema upgrade, production import, writer invocation, bootstrap, restore, compaction, purge, or network
+runtime. K-333 and K-334 remain responsible for the future protocol and persistence implementation.
+
+#### Independent current authority and stale-proof rejection
+
+Historical proof material never carries the authoritative MMR pointer used to validate itself. The
+verifier separately reads and strictly decodes the current `source_authority`, follows its exact MMR
+record ID/digest/version/count pointer, and verifies namespace and generation before evaluating segment
+and MMR membership. A proof that is internally valid for an older root fails after authority advances.
+Missing MMR state, pointer mismatch, cross-namespace or cross-generation substitution, malformed state,
+and stale leaf-count/root evidence all fail closed with bounded errors.
+
+`CURRENT_SOURCE_AUTHORITY_IS_INDEPENDENT_OF_HISTORICAL_PROOF_MATERIAL`
+
+`SELF_CONSISTENT_STALE_PROOF_CANNOT_AUTHORIZE_CURRENT_HISTORY`
+
+#### Compaction, operation evidence, and latest tombstone authority
+
+Compaction first verifies the raw receipt against current independent authority, then writes one
+immutable compacted membership index containing all receipt authority fields, segment path/checkpoint,
+MMR proof, writer/admission/operation identity, terminal receipt/result, immutable outbox intent, and a
+domain-separated index digest. The durable state transition is `RAW_ONLY -> INDEX_ONLY`; retry in
+`INDEX_ONLY` verifies the index without requiring the deleted raw receipt record. Identity mismatch,
+stale current authority, malformed retained evidence, and conflicting index bytes reject.
+
+Physical purge requires an authenticated compacted `NOTE_TOMBSTONE` receipt that matches the entity's
+current lifecycle projection and exact latest tombstone revision/index. An older tombstone, subsequent
+resurrection, different identity, or changed authority cannot authorize purge.
+
+`POST_COMPACTION_VERIFICATION_REQUIRES_NO_RAW_RECEIPT_RECORD`
+
+`PURGE_REQUIRES_AUTHENTICATED_LATEST_TOMBSTONE_EVIDENCE`
+
+#### Canonical absence semantics and attachment authority
+
+Canonical encoding rejects JavaScript `undefined`. Schema-defined optional fields use explicit tagged
+`absent`, `present(value)`, or explicit-null values; those encodings hash differently. Strings are NFC
+normalized and arrays use fixed protocol order. Digests are exactly lowercase 64-character SHA-256.
+
+Every attachment metadata field is classified exactly once as canonical source-changing,
+derived-verified, local observation, remote observation, or transient secret. User-authored title/alt/
+caption and canonical reference/lifecycle fields are source authority. Verified checksum/size/MIME may
+enter canonical evidence only through explicit verification/promotion. Availability, attempts, leases,
+provider progress, timestamps, and sync state are observations. Signed URLs, resumable URIs, tokens, and
+leases cannot enter canonical authority evidence.
+
+`MISSING_NULL_AND_PRESENT_VALUES_HAVE_DISTINCT_CANONICAL_ENCODINGS`
+
+`ATTACHMENT_METADATA_FIELDS_HAVE_EXHAUSTIVE_EXCLUSIVE_AUTHORITY_CLASSIFICATION`
+
+#### Bootstrap persisted graph and terminal iterator evidence
+
+The bootstrap scope binds namespace, generation, session, immutable baseline, source manifest, schema
+and protocol versions, and attachment-classification digest. Iterator observations persist normalized
+keys, continuation digest, exhaustion state, and their own digest. Key ordering is NFC-normalized unsigned
+UTF-8 byte order; locale comparison is forbidden. Normalization collisions, duplicates, overlap, stale
+accumulator digest, changed scope/baseline, and caller-supplied end markers reject.
+
+Category accumulators bind prior accumulator digest, exact segment count, record count, final key, and
+terminal observation. Finalization reads the persisted graph, validates terminal exhaustion for every
+category, validates durable K-330 registry/quiescence evidence, and derives source-authority absence from
+the graph. It accepts no `quiescent`, `sourceAuthorityAbsent`, or `endOfCategory` truth boolean.
+
+`BOOTSTRAP_ORDERING_IS_NFC_NORMALIZED_UNSIGNED_UTF8`
+
+`BOOTSTRAP_FINALIZATION_DERIVES_TRUTH_FROM_ONE_PERSISTED_GRAPH`
+
+#### Restore exact-set accumulator and finalization
+
+Restore scope binds the exact ordered chunk digest list. The accumulator validates the session pointer,
+next cursor, expected prior accumulator digest, bounded current open segment, sealed checkpoint list, and
+combined MMR-style root on every append. Finalization requires the exact complete cursor, current
+accumulator/session binding, current namespace/generation authority, durable K-330 registry evidence, and
+durable quiescence evidence. Incomplete, reordered, duplicated, cross-session, cross-generation, stale,
+or malformed graphs reject without normalization.
+
+`RESTORE_ACCUMULATOR_BINDS_EXACT_ORDERED_APPLICATION_SET`
+
+`RESTORE_FINALIZATION_ACCEPTS_PERSISTED_GRAPH_EVIDENCE_NOT_CALLER_TRUTH`
+
+#### Strict codecs, compatibility, errors, and proof ceilings
+
+Twenty-three persisted record classes have explicit discriminator/version/exact-field envelopes,
+bounded identifiers and collections, canonical revisions, and verified record digests. Unknown or extra
+fields reject. Compatibility is checked through five explicit relationship matrices (`source_lineage`,
+`compacted_lineage`, `bootstrap_graph`, `restore_graph`, and `attachment_bootstrap`); partial or mixed
+graphs fail before hashing. Expected protocol failures return only stable error codes and one of five
+bounded classes, with no raw payload, namespace, browser exception, stack, cause, or secret.
+
+The selected ceilings are six segment-path nodes, 92 MMR component nodes, 98 complete membership nodes,
+and 104 nodes for the surrounding historical-proof protocol. Encoded proofs remain capped at 32 KiB.
+All ceilings are enforced independently; the outer protocol ceiling never weakens a lower component
+limit.
+
+`EVERY_PERSISTED_PROOF_RECORD_HAS_A_STRICT_RECORD_SPECIFIC_DECODER`
+
+`RELATIONSHIP_COMPATIBILITY_IS_EXPLICIT_NOT_GENERIC`
+
+`PROOF_COMPONENT_AND_PROTOCOL_CEILINGS_ARE_COHERENT_AND_ENFORCED`
+
+The 59-test K-331F focused suite is deterministic architecture evidence using real SHA-256 and in-memory
+fixtures. It is not browser, persistence-transaction, performance, production-runtime, or network
+evidence. The eligibility verdict remains `NO_PRODUCTION_SOURCE_CAN_YET_BE_ELIGIBLE`.
+
+`K331F_HAS_NO_PRODUCTION_RUNTIME_EFFECT`
 
 `NO_PRODUCTION_SOURCE_CAN_YET_BE_ELIGIBLE`
 
