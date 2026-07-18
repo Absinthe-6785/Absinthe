@@ -787,11 +787,12 @@ operation, and the session is terminal complete.
 
 `PARTIAL_RESTORE_NEVER_NORMALIZES_TO_COMPLETE_OR_ELIGIBLE`
 
-### K-331D normative lineage, bootstrap, and finalization contract
+### Historical K-331D lineage draft (superseded; non-normative)
 
-K-331D supersedes the unbounded or caller-asserted parts of the K-331C architecture text and fixtures.
-Where this section conflicts with an earlier K-331C description, this section is authoritative. This
-is still architecture and deterministic test evidence only: it adds no store, schema upgrade,
+K-331D attempted to supersede the unbounded or caller-asserted parts of K-331C, but focused review
+found that its fixtures still trusted validity booleans, assumed an insufficient proof ceiling, and
+performed unbounded bootstrap/restore finalization scans. This section is retained as review history
+only. The K-331E contract below is authoritative. Neither section adds a store, schema upgrade,
 production transaction, writer invocation, bootstrap, restore, compaction, or purge runtime.
 
 #### Bounded historical receipt membership
@@ -1009,7 +1010,7 @@ as authority. None of those runtime effects exist in K-331D.
 
 `ENTITY_LIFECYCLE_REVISIONS_ARE_EXACT_AND_REVISION_ZERO_DOES_NOT_INVENT_HISTORY`
 
-K-331D selected verdicts:
+Historical K-331D claimed verdicts below are superseded and are not accepted implementation evidence:
 
 - `BOUNDED_HISTORICAL_RECEIPT_MEMBERSHIP_SELECTED`
 - `HISTORICAL_RECEIPT_MEMBERSHIP_HAS_A_BOUNDED_AUTHENTICATED_PROOF`
@@ -1047,6 +1048,290 @@ K-331D selected verdicts:
 - `K331D_EVIDENCE_LABELING_IS_HONEST_AND_NON_IMPLEMENTATION_CLAIMING`
 - `K331D_HAS_NO_PRODUCTION_RUNTIME_EFFECT`
 - `NO_PRODUCTION_SOURCE_CAN_YET_BE_ELIGIBLE`
+
+### K-331E normative executable segment, MMR, and bounded-finalization contract
+
+K-331E replaces every K-331D asserted proof flag with raw canonical records, proof nodes, and
+deterministic verification. The executable model remains test-only architecture evidence. K-333 owns
+the future protocol codecs/actions and K-334 owns additive persistence and transactions.
+
+#### Revision coordinates and supported domain
+
+Revision `"0"` is bootstrap authority and never a receipt. For mutation revision `r >= 1`:
+
+```text
+zeroBasedReceiptOrdinal = r - 1
+segmentIndex            = floor(zeroBasedReceiptOrdinal / 64)
+leafIndex               = zeroBasedReceiptOrdinal mod 64
+```
+
+The strict decoder accepts only `0` or a nonzero ASCII decimal with at most 16 digits. Mutation
+revision 1 maps to `(0,0)`, 64 to `(0,63)`, and 65 to `(1,0)`. One source-changing transaction has one
+revision, receipt, coordinate, and linearization point. Exact retry returns that receipt. Bootstrap,
+segment sealing, compaction, finalization, and evidence cleanup consume no revision.
+
+`SOURCE_REVISION_TO_SEGMENT_AND_LEAF_MAPPING_IS_UNIQUE`
+
+#### Canonical SHA-256 codecs and domain separation
+
+Every fixture digest is real SHA-256 encoded as exactly 64 lowercase hexadecimal characters. Its
+preimage is UTF-8 JSON for a fixed-order array `[domainTag,1,...fields]`; schema-designated strings are
+NFC-normalized, integer fields are safe canonical integers, revision fields are canonical ASCII
+decimals, and `null` is explicit. Optional/missing fields use a schema position and explicit sentinel,
+never object enumeration. Arrays use protocol-defined locale-independent order. A record's digest is
+excluded from its own preimage and verified only after strict decode.
+
+| Record/hash role | Domain tag |
+|---|---|
+| source receipt | `ABSINTHE_SOURCE_RECEIPT_LEAF_V1` |
+| segment receipt leaf | `ABSINTHE_SEGMENT_RECEIPT_LEAF_V1` |
+| segment internal/empty/root | `ABSINTHE_SEGMENT_MERKLE_NODE_V1`, `ABSINTHE_SEGMENT_EMPTY_NODE_V1`, `ABSINTHE_SEGMENT_ROOT_V1` |
+| segment checkpoint | `ABSINTHE_SEGMENT_CHECKPOINT_V1` |
+| MMR leaf/node/bagged peaks/state | `ABSINTHE_MMR_LEAF_V1`, `ABSINTHE_MMR_NODE_V1`, `ABSINTHE_MMR_BAGGED_PEAKS_V1`, `ABSINTHE_MMR_STATE_V1` |
+| compacted receipt | `ABSINTHE_COMPACTED_RECEIPT_INDEX_V1` |
+| purge | `ABSINTHE_PURGE_CERTIFICATE_V1` |
+| bootstrap record/segment/category/final | `ABSINTHE_BOOTSTRAP_RECORD_V1`, `ABSINTHE_BOOTSTRAP_SEGMENT_V1`, `ABSINTHE_BOOTSTRAP_CATEGORY_ACCUMULATOR_V1`, `ABSINTHE_BOOTSTRAP_FINAL_AUTHORITY_V1` |
+| restore chunk/segment/accumulator/final | `ABSINTHE_RESTORE_CHUNK_RECEIPT_V1`, `ABSINTHE_RESTORE_SEGMENT_CHECKPOINT_V1`, `ABSINTHE_RESTORE_ACCUMULATOR_V1`, `ABSINTHE_RESTORE_FINAL_MANIFEST_V1` |
+
+`ALL_PROOF_RECORDS_USE_REAL_DOMAIN_SEPARATED_CANONICAL_DIGESTS`
+
+#### Receipt leaves and segment Merkle tree
+
+The immutable receipt binds namespace/generation, operation, writer/session digest, semantic mutation,
+previous/committed revisions, input digest, affected-identity digest, result digest, immutable outbox
+intent, resulting authority digest, and previous receipt-chain digest. The segment leaf separately
+binds committed revision, receipt digest, derived segment index, and derived leaf index.
+
+Each segment has 1–64 contiguous ordered leaves. The normal 64th append seals the segment in the same
+source transaction; no arbitrary partial seal exists. For a current partial segment, each binary level
+hashes left/right children with its level. A missing right child uses a domain-separated deterministic
+empty-node hash for that level/position. A path carries ordered `{side,digest}` entries; side must agree
+with the derived leaf index at every level. Duplicate, sparse, reordered, cross-segment, or noncanonical
+revisions reject.
+
+`SEGMENT_MERKLE_ROOT_IS_DETERMINISTIC_FOR_EVERY_VALID_LEAF_COUNT`
+
+#### Exact MMR model and full-domain bounds
+
+Every sealed segment checkpoint contributes one MMR leaf binding segment index, exact revision range,
+count, Merkle root, authority digest after its last receipt, predecessor checkpoint digest, and its own
+checkpoint digest. Leaves append by segment index. Peaks are stored left-to-right in descending height;
+equal-height trailing peaks merge with `ABSINTHE_MMR_NODE_V1`. The current root hashes leaf count plus
+the ordered `(height,digest)` peak list.
+
+The canonical MMR state record contains version, sealed-segment leaf count, ordered peaks, bagged root,
+last sealed segment, and its state digest. `source_authority` stores only the digest pointer to that
+state. Pointer and state change atomically during the 64th receipt transaction. A second independently
+mutable lineage/MMR root is forbidden.
+
+Full-domain derivation:
+
+```text
+MAX_SOURCE_REVISION = 9,999,999,999,999,999
+SEGMENT_SIZE = 64
+MAX_MMR_LEAVES = ceil(MAX_SOURCE_REVISION / 64)
+               = 156,250,000,000,000
+MAX_MMR_HEIGHT = floor(log2(MAX_MMR_LEAVES)) = 47
+MAX_PEAK_COUNT = 47
+worst explicit sibling-plus-other-peak nodes = 92
+protocol node ceiling = 96
+protocol encoded-proof ceiling = 32 KiB
+fixed digest width = 32 bytes / 64 lowercase hexadecimal characters
+```
+
+The proof decoder rejects an encoded string over 32 KiB before JSON parsing, then checks the exact
+seven-field array shape before constructing node arrays. Path length is capped at 47, other peaks at
+47, combined nodes at 96, and each node must be one fixed digest plus a bounded side/height. Unknown,
+nested, duplicate, or extra fields reject. The 32 KiB ceiling covers 92 hexadecimal nodes plus bounded
+coordinates and structural overhead with material safety margin.
+
+`EXECUTABLE_DOMAIN_SEPARATED_SEGMENT_AND_MMR_VERIFIER_SELECTED`
+
+`FULL_REVISION_DOMAIN_PROOF_BOUNDS_MATHEMATICALLY_JUSTIFIED`
+
+#### Bounded sealed and unsealed verification
+
+For sealed history, reconciliation decodes the receipt and coordinate, recomputes its digest and leaf,
+verifies the segment path/checkpoint, verifies the MMR path/ordered peaks, recomputes the bagged root,
+and compares the MMR-state digest to the sole source-authority pointer. No validity boolean, claimed
+read count, claimed encoded size, or claimed chain truth is accepted.
+
+For the current open segment, one read-only transaction rereads source authority, open-segment metadata,
+and its ordered raw receipts. It permits at most 64 records, derives their contiguous coordinates,
+recomputes every receipt/leaf/partial root, and compares the exact metadata. Concurrent append or seal
+changes the same transaction snapshot/CAS boundary and rejects the stale verification.
+
+`HISTORICAL_MEMBERSHIP_IS_RECOMPUTED_FROM_PROOF_MATERIAL_NOT_CALLER_ASSERTIONS`
+
+`UNSEALED_SEGMENT_MEMBERSHIP_IS_RECOMPUTED_IN_ONE_BOUNDED_TRANSACTION`
+
+#### Receipt append, 64th-receipt seal, and canonical authority
+
+The future source transaction reads active generation, source authority and MMR-state pointer, K-330
+admission, open segment, existing operation receipt, affected entity/outbox records, and predecessor
+checkpoint. It writes the source changes, immutable outbox intent, receipt, exact next revision,
+authority digest, entity revisions, open-segment leaf/root, and operation binding atomically.
+
+The selected model combines append and seal. Receipt 63 leaves segment 0 open. Receipt 64 writes the
+receipt, immutable segment checkpoint, one MMR leaf/state, updated source-authority MMR pointer, closed
+segment 0 metadata, and empty open segment 1 metadata in the same IndexedDB transaction. Receipt 65 can
+then enter segment 1. Any failure aborts every source and evidence write. Exact operation retry returns
+byte-equivalent receipt/checkpoint/MMR state; conflicting operation, checkpoint, seal, next segment, or
+pointer fails closed.
+
+`RECEIPT_APPEND_SEGMENT_SEAL_AND_MMR_AUTHORITY_ARE_ATOMICALLY_SERIALIZED`
+
+`SOURCE_AUTHORITY_REFERENCES_ONE_CANONICAL_ATOMIC_MMR_STATE`
+
+#### Authenticated compaction and purge
+
+Compaction operates on one bounded receipt/segment transaction. It rereads and strictly decodes raw
+receipt, segment checkpoint, MMR state/source pointer, K-330 terminal graph, pending reconciliation,
+restore/migration references, corruption holds, and any existing index. It recomputes receipt,
+segment, and MMR membership before deriving the compacted index.
+
+The immutable index binds record/version, namespace/generation, operation, revision, receipt digest,
+segment/leaf coordinates, checkpoint/root, MMR leaf/state binding, terminal receipt, immutable outbox
+intent, structural retention class, and its own domain-separated digest. Only terminal authenticated
+evidence with no live reference can compact. One transaction either retains raw receipt with no index,
+or commits the exact index then deletes raw detail; it can never commit neither. Retry returns the same
+index; conflict rejects. Compaction never changes revision or MMR state.
+
+A physical purge is a separate exact-next-revision source transaction. Its content-free certificate
+binds namespace/generation, entity type and ID digest, prior tombstone revision and authenticated
+receipt/index digest, purge operation, previous and committed purge revisions, resulting authority,
+source receipt, and certificate digest. It survives row deletion and preserves deletion provenance.
+
+`COMPACTION_REQUIRES_AUTHENTICATED_COMPLETE_MEMBERSHIP_EVIDENCE`
+
+`PURGE_CERTIFICATE_AUTHENTICATES_PRIOR_TOMBSTONE_AND_PURGE_REVISION`
+
+#### Exact lifecycle revisions
+
+Every Note, folder, relation, and canonical attachment transition accepts current global revision and
+committed transaction revision. The latter must equal the former plus one. Repeated, decreasing,
+skipped, noncanonical, or per-record mismatched revisions reject. Create/update/tombstone/resurrection/
+purge, remote apply, restore chunk, and migration transaction use this rule. Every member of one bounded
+bulk transaction shares the one committed revision and receipt. Revision-zero baseline records retain
+`preexisting_state_not_historical_event` and make no historical creation claim.
+
+`ALL_SOURCE_CHANGING_TRANSITIONS_USE_THE_EXACT_NEXT_GLOBAL_REVISION`
+
+#### Attachment locator classification and promotion
+
+| Fields | Classification / rule |
+|---|---|
+| attachment ID, namespace/generation, canonical references, verified checksum/size/MIME, tombstone and lifecycle revisions | canonical source authority |
+| `localBlobKey`, `remoteBlobKey`, provider and remote file/object ID | operational until an explicit verification record proves durable recovery identity; promotion/replacement is a source mutation |
+| provider verification state, remote timestamps, availability, sync/transfer status, retry, lease, cache, operational `updatedAt` | operational/derived; excluded from authority |
+| resumable upload URI, signed URL, access/refresh token | transient secret; never canonical and never persisted in authority evidence |
+| temporary upload/download locator or provider credential | prohibited from persistence and authority digest |
+
+Availability observation, retry, progress, lease, acknowledgement, and cache changes never advance
+revision. Verified locator promotion or replacement advances the exact next source revision.
+
+`ATTACHMENT_STORAGE_IDENTIFIERS_HAVE_EXPLICIT_PROMOTION_AND_AUTHORITY_RULES`
+
+#### Authenticated bootstrap segments and bounded category accumulators
+
+A bootstrap segment binds session/category/index, predecessor digest and last key, first/last canonical
+key, record count/bytes, computed record Merkle root, iterator continuation start/end digests, immutable
+baseline, end-of-category marker, and segment digest. Commit verifies exact next index, predecessor,
+strict bytewise key order, duplicates, range overlap, continuation gaps, cross-category/session reuse,
+and the actual record root. A single canonical record exceeding 256 KiB returns terminal
+`BOOTSTRAP_RECORD_TOO_LARGE`; it is not split or retried indefinitely.
+
+Each of the five fixed categories—entities, relations/folders, canonical attachments, immutable outbox
+intent, and checkpoints—has one constant-size authenticated MMR accumulator. Segment commit atomically
+updates category root, segment/record/byte totals, first/last key, continuation digest, terminal marker,
+and accumulator digest. End-of-category is produced by the snapshot iterator's authenticated terminal
+continuation, not inferred by rescanning.
+
+Revision-zero finalization accepts only namespace/generation/session lookup, then reads the session,
+exactly five category accumulator states, generation/manifest, source-authority absence/exact retry,
+durable K-330 quiescence, and conflicting-session indexes. It hashes those accumulators into revision-zero
+authority and completes the session in one transaction. It never reads, sorts, or expands segment rows.
+
+`BOOTSTRAP_FINALIZATION_USES_BOUNDED_CATEGORY_ACCUMULATOR_PROOFS`
+
+#### Bounded restore accumulator and final manifest
+
+Restore chunks append to an authenticated accumulator with the same canonical segment/MMR mechanics;
+the current segment has at most 64 chunk receipts. The constant-size state binds session, plan, chunk
+count, last index, base/final revisions, latest authority digest, MMR state, last chunk digest, version,
+and accumulator digest. Restart cursor is `committedChunkCount` only after strict accumulator and open
+segment verification—never after traversing all chunks.
+
+Finalization input remains namespace/generation/session lookup. One transaction reads session/plan,
+one restore accumulator, at most one open-segment state/final chunk, source authority, generation,
+K-330 quiescence and pending reconciliation indexes, and existing manifest. Source authority must expose
+persisted entity, canonical attachment, immutable outbox, and checkpoint aggregate roots/counts alongside
+complete authority digest and revision. Finalization copies those persisted projections; it accepts no
+expected digest and contains no static aggregate literal.
+
+The manifest binds session/plan, chunk count, final revision, accumulator/root, complete authority,
+all component counts/roots, coordination epoch/quiescence digest, protocol/implementation versions, and
+its real domain-separated SHA-256 digest. Manifest and session completion commit together. Exact retry
+returns byte-equivalent evidence; changed plan, chunk state, projection, authority, quiescence, or version
+rejects.
+
+`RESTORE_FINALIZATION_USES_BOUNDED_AUTHENTICATED_CHUNK_PROOFS`
+
+#### Total record decoders, versions, and bounded errors
+
+Record-specific future decoders cover source authority, raw receipt, open segment, segment checkpoint,
+MMR state, compacted index, purge certificate, entity/folder/relation/attachment envelopes, bootstrap
+session/segment/category accumulator, and restore session/chunk/segment/accumulator/final manifest. Each
+decoder invokes the same total revision decoder for every revision-bearing field before comparison or
+`BigInt`. Every record/proof has exact discriminator/version/field count. Mixed receipt/segment/MMR,
+index/proof, attachment/authority, bootstrap, or restore versions fail as
+`MIXED_PROTOCOL_VERSION_EVIDENCE` before hashing.
+
+Stable bounded errors and classes are:
+
+- proof: `LINEAGE_PROOF_TOO_LARGE`, `LINEAGE_PROOF_NODE_LIMIT_EXCEEDED`,
+  `LINEAGE_PROOF_VERSION_UNSUPPORTED`, `LINEAGE_COORDINATE_MISMATCH`,
+  `LINEAGE_RECEIPT_DIGEST_MISMATCH`, `LINEAGE_SEGMENT_PATH_INVALID`,
+  `LINEAGE_SEGMENT_CHECKPOINT_CONFLICT`, `LINEAGE_MMR_PATH_INVALID`,
+  `LINEAGE_MMR_AUTHORITY_MISMATCH`, `LINEAGE_APPEND_SEAL_CONFLICT`;
+- compaction: `LINEAGE_COMPACTION_REFERENCE_ACTIVE`, `LINEAGE_COMPACTION_INDEX_CONFLICT`,
+  `LINEAGE_UNRESOLVED_RECEIPT_NOT_COMPACTABLE`;
+- bootstrap: `BOOTSTRAP_RECORD_TOO_LARGE`, `BOOTSTRAP_SEGMENT_PATH_INVALID`,
+  `BOOTSTRAP_SEGMENT_RANGE_GAP`, `BOOTSTRAP_SEGMENT_RANGE_OVERLAP`,
+  `BOOTSTRAP_CATEGORY_ACCUMULATOR_MISMATCH`, `BOOTSTRAP_FINALIZATION_STATE_CHANGED`;
+- restore: `RESTORE_CHUNK_PROOF_INVALID`, `RESTORE_ACCUMULATOR_MISMATCH`,
+  `RESTORE_FINALIZATION_AUTHORITY_MISMATCH`, `RESTORE_FINALIZATION_NOT_QUIESCENT`;
+- boundary: `SOURCE_REVISION_CORRUPT_PERSISTED_STATE`, `PROTOCOL_VERSION_UNSUPPORTED`,
+  `MIXED_PROTOCOL_VERSION_EVIDENCE`.
+
+Each maps to one of non-retryable, retryable, restart-required, corruption, or owner-intervention and
+exposes no raw record, Note content, namespace, proof dump, browser exception, secret, stack, or cause.
+
+`ALL_PERSISTED_PROOF_RECORDS_USE_CANONICAL_CODECS_TOTAL_DECODING_AND_MIXED_VERSION_REJECTION`
+
+#### Future K-333 and K-334 ownership
+
+K-333 must implement every named codec/domain/version, coordinate decoder, receipt/checkpoint/MMR/proof,
+compacted index, purge certificate, lifecycle envelope, attachment promotion, bootstrap/restore
+accumulator action, total decoder, mixed-version gate, and stable error. K-334 then add stores for source
+authority, raw receipts, open segments, segment checkpoints, MMR states, compacted indexes, purge
+certificates, bootstrap sessions/segments/category accumulators, restore sessions/chunks/segments/
+accumulators/final manifests, and split attachment projections. Its append/seal, compaction, bootstrap,
+purge, and restore transactions must implement only K-333 semantics and cannot invent new authority.
+
+`K331E_PROTOCOL_REQUIREMENTS_ARE_SUFFICIENT_FOR_K333`
+
+`K334_CAN_IMPLEMENT_SELECTED_PROTOCOL_WITHOUT_INVENTING_AUTHORITY_SEMANTICS`
+
+The 64 focused tests are deterministic architecture fixtures. They compute real digests and verify raw
+proof material, but do not establish production persistence, browser transaction behavior, performance,
+or cryptographic-library integration. There are no production imports/callers for K-331E.
+
+`K331E_FIXTURES_DERIVE_SECURITY_PROPERTIES_FROM_RAW_EVIDENCE`
+
+`K331E_HAS_NO_PRODUCTION_RUNTIME_EFFECT`
+
+`NO_PRODUCTION_SOURCE_CAN_YET_BE_ELIGIBLE`
 
 ### Global revision rules
 
@@ -1410,8 +1695,31 @@ This was not a failure-driven rerun; there were no flakes. The harness has
 no `.only`, `.skip`, sleep, timer, timing threshold, browser storage, network, or production import.
 Exact-head CI is reported on PR #589 after push and is not claimed by this precommit table.
 
+## Validation on the K-331E precommit working tree
+
+| Check | Result |
+|---|---|
+| K-331/K-331A/K-331B/K-331C/K-331D/K-331E focused definition harness | 64 passed; 1 file; final 1.24 s; tests 430 ms |
+| K-330 dormant repository | 51 passed; 1 file; 7.80 s |
+| K-329 eligibility model | 122 passed; 1 file; 7.64 s |
+| K-328 cross-context handoff | 73 passed; 2 files; 1.22 s |
+| K-327 source-handoff spike | 391 passed; 1 file; 2.30 s |
+| K-326 local-first cutover | 78 passed; 1 file; 2.64 s |
+| K-325 legacy Notes migration | 164 passed; 1 file; 2.09 s |
+| all `localDatabase` | 1,231 passed; 14 files; 10.65 s |
+| recovery | 70 passed; 2 files; 10.22 s |
+| typecheck | passed; 26.3 s |
+| build | passed; 2,480 modules; Vite 12.96 s; existing mixed-import/chunk-size warnings only |
+| `git diff --check` | passed; line-ending notices only |
+| full frontend | 5,509 passed / 7 skipped; 583 passed / 1 skipped files; 207.87 s |
+
+All K-331E commands passed without a failure-driven rerun or observed flake. The executable fixtures
+use real SHA-256 over canonical domain-separated encodings and are imported only by the definition
+test. No production source, runtime caller, schema, storage, network path, or eligibility state is
+changed. Exact-head CI remains a post-push observation and is not claimed by this precommit table.
+
 ## Non-goals
 
-K-331C does not implement K-332 or later work, production coordination, Web Locks, source migration,
+K-331E does not implement K-332 or later work, production coordination, Web Locks, source migration,
 outbox delivery, sync changes, restore/migration execution, source eligibility, cutover, K-328
 consumption, UI, startup hooks, network behavior, service workers, or recovery-policy bypasses.

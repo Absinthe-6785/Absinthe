@@ -13,6 +13,7 @@ import {
   type WriterRegistrationRecord,
   type SourceVerificationObservation,
 } from './writerCoordinationEligibility';
+import * as k331e from './productionWriterAdmissionK331E.testSupport';
 
 const PHYSICAL_SOURCE = '1'.repeat(64);
 const COORDINATOR_SESSION = `writer-session-v1:${'a'.repeat(32)}`;
@@ -526,10 +527,10 @@ type AttachmentProjectionFixture = Readonly<{
 
 function attachmentAuthorityDigestFixture(input: AttachmentProjectionFixture): string {
   const canonical = input.canonical;
-  return `sha256:${JSON.stringify(['attachment-authority-v1', canonical.attachmentId,
+  return k331e.sha256Hex('ABSINTHE_ATTACHMENT_CANONICAL_AUTHORITY_V1', [canonical.attachmentId,
     canonical.generationId, [...canonical.canonicalReferenceIds].sort(), canonical.contentChecksum,
     canonical.storageObjectIdentity, canonical.createdSourceRevision,
-    canonical.lastMutatedSourceRevision, canonical.deletedSourceRevision ?? null])}`;
+    canonical.lastMutatedSourceRevision, canonical.deletedSourceRevision ?? null]);
 }
 
 function attachmentProjectionFixture(
@@ -787,7 +788,8 @@ function commitRestoreChunkFixture(
     sourceImplementationId: 'local-first-source-v1',
   });
   const receipt = Object.freeze({ ...receiptWithoutDigest,
-    chunkReceiptDigest: `sha256:${canonicalRestoreChunkReceiptPreimage(receiptWithoutDigest)}` });
+    chunkReceiptDigest: k331e.sha256Hex(k331e.K331E_DOMAINS.restoreChunk,
+      [canonicalRestoreChunkReceiptPreimage(receiptWithoutDigest)]) });
   return { ok: true, receipt, reused: false, state: Object.freeze({
     ...state, receipts: Object.freeze([...state.receipts, receipt]), recordedCursor: chunkIndex + 1,
   }) };
@@ -815,68 +817,6 @@ function restoreEligible(state: ChunkedRestoreFixture): boolean {
     && restoreRestartCursor(state) === state.plannedChunkDigests.length;
 }
 
-const K331D_BOUNDS = Object.freeze({
-  receiptsPerSegment: 64,
-  segmentCanonicalBytes: 256 * 1024,
-  membershipHashNodes: 64,
-  membershipProofBytes: 16 * 1024,
-  rawReceiptReads: 64,
-  bootstrapRecordsPerSegment: 64,
-  bootstrapSegmentCanonicalBytes: 256 * 1024,
-  bootstrapEvidenceBytes: 8 * 1024,
-});
-
-type ReceiptMembershipProofFixture = Readonly<{
-  proofVersion: 'receipt-membership-proof-v1';
-  receiptRevision: unknown;
-  receiptDigest: string;
-  segmentIndex: number;
-  segmentStartRevision: unknown;
-  segmentEndRevision: unknown;
-  segmentRootDigest: string;
-  accumulatorRootDigest: string;
-  currentChainHeadDigest: string;
-  hashNodes: readonly string[];
-  encodedBytes: number;
-  rawReceiptReads: number;
-  sealed: boolean;
-  compactedMembershipIndexPresent: boolean;
-  proofAuthenticatesReceipt: boolean;
-  checkpointPathValid: boolean;
-  checkpointCoordinatesUnique: boolean;
-}>;
-
-function verifyBoundedReceiptMembership(
-  proof: ReceiptMembershipProofFixture | null,
-  expectedReceiptRevision: string,
-  expectedReceiptDigest: string,
-): 'VERIFIED'
-  | 'LINEAGE_MEMBERSHIP_PROOF_MISSING'
-  | 'LINEAGE_MEMBERSHIP_PROOF_INVALID'
-  | 'LINEAGE_SEGMENT_CHECKPOINT_CONFLICT'
-  | 'RECEIPT_MEMBERSHIP_PROOF_BOUND_EXCEEDED'
-  | 'SOURCE_REVISION_CORRUPT_PERSISTED_STATE' {
-  if (proof === null) return 'LINEAGE_MEMBERSHIP_PROOF_MISSING';
-  const revisions = [proof.receiptRevision, proof.segmentStartRevision, proof.segmentEndRevision]
-    .map(decodeSourceRevision);
-  if (revisions.some(revision => !revision.ok)) return 'SOURCE_REVISION_CORRUPT_PERSISTED_STATE';
-  const [receipt, start, end] = revisions;
-  if (!receipt.ok || !start.ok || !end.ok) return 'SOURCE_REVISION_CORRUPT_PERSISTED_STATE';
-  if (proof.hashNodes.length > K331D_BOUNDS.membershipHashNodes
-    || proof.encodedBytes > K331D_BOUNDS.membershipProofBytes
-    || proof.rawReceiptReads > K331D_BOUNDS.rawReceiptReads) return 'RECEIPT_MEMBERSHIP_PROOF_BOUND_EXCEEDED';
-  if (!proof.checkpointPathValid || !proof.checkpointCoordinatesUnique) {
-    return 'LINEAGE_SEGMENT_CHECKPOINT_CONFLICT';
-  }
-  if (receipt.canonical !== expectedReceiptRevision || proof.receiptDigest !== expectedReceiptDigest
-    || receipt.value < start.value || receipt.value > end.value || !proof.proofAuthenticatesReceipt
-    || proof.currentChainHeadDigest.length === 0 || proof.accumulatorRootDigest.length === 0) {
-    return 'LINEAGE_MEMBERSHIP_PROOF_INVALID';
-  }
-  if (proof.sealed && !proof.compactedMembershipIndexPresent) return 'LINEAGE_MEMBERSHIP_PROOF_MISSING';
-  return 'VERIFIED';
-}
-
 const RECEIPT_RETENTION_POLICY = Object.freeze({
   sealedSegmentSize: 64,
   minimumLaterSealedSegmentsBeforeCompaction: 2,
@@ -890,79 +830,6 @@ const RECEIPT_RETENTION_POLICY = Object.freeze({
   ]),
   sourceRevisionEffect: 'NONE_EVIDENCE_ONLY',
 });
-
-type CompactedReceiptIndexFixture = Readonly<{
-  operationId: string;
-  sourceRevision: string;
-  receiptDigest: string;
-  segmentIndex: number;
-  checkpointDigest: string;
-  terminalReceiptDigest: string;
-  membershipLocatorDigest: string;
-}>;
-
-type ReceiptCompactionFixture = Readonly<{
-  operationId: string;
-  sourceRevision: string;
-  receiptDigest: string;
-  terminalReceiptDigest: string | null;
-  unresolved: boolean;
-  pendingReconciliation: boolean;
-  activeRestoreReference: boolean;
-  corruptionHold: boolean;
-  segmentSealed: boolean;
-  membershipProofValid: boolean;
-  laterSealedSegmentCount: number;
-  existingIndex: CompactedReceiptIndexFixture | null;
-  rawReceiptPresent: boolean;
-}>;
-
-type ReceiptCompactionResult = Readonly<{
-  ok: true;
-  reused: boolean;
-  index: CompactedReceiptIndexFixture;
-  rawReceiptPresent: false;
-}> | Readonly<{
-  ok: false;
-  code: 'LINEAGE_UNRESOLVED_RECEIPT_NOT_COMPACTABLE'
-    | 'LINEAGE_MEMBERSHIP_PROOF_MISSING'
-    | 'LINEAGE_COMPACTION_CONFLICT';
-}>;
-
-function compactReceiptFixture(input: ReceiptCompactionFixture): ReceiptCompactionResult {
-  if (input.unresolved || input.pendingReconciliation || input.activeRestoreReference
-    || input.corruptionHold || input.terminalReceiptDigest === null) {
-    return { ok: false, code: 'LINEAGE_UNRESOLVED_RECEIPT_NOT_COMPACTABLE' };
-  }
-  if (!input.segmentSealed || !input.membershipProofValid
-    || input.laterSealedSegmentCount < RECEIPT_RETENTION_POLICY.minimumLaterSealedSegmentsBeforeCompaction) {
-    return { ok: false, code: 'LINEAGE_MEMBERSHIP_PROOF_MISSING' };
-  }
-  const index = Object.freeze({
-    operationId: input.operationId, sourceRevision: input.sourceRevision,
-    receiptDigest: input.receiptDigest, segmentIndex: 0, checkpointDigest: 'checkpoint:0',
-    terminalReceiptDigest: input.terminalReceiptDigest,
-    membershipLocatorDigest: `membership:${input.sourceRevision}:${input.receiptDigest}`,
-  });
-  if (input.existingIndex !== null) {
-    return JSON.stringify(input.existingIndex) === JSON.stringify(index)
-      ? { ok: true, reused: true, index: input.existingIndex, rawReceiptPresent: false }
-      : { ok: false, code: 'LINEAGE_COMPACTION_CONFLICT' };
-  }
-  return { ok: true, reused: false, index, rawReceiptPresent: false };
-}
-
-function compactableReceipt(
-  overrides: Partial<ReceiptCompactionFixture> = {},
-): ReceiptCompactionFixture {
-  return Object.freeze({
-    operationId: 'operation-a', sourceRevision: '41', receiptDigest: 'receipt:41',
-    terminalReceiptDigest: 'receipt:41', unresolved: false, pendingReconciliation: false,
-    activeRestoreReference: false, corruptionHold: false, segmentSealed: true,
-    membershipProofValid: true, laterSealedSegmentCount: 2, existingIndex: null,
-    rawReceiptPresent: true, ...overrides,
-  });
-}
 
 type DurableQuiescenceGraphFixture = Readonly<{
   admissionOpen: boolean;
@@ -1029,303 +896,6 @@ function quiescentGraph(
   });
 }
 
-type BootstrapSegmentFixture = Readonly<{
-  kind: 'absinthe_source_bootstrap_segment';
-  schemaVersion: 1;
-  sessionId: string;
-  namespaceFingerprint: string;
-  generationId: string;
-  category: 'entities' | 'attachments' | 'outbox' | 'checkpoints';
-  segmentIndex: number;
-  recordCount: number;
-  canonicalBytes: number;
-  evidenceBytes: number;
-  keyRangeDigest: string;
-  segmentRootDigest: string;
-  previousSegmentDigest: string | null;
-  baselineDigest: string;
-}>;
-
-type BootstrapGraphFixture = Readonly<{
-  sessionId: string;
-  namespaceFingerprint: string;
-  generationId: string;
-  baselineDigest: string;
-  currentBaselineDigest: string;
-  sourceAuthorityExists: boolean;
-  segmentPlan: readonly Readonly<{ category: BootstrapSegmentFixture['category']; count: number }>[];
-  segments: readonly BootstrapSegmentFixture[];
-  quiescenceGraph: DurableQuiescenceGraphFixture;
-  attachmentAuthorityClassified: boolean;
-}>;
-
-type StagedBootstrapResult = Readonly<{
-  ok: boolean;
-  code: 'SOURCE_AUTHORITY_BOOTSTRAP_READY'
-    | 'SOURCE_AUTHORITY_BOOTSTRAP_SEGMENT_BOUND_EXCEEDED'
-    | 'SOURCE_AUTHORITY_BOOTSTRAP_BASELINE_CHANGED'
-    | 'SOURCE_AUTHORITY_BOOTSTRAP_SEGMENT_SET_MISMATCH'
-    | 'SOURCE_AUTHORITY_BOOTSTRAP_NOT_QUIESCENT'
-    | 'ATTACHMENT_AUTHORITY_CLASSIFICATION_REQUIRED';
-  evidenceDigest?: string;
-}>;
-
-function canonicalBootstrapPreimage(graph: BootstrapGraphFixture): string {
-  const ordered = [...graph.segments].sort((left, right) => {
-    const category = left.category < right.category ? -1 : left.category > right.category ? 1 : 0;
-    return category || left.segmentIndex - right.segmentIndex;
-  });
-  return JSON.stringify([
-    'absinthe-source-bootstrap-evidence', 1, graph.sessionId.normalize('NFC'),
-    graph.namespaceFingerprint, graph.generationId, graph.baselineDigest,
-    ordered.map(segment => [segment.category, segment.segmentIndex, segment.recordCount,
-      segment.canonicalBytes, segment.keyRangeDigest, segment.segmentRootDigest,
-      segment.previousSegmentDigest ?? null, segment.baselineDigest]),
-  ]);
-}
-
-function finalizeStagedBootstrap(graph: BootstrapGraphFixture): StagedBootstrapResult {
-  if (graph.sourceAuthorityExists || graph.currentBaselineDigest !== graph.baselineDigest) {
-    return { ok: false, code: 'SOURCE_AUTHORITY_BOOTSTRAP_BASELINE_CHANGED' };
-  }
-  if (!deriveDurableQuiescence(graph.quiescenceGraph).quiescent) {
-    return { ok: false, code: 'SOURCE_AUTHORITY_BOOTSTRAP_NOT_QUIESCENT' };
-  }
-  if (!graph.attachmentAuthorityClassified) {
-    return { ok: false, code: 'ATTACHMENT_AUTHORITY_CLASSIFICATION_REQUIRED' };
-  }
-  if (graph.segments.some(segment => segment.recordCount > K331D_BOUNDS.bootstrapRecordsPerSegment
-    || segment.canonicalBytes > K331D_BOUNDS.bootstrapSegmentCanonicalBytes
-    || segment.evidenceBytes > K331D_BOUNDS.bootstrapEvidenceBytes)) {
-    return { ok: false, code: 'SOURCE_AUTHORITY_BOOTSTRAP_SEGMENT_BOUND_EXCEEDED' };
-  }
-  const expected = graph.segmentPlan
-    .flatMap(plan => Array.from({ length: plan.count }, (_, segmentIndex) => `${plan.category}:${segmentIndex}`))
-    .sort();
-  const actual = graph.segments.map(segment => `${segment.category}:${segment.segmentIndex}`).sort();
-  if (JSON.stringify(expected) !== JSON.stringify(actual)
-    || graph.segments.some(segment => segment.sessionId !== graph.sessionId
-      || segment.namespaceFingerprint !== graph.namespaceFingerprint
-      || segment.generationId !== graph.generationId || segment.baselineDigest !== graph.baselineDigest)) {
-    return { ok: false, code: 'SOURCE_AUTHORITY_BOOTSTRAP_SEGMENT_SET_MISMATCH' };
-  }
-  const preimage = canonicalBootstrapPreimage(graph);
-  return { ok: true, code: 'SOURCE_AUTHORITY_BOOTSTRAP_READY', evidenceDigest: `sha256:${preimage}` };
-}
-
-function bootstrapGraph(
-  overrides: Partial<BootstrapGraphFixture> = {},
-): BootstrapGraphFixture {
-  const base = Object.freeze({
-    sessionId: 'bootstrap-session-a', namespaceFingerprint: 'namespace-digest',
-    generationId: 'generation-a', baselineDigest: 'baseline-a',
-  });
-  const segments = Object.freeze((['entities', 'attachments', 'outbox', 'checkpoints'] as const)
-    .map(category => Object.freeze({
-      kind: 'absinthe_source_bootstrap_segment' as const, schemaVersion: 1 as const,
-      ...base, category, segmentIndex: 0, recordCount: category === 'entities' ? 64 : 4,
-      canonicalBytes: 4096, evidenceBytes: 1024, keyRangeDigest: `range:${category}`,
-      segmentRootDigest: `root:${category}`, previousSegmentDigest: null,
-    })));
-  return Object.freeze({
-    ...base, currentBaselineDigest: 'baseline-a', sourceAuthorityExists: false,
-    segmentPlan: Object.freeze((['entities', 'attachments', 'outbox', 'checkpoints'] as const)
-      .map(category => Object.freeze({ category, count: 1 }))),
-    segments, quiescenceGraph: quiescentGraph(), attachmentAuthorityClassified: true, ...overrides,
-  });
-}
-
-function persistBootstrapSegmentFixture(
-  existing: BootstrapSegmentFixture | null,
-  candidate: BootstrapSegmentFixture,
-  currentBaselineDigest: string,
-): Readonly<{ ok: true; reused: boolean; segment: BootstrapSegmentFixture }>
-  | Readonly<{ ok: false; code: 'BOOTSTRAP_FINALIZATION_STATE_CHANGED' | 'BOOTSTRAP_SEGMENT_CONFLICT' }> {
-  if (candidate.baselineDigest !== currentBaselineDigest) {
-    return { ok: false, code: 'BOOTSTRAP_FINALIZATION_STATE_CHANGED' };
-  }
-  if (candidate.recordCount > K331D_BOUNDS.bootstrapRecordsPerSegment
-    || candidate.canonicalBytes > K331D_BOUNDS.bootstrapSegmentCanonicalBytes
-    || candidate.evidenceBytes > K331D_BOUNDS.bootstrapEvidenceBytes) {
-    return { ok: false, code: 'BOOTSTRAP_SEGMENT_CONFLICT' };
-  }
-  if (existing === null) return { ok: true, reused: false, segment: candidate };
-  return JSON.stringify(existing) === JSON.stringify(candidate)
-    ? { ok: true, reused: true, segment: existing }
-    : { ok: false, code: 'BOOTSTRAP_SEGMENT_CONFLICT' };
-}
-
-type EntityRevisionEnvelopeFixture = Readonly<{
-  lifecycle: 'active' | 'tombstoned' | 'purged';
-  createdSourceRevision: string;
-  lastMutatedSourceRevision: string;
-  deletedSourceRevision: string | null;
-  revisionZeroInitialization: 'native' | 'preexisting_state_not_historical_event';
-  purgeCertificateDigest: string | null;
-}>;
-
-function transitionEntityRevision(
-  current: EntityRevisionEnvelopeFixture | null,
-  action: 'create' | 'update' | 'tombstone' | 'resurrect' | 'purge',
-  revision: string,
-): EntityRevisionEnvelopeFixture | 'INVALID_LIFECYCLE_TRANSITION' {
-  if (!decodeSourceRevision(revision).ok) return 'INVALID_LIFECYCLE_TRANSITION';
-  if (action === 'create') {
-    if (current !== null) return 'INVALID_LIFECYCLE_TRANSITION';
-    return Object.freeze({ lifecycle: 'active', createdSourceRevision: revision,
-      lastMutatedSourceRevision: revision, deletedSourceRevision: null,
-      revisionZeroInitialization: 'native', purgeCertificateDigest: null });
-  }
-  if (current === null || current.lifecycle === 'purged') return 'INVALID_LIFECYCLE_TRANSITION';
-  if (action === 'update' && current.lifecycle === 'active') return Object.freeze({
-    ...current, lastMutatedSourceRevision: revision,
-  });
-  if (action === 'tombstone' && current.lifecycle === 'active') return Object.freeze({
-    ...current, lifecycle: 'tombstoned', lastMutatedSourceRevision: revision,
-    deletedSourceRevision: revision,
-  });
-  if (action === 'resurrect' && current.lifecycle === 'tombstoned') return Object.freeze({
-    ...current, lifecycle: 'active', lastMutatedSourceRevision: revision, deletedSourceRevision: null,
-  });
-  if (action === 'purge' && current.lifecycle === 'tombstoned') return Object.freeze({
-    ...current, lifecycle: 'purged', lastMutatedSourceRevision: revision,
-    deletedSourceRevision: current.deletedSourceRevision, purgeCertificateDigest: `purge:${revision}`,
-  });
-  return 'INVALID_LIFECYCLE_TRANSITION';
-}
-
-const ENTITY_REVISION_MODEL = Object.freeze({
-  revisionZeroActive: Object.freeze({ createdSourceRevision: '0', lastMutatedSourceRevision: '0',
-    deletedSourceRevision: null, revisionZeroInitialization: 'preexisting_state_not_historical_event' }),
-  revisionZeroTombstone: Object.freeze({ createdSourceRevision: '0', lastMutatedSourceRevision: '0',
-    deletedSourceRevision: '0', revisionZeroInitialization: 'preexisting_state_not_historical_event' }),
-  folders: 'FIRST_CLASS_ENTITY_ENVELOPE',
-  relations: 'INDEPENDENT_REVISIONED_RELATION_RECORDS',
-  boundedBulk: 'ALL_AFFECTED_RECORDS_SHARE_ONE_COMMITTED_SOURCE_REVISION',
-  purge: 'REQUIRES_TOMBSTONE_RECEIPT_MEMBERSHIP_AND_IMMUTABLE_PURGE_CERTIFICATE',
-});
-
-type RestorePersistedGraphFixture = Readonly<{
-  lookup: Readonly<{ namespaceFingerprint: string; generationId: string; restoreSessionId: string }>;
-  session: ChunkedRestoreFixture;
-  authorityRevision: unknown;
-  authorityDigest: string;
-  expectedAuthorityRevision: string;
-  expectedAuthorityDigest: string;
-  persistedPlanDigest: string;
-  authenticatedChunkChainHead: string;
-  quiescenceGraph: DurableQuiescenceGraphFixture;
-  existingManifest: RestoreFinalManifestFixture | null;
-}>;
-
-function finalizeRestoreFromPersistedGraph(
-  graph: RestorePersistedGraphFixture,
-): RestoreFinalizeResult {
-  const authorityRevision = decodeSourceRevision(graph.authorityRevision);
-  if (!authorityRevision.ok) return { ok: false, code: 'RESTORE_FINAL_DIGEST_MISMATCH' };
-  if (graph.lookup.restoreSessionId !== graph.session.restoreSessionId
-    || graph.lookup.namespaceFingerprint !== graph.session.namespaceFingerprint
-    || graph.lookup.generationId !== graph.session.generationId
-    || graph.persistedPlanDigest !== graph.session.planDigest
-    || graph.authenticatedChunkChainHead !== graph.session.receipts.at(-1)?.chunkReceiptDigest
-    || restoreRestartCursor(graph.session) !== graph.session.plannedChunkDigests.length
-    || authorityRevision.canonical !== graph.expectedAuthorityRevision
-    || graph.authorityDigest !== graph.expectedAuthorityDigest
-    || !deriveDurableQuiescence(graph.quiescenceGraph).quiescent) {
-    return { ok: false, code: 'RESTORE_FINAL_DIGEST_MISMATCH' };
-  }
-  const last = graph.session.receipts.at(-1);
-  if (!last) return { ok: false, code: 'RESTORE_FINALIZATION_INCOMPLETE' };
-  const manifestWithoutDigest = Object.freeze({
-    manifestVersion: 'restore-final-manifest-v1' as const,
-    restoreSessionId: graph.session.restoreSessionId,
-    namespaceFingerprint: graph.session.namespaceFingerprint,
-    generationId: graph.session.generationId,
-    baseSourceRevision: graph.session.baseSourceRevision,
-    finalCommittedSourceRevision: last.committedSourceRevision,
-    immutablePlanDigest: graph.session.planDigest,
-    finalChunkIndex: last.chunkIndex,
-    finalChunkCount: graph.session.plannedChunkDigests.length,
-    orderedChunkChainDigest: last.chunkReceiptDigest,
-    finalSourceReceiptChainHead: last.resultingSourceChainDigest,
-    completeAuthorityDigest: graph.authorityDigest,
-    finalEntityCount: 108, finalEntityDigest: 'final-entity-digest',
-    finalAttachmentMetadataCount: 4, finalAttachmentMetadataDigest: 'final-attachment-digest',
-    finalOutboxCount: 108, finalOutboxIntentDigest: 'final-outbox-intent-digest',
-    finalCheckpointDigest: 'final-checkpoint-digest', coordinationEpoch: 7,
-    coordinationQuiescenceDigest: 'quiescence:7', protocolVersion: graph.session.protocolVersion,
-    sourceImplementationId: 'local-first-source-v1',
-    completionState: 'complete' as const, evidenceOnly: true as const,
-    sourceRevisionIncremented: false as const,
-  });
-  const manifest = Object.freeze({ ...manifestWithoutDigest,
-    finalManifestDigest: `sha256:${canonicalRestoreFinalManifestPreimage(manifestWithoutDigest)}` });
-  if (graph.existingManifest !== null) {
-    return JSON.stringify(graph.existingManifest) === JSON.stringify(manifest)
-      ? { ok: true, state: Object.freeze({ ...graph.session, status: 'finalized', finalManifest: graph.existingManifest }),
-        manifest: graph.existingManifest }
-      : { ok: false, code: 'RESTORE_FINAL_DIGEST_MISMATCH' };
-  }
-  return { ok: true, state: Object.freeze({ ...graph.session, status: 'finalized', finalManifest: manifest }), manifest };
-}
-
-const K331D_FUTURE_STORES = Object.freeze([
-  'source_authority', 'source_mutation_receipts', 'revision_segment_checkpoints',
-  'revision_mmr_accumulator', 'compacted_receipt_membership_index', 'purge_certificates',
-  'bootstrap_sessions', 'bootstrap_segment_evidence', 'restore_chunk_receipts',
-  'restore_final_manifests', 'attachment_canonical_authority', 'attachment_transfer_projection',
-]);
-
-const K331D_STABLE_ERRORS = Object.freeze([
-  'LINEAGE_MEMBERSHIP_PROOF_MISSING', 'LINEAGE_MEMBERSHIP_PROOF_INVALID',
-  'LINEAGE_SEGMENT_CHECKPOINT_CONFLICT', 'LINEAGE_COMPACTION_CONFLICT',
-  'LINEAGE_UNRESOLVED_RECEIPT_NOT_COMPACTABLE', 'BOOTSTRAP_SEGMENT_LIMIT_EXCEEDED',
-  'BOOTSTRAP_SEGMENT_CONFLICT', 'BOOTSTRAP_STAGED_PROOF_INCOMPLETE',
-  'BOOTSTRAP_FINALIZATION_STATE_CHANGED', 'BOOTSTRAP_NOT_QUIESCENT',
-  'RESTORE_FINALIZATION_STATE_CHANGED', 'RESTORE_FINALIZATION_NOT_QUIESCENT',
-  'RESTORE_FINALIZATION_CHAIN_MISMATCH', 'RESTORE_FINALIZATION_AUTHORITY_MISMATCH',
-  'SOURCE_REVISION_CORRUPT_PERSISTED_STATE', 'ATTACHMENT_AUTHORITY_CLASSIFICATION_REQUIRED',
-]);
-
-const K331D_ERROR_CLASSIFICATION = Object.freeze({
-  LINEAGE_MEMBERSHIP_PROOF_MISSING: 'NON_RETRYABLE_CORRUPTION',
-  LINEAGE_MEMBERSHIP_PROOF_INVALID: 'NON_RETRYABLE_CORRUPTION',
-  LINEAGE_SEGMENT_CHECKPOINT_CONFLICT: 'OWNER_INTERVENTION_CORRUPTION',
-  LINEAGE_COMPACTION_CONFLICT: 'OWNER_INTERVENTION_CORRUPTION',
-  LINEAGE_UNRESOLVED_RECEIPT_NOT_COMPACTABLE: 'RETRY_AFTER_TERMINAL_PROJECTION',
-  BOOTSTRAP_SEGMENT_LIMIT_EXCEEDED: 'RESTART_SESSION_WITH_LOWER_OWNER_LIMIT',
-  BOOTSTRAP_SEGMENT_CONFLICT: 'OWNER_INTERVENTION_CORRUPTION',
-  BOOTSTRAP_STAGED_PROOF_INCOMPLETE: 'RETRY_MISSING_EXACT_SEGMENT',
-  BOOTSTRAP_FINALIZATION_STATE_CHANGED: 'RESTART_SESSION_REQUIRED',
-  BOOTSTRAP_NOT_QUIESCENT: 'RETRY_AFTER_DURABLE_QUIESCENCE',
-  RESTORE_FINALIZATION_STATE_CHANGED: 'NON_RETRYABLE_STALE_GRAPH',
-  RESTORE_FINALIZATION_NOT_QUIESCENT: 'RETRY_AFTER_DURABLE_QUIESCENCE',
-  RESTORE_FINALIZATION_CHAIN_MISMATCH: 'OWNER_INTERVENTION_CORRUPTION',
-  RESTORE_FINALIZATION_AUTHORITY_MISMATCH: 'OWNER_INTERVENTION_CORRUPTION',
-  SOURCE_REVISION_CORRUPT_PERSISTED_STATE: 'OWNER_INTERVENTION_CORRUPTION',
-  ATTACHMENT_AUTHORITY_CLASSIFICATION_REQUIRED: 'OWNER_PROTOCOL_DECISION_REQUIRED',
-});
-
-const PERSISTED_REVISION_BOUNDARIES = Object.freeze([
-  'source_authority', 'source_mutation_receipt', 'segment_checkpoint',
-  'compacted_membership_index', 'entity_envelope', 'attachment_authority', 'restore_session',
-  'restore_chunk_receipt', 'restore_final_manifest', 'bootstrap_session', 'bootstrap_segment',
-] as const);
-
-function decodePersistedRevisionBoundary(
-  boundary: typeof PERSISTED_REVISION_BOUNDARIES[number],
-  value: unknown,
-): Readonly<{ ok: true; revision: string }> | Readonly<{
-    ok: false;
-    code: 'SOURCE_REVISION_CORRUPT_PERSISTED_STATE';
-    context: typeof PERSISTED_REVISION_BOUNDARIES[number];
-  }> {
-  const decoded = decodeSourceRevision(value);
-  return decoded.ok
-    ? { ok: true, revision: decoded.canonical }
-    : { ok: false, code: 'SOURCE_REVISION_CORRUPT_PERSISTED_STATE', context: boundary };
-}
-
 const PER_ENTITY_SOURCE_REVISION_POLICY = Object.freeze({
   selection: 'PER_ENTITY_SOURCE_REVISION_BINDING_REQUIRED',
   fields: Object.freeze(['createdSourceRevision', 'lastMutatedSourceRevision', 'deletedSourceRevision']),
@@ -1387,6 +957,68 @@ function sourceObservation(): SourceVerificationObservation {
     k328AdapterAvailable: true,
     k328PhysicalSourceDigest: PHYSICAL_SOURCE,
   };
+}
+
+function k331eSegmentReceipts(segmentIndex: number): readonly k331e.SourceReceipt[] {
+  const first = segmentIndex * k331e.K331E_LIMITS.segmentSize + 1;
+  return Object.freeze(Array.from({ length: k331e.K331E_LIMITS.segmentSize }, (_, leafIndex) => {
+    const revision = String(first + leafIndex);
+    return k331e.createReceipt({ operationId: `operation-${revision}`,
+      previousSourceRevision: String(first + leafIndex - 1), committedSourceRevision: revision,
+      previousReceiptChainDigest: leafIndex === 0 ? null : `chain-${revision}` });
+  }));
+}
+
+function k331eHistoricalProof(
+  segmentCount = 3, targetSegment = 1, targetLeaf = 5,
+): k331e.HistoricalReceiptProof {
+  const receiptSegments = Array.from({ length: segmentCount }, (_, index) => k331eSegmentReceipts(index));
+  const checkpoints: k331e.SegmentCheckpoint[] = [];
+  for (const receipts of receiptSegments) {
+    checkpoints.push(k331e.createSegmentCheckpoint(receipts,
+      checkpoints[checkpoints.length - 1]?.checkpointDigest ?? null));
+  }
+  let mmrState = k331e.emptyMmrState();
+  for (const checkpoint of checkpoints) mmrState = k331e.appendMmrCheckpoint(mmrState, checkpoint);
+  const receipts = receiptSegments[targetSegment];
+  const receipt = receipts[targetLeaf];
+  return Object.freeze({ kind: 'absinthe_historical_receipt_proof', version: 1,
+    receipt, segmentLeafCount: receipts.length,
+    segmentPath: k331e.segmentMerkleProof(receipts.map(k331e.segmentReceiptLeaf), targetLeaf),
+    checkpoint: checkpoints[targetSegment],
+    mmrProofEncoded: k331e.encodeMmrProof(k331e.createMmrProof(checkpoints, targetSegment)),
+    mmrState, sourceAuthorityMmrStateDigest: mmrState.stateDigest });
+}
+
+function k331eBootstrapSegment(
+  category: string, segmentIndex = 0, previous: k331e.BootstrapSegment | null = null,
+  endOfCategory = true,
+): k331e.BootstrapSegment {
+  const result = k331e.createBootstrapSegment({ sessionId: 'bootstrap-session-a', category,
+    segmentIndex, previousSegmentDigest: previous?.segmentDigest ?? null,
+    previousLastKey: previous?.lastKey ?? null,
+    continuationStartDigest: previous?.continuationEndDigest ?? 'cursor:start',
+    continuationEndDigest: endOfCategory ? 'cursor:end' : `cursor:${segmentIndex + 1}`,
+    baselineDigest: k331e.sha256Hex('ABSINTHE_BOOTSTRAP_BASELINE_V1', ['generation-a']),
+    records: Object.freeze([Object.freeze({ key: `${category}:${segmentIndex}:a`,
+      valueDigest: k331e.sha256Hex('ABSINTHE_BOOTSTRAP_VALUE_V1', [category, segmentIndex]) })]),
+    endOfCategory,
+  });
+  if (typeof result === 'string') throw new Error(result);
+  return result;
+}
+
+function k331eSourceAuthority(accumulator: k331e.RestoreAccumulator): k331e.SourceAuthorityProjection {
+  const withoutDigest = Object.freeze({ revision: accumulator.finalRevision,
+    restoreAuthorityDigest: accumulator.authorityDigest,
+    entityCount: 108, entityRoot: k331e.sha256Hex('ABSINTHE_ENTITY_ROOT_V1', [108]),
+    attachmentCount: 4, attachmentRoot: k331e.sha256Hex('ABSINTHE_ATTACHMENT_ROOT_V1', [4]),
+    outboxCount: 108, outboxRoot: k331e.sha256Hex('ABSINTHE_OUTBOX_ROOT_V1', [108]),
+    checkpointCount: 1, checkpointRoot: k331e.sha256Hex('ABSINTHE_CHECKPOINT_ROOT_V1', [1]),
+    coordinationEpoch: 7, quiescenceDigest: k331e.sha256Hex('ABSINTHE_QUIESCENCE_V1', [7]),
+    protocolVersion: 1 as const, implementationId: 'local-first-source-v1' });
+  return Object.freeze({ ...withoutDigest,
+    completeAuthorityDigest: k331e.sourceAuthorityProjectionDigest(withoutDigest) });
 }
 
 describe('K-331 dormant production-writer admission definition', () => {
@@ -1864,7 +1496,8 @@ describe('K-331 dormant production-writer admission definition', () => {
     if (!first.ok) throw new Error(first.code);
     const { chunkReceiptDigest: _digest, ...receiptPreimage } = first.receipt;
     expect(first.receipt.chunkReceiptDigest)
-      .toBe(`sha256:${canonicalRestoreChunkReceiptPreimage(receiptPreimage)}`);
+      .toBe(k331e.sha256Hex(k331e.K331E_DOMAINS.restoreChunk,
+        [canonicalRestoreChunkReceiptPreimage(receiptPreimage)]));
     expect(commitRestoreChunkFixture(first.state, 0, 'chunk-input-0'))
       .toMatchObject({ ok: true, reused: true, receipt: first.receipt });
     expect(commitRestoreChunkFixture(first.state, 0, 'changed-input'))
@@ -1913,75 +1546,195 @@ describe('K-331 dormant production-writer admission definition', () => {
     });
   });
 
-  it('K-331D: historical receipt membership stays inside fixed proof and raw-read ceilings', () => {
-    const proof: ReceiptMembershipProofFixture = Object.freeze({
-      proofVersion: 'receipt-membership-proof-v1', receiptRevision: '5', receiptDigest: 'receipt:5',
-      segmentIndex: 0, segmentStartRevision: '1', segmentEndRevision: '64',
-      segmentRootDigest: 'segment-root:0', accumulatorRootDigest: 'mmr-root:1000000',
-      currentChainHeadDigest: 'chain-head:1000000', hashNodes: Object.freeze(Array(32).fill('node')),
-      encodedBytes: 4096, rawReceiptReads: 0, sealed: true,
-      compactedMembershipIndexPresent: true, proofAuthenticatesReceipt: true,
-      checkpointPathValid: true, checkpointCoordinatesUnique: true,
-    });
-    expect(verifyBoundedReceiptMembership(proof, '5', 'receipt:5')).toBe('VERIFIED');
-    expect(verifyBoundedReceiptMembership(null, '5', 'receipt:5'))
-      .toBe('LINEAGE_MEMBERSHIP_PROOF_MISSING');
-    expect(verifyBoundedReceiptMembership(Object.freeze({ ...proof,
-      hashNodes: Object.freeze(Array(K331D_BOUNDS.membershipHashNodes + 1).fill('node')) }),
-    '5', 'receipt:5')).toBe('RECEIPT_MEMBERSHIP_PROOF_BOUND_EXCEEDED');
-    expect(verifyBoundedReceiptMembership(Object.freeze({ ...proof,
-      rawReceiptReads: K331D_BOUNDS.rawReceiptReads + 1 }), '5', 'receipt:5'))
-      .toBe('RECEIPT_MEMBERSHIP_PROOF_BOUND_EXCEEDED');
-    expect(verifyBoundedReceiptMembership(Object.freeze({ ...proof,
-      compactedMembershipIndexPresent: false }), '5', 'receipt:5'))
-      .toBe('LINEAGE_MEMBERSHIP_PROOF_MISSING');
-    expect(verifyBoundedReceiptMembership(Object.freeze({ ...proof,
-      proofAuthenticatesReceipt: false }), '5', 'receipt:5'))
-      .toBe('LINEAGE_MEMBERSHIP_PROOF_INVALID');
-    expect(verifyBoundedReceiptMembership(Object.freeze({ ...proof,
-      checkpointCoordinatesUnique: false }), '5', 'receipt:5'))
-      .toBe('LINEAGE_SEGMENT_CHECKPOINT_CONFLICT');
-    expect(verifyBoundedReceiptMembership(Object.freeze({ ...proof, sealed: false,
-      compactedMembershipIndexPresent: false, rawReceiptReads: 64 }), '5', 'receipt:5'))
-      .toBe('VERIFIED');
-    expect(validReceiptLineage(5n, 5n, 'receipt:5',
-      Object.freeze(Array(65).fill(revisionEvidence('operation-a', '4', '5', 'root', 'receipt:5'))),
-      'head')).toBe(false);
+  it('K-331E: revision coordinates are unique and revision zero has no receipt leaf', () => {
+    expect(k331e.revisionCoordinate('1')).toEqual({ revision: '1', segmentIndex: 0, leafIndex: 0 });
+    expect(k331e.revisionCoordinate('64')).toEqual({ revision: '64', segmentIndex: 0, leafIndex: 63 });
+    expect(k331e.revisionCoordinate('65')).toEqual({ revision: '65', segmentIndex: 1, leafIndex: 0 });
+    expect(k331e.revisionCoordinate('0')).toBeNull();
+    expect(k331e.revisionCoordinate('01')).toBeNull();
   });
 
-  it('K-331D: retention and compaction are evidence-only and never discard live proof', () => {
-    expect(RECEIPT_RETENTION_POLICY).toEqual({
-      sealedSegmentSize: 64, minimumLaterSealedSegmentsBeforeCompaction: 2,
-      neverCompact: ['UNRESOLVED_OPERATION', 'PENDING_RECEIPT_RECONCILIATION',
-        'ACTIVE_RESTORE_REFERENCE', 'ACTIVE_MIGRATION_REFERENCE', 'CORRUPTION_HOLD',
-        'UNSEALED_SEGMENT'],
-      compactionTransaction: ['write_immutable_compacted_membership_index',
-        'write_purge_certificate_when_applicable', 'delete_raw_receipt'],
-      sourceRevisionEffect: 'NONE_EVIDENCE_ONLY',
+  it('K-331E: canonical digests use real SHA-256 and domain separation', () => {
+    const receipt = k331e.createReceipt({ operationId: 'operation-a', previousSourceRevision: '0',
+      committedSourceRevision: '1' });
+    const repeated = k331e.createReceipt({ operationId: 'operation-a', previousSourceRevision: '0',
+      committedSourceRevision: '1' });
+    const changed = k331e.createReceipt({ operationId: 'operation-b', previousSourceRevision: '0',
+      committedSourceRevision: '1' });
+    expect(receipt.receiptDigest).toMatch(/^[0-9a-f]{64}$/);
+    expect(repeated.receiptDigest).toBe(receipt.receiptDigest);
+    expect(changed.receiptDigest).not.toBe(receipt.receiptDigest);
+    expect(k331e.sha256Hex(k331e.K331E_DOMAINS.receiptLeaf, ['same']))
+      .not.toBe(k331e.sha256Hex(k331e.K331E_DOMAINS.segmentNode, ['same']));
+  });
+
+  it('K-331E: segment Merkle verification recomputes paths and rejects tampering', () => {
+    const receipts = k331eSegmentReceipts(0).slice(0, 13);
+    const leaves = receipts.map(k331e.segmentReceiptLeaf);
+    const root = k331e.segmentMerkleRoot(leaves);
+    const proof = k331e.segmentMerkleProof(leaves, 5);
+    expect(k331e.verifySegmentMerkleProof(leaves[5], 5, leaves.length, proof, root)).toBe(true);
+    expect(k331e.verifySegmentMerkleProof(leaves[5], 4, leaves.length, proof, root)).toBe(false);
+    expect(k331e.verifySegmentMerkleProof(leaves[5], 5, leaves.length,
+      Object.freeze([Object.freeze({ ...proof[0], digest: k331e.sha256Hex('TAMPER', ['x']) }),
+        ...proof.slice(1)]), root)).toBe(false);
+    expect(k331e.verifySegmentMerkleProof(leaves[5], 5, leaves.length,
+      Object.freeze([Object.freeze({ ...proof[0], side: proof[0].side === 'left' ? 'right' : 'left' }),
+        ...proof.slice(1)]), root)).toBe(false);
+  });
+
+  it('K-331E: segment checkpoints reject duplicate, sparse, and cross-segment coordinates', () => {
+    const valid = k331eSegmentReceipts(0);
+    expect(k331e.createSegmentCheckpoint(valid)).toMatchObject({ segmentIndex: 0,
+      firstRevision: '1', lastRevision: '64', receiptCount: 64 });
+    expect(() => k331e.createSegmentCheckpoint(Object.freeze([valid[0], valid[0]])))
+      .toThrow('LINEAGE_COORDINATE_MISMATCH');
+    expect(() => k331e.createSegmentCheckpoint(Object.freeze([valid[0], valid[2]])))
+      .toThrow('LINEAGE_COORDINATE_MISMATCH');
+    expect(() => k331e.createSegmentCheckpoint(Object.freeze([valid[63], k331eSegmentReceipts(1)[0]])))
+      .toThrow('LINEAGE_COORDINATE_MISMATCH');
+  });
+
+  it('K-331E: unsealed membership recomputes a bounded atomic partial root', () => {
+    const receipts = Object.freeze(k331eSegmentReceipts(0).slice(0, 13));
+    const metadata: k331e.OpenSegmentMetadata = Object.freeze({ kind: 'absinthe_open_segment',
+      version: 1, segmentIndex: 0, receiptCount: receipts.length,
+      partialRoot: k331e.segmentMerkleRoot(receipts.map(k331e.segmentReceiptLeaf)),
+      lastRevision: '13' });
+    expect(k331e.verifyUnsealedSegment(receipts, metadata, '13'))
+      .toEqual({ ok: true, rawReceiptReads: 13 });
+    expect(k331e.verifyUnsealedSegment(receipts, Object.freeze({ ...metadata,
+      partialRoot: k331e.sha256Hex('TAMPER', ['partial']) }), '13'))
+      .toEqual({ ok: false, code: 'LINEAGE_SEGMENT_PATH_INVALID' });
+    expect(k331e.verifyUnsealedSegment(Object.freeze(Array.from({ length: 65 }, (_value, index) =>
+      k331e.createReceipt({ operationId: `overflow-${index}`, previousSourceRevision: String(index),
+        committedSourceRevision: String(index + 1) }))), Object.freeze({ ...metadata,
+      receiptCount: 65 }), '65')).toEqual({ ok: false, code: 'LINEAGE_SEGMENT_PATH_INVALID' });
+  });
+
+  it('K-331E: historical membership authenticates receipt, segment, MMR, and authority pointer', () => {
+    const proof = k331eHistoricalProof();
+    expect(k331e.verifyHistoricalReceiptProof(proof)).toBe('VERIFIED');
+    expect(k331e.verifyHistoricalReceiptProof(Object.freeze({ ...proof,
+      sourceAuthorityMmrStateDigest: k331e.sha256Hex('TAMPER', ['authority']) })))
+      .toBe('LINEAGE_MMR_AUTHORITY_MISMATCH');
+    const changedReceipt = Object.freeze({ ...proof.receipt, mutationKind: 'NOTE_DELETE' });
+    expect(k331e.verifyHistoricalReceiptProof(Object.freeze({ ...proof, receipt: changedReceipt })))
+      .toBe('LINEAGE_RECEIPT_DIGEST_MISMATCH');
+    const changedPath = Object.freeze([Object.freeze({ ...proof.segmentPath[0],
+      digest: k331e.sha256Hex('TAMPER', ['sibling']) }), ...proof.segmentPath.slice(1)]);
+    expect(k331e.verifyHistoricalReceiptProof(Object.freeze({ ...proof, segmentPath: changedPath })))
+      .toBe('LINEAGE_SEGMENT_PATH_INVALID');
+  });
+
+  it('K-331E: MMR peak construction and proof verification reject peak and root tampering', () => {
+    const proof = k331eHistoricalProof(7, 2, 5);
+    expect(proof.mmrState.peaks.map(peak => peak.height)).toEqual([2, 1, 0]);
+    expect(k331e.verifyHistoricalReceiptProof(proof)).toBe('VERIFIED');
+    const decoded = k331e.decodeMmrProof(proof.mmrProofEncoded);
+    if (!decoded.ok) throw new Error(decoded.code);
+    const reordered = Object.freeze({ ...decoded.proof,
+      otherPeaks: Object.freeze([...decoded.proof.otherPeaks].reverse()) });
+    expect(k331e.verifyHistoricalReceiptProof(Object.freeze({ ...proof,
+      mmrProofEncoded: k331e.encodeMmrProof(reordered) }))).toBe('LINEAGE_MMR_PATH_INVALID');
+    expect(k331e.verifyHistoricalReceiptProof(Object.freeze({ ...proof,
+      mmrState: Object.freeze({ ...proof.mmrState, root: k331e.sha256Hex('TAMPER', ['root']) }) })))
+      .toBe('LINEAGE_MMR_PATH_INVALID');
+  });
+
+  it('K-331E: full revision-domain proof bounds are derived and checked before parsing', () => {
+    expect(k331e.K331E_LIMITS.maxSegments).toBe(156_250_000_000_000);
+    expect(k331e.K331E_LIMITS.maxMmrHeight).toBe(47);
+    expect(k331e.K331E_LIMITS.maxPeakCount).toBe(47);
+    expect(k331e.K331E_LIMITS.derivedWorstCaseProofNodes).toBe(92);
+    expect(k331e.K331E_LIMITS.maxProofNodes).toBeGreaterThanOrEqual(92);
+    expect(k331e.decodeMmrProof('x'.repeat(k331e.K331E_LIMITS.maxEncodedProofBytes + 1)))
+      .toEqual({ ok: false, code: 'LINEAGE_PROOF_TOO_LARGE' });
+    const tooManyNodes = JSON.stringify(['absinthe_mmr_proof', 1, 1, 0, 0,
+      Array.from({ length: 97 }, () => ['right', '0'.repeat(64)]), []]);
+    expect(k331e.decodeMmrProof(tooManyNodes)).toEqual({
+      ok: false, code: 'LINEAGE_PROOF_NODE_LIMIT_EXCEEDED',
     });
-    for (const input of [
-      compactableReceipt({ unresolved: true }),
-      compactableReceipt({ pendingReconciliation: true }),
-      compactableReceipt({ activeRestoreReference: true }),
-      compactableReceipt({ corruptionHold: true }),
-    ]) expect(compactReceiptFixture(input)).toEqual({
-      ok: false, code: 'LINEAGE_UNRESOLVED_RECEIPT_NOT_COMPACTABLE',
-    });
-    expect(compactReceiptFixture(compactableReceipt({ segmentSealed: false }))).toEqual({
-      ok: false, code: 'LINEAGE_MEMBERSHIP_PROOF_MISSING',
-    });
-    const first = compactReceiptFixture(compactableReceipt());
-    expect(first).toMatchObject({ ok: true, reused: false, rawReceiptPresent: false,
-      index: { terminalReceiptDigest: 'receipt:41', membershipLocatorDigest: 'membership:41:receipt:41' } });
+  });
+
+  it('K-331E: the 64th append seals atomically and the 65th opens the next segment', () => {
+    let state = k331e.emptyAppendState();
+    for (let index = 1; index <= 63; index += 1) {
+      const result = k331e.appendReceiptTransaction(state, `operation-${index}`,
+        k331e.sha256Hex('ABSINTHE_INPUT_V1', [index]));
+      if (!result.ok) throw new Error(result.code);
+      state = result.state;
+      expect(result.sealed).toBe(false);
+    }
+    const sixtyFourth = k331e.appendReceiptTransaction(state, 'operation-64',
+      k331e.sha256Hex('ABSINTHE_INPUT_V1', [64]));
+    if (!sixtyFourth.ok) throw new Error(sixtyFourth.code);
+    expect(sixtyFourth).toMatchObject({ sealed: true, state: { revision: '64', openSegmentIndex: 1,
+      openReceipts: [], mmrState: { leafCount: 1, lastSealedSegment: 0 } } });
+    expect(k331e.appendReceiptTransaction(sixtyFourth.state, 'operation-64',
+      k331e.sha256Hex('ABSINTHE_INPUT_V1', [64])))
+      .toMatchObject({ ok: true, reused: true, state: sixtyFourth.state });
+    const sixtyFifth = k331e.appendReceiptTransaction(sixtyFourth.state, 'operation-65',
+      k331e.sha256Hex('ABSINTHE_INPUT_V1', [65]));
+    if (!sixtyFifth.ok) throw new Error(sixtyFifth.code);
+    expect(sixtyFifth).toMatchObject({ sealed: false, state: { revision: '65', openSegmentIndex: 1 } });
+    expect(sixtyFifth.state.openReceipts).toHaveLength(1);
+  });
+
+  it('K-331E: append retry is exact and an MMR pointer mismatch fails closed', () => {
+    const input = k331e.sha256Hex('ABSINTHE_INPUT_V1', ['a']);
+    const first = k331e.appendReceiptTransaction(k331e.emptyAppendState(), 'operation-a', input);
     if (!first.ok) throw new Error(first.code);
-    expect(compactReceiptFixture(compactableReceipt({ existingIndex: first.index })))
-      .toMatchObject({ ok: true, reused: true, index: first.index });
-    expect(compactReceiptFixture(compactableReceipt({ existingIndex: Object.freeze({
-      ...first.index, receiptDigest: 'conflict',
-    }) }))).toEqual({ ok: false, code: 'LINEAGE_COMPACTION_CONFLICT' });
+    expect(k331e.appendReceiptTransaction(first.state, 'operation-a', input))
+      .toMatchObject({ ok: true, reused: true, state: first.state, receipt: first.receipt });
+    expect(k331e.appendReceiptTransaction(first.state, 'operation-a',
+      k331e.sha256Hex('ABSINTHE_INPUT_V1', ['changed'])))
+      .toEqual({ ok: false, code: 'OPERATION_IDENTITY_MISMATCH' });
+    expect(k331e.appendReceiptTransaction(Object.freeze({ ...first.state,
+      sourceAuthorityMmrStateDigest: k331e.sha256Hex('TAMPER', ['pointer']) }), 'operation-b', input))
+      .toEqual({ ok: false, code: 'LINEAGE_APPEND_SEAL_CONFLICT' });
   });
 
-  it('K-331D: quiescence is derived from the persisted coordination and maintenance graph', () => {
+  it('K-331E: compaction derives a complete authenticated index and exact retry', () => {
+    const proof = k331eHistoricalProof();
+    const graph: k331e.CompactionGraph = Object.freeze({ proof, terminal: 'committed',
+      terminalReceiptDigest: proof.receipt.receiptDigest, pendingReconciliation: false,
+      activeRestoreReference: false, activeMigrationReference: false, corruptionHold: false,
+      existingIndex: null, rawReceiptPresent: true });
+    const first = k331e.compactReceiptTransaction(graph);
+    expect(first).toMatchObject({ ok: true, reused: false, rawReceiptPresent: false,
+      index: { namespaceFingerprint: proof.receipt.namespaceFingerprint,
+        committedSourceRevision: proof.receipt.committedSourceRevision } });
+    if (!first.ok) throw new Error(first.code);
+    expect(first.index.indexDigest).toMatch(/^[0-9a-f]{64}$/);
+    expect(k331e.compactReceiptTransaction(Object.freeze({ ...graph, existingIndex: first.index })))
+      .toMatchObject({ ok: true, reused: true, index: first.index });
+    expect(k331e.compactReceiptTransaction(Object.freeze({ ...graph, existingIndex: Object.freeze({
+      ...first.index, operationId: 'conflict',
+    }) }))).toEqual({ ok: false, code: 'LINEAGE_COMPACTION_INDEX_CONFLICT' });
+  });
+
+  it('K-331E: every durable hold and terminal mismatch prevents compaction', () => {
+    const proof = k331eHistoricalProof();
+    const base: k331e.CompactionGraph = Object.freeze({ proof, terminal: 'committed',
+      terminalReceiptDigest: proof.receipt.receiptDigest, pendingReconciliation: false,
+      activeRestoreReference: false, activeMigrationReference: false, corruptionHold: false,
+      existingIndex: null, rawReceiptPresent: true });
+    for (const override of [
+      { terminal: 'absent' as const }, { terminal: 'failed' as const }, { pendingReconciliation: true },
+      { corruptionHold: true }, { terminalReceiptDigest: null },
+    ]) expect(k331e.compactReceiptTransaction(Object.freeze({ ...base, ...override })))
+      .toMatchObject({ ok: false, code: 'LINEAGE_UNRESOLVED_RECEIPT_NOT_COMPACTABLE' });
+    for (const override of [{ activeRestoreReference: true }, { activeMigrationReference: true }]) {
+      expect(k331e.compactReceiptTransaction(Object.freeze({ ...base, ...override })))
+        .toEqual({ ok: false, code: 'LINEAGE_COMPACTION_REFERENCE_ACTIVE' });
+    }
+    expect(k331e.compactReceiptTransaction(Object.freeze({ ...base, proof: Object.freeze({ ...proof,
+      sourceAuthorityMmrStateDigest: k331e.sha256Hex('TAMPER', ['proof']) }) })))
+      .toEqual({ ok: false, code: 'LINEAGE_MMR_AUTHORITY_MISMATCH' });
+  });
+
+  it('K-331E: quiescence remains derived from persisted coordination and maintenance graphs', () => {
     expect(deriveDurableQuiescence(quiescentGraph())).toMatchObject({
       unresolvedOperationCount: 0, pendingReceiptReconciliationCount: 0,
       nonQuiescentWriterCount: 0, activeMaintenanceSessionCount: 0,
@@ -2000,143 +1753,189 @@ describe('K-331 dormant production-writer admission definition', () => {
     ]) expect(deriveDurableQuiescence(graph).quiescent).toBe(false);
   });
 
-  it('K-331D: bootstrap uses bounded staged evidence and derives its digest from the complete set', () => {
-    const graph = bootstrapGraph();
-    const staged = persistBootstrapSegmentFixture(null, graph.segments[0], graph.baselineDigest);
-    expect(staged).toMatchObject({ ok: true, reused: false });
-    if (!staged.ok) throw new Error(staged.code);
-    expect(persistBootstrapSegmentFixture(staged.segment, graph.segments[0], graph.baselineDigest))
-      .toMatchObject({ ok: true, reused: true });
-    expect(persistBootstrapSegmentFixture(staged.segment, Object.freeze({ ...graph.segments[0],
-      sessionId: 'other-session' }), graph.baselineDigest))
-      .toEqual({ ok: false, code: 'BOOTSTRAP_SEGMENT_CONFLICT' });
-    expect(persistBootstrapSegmentFixture(null, graph.segments[0], 'changed-baseline'))
-      .toEqual({ ok: false, code: 'BOOTSTRAP_FINALIZATION_STATE_CHANGED' });
-    const result = finalizeStagedBootstrap(graph);
-    expect(result).toMatchObject({ ok: true, code: 'SOURCE_AUTHORITY_BOOTSTRAP_READY' });
-    expect(result.evidenceDigest).toBe(`sha256:${canonicalBootstrapPreimage(graph)}`);
-    expect(canonicalBootstrapPreimage(graph)).not.toContain('bootstrapEvidenceDigest');
-    expect(finalizeStagedBootstrap(Object.freeze({ ...graph,
-      currentBaselineDigest: 'changed-baseline' }))).toEqual({
-      ok: false, code: 'SOURCE_AUTHORITY_BOOTSTRAP_BASELINE_CHANGED',
-    });
-    expect(finalizeStagedBootstrap(Object.freeze({ ...graph,
-      segments: Object.freeze(graph.segments.slice(1)) }))).toEqual({
-      ok: false, code: 'SOURCE_AUTHORITY_BOOTSTRAP_SEGMENT_SET_MISMATCH',
-    });
-  });
-
-  it('K-331D: bootstrap rejects segment overrun, nonquiescence, and ambiguous attachment authority', () => {
-    const graph = bootstrapGraph();
-    expect(finalizeStagedBootstrap(Object.freeze({ ...graph, segments: Object.freeze([
-      Object.freeze({ ...graph.segments[0], recordCount: K331D_BOUNDS.bootstrapRecordsPerSegment + 1 }),
-      ...graph.segments.slice(1),
-    ]) }))).toEqual({ ok: false, code: 'SOURCE_AUTHORITY_BOOTSTRAP_SEGMENT_BOUND_EXCEEDED' });
-    expect(finalizeStagedBootstrap(Object.freeze({ ...graph,
-      quiescenceGraph: quiescentGraph({ admissionOpen: true }) })))
-      .toEqual({ ok: false, code: 'SOURCE_AUTHORITY_BOOTSTRAP_NOT_QUIESCENT' });
-    expect(finalizeStagedBootstrap(Object.freeze({ ...graph, attachmentAuthorityClassified: false })))
-      .toEqual({ ok: false, code: 'ATTACHMENT_AUTHORITY_CLASSIFICATION_REQUIRED' });
-  });
-
-  it('K-331D: entity lifecycle assigns exact revisions without inventing bootstrap chronology', () => {
-    const created = transitionEntityRevision(null, 'create', '1');
+  it('K-331E: exact entity lifecycle rejects repeated, decreasing, and skipped revisions', () => {
+    const created = k331e.transitionEntityExact('0', '1', null, 'create');
     expect(created).toMatchObject({ lifecycle: 'active', createdSourceRevision: '1',
       lastMutatedSourceRevision: '1', deletedSourceRevision: null });
     if (typeof created === 'string') throw new Error(created);
-    const updated = transitionEntityRevision(created, 'update', '2');
+    const updated = k331e.transitionEntityExact('1', '2', created, 'update');
     expect(updated).toMatchObject({ createdSourceRevision: '1', lastMutatedSourceRevision: '2' });
     if (typeof updated === 'string') throw new Error(updated);
-    const tombstoned = transitionEntityRevision(updated, 'tombstone', '3');
+    const tombstoned = k331e.transitionEntityExact('2', '3', updated, 'tombstone');
     expect(tombstoned).toMatchObject({ lifecycle: 'tombstoned', lastMutatedSourceRevision: '3',
       deletedSourceRevision: '3' });
     if (typeof tombstoned === 'string') throw new Error(tombstoned);
-    const resurrected = transitionEntityRevision(tombstoned, 'resurrect', '4');
+    const resurrected = k331e.transitionEntityExact('3', '4', tombstoned, 'resurrect');
     expect(resurrected).toMatchObject({ lifecycle: 'active', createdSourceRevision: '1',
       lastMutatedSourceRevision: '4', deletedSourceRevision: null });
-    const purged = transitionEntityRevision(tombstoned, 'purge', '4');
-    expect(purged).toMatchObject({ lifecycle: 'purged', deletedSourceRevision: '3',
-      purgeCertificateDigest: 'purge:4' });
-    expect(ENTITY_REVISION_MODEL.revisionZeroActive.revisionZeroInitialization)
-      .toBe('preexisting_state_not_historical_event');
-    expect(ENTITY_REVISION_MODEL.revisionZeroTombstone.deletedSourceRevision).toBe('0');
+    expect(k331e.transitionEntityExact('2', '2', updated, 'update'))
+      .toBe('SOURCE_REVISION_TRANSITION_INVALID');
+    expect(k331e.transitionEntityExact('2', '1', updated, 'update'))
+      .toBe('SOURCE_REVISION_TRANSITION_INVALID');
+    expect(k331e.transitionEntityExact('2', '4', updated, 'update'))
+      .toBe('SOURCE_REVISION_TRANSITION_INVALID');
   });
 
-  it('K-331D: invalid entity transitions and malformed revision inputs fail closed', () => {
-    const active = transitionEntityRevision(null, 'create', '1');
-    if (typeof active === 'string') throw new Error(active);
-    expect(transitionEntityRevision(active, 'create', '2')).toBe('INVALID_LIFECYCLE_TRANSITION');
-    expect(transitionEntityRevision(active, 'resurrect', '2')).toBe('INVALID_LIFECYCLE_TRANSITION');
-    expect(transitionEntityRevision(active, 'purge', '2')).toBe('INVALID_LIFECYCLE_TRANSITION');
-    expect(transitionEntityRevision(active, 'update', '01')).toBe('INVALID_LIFECYCLE_TRANSITION');
-    expect(ENTITY_REVISION_MODEL).toMatchObject({
-      folders: 'FIRST_CLASS_ENTITY_ENVELOPE', relations: 'INDEPENDENT_REVISIONED_RELATION_RECORDS',
-      boundedBulk: 'ALL_AFFECTED_RECORDS_SHARE_ONE_COMMITTED_SOURCE_REVISION',
-    });
+  it('K-331E: purge certificates authenticate prior tombstone and exact purge revision', () => {
+    let digestIndex = 0;
+    const digest = () => k331e.sha256Hex('ABSINTHE_TEST_DIGEST_V1', [digestIndex++]);
+    const certificate = k331e.createPurgeCertificate({ namespaceFingerprint: 'namespace',
+      generationId: 'generation', entityType: 'note', entityIdDigest: digest(),
+      priorTombstoneRevision: '3', priorTombstoneReceiptDigest: digest(), purgeOperationId: 'purge-a',
+      previousSourceRevision: '3', committedPurgeRevision: '4', resultingAuthorityDigest: digest(),
+      sourceLineageReceiptDigest: digest() });
+    expect(certificate.certificateDigest).toMatch(/^[0-9a-f]{64}$/);
+    expect(k331e.verifyPurgeCertificate(certificate)).toBe(true);
+    expect(k331e.verifyPurgeCertificate(Object.freeze({ ...certificate,
+      priorTombstoneReceiptDigest: digest() }))).toBe(false);
+    expect(() => k331e.createPurgeCertificate({ ...certificate, priorTombstoneRevision: '03',
+      certificateDigest: undefined } as never)).toThrow('SOURCE_REVISION_TRANSITION_INVALID');
   });
 
-  it('K-331D: restore finalization rereads the persisted graph and exact retry is immutable', () => {
-    const first = commitRestoreChunkFixture(restoreFixture(), 0, 'chunk-input-0');
-    if (!first.ok) throw new Error(first.code);
-    const second = commitRestoreChunkFixture(first.state, 1, 'chunk-input-1');
-    if (!second.ok) throw new Error(second.code);
-    const graph: RestorePersistedGraphFixture = Object.freeze({
-      lookup: Object.freeze({ namespaceFingerprint: second.state.namespaceFingerprint,
-        generationId: second.state.generationId, restoreSessionId: second.state.restoreSessionId }),
-      session: second.state, authorityRevision: '12', authorityDigest: 'authority:12',
-      expectedAuthorityRevision: '12', expectedAuthorityDigest: 'authority:12',
-      persistedPlanDigest: second.state.planDigest,
-      authenticatedChunkChainHead: second.receipt.chunkReceiptDigest,
-      quiescenceGraph: quiescentGraph(),
-      existingManifest: null,
-    });
-    const finalized = finalizeRestoreFromPersistedGraph(graph);
-    expect(finalized).toMatchObject({ ok: true, manifest: { finalCommittedSourceRevision: '12',
-      completeAuthorityDigest: 'authority:12', evidenceOnly: true, sourceRevisionIncremented: false } });
-    if (!finalized.ok) throw new Error(finalized.code);
-    const { finalManifestDigest: _digest, ...manifestPreimage } = finalized.manifest;
-    expect(finalized.manifest.finalManifestDigest)
-      .toBe(`sha256:${canonicalRestoreFinalManifestPreimage(manifestPreimage)}`);
-    expect(finalizeRestoreFromPersistedGraph(Object.freeze({ ...graph,
-      existingManifest: finalized.manifest }))).toMatchObject({ ok: true, manifest: finalized.manifest });
+  it('K-331E: attachment locator classes prohibit transient authority and preserve operational invariance', () => {
+    expect(k331e.ATTACHMENT_FIELD_CLASSIFICATION.promotedCanonical)
+      .toEqual(['localBlobKey', 'remoteBlobKey', 'remoteProvider', 'remoteFileId']);
+    expect(k331e.ATTACHMENT_FIELD_CLASSIFICATION.transientSecret)
+      .toEqual(['resumableUploadUri', 'signedUrl', 'accessToken']);
+    expect(k331e.ATTACHMENT_FIELD_CLASSIFICATION.prohibited)
+      .toContain('temporaryUploadLocator');
+    const baseline = attachmentProjectionFixture();
+    const changed = Object.freeze({ ...baseline, operational: Object.freeze({ ...baseline.operational,
+      retryCount: 99, progress: 0.9, leaseOwner: 'lease-b', updatedAt: '2026-07-18T00:00:00.000Z' }) });
+    expect(attachmentAuthorityDigestFixture(changed)).toBe(attachmentAuthorityDigestFixture(baseline));
+    expect(k331e.transitionEntityExact('1', '2', Object.freeze({ lifecycle: 'active',
+      createdSourceRevision: '1', lastMutatedSourceRevision: '1', deletedSourceRevision: null,
+      revisionZeroInitialization: 'native' }), 'update')).toMatchObject({ lastMutatedSourceRevision: '2' });
   });
 
-  it('K-331D: restore finalization rejects changed authority, broken chunks, and live writers', () => {
-    const first = commitRestoreChunkFixture(restoreFixture(), 0, 'chunk-input-0');
-    if (!first.ok) throw new Error(first.code);
-    const second = commitRestoreChunkFixture(first.state, 1, 'chunk-input-1');
-    if (!second.ok) throw new Error(second.code);
-    const graph: RestorePersistedGraphFixture = Object.freeze({
-      lookup: Object.freeze({ namespaceFingerprint: second.state.namespaceFingerprint,
-        generationId: second.state.generationId, restoreSessionId: second.state.restoreSessionId }),
-      session: second.state, authorityRevision: '12', authorityDigest: 'authority:12',
-      expectedAuthorityRevision: '12', expectedAuthorityDigest: 'authority:12',
-      persistedPlanDigest: second.state.planDigest,
-      authenticatedChunkChainHead: second.receipt.chunkReceiptDigest,
-      quiescenceGraph: quiescentGraph(),
-      existingManifest: null,
-    });
-    for (const changed of [
-      Object.freeze({ ...graph, authorityRevision: '13' }),
-      Object.freeze({ ...graph, authorityDigest: 'changed' }),
-      Object.freeze({ ...graph, authenticatedChunkChainHead: 'changed-chain-head' }),
-      Object.freeze({ ...graph, persistedPlanDigest: 'changed-plan' }),
-      Object.freeze({ ...graph, quiescenceGraph: quiescentGraph({ admissionOpen: true }) }),
-    ]) expect(finalizeRestoreFromPersistedGraph(changed)).toEqual({
-      ok: false, code: 'RESTORE_FINAL_DIGEST_MISMATCH',
-    });
+  it('K-331E: bootstrap segments compute roots and reject oversized records', () => {
+    const segment = k331eBootstrapSegment('entities');
+    expect(segment.segmentDigest).toMatch(/^[0-9a-f]{64}$/);
+    expect(segment.recordRoot).toMatch(/^[0-9a-f]{64}$/);
+    const oversized = k331e.createBootstrapSegment({ sessionId: 'bootstrap-session-a',
+      category: 'entities', segmentIndex: 0, previousSegmentDigest: null, previousLastKey: null,
+      continuationStartDigest: 'start', continuationEndDigest: 'end', baselineDigest: 'baseline',
+      records: Object.freeze([Object.freeze({ key: 'x'.repeat(k331e.K331E_LIMITS.maxBootstrapSegmentBytes),
+        valueDigest: k331e.sha256Hex('VALUE', ['x']) })]), endOfCategory: true });
+    expect(oversized).toBe('BOOTSTRAP_RECORD_TOO_LARGE');
   });
 
-  it('K-331D: every persisted revision boundary and future evidence store is explicit', () => {
-    for (const boundary of PERSISTED_REVISION_BOUNDARIES) {
-      expect(decodePersistedRevisionBoundary(boundary, '42')).toEqual({ ok: true, revision: '42' });
-      expect(decodePersistedRevisionBoundary(boundary, '042')).toEqual({
-        ok: false, code: 'SOURCE_REVISION_CORRUPT_PERSISTED_STATE', context: boundary,
-      });
+  it('K-331E: bootstrap category accumulators authenticate predecessor and keyspace continuity', () => {
+    const first = k331eBootstrapSegment('entities', 0, null, false);
+    const initial = k331e.emptyBootstrapCategory('bootstrap-session-a', 'entities', 'cursor:start');
+    const afterFirst = k331e.appendBootstrapSegment(initial, first);
+    if (typeof afterFirst === 'string') throw new Error(afterFirst);
+    const second = k331eBootstrapSegment('entities', 1, first, true);
+    const complete = k331e.appendBootstrapSegment(afterFirst, second);
+    expect(complete).toMatchObject({ segmentCount: 2, totalRecordCount: 2, endOfCategory: true });
+    expect(k331e.appendBootstrapSegment(initial, Object.freeze({ ...first,
+      continuationStartDigest: 'wrong' }))).toBe('BOOTSTRAP_SEGMENT_PATH_INVALID');
+    const segmentInput = (key: string, continuationStartDigest: string) => k331e.createBootstrapSegment({
+      sessionId: 'bootstrap-session-a', category: 'entities', segmentIndex: 1,
+      previousSegmentDigest: first.segmentDigest, previousLastKey: first.lastKey,
+      continuationStartDigest, continuationEndDigest: 'cursor:end',
+      baselineDigest: first.baselineDigest, records: Object.freeze([Object.freeze({ key,
+        valueDigest: k331e.sha256Hex('ABSINTHE_BOOTSTRAP_VALUE_V1', [key]) })]), endOfCategory: true });
+    const gap = segmentInput('entities:1:z', 'wrong-cursor');
+    if (typeof gap === 'string') throw new Error(gap);
+    expect(k331e.appendBootstrapSegment(afterFirst, gap)).toBe('BOOTSTRAP_SEGMENT_RANGE_GAP');
+    const overlap = segmentInput(first.lastKey, first.continuationEndDigest);
+    if (typeof overlap === 'string') throw new Error(overlap);
+    expect(k331e.appendBootstrapSegment(afterFirst, overlap)).toBe('BOOTSTRAP_SEGMENT_RANGE_OVERLAP');
+    expect(k331e.appendBootstrapSegment(initial, Object.freeze({ ...first,
+      sessionId: 'other-session' }))).toBe('BOOTSTRAP_SEGMENT_PATH_INVALID');
+  });
+
+  it('K-331E: revision-zero finalization reads only fixed category accumulator states', () => {
+    const categories = ['attachments', 'checkpoints', 'entities', 'outbox', 'relations'].map(category => {
+      const initial = k331e.emptyBootstrapCategory('bootstrap-session-a', category, 'cursor:start');
+      const complete = k331e.appendBootstrapSegment(initial, k331eBootstrapSegment(category));
+      if (typeof complete === 'string') throw new Error(complete);
+      return complete;
+    });
+    const result = k331e.finalizeBootstrapFromAccumulators({ sessionId: 'bootstrap-session-a',
+      namespaceFingerprint: 'namespace', generationId: 'generation', baselineDigest: 'baseline',
+      sourceAuthorityAbsent: true, quiescent: true, categories });
+    expect(result).toMatchObject({ ok: true, revision: '0', accumulatorReads: 5 });
+    expect(k331e.finalizeBootstrapFromAccumulators({ sessionId: 'bootstrap-session-a',
+      namespaceFingerprint: 'namespace', generationId: 'generation', baselineDigest: 'baseline',
+      sourceAuthorityAbsent: true, quiescent: true, categories: categories.slice(1) }))
+      .toEqual({ ok: false, code: 'BOOTSTRAP_CATEGORY_ACCUMULATOR_MISMATCH' });
+    expect(k331e.finalizeBootstrapFromAccumulators({ sessionId: 'bootstrap-session-a',
+      namespaceFingerprint: 'namespace', generationId: 'generation', baselineDigest: 'baseline',
+      sourceAuthorityAbsent: true, quiescent: true, categories: Object.freeze([
+        Object.freeze({ ...categories[0], totalRecordCount: 99 }), ...categories.slice(1),
+      ]) })).toEqual({ ok: false, code: 'BOOTSTRAP_CATEGORY_ACCUMULATOR_MISMATCH' });
+  });
+
+  it('K-331E: restore accumulator derives cursor without traversing historical chunks', () => {
+    let accumulator = k331e.emptyRestoreAccumulator('restore-a',
+      k331e.sha256Hex('RESTORE_PLAN', ['a']), '10', k331e.sha256Hex('AUTHORITY', ['10']));
+    for (let index = 0; index < 130; index += 1) {
+      const next = k331e.appendRestoreChunk(accumulator, index, k331e.sha256Hex('CHUNK', [index]));
+      if (typeof next === 'string') throw new Error(next);
+      accumulator = next;
     }
-    expect(K331D_FUTURE_STORES).toHaveLength(12);
-    expect(new Set(K331D_FUTURE_STORES).size).toBe(K331D_FUTURE_STORES.length);
-    expect(K331D_STABLE_ERRORS).toHaveLength(16);
-    expect(Object.keys(K331D_ERROR_CLASSIFICATION)).toEqual(K331D_STABLE_ERRORS);
+    expect(accumulator).toMatchObject({ committedChunkCount: 130, lastChunkIndex: 129,
+      finalRevision: '140', segmentMmr: { leafCount: 2 }, openChunkDigests: { length: 2 } });
+    expect(k331e.appendRestoreChunk(accumulator, 131, k331e.sha256Hex('CHUNK', [131])))
+      .toBe('RESTORE_CHUNK_PROOF_INVALID');
+  });
+
+  it('K-331E: restore finalization derives every field from persisted authority and is exact-retry stable', () => {
+    let accumulator = k331e.emptyRestoreAccumulator('restore-a',
+      k331e.sha256Hex('RESTORE_PLAN', ['a']), '10', k331e.sha256Hex('AUTHORITY', ['10']));
+    for (let index = 0; index < 2; index += 1) {
+      const next = k331e.appendRestoreChunk(accumulator, index, k331e.sha256Hex('CHUNK', [index]));
+      if (typeof next === 'string') throw new Error(next);
+      accumulator = next;
+    }
+    const sourceAuthority = k331eSourceAuthority(accumulator);
+    const first = k331e.finalizeRestoreBounded({ sessionId: 'restore-a', planDigest: accumulator.planDigest,
+      accumulator, sourceAuthority, quiescent: true, existingManifest: null });
+    expect(first).toMatchObject({ ok: true, accumulatorReads: 1, reused: false,
+      manifest: { finalRevision: accumulator.finalRevision, entityCount: 108, attachmentCount: 4 } });
+    if (!first.ok) throw new Error(first.code);
+    expect(first.manifest.manifestDigest).toMatch(/^[0-9a-f]{64}$/);
+    expect(k331e.finalizeRestoreBounded({ sessionId: 'restore-a', planDigest: accumulator.planDigest,
+      accumulator, sourceAuthority, quiescent: true, existingManifest: first.manifest }))
+      .toMatchObject({ ok: true, reused: true, manifest: first.manifest });
+    expect(k331e.finalizeRestoreBounded({ sessionId: 'restore-a', planDigest: accumulator.planDigest,
+      accumulator, sourceAuthority: Object.freeze({ ...sourceAuthority,
+        entityRoot: k331e.sha256Hex('TAMPER', ['entity']) }), quiescent: true,
+      existingManifest: null })).toEqual({
+      ok: false, code: 'RESTORE_FINALIZATION_AUTHORITY_MISMATCH',
+    });
+    expect(k331e.finalizeRestoreBounded({ sessionId: 'restore-a', planDigest: accumulator.planDigest,
+      accumulator, sourceAuthority, quiescent: false, existingManifest: null }))
+      .toEqual({ ok: false, code: 'RESTORE_FINALIZATION_NOT_QUIESCENT' });
+  });
+
+  it('K-331E: every revision-bearing record decoder invokes total decoding', () => {
+    for (const [kind, fields] of Object.entries(k331e.PERSISTED_REVISION_RECORDS)) {
+      const valid = Object.fromEntries(fields.map(field => [field, field === 'deletedSourceRevision' ? null : '42']));
+      expect(k331e.decodePersistedRevisionRecord(kind as keyof typeof k331e.PERSISTED_REVISION_RECORDS,
+        1, valid)).toMatchObject({ ok: true });
+      const corrupt = { ...valid, [fields[0]]: '042' };
+      expect(k331e.decodePersistedRevisionRecord(kind as keyof typeof k331e.PERSISTED_REVISION_RECORDS,
+        1, corrupt)).toEqual({ ok: false, code: 'SOURCE_REVISION_CORRUPT_PERSISTED_STATE' });
+    }
+    expect(Object.keys(k331e.PERSISTED_REVISION_RECORDS)).toContain('mmr_accumulator');
+    expect(Object.keys(k331e.PERSISTED_REVISION_RECORDS)).toContain('purge_certificate');
+  });
+
+  it('K-331E: mixed versions and stable error classes fail closed', () => {
+    expect(k331e.versionsCompatible({ receipt: 1, segment: 1, mmr: 1, restore: 1 })).toBe(true);
+    expect(k331e.versionsCompatible({ receipt: 1, segment: 2, mmr: 1 })).toBe(false);
+    expect(k331e.decodePersistedRevisionRecord('mmr_accumulator', 2,
+      { lastCommittedRevision: '42' })).toEqual({ ok: false, code: 'PROTOCOL_VERSION_UNSUPPORTED' });
+    const proof = k331eHistoricalProof();
+    const decoded = JSON.parse(proof.mmrProofEncoded) as unknown[];
+    decoded[1] = 2;
+    expect(k331e.decodeMmrProof(JSON.stringify(decoded)))
+      .toEqual({ ok: false, code: 'LINEAGE_PROOF_VERSION_UNSUPPORTED' });
+    expect(Object.keys(k331e.K331E_STABLE_ERRORS)).toHaveLength(26);
+    expect(new Set(Object.values(k331e.K331E_STABLE_ERRORS)))
+      .toEqual(new Set(['NON_RETRYABLE', 'OWNER_INTERVENTION', 'CORRUPTION', 'RESTART_REQUIRED', 'RETRYABLE']));
   });
 });
