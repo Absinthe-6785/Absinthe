@@ -792,7 +792,8 @@ operation, and the session is terminal complete.
 K-331D attempted to supersede the unbounded or caller-asserted parts of K-331C, but focused review
 found that its fixtures still trusted validity booleans, assumed an insufficient proof ceiling, and
 performed unbounded bootstrap/restore finalization scans. This section is retained as review history
-only. The K-331E contract below is authoritative. Neither section adds a store, schema upgrade,
+only. K-331E superseded this draft at the time, and the K-331G contract below is now authoritative.
+Neither section adds a store, schema upgrade,
 production transaction, writer invocation, bootstrap, restore, compaction, or purge runtime.
 
 #### Bounded historical receipt membership
@@ -1054,7 +1055,8 @@ Historical K-331D claimed verdicts below are superseded and are not accepted imp
 K-331E replaced every K-331D asserted proof flag with raw canonical records, proof nodes, and
 deterministic verification. K-331F found remaining independent-authority, compacted-evidence,
 bootstrap, restore, codec, and bound gaps. This section is retained as review history only; the K-331F
-contract below is authoritative. The executable model remains test-only architecture evidence. K-333
+contract is also superseded, and the K-331G contract below is authoritative. The executable model remains
+test-only architecture evidence. K-333
 owns the future protocol codecs/actions and K-334 owns additive persistence and transactions.
 
 #### Revision coordinates and supported domain
@@ -1418,6 +1420,15 @@ K-328 invocation, K-326G change, or eligibility activation.
 `K331G_HAS_NO_PRODUCTION_RUNTIME_EFFECT`
 
 `NO_PRODUCTION_SOURCE_CAN_YET_BE_ELIGIBLE`
+
+#### K-331G focused architecture review closure
+
+An external AI Studio focused architecture review evaluated implementation head
+`3ab3e24ecc2b3fc3899987965cc76f3c87c4705a` and returned `PASS` with high confidence, zero P1 findings,
+zero P2 findings, and no K-331H correction required. This is architecture-review closure, not production
+readiness or merge approval. The PR must remain Draft until a separate readiness decision.
+
+`ARCHITECTURE_REVIEW_PASSED_BUT_DO_NOT_MARK_READY`
 
 ### Global revision rules
 
@@ -1804,8 +1815,30 @@ use real SHA-256 over canonical domain-separated encodings and are imported only
 test. No production source, runtime caller, schema, storage, network path, or eligibility state is
 changed. Exact-head CI remains a post-push observation and is not claimed by this precommit table.
 
+## Validation on the K-331G implementation head
+
+| Check | Result |
+|---|---|
+| K-331 focused definition harness | 62/62 passed |
+| K-330 dormant repository | 51/51 passed |
+| K-329 eligibility model | 122/122 passed |
+| K-328 cross-context handoff | 73/73 passed |
+| K-327 source-handoff spike | 391/391 passed |
+| K-326 local-first cutover | 78/78 passed |
+| K-325 legacy Notes migration | 164/164 passed |
+| all `localDatabase` | 1,229/1,229 passed; 14 files |
+| recovery | 70/70 passed; 2 files |
+| typecheck | passed |
+| build | passed; 2,480 modules; existing mixed-import/chunk-size warnings only |
+| `git diff --check` | passed |
+| full frontend | 5,507 passed / 7 skipped; 583 passed / 1 skipped files |
+
+The exact implementation-head GitHub checks for build, backend recovery, tests, typecheck, and Vercel
+completed successfully. These results and the focused review establish deterministic architecture evidence
+only; they do not add production repositories, runtime wiring, or source eligibility.
+
 ## Non-goals
 
-K-331E does not implement K-332 or later work, production coordination, Web Locks, source migration,
+K-331 through K-331G does not implement K-332 or later work, production coordination, Web Locks, source migration,
 outbox delivery, sync changes, restore/migration execution, source eligibility, cutover, K-328
 consumption, UI, startup hooks, network behavior, service workers, or recovery-policy bypasses.
