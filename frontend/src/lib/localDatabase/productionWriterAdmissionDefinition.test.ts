@@ -13,7 +13,13 @@ import {
   type WriterRegistrationRecord,
   type SourceVerificationObservation,
 } from './writerCoordinationEligibility';
-import * as k331f from './productionWriterAdmissionK331F.testSupport';
+import * as k331g from './productionWriterAdmissionK331G.testSupport';
+
+function k331gFixtureDigest(domain: string, value: unknown): string {
+  const result = k331g.canonicalDigest(domain, value);
+  if (!result.ok) throw new Error(`invalid deterministic fixture:${result.code}`);
+  return result.value;
+}
 
 const PHYSICAL_SOURCE = '1'.repeat(64);
 const COORDINATOR_SESSION = `writer-session-v1:${'a'.repeat(32)}`;
@@ -527,7 +533,7 @@ type AttachmentProjectionFixture = Readonly<{
 
 function attachmentAuthorityDigestFixture(input: AttachmentProjectionFixture): string {
   const canonical = input.canonical;
-  return k331f.sha256Hex('ABSINTHE_ATTACHMENT_CANONICAL_AUTHORITY_V1', [canonical.attachmentId,
+  return k331gFixtureDigest('ABSINTHE_ATTACHMENT_CANONICAL_AUTHORITY_V1', [canonical.attachmentId,
     canonical.generationId, [...canonical.canonicalReferenceIds].sort(), canonical.contentChecksum,
     canonical.storageObjectIdentity, canonical.createdSourceRevision,
     canonical.lastMutatedSourceRevision, canonical.deletedSourceRevision ?? null]);
@@ -788,7 +794,7 @@ function commitRestoreChunkFixture(
     sourceImplementationId: 'local-first-source-v1',
   });
   const receipt = Object.freeze({ ...receiptWithoutDigest,
-    chunkReceiptDigest: k331f.sha256Hex(k331f.K331F_DOMAINS.restoreChunk,
+    chunkReceiptDigest: k331gFixtureDigest('ABSINTHE_RESTORE_CHUNK_RECEIPT_V1',
       [canonicalRestoreChunkReceiptPreimage(receiptWithoutDigest)]) });
   return { ok: true, receipt, reused: false, state: Object.freeze({
     ...state, receipts: Object.freeze([...state.receipts, receipt]), recordedCursor: chunkIndex + 1,
@@ -1023,6 +1029,7 @@ function k331eSourceAuthority(accumulator: k331e.RestoreAccumulator): k331e.Sour
 }
 */
 
+/* K-331F fixture builders are retained as review history only; K-331G uses persisted lookup fixtures.
 function unwrapK331f<T>(result: k331f.ProtocolResult<T>): T {
   if (!result.ok) throw new Error(`unexpected fixture failure: ${result.code}`);
   return result.value;
@@ -1071,6 +1078,7 @@ function k331fBootstrapScope(): k331f.BootstrapScope {
     attachmentClassificationDigest: k331f.sha256Hex('ATTACHMENT_CLASSES', ['v1']),
     categoryDefinitionVersion: 1 });
 }
+*/
 
 describe('K-331 dormant production-writer admission definition', () => {
   it('registers two tab-scoped sessions without transferring identity', () => {
@@ -1547,7 +1555,7 @@ describe('K-331 dormant production-writer admission definition', () => {
     if (!first.ok) throw new Error(first.code);
     const { chunkReceiptDigest: _digest, ...receiptPreimage } = first.receipt;
     expect(first.receipt.chunkReceiptDigest)
-      .toBe(k331f.sha256Hex(k331f.K331F_DOMAINS.restoreChunk,
+      .toBe(k331gFixtureDigest('ABSINTHE_RESTORE_CHUNK_RECEIPT_V1',
         [canonicalRestoreChunkReceiptPreimage(receiptPreimage)]));
     expect(commitRestoreChunkFixture(first.state, 0, 'chunk-input-0'))
       .toMatchObject({ ok: true, reused: true, receipt: first.receipt });
@@ -1992,6 +2000,7 @@ describe('K-331 dormant production-writer admission definition', () => {
   });
   */
 
+  /* K-331F assertions are superseded by the strict persisted K-331G suite below.
   it('K-331F: canonical encoding distinguishes missing, explicit null, and present values', () => {
     expect(k331f.canonicalDigest('DOMAIN', [undefined])).toEqual({
       ok: false, code: 'CANONICAL_REQUIRED_FIELD_MISSING',
@@ -2274,5 +2283,358 @@ describe('K-331 dormant production-writer admission definition', () => {
       Array.from({ length: 93 }, () => ['right', 'a'.repeat(64)]), []]);
     expect(k331f.decodeMmrProof(oversized))
       .toEqual({ ok: false, code: 'LINEAGE_PROOF_NODE_LIMIT_EXCEEDED' });
+  });
+  */
+
+  function replaceFixtureRecord(repository: k331g.InMemoryAuthorityRepository, id: string,
+    patch: Record<string, unknown>, resign = true): void {
+    const existing = repository.read(id);
+    expect(existing).not.toBeNull();
+    const replacement = Object.freeze({ ...(existing as Record<string, unknown>), ...patch });
+    repository.put(resign ? k331g.resignFixtureRecord(replacement) : replacement);
+  }
+
+  it('K-331G: valid raw and compacted evidence resolve one complete independent authority graph', () => {
+    const fixture = k331g.createReconciliationFixture();
+    expect(k331g.resolveIndependentReconciliationAuthorityGraph(fixture.repository,
+      fixture.ids.transactionReference)).toMatchObject({ ok: true, value: {
+      operation: { id: fixture.ids.operation }, admission: { id: fixture.ids.admission },
+      writer: { id: fixture.ids.writer }, session: { id: fixture.ids.session },
+      terminal: { id: fixture.ids.terminal }, outbox: { id: fixture.ids.outbox },
+      sourceAuthority: { id: fixture.ids.sourceAuthority }, mmrState: { id: fixture.ids.mmrState },
+    } });
+    expect(k331g.verifyRawReceipt(fixture.repository, fixture.ids.receipt))
+      .toMatchObject({ ok: true, value: { evidenceKind: 'raw', operationId: fixture.ids.operation } });
+    fixture.repository.delete(fixture.ids.receipt);
+    expect(k331g.verifyCompactedProjection(fixture.repository, fixture.ids.projection))
+      .toMatchObject({ ok: true, value: { evidenceKind: 'compacted', operationId: fixture.ids.operation } });
+  });
+
+  it('K-331G: reconciliation fails closed for missing and mismatched independent records', () => {
+    const cases: readonly [string, (fixture: k331g.ReconciliationFixture) => void, string][] = [
+      ['missing operation', fixture => fixture.repository.delete(fixture.ids.operation), 'AUTHORITY_RECORD_MISSING'],
+      ['operation', fixture => replaceFixtureRecord(fixture.repository, fixture.ids.transactionReference,
+        { operationDigest: 'a'.repeat(64) }), 'AUTHORITY_BINDING_MISMATCH'],
+      ['admission', fixture => replaceFixtureRecord(fixture.repository, fixture.ids.transactionReference,
+        { admissionDigest: 'b'.repeat(64) }), 'AUTHORITY_BINDING_MISMATCH'],
+      ['writer', fixture => replaceFixtureRecord(fixture.repository, fixture.ids.transactionReference,
+        { writerDigest: 'c'.repeat(64) }), 'AUTHORITY_BINDING_MISMATCH'],
+      ['session', fixture => replaceFixtureRecord(fixture.repository, fixture.ids.transactionReference,
+        { sessionDigest: 'd'.repeat(64) }), 'AUTHORITY_BINDING_MISMATCH'],
+      ['terminal', fixture => replaceFixtureRecord(fixture.repository, fixture.ids.transactionReference,
+        { terminalDigest: 'e'.repeat(64) }), 'AUTHORITY_BINDING_MISMATCH'],
+      ['outbox', fixture => replaceFixtureRecord(fixture.repository, fixture.ids.transactionReference,
+        { outboxDigest: 'f'.repeat(64) }), 'AUTHORITY_BINDING_MISMATCH'],
+      ['source authority', fixture => replaceFixtureRecord(fixture.repository, fixture.ids.transactionReference,
+        { sourceAuthorityDigest: '1'.repeat(64) }), 'AUTHORITY_BINDING_MISMATCH'],
+      ['MMR', fixture => replaceFixtureRecord(fixture.repository, fixture.ids.transactionReference,
+        { mmrStateDigest: '2'.repeat(64) }), 'AUTHORITY_BINDING_MISMATCH'],
+    ];
+    for (const [_name, mutate, expected] of cases) {
+      const fixture = k331g.createReconciliationFixture();
+      mutate(fixture);
+      expect(k331g.verifyRawReceipt(fixture.repository, fixture.ids.receipt))
+        .toEqual({ ok: false, code: expected });
+    }
+  });
+
+  it('K-331G: reconciliation rejects unsupported relationships and canonicalization failure', () => {
+    const fixture = k331g.createReconciliationFixture();
+    replaceFixtureRecord(fixture.repository, fixture.ids.transactionReference, { graphVersion: 2 });
+    expect(k331g.verifyRawReceipt(fixture.repository, fixture.ids.receipt))
+      .toEqual({ ok: false, code: 'PROTOCOL_VERSION_UNSUPPORTED' });
+    expect(k331g.canonicalDigest('AUTHORITY', [undefined]))
+      .toEqual({ ok: false, code: 'CANONICAL_VALUE_INVALID' });
+    expect(k331g.canonicalDigest('AUTHORITY', [Number.NaN]))
+      .toEqual({ ok: false, code: 'CANONICAL_VALUE_INVALID' });
+    expect(k331g.canonicalDigest('AUTHORITY', { 'e\u0301': 1, 'é': 2 }))
+      .toEqual({ ok: false, code: 'CANONICAL_VALUE_INVALID' });
+  });
+
+  it('K-331G: compacted projection is minimal, strict, and never reconstructs SourceReceipt', () => {
+    const fixture = k331g.createReconciliationFixture();
+    const projection = fixture.repository.read(fixture.ids.projection) as Record<string, unknown>;
+    expect(Object.keys(projection).sort()).toEqual([
+      'checkpointDigest', 'checkpointId', 'compactionBoundaryDigest', 'id', 'kind', 'leafIndex',
+      'originalReceiptDigest', 'projectionDigest', 'proofEncoded', 'segmentIndex',
+      'transactionReferenceId', 'version',
+    ].sort());
+    expect(projection).not.toHaveProperty('operationId');
+    expect(projection).not.toHaveProperty('writerId');
+    expect(projection).not.toHaveProperty('resultDigest');
+    expect(projection).not.toHaveProperty('outboxIntentDigest');
+    replaceFixtureRecord(fixture.repository, fixture.ids.projection, {
+      operationId: fixture.ids.operation,
+    }, false);
+    expect(k331g.verifyCompactedProjection(fixture.repository, fixture.ids.projection))
+      .toEqual({ ok: false, code: 'COMPACTED_PROJECTION_INVALID' });
+  });
+
+  it('K-331G: compacted projection rejects missing lookup, digest, boundary, MMR, and version corruption', () => {
+    const probes: readonly [(fixture: k331g.ReconciliationFixture) => void, string][] = [
+      [fixture => fixture.repository.delete(fixture.ids.transactionReference), 'AUTHORITY_RECORD_MISSING'],
+      [fixture => replaceFixtureRecord(fixture.repository, fixture.ids.projection,
+        { originalReceiptDigest: 'a'.repeat(64) }, false), 'DIGEST_INVALID'],
+      [fixture => replaceFixtureRecord(fixture.repository, fixture.ids.projection,
+        { compactionBoundaryDigest: 'b'.repeat(64) }), 'COMPACTION_BOUNDARY_MISMATCH'],
+      [fixture => replaceFixtureRecord(fixture.repository, fixture.ids.mmrState,
+        { root: 'c'.repeat(64) }), 'MMR_STATE_MISMATCH'],
+      [fixture => replaceFixtureRecord(fixture.repository, fixture.ids.projection,
+        { version: 2 }), 'PROTOCOL_VERSION_UNSUPPORTED'],
+    ];
+    for (const [mutate, code] of probes) {
+      const fixture = k331g.createReconciliationFixture();
+      mutate(fixture);
+      expect(k331g.verifyCompactedProjection(fixture.repository, fixture.ids.projection))
+        .toEqual({ ok: false, code });
+    }
+  });
+
+  it('K-331G: latest tombstone purge is derived from persisted lifecycle lineage', () => {
+    const fixture = k331g.createReconciliationFixture();
+    expect(k331g.authorizeLatestTombstonePurge(fixture.repository, fixture.ids.transactionReference,
+      fixture.ids.tombstoneEvent, 'purge-operation:one')).toMatchObject({ ok: true, value: {
+      transactionReferenceId: fixture.ids.transactionReference, purgeRevision: '2',
+    } });
+  });
+
+  it('K-331G: resurrection and newer tombstone invalidate a stale purge candidate', () => {
+    for (const eventKind of ['resurrection', 'tombstone'] as const) {
+      const fixture = k331g.createReconciliationFixture();
+      const first = fixture.repository.read(fixture.ids.tombstoneEvent) as Parameters<typeof k331g.createLifecycleEvent>[0]['predecessor'];
+      const later = k331g.createLifecycleEvent({ id: `lifecycle-event:${eventKind}`, sourceIdentityDigest:
+        (first as { sourceIdentityDigest: string }).sourceIdentityDigest, sequence: 2, eventKind, predecessor: first });
+      k331g.rebindLifecycleHead(fixture, [first!, later]);
+      expect(k331g.authorizeLatestTombstonePurge(fixture.repository, fixture.ids.transactionReference,
+        fixture.ids.tombstoneEvent, 'purge-operation:one'))
+        .toEqual({ ok: false, code: 'LATEST_TOMBSTONE_REQUIRED' });
+    }
+  });
+
+  it('K-331G: lifecycle head, predecessor, sequence, source, and digest corruption fail closed', () => {
+    const mutations: readonly [(fixture: k331g.ReconciliationFixture) => void, string][] = [
+      [fixture => replaceFixtureRecord(fixture.repository, fixture.ids.lifecycleHead,
+        { latestEventDigest: 'a'.repeat(64) }), 'AUTHORITY_BINDING_MISMATCH'],
+      [fixture => {
+        const first = fixture.repository.read(fixture.ids.tombstoneEvent) as Parameters<typeof k331g.createLifecycleEvent>[0]['predecessor'];
+        const later = k331g.createLifecycleEvent({ id: 'lifecycle-event:missing-predecessor',
+          sourceIdentityDigest: (first as { sourceIdentityDigest: string }).sourceIdentityDigest,
+          sequence: 2, eventKind: 'tombstone', predecessor: first });
+        const broken = k331g.resignFixtureRecord({ ...later, predecessorId: 'lifecycle-event:absent' });
+        k331g.rebindLifecycleHead(fixture, [first!, broken as never]);
+      }, 'AUTHORITY_RECORD_MISSING'],
+      [fixture => replaceFixtureRecord(fixture.repository, fixture.ids.tombstoneEvent,
+        { sequence: 2 }), 'LIFECYCLE_LINEAGE_INVALID'],
+      [fixture => replaceFixtureRecord(fixture.repository, fixture.ids.tombstoneEvent,
+        { sourceIdentityDigest: 'b'.repeat(64) }), 'LIFECYCLE_LINEAGE_INVALID'],
+      [fixture => replaceFixtureRecord(fixture.repository, fixture.ids.tombstoneEvent,
+        { eventDigest: 'c'.repeat(64) }, false), 'DIGEST_INVALID'],
+    ];
+    for (const [mutate, code] of mutations) {
+      const fixture = k331g.createReconciliationFixture();
+      mutate(fixture);
+      expect(k331g.authorizeLatestTombstonePurge(fixture.repository, fixture.ids.transactionReference,
+        fixture.ids.tombstoneEvent, 'purge-operation:one')).toEqual({ ok: false, code });
+    }
+  });
+
+  it('K-331G: bootstrap finalization is lookup-only and authenticates multi-segment exhaustion', () => {
+    const fixture = k331g.createBootstrapFixture();
+    expect(k331g.finalizeBootstrap.length).toBe(2);
+    expect(k331g.finalizeBootstrap(fixture.repository, fixture.sessionId)).toMatchObject({ ok: true });
+  });
+
+  it('K-331G: bootstrap recomputes prior accumulator and segment records', () => {
+    const probes: readonly [(fixture: ReturnType<typeof k331g.createBootstrapFixture>) => void, string][] = [
+      [fixture => replaceFixtureRecord(fixture.repository, fixture.ids.secondAccumulator,
+        { priorAccumulatorDigest: 'a'.repeat(64) }), 'BOOTSTRAP_ACCUMULATOR_INVALID'],
+      [fixture => replaceFixtureRecord(fixture.repository, fixture.ids.firstSegment,
+        { segmentRoot: 'b'.repeat(64) }), 'BOOTSTRAP_SEGMENT_INVALID'],
+      [fixture => {
+        const segment = fixture.repository.read(fixture.ids.firstSegment) as Record<string, unknown>;
+        replaceFixtureRecord(fixture.repository, fixture.ids.firstSegment, {
+          itemIds: [...(segment.itemIds as string[])].reverse(),
+          itemDigests: [...(segment.itemDigests as string[])].reverse(),
+        });
+      }, 'BOOTSTRAP_SEGMENT_INVALID'],
+      [fixture => {
+        const segment = fixture.repository.read(fixture.ids.firstSegment) as Record<string, unknown>;
+        replaceFixtureRecord(fixture.repository, fixture.ids.firstSegment, {
+          itemIds: [(segment.itemIds as string[])[0], (segment.itemIds as string[])[0]],
+        });
+      }, 'BOOTSTRAP_SEGMENT_INVALID'],
+      [fixture => fixture.repository.delete('bootstrap-item:two'), 'AUTHORITY_RECORD_MISSING'],
+    ];
+    for (const [mutate, code] of probes) {
+      const fixture = k331g.createBootstrapFixture();
+      mutate(fixture);
+      expect(k331g.finalizeBootstrap(fixture.repository, fixture.sessionId)).toEqual({ ok: false, code });
+    }
+  });
+
+  it('K-331G: bootstrap continuation and terminal evidence reject forgery and false exhaustion', () => {
+    const probes: readonly [(fixture: ReturnType<typeof k331g.createBootstrapFixture>) => void, string][] = [
+      [fixture => replaceFixtureRecord(fixture.repository, 'bootstrap-continuation:one',
+        { nextSegmentId: 'bootstrap-segment:forged' }), 'BOOTSTRAP_CONTINUATION_INVALID'],
+      [fixture => replaceFixtureRecord(fixture.repository, 'bootstrap-continuation:one',
+        { nextSegmentId: null, terminalId: fixture.ids.terminal }), 'BOOTSTRAP_CONTINUATION_INVALID'],
+      [fixture => replaceFixtureRecord(fixture.repository, fixture.ids.terminal,
+        { totalSegments: 1 }), 'BOOTSTRAP_TERMINAL_INVALID'],
+      [fixture => replaceFixtureRecord(fixture.repository, fixture.ids.terminal,
+        { totalRecords: 2 }), 'BOOTSTRAP_TERMINAL_INVALID'],
+    ];
+    for (const [mutate, code] of probes) {
+      const fixture = k331g.createBootstrapFixture();
+      mutate(fixture);
+      expect(k331g.finalizeBootstrap(fixture.repository, fixture.sessionId)).toEqual({ ok: false, code });
+    }
+  });
+
+  it('K-331G: restore finalization is lookup-only and derives its manifest from persisted records', () => {
+    const fixture = k331g.createRestoreFixture();
+    expect(k331g.finalizeRestore.length).toBe(2);
+    const first = k331g.finalizeRestore(fixture.repository, fixture.sessionId);
+    const second = k331g.finalizeRestore(fixture.repository, fixture.sessionId);
+    expect(first).toMatchObject({ ok: true, value: { sessionId: fixture.sessionId } });
+    expect(second).toEqual(first);
+  });
+
+  it('K-331G: restore rejects missing, duplicate, reordered, and cross-session chunks', () => {
+    const probes: readonly [(fixture: ReturnType<typeof k331g.createRestoreFixture>) => void, string][] = [
+      [fixture => fixture.repository.delete(fixture.ids.chunks[1]), 'AUTHORITY_RECORD_MISSING'],
+      [fixture => {
+        const session = fixture.repository.read(fixture.sessionId) as Record<string, unknown>;
+        const chunkIds = session.chunkIds as string[];
+        replaceFixtureRecord(fixture.repository, fixture.sessionId, { chunkIds: [chunkIds[0], chunkIds[0], chunkIds[2]] });
+      }, 'RESTORE_GRAPH_INVALID'],
+      [fixture => {
+        const session = fixture.repository.read(fixture.sessionId) as Record<string, unknown>;
+        replaceFixtureRecord(fixture.repository, fixture.sessionId, { chunkIds: [...(session.chunkIds as string[])].reverse() });
+      }, 'RESTORE_GRAPH_INVALID'],
+      [fixture => replaceFixtureRecord(fixture.repository, fixture.ids.chunks[0],
+        { sessionId: 'restore-session:other' }), 'RESTORE_GRAPH_INVALID'],
+    ];
+    for (const [mutate, code] of probes) {
+      const fixture = k331g.createRestoreFixture();
+      mutate(fixture);
+      expect(k331g.finalizeRestore(fixture.repository, fixture.sessionId)).toEqual({ ok: false, code });
+    }
+  });
+
+  it('K-331G: restore recomputes segment, component, MMR, and terminal authority', () => {
+    const probes: readonly [(fixture: ReturnType<typeof k331g.createRestoreFixture>) => void, string][] = [
+      [fixture => replaceFixtureRecord(fixture.repository, fixture.ids.segments[0],
+        { segmentRoot: 'a'.repeat(64) }), 'RESTORE_GRAPH_INVALID'],
+      [fixture => replaceFixtureRecord(fixture.repository, 'restore-component:attachments',
+        { root: 'b'.repeat(64) }), 'RESTORE_COMPONENT_MISMATCH'],
+      [fixture => replaceFixtureRecord(fixture.repository, fixture.ids.mmr,
+        { root: 'c'.repeat(64) }), 'MMR_STATE_MISMATCH'],
+      [fixture => replaceFixtureRecord(fixture.repository, fixture.ids.terminal,
+        { chunkCount: 2 }), 'RESTORE_TERMINAL_INCOMPLETE'],
+    ];
+    for (const [mutate, code] of probes) {
+      const fixture = k331g.createRestoreFixture();
+      mutate(fixture);
+      expect(k331g.finalizeRestore(fixture.repository, fixture.sessionId)).toEqual({ ok: false, code });
+    }
+  });
+
+  it('K-331G: restore rejects stale existing and caller-supplied manifest assertions', () => {
+    const fixture = k331g.createRestoreFixture();
+    const derived = k331g.finalizeRestore(fixture.repository, fixture.sessionId);
+    expect(derived.ok).toBe(true);
+    if (!derived.ok) throw new Error(derived.code);
+    expect(k331g.verifyExpectedRestoreManifest(fixture.repository, fixture.sessionId, 'a'.repeat(64)))
+      .toEqual({ ok: false, code: 'RESTORE_MANIFEST_MISMATCH' });
+    const stale = k331g.resignFixtureRecord({ ...derived.value, planDigest: 'b'.repeat(64) });
+    fixture.repository.put(stale);
+    replaceFixtureRecord(fixture.repository, fixture.sessionId, { existingManifestId: derived.value.id });
+    expect(k331g.finalizeRestore(fixture.repository, fixture.sessionId))
+      .toEqual({ ok: false, code: 'RESTORE_MANIFEST_MISMATCH' });
+  });
+
+  it('K-331G: every authority-critical record uses a true record-specific strict codec', () => {
+    const fixtures = k331g.validRecordFixtures();
+    expect(Object.keys(k331g.RECORD_SPECIFIC_CODEC_REGISTRY)).toHaveLength(28);
+    expect(Object.keys(fixtures).sort()).toEqual(Object.keys(k331g.RECORD_SPECIFIC_CODEC_REGISTRY).sort());
+    for (const [name, decoder] of Object.entries(k331g.RECORD_SPECIFIC_CODEC_REGISTRY)) {
+      const fixture = fixtures[name as keyof typeof fixtures];
+      expect(decoder(fixture)).toMatchObject({ ok: true });
+      expect(decoder({ ...fixture, extra: true })).toMatchObject({ ok: false });
+      expect(decoder({ ...fixture, version: 2 })).toEqual({ ok: false, code: 'PROTOCOL_VERSION_UNSUPPORTED' });
+      expect(decoder({ ...fixture, kind: 'absinthe_wrong_kind' })).toEqual({ ok: false, code: 'RECORD_KIND_INVALID' });
+    }
+  });
+
+  it('K-331G: AttachmentMetadata fields match the classification exactly with no imaginary keys', () => {
+    expect(Object.keys(k331g.ATTACHMENT_FIELD_CLASSIFICATION))
+      .toEqual([...k331g.ATTACHMENT_METADATA_FIELDS]);
+    expect(k331g.ATTACHMENT_METADATA_FIELDS).toHaveLength(35);
+    expect(k331g.ATTACHMENT_FIELD_CLASSIFICATION.title).toBe('mutable_descriptive_metadata');
+    expect(k331g.ATTACHMENT_FIELD_CLASSIFICATION.remoteChecksum).toBe('integrity_relevant');
+    expect(k331g.ATTACHMENT_FIELD_CLASSIFICATION.remoteBlobKey).toBe('excluded_non_authoritative');
+  });
+
+  it('K-331G: complete relationship matrices reject missing, extra, and mixed members', () => {
+    for (const [name, versions] of Object.entries(k331g.RELATIONSHIP_VERSION_MATRICES)) {
+      const matrixName = name as keyof typeof k331g.RELATIONSHIP_VERSION_MATRICES;
+      expect(k331g.validateRelationshipVersions(matrixName, versions)).toEqual({ ok: true, value: true });
+      const entries = Object.entries(versions);
+      expect(k331g.validateRelationshipVersions(matrixName, Object.fromEntries(entries.slice(1))))
+        .toEqual({ ok: false, code: 'RELATIONSHIP_VERSION_UNSUPPORTED' });
+      expect(k331g.validateRelationshipVersions(matrixName, { ...versions, unexpected: 1 }))
+        .toEqual({ ok: false, code: 'RELATIONSHIP_VERSION_UNSUPPORTED' });
+      expect(k331g.validateRelationshipVersions(matrixName, { ...versions, [entries[0][0]]: 2 }))
+        .toEqual({ ok: false, code: 'RELATIONSHIP_VERSION_UNSUPPORTED' });
+    }
+  });
+
+  it('K-331G: outer proof boundary enforces 98/99 and 104/105 node ceilings before use', () => {
+    const node = { side: 'right', digest: 'a'.repeat(64) };
+    const encode = (segment: number, mmr: number, outer: number) => JSON.stringify({ version: 1,
+      segmentNodes: Array.from({ length: segment }, () => node),
+      mmrNodes: Array.from({ length: mmr }, () => node),
+      outerNodes: Array.from({ length: outer }, () => 'b'.repeat(64)) });
+    expect(k331g.decodeBoundedProof(encode(6, 92, 0))).toMatchObject({ ok: true });
+    expect(k331g.decodeBoundedProof(encode(6, 93, 0)))
+      .toEqual({ ok: false, code: 'PROOF_NODE_LIMIT_EXCEEDED' });
+    expect(k331g.decodeBoundedProof(encode(6, 92, 6))).toMatchObject({ ok: true });
+    expect(k331g.decodeBoundedProof(encode(6, 92, 7)))
+      .toEqual({ ok: false, code: 'PROOF_NODE_LIMIT_EXCEEDED' });
+    expect(k331g.decodeBoundedProof(' '.repeat(k331g.K331G_LIMITS.maxEncodedProofBytes + 1)))
+      .toEqual({ ok: false, code: 'PROOF_ENCODED_LIMIT_EXCEEDED' });
+  });
+
+  it('K-331G: stable error inventory separates defined, emitted, and reserved states', () => {
+    const defined = Object.keys(k331g.K331G_STABLE_ERRORS).sort();
+    const emitted = [...k331g.K331G_EMITTED_ERROR_CODES].sort();
+    const reserved = [...k331g.K331G_RESERVED_ERROR_CODES].sort();
+    expect(defined).toHaveLength(27);
+    expect(emitted).toEqual(defined);
+    expect(reserved).toEqual([]);
+    expect(new Set(Object.values(k331g.K331G_STABLE_ERRORS))).toEqual(new Set([
+      'CORRUPTION', 'OWNER_INTERVENTION', 'NON_RETRYABLE',
+    ]));
+  });
+
+  it('K-331G: remaining primitive and contract errors have deterministic exercised paths', () => {
+    const fixtures = k331g.validRecordFixtures();
+    expect(k331g.RECORD_SPECIFIC_CODEC_REGISTRY.writer_identity({
+      ...fixtures.writer_identity, extra: true,
+    })).toEqual({ ok: false, code: 'RECORD_FIELDS_INVALID' });
+    expect(k331g.RECORD_SPECIFIC_CODEC_REGISTRY.raw_source_receipt({
+      ...fixtures.raw_source_receipt, id: 'BAD',
+    })).toEqual({ ok: false, code: 'IDENTIFIER_INVALID' });
+    expect(k331g.RECORD_SPECIFIC_CODEC_REGISTRY.raw_source_receipt({
+      ...fixtures.raw_source_receipt, committedRevision: '01',
+    })).toEqual({ ok: false, code: 'REVISION_INVALID' });
+    const bootstrap = k331g.createBootstrapFixture();
+    replaceFixtureRecord(bootstrap.repository, bootstrap.sessionId, { terminalRefs: [] });
+    expect(k331g.finalizeBootstrap(bootstrap.repository, bootstrap.sessionId))
+      .toEqual({ ok: false, code: 'BOOTSTRAP_INCOMPLETE' });
+    const attachment = fixtures.attachment_classification_evidence;
+    expect(k331g.RECORD_SPECIFIC_CODEC_REGISTRY.attachment_classification_evidence({
+      ...attachment, fields: (attachment.fields as string[]).slice(1),
+    })).toEqual({ ok: false, code: 'ATTACHMENT_CLASSIFICATION_MISMATCH' });
   });
 });

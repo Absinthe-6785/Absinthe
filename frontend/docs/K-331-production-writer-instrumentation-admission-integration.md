@@ -1335,115 +1335,87 @@ or cryptographic-library integration. There are no production imports/callers fo
 
 `NO_PRODUCTION_SOURCE_CAN_YET_BE_ELIGIBLE`
 
-### K-331F authoritative independent-proof verification contract
+### K-331G independently resolved authority contract
 
-K-331F replaces the K-331E model with a test-only executable verifier whose decisions are derived from
-strictly decoded persisted records and an independently read current authority graph. It adds no store,
-schema upgrade, production import, writer invocation, bootstrap, restore, compaction, purge, or network
-runtime. K-333 and K-334 remain responsible for the future protocol and persistence implementation.
+The K-331F review found that its source/MMR split was not sufficient: operation, admission, writer,
+session, terminal, outbox, compaction, lifecycle, bootstrap, and restore truth could still be copied or
+assembled by a caller. K-331G therefore supersedes the K-331F test-support model with one architecture-only
+repository whose verifiers receive lookup identities and independently read strict persisted-style records.
+This remains deterministic in-memory evidence. It is not a production repository or persistence transaction.
 
-#### Independent current authority and stale-proof rejection
+#### One reconciliation authority graph
 
-Historical proof material never carries the authoritative MMR pointer used to validate itself. The
-verifier separately reads and strictly decodes the current `source_authority`, follows its exact MMR
-record ID/digest/version/count pointer, and verifies namespace and generation before evaluating segment
-and MMR membership. A proof that is internally valid for an older root fails after authority advances.
-Missing MMR state, pointer mismatch, cross-namespace or cross-generation substitution, malformed state,
-and stale leaf-count/root evidence all fail closed with bounded errors.
+Raw-receipt and compacted-projection verification both resolve the same
+`IndependentReconciliationAuthorityGraph`. The resolver strictly decodes and cross-binds the transaction
+reference, source authority, K-330 operation and admission, writer and writer session, terminal state,
+immutable outbox intent, checkpoint, MMR state, and optional lifecycle head. Source authority commits to
+the independently read operation, terminal, and outbox roots; the transaction reference commits to every
+record identity and digest. Proof-owned copies cannot replace a missing or mismatched persisted record.
 
-`CURRENT_SOURCE_AUTHORITY_IS_INDEPENDENT_OF_HISTORICAL_PROOF_MATERIAL`
+The raw receipt is only a historical reference and membership binding. The compacted authority projection
+does not contain operation, writer, session, result, outbox, mutation, or affected-record fields and never
+constructs a `SourceReceipt`. It retains only lookup identities, original receipt digest, checkpoint binding,
+coordinates, bounded proof, and a compaction-boundary digest tied to the independently resolved graph.
+Unknown receipt-shaped fields are rejected by its exact codec.
 
-`SELF_CONSISTENT_STALE_PROOF_CANNOT_AUTHORIZE_CURRENT_HISTORY`
+#### Persisted lifecycle and latest tombstone
 
-#### Compaction, operation evidence, and latest tombstone authority
+Source authority binds an immutable lifecycle-head identity and digest. Purge resolution walks strict
+lifecycle events from that independently read head, verifies contiguous sequence and predecessor links,
+source identity, event digests, head count, and final event. Only when the head's exact final event is the
+candidate tombstone is a purge certificate derived. A later resurrection or later tombstone makes an older
+candidate ineligible.
 
-Compaction first verifies the raw receipt against current independent authority, then writes one
-immutable compacted membership index containing all receipt authority fields, segment path/checkpoint,
-MMR proof, writer/admission/operation identity, terminal receipt/result, immutable outbox intent, and a
-domain-separated index digest. The durable state transition is `RAW_ONLY -> INDEX_ONLY`; retry in
-`INDEX_ONLY` verifies the index without requiring the deleted raw receipt record. Identity mismatch,
-stale current authority, malformed retained evidence, and conflicting index bytes reject.
+#### Authenticated bootstrap traversal
 
-Physical purge requires an authenticated compacted `NOTE_TOMBSTONE` receipt that matches the entity's
-current lifecycle projection and exact latest tombstone revision/index. An older tombstone, subsequent
-resurrection, different identity, or changed authority cannot authorize purge.
+Bootstrap finalization accepts only a repository and session ID. It reads the strict session, terminal,
+accumulator chain, segments, records, and continuation records. It recomputes each item and segment digest,
+NFC-normalized unsigned UTF-8 ordering, duplicate/range rules, prior accumulator digest, chain root, totals,
+and final authenticated terminal. Exhaustion exists only when the last persisted continuation points to the
+strict terminal record; a caller's null continuation is not accepted as evidence.
 
-`POST_COMPACTION_VERIFICATION_REQUIRES_NO_RAW_RECEIPT_RECORD`
+#### Strict restore graph and derived manifest
 
-`PURGE_REQUIRES_AUTHENTICATED_LATEST_TOMBSTONE_EVIDENCE`
+Restore finalization also accepts only a repository and session ID. It independently reads ordered chunks,
+segments, component-root records, MMR state, terminal state, and an optional existing manifest. It verifies
+unique ordered chunks, exact segment partitioning and roots, component roots/counts, MMR segment membership,
+terminal counts, and exact existing-manifest retry before deriving the final manifest. Caller-provided arrays,
+roots, completion flags, or manifest objects are not authority. A separate expectation helper compares a
+caller digest only after the manifest has been independently derived.
 
-#### Canonical absence semantics and attachment authority
+#### Canonical, codec, version, attachment, and bound contracts
 
-Canonical encoding rejects JavaScript `undefined`. Schema-defined optional fields use explicit tagged
-`absent`, `present(value)`, or explicit-null values; those encodings hash differently. Strings are NFC
-normalized and arrays use fixed protocol order. Digests are exactly lowercase 64-character SHA-256.
+Canonicalization returns a typed failure for undefined, non-finite, unsafe, or otherwise invalid values;
+there is no invalid-value sentinel digest. Twenty-eight authority-critical record classes have dedicated
+payload validators with exact kind/version/keys, identifier, integer, digest, collection, and record-local
+relationship checks. There is no generic `entries: unknown[]` authority decoder.
 
-Every attachment metadata field is classified exactly once as canonical source-changing,
-derived-verified, local observation, remote observation, or transient secret. User-authored title/alt/
-caption and canonical reference/lifecycle fields are source authority. Verified checksum/size/MIME may
-enter canonical evidence only through explicit verification/promotion. Availability, attempts, leases,
-provider progress, timestamps, and sync state are observations. Signed URLs, resumable URIs, tokens, and
-leases cannot enter canonical authority evidence.
+Five complete relationship matrices cover reconciliation, lifecycle, bootstrap, restore, and attachment
+contract relationships. The stable-error inventory contains 27 defined/emitted codes and no reserved codes;
+reserved and exercised inventories are reported separately rather than conflated.
 
-`MISSING_NULL_AND_PRESENT_VALUES_HAVE_DISTINCT_CANONICAL_ENCODINGS`
+The attachment classification is compile-time checked against every current `keyof AttachmentMetadata` and
+contains no field outside that type. Its 35 fields are classified as authority-critical, integrity-relevant,
+mutable descriptive metadata, or excluded/non-authoritative. This type comparison does not implement or
+change production attachment behavior.
 
-`ATTACHMENT_METADATA_FIELDS_HAVE_EXHAUSTIVE_EXCLUSIVE_AUTHORITY_CLASSIFICATION`
+The outer proof decoder checks encoded bytes before JSON parsing, then enforces six segment nodes, 92 MMR
+component nodes, 98 complete membership nodes, 104 total protocol nodes, and 32 KiB encoded bytes. Nested
+component success cannot bypass an aggregate ceiling.
 
-#### Bootstrap persisted graph and terminal iterator evidence
+The 62-test focused suite is deterministic architecture evidence only. It has no browser storage, network,
+production import other than a type-only attachment contract, schema/store upgrade, writer invocation,
+K-328 invocation, K-326G change, or eligibility activation.
 
-The bootstrap scope binds namespace, generation, session, immutable baseline, source manifest, schema
-and protocol versions, and attachment-classification digest. Iterator observations persist normalized
-keys, continuation digest, exhaustion state, and their own digest. Key ordering is NFC-normalized unsigned
-UTF-8 byte order; locale comparison is forbidden. Normalization collisions, duplicates, overlap, stale
-accumulator digest, changed scope/baseline, and caller-supplied end markers reject.
+`INDEPENDENT_RECONCILIATION_AUTHORITY_GRAPH_IS_LOOKUP_RESOLVED`
 
-Category accumulators bind prior accumulator digest, exact segment count, record count, final key, and
-terminal observation. Finalization reads the persisted graph, validates terminal exhaustion for every
-category, validates durable K-330 registry/quiescence evidence, and derives source-authority absence from
-the graph. It accepts no `quiescent`, `sourceAuthorityAbsent`, or `endOfCategory` truth boolean.
+`POST_COMPACTION_VERIFICATION_DOES_NOT_RECONSTRUCT_SOURCE_RECEIPT`
 
-`BOOTSTRAP_ORDERING_IS_NFC_NORMALIZED_UNSIGNED_UTF8`
+`LATEST_TOMBSTONE_IS_DERIVED_FROM_PERSISTED_LINEAGE`
 
-`BOOTSTRAP_FINALIZATION_DERIVES_TRUTH_FROM_ONE_PERSISTED_GRAPH`
+`BOOTSTRAP_AND_RESTORE_FINALIZATION_ARE_LOOKUP_ONLY`
 
-#### Restore exact-set accumulator and finalization
-
-Restore scope binds the exact ordered chunk digest list. The accumulator validates the session pointer,
-next cursor, expected prior accumulator digest, bounded current open segment, sealed checkpoint list, and
-combined MMR-style root on every append. Finalization requires the exact complete cursor, current
-accumulator/session binding, current namespace/generation authority, durable K-330 registry evidence, and
-durable quiescence evidence. Incomplete, reordered, duplicated, cross-session, cross-generation, stale,
-or malformed graphs reject without normalization.
-
-`RESTORE_ACCUMULATOR_BINDS_EXACT_ORDERED_APPLICATION_SET`
-
-`RESTORE_FINALIZATION_ACCEPTS_PERSISTED_GRAPH_EVIDENCE_NOT_CALLER_TRUTH`
-
-#### Strict codecs, compatibility, errors, and proof ceilings
-
-Twenty-three persisted record classes have explicit discriminator/version/exact-field envelopes,
-bounded identifiers and collections, canonical revisions, and verified record digests. Unknown or extra
-fields reject. Compatibility is checked through five explicit relationship matrices (`source_lineage`,
-`compacted_lineage`, `bootstrap_graph`, `restore_graph`, and `attachment_bootstrap`); partial or mixed
-graphs fail before hashing. Expected protocol failures return only stable error codes and one of five
-bounded classes, with no raw payload, namespace, browser exception, stack, cause, or secret.
-
-The selected ceilings are six segment-path nodes, 92 MMR component nodes, 98 complete membership nodes,
-and 104 nodes for the surrounding historical-proof protocol. Encoded proofs remain capped at 32 KiB.
-All ceilings are enforced independently; the outer protocol ceiling never weakens a lower component
-limit.
-
-`EVERY_PERSISTED_PROOF_RECORD_HAS_A_STRICT_RECORD_SPECIFIC_DECODER`
-
-`RELATIONSHIP_COMPATIBILITY_IS_EXPLICIT_NOT_GENERIC`
-
-`PROOF_COMPONENT_AND_PROTOCOL_CEILINGS_ARE_COHERENT_AND_ENFORCED`
-
-The 59-test K-331F focused suite is deterministic architecture evidence using real SHA-256 and in-memory
-fixtures. It is not browser, persistence-transaction, performance, production-runtime, or network
-evidence. The eligibility verdict remains `NO_PRODUCTION_SOURCE_CAN_YET_BE_ELIGIBLE`.
-
-`K331F_HAS_NO_PRODUCTION_RUNTIME_EFFECT`
+`K331G_HAS_NO_PRODUCTION_RUNTIME_EFFECT`
 
 `NO_PRODUCTION_SOURCE_CAN_YET_BE_ELIGIBLE`
 
