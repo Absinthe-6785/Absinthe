@@ -34,6 +34,7 @@ Implemented production modules are:
 - a canonical protocol value encoder/decoder;
 - domain-registered, length-framed preimages and SHA-256 digests;
 - total-result strict object and primitive decoders;
+- a Proxy-safe detached snapshot boundary shared by validation and serialization;
 - an explicit four-kind, version-1 envelope dispatcher;
 - codecs for writer identity, writer session, source authority, and source transaction reference;
 - cross-record validation for the selected authority graph.
@@ -71,6 +72,14 @@ The encoder rejects `undefined`, non-integers, unsafe integers, NaN, infinities,
 bigints, dates, maps, sets, functions, symbols, class instances, cycles, sparse/extended arrays,
 accessors, non-enumerable or symbol properties, and custom `toJSON` functions. There is no coercion or
 fallback.
+
+Validation constructs a fresh immutable snapshot from one bounded `Reflect.ownKeys` pass and one data
+descriptor read per captured property. Nested arrays and records are recursively copied; shared
+acyclic values are copied at each occurrence, ancestors are tracked per call, and cycles are rejected.
+Serialization reads only this detached snapshot. It never performs property access, spread, assignment,
+or serialization against the caller-owned object. An active Proxy is accepted only when that bounded
+descriptor pass produces a valid snapshot; throwing or revoked Proxies fail with a bounded result.
+Proxy `get` traps and `toJSON` are never invoked.
 
 ## 8. Unicode policy
 
@@ -128,18 +137,22 @@ escape hatch.
 
 ## 13. Strict decoder architecture
 
-`decodeExactObject` accepts only plain own-data objects, copies descriptor values without invoking
-getters, requires exact required/optional keys, and rejects unknown keys. Primitive helpers validate
+`decodeExactObject` accepts only plain own-data objects, captures descriptor values without invoking
+getters, requires exact required/optional keys, and rejects unknown keys without echoing their names.
+The public creators first apply this exact-object boundary to `unknown`; they do not destructure,
+project, or digest caller-owned objects. Primitive helpers validate
 bounded strings, inherited canonical identifiers, lowercase SHA-256 digests, positive safe integers,
 canonical decimal revisions, enums, bounded dense arrays, nested entries, and duplicate identities.
-All exported protocol operations return bounded `ProtocolResult` failures rather than exposing raw
-input or exceptions.
+The byte decoder uses intrinsic typed-array brand getters and copies accepted `Uint8Array` bytes before
+parsing. Proxy-wrapped typed arrays and unsupported byte containers fail closed. Every exported parser,
+creator, encoder, preimage/digest operation, strict helper, and graph validator is total over malformed
+runtime input and returns a bounded `ProtocolResult`. Unknown fields are rejected, never discarded.
 
 ## 14. Representative record inventory
 
 | Record | Production proof supplied by K-333A |
 |---|---|
-| `WriterIdentityRecord` | Writer ID/type, namespace, physical source, manifest digest, and self-verifying writer digest. |
+| `WriterIdentityRecord` | Writer ID, manifest-scoped `writerTypeId`, namespace, physical source, manifest digest, and self-verifying writer digest. |
 | `WriterSessionRecord` | Writer ID/digest, namespace, generation, physical source, epoch, capability digest, and session digest. |
 | `SourceAuthorityRecord` | Namespace/generation/source binding, canonical decimal source revision, registry/terminal/outbox roots, MMR pointer, paired optional lifecycle head, and authority digest. |
 | `SourceTransactionReferenceRecord` | Transaction identity plus authority, operation, admission, writer, session, terminal, outbox, MMR, checkpoint, generation/source/revision, and reference digest bindings. |
@@ -147,6 +160,14 @@ input or exceptions.
 Self-digest fields are excluded from their own canonical preimage and checked only after strict field
 decoding. The selected graph validator revalidates every record digest before checking cross-record
 identity, scope, revision, and MMR relationships.
+
+`writerTypeId` follows the K-329/K-330 reviewed-writer-manifest contract: it is a canonical identifier,
+not a globally closed enum. The writer digest commits it together with `manifestDigest`. Membership in
+that manifest is deferred because K-333A contains no manifest record or repository.
+
+The lifecycle fields are required nullable fields. `null`/`null` is the canonical representation of
+no lifecycle head; omission is invalid, a complete ID/digest pair is valid, and a partial pair fails
+with `RELATIONSHIP_MISMATCH`.
 
 ## 15. Version framework
 
@@ -181,8 +202,10 @@ path and an exact-code test. Reserved and unreachable counts are zero.
 | `CANONICAL_DIGEST_MISMATCH` | Recomputed record digest differs. |
 | `RELATIONSHIP_MISMATCH` | Paired local fields or selected graph bindings disagree. |
 
-Errors contain only a stable code, bounded operation label, and optional schema field name. They do
-not contain raw values, payloads, stack traces, or causes.
+Errors contain only a stable code, an ASCII trusted operation label of at most 48 characters, and an
+optional ASCII trusted schema-field label of at most 96 characters. Invalid caller labels fall back to
+`protocol_operation` or are omitted. Unknown-field failures use `unknown_field`; attacker-controlled
+keys are never copied. Errors contain no raw values, payloads, stack traces, causes, or free-form messages.
 
 ## 17. Security and resource bounds
 
@@ -203,11 +226,26 @@ These are K-333A canonical/representative-record bounds, not final bounds for la
 bootstrap formats. Those owners must justify separate structures and limits without weakening these
 decoders.
 
+The production limit object is frozen. Caller-specific `maxBytes` and `maxEntries` values must be
+positive safe integers no greater than their global maximum; zero, negatives, fractions, NaN,
+infinities, unsafe integers, and one-over values return `INVALID_INTEGER`. Depth, node, key,
+identifier, and encoded-byte limits expose no caller override.
+
 ## 18. Semantic parity coverage
 
-Deterministic production tests cover namespace, physical source, generation, writer identity,
-writer/session lineage, source transaction identity, canonical source revision, authority digest,
-and MMR-state pointer bindings. Production modules do not import the K-331G/K-332 model. Receipt,
+Deterministic production tests mutate every declared field. `WriterIdentityRecord` has 8 declared
+fields with 7 committed and only `writerDigest` excluded; `WriterSessionRecord` has 11/10 with only
+`sessionDigest` excluded; `SourceAuthorityRecord` has 15/14 with only `authorityDigest` excluded; and
+`SourceTransactionReferenceRecord` has 27/26 with only `referenceDigest` excluded. Closed kind/version
+fields have exact invalid-value tests; other fields have re-sealed commitment tests where a second valid
+value exists plus exact invalid-field coverage.
+
+Graph tests build independently valid, re-sealed records before introducing one mismatch. They reach
+`RELATIONSHIP_MISMATCH` for writer ID/digest lineage, namespace, physical source, generation, reference
+writer/session/authority IDs and digests, committed revision, and MMR ID/digest, including cross-graph
+mix-and-match. Permanent byte tests cover same-value, different-value, escaped-equivalent, nested,
+integer-like, and repeated escaped/unescaped duplicate JSON keys. Production modules do not import the
+K-331G/K-332 model. Receipt,
 compaction, proof, bootstrap, restore, lifecycle, and attachment parity is deliberately not asserted.
 
 ## 19. Deferred K-333 work
@@ -234,10 +272,16 @@ activation path.
 ## 22. Validation evidence
 
 Focused tests exercise supported values, fixed vectors, all rejection classes, canonical byte
-round-trips, all four record codecs, deterministic digests, strict version/kind dispatch, graph
-relationships, all 18 error paths, and dormancy/ownership guards. The final PR report records exact
+round-trips, Proxy substitution and trap failures, all four record codecs, deterministic digests,
+strict version/kind dispatch, complete selected graph relationships, helper ceiling overrides,
+bounded hostile keys, duplicate JSON forms, all 18 error paths, and dormancy/ownership guards. The final PR report records exact
 focused predecessor, local-database, recovery, typecheck, build, diff, and full-suite results. No
 real-browser behavior is required or claimed because the implementation is pure and dormant.
+
+K-333A/K-333A1 focused validation is 70/70. The default-concurrency full frontend run reached
+5,596 passing tests and 7 skipped tests, with three pre-existing file-scan/CLI tests timing out under
+parallel resource contention. Those three files passed 106/106 when focused, and the complete
+single-worker run passed 5,599 with 7 skipped. K-333A1 did not change their timeout budgets or source.
 
 ## 23. Production eligibility verdict
 

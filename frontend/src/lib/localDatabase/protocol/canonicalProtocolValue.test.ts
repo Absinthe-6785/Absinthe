@@ -9,6 +9,7 @@ import {
 import {
   buildCanonicalProtocolPreimage,
   digestCanonicalProtocolRecord,
+  PROTOCOL_PREIMAGE_DOMAINS,
 } from './canonicalProtocolPreimage';
 
 const bytes = (value: string) => new TextEncoder().encode(value);
@@ -70,6 +71,68 @@ describe('K-333A canonical production values', () => {
     expect(canonicalProtocolText(nullPrototype)).toEqual({ ok: true, value: '{"value":1}' });
   });
 
+  it('serializes only detached descriptor snapshots for active object and array Proxies', () => {
+    let objectGets = 0;
+    const objectProxy = new Proxy({ value: 'safe', count: 1 }, {
+      get(target, property, receiver) {
+        objectGets += 1;
+        if (property === 'value') return 'e\u0301';
+        if (property === 'count') return 2;
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    expect(canonicalProtocolText(objectProxy)).toEqual({ ok: true, value: '{"count":1,"value":"safe"}' });
+    expect(objectGets).toBe(0);
+
+    let arrayGets = 0;
+    const arrayProxy = new Proxy([1], {
+      get(target, property, receiver) {
+        arrayGets += 1;
+        if (property === '0') return 2;
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    expect(canonicalProtocolText(arrayProxy)).toEqual({ ok: true, value: '[1]' });
+    expect(arrayGets).toBe(0);
+
+    const nullPrototype = Object.assign(Object.create(null) as Record<string, unknown>, { value: 'safe' });
+    const nullProxy = new Proxy(nullPrototype, { get: () => 'unsafe' });
+    expect(canonicalProtocolText(nullProxy)).toEqual({ ok: true, value: '{"value":"safe"}' });
+  });
+
+  it('uses one bounded own-key and descriptor pass for changing Proxies', () => {
+    let ownKeysCalls = 0;
+    let descriptorCalls = 0;
+    const target = Object.defineProperties({}, {
+      first: { configurable: true, enumerable: true, value: 1 },
+      second: { configurable: true, enumerable: true, value: 2 },
+    });
+    const changing = new Proxy(target, {
+      ownKeys() {
+        ownKeysCalls += 1;
+        return ownKeysCalls === 1 ? ['first'] : ['second'];
+      },
+      getOwnPropertyDescriptor(source, property) {
+        descriptorCalls += 1;
+        const descriptor = Reflect.getOwnPropertyDescriptor(source, property);
+        return descriptor && { ...descriptor, value: descriptorCalls === 1 ? descriptor.value : 999 };
+      },
+    });
+    expect(canonicalProtocolText(changing)).toEqual({ ok: true, value: '{"first":1}' });
+    expect(ownKeysCalls).toBe(1);
+    expect(descriptorCalls).toBe(1);
+  });
+
+  it.each([
+    ['getPrototypeOf trap', () => new Proxy({}, { getPrototypeOf: () => { throw new Error('private'); } })],
+    ['ownKeys trap', () => new Proxy({}, { ownKeys: () => { throw new Error('private'); } })],
+    ['descriptor trap', () => new Proxy({ value: 1 }, { getOwnPropertyDescriptor: () => { throw new Error('private'); } })],
+    ['revoked Proxy', () => { const pair = Proxy.revocable({}, {}); pair.revoke(); return pair.proxy; }],
+  ])('maps %s failure without exposing or throwing', (_label, createValue) => {
+    expect(() => encodeCanonicalProtocolValue(createValue())).not.toThrow();
+    expect(code(encodeCanonicalProtocolValue(createValue()))).toBe('NON_CANONICAL_VALUE');
+  });
+
   it('enforces depth, node, string, key, array, and encoded-byte ceilings', () => {
     let deep: unknown = null;
     for (let index = 0; index <= PROTOCOL_CANONICAL_LIMITS.maxDepth; index += 1) deep = [deep];
@@ -96,6 +159,11 @@ describe('K-333A canonical production values', () => {
     ['whitespace', bytes('{"a": 1}'), 'NON_CANONICAL_VALUE'],
     ['object key order', bytes('{"b":1,"a":2}'), 'NON_CANONICAL_VALUE'],
     ['duplicate key', bytes('{"a":1,"a":2}'), 'NON_CANONICAL_VALUE'],
+    ['same-value duplicate key', bytes('{"a":1,"a":1}'), 'NON_CANONICAL_VALUE'],
+    ['escaped-equivalent duplicate key', bytes('{"a":1,"\\u0061":1}'), 'NON_CANONICAL_VALUE'],
+    ['nested duplicate key', bytes('{"outer":{"a":1,"a":2}}'), 'NON_CANONICAL_VALUE'],
+    ['integer-like duplicate key', bytes('{"2":1,"2":2}'), 'NON_CANONICAL_VALUE'],
+    ['repeated escaped duplicate key', bytes('{"a":1,"\\u0061":2,"a":3}'), 'NON_CANONICAL_VALUE'],
     ['escaped canonical character', bytes('{"value":"\\u00e9"}'), 'NON_CANONICAL_VALUE'],
   ])('strictly rejects %s', (_label, input, expected) => {
     expect(code(decodeCanonicalProtocolValue(input))).toBe(expected);
@@ -113,6 +181,25 @@ describe('K-333A canonical production values', () => {
   it('rejects deeply nested encoded input after the byte ceiling and before record dispatch', () => {
     const malicious = bytes(`${'['.repeat(100)}null${']'.repeat(100)}`);
     expect(code(decodeCanonicalProtocolValue(malicious))).toBe('RESOURCE_LIMIT_EXCEEDED');
+  });
+
+  it('totally rejects Proxy-wrapped typed arrays and malformed byte containers', () => {
+    const proxy = new Proxy(new Uint8Array(), {});
+    for (const value of [proxy, null, undefined, true, 1, 'bytes', [], {}, new DataView(new ArrayBuffer(1))]) {
+      expect(() => decodeCanonicalProtocolValue(value as never)).not.toThrow();
+      expect(code(decodeCanonicalProtocolValue(value as never))).toBe('INVALID_ENCODED_INPUT');
+    }
+  });
+
+  it('keeps every exported canonical value operation total over hostile runtime inputs', () => {
+    const throwing = new Proxy({}, { getPrototypeOf: () => { throw new Error('private'); } });
+    const revoked = Proxy.revocable({}, {}); revoked.revoke();
+    const values: unknown[] = [null, undefined, true, 1, 'value', [], {}, new Date(), throwing, revoked.proxy];
+    for (const value of values) {
+      expect(() => encodeCanonicalProtocolValue(value)).not.toThrow();
+      expect(() => canonicalProtocolText(value)).not.toThrow();
+      expect(() => decodeCanonicalProtocolValue(value)).not.toThrow();
+    }
   });
 });
 
@@ -162,5 +249,26 @@ describe('K-333A canonical preimages', () => {
       'absinthe.unregistered.v1' as 'absinthe.writer_identity.v1', 1, {},
     ))).toBe('INVALID_PREIMAGE_DOMAIN');
     expect(code(buildCanonicalProtocolPreimage('absinthe.writer_identity.v1', 0, {}))).toBe('INVALID_INTEGER');
+  });
+
+  it('keeps the public domain registry immutable and every preimage API total', () => {
+    expect(Object.isFrozen(PROTOCOL_PREIMAGE_DOMAINS)).toBe(true);
+    expect(() => (PROTOCOL_PREIMAGE_DOMAINS as unknown as string[]).push('absinthe.attacker.v1')).toThrow();
+    const malformed = [null, undefined, true, 1, 'payload', [], {}, new Date(0)];
+    for (const payload of malformed) {
+      expect(() => buildCanonicalProtocolPreimage('absinthe.writer_identity.v1', 1, payload)).not.toThrow();
+      expect(() => digestCanonicalProtocolRecord('absinthe.writer_identity.v1', 1, payload)).not.toThrow();
+    }
+    const revoked = Proxy.revocable({}, {}); revoked.revoke();
+    const domains: unknown[] = [null, undefined, true, 1, 'unknown', [], {}, revoked.proxy];
+    const versions: unknown[] = [null, undefined, true, '1', Number.NaN, Number.POSITIVE_INFINITY, Symbol('v')];
+    for (const domain of domains) {
+      expect(() => buildCanonicalProtocolPreimage(domain as never, 1, {})).not.toThrow();
+      expect(() => digestCanonicalProtocolRecord(domain as never, 1, {})).not.toThrow();
+    }
+    for (const version of versions) {
+      expect(() => buildCanonicalProtocolPreimage('absinthe.writer_identity.v1', version as never, {})).not.toThrow();
+      expect(() => digestCanonicalProtocolRecord('absinthe.writer_identity.v1', version as never, {})).not.toThrow();
+    }
   });
 });

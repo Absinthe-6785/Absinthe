@@ -29,7 +29,7 @@ export interface WriterIdentityRecord {
   readonly id: string;
   readonly namespaceId: string;
   readonly physicalSourceDigest: string;
-  readonly writerType: string;
+  readonly writerTypeId: string;
   readonly manifestDigest: string;
   readonly writerDigest: string;
 }
@@ -108,7 +108,7 @@ export type SourceAuthorityInput = Omit<SourceAuthorityRecord, 'kind' | 'version
 export type SourceTransactionReferenceInput = Omit<SourceTransactionReferenceRecord, 'kind' | 'version' | 'referenceDigest'>;
 
 const writerFields = Object.freeze([
-  'kind', 'version', 'id', 'namespaceId', 'physicalSourceDigest', 'writerType', 'manifestDigest', 'writerDigest',
+  'kind', 'version', 'id', 'namespaceId', 'physicalSourceDigest', 'writerTypeId', 'manifestDigest', 'writerDigest',
 ]);
 const sessionFields = Object.freeze([
   'kind', 'version', 'id', 'namespaceId', 'generationId', 'physicalSourceDigest', 'writerId', 'writerDigest',
@@ -132,6 +132,24 @@ const envelopeOptionalFields = Object.freeze([...new Set([
 interface FieldSpec {
   readonly field: string;
   readonly decoder: StrictDecoder<unknown>;
+}
+
+function prepareCreatePayload(
+  value: unknown,
+  fields: readonly string[],
+  specs: readonly FieldSpec[],
+  kind: RepresentativeRecordKind,
+  operation: string,
+): ProtocolResult<StrictObject> {
+  const object = decodeExactObject(value, fields, [], operation);
+  if (!object.ok) return object;
+  const decoded = decodeFields(object.value, specs);
+  if (!decoded.ok) return decoded;
+  const payload: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
+  payload.kind = kind;
+  payload.version = REPRESENTATIVE_PROTOCOL_VERSION;
+  for (const field of fields) payload[field] = object.value[field];
+  return protocolOk(Object.freeze(payload));
 }
 
 function decodeFields(object: StrictObject, specs: readonly FieldSpec[]): ProtocolResult<StrictObject> {
@@ -175,75 +193,78 @@ function verifyDigest(
     : protocolFail('CANONICAL_DIGEST_MISMATCH', 'decode_record', field);
 }
 
-function writerPayload(value: WriterIdentityInput): StrictObject {
-  return Object.freeze({
-    kind: 'absinthe_writer_identity', version: 1, id: value.id, namespaceId: value.namespaceId,
-    physicalSourceDigest: value.physicalSourceDigest, writerType: value.writerType, manifestDigest: value.manifestDigest,
-  });
-}
+const writerInputFields = Object.freeze(['id', 'namespaceId', 'physicalSourceDigest', 'writerTypeId', 'manifestDigest']);
+const sessionInputFields = Object.freeze([
+  'id', 'namespaceId', 'generationId', 'physicalSourceDigest', 'writerId', 'writerDigest', 'epoch', 'capabilityDigest',
+]);
+const authorityInputFields = Object.freeze([
+  'id', 'namespaceId', 'generationId', 'physicalSourceDigest', 'sourceRevision', 'operationRegistryRoot',
+  'terminalRoot', 'outboxRoot', 'mmrStateId', 'mmrStateDigest', 'lifecycleHeadId', 'lifecycleHeadDigest',
+]);
+const referenceInputFields = Object.freeze([
+  'id', 'namespaceId', 'generationId', 'physicalSourceDigest', 'committedSourceRevision', 'sourceAuthorityId',
+  'sourceAuthorityDigest', 'operationId', 'operationDigest', 'admissionId', 'admissionDigest', 'writerId',
+  'writerDigest', 'sessionId', 'sessionDigest', 'terminalId', 'terminalDigest', 'outboxId', 'outboxDigest',
+  'mmrStateId', 'mmrStateDigest', 'checkpointId', 'checkpointDigest', 'graphVersion',
+]);
 
-function sessionPayload(value: WriterSessionInput): StrictObject {
-  return Object.freeze({
-    kind: 'absinthe_writer_session', version: 1, id: value.id, namespaceId: value.namespaceId,
-    generationId: value.generationId, physicalSourceDigest: value.physicalSourceDigest, writerId: value.writerId,
-    writerDigest: value.writerDigest, epoch: value.epoch, capabilityDigest: value.capabilityDigest,
-  });
-}
-
-function authorityPayload(value: SourceAuthorityInput): StrictObject {
-  return Object.freeze({
-    kind: 'absinthe_source_authority', version: 1, id: value.id, namespaceId: value.namespaceId,
-    generationId: value.generationId, physicalSourceDigest: value.physicalSourceDigest,
-    sourceRevision: value.sourceRevision, operationRegistryRoot: value.operationRegistryRoot,
-    terminalRoot: value.terminalRoot, outboxRoot: value.outboxRoot, mmrStateId: value.mmrStateId,
-    mmrStateDigest: value.mmrStateDigest, lifecycleHeadId: value.lifecycleHeadId,
-    lifecycleHeadDigest: value.lifecycleHeadDigest,
-  });
-}
-
-function referencePayload(value: SourceTransactionReferenceInput): StrictObject {
-  return Object.freeze({
-    kind: 'absinthe_source_transaction_reference', version: 1, id: value.id, namespaceId: value.namespaceId,
-    generationId: value.generationId, physicalSourceDigest: value.physicalSourceDigest,
-    committedSourceRevision: value.committedSourceRevision, sourceAuthorityId: value.sourceAuthorityId,
-    sourceAuthorityDigest: value.sourceAuthorityDigest, operationId: value.operationId,
-    operationDigest: value.operationDigest, admissionId: value.admissionId, admissionDigest: value.admissionDigest,
-    writerId: value.writerId, writerDigest: value.writerDigest, sessionId: value.sessionId,
-    sessionDigest: value.sessionDigest, terminalId: value.terminalId, terminalDigest: value.terminalDigest,
-    outboxId: value.outboxId, outboxDigest: value.outboxDigest, mmrStateId: value.mmrStateId,
-    mmrStateDigest: value.mmrStateDigest, checkpointId: value.checkpointId,
-    checkpointDigest: value.checkpointDigest, graphVersion: value.graphVersion,
-  });
-}
-
-export function createWriterIdentityRecord(input: WriterIdentityInput): ProtocolResult<WriterIdentityRecord> {
-  const payload = writerPayload(input);
-  const writerDigest = digestPayload('absinthe.writer_identity.v1', payload);
+export function createWriterIdentityRecord(input: unknown): ProtocolResult<WriterIdentityRecord> {
+  const payload = prepareCreatePayload(input, writerInputFields, [
+    ...['id', 'namespaceId', 'writerTypeId'].map(field => ({ field, decoder: identifier })),
+    ...['physicalSourceDigest', 'manifestDigest'].map(field => ({ field, decoder: digest })),
+  ], 'absinthe_writer_identity', 'create_writer_identity');
+  if (!payload.ok) return payload;
+  const writerDigest = digestPayload('absinthe.writer_identity.v1', payload.value);
   if (!writerDigest.ok) return writerDigest;
-  return decodeWriterIdentityRecord(Object.freeze({ ...payload, writerDigest: writerDigest.value }));
+  return decodeWriterIdentityRecord(Object.freeze({ ...payload.value, writerDigest: writerDigest.value }));
 }
 
-export function createWriterSessionRecord(input: WriterSessionInput): ProtocolResult<WriterSessionRecord> {
-  const payload = sessionPayload(input);
-  const sessionDigest = digestPayload('absinthe.writer_session.v1', payload);
+export function createWriterSessionRecord(input: unknown): ProtocolResult<WriterSessionRecord> {
+  const payload = prepareCreatePayload(input, sessionInputFields, [
+    ...['id', 'namespaceId', 'generationId', 'writerId'].map(field => ({ field, decoder: identifier })),
+    ...['physicalSourceDigest', 'writerDigest', 'capabilityDigest'].map(field => ({ field, decoder: digest })),
+    { field: 'epoch', decoder: positive },
+  ], 'absinthe_writer_session', 'create_writer_session');
+  if (!payload.ok) return payload;
+  const sessionDigest = digestPayload('absinthe.writer_session.v1', payload.value);
   if (!sessionDigest.ok) return sessionDigest;
-  return decodeWriterSessionRecord(Object.freeze({ ...payload, sessionDigest: sessionDigest.value }));
+  return decodeWriterSessionRecord(Object.freeze({ ...payload.value, sessionDigest: sessionDigest.value }));
 }
 
-export function createSourceAuthorityRecord(input: SourceAuthorityInput): ProtocolResult<SourceAuthorityRecord> {
-  const payload = authorityPayload(input);
-  const authorityDigest = digestPayload('absinthe.source_authority.v1', payload);
+export function createSourceAuthorityRecord(input: unknown): ProtocolResult<SourceAuthorityRecord> {
+  const payload = prepareCreatePayload(input, authorityInputFields, [
+    ...['id', 'namespaceId', 'generationId', 'mmrStateId'].map(field => ({ field, decoder: identifier })),
+    ...['physicalSourceDigest', 'operationRegistryRoot', 'terminalRoot', 'outboxRoot', 'mmrStateDigest']
+      .map(field => ({ field, decoder: digest })),
+    { field: 'sourceRevision', decoder: revision },
+    { field: 'lifecycleHeadId', decoder: nullableIdentifier },
+    { field: 'lifecycleHeadDigest', decoder: nullableDigest },
+  ], 'absinthe_source_authority', 'create_source_authority');
+  if (!payload.ok) return payload;
+  if ((payload.value.lifecycleHeadId === null) !== (payload.value.lifecycleHeadDigest === null)) {
+    return protocolFail('RELATIONSHIP_MISMATCH', 'create_source_authority', 'lifecycleHead');
+  }
+  const authorityDigest = digestPayload('absinthe.source_authority.v1', payload.value);
   if (!authorityDigest.ok) return authorityDigest;
-  return decodeSourceAuthorityRecord(Object.freeze({ ...payload, authorityDigest: authorityDigest.value }));
+  return decodeSourceAuthorityRecord(Object.freeze({ ...payload.value, authorityDigest: authorityDigest.value }));
 }
 
 export function createSourceTransactionReferenceRecord(
-  input: SourceTransactionReferenceInput,
+  input: unknown,
 ): ProtocolResult<SourceTransactionReferenceRecord> {
-  const payload = referencePayload(input);
-  const referenceDigest = digestPayload('absinthe.source_transaction_reference.v1', payload);
+  const payload = prepareCreatePayload(input, referenceInputFields, [
+    ...['id', 'namespaceId', 'generationId', 'sourceAuthorityId', 'operationId', 'admissionId', 'writerId', 'sessionId',
+      'terminalId', 'outboxId', 'mmrStateId', 'checkpointId'].map(field => ({ field, decoder: identifier })),
+    ...['physicalSourceDigest', 'sourceAuthorityDigest', 'operationDigest', 'admissionDigest', 'writerDigest',
+      'sessionDigest', 'terminalDigest', 'outboxDigest', 'mmrStateDigest', 'checkpointDigest']
+      .map(field => ({ field, decoder: digest })),
+    { field: 'committedSourceRevision', decoder: revision },
+    { field: 'graphVersion', decoder: (entry, field) => decodeLiteral(entry, 1, field, 'version') },
+  ], 'absinthe_source_transaction_reference', 'create_source_reference');
+  if (!payload.ok) return payload;
+  const referenceDigest = digestPayload('absinthe.source_transaction_reference.v1', payload.value);
   if (!referenceDigest.ok) return referenceDigest;
-  return decodeSourceTransactionReferenceRecord(Object.freeze({ ...payload, referenceDigest: referenceDigest.value }));
+  return decodeSourceTransactionReferenceRecord(Object.freeze({ ...payload.value, referenceDigest: referenceDigest.value }));
 }
 
 export function decodeWriterIdentityRecord(value: unknown): ProtocolResult<WriterIdentityRecord> {
@@ -252,7 +273,7 @@ export function decodeWriterIdentityRecord(value: unknown): ProtocolResult<Write
   const fields = decodeFields(object.value, [
     { field: 'kind', decoder: (entry, field) => decodeLiteral(entry, 'absinthe_writer_identity', field) },
     { field: 'version', decoder: (entry, field) => decodeLiteral(entry, 1, field, 'version') },
-    ...['id', 'namespaceId', 'writerType'].map(field => ({ field, decoder: identifier })),
+    ...['id', 'namespaceId', 'writerTypeId'].map(field => ({ field, decoder: identifier })),
     ...['physicalSourceDigest', 'manifestDigest', 'writerDigest'].map(field => ({ field, decoder: digest })),
   ]);
   if (!fields.ok) return fields;
@@ -337,31 +358,35 @@ export function decodeRepresentativeProtocolRecord(value: unknown): ProtocolResu
     return protocolFail('UNSUPPORTED_RECORD_VERSION', 'decode_envelope', 'version');
   }
   switch (envelope.value.kind) {
-    case 'absinthe_writer_identity': return decodeWriterIdentityRecord(value);
-    case 'absinthe_writer_session': return decodeWriterSessionRecord(value);
-    case 'absinthe_source_transaction_reference': return decodeSourceTransactionReferenceRecord(value);
-    case 'absinthe_source_authority': return decodeSourceAuthorityRecord(value);
+    case 'absinthe_writer_identity': return decodeWriterIdentityRecord(envelope.value);
+    case 'absinthe_writer_session': return decodeWriterSessionRecord(envelope.value);
+    case 'absinthe_source_transaction_reference': return decodeSourceTransactionReferenceRecord(envelope.value);
+    case 'absinthe_source_authority': return decodeSourceAuthorityRecord(envelope.value);
     default: return protocolFail('RECORD_KIND_MISMATCH', 'decode_envelope', 'kind');
   }
 }
 
-export function decodeRepresentativeProtocolRecordBytes(bytes: Uint8Array): ProtocolResult<RepresentativeProtocolRecord> {
+export function decodeRepresentativeProtocolRecordBytes(bytes: unknown): ProtocolResult<RepresentativeProtocolRecord> {
   const decoded = decodeCanonicalProtocolValue(bytes);
   return decoded.ok ? decodeRepresentativeProtocolRecord(decoded.value) : decoded;
 }
 
-export function validateRepresentativeAuthorityGraph(input: {
-  readonly writer: WriterIdentityRecord;
-  readonly session: WriterSessionRecord;
-  readonly authority: SourceAuthorityRecord;
-  readonly reference: SourceTransactionReferenceRecord;
-}): ProtocolResult<void> {
-  const { writer, session, authority, reference } = input;
+export function validateRepresentativeAuthorityGraph(input: unknown): ProtocolResult<void> {
+  const graph = decodeExactObject(input, ['writer', 'session', 'authority', 'reference'], [], 'validate_authority_graph');
+  if (!graph.ok) return graph;
+  const writerResult = decodeWriterIdentityRecord(graph.value.writer);
+  if (!writerResult.ok) return writerResult;
+  const sessionResult = decodeWriterSessionRecord(graph.value.session);
+  if (!sessionResult.ok) return sessionResult;
+  const authorityResult = decodeSourceAuthorityRecord(graph.value.authority);
+  if (!authorityResult.ok) return authorityResult;
+  const referenceResult = decodeSourceTransactionReferenceRecord(graph.value.reference);
+  if (!referenceResult.ok) return referenceResult;
+  const writer = writerResult.value;
+  const session = sessionResult.value;
+  const authority = authorityResult.value;
+  const reference = referenceResult.value;
   const records: readonly RepresentativeProtocolRecord[] = [writer, session, authority, reference];
-  for (const record of records) {
-    const decoded = decodeRepresentativeProtocolRecord(record);
-    if (!decoded.ok) return decoded;
-  }
   const scopeMatches = records.every(record => record.namespaceId === writer.namespaceId
     && record.physicalSourceDigest === writer.physicalSourceDigest)
     && session.generationId === authority.generationId
