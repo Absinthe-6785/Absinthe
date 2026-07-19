@@ -1,5 +1,7 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { buildCanonicalProtocolPreimage } from './canonicalProtocolPreimage';
+import { sha256Hex } from '../outboxIdentity';
+import { buildCanonicalProtocolPreimage, digestCanonicalProtocolRecord } from './canonicalProtocolPreimage';
 import { encodeCanonicalProtocolValue } from './canonicalProtocolValue';
 import type { ProtocolResult } from './protocolResult';
 import {
@@ -33,10 +35,24 @@ import {
   createSourceTransactionReferenceRecord,
   createWriterIdentityRecord,
   createWriterSessionRecord,
+  decodeSourceAuthorityRecord,
+  decodeSourceTransactionReferenceRecord,
 } from './writerAuthorityProtocol';
 
 const digest = (character: string): string => character.repeat(64);
 const text = (bytes: Uint8Array): string => new TextDecoder().decode(bytes);
+
+const EXPECTED_TRANSACTION_EVIDENCE_COMPATIBILITY = Object.freeze([
+  Object.freeze(['absinthe_writer_identity', 1, 'absinthe_k330_operation', 1] as const),
+  Object.freeze(['absinthe_writer_session', 1, 'absinthe_k330_operation', 1] as const),
+  Object.freeze(['absinthe_k330_operation', 1, 'absinthe_k330_admission', 1] as const),
+  Object.freeze(['absinthe_k330_operation', 1, 'absinthe_immutable_outbox_intent', 1] as const),
+  Object.freeze(['absinthe_k330_operation', 1, 'absinthe_terminal_state', 1] as const),
+  Object.freeze(['absinthe_k330_operation', 1, 'absinthe_source_transaction_reference', 1] as const),
+  Object.freeze(['absinthe_k330_admission', 1, 'absinthe_source_transaction_reference', 1] as const),
+  Object.freeze(['absinthe_immutable_outbox_intent', 1, 'absinthe_source_transaction_reference', 1] as const),
+  Object.freeze(['absinthe_terminal_state', 1, 'absinthe_source_transaction_reference', 1] as const),
+] as const);
 
 function must<T>(result: ProtocolResult<T>): T {
   expect(result.ok).toBe(true);
@@ -393,6 +409,13 @@ describe('K-333B transaction evidence graph and compatibility', () => {
 
   it('uses a closed immutable compatibility table and rejects unsupported tuples before graph access', () => {
     expect(Object.isFrozen(TRANSACTION_EVIDENCE_COMPATIBILITY)).toBe(true);
+    expect(Object.isFrozen(TRANSACTION_EVIDENCE_GRAPH_COMPATIBILITY_EDGES)).toBe(true);
+    expect(Object.isFrozen(EXPECTED_TRANSACTION_EVIDENCE_COMPATIBILITY)).toBe(true);
+    for (const tuple of TRANSACTION_EVIDENCE_COMPATIBILITY) expect(Object.isFrozen(tuple)).toBe(true);
+    for (const edge of TRANSACTION_EVIDENCE_GRAPH_COMPATIBILITY_EDGES) {
+      expect(Object.isFrozen(edge)).toBe(true);
+      expect(Object.isFrozen(edge.tuple)).toBe(true);
+    }
     for (const [predecessorKind, predecessorVersion, successorKind, successorVersion] of TRANSACTION_EVIDENCE_COMPATIBILITY) {
       expect(validateTransactionEvidenceCompatibility({
         predecessorKind, predecessorVersion, successorKind, successorVersion,
@@ -406,14 +429,38 @@ describe('K-333B transaction evidence graph and compatibility', () => {
       predecessorKind: 'absinthe_k330_admission', predecessorVersion: 1,
       successorKind: 'absinthe_k330_operation', successorVersion: 1,
     }))).toBe('RELATIONSHIP_MISMATCH');
-    expect(TRANSACTION_EVIDENCE_GRAPH_COMPATIBILITY_EDGES.map(edge =>
-      `${edge.predecessor}->${edge.successor}`)).toEqual([
-      'writer->operation', 'session->operation', 'operation->admission', 'operation->outbox',
-      'operation->terminal', 'operation->reference', 'admission->reference', 'outbox->reference',
-      'terminal->reference',
-    ]);
-    expect(TRANSACTION_EVIDENCE_GRAPH_COMPATIBILITY_EDGES.map(edge => edge.tuple))
-      .toEqual(TRANSACTION_EVIDENCE_COMPATIBILITY);
+    const graphTuples = TRANSACTION_EVIDENCE_GRAPH_COMPATIBILITY_EDGES.map(edge => edge.tuple);
+    expect(graphTuples).toEqual(EXPECTED_TRANSACTION_EVIDENCE_COMPATIBILITY);
+    expect(TRANSACTION_EVIDENCE_COMPATIBILITY).toEqual(EXPECTED_TRANSACTION_EVIDENCE_COMPATIBILITY);
+    expect(graphTuples).toHaveLength(9);
+    expect(TRANSACTION_EVIDENCE_COMPATIBILITY).toHaveLength(9);
+    expect(new Set(graphTuples.map(tuple => JSON.stringify(tuple))).size).toBe(9);
+    expect(new Set(TRANSACTION_EVIDENCE_COMPATIBILITY.map(tuple => JSON.stringify(tuple))).size).toBe(9);
+  });
+
+  it('permanently guards all nine public graph compatibility decisions before relationship use', () => {
+    const source = readFileSync(new URL('./transactionEvidenceProtocol.ts', import.meta.url), 'utf8');
+    const validatorStart = source.indexOf('export function validateProductionTransactionEvidenceGraph');
+    expect(validatorStart).toBeGreaterThanOrEqual(0);
+    const validator = source.slice(validatorStart);
+    const independentDecodeEnd = validator.indexOf('const terminal = decodeTerminalStateRecord');
+    const compatibilityLoop = validator.indexOf(
+      'for (const edge of TRANSACTION_EVIDENCE_GRAPH_COMPATIBILITY_EDGES)',
+    );
+    const compatibilityCall = validator.indexOf('validateTransactionEvidenceCompatibility({', compatibilityLoop);
+    const compatibilityResultCheck = validator.indexOf('if (!compatible.ok) return compatible;', compatibilityCall);
+    const relationshipValidation = validator.indexOf('const representative = validateRepresentativeAuthorityGraph',
+      compatibilityResultCheck);
+    const relationAggregation = validator.indexOf('const relationsMatch =', relationshipValidation);
+
+    expect(validateProductionTransactionEvidenceGraph(fixtures()).ok).toBe(true);
+    expect(EXPECTED_TRANSACTION_EVIDENCE_COMPATIBILITY).toHaveLength(9);
+    expect(independentDecodeEnd).toBeGreaterThanOrEqual(0);
+    expect(compatibilityLoop).toBeGreaterThan(independentDecodeEnd);
+    expect(compatibilityCall).toBeGreaterThan(compatibilityLoop);
+    expect(compatibilityResultCheck).toBeGreaterThan(compatibilityCall);
+    expect(relationshipValidation).toBeGreaterThan(compatibilityResultCheck);
+    expect(relationAggregation).toBeGreaterThan(relationshipValidation);
   });
 
   it('rejects same-ID different-operation replay only after every mixed record independently validates', () => {
@@ -443,6 +490,63 @@ describe('K-333B transaction evidence graph and compatibility', () => {
         expect(errorCode(validateProductionTransactionEvidenceGraph(mixed))).toBe('RELATIONSHIP_MISMATCH');
       }
     }
+  });
+
+  it('rejects a fully resealed arbitrary exact-operation commitment', () => {
+    const graph = fixtures();
+    const forgedExactOperationDigest = digest('d');
+    expect(forgedExactOperationDigest).not.toBe(graph.operation.exactOperationDigest);
+
+    const admission = must(createAdmissionRecord({
+      ...inputs(graph.admission),
+      exactOperationDigest: forgedExactOperationDigest,
+    }));
+    const { operationDigest: _operationDigest, ...operationPayload } = graph.operation;
+    const forgedOperationPayload = Object.freeze({
+      ...operationPayload,
+      admissionDigest: admission.admissionDigest,
+      exactOperationDigest: forgedExactOperationDigest,
+    });
+    const operationDigest = must(digestCanonicalProtocolRecord(
+      'absinthe.operation.v1', 1, forgedOperationPayload,
+    ));
+    const operation = Object.freeze({ ...forgedOperationPayload, operationDigest }) as OperationRecord;
+    const outbox = must(createImmutableOutboxIntentRecord({
+      ...inputs(graph.outbox),
+      exactOperationDigest: forgedExactOperationDigest,
+    }));
+    const terminal = must(createTerminalStateRecord({
+      ...inputs(graph.terminal),
+      exactOperationDigest: forgedExactOperationDigest,
+    }));
+    const authority = resealAuthority(graph, {
+      operationRegistryRoot: must(deriveOperationRegistryRoot(operation.operationDigest)),
+      terminalRoot: must(deriveTerminalRoot(terminal.terminalDigest)),
+      outboxRoot: must(deriveOutboxRoot(outbox.outboxDigest)),
+    });
+    const reference = resealReference(graph, {
+      sourceAuthorityDigest: authority.authorityDigest,
+      operationDigest: operation.operationDigest,
+      admissionDigest: admission.admissionDigest,
+      terminalDigest: terminal.terminalDigest,
+      outboxDigest: outbox.outboxDigest,
+    });
+    const forgedGraph = { ...graph, operation, admission, outbox, terminal, authority, reference };
+
+    const operationPreimage = must(buildCanonicalProtocolPreimage(
+      'absinthe.operation.v1', 1, forgedOperationPayload,
+    ));
+    expect(sha256Hex(text(operationPreimage))).toBe(operation.operationDigest);
+    expect(decodeAdmissionRecord(admission).ok).toBe(true);
+    expect(decodeImmutableOutboxIntentRecord(outbox).ok).toBe(true);
+    expect(decodeTerminalStateRecord(terminal).ok).toBe(true);
+    expect(decodeSourceAuthorityRecord(authority).ok).toBe(true);
+    expect(decodeSourceTransactionReferenceRecord(reference).ok).toBe(true);
+
+    // Every dependent record, authority root, and self-digest is current. Only the carried exact-operation
+    // commitment is false relative to the unchanged Operation semantic fields.
+    expect(errorCode(decodeOperationRecord(operation))).toBe('RELATIONSHIP_MISMATCH');
+    expect(errorCode(validateProductionTransactionEvidenceGraph(forgedGraph))).toBe('RELATIONSHIP_MISMATCH');
   });
 
   it('validates K-331 one-record authority roots and rejects every independently resealed mismatch', () => {
