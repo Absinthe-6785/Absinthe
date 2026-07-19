@@ -9,6 +9,10 @@ export const PROTOCOL_PREIMAGE_DOMAINS = Object.freeze([
   'absinthe.writer_session.v1',
   'absinthe.source_transaction_reference.v1',
   'absinthe.source_authority.v1',
+  'absinthe.operation.v1',
+  'absinthe.admission.v1',
+  'absinthe.immutable_outbox_intent.v1',
+  'absinthe.terminal_state.v1',
 ] as const);
 
 export type ProtocolPreimageDomain = typeof PROTOCOL_PREIMAGE_DOMAINS[number];
