@@ -11,6 +11,7 @@ import {
   PRODUCTION_PROTOCOL_ERROR_CODES,
   PROTOCOL_ERROR_LABEL_LIMITS,
   protocolFail,
+  protocolOk,
 } from './protocolResult';
 import {
   decodeBoundedArray,
@@ -500,6 +501,159 @@ describe('K-333A representative production records', () => {
       expect(errorCode(decodeBoundedArray([], 'items', decodeIdentifier, { maxEntries: limit })))
         .toBe('INVALID_INTEGER');
     }
+  });
+
+  it('exact-validates and reboxes every StrictDecoder callback result', () => {
+    const invoke = (callback: () => unknown) => decodeBoundedArray(
+      ['value'], 'items', (() => callback()) as never,
+    );
+    const hostile = `${'x'.repeat(140_000)}\n\u0000공격자`;
+    const unknownCode = {
+      ok: false, error: { code: 'ATTACKER_CODE', operation: 'decode_item', field: 'item' },
+    };
+    const malformed = [
+      () => Promise.resolve(protocolOk('value')),
+      () => ({ then: () => undefined }),
+      () => null,
+      () => undefined,
+      () => 1,
+      () => [],
+      () => ({}),
+      () => ({ ok: 'false' }),
+      () => ({ ok: true }),
+      () => ({ ok: true, value: 'decoded', extra: true }),
+      () => ({ ok: true, value: 'decoded', then: () => undefined }),
+      () => ({ ok: false }),
+      () => ({
+        ok: false, value: 'unexpected',
+        error: { code: 'INVALID_IDENTIFIER', operation: 'decode_item', field: 'item' },
+      }),
+      () => ({
+        ok: false,
+        error: { code: 'INVALID_IDENTIFIER', operation: 'decode_item', field: 'item', extra: true },
+      }),
+      () => unknownCode,
+      () => ({ ok: false, error: { code: 'INVALID_IDENTIFIER', operation: hostile, field: 'item' } }),
+      () => ({ ok: false, error: { code: 'INVALID_IDENTIFIER', operation: 'decode_item', field: hostile } }),
+      () => ({
+        ok: false, error: { code: 'INVALID_IDENTIFIER', operation: 'decode_item\n공격자', field: 'item' },
+      }),
+      () => Object.defineProperty({}, 'ok', { enumerable: true, get: () => true }),
+      () => new Proxy({}, { ownKeys: () => { throw new Error('private'); } }),
+      () => { const pair = Proxy.revocable({}, {}); pair.revoke(); return pair.proxy; },
+      () => { throw new Error('private'); },
+    ];
+    for (const callback of malformed) {
+      const result = invoke(callback);
+      expect(result).not.toBeInstanceOf(Promise);
+      expect(typeof (result as { then?: unknown }).then).toBe('undefined');
+      expect(errorCode(result)).toBe('INVALID_FIELD_TYPE');
+      if (!result.ok) {
+        expect(result.error).toEqual({
+          code: 'INVALID_FIELD_TYPE', operation: 'decode_bounded_array_item', field: 'decoderResult',
+        });
+        expect(JSON.stringify(result.error).length).toBeLessThan(256);
+        expect(JSON.stringify(result.error)).not.toContain('공격자');
+      }
+    }
+
+    const callbackSuccess = { ok: true, value: 'decoded' } as const;
+    const success = invoke(() => callbackSuccess);
+    expect(success).toEqual({ ok: true, value: ['decoded'] });
+    expect(success).not.toBe(callbackSuccess);
+
+    let proxyGets = 0;
+    const proxySuccess = new Proxy(callbackSuccess, { get: () => { proxyGets += 1; return 'attacker'; } });
+    expect(invoke(() => proxySuccess)).toEqual({ ok: true, value: ['decoded'] });
+    expect(proxyGets).toBe(0);
+
+    const callbackFailure = protocolFail('INVALID_IDENTIFIER', 'decode_identifier', 'sourceField');
+    const failure = invoke(() => callbackFailure);
+    expect(failure).not.toBe(callbackFailure);
+    if (!failure.ok && !callbackFailure.ok) expect(failure.error).not.toBe(callbackFailure.error);
+    expect(failure).toEqual({
+      ok: false, error: { code: 'INVALID_IDENTIFIER', operation: 'decode_bounded_array_item', field: 'item' },
+    });
+  });
+
+  it('enforces canonical UTF-8 boundaries for literal helpers', () => {
+    const ascii4095 = 'a'.repeat(4_095);
+    const ascii4096 = 'a'.repeat(4_096);
+    const ascii4097 = 'a'.repeat(4_097);
+    const multibyte4096 = `${'첕'.repeat(1_365)}a`;
+    const multibyteOver = `${multibyte4096}첕`;
+    const emoji4096 = '😀'.repeat(1_024);
+    expect(decodeLiteral(ascii4095, ascii4095, 'kind').ok).toBe(true);
+    expect(decodeLiteral(ascii4096, ascii4096, 'kind').ok).toBe(true);
+    expect(errorCode(decodeLiteral(ascii4097, ascii4097, 'kind'))).toBe('RESOURCE_LIMIT_EXCEEDED');
+    expect(decodeLiteral(multibyte4096, multibyte4096, 'kind').ok).toBe(true);
+    expect(errorCode(decodeLiteral(multibyteOver, multibyteOver, 'kind'))).toBe('RESOURCE_LIMIT_EXCEEDED');
+    expect(decodeLiteral(emoji4096, emoji4096, 'kind').ok).toBe(true);
+    expect(errorCode(decodeLiteral('e\u0301', 'e\u0301', 'kind'))).toBe('NON_CANONICAL_VALUE');
+    expect(errorCode(decodeLiteral('\ud800', '\ud800', 'kind'))).toBe('NON_CANONICAL_VALUE');
+    expect(errorCode(decodeLiteral('e\u0301', 'expected', 'kind'))).toBe('NON_CANONICAL_VALUE');
+    for (const expected of [Number.NaN, Number.POSITIVE_INFINITY, -0, Number.MAX_SAFE_INTEGER + 1]) {
+      expect(errorCode(decodeLiteral(expected, expected, 'version'))).toBe('NON_CANONICAL_VALUE');
+    }
+    for (const expected of [BigInt(1), {}, Symbol('literal'), () => undefined]) {
+      expect(errorCode(decodeLiteral(expected as never, expected as never, 'kind'))).toBe('INVALID_FIELD_TYPE');
+    }
+  });
+
+  it('validates and snapshots complete canonical enum schemas and inputs', () => {
+    const ascii4096 = 'a'.repeat(4_096);
+    const ascii4097 = 'a'.repeat(4_097);
+    const multibyte4096 = `${'첕'.repeat(1_365)}a`;
+    const multibyteOver = `${multibyte4096}첕`;
+    expect(decodeEnum('interactive', ['interactive', 'worker'] as const, 'mode').ok).toBe(true);
+    expect(decodeEnum(ascii4096, [ascii4096], 'mode').ok).toBe(true);
+    expect(errorCode(decodeEnum(ascii4097, [ascii4097], 'mode'))).toBe('INVALID_ENUM_VALUE');
+    expect(decodeEnum(multibyte4096, [multibyte4096], 'mode').ok).toBe(true);
+    expect(errorCode(decodeEnum(multibyteOver, [multibyteOver], 'mode'))).toBe('INVALID_ENUM_VALUE');
+    expect(errorCode(decodeEnum('e\u0301', ['e\u0301'], 'mode'))).toBe('INVALID_ENUM_VALUE');
+    expect(errorCode(decodeEnum('\ud800', ['\ud800'], 'mode'))).toBe('INVALID_ENUM_VALUE');
+    expect(errorCode(decodeEnum('a', ['a', 'a'], 'mode'))).toBe('DUPLICATE_ENTRY');
+    expect(errorCode(decodeEnum(ascii4097, ['short'], 'mode'))).toBe('RESOURCE_LIMIT_EXCEEDED');
+    expect(errorCode(decodeEnum('missing', ['short'], 'mode'))).toBe('INVALID_ENUM_VALUE');
+
+    const sparse = new Array<string>(2); sparse[1] = 'value';
+    const accessor = Object.defineProperty(['value'], '0', { enumerable: true, get: () => 'value' });
+    const throwing = new Proxy(['value'], { ownKeys: () => { throw new Error('private'); } });
+    const revoked = Proxy.revocable(['value'], {}); revoked.revoke();
+    const oversized = Array.from({ length: PROTOCOL_CANONICAL_LIMITS.maxArrayEntries + 1 }, (_, index) => `v${index}`);
+    for (const allowed of [sparse, accessor, throwing, revoked.proxy, oversized]) {
+      expect(errorCode(decodeEnum('value', allowed))).toBe('INVALID_ENUM_VALUE');
+    }
+
+    let proxyGets = 0;
+    const proxyAllowed = new Proxy(['value'], { get: () => { proxyGets += 1; return 'attacker'; } });
+    expect(decodeEnum('value', proxyAllowed, 'mode')).toEqual({ ok: true, value: 'value' });
+    expect(proxyGets).toBe(0);
+  });
+
+  it('enforces canonical Unicode unique identities by UTF-8 bytes', () => {
+    const decodeWithIdentity = (identity: unknown) => decodeBoundedArray(
+      ['one'], 'items', decodeIdentifier, { uniqueBy: (() => identity) as never },
+    );
+    expect(decodeWithIdentity('a'.repeat(255)).ok).toBe(true);
+    expect(decodeWithIdentity('a'.repeat(256)).ok).toBe(true);
+    expect(errorCode(decodeWithIdentity('a'.repeat(257)))).toBe('INVALID_IDENTIFIER');
+    expect(decodeWithIdentity('첕'.repeat(85)).ok).toBe(true);
+    expect(decodeWithIdentity(`${'첕'.repeat(84)}abcd`).ok).toBe(true);
+    expect(errorCode(decodeWithIdentity(`${'첕'.repeat(84)}abcd첕`))).toBe('INVALID_IDENTIFIER');
+    expect(decodeWithIdentity(`${'😀'.repeat(63)}abcd`).ok).toBe(true);
+    expect(errorCode(decodeWithIdentity('e\u0301'))).toBe('INVALID_IDENTIFIER');
+    expect(errorCode(decodeWithIdentity('\ud800'))).toBe('INVALID_IDENTIFIER');
+    expect(errorCode(decodeWithIdentity(Promise.resolve('identity')))).toBe('INVALID_IDENTIFIER');
+    expect(errorCode(decodeWithIdentity({ then: () => undefined }))).toBe('INVALID_IDENTIFIER');
+    expect(errorCode(decodeWithIdentity(1))).toBe('INVALID_IDENTIFIER');
+    expect(errorCode(decodeWithIdentity(new Proxy(new String('identity'), {})))).toBe('INVALID_IDENTIFIER');
+    expect(errorCode(decodeBoundedArray(['one'], 'items', decodeIdentifier, {
+      uniqueBy: () => { throw new Error('private'); },
+    }))).toBe('INVALID_IDENTIFIER');
+    expect(errorCode(decodeBoundedArray(['one', 'two'], 'items', decodeIdentifier, {
+      uniqueBy: () => 'same',
+    }))).toBe('DUPLICATE_ENTRY');
   });
 
   it('keeps every exported strict decode helper total over alternate runtime inputs', () => {

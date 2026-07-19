@@ -142,7 +142,21 @@ getters, requires exact required/optional keys, and rejects unknown keys without
 The public creators first apply this exact-object boundary to `unknown`; they do not destructure,
 project, or digest caller-owned objects. Primitive helpers validate
 bounded strings, inherited canonical identifiers, lowercase SHA-256 digests, positive safe integers,
-canonical decimal revisions, enums, bounded dense arrays, nested entries, and duplicate identities.
+canonical decimal revisions, canonical string literals, enums, bounded dense arrays, nested entries,
+and duplicate identities. String literals and enum members use the same NFC, scalar-value, and 4,096
+UTF-8-byte policy as canonical values. Enum schemas are captured once from dense descriptor snapshots;
+malformed members and duplicates fail before matching.
+
+`decodeBoundedArray` treats its decoder and optional identity extractor as synchronous runtime values.
+Each decoder result is inspected as an exact own-data success or failure wrapper. Promises, thenables,
+accessors, malformed wrappers, unknown error codes, and callback exceptions become a module-owned
+`INVALID_FIELD_TYPE` failure. A valid callback failure preserves only its recognized stable code; the
+wrapper and error are rebuilt with fixed `decode_bounded_array_item` / `item` metadata. Callback-owned
+failure objects never escape. Success wrappers are also rebuilt, while their decoded item value remains
+owned by the item decoder. Optional duplicate identities are generic canonical Unicode strings rather
+than protocol identifiers: they must be NFC scalar strings no longer than 256 UTF-8 bytes. Identity
+callback exceptions, promises, thenables, non-strings, and over-limit values fail without reflection.
+
 The byte decoder uses intrinsic typed-array brand getters and copies accepted `Uint8Array` bytes before
 parsing. Proxy-wrapped typed arrays and unsupported byte containers fail closed. Every exported parser,
 creator, encoder, preimage/digest operation, strict helper, and graph validator is total over malformed
@@ -217,6 +231,8 @@ keys are never copied. Errors contain no raw values, payloads, stack traces, cau
 | Object keys | 128 | Matches inherited bounded collection scale. |
 | Array entries | 128 | Inherited K-331G array ceiling. |
 | String value | 4,096 UTF-8 bytes | Ample for K-333A metadata; prevents payload-like unbounded fields. |
+| Literal / enum member | 4,096 UTF-8 bytes | Same canonical string policy; schema values cannot weaken the ceiling. |
+| Array duplicate identity | 256 UTF-8 bytes | Generic canonical Unicode identity, measured as bytes rather than UTF-16 code units. |
 | Object key | 256 UTF-8 bytes | Prevents adversarial property names. |
 | Identifier | 256 ASCII bytes | Inherited K-331G identifier ceiling and syntax. |
 | Digest | 64 lowercase hex characters | SHA-256 width. |
@@ -230,6 +246,11 @@ The production limit object is frozen. Caller-specific `maxBytes` and `maxEntrie
 positive safe integers no greater than their global maximum; zero, negatives, fractions, NaN,
 infinities, unsafe integers, and one-over values return `INVALID_INTEGER`. Depth, node, key,
 identifier, and encoded-byte limits expose no caller override.
+
+Literal schema values are validated before comparison. Enum allowed lists are bounded to 128 dense
+entries, detached through descriptor capture, canonical-string checked, and duplicate rejected.
+`uniqueBy` output is validated after every callback and measured with `TextEncoder`; callback policy
+cannot authorize a larger or noncanonical identity.
 
 ## 18. Semantic parity coverage
 
@@ -247,6 +268,13 @@ mix-and-match. Permanent byte tests cover same-value, different-value, escaped-e
 integer-like, and repeated escaped/unescaped duplicate JSON keys. Production modules do not import the
 K-331G/K-332 model. Receipt,
 compaction, proof, bootstrap, restore, lifecycle, and attachment parity is deliberately not asserted.
+
+K-333A2 adds permanent hostile callback-result coverage for promises, arbitrary thenables, malformed
+discriminants and wrappers, accessors, throwing/revoked Proxies, callback exceptions, unknown codes,
+and 140,000-character metadata. Exact UTF-8 boundary matrices cover 4,095/4,096/4,097-byte literals,
+ASCII and multibyte enum members, malformed enum schemas, and 255/256/over-256-byte Unicode duplicate
+identities. The detached snapshot, representative record, writer-type, and selected graph contracts
+remain unchanged.
 
 ## 19. Deferred K-333 work
 
@@ -274,14 +302,19 @@ activation path.
 Focused tests exercise supported values, fixed vectors, all rejection classes, canonical byte
 round-trips, Proxy substitution and trap failures, all four record codecs, deterministic digests,
 strict version/kind dispatch, complete selected graph relationships, helper ceiling overrides,
-bounded hostile keys, duplicate JSON forms, all 18 error paths, and dormancy/ownership guards. The final PR report records exact
+bounded callback result reboxing, literal/enum/identity UTF-8 boundaries, bounded hostile keys,
+duplicate JSON forms, all 18 error paths, and dormancy/ownership guards. The final PR report records exact
 focused predecessor, local-database, recovery, typecheck, build, diff, and full-suite results. No
 real-browser behavior is required or claimed because the implementation is pure and dormant.
 
-K-333A/K-333A1 focused validation is 70/70. The default-concurrency full frontend run reached
-5,596 passing tests and 7 skipped tests, with three pre-existing file-scan/CLI tests timing out under
-parallel resource contention. Those three files passed 106/106 when focused, and the complete
-single-worker run passed 5,599 with 7 skipped. K-333A1 did not change their timeout budgets or source.
+K-333A/K-333A1/K-333A2 focused validation is 74/74. K-332 passed 22/22, K-331 62/62,
+K-330 51/51, K-329 122/122, K-328 73/73, K-327 391/391, K-326 78/78, and K-325
+238/238. The complete local-database suite passed 1,325/1,325 and recovery passed 70/70.
+The repository-default full frontend run reached 5,602 passing tests and 7 skipped tests with one
+unchanged K-328 dormancy file-scan test timing out at its existing five-second budget. That file passed
+3/3 in 696 ms when isolated, and the complete single-worker run passed 5,603 with 7 skipped across
+587 files (586 passed / 1 skipped). Typecheck, the 2,480-module production build, and `git diff --check`
+also passed. No timeout budget or unrelated source was changed.
 
 ## 23. Production eligibility verdict
 

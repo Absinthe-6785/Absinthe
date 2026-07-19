@@ -1,5 +1,12 @@
 import { PROTOCOL_CANONICAL_LIMITS } from './canonicalProtocolValue';
-import { protocolFail, protocolOk, type ProtocolResult } from './protocolResult';
+import {
+  PRODUCTION_PROTOCOL_ERROR_CODES,
+  PROTOCOL_ERROR_LABEL_LIMITS,
+  protocolFail,
+  protocolOk,
+  type ProductionProtocolErrorCode,
+  type ProtocolResult,
+} from './protocolResult';
 
 export type StrictObject = Readonly<Record<string, unknown>>;
 export type StrictDecoder<T> = (value: unknown, field: string) => ProtocolResult<T>;
@@ -9,6 +16,9 @@ const DIGEST = /^[a-f0-9]{64}$/;
 const REVISION = /^(0|[1-9][0-9]{0,15})$/;
 const ARRAY_INDEX = /^(0|[1-9][0-9]*)$/;
 const TRUSTED_SCHEMA_FIELD = /^[A-Za-z][A-Za-z0-9_.-]*$/;
+const TRUSTED_ERROR_LABEL = /^[A-Za-z][A-Za-z0-9_.\[\]-]*$/;
+const protocolErrorCodes = new Set<string>(PRODUCTION_PROTOCOL_ERROR_CODES);
+const textEncoder = new TextEncoder();
 
 function canonicalUnicode(value: string): boolean {
   if (value.normalize('NFC') !== value) return false;
@@ -21,6 +31,24 @@ function canonicalUnicode(value: string): boolean {
     } else if (unit >= 0xdc00 && unit <= 0xdfff) return false;
   }
   return true;
+}
+
+function decodeCanonicalString(
+  value: unknown,
+  field: string,
+  maxBytes: number,
+  operation: string,
+): ProtocolResult<string> {
+  try {
+    if (typeof value !== 'string') return protocolFail('INVALID_FIELD_TYPE', operation, field);
+    if (textEncoder.encode(value).byteLength > maxBytes) {
+      return protocolFail('RESOURCE_LIMIT_EXCEEDED', operation, field);
+    }
+    if (!canonicalUnicode(value)) return protocolFail('NON_CANONICAL_VALUE', operation, field);
+    return protocolOk(value);
+  } catch {
+    return protocolFail('INVALID_FIELD_TYPE', operation, field);
+  }
 }
 
 function snapshotArrayValues(value: unknown): ProtocolResult<readonly unknown[]> {
@@ -119,19 +147,10 @@ function validRequestedLimit(value: unknown, maximum: number): value is number {
 }
 
 export function decodeBoundedString(value: unknown, field: string, maxBytes = PROTOCOL_CANONICAL_LIMITS.maxStringBytes): ProtocolResult<string> {
-  try {
-    if (!validRequestedLimit(maxBytes, PROTOCOL_CANONICAL_LIMITS.maxStringBytes)) {
-      return protocolFail('INVALID_INTEGER', 'decode_string', 'maxBytes');
-    }
-    if (typeof value !== 'string') return protocolFail('INVALID_FIELD_TYPE', 'decode_string', field);
-    if (new TextEncoder().encode(value).byteLength > maxBytes) {
-      return protocolFail('RESOURCE_LIMIT_EXCEEDED', 'decode_string', field);
-    }
-    if (!canonicalUnicode(value)) return protocolFail('NON_CANONICAL_VALUE', 'decode_string', field);
-    return protocolOk(value);
-  } catch {
-    return protocolFail('INVALID_FIELD_TYPE', 'decode_string', field);
+  if (!validRequestedLimit(maxBytes, PROTOCOL_CANONICAL_LIMITS.maxStringBytes)) {
+    return protocolFail('INVALID_INTEGER', 'decode_string', 'maxBytes');
   }
+  return decodeCanonicalString(value, field, maxBytes, 'decode_string');
 }
 
 export function decodeIdentifier(value: unknown, field: string): ProtocolResult<string> {
@@ -162,6 +181,27 @@ export function decodeLiteral<T extends string | number>(
   field: string,
   mismatch: 'kind' | 'version' = 'kind',
 ): ProtocolResult<T> {
+  if (typeof expected === 'string') {
+    const expectedString = decodeCanonicalString(
+      expected, 'expected', PROTOCOL_CANONICAL_LIMITS.maxStringBytes, 'decode_literal',
+    );
+    if (!expectedString.ok) return expectedString as ProtocolResult<T>;
+    if (typeof value === 'string') {
+      const inputString = decodeCanonicalString(
+        value, field, PROTOCOL_CANONICAL_LIMITS.maxStringBytes, 'decode_literal',
+      );
+      if (!inputString.ok) return inputString as ProtocolResult<T>;
+    }
+  } else if (typeof expected === 'number') {
+    if (!Number.isSafeInteger(expected) || Object.is(expected, -0)) {
+      return protocolFail('NON_CANONICAL_VALUE', 'decode_literal', 'expected');
+    }
+    if (typeof value === 'number' && (!Number.isSafeInteger(value) || Object.is(value, -0))) {
+      return protocolFail('NON_CANONICAL_VALUE', 'decode_literal', field);
+    }
+  } else {
+    return protocolFail('INVALID_FIELD_TYPE', 'decode_literal', 'expected');
+  }
   if (value === expected) return protocolOk(expected);
   return mismatch === 'version'
     ? protocolFail('UNSUPPORTED_RECORD_VERSION', 'decode_envelope', field)
@@ -170,12 +210,57 @@ export function decodeLiteral<T extends string | number>(
 
 export function decodeEnum<T extends string>(value: unknown, allowed: readonly T[], field: string): ProtocolResult<T> {
   const allowedValues = snapshotArrayValues(allowed);
-  if (!allowedValues.ok || allowedValues.value.some(entry => typeof entry !== 'string')) {
+  if (!allowedValues.ok) {
     return protocolFail('INVALID_ENUM_VALUE', 'decode_enum', field);
   }
-  if (typeof value !== 'string') return protocolFail('INVALID_FIELD_TYPE', 'decode_enum', field);
-  return allowedValues.value.includes(value)
+  const detachedAllowed: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of allowedValues.value) {
+    const decoded = decodeCanonicalString(
+      entry, 'allowed', PROTOCOL_CANONICAL_LIMITS.maxStringBytes, 'decode_enum_schema',
+    );
+    if (!decoded.ok) return protocolFail('INVALID_ENUM_VALUE', 'decode_enum', 'allowed');
+    if (seen.has(decoded.value)) return protocolFail('DUPLICATE_ENTRY', 'decode_enum', 'allowed');
+    seen.add(decoded.value);
+    detachedAllowed.push(decoded.value);
+  }
+  const decodedValue = decodeCanonicalString(
+    value, field, PROTOCOL_CANONICAL_LIMITS.maxStringBytes, 'decode_enum',
+  );
+  if (!decodedValue.ok) return decodedValue;
+  return detachedAllowed.includes(decodedValue.value)
     ? protocolOk(value as T) : protocolFail('INVALID_ENUM_VALUE', 'decode_enum', field);
+}
+
+function trustedErrorLabel(value: unknown, maximum: number): value is string {
+  return typeof value === 'string' && value.length <= maximum && TRUSTED_ERROR_LABEL.test(value);
+}
+
+function malformedDecoderResult<T>(): ProtocolResult<T> {
+  return protocolFail('INVALID_FIELD_TYPE', 'decode_bounded_array_item', 'decoderResult');
+}
+
+function reboxDecoderResult<T>(value: unknown): ProtocolResult<T> {
+  const wrapper = decodeExactObject(value, ['ok'], ['value', 'error'], 'decode_array_decoder_result');
+  if (!wrapper.ok || typeof wrapper.value.ok !== 'boolean') return malformedDecoderResult();
+  const hasValue = Object.prototype.hasOwnProperty.call(wrapper.value, 'value');
+  const hasError = Object.prototype.hasOwnProperty.call(wrapper.value, 'error');
+  if (wrapper.value.ok) {
+    return hasValue && !hasError ? protocolOk(wrapper.value.value as T) : malformedDecoderResult();
+  }
+  if (!hasError || hasValue) return malformedDecoderResult();
+  const error = decodeExactObject(
+    wrapper.value.error, ['code', 'operation'], ['field'], 'decode_array_decoder_error',
+  );
+  if (!error.ok || !protocolErrorCodes.has(error.value.code as string)
+    || !trustedErrorLabel(error.value.operation, PROTOCOL_ERROR_LABEL_LIMITS.maxOperationCharacters)
+    || (error.value.field !== undefined
+      && !trustedErrorLabel(error.value.field, PROTOCOL_ERROR_LABEL_LIMITS.maxFieldCharacters))) {
+    return malformedDecoderResult();
+  }
+  return protocolFail(
+    error.value.code as ProductionProtocolErrorCode, 'decode_bounded_array_item', 'item',
+  );
 }
 
 export function decodeBoundedArray<T>(
@@ -202,13 +287,26 @@ export function decodeBoundedArray<T>(
     const result: T[] = [];
     const seen = new Set<string>();
     for (let index = 0; index < snapshot.value.length; index += 1) {
-      const decoded = decoder(snapshot.value[index], `${field}[${index}]`);
+      let callbackResult: unknown;
+      try {
+        callbackResult = decoder(snapshot.value[index], `${field}[${index}]`);
+      } catch {
+        return malformedDecoderResult();
+      }
+      const decoded = reboxDecoderResult<T>(callbackResult);
       if (!decoded.ok) return decoded;
       if (uniqueBy) {
-        const identity = uniqueBy(decoded.value);
-        if (typeof identity !== 'string' || identity.length > PROTOCOL_CANONICAL_LIMITS.maxObjectKeyBytes) {
+        let rawIdentity: unknown;
+        try {
+          rawIdentity = uniqueBy(decoded.value);
+        } catch {
           return protocolFail('INVALID_IDENTIFIER', 'decode_array', 'identity');
         }
+        const identityResult = decodeCanonicalString(
+          rawIdentity, 'identity', PROTOCOL_CANONICAL_LIMITS.maxObjectKeyBytes, 'decode_array_identity',
+        );
+        if (!identityResult.ok) return protocolFail('INVALID_IDENTIFIER', 'decode_array', 'identity');
+        const identity = identityResult.value;
         if (seen.has(identity)) return protocolFail('DUPLICATE_ENTRY', 'decode_array', field);
         seen.add(identity);
       }
