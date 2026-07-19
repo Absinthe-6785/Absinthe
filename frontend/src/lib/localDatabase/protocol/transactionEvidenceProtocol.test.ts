@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import * as ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 import { sha256Hex } from '../outboxIdentity';
 import { buildCanonicalProtocolPreimage, digestCanonicalProtocolRecord } from './canonicalProtocolPreimage';
@@ -42,17 +43,259 @@ import {
 const digest = (character: string): string => character.repeat(64);
 const text = (bytes: Uint8Array): string => new TextDecoder().decode(bytes);
 
-const EXPECTED_TRANSACTION_EVIDENCE_COMPATIBILITY = Object.freeze([
-  Object.freeze(['absinthe_writer_identity', 1, 'absinthe_k330_operation', 1] as const),
-  Object.freeze(['absinthe_writer_session', 1, 'absinthe_k330_operation', 1] as const),
-  Object.freeze(['absinthe_k330_operation', 1, 'absinthe_k330_admission', 1] as const),
-  Object.freeze(['absinthe_k330_operation', 1, 'absinthe_immutable_outbox_intent', 1] as const),
-  Object.freeze(['absinthe_k330_operation', 1, 'absinthe_terminal_state', 1] as const),
-  Object.freeze(['absinthe_k330_operation', 1, 'absinthe_source_transaction_reference', 1] as const),
-  Object.freeze(['absinthe_k330_admission', 1, 'absinthe_source_transaction_reference', 1] as const),
-  Object.freeze(['absinthe_immutable_outbox_intent', 1, 'absinthe_source_transaction_reference', 1] as const),
-  Object.freeze(['absinthe_terminal_state', 1, 'absinthe_source_transaction_reference', 1] as const),
+type ExpectedCompatibilityEdge = Readonly<{
+  predecessor: string;
+  successor: string;
+  tuple: readonly [string, 1, string, 1];
+}>;
+
+const EXPECTED_TRANSACTION_EVIDENCE_EDGES: readonly ExpectedCompatibilityEdge[] = Object.freeze([
+  Object.freeze({ predecessor: 'writer', successor: 'operation',
+    tuple: Object.freeze(['absinthe_writer_identity', 1, 'absinthe_k330_operation', 1] as const) }),
+  Object.freeze({ predecessor: 'session', successor: 'operation',
+    tuple: Object.freeze(['absinthe_writer_session', 1, 'absinthe_k330_operation', 1] as const) }),
+  Object.freeze({ predecessor: 'operation', successor: 'admission',
+    tuple: Object.freeze(['absinthe_k330_operation', 1, 'absinthe_k330_admission', 1] as const) }),
+  Object.freeze({ predecessor: 'operation', successor: 'outbox',
+    tuple: Object.freeze(['absinthe_k330_operation', 1, 'absinthe_immutable_outbox_intent', 1] as const) }),
+  Object.freeze({ predecessor: 'operation', successor: 'terminal',
+    tuple: Object.freeze(['absinthe_k330_operation', 1, 'absinthe_terminal_state', 1] as const) }),
+  Object.freeze({ predecessor: 'operation', successor: 'reference',
+    tuple: Object.freeze(['absinthe_k330_operation', 1, 'absinthe_source_transaction_reference', 1] as const) }),
+  Object.freeze({ predecessor: 'admission', successor: 'reference',
+    tuple: Object.freeze(['absinthe_k330_admission', 1, 'absinthe_source_transaction_reference', 1] as const) }),
+  Object.freeze({ predecessor: 'outbox', successor: 'reference',
+    tuple: Object.freeze(['absinthe_immutable_outbox_intent', 1, 'absinthe_source_transaction_reference', 1] as const) }),
+  Object.freeze({ predecessor: 'terminal', successor: 'reference',
+    tuple: Object.freeze(['absinthe_terminal_state', 1, 'absinthe_source_transaction_reference', 1] as const) }),
 ] as const);
+
+const expectedCompatibilityTuples = (): readonly (readonly [string, 1, string, 1])[] =>
+  EXPECTED_TRANSACTION_EVIDENCE_EDGES.map(edge => edge.tuple);
+
+const selectorPairKey = (edge: Pick<ExpectedCompatibilityEdge, 'predecessor' | 'successor'>): string =>
+  `${edge.predecessor}\u0000${edge.successor}`;
+
+const completeEdgeKey = (edge: ExpectedCompatibilityEdge): string => JSON.stringify([
+  edge.predecessor, edge.successor, ...edge.tuple,
+]);
+
+const sourceDecoderBindings = Object.freeze([
+  Object.freeze(['graph', 'decodeExactObject'] as const),
+  Object.freeze(['writer', 'decodeWriterIdentityRecord'] as const),
+  Object.freeze(['session', 'decodeWriterSessionRecord'] as const),
+  Object.freeze(['authority', 'decodeSourceAuthorityRecord'] as const),
+  Object.freeze(['reference', 'decodeSourceTransactionReferenceRecord'] as const),
+  Object.freeze(['operation', 'decodeOperationRecord'] as const),
+  Object.freeze(['admission', 'decodeAdmissionRecord'] as const),
+  Object.freeze(['outbox', 'decodeImmutableOutboxIntentRecord'] as const),
+  Object.freeze(['terminal', 'decodeTerminalStateRecord'] as const),
+] as const);
+
+interface SourceStructureAnalysis {
+  readonly issues: readonly string[];
+}
+
+function unwrapExpression(expression: ts.Expression): ts.Expression {
+  let current = expression;
+  while (ts.isAsExpression(current) || ts.isSatisfiesExpression(current) || ts.isParenthesizedExpression(current)
+    || ts.isTypeAssertionExpression(current)) current = current.expression;
+  return current;
+}
+
+function unwrapFrozenExpression(expression: ts.Expression): ts.Expression | undefined {
+  const current = unwrapExpression(expression);
+  if (!ts.isCallExpression(current) || current.arguments.length !== 1 || !ts.isPropertyAccessExpression(current.expression)) {
+    return undefined;
+  }
+  return ts.isIdentifier(current.expression.expression) && current.expression.expression.text === 'Object'
+    && current.expression.name.text === 'freeze'
+    ? unwrapExpression(current.arguments[0])
+    : undefined;
+}
+
+function declarationFromStatement(statement: ts.Statement): ts.VariableDeclaration | undefined {
+  return ts.isVariableStatement(statement) && statement.declarationList.declarations.length === 1
+    ? statement.declarationList.declarations[0]
+    : undefined;
+}
+
+function identifierText(node: ts.Node | undefined): string | undefined {
+  return node !== undefined && ts.isIdentifier(node) ? node.text : undefined;
+}
+
+function callName(expression: ts.Expression | undefined): string | undefined {
+  const current = expression === undefined ? undefined : unwrapExpression(expression);
+  return current !== undefined && ts.isCallExpression(current) ? identifierText(current.expression) : undefined;
+}
+
+function isFailureReturn(statement: ts.Statement | undefined, binding: string): boolean {
+  if (statement === undefined || !ts.isIfStatement(statement) || statement.elseStatement !== undefined) return false;
+  const condition = statement.expression;
+  const isNotOk = ts.isPrefixUnaryExpression(condition) && condition.operator === ts.SyntaxKind.ExclamationToken
+    && ts.isPropertyAccessExpression(condition.operand)
+    && identifierText(condition.operand.expression) === binding
+    && condition.operand.name.text === 'ok';
+  const returned = ts.isReturnStatement(statement.thenStatement)
+    && identifierText(statement.thenStatement.expression) === binding;
+  return isNotOk && returned;
+}
+
+function isSelectorDeclaration(statement: ts.Statement | undefined, binding: string, selector: string): boolean {
+  const declaration = statement === undefined ? undefined : declarationFromStatement(statement);
+  if (declaration === undefined || identifierText(declaration.name) !== binding || declaration.initializer === undefined) return false;
+  const initializer = unwrapExpression(declaration.initializer);
+  return ts.isElementAccessExpression(initializer)
+    && identifierText(initializer.expression) === 'compatibleRecords'
+    && ts.isPropertyAccessExpression(initializer.argumentExpression)
+    && identifierText(initializer.argumentExpression.expression) === 'edge'
+    && initializer.argumentExpression.name.text === selector;
+}
+
+function isCompatibilityCallDeclaration(statement: ts.Statement | undefined): boolean {
+  const declaration = statement === undefined ? undefined : declarationFromStatement(statement);
+  return declaration !== undefined && identifierText(declaration.name) === 'compatible'
+    && callName(declaration.initializer) === 'validateTransactionEvidenceCompatibility';
+}
+
+function findTopLevelDeclaration(sourceFile: ts.SourceFile, name: string): ts.VariableDeclaration | undefined {
+  for (const statement of sourceFile.statements) {
+    const declaration = declarationFromStatement(statement);
+    if (declaration !== undefined && identifierText(declaration.name) === name) return declaration;
+  }
+  return undefined;
+}
+
+function extractSourceEdgeInventory(sourceFile: ts.SourceFile, issues: string[]): readonly ExpectedCompatibilityEdge[] {
+  const declaration = findTopLevelDeclaration(sourceFile, 'TRANSACTION_EVIDENCE_GRAPH_COMPATIBILITY_EDGES');
+  const array = declaration?.initializer === undefined ? undefined : unwrapFrozenExpression(declaration.initializer);
+  if (array === undefined || !ts.isArrayLiteralExpression(array)) {
+    issues.push('edge_inventory_missing');
+    return [];
+  }
+  const edges: ExpectedCompatibilityEdge[] = [];
+  for (const entry of array.elements) {
+    if (!ts.isExpression(entry)) {
+      issues.push('edge_inventory_entry_invalid');
+      continue;
+    }
+    const object = unwrapFrozenExpression(entry);
+    if (object === undefined || !ts.isObjectLiteralExpression(object)) {
+      issues.push('edge_inventory_entry_invalid');
+      continue;
+    }
+    const property = (name: string): ts.Expression | undefined => {
+      const assignment = object.properties.find(candidate => ts.isPropertyAssignment(candidate)
+        && candidate.name.getText(sourceFile) === name);
+      return assignment !== undefined && ts.isPropertyAssignment(assignment) ? assignment.initializer : undefined;
+    };
+    const predecessor = property('predecessor');
+    const successor = property('successor');
+    const tuple = property('tuple');
+    const tupleArray = tuple === undefined ? undefined : unwrapFrozenExpression(tuple);
+    if (!ts.isStringLiteral(predecessor) || !ts.isStringLiteral(successor) || tupleArray === undefined
+      || !ts.isArrayLiteralExpression(tupleArray) || tupleArray.elements.length !== 4
+      || !ts.isStringLiteral(tupleArray.elements[0]) || !ts.isNumericLiteral(tupleArray.elements[1])
+      || !ts.isStringLiteral(tupleArray.elements[2]) || !ts.isNumericLiteral(tupleArray.elements[3])) {
+      issues.push('edge_inventory_entry_invalid');
+      continue;
+    }
+    edges.push(Object.freeze({
+      predecessor: predecessor.text,
+      successor: successor.text,
+      tuple: Object.freeze([
+        tupleArray.elements[0].text,
+        Number(tupleArray.elements[1].text) as 1,
+        tupleArray.elements[2].text,
+        Number(tupleArray.elements[3].text) as 1,
+      ] as const),
+    }));
+  }
+  if (JSON.stringify(edges) !== JSON.stringify(EXPECTED_TRANSACTION_EVIDENCE_EDGES)) {
+    issues.push('edge_inventory_mismatch');
+  }
+  return edges;
+}
+
+function countCalls(node: ts.Node, expectedName: string): number {
+  let count = 0;
+  const visit = (current: ts.Node): void => {
+    if (ts.isCallExpression(current) && callName(current) === expectedName) count += 1;
+    ts.forEachChild(current, visit);
+  };
+  visit(node);
+  return count;
+}
+
+function analyzeTransactionEvidenceStructure(source: string): SourceStructureAnalysis {
+  const sourceFile = ts.createSourceFile('transactionEvidenceProtocol.ts', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const issues: string[] = [];
+  if (sourceFile.parseDiagnostics.length > 0) issues.push('source_parse_error');
+  extractSourceEdgeInventory(sourceFile, issues);
+  const target = sourceFile.statements.find(statement => ts.isFunctionDeclaration(statement)
+    && statement.name?.text === 'validateProductionTransactionEvidenceGraph');
+  if (target === undefined || !ts.isFunctionDeclaration(target) || target.body === undefined) {
+    return { issues: Object.freeze([...issues, 'target_function_missing']) };
+  }
+  const statements = [...target.body.statements];
+  const loopIndex = statements.findIndex(statement => ts.isForOfStatement(statement));
+  const loop = loopIndex < 0 ? undefined : statements[loopIndex];
+  if (loop === undefined || !ts.isForOfStatement(loop)
+    || identifierText(loop.initializer.kind === ts.SyntaxKind.VariableDeclarationList
+      ? loop.initializer.declarations[0]?.name : undefined) !== 'edge'
+    || identifierText(unwrapExpression(loop.expression)) !== 'TRANSACTION_EVIDENCE_GRAPH_COMPATIBILITY_EDGES'
+    || !ts.isBlock(loop.statement)) {
+    return { issues: Object.freeze([...issues, 'compatibility_loop_missing']) };
+  }
+  for (const [binding, decoder] of sourceDecoderBindings) {
+    const declarationIndex = statements.findIndex(statement => {
+      const declaration = declarationFromStatement(statement);
+      return declaration !== undefined && identifierText(declaration.name) === binding && callName(declaration.initializer) === decoder;
+    });
+    if (declarationIndex < 0 || declarationIndex >= loopIndex
+      || !isFailureReturn(statements[declarationIndex + 1], binding)) {
+      issues.push('completed_decode_boundary');
+      break;
+    }
+  }
+  const loopStatements = [...loop.statement.statements];
+  if (!isSelectorDeclaration(loopStatements[0], 'predecessor', 'predecessor')
+    || !isSelectorDeclaration(loopStatements[1], 'successor', 'successor')) {
+    issues.push('compatibility_pre_call_structure');
+  }
+  if (!isCompatibilityCallDeclaration(loopStatements[2])
+    || countCalls(loop.statement, 'validateTransactionEvidenceCompatibility') !== 1) {
+    issues.push('compatibility_call_count');
+  }
+  if (!isFailureReturn(loopStatements[3], 'compatible') || loopStatements.length !== 4) {
+    issues.push('compatibility_failure_propagation');
+  }
+  const relationshipIndex = statements.findIndex(statement => {
+    const declaration = declarationFromStatement(statement);
+    return declaration !== undefined && callName(declaration.initializer) === 'validateRepresentativeAuthorityGraph';
+  });
+  if (relationshipIndex <= loopIndex || countCalls(loop.statement, 'validateRepresentativeAuthorityGraph') !== 0) {
+    issues.push('relationship_after_compatibility');
+  }
+  return { issues: Object.freeze(issues) };
+}
+
+function replaceOnce(source: string, needle: string, replacement: string): string {
+  const index = source.indexOf(needle);
+  if (index < 0) throw new Error(`Mutation anchor missing: ${needle.slice(0, 48)}`);
+  return `${source.slice(0, index)}${replacement}${source.slice(index + needle.length)}`;
+}
+
+function moveRepresentativeValidationBeforeLoop(source: string): string {
+  const start = source.indexOf('  const representative = validateRepresentativeAuthorityGraph({');
+  const end = source.indexOf('\n  const op = operation.value;', start);
+  const loop = source.indexOf('  for (const edge of TRANSACTION_EVIDENCE_GRAPH_COMPATIBILITY_EDGES) {');
+  if (start < 0 || end < 0 || loop < 0) throw new Error('Representative mutation anchor missing');
+  const fragment = source.slice(start, end);
+  const without = `${source.slice(0, start)}${source.slice(end)}`;
+  const targetLoop = without.indexOf('  for (const edge of TRANSACTION_EVIDENCE_GRAPH_COMPATIBILITY_EDGES) {');
+  return `${without.slice(0, targetLoop)}${fragment}\n${without.slice(targetLoop)}`;
+}
 
 function must<T>(result: ProtocolResult<T>): T {
   expect(result.ok).toBe(true);
@@ -410,11 +653,13 @@ describe('K-333B transaction evidence graph and compatibility', () => {
   it('uses a closed immutable compatibility table and rejects unsupported tuples before graph access', () => {
     expect(Object.isFrozen(TRANSACTION_EVIDENCE_COMPATIBILITY)).toBe(true);
     expect(Object.isFrozen(TRANSACTION_EVIDENCE_GRAPH_COMPATIBILITY_EDGES)).toBe(true);
-    expect(Object.isFrozen(EXPECTED_TRANSACTION_EVIDENCE_COMPATIBILITY)).toBe(true);
+    expect(Object.isFrozen(EXPECTED_TRANSACTION_EVIDENCE_EDGES)).toBe(true);
     for (const tuple of TRANSACTION_EVIDENCE_COMPATIBILITY) expect(Object.isFrozen(tuple)).toBe(true);
     for (const edge of TRANSACTION_EVIDENCE_GRAPH_COMPATIBILITY_EDGES) {
       expect(Object.isFrozen(edge)).toBe(true);
       expect(Object.isFrozen(edge.tuple)).toBe(true);
+      expect(Object.getOwnPropertyDescriptor(edge, 'predecessor')?.writable).toBe(false);
+      expect(Object.getOwnPropertyDescriptor(edge, 'successor')?.writable).toBe(false);
     }
     for (const [predecessorKind, predecessorVersion, successorKind, successorVersion] of TRANSACTION_EVIDENCE_COMPATIBILITY) {
       expect(validateTransactionEvidenceCompatibility({
@@ -429,38 +674,59 @@ describe('K-333B transaction evidence graph and compatibility', () => {
       predecessorKind: 'absinthe_k330_admission', predecessorVersion: 1,
       successorKind: 'absinthe_k330_operation', successorVersion: 1,
     }))).toBe('RELATIONSHIP_MISMATCH');
-    const graphTuples = TRANSACTION_EVIDENCE_GRAPH_COMPATIBILITY_EDGES.map(edge => edge.tuple);
-    expect(graphTuples).toEqual(EXPECTED_TRANSACTION_EVIDENCE_COMPATIBILITY);
-    expect(TRANSACTION_EVIDENCE_COMPATIBILITY).toEqual(EXPECTED_TRANSACTION_EVIDENCE_COMPATIBILITY);
-    expect(graphTuples).toHaveLength(9);
+    const expectedTuples = expectedCompatibilityTuples();
+    const graphEdges = TRANSACTION_EVIDENCE_GRAPH_COMPATIBILITY_EDGES.map(edge => ({
+      predecessor: edge.predecessor,
+      successor: edge.successor,
+      tuple: edge.tuple,
+    }));
+    expect(graphEdges).toEqual(EXPECTED_TRANSACTION_EVIDENCE_EDGES);
+    expect(TRANSACTION_EVIDENCE_COMPATIBILITY).toEqual(expectedTuples);
+    expect(graphEdges.map(edge => edge.tuple)).toEqual(expectedTuples);
+    expect(graphEdges).toHaveLength(9);
     expect(TRANSACTION_EVIDENCE_COMPATIBILITY).toHaveLength(9);
-    expect(new Set(graphTuples.map(tuple => JSON.stringify(tuple))).size).toBe(9);
+    expect(new Set(graphEdges.map(completeEdgeKey)).size).toBe(9);
+    expect(new Set(graphEdges.map(selectorPairKey)).size).toBe(9);
+    expect(new Set(graphEdges.map(edge => JSON.stringify(edge.tuple))).size).toBe(9);
     expect(new Set(TRANSACTION_EVIDENCE_COMPATIBILITY.map(tuple => JSON.stringify(tuple))).size).toBe(9);
   });
 
-  it('permanently guards all nine public graph compatibility decisions before relationship use', () => {
+  it('semantically guards complete decoding and every public compatibility iteration before relationship use', () => {
     const source = readFileSync(new URL('./transactionEvidenceProtocol.ts', import.meta.url), 'utf8');
-    const validatorStart = source.indexOf('export function validateProductionTransactionEvidenceGraph');
-    expect(validatorStart).toBeGreaterThanOrEqual(0);
-    const validator = source.slice(validatorStart);
-    const independentDecodeEnd = validator.indexOf('const terminal = decodeTerminalStateRecord');
-    const compatibilityLoop = validator.indexOf(
-      'for (const edge of TRANSACTION_EVIDENCE_GRAPH_COMPATIBILITY_EDGES)',
-    );
-    const compatibilityCall = validator.indexOf('validateTransactionEvidenceCompatibility({', compatibilityLoop);
-    const compatibilityResultCheck = validator.indexOf('if (!compatible.ok) return compatible;', compatibilityCall);
-    const relationshipValidation = validator.indexOf('const representative = validateRepresentativeAuthorityGraph',
-      compatibilityResultCheck);
-    const relationAggregation = validator.indexOf('const relationsMatch =', relationshipValidation);
-
     expect(validateProductionTransactionEvidenceGraph(fixtures()).ok).toBe(true);
-    expect(EXPECTED_TRANSACTION_EVIDENCE_COMPATIBILITY).toHaveLength(9);
-    expect(independentDecodeEnd).toBeGreaterThanOrEqual(0);
-    expect(compatibilityLoop).toBeGreaterThan(independentDecodeEnd);
-    expect(compatibilityCall).toBeGreaterThan(compatibilityLoop);
-    expect(compatibilityResultCheck).toBeGreaterThan(compatibilityCall);
-    expect(relationshipValidation).toBeGreaterThan(compatibilityResultCheck);
-    expect(relationAggregation).toBeGreaterThan(relationshipValidation);
+    const analysis = analyzeTransactionEvidenceStructure(source);
+    expect(analysis.issues, analysis.issues.join(', ')).toEqual([]);
+  });
+
+  it('rejects selector and loop-structure mutations in bounded source fixtures', () => {
+    const source = readFileSync(new URL('./transactionEvidenceProtocol.ts', import.meta.url), 'utf8');
+    const variants = [
+      ['selector drift', replaceOnce(source,
+        "predecessor: 'operation', successor: 'admission',",
+        "predecessor: 'operation', successor: 'terminal',"), 'edge_inventory_mismatch'],
+      ['pre-call continue', replaceOnce(source,
+        '  for (const edge of TRANSACTION_EVIDENCE_GRAPH_COMPATIBILITY_EDGES) {\n',
+        "  for (const edge of TRANSACTION_EVIDENCE_GRAPH_COMPATIBILITY_EDGES) {\n    if (edge.successor === 'admission') continue;\n"),
+      'compatibility_pre_call_structure'],
+      ['pre-call break', replaceOnce(source,
+        '  for (const edge of TRANSACTION_EVIDENCE_GRAPH_COMPATIBILITY_EDGES) {\n',
+        "  for (const edge of TRANSACTION_EVIDENCE_GRAPH_COMPATIBILITY_EDGES) {\n    if (edge.predecessor === 'writer') break;\n"),
+      'compatibility_pre_call_structure'],
+      ['decoder result check below loop', replaceOnce(
+        replaceOnce(source, '  if (!terminal.ok) return terminal;\n', ''),
+        '  const representative = validateRepresentativeAuthorityGraph({',
+        '  if (!terminal.ok) return terminal;\n  const representative = validateRepresentativeAuthorityGraph({',
+      ), 'completed_decode_boundary'],
+      ['ignored compatibility result', replaceOnce(source,
+        '    if (!compatible.ok) return compatible;',
+        '    void compatible;'), 'compatibility_failure_propagation'],
+      ['relationship validation before loop', moveRepresentativeValidationBeforeLoop(source),
+        'relationship_after_compatibility'],
+    ] as const;
+    for (const [name, variant, expectedIssue] of variants) {
+      const analysis = analyzeTransactionEvidenceStructure(variant);
+      expect(analysis.issues, `${name}: ${analysis.issues.join(', ')}`).toContain(expectedIssue);
+    }
   });
 
   it('rejects same-ID different-operation replay only after every mixed record independently validates', () => {
