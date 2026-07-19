@@ -10,6 +10,7 @@ export const PROTOCOL_PREIMAGE_DOMAINS = Object.freeze([
   'absinthe.source_transaction_reference.v1',
   'absinthe.source_authority.v1',
   'absinthe.operation.v1',
+  'absinthe.exact_operation.v1',
   'absinthe.admission.v1',
   'absinthe.immutable_outbox_intent.v1',
   'absinthe.terminal_state.v1',

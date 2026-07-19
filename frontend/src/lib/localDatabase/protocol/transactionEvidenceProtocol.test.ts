@@ -4,6 +4,7 @@ import { encodeCanonicalProtocolValue } from './canonicalProtocolValue';
 import type { ProtocolResult } from './protocolResult';
 import {
   TRANSACTION_EVIDENCE_COMPATIBILITY,
+  TRANSACTION_EVIDENCE_GRAPH_COMPATIBILITY_EDGES,
   createAdmissionRecord,
   createImmutableOutboxIntentRecord,
   createOperationRecord,
@@ -14,6 +15,10 @@ import {
   decodeTerminalStateRecord,
   decodeTransactionEvidenceRecord,
   decodeTransactionEvidenceRecordBytes,
+  deriveExactOperationDigest,
+  deriveOperationRegistryRoot,
+  deriveOutboxRoot,
+  deriveTerminalRoot,
   encodeTransactionEvidenceRecord,
   validateProductionTransactionEvidenceGraph,
   validateTransactionEvidenceCompatibility,
@@ -53,26 +58,35 @@ function fixtures() {
     physicalSourceDigest: writer.physicalSourceDigest, writerId: writer.id, writerDigest: writer.writerDigest,
     epoch: 7, capabilityDigest: digest('3'),
   }));
-  const admission = must(createAdmissionRecord({
-    id: 'admission-1', operationId: 'operation-1', writerId: writer.id, sessionId: session.id, decision: 'admitted',
-  }));
-  const operation = must(createOperationRecord({
-    id: admission.operationId, namespace: writer.namespaceId, generation: session.generationId,
-    admissionId: admission.id, admissionDigest: admission.admissionDigest,
+  const exactOperationInput = {
+    id: 'operation-1', namespace: writer.namespaceId, generation: session.generationId,
+    admissionId: 'admission-1',
     writerId: writer.id, writerDigest: writer.writerDigest, sessionId: session.id, sessionDigest: session.sessionDigest,
     mutationKind: 'note_upsert', committedRevision: '42', affectedIdentityDigest: digest('4'),
     canonicalInputDigest: digest('5'), resultDigest: digest('6'), outboxId: 'outbox-1', outboxIntentDigest: digest('7'),
+  } as const;
+  const exactOperationDigest = must(deriveExactOperationDigest(exactOperationInput));
+  const admission = must(createAdmissionRecord({
+    id: exactOperationInput.admissionId, operationId: exactOperationInput.id, writerId: writer.id, sessionId: session.id,
+    exactOperationDigest, decision: 'admitted',
+  }));
+  const operation = must(createOperationRecord({
+    ...exactOperationInput, admissionDigest: admission.admissionDigest, exactOperationDigest,
   }));
   const outbox = must(createImmutableOutboxIntentRecord({
     id: operation.outboxId, operationId: operation.id, intentDigest: operation.outboxIntentDigest,
+    exactOperationDigest,
   }));
   const terminal = must(createTerminalStateRecord({
     id: 'terminal-1', operationId: operation.id, state: 'committed', resultDigest: operation.resultDigest,
+    exactOperationDigest,
   }));
   const authority = must(createSourceAuthorityRecord({
     id: 'authority-1', namespaceId: writer.namespaceId, generationId: session.generationId,
     physicalSourceDigest: writer.physicalSourceDigest, sourceRevision: operation.committedRevision,
-    operationRegistryRoot: digest('8'), terminalRoot: digest('9'), outboxRoot: digest('a'),
+    operationRegistryRoot: must(deriveOperationRegistryRoot(operation.operationDigest)),
+    terminalRoot: must(deriveTerminalRoot(terminal.terminalDigest)),
+    outboxRoot: must(deriveOutboxRoot(outbox.outboxDigest)),
     mmrStateId: 'mmr-1', mmrStateDigest: digest('b'), lifecycleHeadId: null, lifecycleHeadDigest: null,
   }));
   const reference = must(createSourceTransactionReferenceRecord({
@@ -96,6 +110,68 @@ function inputs(record: TransactionEvidenceRecord): Record<string, unknown> {
       : record.kind === 'absinthe_immutable_outbox_intent' ? 'outboxDigest' : 'terminalDigest';
   return Object.fromEntries(Object.entries(record)
     .filter(([field]) => field !== 'kind' && field !== 'version' && field !== self));
+}
+
+function createChangedOperation(record: OperationRecord, overrides: Record<string, unknown>): OperationRecord {
+  const input = { ...inputs(record), ...overrides };
+  const { admissionDigest: _admissionDigest, exactOperationDigest: _exactOperationDigest, ...exactInput } = input;
+  return must(createOperationRecord({
+    ...input,
+    exactOperationDigest: must(deriveExactOperationDigest(exactInput)),
+  }));
+}
+
+function resealAuthority(graph: ReturnType<typeof fixtures>, overrides: Record<string, unknown>) {
+  const { kind: _kind, version: _version, authorityDigest: _authorityDigest, ...input } = graph.authority;
+  return must(createSourceAuthorityRecord({ ...input, ...overrides }));
+}
+
+function resealReference(graph: ReturnType<typeof fixtures>, overrides: Record<string, unknown>) {
+  const { kind: _kind, version: _version, referenceDigest: _referenceDigest, ...input } = graph.reference;
+  return must(createSourceTransactionReferenceRecord({ ...input, ...overrides }));
+}
+
+function sameIdOperationVariant(
+  graph: ReturnType<typeof fixtures>,
+  overrides: Record<string, unknown>,
+): ReturnType<typeof fixtures> {
+  const operationInput = { ...inputs(graph.operation), ...overrides };
+  const { admissionDigest: _admissionDigest, exactOperationDigest: _exactOperationDigest, ...exactInput } = operationInput;
+  const exactOperationDigest = must(deriveExactOperationDigest(exactInput));
+  const admission = must(createAdmissionRecord({
+    ...inputs(graph.admission),
+    exactOperationDigest,
+  }));
+  const operation = must(createOperationRecord({
+    ...operationInput,
+    admissionDigest: admission.admissionDigest,
+    exactOperationDigest,
+  }));
+  const outbox = must(createImmutableOutboxIntentRecord({
+    ...inputs(graph.outbox),
+    intentDigest: operation.outboxIntentDigest,
+    exactOperationDigest,
+  }));
+  const terminal = must(createTerminalStateRecord({
+    ...inputs(graph.terminal),
+    resultDigest: operation.resultDigest,
+    exactOperationDigest,
+  }));
+  const authority = resealAuthority(graph, {
+    sourceRevision: operation.committedRevision,
+    operationRegistryRoot: must(deriveOperationRegistryRoot(operation.operationDigest)),
+    terminalRoot: must(deriveTerminalRoot(terminal.terminalDigest)),
+    outboxRoot: must(deriveOutboxRoot(outbox.outboxDigest)),
+  });
+  const reference = resealReference(graph, {
+    committedSourceRevision: operation.committedRevision,
+    sourceAuthorityDigest: authority.authorityDigest,
+    operationDigest: operation.operationDigest,
+    admissionDigest: admission.admissionDigest,
+    terminalDigest: terminal.terminalDigest,
+    outboxDigest: outbox.outboxDigest,
+  });
+  return { ...graph, operation, admission, outbox, terminal, authority, reference };
 }
 
 const creators = {
@@ -167,6 +243,10 @@ describe('K-333B transaction evidence record codecs', () => {
       expect(errorCode(decodeTransactionEvidenceRecord(hostile))).toBe('INVALID_FIELD_TYPE');
       expect(() => validateTransactionEvidenceCompatibility(hostile)).not.toThrow();
       expect(() => validateProductionTransactionEvidenceGraph(hostile)).not.toThrow();
+      expect(() => deriveExactOperationDigest(hostile)).not.toThrow();
+      expect(() => deriveOperationRegistryRoot(hostile)).not.toThrow();
+      expect(() => deriveTerminalRoot(hostile)).not.toThrow();
+      expect(() => deriveOutboxRoot(hostile)).not.toThrow();
     }
   });
 
@@ -188,18 +268,21 @@ describe('K-333B transaction evidence record codecs', () => {
       } },
       { record: graph.admission, self: 'admissionDigest', changes: {
         id: 'admission-2', operationId: 'operation-2', writerId: 'writer-other', sessionId: 'session-2',
+        exactOperationDigest: digest('d'),
       } },
       { record: graph.outbox, self: 'outboxDigest', changes: {
-        id: 'outbox-2', operationId: 'operation-2', intentDigest: digest('d'),
+        id: 'outbox-2', operationId: 'operation-2', intentDigest: digest('d'), exactOperationDigest: digest('d'),
       } },
       { record: graph.terminal, self: 'terminalDigest', changes: {
-        id: 'terminal-2', operationId: 'operation-2', resultDigest: digest('d'),
+        id: 'terminal-2', operationId: 'operation-2', resultDigest: digest('d'), exactOperationDigest: digest('d'),
       } },
     ] as const;
     for (const entry of cases) {
       const originalDigest = entry.record[entry.self];
       for (const [field, value] of Object.entries(entry.changes)) {
-        const created = creators[entry.record.kind]({ ...inputs(entry.record), [field]: value });
+        const created = entry.record.kind === 'absinthe_k330_operation'
+          ? { ok: true as const, value: createChangedOperation(entry.record, { [field]: value }) }
+          : creators[entry.record.kind]({ ...inputs(entry.record), [field]: value });
         expect(created.ok, `${entry.record.kind}.${field}`).toBe(true);
         if (!created.ok) continue;
         const newDigest = created.value[entry.self as keyof typeof created.value];
@@ -208,6 +291,29 @@ describe('K-333B transaction evidence record codecs', () => {
         expect(errorCode(decodeTransactionEvidenceRecord({ ...created.value, [entry.self]: originalDigest })))
           .toBe('CANONICAL_DIGEST_MISMATCH');
       }
+    }
+  });
+
+  it('derives and enforces one exact-operation commitment over every authority-critical operation field', () => {
+    const { operation } = fixtures();
+    const input = inputs(operation);
+    const { admissionDigest: _admissionDigest, exactOperationDigest: _exactOperationDigest, ...exactInput } = input;
+    expect(must(deriveExactOperationDigest(exactInput))).toBe(operation.exactOperationDigest);
+    expect(errorCode(createOperationRecord({ ...input, exactOperationDigest: digest('d') })))
+      .toBe('RELATIONSHIP_MISMATCH');
+    expect(errorCode(decodeOperationRecord({
+      ...operation,
+      exactOperationDigest: digest('d'),
+    }))).toBe('CANONICAL_DIGEST_MISMATCH');
+    for (const [field, value] of Object.entries({
+      id: 'operation-other', namespace: 'namespace-other', generation: 'generation-other',
+      admissionId: 'admission-other', writerId: 'writer-other', writerDigest: digest('d'), sessionId: 'session-other',
+      sessionDigest: digest('d'), mutationKind: 'note_tombstone', committedRevision: '43',
+      affectedIdentityDigest: digest('d'), canonicalInputDigest: digest('d'), resultDigest: digest('d'),
+      outboxId: 'outbox-other', outboxIntentDigest: digest('d'),
+    })) {
+      const candidate = { ...exactInput, [field]: value };
+      expect(must(deriveExactOperationDigest(candidate)), field).not.toBe(operation.exactOperationDigest);
     }
   });
 });
@@ -220,7 +326,7 @@ describe('K-333B transaction evidence graph and compatibility', () => {
   it('rejects every selected edge after independently valid resealing', () => {
     const graph = fixtures();
     const wrongAdmission = must(createAdmissionRecord({ ...inputs(graph.admission), operationId: 'operation-other' }));
-    const wrongOperation = must(createOperationRecord({ ...inputs(graph.operation), namespace: 'namespace-other' }));
+    const wrongOperation = createChangedOperation(graph.operation, { namespace: 'namespace-other' });
     const wrongOutbox = must(createImmutableOutboxIntentRecord({ ...inputs(graph.outbox), operationId: 'operation-other' }));
     const wrongTerminal = must(createTerminalStateRecord({ ...inputs(graph.terminal), resultDigest: digest('d') }));
     for (const invalid of [
@@ -236,12 +342,12 @@ describe('K-333B transaction evidence graph and compatibility', () => {
   it('rejects independently valid namespace, generation, writer, session, and authority-revision replay', () => {
     const graph = fixtures();
     const operationReplays = [
-      must(createOperationRecord({ ...inputs(graph.operation), namespace: 'namespace-other' })),
-      must(createOperationRecord({ ...inputs(graph.operation), generation: 'generation-other' })),
-      must(createOperationRecord({ ...inputs(graph.operation), writerId: 'writer-other' })),
-      must(createOperationRecord({ ...inputs(graph.operation), writerDigest: digest('d') })),
-      must(createOperationRecord({ ...inputs(graph.operation), sessionId: 'session-other' })),
-      must(createOperationRecord({ ...inputs(graph.operation), sessionDigest: digest('d') })),
+      createChangedOperation(graph.operation, { namespace: 'namespace-other' }),
+      createChangedOperation(graph.operation, { generation: 'generation-other' }),
+      createChangedOperation(graph.operation, { writerId: 'writer-other' }),
+      createChangedOperation(graph.operation, { writerDigest: digest('d') }),
+      createChangedOperation(graph.operation, { sessionId: 'session-other' }),
+      createChangedOperation(graph.operation, { sessionDigest: digest('d') }),
     ];
     for (const operation of operationReplays) {
       expect(decodeOperationRecord(operation).ok).toBe(true);
@@ -275,7 +381,7 @@ describe('K-333B transaction evidence graph and compatibility', () => {
 
   it('rejects valid operation, admission, outbox, and terminal records mixed from another transaction', () => {
     const graph = fixtures();
-    const otherOperation = must(createOperationRecord({ ...inputs(graph.operation), id: 'operation-2' }));
+    const otherOperation = createChangedOperation(graph.operation, { id: 'operation-2' });
     const otherAdmission = must(createAdmissionRecord({ ...inputs(graph.admission), id: 'admission-2' }));
     const otherOutbox = must(createImmutableOutboxIntentRecord({ ...inputs(graph.outbox), id: 'outbox-2' }));
     const otherTerminal = must(createTerminalStateRecord({ ...inputs(graph.terminal), id: 'terminal-2' }));
@@ -300,25 +406,100 @@ describe('K-333B transaction evidence graph and compatibility', () => {
       predecessorKind: 'absinthe_k330_admission', predecessorVersion: 1,
       successorKind: 'absinthe_k330_operation', successorVersion: 1,
     }))).toBe('RELATIONSHIP_MISMATCH');
+    expect(TRANSACTION_EVIDENCE_GRAPH_COMPATIBILITY_EDGES.map(edge =>
+      `${edge.predecessor}->${edge.successor}`)).toEqual([
+      'writer->operation', 'session->operation', 'operation->admission', 'operation->outbox',
+      'operation->terminal', 'operation->reference', 'admission->reference', 'outbox->reference',
+      'terminal->reference',
+    ]);
+    expect(TRANSACTION_EVIDENCE_GRAPH_COMPATIBILITY_EDGES.map(edge => edge.tuple))
+      .toEqual(TRANSACTION_EVIDENCE_COMPATIBILITY);
+  });
+
+  it('rejects same-ID different-operation replay only after every mixed record independently validates', () => {
+    const graphA = fixtures();
+    const variants = [
+      sameIdOperationVariant(graphA, { canonicalInputDigest: digest('d') }),
+      sameIdOperationVariant(graphA, { affectedIdentityDigest: digest('d') }),
+      sameIdOperationVariant(graphA, { mutationKind: 'note_tombstone' }),
+    ];
+    expect(validateProductionTransactionEvidenceGraph(graphA).ok).toBe(true);
+    for (const graphB of variants) {
+      expect(graphB.operation.id).toBe(graphA.operation.id);
+      expect(graphB.operation.exactOperationDigest).not.toBe(graphA.operation.exactOperationDigest);
+      expect(validateProductionTransactionEvidenceGraph(graphB).ok).toBe(true);
+      for (const record of [graphA.admission, graphA.outbox, graphA.terminal]) {
+        expect(decodeTransactionEvidenceRecord(record).ok).toBe(true);
+      }
+      for (const mixed of [
+        { ...graphB, admission: graphA.admission },
+        { ...graphB, outbox: graphA.outbox },
+        { ...graphB, terminal: graphA.terminal },
+        { ...graphB, authority: graphA.authority },
+        { ...graphB, admission: graphA.admission, outbox: graphA.outbox, terminal: graphA.terminal },
+        { ...graphB, admission: graphA.admission, outbox: graphA.outbox, terminal: graphA.terminal,
+          authority: graphA.authority },
+      ]) {
+        expect(errorCode(validateProductionTransactionEvidenceGraph(mixed))).toBe('RELATIONSHIP_MISMATCH');
+      }
+    }
+  });
+
+  it('validates K-331 one-record authority roots and rejects every independently resealed mismatch', () => {
+    const graph = fixtures();
+    expect(graph.authority.operationRegistryRoot)
+      .toBe('28c758f66629ca576d4c3683a8c55b8d3491de4254602ca57fa777849ddf8efb');
+    expect(graph.authority.terminalRoot)
+      .toBe('a9c33649d3b31333fff525a226e98a159b0a8cd2c686cc889bb6b2dd7ff679da');
+    expect(graph.authority.outboxRoot)
+      .toBe('2f442a59c7055da422c138383474bba1cdce3daa0a7bbaf9f1fc2baa8676bed4');
+    for (const field of ['operationRegistryRoot', 'terminalRoot', 'outboxRoot'] as const) {
+      const authority = resealAuthority(graph, { [field]: digest('d') });
+      const reference = resealReference(graph, { sourceAuthorityDigest: authority.authorityDigest });
+      expect(errorCode(validateProductionTransactionEvidenceGraph({ ...graph, authority, reference })))
+        .toBe('RELATIONSHIP_MISMATCH');
+    }
+    const other = sameIdOperationVariant(graph, { canonicalInputDigest: digest('d') });
+    const authority = resealAuthority(graph, {
+      operationRegistryRoot: other.authority.operationRegistryRoot,
+      terminalRoot: other.authority.terminalRoot,
+      outboxRoot: other.authority.outboxRoot,
+    });
+    const reference = resealReference(graph, { sourceAuthorityDigest: authority.authorityDigest });
+    expect(errorCode(validateProductionTransactionEvidenceGraph({ ...graph, authority, reference })))
+      .toBe('RELATIONSHIP_MISMATCH');
   });
 });
 
 describe('K-333B fixed stable vectors', () => {
+  it('keeps an independent exact-operation commitment vector', () => {
+    const { operation } = fixtures();
+    const input = inputs(operation);
+    const { admissionDigest: _admissionDigest, exactOperationDigest: _exactOperationDigest, ...exactInput } = input;
+    const payload = { kind: 'absinthe_k330_operation', version: 1, ...exactInput };
+    const expectedPayload = '{"admissionId":"admission-1","affectedIdentityDigest":"4444444444444444444444444444444444444444444444444444444444444444","canonicalInputDigest":"5555555555555555555555555555555555555555555555555555555555555555","committedRevision":"42","generation":"generation-1","id":"operation-1","kind":"absinthe_k330_operation","mutationKind":"note_upsert","namespace":"namespace-1","outboxId":"outbox-1","outboxIntentDigest":"7777777777777777777777777777777777777777777777777777777777777777","resultDigest":"6666666666666666666666666666666666666666666666666666666666666666","sessionDigest":"7b117eb86dcf836f23df4154ae7e9089d99363bfc66d276eed41a60c75f026c3","sessionId":"session-1","version":1,"writerDigest":"d213325403db4caf9c6b2ba44329b204fab0294307dc4823fa879dfcd9e867af","writerId":"writer-v2.window.interactive.0001"}';
+    expect(text(must(encodeCanonicalProtocolValue(payload)))).toBe(expectedPayload);
+    expect(text(must(buildCanonicalProtocolPreimage('absinthe.exact_operation.v1', 1, payload))))
+      .toBe(`absinthe-protocol-preimage-v1\nD:27:absinthe.exact_operation.v1\nV:1\nP:${new TextEncoder().encode(expectedPayload).byteLength}:${expectedPayload}`);
+    expect(must(deriveExactOperationDigest(exactInput)))
+      .toBe('e6e0d13e6a25998096b97c44593d18cbba953a23509379a749e000a93f187712');
+  });
+
   it('keeps independent canonical payload, preimage, and digest literals for every new record', () => {
     const { operation, admission, outbox, terminal } = fixtures();
     const vectors = [
       [operation, 'operationDigest', 'absinthe.operation.v1',
-        '{"admissionDigest":"7357e9f46b8137e5d600d69eecfdcf49d13965f596c93b62c99d0c97b8170f1d","admissionId":"admission-1","affectedIdentityDigest":"4444444444444444444444444444444444444444444444444444444444444444","canonicalInputDigest":"5555555555555555555555555555555555555555555555555555555555555555","committedRevision":"42","generation":"generation-1","id":"operation-1","kind":"absinthe_k330_operation","mutationKind":"note_upsert","namespace":"namespace-1","outboxId":"outbox-1","outboxIntentDigest":"7777777777777777777777777777777777777777777777777777777777777777","resultDigest":"6666666666666666666666666666666666666666666666666666666666666666","sessionDigest":"7b117eb86dcf836f23df4154ae7e9089d99363bfc66d276eed41a60c75f026c3","sessionId":"session-1","version":1,"writerDigest":"d213325403db4caf9c6b2ba44329b204fab0294307dc4823fa879dfcd9e867af","writerId":"writer-v2.window.interactive.0001"}',
-        'a861daeaafe2ee6585aada8cfd37749c8ba130c8547e3115500545a5fbc42cc9'],
+        '{"admissionDigest":"895b7717ac37726a52eb734c3d1e9eb349e7ab8220bab25b12a841ddd7bbe4fc","admissionId":"admission-1","affectedIdentityDigest":"4444444444444444444444444444444444444444444444444444444444444444","canonicalInputDigest":"5555555555555555555555555555555555555555555555555555555555555555","committedRevision":"42","exactOperationDigest":"e6e0d13e6a25998096b97c44593d18cbba953a23509379a749e000a93f187712","generation":"generation-1","id":"operation-1","kind":"absinthe_k330_operation","mutationKind":"note_upsert","namespace":"namespace-1","outboxId":"outbox-1","outboxIntentDigest":"7777777777777777777777777777777777777777777777777777777777777777","resultDigest":"6666666666666666666666666666666666666666666666666666666666666666","sessionDigest":"7b117eb86dcf836f23df4154ae7e9089d99363bfc66d276eed41a60c75f026c3","sessionId":"session-1","version":1,"writerDigest":"d213325403db4caf9c6b2ba44329b204fab0294307dc4823fa879dfcd9e867af","writerId":"writer-v2.window.interactive.0001"}',
+        '3b5279fadb26b57787127e67bd5ca3b2142d1f7780acb56afe13dc9e1f95915a'],
       [admission, 'admissionDigest', 'absinthe.admission.v1',
-        '{"decision":"admitted","id":"admission-1","kind":"absinthe_k330_admission","operationId":"operation-1","sessionId":"session-1","version":1,"writerId":"writer-v2.window.interactive.0001"}',
-        '7357e9f46b8137e5d600d69eecfdcf49d13965f596c93b62c99d0c97b8170f1d'],
+        '{"decision":"admitted","exactOperationDigest":"e6e0d13e6a25998096b97c44593d18cbba953a23509379a749e000a93f187712","id":"admission-1","kind":"absinthe_k330_admission","operationId":"operation-1","sessionId":"session-1","version":1,"writerId":"writer-v2.window.interactive.0001"}',
+        '895b7717ac37726a52eb734c3d1e9eb349e7ab8220bab25b12a841ddd7bbe4fc'],
       [outbox, 'outboxDigest', 'absinthe.immutable_outbox_intent.v1',
-        '{"id":"outbox-1","intentDigest":"7777777777777777777777777777777777777777777777777777777777777777","kind":"absinthe_immutable_outbox_intent","operationId":"operation-1","version":1}',
-        '967597287bd3e1870e38603b59ce042343820f6c342ce80f810321a2c8b8a6dd'],
+        '{"exactOperationDigest":"e6e0d13e6a25998096b97c44593d18cbba953a23509379a749e000a93f187712","id":"outbox-1","intentDigest":"7777777777777777777777777777777777777777777777777777777777777777","kind":"absinthe_immutable_outbox_intent","operationId":"operation-1","version":1}',
+        '69e1428ba6f3fd26a5725dd5bd7fc3691b5f462899a2a58c7fe9b97d8fc7a54b'],
       [terminal, 'terminalDigest', 'absinthe.terminal_state.v1',
-        '{"id":"terminal-1","kind":"absinthe_terminal_state","operationId":"operation-1","resultDigest":"6666666666666666666666666666666666666666666666666666666666666666","state":"committed","version":1}',
-        'cf3dd187a009f4e82a6045cde2c7a944abff4c1e6bf1d4b215902c4b259f3738'],
+        '{"exactOperationDigest":"e6e0d13e6a25998096b97c44593d18cbba953a23509379a749e000a93f187712","id":"terminal-1","kind":"absinthe_terminal_state","operationId":"operation-1","resultDigest":"6666666666666666666666666666666666666666666666666666666666666666","state":"committed","version":1}',
+        '6e7e7123e36ddea8be6d6487f3d257173e5bf501a287eb78a5bc6be4e1ad8926'],
     ] as const;
     for (const [record, self, domain, expectedPayload, expectedDigest] of vectors) {
       const payload = { ...record } as Record<string, unknown>;

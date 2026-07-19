@@ -1,3 +1,4 @@
+import { sha256Hex } from '../outboxIdentity';
 import { decodeCanonicalProtocolValue, encodeCanonicalProtocolValue } from './canonicalProtocolValue';
 import { digestCanonicalProtocolRecord, type ProtocolPreimageDomain } from './canonicalProtocolPreimage';
 import { protocolFail, protocolOk, type ProtocolResult } from './protocolResult';
@@ -54,6 +55,7 @@ export interface OperationRecord {
   readonly resultDigest: string;
   readonly outboxId: string;
   readonly outboxIntentDigest: string;
+  readonly exactOperationDigest: string;
   readonly operationDigest: string;
 }
 
@@ -64,6 +66,7 @@ export interface AdmissionRecord {
   readonly operationId: string;
   readonly writerId: string;
   readonly sessionId: string;
+  readonly exactOperationDigest: string;
   readonly decision: 'admitted';
   readonly admissionDigest: string;
 }
@@ -74,6 +77,7 @@ export interface ImmutableOutboxIntentRecord {
   readonly id: string;
   readonly operationId: string;
   readonly intentDigest: string;
+  readonly exactOperationDigest: string;
   readonly outboxDigest: string;
 }
 
@@ -84,6 +88,7 @@ export interface TerminalStateRecord {
   readonly operationId: string;
   readonly state: 'committed';
   readonly resultDigest: string;
+  readonly exactOperationDigest: string;
   readonly terminalDigest: string;
 }
 
@@ -101,16 +106,16 @@ export type TerminalStateInput = Omit<TerminalStateRecord, 'kind' | 'version' | 
 const operationFields = Object.freeze([
   'kind', 'version', 'id', 'namespace', 'generation', 'admissionId', 'admissionDigest', 'writerId', 'writerDigest',
   'sessionId', 'sessionDigest', 'mutationKind', 'committedRevision', 'affectedIdentityDigest', 'canonicalInputDigest',
-  'resultDigest', 'outboxId', 'outboxIntentDigest', 'operationDigest',
+  'resultDigest', 'outboxId', 'outboxIntentDigest', 'exactOperationDigest', 'operationDigest',
 ]);
 const admissionFields = Object.freeze([
-  'kind', 'version', 'id', 'operationId', 'writerId', 'sessionId', 'decision', 'admissionDigest',
+  'kind', 'version', 'id', 'operationId', 'writerId', 'sessionId', 'exactOperationDigest', 'decision', 'admissionDigest',
 ]);
 const outboxFields = Object.freeze([
-  'kind', 'version', 'id', 'operationId', 'intentDigest', 'outboxDigest',
+  'kind', 'version', 'id', 'operationId', 'intentDigest', 'exactOperationDigest', 'outboxDigest',
 ]);
 const terminalFields = Object.freeze([
-  'kind', 'version', 'id', 'operationId', 'state', 'resultDigest', 'terminalDigest',
+  'kind', 'version', 'id', 'operationId', 'state', 'resultDigest', 'exactOperationDigest', 'terminalDigest',
 ]);
 const envelopeOptionalFields = Object.freeze([...new Set([
   ...operationFields, ...admissionFields, ...outboxFields, ...terminalFields,
@@ -171,22 +176,52 @@ function verifyDigest(
 const operationInputFields = Object.freeze([
   'id', 'namespace', 'generation', 'admissionId', 'admissionDigest', 'writerId', 'writerDigest', 'sessionId',
   'sessionDigest', 'mutationKind', 'committedRevision', 'affectedIdentityDigest', 'canonicalInputDigest', 'resultDigest',
-  'outboxId', 'outboxIntentDigest',
+  'outboxId', 'outboxIntentDigest', 'exactOperationDigest',
 ]);
-const admissionInputFields = Object.freeze(['id', 'operationId', 'writerId', 'sessionId', 'decision']);
-const outboxInputFields = Object.freeze(['id', 'operationId', 'intentDigest']);
-const terminalInputFields = Object.freeze(['id', 'operationId', 'state', 'resultDigest']);
+const exactOperationInputFields = Object.freeze([
+  'id', 'namespace', 'generation', 'admissionId', 'writerId', 'writerDigest', 'sessionId', 'sessionDigest',
+  'mutationKind', 'committedRevision', 'affectedIdentityDigest', 'canonicalInputDigest', 'resultDigest', 'outboxId',
+  'outboxIntentDigest',
+]);
+const admissionInputFields = Object.freeze([
+  'id', 'operationId', 'writerId', 'sessionId', 'exactOperationDigest', 'decision',
+]);
+const outboxInputFields = Object.freeze(['id', 'operationId', 'intentDigest', 'exactOperationDigest']);
+const terminalInputFields = Object.freeze(['id', 'operationId', 'state', 'resultDigest', 'exactOperationDigest']);
+
+export function deriveExactOperationDigest(input: unknown): ProtocolResult<string> {
+  const payload = prepareCreatePayload(input, exactOperationInputFields, [
+    ...['id', 'namespace', 'generation', 'admissionId', 'writerId', 'sessionId', 'outboxId']
+      .map(field => ({ field, decoder: identifier })),
+    ...['writerDigest', 'sessionDigest', 'affectedIdentityDigest', 'canonicalInputDigest', 'resultDigest',
+      'outboxIntentDigest'].map(field => ({ field, decoder: digest })),
+    { field: 'mutationKind', decoder: (entry, field) => decodeEnum(entry, ['note_upsert', 'note_tombstone'], field) },
+    { field: 'committedRevision', decoder: revision },
+  ], 'absinthe_k330_operation', 'derive_exact_operation');
+  return payload.ok ? digestPayload('absinthe.exact_operation.v1', payload.value) : payload;
+}
+
+function exactOperationInput(value: StrictObject): StrictObject {
+  const input: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
+  for (const field of exactOperationInputFields) input[field] = value[field];
+  return Object.freeze(input);
+}
 
 export function createOperationRecord(input: unknown): ProtocolResult<OperationRecord> {
   const payload = prepareCreatePayload(input, operationInputFields, [
     ...['id', 'namespace', 'generation', 'admissionId', 'writerId', 'sessionId', 'outboxId']
       .map(field => ({ field, decoder: identifier })),
     ...['admissionDigest', 'writerDigest', 'sessionDigest', 'affectedIdentityDigest', 'canonicalInputDigest',
-      'resultDigest', 'outboxIntentDigest'].map(field => ({ field, decoder: digest })),
+      'resultDigest', 'outboxIntentDigest', 'exactOperationDigest'].map(field => ({ field, decoder: digest })),
     { field: 'mutationKind', decoder: (entry, field) => decodeEnum(entry, ['note_upsert', 'note_tombstone'], field) },
     { field: 'committedRevision', decoder: revision },
   ], 'absinthe_k330_operation', 'create_operation');
   if (!payload.ok) return payload;
+  const exactOperationDigest = deriveExactOperationDigest(exactOperationInput(payload.value));
+  if (!exactOperationDigest.ok) return exactOperationDigest;
+  if (exactOperationDigest.value !== payload.value.exactOperationDigest) {
+    return protocolFail('RELATIONSHIP_MISMATCH', 'create_operation', 'exactOperationDigest');
+  }
   const operationDigest = digestPayload('absinthe.operation.v1', payload.value);
   if (!operationDigest.ok) return operationDigest;
   return decodeOperationRecord(Object.freeze({ ...payload.value, operationDigest: operationDigest.value }));
@@ -195,6 +230,7 @@ export function createOperationRecord(input: unknown): ProtocolResult<OperationR
 export function createAdmissionRecord(input: unknown): ProtocolResult<AdmissionRecord> {
   const payload = prepareCreatePayload(input, admissionInputFields, [
     ...['id', 'operationId', 'writerId', 'sessionId'].map(field => ({ field, decoder: identifier })),
+    { field: 'exactOperationDigest', decoder: digest },
     { field: 'decision', decoder: (entry, field) => decodeEnum(entry, ['admitted'], field) },
   ], 'absinthe_k330_admission', 'create_admission');
   if (!payload.ok) return payload;
@@ -206,7 +242,7 @@ export function createAdmissionRecord(input: unknown): ProtocolResult<AdmissionR
 export function createImmutableOutboxIntentRecord(input: unknown): ProtocolResult<ImmutableOutboxIntentRecord> {
   const payload = prepareCreatePayload(input, outboxInputFields, [
     ...['id', 'operationId'].map(field => ({ field, decoder: identifier })),
-    { field: 'intentDigest', decoder: digest },
+    ...['intentDigest', 'exactOperationDigest'].map(field => ({ field, decoder: digest })),
   ], 'absinthe_immutable_outbox_intent', 'create_outbox_intent');
   if (!payload.ok) return payload;
   const outboxDigest = digestPayload('absinthe.immutable_outbox_intent.v1', payload.value);
@@ -218,7 +254,7 @@ export function createTerminalStateRecord(input: unknown): ProtocolResult<Termin
   const payload = prepareCreatePayload(input, terminalInputFields, [
     ...['id', 'operationId'].map(field => ({ field, decoder: identifier })),
     { field: 'state', decoder: (entry, field) => decodeEnum(entry, ['committed'], field) },
-    { field: 'resultDigest', decoder: digest },
+    ...['resultDigest', 'exactOperationDigest'].map(field => ({ field, decoder: digest })),
   ], 'absinthe_terminal_state', 'create_terminal_state');
   if (!payload.ok) return payload;
   const terminalDigest = digestPayload('absinthe.terminal_state.v1', payload.value);
@@ -235,7 +271,7 @@ export function decodeOperationRecord(value: unknown): ProtocolResult<OperationR
     ...['id', 'namespace', 'generation', 'admissionId', 'writerId', 'sessionId', 'outboxId']
       .map(field => ({ field, decoder: identifier })),
     ...['admissionDigest', 'writerDigest', 'sessionDigest', 'affectedIdentityDigest', 'canonicalInputDigest',
-      'resultDigest', 'outboxIntentDigest', 'operationDigest'].map(field => ({ field, decoder: digest })),
+      'resultDigest', 'outboxIntentDigest', 'exactOperationDigest', 'operationDigest'].map(field => ({ field, decoder: digest })),
     { field: 'mutationKind', decoder: (entry, field) => decodeEnum(entry, ['note_upsert', 'note_tombstone'], field) },
     { field: 'committedRevision', decoder: revision },
   ]);
@@ -243,7 +279,12 @@ export function decodeOperationRecord(value: unknown): ProtocolResult<OperationR
   const record = Object.freeze({ ...object.value }) as unknown as OperationRecord;
   const { operationDigest, ...payload } = record;
   const verified = verifyDigest('absinthe.operation.v1', payload, operationDigest, 'operationDigest');
-  return verified.ok ? protocolOk(record) : verified;
+  if (!verified.ok) return verified;
+  const exact = deriveExactOperationDigest(exactOperationInput(record as unknown as StrictObject));
+  if (!exact.ok) return exact;
+  return exact.value === record.exactOperationDigest
+    ? protocolOk(record)
+    : protocolFail('RELATIONSHIP_MISMATCH', 'decode_record', 'exactOperationDigest');
 }
 
 export function decodeAdmissionRecord(value: unknown): ProtocolResult<AdmissionRecord> {
@@ -253,6 +294,7 @@ export function decodeAdmissionRecord(value: unknown): ProtocolResult<AdmissionR
     { field: 'kind', decoder: (entry, field) => decodeLiteral(entry, 'absinthe_k330_admission', field) },
     { field: 'version', decoder: (entry, field) => decodeLiteral(entry, 1, field, 'version') },
     ...['id', 'operationId', 'writerId', 'sessionId'].map(field => ({ field, decoder: identifier })),
+    { field: 'exactOperationDigest', decoder: digest },
     { field: 'decision', decoder: (entry, field) => decodeEnum(entry, ['admitted'], field) },
     { field: 'admissionDigest', decoder: digest },
   ]);
@@ -270,7 +312,7 @@ export function decodeImmutableOutboxIntentRecord(value: unknown): ProtocolResul
     { field: 'kind', decoder: (entry, field) => decodeLiteral(entry, 'absinthe_immutable_outbox_intent', field) },
     { field: 'version', decoder: (entry, field) => decodeLiteral(entry, 1, field, 'version') },
     ...['id', 'operationId'].map(field => ({ field, decoder: identifier })),
-    { field: 'intentDigest', decoder: digest },
+    ...['intentDigest', 'exactOperationDigest'].map(field => ({ field, decoder: digest })),
     { field: 'outboxDigest', decoder: digest },
   ]);
   if (!fields.ok) return fields;
@@ -288,7 +330,7 @@ export function decodeTerminalStateRecord(value: unknown): ProtocolResult<Termin
     { field: 'version', decoder: (entry, field) => decodeLiteral(entry, 1, field, 'version') },
     ...['id', 'operationId'].map(field => ({ field, decoder: identifier })),
     { field: 'state', decoder: (entry, field) => decodeEnum(entry, ['committed'], field) },
-    { field: 'resultDigest', decoder: digest },
+    ...['resultDigest', 'exactOperationDigest'].map(field => ({ field, decoder: digest })),
     { field: 'terminalDigest', decoder: digest },
   ]);
   if (!fields.ok) return fields;
@@ -323,17 +365,36 @@ export function decodeTransactionEvidenceRecordBytes(bytes: unknown): ProtocolRe
   return decoded.ok ? decodeTransactionEvidenceRecord(decoded.value) : decoded;
 }
 
-export const TRANSACTION_EVIDENCE_COMPATIBILITY = Object.freeze([
-  Object.freeze(['absinthe_writer_identity', 1, 'absinthe_k330_operation', 1] as const),
-  Object.freeze(['absinthe_writer_session', 1, 'absinthe_k330_operation', 1] as const),
-  Object.freeze(['absinthe_k330_operation', 1, 'absinthe_k330_admission', 1] as const),
-  Object.freeze(['absinthe_k330_operation', 1, 'absinthe_immutable_outbox_intent', 1] as const),
-  Object.freeze(['absinthe_k330_operation', 1, 'absinthe_terminal_state', 1] as const),
-  Object.freeze(['absinthe_k330_operation', 1, 'absinthe_source_transaction_reference', 1] as const),
-  Object.freeze(['absinthe_k330_admission', 1, 'absinthe_source_transaction_reference', 1] as const),
-  Object.freeze(['absinthe_immutable_outbox_intent', 1, 'absinthe_source_transaction_reference', 1] as const),
-  Object.freeze(['absinthe_terminal_state', 1, 'absinthe_source_transaction_reference', 1] as const),
-] as const);
+type TransactionGraphRecordKey = 'writer' | 'session' | 'operation' | 'admission' | 'outbox' | 'terminal' | 'reference';
+
+export const TRANSACTION_EVIDENCE_GRAPH_COMPATIBILITY_EDGES = Object.freeze([
+  Object.freeze({ predecessor: 'writer', successor: 'operation',
+    tuple: Object.freeze(['absinthe_writer_identity', 1, 'absinthe_k330_operation', 1] as const) }),
+  Object.freeze({ predecessor: 'session', successor: 'operation',
+    tuple: Object.freeze(['absinthe_writer_session', 1, 'absinthe_k330_operation', 1] as const) }),
+  Object.freeze({ predecessor: 'operation', successor: 'admission',
+    tuple: Object.freeze(['absinthe_k330_operation', 1, 'absinthe_k330_admission', 1] as const) }),
+  Object.freeze({ predecessor: 'operation', successor: 'outbox',
+    tuple: Object.freeze(['absinthe_k330_operation', 1, 'absinthe_immutable_outbox_intent', 1] as const) }),
+  Object.freeze({ predecessor: 'operation', successor: 'terminal',
+    tuple: Object.freeze(['absinthe_k330_operation', 1, 'absinthe_terminal_state', 1] as const) }),
+  Object.freeze({ predecessor: 'operation', successor: 'reference',
+    tuple: Object.freeze(['absinthe_k330_operation', 1, 'absinthe_source_transaction_reference', 1] as const) }),
+  Object.freeze({ predecessor: 'admission', successor: 'reference',
+    tuple: Object.freeze(['absinthe_k330_admission', 1, 'absinthe_source_transaction_reference', 1] as const) }),
+  Object.freeze({ predecessor: 'outbox', successor: 'reference',
+    tuple: Object.freeze(['absinthe_immutable_outbox_intent', 1, 'absinthe_source_transaction_reference', 1] as const) }),
+  Object.freeze({ predecessor: 'terminal', successor: 'reference',
+    tuple: Object.freeze(['absinthe_terminal_state', 1, 'absinthe_source_transaction_reference', 1] as const) }),
+] as const satisfies readonly Readonly<{
+  predecessor: TransactionGraphRecordKey;
+  successor: TransactionGraphRecordKey;
+  tuple: readonly [string, 1, string, 1];
+}>[]);
+
+export const TRANSACTION_EVIDENCE_COMPATIBILITY = Object.freeze(
+  TRANSACTION_EVIDENCE_GRAPH_COMPATIBILITY_EDGES.map(edge => edge.tuple),
+);
 
 export function validateTransactionEvidenceCompatibility(input: unknown): ProtocolResult<void> {
   const object = decodeExactObject(input, ['predecessorKind', 'predecessorVersion', 'successorKind', 'successorVersion'], [],
@@ -351,6 +412,27 @@ export function validateTransactionEvidenceCompatibility(input: unknown): Protoc
     && tuple[1] === predecessorVersion.value && tuple[2] === successorKind.value && tuple[3] === successorVersion.value);
   return supported ? protocolOk(undefined) : protocolFail('RELATIONSHIP_MISMATCH', 'validate_compatibility');
 }
+
+type AuthorityRootDomain =
+  | 'ABSINTHE_OPERATION_REGISTRY_ROOT_V1'
+  | 'ABSINTHE_TERMINAL_ROOT_V1'
+  | 'ABSINTHE_OUTBOX_ROOT_V1';
+
+function deriveOneRecordAuthorityRoot(domain: AuthorityRootDomain, recordDigest: unknown): ProtocolResult<string> {
+  const decoded = decodeDigest(recordDigest, 'recordDigest');
+  return decoded.ok
+    ? protocolOk(sha256Hex(JSON.stringify([domain, 1, [decoded.value]])))
+    : decoded;
+}
+
+export const deriveOperationRegistryRoot = (recordDigest: unknown): ProtocolResult<string> =>
+  deriveOneRecordAuthorityRoot('ABSINTHE_OPERATION_REGISTRY_ROOT_V1', recordDigest);
+
+export const deriveTerminalRoot = (recordDigest: unknown): ProtocolResult<string> =>
+  deriveOneRecordAuthorityRoot('ABSINTHE_TERMINAL_ROOT_V1', recordDigest);
+
+export const deriveOutboxRoot = (recordDigest: unknown): ProtocolResult<string> =>
+  deriveOneRecordAuthorityRoot('ABSINTHE_OUTBOX_ROOT_V1', recordDigest);
 
 export interface ProductionTransactionEvidenceGraph {
   readonly writer: WriterIdentityRecord;
@@ -384,6 +466,26 @@ export function validateProductionTransactionEvidenceGraph(input: unknown): Prot
   if (!outbox.ok) return outbox;
   const terminal = decodeTerminalStateRecord(graph.value.terminal);
   if (!terminal.ok) return terminal;
+  const compatibleRecords = Object.freeze({
+    writer: writer.value,
+    session: session.value,
+    operation: operation.value,
+    admission: admission.value,
+    outbox: outbox.value,
+    terminal: terminal.value,
+    reference: reference.value,
+  });
+  for (const edge of TRANSACTION_EVIDENCE_GRAPH_COMPATIBILITY_EDGES) {
+    const predecessor = compatibleRecords[edge.predecessor];
+    const successor = compatibleRecords[edge.successor];
+    const compatible = validateTransactionEvidenceCompatibility({
+      predecessorKind: predecessor.kind,
+      predecessorVersion: predecessor.version,
+      successorKind: successor.kind,
+      successorVersion: successor.version,
+    });
+    if (!compatible.ok) return compatible;
+  }
   const representative = validateRepresentativeAuthorityGraph({
     writer: writer.value, session: session.value, authority: authority.value, reference: reference.value,
   });
@@ -393,6 +495,12 @@ export function validateProductionTransactionEvidenceGraph(input: unknown): Prot
   const intent = outbox.value;
   const term = terminal.value;
   const ref = reference.value;
+  const operationRoot = deriveOperationRegistryRoot(op.operationDigest);
+  if (!operationRoot.ok) return operationRoot;
+  const terminalRoot = deriveTerminalRoot(term.terminalDigest);
+  if (!terminalRoot.ok) return terminalRoot;
+  const outboxRoot = deriveOutboxRoot(intent.outboxDigest);
+  if (!outboxRoot.ok) return outboxRoot;
   const relationsMatch = op.namespace === writer.value.namespaceId
     && op.generation === session.value.generationId
     && op.generation === authority.value.generationId
@@ -405,11 +513,17 @@ export function validateProductionTransactionEvidenceGraph(input: unknown): Prot
     && adm.operationId === op.id
     && adm.writerId === op.writerId
     && adm.sessionId === op.sessionId
+    && adm.exactOperationDigest === op.exactOperationDigest
     && intent.id === op.outboxId
     && intent.operationId === op.id
     && intent.intentDigest === op.outboxIntentDigest
+    && intent.exactOperationDigest === op.exactOperationDigest
     && term.operationId === op.id
     && term.resultDigest === op.resultDigest
+    && term.exactOperationDigest === op.exactOperationDigest
+    && authority.value.operationRegistryRoot === operationRoot.value
+    && authority.value.terminalRoot === terminalRoot.value
+    && authority.value.outboxRoot === outboxRoot.value
     && ref.operationId === op.id
     && ref.operationDigest === op.operationDigest
     && ref.admissionId === adm.id

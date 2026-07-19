@@ -2,7 +2,7 @@
 
 ## Executive verdict
 
-K-333B promotes the four record-specific execution-evidence contracts frozen by K-331 into dormant production canonical codecs. An exact committed operation, its admitted decision, immutable outbox intent, and committed terminal state can now be strict-decoded and cross-bound to the unchanged K-333A source-transaction reference. No persistence, source mutation, admission caller, delivery runner, or eligibility path is added.
+K-333B promotes the four record-specific execution-evidence contracts frozen by K-331 into dormant production canonical codecs. K-333B1 closes the original thin-evidence replay gap: an admitted decision, immutable outbox intent, and committed terminal state now self-digest-commit one shared `exactOperationDigest`, and the public graph validates the K-331 operation/terminal/outbox authority roots plus all nine compatibility edges. No persistence, source mutation, admission caller, delivery runner, or eligibility path is added.
 
 The K-329 reviewed writer manifest remains authoritative policy evidence, but it is not redefined as a namespace/generation-scoped self-digest transaction record. That semantic gap is explicitly deferred instead of inventing a conflicting production manifest schema.
 
@@ -32,7 +32,11 @@ The K-329 reviewed writer manifest remains authoritative policy evidence, but it
 
 ## Selected K-333B records
 
-The four selected records are the smallest closed K-331 execution-evidence chain. The operation binds the exact writer/session, admitted evidence, immutable intent, committed revision, input/result digests, and namespace/generation. Admission authorizes only the exact operation/writer/session tuple. Outbox and terminal records bind the exact operation and immutable intent/result digests. The existing transaction reference then binds all four record identities and self-digests to K-333A authority evidence.
+The four selected records are the smallest closed K-331 execution-evidence chain. The K-331 operation-identity rule states that an exact same identity and canonical input is idempotent and that the same operation ID with any changed field fails. K-333B1 represents that already-selected meaning as `exactOperationDigest`: a domain-separated canonical digest over the operation kind/version, ID, namespace, generation, admission ID, writer/session IDs and digests, mutation kind, committed revision, affected-identity digest, canonical-input digest, result digest, outbox ID, and immutable outbox-intent digest.
+
+The commitment deliberately excludes `admissionDigest`, dependent self-digests, and its own digest. Admission, outbox, and terminal records can therefore bind it without a cycle. `canonicalInputDigest` alone was rejected because it does not commit writer/session, namespace/generation, mutation kind, revision, result, or evidence identities. `outboxIntentDigest` alone was rejected because delivery intent is not the complete admitted-operation authority. Binding `OperationRecord.operationDigest` from admission was rejected because the operation self-digest already commits `admissionDigest` and would create a cycle.
+
+The finite construction order is: writer identity, writer session, exact-operation commitment, admission, operation/outbox/terminal records, the three one-record authority roots and source authority, then the unchanged K-333A transaction reference. The exact-operation preimage contains only forward IDs for admission and outbox; it contains no dependent self-digest. There is no placeholder, zero, sentinel, two-pass patch, or digest cycle.
 
 Rejected admissions and aborted/failed terminals are deliberately not invented: the authoritative K-331 record-specific schemas select only `admitted` and `committed`. They may be modeled by a later reviewed version, not by widening v1.
 
@@ -46,27 +50,27 @@ Every field except the named self-digest is included in the v1 preimage. No reco
 
 ### `absinthe_k330_operation` v1
 
-- Fields: `kind`, `version`, `id`, `namespace`, `generation`, `admissionId`, `admissionDigest`, `writerId`, `writerDigest`, `sessionId`, `sessionDigest`, `mutationKind`, `committedRevision`, `affectedIdentityDigest`, `canonicalInputDigest`, `resultDigest`, `outboxId`, `outboxIntentDigest`, `operationDigest`
+- Fields: `kind`, `version`, `id`, `namespace`, `generation`, `admissionId`, `admissionDigest`, `writerId`, `writerDigest`, `sessionId`, `sessionDigest`, `mutationKind`, `committedRevision`, `affectedIdentityDigest`, `canonicalInputDigest`, `resultDigest`, `outboxId`, `outboxIntentDigest`, `exactOperationDigest`, `operationDigest`
 - Self-digest: `operationDigest`
 - Domain: `absinthe.operation.v1`
 - Closed mutation kinds: `note_upsert`, `note_tombstone`
 
 ### `absinthe_k330_admission` v1
 
-- Fields: `kind`, `version`, `id`, `operationId`, `writerId`, `sessionId`, `decision`, `admissionDigest`
+- Fields: `kind`, `version`, `id`, `operationId`, `writerId`, `sessionId`, `exactOperationDigest`, `decision`, `admissionDigest`
 - Self-digest: `admissionDigest`
 - Domain: `absinthe.admission.v1`
 - Closed decision: `admitted`
 
 ### `absinthe_immutable_outbox_intent` v1
 
-- Fields: `kind`, `version`, `id`, `operationId`, `intentDigest`, `outboxDigest`
+- Fields: `kind`, `version`, `id`, `operationId`, `intentDigest`, `exactOperationDigest`, `outboxDigest`
 - Self-digest: `outboxDigest`
 - Domain: `absinthe.immutable_outbox_intent.v1`
 
 ### `absinthe_terminal_state` v1
 
-- Fields: `kind`, `version`, `id`, `operationId`, `state`, `resultDigest`, `terminalDigest`
+- Fields: `kind`, `version`, `id`, `operationId`, `state`, `resultDigest`, `exactOperationDigest`, `terminalDigest`
 - Self-digest: `terminalDigest`
 - Domain: `absinthe.terminal_state.v1`
 - Closed state: `committed`
@@ -82,17 +86,24 @@ K-333A `WriterIdentityRecord.writerTypeId` and `manifestDigest` remain manifest-
 - operation namespace/generation equals the writer/session/authority scope;
 - operation writer/session IDs and digests match exact decoded records;
 - operation admission ID/digest matches the exact admitted record;
-- admission operation/writer/session identities match;
-- operation outbox identity and intent digest match the immutable intent;
-- terminal operation and result digest match;
+- admission operation/writer/session identities and exact-operation commitment match;
+- operation outbox identity, intent digest, and exact-operation commitment match the immutable intent;
+- terminal operation, result digest, and exact-operation commitment match;
+- source authority `operationRegistryRoot`, `terminalRoot`, and `outboxRoot` match the selected operation, terminal, and outbox self-digests;
 - transaction reference operation/admission/outbox/terminal IDs and self-digests match;
 - transaction reference committed revision matches both operation and source authority.
 
-The K-333A reference schema and stable vectors are unchanged. MMR and checkpoint references remain opaque beyond the K-333A authority relation.
+The three roots use the exact K-331 single-record canonical formulas:
+
+- `SHA-256(["ABSINTHE_OPERATION_REGISTRY_ROOT_V1", 1, [operationDigest]])`
+- `SHA-256(["ABSINTHE_TERMINAL_ROOT_V1", 1, [terminalDigest]])`
+- `SHA-256(["ABSINTHE_OUTBOX_ROOT_V1", 1, [outboxDigest]])`
+
+These are bounded one-record roots for the representative graph, not a claim of general Merkle/MMR proof verification. The K-333A reference schema and stable vectors are unchanged. MMR and checkpoint references remain opaque beyond the K-333A authority relation.
 
 ## Compatibility relationships
 
-The compatibility table is frozen and closed. Exactly nine v1/v1 tuples are supported:
+The compatibility table is frozen and closed. The public graph validator invokes the same fixed internal edge inventory immediately after all records independently decode and before any dependent relationship use. Exactly nine v1/v1 tuples are supported and invoked:
 
 1. writer identity → operation
 2. writer session → operation
@@ -104,7 +115,7 @@ The compatibility table is frozen and closed. Exactly nine v1/v1 tuples are supp
 8. immutable outbox intent → source transaction reference
 9. terminal state → source transaction reference
 
-Lower, higher, malformed, reversed, and unlisted tuples fail closed. Complete K-333 compatibility across receipts, MMR/checkpoints, lifecycle, bootstrap, restore, and attachments remains deferred.
+The fixed inventory is not caller-extensible or attacker-controlled. Strict v1 record decoders make an unsupported version unreachable inside a successfully decoded graph; permanent tests therefore prove the exact nine-edge inventory, its identity with the closed compatibility table, direct supported/unsupported tuple behavior, and successful public-graph execution. Lower, higher, malformed, reversed, and unlisted direct tuples fail closed. Complete K-333 compatibility across receipts, MMR/checkpoints, lifecycle, bootstrap, restore, and attachments remains deferred.
 
 ## Stable errors and resource bounds
 
@@ -116,7 +127,9 @@ All exported untrusted boundaries accept `unknown`, exact-snapshot before field 
 
 ## Stable vectors and test evidence
 
-Each new record has fixed independent canonical payload, framed preimage, and lowercase SHA-256 digest literals. Tests cover strict create/decode/byte round trips, versions/kinds/fields/types/enums/revisions/digests, hostile runtime inputs, every mutable non-self field commitment, self-digest corruption, selected graph edges, cross-record replay, the immutable compatibility table, and fixed vectors. Existing K-333A vector tests remain unchanged and are rerun with the full protocol suite.
+The exact-operation commitment and each modified record have fixed independent canonical payload, framed preimage, and lowercase SHA-256 digest literals. Operation has 20 declared fields and commits 19; Admission has 9/8; Outbox has 7/6; Terminal has 8/7. In every case only the named self-digest is excluded. Tests cover strict create/decode/byte round trips, versions/kinds/fields/types/enums/revisions/digests, hostile runtime inputs, every mutable non-self field commitment, self-digest corruption, all nine compatibility edges, same-ID/different-operation replay, cross-graph mixing, independently resealed root mismatches, and fixed vectors. K-333B1 focused tests pass 16/16 and the full K-333 protocol suite passes 90/90. Existing K-333A record schemas and vector literals are unchanged.
+
+Adjacent focused results are K-332 22/22, K-331 62/62, K-330 51/51, K-329 122/122, K-328 73/73, K-327 391/391, K-326 78/78, and K-325 238/238. The localDatabase suite passes 1,341/1,341, recovery passes 70/70, typecheck passes, build passes with 2,480 modules transformed, and `git diff --check` passes. Repository-default full concurrency reports 5,616 passed / 7 skipped plus three unrelated scan/CLI timeouts; the affected files independently pass 52/52, 51/51, and 3/3. A single-worker full run was attempted but exceeded the external 10-minute command limit without reporting a test failure. Exact-head CI is the final merge-gating authority.
 
 ## K-334 persistence boundary
 
