@@ -4,238 +4,194 @@
 
 **`K334A_NEEDS_PRECURSOR_OWNER_DECISIONS`**
 
-`CONTRACT_INFERENCE`: K-334 is the owner of additive persistent stores, strict repository boundary reads, and native IndexedDB transaction implementation, as assigned by [K-332](K-332-cross-module-source-authority-protocol-contract.md). It is not yet safe to choose its store topology or migration version because the issuer, rollback, retention, fork-resolution, compatibility, and lifecycle policies that determine authoritative write semantics remain owner decisions in [K-333F](K-333F-manifest-selection-history-contract.md).
+`CONFIRMED_SOURCE_FACT`: K-332 assigns additive persistent stores and indexes, schema migration, strict repository boundary reads, and native IndexedDB transaction implementation to K-334. It does not select a target database, topology, concrete version, or policy-dependent write semantics.
 
-`CONFIRMED_SOURCE_FACT`: Current K-333 protocol modules are strict, pure codecs and graph validators only. They create no database, store, index, repository, durable lookup, transaction, or runtime caller: `frontend/src/lib/localDatabase/protocol/writerAuthorityProtocol.ts` and `transactionEvidenceProtocol.ts`.
+`OWNER_DECISION_REQUIRED`: issuer, rollback, generation lifecycle, history topology and retention, fork/conflict resolution, compatibility, retrospective invalidation, external-boundary mapping, and implementation-gate policy remain unapproved K-333F decisions.
 
-`PROHIBITED_ASSUMPTION`: Durable bytes, a successfully committed IndexedDB transaction, an index entry, a current-head cache, backup availability, or a migration result is not accepted-history authority, conformity, admission, eligibility, or activation.
+`PROHIBITED_ASSUMPTION`: durable bytes, an IndexedDB commit, a derived index or head, migration completion, or backup availability is not accepted-history authority, admission, eligibility, or activation.
 
 `NO_PRODUCTION_SOURCE_CAN_YET_BE_ELIGIBLE`
 
 ## 2. Scope and non-goals
 
-`CONFIRMED_SOURCE_FACT`: This audit reads existing source and adds only this document. It changes no database version, store, index, migration, codec, protocol record, runtime caller, recovery policy, writer registration, synchronization path, admission, eligibility, or activation.
+`CONFIRMED_SOURCE_FACT`: this audit documents existing source facts only. It changes no database version, store, index, migration, codec, protocol record, runtime caller, recovery policy, writer registration, synchronization, admission, eligibility, or activation.
 
-`DEFERRED`: K-334B and later may define a reviewed schema/migration and repositories only after the blockers in section 18 are resolved.
+`DEFERRED`: K-334B is owner-decision proposal and approval-evidence work only. K-334C may define a schema and migration contract only after sufficient explicit owner decisions are recorded.
 
 ## 3. Merged protocol baseline
 
 | Classification | Source fact / consequence |
 |---|---|
-| CONFIRMED_SOURCE_FACT | `main` contains K-333F merge commit `e3354bafbb56851d44362d6f394dbf085f0b7386` (`K-333F: Define manifest selection and history contract (#596)`). |
-| CONFIRMED_SOURCE_FACT | K-332 assigns canonical representation, strict decoders, proofs, compatibility and stable errors to K-333; it assigns additive stores/indexes, schema migration, repositories, and atomic persistence to K-334. See `frontend/docs/K-332-cross-module-source-authority-protocol-contract.md`, sections 1 and 5. |
-| CONFIRMED_SOURCE_FACT | K-330 is a dormant, single-envelope coordination repository on the K-321 database. It has no production caller: `frontend/src/lib/localDatabase/dormantWriterCoordinationRepository.ts:27-30,703-760`. |
-| CONFIRMED_SOURCE_FACT | K-328 is a separate dormant read-only handoff persistence foundation: `frontend/src/lib/localDatabase/crossContextHandoff/database.ts:19-22`; its dormancy test permits no caller outside its isolated module. |
+| CONFIRMED_SOURCE_FACT | `main` contains K-333F at `e3354bafbb56851d44362d6f394dbf085f0b7386`; K-333 currently provides pure strict codecs and supplied-record graph validation, not a database, repository, durable lookup, transaction, or runtime caller. |
+| CONFIRMED_SOURCE_FACT | K-332 assigns canonical representation, decoders, proofs, compatibility, and stable errors to K-333; it assigns persistent stores, migration, repositories, and atomic persistence to K-334. |
+| CONFIRMED_SOURCE_FACT | K-330 is a dormant single-envelope coordination repository within `absinthe-local-v2`; K-328 is a separate dormant read-only handoff database. |
 | PROHIBITED_ASSUMPTION | Neither dormant foundation is a K-334 authority repository or evidence that a production writer may run. |
 
-## 4. Current persistent-storage inventory
+## 4. Current persistent-storage inventory and legacy Notes boundary
 
-| Path | Current shape / owner | Production caller status | Authority classification |
-|---|---|---|---|
-| `absinthe-notes-v1` | v1, `notes` store keyed by note `id`; `frontend/src/lib/noteIndexedDb.ts:16-40` | Current Notes persistence through `notePersistence.ts` | CURRENT_PRODUCTION_SOURCE / LEGACY |
-| Notes localStorage | `notes-v2`, folders and migration/revision keys; inventory in `frontend/src/lib/storageInventory.ts` | Current fallback/supporting path | CURRENT_SUPPORTING_STORAGE / LEGACY |
-| `absinthe-local-v2` | v4 local-first foundation, nine stores listed in section 5 | capability-gated dormant repository calls; no production wiring | DORMANT_PRODUCTION_FOUNDATION |
-| K-330 envelope | `writer_coordination_state` within `absinthe-local-v2` | explicit developer/test capability only | DORMANT_PRODUCTION_FOUNDATION |
-| `absinthe-cross-context-handoff-v1` | v1, `handoff_authority` and `handoff_candidates` | no active caller outside handoff module | DORMANT_PRODUCTION_FOUNDATION |
-| `absinthe.attachments.metadata` | v1, `metadata` keyed by `id`, `noteId` index | attachment repository | CURRENT_SUPPORTING_STORAGE |
-| `absinthe.attachments.blobs` | v1, `blobs` keyed by `key` | attachment blob adapter | CURRENT_SUPPORTING_STORAGE |
-| local/session storage UI and draft keys | inventory / recovery adapters; not protocol records | current UI/supporting callers | NON_AUTHORITATIVE_CACHE or CURRENT_SUPPORTING_STORAGE |
-| recovery export files / backup inputs | deterministic export package and supplied adapters | explicit export/import workflow only | DOCUMENTATION_ONLY / NON_AUTHORITATIVE_CACHE |
-| Supabase tables and auth state | remote backend state, not K-333 authority persistence | existing domain-specific network callers | EXTERNAL_REMOTE_STATE |
-
-`CONFIRMED_SOURCE_FACT`: `storageInventory.ts` itself labels browser storage for audit/recovery and includes localStorage, sessionStorage, Supabase, memory, and file-export layers. It does not define K-333 authority.
-
-## 5. Current database/version/store map
-
-`CONFIRMED_SOURCE_FACT`: `LOCAL_DATABASE_NAME = 'absinthe-local-v2'`, `LOCAL_DATABASE_VERSION = 4`, and `LOCAL_SCHEMA_VERSION = 1` in `frontend/src/lib/localDatabase/types.ts:1-3`.
-
-| Store | Key / indexes | Existing responsibility |
+| Path | Current shape / caller | Classification |
 |---|---|---|
-| `database_meta` | `namespaceKey`; `by_schema_version` | namespace metadata and active generation pointer |
-| `generations` | `[namespaceKey,generationId]`; status, created, one-active indexes | staged/active generation lifecycle |
-| `entities` | `[namespaceKey,generationId,domain,entityId]`; domain/owner/deleted/updated indexes | local entity envelopes and tombstones |
-| `outbox` | `[namespaceKey,generationId,mutationId]`; status/entity/idempotency/revision indexes | local transactional outbox |
-| `sync_checkpoints` | `[namespaceKey,generationId,provider,stream]` | future sync checkpoints |
-| `restore_sessions` | `[namespaceKey,sessionId]`; status/package/staging indexes | restore session evidence |
-| `migration_state` | `[namespaceKey,migrationId]`; phase index | local migration evidence |
-| `attachment_state` | `[namespaceKey,generationId,attachmentId]`; sync/updated indexes | local attachment state |
-| `writer_coordination_state` | out-of-line key, no indexes | K-330 canonical coordination envelope |
+| `absinthe-notes-v1` | v1 `notes` store keyed by note `id`; current `notePersistence.ts` IndexedDB path | CURRENT_PRODUCTION_SOURCE / LEGACY |
+| `notes-v2` localStorage | direct current Notes reader/writer when IndexedDB is unavailable or fails: `initNotesPersistence()` and `saveNotesAsync()` | CURRENT_PRODUCTION_SOURCE / LEGACY_FALLBACK |
+| other Notes localStorage keys | folders, migration and revision markers, UI/session/draft/recovery support keys in `storageInventory.ts` | CURRENT_SUPPORTING_STORAGE or NON_AUTHORITATIVE_CACHE / LEGACY as their role requires |
+| `absinthe-local-v2` | v4 dormant local-first foundation; capability-gated calls and no production Notes wiring | DORMANT_PRODUCTION_FOUNDATION |
+| K-330 envelope | `writer_coordination_state` in `absinthe-local-v2`; explicit developer/test capability | DORMANT_PRODUCTION_FOUNDATION |
+| `absinthe-cross-context-handoff-v1` | separate K-328 handoff authority/candidate stores; no production caller | DORMANT_PRODUCTION_FOUNDATION |
+| attachment metadata/blob databases | current attachment support stores | CURRENT_SUPPORTING_STORAGE |
+| recovery exports and backups | explicit export/import inputs | DOCUMENTATION_ONLY / NON_AUTHORITATIVE_CACHE |
+| Supabase tables and auth state | existing remote application state | EXTERNAL_REMOTE_STATE |
 
-`CONFIRMED_SOURCE_FACT`: `createLocalDatabaseSchema()` accepts only historical versions 0–3 and adds the coordination store at v4; it updates existing metadata rows on v1–v3 upgrade: `frontend/src/lib/localDatabase/schema.ts`.
+`CONFIRMED_SOURCE_FACT`: production Notes persistence is mixed: `absinthe-notes-v1` is the current primary path, and `notes-v2` is a direct legacy fallback reader/writer. They are separate browser-storage mechanisms and not one native transaction. `absinthe-local-v2` is not the current production Notes source.
 
-`CONFIRMED_SOURCE_FACT`: `openLocalDatabase()` uses `onblocked` -> `OPEN_BLOCKED`, strict schema/version validation, and closes a stale connection on `onversionchange`: `frontend/src/lib/localDatabase/repository.ts:942-961`.
+`PROHIBITED_ASSUMPTION`: no current Notes path establishes K-333 authority merely by persisting a value.
 
-`OWNER_DECISION_REQUIRED`: A K-334 migration owner/database and next version cannot be selected merely because v4 has spare conceptual scope. K-334 must first choose whether source mutation and protocol evidence require one native database transaction.
+## 5. Exact current `absinthe-local-v2` schema inventory
+
+`CONFIRMED_SOURCE_FACT`: `LOCAL_DATABASE_NAME = 'absinthe-local-v2'`, `LOCAL_DATABASE_VERSION = 4`, and `LOCAL_SCHEMA_VERSION = 1`. There are nine stores and 22 indexes. Every listed store has `autoIncrement: false`; every listed index has `multiEntry: false`.
+
+| Store (introduced) | Key path | Exact indexes: name -> key path; unique |
+|---|---|---|
+| `database_meta` (v1) | `namespaceKey` | `by_schema_version` -> `schemaVersion`; false |
+| `generations` (v1) | `[namespaceKey, generationId]` | `by_namespace_status` -> `[namespaceKey, status]`; false. `by_namespace_created` -> `[namespaceKey, createdAt]`; false. `one_active_per_namespace` -> `activeNamespaceKey`; true |
+| `entities` (v1) | `[namespaceKey, generationId, domain, entityId]` | `by_namespace_generation_domain` -> `[namespaceKey, generationId, domain]`; false. `by_namespace_generation_owner` -> `[namespaceKey, generationId, ownerId]`; false. `by_namespace_generation_deleted` -> `[namespaceKey, generationId, deletionState]`; false. `by_namespace_generation_updated` -> `[namespaceKey, generationId, updatedAt]`; false |
+| `outbox` (v1; three added v2) | `[namespaceKey, generationId, mutationId]` | `by_namespace_generation_status` -> `[namespaceKey, generationId, status]`; false. `by_namespace_generation_entity` -> `[namespaceKey, generationId, domain, entityId]`; false. `by_idempotency_key` -> `[namespaceKey, generationId, idempotencyKey]`; true. `by_namespace_generation_status_available` -> `[namespaceKey, generationId, status, availableAt]`; false. `by_namespace_generation_status_lease` -> `[namespaceKey, generationId, status, leaseExpiresAt]`; false. `by_namespace_generation_entity_revision` -> `[namespaceKey, generationId, domain, entityId, localRevision]`; true |
+| `sync_checkpoints` (v1) | `[namespaceKey, generationId, provider, stream]` | `by_namespace_generation_provider` -> `[namespaceKey, generationId, provider]`; false |
+| `restore_sessions` (v1; three added v3) | `[namespaceKey, sessionId]` | `by_namespace_status` -> `[namespaceKey, status]`; false. `by_namespace_package_id` -> `[namespaceKey, packageId]`; true. `by_namespace_package_digest` -> `[namespaceKey, packageDigest]`; true. `by_namespace_staging_generation` -> `[namespaceKey, stagingGenerationId]`; true |
+| `migration_state` (v1) | `[namespaceKey, migrationId]` | `by_namespace_phase` -> `[namespaceKey, phase]`; false |
+| `attachment_state` (v1) | `[namespaceKey, generationId, attachmentId]` | `by_namespace_generation_sync` -> `[namespaceKey, generationId, syncState]`; false. `by_namespace_generation_updated` -> `[namespaceKey, generationId, updatedAt]`; false |
+| `writer_coordination_state` (v4) | out-of-line key | none |
+
+`CONFIRMED_SOURCE_FACT`: `createLocalDatabaseSchema()` accepts only historical versions 0, 1, 2, and 3. Version 2 adds the three outbox indexes; version 3 adds the three restore-session indexes; version 4 adds only `writer_coordination_state`. Upgrades from v1, v2, or v3 update existing `database_meta.databaseFormatVersion` rows to v4.
+
+`CONFIRMED_SOURCE_FACT`: `openLocalDatabase()` uses `OPEN_BLOCKED`, verifies the opened schema/version strictly, and closes stale connections on `versionchange`.
+
+`OWNER_DECISION_REQUIRED`: these exact current facts do not select the K-334 database topology, co-location boundary, or next version.
 
 ## 6. K-333 record-family persistence inventory
 
-| Family | Codec / identity | Natural key candidate | Current status and durable requirement |
-|---|---|---|---|
-| `WriterIdentityRecord` | K-333 strict codec; `writerDigest`; fields bind id, namespace, physical source, writer type, opaque manifest digest | exact `writerDigest` plus scoped identity | CONFIRMED_SOURCE_FACT: no durable repo/caller; persistence only after adoption policy exists |
-| `WriterSessionRecord` | K-333 strict codec; `sessionDigest`; binds generation, writer digest, epoch, capability digest | exact `sessionDigest` plus scoped session | CONFIRMED_SOURCE_FACT: no durable repo/caller; context/capability semantics unresolved |
-| `SourceAuthorityRecord` | K-333 strict codec; `authorityDigest`; source revision and operation/terminal/outbox roots | exact `authorityDigest` and source/namespace/generation | CONTRACT_INFERENCE: immutable accepted authority snapshots need append-only retention; a mutable latest row alone cannot be authority |
-| `SourceTransactionReferenceRecord` | K-333 strict codec; `referenceDigest`; binds authority, operation, admission, writer/session, terminal/outbox, MMR/checkpoint | exact `referenceDigest`, operation id | CONTRACT_INFERENCE: must be durably bound to the transaction that creates its cited evidence |
-| `OperationRecord` | K-333B codec; `operationDigest` and `exactOperationDigest` | `operationDigest` / exact operation commitment | CONFIRMED_SOURCE_FACT: pure value only; durable append-only candidate |
-| `AdmissionRecord` | K-333B codec; `admissionDigest`, exact operation commitment | `admissionDigest` / operation id | CONTRACT_INFERENCE: immutable dependent evidence; cannot imply admission merely by persistence |
-| `ImmutableOutboxIntentRecord` | K-333B codec; `outboxDigest`, exact operation commitment | `outboxDigest` / operation id | CONTRACT_INFERENCE: must be atomically consistent with source mutation if used as its delivery proof |
-| `TerminalStateRecord` | K-333B codec; `terminalDigest`, exact operation commitment | `terminalDigest` / operation id | CONTRACT_INFERENCE: terminality cannot appear without the committed operation/mutation boundary |
-| manifest/compatibility selectors | K-329 owns manifest canonical bytes/digest; K-333 owns protocol tuples | digest plus exact subject/version tuple | OWNER_DECISION_REQUIRED: selected manifest and compatibility history have no durable resolver yet |
-
-`CONFIRMED_SOURCE_FACT`: record fields and graph edges are in `writerAuthorityProtocol.ts:26-103` and `transactionEvidenceProtocol.ts:39-99`; K-333B’s public validator only validates supplied records and has no persistence path.
-
-## 7. K-333F selection/history durability requirements
-
-| Concept | Required durable form | Authority boundary |
+| Family | Current source fact | Future persistence consequence |
 |---|---|---|
-| Subject `{physicalSourceDigest,namespaceId,generationId}` | exact subject key and immutable event binding | CONFIRMED_SOURCE_FACT: K-333F section 4; no cross-subject reuse |
-| `SELECT` / `SUPERSEDE` / `REVOKE` / `ROLLBACK_DECISION` | immutable event if future issuer accepts it | CONTRACT_INFERENCE: event log is authority evidence; no mutable replacement |
-| `RESTORE_REFERENCE` | optional non-authoritative recovery metadata | CONFIRMED_SOURCE_FACT: may never select/change a head |
-| Head / sequence | derived from accepted history; optional materialized view only | PROHIBITED_ASSUMPTION: a pointer or index is not authority without exact event binding and revalidation |
-| predecessor and unique successor | event predecessor key plus transaction-time equality check | CONTRACT_INFERENCE: native transaction must reject stale or competing successor |
-| fork/conflict/duplicate-effective state | preserved diagnostics / graph evidence, no winner cache | CONFIRMED_SOURCE_FACT: K-333F sections 7, 9, 11 |
-| bytes resolution | content-addressed bytes or immutable resolution metadata while referenced | CONFIRMED_SOURCE_FACT: K-333F requires trusted bytes; possession is not authority |
-| generic issuer / rollback authorization | owner-policy inputs, not defaults encoded by storage | OWNER_DECISION_REQUIRED |
-| generation termination, inheritance, retention, compatibility | explicit owner policy records only if/when approved | OWNER_DECISION_REQUIRED |
+| `WriterIdentityRecord` / `WriterSessionRecord` | strict canonical K-333 values with no durable repository/caller | no durable adoption/context/capability policy exists |
+| `OperationRecord`, `AdmissionRecord`, `ImmutableOutboxIntentRecord` | K-333B pure canonical values bound to exact operation commitment | immutable evidence candidates for an initial authority commit |
+| `TerminalStateRecord` | pure canonical value bound to exact operation commitment | later immutable terminal evidence; its runtime creation timing is not defined today |
+| `SourceAuthorityRecord` | strict value binding source revision and operation/terminal/outbox roots | immutable authority snapshot only when its cited evidence exists and validates |
+| `SourceTransactionReferenceRecord` | strict value binding authority, operation, admission, writer/session, terminal/outbox, MMR/checkpoint roots | current graph validates supplied complete records; it does not define an initial-versus-final runtime staging family |
+| selection / compatibility material | K-329 owns canonical manifest bytes/digest; K-333 owns protocol tuples | no durable resolver or selected-history repository exists |
+
+`CONFIRMED_SOURCE_FACT`: current K-333 validators validate supplied graph values; they do not persist or stage them. `OWNER_DECISION_REQUIRED`: no document currently fixes whether an initial immutable reference, a later finalized reference, or both are required. No new record family is inferred.
+
+## 7. K-333F accepted-event rules and durable consequences
+
+| Action / state | Potential durable form and binding | Acceptance constraint | Effective-selection result | Unresolved-policy / prohibited inference |
+|---|---|---|---|---|
+| `SELECT` | immutable accepted event for the exact subject; predecessor absent; genesis sequence | genesis only and no accepted predecessor/history; never reactivates after revocation | establishes one active selection | issuer authorization is owner-governed; a later row, timestamp, or cache cannot make it accepted |
+| `SUPERSEDE` | immutable accepted exact-subject successor | exact current predecessor and next sequence; target digest absent from complete accepted lineage | establishes active selection | generic issuer and effective-boundary policy remain owner decisions; historical target cannot be relabeled as supersede |
+| `ROLLBACK_DECISION` | immutable accepted exact-subject successor | exact current predecessor and next sequence; target present in complete accepted lineage; rollback-specific authorization in addition to generic authorization | establishes active selection using historical digest | novel target cannot be relabeled as rollback; no database rollback is implied |
+| `REVOKE` | immutable accepted exact-subject successor | exact current predecessor, next sequence, and authorization | `NO_EFFECTIVE_SELECTION`; no manifest target | later reactivation uses supersede or rollback from lineage membership, never a new select |
+| `RESTORE_REFERENCE` | non-authoritative metadata, if retained | exact reference validation only; no lifecycle sequence | none | cannot select a manifest, advance a head, or issue lifecycle authority |
+| unknown lineage membership | no event | incomplete, forked, unavailable, unsupported, corrupt, or otherwise unknown history fails closed | none | never default to supersede or rollback |
+
+`CONTRACT_INFERENCE`: an accepted event would be immutable authority evidence; a materialized head is only a bound projection; indexes are reconstructible; diagnostics are non-authoritative. No timestamp/latest-row authority is permitted.
 
 ## 8. Persistence topology options
 
-| Option | Feasibility / atomicity | Risks and verdict |
+| Option | Fact or inference | Verdict |
 |---|---|---|
-| A. Additive stores in `absinthe-local-v2` | Can atomically join current local entity/outbox mutation with protocol stores in one native IndexedDB transaction | Best possible local atomicity, but couples dormant K-321 generation model to new K-333 authority; migration/version and policy semantics remain blocked. **Not selected yet.** |
-| B. Dedicated protocol authority DB | Isolates records and upgrade lifecycle | Cannot atomically commit with Notes source mutation or K-330 envelope; durable-intent/reconciliation protocol would be required. **Not selected.** |
-| C. Extend K-330 envelope | Atomic only for one bounded whole-envelope coordination model | Duplicates K-333 append-only/history responsibility, causes whole-envelope rewrite and contention, and violates K-330’s explicit bounded scope. **Rejected.** |
-| D. Hybrid event log plus derived views | Can preserve immutable history and rebuild indexes; native atomicity only within one DB | Correct conceptual split, but placement and intent protocol are blocked by owner policies. **Candidate after decisions.** |
-| E. No implementation yet | Preserves authority boundaries and avoids an accidental policy | **Selected outcome for K-334A.** |
+| A. Additive stores in `absinthe-local-v2` | Potential future same-database transaction with dormant local-first entity/outbox stores. It cannot atomically include current `absinthe-notes-v1` mutations, current `notes-v2` localStorage fallback writes, K-328's separate DB, attachment DBs, or remote Supabase state. | `CONTRACT_INFERENCE`: not selected. It does not solve current Notes atomicity; it becomes relevant only after separately reviewed source migration/integration. |
+| B. Dedicated protocol authority DB | Isolates records/upgrades but cannot atomically include current Notes or K-330. | Not selected; explicit durable-intent/reconciliation would be required. |
+| C. Extend K-330 envelope | K-330 is one bounded whole-envelope coordination model. K-333 history is append-only and unbounded by that envelope's model. | `CONTRACT_INFERENCE`: not selected because whole-envelope rewrite, contention, authority duplication, and responsibility confusion would require a new reviewed contract. This is not a permanent owner prohibition. |
+| D. Event log plus derived views | Separates immutable accepted history from rebuildable views; native atomicity remains database-local. | Candidate only after decisions. |
+| E. No implementation | Preserves boundaries. | Selected K-334A outcome. |
 
-`CONFIRMED_SOURCE_FACT`: IndexedDB cannot provide one native transaction across `absinthe-local-v2`, `absinthe-cross-context-handoff-v1`, the legacy Notes DB, attachment DBs, or localStorage. Any claim otherwise is `CROSS_DATABASE_ATOMICITY_IMPOSSIBLE`.
+`CONFIRMED_SOURCE_FACT`: IndexedDB has no native cross-database transaction, and localStorage is not in an IndexedDB transaction. Any contrary claim is `CROSS_DATABASE_ATOMICITY_IMPOSSIBLE`.
 
-## 9. Selected outcome
+## 9. Exact-operation lifecycle staging and SourceTransactionReference timing
 
-`K334A_NEEDS_PRECURSOR_OWNER_DECISIONS`
-
-`OWNER_DECISION_REQUIRED`: Before schema design, record the K-333F issuer, rollback, lifecycle, retention, fork-resolution, compatibility, and external-boundary policies. Then K-334B may choose whether its authoritative write set must co-reside with a local source mutation in `absinthe-local-v2` or use an explicitly reviewed durable-intent reconciliation protocol.
-
-## 10. Atomic transaction matrix
-
-| Facts / crash window | Classification | Required result |
+| Stage | Required boundary | Status |
 |---|---|---|
-| local entity mutation + local outbox | MUST_COMMIT_IN_ONE_NATIVE_TRANSACTION | Already demonstrated by `LocalDatabaseRepository.commitLocalMutation()` over metadata/generation/entities/outbox. |
-| source revision + operation/admission/outbox/terminal/reference | MUST_COMMIT_IN_ONE_NATIVE_TRANSACTION if they assert one committed source operation | No source mutation or terminal proof may survive alone. |
-| accepted event + predecessor/head compare + materialized head view | MUST_COMMIT_IN_ONE_NATIVE_TRANSACTION if a head view exists | Event without bound view is reconstructible; view without event is corruption. |
-| event history -> indexes/current selection | DERIVED_AFTER_COMMIT | Rebuild/revalidate; never use an index as authority. |
-| K-330 envelope + K-333 event/source mutation | CROSS_DATABASE_ATOMICITY_IMPOSSIBLE unless K-334 places all participating records in one DB | A separate intent/reconciliation design would require later review. |
-| K-328 handoff evidence | READ_ONLY_REFERENCE | Must be revalidated; it cannot be rewritten or treated as K-333 acceptance. |
-| restore/migration markers | MAY_COMMIT_SEPARATELY_WITH_DURABLE_INTENT | No restore/migration may issue selection history or advance head without future authority. |
-| attachment blobs and metadata | CROSS_DATABASE_ATOMICITY_IMPOSSIBLE relative to protocol DB | References only; blob movement/deletion remains out of scope. |
-| owner policy record | OWNER_DECISION_REQUIRED | Absence blocks authoritative issuance rather than selecting a default. |
+| A. Initial linear authority commit | K-332 requires one future linearizable boundary for generic admission, current scope/session/epoch, expected source revision, source mutation, immutable outbox intent, next source revision, and immutable receipt. Immutable operation/admission/outbox evidence available at that stage must agree with that commit. | CONFIRMED_SOURCE_FACT for the K-332 requirement; concrete stores/topology remain deferred. Terminal outcome is not assumed known. |
+| B. Later terminal transition / reconciliation | terminal evidence may follow completion, failure, cancellation, delivery, or reconciliation. It must bind `exactOperationDigest`, independently verify immutable initial authority, never rewrite initial operation, and use its own reviewed transaction/reconciliation boundary. Restart must distinguish missing terminal evidence from false terminal state. | CONTRACT_INFERENCE from K-332's reconciliation restriction and K-333B record graph; no implementation exists. |
+| C. Cross-database durable intent | separately committed facts are permitted only under an explicit durable-intent and reconciliation contract. | OWNER_DECISION_REQUIRED; best-effort separate commits are not atomic. |
 
-## 11. Append-only history and current-view boundary
+`OWNER_DECISION_REQUIRED`: the current supplied-record graph does not select a runtime instant for `SourceTransactionReferenceRecord`. An initial immutable reference and/or a later finalized reference must be specified by a future approved staging contract; no timing is invented here.
 
-`CONTRACT_INFERENCE`: immutable accepted events and immutable K-333 operation/admission/outbox/terminal records are the only potential authority evidence. A head, subject lookup, digest lookup, predecessor lookup, conflict flag, and current selection are rebuildable projections.
+## 10. Lifecycle-aware atomic transaction matrix
 
-`CONFIRMED_SOURCE_FACT`: K-333F rejects persistence-order and timestamp winners and requires append-only retained evidence (`K-333F`, sections 7, 9, 11, 14).
-
-`PROHIBITED_ASSUMPTION`: corruption repair must not choose a branch, relabel an event, rebuild a missing authoritative event from a view, or infer selection from available bytes.
-
-## 12. Candidate store/key requirements
-
-| Conceptual candidate | Key / mutation rule | Ownership and blocker |
+| Facts / crash window | Classification | Exact condition |
 |---|---|---|
-| canonical protocol event bytes | event self-digest; add-only | K-333 codec validates bytes; K-334 repository may retain only after issuer policy exists |
-| subject event sequence / predecessor uniqueness | exact subject + sequence and predecessor uniqueness constraints | requires accepted-event and fork policy; no mutable overwrite |
-| current-head projection | exact subject; replaceable only in same transaction as an accepted event | derived cache, revalidated against history |
-| operation evidence | operation/admission/outbox/terminal self-digest, add-only | must share source-operation transaction or approved intent protocol |
-| source authority / transaction reference | self-digest plus exact source subject/revision | must bind all cited records; no caller-supplied truth |
-| bounded diagnostics/conflicts | diagnostic identity; append-only or retained per policy | retention/fork policy unresolved |
-| policy decisions | approved decision identity/version | owner-governed; absent policy blocks issuance |
+| current legacy Notes IndexedDB write | NOT_REQUIRED | existing legacy path is outside a K-334 authority contract; it does not establish K-333 authority |
+| current `notes-v2` fallback write | NOT_REQUIRED | localStorage is a separate legacy fallback path, not a native transaction participant |
+| dormant local-first entity + local outbox | MUST_COMMIT_IN_ONE_NATIVE_TRANSACTION | existing `commitLocalMutation()` joins its participating local-v2 stores |
+| initial source operation authority commit | MUST_COMMIT_IN_ONE_NATIVE_TRANSACTION | when K-332's source mutation, revision, admission, immutable outbox intent, receipt, and stage-A evidence share one selected future database boundary |
+| later terminal reconciliation | MAY_COMMIT_SEPARATELY_WITH_DURABLE_INTENT | only after independently verifying initial immutable authority and binding terminal evidence to `exactOperationDigest` |
+| accepted selection event + predecessor/head comparison | MUST_COMMIT_IN_ONE_NATIVE_TRANSACTION | when issuing an accepted successor: exact subject, current predecessor, next sequence, and event must linearize together |
+| optional materialized head update | MUST_COMMIT_IN_ONE_NATIVE_TRANSACTION | if retained, write it with its accepted event; history remains authority and view must be revalidated |
+| history-derived indexes | DERIVED_AFTER_COMMIT | indexes rebuild from validated immutable history and never become authority |
+| K-330 coordination envelope | READ_ONLY_REFERENCE | unless a later approved topology makes it a participant; K-330 cannot silently become K-333 authority |
+| K-328 handoff authority | READ_ONLY_REFERENCE | strict revalidation only; it is not selection authority |
+| attachment metadata/blob state | CROSS_DATABASE_ATOMICITY_IMPOSSIBLE | attachment stores are separate from a prospective authority database; references only are in scope |
+| restore/bootstrap markers | MAY_COMMIT_SEPARATELY_WITH_DURABLE_INTENT | only under later reviewed binding/reconciliation; neither may issue selection history |
+| cross-database relationships | CROSS_DATABASE_ATOMICITY_IMPOSSIBLE | a native all-or-nothing commit is unavailable; require approved durable intent or do not proceed |
+| owner policy / unresolved lifecycle choices | OWNER_DECISION_REQUIRED | absence blocks accepted-event issuance; it does not select a default |
 
-`OWNER_DECISION_REQUIRED`: byte ceilings, growth limits, retention/deletion, and index selection are not source-established. K-334B must not invent numeric production limits.
+## 11. Migration authority and version status
 
-## 13. Database migration contract
+`CONFIRMED_SOURCE_FACT`: K-334 is the confirmed migration authority for additive persistent stores/indexes, schema migration, persistent version storage, strict repository boundary reads, and native IndexedDB transaction implementation.
 
-`CONFIRMED_SOURCE_FACT`: `absinthe-local-v2` evolved 0 -> 4 additively; its v4 addition was only `writer_coordination_state`. K-330 explicitly preserves historical K-325 target database versions 3 and 4 without rewriting evidence (`K-330` document, Storage architecture).
+`OWNER_DECISION_REQUIRED`: target database/topology, source co-location, concrete next database version, exact stores/indexes, upgrade sequencing, lifecycle/retention schema needs, cross-database durable intent, and implementation-gate approval remain unresolved.
 
-`CONTRACT_INFERENCE`: a future migration must be additive, retain prior rows/bytes, reject unexpected schema, close stale tabs on `versionchange`, reject blocked opens, and validate the reopened schema. IndexedDB upgrades cannot be downgraded or rolled back after commit; an aborted upgrade transaction must leave the prior schema.
+`MIGRATION_VERSION_OWNER_DECISION_REQUIRED` means no concrete next version is selectable before the owner-selected database/topology and schema shape are approved; it does not mean K-334's responsibility is unknown.
 
-`OWNER_DECISION_REQUIRED`: `MIGRATION_VERSION_OWNER_DECISION_REQUIRED`. The next version and owning database depend on the unresolved co-location/atomicity decision.
+## 12. Owner-decision matrix
 
-## 14. Restore, bootstrap, and recovery contract
+| Decision | Owner | Status / persistence consequence | Neutral planning / issuance / implementation | Safe unresolved behavior |
+|---|---|---|---|---|
+| Generic issuer authorization | Absinthe Protocol Owner approval required; future Manifest Selection and History Authority proposed | OWNER_DECISION_REQUIRED; no accepted issuer proof | neutral analysis may describe bytes; issuance and implementation blocked | issue no event; no default issuer |
+| Rollback-specific authorization | Absinthe Protocol Owner approval required; future Manifest Selection and History Authority proposed | OWNER_DECISION_REQUIRED; no rollback proof | issuance and implementation blocked | reject rollback; do not relabel |
+| Generation termination | Absinthe Protocol Owner approval required | OWNER_DECISION_REQUIRED; no terminal lifecycle evidence | policy-dependent schema/issuance blocked | no termination inference |
+| Generation inheritance | Absinthe Protocol Owner approval required | OWNER_DECISION_REQUIRED; no carry-forward evidence | policy-dependent schema/issuance blocked | no automatic inheritance |
+| History topology | Absinthe Protocol Owner approval required | OWNER_DECISION_REQUIRED; no authoritative lineage layout | neutral append-only analysis only; issuance/implementation blocked | no inferred head/history |
+| History retention | Absinthe Protocol Owner approval required | OWNER_DECISION_REQUIRED; no pruning/compaction rule | neutral planning only; destructive implementation blocked | retain referenced evidence; no pruning |
+| Fork resolution | Absinthe Protocol Owner approval required | OWNER_DECISION_REQUIRED; conflict evidence retained | issuance/implementation blocked | derive no winner |
+| Concurrent-successor conflict resolution | Absinthe Protocol Owner approval required | OWNER_DECISION_REQUIRED; no winner selection rule | linearization shape may be analyzed; issuance/implementation blocked | reject/fail closed; preserve diagnostics |
+| Compatibility combinations | Absinthe Protocol Owner approval required; future Cross-Protocol Compatibility Authority proposed | OWNER_DECISION_REQUIRED; no supported tuple table | neutral planning only; acceptance/implementation blocked | reject unknown/mixed tuple |
+| Retrospective invalidation | Absinthe Protocol Owner approval required | OWNER_DECISION_REQUIRED; no rewrite/delete semantics | issuance/implementation blocked | no deletion, rewrite, or retroactive authority |
+| External-boundary mapping | Absinthe Protocol Owner approval required | OWNER_DECISION_REQUIRED; no runtime boundary mapping | neutral planning only; integration/implementation blocked | do not infer from sequence/time |
+| Implementation-gate approval | Absinthe Protocol Owner | OWNER_DECISION_REQUIRED; no K-334 repository authorization | blocks implementation even if neutral shape analysis is possible | preserve documentation-only scope |
 
-| Path | Allowed consequence | Forbidden consequence |
-|---|---|---|
-| startup/reopen | strict read validation and derived-index reconstruction | selection, head advancement, repair, or runtime eligibility |
-| backup/export | preserve canonical bytes/provenance where supplied | treat backup possession as authority |
-| restore import | retain non-authoritative `RESTORE_REFERENCE` only when later contract permits | issue lifecycle event or delete/rewrite history |
-| migration resume | preserve source/target evidence and resume validated staging | infer authority from migration success |
-| remote hydration | retain externally supplied data only after later validation | select newest remote bytes |
-| recovery / empty state | fail closed and preserve diagnostics | silently normalize missing authority to empty/active |
+`PROHIBITED_ASSUMPTION`: no proposed future authority label is a granted owner. These decisions block accepted authority issuance; some neutral planning may be described, but policy-dependent schema or repository implementation cannot begin without explicit approval.
 
-`CONFIRMED_SOURCE_FACT`: recovery adapters sanitize provenance and report unavailable/parse-failed inputs; they are not a K-333 authority resolver: `frontend/src/lib/recoveryExportSourceAdapters.ts`.
+## 13. History, restore, concurrency, and failure boundaries
 
-## 15. Concurrency and multi-context audit
+`CONTRACT_INFERENCE`: immutable accepted history is potential authority evidence; materialized heads are bound projections; indexes are reconstructible; diagnostics and `RESTORE_REFERENCE` are non-authoritative. Backup, migration, restore, hydration, or persistence success grants no authority.
 
-`CONFIRMED_SOURCE_FACT`: a single IndexedDB read/write transaction serializes participating stores; K-330 adds exact CAS checks inside its one-store transaction, and K-328 combines authority/candidate writes in one strict transaction with byte comparison/CAS (`dormantWriterCoordinationRepository.ts`, `crossContextHandoff/database.ts`).
+`CONFIRMED_SOURCE_FACT`: K-330 uses a one-store CAS envelope and K-328 uses strict atomic handoff writes, but neither selects a K-333 concurrency mechanism. A Web Lock cannot replace transaction-time comparison or provide durability.
 
-`CONTRACT_INFERENCE`: future selection acceptance requires exact subject, action transition, generic authorization, predecessor/current-head compare, exact next sequence, and append in one native transaction. A Web Lock may coordinate contexts but cannot supply durability or authority; it cannot replace transaction-time comparison.
+`CONTRACT_INFERENCE`: stage-A restart must validate whether the initial commit exists. Stage-B restart must treat missing terminal evidence as missing, not terminal false; terminal reconciliation must revalidate initial authority. No resource ceiling, retention period, compaction model, or browser-crash mechanism is added here.
 
-`OWNER_DECISION_REQUIRED`: stale-tab, mobile-webview, worker/service-worker, lock-loss/starvation, and cross-database recovery policy require a future concurrency contract. Until then, no source mutation may claim K-333 authority.
+## 14. Corrected K-334 sequence
 
-## 16. Failure/corruption taxonomy
+1. **K-334B - Owner-Decision Proposal and Explicit Approval Evidence.** Prepare alternatives and recommendations, then record explicit Absinthe Protocol Owner approval or unresolved status. No schema implementation.
+2. **K-334C - Durable Schema and Migration Contract.** After sufficient K-334B approval, select topology/database, candidate stores/indexes/keys, concrete migration/version and transaction groups. No production repository implementation unless separately authorized.
+3. **K-334D - Append-Only Protocol Evidence Repository.**
+4. **K-334E - Atomic Initial Operation Authority Repository.**
+5. **K-334F - Terminal Reconciliation and Final Reference Repository.**
+6. **K-334G - Selection-History and Head Projection Repository.**
+7. **K-334H - Bootstrap, Restore-Reference, and Recovery Contract.**
+8. **K-334I - Concurrency, Crash, Quota, and Real-Browser Evidence.**
 
-| Conceptual failure | Detection / fail-closed behavior |
-|---|---|
-| `DATABASE_OPEN_FAILED`, `DATABASE_OPEN_BLOCKED`, `UNEXPECTED_DATABASE_VERSION`, `UNEXPECTED_STORE_SCHEMA`, `PERSISTENCE_UNAVAILABLE`, `QUOTA_EXCEEDED` | open/upgrade/write boundary; block mutation, preserve existing evidence, retry only when no commit occurred |
-| `CORRUPT_PERSISTED_RECORD`, `CANONICAL_DECODE_FAILED`, `DIGEST_MISMATCH`, `SUBJECT_KEY_MISMATCH` | strict decode/binding read; return bounded error, no normalization or deletion |
-| `PREDECESSOR_NOT_CURRENT_HEAD`, `SEQUENCE_NOT_NEXT`, `SUCCESSOR_ALREADY_EXISTS`, `CONCURRENT_SUCCESSOR_CONFLICT` | pre-acceptance transaction read; abort proposed event, preserve bounded diagnostic |
-| `HISTORY_FORKED`, `DUPLICATE_EFFECTIVE_SELECTION` | graph/current-view validation; derive no selection and choose no winner |
-| `TRANSACTION_ABORTED`, `TRANSACTION_COMMIT_UNCERTAIN` | completion boundary; do not expose success before completion; re-read only through strict restart validation |
-| `RESTORE_REFERENCE_INVALID`, `OWNER_POLICY_UNAVAILABLE` | restore/policy boundary; retain non-authoritative evidence where safe and issue no authority event |
+`DEFERRED`: later integration remains K-331 writer instrumentation, K-328/K-329 adapters, shadow-mode consumer, eligibility, and activation. Owner approval and schema work are deliberately separate.
 
-`PROHIBITED_ASSUMPTION`: this table is a future repository taxonomy, not a new production error enum.
+## 15. Production integration blockers
 
-## 17. Resource and retention audit
+`CONFIRMED_SOURCE_FACT`: K-333 has no production persistence caller; K-328/K-330 remain dormant; K-331 instrumentation is architecture-only.
 
-`CONFIRMED_SOURCE_FACT`: K-333 protocol canonical encoding applies a 32 KiB record ceiling and related canonical-value bounds; K-330 separately bounds its aggregate envelope. See `frontend/docs/K-333B-production-transaction-evidence-records.md`, Stable errors and resource bounds.
+`OWNER_DECISION_REQUIRED`: no production integration is permitted before explicit policy approval, selected topology/intent contract, repository implementation, real-browser evidence, later writer integration, admission, shadow verification, eligibility, and activation reviews.
 
-`OWNER_DECISION_REQUIRED`: event/diagnostic count ceilings, retention duration, compaction/checkpoint model, fork/abandoned-generation retention, quota response, account-deletion treatment, and export inclusion have no approved production values. No numeric production estimate is introduced here.
+## 16. Validation evidence
 
-## 18. Owner-decision matrix
+`CONFIRMED_SOURCE_FACT`: this source-facts document is grounded in the bounded files cited above. Focused K-328/K-325/recovery, K-329/K-330/K-332/K-333, protocol-bundle, typecheck, build, and diff validation are required before publication. A CRLF/LF-sensitive K-333 mutation-anchor failure remains non-blocking only if its source/test blobs are unchanged from the base; no test/source change is justified by this audit.
 
-| Decision | Persistence consequence / safe unresolved behavior |
-|---|---|
-| generic issuer authorization | no event issuance and no policy-default record |
-| rollback authorization | no rollback event or auto-relabel to supersede |
-| generation termination/inheritance | no automatic carry-forward or terminal rewrite |
-| history topology / fork resolution | retain conflict evidence, derive no winner |
-| retention / compaction | no destructive pruning of referenced evidence |
-| compatibility combinations | reject unsupported/mixed tuples; no inferred decoder edge |
-| retrospective invalidation | no delete/rewrite/retroactive authority |
-| external boundary mapping | no session/operation boundary inferred from sequence/time |
-| implementation-gate approval | K-334B remains blocked until owner-approved implementation phase |
-
-## 19. Production integration blockers
-
-`CONFIRMED_SOURCE_FACT`: there is no K-333 production persistence caller; K-333B explicitly states its modules are pure dormant values. K-328 and K-330 are isolated/dormant. K-331 runtime instrumentation is architecture-only.
-
-`OWNER_DECISION_REQUIRED`: no production integration is permitted until policy decisions, storage co-location/intent design, repository implementation, real browser durability evidence, later writer integration, admission, shadow verification, eligibility, and activation contracts have each been independently reviewed.
-
-## 20. Recommended K-334 task decomposition
-
-1. **K-334B — Owner-decision closure and durable schema/migration contract.** Define only approved policy inputs, co-location decision, exact additive upgrade owner, and populated-version upgrade tests.
-2. **K-334C — Canonical append-only protocol evidence repository.** Strict byte boundary reads and restart validation; no runtime caller.
-3. **K-334D — Atomic operation/admission/outbox/terminal repository.** One reviewed native transaction or an explicitly reviewed durable-intent protocol.
-4. **K-334E — Selection-history event/head projection repository.** Event-first authority, derived head/index rebuild, conflict/fork handling.
-5. **K-334F — Bootstrap/restore-reference/recovery integration contract.** No selection authority from import, backup, or hydration.
-6. **K-334G — Concurrency, crash, quota, and real-browser evidence.** Multi-context evidence before any writer integration.
-
-`DEFERRED`: K-331 writer instrumentation, K-328/K-329 adapters, shadow consumer, eligibility, and activation remain later integration work.
-
-## 21. Validation evidence
-
-`CONFIRMED_SOURCE_FACT`: This document is based on the bounded source inventory cited above. No test-only audit file is needed because database names, versions, stores, source callers, K-333 protocol ownership, and dormancy claims already have production-source constants and permanent focused tests.
-
-`DEFERRED`: focused K-329/K-330/K-332/K-333/K-328/K-325/recovery suites, typecheck, build, and diff validation are required before PR publication.
-
-## 22. Final invariant
+## 17. Final invariant
 
 `NO_PRODUCTION_SOURCE_CAN_YET_BE_ELIGIBLE`
