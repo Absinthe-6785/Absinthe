@@ -29,7 +29,7 @@ Every decision distinguishes `SOURCE_FACT`, `CONTRACT_INFERENCE`, `RECOMMENDED_P
 
 ## 5. Approval-evidence model
 
-This document revision is `K334B-PROPOSAL-r2`. It is a human-readable proposal
+This document revision is `K334B-PROPOSAL-r3`. It is a human-readable proposal
 revision identifier, not a digest, signature, database value, or self-reference.
 The stable decision identity never changes: `K334B-D01` through `K334B-D12`.
 
@@ -40,15 +40,19 @@ must increment that decision's `vN` monotonically. The K-334B1 corrections are
 semantic for D04, D06, and D12, whose current versions are therefore v2; the
 other decisions remain v1. Editorial or formatting-only corrections do not
 increment a decision version, but must be recorded as a bounded correction to
-the proposal revision and must not alter the referenced decision semantics.
+the proposal revision and must not alter the referenced decision semantics. A
+package-level publication-record procedure that does not change any decision's
+question, option, recommendation, scope, or decision-specific approval meaning
+is administrative metadata, not a new decision semantic version.
 
 Before a proposal version is in an immutable external Git commit, its register
 status is `DRAFT_NOT_PUBLISHED` and
 `UNPUBLISHED_APPROVAL_EVIDENCE_NOT_ALLOWED`. No owner approval can be recorded
-against it. After an immutable commit is pushed, later external approval
-evidence may reference that exact commit and decision version; the PR body is
-the publication record for that commit. This document does not hash or embed
-its own future commit, avoiding a self-referential commit scheme.
+against it. After an immutable commit is pushed, a later authoritative external
+publication record may bind that exact commit and decision-version set for owner
+review. A PR body may summarize that record, but is not the sole publication
+authority. This document does not hash or embed its own future commit, avoiding
+a self-referential commit scheme.
 
 Each later approval-evidence entry must contain:
 
@@ -57,6 +61,7 @@ Each later approval-evidence entry must contain:
 | `decisionId` | Stable ID `K334B-D01` through `K334B-D12`. |
 | `decisionVersion` | Immutable exact decision version, such as `K334B-D04-v2`. |
 | `proposalDocument` | This document path. |
+| `publicationRecordId` | Exact authoritative external publication-record identity. |
 | `proposalCommit` | Immutable externally published Git commit containing the reviewed proposal version. |
 | `approvingAuthority` | Explicitly identifies the Absinthe Protocol Owner. |
 | `disposition` | `OWNER_APPROVAL_PENDING`, `OWNER_APPROVED`, `OWNER_REJECTED`, `DEFERRED_BY_OWNER`, or `SUPERSEDED`. |
@@ -68,8 +73,8 @@ Each later approval-evidence entry must contain:
 | `notes` | Bounded clarification; never substitutes for the fields above. |
 
 Approval evidence must bind the document revision, immutable proposal commit,
-decision ID/version, selected option, statement, exact effective scope,
-timestamp, and any supersession reference. Approval cannot be inferred from
+publication-record identity, decision ID/version, selected option, statement,
+exact effective scope, timestamp, and any supersession reference. Approval cannot be inferred from
 missing fields, merge status, CI, a review, this task, or a publication commit.
 Old evidence is historical and immutable: semantic revisions require new
 approval evidence and explicit supersession rather than editing prior evidence.
@@ -79,6 +84,55 @@ approves; an omitted decision is not approved. A partial approval must state
 the approved and unapproved scope, with every unapproved portion remaining
 pending. This is not a codec, signature scheme, database record, API, or
 runtime validator.
+
+### 5.1 Authoritative proposal-publication contract
+
+`K334BProposalPublicationRecord` is the one authoritative external,
+repository-traceable publication record for a proposal package. It is
+documentation-level evidence only: it is not a codec, database record, API,
+runtime validator, signature scheme, policy approval, or implementation grant.
+
+| Field | Required meaning |
+|---|---|
+| `publicationRecordId` | Unique immutable repository-traceable identifier, formatted `K334B-PUB-NNN`; never reused for another proposal commit. |
+| `proposalDocument` | Exact proposal document path. |
+| `proposalDocumentVersion` | Exact package revision, such as `K334B-PROPOSAL-r3`. |
+| `publishedProposalCommit` | Exact immutable Git commit containing that package. |
+| `includedDecisionVersions` | Explicit complete list of decision versions published by this record. |
+| `publicationStatus` | Exactly `DRAFT_NOT_PUBLISHED`, `PUBLISHED_FOR_OWNER_REVIEW`, or `SUPERSEDED`. |
+| `publishedAt` | Explicit publication timestamp. |
+| `recordedBy` | Identified recorder. |
+| `recordingAuthority` | `Authorized Proposal Publication Recorder`, distinct from the Absinthe Protocol Owner unless separately evidenced. |
+| `supersedesPublicationRecord` | Exact earlier record, or `NONE`. |
+| `notes` | Bounded administrative clarification only. |
+
+For this package, `includedDecisionVersions` must enumerate:
+`K334B-D01-v1`, `K334B-D02-v1`, `K334B-D03-v1`, `K334B-D04-v2`,
+`K334B-D05-v1`, `K334B-D06-v2`, `K334B-D07-v1`, `K334B-D08-v1`,
+`K334B-D09-v1`, `K334B-D10-v1`, `K334B-D11-v1`, and `K334B-D12-v2`.
+
+`DRAFT_NOT_PUBLISHED` means content may change and no approval evidence is
+valid. A record transitions to `PUBLISHED_FOR_OWNER_REVIEW` only when it has a
+unique ID, the exact immutable proposal commit and document path, the complete
+included decision-version list, explicit `publishedAt`, `recordedBy`, and
+`recordingAuthority`, and all owner dispositions are still pending. Publication
+allows later owner evidence to reference the package; it grants neither policy
+approval, K-334C finalization, implementation, admission, eligibility, nor
+activation.
+
+`SUPERSEDED` preserves the old record and all evidence bound to it. A new record
+with a new ID, new commit, new included-version set, and explicit supersedes
+reference is required for semantic changes or materially wrong publication
+metadata. No approval silently transfers to a new version. If a later commit is
+only non-semantic, the old published commit remains the approval target unless a
+new administrative publication record explicitly supersedes it.
+
+The authoritative record must live in a durable repository-traceable evidence
+location, preferably a later repository documentation/evidence commit. A PR body
+may summarize its state but is not the sole immutable authority; a transient chat
+statement is never sufficient. This two-artifact model keeps Artifact A (this
+proposal) free of its own future SHA and lets Artifact B be created only after
+Artifact A's commit is known.
 
 ## 6. Decision summary matrix
 
@@ -200,16 +254,56 @@ runtime validator.
 - **Current status / proposed owner disposition:** `OWNER_APPROVAL_PENDING`.
 - **Existing source facts:** K-333F requires retained history/bytes while referenced and rejects destructive pruning implied by a current head.
 - **Invariants:** accepted, revoked, superseded, fork, rejected-proposal, diagnostic, restore-reference, and approval evidence remain distinguishable and are not silently deleted when needed for proof. Any future export must preserve provenance and complete lineage rather than collapse evidence to a current head.
-- **Option set:** **A** append-only v1 preservation of all listed evidence classes, with any exported copy retaining complete lineage and non-authoritative provenance; **B** a separately owner-approved checkpoint, compaction, archival, and export-provenance policy; **C** retain or export only the current head.
+- **Option set:** **A** append-only v1 preservation of all listed evidence classes, accepting storage growth, quota pressure, larger exports, restore/replay and audit cost, and conflict/rejected-evidence burden in exchange for complete lineage and non-authoritative provenance; **B** a separately owner-approved checkpoint, compaction, archival, operational-relief, and export-provenance policy that preserves verifiability; **C** retain or export only the current head.
 - **Recommended option:** **A** (`RECOMMENDED_POLICY`, HIGH). Owner preference for bounded retention may later select B with a separate archival/checkpoint contract; C is rejected.
-- **Recommendation rationale / rejected options:** A keeps lineage reconstructible and exported evidence attributable pending a proven archival design. B is not defined here. C cannot prove lineage or provenance.
-- **Persistence consequence:** no deletion, compaction, TTL, archival, quota ceiling, retention period, export format, or import/restore authority is selected.
+- **Recommendation rationale / rejected options:** A keeps lineage reconstructible and exported evidence attributable while making its operational cost explicit. B is not defined here. C cannot prove lineage, provenance, restore/audit reproducibility, or conflict visibility.
+- **Persistence consequence:** retained volume can grow with accepted, superseded, revoked, conflict, rejected-proposal, restore-reference, and approval evidence. No deletion, compaction, TTL, archival, quota ceiling, retention period, export format, provider, transport, or import/restore authority is selected.
 - **Planning effect:** `DEFERRABLE_DURING_NEUTRAL_K334C_ANALYSIS`.
 - **Issuance effect:** `DOES_NOT_BLOCK_ISSUANCE_BUT_BLOCKS_LATER_POLICY`.
 - **Implementation effect:** blocks compaction, deletion, export, import, and restore-authority implementation.
-- **Safe unresolved behavior:** preserve referenced evidence append-only; do not compact, archive destructively, delete, treat an export as authoritative, or select an export format.
+- **Safe unresolved behavior:** preserve referenced evidence append-only; do not compact, archive destructively, delete, silently evict under quota pressure, treat an export as authoritative, or select an export format.
 - **Prohibited assumptions:** age, an extant head, quota pressure, an exported copy, or a successfully imported/restored copy authorizes deletion, compaction, source replacement, issuer authority, eligibility, or activation.
-- **Required approval evidence:** selected retention option, whether all accepted evidence remains retained in v1, complete-lineage export requirement, treatment of conflict/rejected evidence, exported-copy non-authority, deferred compaction status, and immutable decision version.
+- **Required approval evidence:** selected retention option, whether all accepted evidence remains retained in v1, complete-lineage export requirement, treatment of conflict/rejected evidence, exported-copy non-authority, deferred compaction status, acceptance of policy-level operational growth, and immutable decision version.
+
+#### D06 operational preservation consequences
+
+D06-A accepts that full retained evidence causes durable-storage growth and
+foreseeable local quota pressure. Quota exhaustion must preserve existing
+evidence and fail closed for unsafe authority mutation; it must not silently
+delete, compact, collapse history, evict, archive, or offload data. K-334B
+selects no quota number, eviction rule, provider, cloud offload, or compaction
+behavior.
+
+Complete-lineage exports can be larger than current-head-only exports. Conflict,
+rejected-proposal, approval, and provenance evidence increase payload size,
+duration, and memory pressure. Evidence must not be silently omitted to reduce
+size; K-334B selects no format, compression, chunking, transport, provider, or
+maximum export size.
+
+Restoring or replaying complete lineage can require more I/O and validation than
+restoring current state: later work may need to validate order, predecessor
+links, compatibility, conflict evidence, and provenance. Latency can grow with
+history size. A future implementation may need progress, interruption, and
+resume semantics, but no restore pipeline is selected here and cost never
+justifies skipping validation or collapsing history.
+
+Full-history audit similarly costs more time and compute than checking a current
+head. Auditors may need canonical bytes, digests, predecessor continuity,
+compatibility, approval references, and conflict preservation. Future indexes or
+projections may improve performance but remain non-authoritative; no index or
+cache is selected here.
+
+Preserving fork/conflict and rejected evidence increases storage and review
+burden. That cost is intentional: collapsing it can hide concurrency defects or
+authority ambiguity. Any later archival or checkpoint policy requires explicit
+owner approval and preserved verifiability; rejected evidence remains distinct
+from accepted authority and has no retention period selected here.
+
+**Owner-facing D06-A trade-off:** accept higher storage growth, quota pressure,
+larger exports, slower restore/replay, higher audit cost, and greater evidence
+review burden in exchange for complete lineage, verifiable authority history,
+conflict visibility, recovery evidence, and no silent retrospective loss. This
+is a recommendation, not approval or an implementation selection.
 
 ## 13. Fork resolution
 
@@ -336,7 +430,7 @@ Admission evaluation determines whether evidence satisfies a contract; it does n
 | D03 termination | D05 exact generation subject | lifecycle terminal state | runtime disappearance becomes termination |
 | D04 inheritance | D03 termination; D05 topology | lifecycle-state persistence, successor state, carry-forward semantics | continuity becomes inherited authority or lifecycle state |
 | D05 topology | D09 supported tuple | D03/D04/D07/D08 lineage and head rules | storage order becomes authority |
-| D06 retention | D05 history | export/provenance, D07 fork evidence, D10 invalidation, future restore/import analysis | current head or export permits deletion or authority |
+| D06 retention | D05 history | export/provenance, storage/quota/export/restore/audit cost, D07 fork evidence, D10 invalidation, future restore/import analysis | current head, export, or quota pressure permits deletion or authority |
 | D07 fork | D05 topology; D06 retention | forked-subject issuance | branch winner inferred automatically |
 | D08 concurrent conflict | D05 topology | predecessor/successor acceptance | transaction order becomes policy authority |
 | D09 compatibility | D01/D02 and accepted writes | all versioned acceptance | decodability becomes compatibility |
@@ -345,6 +439,11 @@ Admission evaluation determines whether evidence satisfies a contract; it does n
 | D12 implementation gate | all decisions' approved scope | policy finalization, schema, repository, runtime, admission, eligibility, activation | one vague approval bypasses stages |
 
 There is no digest, schema, or construction-order cycle in this proposal. The listed dependencies are policy dependencies only.
+
+Package publication is an administrative dependency for all later owner evidence:
+each approval must bind one `K334BProposalPublicationRecord`, its immutable
+proposal commit, and an included decision version. Publication remains distinct
+from D01-D12 policy approval and from every K-334C stage.
 
 ## 20. K-334C prerequisite matrix
 
@@ -355,7 +454,7 @@ There is no digest, schema, or construction-order cycle in this proposal. The li
 | D03 | `CONDITIONALLY_REQUIRED_FOR_K334C` | terminal generation state/keys | no terminal lifecycle schema | termination trigger/scope |
 | D04 | `CONDITIONALLY_REQUIRED_FOR_K334C` | carry-forward/link and lifecycle-state records | no cross-generation or lifecycle-state transfer semantics | each dimension, source/target binding, no-transfer scope |
 | D05 | `REQUIRED_BEFORE_K334C_POLICY_SCHEMA_FINALIZATION` | lineage keys, uniqueness, head/fork representation | no authoritative history schema | topology and fork rule |
-| D06 | `DEFERRABLE_DURING_NEUTRAL_K334C_ANALYSIS` | append-only preservation and future export/provenance analysis | no deletion, compaction, TTL, archival, current-head-only export, import authority, or export format | retention, lineage export, provenance, and non-authority policy |
+| D06 | `DEFERRABLE_DURING_NEUTRAL_K334C_ANALYSIS` | append-only preservation plus future export/provenance and operational-cost analysis | no deletion, compaction, TTL, archival, current-head-only export, import authority, export format, quota-driven eviction, or operational evidence discard | retention, lineage export, provenance, non-authority, and policy-level operational-cost acceptance |
 | D07 | `DEFERRABLE_DURING_NEUTRAL_K334C_ANALYSIS` | conflict preservation only | no winner/head/issuance for forked subject | fork resolution rule |
 | D08 | `DEFERRABLE_DURING_NEUTRAL_K334C_ANALYSIS` | conflict preservation only | no contender acceptance or winner | conflict acceptance rule |
 | D09 | `REQUIRED_BEFORE_K334C_POLICY_SCHEMA_FINALIZATION` | tuple/index/admission rules | no compatibility enforcement | allowed tuple matrix |
@@ -376,7 +475,7 @@ There is no digest, schema, or construction-order cycle in this proposal. The li
 | K334B-D03 | K334B-D03-v1 | What terminates a generation? | K334B-D03-A | K334B-D03-B, K334B-D03-C | explicit durable termination | `OWNER_RESPONSE_PENDING` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` |
 | K334B-D04 | K334B-D04-v2 | What may inherit, including lifecycle state? | K334B-D04-A | K334B-D04-B, K334B-D04-C | no automatic transfer of any dimension | `OWNER_RESPONSE_PENDING` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` |
 | K334B-D05 | K334B-D05-v1 | What topology is authoritative? | K334B-D05-A | K334B-D05-B, K334B-D05-C | linear exact-subject history | `OWNER_RESPONSE_PENDING` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` |
-| K334B-D06 | K334B-D06-v2 | What is retained and exported? | K334B-D06-A | K334B-D06-B, K334B-D06-C | append-only evidence with non-authoritative exports | `OWNER_RESPONSE_PENDING` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` |
+| K334B-D06 | K334B-D06-v2 | What is retained and exported? | K334B-D06-A | K334B-D06-B, K334B-D06-C | append-only evidence, complete provenance, and explicit operational cost | `OWNER_RESPONSE_PENDING` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` |
 | K334B-D07 | K334B-D07-v1 | Can forks resolve? | K334B-D07-A | K334B-D07-B, K334B-D07-C | quarantined fork | `OWNER_RESPONSE_PENDING` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` |
 | K334B-D08 | K334B-D08-v1 | How do contenders resolve? | K334B-D08-B | K334B-D08-A, K334B-D08-C | preserve conflict pending policy | `OWNER_RESPONSE_PENDING` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` |
 | K334B-D09 | K334B-D09-v1 | Which tuples are compatible? | K334B-D09-A | K334B-D09-B, K334B-D09-C | explicit allowlist | `OWNER_RESPONSE_PENDING` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` |
@@ -391,27 +490,42 @@ pending. For D12, the response must separately scope policy finalization,
 schema, repository, runtime integration, admission evaluation, eligibility, and
 activation; no one boolean covers them all.
 
+An owner response is valid only in a worksheet context that identifies the exact
+`publicationRecordId`, published proposal commit, decision ID/version, selected
+option, and approval scope. One package-level publication record may cover all
+included decision versions; it never forces a package-wide owner approval.
+
 ## 23. Approval-evidence register
 
 The following is the only operative register shape for this proposal revision.
-Each row is intentionally pending. A later evidence record may change a row's
-publication status to `PUBLISHED_FOR_OWNER_REVIEW` only after it names an exact
-immutable published proposal commit; it must never infer an owner disposition.
+Each row is intentionally pending. A valid `K334BProposalPublicationRecord`
+changes publication status only after it names the exact immutable proposal
+commit and included decision versions; it must never infer an owner disposition.
 
-| Decision ID | Decision Version | Proposal Document | Published Proposal Commit | Publication Status | Owner Disposition | Selected Option | Approval Statement | Evidence Reference | Effective Scope | Timestamp | Supersedes | Notes |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| K334B-D01 | K334B-D01-v1 | K334B-PROPOSAL-r2 | `NONE_UNPUBLISHED` | `DRAFT_NOT_PUBLISHED` | `OWNER_APPROVAL_PENDING` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` | `UNPUBLISHED_APPROVAL_EVIDENCE_NOT_ALLOWED` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` | `NONE` | `NONE` |
-| K334B-D02 | K334B-D02-v1 | K334B-PROPOSAL-r2 | `NONE_UNPUBLISHED` | `DRAFT_NOT_PUBLISHED` | `OWNER_APPROVAL_PENDING` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` | `UNPUBLISHED_APPROVAL_EVIDENCE_NOT_ALLOWED` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` | `NONE` | `NONE` |
-| K334B-D03 | K334B-D03-v1 | K334B-PROPOSAL-r2 | `NONE_UNPUBLISHED` | `DRAFT_NOT_PUBLISHED` | `OWNER_APPROVAL_PENDING` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` | `UNPUBLISHED_APPROVAL_EVIDENCE_NOT_ALLOWED` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` | `NONE` | `NONE` |
-| K334B-D04 | K334B-D04-v2 | K334B-PROPOSAL-r2 | `NONE_UNPUBLISHED` | `DRAFT_NOT_PUBLISHED` | `OWNER_APPROVAL_PENDING` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` | `UNPUBLISHED_APPROVAL_EVIDENCE_NOT_ALLOWED` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` | `NONE` | `NONE` |
-| K334B-D05 | K334B-D05-v1 | K334B-PROPOSAL-r2 | `NONE_UNPUBLISHED` | `DRAFT_NOT_PUBLISHED` | `OWNER_APPROVAL_PENDING` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` | `UNPUBLISHED_APPROVAL_EVIDENCE_NOT_ALLOWED` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` | `NONE` | `NONE` |
-| K334B-D06 | K334B-D06-v2 | K334B-PROPOSAL-r2 | `NONE_UNPUBLISHED` | `DRAFT_NOT_PUBLISHED` | `OWNER_APPROVAL_PENDING` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` | `UNPUBLISHED_APPROVAL_EVIDENCE_NOT_ALLOWED` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` | `NONE` | `NONE` |
-| K334B-D07 | K334B-D07-v1 | K334B-PROPOSAL-r2 | `NONE_UNPUBLISHED` | `DRAFT_NOT_PUBLISHED` | `OWNER_APPROVAL_PENDING` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` | `UNPUBLISHED_APPROVAL_EVIDENCE_NOT_ALLOWED` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` | `NONE` | `NONE` |
-| K334B-D08 | K334B-D08-v1 | K334B-PROPOSAL-r2 | `NONE_UNPUBLISHED` | `DRAFT_NOT_PUBLISHED` | `OWNER_APPROVAL_PENDING` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` | `UNPUBLISHED_APPROVAL_EVIDENCE_NOT_ALLOWED` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` | `NONE` | `NONE` |
-| K334B-D09 | K334B-D09-v1 | K334B-PROPOSAL-r2 | `NONE_UNPUBLISHED` | `DRAFT_NOT_PUBLISHED` | `OWNER_APPROVAL_PENDING` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` | `UNPUBLISHED_APPROVAL_EVIDENCE_NOT_ALLOWED` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` | `NONE` | `NONE` |
-| K334B-D10 | K334B-D10-v1 | K334B-PROPOSAL-r2 | `NONE_UNPUBLISHED` | `DRAFT_NOT_PUBLISHED` | `OWNER_APPROVAL_PENDING` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` | `UNPUBLISHED_APPROVAL_EVIDENCE_NOT_ALLOWED` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` | `NONE` | `NONE` |
-| K334B-D11 | K334B-D11-v1 | K334B-PROPOSAL-r2 | `NONE_UNPUBLISHED` | `DRAFT_NOT_PUBLISHED` | `OWNER_APPROVAL_PENDING` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` | `UNPUBLISHED_APPROVAL_EVIDENCE_NOT_ALLOWED` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` | `NONE` | `NONE` |
-| K334B-D12 | K334B-D12-v2 | K334B-PROPOSAL-r2 | `NONE_UNPUBLISHED` | `DRAFT_NOT_PUBLISHED` | `OWNER_APPROVAL_PENDING` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` | `UNPUBLISHED_APPROVAL_EVIDENCE_NOT_ALLOWED` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` | `NONE` | `NONE` |
+Before publication, every row has `Publication Record = NONE_UNPUBLISHED`,
+`Published Proposal Commit = NONE_UNPUBLISHED`,
+`Publication Status = DRAFT_NOT_PUBLISHED`, and
+`Evidence Reference = UNPUBLISHED_APPROVAL_EVIDENCE_NOT_ALLOWED`. After a valid
+external publication record exists, its exact ID and commit replace those two
+pending values, status becomes `PUBLISHED_FOR_OWNER_REVIEW`, and Evidence
+Reference becomes `NONE_PENDING_OWNER_RESPONSE`; owner disposition remains
+`OWNER_APPROVAL_PENDING`. This administrative transition changes no decision
+semantic content and does not pre-populate approval.
+
+| Decision ID | Decision Version | Proposal Document | Publication Record | Published Proposal Commit | Publication Status | Owner Disposition | Selected Option | Approval Statement | Evidence Reference | Effective Scope | Timestamp | Supersedes | Notes |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| K334B-D01 | K334B-D01-v1 | K334B-PROPOSAL-r3 | `NONE_UNPUBLISHED` | `NONE_UNPUBLISHED` | `DRAFT_NOT_PUBLISHED` | `OWNER_APPROVAL_PENDING` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` | `UNPUBLISHED_APPROVAL_EVIDENCE_NOT_ALLOWED` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` | `NONE` | `NONE` |
+| K334B-D02 | K334B-D02-v1 | K334B-PROPOSAL-r3 | `NONE_UNPUBLISHED` | `NONE_UNPUBLISHED` | `DRAFT_NOT_PUBLISHED` | `OWNER_APPROVAL_PENDING` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` | `UNPUBLISHED_APPROVAL_EVIDENCE_NOT_ALLOWED` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` | `NONE` | `NONE` |
+| K334B-D03 | K334B-D03-v1 | K334B-PROPOSAL-r3 | `NONE_UNPUBLISHED` | `NONE_UNPUBLISHED` | `DRAFT_NOT_PUBLISHED` | `OWNER_APPROVAL_PENDING` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` | `UNPUBLISHED_APPROVAL_EVIDENCE_NOT_ALLOWED` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` | `NONE` | `NONE` |
+| K334B-D04 | K334B-D04-v2 | K334B-PROPOSAL-r3 | `NONE_UNPUBLISHED` | `NONE_UNPUBLISHED` | `DRAFT_NOT_PUBLISHED` | `OWNER_APPROVAL_PENDING` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` | `UNPUBLISHED_APPROVAL_EVIDENCE_NOT_ALLOWED` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` | `NONE` | `NONE` |
+| K334B-D05 | K334B-D05-v1 | K334B-PROPOSAL-r3 | `NONE_UNPUBLISHED` | `NONE_UNPUBLISHED` | `DRAFT_NOT_PUBLISHED` | `OWNER_APPROVAL_PENDING` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` | `UNPUBLISHED_APPROVAL_EVIDENCE_NOT_ALLOWED` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` | `NONE` | `NONE` |
+| K334B-D06 | K334B-D06-v2 | K334B-PROPOSAL-r3 | `NONE_UNPUBLISHED` | `NONE_UNPUBLISHED` | `DRAFT_NOT_PUBLISHED` | `OWNER_APPROVAL_PENDING` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` | `UNPUBLISHED_APPROVAL_EVIDENCE_NOT_ALLOWED` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` | `NONE` | `NONE` |
+| K334B-D07 | K334B-D07-v1 | K334B-PROPOSAL-r3 | `NONE_UNPUBLISHED` | `NONE_UNPUBLISHED` | `DRAFT_NOT_PUBLISHED` | `OWNER_APPROVAL_PENDING` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` | `UNPUBLISHED_APPROVAL_EVIDENCE_NOT_ALLOWED` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` | `NONE` | `NONE` |
+| K334B-D08 | K334B-D08-v1 | K334B-PROPOSAL-r3 | `NONE_UNPUBLISHED` | `NONE_UNPUBLISHED` | `DRAFT_NOT_PUBLISHED` | `OWNER_APPROVAL_PENDING` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` | `UNPUBLISHED_APPROVAL_EVIDENCE_NOT_ALLOWED` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` | `NONE` | `NONE` |
+| K334B-D09 | K334B-D09-v1 | K334B-PROPOSAL-r3 | `NONE_UNPUBLISHED` | `NONE_UNPUBLISHED` | `DRAFT_NOT_PUBLISHED` | `OWNER_APPROVAL_PENDING` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` | `UNPUBLISHED_APPROVAL_EVIDENCE_NOT_ALLOWED` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` | `NONE` | `NONE` |
+| K334B-D10 | K334B-D10-v1 | K334B-PROPOSAL-r3 | `NONE_UNPUBLISHED` | `NONE_UNPUBLISHED` | `DRAFT_NOT_PUBLISHED` | `OWNER_APPROVAL_PENDING` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` | `UNPUBLISHED_APPROVAL_EVIDENCE_NOT_ALLOWED` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` | `NONE` | `NONE` |
+| K334B-D11 | K334B-D11-v1 | K334B-PROPOSAL-r3 | `NONE_UNPUBLISHED` | `NONE_UNPUBLISHED` | `DRAFT_NOT_PUBLISHED` | `OWNER_APPROVAL_PENDING` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` | `UNPUBLISHED_APPROVAL_EVIDENCE_NOT_ALLOWED` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` | `NONE` | `NONE` |
+| K334B-D12 | K334B-D12-v2 | K334B-PROPOSAL-r3 | `NONE_UNPUBLISHED` | `NONE_UNPUBLISHED` | `DRAFT_NOT_PUBLISHED` | `OWNER_APPROVAL_PENDING` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` | `UNPUBLISHED_APPROVAL_EVIDENCE_NOT_ALLOWED` | `NONE_PENDING_OWNER_RESPONSE` | `NONE_PENDING_OWNER_RESPONSE` | `NONE` | `NONE` |
 
 ### Superseded pre-B1 empty-row rendering (not an approval register)
 
@@ -436,6 +550,15 @@ review, and must not be populated. The operative register is above.
 
 ## 24. Rejection and revision procedure
 
+### B2 authoritative approval binding
+
+Later approval must reference the `publicationRecordId`, its published proposal
+commit, decision ID/version, selected option, and exact scope. It fails closed
+when the record is missing, not `PUBLISHED_FOR_OWNER_REVIEW`, bound to another
+commit, excludes that decision version, selects an option outside that version,
+or has ambiguous scope. The general historical procedure below is subordinate
+to these B2 requirements.
+
 Later approval must quote or unambiguously reference the decision ID, selected option, and proposal version/commit. Ambiguous “looks good” language is insufficient without explicit scope. Partial approvals remain partial; deferred decisions remain unresolved. A revised proposal preserves old evidence and rejection history but requires new approval for changed semantics. Conflicting owner statements require explicit supersession. Evidence must never be silently edited into prior history. This is a documentation procedure, not a runtime signature protocol.
 
 ## 25. Production integration blockers
@@ -458,10 +581,11 @@ their enumerated decision/version/scope triples. The superseded pre-B1 empty
 row layout above grants no approval and cannot be populated.
 
 `PUBLISHED_FOR_OWNER_REVIEW` is a publication state, not a disposition. It is
-permitted only when an external immutable Git commit is recorded. A PR body may
-record that commit after push, but neither a commit, merge, CI, review, nor task
-request is owner approval. This documentation procedure does not create a
-runtime signature protocol, persistence record, or API.
+permitted only when `K334BProposalPublicationRecord` records the immutable
+proposal commit and included decision-version set. A PR body may summarize that
+record, but neither a commit, merge, CI, review, task request, nor publication
+record is owner approval. This documentation procedure does not create a runtime
+signature protocol, persistence record, or API.
 
 All twelve decisions remain pending: 12 pending, 0 approved, 0 rejected, 0
 deferred by owner, 12 owner responses pending, 0 eligibility approvals, and 0
@@ -472,6 +596,9 @@ repositories, production transactions, runtime callers, admission evaluation,
 eligibility declarations, or activation.
 
 ## 26. Recommended next action
+
+Owner review may begin only after a valid authoritative publication record
+exists for the exact proposal commit and included decision-version set.
 
 The Absinthe Protocol Owner should provide an explicit, version-scoped response for each `K334B-D01` through `K334B-D12` using the worksheet. A later task may record supplied evidence without rewriting this proposal. No K-334C policy-dependent finalization or production implementation follows automatically.
 
