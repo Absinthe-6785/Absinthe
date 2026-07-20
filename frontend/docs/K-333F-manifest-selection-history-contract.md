@@ -73,7 +73,7 @@ A valid event, valid action, valid sequence, valid issuer, resolved bytes, or de
 
 - `SELECT` is the only genesis event: predecessor absent and sequence equal to the defined genesis value.
 - Every successor names the exact current unique head for the same subject and uses predecessor sequence plus one.
-- Allocation occurs only after validating the current authoritative head, matching subject, issuer authorization, compatible selected bytes, and the action transition.
+- Subject-local allocation proceeds only after exact-subject and action-transition validation, generic issuer authorization, predecessor existence/current-head validation, exact-next-sequence validation, and the remaining checks defined by the normative validation order. Allocation grants no issuer authority; neither current-head knowledge nor sequence possession grants it.
 - The future issuer must atomically establish **predecessor + next sequence + successor event**. This is a future implementation requirement, not an implementation in K-333F.
 - No two valid successors may issue from the same predecessor. At most one may become authoritative.
 - Competing attempts fail `CONCURRENT_SUCCESSOR_CONFLICT` or `SUCCESSOR_ALREADY_EXISTS`; no timestamp tie-breaker, local-last-write-wins, remote-wins, arbitrary winner, or automatic fork reconciliation is allowed.
