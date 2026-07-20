@@ -142,6 +142,33 @@ Issuer applicability additionally requires every referenced external mapping to
 be explicit, valid for the same exact scope, and non-conflicting. Ambiguous or
 missing mappings fail closed.
 
+#### External-mapping lifecycle
+
+External subject mappings and external issuer mappings are separate immutable,
+append-only evidence classes from grants. Mapping creation MUST have explicit
+evidence. A mapping supersession MUST be a new record that names the exact
+prior mapping; it is prospective only, retains the prior evidence, and MUST
+NOT edit or delete a mapping in place. A superseded mapping does not
+retroactively invalidate historically accepted events.
+
+Mapping supersession MUST NOT revoke, transfer, recreate, or activate an
+issuer or rollback grant. Grant revocation and grant supersession likewise MUST
+NOT supersede or delete a mapping. A new mapping MUST NOT inherit authority
+from an external identity or carry issuer/rollback authority from a prior local
+subject or generation. Missing, ambiguous, conflicting, invalid-successor,
+wrong-generation, or unknown-provider-scope mapping evidence blocks a
+mapping-dependent action. No latest timestamp, arrival order, account, session,
+token, or provider ownership resolves a mapping conflict; every candidate
+remains preserved pending a later authorized resolution.
+
+| Evidence event | Prospective effect | Does not do |
+|---|---|---|
+| Mapping creation | Establishes one explicit external-to-local association. | Grant issuer/rollback authority, compatibility, eligibility, or activation. |
+| Mapping supersession | Replaces the effective association after exact-prior evidence. | Revoke, transfer, recreate, or activate a grant. |
+| Grant revocation | Ends the referenced grant's future applicability. | Delete or supersede mapping evidence. |
+| Grant supersession | Changes grant applicability through exact prior-grant binding. | Change an external association automatically. |
+| Generation termination | Applies only through exact explicit termination evidence. | Rewrite mapping/grant history or create successor-generation authority. |
+
 **Trade-offs.** Option A provides deterministic replay, auditability, minimum
 trusted-clock dependence, restore safety, and generation isolation. It grows
 storage and requires owner review of explicit lifecycle events. Option B can
@@ -179,28 +206,38 @@ identities but cannot redefine their bytes, codecs, proof meaning, or selection.
 
 | Option | Policy |
 |---|---|
-| K334C2-D02-A | Exact immutable tuples: every participating dimension is named; no ranges, sets, or wildcards. |
-| K334C2-D02-B | Exact immutable tuples plus closed, explicitly enumerated value sets for a named dimension; no open range, major-version inference, or wildcard. |
+| K334C2-D02-A | One immutable allowlist record corresponds to one complete exact tuple: every participating dimension is named with one exact value; no ranges, grouped lists, or wildcards. |
+| K334C2-D02-B | One immutable policy record may carry a closed list of individually enumerated complete exact tuples for administrative grouping; it contains no independent per-dimension sets, ranges, major-version inference, or wildcard. |
 | K334C2-D02-C | Bounded semantic ranges with separately defined grammar, inclusivity, prerelease behavior, feature interaction, and history semantics. |
 | K334C2-D02-D | Decoder or current runtime support implies compatibility. |
 
 ### Recommendation
 
 Recommend K334C2-D02-B, with the following v1 policy contract. Each
-compatibility entry is immutable, has an exact policy/evidence version binding,
-and applies prospectively. It contains an exact tuple with only a closed
-enumerated set where expressly allowed below. An omitted required dimension is
-invalid, never any; an omitted non-applicable dimension is the canonical
-not-applicable value, not an implicit wildcard.
+compatibility tuple MUST be complete, immutable, bound to an exact
+policy/evidence version, and prospective. Every required dimension in one
+tuple MUST have exactly one explicit canonical value. One policy record MAY
+carry either one complete exact tuple or a closed list of individually
+enumerated complete exact tuples; administrative grouping never changes
+tuple-level explicitness.
+
+A policy record MUST NOT represent multiple independent per-dimension value
+sets. No Cartesian product, inherited value, runtime default, decoder-derived
+value, or implicit combination is permitted. Adding a value to one dimension
+of an existing tuple is not an operation: a newly compatible combination MUST
+be represented by a new complete tuple. The new tuple MUST NOT broaden, mutate,
+or reinterpret an existing tuple. An omitted required dimension is invalid,
+never any. A non-participating dimension MUST use its canonical
+not-applicable value or another explicit non-wildcard representation.
 
 | Dimension | v1 status and matching |
 |---|---|
 | Manifest version | Required; exact-match only; bound to the exact reviewed K-329 manifest digest. |
 | Protocol version | Required; exact-match only. |
 | Codec version | Required; exact-match only and bound to the K-333 canonical decoder/codec identity. |
-| Writer type | Required; exact-match or a closed explicitly enumerated set. |
-| Source type | Required; exact-match or a closed explicitly enumerated set. |
-| Feature set | Required; exact canonical set equality, or a closed enumerated set of exact canonical feature sets. Unknown flag fails closed. |
+| Writer type | Required; one exact value in every complete tuple. |
+| Source type | Required; one exact value in every complete tuple. |
+| Feature set | Required; one exact canonical feature-set value in every complete tuple. Subset/superset matching, missing-flag inheritance, and runtime capability amendment are prohibited; unknown flags fail closed. |
 | Evidence schema version | Required when that evidence participates; otherwise canonical not-applicable. Exact-match only. |
 | Namespace scope | Prohibited as a broadening wildcard; an entry may bind one exact namespace only when a later policy scope expressly requires it. |
 | Generation scope | Prohibited as a broadening wildcard; an entry may bind one exact generation only when expressly required. |
@@ -208,24 +245,39 @@ not-applicable value, not an implicit wildcard.
 Ranges and wildcards are prohibited in v1. A successful decode, same major
 version, current runtime support, or an opaque digest alone cannot satisfy a
 tuple. Mixed partial matches are retained as rejected/inapplicable evidence,
-not normalized into a compatible combination. Each entry binds the policy
-version and exact immutable evidence identities that justify it.
+not normalized into a compatible combination. Each tuple binds the policy
+version and exact immutable evidence identities that justify it. A feature set
+is one canonical exact value within the complete tuple, never a partial-match
+set of allowed flags.
 
-A later compatibility entry may supersede future applicability only by naming
-the exact prior entry and scope. It cannot invalidate historical accepted
-events silently. It is not global by default: applicability is exact tuple plus
-the optional exact namespace/generation binding above, and never an inferred
-cross-generation permission. The entry as a whole, not a partial dimension,
-is independently superseded; a partial change requires a new full immutable
-tuple bound to its own policy/evidence version.
+**Conceptual non-authoritative example.** A closed list may enumerate Tuple 1:
+manifestVersion=M1, protocolVersion=P1, codecVersion=C1, writerType=W1,
+sourceType=S1, featureSet=F1, and evidenceSchemaVersion=E1; and Tuple 2 with
+the same illustrative values except writerType=W2. They are two separately
+approved complete tuples. They do not imply that W1 or W2 can combine with
+another source, codec, feature, or schema value. Adding W3 requires another
+complete tuple. This example approves no real production version or
+combination.
+
+A later compatibility record may supersede future applicability only by naming
+the exact prior policy record or tuple group and its scope. It cannot invalidate
+historical accepted events silently. Removed tuples remain historically
+preserved; newly added tuples do not retrospectively authorize past rejected
+evidence. It is not global by default: applicability is exact tuple plus the
+optional exact namespace/generation binding above, and never an inferred
+cross-generation permission. No existing tuple is mutated or broadened: an
+append-only policy event or exact supersession adds/removes whole complete
+tuples, never a dimension value. There is no latest-row-wins inference.
 
 **Trade-offs.** Option B keeps exact replay, auditability, migration clarity,
 and a bounded operational escape hatch for deliberately enumerated variants.
-It imposes HIGH owner and storage-review burden as combinations grow. Option A
-is simpler and most restrictive but can require needless policy churn. Option C
-has HIGH ambiguity around syntax, prereleases, and feature interaction. Option
-D is CRITICAL and rejected because runtime/decoder behavior could broaden
-authority without owner evidence.
+Its benefit over Option A is that one reviewed policy record can group several
+complete tuples, reducing record/review packaging overhead without reducing
+tuple-level explicitness. It imposes HIGH owner and storage-review burden as
+combinations grow. Option A is simpler and most restrictive but can require
+needless policy churn. Option C has HIGH ambiguity around syntax, prereleases,
+and feature interaction. Option D is CRITICAL and rejected because
+runtime/decoder behavior could broaden authority without owner evidence.
 
 **Unresolved default before approval.** Every unknown, omitted-required, or
 unlisted combination fails closed; decode success does not imply compatibility;
@@ -366,20 +418,77 @@ It changes future applicability only, retains historic policy/evidence, and
 cannot silently make a new decision applicable to historical accepted events.
 Malformed, duplicate-conflicting, missing, or unbound approval evidence is not
 an approval. This task creates no publication or owner-evidence record.
+Approved decision count is zero and pending decision count is three; neither PR
+merge nor CI can publish or approve this package.
 
 ## 13. Owner Decision Worksheet
 
-| Decision | Recommended option | Response (pending) | Exact allowed response |
-|---|---|---|---|
-| K334C2-D01-v1 | K334C2-D01-A | OWNER_RESPONSE_PENDING | APPROVE_RECOMMENDATION; APPROVE_ALTERNATIVE:K334C2-D01-B; APPROVE_ALTERNATIVE:K334C2-D01-C; REJECT_AND_REVISE; DEFER; NEED_MORE_EVIDENCE:<specific-question> |
-| K334C2-D02-v1 | K334C2-D02-B | OWNER_RESPONSE_PENDING | APPROVE_RECOMMENDATION; APPROVE_ALTERNATIVE:K334C2-D02-A; APPROVE_ALTERNATIVE:K334C2-D02-C; APPROVE_ALTERNATIVE:K334C2-D02-D; REJECT_AND_REVISE; DEFER; NEED_MORE_EVIDENCE:<specific-question> |
-| K334C2-D03-v1 | K334C2-D03-A | OWNER_RESPONSE_PENDING | APPROVE_RECOMMENDATION; APPROVE_ALTERNATIVE:K334C2-D03-B; APPROVE_ALTERNATIVE:K334C2-D03-C; APPROVE_ALTERNATIVE:K334C2-D03-D; REJECT_AND_REVISE; DEFER; NEED_MORE_EVIDENCE:<specific-question> |
+Every decision needs a separate completed response block before it can become
+evidence. Initial values below are deliberately pending and are not owner
+approval, a selected scope, a statement, an authority, a timestamp, or evidence.
 
-Only the exact forms listed above are accepted. “Approve all,” “looks good,”
-“proceed,” “merge,” and “use the best option” are ambiguous and have no policy
-effect. Every later response must use the contract in section 12. No owner
-approval is inferred from the existence, review, merge, CI result, or use of
-this worksheet.
+### K334C2-D01-v1
+
+- Decision ID: K334C2-D01-v1
+- Decision version: v1
+- Source question: K334C-OQ-03
+- Recommended option: K334C2-D01-A
+- Alternative options: K334C2-D01-B; K334C2-D01-C
+- Owner response: OWNER_RESPONSE_PENDING
+- Selected option: NONE_PENDING_OWNER_RESPONSE
+- Scope: PENDING_OWNER_RESPONSE
+- Owner statement / reason: PENDING_OWNER_RESPONSE
+- Non-authorization acknowledgement: PENDING_OWNER_ACKNOWLEDGEMENT — any future disposition establishes policy semantics only and does not authorize schema, migration, database version changes, stores, indexes, repositories, transactions, runtime integration, admission, eligibility, or activation.
+- Approving authority: PENDING_OWNER_RESPONSE
+- Timestamp: PENDING_OWNER_RESPONSE
+- Evidence reference: NONE_NOT_YET_CREATED
+- Supersedes decision/version: NONE_UNLESS_EXPLICITLY_SELECTED
+- Notes: PENDING_OWNER_RESPONSE
+
+### K334C2-D02-v1
+
+- Decision ID: K334C2-D02-v1
+- Decision version: v1
+- Source question: K334C-OQ-04
+- Recommended option: K334C2-D02-B
+- Alternative options: K334C2-D02-A; K334C2-D02-C; K334C2-D02-D
+- Owner response: OWNER_RESPONSE_PENDING
+- Selected option: NONE_PENDING_OWNER_RESPONSE
+- Scope: PENDING_OWNER_RESPONSE
+- Owner statement / reason: PENDING_OWNER_RESPONSE
+- Non-authorization acknowledgement: PENDING_OWNER_ACKNOWLEDGEMENT — any future disposition establishes policy semantics only and does not authorize schema, migration, database version changes, stores, indexes, repositories, transactions, runtime integration, admission, eligibility, or activation.
+- Approving authority: PENDING_OWNER_RESPONSE
+- Timestamp: PENDING_OWNER_RESPONSE
+- Evidence reference: NONE_NOT_YET_CREATED
+- Supersedes decision/version: NONE_UNLESS_EXPLICITLY_SELECTED
+- Notes: PENDING_OWNER_RESPONSE
+
+### K334C2-D03-v1
+
+- Decision ID: K334C2-D03-v1
+- Decision version: v1
+- Source question: K334C-OQ-05
+- Recommended option: K334C2-D03-A
+- Alternative options: K334C2-D03-B; K334C2-D03-C; K334C2-D03-D
+- Owner response: OWNER_RESPONSE_PENDING
+- Selected option: NONE_PENDING_OWNER_RESPONSE
+- Scope: PENDING_OWNER_RESPONSE
+- Owner statement / reason: PENDING_OWNER_RESPONSE
+- Non-authorization acknowledgement: PENDING_OWNER_ACKNOWLEDGEMENT — any future disposition establishes policy semantics only and does not authorize schema, migration, database version changes, stores, indexes, repositories, transactions, runtime integration, admission, eligibility, or activation.
+- Approving authority: PENDING_OWNER_RESPONSE
+- Timestamp: PENDING_OWNER_RESPONSE
+- Evidence reference: NONE_NOT_YET_CREATED
+- Supersedes decision/version: NONE_UNLESS_EXPLICITLY_SELECTED
+- Notes: PENDING_OWNER_RESPONSE
+
+Only these exact forms are accepted: APPROVE_RECOMMENDATION;
+APPROVE_ALTERNATIVE:<exact-option-id>; REJECT_AND_REVISE; DEFER; and
+NEED_MORE_EVIDENCE:<specific-question>. “Approve all,” “looks good,” “proceed,”
+“merge,” and “use the best option” are invalid. PR approval and merge are not
+policy approval. The selected option MUST be an exact option ID; scope and
+owner statement MUST NOT be inferred; and no response may become evidence until
+all required fields are complete. No owner approval is inferred from review,
+merge, CI result, or use of this worksheet.
 
 ## 14. Current Authorization State
 
