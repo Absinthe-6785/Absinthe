@@ -144,22 +144,141 @@
 
 ## 12. Owner-decision matrix
 
-| Decision | Owner | Status / persistence consequence | Neutral planning / issuance / implementation | Safe unresolved behavior |
-|---|---|---|---|---|
-| Generic issuer authorization | Absinthe Protocol Owner approval required; future Manifest Selection and History Authority proposed | OWNER_DECISION_REQUIRED; no accepted issuer proof | neutral analysis may describe bytes; issuance and implementation blocked | issue no event; no default issuer |
-| Rollback-specific authorization | Absinthe Protocol Owner approval required; future Manifest Selection and History Authority proposed | OWNER_DECISION_REQUIRED; no rollback proof | issuance and implementation blocked | reject rollback; do not relabel |
-| Generation termination | Absinthe Protocol Owner approval required | OWNER_DECISION_REQUIRED; no terminal lifecycle evidence | policy-dependent schema/issuance blocked | no termination inference |
-| Generation inheritance | Absinthe Protocol Owner approval required | OWNER_DECISION_REQUIRED; no carry-forward evidence | policy-dependent schema/issuance blocked | no automatic inheritance |
-| History topology | Absinthe Protocol Owner approval required | OWNER_DECISION_REQUIRED; no authoritative lineage layout | neutral append-only analysis only; issuance/implementation blocked | no inferred head/history |
-| History retention | Absinthe Protocol Owner approval required | OWNER_DECISION_REQUIRED; no pruning/compaction rule | neutral planning only; destructive implementation blocked | retain referenced evidence; no pruning |
-| Fork resolution | Absinthe Protocol Owner approval required | OWNER_DECISION_REQUIRED; conflict evidence retained | issuance/implementation blocked | derive no winner |
-| Concurrent-successor conflict resolution | Absinthe Protocol Owner approval required | OWNER_DECISION_REQUIRED; no winner selection rule | linearization shape may be analyzed; issuance/implementation blocked | reject/fail closed; preserve diagnostics |
-| Compatibility combinations | Absinthe Protocol Owner approval required; future Cross-Protocol Compatibility Authority proposed | OWNER_DECISION_REQUIRED; no supported tuple table | neutral planning only; acceptance/implementation blocked | reject unknown/mixed tuple |
-| Retrospective invalidation | Absinthe Protocol Owner approval required | OWNER_DECISION_REQUIRED; no rewrite/delete semantics | issuance/implementation blocked | no deletion, rewrite, or retroactive authority |
-| External-boundary mapping | Absinthe Protocol Owner approval required | OWNER_DECISION_REQUIRED; no runtime boundary mapping | neutral planning only; integration/implementation blocked | do not infer from sequence/time |
-| Implementation-gate approval | Absinthe Protocol Owner | OWNER_DECISION_REQUIRED; no K-334 repository authorization | blocks implementation even if neutral shape analysis is possible | preserve documentation-only scope |
+Every entry below has independent status, owner, persistence, planning, issuance, implementation, safe-default, and prohibited-assumption fields. `Absinthe Protocol Owner` is an external approval authority; no row records an approval.
 
-`PROHIBITED_ASSUMPTION`: no proposed future authority label is a granted owner. These decisions block accepted authority issuance; some neutral planning may be described, but policy-dependent schema or repository implementation cannot begin without explicit approval.
+### 1. Generic issuer authorization
+
+- **Status:** `OWNER_DECISION_REQUIRED`.
+- **Owner:** `OWNER_DECISION_REQUIRED`; external approval authority is the Absinthe Protocol Owner, and the future Manifest Selection and History Authority is only proposed.
+- **Persistence consequence:** determines whether a proposed lifecycle event may enter immutable accepted history; storage must not encode a default issuer policy.
+- **Planning effect:** `LIMITS_BUT_DOES_NOT_BLOCK_NEUTRAL_SCHEMA_PLANNING`; a non-accepting append-only envelope may be discussed, but no accepted-event write contract is final.
+- **Issuance effect:** `BLOCKS_ACCEPTED_EVENT_ISSUANCE`.
+- **Implementation effect:** `BLOCKS_POLICY_DEPENDENT_IMPLEMENTATION`.
+- **Safe unresolved behavior:** issue no accepted lifecycle event; preserve supplied evidence/diagnostics without selecting a default issuer.
+- **Prohibited assumption:** possession of a valid digest, sequence, predecessor, or persisted record implies issuer authority.
+
+### 2. Rollback-specific authorization
+
+- **Status:** `OWNER_DECISION_REQUIRED`.
+- **Owner:** `OWNER_DECISION_REQUIRED`; external approval authority is the Absinthe Protocol Owner, and the future Manifest Selection and History Authority is only proposed.
+- **Persistence consequence:** determines whether a lineage-present historical target may be accepted as `ROLLBACK_DECISION`; generic issuer authorization alone is insufficient.
+- **Planning effect:** `DOES_NOT_BLOCK_NEUTRAL_SCHEMA_PLANNING`.
+- **Issuance effect:** `BLOCKS_ONLY_ROLLBACK_DECISION_ISSUANCE`.
+- **Implementation effect:** `BLOCKS_ONLY_SPECIFIC_FEATURE_IMPLEMENTATION` for rollback acceptance.
+- **Safe unresolved behavior:** reject rollback; preserve evidence; do not relabel it as `SUPERSEDE`.
+- **Prohibited assumption:** generic issuer authorization automatically grants rollback authority.
+
+### 3. Generation termination
+
+- **Status:** `OWNER_DECISION_REQUIRED`.
+- **Owner:** `OWNER_DECISION_REQUIRED`; external approval authority is the Absinthe Protocol Owner.
+- **Persistence consequence:** determines whether terminal generation evidence may be retained as lifecycle authority and how it affects accepted history.
+- **Planning effect:** `LIMITS_BUT_DOES_NOT_BLOCK_NEUTRAL_SCHEMA_PLANNING`; lifecycle-specific terminal shape cannot be finalized.
+- **Issuance effect:** `BLOCKS_ONLY_GENERATION_LIFECYCLE_ISSUANCE`.
+- **Implementation effect:** `BLOCKS_POLICY_DEPENDENT_IMPLEMENTATION` for termination handling.
+- **Safe unresolved behavior:** infer no termination and do not rewrite or end an existing lineage.
+- **Prohibited assumption:** a closed or missing runtime session automatically terminates a generation.
+
+### 4. Generation inheritance
+
+- **Status:** `OWNER_DECISION_REQUIRED`.
+- **Owner:** `OWNER_DECISION_REQUIRED`; external approval authority is the Absinthe Protocol Owner.
+- **Persistence consequence:** determines whether any source/selection evidence may carry across generations and what exact binding is required.
+- **Planning effect:** `LIMITS_BUT_DOES_NOT_BLOCK_NEUTRAL_SCHEMA_PLANNING`; inheritance-specific links cannot be finalized.
+- **Issuance effect:** `BLOCKS_ONLY_GENERATION_LIFECYCLE_ISSUANCE`.
+- **Implementation effect:** `BLOCKS_POLICY_DEPENDENT_IMPLEMENTATION` for cross-generation carry-forward.
+- **Safe unresolved behavior:** retain each generation as an exact independent subject; do not carry forward authority.
+- **Prohibited assumption:** a successor generation inherits manifest selection or issuer authority by default.
+
+### 5. History topology
+
+- **Status:** `OWNER_DECISION_REQUIRED`.
+- **Owner:** `OWNER_DECISION_REQUIRED`; external approval authority is the Absinthe Protocol Owner, while future selection/history ownership is proposed only.
+- **Persistence consequence:** determines accepted lineage shape, predecessor cardinality, and whether topology beyond the current linear contract may be represented.
+- **Planning effect:** `BLOCKS_NEUTRAL_SCHEMA_PLANNING` for policy-dependent lineage keys, predecessor constraints, and indexes.
+- **Issuance effect:** `BLOCKS_ACCEPTED_EVENT_ISSUANCE` until accepted-history shape is owner-approved.
+- **Implementation effect:** `BLOCKS_SCHEMA_AND_REPOSITORY_IMPLEMENTATION` for accepted history.
+- **Safe unresolved behavior:** retain no authoritative topology/head beyond existing pure-contract evidence; derive no selection.
+- **Prohibited assumption:** latest timestamp, insertion order, or database key order defines authoritative lineage.
+
+### 6. History retention
+
+- **Status:** `OWNER_DECISION_REQUIRED`.
+- **Owner:** `OWNER_DECISION_REQUIRED`; external approval authority is the Absinthe Protocol Owner.
+- **Persistence consequence:** determines whether accepted events may be compacted, archived, or deleted; no deletion/compaction policy may be inferred.
+- **Planning effect:** `LIMITS_BUT_DOES_NOT_BLOCK_NEUTRAL_SCHEMA_PLANNING`; an append-only form may be described, but compaction/deletion shape cannot be finalized.
+- **Issuance effect:** `DOES_NOT_BLOCK_ISSUANCE_BUT_BLOCKS_LATER_POLICY`.
+- **Implementation effect:** `BLOCKS_COMPACTION_AND_DELETION_IMPLEMENTATION`.
+- **Safe unresolved behavior:** retain referenced accepted evidence; do not compact, archive destructively, or delete.
+- **Prohibited assumption:** old accepted events may be deleted because a current head exists.
+
+### 7. Fork resolution
+
+- **Status:** `OWNER_DECISION_REQUIRED`.
+- **Owner:** `OWNER_DECISION_REQUIRED`; external approval authority is the Absinthe Protocol Owner.
+- **Persistence consequence:** determines whether a fork remains permanently blocked or can later be resolved by explicit event/policy.
+- **Planning effect:** `LIMITS_BUT_DOES_NOT_BLOCK_NEUTRAL_SCHEMA_PLANNING`; conflict evidence can be described, but a resolution representation cannot be finalized.
+- **Issuance effect:** `DOES_NOT_BLOCK_ISSUANCE_BUT_BLOCKS_LATER_POLICY`; unresolved forked history itself derives no valid selection.
+- **Implementation effect:** `BLOCKS_POLICY_DEPENDENT_IMPLEMENTATION` for fork resolution.
+- **Safe unresolved behavior:** preserve every branch and diagnostic, derive no winner, and issue no authority from the fork.
+- **Prohibited assumption:** last write, latest timestamp, or lexicographically smallest digest resolves a fork.
+
+### 8. Concurrent-successor conflict resolution
+
+- **Status:** `OWNER_DECISION_REQUIRED`.
+- **Owner:** `OWNER_DECISION_REQUIRED`; external approval authority is the Absinthe Protocol Owner.
+- **Persistence consequence:** determines the final policy for competing successors that share a predecessor after preserving evidence.
+- **Planning effect:** `LIMITS_BUT_DOES_NOT_BLOCK_NEUTRAL_SCHEMA_PLANNING`; transaction-time conflict detection can be described, but a winner policy cannot be finalized.
+- **Issuance effect:** `DOES_NOT_BLOCK_ISSUANCE_BUT_BLOCKS_LATER_POLICY`; competing successors must fail closed rather than choose a winner.
+- **Implementation effect:** `BLOCKS_POLICY_DEPENDENT_IMPLEMENTATION` for conflict resolution.
+- **Safe unresolved behavior:** reject or hold competing successors, preserve both proposals/evidence, and select no winner.
+- **Prohibited assumption:** IndexedDB commit order or first observed successor is the authoritative winner.
+
+### 9. Compatibility combinations
+
+- **Status:** `OWNER_DECISION_REQUIRED`.
+- **Owner:** `OWNER_DECISION_REQUIRED`; external approval authority is the Absinthe Protocol Owner, and the future Cross-Protocol Compatibility Authority is proposed only.
+- **Persistence consequence:** determines which version tuples may be accepted and which historical decoders/metadata must remain available.
+- **Planning effect:** `LIMITS_BUT_DOES_NOT_BLOCK_NEUTRAL_SCHEMA_PLANNING`; version fields may be discussed, but supported combinations cannot be finalized.
+- **Issuance effect:** `BLOCKS_ACCEPTED_EVENT_ISSUANCE` for unsupported or unapproved combinations.
+- **Implementation effect:** `BLOCKS_POLICY_DEPENDENT_IMPLEMENTATION` for compatibility enforcement.
+- **Safe unresolved behavior:** reject unknown or mixed combinations; preserve evidence without inferring a compatibility edge.
+- **Prohibited assumption:** successful decoding or matching version numbers imply compatibility.
+
+### 10. Retrospective invalidation
+
+- **Status:** `OWNER_DECISION_REQUIRED`.
+- **Owner:** `OWNER_DECISION_REQUIRED`; external approval authority is the Absinthe Protocol Owner.
+- **Persistence consequence:** determines whether later policy can affect prior accepted evidence while preserving immutable history.
+- **Planning effect:** `LIMITS_BUT_DOES_NOT_BLOCK_NEUTRAL_SCHEMA_PLANNING`; invalidation-specific representation cannot be finalized.
+- **Issuance effect:** `DOES_NOT_BLOCK_ISSUANCE_BUT_BLOCKS_LATER_POLICY`.
+- **Implementation effect:** `BLOCKS_POLICY_DEPENDENT_IMPLEMENTATION` for invalidation processing.
+- **Safe unresolved behavior:** do not delete, rewrite, or retroactively alter accepted authority.
+- **Prohibited assumption:** a newly approved policy silently invalidates historical accepted events.
+
+### 11. External-boundary mapping
+
+- **Status:** `OWNER_DECISION_REQUIRED`.
+- **Owner:** `OWNER_DECISION_REQUIRED`; the Absinthe Protocol Owner is the external approval authority named by K-333F.
+- **Persistence consequence:** determines how a selection event/sequence may bind to external session, operation, transaction, or effective boundary evidence.
+- **Planning effect:** `DOES_NOT_BLOCK_NEUTRAL_SCHEMA_PLANNING` for isolated evidence bytes; it blocks mapping-specific contract finalization.
+- **Issuance effect:** `DOES_NOT_BLOCK_ISSUANCE_BUT_BLOCKS_LATER_POLICY` for downstream use.
+- **Implementation effect:** `BLOCKS_POLICY_DEPENDENT_IMPLEMENTATION` for external integration.
+- **Safe unresolved behavior:** retain no inferred mapping and reject downstream authority use that lacks an explicit binding.
+- **Prohibited assumption:** remote user, account, or session identity is automatically equivalent to a local protocol subject or issuer.
+
+### 12. Implementation-gate approval
+
+- **Status:** `OWNER_DECISION_REQUIRED`.
+- **Owner:** Absinthe Protocol Owner, acting only as external approval authority; no approval evidence is present.
+- **Persistence consequence:** determines whether an approved contract can move from documentation to production repository work; it creates no runtime record by itself.
+- **Planning effect:** `DOES_NOT_BLOCK_NEUTRAL_SCHEMA_PLANNING` or proposal work.
+- **Issuance effect:** `BLOCKS_ALL_PRODUCTION_ISSUANCE`.
+- **Implementation effect:** `BLOCKS_ALL_PRODUCTION_IMPLEMENTATION`.
+- **Safe unresolved behavior:** preserve documentation-only scope and do not implement production writes.
+- **Prohibited assumption:** merged documentation, passing CI, or a review pass authorizes production implementation.
+
+`OWNER_DECISION_REQUIRED`: the matrix is an approval gate, not approval evidence. The planning fields distinguish neutral analysis from policy-dependent schema selection; all accepted-event and production-write claims remain fail closed.
 
 ## 13. History, restore, concurrency, and failure boundaries
 
