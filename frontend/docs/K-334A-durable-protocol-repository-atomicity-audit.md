@@ -216,23 +216,23 @@ Every entry below has independent status, owner, persistence, planning, issuance
 
 - **Status:** `OWNER_DECISION_REQUIRED`.
 - **Owner:** `OWNER_DECISION_REQUIRED`; external approval authority is the Absinthe Protocol Owner.
-- **Persistence consequence:** determines whether a fork remains permanently blocked or can later be resolved by explicit event/policy.
-- **Planning effect:** `LIMITS_BUT_DOES_NOT_BLOCK_NEUTRAL_SCHEMA_PLANNING`; conflict evidence can be described, but a resolution representation cannot be finalized.
-- **Issuance effect:** `DOES_NOT_BLOCK_ISSUANCE_BUT_BLOCKS_LATER_POLICY`; unresolved forked history itself derives no valid selection.
-- **Implementation effect:** `BLOCKS_POLICY_DEPENDENT_IMPLEMENTATION` for fork resolution.
-- **Safe unresolved behavior:** preserve every branch and diagnostic, derive no winner, and issue no authority from the fork.
-- **Prohibited assumption:** last write, latest timestamp, or lexicographically smallest digest resolves a fork.
+- **Persistence consequence:** preserves all competing branch evidence and exact-subject fork state; it must not materialize an authoritative winner without approved resolution policy.
+- **Planning effect:** `LIMITS_BUT_DOES_NOT_BLOCK_NEUTRAL_SCHEMA_PLANNING`; neutral conflict evidence can be described, but winner-selection schema or authoritative-head semantics cannot be finalized.
+- **Issuance effect:** `BLOCKS_STATE_CHANGING_ISSUANCE_FOR_FORKED_SUBJECT`; unresolved forked history blocks accepted successor issuance and any change to effective selection for that exact subject, while unrelated non-forked subjects, diagnostic reads, and evidence preservation remain allowed.
+- **Implementation effect:** `BLOCKS_POLICY_DEPENDENT_IMPLEMENTATION` for fork-winner selection and accepted write paths for forked subjects; it does not block neutral evidence-preservation schema discussion.
+- **Safe unresolved behavior:** preserve every branch and diagnostic, derive no authoritative winner or accepted current selection for the forked subject, and reject or hold state-changing issuance for that subject.
+- **Prohibited assumption:** last write, latest timestamp, lowest/highest or lexicographically ordered digest, insertion order, first-observed branch, or database key order resolves a fork.
 
 ### 8. Concurrent-successor conflict resolution
 
 - **Status:** `OWNER_DECISION_REQUIRED`.
 - **Owner:** `OWNER_DECISION_REQUIRED`; external approval authority is the Absinthe Protocol Owner.
-- **Persistence consequence:** determines the final policy for competing successors that share a predecessor after preserving evidence.
-- **Planning effect:** `LIMITS_BUT_DOES_NOT_BLOCK_NEUTRAL_SCHEMA_PLANNING`; transaction-time conflict detection can be described, but a winner policy cannot be finalized.
-- **Issuance effect:** `DOES_NOT_BLOCK_ISSUANCE_BUT_BLOCKS_LATER_POLICY`; competing successors must fail closed rather than choose a winner.
-- **Implementation effect:** `BLOCKS_POLICY_DEPENDENT_IMPLEMENTATION` for conflict resolution.
-- **Safe unresolved behavior:** reject or hold competing successors, preserve both proposals/evidence, and select no winner.
-- **Prohibited assumption:** IndexedDB commit order or first observed successor is the authoritative winner.
+- **Persistence consequence:** preserves competing successor proposals/evidence with their exact predecessor and subject; it must not select an authority based on commit timing.
+- **Planning effect:** `LIMITS_BUT_DOES_NOT_BLOCK_NEUTRAL_SCHEMA_PLANNING`; neutral conflict representation and transaction-time detection can be described, but authoritative uniqueness and winner-resolution semantics cannot be finalized.
+- **Issuance effect:** `BLOCKS_ACCEPTANCE_OF_COMPETING_SUCCESSOR_AND_STATE_CHANGING_ISSUANCE_FOR_CONFLICTED_SUBJECT`; when two or more proposals target the same current predecessor, acceptance fails closed until explicit approved resolution semantics exist, while unrelated subjects remain unaffected and conflict evidence may be preserved diagnostically.
+- **Implementation effect:** `BLOCKS_POLICY_DEPENDENT_IMPLEMENTATION` for automatic competing-successor winner logic and conflict-dependent accepted write paths; it permits only otherwise-safe neutral conflict preservation/diagnostic planning.
+- **Safe unresolved behavior:** reject or hold competing successors, preserve all contender evidence, accept no winner, advance no authoritative head, and perform no last-write-wins repair.
+- **Prohibited assumption:** IndexedDB commit order, first-observed proposal, fastest tab, timestamp order, lexicographic digest order, or transaction-completion order is the authoritative winner.
 
 ### 9. Compatibility combinations
 
@@ -260,12 +260,12 @@ Every entry below has independent status, owner, persistence, planning, issuance
 
 - **Status:** `OWNER_DECISION_REQUIRED`.
 - **Owner:** `OWNER_DECISION_REQUIRED`; the Absinthe Protocol Owner is the external approval authority named by K-333F.
-- **Persistence consequence:** determines how a selection event/sequence may bind to external session, operation, transaction, or effective boundary evidence.
-- **Planning effect:** `DOES_NOT_BLOCK_NEUTRAL_SCHEMA_PLANNING` for isolated evidence bytes; it blocks mapping-specific contract finalization.
-- **Issuance effect:** `DOES_NOT_BLOCK_ISSUANCE_BUT_BLOCKS_LATER_POLICY` for downstream use.
-- **Implementation effect:** `BLOCKS_POLICY_DEPENDENT_IMPLEMENTATION` for external integration.
-- **Safe unresolved behavior:** retain no inferred mapping and reject downstream authority use that lacks an explicit binding.
-- **Prohibited assumption:** remote user, account, or session identity is automatically equivalent to a local protocol subject or issuer.
+- **Persistence consequence:** determines whether and how external account, user, session, or provider identities map to a local protocol subject or authorized issuer; no external identifier may be persisted as local authority by default.
+- **Planning effect:** `DOES_NOT_BLOCK_NEUTRAL_SCHEMA_PLANNING` for isolated opaque external references; it blocks authoritative mapping-table and mapping-specific contract finalization.
+- **Issuance effect:** `BLOCKS_ISSUANCE_PATHS_DEPENDENT_ON_EXTERNAL_SUBJECT_OR_ISSUER_MAPPING`; issuance requiring external subject or issuer mapping is blocked, while entirely local issuance is not globally blocked by this decision alone and remains subject to generic issuer authorization and every other gate.
+- **Implementation effect:** `BLOCKS_POLICY_DEPENDENT_IMPLEMENTATION` for external identity-to-subject mapping, external identity-to-issuer authority, and mapping-dependent integrations; unrelated local-only neutral planning is not blocked by this decision alone.
+- **Safe unresolved behavior:** retain external identity only as opaque, non-authoritative data where needed; infer no subject or issuer, perform no mapping-dependent issuance, and fail closed when mapping is required.
+- **Prohibited assumption:** authenticated remote user equals local protocol subject, remote account owner equals authorized issuer, provider session equals writer session, matching email/user ID implies local authority, or Supabase identity automatically maps to manifest-selection authority.
 
 ### 12. Implementation-gate approval
 
@@ -280,6 +280,16 @@ Every entry below has independent status, owner, persistence, planning, issuance
 
 `OWNER_DECISION_REQUIRED`: the matrix is an approval gate, not approval evidence. The planning fields distinguish neutral analysis from policy-dependent schema selection; all accepted-event and production-write claims remain fail closed.
 
+### Blocker granularity
+
+- **All accepted-event issuance:** generic issuer authorization blocks accepted-event issuance; history topology blocks it where no valid authoritative lineage can be determined. Compatibility blocks issuance only for unsupported or unapproved tuples.
+- **All production issuance and implementation:** implementation-gate approval blocks all production issuance and all production implementation, without blocking documentary neutral analysis.
+- **Specific action issuance:** rollback-specific authorization blocks only `ROLLBACK_DECISION`; generation termination and inheritance block their lifecycle-dependent actions.
+- **Subject/condition-specific issuance:** fork resolution blocks state-changing issuance only for the forked subject; concurrent-successor conflict resolution blocks acceptance and state-changing issuance only for the conflicted predecessor/subject; external-boundary mapping blocks only issuance paths that require external subject or issuer mapping.
+- **Later-policy-only decisions:** history retention and retrospective invalidation may leave ordinary issuance independent, while their deletion, compaction, or retrospective-policy effects remain blocked.
+
+No row above permits an unresolved condition to be repaired by timestamp, storage order, observation order, or a fallback identity inference.
+
 ## 13. History, restore, concurrency, and failure boundaries
 
 `CONTRACT_INFERENCE`: immutable accepted history is potential authority evidence; materialized heads are bound projections; indexes are reconstructible; diagnostics and `RESTORE_REFERENCE` are non-authoritative. Backup, migration, restore, hydration, or persistence success grants no authority.
@@ -291,7 +301,7 @@ Every entry below has independent status, owner, persistence, planning, issuance
 ## 14. Corrected K-334 sequence
 
 1. **K-334B - Owner-Decision Proposal and Explicit Approval Evidence.** Prepare alternatives and recommendations, then record explicit Absinthe Protocol Owner approval or unresolved status. No schema implementation.
-2. **K-334C - Durable Schema and Migration Contract.** After sufficient K-334B approval, select topology/database, candidate stores/indexes/keys, concrete migration/version and transaction groups. No production repository implementation unless separately authorized.
+2. **K-334C - Durable Schema and Migration Contract.** After sufficient K-334B approval for the affected policy-dependent areas, select topology/database, candidate stores/indexes/keys, concrete migration/version and transaction groups. It may leave explicitly deferrable areas unresolved while defining only a conceptual contract; no production repository implementation is authorized.
 3. **K-334D - Append-Only Protocol Evidence Repository.**
 4. **K-334E - Atomic Initial Operation Authority Repository.**
 5. **K-334F - Terminal Reconciliation and Final Reference Repository.**
@@ -300,6 +310,27 @@ Every entry below has independent status, owner, persistence, planning, issuance
 8. **K-334I - Concurrency, Crash, Quota, and Real-Browser Evidence.**
 
 `DEFERRED`: later integration remains K-331 writer instrumentation, K-328/K-329 adapters, shadow-mode consumer, eligibility, and activation. Owner approval and schema work are deliberately separate.
+
+### K-334C required-versus-deferrable approval mapping
+
+K-334C is a durable schema and migration **contract**, not an implementation task. The table derives from the matrix planning and implementation effects. It records no approval, grants no Codex authority, and does not authorize database versions, stores, indexes, migrations, repositories, or runtime callers.
+
+| Decision | K-334C status | Reason | Prohibited scope while unresolved |
+|---|---|---|---|
+| Generic issuer authorization | `REQUIRED_BEFORE_POLICY_DEPENDENT_SCHEMA_FINALIZATION` | Accepted-event write/admission semantics cannot be finalized without issuer policy. | No accepted-event write or admission contract. |
+| Rollback-specific authorization | `DEFERRABLE_FOR_NEUTRAL_SCHEMA_ANALYSIS` | Generic immutable evidence storage can be described without choosing rollback acceptance. | No `ROLLBACK_DECISION` acceptance path or rollback authority. |
+| Generation termination | `CONDITIONALLY_REQUIRED` | Required when finalizing terminal-generation records, lifecycle keys, or terminal state. | No lifecycle-dependent terminal schema or termination acceptance. |
+| Generation inheritance | `CONDITIONALLY_REQUIRED` | Required when finalizing cross-generation links, generation-scoped carry-forward, or inheritance keys. | No authority carry-forward or inheritance-specific schema semantics. |
+| History topology | `REQUIRED_BEFORE_POLICY_DEPENDENT_SCHEMA_FINALIZATION` | Predecessor cardinality, successor uniqueness, lineage keys, head materialization, and fork representation depend on it. | No authoritative lineage keys, head projection, or accepted-history write rules. |
+| History retention | `DEFERRABLE_FOR_NEUTRAL_SCHEMA_ANALYSIS` | An append-only v1 form may be discussed without choosing retention duration or destructive behavior. | No deletion, compaction, TTL, archival, or retention finalization. |
+| Fork resolution | `DEFERRABLE_FOR_NEUTRAL_SCHEMA_ANALYSIS` | Conflict evidence may be preserved without selecting a winner or an authoritative head. | No fork-winner path, accepted current selection, or state-changing issuance for a forked subject. |
+| Concurrent-successor conflict resolution | `DEFERRABLE_FOR_NEUTRAL_SCHEMA_ANALYSIS` | Fail-closed conflict preservation may be described without automatic winner semantics. | No competing-successor acceptance, authoritative-head advance, or winner selection. |
+| Compatibility combinations | `REQUIRED_BEFORE_POLICY_DEPENDENT_SCHEMA_FINALIZATION` | Version/selector acceptance indexes and accepted write rules require approved combinations. | No supported-tuple acceptance, compatibility edge, or compatibility-enforcement schema. |
+| Retrospective invalidation | `DEFERRABLE_FOR_NEUTRAL_SCHEMA_ANALYSIS` | Immutable history can remain described without defining invalidation or rewrite behavior. | No invalidation, rewrite, or retrospective effect. |
+| External-boundary mapping | `CONDITIONALLY_REQUIRED` | Required only for schema that embeds authoritative external-to-local subject or issuer mappings. | No external identity authority mapping or mapping-dependent issuance/integration. |
+| Implementation-gate approval | `REQUIRED_ONLY_BEFORE_PRODUCTION_IMPLEMENTATION` | It gates production code, not neutral documentation or conceptual contract analysis. | No database/store/index/migration/repository/runtime implementation. |
+
+K-334B may prepare alternatives, recommend choices, document persistence and issuance consequences, identify this required-versus-deferrable boundary, and record explicit owner approval supplied externally. It may not grant approval, implement schema, create stores, or select an approved migration version without owner evidence. K-334C may finalize only policy-dependent contract areas supported by recorded approvals and must leave every other area explicitly deferred.
 
 ## 15. Production integration blockers
 
