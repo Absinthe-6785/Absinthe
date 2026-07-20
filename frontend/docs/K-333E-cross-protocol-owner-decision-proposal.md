@@ -26,31 +26,47 @@ Every recommendation below is `RECOMMENDED_FOR_OWNER_APPROVAL` unless a sub-poli
 
 ## 5. Proposed authority model
 
-All names in this section are **`RECOMMENDED_FOR_OWNER_APPROVAL`** future responsibility boundaries.
+All named K-333 authority labels in this section are **`RECOMMENDED_FOR_OWNER_APPROVAL`** future responsibility boundaries. The Absinthe Protocol Owner is separately **`OWNER_DECISION_REQUIRED`** as an external governance role; it is not a production authority.
 
 ### K-333 Identity Adoption Authority
 
-Purpose: bind one concrete K-333 writer identity to one reviewed K-329 `writerTypeId`, selected manifest digest, physical source, namespace, and generation. It proves only scoped identity-to-reviewed-type adoption; it does not prove current context, capability, operation authorization, admission, eligibility, or activation. Its immutable evidence must be historically retained when later validation depends on it.
+Purpose: bind one concrete K-333 writer identity to one reviewed K-329 `writerTypeId`, selected manifest digest, physical source, namespace, and generation. A future trusted writer-identity establishment or registration flow would issue immutable adoption evidence under approved source authority. The K-333 Conformity Validation Authority would validate that evidence as an input, while the K-333 Cross-Protocol Evidence Persistence Authority would retain and resolve it when later policy requires history. Proposed consumers are the Conformity Validation Authority and later Operation Authorization or Admission authorities. It proves only scoped identity-to-reviewed-type adoption; it does not prove current context, capability, session conformity, operation authorization, admission, eligibility, or activation.
 
 ### K-333 Session Context Evidence Authority
 
-Purpose: own canonical, decodable session-scoped context material. The proposed issuer is a trusted session-establishment flow or future approved producer; the proposed validator is the K-333 Conformity Validation Authority; the proposed persistence owner is a future evidence/history persistence layer; future authorization or admission layers may consume validated evidence. It is bound to writer identity, physical source, namespace, and generation. A new immutable evidence instance is required when context changes. Expiry and revocation policy are `OWNER_DECISION_REQUIRED`.
+Purpose: own canonical, decodable session-scoped context material. The proposed issuer is a trusted session-establishment flow or future approved producer; the proposed validator is the K-333 Conformity Validation Authority; the proposed persistence owner is the K-333 Cross-Protocol Evidence Persistence Authority; future authorization or admission layers may consume validated evidence. It is bound to writer identity, physical source, namespace, and generation. A new immutable evidence instance is required when context changes. Expiry and revocation policy are `OWNER_DECISION_REQUIRED`.
 
 ### K-333 Session Capability Evidence Authority
 
-Purpose: own canonical, decodable session-scoped capability material and deterministic digest derivation. The proposed issuer is a trusted session capability-establishment flow; the proposed validator is the K-333 Conformity Validation Authority; the proposed persistence owner is a future evidence/history persistence layer. It is bound to writer identity, physical source, namespace, and generation. A new immutable evidence instance is required when capabilities change. Capability identifier namespace, expiry, and revocation policy are `OWNER_DECISION_REQUIRED`.
+Purpose: own canonical, decodable session-scoped capability material and deterministic digest derivation. The proposed issuer is a trusted session capability-establishment flow; the proposed validator is the K-333 Conformity Validation Authority; the proposed persistence owner is the K-333 Cross-Protocol Evidence Persistence Authority. It is bound to writer identity, physical source, namespace, and generation. A new immutable evidence instance is required when capabilities change. Capability identifier namespace, expiry, and revocation policy are `OWNER_DECISION_REQUIRED`.
 
 ### K-333 Manifest Selection and History Authority
 
-Purpose: authoritatively select one K-329 manifest digest for an explicit physical-source, namespace, and generation scope. It is both the proposed owner and selector; an approved future selection flow is its issuer; the K-333 Conformity Validation Authority is its validator; a future append-only selection/history persistence layer is its persistence owner. It records immutable selection, explicit supersession/revocation events, and historical digest-to-canonical-bytes resolution. It proves selection only, not writer membership, session conformity, authorization, admission, eligibility, or activation.
+Purpose: authoritatively select one K-329 manifest digest for an explicit physical-source, namespace, and generation scope. It is both the proposed owner and selector; an approved future selection flow is its issuer; the K-333 Conformity Validation Authority is its validator; the K-333 Cross-Protocol Evidence Persistence Authority is its persistence owner. It records immutable selection, explicit supersession/revocation events, and historical digest-to-canonical-bytes resolution. It proves selection only, not writer membership, session conformity, authorization, admission, eligibility, or activation.
 
 ### K-333 Conformity Validation Authority
 
-Purpose: validate selected manifest bytes, identity adoption, canonical session context, and canonical session capabilities against the selected K-329 entry and scope. It emits a deterministic classification/conformity result only. It cannot authorize an operation, admit a write, establish eligibility, or activate production behavior.
+Purpose: validate selected manifest bytes, identity adoption, canonical session context, and canonical session capabilities against the selected K-329 entry and scope. It would issue the deterministic classification/conformity result it defines. Its exact proposed input authorities are the K-333 Manifest Selection and History Authority (selection/history), K-329 canonical manifest codec (canonical byte validation only), K-333 Identity Adoption Authority, K-333 Session Context Evidence Authority, K-333 Session Capability Evidence Authority, and K-333 Cross-Protocol Evidence Persistence Authority (historical evidence and compatibility metadata). The Evidence Persistence Authority would retain results only if a later approved contract requires replay or audit; that retention sub-decision is `OWNER_DECISION_REQUIRED`. Proposed consumers are later Operation Authorization and Admission authorities. It cannot authorize an operation, admit a write, establish eligibility, or activate production behavior.
+
+### K-333 Cross-Protocol Evidence Persistence Authority
+
+Purpose: retain and deterministically resolve cross-protocol historical evidence where an approved later contract requires it. It would retain identity adoption, canonical context/capability evidence, selection/history references, canonical manifest bytes or content-addressed resolution metadata, supersession/revocation events, version/compatibility metadata, bounded diagnostics, and optionally conformity results. It does not own K-329 manifest representation or codec, manifest-selection semantics, writer-type policy, operation authorization, admission, eligibility, or activation. Exact storage design, retention period, schema, store, repository, and migration remain deferred.
+
+### K-333 Cross-Protocol Architecture Governance Authority
+
+Purpose: govern phase boundaries only. It would confirm prerequisites, preserve separate dormant contract phases, and record when a phase may proceed to implementation review. It would not issue evidence, select policy, validate conformity, authorize operations, grant admission/eligibility, activate production, or approve product policy. Its proposed consumers are future contract-definition tasks and implementation-review workflow; merged architecture decision records and PR history are sufficient at this proposal stage, with no production persistence implied.
+
+### Absinthe Protocol Owner
+
+This is an external governance role, not a production protocol authority. `OWNER_DECISION_REQUIRED`: it may explicitly approve or reject architecture decisions through a merged owner-approved architecture decision or equivalent repository record. Such approval enables only the next architecture/implementation review phase; it is not a runtime service, record, cryptographic identity, admission authority, eligibility authority, activation authority, or implicit consequence of CI success.
+
+### K-333 Cross-Protocol Compatibility Authority
+
+Purpose: own the proposed compatibility relationship among independently versioned future contracts. It would define supported combinations, fail-closed unknown-version behavior, and historical decoder-retention requirements. It would not own record semantics, the K-329 manifest codec, evidence issuance, selection, admission, eligibility, or final version strings. Existing K-329 schemaVersion 1, byteFormatVersion 1, and `k329b-source-reviewed-v1` manifestVersion remain unchanged; existing strict K-333 v1 records remain unchanged. All future contracts would receive independent versions, and no compatibility table is approved here.
 
 ## 6. Complete owner-decision matrix
 
-Every row is independently visible. `K-329 owner` refers only to existing K-329 manifest representation/codec/content-digest authority. `Future persistence` refers only to a proposed future responsibility, not an existing store.
+Every row is independently visible. `K-329 owner` refers only to existing K-329 manifest representation/codec/content-digest authority. Every other authority name is a `RECOMMENDED_FOR_OWNER_APPROVAL` proposal unless the row states `OWNER_DECISION_REQUIRED`.
 
 | Decision | Existing authority | Available options | Recommended option | Status | Proposed owner | Scope | Lifecycle | Security rationale | Product / UX consequence | Persistence consequence | Required future contract | Validation input model | Failure behavior | Explicitly excluded interpretation |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -78,30 +94,54 @@ Every row is independently visible. `K-329 owner` refers only to existing K-329 
 | Eligibility consequence | no cross-protocol eligibility exists | direct conformity; separate eligibility | separate future eligibility | DEFERRED | Future Eligibility Authority | source eligibility | contract not yet defined | prevents source activation escalation | production remains ineligible | future eligibility evidence | Eligibility Contract | approved prior evidence | fail closed for eligibility | conformity is sufficient eligibility |
 | Activation consequence | activation is outside K-333E | eligibility implies activation; separate activation | separate future activation | DEFERRED | Future Activation Authority | production activation | contract not yet defined | prevents automatic rollout | no startup/UI activation | future activation evidence only | Activation Contract | explicit approved eligibility and activation policy | fail closed; no automatic activation | conformity -> activation |
 | Failure semantics | current protocols fail strict decode independently | fallback; destructive repair; typed failures | distinct typed fail-closed categories | RECOMMENDED_FOR_OWNER_APPROVAL | K-333 Conformity Validation Authority | validation/enforcement boundary | retain diagnostics; recovery policy later | prevents substitution and data loss | unavailable differs from corruption | retain bounded diagnostic evidence | Failure Semantics Contract | complete evidence and error category | invalid, unavailable, denial, corruption, unsupported version, runtime unavailable | newest fallback or local deletion |
-| Persistence prerequisite | no authority store exists; K-330 is dormant | runtime-only; current-only; append-only | durable historical evidence before enforcement | RECOMMENDED_FOR_OWNER_APPROVAL | Future evidence/history persistence layer | all referenced evidence | retain selections, bytes, adoption, context, capability, versions, events | prevents history truncation | local data preserved | append-only durable history required | Persistence and Historical Resolution Contract | trusted historical lookup | unavailable history blocks enforcement | K-330 envelopes are automatically authoritative |
-| Versioning strategy | K-329 v1 and K-333 v1 exist | reuse; independent versions | independent future contract versions | RECOMMENDED_FOR_OWNER_APPROVAL | each proposed authority owner | each future contract | retain decoders while referenced | prevents unknown-version downgrade | upgrades stay diagnosable | version metadata/decoders retained | Versioning Contract | explicit supported version | unsupported version; fail closed | new production version is approved now |
-| Compatibility strategy | no cross-protocol edge exists | implicit compatibility; explicit table | explicit future compatibility policy | RECOMMENDED_FOR_OWNER_APPROVAL | K-333 Manifest Selection and History Authority | cross-protocol validation | owner-approved evolution only | no surprise compatibility change | compatibility history retained | Compatibility Contract | approved version metadata | unsupported combination; fail closed | current compatibility edge exists |
-| Implementation sequence | no implementation authority exists | one PR; phased contracts | phased owner-approved contracts | RECOMMENDED_FOR_OWNER_APPROVAL | owner approval gate | future work | phase 0 precedes all work | prevents unauditable coupling | no immediate feature change | each phase defines its own evidence | Sequenced Contract Plan | no validation before approval | no implementation before approval | all layers in this PR |
-| Owner-approval gate | no approval is recorded | implicit review; explicit owner approval | explicit recorded owner approval | RECOMMENDED_FOR_OWNER_APPROVAL | designated future policy owner | all proposed authorities | before phase 1 | prevents recommendations becoming authority | no user action | approval evidence policy deferred | Owner Approval Record Policy | no validation/enforcement before approval | unavailable approval blocks work | this document approves itself |
+| Persistence prerequisite | no authority store exists; K-330 is dormant | runtime-only; current-only; append-only | durable historical evidence before enforcement | RECOMMENDED_FOR_OWNER_APPROVAL | K-333 Cross-Protocol Evidence Persistence Authority | all referenced evidence | retain selections, bytes, adoption, context, capability, versions, events | prevents history truncation | local data preserved | append-only durable history required | Cross-Protocol Evidence Persistence and Historical Resolution Contract Definition | trusted historical lookup | unavailable history blocks enforcement | K-330 envelopes are automatically authoritative |
+| Versioning strategy | K-329 v1 and K-333 v1 exist | distributed ownership; compatibility authority | independent versions with explicit compatibility authority | RECOMMENDED_FOR_OWNER_APPROVAL | K-333 Cross-Protocol Compatibility Authority | each future contract and cross-contract relation | retain decoders while referenced | prevents unknown-version downgrade | upgrades stay diagnosable | version metadata/decoders retained | Versioning and Compatibility Contract | explicit supported version | unsupported version; fail closed | new production version is approved now |
+| Compatibility strategy | no cross-protocol edge exists | implicit compatibility; explicit authority | explicit future compatibility policy | RECOMMENDED_FOR_OWNER_APPROVAL | K-333 Cross-Protocol Compatibility Authority | cross-protocol validation | owner-approved evolution only | no surprise compatibility change | compatibility history retained | Compatibility Contract | approved version metadata | unsupported combination; fail closed | current compatibility edge exists |
+| Implementation sequence | no implementation authority exists | one PR; phased contracts | phased owner-approved contracts | RECOMMENDED_FOR_OWNER_APPROVAL | K-333 Cross-Protocol Architecture Governance Authority | future work | phase 0 precedes all work | prevents unauditable coupling | no immediate feature change | merged decision/PR history only at this stage | Sequenced Contract Plan | no validation before approval | no implementation before approval | all layers in this PR |
+| Owner-approval gate | no approval is recorded | implicit review; explicit owner approval | explicit recorded owner approval | OWNER_DECISION_REQUIRED | Absinthe Protocol Owner | all proposed authorities | before phase 1 | prevents recommendations becoming authority | no user action | repository decision record only; no production record | Owner Approval Record Policy | no validation/enforcement before approval | unavailable approval blocks work | this document, merge, or CI approves itself |
 | Production-enforcement gate | no production bridge exists | automatic enforcement; explicit later gate | explicit later enforcement gate | DEFERRED | Future Eligibility Authority and Future Activation Authority | admission, eligibility, activation | only after all prior contracts | prevents premature production use | local capture remains safe | future evidence only | Eligibility and Activation Contracts | complete approved historical evidence | fail closed; preserve local data | owner proposal enables production |
 
-## 7. Context and capability decisions
+## 7. Authority responsibility table
+
+All rows below are proposal labels, not existing production symbols.
+
+| Proposed authority | Status | Owns | Issues / produces | Validates / resolves | Persists | Consumed by | Explicitly does not own |
+|---|---|---|---|---|---|---|---|
+| K-333 Identity Adoption Authority | RECOMMENDED_FOR_OWNER_APPROVAL | scoped identity/type adoption | immutable adoption evidence | adoption relation for conformity input | K-333 Cross-Protocol Evidence Persistence Authority | K-333 Conformity Validation Authority; later Authorization/Admission | context, capability, conformity, enforcement |
+| K-333 Session Context Evidence Authority | RECOMMENDED_FOR_OWNER_APPROVAL | canonical session context | context evidence | context material for conformity | K-333 Cross-Protocol Evidence Persistence Authority | K-333 Conformity Validation Authority; later Authorization/Admission | capability, authorization, admission, eligibility |
+| K-333 Session Capability Evidence Authority | RECOMMENDED_FOR_OWNER_APPROVAL | canonical session capability material | capability evidence/digest | capability material for conformity | K-333 Cross-Protocol Evidence Persistence Authority | K-333 Conformity Validation Authority; later Authorization/Admission | policy satisfaction alone, authorization, eligibility |
+| K-333 Manifest Selection and History Authority | RECOMMENDED_FOR_OWNER_APPROVAL | scoped manifest selection/history | selection and supersession events | selected digest/history | K-333 Cross-Protocol Evidence Persistence Authority | K-333 Identity Adoption Authority; K-333 Conformity Validation Authority | K-329 codec, membership, enforcement |
+| K-333 Conformity Validation Authority | RECOMMENDED_FOR_OWNER_APPROVAL | conformity-result semantics | deterministic conformity result | approved policy/evidence inputs | K-333 Cross-Protocol Evidence Persistence Authority only if later approved | later Operation Authorization/Admission authorities | authorization, admission, eligibility, activation |
+| K-333 Cross-Protocol Evidence Persistence Authority | RECOMMENDED_FOR_OWNER_APPROVAL | historical evidence retention/resolution | no policy evidence | deterministic historical lookup | cross-protocol evidence/history | K-333 Identity Adoption, Context, Capability, Selection, Conformity, and Compatibility authorities | K-329 codec, selection semantics, enforcement |
+| K-333 Cross-Protocol Architecture Governance Authority | RECOMMENDED_FOR_OWNER_APPROVAL | phase-boundary governance | implementation-review progression | prerequisite completeness | merged decision/PR history only | future contract/review workflow | product-policy approval, runtime/protocol semantics |
+| Absinthe Protocol Owner | OWNER_DECISION_REQUIRED | external approval/rejection | repository-recorded owner decision | not applicable | repository decision history | K-333 Cross-Protocol Architecture Governance Authority | runtime/protocol semantics |
+| K-333 Cross-Protocol Compatibility Authority | RECOMMENDED_FOR_OWNER_APPROVAL | cross-contract compatibility relation | supported-combination policy | version compatibility/historical decoder needs | version/compatibility metadata via K-333 Cross-Protocol Evidence Persistence Authority | K-333 Conformity Validation Authority; future contract definitions | record semantics, manifest codec, evidence issuance |
+
+## 8. Context and capability decisions
 
 ### Context authority decision
 
-The proposed owner is the **K-333 Session Context Evidence Authority**. Its issuer is a trusted session-establishment flow or future approved producer; its validator is the K-333 Conformity Validation Authority; its persistence owner is a future evidence/history persistence layer. Canonical material is a deterministic, decodable context type/category bound to session, identity, source, namespace, and generation. It is immutable for one evidence instance and must be replaced if context changes. Historical material is retained whenever later verification depends on it. Expiry/revocation details remain `OWNER_DECISION_REQUIRED`. Missing or mismatched context is unavailable evidence or conformity failure, not authorization failure, local-data deletion, or automatic repair.
+The proposed owner is the **K-333 Session Context Evidence Authority**. Its issuer is a trusted session-establishment flow or future approved producer; its validator is the K-333 Conformity Validation Authority; its persistence owner is the K-333 Cross-Protocol Evidence Persistence Authority. Canonical material is a deterministic, decodable context type/category bound to session, identity, source, namespace, and generation. It is immutable for one evidence instance and must be replaced if context changes. Historical material is retained whenever later verification depends on it. Expiry/revocation details remain `OWNER_DECISION_REQUIRED`. Missing or mismatched context is unavailable evidence or conformity failure, not authorization failure, local-data deletion, or automatic repair.
 
 ### Capability authority decision
 
-The proposed owner is the **K-333 Session Capability Evidence Authority**. Its issuer is a trusted session capability-establishment flow; its validator is the K-333 Conformity Validation Authority; its persistence owner is a future evidence/history persistence layer. Canonical material is a deterministic, decodable capability set with a digest derived from canonical bytes. It is immutable for one evidence instance and must be replaced if capabilities change. Capability identifier namespace, expiry, and revocation semantics remain `OWNER_DECISION_REQUIRED`. Existing `capabilityDigest` remains an opaque integrity/reference input, never semantic material or proof of K-329 requirement satisfaction.
+The proposed owner is the **K-333 Session Capability Evidence Authority**. Its issuer is a trusted session capability-establishment flow; its validator is the K-333 Conformity Validation Authority; its persistence owner is the K-333 Cross-Protocol Evidence Persistence Authority. Canonical material is a deterministic, decodable capability set with a digest derived from canonical bytes. It is immutable for one evidence instance and must be replaced if capabilities change. Capability identifier namespace, expiry, and revocation semantics remain `OWNER_DECISION_REQUIRED`. Existing `capabilityDigest` remains an opaque integrity/reference input, never semantic material or proof of K-329 requirement satisfaction.
 
-## 8. Manifest selection and history decision
+## 9. Manifest selection and history decision
 
-The proposed owner and selector is the **K-333 Manifest Selection and History Authority**. It selects one K-329 manifest for physical source + namespace + generation, with an immutable lifetime until an explicit append-only supersession or revocation event. Canonical K-329 bytes must remain resolvable by digest before historical enforcement. Selection, supersession, revocation, predecessor relation, and byte availability need durable historical retention. Exact revocation and rollback semantics remain `OWNER_DECISION_REQUIRED`; no automated rollback is proposed. Missing history is unavailable evidence: production enforcement fails closed, local data is preserved, and newest-manifest substitution is forbidden.
+The proposed owner and selector is the **K-333 Manifest Selection and History Authority**. It selects one K-329 manifest for physical source + namespace + generation, with an immutable lifetime until an explicit append-only supersession or revocation event. The K-333 Cross-Protocol Evidence Persistence Authority would retain the selection graph and canonical K-329 bytes or deterministic resolution metadata before historical enforcement. Exact revocation and rollback semantics remain `OWNER_DECISION_REQUIRED`; no automated rollback is proposed. Missing history is unavailable evidence: production enforcement fails closed, local data is preserved, and newest-manifest substitution is forbidden.
 
 Existing `WriterIdentityRecord.manifestDigest` is an opaque reference. It is insufficient as a complete selector contract, may later be an integrity/reference input to adoption evidence, and must not be reinterpreted as current production selection authority.
 
-## 9. Consequence boundaries
+## 10. Conformity validation, versioning, and dependency direction
+
+The proposed **K-333 Conformity Validation Authority** would consume only resolved inputs: a selected manifest/history decision, canonical K-329 bytes validated by the existing K-329 codec, identity-adoption evidence, canonical context evidence, canonical capability evidence, source/namespace/generation scope, and version/compatibility metadata. It would issue only a deterministic conformity result. The K-333 Cross-Protocol Evidence Persistence Authority would resolve historical inputs and would retain a result only if a later approved audit/replay contract requires it. Future Operation Authorization and Admission authorities may consume that result; Eligibility may consume only later approved authorization/admission evidence, and Activation never consumes raw conformity.
+
+The proposed **K-333 Cross-Protocol Compatibility Authority** would own only compatibility relationships among independently versioned future contracts. It would preserve fail-closed unknown combinations and decoder retention while evidence remains referenced. K-329 v1 and K-333 v1 remain existing authority; no version string, compatibility table, codec, or record is changed by this proposal.
+
+Dependency direction is one-way: K-329 canonical bytes/content digest and scoped K-333 evidence exist before selection/adoption; selection, adoption, context, and capability evidence precede conformity; conformity precedes only later authorization and admission; admission/authorization precede any later eligibility; activation is last and separate. There is no digest cycle and no membership-to-eligibility or conformity-to-activation edge.
+
+## 11. Consequence boundaries
 
 1. K-329 writer-type classification remains policy owned by K-329.
 2. Identity adoption proves only a scoped identity-to-reviewed-type relation.
@@ -113,13 +153,13 @@ Existing `WriterIdentityRecord.manifestDigest` is an opaque reference. It is ins
 
 There is no direct path from manifest membership or conformity to authorization, admission, eligibility, or activation.
 
-## 10. Validation input and persistence prerequisites
+## 12. Validation input and persistence prerequisites
 
 The recommended future validation model is hybrid: a caller may supply immutable evidence identifiers or records, while trusted future authorities resolve selected canonical manifest bytes and historical state. Required inputs are selected-manifest authority evidence, canonical bytes or trusted digest resolution, identity adoption evidence, canonical context evidence, canonical capability evidence, source/namespace/generation scope, and compatibility/version metadata. An untrusted caller cannot choose policy by supplying arbitrary manifest bytes; mutable runtime registry state cannot be sole historical truth; digest-only context/capability evidence is insufficient.
 
 Before enforcement, durable historical material must include manifest selections/history, canonical bytes or immutable content-addressed copies, identity adoption evidence, canonical context and capability evidence, supersession/revocation events, version/compatibility metadata, and bounded diagnostic failure evidence where needed. K-333E1 implements none of this. K-330 dormant envelopes are not automatically authoritative, and no storage schema is approved here.
 
-## 11. Failure semantics
+## 13. Failure semantics
 
 - **Invalid evidence:** deterministic validation failure; fail closed for production enforcement; retain diagnostics.
 - **Unavailable evidence:** distinguish from corruption; block production enforcement; preserve local data and local capture where safe; no silent fallback.
@@ -130,37 +170,43 @@ Before enforcement, durable historical material must include manifest selections
 
 Newest-manifest fallback, inferred context, inferred capabilities, local user-data deletion, implicit source reset, and automatic eligibility are forbidden.
 
-## 12. Recommended future contract sequence
+## 14. Recommended future contract sequence
 
-0. Explicit owner approval of these K-333E decisions.
-1. Manifest Selection and History Contract Definition.
-2. Identity Adoption Contract Definition.
-3. Session Context Evidence Contract Definition.
-4. Session Capability Evidence Contract Definition.
-5. Persistence and Historical Resolution Contract Definition.
-6. Conformity Validation Contract Definition (evidence/result only).
-7. Operation Authorization Contract Definition.
-8. Admission Integration Contract Definition.
-9. Eligibility Contract Definition.
-10. Activation Contract Definition.
+0. Absinthe Protocol Owner records explicit owner approval; K-333 Cross-Protocol Architecture Governance Authority confirms the phase boundary.
+1. K-333 Manifest Selection and History Authority Contract Definition.
+2. K-333 Identity Adoption Authority Contract Definition.
+3. K-333 Session Context Evidence Authority Contract Definition.
+4. K-333 Session Capability Evidence Authority Contract Definition.
+5. K-333 Cross-Protocol Evidence Persistence Authority and Historical Resolution Contract Definition.
+6. K-333 Conformity Validation Authority Contract Definition (evidence/result only).
+7. Future Operation Authorization Authority Contract Definition.
+8. Future Admission Authority Integration Contract Definition.
+9. Future Eligibility Authority Contract Definition.
+10. Future Activation Authority Contract Definition.
 
-Each phase is separate, reviewable, dormant until explicitly enabled, and unable to bypass a later authority. This list is sequencing only; it does not authorize implementation.
+The K-333 Cross-Protocol Architecture Governance Authority would govern phase boundaries and prerequisite review only; it cannot substitute for the Absinthe Protocol Owner's external policy approval. Each phase is separate, reviewable, dormant until explicitly enabled, and unable to bypass a later authority. This list is sequencing only; it does not authorize implementation.
 
-## 13. Explicit non-goals
+## 15. Explicit non-goals
 
 No production codec, record schema, identifier, digest domain, compatibility table, database/store/migration/repository, runtime registry/caller, transaction flow, admission, eligibility, activation, or K-334 work is added. K-329 is not modified or re-owned.
 
-## 14. Owner approval checklist
+## 16. Owner approval checklist
 
 - [ ] K-329 remains the sole manifest representation and content-digest owner.
 - [ ] `writerId` and `writerTypeId` remain distinct.
 - [ ] Membership uses the layered type -> identity -> session model.
 - [ ] K-333 Identity Adoption Authority is approved as the proposed identity-mapping owner.
+- [ ] Identity Adoption responsibility split is approved, including issuer, validator, persistence owner, and consumers.
 - [ ] K-333 Session Context Evidence Authority is approved as the proposed context owner.
 - [ ] Context evidence is session-scoped and historically retained when needed.
 - [ ] K-333 Session Capability Evidence Authority is approved as the proposed capability-material owner.
 - [ ] Capability material is canonical and decodable; opaque `capabilityDigest` alone is insufficient.
 - [ ] K-333 Manifest Selection and History Authority is approved as the proposed selector/history owner.
+- [ ] Conformity Validation responsibility split is approved, including result issuer, input resolvers, persistence owner, and consumers.
+- [ ] K-333 Cross-Protocol Evidence Persistence Authority is approved as the proposed durable evidence/history owner.
+- [ ] K-333 Cross-Protocol Compatibility Authority is approved as the proposed compatibility-relationship owner.
+- [ ] K-333 Cross-Protocol Architecture Governance Authority is approved only for phase-boundary governance.
+- [ ] Absinthe Protocol Owner is acknowledged as the external approval role; CI success is not owner approval.
 - [ ] Selection is scoped to physical source + namespace + generation and is immutable until explicit event.
 - [ ] Historical manifest bytes remain resolvable before enforcement and selection history is append-only.
 - [ ] Revocation and rollback policy are decided explicitly without destructive history loss.
@@ -171,11 +217,11 @@ No production codec, record schema, identifier, digest domain, compatibility tab
 - [ ] Failure categories remain distinct; no newest-manifest fallback is allowed.
 - [ ] Future contracts are separate and no implementation begins until approval is recorded in merged authority.
 
-## 15. Validation
+## 17. Validation
 
 This documentation-only change requires K-329, K-332, and K-333 focused tests, typecheck, build, and `git diff --check`. The known K-333 CRLF/LF fixture may report 92/93 locally; it is `ENVIRONMENT_SENSITIVE_NON_BLOCKING` only when the unchanged base reproduces the fixture-anchor condition. Exact-head CI is the merge-gating authority.
 
-## 16. Final proposal status
+## 18. Final proposal status
 
 ### PROPOSAL_READY_FOR_OWNER_APPROVAL
 
