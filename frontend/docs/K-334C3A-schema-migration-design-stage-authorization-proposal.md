@@ -137,10 +137,60 @@ zero.
 
 | State | Count |
 |---|---:|
+| Proposal created | 1 |
 | Owner responses pending | 1 |
-| Selected options / K-334C3 owner authorizations | 0 / 0 |
-| Schema/migration, repository/transaction, runtime authorizations | 0 / 0 / 0 |
-| Admission, eligibility, activation, production-change authorizations | 0 / 0 / 0 / 0 |
+| Owner approvals recorded | 0 |
+| Owner rejections recorded | 0 |
+| Owner deferrals recorded | 0 |
+| Owner evidence requests recorded | 0 |
+| Selected options recorded | 0 |
+| K-334C3A proposal publication records | 0 |
+| K-334C3 owner authorization evidence records | 0 |
+| Effective authorization records | 0 |
+| K-334C3 owner authorization | 0 |
+| K-334C3 design-stage authorization | 0 |
+| K-334C3 schema/migration design started | 0 |
+| Schema implementation authorization | 0 |
+| Schema implementation started | 0 |
+| Migration implementation authorization | 0 |
+| Migration implementation started | 0 |
+| Database-version change authorization | 0 |
+| Database-version changes applied | 0 |
+| Object-store creation or alteration authorization | 0 |
+| Object-store changes applied | 0 |
+| Index creation or alteration authorization | 0 |
+| Index changes applied | 0 |
+| Existing-data mutation authorization | 0 |
+| Existing-data mutations applied | 0 |
+| Repository implementation authorization | 0 |
+| Repository implementation started | 0 |
+| Transaction implementation authorization | 0 |
+| Transaction implementation started | 0 |
+| Concurrency/locking implementation authorization | 0 |
+| Concurrency/locking implementation started | 0 |
+| Runtime integration authorization | 0 |
+| Runtime integration started | 0 |
+| Recovery/replay integration authorization | 0 |
+| Recovery/replay integration started | 0 |
+| Caller migration authorization | 0 |
+| Caller migration started | 0 |
+| Protocol admission authorization | 0 |
+| Protocol admission activated | 0 |
+| Compatibility activation authorization | 0 |
+| Compatibility activation applied | 0 |
+| Writer/source eligibility authorization | 0 |
+| Eligible production sources | 0 |
+| Source activation authorization | 0 |
+| Activated production sources | 0 |
+| Production rollout authorization | 0 |
+| Production rollout started | 0 |
+| Accepted-fork remediation authorization | 0 |
+| Accepted-fork remediation started | 0 |
+| Retrospective authority-change authorization | 0 |
+| Retrospective authority changes applied | 0 |
+| K-334D authorization | 0 |
+| K-334E authorization | 0 |
+| K-334F authorization | 0 |
 
 ## 15. Non-Authorization Matrix
 
