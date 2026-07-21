@@ -194,8 +194,10 @@ activation, or production behavior.
 
 | Stage | Status |
 |---|---|
-| K-334C3A proposal | PUBLISHED_FOR_OWNER_REVIEW |
-| Owner response / authorization evidence | OWNER_RESPONSE_PENDING / NOT_RECORDED |
+| K-334C3A proposal | CREATED |
+| K-334C3B publication | PUBLISHED_FOR_OWNER_REVIEW |
+| Owner response | PENDING |
+| Owner authorization evidence | NOT_RECORDED |
 | K-334C3 owner authorization | NOT_AUTHORIZED |
 | K-334C3 design stage | NOT_AUTHORIZED; NOT_STARTED |
 | Schema and migration implementation | NOT_AUTHORIZED; NOT_STARTED |
