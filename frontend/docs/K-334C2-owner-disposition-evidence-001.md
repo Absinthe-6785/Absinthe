@@ -14,6 +14,7 @@
 
 | Field | Exact binding |
 |---|---|
+| Repository | Absinthe-6785/Absinthe |
 | Publication record type | K334C2ProposalPublicationRecord |
 | Publication record ID | K334C2-PUB-001 |
 | Proposal title | K-334C2 - Policy-Dependent Durable Authority Semantics |
@@ -22,6 +23,14 @@
 | Proposal Git blob | 743f1b71a03cefc0f6a8fe2c4b450242901d5a52 |
 | Proposal SHA-256 | B8EF5B9969BAA5AD060A0957BEDB3E594350A0C0C4EF3BB2A97DAEBDB45F84AF |
 | Package version | K-334C2A-reviewed-publication-1 |
+
+All durable references in this record are scoped to `Absinthe-6785/Absinthe`.
+The proposal path, commit, and blob; publication ID; and evidence ID are
+interpreted only within that exact repository. The same path, ID, commit-like
+value, or package name in another, forked, renamed, mirrored, or otherwise
+related repository is not equivalent. A repository mismatch fails closed; any
+future repository rename or transfer requires an explicit new binding or
+superseding evidence contract.
 
 This record is valid only for this complete exact publication, proposal bytes,
 decision versions, and selected option bindings. Branch name, PR number, latest
@@ -212,12 +221,13 @@ authorization record; option selection is not that authorization.
 
 ## 13. Future Stage Binding Requirements
 
-Any future authorized design or implementation must bind K334C2-PUB-001,
-K334C2-OWNER-EVIDENCE-001, the exact proposal commit and blob, exact
-decision/version and selected option, explicit stage authorization, exact
-authorized scope, the non-authorization boundary, and an implementation or
-design task ID. Absence or mismatch fails closed. This document creates no
-future stage authorization.
+Any future authorized design or implementation must bind the exact repository
+`Absinthe-6785/Absinthe`, K334C2-PUB-001, K334C2-OWNER-EVIDENCE-001, the exact
+proposal commit and blob, exact decision/version and selected option, explicit
+stage authorization, exact authorized scope, the non-authorization boundary,
+and an implementation or design task ID. Absence or mismatch, including a
+repository mismatch, fails closed. This document creates no future stage
+authorization.
 
 ## 14. Supersession Contract
 
