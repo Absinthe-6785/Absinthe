@@ -112,7 +112,7 @@ the row is explicitly a derived projection. `recordedAt` is audit metadata only.
 | Authority issuer | Exact issuer identity, distinct from an external mapping. | Canonical identity; immutable. | `authority_issuers`; `[namespaceKey, issuerId]` |
 | Scoped issuer policy | Explicit issuer/action/subject-scope permission. | Canonical policy state; append-only lifecycle links; no inferred issuer. | `authority_issuer_policies`; `[namespaceKey, policyId]` |
 | Authority grant | Proposed/accepted lifecycle evidence for an action. | Canonical append-only evidence; one lineage position only. | `authority_evidence`; `[namespaceKey, evidenceId]` |
-| Successor relationship | Exact predecessor-to-successor link. | Canonical evidence embedded in grant plus unique index; competing link is observed, never replaced. | `authority_evidence` |
+| Successor relationship | Exact predecessor-to-successor link. | Canonical evidence plus non-unique logical-position lookup; competing link is observed and preserved, never replaced. | `authority_evidence` |
 | Durable termination | Prospective termination of exact grant/policy/mapping. | Canonical append-only evidence; does not delete target. | `authority_terminations`; `[namespaceKey, terminationId]` |
 | Rollback permission | Separate permission for an exact rollback target/scope. | Canonical policy evidence; never inferred from an issuer grant. | `authority_rollback_permissions`; `[namespaceKey, permissionId]` |
 | Compatibility tuple | Exact allowlist tuple and policy lifecycle. | Canonical policy state; tuple identity is canonical serialization digest. | `authority_compatibility_tuples`; `[namespaceKey, tupleId]` |
@@ -123,6 +123,7 @@ the row is explicitly a derived projection. `recordedAt` is audit metadata only.
 | Subject quarantine | Exact-subject durable fail-closed state. | Durable quarantine state plus immutable basis references; permanent for confirmed fork. | `authority_quarantines`; `[namespaceKey, subjectId]` |
 | Accepted evidence | Acceptance decision over exact evidence and policy bindings. | Canonical append-only evidence, distinct from raw grant bytes. | `authority_evidence` (`kind=accepted_authority_evidence`) |
 | Rejected/unsupported evidence | Preserves non-accepted inputs and bounded reason code. | Append-only observation; never silently dropped. | `authority_evidence` (`kind=rejected_or_unsupported`) |
+| Migration session / lease | Durable batch identity, source binding, and CAS lease epoch. | Recovery metadata; no authority effect and no in-memory-only ownership. | `authority_migration_sessions`; `[namespaceKey, batchId]` |
 | Migration classification | Per legacy source/record disposition A–F. | Migration metadata; immutable classification revision with supersession. | `authority_migration_classifications`; `[namespaceKey, classificationId]` |
 | Migration checkpoint | Batch/session progress and verified counts/digests. | Recovery metadata; append-only checkpoints, one completion marker. | `authority_migration_checkpoints`; `[namespaceKey, checkpointId]` |
 | Recovery/reconciliation marker | Detects interrupted projection/replay and blocks effect. | Recovery metadata; never grants authority. | `authority_recovery_markers`; `[namespaceKey, markerId]` |
@@ -144,7 +145,7 @@ runtime activation.
 |---|---|---|---|---|
 | Subject / issuer | No issuer; creation provenance required. | No lifecycle effect by identity alone. | Duplicate exact ID with different bytes is corruption. | Canonical, retain forever. |
 | Issuer policy / rollback permission | Exact issuer, source evidence, recorder, tuple, subject/action scope. | Predecessor/supersession; prospective boundary; explicit termination; conflict observation. | Missing policy/tuple/mapping or duplicate active claim blocks applicability. | Canonical policy, append-only. |
-| Grant / successor / accepted-rejected evidence | Exact issuer and source/provenance required. | Lineage + predecessor; prospective sequence; termination reference; competitor becomes observation. | Reject cycles, missing predecessor, sequence collision, unsupported kind, invalid digest. | Canonical, append-only. |
+| Grant / successor / accepted-rejected evidence | Exact issuer and source/provenance required. | Lineage + predecessor; prospective sequence; termination reference; competitor becomes observation. | Reject cycles, missing predecessor, unsupported kind, invalid digest. Same-position candidates are preserved and conflict/fork handling blocks acceptance. | Canonical, append-only. |
 | Termination | Exact terminating issuer/policy and target evidence. | Target-specific prospective boundary; may itself be superseded/terminated only by explicit future evidence. | No target deletion or retrospective reclassification. | Canonical, append-only. |
 | Tuple / external mapping | Recorder, source evidence, exact namespace required; mapping also provider/identifier. | Explicit supersession/termination and conflict handling. | Tuple/mapping ambiguity, implicit relation, or unknown provider blocks lookup. | Canonical, append-only. |
 | Fork/conflict/quarantine | Detection provenance and exact observed evidence digests. | Fork binds exact subject permanently; conflict has no inferred successor. | Any confirmed fork invalidates that subject head; unrelated subject remains unaffected. | Observations and quarantine retained. |
@@ -158,15 +159,97 @@ runtime activation.
 | `repositoryNamespace` | exact opaque repository/install namespace | Required in every record; mismatch rejects. |
 | `namespaceKey` | existing local namespace fingerprint/key | Required first key component; prevents cross-user/project/device reuse. |
 | `subjectId`, `issuerId`, `lineageId` | opaque externally supplied or deterministically derived canonical identifiers | Validate strict identifier codec; no display-name or auto-increment identity. |
-| `recordId` | `dar:v1:<kind>:<sha256(canonical-preimage)>` | Content-addressed, deterministic; duplicate same bytes is idempotent, same ID/different bytes is corruption/conflict. |
+| `recordId` | `dar:v1:<kind>:<sha256(record-id preimage)>` | Content-addressed only for the record kinds listed below. Same semantic preimage is the same ID; same ID with different canonical bytes is an integrity conflict. |
 | `predecessorRecordId`, `supersedesRecordId` | exact record IDs or `null` | Missing referenced row, cycle, or self-link fails closed. |
-| `tupleId` | `dat:v1:<sha256(canonical tuple)>` | Same exact tuple bytes are idempotent; no normalized range expansion. |
-| `mappingId`, observation, checkpoint, marker, audit ID | deterministic canonical digest of kind, namespace, subject, source evidence, and logical sequence | Never depend solely on time or array order. |
-| `migrationBatchId` | locally generated opaque session ID bound to namespace + source digest | A restart reuses the same validated batch, not a new implicit batch. |
+| `tupleId` | `dat:v1:<sha256(tuple-id preimage)>` | Same exact tuple bytes are idempotent; no normalized range expansion. |
+| mapping / observation / quarantine / checkpoint / audit IDs | content-addressed or exact composite as specified in the preimage table | Never depend solely on time or object/array insertion order. |
+| `migrationBatchId` | locally generated, strict opaque session ID bound in its body to namespace + source digest | A restart reuses the same validated batch, not a new implicit batch. It is process-oriented, not content-addressed authority. |
 
 An external identifier is unique only within its exact `(provider,
 externalNamespace, externalIdentifier, mappingKind)` key. A subject identity is
 not an external identity, and an issuer identity is not a subject identity.
+
+### Canonical bytes, preimages, and digest relationships
+
+K-334 uses the existing K-333 primitive
+`frontend/src/lib/localDatabase/protocol/canonicalProtocolValue.ts` exactly for
+canonical payload bytes (`encodeCanonicalProtocolValue`) and
+`canonicalProtocolPreimage.ts` exactly for outer framing
+(`buildCanonicalProtocolPreimage`). This is a precise reuse, not raw
+JavaScript `JSON.stringify`: the future K-334D domain registry must add only
+the domain tags listed below to that preimage primitive before it accepts a
+K-334 record. K-334 owns the record-field contracts and K-334D owns that
+future codec implementation; neither is implemented by this document.
+
+For every content-addressed input, the payload passed to the primitive is an
+ordered array of `[fieldName, value]` pairs in the exact order in the table
+below. It is therefore independent of object-key iteration. The existing
+primitive supplies UTF-8 bytes, NFC-only valid Unicode strings, lexicographic
+UTF-8 ordering for any nested object keys, lowercase JSON literals `true`,
+`false`, and `null`, decimal safe-integer representation without `-0`, and
+rejects `undefined`, non-finite numbers, sparse arrays, non-plain objects,
+and non-canonical bytes. Every optional protocol field is present in its
+listed position and is encoded as `null`; omission is invalid. Digests are
+lowercase ASCII SHA-256 hex strings, byte values are lowercase hex strings,
+and sequences are positive safe integers. Arrays are in protocol order (never
+arrival or locale order). Prose examples never override this ordered-field
+contract. A codec change, new field, domain change, or limit change requires a
+new explicit schema/version and golden byte fixtures.
+
+For a content-addressed row, `recordId` and `canonicalDigest` are computed
+independently over the *same* immutable semantic ordered-field list but with
+different ASCII domain tags:
+
+```text
+record-id bytes = buildCanonicalProtocolPreimage(
+  "absinthe:k334:<record-type>:v1:record-id", 1, orderedFields)
+canonical-digest bytes = buildCanonicalProtocolPreimage(
+  "absinthe:k334:<record-type>:v1:canonical-digest", 1, orderedFields)
+```
+
+The stored identifier is the typed prefix in the table plus the SHA-256 of its
+record-id bytes. `canonicalDigest` is the SHA-256 of its canonical-digest
+bytes. Thus neither includes `recordId`, `canonicalDigest`, storage keys,
+timestamps, projection status, validation results, migration bookkeeping, or
+database-generated metadata. `recordedAt` is non-identity metadata in every
+record, and source bytes remain represented only by the separately validated
+`sourceDigest`. Unknown schema/domain tags are unsupported and fail closed.
+`subjectId`, `issuerId`, and `lineageId` themselves remain strict opaque
+protocol identifiers rather than K-334 content-addressed record IDs; their
+future creation/registration has no authority effect and is blocked absent
+their own validated provenance. Every K-334 canonical record that *is*
+content-addressed is enumerated below.
+
+In the table, the shorthand **boundary fields in order** is exactly
+`boundary.effectiveSequence`, `boundary.effectiveAfterRecordId`,
+`boundary.prospectiveOnly`; **provenance fields in order** is exactly
+`provenance.sourceKind`, `provenance.sourceRecordId`,
+`provenance.sourceDigest`, `provenance.recorderId`. Each nested value is the
+strict scalar or explicit `null` described above, never an object serialized
+by insertion order.
+
+| Record type | ID method and domain tag | Exact ordered semantic preimage fields | Explicit exclusions | Digest relationship and conflict rule |
+|---|---|---|---|---|
+| authority evidence | `dar:v1:authority-evidence:<sha256>`; `absinthe:k334:authority-evidence:v1:record-id` | `recordType`, `recordSchemaVersion`, `repositoryNamespace`, `namespaceKey`, `subjectId`, `issuerId`, `lineageId`, `predecessorRecordId`, `supersedesRecordId`, `action`, `lifecycleStatus`, `boundary.effectiveSequence`, `boundary.effectiveAfterRecordId`, `boundary.prospectiveOnly`, `compatibilityTupleId`, `provenance.sourceKind`, `provenance.sourceRecordId`, `provenance.sourceDigest`, `provenance.recorderId` | `recordId`, `canonicalDigest`, `recordedAt`, projection/head fields, validation/migration fields | Same list with `absinthe:k334:authority-evidence:v1:canonical-digest`; same ID + same bytes is idempotent, different bytes is integrity conflict. |
+| issuer policy | `dar:v1:issuer-policy:<sha256>`; `absinthe:k334:issuer-policy:v1:record-id` | `recordType`, `recordSchemaVersion`, `repositoryNamespace`, `namespaceKey`, `issuerId`, `subjectId`, `action`, `compatibilityTupleId`, `lifecycleStatus`, `predecessorRecordId`, `supersedesRecordId`, `terminationRecordId` or `null`, boundary fields in order, provenance fields in order | `policyId`, `recordId`, `canonicalDigest`, `recordedAt`, applicability cache/current state | Same list under `absinthe:k334:issuer-policy:v1:canonical-digest`; duplicate-by-ID rules above. |
+| rollback permission | `dar:v1:rollback-permission:<sha256>`; `absinthe:k334:rollback-permission:v1:record-id` | `recordType`, `recordSchemaVersion`, `repositoryNamespace`, `namespaceKey`, `issuerId`, `subjectId`, `rollbackTargetRecordId`, `compatibilityTupleId`, `predecessorRecordId`, `supersedesRecordId`, `terminationRecordId` or `null`, boundary fields in order, provenance fields in order | `permissionId`, `recordId`, `canonicalDigest`, `recordedAt`, current applicability | Same list under `absinthe:k334:rollback-permission:v1:canonical-digest`; duplicate-by-ID rules above. |
+| termination | `dar:v1:termination:<sha256>`; `absinthe:k334:termination:v1:record-id` | `recordType`, `recordSchemaVersion`, `repositoryNamespace`, `namespaceKey`, `subjectId`, `issuerId`, `targetKind`, `targetRecordId`, `issuerAuthorityRecordId`, `predecessorRecordId`, `supersedesRecordId`, boundary fields in order, provenance fields in order | `terminationId`, `recordId`, `canonicalDigest`, `recordedAt`, current terminated state | Same list under `absinthe:k334:termination:v1:canonical-digest`; duplicate-by-ID rules above. |
+| compatibility tuple | `dat:v1:<sha256>`; `absinthe:k334:compatibility-tuple:v1:tuple-id` | `recordType`, `recordSchemaVersion`, `repositoryNamespace`, `namespaceKey`, then exactly `(authorityProtocolVersion, authorityRecordSchemaVersion, manifestEvidenceVersion, subjectNamespace, issuerNamespace, compatibilityPolicyVersion, installationNamespace, action, sourceClass, migrationEpoch)`, then boundary and provenance fields in the order above | `tupleId`, `canonicalDigest`, `recordedAt`, lookup cache/status projection | Same tuple list under `absinthe:k334:compatibility-tuple:v1:canonical-digest`; byte-identical tuple is idempotent; same ID/different bytes blocks use. |
+| external subject / issuer mapping | `dar:v1:external-<kind>-mapping:<sha256>`; `absinthe:k334:external-<kind>-mapping:v1:record-id` | `recordType`, `recordSchemaVersion`, `repositoryNamespace`, `namespaceKey`, `mappingKind`, `provider`, `externalNamespace`, `externalIdentifier`, `internalId`, `predecessorRecordId`, `supersedesRecordId`, boundary, provenance | `mappingId`, `canonicalDigest`, `recordedAt`, reverse cache/ambiguity result | Same list under the matching `:canonical-digest` tag; same external key with a different target is preserved as conflict, never normalized. |
+| fork / conflict observation | `dar:v1:<kind>-observation:<sha256>`; `absinthe:k334:<kind>-observation:v1:record-id` | `recordType`, `recordSchemaVersion`, `repositoryNamespace`, `namespaceKey`, `subjectId`, `lineageId` or `null`, `predecessorRecordId` or `null`, ordered candidate record IDs, ordered candidate canonical digests, bounded reason/code, provenance | `observationId`, `canonicalDigest`, `recordedAt`, head/quarantine projection fields | Same list under matching `:canonical-digest`; exact duplicate is idempotent, distinct observation is retained. |
+| quarantine | exact composite primary key `[namespaceKey, subjectId]`; basis digest domain `absinthe:k334:subject-quarantine:v1:basis-digest` | `recordType`, `recordSchemaVersion`, `repositoryNamespace`, `namespaceKey`, `subjectId`, `quarantineState`, ordered `basisObservationIds`, `permanent` | primary-key components duplicated outside listed body, `basisDigest`, `canonicalDigest`, `recordedAt`, head invalidation flag | This is an exact-subject state projection, not content-addressed evidence. Its basis/canonical digests use distinct domains and the same listed body; mismatch blocks authority and requires reconciliation. |
+| migration session / lease | opaque strict `migrationBatchId` generated once; session digest domain `absinthe:k334:migration-session:v1:canonical-digest` | `recordType`, `recordSchemaVersion`, `repositoryNamespace`, `namespaceKey`, `batchId`, `sourceDigest`, `sessionStatus`, `leaseEpoch`, `leaseHolderId` or `null`, `leaseBoundarySequence` or `null`, provenance | `canonicalDigest`, wall-clock lease timestamps, UI progress, storage metadata | Process-oriented batch identity; same primary key + different canonical bytes requires a validated CAS transition or fails as corruption. It cannot be used as authority evidence. |
+| migration classification | `dar:v1:migration-classification:<sha256>`; `absinthe:k334:migration-classification:v1:record-id` | `recordType`, `recordSchemaVersion`, `repositoryNamespace`, `namespaceKey`, `batchId`, `sourceKind`, `sourceDigest`, `classification`, `supersedesClassificationId` or `null`, provenance | `classificationId`, `canonicalDigest`, progress display, `recordedAt` | Same list under `:canonical-digest`; one source may have superseding classifications, which remain preserved. |
+| migration checkpoint / recovery marker | exact composite `mcp:v1:<batchId>:<checkpointSequence>` or `mrm:v1:<batchId>:<markerKind>:<markerSequence>`; digest domains `absinthe:k334:migration-checkpoint:v1:canonical-digest` and `absinthe:k334:recovery-marker:v1:canonical-digest` | `recordType`, `recordSchemaVersion`, `repositoryNamespace`, `namespaceKey`, `batchId`, exact sequence, phase/status or marker kind/status, verified source/count/set digests, provenance | own process ID, `canonicalDigest`, wall-clock timestamp, mutable UI progress | Process-oriented IDs are deterministic composites; a same composite + different canonical bytes is corruption, never overwrite. |
+| audit event | exact composite `dae:v1:<recordId>:<eventKind>:<eventSequence>`; digest domain `absinthe:k334:audit-event:v1:canonical-digest` | `recordType`, `recordSchemaVersion`, `repositoryNamespace`, `namespaceKey`, `recordId`, `eventKind`, `eventSequence`, `sourceDigest`, `recorderId`, bounded context code | `auditEventId`, `canonicalDigest`, `recordedAt`, payload, stack/cause | Same composite + different canonical bytes is corruption; no audit event substitutes for canonical evidence. |
+| authority-head projection | exact derived key `[namespaceKey, subjectId, lineageId]`; digest domain `absinthe:k334:authority-head:v1:projection-digest` | `recordType`, `recordSchemaVersion`, `repositoryNamespace`, `namespaceKey`, `subjectId`, `lineageId`, `acceptedEvidenceId` or `null`, `acceptedEvidenceDigest` or `null`, `effectiveSequence` or `null`, `canonicalSetDigest`, `projectionEpoch`, `projectionState` | storage key, `projectionDigest`, rebuild metadata/timestamps | Derived and rebuildable, never canonical evidence. Mismatch, duplicate derived candidate, or missing matching accepted evidence blocks use. |
+
+`sourceDigest` is not an authority-record ID: it is the digest required by the
+strict source codec for the exact supplied source bytes. `tupleId` is the
+table's fixed ten-dimension tuple in exactly the displayed order; it excludes
+`tupleId`, `canonicalDigest`, activation/head fields, and mutable recording
+metadata. The future K-334D implementation must expose golden preimage bytes
+for every row above and reject circular field sets before persistence.
 
 ## 8. Proposed Database Version
 
@@ -212,6 +295,7 @@ All names below are proposals for v5. `autoIncrement` is false for every store.
 | `authority_fork_observations` | append-only observation | `[namespaceKey, observationId]` | subject, lineage, predecessor, candidate digest | Never delete; basis for permanent quarantine. |
 | `authority_conflict_observations` | append-only observation | `[namespaceKey, observationId]` | subject, conflict code, evidence digest | Never delete; no automatic resolution. |
 | `authority_quarantines` | durable quarantine state | `[namespaceKey, subjectId]` | subject, state, basis digest | One exact state per subject; no delete/release without future authorization. |
+| `authority_migration_sessions` | migration/lease metadata | `[namespaceKey, batchId]` | source digest, status, lease epoch | One durable batch session; lease state is CAS-bound and never inferred from memory. |
 | `authority_migration_classifications` | migration metadata | `[namespaceKey, classificationId]` | batch, source kind, class, source digest | Append-only supersession; preserves unsupported source. |
 | `authority_migration_checkpoints` | recovery metadata | `[namespaceKey, checkpointId]` | batch, phase, sequence, status | Append-only checkpoints; completion only after verification. |
 | `authority_recovery_markers` | recovery metadata | `[namespaceKey, markerId]` | batch/subject, marker status | Append-only; cleared only by superseding resolved marker. |
@@ -231,7 +315,7 @@ are not authorized by this document.
 | `authority_evidence` | append-only, potentially highest volume | K-334D/E / future validator/projection builder | evidence + audit + head/quarantine | no deletion; canonical replay source |
 | `authority_compatibility_tuples`, `authority_external_mappings` | bounded allowlist/mapping history | K-334D/E / future validator | policy/mapping + audit | no deletion; ambiguity is retained |
 | `authority_fork_observations`, `authority_conflict_observations`, `authority_quarantines` | sparse per affected subject | K-334E / future validator | conflict + quarantine + head + audit | no deletion; quarantine remains durable |
-| `authority_migration_classifications`, `authority_migration_checkpoints`, `authority_recovery_markers` | bounded by batches and preserved source rows | K-334F / future recovery | migration batch/checkpoint | append-only; resume from last verified checkpoint |
+| `authority_migration_sessions`, `authority_migration_classifications`, `authority_migration_checkpoints`, `authority_recovery_markers` | bounded by batches and preserved source rows | K-334E/F / future recovery | migration session/lease + batch/checkpoint | append-only history; CAS lease and resume from last verified checkpoint |
 | `authority_heads` | at most one derived head per subject/lineage | K-334E/F / future read gate | evidence/policy + head | may be invalidated and rebuilt, never trusted alone |
 | `authority_audit_events` | append-only per write/recovery event | K-334D/E/F / audit only | paired with every canonical mutation | retain; never replace evidence |
 
@@ -242,7 +326,7 @@ validation; a “convenience” index is never authority by itself.
 
 | Store / index | Key path | Unique | Use and failure behavior |
 |---|---|---:|---|
-| `authority_evidence/by_subject_lineage_sequence` | `[namespaceKey, subjectId, lineageId, effectiveSequence]` | true for accepted-position projection write | Detects a second accepted successor; collision preserves observation and fails closed. |
+| `authority_evidence/by_subject_lineage_sequence` | `[namespaceKey, subjectId, lineageId, effectiveSequence]` | false | Lookup and conflict discovery only. It returns every canonical candidate at a logical position and is never proof that one candidate is accepted. |
 | `authority_evidence/by_predecessor` | `[namespaceKey, predecessorRecordId]` | false | Finds competitors; arrival order never chooses a winner. |
 | `authority_evidence/by_subject_status` | `[namespaceKey, subjectId, lifecycleStatus]` | false | Convenience validation lookup; stale result cannot grant authority. |
 | `authority_evidence/by_issuer` | `[namespaceKey, issuerId]` | false | Audit/policy validation. |
@@ -256,9 +340,11 @@ validation; a “convenience” index is never authority by itself.
 | `authority_fork_observations/by_subject_predecessor` | `[namespaceKey, subjectId, predecessorRecordId]` | false | Fork evidence and exact quarantine basis. |
 | `authority_conflict_observations/by_subject_code` | `[namespaceKey, subjectId, conflictCode]` | false | Preserves unresolved conflicts. |
 | `authority_quarantines/by_state` | `[namespaceKey, quarantineState]` | false | Convenience check; exact subject key is canonical. |
+| `authority_migration_sessions/by_source_status` | `[namespaceKey, sourceDigest, sessionStatus]` | false | Finds a validated reusable session; never selects a holder by arrival order. |
+| `authority_migration_sessions/by_lease_epoch` | `[namespaceKey, batchId, leaseEpoch]` | true | Exact session/epoch CAS lookup; stale holder conflicts and stops writes. |
 | `authority_migration_classifications/by_batch_class` | `[namespaceKey, batchId, classification]` | false | Batch accounting; never accepts source evidence. |
 | `authority_migration_checkpoints/by_batch_sequence` | `[namespaceKey, batchId, checkpointSequence]` | true | Resumption ordering; not wall-clock ordering. |
-| `authority_heads/by_subject` | `[namespaceKey, subjectId]` | false | Derived lookup only; requires canonical digest revalidation. |
+| `authority_heads/by_subject` | `[namespaceKey, subjectId]` | false | Derived lookup only; requires canonical digest revalidation. The unique projection slot is the primary key `[namespaceKey, subjectId, lineageId]`, not an evidence index. |
 
 No timestamp index is an authority ordering source. If operational ordering is
 needed, it is secondary to an explicit canonical sequence and predecessor link.
@@ -278,21 +364,31 @@ needed, it is secondary to an explicit canonical sequence and predecessor link.
 | `authority_fork_observations` | `by_subject_predecessor`; `by_observation_digest` unique | observation lookup |
 | `authority_conflict_observations` | `by_subject_code`; `by_observation_digest` unique | observation lookup |
 | `authority_quarantines` | `by_state`; exact primary key is one-per-subject | canonical state |
+| `authority_migration_sessions` | `by_source_status`; `by_lease_epoch` | migration/lease metadata |
 | `authority_migration_classifications` | `by_batch_class`; `by_source_digest` → `[namespaceKey, sourceDigest]` | migration metadata |
 | `authority_migration_checkpoints` | `by_batch_sequence`; `by_batch_status` → `[namespaceKey, batchId, status]` | recovery metadata |
 | `authority_recovery_markers` | `by_batch_status` → `[namespaceKey, batchId, markerStatus]` | recovery metadata |
 | `authority_heads` | `by_subject`; `by_projection_digest` → `[namespaceKey, canonicalSetDigest]` | convenience only |
 | `authority_audit_events` | `by_subject`; `by_record` → `[namespaceKey, recordId]`; `by_source_digest` | audit lookup |
 
-Every unique index collision is validation evidence of duplicate/corrupt or
-competing input and must abort the acceptance path. Convenience indexes remain
-non-authoritative.
+The only unique accepted-position slot is the derived `authority_heads` primary
+key `[namespaceKey, subjectId, lineageId]`. Sequence is deliberately omitted:
+the row represents the one current accepted head for that exact lineage, with
+its accepted sequence in the row body. Older accepted canonical evidence and
+all same-position candidates remain append-only evidence. No IndexedDB unique
+index on canonical authority evidence enforces conditional accepted-state
+uniqueness. Every other unique index collision is validation evidence of a
+duplicate/corrupt *identity* input and must abort the affected write; a
+competing evidence candidate is preserved rather than rejected.
 
 ## 11. Proposed Record Schemas
 
 The following is non-executable design pseudocode. `Required<T>` means a
 strictly decoded canonical value; optional fields are explicit `null`, never
 inferred. All canonical shapes reject unknown fields in the future codec.
+Fields labelled `canonical input` appear in their record-kind ordered preimage
+from Section 7; `derived` fields are computed only after those bytes; and
+`metadata` never changes canonical identity or digest.
 
 ```ts
 type AuthorityBoundary = {
@@ -310,47 +406,74 @@ type Provenance = {
 
 type AuthorityEvidenceV1 = {
   recordType: 'authority_evidence_v1'; recordSchemaVersion: 1;
-  recordId: RecordId; repositoryNamespace: RepositoryNamespace;
+  recordId: RecordId; // derived: never preimage input
+  repositoryNamespace: RepositoryNamespace; // canonical input
   namespaceKey: NamespaceKey; subjectId: SubjectId; issuerId: IssuerId;
   lineageId: LineageId; predecessorRecordId: RecordId | null;
   supersedesRecordId: RecordId | null; action: AuthorityAction;
   lifecycleStatus: 'proposed' | 'recorded' | 'accepted' | 'superseded' |
     'terminated' | 'rollback_applied' | 'unsupported' | 'malformed';
   boundary: AuthorityBoundary; compatibilityTupleId: TupleId;
-  provenance: Provenance; canonicalDigest: Sha256; recordedAt: IsoTime;
+  provenance: Provenance; canonicalDigest: Sha256; // derived: never preimage input
+  recordedAt: IsoTime; // non-identity metadata
 };
 
 type CompatibilityTupleV1 = {
   recordType: 'authority_compatibility_tuple_v1'; recordSchemaVersion: 1;
-  tupleId: TupleId; repositoryNamespace: RepositoryNamespace;
+  tupleId: TupleId; // derived: never tuple preimage input
+  repositoryNamespace: RepositoryNamespace;
   authorityProtocolVersion: 1; authorityRecordSchemaVersion: 1;
   manifestEvidenceVersion: 1; subjectNamespace: string; issuerNamespace: string;
   compatibilityPolicyVersion: 1; installationNamespace: string;
   action: AuthorityAction; sourceClass: SourceClass; migrationEpoch: string;
-  boundary: AuthorityBoundary; provenance: Provenance; canonicalDigest: Sha256;
+  boundary: AuthorityBoundary; provenance: Provenance; canonicalDigest: Sha256; // derived
 };
 
 type ExternalMappingV1 = {
   recordType: 'external_subject_mapping_v1' | 'external_issuer_mapping_v1';
-  recordSchemaVersion: 1; mappingId: RecordId; repositoryNamespace: RepositoryNamespace;
+  recordSchemaVersion: 1; mappingId: RecordId; // derived: never preimage input
+  repositoryNamespace: RepositoryNamespace;
   mappingKind: 'subject' | 'issuer'; provider: string; externalNamespace: string;
   externalIdentifier: string; internalId: SubjectId | IssuerId;
   predecessorRecordId: RecordId | null; supersedesRecordId: RecordId | null;
-  boundary: AuthorityBoundary; provenance: Provenance; canonicalDigest: Sha256;
+  boundary: AuthorityBoundary; provenance: Provenance; canonicalDigest: Sha256; // derived
 };
 
 type SubjectQuarantineV1 = {
   recordType: 'subject_quarantine_v1'; recordSchemaVersion: 1;
   namespaceKey: NamespaceKey; subjectId: SubjectId; quarantineState: 'forked';
-  basisObservationIds: readonly RecordId[]; basisDigest: Sha256;
-  permanent: true; recordedAt: IsoTime; canonicalDigest: Sha256;
+  basisObservationIds: readonly RecordId[]; basisDigest: Sha256; // derived
+  permanent: true; recordedAt: IsoTime; canonicalDigest: Sha256; // metadata / derived
+};
+
+type AuthorityMigrationSessionV1 = {
+  // process-oriented primary key: [namespaceKey, batchId], never authority evidence
+  recordType: 'authority_migration_session_v1'; recordSchemaVersion: 1;
+  namespaceKey: NamespaceKey; batchId: string; sourceDigest: Sha256;
+  sessionStatus: 'planned' | 'running' | 'blocked' | 'failed' | 'complete';
+  leaseEpoch: CanonicalSequence; leaseHolderId: string | null;
+  leaseBoundarySequence: CanonicalSequence | null; provenance: Provenance;
+  canonicalDigest: Sha256; recordedAt: IsoTime; // derived / metadata
+};
+
+type AuthorityHeadV1 = {
+  // derived projection, never canonical evidence and never an acceptance grant
+  recordType: 'authority_head_v1'; recordSchemaVersion: 1;
+  namespaceKey: NamespaceKey; subjectId: SubjectId; lineageId: LineageId;
+  acceptedEvidenceId: RecordId | null; acceptedEvidenceDigest: Sha256 | null;
+  effectiveSequence: CanonicalSequence | null; canonicalSetDigest: Sha256;
+  projectionEpoch: CanonicalSequence; projectionState: 'verified' | 'blocked';
+  projectionDigest: Sha256; // derived; exact Section 7 projection preimage
 };
 ```
 
-`AuthorityHeadV1` is derived, stores the selected canonical evidence digest and
-projection epoch, and is never evidence of acceptance by itself. No shape may
-infer issuer authority, mapping, compatibility, expiry, predecessor, or
-acceptance from a timestamp, name, account, or row order.
+`AuthorityHeadV1` has exactly one physical projection slot per
+`[namespaceKey, subjectId, lineageId]`. It cannot exist without a matching,
+strictly revalidated canonical accepted-evidence row. A missing, stale,
+duplicated, blocked, corrupt, or digest-mismatched head is unusable; it never
+falls back to evidence arrival order. No shape may infer issuer authority,
+mapping, compatibility, expiry, predecessor, or acceptance from a timestamp,
+name, account, or row order.
 
 ### Canonical record-kind field matrix
 
@@ -461,21 +584,76 @@ verifies every reference/tuple/policy, and writes a new projection atomically
 where practical; otherwise a durable recovery marker prevents effect until the
 rebuild is verified.
 
+Accepting a successor is not evidence insertion. The future acceptance
+transaction reads **all** canonical candidates for the exact
+`[namespaceKey, subjectId, lineageId, effectiveSequence]` position, the exact
+predecessor, applicable issuer policy, compatibility tuple, required mappings,
+termination/rollback state, quarantine, observations, and the current head.
+It verifies strict predecessor continuity and that there is no competing
+accepted candidate, conflict, fork, or quarantine. It preserves the candidate
+in canonical evidence, then atomically updates the one derived head slot only
+when that full graph validates. A competitor instead creates/preserves
+observation and exact-subject quarantine state, invalidates or blocks the
+projection, and aborts permissive advancement. It never deletes either
+candidate. Projection mismatch triggers rebuild, reconciliation, conflict, or
+quarantine; it cannot grant authority.
+
 ## 20. Transaction and Atomicity Matrix
 
-| Future operation | Read / write stores | Atomic requirement and owner |
-|---|---|---|
-| Record authority evidence | policies, tuples, mappings, quarantine, evidence / evidence, audit | Validate exact graph; canonical evidence + audit in one readwrite transaction. K-334D/E. |
-| Accept successor | evidence, policies, tuples, terminations, quarantine, heads / evidence, observations, quarantine, heads, audit | Position uniqueness; competitor creates observation/quarantine, never overwrite. K-334E. |
-| Record issuer policy, rollback, termination, tuple, mapping | relevant canonical store plus evidence / record, audit, recovery marker | Idempotency by canonical digest; prospective boundary only. K-334D/E. |
-| Observe conflict/fork | evidence, observations, quarantine / observations, quarantine, heads, audit | Preserve all candidates and invalidate head atomically. K-334E. |
-| Migrate one legacy record | classifications, checkpoints, canonical stores / classification, evidence or rejected evidence, audit, checkpoint | Source digest idempotency; never accept a B/C/E source. K-334F. |
-| Checkpoint/recover migration | checkpoints, markers, canonical stores, heads / checkpoint or marker | Completion after durable verification only. K-334F. |
-| Rebuild projection | canonical stores, heads, markers / heads, marker, audit | Rebuild from canonical evidence; mismatch cannot grant effect. K-334F. |
+The following is an operation-level future contract, not implementation. Store
+codes are: `E` evidence, `P` issuer policies, `R` rollback permissions, `T`
+terminations, `U` tuples, `M` external mappings, `F` fork observations, `C`
+conflict observations, `Q` quarantines, `H` derived heads, `S` migration
+sessions/leases, `G` classifications, `K` checkpoints, `X` recovery markers,
+and `A` audit events. `rw` means one native IndexedDB readwrite transaction
+over the stated scope; `ro` is read-only. `same-bytes` means the Section 7
+same-ID/same-canonical-bytes idempotent duplicate rule; `different-bytes`
+means integrity conflict. `abort` rolls back that transaction; a crash before
+commit is equivalent to abort and after commit is recovered from the durable
+postcondition. All retry keys are exact canonical/composite IDs, never clocks.
 
-All write groups are native IndexedDB `readwrite` transactions across the listed
-stores. A transaction abort leaves no partial write in that transaction. Cross-
-transaction work uses append-only checkpoints and idempotency keys; it never
+| Operation ID | Operation name | Purpose | Canonical inputs | Stores read | Stores written | Transaction mode | Atomicity scope | Preconditions | Validation steps | Postconditions | Unique/conflict checks | Fail-closed outcome | Abort behavior | Crash point behavior | Retry behavior | Idempotency key | Duplicate handling | Recovery / reconciliation path | Projection impact | Quarantine impact | Future implementation owner | Future test categories |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| T01 | Insert authority evidence | Append raw canonical evidence. | Section 7 evidence body | E | E,A | rw | E,A | strict decoded namespace | codec, preimage, digest, refs | immutable row + audit | ID/digest; logical index non-unique | reject unsupported/corrupt | no row | before commit none; after commit audit present | same ID replay | evidence ID | same-bytes no-op; different-bytes conflict | inspect E/A; mark X if audit absent | none | none | K-334D | codec, duplicate, crash |
+| T02 | Insert scoped issuer policy | Preserve prospective policy. | policy body | P,U,E,Q | P,A | rw | P,A | exact scope/tuple | codec, issuer, boundary | policy retained | policy ID/digest; competing scopes observed later | no applicability | no row | replay P/A pair | same ID replay | policy ID | same-bytes no-op | audit/revalidate policy graph | none | policy conflict may later block | K-334D | codec, policy conflict |
+| T03 | Insert rollback permission | Preserve separate rollback authority. | permission body | R,P,U,E,Q | R,A | rw | R,A | exact target/policy | codec, target, tuple, prospective boundary | permission retained | ID/digest and target conflict | no rollback effect | no row | replay permission/audit | same ID replay | permission ID | same-bytes no-op | revalidate target graph | none | conflict blocks use | K-334D | policy, duplicate |
+| T04 | Insert durable termination | Preserve prospective termination. | termination body | T,P,E,U,Q | T,A | rw | T,A | exact target/policy | codec, authority, boundary | termination retained | ID/digest; competing termination preserved | no lifecycle change | no row | replay termination/audit | same ID replay | termination ID | same-bytes no-op | recompute/invalidate H | invalidate affected H | conflict blocks subject/action | K-334D | lifecycle, crash |
+| T05 | Insert exact compatibility tuple | Preserve allowlist tuple. | exact ten-dimension tuple | U | U,A | rw | U,A | exact tuple only | tuple preimage/digest | tuple retained | tuple ID/digest | tuple unavailable | no row | replay tuple/audit | same ID replay | tuple ID | same-bytes no-op | strict tuple lookup | none | none | K-334D | golden bytes, duplicate |
+| T06 | Insert external subject mapping | Preserve subject mapping. | subject mapping body | M,U,Q | M,A | rw | M,A | exact provider key | codec, target, boundary | mapping retained | external key different target is conflict | mapping unusable | no row | replay mapping/audit | same ID replay | mapping ID | same-bytes no-op | discover ambiguity, create T10 | none | ambiguity blocks subject | K-334D | mapping ambiguity |
+| T07 | Insert external issuer mapping | Preserve issuer mapping. | issuer mapping body | M,U,Q | M,A | rw | M,A | exact provider key | codec, target, boundary | mapping retained | external key different target is conflict | mapping unusable | no row | replay mapping/audit | same ID replay | mapping ID | same-bytes no-op | discover ambiguity, create T10 | none | ambiguity blocks affected use | K-334D | mapping ambiguity |
+| T08 | Accept a linear successor | Advance only verified lineage. | candidate ID + accepted evidence body | E,P,U,M,T,R,F,C,Q,H | E,H,A | rw | E,H,A plus C/F/Q if conflict discovered | exact predecessor/current H | all same-position candidates, policy, tuple, mappings, no termination/quarantine | accepted evidence and matching H | no competing accepted/candidate; H primary slot | abort advancement and route T09–T12 | no acceptance/head | before commit no advance; after commit H/evidence agree | re-read full graph | evidence ID + head key | same accepted bytes no-op; otherwise conflict | T30/T31/T32 on mismatch | atomically set verified H | blocks if any conflict/fork | K-334E | successor, race, crash |
+| T09 | Observe a competing successor | Retain competing candidate. | ordered candidate IDs/digests | E,H,Q | E,F,A | rw | E,F,A | candidates share exact position | strict candidate comparison | evidence + fork observation retained | never unique-index reject candidate | no projection advancement | no partial observation | committed observation persists; uncommitted none | same observation replay | observation ID | same-bytes no-op | T11/T12 and T31 | mark H blocked if needed | candidate basis preserved | K-334E | coexistence, fork |
+| T10 | Declare a conflict | Preserve non-fork conflict. | conflict observation body | E,P,R,T,U,M,Q,H | C,A,H | rw | C,A,H | exact conflicting inputs | bounded code, digest/ref checks | conflict retained, H blocked if affected | same conflict ID; no inferred winner | affected lookup unusable | no partial state | replay observation/head invalidation | same conflict replay | observation ID | same-bytes no-op | T31 reconcile H | invalidate/block affected H | create T12 if subject-wide | K-334E | policy/mapping conflict |
+| T11 | Confirm a fork | Establish permanent exact-subject fork. | ordered branch observation body | E,F,C,Q,H | F,C,Q,H,A | rw | F,C,Q,H,A | verified distinct successors | exact subject/lineage/predecessor/sequence | all observations + permanent Q; H blocked | preserve every branch; Q one subject key | no authority for subject | no partial fork state | after commit Q/H durable; before none | same branch set replay | fork observation ID | same-bytes no-op | T12/T31/T30 only blocked rebuild | selected head removed/blocked | exact-subject permanent Q | K-334E | exact-subject fork |
+| T12 | Create or preserve exact-subject quarantine | Make subject fail closed. | quarantine body/basis | Q,F,C,E,H | Q,H,A | rw | Q,H,A | exact subject/basis | basis IDs/digest, permanent state | Q exists and H blocked | Q key one subject; different basis reconciled | no release/inference | no partial Q | before commit no Q; after commit Q/H durable | replay Q/H pair | subject key + basis digest | same basis no-op; mismatch conflict | T31 reconcile basis | block H | preserves or creates Q | K-334E | restart, corruption |
+| T13 | Update accepted authority-head projection | Write derived verified head only. | Section 7 projection body | E,P,U,M,T,R,F,C,Q,H | H,A | rw | H,A | T08 graph valid | canonical set digest, accepted row, no conflict/Q | one verified H row | primary slot CAS; stale epoch conflicts | H unusable | old H unchanged | postcommit revalidate digest | rebuild-safe retry | H primary key + epoch | same projection no-op | T30/T31 | set/replace derived H | none | K-334E | CAS, stale head |
+| T14 | Insert rejected or unsupported evidence | Preserve non-authoritative source. | evidence body + bounded reason | E,Q | E,X,A | rw | E,X,A | strict bounded source available | codec failure classification/digest | non-authoritative row/marker retained | ID/digest | never accepted | no row | replay row/marker | same ID replay | evidence ID | same-bytes no-op | T32 inspect marker | none | none unless subject conflict | K-334D/F | malformed, replay |
+| T15 | Insert malformed evidence preservation record | Preserve undecodable bytes metadata. | bounded source digest/kind/reason | X,G | X,G,A | rw | X,G,A | source bytes retained externally | bounds, reason, source digest | marker/classification retained | composite marker key | no decoding/acceptance | no row | resume from marker | same marker replay | marker ID | same-bytes no-op | T20/T26 | none | none | K-334F | malformed, crash |
+| T16 | Classify one legacy source record | Persist A–F disposition. | source digest/classification | G,S | G,A | rw | G,A | live lease/session | source identity, class evidence | immutable classification retained | classification ID/source supersession | no promotion by class alone | no row | before commit no classification; after classification retained | replay classification | same source/class key | same-bytes no-op | T17–T20 | none | C/E paths preserve/block | K-334F | classification property |
+| T17 | Migrate one class-A record | Promote verified A only. | A classification + canonical body | S,G,E,P,U,M,Q,H | E,G,A,X | rw | S,E,G,A,X | verified A, lease, no Q | exact source digest/full graph | canonical row + verified migration evidence | source/record ID/digest | stop batch | no partial promotion | marker permits replay | retry after lease recheck | source digest + record ID | same-bytes no-op | T25/T32 | no H unless separately T08/T30 | Q blocks promotion | K-334F | migration, crash |
+| T18 | Preserve class-B pending evidence | Retain evidence awaiting policy. | B classification/source digest | S,G | G,X,A | rw | G,X,A | verified B, lease | no policy/tuple/mapping sufficient | pending marker retained | classification/source digest | no promotion | no partial marker | before commit none; after marker retained | replay marker | same key | same-bytes no-op | resume only on new evidence | none | none | K-334F | pending evidence |
+| T19 | Preserve and quarantine class-C record | Retain unsafe legacy source. | C classification/source digest | S,G,Q,H | G,Q,H,X,A | rw | G,Q,H,X,A | verified C, lease | bounded reason/basis | source retained and blocked | subject key/basis | no promotion | no partial block | before commit no block; after Q/marker durable | replay Q/marker | source digest | same-bytes no-op | T31/T32 | H blocked | exact subject if mapped; otherwise marker | K-334F | quarantine migration |
+| T20 | Preserve class-E unsupported/malformed record | Retain unsupported source. | E classification/source digest | S,G | G,X,A | rw | G,X,A | verified E, lease | strict unsupported reason | source marker retained | source digest | no promotion | no row | before commit none; after marker durable | replay marker | source digest | same-bytes no-op | T26/T32 | none | none | K-334F | unsupported replay |
+| T21 | Create migration session | Establish durable batch. | session body/source digest | S,G,K,X | S,A | rw | S,A | no conflicting active session | namespace/source/status/ID | session planned | batch ID/source status | no migration start | no session | before commit no session; after session durable | replay session | batch ID | same-bytes no-op | T22/T26 | none | none | K-334E/F | session lifecycle |
+| T22 | Acquire migration lease or single-writer ownership | Linearize batch writes. | batch ID, holder, expected epoch | S | S,A | rw | S,A | session resumable, no valid other holder | exact CAS epoch/namespace | holder+epoch advanced | stale epoch/holder conflicts | stop writes | no lease change | committed epoch wins | reread then retry only new epoch | batch ID+expected epoch | same holder epoch no-op | T24/T26/T33 | none | none | K-334E | multi-tab, CAS |
+| T23 | Renew migration lease | Maintain verified holder. | batch ID, holder, epoch | S | S,A | rw | S,A | held exact lease | CAS holder/epoch/boundary | renewal recorded | stale holder conflicts | stop writer | no renewal | stale tab loses after commit | only current holder retry | batch/holder/epoch | same renewal no-op | T24/T33 | none | none | K-334E | stale tab |
+| T24 | Release or abandon migration lease | End ownership without deletion. | batch ID, holder, epoch, reason | S | S,A,X | rw | S,A,X | exact current holder or proved abandonment | CAS/recovery proof | released/abandoned state retained | stale release conflicts | lease remains blocking | no partial release | resume validates state | idempotent state retry | batch/epoch/status | same state no-op | T22/T26 | none | none | K-334E/F | abandonment, restart |
+| T25 | Write migration checkpoint | Record verified batch boundary. | batch phase/sequence/digests | S,G,K,E,H,X | K,A | rw | K,A | held lease, verified prior work | counts/set/projection digests | append checkpoint | batch+sequence unique | batch blocked | no checkpoint | postcommit checkpoint resumes | same checkpoint retry | checkpoint ID | same-bytes no-op | T26/T34 | H digest referenced only | none | K-334F | checkpoint crash |
+| T26 | Resume interrupted migration batch | Continue only verified state. | session/checkpoint IDs | S,K,X,G,E,H | S,X,A | rw | S,K,X,A | valid session/lease/checkpoint | strict decode/digest/reconcile | resumable phase or blocked marker | duplicate/invalid checkpoint | no new writes | no partial resume status | crash leaves prior checkpoint | deterministic replay | batch+checkpoint digest | same decision no-op | T17–T25/T32 | H revalidated | Q preserved | K-334F | restart, corruption |
+| T27 | Mark migration blocked | Persist safe non-progress. | batch/status/reason | S,K,X | S,X,A | rw | S,X,A | unresolved safe blocker | bounded reason/digests | blocked retained | session CAS | no further batch writes | no state change | before commit prior state; after blocked durable | replay blocked state | batch/status | same state no-op | owner evidence later; T26 rechecks | H unusable | Q unchanged | K-334F | blocked restart |
+| T28 | Mark migration failed | Persist failure without repair. | batch/status/reason | S,K,X | S,X,A | rw | S,X,A | verified failure | bounded failure context | failed retained | session CAS | no retry without recovery | no state change | before commit prior state; after failed durable | replay failed state | batch/status | same state no-op | later explicit recovery only | H unchanged/unusable | Q unchanged | K-334F | failure privacy |
+| T29 | Mark migration complete | Close only verified batch. | batch/final digests | S,K,G,E,H,X | S,K,A | rw | S,K,A | held lease, all verification passes | counts, lineage, H/set digest | completion marker/session retained | completion once | no effect if partial | no completion | before commit incomplete; after completion durable | recheck completed state | batch+final digest | same complete no-op | T34 validates again | H must verify | Q prevents completion where required | K-334F | completion gate |
+| T30 | Build or rebuild one authority-head projection | Recreate derived head. | subject/lineage/rebuild epoch | E,P,U,M,T,R,F,C,Q,H,X | H,X,A | rw | H,X,A | canonical scan available | full graph/set digest | verified H or blocked marker | competing/corrupt candidates | no usable H | old H retained/blocked | marker covers interruption | deterministic rebuild retry | H key+set digest | same projection no-op | T31/T32 | writes only derived H | Q always blocks H | K-334F | rebuild/property |
+| T31 | Reconcile projection mismatch | Diagnose H/evidence divergence. | H key/current digests | E,P,U,M,T,R,F,C,Q,H,X | H,C,Q,X,A | rw | H,C,Q,X,A | mismatch observed | re-read canonical graph | repaired derived H or durable block | any ambiguity remains conflict | no authority | no partial reconciliation | before commit old H; after verified H or durable block | replay from marker | H key+set digest | same result no-op | T30/T32 | revalidate or block H | preserve/create as warranted | K-334F | corruption/reconcile |
+| T32 | Recover canonical-write/projection-write interruption | Resolve durable boundary interruption. | marker/session/checkpoint | E,H,X,K,S,Q | H,X,K,A | rw | E,H,X,K,A | marker or digest mismatch | re-read canonical commit/set | projection rebuilt or blocked marker | never infer missing evidence | no effect | no partial recovery | crash repeats same marker | idempotent resume | marker ID + set digest | same recovery no-op | T30/T31/T26 | rebuild/block H | Q respected | K-334F | every boundary crash |
+| T33 | Handle stale-tab or old-schema writer detection | Fence unsafe writer. | namespace/batch/epoch/schema evidence | S,K,X,H | S,X,A | rw | S,X,A | stale/old writer detected | version, CAS, namespace | writer stopped marker retained | epoch/schema mismatch | no authority writes | no partial fence | durable fence persists | same detection replay | batch+epoch+reason | same marker no-op | T24/T26 | H not advanced | Q unchanged | K-334E | multi-tab, versionchange |
+| T34 | Verify post-migration counts and digests | Prove completed batch. | batch/final expected digests | S,G,K,E,P,U,M,F,C,Q,H,X | K,X,A | rw | K,X,A | candidate completion | exact counts, set/lineage/H digest | verified checkpoint or blocker | any mismatch blocks complete | no completion | no partial verification | before commit no verification; after durable checkpoint/blocker | replay verification | batch+verification digest | same verified no-op | T29/T31 | H digest checked | Q checked | K-334F | aggregate/property |
+| T35 | Record audit/provenance event | Pair durable bounded audit. | exact referenced record/event | relevant canonical store,A | A | rw | canonical store,A | referenced durable mutation | ID/source digest/bounds | audit retained | event composite collision | mutation aborts if paired audit required | no partial audit | before commit no audit; after paired audit durable | replay audit | audit event ID | same-bytes no-op | T32 only for required pair | none | none | K-334D/E/F | audit, crash |
+
+No row authorizes an implementation. All write groups are future native
+IndexedDB `readwrite` transactions across the listed stores. A transaction
+abort leaves no partial write in that transaction. Cross-transaction work uses
+append-only checkpoints, recovery markers, and exact idempotency keys; it never
 uses a full-store clear/rewrite.
 
 ## 21. Legacy Source Classification
@@ -583,6 +761,11 @@ dropped or repaired.
 | P13 | Completion follows durable verification only. | transaction/recovery / K-334F | P1 |
 | P14 | Derived-view corruption cannot grant authority. | recovery/property / K-334F | P1 |
 | P15 | This design document authorizes no implementation stage. | protocol audit / K-334C3 review | P1 |
+| P16 | Canonical candidates at one subject/lineage/sequence coexist; storage uniqueness never drops a competitor. | IndexedDB transaction/property / K-334E | P1 |
+| P17 | Accepted-position exclusivity comes only from full-graph validation and the derived head slot, never conditional evidence-index uniqueness. | transaction/concurrency / K-334E | P1 |
+| P18 | Every content-addressed ID/digest has the exact non-circular Section 7 preimage and rejects self-derived fields. | codec/golden fixture / K-334D | P1 |
+| P19 | Canonical bytes are identical across runtimes and field insertion orders under the bound K-333 codec. | codec/cross-runtime property / K-334D | P1 |
+| P20 | Every T01–T35 state-changing operation has complete read/write, precondition, idempotency, crash, and recovery behavior. | transaction/recovery matrix / K-334D/E/F | P1 |
 
 ## 28. Future Test Matrix
 
@@ -593,12 +776,25 @@ dropped or repaired.
 | malformed/unknown legacy record and future DB version | codec/schema; repository |
 | ambiguous mapping and incompatible tuple | codec/schema; repository; mutation |
 | competing successor, fork, exact quarantine | transaction; property; recovery |
+| two proposed candidates or accepted-plus-competitor at one logical position | IndexedDB transaction; conflict discovery; fork preservation |
+| non-unique evidence index and invalid duplicate head advancement | IndexedDB integration; transaction/CAS |
+| projection corruption, stale head, and candidate conflict | recovery; property; quarantine |
+| record ID/digest circular fields, field permutations, optional null, Unicode | codec; golden bytes; cross-runtime |
+| same ID with different canonical bytes and tuple-ID fixtures | codec; integrity; property |
+| every T01–T35 idempotent replay and each canonical/head/checkpoint crash boundary | transaction; recovery; browser multi-tab |
 | termination and separate rollback permission | repository; transaction |
 | projection rebuild/mismatch/staleness | recovery; property |
 | quota failure and transaction abort | IndexedDB integration; recovery |
 | cross-installation namespace mismatch | codec/schema; protocol audit |
 
 ## 29. Open Questions
+
+None of OQ-01 through OQ-05 defers or weakens the Section 7 identity contract,
+Section 10 non-unique evidence lookup, or T01–T35 transaction contracts:
+those have the stated fail-closed defaults now. OQ-01 and OQ-02 still block
+future repository acceptance writes; OQ-05 still blocks migration execution.
+They do not block a future K-334D codec/store proposal from implementing these
+contracts after its separate authorization.
 
 | ID | Question / safe default | Blocking / owner | May K-334D proceed? |
 |---|---|---|---|
@@ -625,7 +821,10 @@ dropped or repaired.
 | K-334C3 documentation-design authorization | 1 |
 | K-334C3 design started | 1 |
 | K-334C3 design document created | 1 |
+| K-334C3 correction started | 1 |
+| K-334C3 correction document updated | 1 |
 | K-334C3 design independently reviewed | 0 |
+| K-334C3 design review findings closed | 0 |
 | K-334C3 design approved for implementation | 0 |
 | Schema implementation authorization | 0 |
 | Migration implementation authorization | 0 |
