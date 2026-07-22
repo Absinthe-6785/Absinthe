@@ -260,6 +260,16 @@ Changing a schema, canonical bytes, field order, codec rule, or limit requires
 a new explicit tag/version and golden byte fixtures. No tag is assembled from
 runtime strings.
 
+For every canonical preimage in this design, its fixed domain tag is bound
+**exactly once**. The K-333 outer `domain` parameter is the sole domain/version
+marker for that layer; semantic payload fields never restate the same literal.
+A same-layer duplicate domain field is non-canonical and must be rejected or
+fail closed. Nested layers are valid only when their tags differ: canonical
+pair bytes bind one pair domain, a collection binds one collection domain while
+embedding those pair bytes, and a parent record binds one parent domain while
+embedding collection bytes. Manually prepending or adding the same layer's
+domain literal again is invalid.
+
 | Record or helper type | Fixed ID / primary tag | Fixed digest / projection tag | Schema | Ordered preimage reference | Namespace-bearing | Duplicate behavior | Unknown/wrong tag behavior |
 |---|---|---|---|---|---|---|---|
 | authority evidence | `absinthe:k334:authority-evidence:v1:record-id` | `absinthe:k334:authority-evidence:v1:canonical-digest` | v1 | Section 7 authority-evidence row | required | same bytes no-op; different bytes conflict | unsupported / integrity conflict |
@@ -301,15 +311,20 @@ type QuarantineBasisReferenceV1 = {
 
 Each candidate pair is canonical UTF-8 bytes from
 `buildCanonicalProtocolPreimage("absinthe:k334:candidate-reference:v1:pair",
-1, payload)` where `payload` is exactly the fixed-order array
-`[["pairTag", "absinthe:k334:candidate-reference:v1:pair"],
-["candidateRecordId", id], ["candidateCanonicalDigest", digest]]`.
+1, payload)` where the outer domain is its sole tag/version marker and
+`payload` is exactly the fixed-order array
+`[["candidateRecordId", id], ["candidateCanonicalDigest", digest]]`.
 There are no optional, null, metadata, timestamp, provenance, or ordering
 fields in that pair. A quarantine-basis pair uses the same K-333 primitive and
 outer length framing with fixed tag
 `absinthe:k334:quarantine-basis-reference:v1:pair` and exactly
-`[["pairTag", "absinthe:k334:quarantine-basis-reference:v1:pair"],
-["observationRecordId", id], ["observationCanonicalDigest", digest]]`.
+`[["observationRecordId", id], ["observationCanonicalDigest", digest]]`.
+Neither pair payload contains `pairTag`, `domainTag`, a version marker, or a
+literal equivalent to its outer domain. Pair equality is byte-identical final
+K-333-framed bytes; the outer domain frames the payload before its bytes and
+does not appear again inside it. A double-tag encoding (outer domain plus an
+equivalent payload field) produces non-canonical bytes and must not validate as
+a canonical pair.
 
 A collection first canonically encodes every pair, then sorts the **full pair
 byte sequences** by unsigned bytewise lexicographic comparison from byte zero;
@@ -324,8 +339,7 @@ allows it. Candidate collection bytes are the K-333 outer frame for
 payload:
 
 ```text
-[["collectionTag", "absinthe:k334:candidate-reference:v1:collection"],
- ["elementCount", N],
+[["elementCount", N],
  ["elements", [[pairByteLength, lowercaseHexPairBytes], ...]]]
 ```
 
@@ -337,11 +351,26 @@ on raw concatenation, an unframed hash-of-hashes, or parallel arrays. Sorting,
 ID/digest binding, duplicate detection, and byte-length validation complete
 before a parent record ID or digest is calculated.
 
+The collection outer domain is likewise its sole tag/version marker. Neither
+collection payload contains `collectionTag`, `domainTag`, a version marker, or
+a literal equivalent to its outer domain. Thus the semantic payload is only
+the final post-deduplication element count followed by independently framed,
+sorted pair bytes. A double-tag encoding (outer domain plus an equivalent
+payload field) produces non-canonical bytes and must not validate as a
+canonical collection.
+
 When a parent canonical payload includes a collection, its field value is the
 lowercase hex encoding of the entire framed collection byte sequence (named
 `candidateCollectionBytes` or `quarantineBasisCollectionBytes` as applicable).
 The parent does not decode, reserialize, concatenate, or hash that value again
 as a substitute for collection membership.
+
+| Helper preimage | Sole outer domain | Exact ordered semantic payload | Explicit exclusions |
+|---|---|---|---|
+| candidate reference pair | `absinthe:k334:candidate-reference:v1:pair` | `candidateRecordId`, `candidateCanonicalDigest` | `pairTag`, any domain/version field, status, timestamp, projection state, mutable metadata |
+| candidate reference collection | `absinthe:k334:candidate-reference:v1:collection` | final `elementCount`, ordered individually framed `candidatePairBytes` | `collectionTag`, any domain/version field, arrival order, source indexes, mutable metadata |
+| quarantine-basis reference pair | `absinthe:k334:quarantine-basis-reference:v1:pair` | `observationRecordId`, `observationCanonicalDigest` | `pairTag`, any domain/version field, status, timestamp, projection state, mutable metadata |
+| quarantine-basis reference collection | `absinthe:k334:quarantine-basis-reference:v1:collection` | final `elementCount`, ordered individually framed `quarantineBasisPairBytes` | `collectionTag`, any domain/version field, arrival order, source indexes, mutable metadata |
 
 Conflict and fork observation preimages include the candidate collection bytes
 in their listed field position, after predecessor and before bounded reason and
@@ -777,10 +806,10 @@ postcondition. All retry keys are exact canonical/composite IDs, never clocks.
 | T06 | Insert external subject mapping | Preserve subject mapping. | subject mapping body | M,U,Q | M,A | rw | M,A | exact provider key | codec, target, boundary | mapping retained | external key different target is conflict | mapping unusable | no row | replay mapping/audit | same ID replay | mapping ID | same-bytes no-op | discover ambiguity, create T10 | none | ambiguity blocks subject | K-334D | mapping ambiguity |
 | T07 | Insert external issuer mapping | Preserve issuer mapping. | issuer mapping body | M,U,Q | M,A | rw | M,A | exact provider key | codec, target, boundary | mapping retained | external key different target is conflict | mapping unusable | no row | replay mapping/audit | same ID replay | mapping ID | same-bytes no-op | discover ambiguity, create T10 | none | ambiguity blocks affected use | K-334D | mapping ambiguity |
 | T08 | Accept a linear successor | Advance only verified lineage. | candidate ID + accepted evidence body | E,P,U,M,T,R,F,C,Q,H | E,H,A | rw | E,H,A plus C/F/Q if conflict discovered | exact predecessor/current H | all same-position candidates, policy, tuple, mappings, no termination/quarantine | accepted evidence and matching H | no competing accepted/candidate; H primary slot | abort advancement and route T09–T12 | no acceptance/head | before commit no advance; after commit H/evidence agree | re-read full graph | evidence ID + head key | same accepted bytes no-op; otherwise conflict | T30/T31/T32 on mismatch | atomically set verified H | blocks if any conflict/fork | K-334E | successor, race, crash |
-| T09 | Observe a competing successor | Retain competing candidate. | canonical candidate-reference collection bytes | E,H,Q | E,F,A | rw | E,F,A | candidates share exact position | pair binding, unsigned byte sort, duplicate/conflict rules | evidence + fork observation retained | never unique-index reject candidate | no projection advancement | no partial observation | committed observation persists; uncommitted none | same observation replay | observation ID | same-bytes no-op | T11/T12 and T31 | mark H blocked if needed | candidate basis preserved | K-334E | coexistence, pair binding, fork |
-| T10 | Declare a conflict | Preserve non-fork conflict. | conflict observation plus canonical candidate-reference collection bytes | E,P,R,T,U,M,Q,H | C,A,H | rw | C,A,H | exact conflicting inputs | bounded code, digest/ref checks, pair binding | conflict retained, H blocked if affected | same conflict ID; no inferred winner | affected lookup unusable | no partial state | replay observation/head invalidation | same conflict replay | observation ID | same-bytes no-op | T31 reconcile H | invalidate/block affected H | create T12 if subject-wide | K-334E | policy/mapping conflict, pair binding |
-| T11 | Confirm a fork | Establish permanent exact-subject fork. | canonical candidate-reference collection plus observation bodies | E,F,C,Q,H | F,C,Q,H,A | rw | F,C,Q,H,A | verified distinct successors | exact subject/lineage/predecessor/sequence and canonical collection | all observations + permanent Q; H blocked | preserve every branch; Q one subject key | no authority for subject | no partial fork state | after commit Q/H durable; before none | same branch set replay | fork observation ID | same-bytes no-op | T12/T31/T30 only blocked rebuild | selected head removed/blocked | exact-subject permanent Q | K-334E | exact-subject fork, collection replay |
-| T12 | Create or preserve exact-subject quarantine | Make subject fail closed. | quarantine body plus canonical quarantine-basis collection bytes | Q,F,C,E,H | Q,H,A | rw | Q,H,A | exact subject/basis | observation pair binding, unsigned byte sort, basis digest, permanent state | Q exists and H blocked | Q slot one subject; different immutable basis identity reconciled | no release/inference | no partial Q | before commit no Q; after commit Q/H durable | replay Q/H pair | subject slot + quarantine record ID | same bytes no-op; mismatched pair/basis conflict | T31 reconcile basis | block H | preserves or creates Q | K-334E | restart, corruption, basis binding |
+| T09 | Observe a competing successor | Retain competing candidate. | canonical candidate-reference collection bytes | E,H,Q | E,F,A | rw | E,F,A | candidates share exact position | pair binding, exactly-once outer domains, unsigned byte sort, duplicate/conflict rules | evidence + fork observation retained | never unique-index reject candidate | no projection advancement | no partial observation | committed observation persists; uncommitted none | same observation replay | observation ID | same-bytes no-op | T11/T12 and T31 | mark H blocked if needed | candidate basis preserved | K-334E | coexistence, pair binding, fork |
+| T10 | Declare a conflict | Preserve non-fork conflict. | conflict observation plus canonical candidate-reference collection bytes | E,P,R,T,U,M,Q,H | C,A,H | rw | C,A,H | exact conflicting inputs | bounded code, digest/ref checks, pair binding, exactly-once outer domains | conflict retained, H blocked if affected | same conflict ID; no inferred winner | affected lookup unusable | no partial state | replay observation/head invalidation | same conflict replay | observation ID | same-bytes no-op | T31 reconcile H | invalidate/block affected H | create T12 if subject-wide | K-334E | policy/mapping conflict, pair binding |
+| T11 | Confirm a fork | Establish permanent exact-subject fork. | canonical candidate-reference collection plus observation bodies | E,F,C,Q,H | F,C,Q,H,A | rw | F,C,Q,H,A | verified distinct successors | exact subject/lineage/predecessor/sequence, canonical collection, exactly-once outer domains | all observations + permanent Q; H blocked | preserve every branch; Q one subject key | no authority for subject | no partial fork state | after commit Q/H durable; before none | same branch set replay | fork observation ID | same-bytes no-op | T12/T31/T30 only blocked rebuild | selected head removed/blocked | exact-subject permanent Q | K-334E | exact-subject fork, collection replay |
+| T12 | Create or preserve exact-subject quarantine | Make subject fail closed. | quarantine body plus canonical quarantine-basis collection bytes | Q,F,C,E,H | Q,H,A | rw | Q,H,A | exact subject/basis | observation pair binding, exactly-once outer domains, unsigned byte sort, basis digest, permanent state | Q exists and H blocked | Q slot one subject; different immutable basis identity reconciled | no release/inference | no partial Q | before commit no Q; after commit Q/H durable | replay Q/H pair | subject slot + quarantine record ID | same bytes no-op; mismatched pair/basis conflict | T31 reconcile basis | block H | preserves or creates Q | K-334E | restart, corruption, basis binding |
 | T13 | Update accepted authority-head projection | Write derived verified head only. | Section 7 projection body | E,P,U,M,T,R,F,C,Q,H | H,A | rw | H,A | T08 graph valid | canonical set digest, accepted row, no conflict/Q | one verified H row | primary slot CAS; stale epoch conflicts | H unusable | old H unchanged | postcommit revalidate digest | rebuild-safe retry | H primary key + epoch | same projection no-op | T30/T31 | set/replace derived H | none | K-334E | CAS, stale head |
 | T14 | Insert rejected or unsupported evidence | Preserve non-authoritative source. | evidence body + bounded reason | E,Q | E,X,A | rw | E,X,A | strict bounded source available | codec failure classification/digest | non-authoritative row/marker retained | ID/digest | never accepted | no row | replay row/marker | same ID replay | evidence ID | same-bytes no-op | T32 inspect marker | none | none unless subject conflict | K-334D/F | malformed, replay |
 | T15 | Insert malformed evidence preservation record | Preserve undecodable bytes metadata. | bounded source digest/kind/reason | X,G | X,G,A | rw | X,G,A | source bytes retained externally | bounds, reason, source digest | marker/classification retained | composite marker key | no decoding/acceptance | no row | resume from marker | same marker replay | marker ID | same-bytes no-op | T20/T26 | none | none | K-334F | malformed, crash |
@@ -918,8 +947,8 @@ dropped or repaired.
 | P15 | This design document authorizes no implementation stage. | protocol audit / K-334C3 review | P1 |
 | P16 | Canonical candidates at one subject/lineage/sequence coexist; storage uniqueness never drops a competitor. | IndexedDB transaction/property / K-334E | P1 |
 | P17 | Accepted-position exclusivity comes only from full-graph validation and the derived head slot, never conditional evidence-index uniqueness. | transaction/concurrency / K-334E | P1 |
-| P18 | Every content-addressed ID/digest has its fixed Section 7 ASCII tag, exact non-circular preimage, and rejects self-derived fields, wrong tags, and byte-changing codec/version reuse. | codec/golden fixture / K-334D | P1 |
-| P19 | Candidate and quarantine-basis pairs bind exact ID/digest values; collections sort full pair bytes unsigned-bytewise, frame each element, deduplicate only byte-identical pairs, and produce identical bytes across runtimes. | codec/cross-runtime property / K-334D | P1 |
+| P18 | Every canonical layer binds its fixed Section 7 ASCII domain exactly once through the K-333 outer frame, keeps ID/digest preimages non-circular, permits distinct nested-layer domains only, and rejects self-derived fields, unknown/wrong tags, same-layer double tags, and byte-changing codec/version reuse. | codec/golden fixture / K-334D | P1 |
+| P19 | Candidate and quarantine-basis pairs bind exact ID/digest values and exclude payload tag fields; collections use one outer domain, sort full pair bytes unsigned-bytewise, frame each element, deduplicate only byte-identical pairs, reject double-tag encodings, and produce identical bytes across runtimes. | codec/cross-runtime property / K-334D | P1 |
 | P20 | Every T01–T35 state-changing operation has complete read/write, precondition, idempotency, crash, and recovery behavior. | transaction/recovery matrix / K-334D/E/F | P1 |
 
 ## 28. Future Test Matrix
@@ -974,6 +1003,12 @@ These are future tests only; no test implementation is authorized here.
 | 18 | quarantine-basis membership change yields different record ID/digest | K-334D | P1 |
 | 19 | cross-runtime golden fixture covers pair and collection bytes | K-334D | P1 |
 | 20 | Unicode and case differences compare only by canonical bytes | K-334D | P1 |
+| 21 | candidate pair exactly-once golden fixture: pair domain appears only in the K-333 outer frame | K-334D | P1 |
+| 22 | candidate collection exactly-once golden fixture: collection domain appears only in the K-333 outer frame | K-334D | P1 |
+| 23 | outer pair domain plus payload `pairTag` rejects as non-canonical | K-334D | P1 |
+| 24 | outer collection domain plus payload `collectionTag` rejects as non-canonical | K-334D | P1 |
+| 25 | nested pair, collection, and parent domains each appear once and remain valid | K-334D | P1 |
+| 26 | independent runtimes produce equal exactly-once pair and collection bytes | K-334D | P1 |
 
 ## 29. Open Questions
 
@@ -982,10 +1017,10 @@ Section 10 non-unique evidence lookup, or T01–T35 transaction contracts:
 those have the stated fail-closed defaults now. OQ-01 and OQ-02 still block
 future repository acceptance writes; OQ-05 still blocks migration execution.
 They do not block a future K-334D codec/store proposal from implementing these
-contracts after its separate authorization. No open question defers K334C3A-R04
-or K334C3A-R05: their fixed-tag and pair/collection contracts are specified
-here and await independent review only. Other separately authorized policy or
-implementation work remains fail-closed.
+contracts after its separate authorization. No open question defers K334C3A-R04,
+K334C3A-R05, or K334C3A1-R07: their fixed-tag, pair/collection, and
+exactly-once contracts are specified here and await independent review only.
+Other separately authorized policy or implementation work remains fail-closed.
 
 | ID | Question / safe default | Blocking / owner | May K-334D proceed? |
 |---|---|---|---|
@@ -1016,6 +1051,8 @@ implementation work remains fail-closed.
 | K-334C3 correction document updated | 1 |
 | K-334C3A1 correction started | 1 |
 | K-334C3A1 document updated | 1 |
+| K-334C3A2 correction started | 1 |
+| K-334C3A2 document updated | 1 |
 | K-334C3 design independently reviewed | 0 |
 | K-334C3 design review findings closed | 0 |
 | K-334C3 design approved for implementation | 0 |
