@@ -210,7 +210,7 @@ function definitionFor(value: unknown): ProtocolResult<readonly [K334ContentAddr
 function orderedPayload(
   definition: K334RecordDefinition,
   value: unknown,
-): ProtocolResult<readonly [readonly [string, CanonicalProtocolValue], Readonly<Record<string, CanonicalProtocolValue>>]> {
+): ProtocolResult<readonly [readonly (readonly [string, CanonicalProtocolValue])[], Readonly<Record<string, CanonicalProtocolValue>>]> {
   const decoded = decodeExactObject(value, definition.fields, [], 'k334_payload');
   if (!decoded.ok) return decoded;
   const type = decodeLiteral(decoded.value.recordType, definition.recordType, 'recordType');
@@ -416,7 +416,7 @@ function createReferenceCollection(kind: ReferenceKind, value: unknown): Protoco
     encoded.sort((left, right) => compareUnsignedBytes(left.bytes, right.bytes));
     const canonical: typeof encoded = [];
     for (const entry of encoded) {
-      const previous = canonical.at(-1);
+      const previous = canonical[canonical.length - 1];
       if (previous && previous.reference.recordId === entry.reference.recordId
         && previous.reference.canonicalDigest !== entry.reference.canonicalDigest) {
         return protocolFail('RELATIONSHIP_MISMATCH', 'k334_collection', 'recordId');
