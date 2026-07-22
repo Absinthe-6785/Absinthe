@@ -159,7 +159,7 @@ runtime activation.
 | `repositoryNamespace` | exact opaque repository/install namespace | Required in every record; mismatch rejects. |
 | `namespaceKey` | existing local namespace fingerprint/key | Required first key component; prevents cross-user/project/device reuse. |
 | `subjectId`, `issuerId`, `lineageId` | opaque externally supplied or deterministically derived canonical identifiers | Validate strict identifier codec; no display-name or auto-increment identity. |
-| `recordId` | `dar:v1:<kind>:<sha256(record-id preimage)>` | Content-addressed only for the record kinds listed below. Same semantic preimage is the same ID; same ID with different canonical bytes is an integrity conflict. |
+| `recordId` | fixed typed prefix and fixed record-id domain tag from the Section 7 tag registry | Content-addressed only for the record kinds listed below. Same semantic preimage is the same ID; same ID with different canonical bytes is an integrity conflict. |
 | `predecessorRecordId`, `supersedesRecordId` | exact record IDs or `null` | Missing referenced row, cycle, or self-link fails closed. |
 | `tupleId` | `dat:v1:<sha256(tuple-id preimage)>` | Same exact tuple bytes are idempotent; no normalized range expansion. |
 | mapping / observation / quarantine / checkpoint / audit IDs | content-addressed or exact composite as specified in the preimage table | Never depend solely on time or object/array insertion order. |
@@ -198,14 +198,19 @@ new explicit schema/version and golden byte fixtures.
 
 For a content-addressed row, `recordId` and `canonicalDigest` are computed
 independently over the *same* immutable semantic ordered-field list but with
-different ASCII domain tags:
+the two literal ASCII domain tags assigned to that record type in the tag
+registry below. Placeholder tags, inferred tag construction, and a tag from a
+different record type are invalid:
 
 ```text
 record-id bytes = buildCanonicalProtocolPreimage(
-  "absinthe:k334:<record-type>:v1:record-id", 1, orderedFields)
+  recordType.fixedRecordIdDomainTag, 1, orderedFields)
 canonical-digest bytes = buildCanonicalProtocolPreimage(
-  "absinthe:k334:<record-type>:v1:canonical-digest", 1, orderedFields)
+  recordType.fixedCanonicalDigestDomainTag, 1, orderedFields)
 ```
+
+`recordType.fixed…DomainTag` is notation for a literal registry cell, never a
+payload field, runtime lookup rule, or tag-construction algorithm.
 
 The stored identifier is the typed prefix in the table plus the SHA-256 of its
 record-id bytes. `canonicalDigest` is the SHA-256 of its canonical-digest
@@ -235,14 +240,119 @@ by insertion order.
 | rollback permission | `dar:v1:rollback-permission:<sha256>`; `absinthe:k334:rollback-permission:v1:record-id` | `recordType`, `recordSchemaVersion`, `repositoryNamespace`, `namespaceKey`, `issuerId`, `subjectId`, `rollbackTargetRecordId`, `compatibilityTupleId`, `predecessorRecordId`, `supersedesRecordId`, `terminationRecordId` or `null`, boundary fields in order, provenance fields in order | `permissionId`, `recordId`, `canonicalDigest`, `recordedAt`, current applicability | Same list under `absinthe:k334:rollback-permission:v1:canonical-digest`; duplicate-by-ID rules above. |
 | termination | `dar:v1:termination:<sha256>`; `absinthe:k334:termination:v1:record-id` | `recordType`, `recordSchemaVersion`, `repositoryNamespace`, `namespaceKey`, `subjectId`, `issuerId`, `targetKind`, `targetRecordId`, `issuerAuthorityRecordId`, `predecessorRecordId`, `supersedesRecordId`, boundary fields in order, provenance fields in order | `terminationId`, `recordId`, `canonicalDigest`, `recordedAt`, current terminated state | Same list under `absinthe:k334:termination:v1:canonical-digest`; duplicate-by-ID rules above. |
 | compatibility tuple | `dat:v1:<sha256>`; `absinthe:k334:compatibility-tuple:v1:tuple-id` | `recordType`, `recordSchemaVersion`, `repositoryNamespace`, `namespaceKey`, then exactly `(authorityProtocolVersion, authorityRecordSchemaVersion, manifestEvidenceVersion, subjectNamespace, issuerNamespace, compatibilityPolicyVersion, installationNamespace, action, sourceClass, migrationEpoch)`, then boundary and provenance fields in the order above | `tupleId`, `canonicalDigest`, `recordedAt`, lookup cache/status projection | Same tuple list under `absinthe:k334:compatibility-tuple:v1:canonical-digest`; byte-identical tuple is idempotent; same ID/different bytes blocks use. |
-| external subject / issuer mapping | `dar:v1:external-<kind>-mapping:<sha256>`; `absinthe:k334:external-<kind>-mapping:v1:record-id` | `recordType`, `recordSchemaVersion`, `repositoryNamespace`, `namespaceKey`, `mappingKind`, `provider`, `externalNamespace`, `externalIdentifier`, `internalId`, `predecessorRecordId`, `supersedesRecordId`, boundary, provenance | `mappingId`, `canonicalDigest`, `recordedAt`, reverse cache/ambiguity result | Same list under the matching `:canonical-digest` tag; same external key with a different target is preserved as conflict, never normalized. |
-| fork / conflict observation | `dar:v1:<kind>-observation:<sha256>`; `absinthe:k334:<kind>-observation:v1:record-id` | `recordType`, `recordSchemaVersion`, `repositoryNamespace`, `namespaceKey`, `subjectId`, `lineageId` or `null`, `predecessorRecordId` or `null`, ordered candidate record IDs, ordered candidate canonical digests, bounded reason/code, provenance | `observationId`, `canonicalDigest`, `recordedAt`, head/quarantine projection fields | Same list under matching `:canonical-digest`; exact duplicate is idempotent, distinct observation is retained. |
-| quarantine | exact composite primary key `[namespaceKey, subjectId]`; basis digest domain `absinthe:k334:subject-quarantine:v1:basis-digest` | `recordType`, `recordSchemaVersion`, `repositoryNamespace`, `namespaceKey`, `subjectId`, `quarantineState`, ordered `basisObservationIds`, `permanent` | primary-key components duplicated outside listed body, `basisDigest`, `canonicalDigest`, `recordedAt`, head invalidation flag | This is an exact-subject state projection, not content-addressed evidence. Its basis/canonical digests use distinct domains and the same listed body; mismatch blocks authority and requires reconciliation. |
+| external subject mapping | `dar:v1:external-subject-mapping:<sha256>`; `absinthe:k334:external-subject-mapping:v1:record-id` | `recordType`, `recordSchemaVersion`, `repositoryNamespace`, `namespaceKey`, `mappingKind`, `provider`, `externalNamespace`, `externalIdentifier`, `internalId`, `predecessorRecordId`, `supersedesRecordId`, boundary, provenance | `mappingId`, `canonicalDigest`, `recordedAt`, reverse cache/ambiguity result | Same list under `absinthe:k334:external-subject-mapping:v1:canonical-digest`; same external key with a different target is preserved as conflict, never normalized. |
+| external issuer mapping | `dar:v1:external-issuer-mapping:<sha256>`; `absinthe:k334:external-issuer-mapping:v1:record-id` | `recordType`, `recordSchemaVersion`, `repositoryNamespace`, `namespaceKey`, `mappingKind`, `provider`, `externalNamespace`, `externalIdentifier`, `internalId`, `predecessorRecordId`, `supersedesRecordId`, boundary, provenance | `mappingId`, `canonicalDigest`, `recordedAt`, reverse cache/ambiguity result | Same list under `absinthe:k334:external-issuer-mapping:v1:canonical-digest`; same external key with a different target is preserved as conflict, never normalized. |
+| fork observation | `dar:v1:fork-observation:<sha256>`; `absinthe:k334:fork-observation:v1:record-id` | `recordType`, `recordSchemaVersion`, `repositoryNamespace`, `namespaceKey`, `subjectId`, `lineageId` or `null`, `effectiveSequence`, `predecessorRecordId` or `null`, `candidateCollectionBytes` lowercase hex, bounded reason/code, provenance | `observationId`, `canonicalDigest`, `recordedAt`, head/quarantine projection fields | Same list under `absinthe:k334:fork-observation:v1:canonical-digest`; exact duplicate is idempotent, distinct observation is retained. |
+| conflict observation | `dar:v1:conflict-observation:<sha256>`; `absinthe:k334:conflict-observation:v1:record-id` | `recordType`, `recordSchemaVersion`, `repositoryNamespace`, `namespaceKey`, `subjectId`, `lineageId` or `null`, `effectiveSequence`, `predecessorRecordId` or `null`, `candidateCollectionBytes` lowercase hex, bounded reason/code, provenance | `observationId`, `canonicalDigest`, `recordedAt`, head/quarantine projection fields | Same list under `absinthe:k334:conflict-observation:v1:canonical-digest`; exact duplicate is idempotent, distinct observation is retained. |
+| quarantine | exact physical subject slot `[namespaceKey, subjectId]` plus `dar:v1:subject-quarantine:<sha256>` record identity; `absinthe:k334:subject-quarantine:v1:record-id` | `recordType`, `recordSchemaVersion`, `repositoryNamespace`, `namespaceKey`, `subjectId`, `quarantineState`, `reasonCode`, `quarantineBasisCollectionBytes` lowercase hex, `permanent`, boundary, provenance | physical slot, `quarantineRecordId`, `basisDigest`, `canonicalDigest`, `recordedAt`, head invalidation flag | Same list under `absinthe:k334:subject-quarantine:v1:canonical-digest`; membership changes change both record identity and digest. The physical slot is only the exact-subject state projection and never substitutes for the immutable identity. |
 | migration session / lease | opaque strict `migrationBatchId` generated once; session digest domain `absinthe:k334:migration-session:v1:canonical-digest` | `recordType`, `recordSchemaVersion`, `repositoryNamespace`, `namespaceKey`, `batchId`, `sourceDigest`, `sessionStatus`, `leaseEpoch`, `leaseHolderId` or `null`, `leaseBoundarySequence` or `null`, provenance | `canonicalDigest`, wall-clock lease timestamps, UI progress, storage metadata | Process-oriented batch identity; same primary key + different canonical bytes requires a validated CAS transition or fails as corruption. It cannot be used as authority evidence. |
-| migration classification | `dar:v1:migration-classification:<sha256>`; `absinthe:k334:migration-classification:v1:record-id` | `recordType`, `recordSchemaVersion`, `repositoryNamespace`, `namespaceKey`, `batchId`, `sourceKind`, `sourceDigest`, `classification`, `supersedesClassificationId` or `null`, provenance | `classificationId`, `canonicalDigest`, progress display, `recordedAt` | Same list under `:canonical-digest`; one source may have superseding classifications, which remain preserved. |
+| migration classification | `dar:v1:migration-classification:<sha256>`; `absinthe:k334:migration-classification:v1:record-id` | `recordType`, `recordSchemaVersion`, `repositoryNamespace`, `namespaceKey`, `batchId`, `sourceKind`, `sourceDigest`, `classification`, `supersedesClassificationId` or `null`, provenance | `classificationId`, `canonicalDigest`, progress display, `recordedAt` | Same list under `absinthe:k334:migration-classification:v1:canonical-digest`; one source may have superseding classifications, which remain preserved. |
 | migration checkpoint / recovery marker | exact composite `mcp:v1:<batchId>:<checkpointSequence>` or `mrm:v1:<batchId>:<markerKind>:<markerSequence>`; digest domains `absinthe:k334:migration-checkpoint:v1:canonical-digest` and `absinthe:k334:recovery-marker:v1:canonical-digest` | `recordType`, `recordSchemaVersion`, `repositoryNamespace`, `namespaceKey`, `batchId`, exact sequence, phase/status or marker kind/status, verified source/count/set digests, provenance | own process ID, `canonicalDigest`, wall-clock timestamp, mutable UI progress | Process-oriented IDs are deterministic composites; a same composite + different canonical bytes is corruption, never overwrite. |
 | audit event | exact composite `dae:v1:<recordId>:<eventKind>:<eventSequence>`; digest domain `absinthe:k334:audit-event:v1:canonical-digest` | `recordType`, `recordSchemaVersion`, `repositoryNamespace`, `namespaceKey`, `recordId`, `eventKind`, `eventSequence`, `sourceDigest`, `recorderId`, bounded context code | `auditEventId`, `canonicalDigest`, `recordedAt`, payload, stack/cause | Same composite + different canonical bytes is corruption; no audit event substitutes for canonical evidence. |
 | authority-head projection | exact derived key `[namespaceKey, subjectId, lineageId]`; digest domain `absinthe:k334:authority-head:v1:projection-digest` | `recordType`, `recordSchemaVersion`, `repositoryNamespace`, `namespaceKey`, `subjectId`, `lineageId`, `acceptedEvidenceId` or `null`, `acceptedEvidenceDigest` or `null`, `effectiveSequence` or `null`, `canonicalSetDigest`, `projectionEpoch`, `projectionState` | storage key, `projectionDigest`, rebuild metadata/timestamps | Derived and rebuildable, never canonical evidence. Mismatch, duplicate derived candidate, or missing matching accepted evidence blocks use. |
+
+### Normative K-334 tag registry
+
+Every tag in this table is a fixed ASCII byte sequence. A decoder compares it
+byte-for-byte; an unknown tag, wrong tag/type pairing, or a tag whose declared
+schema does not match the payload is an integrity conflict and fails closed.
+Changing a schema, canonical bytes, field order, codec rule, or limit requires
+a new explicit tag/version and golden byte fixtures. No tag is assembled from
+runtime strings.
+
+| Record or helper type | Fixed ID / primary tag | Fixed digest / projection tag | Schema | Ordered preimage reference | Namespace-bearing | Duplicate behavior | Unknown/wrong tag behavior |
+|---|---|---|---|---|---|---|---|
+| authority evidence | `absinthe:k334:authority-evidence:v1:record-id` | `absinthe:k334:authority-evidence:v1:canonical-digest` | v1 | Section 7 authority-evidence row | required | same bytes no-op; different bytes conflict | unsupported / integrity conflict |
+| issuer policy | `absinthe:k334:issuer-policy:v1:record-id` | `absinthe:k334:issuer-policy:v1:canonical-digest` | v1 | Section 7 issuer-policy row | required | same bytes no-op; different bytes conflict | unsupported / integrity conflict |
+| rollback permission | `absinthe:k334:rollback-permission:v1:record-id` | `absinthe:k334:rollback-permission:v1:canonical-digest` | v1 | Section 7 rollback-permission row | required | same bytes no-op; different bytes conflict | unsupported / integrity conflict |
+| termination | `absinthe:k334:termination:v1:record-id` | `absinthe:k334:termination:v1:canonical-digest` | v1 | Section 7 termination row | required | same bytes no-op; different bytes conflict | unsupported / integrity conflict |
+| compatibility tuple | `absinthe:k334:compatibility-tuple:v1:tuple-id` | `absinthe:k334:compatibility-tuple:v1:canonical-digest` | v1 | Section 7 compatibility-tuple row | required | same bytes no-op; different bytes conflict | unsupported / integrity conflict |
+| external subject mapping | `absinthe:k334:external-subject-mapping:v1:record-id` | `absinthe:k334:external-subject-mapping:v1:canonical-digest` | v1 | Section 7 subject-mapping row | required | same bytes no-op; different bytes conflict | unsupported / integrity conflict |
+| external issuer mapping | `absinthe:k334:external-issuer-mapping:v1:record-id` | `absinthe:k334:external-issuer-mapping:v1:canonical-digest` | v1 | Section 7 issuer-mapping row | required | same bytes no-op; different bytes conflict | unsupported / integrity conflict |
+| conflict observation | `absinthe:k334:conflict-observation:v1:record-id` | `absinthe:k334:conflict-observation:v1:canonical-digest` | v1 | Section 7 conflict-observation row | required | same bytes no-op; different bytes conflict | unsupported / integrity conflict |
+| fork observation | `absinthe:k334:fork-observation:v1:record-id` | `absinthe:k334:fork-observation:v1:canonical-digest` | v1 | Section 7 fork-observation row | required | same bytes no-op; different bytes conflict | unsupported / integrity conflict |
+| subject quarantine | `absinthe:k334:subject-quarantine:v1:record-id` | `absinthe:k334:subject-quarantine:v1:canonical-digest` | v1 | Section 7 quarantine row | required | same bytes no-op; different bytes conflict | unsupported / integrity conflict |
+| migration classification | `absinthe:k334:migration-classification:v1:record-id` | `absinthe:k334:migration-classification:v1:canonical-digest` | v1 | Section 7 classification row | required | same bytes no-op; different bytes conflict | unsupported / integrity conflict |
+| migration session | strict opaque `migrationBatchId` composite | `absinthe:k334:migration-session:v1:canonical-digest` | v1 | Section 7 session row | required | same composite/bytes no-op; different bytes corrupt | unsupported / integrity conflict |
+| migration checkpoint | `mcp:v1:<batchId>:<checkpointSequence>` composite | `absinthe:k334:migration-checkpoint:v1:canonical-digest` | v1 | Section 7 checkpoint row | required | same composite/bytes no-op; different bytes corrupt | unsupported / integrity conflict |
+| recovery marker | `mrm:v1:<batchId>:<markerKind>:<markerSequence>` composite | `absinthe:k334:recovery-marker:v1:canonical-digest` | v1 | Section 7 marker row | required | same composite/bytes no-op; different bytes corrupt | unsupported / integrity conflict |
+| audit event | `dae:v1:<recordId>:<eventKind>:<eventSequence>` composite | `absinthe:k334:audit-event:v1:canonical-digest` | v1 | Section 7 audit row | required | same composite/bytes no-op; different bytes corrupt | unsupported / integrity conflict |
+| authority-head projection | `[namespaceKey, subjectId, lineageId]` composite | `absinthe:k334:authority-head:v1:projection-digest` | v1 | Section 7 head row | required | same projection no-op; mismatch blocks | unsupported / integrity conflict |
+| candidate reference pair | `absinthe:k334:candidate-reference:v1:pair` | none; bytes embedded only | v1 | Section 7 pair payload | inherited from parent | byte-identical pair dedup only | unsupported / integrity conflict |
+| candidate reference collection | `absinthe:k334:candidate-reference:v1:collection` | none; bytes embedded only | v1 | Section 7 collection payload | inherited from parent | sort then byte-identical pair dedup | unsupported / integrity conflict |
+| quarantine-basis reference pair | `absinthe:k334:quarantine-basis-reference:v1:pair` | none; bytes embedded only | v1 | Section 7 basis-pair payload | inherited from parent | byte-identical pair dedup only | unsupported / integrity conflict |
+| quarantine-basis reference collection | `absinthe:k334:quarantine-basis-reference:v1:collection` | none; bytes embedded only | v1 | Section 7 basis-collection payload | inherited from parent | sort then byte-identical pair dedup | unsupported / integrity conflict |
+
+### Candidate and quarantine-basis byte collections
+
+`CandidateReferenceV1` is the exact, inseparable candidate binding:
+
+```ts
+type CandidateReferenceV1 = {
+  candidateRecordId: RecordId;
+  candidateCanonicalDigest: Sha256;
+};
+
+type QuarantineBasisReferenceV1 = {
+  observationRecordId: RecordId;
+  observationCanonicalDigest: Sha256;
+};
+```
+
+Each candidate pair is canonical UTF-8 bytes from
+`buildCanonicalProtocolPreimage("absinthe:k334:candidate-reference:v1:pair",
+1, payload)` where `payload` is exactly the fixed-order array
+`[["pairTag", "absinthe:k334:candidate-reference:v1:pair"],
+["candidateRecordId", id], ["candidateCanonicalDigest", digest]]`.
+There are no optional, null, metadata, timestamp, provenance, or ordering
+fields in that pair. A quarantine-basis pair uses the same K-333 primitive and
+outer length framing with fixed tag
+`absinthe:k334:quarantine-basis-reference:v1:pair` and exactly
+`[["pairTag", "absinthe:k334:quarantine-basis-reference:v1:pair"],
+["observationRecordId", id], ["observationCanonicalDigest", digest]]`.
+
+A collection first canonically encodes every pair, then sorts the **full pair
+byte sequences** by unsigned bytewise lexicographic comparison from byte zero;
+when one is a strict prefix, the shorter sequence sorts first. It does not use
+locale comparison, case folding, timestamp, arrival order, object iteration,
+or textual ID/digest order. It then rejects a repeated record/observation ID
+paired with a different digest as an integrity conflict; deduplicates only
+byte-identical adjacent pairs; preserves different IDs with the same digest;
+and permits an empty collection only when the owning record type explicitly
+allows it. Candidate collection bytes are the K-333 outer frame for
+`absinthe:k334:candidate-reference:v1:collection`, version 1, and the exact
+payload:
+
+```text
+[["collectionTag", "absinthe:k334:candidate-reference:v1:collection"],
+ ["elementCount", N],
+ ["elements", [[pairByteLength, lowercaseHexPairBytes], ...]]]
+```
+
+The quarantine-basis collection uses the identical fixed payload shape with
+`absinthe:k334:quarantine-basis-reference:v1:collection`. `pairByteLength`
+must equal the decoded byte length of its lowercase hex exactly. Thus the
+collection is framed pair-by-pair under the K-333 primitive; it never relies
+on raw concatenation, an unframed hash-of-hashes, or parallel arrays. Sorting,
+ID/digest binding, duplicate detection, and byte-length validation complete
+before a parent record ID or digest is calculated.
+
+When a parent canonical payload includes a collection, its field value is the
+lowercase hex encoding of the entire framed collection byte sequence (named
+`candidateCollectionBytes` or `quarantineBasisCollectionBytes` as applicable).
+The parent does not decode, reserialize, concatenate, or hash that value again
+as a substitute for collection membership.
+
+Conflict and fork observation preimages include the candidate collection bytes
+in their listed field position, after predecessor and before bounded reason and
+provenance. Quarantine preimages include the quarantine-basis collection bytes
+in their listed field position, after reason and before permanence, boundary,
+and provenance. Changing collection membership changes the corresponding
+parent record ID and canonical digest; a permutation of the same valid pairs
+does not. Implementations must never separately sort and zip IDs and digests,
+infer a digest by array position, accept a mismatched pair, deduplicate by ID
+or digest alone, use JSON insertion order, `localeCompare`, timestamps, or
+arrival order.
 
 `sourceDigest` is not an authority-record ID: it is the digest required by the
 strict source codec for the exact supplied source bytes. `tupleId` is the
@@ -429,21 +539,46 @@ type CompatibilityTupleV1 = {
   boundary: AuthorityBoundary; provenance: Provenance; canonicalDigest: Sha256; // derived
 };
 
-type ExternalMappingV1 = {
-  recordType: 'external_subject_mapping_v1' | 'external_issuer_mapping_v1';
+type ExternalSubjectMappingV1 = {
+  recordType: 'external_subject_mapping_v1';
   recordSchemaVersion: 1; mappingId: RecordId; // derived: never preimage input
   repositoryNamespace: RepositoryNamespace;
-  mappingKind: 'subject' | 'issuer'; provider: string; externalNamespace: string;
-  externalIdentifier: string; internalId: SubjectId | IssuerId;
+  mappingKind: 'subject'; provider: string; externalNamespace: string;
+  externalIdentifier: string; internalId: SubjectId;
   predecessorRecordId: RecordId | null; supersedesRecordId: RecordId | null;
   boundary: AuthorityBoundary; provenance: Provenance; canonicalDigest: Sha256; // derived
 };
 
+type ExternalIssuerMappingV1 = {
+  recordType: 'external_issuer_mapping_v1';
+  recordSchemaVersion: 1; mappingId: RecordId; // derived: never preimage input
+  repositoryNamespace: RepositoryNamespace;
+  mappingKind: 'issuer'; provider: string; externalNamespace: string;
+  externalIdentifier: string; internalId: IssuerId;
+  predecessorRecordId: RecordId | null; supersedesRecordId: RecordId | null;
+  boundary: AuthorityBoundary; provenance: Provenance; canonicalDigest: Sha256; // derived
+};
+
+type CandidateReferenceV1 = {
+  candidateRecordId: RecordId;
+  candidateCanonicalDigest: Sha256;
+};
+
+type QuarantineBasisReferenceV1 = {
+  observationRecordId: RecordId;
+  observationCanonicalDigest: Sha256;
+};
+
 type SubjectQuarantineV1 = {
   recordType: 'subject_quarantine_v1'; recordSchemaVersion: 1;
+  quarantineRecordId: RecordId; // derived; physical slot is [namespaceKey, subjectId]
+  repositoryNamespace: RepositoryNamespace;
   namespaceKey: NamespaceKey; subjectId: SubjectId; quarantineState: 'forked';
-  basisObservationIds: readonly RecordId[]; basisDigest: Sha256; // derived
-  permanent: true; recordedAt: IsoTime; canonicalDigest: Sha256; // metadata / derived
+  reasonCode: string;
+  quarantineBasisCollectionBytes: LowercaseHex; // framed Section 7 collection
+  basisDigest: Sha256; // derived from those exact collection bytes
+  permanent: true; boundary: AuthorityBoundary; provenance: Provenance;
+  recordedAt: IsoTime; canonicalDigest: Sha256; // metadata / derived
 };
 
 type AuthorityMigrationSessionV1 = {
@@ -485,9 +620,9 @@ name, account, or row order.
 | rollback permission | issuer, subject, exact rollback target, tuple, boundary | termination/supersedes | current rollback applicability |
 | termination | target kind/ID, issuer authority reference, subject, boundary | predecessor/supersedes | current terminated state |
 | compatibility tuple | all ten tuple dimensions, boundary, provenance | predecessor/supersedes/termination | tuple lookup cache |
-| external mapping | kind, provider, external/internal IDs, boundary, provenance | predecessor/supersedes/termination | reverse lookup cache |
-| fork/conflict observation | subject, conflicting evidence IDs/digests, bounded reason | predecessor where relevant | none |
-| quarantine | exact subject, basis IDs/digest, permanent flag | none for v1 confirmed fork | head invalidation flag |
+| external mapping | fixed subject-or-issuer kind, provider, external/internal IDs, boundary, provenance | predecessor/supersedes/termination | reverse lookup cache |
+| fork/conflict observation | subject, lineage, effective sequence, predecessor, canonical candidate-reference collection bytes, bounded reason, provenance | none for v1 collection | none |
+| quarantine | exact subject, reason, canonical quarantine-basis collection bytes, permanent flag, boundary, provenance | none for v1 confirmed fork | head invalidation flag |
 | classification/checkpoint/marker | batch, source digest, exact status/sequence, provenance | supersedes/resolution reference | progress display |
 | audit event | referenced record/action/source digest and recorder | bounded context code | none |
 
@@ -570,6 +705,20 @@ confirmed fork, survives restart/migration/replay, selects no head, blocks
 state-changing issuance for that subject, and never quarantines another subject.
 There is no automatic resolution, timestamp winner, or evidence deletion.
 
+Every fork/conflict observation carries the Section 7 canonical candidate
+collection, not parallel candidate-ID and digest arrays. The observation
+preimage order is exactly record type, schema, repository namespace, namespace
+key, subject, lineage or `null`, effective sequence, predecessor or `null`,
+candidate collection bytes, bounded reason/code, then provenance fields. The
+quarantine row carries the separate Section 7 quarantine-basis collection of
+observation `(recordId, digest)` pairs. It is intentionally not a candidate
+collection: its members are observations. Its preimage order is exactly record
+type, schema, repository namespace, namespace key, subject, quarantine state,
+reason code, basis collection bytes, permanent flag, boundary fields, then
+provenance fields. This prevents a mutable, bare ID list from being mistaken
+for evidence. Basis membership changes the quarantine record identity and
+digest, while valid ordering permutations do not.
+
 ## 19. Canonical Evidence and Derived Views
 
 Canonical: subjects, issuers, issuer policies, grants/acceptance/rejection,
@@ -598,6 +747,12 @@ projection, and aborts permissive advancement. It never deletes either
 candidate. Projection mismatch triggers rebuild, reconciliation, conflict, or
 quarantine; it cannot grant authority.
 
+Candidate discovery must first produce exact `CandidateReferenceV1` pairs,
+validate each pair against its evidence record and canonical digest, and build
+the Section 7 canonical collection before any acceptance/fork/conflict parent
+identity is calculated. The acceptance path never treats an ID-only lookup,
+arrival order, or a digest from another pair as membership evidence.
+
 ## 20. Transaction and Atomicity Matrix
 
 The following is an operation-level future contract, not implementation. Store
@@ -622,10 +777,10 @@ postcondition. All retry keys are exact canonical/composite IDs, never clocks.
 | T06 | Insert external subject mapping | Preserve subject mapping. | subject mapping body | M,U,Q | M,A | rw | M,A | exact provider key | codec, target, boundary | mapping retained | external key different target is conflict | mapping unusable | no row | replay mapping/audit | same ID replay | mapping ID | same-bytes no-op | discover ambiguity, create T10 | none | ambiguity blocks subject | K-334D | mapping ambiguity |
 | T07 | Insert external issuer mapping | Preserve issuer mapping. | issuer mapping body | M,U,Q | M,A | rw | M,A | exact provider key | codec, target, boundary | mapping retained | external key different target is conflict | mapping unusable | no row | replay mapping/audit | same ID replay | mapping ID | same-bytes no-op | discover ambiguity, create T10 | none | ambiguity blocks affected use | K-334D | mapping ambiguity |
 | T08 | Accept a linear successor | Advance only verified lineage. | candidate ID + accepted evidence body | E,P,U,M,T,R,F,C,Q,H | E,H,A | rw | E,H,A plus C/F/Q if conflict discovered | exact predecessor/current H | all same-position candidates, policy, tuple, mappings, no termination/quarantine | accepted evidence and matching H | no competing accepted/candidate; H primary slot | abort advancement and route T09–T12 | no acceptance/head | before commit no advance; after commit H/evidence agree | re-read full graph | evidence ID + head key | same accepted bytes no-op; otherwise conflict | T30/T31/T32 on mismatch | atomically set verified H | blocks if any conflict/fork | K-334E | successor, race, crash |
-| T09 | Observe a competing successor | Retain competing candidate. | ordered candidate IDs/digests | E,H,Q | E,F,A | rw | E,F,A | candidates share exact position | strict candidate comparison | evidence + fork observation retained | never unique-index reject candidate | no projection advancement | no partial observation | committed observation persists; uncommitted none | same observation replay | observation ID | same-bytes no-op | T11/T12 and T31 | mark H blocked if needed | candidate basis preserved | K-334E | coexistence, fork |
-| T10 | Declare a conflict | Preserve non-fork conflict. | conflict observation body | E,P,R,T,U,M,Q,H | C,A,H | rw | C,A,H | exact conflicting inputs | bounded code, digest/ref checks | conflict retained, H blocked if affected | same conflict ID; no inferred winner | affected lookup unusable | no partial state | replay observation/head invalidation | same conflict replay | observation ID | same-bytes no-op | T31 reconcile H | invalidate/block affected H | create T12 if subject-wide | K-334E | policy/mapping conflict |
-| T11 | Confirm a fork | Establish permanent exact-subject fork. | ordered branch observation body | E,F,C,Q,H | F,C,Q,H,A | rw | F,C,Q,H,A | verified distinct successors | exact subject/lineage/predecessor/sequence | all observations + permanent Q; H blocked | preserve every branch; Q one subject key | no authority for subject | no partial fork state | after commit Q/H durable; before none | same branch set replay | fork observation ID | same-bytes no-op | T12/T31/T30 only blocked rebuild | selected head removed/blocked | exact-subject permanent Q | K-334E | exact-subject fork |
-| T12 | Create or preserve exact-subject quarantine | Make subject fail closed. | quarantine body/basis | Q,F,C,E,H | Q,H,A | rw | Q,H,A | exact subject/basis | basis IDs/digest, permanent state | Q exists and H blocked | Q key one subject; different basis reconciled | no release/inference | no partial Q | before commit no Q; after commit Q/H durable | replay Q/H pair | subject key + basis digest | same basis no-op; mismatch conflict | T31 reconcile basis | block H | preserves or creates Q | K-334E | restart, corruption |
+| T09 | Observe a competing successor | Retain competing candidate. | canonical candidate-reference collection bytes | E,H,Q | E,F,A | rw | E,F,A | candidates share exact position | pair binding, unsigned byte sort, duplicate/conflict rules | evidence + fork observation retained | never unique-index reject candidate | no projection advancement | no partial observation | committed observation persists; uncommitted none | same observation replay | observation ID | same-bytes no-op | T11/T12 and T31 | mark H blocked if needed | candidate basis preserved | K-334E | coexistence, pair binding, fork |
+| T10 | Declare a conflict | Preserve non-fork conflict. | conflict observation plus canonical candidate-reference collection bytes | E,P,R,T,U,M,Q,H | C,A,H | rw | C,A,H | exact conflicting inputs | bounded code, digest/ref checks, pair binding | conflict retained, H blocked if affected | same conflict ID; no inferred winner | affected lookup unusable | no partial state | replay observation/head invalidation | same conflict replay | observation ID | same-bytes no-op | T31 reconcile H | invalidate/block affected H | create T12 if subject-wide | K-334E | policy/mapping conflict, pair binding |
+| T11 | Confirm a fork | Establish permanent exact-subject fork. | canonical candidate-reference collection plus observation bodies | E,F,C,Q,H | F,C,Q,H,A | rw | F,C,Q,H,A | verified distinct successors | exact subject/lineage/predecessor/sequence and canonical collection | all observations + permanent Q; H blocked | preserve every branch; Q one subject key | no authority for subject | no partial fork state | after commit Q/H durable; before none | same branch set replay | fork observation ID | same-bytes no-op | T12/T31/T30 only blocked rebuild | selected head removed/blocked | exact-subject permanent Q | K-334E | exact-subject fork, collection replay |
+| T12 | Create or preserve exact-subject quarantine | Make subject fail closed. | quarantine body plus canonical quarantine-basis collection bytes | Q,F,C,E,H | Q,H,A | rw | Q,H,A | exact subject/basis | observation pair binding, unsigned byte sort, basis digest, permanent state | Q exists and H blocked | Q slot one subject; different immutable basis identity reconciled | no release/inference | no partial Q | before commit no Q; after commit Q/H durable | replay Q/H pair | subject slot + quarantine record ID | same bytes no-op; mismatched pair/basis conflict | T31 reconcile basis | block H | preserves or creates Q | K-334E | restart, corruption, basis binding |
 | T13 | Update accepted authority-head projection | Write derived verified head only. | Section 7 projection body | E,P,U,M,T,R,F,C,Q,H | H,A | rw | H,A | T08 graph valid | canonical set digest, accepted row, no conflict/Q | one verified H row | primary slot CAS; stale epoch conflicts | H unusable | old H unchanged | postcommit revalidate digest | rebuild-safe retry | H primary key + epoch | same projection no-op | T30/T31 | set/replace derived H | none | K-334E | CAS, stale head |
 | T14 | Insert rejected or unsupported evidence | Preserve non-authoritative source. | evidence body + bounded reason | E,Q | E,X,A | rw | E,X,A | strict bounded source available | codec failure classification/digest | non-authoritative row/marker retained | ID/digest | never accepted | no row | replay row/marker | same ID replay | evidence ID | same-bytes no-op | T32 inspect marker | none | none unless subject conflict | K-334D/F | malformed, replay |
 | T15 | Insert malformed evidence preservation record | Preserve undecodable bytes metadata. | bounded source digest/kind/reason | X,G | X,G,A | rw | X,G,A | source bytes retained externally | bounds, reason, source digest | marker/classification retained | composite marker key | no decoding/acceptance | no row | resume from marker | same marker replay | marker ID | same-bytes no-op | T20/T26 | none | none | K-334F | malformed, crash |
@@ -763,8 +918,8 @@ dropped or repaired.
 | P15 | This design document authorizes no implementation stage. | protocol audit / K-334C3 review | P1 |
 | P16 | Canonical candidates at one subject/lineage/sequence coexist; storage uniqueness never drops a competitor. | IndexedDB transaction/property / K-334E | P1 |
 | P17 | Accepted-position exclusivity comes only from full-graph validation and the derived head slot, never conditional evidence-index uniqueness. | transaction/concurrency / K-334E | P1 |
-| P18 | Every content-addressed ID/digest has the exact non-circular Section 7 preimage and rejects self-derived fields. | codec/golden fixture / K-334D | P1 |
-| P19 | Canonical bytes are identical across runtimes and field insertion orders under the bound K-333 codec. | codec/cross-runtime property / K-334D | P1 |
+| P18 | Every content-addressed ID/digest has its fixed Section 7 ASCII tag, exact non-circular preimage, and rejects self-derived fields, wrong tags, and byte-changing codec/version reuse. | codec/golden fixture / K-334D | P1 |
+| P19 | Candidate and quarantine-basis pairs bind exact ID/digest values; collections sort full pair bytes unsigned-bytewise, frame each element, deduplicate only byte-identical pairs, and produce identical bytes across runtimes. | codec/cross-runtime property / K-334D | P1 |
 | P20 | Every T01–T35 state-changing operation has complete read/write, precondition, idempotency, crash, and recovery behavior. | transaction/recovery matrix / K-334D/E/F | P1 |
 
 ## 28. Future Test Matrix
@@ -781,11 +936,44 @@ dropped or repaired.
 | projection corruption, stale head, and candidate conflict | recovery; property; quarantine |
 | record ID/digest circular fields, field permutations, optional null, Unicode | codec; golden bytes; cross-runtime |
 | same ID with different canonical bytes and tuple-ID fixtures | codec; integrity; property |
+| every K-334 content-addressed record type has fixed record-id/digest tag fixtures; wrong/unknown/type-mismatched tags fail closed | codec; golden bytes; integrity |
+| candidate pair exact field order, pair tag, outer framing, ID/digest mismatch, same-ID/different-digest conflict | codec; golden bytes; property |
+| candidate collection unsigned-byte sort, strict-prefix rule, byte-identical dedup, different-ID/same-digest preservation, empty-collection owner rule | codec; property; cross-runtime |
+| collection element byte length/hex framing, no parallel-array zip, no locale/timestamp/arrival ordering | codec; integrity; cross-runtime |
+| conflict/fork parent identity changes with candidate membership but not valid input permutation | codec; transaction; property |
+| quarantine-basis pair/collection binding, membership identity change, and exact-subject slot reconciliation | codec; repository; recovery |
 | every T01–T35 idempotent replay and each canonical/head/checkpoint crash boundary | transaction; recovery; browser multi-tab |
 | termination and separate rollback permission | repository; transaction |
 | projection rebuild/mismatch/staleness | recovery; property |
 | quota failure and transaction abort | IndexedDB integration; recovery |
 | cross-installation namespace mismatch | codec/schema; protocol audit |
+
+### Required K334C3A1 golden/property coverage
+
+These are future tests only; no test implementation is authorized here.
+
+| # | Required fixture or property | Future owner | Severity |
+|---:|---|---|---|
+| 1 | fixed external-subject-mapping record-ID tag golden fixture | K-334D | P1 |
+| 2 | fixed external-subject-mapping canonical-digest tag golden fixture | K-334D | P1 |
+| 3 | fixed external-issuer-mapping record-ID tag golden fixture | K-334D | P1 |
+| 4 | fixed external-issuer-mapping canonical-digest tag golden fixture | K-334D | P1 |
+| 5 | fixed conflict-observation record-ID and canonical-digest fixtures | K-334D | P1 |
+| 6 | fixed fork-observation record-ID and canonical-digest fixtures | K-334D | P1 |
+| 7 | unknown or templated domain tag rejects fail closed | K-334D | P1 |
+| 8 | wrong type/tag combination is an integrity conflict | K-334D | P1 |
+| 9 | candidate-pair field swap changes bytes and rejects | K-334D | P1 |
+| 10 | candidate-collection permutation yields identical canonical bytes | K-334D | P1 |
+| 11 | byte-identical duplicate pair collapses to one | K-334D | P1 |
+| 12 | same record ID with different digest fails closed | K-334D | P1 |
+| 13 | different IDs with the same digest remain distinct | K-334D | P1 |
+| 14 | prefix ordering makes the shorter sequence first only for strict prefix | K-334D | P1 |
+| 15 | unsigned byte comparison is identical across runtimes | K-334D | P1 |
+| 16 | prohibited parallel-array reordering cannot break pair binding | K-334D | P1 |
+| 17 | quarantine-basis permutation yields identical record ID/digest | K-334D | P1 |
+| 18 | quarantine-basis membership change yields different record ID/digest | K-334D | P1 |
+| 19 | cross-runtime golden fixture covers pair and collection bytes | K-334D | P1 |
+| 20 | Unicode and case differences compare only by canonical bytes | K-334D | P1 |
 
 ## 29. Open Questions
 
@@ -794,7 +982,10 @@ Section 10 non-unique evidence lookup, or T01–T35 transaction contracts:
 those have the stated fail-closed defaults now. OQ-01 and OQ-02 still block
 future repository acceptance writes; OQ-05 still blocks migration execution.
 They do not block a future K-334D codec/store proposal from implementing these
-contracts after its separate authorization.
+contracts after its separate authorization. No open question defers K334C3A-R04
+or K334C3A-R05: their fixed-tag and pair/collection contracts are specified
+here and await independent review only. Other separately authorized policy or
+implementation work remains fail-closed.
 
 | ID | Question / safe default | Blocking / owner | May K-334D proceed? |
 |---|---|---|---|
@@ -823,6 +1014,8 @@ contracts after its separate authorization.
 | K-334C3 design document created | 1 |
 | K-334C3 correction started | 1 |
 | K-334C3 correction document updated | 1 |
+| K-334C3A1 correction started | 1 |
+| K-334C3A1 document updated | 1 |
 | K-334C3 design independently reviewed | 0 |
 | K-334C3 design review findings closed | 0 |
 | K-334C3 design approved for implementation | 0 |
