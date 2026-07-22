@@ -50,6 +50,12 @@ The recommendation is `K334D-AUTH-D01-A`. It is not approval: it is offered
 because the merged design fixes the base-layer contracts while isolating them
 from acceptance, concurrency, migration, runtime activation, and production.
 
+For this recommendation, “declarative v5 store/index definitions” means only
+standalone or test-only artifacts. It does not include production-reachable
+database version, open, upgrade, migration, initialization, flag, registry, or
+startup wiring, whether reached directly or through an import, re-export,
+callback, or shared constant.
+
 ## 4. Proposed K-334D Scope
 
 If and only if the owner later selects `K334D-AUTH-D01-A`, implementation may
@@ -78,11 +84,48 @@ no acceptance, compatibility, eligibility, or runtime effect.
 
 ### 4.3 Declarative v5 definitions only
 
+#### Production-reachable schema barrier
+
+The preceding scope is limited to an immutable standalone schema manifest for
+the additive v5 store declarations, key paths, indexes, unique/non-unique and
+`multiEntry` flags, and schema metadata fixed by K-334C3 Sections 9–10. It may
+include a test-only database name, installer, fixtures, and helpers that are
+not imported by a production path. These artifacts are an isolated fidelity
+contract, not an application database upgrade.
+
+Even if `K334D-AUTH-D01-A` is later approved, K-334D must not modify, export
+for production use, or otherwise make reachable any production database
+version/open/upgrade wiring. This includes `LOCAL_DATABASE_VERSION`; the
+version passed to production `indexedDB.open`; a production database factory;
+production schema registries consumed by an open path; `onupgradeneeded` or
+live-upgrade callbacks; migration dispatch; runtime initialization; a feature
+flag that causes a v5 open; application-startup initialization; or a shared
+constant capable of upgrading an existing user's database. This is a
+reachability boundary, not a filename or symbol-name convention: an indirect
+import, re-export, flag, callback, or initialization path is equally forbidden.
+
+K-334D may not open or upgrade the real application database, touch existing
+user data, run a migration, activate a runtime flag, silently import an
+isolated installer, or leave an irreversible production-reachable schema
+change. The test-only installer must use a distinct database name, be
+removable, and remain unreachable from production startup and runtime paths.
+
+Production-reachable definitions require a separate future activation handoff:
+explicit owner authorization; an exact authorized base; K-334F and activation
+ownership; defined backup, recovery, and crash behavior; a reviewed migration
+and version-open design; authorization for any existing-data mutation; exact
+CI and migration-test evidence; and a separately authorized runtime-admission
+decision. None of those conditions is supplied by this proposal.
+
 The scope may define versioned schema constants, additive v5 store
 declarations, key paths, indexes, unique/non-unique flags, schema metadata,
 and isolated test-database harnesses from K-334C3 Sections 9–10. It excludes
 opening/upgrading an existing production database, migration execution, and
 existing-user-data mutation; those remain K-334F.
+
+The reference to versioned schema constants in this section is limited by the
+production-reachable schema barrier above: no such constant may be shared with,
+or capable of changing, an existing-user database open or upgrade path.
 
 ### 4.4 Canonical repository primitives
 
@@ -104,6 +147,13 @@ ordering, duplicate/collision handling, append/read/idempotence, competitor
 preservation, and isolated IndexedDB schema-definition tests. No test may
 modify real user data, run a production migration, or enable authority runtime
 behavior.
+
+### 4.6 Schema-fidelity and isolation proof boundary
+
+Before a K-334D3 package can be accepted, it must prove the full v5 contract
+against the fixed K-334C3 Sections 9–10 inventory and independently prove that
+its installer is production-unreachable. A passing isolated test cannot be
+substituted for a production upgrade, migration, or runtime admission.
 
 ## 5. Explicit Exclusions
 
@@ -169,8 +219,27 @@ zero.
 | D0-P06 | Unknown/malformed/unsupported records cannot become authoritative. | K-334D | codec/schema | P1 |
 | D0-P07 | Retries are idempotent; storage failure fails closed. | K-334D | repository/storage failure | P1 |
 | D0-P08 | Isolated schema tests never mutate production data. | K-334D | isolated IndexedDB schema | P1 |
+| D0-P09 | Exact v5 Store and Index Fidelity: every K-334C3 store name, key-path form (scalar/compound), `autoIncrement` flag, index name, index key path, `unique`, `multiEntry`, declared index order, intended non-unique logical-position behavior, and derived-head primary-key uniqueness must match; missing and extra stores/indexes fail. | K-334D | isolated IndexedDB metadata inspection plus deterministic manifest comparison | P1 |
+| D0-P10 | Production-reachability isolation: the test-only manifest/installer has a unique test database name, is unreachable from production imports/open/version/startup paths, and cannot alter real user data or a production version. | K-334D | static import/reachability audit plus isolated harness | P1 |
 
 ## 9. Future Implementation Package Shape
+
+### D3 acceptance and publication gates
+
+No future K-334D3 package is acceptable, mergeable as complete, or eligible
+for an activation handoff until D0-P09 and D0-P10 pass. Fidelity proof must
+cover every declared store and index, including store names, scalar versus
+compound key paths, `autoIncrement`, `unique`, `multiEntry`, index order,
+absence of undeclared entries, intended non-unique logical-position semantics,
+and the derived-head primary-key uniqueness contract. The proof must inspect
+metadata from an actually created isolated IndexedDB database and compare it
+with the deterministic immutable manifest.
+
+Isolation proof must show that no production schema/open/version file, runtime
+initialization path, or startup path imports or executes the test-only
+installer. A mismatch or reachability failure is a P1 authorization blocker:
+it prevents acceptance, completion claims, and any handoff to activation. It
+does not authorize an automatic repair, migration, or production schema change.
 
 Prefer bounded sequential PRs:
 
@@ -203,6 +272,8 @@ response.
 | State | Count |
 |---|---:|
 | K-334D authorization proposal drafted | 1 |
+| K-334D0 correction started | 1 |
+| K-334D0 proposal document updated | 1 |
 | K-334D proposal published | 0 |
 | K-334D owner disposition recorded | 0 |
 | K-334D implementation authorization | 0 |
