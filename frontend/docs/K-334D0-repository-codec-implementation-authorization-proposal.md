@@ -56,6 +56,17 @@ database version, open, upgrade, migration, initialization, flag, registry, or
 startup wiring, whether reached directly or through an import, re-export,
 callback, or shared constant.
 
+If `K334D-AUTH-D01-A` is later selected, the authorized schema-definition
+slice remains subject to independent successful completion of `D0-P09` (Exact
+v5 Store and Index Fidelity) and `D0-P10` (Production-Reachability Isolation).
+Owner selection of D01-A, proposal publication, ordinary CI, compilation,
+documentation review, or a K-334D3 completion claim satisfies neither proof.
+Both proofs must pass on the exact implementation head before K-334D3 can be
+accepted as complete or handed to any activation or migration task. Failure or
+absence of either proof leaves K-334D3 incomplete, blocks acceptance, and
+prohibits handoff; later K-334F work cannot cure an implementation already
+accepted without both proofs.
+
 ## 4. Proposed K-334D Scope
 
 If and only if the owner later selects `K334D-AUTH-D01-A`, implementation may
@@ -117,6 +128,13 @@ and version-open design; authorization for any existing-data mutation; exact
 CI and migration-test evidence; and a separately authorized runtime-admission
 decision. None of those conditions is supplied by this proposal.
 
+That handoff additionally requires exact-head evidence that both `D0-P09` and
+`D0-P10` passed independently for the proposed K-334D3 implementation. Prior
+head evidence is historical only, and ordinary CI success is not a substitute.
+No standalone K-334D3 artifact may become production-reachable while either
+proof is missing, stale, failed, or inconclusive; K-334F cannot retroactively
+cure an implementation accepted without either proof.
+
 The scope may define versioned schema constants, additive v5 store
 declarations, key paths, indexes, unique/non-unique flags, schema metadata,
 and isolated test-database harnesses from K-334C3 Sections 9–10. It excludes
@@ -155,6 +173,12 @@ against the fixed K-334C3 Sections 9–10 inventory and independently prove that
 its installer is production-unreachable. A passing isolated test cannot be
 substituted for a production upgrade, migration, or runtime admission.
 
+The proposed schema-definition scope is compliant only when `D0-P09` and
+`D0-P10` each pass independently on the exact implementation head. Neither
+result may be inherited from a prior head or inferred from ordinary
+test/typecheck/build success. This scope definition grants no permission to
+merge or accept an implementation without both proofs.
+
 ## 5. Explicit Exclusions
 
 ### K-334E is excluded
@@ -192,6 +216,10 @@ production rollout. No current production source is accepted authority.
 - Missing/corrupt projections permit no fallback authority.
 - Unsupported legacy records receive no promotion; conflicts preserve all
   canonical evidence.
+- `D0-P09` and `D0-P10` are mandatory P1 obligations. Neither may be waived
+  by ordinary CI, owner recommendation, PR approval, implementation merge, or
+  future K-334F work; any waiver requires a new Protocol Owner decision that
+  revises this authorization contract before implementation acceptance.
 
 ## 7. Preconditions Before Any K-334D Implementation
 
@@ -241,6 +269,21 @@ installer. A mismatch or reachability failure is a P1 authorization blocker:
 it prevents acceptance, completion claims, and any handoff to activation. It
 does not authorize an automatic repair, migration, or production schema change.
 
+K-334D3 is not complete, accepted, mergeable as complete, or ready for
+handoff unless both `D0-P09` and `D0-P10` pass independently on its exact
+implementation head. A pass on one cannot compensate for a failure or absence
+of the other. Manual review, ordinary CI, documentation claims, later
+migration work, or runtime safeguards added after acceptance cannot waive or
+replace either proof.
+
+### Proposal publication-preparation gate
+
+Publication preparation for this proposal requires the text to bind both
+`D0-P09` and `D0-P10` as mandatory independent gates in D01-A, the
+schema-definition scope, K-334D3 completion/acceptance, and activation
+handoff. This is a documentation-readiness check only; future K-334D3
+acceptance still requires actual exact-head passing evidence for both proofs.
+
 Prefer bounded sequential PRs:
 
 1. K-334D1 — canonical types and K-333-bound codecs.
@@ -267,6 +310,14 @@ response.
 
 ## 11. Authorization Counts
 
+### Correction history
+
+- K334D0-R01: corrected previously; independent review closed.
+- K334D0-R02: corrected previously; independent review closed.
+- K334D0A-R04: correction implemented; independent review pending.
+- K334D0-R03: metadata correction implemented after current commit/CI state is
+  known; independent verification pending.
+
 ### Effective current counts
 
 | State | Count |
@@ -274,6 +325,8 @@ response.
 | K-334D authorization proposal drafted | 1 |
 | K-334D0 correction started | 1 |
 | K-334D0 proposal document updated | 1 |
+| K-334D0A1 correction started | 1 |
+| K-334D0A1 proposal document updated | 1 |
 | K-334D proposal published | 0 |
 | K-334D owner disposition recorded | 0 |
 | K-334D implementation authorization | 0 |
