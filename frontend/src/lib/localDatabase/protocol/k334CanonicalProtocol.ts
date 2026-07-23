@@ -15,6 +15,7 @@ import {
   decodeExactObject,
   decodeIdentifier,
   decodeLiteral,
+  decodePositiveSafeInteger,
   type StrictObject,
 } from './strictProtocolDecode';
 
@@ -152,6 +153,44 @@ const definitions = Object.freeze({
   },
 } as const satisfies Readonly<Record<string, K334RecordDefinition>>);
 
+const AUTHORITY_ACTIONS = Object.freeze(['grant', 'revoke', 'supersede', 'terminate'] as const);
+const LIFECYCLE_STATUSES = Object.freeze([
+  'proposed', 'recorded', 'accepted', 'superseded', 'terminated', 'rollback_applied', 'unsupported', 'malformed',
+] as const);
+const SOURCE_CLASSES = Object.freeze(['k333_codec', 'owner_evidence', 'legacy', 'migration'] as const);
+const REASON_CODES = Object.freeze([
+  'ambiguous_mapping', 'competing_successor', 'conflicting_candidate', 'confirmed_fork', 'incompatible_tuple',
+  'incomplete_source', 'invalid_canonical_bytes', 'invalid_semantic_field', 'missing_required_evidence',
+  'unavailable_source', 'unsupported_record',
+] as const);
+const MIGRATION_CLASSIFICATIONS = Object.freeze(['A', 'B', 'C', 'D', 'E', 'F'] as const);
+const K334_RECORD_PREFIXES = Object.freeze([
+  'dar:v1:authority-evidence:',
+  'dar:v1:issuer-policy:',
+  'dar:v1:rollback-permission:',
+  'dar:v1:termination:',
+  'dat:v1:',
+  'dar:v1:external-subject-mapping:',
+  'dar:v1:external-issuer-mapping:',
+  'dar:v1:conflict-observation:',
+  'dar:v1:fork-observation:',
+  'dar:v1:subject-quarantine:',
+  'dar:v1:migration-classification:',
+] as const);
+const TARGET_PREFIXES = Object.freeze({
+  authority_evidence: 'dar:v1:authority-evidence:',
+  issuer_policy: 'dar:v1:issuer-policy:',
+  rollback_permission: 'dar:v1:rollback-permission:',
+  compatibility_tuple: 'dat:v1:',
+  external_subject_mapping: 'dar:v1:external-subject-mapping:',
+  external_issuer_mapping: 'dar:v1:external-issuer-mapping:',
+} as const);
+const TERMINATION_RECORD_PREFIX = 'dar:v1:termination:';
+const IDENTIFIER_SEGMENT = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/;
+const EXTERNAL_IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:@~-]{0,255}$/;
+const NAMESPACE_KEY = /^[a-f0-9]{64}$/;
+const RECORD_DIGEST_SUFFIX = /^[a-f0-9]{64}$/;
+
 export const K334_CONTENT_ADDRESSED_KINDS = Object.freeze(Object.keys(definitions)) as readonly (keyof typeof definitions)[];
 export type K334ContentAddressedRecordKind = typeof K334_CONTENT_ADDRESSED_KINDS[number];
 
@@ -207,17 +246,280 @@ function definitionFor(value: unknown): ProtocolResult<readonly [K334ContentAddr
   return protocolOk(Object.freeze([kind.value, definitions[kind.value]]));
 }
 
-function orderedPayload(
-  definition: K334RecordDefinition,
+function decodeAsciiPattern(
   value: unknown,
-): ProtocolResult<readonly [readonly (readonly [string, CanonicalProtocolValue])[], Readonly<Record<string, CanonicalProtocolValue>>]> {
+  field: string,
+  pattern: RegExp,
+  minimumBytes: number,
+  maximumBytes: number,
+): ProtocolResult<string> {
+  if (typeof value !== 'string') return protocolFail('INVALID_FIELD_TYPE', 'k334_semantic', field);
+  const bytes = encoder.encode(value).byteLength;
+  return bytes >= minimumBytes && bytes <= maximumBytes && pattern.test(value)
+    ? protocolOk(value)
+    : protocolFail('INVALID_IDENTIFIER', 'k334_semantic', field);
+}
+
+function decodeNullableIdentifier(value: unknown, field: string): ProtocolResult<string | null> {
+  if (value === null) return protocolOk(null);
+  return decodeIdentifier(value, field);
+}
+
+function decodeRecordReference(
+  value: unknown,
+  field: string,
+  prefixes: readonly string[] = K334_RECORD_PREFIXES,
+): ProtocolResult<string> {
+  const identifier = decodeIdentifier(value, field);
+  if (!identifier.ok) return identifier;
+  const prefix = prefixes.find(candidate => identifier.value.startsWith(candidate));
+  if (!prefix || !RECORD_DIGEST_SUFFIX.test(identifier.value.slice(prefix.length))) {
+    return protocolFail('INVALID_IDENTIFIER', 'k334_semantic', field);
+  }
+  return identifier;
+}
+
+function decodeNullableRecordReference(
+  value: unknown,
+  field: string,
+  prefixes: readonly string[] = K334_RECORD_PREFIXES,
+): ProtocolResult<string | null> {
+  if (value === null) return protocolOk(null);
+  return decodeRecordReference(value, field, prefixes);
+}
+
+function decodeRepositoryNamespace(value: unknown): ProtocolResult<string> {
+  if (typeof value !== 'string' || !value.startsWith('absinthe.installation.')) {
+    return protocolFail('INVALID_IDENTIFIER', 'k334_semantic', 'repositoryNamespace');
+  }
+  const suffix = value.slice('absinthe.installation.'.length);
+  return decodeAsciiPattern(value, 'repositoryNamespace', /^absinthe\.installation\.[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/, 24, 128).ok
+    && IDENTIFIER_SEGMENT.test(suffix)
+    ? protocolOk(value)
+    : protocolFail('INVALID_IDENTIFIER', 'k334_semantic', 'repositoryNamespace');
+}
+
+function decodeNamespaceKey(value: unknown): ProtocolResult<string> {
+  return decodeAsciiPattern(value, 'namespaceKey', NAMESPACE_KEY, 64, 64);
+}
+
+function decodeTupleNamespace(value: unknown, field: 'subjectNamespace' | 'issuerNamespace'): ProtocolResult<string> {
+  const prefix = field === 'subjectNamespace' ? 'subject.' : 'issuer.';
+  const pattern = field === 'subjectNamespace'
+    ? /^subject\.[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/
+    : /^issuer\.[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/;
+  if (typeof value !== 'string' || !value.startsWith(prefix)) {
+    return protocolFail('INVALID_IDENTIFIER', 'k334_semantic', field);
+  }
+  const suffix = value.slice(prefix.length);
+  return decodeAsciiPattern(value, field, pattern, 8, 128).ok
+    && IDENTIFIER_SEGMENT.test(suffix)
+    ? protocolOk(value)
+    : protocolFail('INVALID_IDENTIFIER', 'k334_semantic', field);
+}
+
+function decodeMigrationEpoch(value: unknown): ProtocolResult<number> {
+  if (typeof value !== 'number') return protocolFail('INVALID_FIELD_TYPE', 'k334_semantic', 'migrationEpoch');
+  return Number.isSafeInteger(value) && value > 0 && !Object.is(value, -0)
+    ? protocolOk(value)
+    : protocolFail('INVALID_INTEGER', 'k334_semantic', 'migrationEpoch');
+}
+
+function decodeProvider(value: unknown, field: 'provider' | 'externalNamespace', maximumBytes: number): ProtocolResult<string> {
+  return decodeAsciiPattern(value, field, IDENTIFIER_SEGMENT, 1, maximumBytes);
+}
+
+function decodeExternalIdentifier(value: unknown): ProtocolResult<string> {
+  return decodeAsciiPattern(value, 'externalIdentifier', EXTERNAL_IDENTIFIER, 1, 256);
+}
+
+function decodeAuthorityBoundary(payload: StrictObject): ProtocolResult<void> {
+  const sequence = decodePositiveSafeInteger(payload['boundary.effectiveSequence'], 'boundary.effectiveSequence');
+  if (!sequence.ok) return sequence;
+  const after = decodeNullableRecordReference(payload['boundary.effectiveAfterRecordId'], 'boundary.effectiveAfterRecordId');
+  if (!after.ok) return after;
+  return payload['boundary.prospectiveOnly'] === true
+    ? protocolOk(undefined)
+    : protocolFail('INVALID_FIELD_TYPE', 'k334_semantic', 'boundary.prospectiveOnly');
+}
+
+function decodeProvenance(payload: StrictObject): ProtocolResult<void> {
+  const kind = decodeEnum(payload['provenance.sourceKind'], SOURCE_CLASSES, 'provenance.sourceKind');
+  if (!kind.ok) return kind;
+  const record = decodeNullableIdentifier(payload['provenance.sourceRecordId'], 'provenance.sourceRecordId');
+  if (!record.ok) return record;
+  const digest = decodeDigest(payload['provenance.sourceDigest'], 'provenance.sourceDigest');
+  if (!digest.ok) return digest;
+  const recorder = decodeIdentifier(payload['provenance.recorderId'], 'provenance.recorderId');
+  return recorder.ok ? protocolOk(undefined) : recorder;
+}
+
+function decodeReferenceCollectionField(
+  value: unknown,
+  field: 'candidateCollectionBytes' | 'quarantineBasisCollectionBytes',
+): ProtocolResult<void> {
+  const bytes = hexToBytes(value, field);
+  if (!bytes.ok) return bytes;
+  const collection = decodeReferenceCollection(field === 'candidateCollectionBytes' ? 'candidate' : 'quarantine_basis', bytes.value);
+  return collection.ok ? protocolOk(undefined) : collection;
+}
+
+function decodePayloadEnvelope(definition: K334RecordDefinition, value: unknown): ProtocolResult<StrictObject> {
   const decoded = decodeExactObject(value, definition.fields, [], 'k334_payload');
   if (!decoded.ok) return decoded;
   const type = decodeLiteral(decoded.value.recordType, definition.recordType, 'recordType');
   if (!type.ok) return type;
   const version = decodeLiteral(decoded.value.recordSchemaVersion, K334_CANONICAL_RECORD_VERSION, 'recordSchemaVersion', 'version');
-  if (!version.ok) return version;
-  const candidate = definition.fields.map(field => Object.freeze([field, decoded.value[field]] as const));
+  return version.ok ? decoded : version;
+}
+
+function validateCommonPayload(payload: StrictObject): ProtocolResult<void> {
+  const repository = decodeRepositoryNamespace(payload.repositoryNamespace);
+  if (!repository.ok) return repository;
+  const namespace = decodeNamespaceKey(payload.namespaceKey);
+  return namespace.ok ? protocolOk(undefined) : namespace;
+}
+
+function validateRecordReferences(payload: StrictObject, fields: readonly string[]): ProtocolResult<void> {
+  for (const field of fields) {
+    const reference = decodeNullableRecordReference(payload[field], field);
+    if (!reference.ok) return reference;
+  }
+  return protocolOk(undefined);
+}
+
+function preserveValidatedPayload(payload: StrictObject, validation: ProtocolResult<void>): ProtocolResult<StrictObject> {
+  return validation.ok ? protocolOk(payload) : validation;
+}
+
+function validateSemanticPayload(
+  kind: K334ContentAddressedRecordKind,
+  definition: K334RecordDefinition,
+  value: unknown,
+): ProtocolResult<StrictObject> {
+  const payload = decodePayloadEnvelope(definition, value);
+  if (!payload.ok) return payload;
+  const common = validateCommonPayload(payload.value);
+  if (!common.ok) return common;
+  const provenance = decodeProvenance(payload.value);
+  if (!provenance.ok) return provenance;
+
+  switch (kind) {
+    case 'authority_evidence': {
+      for (const field of ['subjectId', 'issuerId', 'lineageId', 'compatibilityTupleId'] as const) {
+        const identifier = field === 'compatibilityTupleId'
+          ? decodeRecordReference(payload.value[field], field, [TARGET_PREFIXES.compatibility_tuple])
+          : decodeIdentifier(payload.value[field], field);
+        if (!identifier.ok) return identifier;
+      }
+      const references = validateRecordReferences(payload.value, ['predecessorRecordId', 'supersedesRecordId']);
+      if (!references.ok) return references;
+      const action = decodeLiteral(payload.value.action, 'grant', 'action');
+      if (!action.ok) return action;
+      const status = decodeEnum(payload.value.lifecycleStatus, LIFECYCLE_STATUSES, 'lifecycleStatus');
+      if (!status.ok) return status;
+      return preserveValidatedPayload(payload.value, decodeAuthorityBoundary(payload.value));
+    }
+    case 'issuer_policy': {
+      for (const field of ['issuerId', 'subjectId'] as const) {
+        const identifier = decodeIdentifier(payload.value[field], field); if (!identifier.ok) return identifier;
+      }
+      const action = decodeEnum(payload.value.action, AUTHORITY_ACTIONS, 'action'); if (!action.ok) return action;
+      const tuple = decodeRecordReference(payload.value.compatibilityTupleId, 'compatibilityTupleId', [TARGET_PREFIXES.compatibility_tuple]);
+      if (!tuple.ok) return tuple;
+      const status = decodeEnum(payload.value.lifecycleStatus, LIFECYCLE_STATUSES, 'lifecycleStatus'); if (!status.ok) return status;
+      const references = validateRecordReferences(payload.value, ['predecessorRecordId', 'supersedesRecordId']);
+      if (!references.ok) return references;
+      const termination = decodeNullableRecordReference(payload.value.terminationRecordId, 'terminationRecordId', [TERMINATION_RECORD_PREFIX]);
+      if (!termination.ok) return termination;
+      return preserveValidatedPayload(payload.value, references.ok ? decodeAuthorityBoundary(payload.value) : references);
+    }
+    case 'rollback_permission': {
+      for (const field of ['issuerId', 'subjectId'] as const) {
+        const identifier = decodeIdentifier(payload.value[field], field); if (!identifier.ok) return identifier;
+      }
+      const target = decodeRecordReference(payload.value.rollbackTargetRecordId, 'rollbackTargetRecordId'); if (!target.ok) return target;
+      const tuple = decodeRecordReference(payload.value.compatibilityTupleId, 'compatibilityTupleId', [TARGET_PREFIXES.compatibility_tuple]);
+      if (!tuple.ok) return tuple;
+      const references = validateRecordReferences(payload.value, ['predecessorRecordId', 'supersedesRecordId']);
+      if (!references.ok) return references;
+      const termination = decodeNullableRecordReference(payload.value.terminationRecordId, 'terminationRecordId', [TERMINATION_RECORD_PREFIX]);
+      if (!termination.ok) return termination;
+      return preserveValidatedPayload(payload.value, references.ok ? decodeAuthorityBoundary(payload.value) : references);
+    }
+    case 'termination': {
+      for (const field of ['subjectId', 'issuerId'] as const) {
+        const identifier = decodeIdentifier(payload.value[field], field); if (!identifier.ok) return identifier;
+      }
+      const targetKind = decodeEnum(payload.value.targetKind, Object.keys(TARGET_PREFIXES) as (keyof typeof TARGET_PREFIXES)[], 'targetKind');
+      if (!targetKind.ok) return targetKind;
+      const target = decodeRecordReference(payload.value.targetRecordId, 'targetRecordId', [TARGET_PREFIXES[targetKind.value]]);
+      if (!target.ok) return target;
+      const issuerAuthority = decodeRecordReference(payload.value.issuerAuthorityRecordId, 'issuerAuthorityRecordId', [TARGET_PREFIXES.authority_evidence]);
+      if (!issuerAuthority.ok) return issuerAuthority;
+      const references = validateRecordReferences(payload.value, ['predecessorRecordId', 'supersedesRecordId']);
+      return preserveValidatedPayload(payload.value, references.ok ? decodeAuthorityBoundary(payload.value) : references);
+    }
+    case 'compatibility_tuple': {
+      for (const field of ['authorityProtocolVersion', 'authorityRecordSchemaVersion', 'manifestEvidenceVersion', 'compatibilityPolicyVersion'] as const) {
+        const version = decodeLiteral(payload.value[field], 1, field, 'version'); if (!version.ok) return version;
+      }
+      const subjectNamespace = decodeTupleNamespace(payload.value.subjectNamespace, 'subjectNamespace'); if (!subjectNamespace.ok) return subjectNamespace;
+      const issuerNamespace = decodeTupleNamespace(payload.value.issuerNamespace, 'issuerNamespace'); if (!issuerNamespace.ok) return issuerNamespace;
+      if (payload.value.installationNamespace !== payload.value.repositoryNamespace) {
+        return protocolFail('RELATIONSHIP_MISMATCH', 'k334_semantic', 'installationNamespace');
+      }
+      const installation = decodeRepositoryNamespace(payload.value.installationNamespace); if (!installation.ok) return installation;
+      const action = decodeEnum(payload.value.action, AUTHORITY_ACTIONS, 'action'); if (!action.ok) return action;
+      const sourceClass = decodeEnum(payload.value.sourceClass, SOURCE_CLASSES, 'sourceClass'); if (!sourceClass.ok) return sourceClass;
+      const epoch = decodeMigrationEpoch(payload.value.migrationEpoch); if (!epoch.ok) return epoch;
+      return preserveValidatedPayload(payload.value, decodeAuthorityBoundary(payload.value));
+    }
+    case 'external_subject_mapping':
+    case 'external_issuer_mapping': {
+      const expected = kind === 'external_subject_mapping' ? 'subject' : 'issuer';
+      const mapping = decodeLiteral(payload.value.mappingKind, expected, 'mappingKind'); if (!mapping.ok) return mapping;
+      const provider = decodeProvider(payload.value.provider, 'provider', 64); if (!provider.ok) return provider;
+      const externalNamespace = decodeProvider(payload.value.externalNamespace, 'externalNamespace', 96); if (!externalNamespace.ok) return externalNamespace;
+      const externalIdentifier = decodeExternalIdentifier(payload.value.externalIdentifier); if (!externalIdentifier.ok) return externalIdentifier;
+      const internal = decodeIdentifier(payload.value.internalId, 'internalId'); if (!internal.ok) return internal;
+      const references = validateRecordReferences(payload.value, ['predecessorRecordId', 'supersedesRecordId']);
+      return preserveValidatedPayload(payload.value, references.ok ? decodeAuthorityBoundary(payload.value) : references);
+    }
+    case 'conflict_observation':
+    case 'fork_observation': {
+      const subject = decodeIdentifier(payload.value.subjectId, 'subjectId'); if (!subject.ok) return subject;
+      const lineage = decodeNullableIdentifier(payload.value.lineageId, 'lineageId'); if (!lineage.ok) return lineage;
+      const sequence = decodePositiveSafeInteger(payload.value.effectiveSequence, 'effectiveSequence'); if (!sequence.ok) return sequence;
+      const predecessor = decodeNullableRecordReference(payload.value.predecessorRecordId, 'predecessorRecordId'); if (!predecessor.ok) return predecessor;
+      const collection = decodeReferenceCollectionField(payload.value.candidateCollectionBytes, 'candidateCollectionBytes'); if (!collection.ok) return collection;
+      const reason = decodeEnum(payload.value.reasonCode, REASON_CODES, 'reasonCode');
+      return reason.ok ? protocolOk(payload.value) : reason;
+    }
+    case 'subject_quarantine': {
+      const subject = decodeIdentifier(payload.value.subjectId, 'subjectId'); if (!subject.ok) return subject;
+      const state = decodeLiteral(payload.value.quarantineState, 'forked', 'quarantineState'); if (!state.ok) return state;
+      const reason = decodeEnum(payload.value.reasonCode, REASON_CODES, 'reasonCode'); if (!reason.ok) return reason;
+      const collection = decodeReferenceCollectionField(payload.value.quarantineBasisCollectionBytes, 'quarantineBasisCollectionBytes'); if (!collection.ok) return collection;
+      if (payload.value.permanent !== true) return protocolFail('INVALID_FIELD_TYPE', 'k334_semantic', 'permanent');
+      return preserveValidatedPayload(payload.value, decodeAuthorityBoundary(payload.value));
+    }
+    case 'migration_classification': {
+      const batch = decodeIdentifier(payload.value.batchId, 'batchId'); if (!batch.ok) return batch;
+      const sourceKind = decodeEnum(payload.value.sourceKind, SOURCE_CLASSES, 'sourceKind'); if (!sourceKind.ok) return sourceKind;
+      const sourceDigest = decodeDigest(payload.value.sourceDigest, 'sourceDigest'); if (!sourceDigest.ok) return sourceDigest;
+      const classification = decodeEnum(payload.value.classification, MIGRATION_CLASSIFICATIONS, 'classification'); if (!classification.ok) return classification;
+      const supersedes = decodeNullableRecordReference(payload.value.supersedesClassificationId, 'supersedesClassificationId', ['dar:v1:migration-classification:']);
+      return supersedes.ok ? protocolOk(payload.value) : supersedes;
+    }
+  }
+}
+
+function orderedPayload(
+  definition: K334RecordDefinition,
+  value: StrictObject,
+): ProtocolResult<readonly [readonly (readonly [string, CanonicalProtocolValue])[], Readonly<Record<string, CanonicalProtocolValue>>]> {
+  const candidate = definition.fields.map(field => Object.freeze([field, value[field]] as const));
   const encoded = encodeCanonicalProtocolValue(candidate);
   if (!encoded.ok) return encoded;
   const snapshot = decodeCanonicalProtocolValue(encoded.value);
@@ -239,7 +541,9 @@ function orderedPayload(
 
 function createRecord(kind: K334ContentAddressedRecordKind, payload: unknown): ProtocolResult<K334CanonicalRecord> {
   const definition = definitions[kind];
-  const fields = orderedPayload(definition, payload);
+  const semanticPayload = validateSemanticPayload(kind, definition, payload);
+  if (!semanticPayload.ok) return semanticPayload;
+  const fields = orderedPayload(definition, semanticPayload.value);
   if (!fields.ok) return fields;
   const recordIdDigest = digestCanonicalProtocolRecord(definition.recordIdDomain, K334_CANONICAL_RECORD_VERSION, fields.value[0]);
   if (!recordIdDigest.ok) return recordIdDigest;
@@ -313,7 +617,7 @@ function referenceInput(kind: ReferenceKind, value: unknown): ProtocolResult<K33
   const schema = referenceDomains[kind];
   const input = decodeExactObject(value, [schema.idField, schema.digestField], [], 'k334_reference');
   if (!input.ok) return input;
-  const id = decodeIdentifier(input.value[schema.idField], schema.idField);
+  const id = decodeRecordReference(input.value[schema.idField], schema.idField);
   if (!id.ok) return id;
   const digest = decodeDigest(input.value[schema.digestField], schema.digestField);
   return digest.ok ? protocolOk(Object.freeze({ recordId: id.value, canonicalDigest: digest.value })) : digest;
