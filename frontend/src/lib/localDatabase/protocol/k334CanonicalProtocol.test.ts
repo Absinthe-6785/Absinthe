@@ -252,6 +252,33 @@ describe('K-334D canonical records', () => {
     expect(code(decodeCandidateReferenceCollection(malformed))).toBe('INVALID_ENCODED_INPUT');
   });
 
+  it('accepts only conflict or fork observation IDs as quarantine bases before collection identity generation', () => {
+    const fork = {
+      observationRecordId: recordId('dar:v1:fork-observation:', 'a'),
+      observationCanonicalDigest: digest('a'),
+    };
+    const conflict = {
+      observationRecordId: recordId('dar:v1:conflict-observation:', 'b'),
+      observationCanonicalDigest: digest('b'),
+    };
+    const accepted = createQuarantineBasisReferenceCollection([fork, conflict]);
+    expect(accepted.ok).toBe(true);
+
+    const invalidPrefixes = [
+      'dar:v1:authority-evidence:',
+      'dar:v1:issuer-policy:',
+      'dar:v1:termination:',
+      'dar:v1:external-subject-mapping:',
+      'dar:v1:migration-classification:',
+    ];
+    for (const prefix of invalidPrefixes) {
+      expect(code(createQuarantineBasisReferenceCollection([{
+        observationRecordId: recordId(prefix, 'c'),
+        observationCanonicalDigest: digest('c'),
+      }]))).toBe('INVALID_IDENTIFIER');
+    }
+  });
+
   it('provides an append-only, idempotent, fail-closed repository boundary', () => {
     const created = authorityEvidence();
     expect(created.ok).toBe(true);

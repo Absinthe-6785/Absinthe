@@ -177,6 +177,10 @@ const K334_RECORD_PREFIXES = Object.freeze([
   'dar:v1:subject-quarantine:',
   'dar:v1:migration-classification:',
 ] as const);
+const QUARANTINE_BASIS_OBSERVATION_PREFIXES = Object.freeze([
+  'dar:v1:conflict-observation:',
+  'dar:v1:fork-observation:',
+] as const);
 const TARGET_PREFIXES = Object.freeze({
   authority_evidence: 'dar:v1:authority-evidence:',
   issuer_policy: 'dar:v1:issuer-policy:',
@@ -617,10 +621,16 @@ function referenceInput(kind: ReferenceKind, value: unknown): ProtocolResult<K33
   const schema = referenceDomains[kind];
   const input = decodeExactObject(value, [schema.idField, schema.digestField], [], 'k334_reference');
   if (!input.ok) return input;
-  const id = decodeRecordReference(input.value[schema.idField], schema.idField);
+  const id = kind === 'quarantine_basis'
+    ? decodeQuarantineBasisObservationReference(input.value[schema.idField], schema.idField)
+    : decodeRecordReference(input.value[schema.idField], schema.idField);
   if (!id.ok) return id;
   const digest = decodeDigest(input.value[schema.digestField], schema.digestField);
   return digest.ok ? protocolOk(Object.freeze({ recordId: id.value, canonicalDigest: digest.value })) : digest;
+}
+
+function decodeQuarantineBasisObservationReference(value: unknown, field: string): ProtocolResult<string> {
+  return decodeRecordReference(value, field, QUARANTINE_BASIS_OBSERVATION_PREFIXES);
 }
 
 function referencePayload(kind: ReferenceKind, reference: K334ReferencePair): readonly (readonly [string, string])[] {
