@@ -227,6 +227,91 @@ the context restrictions stated here. Policy validation separately decides
 relationships, authority, compatibility, lifecycle applicability, conflicts,
 and migration effects. A strict decoder makes none of those policy decisions.
 
+### Per-record-kind applicability matrix
+
+This matrix covers exactly the eleven K-334D3 content-addressed canonical
+record kinds defined by K-334C3 and the K-334D0 bounded codec scope. It does
+not add a record kind, a field, or a serialized object. `issuer` means the
+literal `issuerId` field; `subject` means the literal `subjectId` field;
+`allowedAction` means the literal `action` field. `scope` means the required
+`ScopeV1` projection below. Each value is exactly `REQUIRED`, `OPTIONAL`, or
+`FORBIDDEN`; a strict decoder must reject an omitted required field, an
+unrecognized field, or a field marked forbidden for that record kind.
+
+| Record kind | AuthorityBoundary present | issuer | subject | scope | allowedAction | deniedAction | Scalar / registry dependencies | Canonical placement |
+|---|---|---|---|---|---|---|---|---|
+| `authority_evidence` | REQUIRED | REQUIRED | REQUIRED | REQUIRED | REQUIRED | FORBIDDEN | `issuerId`/`subjectId`: strict identifiers; `action`: `AuthorityAction` restricted to `grant`; boundary: `effectiveSequence`, `effectiveAfterRecordId`, `prospectiveOnly` | Existing `authority_evidence` ordered preimage fields; boundary occupies its three existing boundary positions. |
+| `issuer_policy` | REQUIRED | REQUIRED | REQUIRED | REQUIRED | REQUIRED | FORBIDDEN | `issuerId`/`subjectId`: strict identifiers; `action`: `AuthorityAction`; boundary scalar contract | Existing `issuer_policy` ordered preimage fields; boundary occupies its three existing boundary positions. |
+| `rollback_permission` | REQUIRED | REQUIRED | REQUIRED | REQUIRED | FORBIDDEN | FORBIDDEN | `issuerId`/`subjectId`: strict identifiers; `rollbackTargetRecordId`/`compatibilityTupleId`: strict identifiers; boundary scalar contract | Existing `rollback_permission` ordered preimage fields; boundary occupies its three existing boundary positions. |
+| `termination` | REQUIRED | REQUIRED | REQUIRED | REQUIRED | FORBIDDEN | FORBIDDEN | `issuerId`/`subjectId`/record references: strict identifiers; `targetKind`: closed target-kind registry; boundary scalar contract | Existing `termination` ordered preimage fields; boundary occupies its three existing boundary positions. |
+| `compatibility_tuple` | REQUIRED | FORBIDDEN | FORBIDDEN | REQUIRED | REQUIRED | FORBIDDEN | Tuple dimension scalars; `action`: `AuthorityAction`; `sourceClass`: `SourceClass`; boundary scalar contract | Existing `compatibility_tuple` ordered preimage fields; boundary occupies its three existing boundary positions. |
+| `external_subject_mapping` | REQUIRED | FORBIDDEN | FORBIDDEN | REQUIRED | FORBIDDEN | FORBIDDEN | `mappingKind`: `subject`; `internalId`: `SubjectId`; provider and external identifiers use their existing strict scalar contracts; boundary scalar contract | Existing `external_subject_mapping` ordered preimage fields; boundary occupies its three existing boundary positions. |
+| `external_issuer_mapping` | REQUIRED | FORBIDDEN | FORBIDDEN | REQUIRED | FORBIDDEN | FORBIDDEN | `mappingKind`: `issuer`; `internalId`: `IssuerId`; provider and external identifiers use their existing strict scalar contracts; boundary scalar contract | Existing `external_issuer_mapping` ordered preimage fields; boundary occupies its three existing boundary positions. |
+| `conflict_observation` | FORBIDDEN | FORBIDDEN | REQUIRED | REQUIRED | FORBIDDEN | FORBIDDEN | `subjectId`/`lineageId`/record references: strict identifiers; `effectiveSequence`: positive safe integer; `reasonCode`: `ReasonCode` | Existing `conflict_observation` ordered preimage fields; no boundary fields occur. |
+| `fork_observation` | FORBIDDEN | FORBIDDEN | REQUIRED | REQUIRED | FORBIDDEN | FORBIDDEN | `subjectId`/`lineageId`/record references: strict identifiers; `effectiveSequence`: positive safe integer; `reasonCode`: `ReasonCode` | Existing `fork_observation` ordered preimage fields; no boundary fields occur. |
+| `subject_quarantine` | REQUIRED | FORBIDDEN | REQUIRED | REQUIRED | FORBIDDEN | FORBIDDEN | `subjectId`: strict identifier; `quarantineState`: `forked`; `permanent`: exactly `true`; boundary scalar contract | Existing `subject_quarantine` ordered preimage fields; boundary occupies its three existing boundary positions. |
+| `migration_classification` | FORBIDDEN | FORBIDDEN | FORBIDDEN | REQUIRED | FORBIDDEN | FORBIDDEN | `sourceKind`: `SourceClass`; `sourceDigest`: SHA-256; `classification`: closed `A`–`F` registry | Existing `migration_classification` ordered preimage fields; no boundary fields occur. |
+
+No row has an `OPTIONAL` value for the six matrix columns: each described
+canonical K-334D3 field is either required by the named record schema or
+forbidden by it. Explicit `null` remains valid only where the existing field
+definition permits it; it is not an omitted field and cannot satisfy a
+forbidden field.
+
+The three existing `AuthorityBoundary` fields have the following fixed
+applicability. `effectiveAfterRecordId` is REQUIRED as a field in every
+boundary-bearing record; its value is an explicit strict `RecordId` or
+explicit `null`, never an omitted field.
+
+| Boundary field | `authority_evidence`, `issuer_policy`, `rollback_permission`, `termination`, `compatibility_tuple`, `external_subject_mapping`, `external_issuer_mapping`, `subject_quarantine` | `conflict_observation`, `fork_observation`, `migration_classification` | Scalar / canonical placement |
+|---|---|---|---|
+| `effectiveSequence` | REQUIRED | FORBIDDEN | Positive safe integer; existing first boundary position. |
+| `effectiveAfterRecordId` | REQUIRED | FORBIDDEN | Strict `RecordId` or explicit `null`; existing second boundary position. |
+| `prospectiveOnly` | REQUIRED | FORBIDDEN | Boolean exactly `true`; existing third boundary position. |
+
+### `ScopeV1` contract
+
+`ScopeV1` is a fixed ordered projection of already-existing canonical record
+fields. It is not a new payload field, object, digest domain, or authority
+decision. Its representation is the ordered tuple beginning with
+`[repositoryNamespace, namespaceKey]` and continuing with the exact
+record-kind suffix below. The tuple has no separate serialization location:
+each component serializes once, in its existing K-334C3 preimage position.
+
+| Record kind | Required ordered `ScopeV1` suffix after `[repositoryNamespace, namespaceKey]` |
+|---|---|
+| `authority_evidence` | `[subjectId, issuerId, lineageId, compatibilityTupleId, action]` |
+| `issuer_policy` | `[issuerId, subjectId, compatibilityTupleId, action]` |
+| `rollback_permission` | `[issuerId, subjectId, rollbackTargetRecordId, compatibilityTupleId]` |
+| `termination` | `[issuerId, subjectId, targetKind, targetRecordId, issuerAuthorityRecordId]` |
+| `compatibility_tuple` | `[authorityProtocolVersion, authorityRecordSchemaVersion, manifestEvidenceVersion, subjectNamespace, issuerNamespace, compatibilityPolicyVersion, installationNamespace, action, sourceClass, migrationEpoch]` |
+| `external_subject_mapping` | `[mappingKind, provider, externalNamespace, externalIdentifier, internalId]` |
+| `external_issuer_mapping` | `[mappingKind, provider, externalNamespace, externalIdentifier, internalId]` |
+| `conflict_observation` | `[subjectId, lineageId, effectiveSequence, predecessorRecordId, candidateCollectionBytes]` |
+| `fork_observation` | `[subjectId, lineageId, effectiveSequence, predecessorRecordId, candidateCollectionBytes]` |
+| `subject_quarantine` | `[subjectId, quarantineState, quarantineBasisCollectionBytes, permanent]` |
+| `migration_classification` | `[batchId, sourceKind, sourceDigest, classification]` |
+
+`ScopeV1` is never empty, has no optional component, and has no alternate
+ordering, alias, default, case folding, trimming, or separate textual form.
+Each component uses its named scalar or registry contract; an unknown,
+misordered, omitted, duplicated, or extra component fails closed through the
+existing exact record schema and canonical field order. Equivalent scopes
+therefore serialize identically, while different components remain distinct in
+the record's existing canonical bytes.
+
+`deniedAction` is FORBIDDEN for every v1 K-334D3 record kind. Denial is not a
+serialized action list: it is the absence of an exact allowed action, tuple,
+and policy at the separate policy-validation layer. A decoder must reject a
+`deniedAction` field as unknown in every v1 record kind.
+
+Strict decoder validation is responsible for the matrix's REQUIRED, OPTIONAL,
+and FORBIDDEN rules, field presence, scalar form, registry membership, and
+canonical placement. Policy validation is responsible for issuer/subject
+relationships, authority meaning, lifecycle interpretation, compatibility,
+and conflict interpretation. K-334D3A strict decoders must not make policy
+decisions.
+
 ## 10. `ReasonCode`
 
 `ReasonCode` is a closed enum of bounded, privacy-safe diagnostic semantics.
