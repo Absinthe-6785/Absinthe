@@ -245,8 +245,8 @@ unrecognized field, or a field marked forbidden for that record kind.
 | `rollback_permission` | REQUIRED | REQUIRED | REQUIRED | REQUIRED | FORBIDDEN | FORBIDDEN | `issuerId`/`subjectId`: strict identifiers; `rollbackTargetRecordId`/`compatibilityTupleId`: strict identifiers; boundary scalar contract | Existing `rollback_permission` ordered preimage fields; boundary occupies its three existing boundary positions. |
 | `termination` | REQUIRED | REQUIRED | REQUIRED | REQUIRED | FORBIDDEN | FORBIDDEN | `issuerId`/`subjectId`/record references: strict identifiers; `targetKind`: closed target-kind registry; boundary scalar contract | Existing `termination` ordered preimage fields; boundary occupies its three existing boundary positions. |
 | `compatibility_tuple` | REQUIRED | FORBIDDEN | FORBIDDEN | REQUIRED | REQUIRED | FORBIDDEN | Tuple dimension scalars; `action`: `AuthorityAction`; `sourceClass`: `SourceClass`; boundary scalar contract | Existing `compatibility_tuple` ordered preimage fields; boundary occupies its three existing boundary positions. |
-| `external_subject_mapping` | REQUIRED | FORBIDDEN | FORBIDDEN | REQUIRED | FORBIDDEN | FORBIDDEN | `mappingKind`: `subject`; `internalId`: `SubjectId`; provider and external identifiers use their existing strict scalar contracts; boundary scalar contract | Existing `external_subject_mapping` ordered preimage fields; boundary occupies its three existing boundary positions. |
-| `external_issuer_mapping` | REQUIRED | FORBIDDEN | FORBIDDEN | REQUIRED | FORBIDDEN | FORBIDDEN | `mappingKind`: `issuer`; `internalId`: `IssuerId`; provider and external identifiers use their existing strict scalar contracts; boundary scalar contract | Existing `external_issuer_mapping` ordered preimage fields; boundary occupies its three existing boundary positions. |
+| `external_subject_mapping` | REQUIRED | FORBIDDEN | FORBIDDEN | REQUIRED | FORBIDDEN | FORBIDDEN | `mappingKind`: `subject`; `internalId`: `SubjectId`; `provider`: `ProviderV1`; `externalNamespace`: `ExternalNamespaceV1`; `externalIdentifier`: `ExternalIdentifierV1`; boundary scalar contract | Existing `external_subject_mapping` ordered preimage fields; boundary occupies its three existing boundary positions. |
+| `external_issuer_mapping` | REQUIRED | FORBIDDEN | FORBIDDEN | REQUIRED | FORBIDDEN | FORBIDDEN | `mappingKind`: `issuer`; `internalId`: `IssuerId`; `provider`: `ProviderV1`; `externalNamespace`: `ExternalNamespaceV1`; `externalIdentifier`: `ExternalIdentifierV1`; boundary scalar contract | Existing `external_issuer_mapping` ordered preimage fields; boundary occupies its three existing boundary positions. |
 | `conflict_observation` | FORBIDDEN | FORBIDDEN | REQUIRED | REQUIRED | FORBIDDEN | FORBIDDEN | `subjectId`/`lineageId`/record references: strict identifiers; `effectiveSequence`: positive safe integer; `reasonCode`: `ReasonCode` | Existing `conflict_observation` ordered preimage fields; no boundary fields occur. |
 | `fork_observation` | FORBIDDEN | FORBIDDEN | REQUIRED | REQUIRED | FORBIDDEN | FORBIDDEN | `subjectId`/`lineageId`/record references: strict identifiers; `effectiveSequence`: positive safe integer; `reasonCode`: `ReasonCode` | Existing `fork_observation` ordered preimage fields; no boundary fields occur. |
 | `subject_quarantine` | REQUIRED | FORBIDDEN | REQUIRED | REQUIRED | FORBIDDEN | FORBIDDEN | `subjectId`: strict identifier; `quarantineState`: `forked`; `permanent`: exactly `true`; boundary scalar contract | Existing `subject_quarantine` ordered preimage fields; boundary occupies its three existing boundary positions. |
@@ -299,6 +299,53 @@ misordered, omitted, duplicated, or extra component fails closed through the
 existing exact record schema and canonical field order. Equivalent scopes
 therefore serialize identically, while different components remain distinct in
 the record's existing canonical bytes.
+
+#### `MigrationEpochV1`
+
+`migrationEpoch` is `MigrationEpochV1`: a JSON number that is a positive safe
+integer in the inclusive range `1` through `9007199254740991`. It serializes as
+the native canonical integer number, never as a string. Zero, negative values,
+fractions, `NaN`, infinity, negative zero, numeric strings, locale-formatted
+text, omitted values, and values outside the safe-integer range are invalid.
+There is no normalization or coercion step.
+
+#### `ProviderV1`
+
+`provider` is `ProviderV1`: a lower-case ASCII identifier matching
+`^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$`, 1 through 64 bytes. It serializes as the
+exact ASCII string. Empty values, upper-case characters, whitespace, repeated
+or leading/trailing separators, non-ASCII characters, aliases, and out-of-range
+values are invalid; a decoder neither trims nor case-folds. This identifier
+names only the external provider class and does not establish provider trust,
+ownership, connectivity, or authority.
+
+#### `ExternalNamespaceV1`
+
+`externalNamespace` is `ExternalNamespaceV1`: a lower-case ASCII identifier
+matching the `ProviderV1` grammar, 1 through 96 bytes, serialized as the exact
+ASCII string. It is an external-provider namespace discriminator used only in
+the exact `(provider, externalNamespace, externalIdentifier, mappingKind)`
+mapping key. It is not an alias, derivative, encoding, or replacement for
+`NamespaceKeyV1`; K-334 continues to have exactly one local namespace identity,
+the K-321 `namespaceFingerprint()` value. Empty, upper-case, whitespace,
+non-ASCII, malformed separators, aliases, and out-of-range values fail closed.
+
+#### `ExternalIdentifierV1`
+
+`externalIdentifier` is `ExternalIdentifierV1`: an opaque, case-sensitive
+ASCII identifier matching `^[A-Za-z0-9][A-Za-z0-9._:@~-]{0,255}$`, 1 through
+256 bytes. It serializes as the exact string in its existing canonical record
+field position. It has no provider-specific parser, percent-decoding, escape
+processing, trimming, case conversion, or authority interpretation. Empty
+values, whitespace, control characters, non-ASCII characters, quotes,
+backslashes, unsupported punctuation, aliases, and out-of-range values are
+invalid. The exact bytes participate directly in the external mapping identity;
+different strings therefore cannot be normalized into the same identifier.
+
+The four scalar contracts above are decoder contracts only. Strict decoding
+checks type, grammar, bounds, and canonical placement. Policy validation alone
+interprets external authority, migration meaning, relationships, and
+compatibility; scalar decoding does not make those decisions.
 
 `deniedAction` is FORBIDDEN for every v1 K-334D3 record kind. Denial is not a
 serialized action list: it is the absence of an exact allowed action, tuple,
