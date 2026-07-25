@@ -1,0 +1,1602 @@
+{
+  "descriptorKind": "K334CanonicalPhysicalSchemaDescriptor",
+  "descriptorId": "K-334-CANONICAL-PHYSICAL-SCHEMA-001",
+  "descriptorVersion": 1,
+  "physicalSchemaRevision": "K334_PHYSICAL_SCHEMA_REVISION_1",
+  "databaseName": "absinthe-local-v2",
+  "sourceDatabaseVersion": 4,
+  "targetDatabaseVersion": 5,
+  "installationNamespaceContract": {
+    "crossNamespaceInstallation": false,
+    "kind": "repository_namespace_and_namespace_key_context_v1",
+    "namespaceKeySource": "validated_operation_context",
+    "repositoryNamespaceSource": "validated_operation_context"
+  },
+  "databaseVersionAuthority": "NOT_OWNED_BY_THIS_DESCRIPTOR",
+  "descriptorVersionOwner": "ABSINTHE_PROTOCOL_OWNER",
+  "changeAuthorityOwner": "ABSINTHE_PROTOCOL_OWNER_VIA_SEPARATE_PUBLISHED_DISPOSITION_AND_INDEPENDENT_REVIEW",
+  "compatibilityMode": "EXACT_ONLY",
+  "compatibilityStatementId": "K334_DESCRIPTOR_COMPATIBILITY_EXACT_ONLY_V1",
+  "canonicalization": {
+    "canonicalizationId": "K334_DESCRIPTOR_CANONICALIZATION_V1",
+    "compoundKeyPathOrder": "PRESERVE_DECLARED_ORDER",
+    "digestAlgorithm": "SHA-256",
+    "digestDomain": "absinthe:k334:canonical-physical-schema-descriptor:v1",
+    "digestTextEncoding": "LOWERCASE_HEX_64",
+    "jsonCanonicalization": "RFC_8785",
+    "setOrder": "UNSIGNED_UTF8_CANONICAL_ID_ASCENDING",
+    "stringNormalization": "REJECT_NON_NFC",
+    "textEncoding": "UTF-8_NO_BOM_NO_TRAILING_NEWLINE"
+  },
+  "stores": [
+    {
+      "ordinal": 1,
+      "owner": "B01",
+      "semanticFamily": "authority_subject_registration_v1",
+      "storeIdentity": "k334.store.authority_subjects.v1",
+      "storeName": "authority_subjects",
+      "rowId": "ROW-01",
+      "mapId": "MAP-01",
+      "keyPath": [
+        "namespaceKey",
+        "subjectId"
+      ],
+      "autoIncrement": false,
+      "discriminatorMode": "NO_DISCRIMINATOR",
+      "rowType": null,
+      "rowVersion": 1,
+      "recordType": null,
+      "recordSchemaVersion": null,
+      "canonicalBindingMode": "FIXED_SEMANTIC_KIND_NO_CANONICAL_WRAPPER",
+      "canonicalKind": null,
+      "canonicalVersion": null,
+      "lifecycleModel": "IMMUTABLE_SUBJECT_REGISTRATION_V1",
+      "authorityClassification": "PHYSICAL_PRESENCE_GRANTS_NO_AUTHORITY",
+      "installationDisposition": "ACCEPTED_ADDITIVE_STORE"
+    },
+    {
+      "ordinal": 2,
+      "owner": "B02",
+      "semanticFamily": "authority_issuer_registration_v1",
+      "storeIdentity": "k334.store.authority_issuers.v1",
+      "storeName": "authority_issuers",
+      "rowId": "ROW-02",
+      "mapId": "MAP-02",
+      "keyPath": [
+        "namespaceKey",
+        "issuerId"
+      ],
+      "autoIncrement": false,
+      "discriminatorMode": "NO_DISCRIMINATOR",
+      "rowType": null,
+      "rowVersion": 1,
+      "recordType": null,
+      "recordSchemaVersion": null,
+      "canonicalBindingMode": "FIXED_SEMANTIC_KIND_NO_CANONICAL_WRAPPER",
+      "canonicalKind": null,
+      "canonicalVersion": null,
+      "lifecycleModel": "IMMUTABLE_ISSUER_REGISTRATION_V1",
+      "authorityClassification": "PHYSICAL_PRESENCE_GRANTS_NO_AUTHORITY",
+      "installationDisposition": "ACCEPTED_ADDITIVE_STORE"
+    },
+    {
+      "ordinal": 3,
+      "owner": "K-334P09X",
+      "semanticFamily": "issuer_policy",
+      "storeIdentity": "k334.store.authority_issuer_policies.v1",
+      "storeName": "authority_issuer_policies",
+      "rowId": "ROW-03",
+      "mapId": "MAP-03",
+      "keyPath": [
+        "namespaceKey",
+        "policyId"
+      ],
+      "autoIncrement": false,
+      "discriminatorMode": "ROW_TYPE_AND_CANONICAL_KIND",
+      "rowType": "k334_physical_issuer_policy_row_v1",
+      "rowVersion": 1,
+      "recordType": null,
+      "recordSchemaVersion": null,
+      "canonicalBindingMode": "K334_CANONICAL_RECORD",
+      "canonicalKind": "issuer_policy",
+      "canonicalVersion": 1,
+      "lifecycleModel": "IMMUTABLE_CANONICAL_POLICY_ROW_V1",
+      "authorityClassification": "PHYSICAL_PRESENCE_GRANTS_NO_AUTHORITY",
+      "installationDisposition": "ACCEPTED_ADDITIVE_STORE"
+    },
+    {
+      "ordinal": 4,
+      "owner": "B08",
+      "semanticFamily": "authority_evidence",
+      "storeIdentity": "k334.store.authority_evidence.v1",
+      "storeName": "authority_evidence",
+      "rowId": "ROW-04",
+      "mapId": "MAP-04",
+      "keyPath": [
+        "namespaceKey",
+        "evidenceId"
+      ],
+      "autoIncrement": false,
+      "discriminatorMode": "ROW_TYPE_AND_CANONICAL_KIND",
+      "rowType": "k334_physical_authority_evidence_row_v1",
+      "rowVersion": 1,
+      "recordType": null,
+      "recordSchemaVersion": null,
+      "canonicalBindingMode": "K334_CANONICAL_RECORD",
+      "canonicalKind": "authority_evidence",
+      "canonicalVersion": 1,
+      "lifecycleModel": "APPEND_ONLY_B08_LIFECYCLE_MATRIX_V1",
+      "authorityClassification": "PHYSICAL_PRESENCE_GRANTS_NO_AUTHORITY",
+      "installationDisposition": "ACCEPTED_ADDITIVE_STORE"
+    },
+    {
+      "ordinal": 5,
+      "owner": "K-334P09X",
+      "semanticFamily": "rollback_permission",
+      "storeIdentity": "k334.store.authority_rollback_permissions.v1",
+      "storeName": "authority_rollback_permissions",
+      "rowId": "ROW-05",
+      "mapId": "MAP-05",
+      "keyPath": [
+        "namespaceKey",
+        "permissionId"
+      ],
+      "autoIncrement": false,
+      "discriminatorMode": "ROW_TYPE_AND_CANONICAL_KIND",
+      "rowType": "k334_physical_rollback_permission_row_v1",
+      "rowVersion": 1,
+      "recordType": null,
+      "recordSchemaVersion": null,
+      "canonicalBindingMode": "K334_CANONICAL_RECORD",
+      "canonicalKind": "rollback_permission",
+      "canonicalVersion": 1,
+      "lifecycleModel": "IMMUTABLE_CANONICAL_ROLLBACK_PERMISSION_V1",
+      "authorityClassification": "PHYSICAL_PRESENCE_GRANTS_NO_AUTHORITY",
+      "installationDisposition": "ACCEPTED_ADDITIVE_STORE"
+    },
+    {
+      "ordinal": 6,
+      "owner": "K-334P09X",
+      "semanticFamily": "termination",
+      "storeIdentity": "k334.store.authority_terminations.v1",
+      "storeName": "authority_terminations",
+      "rowId": "ROW-06",
+      "mapId": "MAP-06",
+      "keyPath": [
+        "namespaceKey",
+        "terminationId"
+      ],
+      "autoIncrement": false,
+      "discriminatorMode": "ROW_TYPE_AND_CANONICAL_KIND",
+      "rowType": "k334_physical_termination_row_v1",
+      "rowVersion": 1,
+      "recordType": null,
+      "recordSchemaVersion": null,
+      "canonicalBindingMode": "K334_CANONICAL_RECORD",
+      "canonicalKind": "termination",
+      "canonicalVersion": 1,
+      "lifecycleModel": "IMMUTABLE_CANONICAL_TERMINATION_V1",
+      "authorityClassification": "PHYSICAL_PRESENCE_GRANTS_NO_AUTHORITY",
+      "installationDisposition": "ACCEPTED_ADDITIVE_STORE"
+    },
+    {
+      "ordinal": 7,
+      "owner": "B03",
+      "semanticFamily": "compatibility_tuple",
+      "storeIdentity": "k334.store.authority_compatibility_tuples.v1",
+      "storeName": "authority_compatibility_tuples",
+      "rowId": "ROW-07",
+      "mapId": "MAP-07",
+      "keyPath": [
+        "namespaceKey",
+        "tupleId"
+      ],
+      "autoIncrement": false,
+      "discriminatorMode": "ROW_TYPE_AND_CANONICAL_KIND",
+      "rowType": "k334_physical_compatibility_tuple_row_v1",
+      "rowVersion": 1,
+      "recordType": null,
+      "recordSchemaVersion": null,
+      "canonicalBindingMode": "K334_CANONICAL_RECORD",
+      "canonicalKind": "compatibility_tuple",
+      "canonicalVersion": 1,
+      "lifecycleModel": "IMMUTABLE_DIRECT_COMPATIBILITY_V1",
+      "authorityClassification": "PHYSICAL_PRESENCE_GRANTS_NO_AUTHORITY",
+      "installationDisposition": "ACCEPTED_ADDITIVE_STORE"
+    },
+    {
+      "ordinal": 8,
+      "owner": "K-334P09X",
+      "semanticFamily": "external_mapping",
+      "storeIdentity": "k334.store.authority_external_mappings.v1",
+      "storeName": "authority_external_mappings",
+      "rowId": "ROW-08",
+      "mapId": "MAP-08",
+      "keyPath": [
+        "namespaceKey",
+        "mappingId"
+      ],
+      "autoIncrement": false,
+      "discriminatorMode": "ROW_TYPE_AND_CANONICAL_KIND",
+      "rowType": "k334_physical_external_mapping_row_v1",
+      "rowVersion": 1,
+      "recordType": null,
+      "recordSchemaVersion": null,
+      "canonicalBindingMode": "K334_CANONICAL_RECORD_DISCRIMINATED_PAIR",
+      "canonicalKind": [
+        "external_subject_mapping",
+        "external_issuer_mapping"
+      ],
+      "canonicalVersion": 1,
+      "lifecycleModel": "SEPARATE_TERMINATION_RECORD_AUTHORITY",
+      "authorityClassification": "PHYSICAL_PRESENCE_GRANTS_NO_AUTHORITY",
+      "installationDisposition": "ACCEPTED_ADDITIVE_STORE"
+    },
+    {
+      "ordinal": 9,
+      "owner": "K-334P09X",
+      "semanticFamily": "fork_observation",
+      "storeIdentity": "k334.store.authority_fork_observations.v1",
+      "storeName": "authority_fork_observations",
+      "rowId": "ROW-09",
+      "mapId": "MAP-09",
+      "keyPath": [
+        "namespaceKey",
+        "observationId"
+      ],
+      "autoIncrement": false,
+      "discriminatorMode": "ROW_TYPE_AND_CANONICAL_KIND",
+      "rowType": "k334_physical_fork_observation_row_v1",
+      "rowVersion": 1,
+      "recordType": null,
+      "recordSchemaVersion": null,
+      "canonicalBindingMode": "K334_CANONICAL_RECORD",
+      "canonicalKind": "fork_observation",
+      "canonicalVersion": 1,
+      "lifecycleModel": "IMMUTABLE_CANONICAL_FORK_OBSERVATION_V1",
+      "authorityClassification": "PHYSICAL_PRESENCE_GRANTS_NO_AUTHORITY",
+      "installationDisposition": "ACCEPTED_ADDITIVE_STORE"
+    },
+    {
+      "ordinal": 10,
+      "owner": "K-334P09X",
+      "semanticFamily": "conflict_observation",
+      "storeIdentity": "k334.store.authority_conflict_observations.v1",
+      "storeName": "authority_conflict_observations",
+      "rowId": "ROW-10",
+      "mapId": "MAP-10",
+      "keyPath": [
+        "namespaceKey",
+        "observationId"
+      ],
+      "autoIncrement": false,
+      "discriminatorMode": "ROW_TYPE_AND_CANONICAL_KIND",
+      "rowType": "k334_physical_conflict_observation_row_v1",
+      "rowVersion": 1,
+      "recordType": null,
+      "recordSchemaVersion": null,
+      "canonicalBindingMode": "K334_CANONICAL_RECORD",
+      "canonicalKind": "conflict_observation",
+      "canonicalVersion": 1,
+      "lifecycleModel": "IMMUTABLE_CANONICAL_CONFLICT_OBSERVATION_V1",
+      "authorityClassification": "PHYSICAL_PRESENCE_GRANTS_NO_AUTHORITY",
+      "installationDisposition": "ACCEPTED_ADDITIVE_STORE"
+    },
+    {
+      "ordinal": 11,
+      "owner": "K-334P09X",
+      "semanticFamily": "subject_quarantine",
+      "storeIdentity": "k334.store.authority_quarantines.v1",
+      "storeName": "authority_quarantines",
+      "rowId": "ROW-11",
+      "mapId": "MAP-11",
+      "keyPath": [
+        "namespaceKey",
+        "subjectId"
+      ],
+      "autoIncrement": false,
+      "discriminatorMode": "ROW_TYPE_AND_CANONICAL_KIND",
+      "rowType": "k334_physical_subject_quarantine_row_v1",
+      "rowVersion": 1,
+      "recordType": null,
+      "recordSchemaVersion": null,
+      "canonicalBindingMode": "K334_CANONICAL_RECORD",
+      "canonicalKind": "subject_quarantine",
+      "canonicalVersion": 1,
+      "lifecycleModel": "IMMUTABLE_CANONICAL_QUARANTINE_RECORD_V1",
+      "authorityClassification": "PHYSICAL_PRESENCE_GRANTS_NO_AUTHORITY",
+      "installationDisposition": "ACCEPTED_ADDITIVE_STORE"
+    },
+    {
+      "ordinal": 12,
+      "owner": "B04",
+      "semanticFamily": "authority_migration_session_v1",
+      "storeIdentity": "k334.store.authority_migration_sessions.v1",
+      "storeName": "authority_migration_sessions",
+      "rowId": "ROW-12",
+      "mapId": "MAP-12",
+      "keyPath": [
+        "namespaceKey",
+        "batchId"
+      ],
+      "autoIncrement": false,
+      "discriminatorMode": "ROW_TYPE_AND_PROCESS_RECORD_TYPE",
+      "rowType": "k334_physical_migration_session_row_v1",
+      "rowVersion": 1,
+      "recordType": "authority_migration_session_v1",
+      "recordSchemaVersion": 1,
+      "canonicalBindingMode": "PROCESS_PREIMAGE_NO_CANONICAL_WRAPPER",
+      "canonicalKind": null,
+      "canonicalVersion": null,
+      "lifecycleModel": "IMMUTABLE_INTENT_CAS_STATUS_LEASE_V1",
+      "authorityClassification": "PHYSICAL_PRESENCE_GRANTS_NO_AUTHORITY",
+      "installationDisposition": "ACCEPTED_ADDITIVE_STORE"
+    },
+    {
+      "ordinal": 13,
+      "owner": "K-334P09X",
+      "semanticFamily": "migration_classification",
+      "storeIdentity": "k334.store.authority_migration_classifications.v1",
+      "storeName": "authority_migration_classifications",
+      "rowId": "ROW-13",
+      "mapId": "MAP-13",
+      "keyPath": [
+        "namespaceKey",
+        "classificationId"
+      ],
+      "autoIncrement": false,
+      "discriminatorMode": "ROW_TYPE_AND_CANONICAL_KIND",
+      "rowType": "k334_physical_migration_classification_row_v1",
+      "rowVersion": 1,
+      "recordType": null,
+      "recordSchemaVersion": null,
+      "canonicalBindingMode": "K334_CANONICAL_RECORD",
+      "canonicalKind": "migration_classification",
+      "canonicalVersion": 1,
+      "lifecycleModel": "IMMUTABLE_CANONICAL_MIGRATION_CLASSIFICATION_V1",
+      "authorityClassification": "PHYSICAL_PRESENCE_GRANTS_NO_AUTHORITY",
+      "installationDisposition": "ACCEPTED_ADDITIVE_STORE"
+    },
+    {
+      "ordinal": 14,
+      "owner": "B05",
+      "semanticFamily": "authority_migration_checkpoint_v1",
+      "storeIdentity": "k334.store.authority_migration_checkpoints.v1",
+      "storeName": "authority_migration_checkpoints",
+      "rowId": "ROW-14",
+      "mapId": "MAP-14",
+      "keyPath": [
+        "namespaceKey",
+        "checkpointId"
+      ],
+      "autoIncrement": false,
+      "discriminatorMode": "ROW_TYPE_AND_PROCESS_RECORD_TYPE",
+      "rowType": "k334_physical_migration_checkpoint_row_v1",
+      "rowVersion": 1,
+      "recordType": "authority_migration_checkpoint_v1",
+      "recordSchemaVersion": 1,
+      "canonicalBindingMode": "PROCESS_PREIMAGE_NO_CANONICAL_WRAPPER",
+      "canonicalKind": null,
+      "canonicalVersion": null,
+      "lifecycleModel": "APPEND_ONLY_IMMUTABLE_CONTIGUOUS_CHECKPOINT_V1",
+      "authorityClassification": "PHYSICAL_PRESENCE_GRANTS_NO_AUTHORITY",
+      "installationDisposition": "ACCEPTED_ADDITIVE_STORE"
+    },
+    {
+      "ordinal": 15,
+      "owner": "B06",
+      "semanticFamily": "authority_recovery_marker_v1",
+      "storeIdentity": "k334.store.authority_recovery_markers.v1",
+      "storeName": "authority_recovery_markers",
+      "rowId": "ROW-15",
+      "mapId": "MAP-15",
+      "keyPath": [
+        "namespaceKey",
+        "markerId"
+      ],
+      "autoIncrement": false,
+      "discriminatorMode": "ROW_TYPE_AND_PROCESS_RECORD_TYPE",
+      "rowType": "k334_physical_recovery_marker_row_v1",
+      "rowVersion": 1,
+      "recordType": "authority_recovery_marker_v1",
+      "recordSchemaVersion": 1,
+      "canonicalBindingMode": "PROCESS_PREIMAGE_NO_CANONICAL_WRAPPER",
+      "canonicalKind": null,
+      "canonicalVersion": null,
+      "lifecycleModel": "APPEND_ONLY_OPEN_RESOLVED_RECOVERY_MARKER_V1",
+      "authorityClassification": "PHYSICAL_PRESENCE_GRANTS_NO_AUTHORITY",
+      "installationDisposition": "ACCEPTED_ADDITIVE_STORE"
+    },
+    {
+      "ordinal": 16,
+      "owner": "K-334P09X",
+      "semanticFamily": "authority_head_v1",
+      "storeIdentity": "k334.store.authority_heads.v1",
+      "storeName": "authority_heads",
+      "rowId": "ROW-16",
+      "mapId": "MAP-16",
+      "keyPath": [
+        "namespaceKey",
+        "subjectId",
+        "lineageId"
+      ],
+      "autoIncrement": false,
+      "discriminatorMode": "PROCESS_RECORD_TYPE_ONLY",
+      "rowType": null,
+      "rowVersion": null,
+      "recordType": "authority_head_v1",
+      "recordSchemaVersion": 1,
+      "canonicalBindingMode": "DERIVED_PROJECTION_PREIMAGE_NO_CANONICAL_WRAPPER",
+      "canonicalKind": null,
+      "canonicalVersion": null,
+      "lifecycleModel": "DERIVED_REBUILDABLE_NON_AUTHORITY",
+      "authorityClassification": "DERIVED_REBUILDABLE_NON_AUTHORITY",
+      "installationDisposition": "ACCEPTED_ADDITIVE_STORE"
+    },
+    {
+      "ordinal": 17,
+      "owner": "B07",
+      "semanticFamily": "authority_audit_event_v1",
+      "storeIdentity": "k334.store.authority_audit_events.v1",
+      "storeName": "authority_audit_events",
+      "rowId": "ROW-17",
+      "mapId": "MAP-17",
+      "keyPath": [
+        "namespaceKey",
+        "auditEventId"
+      ],
+      "autoIncrement": false,
+      "discriminatorMode": "ROW_TYPE_AND_PROCESS_RECORD_TYPE",
+      "rowType": "k334_physical_audit_event_row_v1",
+      "rowVersion": 1,
+      "recordType": "authority_audit_event_v1",
+      "recordSchemaVersion": 1,
+      "canonicalBindingMode": "PROCESS_PREIMAGE_NO_CANONICAL_WRAPPER",
+      "canonicalKind": null,
+      "canonicalVersion": null,
+      "lifecycleModel": "APPEND_ONLY_IMMUTABLE_AUDIT_EVENT_V1",
+      "authorityClassification": "PHYSICAL_PRESENCE_GRANTS_NO_AUTHORITY",
+      "installationDisposition": "ACCEPTED_ADDITIVE_STORE"
+    }
+  ],
+  "indexes": [
+    {
+      "ordinal": 1,
+      "indexId": "C01",
+      "indexIdentity": "k334.index.authority_audit_events.by_record.v1",
+      "ownerStoreIdentity": "k334.store.authority_audit_events.v1",
+      "ownerStoreName": "authority_audit_events",
+      "indexName": "by_record",
+      "keyPath": [
+        "namespaceKey",
+        "recordId"
+      ],
+      "unique": false,
+      "multiEntry": false,
+      "disposition": "ACCEPTED_INSTALLABLE_INDEX",
+      "directSourceFields": [
+        "namespaceKey",
+        "recordId"
+      ],
+      "nullOrMissingBehavior": "REQUIRED_DIRECT_FIELDS_INDEX_ENTRY_REQUIRED_MISSING_FIELD_MALFORMED",
+      "lookupPurpose": "AUDIT_RECORD_RESTART_LOOKUP",
+      "authorityEffect": "NON_AUTHORITATIVE_LOOKUP_ONLY"
+    },
+    {
+      "ordinal": 2,
+      "indexId": "C02",
+      "indexIdentity": "k334.index.authority_audit_events.by_source_digest.v1",
+      "ownerStoreIdentity": "k334.store.authority_audit_events.v1",
+      "ownerStoreName": "authority_audit_events",
+      "indexName": "by_source_digest",
+      "keyPath": [
+        "namespaceKey",
+        "sourceDigest"
+      ],
+      "unique": false,
+      "multiEntry": false,
+      "disposition": "ACCEPTED_INSTALLABLE_INDEX",
+      "directSourceFields": [
+        "namespaceKey",
+        "sourceDigest"
+      ],
+      "nullOrMissingBehavior": "REQUIRED_DIRECT_FIELDS_INDEX_ENTRY_REQUIRED_MISSING_FIELD_MALFORMED",
+      "lookupPurpose": "AUDIT_SOURCE_LOOKUP",
+      "authorityEffect": "NON_AUTHORITATIVE_LOOKUP_ONLY"
+    },
+    {
+      "ordinal": 3,
+      "indexId": "C03",
+      "indexIdentity": "k334.index.authority_audit_events.by_subject.v1",
+      "ownerStoreIdentity": "k334.store.authority_audit_events.v1",
+      "ownerStoreName": "authority_audit_events",
+      "indexName": "by_subject",
+      "keyPath": null,
+      "unique": null,
+      "multiEntry": null,
+      "disposition": "ACCEPTED_EXCLUDED_INDEX",
+      "directSourceFields": [],
+      "nullOrMissingBehavior": "NOT_APPLICABLE_EXCLUDED_INDEX",
+      "lookupPurpose": "EXCLUDED_NO_SUBJECT_SOURCE",
+      "authorityEffect": "NON_AUTHORITATIVE_LOOKUP_ONLY"
+    },
+    {
+      "ordinal": 4,
+      "indexId": "C04",
+      "indexIdentity": "k334.index.authority_compatibility_tuples.by_exact_tuple.v1",
+      "ownerStoreIdentity": "k334.store.authority_compatibility_tuples.v1",
+      "ownerStoreName": "authority_compatibility_tuples",
+      "indexName": "by_exact_tuple",
+      "keyPath": [
+        "namespaceKey",
+        "tupleDigest"
+      ],
+      "unique": true,
+      "multiEntry": false,
+      "disposition": "ACCEPTED_INSTALLABLE_INDEX",
+      "directSourceFields": [
+        "namespaceKey",
+        "tupleDigest"
+      ],
+      "nullOrMissingBehavior": "REQUIRED_DIRECT_FIELDS_INDEX_ENTRY_REQUIRED_MISSING_FIELD_MALFORMED",
+      "lookupPurpose": "EXACT_TUPLE_LOOKUP",
+      "authorityEffect": "NON_AUTHORITATIVE_LOOKUP_ONLY"
+    },
+    {
+      "ordinal": 5,
+      "indexId": "C05",
+      "indexIdentity": "k334.index.authority_compatibility_tuples.by_tuple_status.v1",
+      "ownerStoreIdentity": "k334.store.authority_compatibility_tuples.v1",
+      "ownerStoreName": "authority_compatibility_tuples",
+      "indexName": "by_tuple_status",
+      "keyPath": [
+        "namespaceKey",
+        "lifecycleStatus"
+      ],
+      "unique": false,
+      "multiEntry": false,
+      "disposition": "ACCEPTED_INSTALLABLE_INDEX",
+      "directSourceFields": [
+        "namespaceKey",
+        "lifecycleStatus"
+      ],
+      "nullOrMissingBehavior": "REQUIRED_DIRECT_FIELDS_INDEX_ENTRY_REQUIRED_MISSING_FIELD_MALFORMED",
+      "lookupPurpose": "RECORDED_TUPLE_STATUS_LOOKUP",
+      "authorityEffect": "NON_AUTHORITATIVE_LOOKUP_ONLY"
+    },
+    {
+      "ordinal": 6,
+      "indexId": "C06",
+      "indexIdentity": "k334.index.authority_conflict_observations.by_observation_digest.v1",
+      "ownerStoreIdentity": "k334.store.authority_conflict_observations.v1",
+      "ownerStoreName": "authority_conflict_observations",
+      "indexName": "by_observation_digest",
+      "keyPath": [
+        "namespaceKey",
+        "canonicalDigest"
+      ],
+      "unique": true,
+      "multiEntry": false,
+      "disposition": "ACCEPTED_INSTALLABLE_INDEX",
+      "directSourceFields": [
+        "namespaceKey",
+        "canonicalDigest"
+      ],
+      "nullOrMissingBehavior": "REQUIRED_DIRECT_FIELDS_INDEX_ENTRY_REQUIRED_MISSING_FIELD_MALFORMED",
+      "lookupPurpose": "CONFLICT_DIGEST_INTEGRITY_LOOKUP",
+      "authorityEffect": "NON_AUTHORITATIVE_LOOKUP_ONLY"
+    },
+    {
+      "ordinal": 7,
+      "indexId": "C07",
+      "indexIdentity": "k334.index.authority_conflict_observations.by_subject_code.v1",
+      "ownerStoreIdentity": "k334.store.authority_conflict_observations.v1",
+      "ownerStoreName": "authority_conflict_observations",
+      "indexName": "by_subject_code",
+      "keyPath": [
+        "namespaceKey",
+        "subjectId",
+        "conflictCode"
+      ],
+      "unique": false,
+      "multiEntry": false,
+      "disposition": "ACCEPTED_INSTALLABLE_INDEX",
+      "directSourceFields": [
+        "namespaceKey",
+        "subjectId",
+        "conflictCode"
+      ],
+      "nullOrMissingBehavior": "REQUIRED_DIRECT_FIELDS_INDEX_ENTRY_REQUIRED_MISSING_FIELD_MALFORMED",
+      "lookupPurpose": "CONFLICT_SUBJECT_CODE_LOOKUP",
+      "authorityEffect": "NON_AUTHORITATIVE_LOOKUP_ONLY"
+    },
+    {
+      "ordinal": 8,
+      "indexId": "C08",
+      "indexIdentity": "k334.index.authority_evidence.by_digest.v1",
+      "ownerStoreIdentity": "k334.store.authority_evidence.v1",
+      "ownerStoreName": "authority_evidence",
+      "indexName": "by_digest",
+      "keyPath": [
+        "namespaceKey",
+        "canonicalDigest"
+      ],
+      "unique": true,
+      "multiEntry": false,
+      "disposition": "ACCEPTED_INSTALLABLE_INDEX",
+      "directSourceFields": [
+        "namespaceKey",
+        "canonicalDigest"
+      ],
+      "nullOrMissingBehavior": "REQUIRED_DIRECT_FIELDS_INDEX_ENTRY_REQUIRED_MISSING_FIELD_MALFORMED",
+      "lookupPurpose": "EVIDENCE_DIGEST_INTEGRITY_LOOKUP",
+      "authorityEffect": "NON_AUTHORITATIVE_LOOKUP_ONLY"
+    },
+    {
+      "ordinal": 9,
+      "indexId": "C09",
+      "indexIdentity": "k334.index.authority_evidence.by_issuer.v1",
+      "ownerStoreIdentity": "k334.store.authority_evidence.v1",
+      "ownerStoreName": "authority_evidence",
+      "indexName": "by_issuer",
+      "keyPath": [
+        "namespaceKey",
+        "issuerId"
+      ],
+      "unique": false,
+      "multiEntry": false,
+      "disposition": "ACCEPTED_INSTALLABLE_INDEX",
+      "directSourceFields": [
+        "namespaceKey",
+        "issuerId"
+      ],
+      "nullOrMissingBehavior": "REQUIRED_DIRECT_FIELDS_INDEX_ENTRY_REQUIRED_MISSING_FIELD_MALFORMED",
+      "lookupPurpose": "EVIDENCE_ISSUER_AUDIT_POLICY_LOOKUP",
+      "authorityEffect": "NON_AUTHORITATIVE_LOOKUP_ONLY"
+    },
+    {
+      "ordinal": 10,
+      "indexId": "C10",
+      "indexIdentity": "k334.index.authority_evidence.by_predecessor.v1",
+      "ownerStoreIdentity": "k334.store.authority_evidence.v1",
+      "ownerStoreName": "authority_evidence",
+      "indexName": "by_predecessor",
+      "keyPath": [
+        "namespaceKey",
+        "predecessorRecordId"
+      ],
+      "unique": false,
+      "multiEntry": false,
+      "disposition": "ACCEPTED_INSTALLABLE_INDEX",
+      "directSourceFields": [
+        "namespaceKey",
+        "predecessorRecordId"
+      ],
+      "nullOrMissingBehavior": "EXPLICIT_NULL_PRODUCES_NO_ENTRY_MISSING_FIELD_MALFORMED",
+      "lookupPurpose": "EVIDENCE_PREDECESSOR_COMPETITOR_LOOKUP",
+      "authorityEffect": "NON_AUTHORITATIVE_LOOKUP_ONLY"
+    },
+    {
+      "ordinal": 11,
+      "indexId": "C11",
+      "indexIdentity": "k334.index.authority_evidence.by_subject_lineage_sequence.v1",
+      "ownerStoreIdentity": "k334.store.authority_evidence.v1",
+      "ownerStoreName": "authority_evidence",
+      "indexName": "by_subject_lineage_sequence",
+      "keyPath": [
+        "namespaceKey",
+        "subjectId",
+        "lineageId",
+        "effectiveSequence"
+      ],
+      "unique": false,
+      "multiEntry": false,
+      "disposition": "ACCEPTED_INSTALLABLE_INDEX",
+      "directSourceFields": [
+        "namespaceKey",
+        "subjectId",
+        "lineageId",
+        "effectiveSequence"
+      ],
+      "nullOrMissingBehavior": "REQUIRED_DIRECT_FIELDS_INDEX_ENTRY_REQUIRED_MISSING_FIELD_MALFORMED",
+      "lookupPurpose": "EVIDENCE_LOGICAL_POSITION_COMPETITOR_LOOKUP",
+      "authorityEffect": "NON_AUTHORITATIVE_LOOKUP_ONLY"
+    },
+    {
+      "ordinal": 12,
+      "indexId": "C12",
+      "indexIdentity": "k334.index.authority_evidence.by_subject_status.v1",
+      "ownerStoreIdentity": "k334.store.authority_evidence.v1",
+      "ownerStoreName": "authority_evidence",
+      "indexName": "by_subject_status",
+      "keyPath": [
+        "namespaceKey",
+        "subjectId",
+        "lifecycleStatus"
+      ],
+      "unique": false,
+      "multiEntry": false,
+      "disposition": "ACCEPTED_INSTALLABLE_INDEX",
+      "directSourceFields": [
+        "namespaceKey",
+        "subjectId",
+        "lifecycleStatus"
+      ],
+      "nullOrMissingBehavior": "REQUIRED_DIRECT_FIELDS_INDEX_ENTRY_REQUIRED_MISSING_FIELD_MALFORMED",
+      "lookupPurpose": "EVIDENCE_SUBJECT_STATUS_VALIDATION_LOOKUP",
+      "authorityEffect": "NON_AUTHORITATIVE_LOOKUP_ONLY"
+    },
+    {
+      "ordinal": 13,
+      "indexId": "C13",
+      "indexIdentity": "k334.index.authority_external_mappings.by_external.v1",
+      "ownerStoreIdentity": "k334.store.authority_external_mappings.v1",
+      "ownerStoreName": "authority_external_mappings",
+      "indexName": "by_external",
+      "keyPath": [
+        "namespaceKey",
+        "mappingKind",
+        "provider",
+        "externalNamespace",
+        "externalIdentifier"
+      ],
+      "unique": false,
+      "multiEntry": false,
+      "disposition": "ACCEPTED_INSTALLABLE_INDEX",
+      "directSourceFields": [
+        "namespaceKey",
+        "mappingKind",
+        "provider",
+        "externalNamespace",
+        "externalIdentifier"
+      ],
+      "nullOrMissingBehavior": "REQUIRED_DIRECT_FIELDS_INDEX_ENTRY_REQUIRED_MISSING_FIELD_MALFORMED",
+      "lookupPurpose": "EXTERNAL_MAPPING_AMBIGUITY_LOOKUP",
+      "authorityEffect": "NON_AUTHORITATIVE_LOOKUP_ONLY"
+    },
+    {
+      "ordinal": 14,
+      "indexId": "C14",
+      "indexIdentity": "k334.index.authority_external_mappings.by_internal.v1",
+      "ownerStoreIdentity": "k334.store.authority_external_mappings.v1",
+      "ownerStoreName": "authority_external_mappings",
+      "indexName": "by_internal",
+      "keyPath": [
+        "namespaceKey",
+        "mappingKind",
+        "internalId"
+      ],
+      "unique": false,
+      "multiEntry": false,
+      "disposition": "ACCEPTED_INSTALLABLE_INDEX",
+      "directSourceFields": [
+        "namespaceKey",
+        "mappingKind",
+        "internalId"
+      ],
+      "nullOrMissingBehavior": "REQUIRED_DIRECT_FIELDS_INDEX_ENTRY_REQUIRED_MISSING_FIELD_MALFORMED",
+      "lookupPurpose": "EXTERNAL_MAPPING_REVERSE_AUDIT_LOOKUP",
+      "authorityEffect": "NON_AUTHORITATIVE_LOOKUP_ONLY"
+    },
+    {
+      "ordinal": 15,
+      "indexId": "C15",
+      "indexIdentity": "k334.index.authority_external_mappings.by_mapping_digest.v1",
+      "ownerStoreIdentity": "k334.store.authority_external_mappings.v1",
+      "ownerStoreName": "authority_external_mappings",
+      "indexName": "by_mapping_digest",
+      "keyPath": [
+        "namespaceKey",
+        "canonicalDigest"
+      ],
+      "unique": true,
+      "multiEntry": false,
+      "disposition": "ACCEPTED_INSTALLABLE_INDEX",
+      "directSourceFields": [
+        "namespaceKey",
+        "canonicalDigest"
+      ],
+      "nullOrMissingBehavior": "REQUIRED_DIRECT_FIELDS_INDEX_ENTRY_REQUIRED_MISSING_FIELD_MALFORMED",
+      "lookupPurpose": "EXTERNAL_MAPPING_DIGEST_INTEGRITY_LOOKUP",
+      "authorityEffect": "NON_AUTHORITATIVE_LOOKUP_ONLY"
+    },
+    {
+      "ordinal": 16,
+      "indexId": "C16",
+      "indexIdentity": "k334.index.authority_fork_observations.by_observation_digest.v1",
+      "ownerStoreIdentity": "k334.store.authority_fork_observations.v1",
+      "ownerStoreName": "authority_fork_observations",
+      "indexName": "by_observation_digest",
+      "keyPath": [
+        "namespaceKey",
+        "canonicalDigest"
+      ],
+      "unique": true,
+      "multiEntry": false,
+      "disposition": "ACCEPTED_INSTALLABLE_INDEX",
+      "directSourceFields": [
+        "namespaceKey",
+        "canonicalDigest"
+      ],
+      "nullOrMissingBehavior": "REQUIRED_DIRECT_FIELDS_INDEX_ENTRY_REQUIRED_MISSING_FIELD_MALFORMED",
+      "lookupPurpose": "FORK_DIGEST_INTEGRITY_LOOKUP",
+      "authorityEffect": "NON_AUTHORITATIVE_LOOKUP_ONLY"
+    },
+    {
+      "ordinal": 17,
+      "indexId": "C17",
+      "indexIdentity": "k334.index.authority_fork_observations.by_subject_predecessor.v1",
+      "ownerStoreIdentity": "k334.store.authority_fork_observations.v1",
+      "ownerStoreName": "authority_fork_observations",
+      "indexName": "by_subject_predecessor",
+      "keyPath": [
+        "namespaceKey",
+        "subjectId",
+        "predecessorRecordId"
+      ],
+      "unique": false,
+      "multiEntry": false,
+      "disposition": "ACCEPTED_INSTALLABLE_INDEX",
+      "directSourceFields": [
+        "namespaceKey",
+        "subjectId",
+        "predecessorRecordId"
+      ],
+      "nullOrMissingBehavior": "EXPLICIT_NULL_PRODUCES_NO_ENTRY_MISSING_FIELD_MALFORMED",
+      "lookupPurpose": "FORK_SUBJECT_PREDECESSOR_LOOKUP",
+      "authorityEffect": "NON_AUTHORITATIVE_LOOKUP_ONLY"
+    },
+    {
+      "ordinal": 18,
+      "indexId": "C18",
+      "indexIdentity": "k334.index.authority_heads.by_projection_digest.v1",
+      "ownerStoreIdentity": "k334.store.authority_heads.v1",
+      "ownerStoreName": "authority_heads",
+      "indexName": "by_projection_digest",
+      "keyPath": [
+        "namespaceKey",
+        "canonicalSetDigest"
+      ],
+      "unique": false,
+      "multiEntry": false,
+      "disposition": "ACCEPTED_INSTALLABLE_INDEX",
+      "directSourceFields": [
+        "namespaceKey",
+        "canonicalSetDigest"
+      ],
+      "nullOrMissingBehavior": "REQUIRED_DIRECT_FIELDS_INDEX_ENTRY_REQUIRED_MISSING_FIELD_MALFORMED",
+      "lookupPurpose": "DERIVED_HEAD_PROJECTION_DIGEST_LOOKUP",
+      "authorityEffect": "NON_AUTHORITATIVE_LOOKUP_ONLY"
+    },
+    {
+      "ordinal": 19,
+      "indexId": "C19",
+      "indexIdentity": "k334.index.authority_heads.by_subject.v1",
+      "ownerStoreIdentity": "k334.store.authority_heads.v1",
+      "ownerStoreName": "authority_heads",
+      "indexName": "by_subject",
+      "keyPath": [
+        "namespaceKey",
+        "subjectId"
+      ],
+      "unique": false,
+      "multiEntry": false,
+      "disposition": "ACCEPTED_INSTALLABLE_INDEX",
+      "directSourceFields": [
+        "namespaceKey",
+        "subjectId"
+      ],
+      "nullOrMissingBehavior": "REQUIRED_DIRECT_FIELDS_INDEX_ENTRY_REQUIRED_MISSING_FIELD_MALFORMED",
+      "lookupPurpose": "DERIVED_HEAD_SUBJECT_LOOKUP",
+      "authorityEffect": "NON_AUTHORITATIVE_LOOKUP_ONLY"
+    },
+    {
+      "ordinal": 20,
+      "indexId": "C20",
+      "indexIdentity": "k334.index.authority_issuer_policies.by_issuer_subject_action.v1",
+      "ownerStoreIdentity": "k334.store.authority_issuer_policies.v1",
+      "ownerStoreName": "authority_issuer_policies",
+      "indexName": "by_issuer_subject_action",
+      "keyPath": [
+        "namespaceKey",
+        "issuerId",
+        "subjectId",
+        "action"
+      ],
+      "unique": false,
+      "multiEntry": false,
+      "disposition": "ACCEPTED_INSTALLABLE_INDEX",
+      "directSourceFields": [
+        "namespaceKey",
+        "issuerId",
+        "subjectId",
+        "action"
+      ],
+      "nullOrMissingBehavior": "REQUIRED_DIRECT_FIELDS_INDEX_ENTRY_REQUIRED_MISSING_FIELD_MALFORMED",
+      "lookupPurpose": "ISSUER_POLICY_CANDIDATE_LOOKUP",
+      "authorityEffect": "NON_AUTHORITATIVE_LOOKUP_ONLY"
+    },
+    {
+      "ordinal": 21,
+      "indexId": "C21",
+      "indexIdentity": "k334.index.authority_issuer_policies.by_policy_digest.v1",
+      "ownerStoreIdentity": "k334.store.authority_issuer_policies.v1",
+      "ownerStoreName": "authority_issuer_policies",
+      "indexName": "by_policy_digest",
+      "keyPath": [
+        "namespaceKey",
+        "canonicalDigest"
+      ],
+      "unique": true,
+      "multiEntry": false,
+      "disposition": "ACCEPTED_INSTALLABLE_INDEX",
+      "directSourceFields": [
+        "namespaceKey",
+        "canonicalDigest"
+      ],
+      "nullOrMissingBehavior": "REQUIRED_DIRECT_FIELDS_INDEX_ENTRY_REQUIRED_MISSING_FIELD_MALFORMED",
+      "lookupPurpose": "ISSUER_POLICY_DIGEST_INTEGRITY_LOOKUP",
+      "authorityEffect": "NON_AUTHORITATIVE_LOOKUP_ONLY"
+    },
+    {
+      "ordinal": 22,
+      "indexId": "C22",
+      "indexIdentity": "k334.index.authority_issuer_policies.by_subject_action_sequence.v1",
+      "ownerStoreIdentity": "k334.store.authority_issuer_policies.v1",
+      "ownerStoreName": "authority_issuer_policies",
+      "indexName": "by_subject_action_sequence",
+      "keyPath": [
+        "namespaceKey",
+        "subjectId",
+        "action",
+        "effectiveSequence"
+      ],
+      "unique": false,
+      "multiEntry": false,
+      "disposition": "ACCEPTED_INSTALLABLE_INDEX",
+      "directSourceFields": [
+        "namespaceKey",
+        "subjectId",
+        "action",
+        "effectiveSequence"
+      ],
+      "nullOrMissingBehavior": "REQUIRED_DIRECT_FIELDS_INDEX_ENTRY_REQUIRED_MISSING_FIELD_MALFORMED",
+      "lookupPurpose": "ISSUER_POLICY_APPLICABILITY_CANDIDATE_LOOKUP",
+      "authorityEffect": "NON_AUTHORITATIVE_LOOKUP_ONLY"
+    },
+    {
+      "ordinal": 23,
+      "indexId": "C23",
+      "indexIdentity": "k334.index.authority_issuers.by_issuer_namespace.v1",
+      "ownerStoreIdentity": "k334.store.authority_issuers.v1",
+      "ownerStoreName": "authority_issuers",
+      "indexName": "by_issuer_namespace",
+      "keyPath": [
+        "namespaceKey",
+        "issuerId"
+      ],
+      "unique": true,
+      "multiEntry": false,
+      "disposition": "ACCEPTED_INSTALLABLE_INDEX",
+      "directSourceFields": [
+        "namespaceKey",
+        "issuerId"
+      ],
+      "nullOrMissingBehavior": "REQUIRED_DIRECT_FIELDS_INDEX_ENTRY_REQUIRED_MISSING_FIELD_MALFORMED",
+      "lookupPurpose": "ISSUER_PRIMARY_KEY_DUPLICATE_LOOKUP",
+      "authorityEffect": "NON_AUTHORITATIVE_LOOKUP_ONLY"
+    },
+    {
+      "ordinal": 24,
+      "indexId": "C24",
+      "indexIdentity": "k334.index.authority_migration_checkpoints.by_batch_sequence.v1",
+      "ownerStoreIdentity": "k334.store.authority_migration_checkpoints.v1",
+      "ownerStoreName": "authority_migration_checkpoints",
+      "indexName": "by_batch_sequence",
+      "keyPath": [
+        "namespaceKey",
+        "batchId",
+        "checkpointSequence"
+      ],
+      "unique": true,
+      "multiEntry": false,
+      "disposition": "ACCEPTED_INSTALLABLE_INDEX",
+      "directSourceFields": [
+        "namespaceKey",
+        "batchId",
+        "checkpointSequence"
+      ],
+      "nullOrMissingBehavior": "REQUIRED_DIRECT_FIELDS_INDEX_ENTRY_REQUIRED_MISSING_FIELD_MALFORMED",
+      "lookupPurpose": "CHECKPOINT_CONTIGUOUS_SEQUENCE_LOOKUP",
+      "authorityEffect": "NON_AUTHORITATIVE_LOOKUP_ONLY"
+    },
+    {
+      "ordinal": 25,
+      "indexId": "C25",
+      "indexIdentity": "k334.index.authority_migration_checkpoints.by_batch_status.v1",
+      "ownerStoreIdentity": "k334.store.authority_migration_checkpoints.v1",
+      "ownerStoreName": "authority_migration_checkpoints",
+      "indexName": "by_batch_status",
+      "keyPath": [
+        "namespaceKey",
+        "batchId",
+        "status"
+      ],
+      "unique": false,
+      "multiEntry": false,
+      "disposition": "ACCEPTED_INSTALLABLE_INDEX",
+      "directSourceFields": [
+        "namespaceKey",
+        "batchId",
+        "status"
+      ],
+      "nullOrMissingBehavior": "REQUIRED_DIRECT_FIELDS_INDEX_ENTRY_REQUIRED_MISSING_FIELD_MALFORMED",
+      "lookupPurpose": "CHECKPOINT_STATUS_CANDIDATE_LOOKUP",
+      "authorityEffect": "NON_AUTHORITATIVE_LOOKUP_ONLY"
+    },
+    {
+      "ordinal": 26,
+      "indexId": "C26",
+      "indexIdentity": "k334.index.authority_migration_classifications.by_batch_class.v1",
+      "ownerStoreIdentity": "k334.store.authority_migration_classifications.v1",
+      "ownerStoreName": "authority_migration_classifications",
+      "indexName": "by_batch_class",
+      "keyPath": [
+        "namespaceKey",
+        "batchId",
+        "classification"
+      ],
+      "unique": false,
+      "multiEntry": false,
+      "disposition": "ACCEPTED_INSTALLABLE_INDEX",
+      "directSourceFields": [
+        "namespaceKey",
+        "batchId",
+        "classification"
+      ],
+      "nullOrMissingBehavior": "REQUIRED_DIRECT_FIELDS_INDEX_ENTRY_REQUIRED_MISSING_FIELD_MALFORMED",
+      "lookupPurpose": "MIGRATION_CLASS_BATCH_ACCOUNTING_LOOKUP",
+      "authorityEffect": "NON_AUTHORITATIVE_LOOKUP_ONLY"
+    },
+    {
+      "ordinal": 27,
+      "indexId": "C27",
+      "indexIdentity": "k334.index.authority_migration_classifications.by_source_digest.v1",
+      "ownerStoreIdentity": "k334.store.authority_migration_classifications.v1",
+      "ownerStoreName": "authority_migration_classifications",
+      "indexName": "by_source_digest",
+      "keyPath": [
+        "namespaceKey",
+        "sourceDigest"
+      ],
+      "unique": false,
+      "multiEntry": false,
+      "disposition": "ACCEPTED_INSTALLABLE_INDEX",
+      "directSourceFields": [
+        "namespaceKey",
+        "sourceDigest"
+      ],
+      "nullOrMissingBehavior": "REQUIRED_DIRECT_FIELDS_INDEX_ENTRY_REQUIRED_MISSING_FIELD_MALFORMED",
+      "lookupPurpose": "MIGRATION_CLASS_SOURCE_LOOKUP",
+      "authorityEffect": "NON_AUTHORITATIVE_LOOKUP_ONLY"
+    },
+    {
+      "ordinal": 28,
+      "indexId": "C28",
+      "indexIdentity": "k334.index.authority_migration_sessions.by_lease_epoch.v1",
+      "ownerStoreIdentity": "k334.store.authority_migration_sessions.v1",
+      "ownerStoreName": "authority_migration_sessions",
+      "indexName": "by_lease_epoch",
+      "keyPath": [
+        "namespaceKey",
+        "batchId",
+        "leaseEpoch"
+      ],
+      "unique": true,
+      "multiEntry": false,
+      "disposition": "ACCEPTED_INSTALLABLE_INDEX",
+      "directSourceFields": [
+        "namespaceKey",
+        "batchId",
+        "leaseEpoch"
+      ],
+      "nullOrMissingBehavior": "REQUIRED_DIRECT_FIELDS_INDEX_ENTRY_REQUIRED_MISSING_FIELD_MALFORMED",
+      "lookupPurpose": "MIGRATION_SESSION_CAS_EPOCH_LOOKUP",
+      "authorityEffect": "NON_AUTHORITATIVE_LOOKUP_ONLY"
+    },
+    {
+      "ordinal": 29,
+      "indexId": "C29",
+      "indexIdentity": "k334.index.authority_migration_sessions.by_source_status.v1",
+      "ownerStoreIdentity": "k334.store.authority_migration_sessions.v1",
+      "ownerStoreName": "authority_migration_sessions",
+      "indexName": "by_source_status",
+      "keyPath": [
+        "namespaceKey",
+        "sourceDigest",
+        "sessionStatus"
+      ],
+      "unique": false,
+      "multiEntry": false,
+      "disposition": "ACCEPTED_INSTALLABLE_INDEX",
+      "directSourceFields": [
+        "namespaceKey",
+        "sourceDigest",
+        "sessionStatus"
+      ],
+      "nullOrMissingBehavior": "REQUIRED_DIRECT_FIELDS_INDEX_ENTRY_REQUIRED_MISSING_FIELD_MALFORMED",
+      "lookupPurpose": "MIGRATION_SESSION_SOURCE_STATUS_LOOKUP",
+      "authorityEffect": "NON_AUTHORITATIVE_LOOKUP_ONLY"
+    },
+    {
+      "ordinal": 30,
+      "indexId": "C30",
+      "indexIdentity": "k334.index.authority_quarantines.by_state.v1",
+      "ownerStoreIdentity": "k334.store.authority_quarantines.v1",
+      "ownerStoreName": "authority_quarantines",
+      "indexName": "by_state",
+      "keyPath": [
+        "namespaceKey",
+        "quarantineState"
+      ],
+      "unique": false,
+      "multiEntry": false,
+      "disposition": "ACCEPTED_INSTALLABLE_INDEX",
+      "directSourceFields": [
+        "namespaceKey",
+        "quarantineState"
+      ],
+      "nullOrMissingBehavior": "REQUIRED_DIRECT_FIELDS_INDEX_ENTRY_REQUIRED_MISSING_FIELD_MALFORMED",
+      "lookupPurpose": "QUARANTINE_STATE_LOOKUP",
+      "authorityEffect": "NON_AUTHORITATIVE_LOOKUP_ONLY"
+    },
+    {
+      "ordinal": 31,
+      "indexId": "C31",
+      "indexIdentity": "k334.index.authority_recovery_markers.by_batch_status.v1",
+      "ownerStoreIdentity": "k334.store.authority_recovery_markers.v1",
+      "ownerStoreName": "authority_recovery_markers",
+      "indexName": "by_batch_status",
+      "keyPath": [
+        "namespaceKey",
+        "batchId",
+        "markerStatus"
+      ],
+      "unique": false,
+      "multiEntry": false,
+      "disposition": "ACCEPTED_INSTALLABLE_INDEX",
+      "directSourceFields": [
+        "namespaceKey",
+        "batchId",
+        "markerStatus"
+      ],
+      "nullOrMissingBehavior": "REQUIRED_DIRECT_FIELDS_INDEX_ENTRY_REQUIRED_MISSING_FIELD_MALFORMED",
+      "lookupPurpose": "RECOVERY_MARKER_STATUS_LOOKUP",
+      "authorityEffect": "NON_AUTHORITATIVE_LOOKUP_ONLY"
+    },
+    {
+      "ordinal": 32,
+      "indexId": "C32",
+      "indexIdentity": "k334.index.authority_rollback_permissions.by_issuer_subject.v1",
+      "ownerStoreIdentity": "k334.store.authority_rollback_permissions.v1",
+      "ownerStoreName": "authority_rollback_permissions",
+      "indexName": "by_issuer_subject",
+      "keyPath": [
+        "namespaceKey",
+        "issuerId",
+        "subjectId"
+      ],
+      "unique": false,
+      "multiEntry": false,
+      "disposition": "ACCEPTED_INSTALLABLE_INDEX",
+      "directSourceFields": [
+        "namespaceKey",
+        "issuerId",
+        "subjectId"
+      ],
+      "nullOrMissingBehavior": "REQUIRED_DIRECT_FIELDS_INDEX_ENTRY_REQUIRED_MISSING_FIELD_MALFORMED",
+      "lookupPurpose": "ROLLBACK_PERMISSION_ISSUER_SUBJECT_LOOKUP",
+      "authorityEffect": "NON_AUTHORITATIVE_LOOKUP_ONLY"
+    },
+    {
+      "ordinal": 33,
+      "indexId": "C33",
+      "indexIdentity": "k334.index.authority_rollback_permissions.by_permission_digest.v1",
+      "ownerStoreIdentity": "k334.store.authority_rollback_permissions.v1",
+      "ownerStoreName": "authority_rollback_permissions",
+      "indexName": "by_permission_digest",
+      "keyPath": [
+        "namespaceKey",
+        "canonicalDigest"
+      ],
+      "unique": true,
+      "multiEntry": false,
+      "disposition": "ACCEPTED_INSTALLABLE_INDEX",
+      "directSourceFields": [
+        "namespaceKey",
+        "canonicalDigest"
+      ],
+      "nullOrMissingBehavior": "REQUIRED_DIRECT_FIELDS_INDEX_ENTRY_REQUIRED_MISSING_FIELD_MALFORMED",
+      "lookupPurpose": "ROLLBACK_PERMISSION_DIGEST_INTEGRITY_LOOKUP",
+      "authorityEffect": "NON_AUTHORITATIVE_LOOKUP_ONLY"
+    },
+    {
+      "ordinal": 34,
+      "indexId": "C34",
+      "indexIdentity": "k334.index.authority_rollback_permissions.by_target.v1",
+      "ownerStoreIdentity": "k334.store.authority_rollback_permissions.v1",
+      "ownerStoreName": "authority_rollback_permissions",
+      "indexName": "by_target",
+      "keyPath": [
+        "namespaceKey",
+        "subjectId",
+        "rollbackTargetRecordId"
+      ],
+      "unique": false,
+      "multiEntry": false,
+      "disposition": "ACCEPTED_INSTALLABLE_INDEX",
+      "directSourceFields": [
+        "namespaceKey",
+        "subjectId",
+        "rollbackTargetRecordId"
+      ],
+      "nullOrMissingBehavior": "REQUIRED_DIRECT_FIELDS_INDEX_ENTRY_REQUIRED_MISSING_FIELD_MALFORMED",
+      "lookupPurpose": "ROLLBACK_PERMISSION_TARGET_LOOKUP",
+      "authorityEffect": "NON_AUTHORITATIVE_LOOKUP_ONLY"
+    },
+    {
+      "ordinal": 35,
+      "indexId": "C35",
+      "indexIdentity": "k334.index.authority_subjects.by_subject_namespace.v1",
+      "ownerStoreIdentity": "k334.store.authority_subjects.v1",
+      "ownerStoreName": "authority_subjects",
+      "indexName": "by_subject_namespace",
+      "keyPath": [
+        "namespaceKey",
+        "subjectId"
+      ],
+      "unique": true,
+      "multiEntry": false,
+      "disposition": "ACCEPTED_INSTALLABLE_INDEX",
+      "directSourceFields": [
+        "namespaceKey",
+        "subjectId"
+      ],
+      "nullOrMissingBehavior": "REQUIRED_DIRECT_FIELDS_INDEX_ENTRY_REQUIRED_MISSING_FIELD_MALFORMED",
+      "lookupPurpose": "SUBJECT_PRIMARY_KEY_DUPLICATE_LOOKUP",
+      "authorityEffect": "NON_AUTHORITATIVE_LOOKUP_ONLY"
+    },
+    {
+      "ordinal": 36,
+      "indexId": "C36",
+      "indexIdentity": "k334.index.authority_terminations.by_subject_sequence.v1",
+      "ownerStoreIdentity": "k334.store.authority_terminations.v1",
+      "ownerStoreName": "authority_terminations",
+      "indexName": "by_subject_sequence",
+      "keyPath": [
+        "namespaceKey",
+        "subjectId",
+        "effectiveSequence"
+      ],
+      "unique": false,
+      "multiEntry": false,
+      "disposition": "ACCEPTED_INSTALLABLE_INDEX",
+      "directSourceFields": [
+        "namespaceKey",
+        "subjectId",
+        "effectiveSequence"
+      ],
+      "nullOrMissingBehavior": "REQUIRED_DIRECT_FIELDS_INDEX_ENTRY_REQUIRED_MISSING_FIELD_MALFORMED",
+      "lookupPurpose": "TERMINATION_SUBJECT_SEQUENCE_LOOKUP",
+      "authorityEffect": "NON_AUTHORITATIVE_LOOKUP_ONLY"
+    },
+    {
+      "ordinal": 37,
+      "indexId": "C37",
+      "indexIdentity": "k334.index.authority_terminations.by_target.v1",
+      "ownerStoreIdentity": "k334.store.authority_terminations.v1",
+      "ownerStoreName": "authority_terminations",
+      "indexName": "by_target",
+      "keyPath": [
+        "namespaceKey",
+        "targetRecordId",
+        "effectiveSequence"
+      ],
+      "unique": false,
+      "multiEntry": false,
+      "disposition": "ACCEPTED_INSTALLABLE_INDEX",
+      "directSourceFields": [
+        "namespaceKey",
+        "targetRecordId",
+        "effectiveSequence"
+      ],
+      "nullOrMissingBehavior": "REQUIRED_DIRECT_FIELDS_INDEX_ENTRY_REQUIRED_MISSING_FIELD_MALFORMED",
+      "lookupPurpose": "TERMINATION_TARGET_SEQUENCE_LOOKUP",
+      "authorityEffect": "NON_AUTHORITATIVE_LOOKUP_ONLY"
+    },
+    {
+      "ordinal": 38,
+      "indexId": "C38",
+      "indexIdentity": "k334.index.authority_terminations.by_termination_digest.v1",
+      "ownerStoreIdentity": "k334.store.authority_terminations.v1",
+      "ownerStoreName": "authority_terminations",
+      "indexName": "by_termination_digest",
+      "keyPath": [
+        "namespaceKey",
+        "canonicalDigest"
+      ],
+      "unique": true,
+      "multiEntry": false,
+      "disposition": "ACCEPTED_INSTALLABLE_INDEX",
+      "directSourceFields": [
+        "namespaceKey",
+        "canonicalDigest"
+      ],
+      "nullOrMissingBehavior": "REQUIRED_DIRECT_FIELDS_INDEX_ENTRY_REQUIRED_MISSING_FIELD_MALFORMED",
+      "lookupPurpose": "TERMINATION_DIGEST_INTEGRITY_LOOKUP",
+      "authorityEffect": "NON_AUTHORITATIVE_LOOKUP_ONLY"
+    }
+  ],
+  "dependencies": [
+    {
+      "authorityEffect": "PHYSICAL_CREATION_ORDER_ONLY_NO_SEMANTIC_AUTHORITY",
+      "dependencyId": "DEP-01",
+      "dependencyKind": "STORE_BEFORE_INDEX",
+      "required": true,
+      "sources": [
+        "k334.store.authority_subjects.v1",
+        "k334.store.authority_issuers.v1",
+        "k334.store.authority_issuer_policies.v1",
+        "k334.store.authority_evidence.v1",
+        "k334.store.authority_rollback_permissions.v1",
+        "k334.store.authority_terminations.v1",
+        "k334.store.authority_compatibility_tuples.v1",
+        "k334.store.authority_external_mappings.v1",
+        "k334.store.authority_fork_observations.v1",
+        "k334.store.authority_conflict_observations.v1",
+        "k334.store.authority_quarantines.v1",
+        "k334.store.authority_migration_sessions.v1",
+        "k334.store.authority_migration_classifications.v1",
+        "k334.store.authority_migration_checkpoints.v1",
+        "k334.store.authority_recovery_markers.v1",
+        "k334.store.authority_heads.v1",
+        "k334.store.authority_audit_events.v1"
+      ],
+      "targets": [
+        "C01",
+        "C02",
+        "C04",
+        "C05",
+        "C06",
+        "C07",
+        "C08",
+        "C09",
+        "C10",
+        "C11",
+        "C12",
+        "C13",
+        "C14",
+        "C15",
+        "C16",
+        "C17",
+        "C18",
+        "C19",
+        "C20",
+        "C21",
+        "C22",
+        "C23",
+        "C24",
+        "C25",
+        "C26",
+        "C27",
+        "C28",
+        "C29",
+        "C30",
+        "C31",
+        "C32",
+        "C33",
+        "C34",
+        "C35",
+        "C36",
+        "C37",
+        "C38"
+      ]
+    },
+    {
+      "authorityEffect": "PHYSICAL_ATOMICITY_ONLY_NO_EXECUTION_AUTHORITY",
+      "dependencyId": "DEP-02",
+      "dependencyKind": "SAME_VERSIONCHANGE_TRANSACTION_PARTICIPATION",
+      "required": true,
+      "sources": [
+        "absinthe-local-v2@4"
+      ],
+      "targets": [
+        "TG-K334-V4-V5-ADDITIVE-001"
+      ]
+    },
+    {
+      "authorityEffect": "FUTURE_AVAILABILITY_ONLY_NO_RUNTIME_AUTHORITY",
+      "dependencyId": "DEP-03",
+      "dependencyKind": "FUTURE_RUNTIME_TRANSACTION_PARTICIPATION",
+      "required": true,
+      "sources": [
+        "k334.store.authority_migration_sessions.v1",
+        "k334.store.authority_migration_checkpoints.v1",
+        "k334.store.authority_recovery_markers.v1"
+      ],
+      "targets": [
+        "B04_B05_B06_ACCEPTED_TARGET_AND_CONTROL_STORE_SET"
+      ]
+    },
+    {
+      "authorityEffect": "FUTURE_ATOMIC_PAIR_AVAILABILITY_ONLY",
+      "dependencyId": "DEP-04",
+      "dependencyKind": "FUTURE_RUNTIME_TRANSACTION_PARTICIPATION",
+      "required": true,
+      "sources": [
+        "k334.store.authority_evidence.v1",
+        "k334.store.authority_audit_events.v1"
+      ],
+      "targets": [
+        "T01",
+        "T35"
+      ]
+    },
+    {
+      "authorityEffect": "RESTART_LOOKUP_ONLY_NO_SEMANTIC_AUTHORITY",
+      "dependencyId": "DEP-05",
+      "dependencyKind": "INDEX_LOOKUP_REQUIRED_BY_ACCEPTED_PROTOCOL",
+      "required": true,
+      "sources": [
+        "k334.store.authority_evidence.v1",
+        "k334.index.authority_audit_events.by_record.v1"
+      ],
+      "targets": [
+        "EVIDENCE_AUDIT_ATOMIC_PAIR_V1"
+      ]
+    },
+    {
+      "authorityEffect": "COMPETITOR_LOOKUP_ONLY_NO_WINNER_AUTHORITY",
+      "dependencyId": "DEP-06",
+      "dependencyKind": "INDEX_LOOKUP_REQUIRED_BY_ACCEPTED_PROTOCOL",
+      "required": true,
+      "sources": [
+        "k334.store.authority_evidence.v1",
+        "k334.index.authority_evidence.by_subject_lineage_sequence.v1"
+      ],
+      "targets": [
+        "B08_LOGICAL_POSITION_V1"
+      ]
+    },
+    {
+      "authorityEffect": "NO_SCHEMA_ORDERING_AND_NO_AUTHORITY_EFFECT",
+      "dependencyId": "DEP-07",
+      "dependencyKind": "SEMANTIC_REFERENCE_NOT_SCHEMA_ORDERING",
+      "required": false,
+      "sources": [
+        "k334.store.authority_subjects.v1",
+        "k334.store.authority_issuers.v1",
+        "k334.store.authority_issuer_policies.v1",
+        "k334.store.authority_evidence.v1",
+        "k334.store.authority_compatibility_tuples.v1"
+      ],
+      "targets": [
+        "K334_SEMANTIC_REFERENCE_VALIDATION"
+      ]
+    }
+  ],
+  "transactionGroups": [
+    {
+      "transactionGroupId": "TG-K334-V4-V5-ADDITIVE-001",
+      "databaseName": "absinthe-local-v2",
+      "sourceVersion": 4,
+      "targetVersion": 5,
+      "transactionKind": "NATIVE_INDEXEDDB_VERSIONCHANGE",
+      "memberStoreIdentities": [
+        "k334.store.authority_subjects.v1",
+        "k334.store.authority_issuers.v1",
+        "k334.store.authority_issuer_policies.v1",
+        "k334.store.authority_evidence.v1",
+        "k334.store.authority_rollback_permissions.v1",
+        "k334.store.authority_terminations.v1",
+        "k334.store.authority_compatibility_tuples.v1",
+        "k334.store.authority_external_mappings.v1",
+        "k334.store.authority_fork_observations.v1",
+        "k334.store.authority_conflict_observations.v1",
+        "k334.store.authority_quarantines.v1",
+        "k334.store.authority_migration_sessions.v1",
+        "k334.store.authority_migration_classifications.v1",
+        "k334.store.authority_migration_checkpoints.v1",
+        "k334.store.authority_recovery_markers.v1",
+        "k334.store.authority_heads.v1",
+        "k334.store.authority_audit_events.v1"
+      ],
+      "memberIndexIds": [
+        "C01",
+        "C02",
+        "C04",
+        "C05",
+        "C06",
+        "C07",
+        "C08",
+        "C09",
+        "C10",
+        "C11",
+        "C12",
+        "C13",
+        "C14",
+        "C15",
+        "C16",
+        "C17",
+        "C18",
+        "C19",
+        "C20",
+        "C21",
+        "C22",
+        "C23",
+        "C24",
+        "C25",
+        "C26",
+        "C27",
+        "C28",
+        "C29",
+        "C30",
+        "C31",
+        "C32",
+        "C33",
+        "C34",
+        "C35",
+        "C36",
+        "C37",
+        "C38"
+      ],
+      "excludedIndexIds": [
+        "C03"
+      ],
+      "atomicity": "COMMIT_ALL_OR_ABORT_ALL",
+      "predecessorDataPolicy": "PRESERVE_EXISTING_V4_STORES_INDEXES_AND_RECORDS_BYTE_UNCHANGED",
+      "failureEffect": "ABORT_NO_PARTIAL_SCHEMA_MUTATION"
+    }
+  ],
+  "conflictPolicy": {
+    "boundedDiagnostics": true,
+    "conflictEffect": "FAIL_CLOSED_NO_MUTATION",
+    "partialInstallationPolicy": "PARTIAL_INSTALLATION_ALWAYS_CONFLICTS_V1",
+    "policyId": "K334_DESCRIPTOR_CONFLICT_POLICY_V1",
+    "prohibitedIndexPolicy": "ALL_UNLISTED_INDEXES_PROHIBITED",
+    "repairAuthority": "NOT_GRANTED",
+    "stateMachineId": "K334_DESCRIPTOR_INSTALLATION_STATE_V1"
+  },
+  "retryPolicy": {
+    "blindRerun": false,
+    "exactV4Effect": "REPORT_INSTALLATION_NOT_COMMITTED_NO_RETRY_AUTHORITY",
+    "exactV5Effect": "NO_OP_NO_MUTATION",
+    "partialOrConflictEffect": "FAIL_CLOSED_NO_MUTATION",
+    "policyId": "K334_DESCRIPTOR_RETRY_POLICY_V1",
+    "sameIdDifferentBytes": "CONFLICT"
+  },
+  "postInstallVerification": {
+    "comparisonPolicyId": "K334_IDB_METADATA_EXACT_COMPARISON_V1",
+    "policyId": "POST_INSTALL_PHYSICAL_METADATA_VERIFICATION_V1",
+    "result": "PHYSICAL_SCHEMA_INSTALLED_EXACTLY_AS_DECLARED_V1"
+  },
+  "proofLayers": [
+    "DESCRIPTOR_DOCUMENT_CONFORMANCE_V1",
+    "POST_INSTALL_PHYSICAL_METADATA_VERIFICATION_V1",
+    "PERSISTED_ROW_AND_RUNTIME_SEMANTIC_VALIDATION_V1"
+  ],
+  "authorityExclusions": [
+    "DESCRIPTOR_PREREQUISITE_ACCEPTANCE",
+    "DESCRIPTOR_IMPLEMENTATION_AUTHORIZATION",
+    "DESCRIPTOR_IMPLEMENTATION",
+    "SCHEMA_MUTATION",
+    "D0_P09_REBOUND",
+    "D0_P09_EXECUTION",
+    "D0_P09_SATISFACTION",
+    "D0_P10_EXECUTION",
+    "K334E_AUTHORIZATION",
+    "K334F_AUTHORIZATION",
+    "RUNTIME_AUTHORIZATION",
+    "PRODUCTION_ELIGIBILITY"
+  ]
+}
