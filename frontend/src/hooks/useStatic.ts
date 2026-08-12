@@ -3,6 +3,8 @@ import useSWR from 'swr';
 import { fetcher, isLocalOnlyRemotePausedError } from '../lib/fetcher';
 import { API_URL } from '../lib/config';
 import { remoteSWRKey } from '../lib/remoteBoundary';
+import { isLocalOnlyRuntime } from '../lib/localAuth';
+import { readLocalHealthStatic } from '../lib/healthLocalRuntime';
 import { ExerciseBlock, HealthRoutine, WeeklySchedule } from '../types';
 
 const STATIC_SWR_BASE = { revalidateOnFocus: false } as const;
@@ -19,8 +21,10 @@ export const useStaticData = (
   monthStartStr: string,
   monthEndStr: string,
   onError?: (msg: string) => void,
+  accountId?: string,
 ): UseStaticDataResult => {
   const base = `${API_URL}/api`;
+  const localMode = isLocalOnlyRuntime();
 
   const swrOpts = useMemo(
     () => ({
@@ -48,6 +52,11 @@ export const useStaticData = (
   const { data: weeklySchedules = [], mutate: mutateWeekly } = useSWR<WeeklySchedule[]>(
     remoteSWRKey(`${base}/weekly_schedules`), fetcher, swrOpts,
   );
+  const { data: localHealth, mutate: mutateLocalHealth } = useSWR(
+    localMode && accountId ? ['local-health-static', accountId] as const : null,
+    ([, ownerId]) => readLocalHealthStatic(ownerId),
+    swrOpts,
+  );
 
   const markedDates = useMemo(
     () =>
@@ -62,7 +71,14 @@ export const useStaticData = (
     mutateBlocks();
     mutateRoutines();
     mutateWeekly();
-  }, [mutateDates, mutateBlocks, mutateRoutines, mutateWeekly]);
+    if (localMode) mutateLocalHealth();
+  }, [localMode, mutateDates, mutateBlocks, mutateRoutines, mutateWeekly, mutateLocalHealth]);
 
-  return { markedDates, healthBlocks, healthRoutines, weeklySchedules, mutate };
+  return {
+    markedDates,
+    healthBlocks: localMode ? localHealth?.healthBlocks ?? [] : healthBlocks,
+    healthRoutines: localMode ? localHealth?.healthRoutines ?? [] : healthRoutines,
+    weeklySchedules,
+    mutate,
+  };
 };

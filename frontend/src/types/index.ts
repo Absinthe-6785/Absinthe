@@ -83,8 +83,14 @@ export const makeNextSet = (prev: WorkoutSet, asDropset = false): WorkoutSet =>
 export interface Workout {
   id: string; block_id: string; exercise_blocks: ExerciseBlock; sets: WorkoutSet[];
   sort_order?: number;
+  local_version?: string | null;
 }
-export interface Inbody { weight: number; smm: number; pbf: number; }
+export interface Inbody {
+  weight: number | null;
+  smm: number | null;
+  pbf: number | null;
+  local_version?: string | null;
+}
 export interface WeeklySchedule {
   id: string; day: number; title: string; start_time: string; end_time: string; color: string;
 }
@@ -153,6 +159,7 @@ export interface PlannerProps extends BaseViewProps, DateProps, MutateProps, Opt
 }
 
 export interface HealthProps extends BaseViewProps, DateProps, MutateProps {
+  user: { id: string; name: string };
   schedules: Schedule[];
   weeklySchedules: WeeklySchedule[];
   workouts: Workout[];

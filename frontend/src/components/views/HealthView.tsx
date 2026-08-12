@@ -45,13 +45,23 @@ import {
 import useSWR from 'swr';
 import { fetcher } from '../../lib/fetcher';
 import { remoteSWRKey } from '../../lib/remoteBoundary';
+import { shouldUseRemoteData } from '../../lib/remoteBoundary';
+import { createLocalHealthRepository, readLocalHealthWorkoutRange } from '../../lib/healthLocalRuntime';
+import {
+  isCurrentHealthAccountGeneration,
+  localHealthDraftKey,
+  localHealthMemoKey,
+  localHealthWriteFailureDisposition,
+  readLocalHealthWorkoutDraft,
+  type HealthAccountGenerationToken,
+} from '../../lib/healthBackfillUiSafety';
 
 export const HealthView = ({
   currentDate, setCurrentDate, selectedDate, setSelectedDate,
   formatDate, isToday, showToast, mutateDaily, mutateStatic,
   schedules, weeklySchedules,
   workouts, healthBlocks, healthRoutines, inbody, theme, appSettings,
-  THEME_COLORS, isDailyLoading,
+  THEME_COLORS, isDailyLoading, user,
 }: HealthProps) => {
   const { t, lang } = useTranslation();
   const isMobile = useIsMobile();
@@ -61,6 +71,19 @@ export const HealthView = ({
   const { mutate: api } = useApiMutation(mutateDaily, mutateStatic, showToast);
   const { weightUnits, toggleWeightUnit } = useAppStore();
   const { confirm, showConfirm, clearConfirm, handleConfirm } = useConfirm();
+  const localMode = !shouldUseRemoteData();
+  const accountGenerationRef = useRef(0);
+  const activeAccountIdRef = useRef(user.id);
+  if (activeAccountIdRef.current !== user.id) {
+    activeAccountIdRef.current = user.id;
+    accountGenerationRef.current += 1;
+  }
+  const currentAccountOperation = (token: HealthAccountGenerationToken): boolean =>
+    isCurrentHealthAccountGeneration(
+      token,
+      activeAccountIdRef.current,
+      accountGenerationRef.current,
+    );
 
   const [splitCount, setSplitCount] = useState<number>(() => {
     const saved = localStorage.getItem('healthSplitCount');
@@ -197,7 +220,12 @@ export const HealthView = ({
   const [routineDragOverIdx, setRoutineDragOverIdx] = useState<number | null>(null);
   // InBody도 편집 중 SWR 재검증이 덮어쓰지 않도록 보호.
   const [isInbodyDirty, setIsInbodyDirty] = useState(false);
-  const [localInbody, setLocalInbody] = useState<Inbody>({ weight: 0, smm: 0, pbf: 0 });
+  const [localInbody, setLocalInbody] = useState<Inbody>({
+    weight: null,
+    smm: null,
+    pbf: null,
+    local_version: null,
+  });
   const [healthSectionPrefs] = useState(() => readHealthSectionPrefs());
 
   // weightUnits: zustand store persist
@@ -223,8 +251,9 @@ export const HealthView = ({
   };
 
   // ── Draft 자동 저장/복원 ──────────────────────────────────────────
-  const draftKey = `healthDraft:${formatDate(selectedDate)}`;
-  const memoKey  = `healthMemo:${formatDate(selectedDate)}`;
+  const selectedDateDraftKey = formatDate(selectedDate);
+  const draftKey = localHealthDraftKey(user.id, selectedDateDraftKey);
+  const memoKey = localHealthMemoKey(user.id, selectedDateDraftKey);
 
   // selectedDate 변경 시 메모도 localStorage에서 복원
   useEffect(() => {
@@ -234,17 +263,17 @@ export const HealthView = ({
     setWorkoutMemo(stored || recoveryText);
     setPrevData({});
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedDate]);
+  }, [selectedDate, user.id, memoKey]);
 
   const ensurePrevData = useCallback(async (blockIds: readonly string[], source: string) => {
     const missing = [...new Set(blockIds.filter(id => id && id !== '__session__'))]
       .filter(id => prevDataRef.current[id] === undefined);
     if (missing.length === 0) return;
-    const fetched = await fetchPrevWorkoutForBlocks(missing, formatDate(selectedDate), source);
+    const fetched = await fetchPrevWorkoutForBlocks(missing, formatDate(selectedDate), source, user.id);
     if (Object.keys(fetched).length > 0) {
       setPrevData(prev => ({ ...prev, ...fetched }));
     }
-  }, [formatDate, selectedDate]);
+  }, [formatDate, selectedDate, user.id]);
 
   // localWorkouts가 세팅될 때 각 블록의 이전 세션 + PR fetch (max 4 concurrent)
   useEffect(() => {
@@ -261,12 +290,13 @@ export const HealthView = ({
       [blockId],
       formatDate(selectedDate),
       'HealthView.fetchPrevForBlock',
+      user.id,
     );
     const data = result[blockId];
     if (!data) return undefined;
     setPrevData(prev => ({ ...prev, [blockId]: data }));
     return data.prev_sets;
-  }, [prevData, selectedDate, formatDate]);
+  }, [prevData, selectedDate, formatDate, user.id]);
 
   useEffect(() => {
     if (!healthRoutines?.length) return;
@@ -281,23 +311,26 @@ export const HealthView = ({
 
   // selectedDate 변경 시: draft가 있으면 복원, 없으면 서버 데이터로 초기화
   useEffect(() => {
-    setIsInbodyDirty(false);
-    const raw = localStorage.getItem(draftKey);
-    if (raw) {
-      try {
-        const draft: Workout[] = JSON.parse(raw);
-        setLocalWorkouts(draft);
-        setIsDirty(true);
-        isDirtyRef.current = true; // 동일 배치에서 workouts effect가 읽을 수 있도록 즉시 반영
-        setIsWorkoutLocked(false);
-        showToast(t('draftRestored'));
-        return;
-      } catch { localStorage.removeItem(draftKey); }
-    }
+    setLocalWorkouts([]);
     setIsDirty(false);
     isDirtyRef.current = false;
+    setIsWorkoutLocked(false);
+    setIsSaving(false);
+    setIsInbodyDirty(false);
+    setLocalInbody({ weight: null, smm: null, pbf: null, local_version: null });
+    const draft = readLocalHealthWorkoutDraft(
+      localStorage,
+      user.id,
+      selectedDateDraftKey,
+    );
+    if (draft && draft.length > 0) {
+      setLocalWorkouts(draft);
+      setIsDirty(true);
+      isDirtyRef.current = true;
+      showToast(t('draftRestored'));
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedDate]);
+  }, [selectedDate, user.id, selectedDateDraftKey]);
 
   // isDirty 중 localWorkouts 변경 시마다 draft 저장
   useEffect(() => {
@@ -321,7 +354,12 @@ export const HealthView = ({
 
   useEffect(() => {
     if (!isInbodyDirty)
-      setLocalInbody({ weight: Number(inbody?.weight || 0), smm: Number(inbody?.smm || 0), pbf: Number(inbody?.pbf || 0) });
+      setLocalInbody({
+        weight: inbody?.weight ?? null,
+        smm: inbody?.smm ?? null,
+        pbf: inbody?.pbf ?? null,
+        local_version: inbody?.local_version ?? null,
+      });
   }, [inbody, isInbodyDirty]);
 
   useEscapeKey(() => { setShowBlockModal(false); setShowAssembleModal(false); clearConfirm(); });
@@ -464,18 +502,38 @@ export const HealthView = ({
   };
 
   const handleRemoveWorkout = async (index: number, dbId: string) => {
+    const accountOperation: HealthAccountGenerationToken = {
+      accountId: user.id,
+      generation: accountGenerationRef.current,
+    };
     try {
       // 세션 구분선은 DB에 없으므로 API 호출 없이 바로 제거
       if (dbId !== 'session' && !dbId.startsWith('session-') && !dbId.startsWith('temp')) {
+        if (localMode) {
+          const expectedVersion = localWorkouts[index]?.local_version;
+          if (!expectedVersion) throw new Error('health_local_workout_expected_version_missing');
+          const repository = await createLocalHealthRepository(accountOperation.accountId);
+          if (!currentAccountOperation(accountOperation)) return;
+          await repository.deleteWorkout(dbId, expectedVersion);
+          if (!currentAccountOperation(accountOperation)) return;
+          mutateDaily();
+          mutateMonthWorkoutRows();
+        } else {
         const res = await authFetch(`${API_URL}/api/workouts/${dbId}`, { method: 'DELETE' });
         if (!res.ok) throw new Error(`[${res.status}]`);
         // DB 삭제 성공 즉시 mutateDaily → SWR 캐시도 동기화.
         mutateDaily();
+        }
       }
       const next = localWorkouts.filter((_, i) => i !== index);
+      if (!currentAccountOperation(accountOperation)) return;
       setLocalWorkouts(next);
       if (next.length === 0) { setIsDirty(false); localStorage.removeItem(draftKey); }
-    } catch { showToast(t('failedRemove'), 'error'); }
+    } catch (error) {
+      if (!currentAccountOperation(accountOperation)) return;
+      const failure = localHealthWriteFailureDisposition(error);
+      showToast(t(failure.kind === 'conflict' ? 'healthWriteConflict' : 'failedRemove'), 'error');
+    }
   };
   const handleAddSet = (wIdx: number, asDropset = false) => {
     if (isWorkoutLocked) return;
@@ -571,6 +629,49 @@ export const HealthView = ({
     if (localWorkouts.filter(w => w.block_id !== '__session__').length === 0)
       return showToast(t('noWorkouts'), 'error');
     setIsSaving(true);
+    const accountOperation: HealthAccountGenerationToken = {
+      accountId: user.id,
+      generation: accountGenerationRef.current,
+    };
+
+    if (localMode) {
+      try {
+        const repository = await createLocalHealthRepository(accountOperation.accountId);
+        if (!currentAccountOperation(accountOperation)) return;
+        const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+        const results = await repository.saveWorkouts(localWorkouts
+          .filter(w => w.block_id !== '__session__')
+          .map((w, sortOrder) => ({
+            id: uuidPattern.test(w.id) ? w.id : undefined,
+            date: formatDate(selectedDate),
+            blockId: w.block_id,
+            sets: w.sets as unknown as Record<string, unknown>[],
+            sortOrder,
+            expectedVersion: w.local_version ?? null,
+          })));
+        if (!currentAccountOperation(accountOperation)) return;
+        let resultIndex = 0;
+        setLocalWorkouts(previous => previous.map(workout => {
+          if (workout.block_id === '__session__') return workout;
+          const result = results[resultIndex++];
+          return result ? { ...workout, id: result.id, local_version: result.version } : workout;
+        }));
+        setIsSaving(false);
+        localStorage.removeItem(draftKey);
+        showToast(t('workoutSaved'));
+        setIsDirty(false);
+        setIsWorkoutLocked(true);
+        mutateDaily();
+        mutateMonthWorkoutRows();
+        return;
+      } catch (error) {
+        if (!currentAccountOperation(accountOperation)) return;
+        const failure = localHealthWriteFailureDisposition(error);
+        setIsSaving(false);
+        showToast(t(failure.kind === 'conflict' ? 'healthWriteConflict' : 'failedSave'), 'error');
+        return;
+      }
+    }
 
     // 순차 저장 — sort_order 보장을 위해 병렬(allSettled) 대신 순서대로 await
     // 세션 구분선(__session__)은 DB 저장 불필요 — 스킵
@@ -666,8 +767,40 @@ export const HealthView = ({
   };
 
   const handleSaveInbody = async () => {
-    if (localInbody.weight < 0 || localInbody.smm < 0 || localInbody.pbf < 0)
+    if ([localInbody.weight, localInbody.smm, localInbody.pbf]
+      .some(value => value !== null && value < 0))
       return showToast(t('valuesNegative'), 'error');
+    const accountOperation: HealthAccountGenerationToken = {
+      accountId: user.id,
+      generation: accountGenerationRef.current,
+    };
+    if (localMode) {
+      try {
+        const repository = await createLocalHealthRepository(accountOperation.accountId);
+        if (!currentAccountOperation(accountOperation)) return;
+        const result = await repository.saveInbody({
+          date: formatDate(selectedDate),
+          weight: localInbody.weight,
+          smm: localInbody.smm,
+          pbf: localInbody.pbf,
+          expectedVersion: localInbody.local_version ?? null,
+        });
+        if (!currentAccountOperation(accountOperation)) return;
+        setLocalInbody(previous => ({ ...previous, local_version: result.version }));
+        setIsInbodyDirty(false);
+        mutateDaily();
+        showToast(t('inbodySaved'));
+      } catch (error) {
+        if (!currentAccountOperation(accountOperation)) return;
+        const failure = localHealthWriteFailureDisposition(error);
+        showToast(t(failure.kind === 'conflict' ? 'healthWriteConflict' : 'failedSave'), 'error');
+      }
+      return;
+    }
+    if ([localInbody.weight, localInbody.smm, localInbody.pbf].some(value => value === null)) {
+      showToast(t('enterWeight'), 'error');
+      return;
+    }
     const ok = await api('POST', '/api/inbody',
       { date: formatDate(selectedDate), weight: Number(localInbody.weight), smm: Number(localInbody.smm), pbf: Number(localInbody.pbf) },
       { revalidate: 'daily', successMsg: t('inbodySaved') }
@@ -679,9 +812,14 @@ export const HealthView = ({
   const month = currentDate.getMonth();
   const monthStart = formatDate(new Date(year, month, 1));
   const monthEnd = formatDate(new Date(year, month + 1, 0));
-  const { data: monthWorkoutRows = [] } = useSWR<RangeWorkoutRow[]>(
-    remoteSWRKey(`${API_URL}/api/workouts/range?start_date=${monthStart}&end_date=${monthEnd}`),
-    fetcher,
+  const rangeKey = localMode
+    ? ['local-health-workout-range', user.id, monthStart, monthEnd] as const
+    : remoteSWRKey(`${API_URL}/api/workouts/range?start_date=${monthStart}&end_date=${monthEnd}`);
+  const { data: monthWorkoutRows = [], mutate: mutateMonthWorkoutRows } = useSWR<RangeWorkoutRow[]>(
+    rangeKey,
+    localMode
+      ? ([, accountId, startDate, endDate]) => readLocalHealthWorkoutRange(accountId, startDate, endDate)
+      : fetcher,
     { revalidateOnFocus: false },
   );
 
@@ -850,7 +988,7 @@ export const HealthView = ({
 
       {healthSection === 'nutrition' && (
         <div className="flex-1 min-h-0 pb-4">
-          <ProteinTracker mode="full" theme={theme} darkMode={appSettings.darkMode} selectedDate={selectedDate} formatDate={formatDate} showToast={showToast} onOpenDayNote={() => openHealthDayLog('nutrition')} />
+          <ProteinTracker accountId={user.id} mode="full" theme={theme} darkMode={appSettings.darkMode} selectedDate={selectedDate} formatDate={formatDate} showToast={showToast} onOpenDayNote={() => openHealthDayLog('nutrition')} />
         </div>
       )}
 
@@ -1400,6 +1538,7 @@ export const HealthView = ({
         data-k138-support-row
       >
         <HealthSupportingPanels
+          accountId={user.id}
           selectedDate={selectedDate}
           currentDate={currentDate}
           setCurrentDate={setCurrentDate}

@@ -5,6 +5,8 @@ import {
   hasVaultRestoreSnapshot,
   loadVaultRestoreSnapshot,
   saveVaultRestoreSnapshot,
+  VAULT_RESTORE_SNAPSHOT_FAILURE_MESSAGE,
+  VAULT_RESTORE_SNAPSHOT_KEY,
 } from './vaultRestoreSnapshot';
 
 function note(id: string): NoteBase {
@@ -46,6 +48,57 @@ describe('vaultRestoreSnapshot', () => {
   it('clears snapshot', () => {
     saveVaultRestoreSnapshot([note('n1')], []);
     clearVaultRestoreSnapshot();
+    expect(hasVaultRestoreSnapshot()).toBe(false);
+  });
+
+  it('fails closed when the backing store rejects the snapshot write', () => {
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: () => { throw new DOMException('Quota exceeded', 'QuotaExceededError'); },
+      removeItem: (key: string) => { store.delete(key); },
+    });
+
+    expect(() => saveVaultRestoreSnapshot([note('n1')], []))
+      .toThrow(VAULT_RESTORE_SNAPSHOT_FAILURE_MESSAGE);
+    expect(hasVaultRestoreSnapshot()).toBe(false);
+  });
+
+  it('preserves a previously valid undo snapshot when a replacement write fails', () => {
+    saveVaultRestoreSnapshot([note('previous')], []);
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        if (value.includes('replacement')) throw new DOMException('Quota exceeded', 'QuotaExceededError');
+        store.set(key, value);
+      },
+      removeItem: (key: string) => { store.delete(key); },
+    });
+
+    expect(() => saveVaultRestoreSnapshot([note('replacement')], []))
+      .toThrow(VAULT_RESTORE_SNAPSHOT_FAILURE_MESSAGE);
+    expect(loadVaultRestoreSnapshot()?.notes[0]?.id).toBe('previous');
+  });
+
+  it('fails closed when a write is not present on readback', () => {
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => key === VAULT_RESTORE_SNAPSHOT_KEY ? null : store.get(key) ?? null,
+      setItem: (key: string, value: string) => { store.set(key, value); },
+      removeItem: (key: string) => { store.delete(key); },
+    });
+
+    expect(() => saveVaultRestoreSnapshot([note('n1')], []))
+      .toThrow(VAULT_RESTORE_SNAPSHOT_FAILURE_MESSAGE);
+    expect(hasVaultRestoreSnapshot()).toBe(false);
+  });
+
+  it('rejects malformed or partial persisted snapshot data', () => {
+    store.set(VAULT_RESTORE_SNAPSHOT_KEY, JSON.stringify({
+      savedAt: '2026-01-01T00:00:00.000Z',
+      notes: [{ id: 'partial-note' }],
+      folders: [],
+    }));
+
+    expect(loadVaultRestoreSnapshot()).toBeNull();
     expect(hasVaultRestoreSnapshot()).toBe(false);
   });
 });

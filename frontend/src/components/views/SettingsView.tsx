@@ -33,6 +33,7 @@ import { getVaultStorageMetrics } from '../../lib/vaultStorageMetrics';
 import { shouldUseRemoteData } from '../../lib/remoteBoundary';
 import type { SettingsSectionId } from '../common/Sidebar';
 import { RECOVERY_MODE_MESSAGE, mayReset, recordRecoveryBlock } from '../../lib/recoverySafetyPolicy';
+import { downloadTemporaryReturnToUseRecoveryArchive } from '../../lib/temporaryReturnToUseRecoveryExport';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
 
@@ -54,6 +55,7 @@ export const SettingsView = ({
   const vaultRestore = useVaultRestoreFlow(showToast, t, cloudSyncEnabled);
   const recovery = useRecoveryCenter(cloudSyncEnabled);
   const [backingUpZip, setBackingUpZip] = useState(false);
+  const [backingUpTemporaryFull, setBackingUpTemporaryFull] = useState(false);
   const [storageTick, setStorageTick] = useState(0);
   const refreshStorageMetrics = useCallback(() => {
     setStorageTick(n => n + 1);
@@ -101,6 +103,25 @@ export const SettingsView = ({
       showToast(t('vaultBackupFailed'), 'error');
     } finally {
       setBackingUpZip(false);
+    }
+  };
+
+  const doTemporaryFullBackup = async () => {
+    setBackingUpTemporaryFull(true);
+    try {
+      const result = await downloadTemporaryReturnToUseRecoveryArchive({
+        account: { id: user.id, name: user.name },
+        notes,
+        folders,
+        appSettings,
+      });
+      recordLastVaultExport(result.manifest.createdAt);
+      showToast(t('temporaryFullBackupComplete'));
+      refreshStorageMetrics();
+    } catch {
+      showToast(t('temporaryFullBackupFailed'), 'error');
+    } finally {
+      setBackingUpTemporaryFull(false);
     }
   };
 
@@ -217,6 +238,8 @@ export const SettingsView = ({
               theme={theme}
               onCreateBackup={doVaultBackupZip}
               backingUp={backingUpZip}
+              onCreateTemporaryFullBackup={doTemporaryFullBackup}
+              fullBackingUp={backingUpTemporaryFull}
             />
           </div>
 

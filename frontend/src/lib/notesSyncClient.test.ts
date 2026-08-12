@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   buildNotesFetchUrl,
   resolveNotesSyncMode,
@@ -8,6 +8,7 @@ import {
   mergeDeltaNoteRows,
   NOTES_DELTA_CURSOR_KEY,
   NOTES_RUNTIME_SYNC_MODE_KEY,
+  RETURN_TO_USE_LOCAL_LOCK_ENV,
   resetNotesSyncClientForTest,
   resolveNotesRuntimeSyncMode,
   selectDirtyNotesForPush,
@@ -22,9 +23,41 @@ vi.stubGlobal('localStorage', {
   clear: () => { storage.clear(); },
 });
 
+beforeEach(() => {
+  storage.clear();
+  vi.stubEnv(RETURN_TO_USE_LOCAL_LOCK_ENV, 'false');
+  vi.stubEnv('VITE_ABSINTHE_SYNC_MODE', '');
+});
+
 describe('notesSyncClient', () => {
   it('defaults runtime sync to local-only', () => {
-    storage.clear();
+    expect(resolveNotesRuntimeSyncMode()).toBe('local');
+    expect(isNotesCloudSyncEnabled()).toBe(false);
+  });
+
+  it('local safety lock defeats a stale remote browser override', () => {
+    vi.stubEnv(RETURN_TO_USE_LOCAL_LOCK_ENV, 'true');
+    storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'remote');
+    expect(resolveNotesRuntimeSyncMode()).toBe('local');
+    expect(isNotesCloudSyncEnabled()).toBe(false);
+  });
+
+  it('local safety lock defeats a stale hybrid browser override', () => {
+    vi.stubEnv(RETURN_TO_USE_LOCAL_LOCK_ENV, '1');
+    storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'hybrid');
+    expect(resolveNotesRuntimeSyncMode()).toBe('local');
+    expect(isNotesCloudSyncEnabled()).toBe(false);
+  });
+
+  it('local safety lock outranks a remote environment mode', () => {
+    vi.stubEnv(RETURN_TO_USE_LOCAL_LOCK_ENV, 'true');
+    vi.stubEnv('VITE_ABSINTHE_SYNC_MODE', 'remote');
+    expect(resolveNotesRuntimeSyncMode()).toBe('local');
+    expect(isNotesCloudSyncEnabled()).toBe(false);
+  });
+
+  it('falls back closed for a malformed browser mode value', () => {
+    storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'unexpected');
     expect(resolveNotesRuntimeSyncMode()).toBe('local');
     expect(isNotesCloudSyncEnabled()).toBe(false);
   });

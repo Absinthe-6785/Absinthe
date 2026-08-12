@@ -14,6 +14,7 @@ import {
 export {
   isNotesCloudSyncEnabled,
   NOTES_RUNTIME_SYNC_MODE_KEY,
+  RETURN_TO_USE_LOCAL_LOCK_ENV,
   resolveNotesRuntimeSyncMode,
   type NotesRuntimeSyncMode,
 } from './syncMode';

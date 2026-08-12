@@ -34,9 +34,12 @@ import {
   getLastVaultExportAt,
   manifestFromSnapshot,
   recordLastVaultExport,
+  resolveInitialVaultRestoreStrategy,
   LAST_VAULT_EXPORT_KEY,
+  type VaultRestorePipelineOptions,
 } from './vaultRestorePipeline';
 import { buildVaultSnapshot, toRestoreReadyManifest } from './vaultSnapshotBuild';
+import { SNAPSHOT_INDEX_KEY } from './vaultSnapshotConstants';
 import { clearAllVaultSnapshots, saveVaultSnapshot, type SnapshotStorageAdapter } from './vaultSnapshotStore';
 import { simulateVaultRestore } from './vaultExtensionRestoreSim';
 import { setRecoveryModeActiveForTest } from './recoverySafetyPolicy';
@@ -113,6 +116,12 @@ describe('vaultRestorePipeline', () => {
     clearAllVaultSnapshots(makeStorage());
   });
 
+  it('selects replace only for a validated zero-conflict preview', () => {
+    expect(resolveInitialVaultRestoreStrategy({ valid: true, conflictCount: 0 })).toBe('replace');
+    expect(resolveInitialVaultRestoreStrategy({ valid: true, conflictCount: 1 })).toBe('skip');
+    expect(resolveInitialVaultRestoreStrategy({ valid: false, conflictCount: 0 })).toBe('skip');
+  });
+
   it('K-319 blocks the pipeline before snapshot, core, extensions, or cloud mutation', async () => {
     setRecoveryModeActiveForTest(true);
     const manifest = buildVaultBackupManifestV3([note('n1')], []);
@@ -133,6 +142,113 @@ describe('vaultRestorePipeline', () => {
 
     expect(importCore).not.toHaveBeenCalled();
     expect(store.has('absinthe:last-snapshot:v1')).toBe(false);
+  });
+
+  it('allows a local core-only restore during recovery mode with its snapshot boundary intact', async () => {
+    setRecoveryModeActiveForTest(true);
+    store.set('absinthe-notes-sync-mode', 'local');
+    const manifest = buildVaultBackupManifestV3([note('n1')], []);
+    const importCore = vi.fn((filtered: typeof manifest, strategy: 'replace' | 'skip' | 'duplicate') =>
+      applyVaultRestore(filtered, [], [], strategy).result);
+
+    const result = await executeVaultRestorePipeline(manifest, {
+      strategy: 'replace',
+      selection: { noteIds: new Set(['n1']), folderIds: new Set() },
+      backupBeforeRestore: true,
+      restoreCore: true,
+      restoreExtensions: false,
+      restoreCloud: false,
+    }, {
+      importCore,
+      getNotes: () => [],
+      getFolders: () => [],
+    });
+
+    expect(result.core?.importedNotes).toBe(1);
+    expect(result.backedUp).toBe(true);
+    expect(importCore).toHaveBeenCalledTimes(1);
+    expect(store.has(SNAPSHOT_INDEX_KEY)).toBe(true);
+    expect(authFetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['strategy skip', { strategy: 'skip' }],
+    ['strategy omitted', { strategy: undefined }],
+    ['strategy malformed', { strategy: true }],
+    ['snapshot false', { backupBeforeRestore: false }],
+    ['snapshot omitted', { backupBeforeRestore: undefined }],
+    ['snapshot malformed', { backupBeforeRestore: 'true' }],
+    ['extensions true', { restoreExtensions: true }],
+    ['extensions omitted', { restoreExtensions: undefined }],
+    ['extensions malformed', { restoreExtensions: 0 }],
+    ['cloud true', { restoreCloud: true }],
+    ['cloud omitted', { restoreCloud: undefined }],
+    ['cloud malformed', { restoreCloud: '' }],
+  ])('blocks unsafe local-core pipeline option: %s', async (_label, patch) => {
+    setRecoveryModeActiveForTest(true);
+    store.set('absinthe-notes-sync-mode', 'local');
+    const manifest = buildVaultBackupManifestV3([note('n1')], []);
+    const importCore = vi.fn();
+    const options = {
+      strategy: 'replace',
+      selection: { noteIds: new Set(['n1']), folderIds: new Set<string>() },
+      backupBeforeRestore: true,
+      restoreCore: true,
+      restoreExtensions: false,
+      restoreCloud: false,
+      ...patch,
+    } as unknown as VaultRestorePipelineOptions;
+
+    await expect(executeVaultRestorePipeline(manifest, options, {
+      importCore,
+      getNotes: () => [],
+      getFolders: () => [],
+    })).rejects.toMatchObject({ code: 'RECOVERY_MODE_BLOCKED' });
+    expect(importCore).not.toHaveBeenCalled();
+    expect(store.has(SNAPSHOT_INDEX_KEY)).toBe(false);
+  });
+
+  it.each(['remote', 'hybrid'] as const)('blocks the local-core exception in %s mode', async mode => {
+    setRecoveryModeActiveForTest(true);
+    store.set('absinthe-notes-sync-mode', mode);
+    const manifest = buildVaultBackupManifestV3([note('n1')], []);
+    const importCore = vi.fn();
+
+    await expect(executeVaultRestorePipeline(manifest, {
+      strategy: 'replace',
+      selection: { noteIds: new Set(['n1']), folderIds: new Set() },
+      backupBeforeRestore: true,
+      restoreCore: true,
+      restoreExtensions: false,
+      restoreCloud: false,
+    }, {
+      importCore,
+      getNotes: () => [],
+      getFolders: () => [],
+    })).rejects.toMatchObject({ code: 'RECOVERY_MODE_BLOCKED' });
+    expect(importCore).not.toHaveBeenCalled();
+  });
+
+  it('blocks a semantically invalid manifest before snapshot or core mutation', async () => {
+    setRecoveryModeActiveForTest(true);
+    store.set('absinthe-notes-sync-mode', 'local');
+    const manifest = { ...buildVaultBackupManifestV3([note('n1')], []), app: 'other' as 'absinthe' };
+    const importCore = vi.fn();
+
+    await expect(executeVaultRestorePipeline(manifest, {
+      strategy: 'replace',
+      selection: { noteIds: new Set(['n1']), folderIds: new Set() },
+      backupBeforeRestore: true,
+      restoreCore: true,
+      restoreExtensions: false,
+      restoreCloud: false,
+    }, {
+      importCore,
+      getNotes: () => [],
+      getFolders: () => [],
+    })).rejects.toMatchObject({ code: 'RECOVERY_MODE_BLOCKED' });
+    expect(importCore).not.toHaveBeenCalled();
+    expect(store.has(SNAPSHOT_INDEX_KEY)).toBe(false);
   });
 
   it('K-319A blocks direct extension restore without changing storage', () => {

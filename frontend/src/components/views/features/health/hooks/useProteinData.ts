@@ -3,6 +3,8 @@ import useSWR, { useSWRConfig } from 'swr';
 import { fetcher } from '../../../../../lib/fetcher';
 import { API_URL } from '../../../../../lib/config';
 import { remoteSWRKey } from '../../../../../lib/remoteBoundary';
+import { shouldUseRemoteData } from '../../../../../lib/remoteBoundary';
+import { readLocalHealthProtein } from '../../../../../lib/healthLocalRuntime';
 import type { ProteinIntakeLog, ProteinProfile, ProteinSource } from '../../../../../types';
 import {
   computeProteinProgress,
@@ -71,9 +73,11 @@ export function useProteinData(
   dateStr: string,
   selectedDate: Date,
   formatDate: (d: Date) => string,
+  accountId: string,
 ): UseProteinDataResult {
   const base = `${API_URL}/api`;
   const { mutate: globalMutate } = useSWRConfig();
+  const localMode = !shouldUseRemoteData();
 
   const { data: profile = null, mutate: mutateProfile, isLoading: l1 } =
     useSWR<ProteinProfile | null>(remoteSWRKey(`${base}/protein_profile`), fetcher, { revalidateOnFocus: false });
@@ -85,14 +89,51 @@ export function useProteinData(
     useSWR<ProteinIntakeLog[]>(remoteSWRKey(`${base}/protein_intake?date=${dateStr}`), fetcher, { revalidateOnFocus: false });
 
   const weekKey = `${base}/protein_weekly?anchor=${dateStr}`;
-  const { data: weeklyData } = useSWR(
+  const { data: remoteWeeklyData } = useSWR(
     remoteSWRKey(weekKey),
     () => fetchProteinRange(selectedDate, formatDate, 30),
     { revalidateOnFocus: false },
   );
 
-  const dailyTarget = profile?.daily_target_g ?? 0;
-  const totalIntake = useMemo(() => sumProteinIntake(intakeLogs), [intakeLogs]);
+  const rangeStartDate = useMemo(() => {
+    const start = new Date(selectedDate);
+    start.setDate(start.getDate() - 29);
+    return formatDate(start);
+  }, [selectedDate, formatDate]);
+  const localKey = localMode
+    ? ['local-health-protein', accountId, dateStr, rangeStartDate] as const
+    : null;
+  const { data: localData, mutate: mutateLocal, isLoading: localLoading } = useSWR(
+    localKey,
+    ([, ownerId, selectedDateKey, startDate]) => readLocalHealthProtein(ownerId, selectedDateKey, startDate, selectedDateKey),
+    { revalidateOnFocus: false },
+  );
+
+  const localWeeklyData = useMemo(() => {
+    if (!localData) return undefined;
+    const totals = new Map<string, number>();
+    for (const row of localData.rangeLogs) totals.set(row.date, (totals.get(row.date) ?? 0) + row.protein_g);
+    const dates: string[] = [];
+    const start = new Date(selectedDate);
+    start.setDate(start.getDate() - 29);
+    for (let index = 0; index < 30; index += 1) {
+      const date = new Date(start);
+      date.setDate(date.getDate() + index);
+      dates.push(formatDate(date));
+    }
+    return {
+      dailyTotals: dates.slice(-7).map(date => totals.get(date) ?? 0),
+      dailyTotalsByDate: new Map(dates.map(date => [date, totals.get(date) ?? 0])),
+    };
+  }, [localData, selectedDate, formatDate]);
+
+  const effectiveProfile = localMode ? localData?.profile ?? null : profile;
+  const effectiveSources = localMode ? localData?.sources ?? [] : sources;
+  const effectiveIntakeLogs = localMode ? localData?.intakeLogs ?? [] : intakeLogs;
+  const weeklyData = localMode ? localWeeklyData : remoteWeeklyData;
+
+  const dailyTarget = effectiveProfile?.daily_target_g ?? 0;
+  const totalIntake = useMemo(() => sumProteinIntake(effectiveIntakeLogs), [effectiveIntakeLogs]);
   const proteinPct = useMemo(
     () => computeProteinProgress(totalIntake, dailyTarget),
     [totalIntake, dailyTarget],
@@ -112,29 +153,35 @@ export function useProteinData(
   }, [weeklyData, dailyTarget]);
 
   const mutateIntakeOnly = useCallback(() => {
-    mutateIntake();
-  }, [mutateIntake]);
+    if (localMode) mutateLocal();
+    else mutateIntake();
+  }, [localMode, mutateIntake, mutateLocal]);
 
   const mutateAll = useCallback(() => {
-    mutateProfile();
-    mutateSources();
-    mutateIntake();
-    globalMutate(weekKey);
-  }, [mutateProfile, mutateSources, mutateIntake, globalMutate, weekKey]);
+    if (localMode) {
+      mutateLocal();
+      globalMutate(localKey);
+    } else {
+      mutateProfile();
+      mutateSources();
+      mutateIntake();
+      globalMutate(weekKey);
+    }
+  }, [localMode, mutateLocal, localKey, mutateProfile, mutateSources, mutateIntake, globalMutate, weekKey]);
 
   return {
-    profile: profile && profile.daily_target_g ? profile : null,
-    sources,
-    intakeLogs,
+    profile: effectiveProfile && effectiveProfile.daily_target_g ? effectiveProfile : null,
+    sources: effectiveSources,
+    intakeLogs: effectiveIntakeLogs,
     totalIntake,
     dailyTarget,
     proteinPct,
     weeklyProteinAvg,
     proteinStreak,
     goalConsistency,
-    isLoading: l1 || l2 || l3,
-    mutateProfile,
-    mutateSources,
+    isLoading: localMode ? localLoading : l1 || l2 || l3,
+    mutateProfile: localMode ? mutateLocal : mutateProfile,
+    mutateSources: localMode ? mutateLocal : mutateSources,
     mutateIntake: mutateIntakeOnly,
     mutateAll,
   };

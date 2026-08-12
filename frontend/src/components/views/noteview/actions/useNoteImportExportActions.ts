@@ -9,6 +9,7 @@ import { useNotesStore } from '../../../../store/useNotesStore';
 import { createLocalAttachmentBlobAdapter } from '../../../../lib/attachmentBlobIndexedDb';
 import { createLocalAttachmentMetadataRepository } from '../../../../lib/attachmentMetadataIndexedDb';
 import { attachLocalImageToNote } from '../../../../lib/localImageAttachments';
+import { isReturnToUseAttachmentIsolationEnabled } from '../../../../lib/returnToUseAttachmentIsolation';
 import type { UseNoteViewActionsParams } from './types';
 
 const attachmentRepository = createLocalAttachmentMetadataRepository();
@@ -82,17 +83,17 @@ export function useNoteImportExportActions(params: UseNoteViewActionsParams) {
   }, [blockEditorRef, docCopyTimerRef, setDocCopied]);
 
   const insertImageAtCursor = useCallback((name: string, src: string) => {
-    if (viewMode !== 'edit' || !blockEditorRef.current) return;
+    if (viewMode !== 'edit' || !blockEditorRef.current || isReturnToUseAttachmentIsolationEnabled()) return;
     blockEditorRef.current.insertImage(src, name);
   }, [viewMode, blockEditorRef]);
 
   const insertEmptyImageBlockAtCursor = useCallback(() => {
-    if (viewMode !== 'edit' || !blockEditorRef.current) return;
+    if (viewMode !== 'edit' || !blockEditorRef.current || isReturnToUseAttachmentIsolationEnabled()) return;
     blockEditorRef.current.insertEmptyImageBlock();
   }, [viewMode, blockEditorRef]);
 
   const attachImageFilesToActiveNote = useCallback((files: readonly File[]) => {
-    if (!activeNote || viewMode !== 'edit') return;
+    if (!activeNote || viewMode !== 'edit' || isReturnToUseAttachmentIsolationEnabled()) return;
     const imageFiles = files.filter(file => file.type.startsWith('image/'));
     if (imageFiles.length === 0) return;
     void (async () => {

@@ -9,6 +9,7 @@ import {
   noteSyncPayload,
   LOCAL_NOTES_SAVE_ERROR,
   LOCAL_FOLDERS_SAVE_ERROR,
+  loadFolders,
   type NoteBase,
 } from '../components/views/noteUtils';
 
@@ -47,7 +48,18 @@ import {
   resetAutoSnapshotStateForTests,
 } from '../lib/vaultSnapshotAuto';
 import { SNAPSHOT_INDEX_KEY } from '../lib/vaultSnapshotConstants';
-const { useNotesStore, applyStorageMerge } = await import('./useNotesStore');
+import { buildVaultBackupManifest, type VaultBackupManifest } from '../lib/exportVaultBackup';
+import {
+  loadVaultRestoreSnapshot,
+  VAULT_RESTORE_SNAPSHOT_FAILURE_MESSAGE,
+  VAULT_RESTORE_SNAPSHOT_KEY,
+} from '../lib/vaultRestoreSnapshot';
+const {
+  useNotesStore,
+  applyStorageMerge,
+  isVaultRestoreUndoAvailable,
+  VaultRestoreDurabilityError,
+} = await import('./useNotesStore');
 
 function okJson(data: unknown) {
   return { ok: true, status: 200, json: async () => data };
@@ -929,5 +941,516 @@ describe('K-319 recovery freeze guards', () => {
 
     expect(useNotesStore.getState().notes).toEqual(current);
     expect(authFetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('Return-to-Use core replace restore snapshot safety', () => {
+  const originalNote = { ...sampleNote(), id: 'note-existing', title: 'Existing', body: 'keep me' };
+  const originalFolder = { id: 'folder-existing', name: 'Existing folder', createdAt: 1 };
+  const replacementNote = { ...sampleNote(), id: originalNote.id, title: 'Replacement', body: 'new body' };
+
+  beforeEach(() => {
+    resetStore();
+    storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'local');
+    storage.set(NOTES_KEY, JSON.stringify([originalNote]));
+    storage.set(FOLDERS_KEY, JSON.stringify([originalFolder]));
+    useNotesStore.setState({
+      notes: [originalNote],
+      folders: [originalFolder],
+      activeNoteId: originalNote.id,
+      vaultRestoreCanUndo: false,
+      syncError: null,
+    });
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  function replaceManifest(
+    notes = [replacementNote],
+    folders = [originalFolder],
+  ) {
+    return buildVaultBackupManifest(notes, folders);
+  }
+
+  function expectOriginalStatePreserved() {
+    expect(useNotesStore.getState().notes).toEqual([originalNote]);
+    expect(useNotesStore.getState().folders).toEqual([originalFolder]);
+    expect(JSON.parse(storage.get(NOTES_KEY) ?? '[]')).toEqual([originalNote]);
+    expect(JSON.parse(storage.get(FOLDERS_KEY) ?? '[]')).toEqual([originalFolder]);
+    expect(useNotesStore.getState().vaultRestoreCanUndo).toBe(false);
+    expect(authFetchMock).not.toHaveBeenCalled();
+  }
+
+  function expectDirectManifestRejected(manifest: unknown) {
+    setRecoveryModeActiveForTest(true);
+    expect(() => useNotesStore.getState().importVaultRestore(
+      manifest as VaultBackupManifest,
+      'replace',
+    )).toThrow('Data recovery mode is active');
+    expect(storage.has(VAULT_RESTORE_SNAPSHOT_KEY)).toBe(false);
+    expectOriginalStatePreserved();
+  }
+
+  it('allows local core restore in recovery mode without advertising blocked undo', async () => {
+    setRecoveryModeActiveForTest(true);
+
+    await useNotesStore.getState().importVaultRestore(replaceManifest(), 'replace');
+
+    expect(useNotesStore.getState().notes[0]).toMatchObject({ title: 'Replacement', body: 'new body' });
+    expect(useNotesStore.getState().vaultRestoreCanUndo).toBe(false);
+    expect(useNotesStore.getState().canUndoVaultRestore()).toBe(false);
+    expect(useNotesStore.getState().syncError).toBeNull();
+    expect(authFetchMock).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when the durable Notes write is rejected and preserves the verified snapshot', async () => {
+    setRecoveryModeActiveForTest(true);
+    vi.spyOn(localStorageMock, 'setItem').mockImplementation((key, value) => {
+      if (key === NOTES_KEY && value.includes('Replacement')) throw new Error('notes write rejected');
+      storage.set(key, value);
+    });
+
+    const restore = useNotesStore.getState().importVaultRestore(replaceManifest(), 'replace');
+
+    await expect(restore).rejects.toBeInstanceOf(VaultRestoreDurabilityError);
+    expectOriginalStatePreserved();
+    expect(loadVaultRestoreSnapshot()).toMatchObject({ notes: [originalNote], folders: [originalFolder] });
+    expect(useNotesStore.getState().syncError).toContain('durable Notes/Folders readback');
+  });
+
+  it('fails closed when durable Folders persistence is rejected and marks recovery required', async () => {
+    setRecoveryModeActiveForTest(true);
+    vi.spyOn(localStorageMock, 'setItem').mockImplementation((key, value) => {
+      if (key === FOLDERS_KEY) throw new Error('folders write rejected');
+      storage.set(key, value);
+    });
+    const replacementFolder = { id: 'folder-new', name: 'Replacement folder', createdAt: 2 };
+
+    await expect(useNotesStore.getState().importVaultRestore(
+      replaceManifest([replacementNote], [replacementFolder]),
+      'replace',
+    )).rejects.toBeInstanceOf(VaultRestoreDurabilityError);
+
+    expectOriginalStatePreserved();
+    expect(loadVaultRestoreSnapshot()).toMatchObject({ notes: [originalNote], folders: [originalFolder] });
+    expect(useNotesStore.getState().syncError).toContain('recovery is required');
+  });
+
+  it('fails closed on a Notes readback mismatch and verifies rollback to the previous durable state', async () => {
+    setRecoveryModeActiveForTest(true);
+    vi.spyOn(localStorageMock, 'setItem').mockImplementation((key, value) => {
+      if (key === NOTES_KEY && value.includes('Replacement')) {
+        storage.set(key, JSON.stringify([originalNote]));
+        return;
+      }
+      storage.set(key, value);
+    });
+
+    const error = await useNotesStore.getState().importVaultRestore(replaceManifest(), 'replace')
+      .then(() => null, reason => reason as InstanceType<typeof VaultRestoreDurabilityError>);
+
+    expect(error).toBeInstanceOf(VaultRestoreDurabilityError);
+    expect(error?.rollbackVerified).toBe(true);
+    expectOriginalStatePreserved();
+    expect(loadVaultRestoreSnapshot()).toMatchObject({ notes: [originalNote], folders: [originalFolder] });
+  });
+
+  it('fails closed when the durable Notes readback is missing', async () => {
+    setRecoveryModeActiveForTest(true);
+    let notesReads = 0;
+    vi.spyOn(localStorageMock, 'getItem').mockImplementation(key => {
+      if (key === NOTES_KEY && ++notesReads === 2) {
+        return null;
+      }
+      return storage.get(key) ?? null;
+    });
+
+    const error = await useNotesStore.getState().importVaultRestore(replaceManifest(), 'replace')
+      .then(() => null, reason => reason as InstanceType<typeof VaultRestoreDurabilityError>);
+
+    expect(error).toBeInstanceOf(VaultRestoreDurabilityError);
+    expect(error?.stage).toBe('notes_readback');
+    expect(error?.rollbackVerified).toBe(true);
+    expectOriginalStatePreserved();
+    expect(useNotesStore.getState().syncError).toContain('durable Notes/Folders readback');
+  });
+
+  it('fails closed when the durable Notes readback is incomplete', async () => {
+    setRecoveryModeActiveForTest(true);
+    const secondOriginalNote = {
+      ...sampleNote(),
+      id: 'note-second-replacement',
+      title: 'Original second',
+      body: 'original second body',
+    };
+    const secondReplacementNote = {
+      ...sampleNote(),
+      id: secondOriginalNote.id,
+      title: 'Second replacement',
+      body: 'second replacement body',
+    };
+    const originalNotes = [originalNote, secondOriginalNote];
+    storage.set(NOTES_KEY, JSON.stringify(originalNotes));
+    useNotesStore.setState({ notes: originalNotes, activeNoteId: originalNote.id });
+    let replacementWritten = false;
+    let incompleteReadbackReturned = false;
+    vi.spyOn(localStorageMock, 'setItem').mockImplementation((key, value) => {
+      if (key === NOTES_KEY && value.includes('Second replacement')) replacementWritten = true;
+      storage.set(key, value);
+    });
+    vi.spyOn(localStorageMock, 'getItem').mockImplementation(key => {
+      if (key === NOTES_KEY && replacementWritten && !incompleteReadbackReturned) {
+        incompleteReadbackReturned = true;
+        const persisted = JSON.parse(storage.get(NOTES_KEY) ?? '[]') as unknown[];
+        return JSON.stringify(persisted.slice(0, 1));
+      }
+      return storage.get(key) ?? null;
+    });
+
+    const error = await useNotesStore.getState().importVaultRestore(
+      replaceManifest([replacementNote, secondReplacementNote]),
+      'replace',
+    ).then(() => null, reason => reason as InstanceType<typeof VaultRestoreDurabilityError>);
+
+    expect(error).toBeInstanceOf(VaultRestoreDurabilityError);
+    expect(error?.stage).toBe('notes_readback');
+    expect(error?.rollbackVerified).toBe(true);
+    expect(useNotesStore.getState().notes).toEqual(originalNotes);
+    expect(useNotesStore.getState().folders).toEqual([originalFolder]);
+    expect(JSON.parse(storage.get(NOTES_KEY) ?? '[]')).toEqual(originalNotes);
+    expect(JSON.parse(storage.get(FOLDERS_KEY) ?? '[]')).toEqual([originalFolder]);
+    const snapshot = loadVaultRestoreSnapshot();
+    expect(snapshot?.notes).toEqual(originalNotes);
+    expect(snapshot?.folders).toEqual([originalFolder]);
+    expect(useNotesStore.getState().vaultRestoreCanUndo).toBe(false);
+    expect(authFetchMock).not.toHaveBeenCalled();
+    expect(useNotesStore.getState().syncError).toContain('durable Notes/Folders readback');
+  });
+
+  it('fails closed when the durable Folders readback is missing', async () => {
+    setRecoveryModeActiveForTest(true);
+    let firstFoldersReadback = true;
+    vi.spyOn(localStorageMock, 'getItem').mockImplementation(key => {
+      if (key === FOLDERS_KEY && firstFoldersReadback) {
+        firstFoldersReadback = false;
+        return null;
+      }
+      return storage.get(key) ?? null;
+    });
+
+    const error = await useNotesStore.getState().importVaultRestore(replaceManifest(), 'replace')
+      .then(() => null, reason => reason as InstanceType<typeof VaultRestoreDurabilityError>);
+
+    expect(error).toBeInstanceOf(VaultRestoreDurabilityError);
+    expect(error?.stage).toBe('folders_readback');
+    expect(error?.rollbackVerified).toBe(true);
+    expectOriginalStatePreserved();
+    expect(useNotesStore.getState().syncError).toContain('durable Notes/Folders readback');
+  });
+
+  it('fails closed when the durable Folders readback is incomplete', async () => {
+    setRecoveryModeActiveForTest(true);
+    const replacementFolder = { id: 'folder-new', name: 'Replacement folder', createdAt: 2 };
+    let firstFoldersReadback = true;
+    vi.spyOn(localStorageMock, 'getItem').mockImplementation(key => {
+      if (key === FOLDERS_KEY && firstFoldersReadback) {
+        firstFoldersReadback = false;
+        return JSON.stringify([]);
+      }
+      return storage.get(key) ?? null;
+    });
+
+    const error = await useNotesStore.getState().importVaultRestore(
+      replaceManifest([replacementNote], [replacementFolder]),
+      'replace',
+    ).then(() => null, reason => reason as InstanceType<typeof VaultRestoreDurabilityError>);
+
+    expect(error).toBeInstanceOf(VaultRestoreDurabilityError);
+    expect(error?.stage).toBe('folders_readback');
+    expect(error?.rollbackVerified).toBe(true);
+    expectOriginalStatePreserved();
+    expect(useNotesStore.getState().syncError).toContain('durable Notes/Folders readback');
+  });
+
+  it('fails closed when the durable Folders readback mismatches the replacement', async () => {
+    setRecoveryModeActiveForTest(true);
+    const replacementFolder = { id: 'folder-new', name: 'Replacement folder', createdAt: 2 };
+    let firstFoldersReadback = true;
+    vi.spyOn(localStorageMock, 'getItem').mockImplementation(key => {
+      if (key === FOLDERS_KEY && firstFoldersReadback) {
+        firstFoldersReadback = false;
+        return JSON.stringify([originalFolder]);
+      }
+      return storage.get(key) ?? null;
+    });
+
+    const error = await useNotesStore.getState().importVaultRestore(
+      replaceManifest([replacementNote], [replacementFolder]),
+      'replace',
+    ).then(() => null, reason => reason as InstanceType<typeof VaultRestoreDurabilityError>);
+
+    expect(error).toBeInstanceOf(VaultRestoreDurabilityError);
+    expect(error?.stage).toBe('folders_readback');
+    expect(error?.rollbackVerified).toBe(true);
+    expectOriginalStatePreserved();
+    expect(useNotesStore.getState().syncError).toContain('durable Notes/Folders readback');
+  });
+
+  it('does not expose restore success before durable write, readback, and equality complete', async () => {
+    setRecoveryModeActiveForTest(true);
+    const operations: string[] = [];
+    vi.spyOn(localStorageMock, 'setItem').mockImplementation((key, value) => {
+      if (key === NOTES_KEY && value.includes('Replacement')) operations.push('notes-write');
+      if (key === FOLDERS_KEY) operations.push('folders-write');
+      storage.set(key, value);
+    });
+    vi.spyOn(localStorageMock, 'getItem').mockImplementation(key => {
+      if (key === NOTES_KEY && operations.includes('notes-write') && !operations.includes('notes-readback')) {
+        operations.push('notes-readback');
+      }
+      if (key === FOLDERS_KEY && operations.includes('folders-write') && !operations.includes('folders-readback')) {
+        operations.push('folders-readback');
+      }
+      return storage.get(key) ?? null;
+    });
+    const restore = useNotesStore.getState().importVaultRestore(replaceManifest(), 'replace');
+
+    expect(useNotesStore.getState().notes).toEqual([originalNote]);
+    expect(useNotesStore.getState().folders).toEqual([originalFolder]);
+    expect(useNotesStore.getState().syncError).toBeNull();
+    expect(useNotesStore.getState().vaultRestoreCanUndo).toBe(false);
+    expect(operations).not.toContain('folders-write');
+    expect(operations).not.toContain('notes-readback');
+    expect(operations).not.toContain('folders-readback');
+
+    await restore;
+
+    expect(useNotesStore.getState().notes).toHaveLength(1);
+    expect(useNotesStore.getState().notes[0]).toMatchObject({
+      id: replacementNote.id,
+      title: replacementNote.title,
+      body: replacementNote.body,
+    });
+    expect(useNotesStore.getState().folders).toEqual([originalFolder]);
+    expect(useNotesStore.getState().vaultRestoreCanUndo).toBe(false);
+    expect(operations).toEqual(['notes-write', 'folders-write', 'notes-readback', 'folders-readback']);
+  });
+
+  it('reopens durable Notes and Folders after transient store state is cleared', async () => {
+    setRecoveryModeActiveForTest(true);
+    const replacementFolder = { id: 'folder-new', name: 'Replacement folder', createdAt: 2 };
+    await useNotesStore.getState().importVaultRestore(
+      replaceManifest([replacementNote], [replacementFolder]),
+      'replace',
+    );
+
+    const canonicalize = (value: unknown) => JSON.parse(JSON.stringify(value)) as unknown;
+    const expectedNotes = canonicalize(useNotesStore.getState().notes);
+    const expectedFolders = canonicalize(useNotesStore.getState().folders);
+
+    useNotesStore.setState({ notes: [], folders: [], activeNoteId: null, activeFolderId: null });
+    resetNotesPersistenceForTests();
+    await useNotesStore.getState().initNotesStorage();
+    useNotesStore.setState({ folders: loadFolders() });
+
+    expect(canonicalize(useNotesStore.getState().notes)).toEqual(expectedNotes);
+    expect(canonicalize(useNotesStore.getState().folders)).toEqual(expectedFolders);
+  });
+
+  it('blocks a semantically invalid direct manifest before snapshot or replacement', () => {
+    const invalid = { ...replaceManifest(), app: 'other' as 'absinthe' };
+    expectDirectManifestRejected(invalid);
+  });
+
+  it.each([
+    ['zero', 0],
+    ['negative', -1],
+    ['NaN', Number.NaN],
+    ['Infinity', Number.POSITIVE_INFINITY],
+    ['negative Infinity', Number.NEGATIVE_INFINITY],
+    ['fractional', 2.5],
+    ['string', '3'],
+    ['null', null],
+    ['undefined', undefined],
+    ['future', 4],
+  ])('rejects a direct manifest with %s schema version', (_label, schemaVersion) => {
+    expectDirectManifestRejected({ ...replaceManifest(), schemaVersion });
+  });
+
+  it.each([
+    ['non-object folder', () => [null]],
+    ['missing folder id', () => [{ name: 'Folder', createdAt: 1 }]],
+    ['empty folder id', () => [{ id: '  ', name: 'Folder', createdAt: 1 }]],
+    ['non-string folder id', () => [{ id: 7, name: 'Folder', createdAt: 1 }]],
+    ['missing folder name', () => [{ id: 'folder-new', createdAt: 1 }]],
+    ['empty folder name', () => [{ id: 'folder-new', name: ' ', createdAt: 1 }]],
+    ['invalid createdAt', () => [{ id: 'folder-new', name: 'Folder', createdAt: Number.NaN }]],
+    ['duplicate folder ids', () => [originalFolder, { ...originalFolder, name: 'Duplicate' }]],
+  ])('rejects a direct manifest with %s', (_label, folders) => {
+    expectDirectManifestRejected({ ...replaceManifest(), folders: folders() });
+  });
+
+  it.each([
+    ['numeric folderId', { folderId: 7 }],
+    ['object folderId', { folderId: { id: 'folder-object' } }],
+    ['undefined folderId', { folderId: undefined }],
+    ['NaN updatedAt', { updatedAt: Number.NaN }],
+    ['Infinity updatedAt', { updatedAt: Number.POSITIVE_INFINITY }],
+    ['negative Infinity updatedAt', { updatedAt: Number.NEGATIVE_INFINITY }],
+    ['string updatedAt', { updatedAt: 'not-a-timestamp' }],
+    ['NaN createdAt', { createdAt: Number.NaN }],
+    ['Infinity createdAt', { createdAt: Number.POSITIVE_INFINITY }],
+    ['malformed createdAt', { createdAt: 'not-a-timestamp' }],
+  ])('rejects a direct manifest with malformed persisted note %s', (_label, patch) => {
+    const raw = replaceManifest();
+    raw.notes = [{ ...raw.notes[0], ...patch } as typeof raw.notes[number]];
+    expectDirectManifestRejected(raw);
+  });
+
+  it('accepts valid string and null folderId values through canonical note validation', async () => {
+    setRecoveryModeActiveForTest(true);
+    const raw = replaceManifest();
+    raw.notes = [{ ...raw.notes[0], folderId: originalFolder.id }];
+
+    await useNotesStore.getState().importVaultRestore(raw, 'replace');
+
+    expect(useNotesStore.getState().notes[0]?.folderId).toBe(originalFolder.id);
+    expect(useNotesStore.getState().notes[0]?.updatedAt).toEqual(raw.notes[0]?.updatedAt);
+    expect(authFetchMock).not.toHaveBeenCalled();
+  });
+
+  it('accepts an absent optional createdAt through canonical note validation', async () => {
+    setRecoveryModeActiveForTest(true);
+    const raw = replaceManifest();
+    const { createdAt: _createdAt, ...withoutCreatedAt } = raw.notes[0]!;
+    raw.notes = [withoutCreatedAt as typeof raw.notes[number]];
+
+    await useNotesStore.getState().importVaultRestore(raw, 'replace');
+
+    expect(useNotesStore.getState().notes[0]?.createdAt).toBe(raw.notes[0]?.updatedAt);
+    expect(authFetchMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects non-finite timestamps before persistence can serialize them', () => {
+    const raw = replaceManifest();
+    raw.notes = [{ ...raw.notes[0], updatedAt: Number.POSITIVE_INFINITY }];
+    const setItem = vi.spyOn(localStorageMock, 'setItem');
+
+    expectDirectManifestRejected(raw);
+
+    expect(setItem).not.toHaveBeenCalledWith(NOTES_KEY, expect.any(String));
+    expect(setItem).not.toHaveBeenCalledWith(FOLDERS_KEY, expect.any(String));
+    expect(JSON.stringify(raw.notes[0]?.updatedAt)).toBe('null');
+  });
+
+  it('applies the same canonical repaired manifest that passed validation', async () => {
+    setRecoveryModeActiveForTest(true);
+    const raw = replaceManifest();
+    raw.notes = [{
+      ...raw.notes[0],
+      title: '',
+      markdown: '# Canonical repaired title\n\nnew body',
+    }];
+
+    await useNotesStore.getState().importVaultRestore(raw, 'replace');
+
+    expect(raw.notes[0]?.title).toBe('');
+    expect(useNotesStore.getState().notes[0]).toMatchObject({
+      title: 'Canonical repaired title',
+      body: '# Canonical repaired title\n\nnew body',
+    });
+    expect(loadVaultRestoreSnapshot()).not.toBeNull();
+    expect(useNotesStore.getState().vaultRestoreCanUndo).toBe(false);
+    expect(authFetchMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps persisted undo evidence hidden and unusable after a recovery-mode reload', async () => {
+    setRecoveryModeActiveForTest(true);
+    await useNotesStore.getState().importVaultRestore(replaceManifest(), 'replace');
+    expect(loadVaultRestoreSnapshot()).not.toBeNull();
+
+    useNotesStore.setState({ vaultRestoreCanUndo: isVaultRestoreUndoAvailable() });
+    expect(useNotesStore.getState().vaultRestoreCanUndo).toBe(false);
+    expect(useNotesStore.getState().canUndoVaultRestore()).toBe(false);
+    expect(useNotesStore.getState().undoLastVaultRestore()).toBe(false);
+    expect(useNotesStore.getState().notes[0]).toMatchObject({ title: 'Replacement' });
+    expect(loadVaultRestoreSnapshot()).not.toBeNull();
+  });
+
+  it('aborts before replacement when the durable snapshot write fails', () => {
+    setRecoveryModeActiveForTest(true);
+    const setItem = vi.spyOn(localStorageMock, 'setItem').mockImplementation((key, value) => {
+      if (key === VAULT_RESTORE_SNAPSHOT_KEY) {
+        throw new DOMException('Quota exceeded', 'QuotaExceededError');
+      }
+      storage.set(key, value);
+    });
+
+    expect(() => useNotesStore.getState().importVaultRestore(replaceManifest(), 'replace'))
+      .toThrow(VAULT_RESTORE_SNAPSHOT_FAILURE_MESSAGE);
+    expect(setItem).toHaveBeenCalledWith(VAULT_RESTORE_SNAPSHOT_KEY, expect.any(String));
+    expectOriginalStatePreserved();
+  });
+
+  it('aborts before replacement when persisted snapshot readback is missing', () => {
+    vi.spyOn(localStorageMock, 'getItem').mockImplementation(key => (
+      key === VAULT_RESTORE_SNAPSHOT_KEY ? null : storage.get(key) ?? null
+    ));
+
+    expect(() => useNotesStore.getState().importVaultRestore(replaceManifest(), 'replace'))
+      .toThrow(VAULT_RESTORE_SNAPSHOT_FAILURE_MESSAGE);
+    expectOriginalStatePreserved();
+  });
+
+  it('aborts before replacement when persisted snapshot readback is malformed', () => {
+    vi.spyOn(localStorageMock, 'setItem').mockImplementation((key, value) => {
+      storage.set(key, key === VAULT_RESTORE_SNAPSHOT_KEY
+        ? JSON.stringify({ savedAt: 'invalid', notes: [], folders: [] })
+        : value);
+    });
+
+    expect(() => useNotesStore.getState().importVaultRestore(replaceManifest(), 'replace'))
+      .toThrow(VAULT_RESTORE_SNAPSHOT_FAILURE_MESSAGE);
+    expectOriginalStatePreserved();
+  });
+
+  it('verifies the persisted snapshot before replacement and restores it on undo', async () => {
+    const operations: string[] = [];
+    vi.spyOn(localStorageMock, 'setItem').mockImplementation((key, value) => {
+      if (key === VAULT_RESTORE_SNAPSHOT_KEY) operations.push('snapshot-write');
+      if (key === NOTES_KEY) operations.push('notes-replace');
+      storage.set(key, value);
+    });
+    vi.spyOn(localStorageMock, 'getItem').mockImplementation(key => {
+      if (key === VAULT_RESTORE_SNAPSHOT_KEY && storage.has(key)) operations.push('snapshot-readback');
+      return storage.get(key) ?? null;
+    });
+
+    await useNotesStore.getState().importVaultRestore(replaceManifest(), 'replace');
+
+    expect(useNotesStore.getState().notes[0]).toMatchObject({ title: 'Replacement', body: 'new body' });
+    expect(useNotesStore.getState().vaultRestoreCanUndo).toBe(true);
+    expect(loadVaultRestoreSnapshot()).toMatchObject({
+      notes: [originalNote],
+      folders: [originalFolder],
+    });
+    expect(operations.indexOf('snapshot-write')).toBeLessThan(operations.indexOf('snapshot-readback'));
+    expect(operations.indexOf('snapshot-readback')).toBeLessThan(operations.indexOf('notes-replace'));
+
+    expect(useNotesStore.getState().undoLastVaultRestore()).toBe(true);
+    expect(useNotesStore.getState().notes).toEqual([originalNote]);
+    expect(useNotesStore.getState().folders).toEqual([originalFolder]);
+    expect(useNotesStore.getState().vaultRestoreCanUndo).toBe(false);
+    expect(loadVaultRestoreSnapshot()).toBeNull();
+  });
+
+  it('withdraws undo availability when persisted snapshot data becomes unusable', () => {
+    storage.set(VAULT_RESTORE_SNAPSHOT_KEY, '{"savedAt":"invalid","notes":[],"folders":[]}');
+    useNotesStore.setState({ vaultRestoreCanUndo: true });
+
+    expect(useNotesStore.getState().canUndoVaultRestore()).toBe(false);
+    expect(useNotesStore.getState().undoLastVaultRestore()).toBe(false);
+    expect(useNotesStore.getState().vaultRestoreCanUndo).toBe(false);
+    expectOriginalStatePreserved();
   });
 });

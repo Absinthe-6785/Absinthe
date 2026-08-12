@@ -47,6 +47,7 @@ describe('buildHomeFoundationProjection', () => {
       workouts: [],
       plannerProjection: null,
       recentActivity: { groups: [], isEmpty: true, generatedAt: '' },
+      accountId: 'account-a',
       todayKey: '2026-06-23',
     });
 
@@ -66,6 +67,7 @@ describe('buildHomeFoundationProjection', () => {
       }],
       plannerProjection: null,
       recentActivity: { groups: [], isEmpty: true, generatedAt: '' },
+      accountId: 'account-a',
       todayKey: '2026-06-23',
     });
 

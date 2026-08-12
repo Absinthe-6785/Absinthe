@@ -7,6 +7,7 @@ import {
   type VaultBackupManifest,
   type VaultBackupNoteEntry,
 } from './exportVaultBackup';
+import { VAULT_BACKUP_SCHEMA_VERSION_V2 } from './vaultBackupConstants';
 import {
   migrateVaultBackupManifest,
   validateVaultBackupNotes,
@@ -122,42 +123,116 @@ export function parseVaultBackupJson(raw: string): VaultBackupManifest | null {
   }
 }
 
+const SUPPORTED_VAULT_BACKUP_SCHEMA_VERSIONS = new Set<number>([
+  1,
+  VAULT_BACKUP_SCHEMA_VERSION_V2,
+  VAULT_BACKUP_SCHEMA_VERSION,
+]);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+export function isSupportedVaultBackupSchemaVersion(value: unknown): value is number {
+  return typeof value === 'number'
+    && Number.isFinite(value)
+    && Number.isInteger(value)
+    && SUPPORTED_VAULT_BACKUP_SCHEMA_VERSIONS.has(value);
+}
+
+function canonicalizeVaultFolders(value: unknown): NoteFolder[] | null {
+  if (!Array.isArray(value)) return null;
+  const ids = new Set<string>();
+  const folders: NoteFolder[] = [];
+  for (const candidate of value) {
+    if (!isRecord(candidate)
+      || typeof candidate.id !== 'string'
+      || candidate.id.trim().length === 0
+      || ids.has(candidate.id)
+      || typeof candidate.name !== 'string'
+      || candidate.name.trim().length === 0
+      || typeof candidate.createdAt !== 'number'
+      || !Number.isFinite(candidate.createdAt)) {
+      return null;
+    }
+    ids.add(candidate.id);
+    folders.push({ id: candidate.id, name: candidate.name, createdAt: candidate.createdAt });
+  }
+  return folders;
+}
+
+/**
+ * Canonical destructive-restore boundary. Compatibility repairs are applied
+ * once, and callers must validate and apply the returned instance.
+ */
+export function canonicalizeVaultRestoreManifest(input: unknown): VaultBackupManifest | null {
+  try {
+    if (!isRecord(input)
+      || !isSupportedVaultBackupSchemaVersion(input.schemaVersion)
+      || !Array.isArray(input.notes)) {
+      return null;
+    }
+    const folders = canonicalizeVaultFolders(input.folders);
+    if (!folders) return null;
+    const candidate = { ...input, folders } as unknown as VaultBackupManifest;
+    return migrateVaultBackupManifest(candidate).manifest;
+  } catch {
+    return null;
+  }
+}
+
+export function validateCanonicalVaultBackupManifest(
+  manifest: VaultBackupManifest,
+  existingNotes: readonly NoteBase[],
+  existingFolders: readonly NoteFolder[],
+  migrationIssues: readonly VaultBackupNoteIssue[] = [],
+): VaultRestoreValidationReport {
+  const errors: string[] = [];
+  const noteValidation = validateVaultBackupNotes(manifest.notes);
+
+  if (!isSupportedVaultBackupSchemaVersion(manifest.schemaVersion)) {
+    errors.push('unsupported_schema');
+  }
+  if (manifest.app !== 'absinthe') {
+    errors.push('invalid_app');
+  }
+  if (!manifest.exportedAt) {
+    errors.push('missing_export_date');
+  }
+
+  const existingIds = new Set(activeNotes(existingNotes).map(n => n.id));
+  const conflictCount = manifest.notes.filter(n => existingIds.has(n.id)).length;
+
+  return {
+    valid: errors.length === 0 && noteValidation.valid,
+    errors,
+    noteCount: manifest.notes.length,
+    folderCount: manifest.folders.length,
+    relationCount: countRelationsInEntries(manifest.notes),
+    conflictCount,
+    corruptedNoteIds: noteValidation.corruptedNoteIds,
+    repairedNoteIds: noteValidation.repairedNoteIds,
+    noteIssues: [...migrationIssues, ...noteValidation.issues],
+    appVersion: manifest.appVersion ?? null,
+    schemaVersion: manifest.schemaVersion,
+    exportedAt: manifest.exportedAt,
+  };
+}
+
 export function validateVaultBackupManifest(
   manifest: VaultBackupManifest,
   existingNotes: readonly NoteBase[],
   existingFolders: readonly NoteFolder[],
 ): VaultRestoreValidationReport {
-  const errors: string[] = [];
   const migrated = migrateVaultBackupManifest(manifest);
-  const noteValidation = validateVaultBackupNotes(migrated.manifest.notes);
-
-  if (migrated.manifest.schemaVersion > VAULT_BACKUP_SCHEMA_VERSION) {
-    errors.push('unsupported_schema');
-  }
-  if (migrated.manifest.app !== 'absinthe') {
-    errors.push('invalid_app');
-  }
-  if (!migrated.manifest.exportedAt) {
-    errors.push('missing_export_date');
-  }
-
-  const existingIds = new Set(activeNotes(existingNotes).map(n => n.id));
-  const conflictCount = migrated.manifest.notes.filter(n => existingIds.has(n.id)).length;
-
-  return {
-    valid: errors.length === 0 && noteValidation.valid,
-    errors,
-    noteCount: migrated.manifest.notes.length,
-    folderCount: migrated.manifest.folders.length,
-    relationCount: countRelationsInEntries(migrated.manifest.notes),
-    conflictCount,
-    corruptedNoteIds: noteValidation.corruptedNoteIds,
-    repairedNoteIds: noteValidation.repairedNoteIds,
-    noteIssues: [...migrated.issues, ...noteValidation.issues],
-    appVersion: migrated.manifest.appVersion ?? null,
-    schemaVersion: migrated.manifest.schemaVersion,
-    exportedAt: migrated.manifest.exportedAt,
-  };
+  return validateCanonicalVaultBackupManifest(
+    migrated.manifest,
+    existingNotes,
+    existingFolders,
+    migrated.issues,
+  );
 }
 
 export function buildVaultRestorePreview(

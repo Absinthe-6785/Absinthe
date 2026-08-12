@@ -1,6 +1,7 @@
 import { authFetch } from '@/lib/supabase';
 import { API_URL } from '@/lib/config';
 import { shouldUseRemoteData } from '@/lib/remoteBoundary';
+import { readLocalPreviousWorkout } from '@/lib/healthLocalRuntime';
 import type { WorkoutSet } from '@/types';
 import {
   finishHealthRequestBatch,
@@ -46,9 +47,10 @@ export async function fetchPrevWorkoutForBlocks(
   blockIds: readonly string[],
   beforeDate: string,
   source: string,
+  accountId?: string,
 ): Promise<Record<string, PrevWorkoutPayload>> {
   if (!shouldUseRemoteData()) {
-    return {};
+    return accountId ? readLocalPreviousWorkout(accountId, blockIds, beforeDate) : {};
   }
 
   const unique = [...new Set(blockIds.filter(Boolean))];

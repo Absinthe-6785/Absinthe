@@ -1,5 +1,14 @@
 import { useCallback, useRef, useState } from 'react';
-import { RECOVERY_MODE_MESSAGE, mayRestore, recordRecoveryBlock } from '../lib/recoverySafetyPolicy';
+import {
+  LOCAL_CORE_JSON_RESTORE_OPERATION,
+  LOCAL_CORE_JSON_RESTORE_VALIDATION,
+  RECOVERY_MODE_MESSAGE,
+  mayRestore,
+  mayRestoreLocalCoreJsonBackup,
+  recordRecoveryBlock,
+  type LocalCoreJsonRestoreAuthorizationInput,
+} from '../lib/recoverySafetyPolicy';
+import { resolveNotesRuntimeSyncMode } from '../lib/syncMode';
 import type { TranslationKey } from '@/lib/i18n';
 import {
   createFullRestoreSelection,
@@ -13,11 +22,13 @@ import {
   buildFullVaultRestorePreview,
   executeVaultRestorePipeline,
   manifestFromSnapshot,
+  resolveInitialVaultRestoreStrategy,
   type FullVaultRestorePreview,
   type VaultRestorePipelineOptions,
 } from '@/lib/vaultRestorePipeline';
 import { parseVaultBackupZip } from '@/lib/vaultBackupZip';
 import { loadSnapshotPayload } from '@/lib/vaultSnapshotStore';
+import { VaultRestoreSnapshotError } from '@/lib/vaultRestoreSnapshot';
 import { useNotesStore } from '@/store/useNotesStore';
 
 async function parseBackupFile(file: File): Promise<ReturnType<typeof parseVaultBackupJson>> {
@@ -60,12 +71,14 @@ export function useVaultRestoreFlow(
     source: 'export' | 'snapshot',
   ) => {
     const built = buildFullVaultRestorePreview(manifest, notes, folders, source);
+    const initialStrategy = resolveInitialVaultRestoreStrategy(built.core);
+    const initialSelection = createFullRestoreSelection(manifest);
     setRestoreSource(source);
-    setStrategy('skip');
-    setSelection(createFullRestoreSelection(manifest));
+    setStrategy(initialStrategy);
+    setSelection(initialSelection);
     setPipelineOptions({
-      strategy: 'skip',
-      selection: createFullRestoreSelection(manifest),
+      strategy: initialStrategy,
+      selection: initialSelection,
       restoreCore: true,
       restoreExtensions: Boolean(manifest.extensions),
       restoreCloud: cloudSyncEnabled && Boolean(manifest.cloud && manifest.cloud.completeness !== 'skipped'),
@@ -181,7 +194,21 @@ export function useVaultRestoreFlow(
     if (selection.noteIds.size === 0 && !pipelineOptions.restoreExtensions && !pipelineOptions.restoreCloud) {
       return;
     }
-    if (!mayRestore()) {
+    const authorizationInput = {
+      operation: LOCAL_CORE_JSON_RESTORE_OPERATION,
+      syncMode: resolveNotesRuntimeSyncMode(),
+      strategy,
+      createVerifiedSnapshot: pipelineOptions.backupBeforeRestore,
+      restoreCore: pipelineOptions.restoreCore,
+      restoreExtensions: pipelineOptions.restoreExtensions,
+      restoreCloud: pipelineOptions.restoreCloud,
+      backupValidation: preview.valid && fullPreview.exportValidation.valid
+        ? LOCAL_CORE_JSON_RESTORE_VALIDATION
+        : 'invalid',
+      selectedNoteCount: selection.noteIds.size,
+    } satisfies LocalCoreJsonRestoreAuthorizationInput;
+    const allowed = mayRestoreLocalCoreJsonBackup(authorizationInput) || mayRestore();
+    if (!allowed) {
       recordRecoveryBlock('restore');
       showToast(RECOVERY_MODE_MESSAGE, 'error');
       return;
@@ -220,8 +247,11 @@ export function useVaultRestoreFlow(
       setFullPreview(null);
       setSelection(null);
       setRestoreSource('export');
-    } catch {
-      showToast(t('vaultRestoreFailed'), 'error');
+    } catch (error) {
+      showToast(
+        error instanceof VaultRestoreSnapshotError ? error.message : t('vaultRestoreFailed'),
+        'error',
+      );
     } finally {
       setImporting(false);
     }

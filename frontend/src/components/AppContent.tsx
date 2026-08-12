@@ -120,7 +120,7 @@ export function AppContent({ authUser }: { authUser: User }) {
     mutate: mutateDaily,
     mutateTodos, mutateRoutines,
     isLoading: isDailyLoading,
-  } = useDailyData(dateStr, showToast);
+  } = useDailyData(dateStr, showToast, authUser.id);
 
   // useNow가 1분마다 now를 갱신 → AppContent 리렌더 → monthStart/monthEnd 매번 재계산.
   // currentDate가 바뀔 때만 실제로 값이 달라지므로 useMemo로 명시적 메모이제이션.
@@ -131,7 +131,7 @@ export function AppContent({ authUser }: { authUser: User }) {
   const {
     markedDates, healthBlocks, healthRoutines, weeklySchedules,
     mutate: mutateStatic,
-  } = useStaticData(monthStart, monthEnd, showToast);
+  } = useStaticData(monthStart, monthEnd, showToast, authUser.id);
 
   // ── 5. Theme — Absinthe Design System tokens via CSS variables ───
   const theme = useMemo(() => buildThemeClasses(), []);

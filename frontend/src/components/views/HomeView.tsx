@@ -121,6 +121,7 @@ export const HomeView = ({
   appSettings,
   theme,
   isDailyLoading,
+  user,
 }: ViewProps) => {
   const { t, lang } = useTranslation();
   const vaultStructureVersion = useNotesStore(s => s.vaultStructureVersion);
@@ -194,10 +195,11 @@ export const HomeView = ({
       plannerProjection,
       recentActivity,
       archiveHistory: archiveProjection.historyItems,
+      accountId: user.id,
       todayKey,
       locale: lang,
     }),
-    [vaultStructureVersion, routines, workouts, plannerProjection, recentActivity, archiveProjection.historyItems, todayKey, lang],
+    [vaultStructureVersion, routines, workouts, plannerProjection, recentActivity, archiveProjection.historyItems, user.id, todayKey, lang],
   );
 
   const handleContinue = useCallback(() => {

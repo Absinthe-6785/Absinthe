@@ -7,6 +7,8 @@
 import { create } from 'zustand';
 import {
   applyVaultRestore,
+  canonicalizeVaultRestoreManifest,
+  validateCanonicalVaultBackupManifest,
   type VaultRestoreConflictStrategy,
   type VaultRestoreResult,
 } from '../lib/importVaultBackup';
@@ -80,6 +82,8 @@ import {
 import { pruneNoteNavigationStack } from '../lib/noteNavigationStack';
 import { estimateDeletedNoteBytes } from '../lib/trashNoteStorage';
 import {
+  LOCAL_CORE_JSON_RESTORE_OPERATION,
+  LOCAL_CORE_JSON_RESTORE_VALIDATION,
   RECOVERY_MODE_MESSAGE,
   RecoveryModeBlockedError,
   assertCurrentOperationEpoch,
@@ -89,12 +93,16 @@ import {
   mayEmptyTrash,
   mayHydrateRemote,
   mayReset,
-  mayRestore,
+  mayRestoreLocalCoreJsonBackup,
   mayUndoRestore,
   mayUploadRemote,
   mayWriteLegacyNotes,
   recordRecoveryBlock,
+  type LocalCoreJsonRestoreAuthorizationInput,
 } from '../lib/recoverySafetyPolicy';
+import { resolveNotesRuntimeSyncMode } from '../lib/syncMode';
+import { validateCanonicalVaultExportManifest } from '../lib/vaultExportValidate';
+import { stableRecoveryJson } from '../lib/recoveryExportPackage';
 
 export type { Note, NoteFolder };
 export { estimateDeletedNoteBytes };
@@ -136,7 +144,7 @@ interface NotesState {
   renameFolder: (id: string, name: string) => void;
   deleteFolder: (id: string) => void;
   importNote: (note: Note) => void;
-  importVaultRestore: (manifest: VaultBackupManifest, strategy: VaultRestoreConflictStrategy) => VaultRestoreResult;
+  importVaultRestore: (manifest: VaultBackupManifest, strategy: VaultRestoreConflictStrategy) => Promise<VaultRestoreResult>;
   undoLastVaultRestore: () => boolean;
   canUndoVaultRestore: () => boolean;
   vaultRestoreCanUndo: boolean;
@@ -159,6 +167,83 @@ const bodySyncTimers = new Map<string, ReturnType<typeof setTimeout>>();
 let lastFailedNote: Note | null = null;
 let lastFailedDeleteId: string | null = null;
 const BODY_SYNC_MS = 600;
+
+export const VAULT_RESTORE_DURABILITY_FAILURE_MESSAGE =
+  'Restore was not completed because durable Notes/Folders readback could not be verified.';
+export const VAULT_RESTORE_RECOVERY_REQUIRED_MESSAGE =
+  'Restore was stopped and recovery is required because the previous durable state could not be verified.';
+
+type VaultRestoreDurabilityStage =
+  | 'notes_write'
+  | 'folders_write'
+  | 'notes_readback'
+  | 'folders_readback';
+
+export class VaultRestoreDurabilityError extends Error {
+  readonly code = 'VAULT_RESTORE_DURABILITY_NOT_VERIFIED';
+  readonly stage: VaultRestoreDurabilityStage;
+  readonly rollbackVerified: boolean;
+  readonly cause?: unknown;
+
+  constructor(stage: VaultRestoreDurabilityStage, rollbackVerified: boolean, cause?: unknown) {
+    super(rollbackVerified
+      ? VAULT_RESTORE_DURABILITY_FAILURE_MESSAGE
+      : VAULT_RESTORE_RECOVERY_REQUIRED_MESSAGE);
+    this.name = 'VaultRestoreDurabilityError';
+    this.stage = stage;
+    this.rollbackVerified = rollbackVerified;
+    if (cause !== undefined) this.cause = cause;
+  }
+}
+
+function sameDurablePayload(expected: unknown, actual: unknown): boolean {
+  try {
+    // Durable Notes/Folders are JSON-backed in local mode. Compare the exact
+    // serialized representation so optional undefined fields do not make a
+    // valid JSON readback unverifiable.
+    const normalize = (value: unknown) => JSON.parse(JSON.stringify(value)) as unknown;
+    return stableRecoveryJson(normalize(expected)) === stableRecoveryJson(normalize(actual));
+  } catch {
+    return false;
+  }
+}
+
+async function persistAndVerifyRestoreState(
+  expected: { notes: Note[]; folders: NoteFolder[] },
+  previous: { notes: Note[]; folders: NoteFolder[] },
+): Promise<{ notes: Note[]; folders: NoteFolder[] }> {
+  let stage: VaultRestoreDurabilityStage = 'notes_write';
+  try {
+    const notesWrite = await saveNotesAsync(expected.notes);
+    if (notesWrite.status !== 'persisted') throw new Error(`notes_write:${notesWrite.status}`);
+
+    stage = 'folders_write';
+    if (!saveFolders(expected.folders)) throw new Error('folders_write:rejected');
+
+    stage = 'notes_readback';
+    const persistedNotes = await loadNotesAsync();
+    if (!sameDurablePayload(expected.notes, persistedNotes)) throw new Error('notes_readback:mismatch');
+
+    stage = 'folders_readback';
+    const persistedFolders = loadFolders();
+    if (!sameDurablePayload(expected.folders, persistedFolders)) throw new Error('folders_readback:mismatch');
+
+    return { notes: [...persistedNotes], folders: [...persistedFolders] };
+  } catch (cause) {
+    let rollbackVerified = false;
+    try {
+      const rollbackNotes = await saveNotesAsync(previous.notes);
+      if (rollbackNotes.status !== 'persisted' || !saveFolders(previous.folders)) throw new Error('rollback_write');
+      const readbackNotes = await loadNotesAsync();
+      const readbackFolders = loadFolders();
+      rollbackVerified = sameDurablePayload(previous.notes, readbackNotes)
+        && sameDurablePayload(previous.folders, readbackFolders);
+    } catch {
+      rollbackVerified = false;
+    }
+    throw new VaultRestoreDurabilityError(stage, rollbackVerified, cause);
+  }
+}
 
 import {
   mergeNotePatch,
@@ -271,6 +356,10 @@ function resolveActiveNoteAfterRemoval(
     return notes.find(n => n.deletedAt)?.id ?? null;
   }
   return notes.find(n => !n.deletedAt)?.id ?? null;
+}
+
+export function isVaultRestoreUndoAvailable(): boolean {
+  return mayUndoRestore() && hasVaultRestoreSnapshot();
 }
 
 export const useNotesStore = create<NotesState>((set, get) => {
@@ -447,7 +536,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
     isSyncing: false,
     savedAt: null,
     syncError: null,
-    vaultRestoreCanUndo: hasVaultRestoreSnapshot(),
+    vaultRestoreCanUndo: isVaultRestoreUndoAvailable(),
 
     setActiveNoteId: (id) => {
       if (id) {
@@ -502,42 +591,85 @@ export const useNotesStore = create<NotesState>((set, get) => {
     },
 
     importVaultRestore: (manifest, strategy) => {
-      if (!mayRestore()) {
+      const currentNotes = get().notes;
+      const currentFolders = get().folders;
+      const canonicalManifest = canonicalizeVaultRestoreManifest(manifest);
+      let backupValid = false;
+      try {
+        backupValid = canonicalManifest !== null
+          && validateCanonicalVaultExportManifest(canonicalManifest).valid
+          && validateCanonicalVaultBackupManifest(
+            canonicalManifest,
+            currentNotes,
+            currentFolders,
+          ).valid;
+      } catch {
+        backupValid = false;
+      }
+      const authorizationInput = {
+        operation: LOCAL_CORE_JSON_RESTORE_OPERATION,
+        syncMode: resolveNotesRuntimeSyncMode(),
+        strategy,
+        createVerifiedSnapshot: true,
+        restoreCore: true,
+        restoreExtensions: false,
+        restoreCloud: false,
+        backupValidation: backupValid ? LOCAL_CORE_JSON_RESTORE_VALIDATION : 'invalid',
+        selectedNoteCount: canonicalManifest?.notes.length ?? 0,
+      } satisfies LocalCoreJsonRestoreAuthorizationInput;
+      if (!canonicalManifest || !mayRestoreLocalCoreJsonBackup(authorizationInput)) {
         recordRecoveryBlock('restore');
         throw new RecoveryModeBlockedError('restore');
       }
-      saveVaultRestoreSnapshot(get().notes, get().folders);
-      set({ vaultRestoreCanUndo: true });
-      const beforeIds = new Set(get().notes.map(n => n.id));
-      const prevFolderIds = new Set(get().folders.map(f => f.id));
+      saveVaultRestoreSnapshot(currentNotes, currentFolders);
+      const beforeIds = new Set(currentNotes.map(n => n.id));
+      const prevFolderIds = new Set(currentFolders.map(f => f.id));
       const { notes, folders, result } = applyVaultRestore(
-        manifest,
-        get().notes,
-        get().folders,
+        canonicalManifest,
+        currentNotes,
+        currentFolders,
         strategy,
       );
-      set({ notes, folders });
-      persistNotes(notes);
-      persistFolders(folders);
-      rebuildKnowledgeIndex(notes);
-      bumpVaultStructure(set, get);
-      const manifestIds = new Set(manifest.notes.map(n => n.id));
-      for (const note of notes) {
-        if (!note.deletedAt && (
-          !beforeIds.has(note.id) ||
-          (manifestIds.has(note.id) && strategy === 'replace')
-        )) {
-          void syncNoteToDB(note);
+      return persistAndVerifyRestoreState(
+        { notes, folders },
+        { notes: currentNotes, folders: currentFolders },
+      ).then(persisted => {
+        set({
+          notes: persisted.notes,
+          folders: persisted.folders,
+          syncError: null,
+          vaultRestoreCanUndo: isVaultRestoreUndoAvailable(),
+        });
+        rebuildKnowledgeIndex(persisted.notes);
+        bumpVaultStructure(set, get);
+        const manifestIds = new Set(canonicalManifest.notes.map(n => n.id));
+        if (isNotesCloudSyncEnabled()) {
+          for (const note of persisted.notes) {
+            if (!note.deletedAt && (
+              !beforeIds.has(note.id) ||
+              (manifestIds.has(note.id) && strategy === 'replace')
+            )) {
+              void syncNoteToDB(note);
+            }
+          }
+          persisted.folders
+            .filter(f => !prevFolderIds.has(f.id))
+            .forEach(f => { void syncFolderToDB(f); });
+          flushPendingSync();
         }
-      }
-      folders
-        .filter(f => !prevFolderIds.has(f.id))
-        .forEach(f => { void syncFolderToDB(f); });
-      flushPendingSync();
-      return result;
+        return result;
+      }, error => {
+        set({
+          vaultRestoreCanUndo: false,
+          syncError: error instanceof VaultRestoreDurabilityError && !error.rollbackVerified
+            ? VAULT_RESTORE_RECOVERY_REQUIRED_MESSAGE
+            : VAULT_RESTORE_DURABILITY_FAILURE_MESSAGE,
+        });
+        throw error;
+      });
     },
 
-    canUndoVaultRestore: () => hasVaultRestoreSnapshot(),
+    canUndoVaultRestore: isVaultRestoreUndoAvailable,
 
     undoLastVaultRestore: () => {
       if (!mayUndoRestore()) {
@@ -546,7 +678,10 @@ export const useNotesStore = create<NotesState>((set, get) => {
         return false;
       }
       const snapshot = loadVaultRestoreSnapshot();
-      if (!snapshot) return false;
+      if (!snapshot) {
+        set({ vaultRestoreCanUndo: false });
+        return false;
+      }
       set({ notes: snapshot.notes, folders: snapshot.folders });
       persistNotes(snapshot.notes);
       persistFolders(snapshot.folders);

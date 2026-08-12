@@ -171,16 +171,16 @@ function attachmentInventoryRecord(metadata: AttachmentMetadata): RecoveryRecord
   const localSafe = safeBlobKey(metadata.localBlobKey);
   const remoteSafe = safeBlobKey(metadata.remoteBlobKey);
   const localMissingConfirmed = supplied.localMissingConfirmed === true || metadata.remoteSyncStatus === 'missing_local';
-  const localAvailability = metadata.localBlobKey ? (localSafe ? 'local_present' : 'unsafe')
-    : localMissingConfirmed ? 'local_missing_confirmed'
+  const localAvailability = localMissingConfirmed ? 'local_missing_confirmed'
+    : metadata.localBlobKey ? (localSafe ? 'local_present' : 'unsafe')
       : supplied.localSourceProvided === false ? 'local_source_not_provided' : 'local_unknown';
   const remoteAvailability = metadata.remoteBlobKey || metadata.remoteFileId ? (remoteSafe ? 'remote_present' : 'unsafe')
     : supplied.remoteMissingConfirmed === true ? 'remote_missing_confirmed'
       : supplied.remoteSourceProvided === false ? 'remote_source_not_provided' : 'remote_unknown';
   const checksumStatus = metadata.remoteVerification?.checksumVerified === false ? 'checksum_mismatch'
     : metadata.checksum || metadata.remoteChecksum ? 'checksum_known' : 'checksum_unknown';
-  const blobAvailability = metadata.localBlobKey || metadata.remoteBlobKey || metadata.remoteFileId ? 'blob_present'
-    : supplied.blobMissingConfirmed === true ? 'blob_missing_confirmed' : 'blob_unknown';
+  const blobAvailability = supplied.blobMissingConfirmed === true ? 'blob_missing_confirmed'
+    : metadata.localBlobKey || metadata.remoteBlobKey || metadata.remoteFileId ? 'blob_present' : 'blob_unknown';
   return {
     ...metadata,
     localMissingConfirmed: supplied.localMissingConfirmed ?? false,
@@ -189,6 +189,8 @@ function attachmentInventoryRecord(metadata: AttachmentMetadata): RecoveryRecord
     remoteAvailability,
     blobAvailability,
     checksumStatus,
+    locatorRetainedForRecovery: (localMissingConfirmed && typeof metadata.localBlobKey === 'string')
+      || (supplied.remoteMissingConfirmed === true && (typeof metadata.remoteBlobKey === 'string' || typeof metadata.remoteFileId === 'string')),
   };
 }
 

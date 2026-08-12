@@ -6,6 +6,10 @@ import {
 } from './attachmentRepository';
 import { createLocalAttachmentBlobAdapter } from './attachmentBlobIndexedDb';
 import { createLocalAttachmentMetadataRepository } from './attachmentMetadataIndexedDb';
+import {
+  isReturnToUseAttachmentIsolationEnabled,
+  returnToUseAttachmentIsolationError,
+} from './returnToUseAttachmentIsolation';
 
 export const SUPPORTED_LOCAL_IMAGE_TYPES = new Set([
   'image/png',
@@ -64,6 +68,7 @@ export function appendAttachmentReferenceToBody(body: string, reference: string)
 }
 
 export async function attachLocalImageToNote(input: AttachLocalImageInput): Promise<AttachLocalImageResult> {
+  if (isReturnToUseAttachmentIsolationEnabled()) throw returnToUseAttachmentIsolationError();
   const validationError = validateLocalImageFile(input.file);
   if (validationError) throw new Error(validationError);
 

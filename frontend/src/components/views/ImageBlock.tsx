@@ -8,6 +8,10 @@ import type { BlockEditorColors } from './editorTypes';
 import type { CSSProperties } from 'react';
 import { clampImageWidth, imageDisplayStyle, imgBtnStyle } from './imageBlockUtils';
 import { useImageGallery } from './ImageGalleryContext';
+import {
+  isReturnToUseAttachmentIsolationEnabled,
+  RETURN_TO_USE_ATTACHMENT_ISOLATION_MESSAGE,
+} from '../../lib/returnToUseAttachmentIsolation';
 
 export interface ImageBlockProps {
   block: Block;
@@ -33,6 +37,7 @@ export function ImageBlock({ block, colors: c, readOnly, onChange }: ImageBlockP
   const [captionDraft, setCaptionDraft] = useState(block.caption ?? '');
   const [hoverControls, setHoverControls] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const attachmentIsolationEnabled = isReturnToUseAttachmentIsolationEnabled();
 
   useEffect(() => { setCaptionDraft(block.caption ?? ''); }, [block.caption]);
 
@@ -49,12 +54,18 @@ export function ImageBlock({ block, colors: c, readOnly, onChange }: ImageBlockP
 
   const applyFile = useCallback((f: File) => {
     if (!f.type.startsWith('image/')) return;
-    setUrlError('Use Attach image to store local images.');
+    setUrlError(attachmentIsolationEnabled
+      ? RETURN_TO_USE_ATTACHMENT_ISOLATION_MESSAGE
+      : 'Use Attach image to store local images.');
     setShowUrl(true);
     setMobileMenuOpen(false);
-  }, []);
+  }, [attachmentIsolationEnabled]);
 
   const applyUrl = useCallback((raw: string) => {
+    if (attachmentIsolationEnabled) {
+      setUrlError(RETURN_TO_USE_ATTACHMENT_ISOLATION_MESSAGE);
+      return;
+    }
     const url = raw.trim();
     if (!isValidImageUrl(url)) {
       setUrlError(t('blockImageUrlInvalid'));
@@ -65,7 +76,7 @@ export function ImageBlock({ block, colors: c, readOnly, onChange }: ImageBlockP
     setShowUrl(false);
     setUrlDraft('');
     setMobileMenuOpen(false);
-  }, [block.alt, onChange, t]);
+  }, [attachmentIsolationEnabled, block.alt, onChange, t]);
 
   const handleFilesDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -152,7 +163,11 @@ export function ImageBlock({ block, colors: c, readOnly, onChange }: ImageBlockP
 
   const showDesktopControls = !isMobile && (hoverControls || showUrl);
 
-  const imageActionButtons = (
+  const imageActionButtons = attachmentIsolationEnabled ? (
+    <span style={{ fontSize: 10, color: c.textMuted, lineHeight: 1.4 }}>
+      {RETURN_TO_USE_ATTACHMENT_ISOLATION_MESSAGE}
+    </span>
+  ) : (
     <>
       <button type="button" onClick={() => fileRef.current?.click()} style={controlBtnStyle} data-k108-image-replace-file>
         {t('blockImageReplaceFile')}
@@ -212,8 +227,14 @@ export function ImageBlock({ block, colors: c, readOnly, onChange }: ImageBlockP
         >
           <div style={{ marginBottom:10, color:c.textFaint }}><ImageIcon size={22}/></div>
           <div style={{ display:'flex', gap:8, justifyContent:'center', flexWrap:'wrap' }}>
-            <button type="button" onClick={() => fileRef.current?.click()} style={imgBtnStyle(c)}>{t('blockImageUpload')}</button>
-            <button type="button" onClick={() => { setShowUrl(v => !v); setUrlError(''); }} style={imgBtnStyle(c)}>{t('blockImageEnterUrl')}</button>
+            {!attachmentIsolationEnabled ? (
+              <>
+                <button type="button" onClick={() => fileRef.current?.click()} style={imgBtnStyle(c)}>{t('blockImageUpload')}</button>
+                <button type="button" onClick={() => { setShowUrl(v => !v); setUrlError(''); }} style={imgBtnStyle(c)}>{t('blockImageEnterUrl')}</button>
+              </>
+            ) : (
+              <span style={{ fontSize: 10, color: c.textMuted, lineHeight: 1.4 }}>{RETURN_TO_USE_ATTACHMENT_ISOLATION_MESSAGE}</span>
+            )}
           </div>
           {showUrl && (
             <div style={{ display:'flex', flexDirection:'column', gap:4, marginTop:10, alignItems:'center' }}>
