@@ -34,6 +34,7 @@ import { shouldUseRemoteData } from '../../lib/remoteBoundary';
 import type { SettingsSectionId } from '../common/Sidebar';
 import { RECOVERY_MODE_MESSAGE, mayReset, recordRecoveryBlock } from '../../lib/recoverySafetyPolicy';
 import { downloadTemporaryReturnToUseRecoveryArchive } from '../../lib/temporaryReturnToUseRecoveryExport';
+import { HealthRecoveryImportPanel } from './features/settings/HealthRecoveryImportPanel';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
 
@@ -241,6 +242,7 @@ export const SettingsView = ({
               onCreateTemporaryFullBackup={doTemporaryFullBackup}
               fullBackingUp={backingUpTemporaryFull}
             />
+            <HealthRecoveryImportPanel accountId={user.id} theme={theme} onToast={showToast} />
           </div>
 
           {/* Danger zone */}

@@ -408,6 +408,20 @@ describe('local durable Health recovery import', () => {
     }
   });
 
+  it('rejects an authenticated account mismatch before any local persistence', async () => {
+    const { source, expectation } = await fixture();
+    const db = await driver('account-mismatch');
+    await expect(importVerifiedHealthRecovery({
+      source,
+      expectation,
+      driver: db,
+      accountId: OTHER,
+    })).rejects.toThrow('health_import_authenticated_account_mismatch');
+    expect((await db.readDatasets(OWNER)).workout_logs).toHaveLength(0);
+    expect(await db.readImportState(OWNER)).toBeNull();
+    db.close();
+  });
+
   it('rolls back every store and the success marker on an injected transaction failure', async () => {
     const { source, expectation } = await fixture();
     const db = await driver('atomic-failure', { failAtomicWriteAt: { dataset: 'routine_logs', rowIndex: 400 } });

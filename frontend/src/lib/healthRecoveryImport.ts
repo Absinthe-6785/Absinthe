@@ -198,12 +198,16 @@ async function verifyImportedSourceFidelity(
 export async function importVerifiedHealthRecovery(input: {
   source: string;
   driver: LocalHealthDriver;
+  accountId?: string;
   expectation?: HealthImportExpectation;
   now?: () => string;
 }): Promise<HealthRecoveryImportResult> {
   const expectation = input.expectation ?? VERIFIED_HISTORICAL_HEALTH_IMPORT_EXPECTATION;
   const verified = await prevalidateHealthRecoveryImport(input.source, expectation);
   const accountId = verified.export.sourceAccount.userId;
+  if (input.accountId !== undefined && input.accountId !== accountId) {
+    throw new Error('health_import_authenticated_account_mismatch');
+  }
   await input.driver.recoverPendingImport(accountId);
   const priorAccountSnapshot = await input.driver.readAccountSnapshot(accountId);
   const priorDatasets = orderHealthRecoveryDatasets(priorAccountSnapshot.datasets);
