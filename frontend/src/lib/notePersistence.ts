@@ -148,6 +148,30 @@ function saveNotesToLocalStorage(notes: readonly NoteBase[]): boolean {
 
 function saveNotesToLocalStorageResult(notes: unknown): NotesPersistenceWriteResult {
   if (!mayWriteLegacyNotes()) return { status: 'blocked', reason: 'recovery_mode_active' };
+  if (!Array.isArray(notes)) {
+    recordRecoveryBlock('replace_persisted_notes', 'unsafe_replacement');
+    return { status: 'rejected', reason: 'invalid_replacement' };
+  }
+  if (notes.length === 0 && isRecoveryModeActive()) {
+    recordRecoveryBlock('replace_persisted_notes', 'unsafe_replacement');
+    return { status: 'rejected', reason: 'empty_replacement' };
+  }
+  if (notes.length === 0) {
+    try {
+      localStorage.setItem(NOTES_KEY, JSON.stringify(notes));
+      return { status: 'persisted' };
+    } catch {
+      return { status: 'failed', reason: 'storage_failure' };
+    }
+  }
+  if (!notes.every(isCompletePersistedNote)) {
+    recordRecoveryBlock('replace_persisted_notes', 'unsafe_replacement');
+    return { status: 'rejected', reason: 'malformed_note' };
+  }
+  if (new Set(notes.map(note => note.id)).size !== notes.length) {
+    recordRecoveryBlock('replace_persisted_notes', 'unsafe_replacement');
+    return { status: 'rejected', reason: 'duplicate_id' };
+  }
   const validation = validateLocalStorageNotesReplacement(notes);
   if (!validation.ok) {
     recordRecoveryBlock('replace_persisted_notes', 'unsafe_replacement');
@@ -332,7 +356,9 @@ export async function loadNotesAsync(): Promise<NoteBase[]> {
   return notes;
 }
 
-export async function saveNotesAsync(notes: unknown): Promise<NotesPersistenceWriteResult> {
+async function saveNotesAsyncInternal(
+  notes: unknown,
+): Promise<NotesPersistenceWriteResult> {
   const epoch = captureOperationEpoch();
   if (!mayWriteLegacyNotes()) return { status: 'blocked', reason: 'recovery_mode_active' };
   if (!Array.isArray(notes)) {
@@ -366,6 +392,10 @@ export async function saveNotesAsync(notes: unknown): Promise<NotesPersistenceWr
   }
   if (result.status === 'persisted') notesCache = [...notes] as NoteBase[];
   return result;
+}
+
+export async function saveNotesAsync(notes: unknown): Promise<NotesPersistenceWriteResult> {
+  return saveNotesAsyncInternal(notes);
 }
 
 export async function deleteNoteFromPersistence(noteId: string): Promise<boolean> {

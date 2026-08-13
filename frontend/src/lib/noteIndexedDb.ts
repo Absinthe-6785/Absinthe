@@ -10,6 +10,7 @@ import {
   mayDeleteLegacyStorage,
   mayReplacePersistedNotes,
   mayWriteLegacyNotes,
+  isCompletePersistedNote,
   recordRecoveryBlock,
 } from '@/lib/recoverySafetyPolicy';
 
@@ -133,11 +134,13 @@ export async function loadNotesFromIndexedDb(): Promise<NoteBase[]> {
   }
 }
 
-export async function saveNotesToIndexedDb(
+async function saveNotesToIndexedDbInternal(
   notes: readonly NoteBase[],
   isEpochCurrent: () => boolean = () => true,
 ): Promise<boolean> {
   if (!mayWriteLegacyNotes()) return false;
+  if (notes.length === 0 || !notes.every(isCompletePersistedNote)) return false;
+  if (new Set(notes.map(note => note.id)).size !== notes.length) return false;
   const db = await openNotesDb();
   try {
     await new Promise<void>((resolve, reject) => {
@@ -151,7 +154,8 @@ export async function saveNotesToIndexedDb(
       keysReq.onerror = () => reject(keysReq.error ?? new Error('IndexedDB key read failed'));
       keysReq.onsuccess = () => {
         const current = keysReq.result.map(id => ({ id: String(id) }));
-        if (!mayWriteLegacyNotes() || !isEpochCurrent() || (isRecoveryModeActive() && !mayReplacePersistedNotes(current, notes))) {
+        if (!mayWriteLegacyNotes() || !isEpochCurrent()
+          || (isRecoveryModeActive() && !mayReplacePersistedNotes(current, notes))) {
           recordRecoveryBlock('replace_persisted_notes', isEpochCurrent() ? 'unsafe_replacement' : 'stale_operation_epoch');
           tx.abort();
           return;
@@ -182,6 +186,13 @@ export async function saveNotesToIndexedDb(
   } finally {
     db.close();
   }
+}
+
+export async function saveNotesToIndexedDb(
+  notes: readonly NoteBase[],
+  isEpochCurrent: () => boolean = () => true,
+): Promise<boolean> {
+  return saveNotesToIndexedDbInternal(notes, isEpochCurrent);
 }
 
 export async function deleteNoteFromIndexedDb(noteId: string): Promise<boolean> {

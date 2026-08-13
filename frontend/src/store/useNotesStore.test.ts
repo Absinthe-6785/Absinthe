@@ -32,6 +32,7 @@ vi.mock('../lib/supabase', () => ({
 
 // loadNotes() runs at module init — import after localStorage stub
 import {
+  loadNotesAsync,
   resetNotesPersistenceForTests,
   saveNotesAsync,
   setCachedNotes,
@@ -1057,9 +1058,15 @@ describe('Return-to-Use core replace restore snapshot safety', () => {
 
   it('fails closed when the durable Notes readback is missing', async () => {
     setRecoveryModeActiveForTest(true);
-    let notesReads = 0;
+    let replacementWritten = false;
+    let readbackFailed = false;
+    vi.spyOn(localStorageMock, 'setItem').mockImplementation((key, value) => {
+      if (key === NOTES_KEY && value.includes('Replacement')) replacementWritten = true;
+      storage.set(key, value);
+    });
     vi.spyOn(localStorageMock, 'getItem').mockImplementation(key => {
-      if (key === NOTES_KEY && ++notesReads === 2) {
+      if (key === NOTES_KEY && replacementWritten && !readbackFailed) {
+        readbackFailed = true;
         return null;
       }
       return storage.get(key) ?? null;
