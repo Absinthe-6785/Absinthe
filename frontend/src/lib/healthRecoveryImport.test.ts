@@ -38,6 +38,14 @@ import {
   resetLocalHealthRuntimeForTests,
 } from './healthLocalRuntime';
 import { remoteSWRKey } from './remoteBoundary';
+import { FOLDERS_KEY, NOTES_KEY, type NoteBase } from '@/components/views/noteUtils';
+import {
+  clearIndexedDbNotes,
+  loadNotesFromIndexedDb,
+  markIndexedDbMigrationComplete,
+  saveNotesToIndexedDb,
+} from './noteIndexedDb';
+import { initNotesPersistence, resetNotesPersistenceForTests } from './notePersistence';
 
 const OWNER = '18c8ab7d-6ba7-4547-aa55-f254ce900075';
 const OTHER = 'a8b5ad76-2d3b-4b6e-8f27-3ae40d2d82b7';
@@ -470,6 +478,46 @@ describe('local durable Health recovery import', () => {
       totalRowCount: 1374,
     });
     db.close();
+  });
+
+  it('keeps restored Notes and Folders unchanged across Health import and Notes reopen', async () => {
+    const { source, expectation } = await fixture();
+    const notes: NoteBase[] = Array.from({ length: 103 }, (_, index) => ({
+      id: `restored-note-${index + 1}`,
+      title: `Restored ${index + 1}`,
+      body: `Body ${index + 1}`,
+      updatedAt: index + 1,
+      folderId: `restored-folder-${index % 8}`,
+      deletedAt: null,
+    }));
+    const folders = Array.from({ length: 8 }, (_, index) => ({
+      id: `restored-folder-${index}`,
+      name: `Folder ${index + 1}`,
+      createdAt: index + 1,
+    }));
+    localStorage.removeItem(NOTES_KEY);
+    localStorage.setItem(FOLDERS_KEY, JSON.stringify(folders));
+    await clearIndexedDbNotes();
+    markIndexedDbMigrationComplete();
+    await saveNotesToIndexedDb(notes);
+    resetNotesPersistenceForTests();
+
+    const before = await initNotesPersistence();
+    expect(before.notes).toHaveLength(103);
+    expect((await loadNotesFromIndexedDb())).toHaveLength(103);
+
+    const db = await driver('notes-domain-isolation');
+    await importVerifiedHealthRecovery({ source, expectation, driver: db });
+    expect((await db.readDatasets(OWNER)).routine_logs).toHaveLength(763);
+    db.close();
+
+    resetNotesPersistenceForTests();
+    const after = await initNotesPersistence();
+    expect(after.notes.map(note => note.id).sort()).toEqual(notes.map(note => note.id).sort());
+    expect(JSON.parse(localStorage.getItem(FOLDERS_KEY) ?? '[]')).toEqual(folders);
+    await clearIndexedDbNotes();
+    localStorage.removeItem(FOLDERS_KEY);
+    resetNotesPersistenceForTests();
   });
 
   it('survives two repository reopen cycles and keeps another account isolated', async () => {

@@ -135,6 +135,23 @@ describe('notePersistence durability guards', () => {
     expect((await loadNotesFromIndexedDb()).map(n => n.id)).toEqual(['stranded']);
   });
 
+  it('does not persist Welcome when a completed migration has no durable read yet', async () => {
+    markIndexedDbMigrationComplete();
+
+    const result = await initNotesPersistence();
+
+    expect(result.notes).toEqual([]);
+    expect(await loadNotesFromIndexedDb()).toEqual([]);
+    expect(localStorage.getItem(NOTES_KEY)).toBeNull();
+  });
+
+  it('keeps the intended Welcome bootstrap for a genuinely fresh vault', async () => {
+    const result = await initNotesPersistence();
+
+    expect(result.notes.some(noteItem => noteItem.title.includes('Welcome'))).toBe(true);
+    expect((await loadNotesFromIndexedDb()).some(noteItem => noteItem.title.includes('Welcome'))).toBe(true);
+  });
+
   it('merges localStorage notes into a non-empty IndexedDB during migration', async () => {
     await saveNotesToIndexedDb([note('idb', 10, 'idb body')]);
     localStorage.removeItem(NOTES_IDB_MIGRATION_FLAG);
