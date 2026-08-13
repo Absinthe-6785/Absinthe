@@ -29,7 +29,7 @@ describe('k97fSeedLifecycleAudit policy', () => {
     expect(policy.onboardingMarkerPresent).toBe(true);
     expect(policy.persistenceHydrationGate).toBe(true);
     expect(policy.loadNotesSyncNoSyncSeed).toBe(true);
-    expect(policy.initNotesPersistenceUsesMarker).toBe(true);
+    expect(policy.initNotesPersistenceUsesMarker).toBe(false);
     expect(policy.createDefaultWelcomeNotesMarksOnboarding).toBe(true);
     expect(auditLegacyEmptyTriggerRemoved()).toBe(true);
   });
@@ -66,12 +66,12 @@ describe('k97f seed lifecycle scenarios', () => {
     expect(row.duplicateWelcome).toBe(false);
   });
 
-  it('creates exactly one welcome note on first-time onboarding', async () => {
+  it('keeps a first-time empty vault empty by design', async () => {
     const row = await simulateFirstTimeOnboarding();
-    expect(row.afterHydrationCount).toBe(1);
-    expect(row.welcomeNoteCount).toBe(1);
+    expect(row.afterHydrationCount).toBe(0);
+    expect(row.welcomeNoteCount).toBe(0);
     expect(row.duplicateWelcome).toBe(false);
-    expect(row.markerSet).toBe(true);
+    expect(row.markerSet).toBe(false);
   });
 
   it('protects against hydration race duplicate welcome notes', async () => {

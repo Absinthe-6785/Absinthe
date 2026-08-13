@@ -17,7 +17,6 @@ import { protectMathInMarkdown } from '../../lib/math/mathParse';
 import { renderProtectedMathBlock } from '../../lib/math/katexRender';
 import {
   markNotesOnboardingComplete,
-  shouldSeedOnboardingNotes,
 } from '../../lib/notesOnboarding';
 import {
   sanitizeRelationsForSync,
@@ -236,7 +235,7 @@ export function migrateLegacyStorageIfNeeded(): void {
 
   const mergedNotes = noteGroups.length > 0
     ? mergeNoteArrays(...noteGroups)
-    : (shouldSeedOnboardingNotes() ? defaultSeedNotes() : []);
+    : [];
   if (mergedNotes.length > 0) markNotesOnboardingComplete();
   else if (noteGroups.length > 0) markNotesOnboardingComplete();
   saveNotes(mergedNotes);

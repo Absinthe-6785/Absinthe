@@ -3,7 +3,6 @@
  */
 import {
   NOTES_KEY,
-  defaultSeedNotes,
   loadRawNotesFromKey,
   mergeNoteArrays,
   registerNotesStorageBridge,
@@ -13,7 +12,6 @@ import {
 import { runPersistenceCleanup } from '@/lib/persistenceCleanup';
 import {
   markNotesOnboardingComplete,
-  shouldSeedOnboardingNotes,
 } from '@/lib/notesOnboarding';
 import {
   INDEXEDDB_FALLBACK_ERROR,
@@ -106,13 +104,6 @@ function loadNotesFromLocalStorage(): NoteBase[] {
   }
   if (raw) return [];
   return [];
-}
-
-async function resolveEmptyVaultNotes(): Promise<NoteBase[]> {
-  if (!shouldSeedOnboardingNotes()) return [];
-  const seeded = defaultSeedNotes();
-  markNotesOnboardingComplete();
-  return seeded;
 }
 
 function readCurrentLocalStorageNotes(): readonly { id: string }[] | null {
@@ -250,9 +241,6 @@ export async function migrateLocalStorageNotesToIndexedDb(): Promise<{ migrated:
     notes = legacy;
     backupNotesBeforeDurabilityWrite('migrate-local-to-idb', legacy);
     markNotesOnboardingComplete();
-  } else if (shouldSeedOnboardingNotes()) {
-    notes = defaultSeedNotes();
-    markNotesOnboardingComplete();
   } else {
     notes = [];
   }
@@ -266,16 +254,10 @@ export async function migrateLocalStorageNotesToIndexedDb(): Promise<{ migrated:
 
 export async function initNotesPersistence(): Promise<NotesPersistenceInitResult> {
   const migrationStarted = performance.now();
-  const migrationWasComplete = isIndexedDbMigrationComplete();
-  let migrationCompleted = false;
 
   if (!canUseIndexedDb()) {
     persistenceMode = 'localStorage';
-    let notes = loadNotesFromLocalStorage();
-    if (notes.length === 0 && !migrationWasComplete && !isRecoveryModeActive()) {
-      notes = await resolveEmptyVaultNotes();
-      if (notes.length > 0) saveNotesToLocalStorage(notes);
-    }
+    const notes = loadNotesFromLocalStorage();
     notesCache = notes;
     persistenceHydrated = true;
     runLegacyPersistenceCleanupIfWritable();
@@ -291,7 +273,6 @@ export async function initNotesPersistence(): Promise<NotesPersistenceInitResult
 
   try {
     const migration = await migrateLocalStorageNotesToIndexedDb();
-    migrationCompleted = true;
     const loadStarted = performance.now();
     const notes = await loadNotesFromIndexedDb();
     let resolved = notes;
@@ -302,8 +283,6 @@ export async function initNotesPersistence(): Promise<NotesPersistenceInitResult
       if (localRescue.length > 0) {
         backupNotesBeforeDurabilityWrite('rescue-local-after-empty-idb', localRescue);
         resolved = localRescue;
-      } else if (!migrationWasComplete && !isRecoveryModeActive() && shouldSeedOnboardingNotes()) {
-        resolved = await resolveEmptyVaultNotes();
       }
       if (resolved.length > 0) await saveNotesToIndexedDb(resolved);
     }
@@ -323,11 +302,7 @@ export async function initNotesPersistence(): Promise<NotesPersistenceInitResult
     };
   } catch {
     persistenceMode = 'localStorage';
-    let notes = loadNotesFromLocalStorage();
-    if (notes.length === 0 && !migrationWasComplete && !migrationCompleted && !isRecoveryModeActive()) {
-      notes = await resolveEmptyVaultNotes();
-      if (notes.length > 0) saveNotesToLocalStorage(notes);
-    }
+    const notes = loadNotesFromLocalStorage();
     notesCache = notes;
     persistenceHydrated = true;
     runLegacyPersistenceCleanupIfWritable();

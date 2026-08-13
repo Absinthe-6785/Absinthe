@@ -181,7 +181,7 @@ export async function simulateHydrationRaceProtection(): Promise<{
     hydrated: isNotesPersistenceHydrated(),
     finalCount: init.notes.length,
     welcomeCount: countWelcomeNotes(init.notes),
-    passed: syncBeforeHydration === 0 && init.notes.length === 1 && countWelcomeNotes(init.notes) === 1,
+    passed: syncBeforeHydration === 0 && init.notes.length === 0 && countWelcomeNotes(init.notes) === 0,
   };
 }
 

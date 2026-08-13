@@ -3,8 +3,10 @@ import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { NoteBase } from '@/components/views/noteUtils';
 import {
+  FOLDERS_KEY,
   NOTES_KEY,
   getLastNotesStorageBridgeSaveResult,
+  loadFolders,
   saveNotes,
 } from '@/components/views/noteUtils';
 import { clearNotesOnboardingMarker } from '@/lib/notesOnboarding';
@@ -89,6 +91,7 @@ describe('notePersistence durability guards', () => {
   });
 
   it('K-319B reports IndexedDB bridge work as pending instead of persisted', async () => {
+    localStorage.setItem(NOTES_KEY, JSON.stringify([note('bridge', 1)]));
     const initialized = await initNotesPersistence();
     setRecoveryModeActiveForTest(true);
     const before = await loadNotesFromIndexedDb();
@@ -145,11 +148,49 @@ describe('notePersistence durability guards', () => {
     expect(localStorage.getItem(NOTES_KEY)).toBeNull();
   });
 
-  it('keeps the intended Welcome bootstrap for a genuinely fresh vault', async () => {
-    const result = await initNotesPersistence();
+  it('keeps a genuinely fresh vault empty across repeated initialization', async () => {
+    const first = await initNotesPersistence();
 
-    expect(result.notes.some(noteItem => noteItem.title.includes('Welcome'))).toBe(true);
-    expect((await loadNotesFromIndexedDb()).some(noteItem => noteItem.title.includes('Welcome'))).toBe(true);
+    expect(first.notes).toEqual([]);
+    expect(await loadNotesFromIndexedDb()).toEqual([]);
+
+    resetNotesPersistenceForTests();
+    const second = await initNotesPersistence();
+    expect(second.notes).toEqual([]);
+    expect(await loadNotesFromIndexedDb()).toEqual([]);
+    expect(second.notes.some(noteItem => noteItem.title.includes('Welcome'))).toBe(false);
+  });
+
+  it('preserves an exact populated vault across reload and relogin-style reinitialization', async () => {
+    const notes = Array.from({ length: 103 }, (_, index) => note(`restored-${index}`, index + 1));
+    const canonicalNotes = notes
+      .map(({ id, title, body, updatedAt, folderId, deletedAt }) => ({ id, title, body, updatedAt, folderId, deletedAt }))
+      .sort((left, right) => left.id.localeCompare(right.id));
+    const folders = Array.from({ length: 8 }, (_, index) => ({
+      id: `folder-${index}`,
+      name: `Folder ${index}`,
+      createdAt: index + 1,
+    }));
+    await saveNotesToIndexedDb(notes);
+    markIndexedDbMigrationComplete();
+    localStorage.setItem(FOLDERS_KEY, JSON.stringify(folders));
+
+    resetNotesPersistenceForTests();
+    const first = await initNotesPersistence();
+    expect(first.notes
+      .map(({ id, title, body, updatedAt, folderId, deletedAt }) => ({ id, title, body, updatedAt, folderId, deletedAt }))
+      .sort((left, right) => left.id.localeCompare(right.id))).toEqual(canonicalNotes);
+    expect(loadFolders()).toEqual(folders);
+
+    for (let cycle = 0; cycle < 3; cycle += 1) {
+      resetNotesPersistenceForTests();
+      const reopened = await initNotesPersistence();
+      expect(reopened.notes
+        .map(({ id, title, body, updatedAt, folderId, deletedAt }) => ({ id, title, body, updatedAt, folderId, deletedAt }))
+        .sort((left, right) => left.id.localeCompare(right.id))).toEqual(canonicalNotes);
+      expect(loadFolders()).toEqual(folders);
+      expect(reopened.notes.some(noteItem => noteItem.title.includes('Welcome'))).toBe(false);
+    }
   });
 
   it('merges localStorage notes into a non-empty IndexedDB during migration', async () => {
