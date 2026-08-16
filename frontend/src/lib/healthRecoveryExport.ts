@@ -460,12 +460,22 @@ export async function verifyHealthRecoveryExportText(source: string): Promise<{
   };
 }
 
-type ReadOnlyFetch = (input: string, init?: RequestInit) => Promise<Pick<Response, 'ok' | 'status' | 'json'>>;
+type ReadOnlyFetch = (input: string, init?: RequestInit) => Promise<Pick<Response, 'ok' | 'status' | 'json' | 'headers'>>;
+
+function exactTotalFromContentRange(response: Pick<Response, 'headers'>, dataset: HealthRecoveryDatasetName): number {
+  const contentRange = response.headers.get('content-range');
+  const match = contentRange?.match(/\/(\d+)$/);
+  if (!match) throw new Error(`health_select_total_unavailable:${dataset}`);
+  const total = Number(match[1]);
+  if (!Number.isSafeInteger(total) || total < 0) throw new Error(`health_select_total_invalid:${dataset}`);
+  return total;
+}
 
 export async function collectHealthRecoveryDatasetsReadOnly(input: {
   endpoint: string;
   apiKey: string;
   userId: string;
+  accessToken?: string;
   fetchImpl?: ReadOnlyFetch;
   pageSize?: number;
 }): Promise<HealthRecoveryDatasets> {
@@ -478,6 +488,8 @@ export async function collectHealthRecoveryDatasetsReadOnly(input: {
   const output = {} as HealthRecoveryDatasets;
   for (const dataset of HEALTH_RECOVERY_DATASETS) {
     const records: HealthRecoveryRecord[] = [];
+    const identities = new Set<string>();
+    let expectedTotal: number | null = null;
     for (let offset = 0; ; offset += pageSize) {
       const url = new URL(`/rest/v1/${dataset}`, input.endpoint);
       url.searchParams.set('select', '*');
@@ -488,17 +500,34 @@ export async function collectHealthRecoveryDatasetsReadOnly(input: {
         method: 'GET',
         headers: {
           apikey: input.apiKey,
-          Authorization: `Bearer ${input.apiKey}`,
+          Authorization: `Bearer ${input.accessToken ?? input.apiKey}`,
           Accept: 'application/json',
+          Prefer: 'count=exact',
+          Range: `${offset}-${offset + pageSize - 1}`,
         },
         redirect: 'error',
       });
       if (!response.ok) throw new Error(`health_select_failed:${dataset}:http_${response.status}`);
       const page = await response.json();
       if (!Array.isArray(page)) throw new Error(`health_select_invalid_response:${dataset}`);
-      records.push(...page as HealthRecoveryRecord[]);
-      if (page.length < pageSize) break;
+      const total = exactTotalFromContentRange(response, dataset);
+      if (expectedTotal !== null && total !== expectedTotal) throw new Error(`health_select_total_changed:${dataset}`);
+      expectedTotal ??= total;
+      for (const row of page as HealthRecoveryRecord[]) {
+        if (!row || typeof row !== 'object' || Array.isArray(row)) throw new Error(`health_select_invalid_record:${dataset}`);
+        const identityField = HEALTH_RECOVERY_DATASET_DEFINITIONS[dataset].identityField;
+        const identity = row[identityField];
+        if (typeof identity !== 'string' || !identity || identities.has(identity)) {
+          throw new Error(`health_select_duplicate_or_missing_identity:${dataset}`);
+        }
+        identities.add(identity);
+        records.push(row);
+      }
+      if (records.length > total || page.length > pageSize) throw new Error(`health_select_incomplete:${dataset}`);
+      if (records.length === total) break;
+      if (page.length === 0) throw new Error(`health_select_incomplete:${dataset}`);
     }
+    if (expectedTotal === null || records.length !== expectedTotal) throw new Error(`health_select_incomplete:${dataset}`);
     output[dataset] = records;
   }
   const ownerIssues = validateHealthRecoveryDatasets(output, input.userId).filter(entry => entry.code === 'source_owner_mismatch');

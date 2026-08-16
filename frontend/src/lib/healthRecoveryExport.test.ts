@@ -124,7 +124,12 @@ describe('complete Health recovery export', () => {
   });
 
   it('exposes only a paginated GET collector with owner-scoped URLs and no request body', async () => {
-    const fetchImpl = vi.fn(async (_url: string, _init?: RequestInit) => ({ ok: true, status: 200, json: async () => [] }));
+    const fetchImpl = vi.fn(async (_url: string, _init?: RequestInit) => ({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-range': '*/0' }),
+      json: async () => [],
+    }));
     const result = await collectHealthRecoveryDatasetsReadOnly({
       endpoint: 'https://example.supabase.co', apiKey: 'test-key', userId: USER_ID, fetchImpl,
     });

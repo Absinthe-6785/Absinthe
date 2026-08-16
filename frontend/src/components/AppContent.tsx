@@ -27,6 +27,7 @@ import { migrateLegacyDdays } from '../lib/migrateLegacyDdays';
 import { runPeriodicSnapshotSlots } from '../lib/vaultSnapshotAuto';
 import { GlobalSearchHost } from './views/features/search/GlobalSearchHost';
 import { useTranslation } from '../lib/i18n';
+import { bootstrapHealthFromSupabase, HEALTH_LOCAL_BOOTSTRAP_COMPLETE_EVENT } from '../lib/healthSupabaseBootstrap';
 
 // ── 상수 — 모듈 레벨로 분리해 매 렌더마다 재생성 방지 ──────────────
 const THEME_COLORS: ThemeColor[] = [
@@ -41,8 +42,11 @@ const THEME_COLORS: ThemeColor[] = [
 export function AppContent({ authUser }: { authUser: User }) {
   const { appSettings, updateSetting } = useAppStore();
   const { t } = useTranslation();
-  const hydrateFromDB = useNotesStore(s => s.hydrateFromDB);
+  const bootstrapFromSupabase = useNotesStore(s => s.bootstrapFromSupabase);
   const initNotesStorage = useNotesStore(s => s.initNotesStorage);
+  const detachNotesStorage = useNotesStore(s => s.detachNotesStorage);
+  // Reset in the effect cleanup so an account change gets a fresh local
+  // namespace while duplicate renders for the same account remain gated.
   const notesBootstrapStarted = useRef(false);
 
   // ── 1. now / formatDate / isToday ────────────────────────────────
@@ -62,16 +66,30 @@ export function AppContent({ authUser }: { authUser: User }) {
   useEffect(() => {
     if (notesBootstrapStarted.current) return;
     notesBootstrapStarted.current = true;
-    initNotesStorage()
-      .then(() => hydrateFromDB())
+    let cancelled = false;
+    initNotesStorage(authUser.id)
+      .then(() => cancelled ? undefined : bootstrapFromSupabase())
       .then(() => {
+        if (cancelled) return;
+        // Health uses its own reviewed account-scoped durable authority.  A
+        // Notes failure must not clear Health and vice versa, so this is an
+        // independent best-effort bootstrap with no remote mutation path.
+        if (authUser.id !== 'local-user') {
+          void bootstrapHealthFromSupabase({ accountId: authUser.id, email: authUser.email })
+            .catch(() => undefined);
+        }
         const { notes, folders } = useNotesStore.getState();
         runPeriodicSnapshotSlots(notes, folders);
         void migrateLegacyDdays(count => {
           if (count > 0) showToast(t('scheduleCountdownMigrated').replace('{count}', String(count)), 'info');
         });
       });
-  }, [hydrateFromDB, initNotesStorage, showToast, t]);
+    return () => {
+      cancelled = true;
+      notesBootstrapStarted.current = false;
+      detachNotesStorage();
+    };
+  }, [authUser.email, authUser.id, bootstrapFromSupabase, detachNotesStorage, initNotesStorage, showToast, t]);
 
   useEffect(() => {
     const unregisterNotes = registerNotesTabSwitcher(() => setActiveTab('note'));
@@ -132,6 +150,15 @@ export function AppContent({ authUser }: { authUser: User }) {
     markedDates, healthBlocks, healthRoutines, weeklySchedules,
     mutate: mutateStatic,
   } = useStaticData(monthStart, monthEnd, showToast, authUser.id);
+
+  useEffect(() => {
+    const refreshLocalHealth = () => {
+      mutateDaily();
+      mutateStatic();
+    };
+    window.addEventListener(HEALTH_LOCAL_BOOTSTRAP_COMPLETE_EVENT, refreshLocalHealth);
+    return () => window.removeEventListener(HEALTH_LOCAL_BOOTSTRAP_COMPLETE_EVENT, refreshLocalHealth);
+  }, [mutateDaily, mutateStatic]);
 
   // ── 5. Theme — Absinthe Design System tokens via CSS variables ───
   const theme = useMemo(() => buildThemeClasses(), []);

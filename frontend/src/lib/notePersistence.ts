@@ -39,8 +39,19 @@ import {
   type PersistedNotesReplacementFailure,
   type PersistedNotesReplacementResult,
 } from '@/lib/recoverySafetyPolicy';
+import {
+  detachNotesAccountAuthority,
+  getActiveNotesAuthorityAccountId,
+  initializeAccountScopedNotesAuthority,
+  loadAccountScopedNotes,
+  resetNotesAccountAuthorityForTests,
+  saveAccountScopedNotes,
+  clearAccountScopedNotesAuthority,
+  type NotesAuthorityRequest,
+  type NotesAuthorityDomainState,
+} from '@/lib/notesAccountAuthority';
 
-export type NotesPersistenceMode = 'indexeddb' | 'localStorage';
+export type NotesPersistenceMode = 'accountScoped' | 'indexeddb' | 'localStorage';
 
 export type NotesPersistenceWriteResult =
   | { status: 'persisted' }
@@ -55,6 +66,11 @@ export interface NotesPersistenceInitResult {
   migrationMs: number;
   loadMs: number;
   fallbackError?: string;
+  accountId?: string;
+  requestGeneration?: number;
+  notesAuthorityState?: NotesAuthorityDomainState;
+  foldersAuthorityState?: NotesAuthorityDomainState;
+  legacyGlobalDataPresent?: boolean;
 }
 
 let persistenceMode: NotesPersistenceMode = 'localStorage';
@@ -252,8 +268,30 @@ export async function migrateLocalStorageNotesToIndexedDb(): Promise<{ migrated:
   return { migrated: true, count: notes.length };
 }
 
-export async function initNotesPersistence(): Promise<NotesPersistenceInitResult> {
+export async function initNotesPersistence(
+  accountId?: string,
+  request?: NotesAuthorityRequest,
+): Promise<NotesPersistenceInitResult> {
   const migrationStarted = performance.now();
+
+  if (accountId?.trim()) {
+    const snapshot = await initializeAccountScopedNotesAuthority(accountId, request);
+    persistenceMode = 'accountScoped';
+    notesCache = snapshot.notes;
+    persistenceHydrated = true;
+    return {
+      notes: snapshot.notes,
+      mode: 'accountScoped',
+      migrated: false,
+      migrationMs: 0,
+      loadMs: performance.now() - migrationStarted,
+      accountId: snapshot.accountId,
+      requestGeneration: snapshot.requestGeneration,
+      notesAuthorityState: snapshot.notesState,
+      foldersAuthorityState: snapshot.foldersState,
+      legacyGlobalDataPresent: snapshot.notesState.legacyGlobalDataPresent,
+    };
+  }
 
   if (!canUseIndexedDb()) {
     persistenceMode = 'localStorage';
@@ -318,6 +356,12 @@ export async function initNotesPersistence(): Promise<NotesPersistenceInitResult
 }
 
 export async function loadNotesAsync(): Promise<NoteBase[]> {
+  const accountId = getActiveNotesAuthorityAccountId();
+  if (persistenceMode === 'accountScoped' && accountId) {
+    const notes = await loadAccountScopedNotes(accountId);
+    notesCache = notes;
+    return notes;
+  }
   if (persistenceMode === 'indexeddb' && canUseIndexedDb()) {
     try {
       const notes = await loadNotesFromIndexedDb();
@@ -338,6 +382,18 @@ async function saveNotesAsyncInternal(
   notes: unknown,
 ): Promise<NotesPersistenceWriteResult> {
   const epoch = captureOperationEpoch();
+  const accountId = getActiveNotesAuthorityAccountId();
+  if (persistenceMode === 'accountScoped' && accountId) {
+    if (!Array.isArray(notes)) return { status: 'rejected', reason: 'invalid_replacement' };
+    if (!persistenceHydrated) return { status: 'rejected', reason: 'empty_replacement' };
+    if (!notes.every(isCompletePersistedNote)) return { status: 'rejected', reason: 'malformed_note' };
+    if (new Set(notes.map(note => note.id)).size !== notes.length) return { status: 'rejected', reason: 'duplicate_id' };
+    const ok = await saveAccountScopedNotes(accountId, notes as unknown as readonly NoteBase[]);
+    if (!isOperationEpochCurrent(epoch)) return { status: 'blocked', reason: 'stale_epoch' };
+    if (!ok) return { status: 'failed', reason: 'indexeddb_rejected' };
+    notesCache = [...notes] as NoteBase[];
+    return { status: 'persisted' };
+  }
   if (!mayWriteLegacyNotes()) return { status: 'blocked', reason: 'recovery_mode_active' };
   if (!Array.isArray(notes)) {
     recordRecoveryBlock('replace_persisted_notes', 'unsafe_replacement');
@@ -377,6 +433,11 @@ export async function saveNotesAsync(notes: unknown): Promise<NotesPersistenceWr
 }
 
 export async function deleteNoteFromPersistence(noteId: string): Promise<boolean> {
+  const accountId = getActiveNotesAuthorityAccountId();
+  if (persistenceMode === 'accountScoped' && accountId) {
+    const current = await loadAccountScopedNotes(accountId);
+    return saveAccountScopedNotes(accountId, current.filter(note => note.id !== noteId));
+  }
   if (!mayWriteLegacyNotes() || !mayDeleteLegacyStorage()) {
     recordRecoveryBlock('delete_legacy_storage');
     return false;
@@ -399,6 +460,12 @@ export async function deleteNoteFromPersistence(noteId: string): Promise<boolean
 }
 
 export async function clearNotesPersistence(): Promise<void> {
+  const accountId = getActiveNotesAuthorityAccountId();
+  if (persistenceMode === 'accountScoped' && accountId) {
+    await clearAccountScopedNotesAuthority(accountId);
+    notesCache = [];
+    return;
+  }
   if (!mayWriteLegacyNotes() || !mayDeleteLegacyStorage()) {
     recordRecoveryBlock('delete_legacy_storage');
     return;
@@ -430,6 +497,15 @@ export function resetNotesPersistenceForTests(): void {
   notesCache = null;
   lastIndexedDbRevision = 0;
   persistenceHydrated = false;
+  resetNotesAccountAuthorityForTests();
+}
+
+/** Detach memory from an account without changing any durable account data. */
+export function detachNotesPersistenceAccount(): void {
+  detachNotesAccountAuthority();
+  persistenceMode = 'localStorage';
+  notesCache = null;
+  persistenceHydrated = false;
 }
 
 export { INDEXEDDB_FALLBACK_ERROR, NOTES_IDB_REV_KEY };
@@ -441,7 +517,7 @@ registerNotesStorageBridge(
       recordRecoveryBlock('replace_persisted_notes', 'unsafe_replacement');
       return 'rejected';
     }
-    if (persistenceMode === 'indexeddb') {
+    if (persistenceMode === 'indexeddb' || persistenceMode === 'accountScoped') {
       void saveNotesAsync(notes);
       return 'pending';
     }

@@ -2,7 +2,7 @@
 import 'fake-indexeddb/auto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NOTES_KEY, FOLDERS_KEY, type NoteBase, type NoteFolder, loadFolders } from '../components/views/noteUtils';
-import { clearIndexedDbNotes, saveNotesToIndexedDb } from '../lib/noteIndexedDb';
+import { clearIndexedDbNotes, loadNotesFromIndexedDb, saveNotesToIndexedDb } from '../lib/noteIndexedDb';
 import {
   loadNotesAsync,
   resetNotesPersistenceForTests,
@@ -17,6 +17,16 @@ import {
 } from '../lib/recoverySafetyPolicy';
 import { buildVaultBackupManifest } from '../lib/exportVaultBackup';
 import { loadVaultRestoreSnapshot, VAULT_RESTORE_SNAPSHOT_KEY } from '../lib/vaultRestoreSnapshot';
+import {
+  __testOnlyNotesAccountAuthorityHooks,
+  detachNotesAccountAuthority,
+  getNotesAuthorityState,
+  initializeAccountScopedNotesAuthority,
+  loadAccountScopedNotes,
+  saveAccountScopedFolders,
+  saveAccountScopedNotes,
+  NOTES_CORE_DOMAIN,
+} from '../lib/notesAccountAuthority';
 
 const storage = new Map<string, string>();
 const localStorageMock = {
@@ -30,7 +40,11 @@ const localStorageMock = {
 vi.stubGlobal('localStorage', localStorageMock);
 
 const authFetchMock = vi.fn();
-vi.mock('../lib/supabase', () => ({ authFetch: (...args: unknown[]) => authFetchMock(...args) }));
+const authReadFetchMock = vi.fn();
+vi.mock('../lib/supabase', () => ({
+  authFetch: (...args: unknown[]) => authFetchMock(...args),
+  authReadFetch: (...args: unknown[]) => authReadFetchMock(...args),
+}));
 
 const {
   useNotesStore,
@@ -89,6 +103,7 @@ describe('bounded Preview Notes IndexedDB restore authority', () => {
     setRecoveryModeActiveForTest(false);
     storage.clear();
     authFetchMock.mockReset();
+    authReadFetchMock.mockReset();
     resetNotesPersistenceForTests();
     await clearIndexedDbNotes();
     storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'local');
@@ -388,5 +403,286 @@ describe('bounded Preview Notes IndexedDB restore authority', () => {
     expect(canonical(useNotesStore.getState().notes)).toEqual([originalNote]);
     expect(canonical(useNotesStore.getState().folders)).toEqual([]);
     expect((await loadNotesAsync()).some(note => failedRestoreNotes.some(restoreNote => restoreNote.id === note.id))).toBe(false);
+  });
+});
+
+describe('account-scoped Backup v3 restore authority', () => {
+  const legacySentinel = { ...originalNote, id: 'legacy-global-sentinel', title: 'Legacy global sentinel' };
+  const accountBSentinel = { ...originalNote, id: 'account-b-sentinel', title: 'Account B sentinel' };
+  const accountBFolder = { id: 'account-b-folder', name: 'Account B folder', createdAt: 22 };
+
+  beforeEach(async () => {
+    setRecoveryModeActiveForTest(false);
+    storage.clear();
+    resetNotesPersistenceForTests();
+    authReadFetchMock.mockReset();
+    detachNotesAccountAuthority();
+    await clearIndexedDbNotes();
+    await saveNotesToIndexedDb([legacySentinel]);
+    storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'local');
+
+    await initializeAccountScopedNotesAuthority('account-b');
+    expect(await saveAccountScopedNotes('account-b', [accountBSentinel])).toBe(true);
+    expect(saveAccountScopedFolders([accountBFolder])).toBe(true);
+
+    await useNotesStore.getState().initNotesStorage('account-a');
+    useNotesStore.setState({
+      notes: [], folders: [], activeNoteId: null, activeFolderId: null, syncError: null,
+    });
+    setRecoveryModeActiveForTest(true);
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it('restores 103 Notes and 8 Folders only into active account A without touching legacy global or B', async () => {
+    const folders = Array.from({ length: 8 }, (_, index) => ({
+      id: `account-a-backup-folder-${index}`, name: `Account A folder ${index}`, createdAt: index + 1,
+    }));
+    const notes = notesFixture('account-a-backup', 103, folders);
+
+    await useNotesStore.getState().importVaultRestore(buildVaultBackupManifest(notes, folders), 'replace');
+
+    const restoredNotes = canonical(useNotesStore.getState().notes);
+    expect(restoredNotes).toHaveLength(103);
+    expect(await loadAccountScopedNotes('account-a')).toEqual(restoredNotes);
+    expect(canonical(loadFolders())).toEqual(canonical(folders));
+    expect(await loadNotesFromIndexedDb()).toEqual([legacySentinel]);
+
+    await initializeAccountScopedNotesAuthority('account-b');
+    expect(await loadAccountScopedNotes('account-b')).toEqual([accountBSentinel]);
+    expect(canonical(loadFolders())).toEqual([accountBFolder]);
+
+    await useNotesStore.getState().initNotesStorage('account-a');
+    expect(canonical(useNotesStore.getState().notes)).toEqual(restoredNotes);
+    expect(canonical(useNotesStore.getState().folders)).toEqual(canonical(folders));
+  });
+
+  it('rolls back the active A namespace after an injected folder write failure without touching legacy global or B', async () => {
+    const priorA = { ...originalNote, id: 'account-a-prior', title: 'Account A prior' };
+    setRecoveryModeActiveForTest(false);
+    expect(await saveNotesAsync([priorA])).toEqual({ status: 'persisted' });
+    setRecoveryModeActiveForTest(true);
+    useNotesStore.setState({ notes: [priorA], folders: [], activeNoteId: priorA.id, activeFolderId: null });
+    const folders = Array.from({ length: 8 }, (_, index) => ({
+      id: `rollback-account-a-folder-${index}`, name: `Rollback A folder ${index}`, createdAt: index + 1,
+    }));
+    const notes = notesFixture('rollback-account-a', 103, folders);
+    let failReplacementFolders = true;
+    vi.spyOn(localStorageMock, 'setItem').mockImplementation((key, value) => {
+      if (key.includes('absinthe.notes.account-authority.folders.v1:account-a')
+        && value.includes('rollback-account-a-folder-') && failReplacementFolders) {
+        failReplacementFolders = false;
+        throw new Error('injected scoped folders failure');
+      }
+      storage.set(key, value);
+    });
+
+    await expect(useNotesStore.getState().importVaultRestore(buildVaultBackupManifest(notes, folders), 'replace'))
+      .rejects.toBeInstanceOf(VaultRestoreDurabilityError);
+
+    expect(await loadAccountScopedNotes('account-a')).toEqual([priorA]);
+    expect(canonical(loadFolders())).toEqual([]);
+    expect(getNotesAuthorityState('account-a', NOTES_CORE_DOMAIN).state).toBe('LOADED_POPULATED');
+    expect(await loadNotesFromIndexedDb()).toEqual([legacySentinel]);
+
+    await initializeAccountScopedNotesAuthority('account-b');
+    expect(await loadAccountScopedNotes('account-b')).toEqual([accountBSentinel]);
+    expect(canonical(loadFolders())).toEqual([accountBFolder]);
+  });
+
+  it('rolls an interrupted A restore back only into A when B becomes active after the scoped Notes write', async () => {
+    const priorA = { ...originalNote, id: 'account-a-prior-switch', title: 'Account A prior switch' };
+    setRecoveryModeActiveForTest(false);
+    expect(await saveNotesAsync([priorA])).toEqual({ status: 'persisted' });
+    setRecoveryModeActiveForTest(true);
+    useNotesStore.setState({ notes: [priorA], folders: [], activeNoteId: priorA.id, activeFolderId: null });
+    const folders = Array.from({ length: 8 }, (_, index) => ({
+      id: `switch-account-folder-${index}`, name: `Switch folder ${index}`, createdAt: index + 1,
+    }));
+    const notes = notesFixture('switch-account-note', 103, folders);
+    let switched = false;
+    let switchToB: Promise<void> | null = null;
+    vi.spyOn(localStorageMock, 'setItem').mockImplementation((key, value) => {
+      storage.set(key, value);
+      if (!switched && key.includes('absinthe.notes.account-authority.state.v1:account-a:notes.core')
+        && value.includes('LOADED_POPULATED')) {
+        switched = true;
+        switchToB = useNotesStore.getState().initNotesStorage('account-b');
+      }
+    });
+
+    await expect(useNotesStore.getState().importVaultRestore(buildVaultBackupManifest(notes, folders), 'replace'))
+      .rejects.toBeInstanceOf(VaultRestoreDurabilityError);
+    await switchToB;
+
+    await initializeAccountScopedNotesAuthority('account-a');
+    expect(await loadAccountScopedNotes('account-a')).toEqual([priorA]);
+    expect(canonical(loadFolders())).toEqual([]);
+    expect(await loadNotesFromIndexedDb()).toEqual([legacySentinel]);
+
+    await initializeAccountScopedNotesAuthority('account-b');
+    expect(await loadAccountScopedNotes('account-b')).toEqual([accountBSentinel]);
+    expect(canonical(loadFolders())).toEqual([accountBFolder]);
+  });
+});
+
+describe('store-level account initialization generation guard', () => {
+  const aFolders = Array.from({ length: 8 }, (_, index) => ({
+    id: `store-a-folder-${index}`, name: `Store A folder ${index}`, createdAt: index + 1,
+  }));
+  const aNotes = notesFixture('store-a-note', 103, aFolders);
+  const bNote = { ...originalNote, id: 'store-b-note', title: 'Store B note' };
+
+  beforeEach(async () => {
+    setRecoveryModeActiveForTest(false);
+    storage.clear();
+    resetNotesPersistenceForTests();
+    authReadFetchMock.mockReset();
+    detachNotesAccountAuthority();
+    await clearIndexedDbNotes();
+    storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'local');
+    await initializeAccountScopedNotesAuthority('account-a');
+    expect(await saveAccountScopedNotes('account-a', aNotes)).toBe(true);
+    expect(saveAccountScopedFolders(aFolders)).toBe(true);
+    await initializeAccountScopedNotesAuthority('account-b');
+    expect(await saveAccountScopedNotes('account-b', [bNote])).toBe(true);
+    detachNotesAccountAuthority();
+    useNotesStore.setState({
+      notes: [], folders: [], activeNoteId: null, activeFolderId: null,
+      activeAccountId: null, notesAuthorityState: 'NOT_LOADED', foldersAuthorityState: 'NOT_LOADED', syncError: null,
+    });
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it('ignores a stale A1 failure after B then successful A2 has published the real store state', async () => {
+    const hooks = __testOnlyNotesAccountAuthorityHooks;
+    expect(hooks).toBeDefined();
+    if (!hooks) throw new Error('notes authority test seam unavailable');
+    let aCalls = 0;
+    let rejectA1: ((error: Error) => void) | null = null;
+    hooks.setReadNotesOverride(accountId => {
+      if (accountId === 'account-a' && aCalls++ === 0) return new Promise((_, reject) => { rejectA1 = reject; });
+      if (accountId === 'account-a') return Promise.resolve({ kind: 'valid', records: canonical(aNotes) });
+      return Promise.resolve({ kind: 'valid', records: [bNote] });
+    });
+
+    const a1 = useNotesStore.getState().initNotesStorage('account-a');
+    await Promise.resolve();
+    await useNotesStore.getState().initNotesStorage('account-b');
+    await useNotesStore.getState().initNotesStorage('account-a');
+    rejectA1?.(new Error('stale A1 read failure'));
+    await a1;
+
+    const state = useNotesStore.getState();
+    expect(state.activeAccountId).toBe('account-a');
+    expect(state.notes).toHaveLength(103);
+    expect(state.folders).toHaveLength(8);
+    expect(state.notesAuthorityState).toBe('LOADED_POPULATED');
+    expect(state.foldersAuthorityState).toBe('LOADED_POPULATED');
+    expect(state.syncError).toBeNull();
+    hooks.setReadNotesOverride(null);
+  });
+
+  it('ignores a stale A1 success after B then successful A2 has published the real store state', async () => {
+    const hooks = __testOnlyNotesAccountAuthorityHooks;
+    expect(hooks).toBeDefined();
+    if (!hooks) throw new Error('notes authority test seam unavailable');
+    let aCalls = 0;
+    let resolveA1: ((value: { kind: 'valid'; records: NoteBase[] }) => void) | null = null;
+    hooks.setReadNotesOverride(accountId => {
+      if (accountId === 'account-a' && aCalls++ === 0) return new Promise(resolve => { resolveA1 = resolve; });
+      if (accountId === 'account-a') return Promise.resolve({ kind: 'valid', records: canonical(aNotes) });
+      return Promise.resolve({ kind: 'valid', records: [bNote] });
+    });
+
+    const a1 = useNotesStore.getState().initNotesStorage('account-a');
+    await Promise.resolve();
+    await useNotesStore.getState().initNotesStorage('account-b');
+    await useNotesStore.getState().initNotesStorage('account-a');
+    resolveA1?.({ kind: 'valid', records: [{ ...originalNote, id: 'stale-a1-note' }] });
+    await a1;
+
+    const state = useNotesStore.getState();
+    expect(state.activeAccountId).toBe('account-a');
+    expect(state.notes).toHaveLength(103);
+    expect(state.folders).toHaveLength(8);
+    expect(state.notes.some(note => note.id === 'stale-a1-note')).toBe(false);
+    expect(state.notesAuthorityState).toBe('LOADED_POPULATED');
+    hooks.setReadNotesOverride(null);
+  });
+
+  it('does not let a stale bootstrap catch/finally mutate account B runtime metadata', async () => {
+    let rejectA: ((error: Error) => void) | null = null;
+    authReadFetchMock.mockImplementation((url: string) => {
+      if (url.includes('/api/notes')) {
+        return new Promise((_, reject) => { rejectA = reject; });
+      }
+      return Promise.resolve(new Response(JSON.stringify({
+        account_id: 'account-a', rows: [], total_count: 0, offset: 0, limit: 500, complete: true,
+      }), { status: 200 }));
+    });
+
+    await useNotesStore.getState().initNotesStorage('account-a');
+    const staleA = useNotesStore.getState().bootstrapFromSupabase();
+    await Promise.resolve();
+    await useNotesStore.getState().initNotesStorage('account-b');
+    useNotesStore.setState({ syncError: 'account-b-sentinel', isSyncing: true });
+    rejectA?.(new Error('late account A bootstrap failure'));
+    await staleA;
+
+    const state = useNotesStore.getState();
+    expect(state.activeAccountId).toBe('account-b');
+    expect(state.syncError).toBe('account-b-sentinel');
+    expect(state.isSyncing).toBe(true);
+  });
+
+  it('does not let a stale bootstrap success publish into account B', async () => {
+    let resolveA: ((response: Response) => void) | null = null;
+    authReadFetchMock.mockImplementation((url: string) => {
+      if (url.includes('/api/notes')) return new Promise(resolve => { resolveA = resolve; });
+      return Promise.resolve(new Response(JSON.stringify({
+        account_id: 'account-a', rows: [], total_count: 0, offset: 0, limit: 500, complete: true,
+      }), { status: 200 }));
+    });
+
+    await useNotesStore.getState().initNotesStorage('account-a');
+    const staleA = useNotesStore.getState().bootstrapFromSupabase();
+    await Promise.resolve();
+    await useNotesStore.getState().initNotesStorage('account-b');
+    useNotesStore.setState({ syncError: 'account-b-success-sentinel', isSyncing: true });
+    resolveA?.(new Response(JSON.stringify({
+      account_id: 'account-a', rows: [], total_count: 0, offset: 0, limit: 500, complete: true,
+    }), { status: 200 }));
+    await staleA;
+
+    const state = useNotesStore.getState();
+    expect(state.activeAccountId).toBe('account-b');
+    expect(state.syncError).toBe('account-b-success-sentinel');
+    expect(state.isSyncing).toBe(true);
+  });
+
+  it('leaves logged-out runtime untouched when a stale bootstrap rejects', async () => {
+    let rejectA: ((error: Error) => void) | null = null;
+    authReadFetchMock.mockImplementation((url: string) => {
+      if (url.includes('/api/notes')) return new Promise((_, reject) => { rejectA = reject; });
+      return Promise.resolve(new Response(JSON.stringify({
+        account_id: 'account-a', rows: [], total_count: 0, offset: 0, limit: 500, complete: true,
+      }), { status: 200 }));
+    });
+
+    await useNotesStore.getState().initNotesStorage('account-a');
+    const staleA = useNotesStore.getState().bootstrapFromSupabase();
+    await Promise.resolve();
+    useNotesStore.getState().detachNotesStorage();
+    rejectA?.(new Error('late logged-out bootstrap failure'));
+    await staleA;
+
+    const state = useNotesStore.getState();
+    expect(state.activeAccountId).toBeNull();
+    expect(state.notes).toEqual([]);
+    expect(state.folders).toEqual([]);
+    expect(state.syncError).toBeNull();
+    expect(state.isSyncing).toBe(false);
   });
 });

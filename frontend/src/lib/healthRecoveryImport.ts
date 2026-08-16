@@ -294,3 +294,105 @@ export async function importVerifiedHealthRecovery(input: {
     remoteMutationCount: 0,
   };
 }
+
+/** Persist a fully validated read-only remote snapshot through the existing
+ * Health authority.  No remote operation is performed by this function. */
+export async function persistReadOnlyHealthBootstrap(input: {
+  export: HealthRecoveryExport;
+  driver: LocalHealthDriver;
+  accountId: string;
+  now?: () => string;
+}): Promise<HealthRecoveryImportResult> {
+  const verified: HealthRecoveryPrevalidation = {
+    export: input.export,
+    fileSha256: `supabase-read-only:${input.export.checksum.value}`,
+    fileBytes: 0,
+    datasetCounts: countsFor(input.export.datasets),
+    totalRows: totalRows(countsFor(input.export.datasets)),
+  };
+  if (input.export.sourceAccount.userId !== input.accountId) {
+    throw new Error('health_import_authenticated_account_mismatch');
+  }
+  const accountId = input.accountId;
+  await input.driver.recoverPendingImport(accountId);
+  const priorAccountSnapshot = await input.driver.readAccountSnapshot(accountId);
+  const priorDatasets = orderHealthRecoveryDatasets(priorAccountSnapshot.datasets);
+  const priorImportState = priorAccountSnapshot.importState;
+  if (priorImportState !== null && priorImportState.status !== 'VERIFIED_IMPORT_COMPLETE') {
+    throw new Error('health_import_prior_state_not_stable');
+  }
+  const createdAt = (input.now ?? (() => new Date().toISOString()))();
+  const snapshotWithoutHash = {
+    snapshotId: newSnapshotId(accountId),
+    accountId,
+    createdAt,
+    datasets: priorDatasets,
+    priorImportState,
+  };
+  const snapshot: LocalHealthSnapshot = {
+    ...snapshotWithoutHash,
+    payloadSha256: await computeLocalHealthSnapshotPayloadSha256(snapshotWithoutHash),
+  };
+  await input.driver.persistSnapshot(snapshot);
+  const snapshotReadback = await input.driver.readSnapshot(snapshot.snapshotId);
+  if (!snapshotReadback) throw new Error('health_snapshot_readback_missing');
+  const { payloadSha256, ...readbackWithoutHash } = snapshotReadback;
+  if (payloadSha256 !== snapshot.payloadSha256
+    || await computeLocalHealthSnapshotPayloadSha256(readbackWithoutHash) !== snapshot.payloadSha256) {
+    throw new Error('health_snapshot_readback_mismatch');
+  }
+  const pendingImportState: LocalHealthImportState = {
+    accountId,
+    status: 'IMPORT_COMMITTED_PENDING_READBACK',
+    snapshotId: snapshot.snapshotId,
+    importedAt: createdAt,
+    sourceFileSha256: verified.fileSha256,
+    sourceContentSha256: input.export.checksum.value,
+    sourceExportedAt: input.export.exportedAt,
+    totalRowCount: verified.totalRows,
+    datasetCounts: verified.datasetCounts,
+    diagnostics: input.export.diagnostics,
+  };
+  await input.driver.commitPendingImportAtomically({
+    accountId,
+    datasets: input.export.datasets,
+    expectedImportState: priorImportState,
+    pendingImportState,
+  });
+  let readbackCounts: Record<HealthRecoveryDatasetName, number>;
+  let relationships: HealthRecoveryExport['diagnostics']['relationships'];
+  try {
+    const pendingAccountSnapshot = await input.driver.readAccountSnapshot(accountId);
+    const readback = orderHealthRecoveryDatasets(pendingAccountSnapshot.datasets);
+    readbackCounts = countsFor(readback);
+    assertEqual(readbackCounts, verified.datasetCounts, 'health_import_readback_count_mismatch');
+    if (totalRows(readbackCounts) !== verified.totalRows) throw new Error('health_import_readback_total_mismatch');
+    relationships = deriveHealthRelationshipDiagnostics(readback);
+    assertEqual(relationships, input.export.diagnostics.relationships, 'health_import_readback_relationship_mismatch');
+    await verifyImportedSourceFidelity(readback, input.export);
+    assertEqual(pendingAccountSnapshot.importState, pendingImportState, 'health_import_pending_marker_mismatch');
+    const finalized = await input.driver.finalizePendingIfStillCurrent({
+      accountId,
+      expectedSnapshotId: snapshot.snapshotId,
+    });
+    if (finalized !== 'APPLIED') throw new Error('health_import_finalize_stale');
+  } catch (error) {
+    try {
+      await input.driver.recoverPendingImport(accountId, snapshot.snapshotId);
+    } catch (restoreError) {
+      const readbackMessage = error instanceof Error ? error.message : String(error);
+      const restoreMessage = restoreError instanceof Error ? restoreError.message : String(restoreError);
+      throw new Error(`health_import_readback_failed_and_snapshot_restore_failed:${readbackMessage}:${restoreMessage}`);
+    }
+    throw error;
+  }
+  return {
+    accountId,
+    snapshotId: snapshot.snapshotId,
+    datasetCounts: readbackCounts,
+    totalRows: verified.totalRows,
+    relationships,
+    sourceFidelity: 'PASS',
+    remoteMutationCount: 0,
+  };
+}

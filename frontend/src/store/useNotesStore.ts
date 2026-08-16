@@ -31,7 +31,23 @@ import {
   getNotesPersistenceMode,
   isNotesIndexedDbRevisionEvent,
   clearNotesPersistence,
+  detachNotesPersistenceAccount,
 } from '../lib/notePersistence';
+import {
+  type NotesAuthorityLoadState,
+  type NotesAccountRecoveryContext,
+  activateNotesAccountAuthority,
+  getActiveNotesAuthorityAccountId,
+  createNotesAccountRecoveryContext,
+  isNotesAuthorityRequestActive,
+  isNotesAccountRecoveryContextActive,
+  isNotesAccountAuthorityActive,
+  saveNotesForRecoveryContext,
+  saveFoldersForRecoveryContext,
+  loadNotesForRecoveryContext,
+  loadFoldersForRecoveryContext,
+  applyNotesFoldersForRecoveryContext,
+} from '../lib/notesAccountAuthority';
 import {
   type NoteBase as Note,
   type NoteFolderBase as NoteFolder,
@@ -69,6 +85,7 @@ import { invalidateNoteGalaxyMapCache } from '../components/views/features/knowl
 import {
   fetchFoldersFromCloud,
   fetchNotesFromCloud,
+  fetchCompleteNotesFoldersSnapshot,
   mapDbFolder,
   mergeDeltaNoteRows,
   computeLastSyncTimestamp,
@@ -128,6 +145,10 @@ interface NotesState {
   notes: Note[];
   folders: NoteFolder[];
   activeNoteId: string | null;
+  /** The authenticated local authority currently bound to Notes/Folders. */
+  activeAccountId: string | null;
+  notesAuthorityState: NotesAuthorityLoadState;
+  foldersAuthorityState: NotesAuthorityLoadState;
   /** Bumps on title/properties/relations/folder/create/delete — not body-only edits (K-83A). */
   vaultStructureVersion: number;
   /** Bumps on debounced body index flush — backlinks/links context (K-83A). */
@@ -160,13 +181,16 @@ interface NotesState {
 
   hydrateFromDB: (options?: { mode?: NotesSyncMode }) => Promise<void>;
   hydrateFromDBFull: () => Promise<void>;
+  bootstrapFromSupabase: () => Promise<void>;
   syncNoteToDB: (note: Note) => Promise<boolean>;
   flushPendingSync: () => void;
   retrySync: () => void;
   /** Settings Reset — localStorage + in-memory notes 초기화 */
   resetAllNotes: () => void;
   /** K-96B — hydrate notes from IndexedDB (or localStorage fallback) once at startup */
-  initNotesStorage: () => Promise<void>;
+  initNotesStorage: (accountId?: string) => Promise<void>;
+  /** Detach runtime memory on sign-out or account switch without deleting account data. */
+  detachNotesStorage: () => void;
 }
 
 // ── 노트별 body debounce (리렌더 불필요) ───────────────────────────
@@ -233,6 +257,7 @@ interface LocalCoreJsonRestoreAuthorityRecord {
   readonly namespace: string;
   readonly operationEpoch: number;
   readonly purpose: LocalCoreJsonRestorePurpose;
+  readonly recoveryContext?: NotesAccountRecoveryContext;
   state: LocalCoreJsonRestoreAuthorityState;
 }
 
@@ -243,6 +268,7 @@ interface LocalCoreJsonRestoreAuthorityBinding {
   readonly snapshotFolders: unknown;
   readonly operationEpoch: number;
   readonly namespace?: string;
+  readonly recoveryContext?: NotesAccountRecoveryContext;
 }
 
 interface LocalCoreJsonRestoreAuthorities {
@@ -282,6 +308,10 @@ function validRestoreNotes(value: unknown): value is readonly Note[] {
   return diagnoseRestoreNotes(value) === null;
 }
 
+function validRestoreSnapshotNotes(value: unknown): value is readonly Note[] {
+  return Array.isArray(value) && (value.length === 0 || validRestoreNotes(value));
+}
+
 function validRestoreFolders(value: unknown): value is readonly NoteFolder[] {
   if (!Array.isArray(value)) return false;
   const ids = new Set<string>();
@@ -306,8 +336,11 @@ function createLocalCoreJsonRestoreAuthority(
   const notesDigest = localCoreJsonRestoreDigest(binding.notes);
   const foldersDigest = localCoreJsonRestoreDigest(binding.folders);
   const snapshotDigest = localCoreJsonRestoreDigest([binding.snapshotNotes, binding.snapshotFolders]);
-  if (!validRestoreNotes(binding.notes) || !validRestoreFolders(binding.folders)
-    || !validRestoreNotes(binding.snapshotNotes) || !validRestoreFolders(binding.snapshotFolders)
+  const validAuthorityNotes = purpose === 'rollback'
+    ? validRestoreSnapshotNotes(binding.notes)
+    : validRestoreNotes(binding.notes);
+  if (!validAuthorityNotes || !validRestoreFolders(binding.folders)
+    || !validRestoreSnapshotNotes(binding.snapshotNotes) || !validRestoreFolders(binding.snapshotFolders)
     || !notesDigest || !foldersDigest || !snapshotDigest
     || !Number.isSafeInteger(binding.operationEpoch) || binding.operationEpoch < 1
     || (binding.namespace !== undefined && binding.namespace.trim().length === 0)) return null;
@@ -319,6 +352,7 @@ function createLocalCoreJsonRestoreAuthority(
     namespace: binding.namespace ?? LOCAL_CORE_JSON_RESTORE_NAMESPACE,
     operationEpoch: binding.operationEpoch,
     purpose,
+    recoveryContext: binding.recoveryContext,
     state: 'ready',
   });
   return authority;
@@ -334,13 +368,18 @@ function validateRestorePayload(
   expectedNamespace = LOCAL_CORE_JSON_RESTORE_NAMESPACE,
 ): boolean {
   const record = authorityRecord(capability);
+  const validAuthorityNotes = purpose === 'rollback'
+    ? validRestoreSnapshotNotes(notes)
+    : validRestoreNotes(notes);
   return Boolean(record && record.state === 'ready' && record.purpose === purpose
     && record.namespace === expectedNamespace
+    && (purpose === 'rollback' || !record.recoveryContext || isNotesAccountRecoveryContextActive(record.recoveryContext))
     && isOperationEpochCurrent(record.operationEpoch)
     && localCoreJsonRestoreDigest(notes) === record.notesDigest
     && localCoreJsonRestoreDigest(folders) === record.foldersDigest
     && localCoreJsonRestoreDigest([snapshotNotes, snapshotFolders]) === record.snapshotDigest
-    && validRestoreNotes(notes) && validRestoreFolders(folders));
+    && validAuthorityNotes && validRestoreFolders(folders)
+    && validRestoreSnapshotNotes(snapshotNotes));
 }
 
 function validateRestoreFolders(
@@ -367,6 +406,7 @@ function diagnoseRestoreFolders(
   if (record.state !== 'notes_write_started') return 'LIFECYCLE_STATE';
   if (record.purpose !== purpose) return 'PURPOSE_MISMATCH';
   if (record.namespace !== expectedNamespace) return 'NAMESPACE_MISMATCH';
+  if (purpose === 'restore' && record.recoveryContext && !isNotesAccountRecoveryContextActive(record.recoveryContext)) return 'STALE_EPOCH';
   if (!isOperationEpochCurrent(record.operationEpoch)) return 'STALE_EPOCH';
   if (localCoreJsonRestoreDigest(folders) !== record.foldersDigest
     || localCoreJsonRestoreDigest([snapshotNotes, snapshotFolders]) !== record.snapshotDigest) return 'PAYLOAD_DIGEST_MISMATCH';
@@ -382,6 +422,7 @@ function completeRestoreAuthority(
   const record = authorityRecord(capability);
   if (!record || record.state !== 'notes_write_started' || record.purpose !== purpose
     || record.namespace !== expectedNamespace || !isOperationEpochCurrent(record.operationEpoch)) return false;
+  if (purpose === 'restore' && record.recoveryContext && !isNotesAccountRecoveryContextActive(record.recoveryContext)) return false;
   record.state = 'complete';
   return true;
 }
@@ -398,12 +439,24 @@ async function saveAuthorizedRestoreNotes(
   expectedNamespace = LOCAL_CORE_JSON_RESTORE_NAMESPACE,
 ): Promise<boolean> {
   const record = authorityRecord(capability);
+  const accountScoped = getNotesPersistenceMode() === 'accountScoped';
+  const validAuthorityNotes = purpose === 'rollback'
+    ? validRestoreSnapshotNotes(notes)
+    : validRestoreNotes(notes);
   if (!record || record.state !== 'ready' || record.purpose !== purpose
     || !isOperationEpochCurrent(record.operationEpoch)
     || record.namespace !== expectedNamespace
-    || !mayWriteLegacyNotes()
-    || localCoreJsonRestoreDigest(notes) !== record.notesDigest || !validRestoreNotes(notes)) return false;
+    || (!accountScoped && !mayWriteLegacyNotes())
+    || (purpose === 'restore' && record.recoveryContext && !isNotesAccountRecoveryContextActive(record.recoveryContext))
+    || localCoreJsonRestoreDigest(notes) !== record.notesDigest || !validAuthorityNotes) return false;
   record.state = 'notes_write_started';
+  // Account-scoped recovery must use the same authority as normal account
+  // persistence. It must never clear or repurpose the legacy global database.
+  if (accountScoped) {
+    if (!record.recoveryContext) return false;
+    const saved = await saveNotesForRecoveryContext(record.recoveryContext, notes);
+    return saved && (purpose === 'rollback' || isNotesAccountRecoveryContextActive(record.recoveryContext));
+  }
   if (getNotesPersistenceMode() === 'localStorage') {
     try {
       localStorage.setItem(NOTES_KEY, JSON.stringify(notes));
@@ -449,6 +502,32 @@ async function saveAuthorizedRestoreNotes(
   } finally {
     db?.close();
   }
+}
+
+function saveAuthorizedRestoreFolders(
+  folders: readonly NoteFolder[],
+  capability: unknown,
+  purpose: LocalCoreJsonRestorePurpose,
+): boolean {
+  const record = authorityRecord(capability);
+  if (!record || record.state !== 'notes_write_started' || record.purpose !== purpose) return false;
+  if (record.recoveryContext) {
+    if (purpose === 'restore' && !isNotesAccountRecoveryContextActive(record.recoveryContext)) return false;
+    return saveFoldersForRecoveryContext(record.recoveryContext, folders);
+  }
+  return saveFolders(folders as NoteFolder[]);
+}
+
+async function loadAuthorizedRestoreNotes(capability: unknown): Promise<Note[]> {
+  const record = authorityRecord(capability);
+  if (record?.recoveryContext) return loadNotesForRecoveryContext(record.recoveryContext) as Promise<Note[]>;
+  return loadNotesAsync() as Promise<Note[]>;
+}
+
+function loadAuthorizedRestoreFolders(capability: unknown): NoteFolder[] {
+  const record = authorityRecord(capability);
+  if (record?.recoveryContext) return loadFoldersForRecoveryContext(record.recoveryContext) as NoteFolder[];
+  return loadFolders();
 }
 
 async function withLocalCoreJsonRestoreAuthorities<T>(
@@ -529,14 +608,14 @@ async function persistAndVerifyRestoreState(
       previous.notes,
       previous.folders,
     )) throw new Error('restore_authority_folders');
-    if (!saveFolders(expected.folders)) throw new Error('folders_write:rejected');
+    if (!saveAuthorizedRestoreFolders(expected.folders, authorities.restore, 'restore')) throw new Error('folders_write:rejected');
 
     stage = 'notes_readback';
-    const persistedNotes = await loadNotesAsync();
+    const persistedNotes = await loadAuthorizedRestoreNotes(authorities.restore);
     if (!sameDurablePayload(expected.notes, persistedNotes)) throw new Error('notes_readback:mismatch');
 
     stage = 'folders_readback';
-    const persistedFolders = loadFolders();
+    const persistedFolders = loadAuthorizedRestoreFolders(authorities.restore);
     if (!sameDurablePayload(expected.folders, persistedFolders)) throw new Error('folders_readback:mismatch');
     if (!completeRestoreAuthority(authorities.restore, 'restore')) throw new Error('restore_authority_complete');
 
@@ -560,9 +639,9 @@ async function persistAndVerifyRestoreState(
         previous.notes,
         previous.folders,
       )) throw new Error('rollback_authority_folders');
-      if (!rollbackNotes || !saveFolders(previous.folders)) throw new Error('rollback_write');
-      const readbackNotes = await loadNotesAsync();
-      const readbackFolders = loadFolders();
+      if (!rollbackNotes || !saveAuthorizedRestoreFolders(previous.folders, authorities.rollback, 'rollback')) throw new Error('rollback_write');
+      const readbackNotes = await loadAuthorizedRestoreNotes(authorities.rollback);
+      const readbackFolders = loadAuthorizedRestoreFolders(authorities.rollback);
       rollbackVerified = sameDurablePayload(previous.notes, readbackNotes)
         && sameDurablePayload(previous.folders, readbackFolders);
       if (rollbackVerified && !completeRestoreAuthority(authorities.rollback, 'rollback')) rollbackVerified = false;
@@ -626,6 +705,7 @@ function mapDbNote(
     deleted_at?: number | null;
     starred?: boolean;
     properties?: Record<string, string> | null;
+    relations?: Record<string, string[]> | null;
   },
   local: Note | undefined,
 ): Note {
@@ -646,11 +726,16 @@ function mapDbNote(
     properties: localIsNewer
       ? normalizeNoteProperties(local.properties)
       : normalizeNoteProperties(n.properties ?? local?.properties),
+    relations: localIsNewer
+      ? local.relations
+      : (n.relations ?? local?.relations),
   };
 }
 
-const initialNotes = loadNotes();
-const initialFolders = loadFolders();
+// Legacy browser-global Notes/Folders are intentionally never exposed before
+// an authenticated account authority has loaded its own namespace.
+const initialNotes: Note[] = [];
+const initialFolders: NoteFolder[] = [];
 knowledgeIndexService.buildFromNotes(initialNotes);
 
 function rebuildKnowledgeIndex(notes: Note[]) {
@@ -857,7 +942,10 @@ export const useNotesStore = create<NotesState>((set, get) => {
   return {
     notes: initialNotes,
     folders: initialFolders,
-    activeNoteId: loadActiveNoteId(initialNotes),
+    activeNoteId: null,
+    activeAccountId: null,
+    notesAuthorityState: 'NOT_LOADED',
+    foldersAuthorityState: 'NOT_LOADED',
     activeFolderId: null,
     vaultStructureVersion: 0,
     indexContentVersion: 0,
@@ -949,6 +1037,13 @@ export const useNotesStore = create<NotesState>((set, get) => {
         recordRecoveryBlock('restore');
         throw new RecoveryModeBlockedError('restore');
       }
+      const recoveryContext = getNotesPersistenceMode() === 'accountScoped'
+        ? createNotesAccountRecoveryContext() ?? undefined
+        : undefined;
+      if (getNotesPersistenceMode() === 'accountScoped' && !recoveryContext) {
+        recordRecoveryBlock('restore', 'unsafe_replacement');
+        throw new RecoveryModeBlockedError('restore');
+      }
       const verifiedSnapshot = saveVaultRestoreSnapshot(currentNotes, currentFolders);
       const restoreEpoch = captureOperationEpoch();
       const beforeIds = new Set(currentNotes.map(n => n.id));
@@ -968,7 +1063,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
         ? appliedRestore.folders.filter(folder => manifestFolderIds.has(folder.id))
         : appliedRestore.folders;
       const { result } = appliedRestore;
-      const authorizedRestore = withLocalCoreJsonRestoreAuthorities(
+      const authorizedRestore: Promise<{ notes: Note[]; folders: NoteFolder[] } | null> = withLocalCoreJsonRestoreAuthorities(
         authorizationInput,
         {
           notes,
@@ -976,6 +1071,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
           snapshotNotes: verifiedSnapshot.notes,
           snapshotFolders: verifiedSnapshot.folders,
           operationEpoch: restoreEpoch,
+          recoveryContext,
         },
         authorities => persistAndVerifyRestoreState(
           { notes, folders },
@@ -988,6 +1084,9 @@ export const useNotesStore = create<NotesState>((set, get) => {
         throw new RecoveryModeBlockedError('restore');
       }
       return authorizedRestore.then(persisted => {
+        if (recoveryContext && !isNotesAccountRecoveryContextActive(recoveryContext)) {
+          throw new RecoveryModeBlockedError('restore');
+        }
         if (!persisted) {
           recordRecoveryBlock('restore', 'unsafe_replacement');
           throw new RecoveryModeBlockedError('restore');
@@ -1017,6 +1116,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
         }
         return result;
       }, error => {
+        if (recoveryContext && !isNotesAccountRecoveryContextActive(recoveryContext)) throw error;
         set({
           vaultRestoreCanUndo: false,
           syncError: error instanceof VaultRestoreDurabilityError && !error.rollbackVerified
@@ -1361,6 +1461,60 @@ export const useNotesStore = create<NotesState>((set, get) => {
       await get().hydrateFromDB({ mode: 'recovery' });
     },
 
+    bootstrapFromSupabase: async () => {
+      const context = createNotesAccountRecoveryContext();
+      if (!context) return;
+      set({ isSyncing: true });
+      try {
+        const accountId = getActiveNotesAuthorityAccountId();
+        if (!accountId) throw new Error('notes_bootstrap_account_missing');
+        const remote = await fetchCompleteNotesFoldersSnapshot(accountId);
+        if (!isNotesAccountRecoveryContextActive(context)) throw new Error('notes_bootstrap_stale');
+        const previousNotes = await loadNotesForRecoveryContext(context);
+        const previousFolders = loadFoldersForRecoveryContext(context);
+        // Absence is not deletion evidence. Even a complete remote snapshot
+        // must not remove a proven local row unless its explicit tombstone is
+        // present in the response.
+        const remoteNoteIds = new Set(remote.notes.map(note => note.id));
+        const remoteFolderIds = new Set(remote.folders.map(folder => folder.id));
+        if (previousNotes.some(note => !remoteNoteIds.has(note.id))
+          || previousFolders.some(folder => !remoteFolderIds.has(folder.id))) {
+          throw new Error('notes_bootstrap_missing_remote_row_preserved_local');
+        }
+        const notes = remote.notes.map(row => mapDbNote(row, undefined));
+        const folders = remote.folders.map(mapDbFolder);
+        const applied = await applyNotesFoldersForRecoveryContext(
+          context, previousNotes, previousFolders, notes, folders,
+        );
+        if (!applied.applied) {
+          throw new Error(applied.rollbackVerified
+            ? 'notes_bootstrap_apply_failed'
+            : 'notes_bootstrap_recovery_required');
+        }
+        if (!isNotesAccountRecoveryContextActive(context)) throw new Error('notes_bootstrap_stale');
+        const previousActive = get().activeNoteId;
+        const nextActive = notes.some(note => note.id === previousActive && !note.deletedAt)
+          ? previousActive : (notes.find(note => !note.deletedAt)?.id ?? null);
+        set({
+          notes,
+          folders,
+          activeNoteId: nextActive,
+          notesAuthorityState: notes.length === 0 ? 'LOADED_EMPTY' : 'LOADED_POPULATED',
+          foldersAuthorityState: folders.length === 0 ? 'LOADED_EMPTY' : 'LOADED_POPULATED',
+          vaultStructureVersion: get().vaultStructureVersion + 1,
+          syncError: null,
+        });
+        saveActiveNoteId(nextActive);
+        rebuildKnowledgeIndex(notes);
+      } catch (error) {
+        if (isNotesAccountRecoveryContextActive(context)) {
+          set({ syncError: error instanceof Error ? error.message : 'notes_bootstrap_failed' });
+        }
+      } finally {
+        if (isNotesAccountRecoveryContextActive(context)) set({ isSyncing: false });
+      }
+    },
+
     syncNoteToDB,
     flushPendingSync,
     retrySync: () => {
@@ -1399,26 +1553,77 @@ export const useNotesStore = create<NotesState>((set, get) => {
       });
     },
 
-    initNotesStorage: async () => {
-      const result = await initNotesPersistence();
+    initNotesStorage: async (accountId) => {
+      const request = accountId?.trim() ? activateNotesAccountAuthority(accountId) : null;
+      let result;
+      try {
+        result = await initNotesPersistence(accountId, request ?? undefined);
+      } catch (error) {
+        if (request && !isNotesAuthorityRequestActive(request)) return;
+        set({
+          notes: [],
+          folders: [],
+          activeNoteId: null,
+          activeAccountId: accountId?.trim() || null,
+          notesAuthorityState: 'RECOVERY_REQUIRED',
+          foldersAuthorityState: 'RECOVERY_REQUIRED',
+          syncError: error instanceof Error ? error.message : LOCAL_NOTES_SAVE_ERROR,
+        });
+        rebuildKnowledgeIndex([]);
+        throw error;
+      }
+      if (result.accountId && (result.requestGeneration === undefined
+        || !isNotesAuthorityRequestActive({ accountId: result.accountId, generation: result.requestGeneration }))) return;
+      // The unauthenticated compatibility path retains its legacy merge for
+      // existing tests and migration tooling. Authenticated runtime calls pass
+      // an account id and intentionally never merge across account memory.
       const currentNotes = get().notes;
-      const notes = currentNotes.length > 0
-        ? mergeNoteArrays(result.notes, currentNotes)
-        : result.notes;
-      const prevActive = get().activeNoteId;
-      const stillValid = notes.some(n => n.id === prevActive);
-      const nextActive = stillValid ? prevActive : loadActiveNoteId(notes);
+      const notes = result.accountId
+        ? result.notes
+        : (currentNotes.length > 0 ? mergeNoteArrays(result.notes, currentNotes) : result.notes);
+      const folders = loadFolders();
+      const previousActive = get().activeNoteId;
+      const nextActive = result.accountId
+        ? loadActiveNoteId(notes)
+        : (notes.some(note => note.id === previousActive) ? previousActive : loadActiveNoteId(notes));
       set({
         notes,
+        folders,
         activeNoteId: nextActive,
+        activeAccountId: result.accountId ?? null,
+        notesAuthorityState: result.notesAuthorityState?.state ?? 'NOT_LOADED',
+        foldersAuthorityState: result.foldersAuthorityState?.state ?? 'NOT_LOADED',
         vaultStructureVersion: get().vaultStructureVersion + 1,
         syncError: result.fallbackError ?? get().syncError,
       });
-      if (notes.length !== result.notes.length || currentNotes.length > 0) {
+      if (!result.accountId && (notes.length !== result.notes.length || currentNotes.length > 0)) {
         persistNotes(notes);
       }
       rebuildKnowledgeIndex(notes);
-      if (nextActive !== prevActive) saveActiveNoteId(nextActive);
+      saveActiveNoteId(nextActive);
+    },
+
+    detachNotesStorage: () => {
+      clearAllBodySyncTimers();
+      pendingBodySync.clear();
+      lastFailedNote = null;
+      lastFailedDeleteId = null;
+      detachNotesPersistenceAccount();
+      set({
+        notes: [],
+        folders: [],
+        activeNoteId: null,
+        activeFolderId: null,
+        activeAccountId: null,
+        notesAuthorityState: 'NOT_LOADED',
+        foldersAuthorityState: 'NOT_LOADED',
+        syncError: null,
+        isSyncing: false,
+        savedAt: null,
+        vaultStructureVersion: get().vaultStructureVersion + 1,
+        indexContentVersion: 0,
+      });
+      rebuildKnowledgeIndex([]);
     },
 
     resetAllNotes: () => {
@@ -1456,6 +1661,9 @@ let applyingStorageMerge = false;
 
 function applyStorageMerge(key: string | null, newValue: string | null) {
   if (!key || applyingStorageMerge) return;
+  // Account-scoped Notes/Folders never consume events from the legacy global
+  // browser keys or their previous IndexedDB revision signal.
+  if (isNotesAccountAuthorityActive()) return;
   if ((isNotesIndexedDbRevisionEvent(key) || key === NOTES_KEY || key === FOLDERS_KEY)
     && (!mayApplyCrossTabMutation() || !mayWriteLegacyNotes())) {
     recordRecoveryBlock('cross_tab_mutation');

@@ -1,10 +1,11 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import useSWR, { useSWRConfig } from 'swr';
 import { fetcher } from '../../../../../lib/fetcher';
 import { API_URL } from '../../../../../lib/config';
 import { remoteSWRKey } from '../../../../../lib/remoteBoundary';
 import { shouldUseRemoteData } from '../../../../../lib/remoteBoundary';
 import { readLocalHealthProtein } from '../../../../../lib/healthLocalRuntime';
+import { HEALTH_LOCAL_BOOTSTRAP_COMPLETE_EVENT } from '../../../../../lib/healthSupabaseBootstrap';
 import type { ProteinIntakeLog, ProteinProfile, ProteinSource } from '../../../../../types';
 import {
   computeProteinProgress,
@@ -108,6 +109,13 @@ export function useProteinData(
     ([, ownerId, selectedDateKey, startDate]) => readLocalHealthProtein(ownerId, selectedDateKey, startDate, selectedDateKey),
     { revalidateOnFocus: false },
   );
+
+  useEffect(() => {
+    if (!localMode) return undefined;
+    const refresh = () => { void mutateLocal(); };
+    window.addEventListener(HEALTH_LOCAL_BOOTSTRAP_COMPLETE_EVENT, refresh);
+    return () => window.removeEventListener(HEALTH_LOCAL_BOOTSTRAP_COMPLETE_EVENT, refresh);
+  }, [localMode, mutateLocal]);
 
   const localWeeklyData = useMemo(() => {
     if (!localData) return undefined;
