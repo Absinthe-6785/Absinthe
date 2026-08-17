@@ -28,6 +28,7 @@ import {
   loadNotesAsync,
   saveNotesAsync,
   saveNotesSyncResult,
+  setCachedNotes,
   getNotesPersistenceMode,
   isNotesIndexedDbRevisionEvent,
   clearNotesPersistence,
@@ -47,7 +48,18 @@ import {
   loadNotesForRecoveryContext,
   loadFoldersForRecoveryContext,
   applyNotesFoldersForRecoveryContext,
+  USER_INITIATED_SINGLE_NOTE_DELETE,
+  prepareNotesSingleDelete,
+  beginNotesSingleDelete,
+  confirmNotesSingleRemoteDelete,
+  commitNotesSingleDelete,
+  abortNotesSingleDelete,
+  reconcileNotesSingleDeletesForBootstrap,
+  completeNotesSingleDeleteBootstrapReconciliation,
+  validateNotesSingleDeleteTarget,
+  type NotesSingleDeleteAuthorization,
 } from '../lib/notesAccountAuthority';
+import { deleteSingleRemoteNote } from '../lib/notesSingleDeleteRemote';
 import {
   type NoteBase as Note,
   type NoteFolderBase as NoteFolder,
@@ -167,8 +179,9 @@ interface NotesState {
   duplicateNote: (note: Note) => string;
   moveNoteToTrash: (id: string) => void;
   restoreNote: (id: string) => void;
-  permanentDeleteNote: (id: string) => void;
-  deleteNotePermanently: (id: string) => void;
+  prepareNotePermanentDelete: (id: string) => NotesSingleDeleteAuthorization | null;
+  permanentDeleteNote: (authorization: NotesSingleDeleteAuthorization) => Promise<boolean>;
+  deleteNotePermanently: (authorization: NotesSingleDeleteAuthorization) => Promise<boolean>;
   emptyTrash: () => void;
   createFolder: (name: string) => string;
   renameFolder: (id: string, name: string) => void;
@@ -1248,16 +1261,72 @@ export const useNotesStore = create<NotesState>((set, get) => {
       }
     },
 
-    permanentDeleteNote: (id) => {
-      get().deleteNotePermanently(id);
+    prepareNotePermanentDelete: (id) => {
+      const state = get();
+      const accountId = state.activeAccountId;
+      const note = state.notes.find(candidate => candidate.id === id);
+      if (!accountId || !note?.deletedAt) {
+        set({ syncError: 'Permanent delete requires one trashed Note in the active account.' });
+        return null;
+      }
+      const authorization = prepareNotesSingleDelete({
+        operation: USER_INITIATED_SINGLE_NOTE_DELETE,
+        accountId,
+        note,
+        explicitUserAction: true,
+      });
+      if (!authorization) {
+        set({ syncError: 'Permanent delete authorization could not be established.' });
+      }
+      return authorization;
     },
 
-    deleteNotePermanently: (id) => {
-      if (!mayEmptyTrash()) {
-        recordRecoveryBlock('empty_trash');
-        set({ syncError: RECOVERY_MODE_MESSAGE });
-        return;
+    permanentDeleteNote: async (authorization) => get().deleteNotePermanently(authorization),
+
+    deleteNotePermanently: async (authorization) => {
+      const begun = await beginNotesSingleDelete(authorization);
+      if (!begun) {
+        set({ syncError: 'Permanent delete was blocked because its account or operation context is stale.' });
+        return false;
       }
+      const beforeRemote = validateNotesSingleDeleteTarget(
+        authorization,
+        begun.accountId,
+        get().notes.find(note => note.id === begun.noteId),
+      );
+      if (!beforeRemote.valid) {
+        abortNotesSingleDelete(authorization);
+        set({ syncError: `Permanent delete was not completed (${beforeRemote.reason}). The Note was kept.` });
+        return false;
+      }
+      const remote = await deleteSingleRemoteNote(authorization, begun.accountId, begun.noteId);
+      if (!remote.ok) {
+        if (remote.outcome === 'confirmed_not_deleted') abortNotesSingleDelete(authorization);
+        set({ syncError: remote.outcome === 'ambiguous'
+          ? 'Permanent delete could not be confirmed; it will be reconciled safely. The Note was kept.'
+          : `Permanent delete failed (${remote.error}). The Note was kept.` });
+        return false;
+      }
+      if (!confirmNotesSingleRemoteDelete(authorization)) {
+        set({ syncError: 'Permanent delete stopped after the remote response became stale. The local Note was kept.' });
+        return false;
+      }
+      const commit = await commitNotesSingleDelete(
+        authorization,
+        () => validateNotesSingleDeleteTarget(
+          authorization,
+          begun.accountId,
+          get().notes.find(note => note.id === begun.noteId),
+        ),
+      );
+      if (commit.status !== 'COMMITTED') {
+        set({ syncError: commit.status === 'CONFLICT'
+          ? `Permanent delete was not completed (${commit.reason}). The newer or restored Note was kept.`
+          : 'Permanent delete could not be verified in local durable storage. The visible Note was kept.' });
+        return false;
+      }
+
+      const id = begun.noteId;
       const removedIds = new Set([id]);
       for (const removedId of removedIds) {
         clearBodySyncTimer(removedId);
@@ -1278,11 +1347,13 @@ export const useNotesStore = create<NotesState>((set, get) => {
         activeNoteId: nextActive,
         vaultStructureVersion: get().vaultStructureVersion + 1,
         indexContentVersion: get().indexContentVersion + 1,
+        syncError: null,
+        savedAt: new Date(),
       });
-      persistNotes(notes);
+      setCachedNotes(notes);
       saveActiveNoteId(nextActive);
       invalidateNoteGalaxyMapCache();
-      void removeNoteFromDB(id);
+      return true;
     },
 
     emptyTrash: () => {
@@ -1477,11 +1548,22 @@ export const useNotesStore = create<NotesState>((set, get) => {
         // present in the response.
         const remoteNoteIds = new Set(remote.notes.map(note => note.id));
         const remoteFolderIds = new Set(remote.folders.map(folder => folder.id));
-        if (previousNotes.some(note => !remoteNoteIds.has(note.id))
+        const deleteReconciliation = reconcileNotesSingleDeletesForBootstrap(accountId, remoteNoteIds, previousNotes);
+        if (previousNotes.some(note => !remoteNoteIds.has(note.id)
+          && !deleteReconciliation.authorizedMissingNoteIds.has(note.id)
+          && !deleteReconciliation.preservedConflictNoteIds.has(note.id))
           || previousFolders.some(folder => !remoteFolderIds.has(folder.id))) {
           throw new Error('notes_bootstrap_missing_remote_row_preserved_local');
         }
-        const notes = remote.notes.map(row => mapDbNote(row, undefined));
+        const preservedConflictIds = deleteReconciliation.preservedConflictNoteIds;
+        const previousById = new Map(previousNotes.map(note => [note.id, note]));
+        const notes = remote.notes.map(row => {
+          const preserved = preservedConflictIds.has(row.id) ? previousById.get(row.id) : undefined;
+          return preserved ?? mapDbNote(row, undefined);
+        });
+        for (const note of previousNotes) {
+          if (preservedConflictIds.has(note.id) && !remoteNoteIds.has(note.id)) notes.push(note);
+        }
         const folders = remote.folders.map(mapDbFolder);
         const applied = await applyNotesFoldersForRecoveryContext(
           context, previousNotes, previousFolders, notes, folders,
@@ -1492,6 +1574,9 @@ export const useNotesStore = create<NotesState>((set, get) => {
             : 'notes_bootstrap_recovery_required');
         }
         if (!isNotesAccountRecoveryContextActive(context)) throw new Error('notes_bootstrap_stale');
+        if (!completeNotesSingleDeleteBootstrapReconciliation(deleteReconciliation.markersToClear)) {
+          throw new Error('notes_single_delete_marker_clear_failed');
+        }
         const previousActive = get().activeNoteId;
         const nextActive = notes.some(note => note.id === previousActive && !note.deletedAt)
           ? previousActive : (notes.find(note => !note.deletedAt)?.id ?? null);
@@ -1502,7 +1587,9 @@ export const useNotesStore = create<NotesState>((set, get) => {
           notesAuthorityState: notes.length === 0 ? 'LOADED_EMPTY' : 'LOADED_POPULATED',
           foldersAuthorityState: folders.length === 0 ? 'LOADED_EMPTY' : 'LOADED_POPULATED',
           vaultStructureVersion: get().vaultStructureVersion + 1,
-          syncError: null,
+          syncError: preservedConflictIds.size > 0
+            ? 'Permanent delete conflict was preserved locally and requires explicit resolution.'
+            : null,
         });
         saveActiveNoteId(nextActive);
         rebuildKnowledgeIndex(notes);

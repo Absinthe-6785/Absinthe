@@ -1,4 +1,8 @@
 import type { NoteBase, NoteFolderBase } from '@/components/views/noteUtils';
+import {
+  captureOperationEpoch,
+  isOperationEpochCurrent,
+} from '@/lib/recoverySafetyPolicy';
 
 /**
  * Local authority boundary for the Notes core.  This deliberately does not
@@ -39,6 +43,13 @@ export interface NotesAccountRecoveryContext {
   readonly marker: symbol;
 }
 
+/** Opaque, one-shot authority for one explicitly confirmed trashed Note. */
+export interface NotesSingleDeleteAuthorization {
+  readonly marker: symbol;
+}
+
+export const USER_INITIATED_SINGLE_NOTE_DELETE = 'USER_INITIATED_SINGLE_NOTE_DELETE' as const;
+
 export interface AccountScopedNotesSnapshot {
   readonly accountId: string;
   readonly requestGeneration: number;
@@ -56,6 +67,7 @@ const STATE_KEY_PREFIX = 'absinthe.notes.account-authority.state.v1';
 const FOLDERS_KEY_PREFIX = 'absinthe.notes.account-authority.folders.v1';
 const BOOTSTRAP_PENDING_KEY_PREFIX = 'absinthe.notes.account-authority.bootstrap-pending.v1';
 const ACTIVE_KEY_PREFIX = 'absinthe.notes.account-authority.active.v1';
+const SINGLE_DELETE_KEY_PREFIX = 'absinthe.notes.account-authority.single-delete.v1';
 const LEGACY_NOTES_KEY = 'notes-v2';
 const LEGACY_FOLDERS_KEY = 'note-folders-v2';
 
@@ -92,6 +104,50 @@ interface NotesRecoveryOperation {
   readonly operationId: string;
 }
 
+interface NotesSingleDeleteOperation {
+  request: NotesAuthorityRequest;
+  readonly noteId: string;
+  readonly expectedUpdatedAt: number;
+  readonly expectedDeletedAt: number;
+  readonly operationEpoch: number;
+  state: 'prepared' | 'pending' | 'confirmed' | 'completed';
+}
+
+export type NotesSingleDeleteConflictReason =
+  | 'STALE_REVISION'
+  | 'RESTORED_DURING_DELETE'
+  | 'ACCOUNT_GENERATION_CHANGED'
+  | 'OPERATION_EPOCH_CHANGED'
+  | 'AUTHORIZATION_CONSUMED'
+  | 'TARGET_NOTE_MISSING';
+
+export type NotesSingleDeleteTargetValidation =
+  | { readonly valid: true }
+  | { readonly valid: false; readonly reason: NotesSingleDeleteConflictReason };
+
+interface NotesSingleDeleteMarker {
+  readonly accountId: string;
+  readonly noteId: string;
+  readonly expectedUpdatedAt: number;
+  readonly expectedDeletedAt: number;
+  readonly requestGeneration: number;
+  readonly operationEpoch: number;
+  readonly state: 'REMOTE_DELETE_PENDING' | 'REMOTE_DELETE_CONFIRMED' | 'REMOTE_DELETE_CONFLICT';
+  readonly conflictReason?: NotesSingleDeleteConflictReason;
+  readonly startedAt: number;
+}
+
+export interface NotesSingleDeleteBootstrapReconciliation {
+  readonly authorizedMissingNoteIds: ReadonlySet<string>;
+  readonly preservedConflictNoteIds: ReadonlySet<string>;
+  readonly markersToClear: readonly NotesSingleDeleteMarker[];
+}
+
+export type NotesSingleDeleteCommitResult =
+  | { readonly status: 'COMMITTED' }
+  | { readonly status: 'CONFLICT'; readonly reason: NotesSingleDeleteConflictReason }
+  | { readonly status: 'FAILED'; readonly reason: NotesSingleDeleteConflictReason };
+
 let activeRequest: NotesAuthorityRequest | null = null;
 let nextRequestGeneration = 0;
 let nextRecoveryOperation = 0;
@@ -104,6 +160,9 @@ type BootstrapApplyStage =
 let testBootstrapStageOverride: ((stage: BootstrapApplyStage) => void | Promise<void>) | null = null;
 const NOTES_ACCOUNT_RECOVERY_CONTEXT = Symbol('notes-account-recovery-context');
 const recoveryContexts = new WeakMap<object, NotesRecoveryOperation>();
+const NOTES_SINGLE_DELETE_AUTHORIZATION = Symbol('notes-single-delete-authorization');
+const singleDeleteOperations = new WeakMap<object, NotesSingleDeleteOperation>();
+const accountMutationTails = new Map<string, Promise<void>>();
 
 type ScopedReadResult<T> =
   | { readonly kind: 'absent' }
@@ -126,6 +185,147 @@ function storageKey(prefix: string, accountId: string, domain?: NotesAuthorityDo
 
 function noteKey(accountId: string, noteId: string): string {
   return `${accountToken(accountId)}\u0000${noteId}`;
+}
+
+function singleDeleteKey(accountId: string, noteId: string): string {
+  return `${SINGLE_DELETE_KEY_PREFIX}:${accountToken(accountId)}:${encodeURIComponent(noteId)}`;
+}
+
+function singleDeletePrefix(accountId: string): string {
+  return `${SINGLE_DELETE_KEY_PREFIX}:${accountToken(accountId)}:`;
+}
+
+async function runAccountMutationExclusive<T>(accountId: string, action: () => Promise<T>): Promise<T> {
+  const normalized = normalizedAccountId(accountId);
+  const previous = accountMutationTails.get(normalized) ?? Promise.resolve();
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const tail = previous.catch(() => undefined).then(() => gate);
+  accountMutationTails.set(normalized, tail);
+  await previous.catch(() => undefined);
+  try {
+    return await action();
+  } finally {
+    release();
+    if (accountMutationTails.get(normalized) === tail) accountMutationTails.delete(normalized);
+  }
+}
+
+function validSingleDeleteMarker(value: unknown, accountId: string, storageKey: string): value is NotesSingleDeleteMarker {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const marker = value as Partial<NotesSingleDeleteMarker>;
+  const baseKeys = [
+    'accountId', 'expectedDeletedAt', 'expectedUpdatedAt', 'noteId',
+    'operationEpoch', 'requestGeneration', 'startedAt', 'state',
+  ];
+  const expectedKeys = marker.state === 'REMOTE_DELETE_CONFLICT'
+    ? [...baseKeys, 'conflictReason']
+    : baseKeys;
+  if (Object.keys(value).sort().join(',') !== expectedKeys.sort().join(',')) return false;
+  return marker.accountId === normalizedAccountId(accountId)
+    && typeof marker.noteId === 'string' && marker.noteId.trim().length > 0
+    && storageKey === singleDeleteKey(accountId, marker.noteId)
+    && typeof marker.expectedUpdatedAt === 'number' && Number.isFinite(marker.expectedUpdatedAt)
+    && typeof marker.expectedDeletedAt === 'number' && Number.isFinite(marker.expectedDeletedAt)
+    && Number.isSafeInteger(marker.requestGeneration) && (marker.requestGeneration as number) > 0
+    && Number.isSafeInteger(marker.operationEpoch) && (marker.operationEpoch as number) > 0
+    && (marker.state === 'REMOTE_DELETE_PENDING' || marker.state === 'REMOTE_DELETE_CONFIRMED'
+      || marker.state === 'REMOTE_DELETE_CONFLICT')
+    && (marker.state !== 'REMOTE_DELETE_CONFLICT' || marker.conflictReason === 'STALE_REVISION'
+      || marker.conflictReason === 'RESTORED_DURING_DELETE'
+      || marker.conflictReason === 'ACCOUNT_GENERATION_CHANGED'
+      || marker.conflictReason === 'OPERATION_EPOCH_CHANGED'
+      || marker.conflictReason === 'AUTHORIZATION_CONSUMED'
+      || marker.conflictReason === 'TARGET_NOTE_MISSING')
+    && typeof marker.startedAt === 'number' && Number.isFinite(marker.startedAt) && marker.startedAt > 0;
+}
+
+function sameSingleDeleteMarker(left: NotesSingleDeleteMarker, right: NotesSingleDeleteMarker): boolean {
+  return left.accountId === right.accountId
+    && left.noteId === right.noteId
+    && left.expectedUpdatedAt === right.expectedUpdatedAt
+    && left.expectedDeletedAt === right.expectedDeletedAt
+    && left.requestGeneration === right.requestGeneration
+    && left.operationEpoch === right.operationEpoch
+    && left.state === right.state
+    && left.conflictReason === right.conflictReason
+    && left.startedAt === right.startedAt;
+}
+
+function readSingleDeleteMarker(accountId: string, noteId: string): NotesSingleDeleteMarker | null | 'malformed' {
+  const key = singleDeleteKey(accountId, noteId);
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw === null) return null;
+    const parsed = JSON.parse(raw) as unknown;
+    return validSingleDeleteMarker(parsed, accountId, key) ? parsed : 'malformed';
+  } catch {
+    return 'malformed';
+  }
+}
+
+function listSingleDeleteMarkers(accountId: string): NotesSingleDeleteMarker[] {
+  const prefix = singleDeletePrefix(accountId);
+  const markers: NotesSingleDeleteMarker[] = [];
+  try {
+    const keys: string[] = [];
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index);
+      if (key?.startsWith(prefix)) keys.push(key);
+    }
+    keys.sort();
+    for (const key of keys) {
+      const raw = localStorage.getItem(key);
+      if (raw === null) throw new Error('notes_single_delete_marker_changed');
+      const parsed = JSON.parse(raw) as unknown;
+      if (!validSingleDeleteMarker(parsed, accountId, key)) throw new Error('notes_single_delete_marker_malformed');
+      markers.push(parsed);
+    }
+    return markers;
+  } catch (error) {
+    throw error instanceof Error ? error : new Error('notes_single_delete_marker_malformed');
+  }
+}
+
+function persistSingleDeleteMarker(
+  marker: NotesSingleDeleteMarker,
+  expectedCurrent: NotesSingleDeleteMarker | null,
+): boolean {
+  const key = singleDeleteKey(marker.accountId, marker.noteId);
+  try {
+    const current = readSingleDeleteMarker(marker.accountId, marker.noteId);
+    if (current === 'malformed'
+      || expectedCurrent === null && current !== null
+      || expectedCurrent !== null && (current === null || !sameSingleDeleteMarker(current, expectedCurrent))) return false;
+    localStorage.setItem(key, JSON.stringify(marker));
+    const persisted = readSingleDeleteMarker(marker.accountId, marker.noteId);
+    return persisted !== null && persisted !== 'malformed' && sameSingleDeleteMarker(persisted, marker);
+  } catch {
+    return false;
+  }
+}
+
+function clearSingleDeleteMarker(marker: NotesSingleDeleteMarker): boolean {
+  const current = readSingleDeleteMarker(marker.accountId, marker.noteId);
+  if (current === 'malformed' || current === null || !sameSingleDeleteMarker(current, marker)) return false;
+  try {
+    localStorage.removeItem(singleDeleteKey(marker.accountId, marker.noteId));
+    return readSingleDeleteMarker(marker.accountId, marker.noteId) === null;
+  } catch {
+    return false;
+  }
+}
+
+function persistSingleDeleteConflict(
+  marker: NotesSingleDeleteMarker,
+  reason: NotesSingleDeleteConflictReason,
+): boolean {
+  const conflict: NotesSingleDeleteMarker = {
+    ...marker,
+    state: 'REMOTE_DELETE_CONFLICT',
+    conflictReason: reason,
+  };
+  return persistSingleDeleteMarker(conflict, marker);
 }
 
 function canUseIndexedDb(): boolean {
@@ -354,6 +554,325 @@ export function getActiveNotesAuthorityRequest(): NotesAuthorityRequest | null {
   return activeRequest;
 }
 
+export interface PrepareNotesSingleDeleteInput {
+  readonly operation: typeof USER_INITIATED_SINGLE_NOTE_DELETE;
+  readonly accountId: string;
+  readonly note: NoteBase;
+  readonly explicitUserAction: true;
+}
+
+/**
+ * Prepares one exact Note deletion for an already authenticated account scope.
+ * The returned object carries no transferable data and is valid only once.
+ */
+export function prepareNotesSingleDelete(
+  input: PrepareNotesSingleDeleteInput,
+): NotesSingleDeleteAuthorization | null {
+  if (!input || typeof input !== 'object' || Array.isArray(input)
+    || Object.keys(input).sort().join(',') !== [
+      'accountId', 'explicitUserAction', 'note', 'operation',
+    ].sort().join(',')) return null;
+  const request = getActiveNotesAuthorityRequest();
+  if (!request || input.operation !== USER_INITIATED_SINGLE_NOTE_DELETE
+    || input.explicitUserAction !== true
+    || request.accountId !== input.accountId.trim()
+    || !validNote(input.note)
+    || input.note.deletedAt === null) return null;
+  const authorization = Object.freeze({ marker: NOTES_SINGLE_DELETE_AUTHORIZATION });
+  singleDeleteOperations.set(authorization, {
+    request,
+    noteId: input.note.id,
+    expectedUpdatedAt: input.note.updatedAt,
+    expectedDeletedAt: input.note.deletedAt,
+    operationEpoch: captureOperationEpoch(),
+    state: 'prepared',
+  });
+  return authorization;
+}
+
+export function validateNotesSingleDeleteTarget(
+  authorization: NotesSingleDeleteAuthorization,
+  accountId: string,
+  note: NoteBase | undefined,
+): NotesSingleDeleteTargetValidation {
+  const operation = singleDeleteOperations.get(authorization);
+  if (!operation || operation.state === 'completed') {
+    return { valid: false, reason: 'AUTHORIZATION_CONSUMED' };
+  }
+  let normalized: string;
+  try {
+    normalized = normalizedAccountId(accountId);
+  } catch {
+    return { valid: false, reason: 'ACCOUNT_GENERATION_CHANGED' };
+  }
+  if (operation.request.accountId !== normalized || !isNotesAuthorityRequestActive(operation.request)) {
+    return { valid: false, reason: 'ACCOUNT_GENERATION_CHANGED' };
+  }
+  if (!isOperationEpochCurrent(operation.operationEpoch)) {
+    return { valid: false, reason: 'OPERATION_EPOCH_CHANGED' };
+  }
+  if (!note || note.id !== operation.noteId) {
+    return { valid: false, reason: 'TARGET_NOTE_MISSING' };
+  }
+  if (note.deletedAt === null) {
+    return { valid: false, reason: 'RESTORED_DURING_DELETE' };
+  }
+  if (note.updatedAt !== operation.expectedUpdatedAt || note.deletedAt !== operation.expectedDeletedAt) {
+    return { valid: false, reason: 'STALE_REVISION' };
+  }
+  return { valid: true };
+}
+
+export interface BegunNotesSingleDelete {
+  readonly accountId: string;
+  readonly noteId: string;
+}
+
+/** Binds the prepared action to a fresh generation and durable pending marker. */
+export async function beginNotesSingleDelete(
+  authorization: NotesSingleDeleteAuthorization,
+): Promise<BegunNotesSingleDelete | null> {
+  const operation = singleDeleteOperations.get(authorization);
+  if (!operation || operation.state !== 'prepared'
+    || !isNotesAuthorityRequestActive(operation.request)
+    || !isOperationEpochCurrent(operation.operationEpoch)) return null;
+
+  // Invalidates any older complete-bootstrap context before a remote delete can begin.
+  operation.request = activateNotesAccountAuthority(operation.request.accountId);
+  try {
+    return await runAccountMutationExclusive(operation.request.accountId, async () => {
+      if (!isNotesAuthorityRequestActive(operation.request)
+        || !isOperationEpochCurrent(operation.operationEpoch)) return null;
+      const stored = await readStoredAccountNote(operation.request.accountId, operation.noteId);
+      if (!stored
+        || stored.note.updatedAt !== operation.expectedUpdatedAt
+        || stored.note.deletedAt !== operation.expectedDeletedAt) return null;
+      const marker: NotesSingleDeleteMarker = {
+        accountId: operation.request.accountId,
+        noteId: operation.noteId,
+        expectedUpdatedAt: operation.expectedUpdatedAt,
+        expectedDeletedAt: operation.expectedDeletedAt,
+        requestGeneration: operation.request.generation,
+        operationEpoch: operation.operationEpoch,
+        state: 'REMOTE_DELETE_PENDING',
+        startedAt: Date.now(),
+      };
+      if (!persistSingleDeleteMarker(marker, null)) return null;
+      operation.state = 'pending';
+      return { accountId: operation.request.accountId, noteId: operation.noteId };
+    });
+  } catch {
+    return null;
+  }
+}
+
+export function isNotesSingleDeleteActive(
+  authorization: NotesSingleDeleteAuthorization,
+  accountId: string,
+  noteId: string,
+): boolean {
+  const operation = singleDeleteOperations.get(authorization);
+  return Boolean(operation
+    && (operation.state === 'pending' || operation.state === 'confirmed')
+    && operation.request.accountId === accountId
+    && operation.noteId === noteId
+    && isNotesAuthorityRequestActive(operation.request)
+    && isOperationEpochCurrent(operation.operationEpoch));
+}
+
+export function confirmNotesSingleRemoteDelete(
+  authorization: NotesSingleDeleteAuthorization,
+): boolean {
+  const operation = singleDeleteOperations.get(authorization);
+  if (!operation || operation.state !== 'pending'
+    || !isNotesSingleDeleteActive(authorization, operation.request.accountId, operation.noteId)) return false;
+  const pending = readSingleDeleteMarker(operation.request.accountId, operation.noteId);
+  if (!pending || pending === 'malformed'
+    || pending.state !== 'REMOTE_DELETE_PENDING'
+    || pending.requestGeneration !== operation.request.generation
+    || pending.operationEpoch !== operation.operationEpoch) return false;
+  const confirmed: NotesSingleDeleteMarker = { ...pending, state: 'REMOTE_DELETE_CONFIRMED' };
+  if (!persistSingleDeleteMarker(confirmed, pending)) return false;
+  operation.state = 'confirmed';
+  return true;
+}
+
+export async function commitNotesSingleDelete(
+  authorization: NotesSingleDeleteAuthorization,
+  isCurrentTarget?: () => NotesSingleDeleteTargetValidation,
+): Promise<NotesSingleDeleteCommitResult> {
+  const operation = singleDeleteOperations.get(authorization);
+  if (!operation || operation.state !== 'confirmed') {
+    return { status: 'FAILED', reason: 'AUTHORIZATION_CONSUMED' };
+  }
+  try {
+    return await runAccountMutationExclusive(operation.request.accountId, async () => {
+      if (!isNotesSingleDeleteActive(authorization, operation.request.accountId, operation.noteId)) {
+        return { status: 'FAILED', reason: 'ACCOUNT_GENERATION_CHANGED' };
+      }
+      const marker = readSingleDeleteMarker(operation.request.accountId, operation.noteId);
+      if (!marker || marker === 'malformed' || marker.state !== 'REMOTE_DELETE_CONFIRMED'
+        || marker.requestGeneration !== operation.request.generation
+        || marker.operationEpoch !== operation.operationEpoch) {
+        return { status: 'FAILED', reason: 'AUTHORIZATION_CONSUMED' };
+      }
+      const beforeDelete = isCurrentTarget?.() ?? { valid: true };
+      if (!beforeDelete.valid) {
+        if (!persistSingleDeleteConflict(marker, beforeDelete.reason)) {
+          return { status: 'FAILED', reason: beforeDelete.reason };
+        }
+        operation.state = 'completed';
+        return { status: 'CONFLICT', reason: beforeDelete.reason };
+      }
+      const stored = await readStoredAccountNote(operation.request.accountId, operation.noteId);
+      if (!stored) {
+        if (!persistSingleDeleteConflict(marker, 'TARGET_NOTE_MISSING')) {
+          return { status: 'FAILED', reason: 'TARGET_NOTE_MISSING' };
+        }
+        operation.state = 'completed';
+        return { status: 'CONFLICT', reason: 'TARGET_NOTE_MISSING' };
+      }
+      if (stored.note.updatedAt !== operation.expectedUpdatedAt
+        || stored.note.deletedAt !== operation.expectedDeletedAt) {
+        const reason: NotesSingleDeleteConflictReason = stored.note.deletedAt === null
+          ? 'RESTORED_DURING_DELETE' : 'STALE_REVISION';
+        if (!persistSingleDeleteConflict(marker, reason)) return { status: 'FAILED', reason };
+        operation.state = 'completed';
+        return { status: 'CONFLICT', reason };
+      }
+      if (!await deleteStoredAccountNote(operation.request.accountId, operation.noteId)) {
+        return { status: 'FAILED', reason: 'TARGET_NOTE_MISSING' };
+      }
+      const afterDelete = isCurrentTarget?.() ?? { valid: true };
+      if (!afterDelete.valid) {
+        if (!persistSingleDeleteConflict(marker, afterDelete.reason)) {
+          return { status: 'FAILED', reason: afterDelete.reason };
+        }
+        operation.state = 'completed';
+        return { status: 'CONFLICT', reason: afterDelete.reason };
+      }
+      const remainingCount = await countStoredAccountNotes(operation.request.accountId);
+      const afterCount = isCurrentTarget?.() ?? { valid: true };
+      if (!afterCount.valid) {
+        if (!persistSingleDeleteConflict(marker, afterCount.reason)) {
+          return { status: 'FAILED', reason: afterCount.reason };
+        }
+        operation.state = 'completed';
+        return { status: 'CONFLICT', reason: afterCount.reason };
+      }
+      writeState(
+        operation.request.accountId,
+        NOTES_CORE_DOMAIN,
+        remainingCount === 0 ? 'LOADED_EMPTY' : 'LOADED_POPULATED',
+        remainingCount,
+      );
+      operation.state = 'completed';
+      return clearSingleDeleteMarker(marker)
+        ? { status: 'COMMITTED' }
+        : { status: 'FAILED', reason: 'AUTHORIZATION_CONSUMED' };
+    });
+  } catch {
+    return { status: 'FAILED', reason: 'TARGET_NOTE_MISSING' };
+  }
+}
+
+export function abortNotesSingleDelete(authorization: NotesSingleDeleteAuthorization): void {
+  const operation = singleDeleteOperations.get(authorization);
+  if (!operation || operation.state !== 'pending'
+    || !isNotesAuthorityRequestActive(operation.request)
+    || !isOperationEpochCurrent(operation.operationEpoch)) return;
+  const marker = readSingleDeleteMarker(operation.request.accountId, operation.noteId);
+  if (marker && marker !== 'malformed' && marker.state === 'REMOTE_DELETE_PENDING') {
+    clearSingleDeleteMarker(marker);
+  }
+  operation.state = 'completed';
+}
+
+/**
+ * Converts an exact durable delete marker plus complete remote absence into
+ * deletion evidence. Any active/conflicting marker keeps bootstrap fail-closed.
+ */
+export function reconcileNotesSingleDeletesForBootstrap(
+  accountId: string,
+  remoteNoteIds: ReadonlySet<string>,
+  localNotes: readonly NoteBase[] = [],
+): NotesSingleDeleteBootstrapReconciliation {
+  const request = getActiveNotesAuthorityRequest();
+  if (!request || request.accountId !== normalizedAccountId(accountId)) {
+    throw new Error('notes_single_delete_account_inactive');
+  }
+  const authorizedMissingNoteIds = new Set<string>();
+  const preservedConflictNoteIds = new Set<string>();
+  const markersToClear: NotesSingleDeleteMarker[] = [];
+  const localById = new Map(localNotes.map(note => [note.id, note]));
+  for (const marker of listSingleDeleteMarkers(accountId)) {
+    const local = localById.get(marker.noteId);
+    const localMatchesTarget = local !== undefined
+      && local.updatedAt === marker.expectedUpdatedAt
+      && local.deletedAt === marker.expectedDeletedAt;
+    const localConflictReason: NotesSingleDeleteConflictReason | null = local === undefined || localMatchesTarget
+      ? null
+      : local.deletedAt === null ? 'RESTORED_DURING_DELETE' : 'STALE_REVISION';
+
+    if (marker.state === 'REMOTE_DELETE_CONFLICT') {
+      // A divergent local Note is still unresolved even when the remote row
+      // exists. Keep the one marker durable so every later bootstrap protects
+      // the local newer/restored state from the older remote snapshot.
+      if (localConflictReason) {
+        const conflict = persistSingleDeleteConflict(marker, localConflictReason)
+          ? readSingleDeleteMarker(accountId, marker.noteId)
+          : 'malformed';
+        if (!conflict || conflict === 'malformed' || conflict.state !== 'REMOTE_DELETE_CONFLICT') {
+          throw new Error('notes_single_delete_marker_conflict_persist_failed');
+        }
+        preservedConflictNoteIds.add(marker.noteId);
+        continue;
+      }
+      // If local state has converged to the authorized target (or is absent),
+      // fall through to the normal remote-present/absent terminal handling.
+    }
+
+    if (remoteNoteIds.has(marker.noteId)) {
+      if (marker.state === 'REMOTE_DELETE_PENDING' && marker.requestGeneration === request.generation) {
+        throw new Error('notes_single_delete_remote_pending');
+      }
+      if (localConflictReason) {
+        const conflict = persistSingleDeleteConflict(marker, localConflictReason)
+          ? readSingleDeleteMarker(accountId, marker.noteId)
+          : 'malformed';
+        if (!conflict || conflict === 'malformed' || conflict.state !== 'REMOTE_DELETE_CONFLICT') {
+          throw new Error('notes_single_delete_marker_conflict_persist_failed');
+        }
+        preservedConflictNoteIds.add(marker.noteId);
+        continue;
+      }
+      markersToClear.push(marker);
+      continue;
+    }
+
+    if (localConflictReason) {
+      const conflict = persistSingleDeleteConflict(marker, localConflictReason)
+        ? readSingleDeleteMarker(accountId, marker.noteId)
+        : 'malformed';
+      if (!conflict || conflict === 'malformed' || conflict.state !== 'REMOTE_DELETE_CONFLICT') {
+        throw new Error('notes_single_delete_marker_conflict_persist_failed');
+      }
+      preservedConflictNoteIds.add(marker.noteId);
+      continue;
+    }
+
+    authorizedMissingNoteIds.add(marker.noteId);
+    markersToClear.push(marker);
+  }
+  return { authorizedMissingNoteIds, preservedConflictNoteIds, markersToClear };
+}
+
+export function completeNotesSingleDeleteBootstrapReconciliation(
+  markers: readonly NotesSingleDeleteMarker[],
+): boolean {
+  return markers.every(clearSingleDeleteMarker);
+}
+
 export function isNotesAuthorityRequestActive(request: NotesAuthorityRequest): boolean {
   return activeRequest?.accountId === request.accountId && activeRequest.generation === request.generation;
 }
@@ -462,6 +981,48 @@ async function replaceAccountNotes(accountId: string, notes: readonly NoteBase[]
       };
     });
     await transactionDone(transaction);
+  } finally {
+    database.close();
+  }
+}
+
+async function readStoredAccountNote(accountId: string, noteId: string): Promise<StoredScopedNote | null> {
+  const database = await openDatabase();
+  try {
+    const stored = await requestResult(database.transaction(NOTES_STORE, 'readonly')
+      .objectStore(NOTES_STORE).get(noteKey(accountId, noteId))) as unknown;
+    if (stored === undefined) return null;
+    if (!stored || typeof stored !== 'object') throw new Error('notes_account_authority_note_malformed');
+    const candidate = stored as Partial<StoredScopedNote>;
+    if (candidate.key !== noteKey(accountId, noteId)
+      || candidate.accountId !== normalizedAccountId(accountId)
+      || !validNote(candidate.note)
+      || candidate.note.id !== noteId) throw new Error('notes_account_authority_note_malformed');
+    return candidate as StoredScopedNote;
+  } finally {
+    database.close();
+  }
+}
+
+async function deleteStoredAccountNote(accountId: string, noteId: string): Promise<boolean> {
+  const database = await openDatabase();
+  try {
+    const transaction = database.transaction(NOTES_STORE, 'readwrite');
+    transaction.objectStore(NOTES_STORE).delete(noteKey(accountId, noteId));
+    await transactionDone(transaction);
+  } finally {
+    database.close();
+  }
+  return (await readStoredAccountNote(accountId, noteId)) === null;
+}
+
+async function countStoredAccountNotes(accountId: string): Promise<number> {
+  const database = await openDatabase();
+  try {
+    return await requestResult(database.transaction(NOTES_STORE, 'readonly')
+      .objectStore(NOTES_STORE)
+      .index('accountId')
+      .count(normalizedAccountId(accountId)));
   } finally {
     database.close();
   }
@@ -589,15 +1150,20 @@ export async function loadAccountScopedNotes(accountId: string): Promise<NoteBas
 export async function saveAccountScopedNotes(accountId: string, notes: readonly NoteBase[]): Promise<boolean> {
   const request = getActiveNotesAuthorityRequest();
   if (!request || request.accountId !== normalizedAccountId(accountId)) throw new Error('notes_account_scope_inactive');
-  try {
-    await replaceAccountNotes(accountId, notes);
-    assertActiveRequest(request);
-    writeState(accountId, NOTES_CORE_DOMAIN, notes.length === 0 ? 'LOADED_EMPTY' : 'LOADED_POPULATED', notes.length);
-    return true;
-  } catch {
-    try { writeState(accountId, NOTES_CORE_DOMAIN, 'RECOVERY_REQUIRED', 0); } catch { /**/ }
-    return false;
-  }
+  return runAccountMutationExclusive(accountId, async () => {
+    try {
+      assertActiveRequest(request);
+      await replaceAccountNotes(accountId, notes);
+      assertActiveRequest(request);
+      writeState(accountId, NOTES_CORE_DOMAIN, notes.length === 0 ? 'LOADED_EMPTY' : 'LOADED_POPULATED', notes.length);
+      return true;
+    } catch {
+      if (isNotesAuthorityRequestActive(request)) {
+        try { writeState(accountId, NOTES_CORE_DOMAIN, 'RECOVERY_REQUIRED', 0); } catch { /**/ }
+      }
+      return false;
+    }
+  });
 }
 
 export async function saveNotesForRecoveryContext(
@@ -714,7 +1280,7 @@ export type NotesFoldersRecoveryApplyResult = {
 };
 
 /** Applies both account-scoped domains and proves either the new or prior state. */
-export async function applyNotesFoldersForRecoveryContext(
+async function applyNotesFoldersForRecoveryContextInternal(
   context: NotesAccountRecoveryContext,
   previousNotes: readonly NoteBase[],
   previousFolders: readonly NoteFolderBase[],
@@ -724,12 +1290,14 @@ export async function applyNotesFoldersForRecoveryContext(
   const operation = recoveryOperation(context);
   if (!operation) return { applied: false, rollbackVerified: false };
   const request = operation.request;
+  if (!isNotesAuthorityRequestActive(request)) return { applied: false, rollbackVerified: true };
   if (!persistPendingBootstrapMarker(operation)) {
     markNotesFoldersRecoveryRequired(request);
     return { applied: false, rollbackVerified: false };
   }
   try {
     await notifyBootstrapApplyStage('after-marker');
+    if (!isNotesAuthorityRequestActive(request)) throw new Error('notes_bootstrap_stale');
     const notesSaved = await saveNotesForRecoveryContext(context, nextNotes);
     if (!notesSaved) {
       return {
@@ -740,6 +1308,7 @@ export async function applyNotesFoldersForRecoveryContext(
       };
     }
     await notifyBootstrapApplyStage('after-notes-write');
+    if (!isNotesAuthorityRequestActive(request)) throw new Error('notes_bootstrap_stale');
     const foldersSaved = saveFoldersForRecoveryContext(context, nextFolders);
     if (!foldersSaved) {
       return {
@@ -750,6 +1319,7 @@ export async function applyNotesFoldersForRecoveryContext(
       };
     }
     await notifyBootstrapApplyStage('after-folders-write');
+    if (!isNotesAuthorityRequestActive(request)) throw new Error('notes_bootstrap_stale');
     await notifyBootstrapApplyStage('before-readback');
     const readbackNotes = await loadNotesForRecoveryContext(context);
     const readbackFolders = loadFoldersForRecoveryContext(context);
@@ -777,6 +1347,20 @@ export async function applyNotesFoldersForRecoveryContext(
       ),
     };
   }
+}
+
+export async function applyNotesFoldersForRecoveryContext(
+  context: NotesAccountRecoveryContext,
+  previousNotes: readonly NoteBase[],
+  previousFolders: readonly NoteFolderBase[],
+  nextNotes: readonly NoteBase[],
+  nextFolders: readonly NoteFolderBase[],
+): Promise<NotesFoldersRecoveryApplyResult> {
+  const operation = recoveryOperation(context);
+  if (!operation) return { applied: false, rollbackVerified: false };
+  return runAccountMutationExclusive(operation.request.accountId, () => applyNotesFoldersForRecoveryContextInternal(
+    context, previousNotes, previousFolders, nextNotes, nextFolders,
+  ));
 }
 
 export function loadAccountScopedFolders(): NoteFolderBase[] {
@@ -823,6 +1407,7 @@ export function resetNotesAccountAuthorityForTests(): void {
   activeRequest = null;
   nextRequestGeneration = 0;
   nextRecoveryOperation = 0;
+  accountMutationTails.clear();
   testReadNotesOverride = null;
   testBootstrapStageOverride = null;
 }

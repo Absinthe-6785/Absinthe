@@ -247,6 +247,7 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
   const storeDuplicateNote = useNotesStore(s => s.duplicateNote);
   const moveNoteToTrash = useNotesStore(s => s.moveNoteToTrash);
   const restoreNote = useNotesStore(s => s.restoreNote);
+  const prepareNotePermanentDelete = useNotesStore(s => s.prepareNotePermanentDelete);
   const deleteNotePermanently = useNotesStore(s => s.deleteNotePermanently);
   const emptyTrash = useNotesStore(s => s.emptyTrash);
   const storeCreateFolder = useNotesStore(s => s.createFolder);
@@ -1275,12 +1276,25 @@ export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
 
   const handlePermanentDeleteActive = useCallback(() => {
     if (!activeNote?.deletedAt) return;
+    const authorization = prepareNotePermanentDelete(activeNote.id);
+    if (!authorization) {
+      showToast(useNotesStore.getState().syncError ?? 'Permanent delete is unavailable.', 'error');
+      return;
+    }
     showConfirm(
       t('nvDeletePermanentConfirm'),
-      () => deleteNotePermanently(activeNote.id),
+      async () => {
+        const deleted = await deleteNotePermanently(authorization);
+        showToast(
+          deleted
+            ? 'Note permanently deleted.'
+            : (useNotesStore.getState().syncError ?? 'Permanent delete failed. The Note was kept.'),
+          deleted ? 'success' : 'error',
+        );
+      },
       { confirmLabel: t('nvDeletePermanently'), variant: 'destructive' },
     );
-  }, [activeNote, deleteNotePermanently, showConfirm, t]);
+  }, [activeNote, deleteNotePermanently, prepareNotePermanentDelete, showConfirm, showToast, t]);
 
   const handleEmptyTrash = useCallback(() => {
     const count = notes.filter(n => n.deletedAt).length;
