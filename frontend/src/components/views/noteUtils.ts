@@ -16,9 +16,6 @@ import {
 import { protectMathInMarkdown } from '../../lib/math/mathParse';
 import { renderProtectedMathBlock } from '../../lib/math/katexRender';
 import {
-  markNotesOnboardingComplete,
-} from '../../lib/notesOnboarding';
-import {
   sanitizeRelationsForSync,
   sanitizeStringRecordForSync,
   stripRawBlobData,
@@ -243,8 +240,6 @@ export function migrateLegacyStorageIfNeeded(): void {
   const mergedNotes = noteGroups.length > 0
     ? mergeNoteArrays(...noteGroups)
     : [];
-  if (mergedNotes.length > 0) markNotesOnboardingComplete();
-  else if (noteGroups.length > 0) markNotesOnboardingComplete();
   saveNotes(mergedNotes);
 
   const folderGroups: NoteFolderBase[][] = [];
@@ -289,10 +284,7 @@ export function loadNotes(): NoteBase[] {
   migrateLegacyStorageIfNeeded();
   if (externalSyncLoad) return externalSyncLoad();
   const raw = loadRawNotes(NOTES_KEY);
-  if (raw && raw.length > 0) {
-    markNotesOnboardingComplete();
-    return raw;
-  }
+  if (raw && raw.length > 0) return raw;
   if (raw) return [];
   return [];
 }
@@ -384,11 +376,10 @@ export async function clearNotesStorageAsync(): Promise<void> {
   } catch { /**/ }
 }
 
-/** Settings reset — explicit welcome note creation (marks onboarding complete). */
+/** Settings reset — explicit welcome note creation. */
 export function createDefaultWelcomeNotes(): NoteBase[] {
   const notes = defaultSeedNotes();
   if (!mayWriteLegacyNotes()) return notes;
-  markNotesOnboardingComplete();
   saveNotes(notes);
   saveActiveNoteId(notes[0]?.id ?? null);
   saveFolders([]);

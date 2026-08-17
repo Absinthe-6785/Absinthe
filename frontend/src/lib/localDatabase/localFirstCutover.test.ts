@@ -28,7 +28,6 @@ import {
   NOTES_IDB_MIGRATION_FLAG, NOTES_IDB_REV_KEY, bumpNotesIndexedDbRevision,
   loadNotesFromIndexedDb, markIndexedDbMigrationComplete, saveNotesToIndexedDb,
 } from '../noteIndexedDb';
-import { NOTES_SEEDED_KEY, clearNotesOnboardingMarker, markNotesOnboardingComplete } from '../notesOnboarding';
 import {
   ACTIVE_KEY, FOLDERS_KEY, NOTES_KEY, clearNotesStorage, saveActiveNoteId, saveFolders, saveNotes,
 } from '../../components/views/noteUtils';
@@ -1198,7 +1197,6 @@ describe('K-326 local-first cutover foundation', () => {
     localStorage.setItem(ACTIVE_KEY, 'original-active');
     localStorage.setItem(NOTES_IDB_MIGRATION_FLAG, 'original-migration-state');
     localStorage.setItem(NOTES_IDB_REV_KEY, '7');
-    localStorage.setItem(NOTES_SEEDED_KEY, '1');
     await expect(saveNotesToIndexedDb([note() as any])).resolves.toBe(true);
     const originalIndexedDb = await loadNotesFromIndexedDb();
     const staleEpoch = captureOperationEpoch();
@@ -1211,15 +1209,12 @@ describe('K-326 local-first cutover foundation', () => {
     saveActiveNoteId('changed-active');
     markIndexedDbMigrationComplete();
     bumpNotesIndexedDbRevision();
-    clearNotesOnboardingMarker();
-    markNotesOnboardingComplete();
     clearNotesStorage();
     expect(localStorage.getItem(NOTES_KEY)).toBe(originalLocalStorage);
     expect(localStorage.getItem(FOLDERS_KEY)).toBe('[{"id":"folder-original","name":"Original"}]');
     expect(localStorage.getItem(ACTIVE_KEY)).toBe('original-active');
     expect(localStorage.getItem(NOTES_IDB_MIGRATION_FLAG)).toBe('original-migration-state');
     expect(localStorage.getItem(NOTES_IDB_REV_KEY)).toBe('8');
-    expect(localStorage.getItem(NOTES_SEEDED_KEY)).toBe('1');
     expect(scanLegacyNotesCutoverFences()).toMatchObject({ status: 'active' });
   });
 

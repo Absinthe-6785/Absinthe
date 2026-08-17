@@ -9,7 +9,6 @@ import {
   loadFolders,
   saveNotes,
 } from '@/components/views/noteUtils';
-import { clearNotesOnboardingMarker } from '@/lib/notesOnboarding';
 import {
   NOTES_IDB_MIGRATION_FLAG,
   clearIndexedDbNotes,
@@ -50,7 +49,6 @@ describe('notePersistence durability guards', () => {
   beforeEach(async () => {
     setRecoveryModeActiveForTest(false);
     localStorage.clear();
-    clearNotesOnboardingMarker();
     resetNotesPersistenceForTests();
     try {
       await clearIndexedDbNotes();
@@ -58,7 +56,6 @@ describe('notePersistence durability guards', () => {
       /** first open */
     }
     localStorage.clear();
-    clearNotesOnboardingMarker();
     resetNotesPersistenceForTests();
   });
 
