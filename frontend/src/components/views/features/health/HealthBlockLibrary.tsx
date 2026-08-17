@@ -6,8 +6,10 @@ import { WORKSPACE_CARD, WORKSPACE_CARD_SURFACE_COMPACT } from '../../../common/
 import { useTranslation } from '../../../../lib/i18n';
 import { WorkoutBlockCard } from './WorkoutBlockCard';
 
+export type CatalogExerciseBlock = ExerciseBlock & { recentRank?: number };
+
 export interface HealthBlockLibraryProps {
-  blocks: ExerciseBlock[];
+  blocks: CatalogExerciseBlock[];
   activeTagFilter: string | null;
   setActiveTagFilter: (tag: string | null) => void;
   theme: Theme;
@@ -17,19 +19,26 @@ export interface HealthBlockLibraryProps {
   onDeleteBlock: (id: string, e: React.MouseEvent) => void;
   onNewBlock: () => void;
   mobileVisible: boolean;
-  quickCaptureMeta?: ReadonlyMap<string, HealthBlockQuickCaptureMeta>;
-}
-
-export interface HealthBlockQuickCaptureMeta {
-  lastDate: string;
-  summary: string;
-  recentRank: number;
 }
 
 interface FlatBlockRow {
   tag?: string;
   blocks: ExerciseBlock[];
   key: string;
+}
+
+/**
+ * Exercise blocks are account-global reference data.  Keep their library
+ * ordering independent from the selected month/date workout projection.
+ */
+export function sortExerciseBlocksForCatalog(blocks: readonly CatalogExerciseBlock[]): CatalogExerciseBlock[] {
+  return [...blocks].sort((left, right) => {
+    const leftRank = Number.isFinite(left.recentRank) ? left.recentRank! : Number.MAX_SAFE_INTEGER;
+    const rightRank = Number.isFinite(right.recentRank) ? right.recentRank! : Number.MAX_SAFE_INTEGER;
+    if (leftRank !== rightRank) return leftRank - rightRank;
+    const byName = left.name.localeCompare(right.name);
+    return byName !== 0 ? byName : left.id.localeCompare(right.id);
+  });
 }
 
 function buildBlockGroups(
@@ -65,7 +74,6 @@ export const HealthBlockLibrary = memo(function HealthBlockLibrary({
   onDeleteBlock,
   onNewBlock,
   mobileVisible,
-  quickCaptureMeta,
 }: HealthBlockLibraryProps) {
   const { t } = useTranslation();
   const [query, setQuery] = useState('');
@@ -77,19 +85,14 @@ export const HealthBlockLibrary = memo(function HealthBlockLibrary({
 
   const rankedBlocks = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return [...blocks]
-      .filter(block => {
+    return sortExerciseBlocksForCatalog(
+      blocks.filter(block => {
         if (!q) return true;
         const haystack = [block.name, ...(block.tags ?? [])].join(' ').toLowerCase();
         return haystack.includes(q);
-      })
-      .sort((a, b) => {
-        const ar = quickCaptureMeta?.get(a.id)?.recentRank ?? Number.MAX_SAFE_INTEGER;
-        const br = quickCaptureMeta?.get(b.id)?.recentRank ?? Number.MAX_SAFE_INTEGER;
-        if (ar !== br) return ar - br;
-        return a.name.localeCompare(b.name);
-      });
-  }, [blocks, query, quickCaptureMeta]);
+      }),
+    );
+  }, [blocks, query]);
 
   const blockGroups = useMemo(
     () => buildBlockGroups(rankedBlocks, activeTagFilter, t('other')),
