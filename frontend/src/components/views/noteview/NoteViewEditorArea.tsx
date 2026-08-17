@@ -1,4 +1,4 @@
-import { forwardRef, useImperativeHandle, useEffect, useMemo, useRef, useCallback, type RefObject, type MutableRefObject, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { forwardRef, useImperativeHandle, useEffect, useMemo, useRef, useCallback, useState, type RefObject, type MutableRefObject, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useNoteReturnTab } from '../../../hooks/useNoteReturnTab';
 import { useNoteBreadcrumb } from '../../../hooks/useNoteBreadcrumb';
 import { setNoteBreadcrumb } from '../../../lib/noteNavigation';
@@ -64,6 +64,10 @@ import type { DiscoveryFeed } from '../features/knowledge/discovery';
 import type { ReviewQueueEntry } from '../features/knowledge/review/reviewQueue';
 import type { FocusPreset } from '../features/knowledge/workspace/focusModeModels';
 import type { GraphNodeTier } from '../features/knowledge/graph/knowledgeUniverse/graphNodeTier';
+import {
+  isReturnToUseAttachmentIsolationEnabled,
+  RETURN_TO_USE_ATTACHMENT_ISOLATION_MESSAGE,
+} from '../../../lib/returnToUseAttachmentIsolation';
 
 interface NoteBlockEditorProps {
   body: string;
@@ -322,6 +326,19 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
     if (!blocks || !editorSearchQuery.trim()) return 0;
     return collectEditorSearchMatches(blocks, editorSearchQuery).length;
   }, [blockEditorRef, editorSearchQuery, searchMatchIdx, activeNote?.body, activeNoteId]);
+
+  const attachmentIsolationEnabled = isReturnToUseAttachmentIsolationEnabled();
+  const [attachmentIsolationNotice, setAttachmentIsolationNotice] = useState<string | null>(null);
+  const handleEditorDropWithAttachmentIsolation = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    const hasImageFile = Array.from(event.dataTransfer.items).some(item => item.kind === 'file' && item.type.startsWith('image/'));
+    if (attachmentIsolationEnabled && hasImageFile && !(event.target as HTMLElement).closest('.be-image-block')) {
+      event.preventDefault();
+      setIsDragOver(false);
+      setAttachmentIsolationNotice(RETURN_TO_USE_ATTACHMENT_ISOLATION_MESSAGE);
+      return;
+    }
+    handleEditorDrop(event);
+  }, [attachmentIsolationEnabled, handleEditorDrop, setIsDragOver]);
 
   const { returnTab, goReturn } = useNoteReturnTab();
   const breadcrumb = useNoteBreadcrumb();
@@ -781,9 +798,20 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
                   <button onClick={() => importInputRef.current?.click()} className="be-editor-toolbar-btn" title={t('nvImportMd')} style={{ marginLeft: 'auto' }}>
                     <Upload size={12}/>
                   </button>
-                  <button onClick={insertEmptyImageBlockAtCursor} className="be-editor-toolbar-btn" title={t('nvInsertImage')}>
+                  <button
+                    onClick={insertEmptyImageBlockAtCursor}
+                    className="be-editor-toolbar-btn"
+                    title={attachmentIsolationEnabled ? RETURN_TO_USE_ATTACHMENT_ISOLATION_MESSAGE : t('nvInsertImage')}
+                    disabled={attachmentIsolationEnabled}
+                    aria-disabled={attachmentIsolationEnabled}
+                  >
                     <ImageIcon size={12}/>
                   </button>
+                  {attachmentIsolationEnabled ? (
+                    <span data-return-to-use-attachment-isolation style={{ fontSize: 10, color: c.textMuted, lineHeight: 1.35 }}>
+                      {RETURN_TO_USE_ATTACHMENT_ISOLATION_MESSAGE}
+                    </span>
+                  ) : null}
                   <div
                     style={{ position: 'relative' }}
                     onMouseLeave={e => {
@@ -868,7 +896,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
                 ref={editorScrollRef}
                 data-k123-editor-scroll
                 style={{ flex: 1, overflow: 'auto', position: 'relative', overscrollBehavior: 'contain', minWidth: 0 }}
-                onDragOver={e => { e.preventDefault(); if (Array.from(e.dataTransfer.items).some(i => i.kind === 'file' && i.type.startsWith('image/'))) setIsDragOver(true); }}
+                onDragOver={e => { e.preventDefault(); if (!attachmentIsolationEnabled && Array.from(e.dataTransfer.items).some(i => i.kind === 'file' && i.type.startsWith('image/'))) setIsDragOver(true); }}
                 onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDragOver(false); }}
                 onPaste={e => {
                   if (!activeNote || viewMode !== 'edit') return;
@@ -876,11 +904,20 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
                   const imageItem = items.find(i => i.kind === 'file' && i.type.startsWith('image/'));
                   if (!imageItem) return;
                   e.preventDefault();
+                  if (attachmentIsolationEnabled) {
+                    setAttachmentIsolationNotice(RETURN_TO_USE_ATTACHMENT_ISOLATION_MESSAGE);
+                    return;
+                  }
                   const file = imageItem.getAsFile();
                   if (!file) return;
                   attachImageFilesToActiveNote([file]);
                 }}
-                onDrop={handleEditorDrop}>
+                onDrop={handleEditorDropWithAttachmentIsolation}>
+                {attachmentIsolationNotice ? (
+                  <div data-return-to-use-attachment-isolation style={{ margin: '8px auto', maxWidth: NOTE_DOCUMENT_MAX_WIDTH, color: c.textMuted, fontSize: 10.5, lineHeight: 1.45 }}>
+                    {attachmentIsolationNotice}
+                  </div>
+                ) : null}
                 {isDragOver && (
                   <div className="editor-drop-overlay">
                     <ImageIcon size={22}/> 이미지를 놓아 삽입

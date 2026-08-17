@@ -37,6 +37,7 @@ export interface RecoveryDatasetInput {
 export type RecoveryDatasetKey =
   | 'notes' | 'noteFolders' | 'noteRelationships'
   | 'workoutLogs' | 'inbodyLogs' | 'exerciseBlocks' | 'healthRoutines'
+  | 'routines' | 'routineLogs' | 'workoutMemos'
   | 'proteinProfiles' | 'proteinSources' | 'proteinIntakeLogs'
   | 'healthLocalDrafts' | 'healthLocalMemos' | 'healthPreferences'
   | 'recipes' | 'recipeLocalMetadata' | 'schedules' | 'todos'
@@ -110,6 +111,9 @@ export const RECOVERY_DATASET_DESCRIPTORS: readonly DatasetDescriptor[] = [
   { key: 'inbodyLogs', path: 'health/inbody_logs.json' },
   { key: 'exerciseBlocks', path: 'health/exercise_blocks.json' },
   { key: 'healthRoutines', path: 'health/health_routines.json' },
+  { key: 'routines', path: 'health/routines.json' },
+  { key: 'routineLogs', path: 'health/routine_logs.json' },
+  { key: 'workoutMemos', path: 'health/workout_memos.json' },
   { key: 'proteinProfiles', path: 'health/protein_profiles.json' },
   { key: 'proteinSources', path: 'health/protein_sources.json' },
   { key: 'proteinIntakeLogs', path: 'health/protein_intake_logs.json' },
@@ -324,6 +328,9 @@ function minimumRecordIssue(key: RecoveryDatasetKey, record: RecoveryRecord): st
     case 'inbodyLogs': return ['weight', 'smm', 'pbf'].some(field => typeof record[field] === 'number') ? null : 'measurement';
     case 'exerciseBlocks': return typeof record.name === 'string' && typeof record.type === 'string' ? null : 'name_or_type';
     case 'healthRoutines': return typeof record.day_name === 'string' && Array.isArray(record.blocks) ? null : 'day_name_or_blocks';
+    case 'routines': return typeof record.text === 'string' || typeof record.name === 'string' ? null : 'text_or_name';
+    case 'routineLogs': return typeof record.routine_id === 'string' && typeof record.date === 'string' ? null : 'routine_id_or_date';
+    case 'workoutMemos': return typeof record.date === 'string' || typeof record.memo === 'string' || typeof record.body === 'string' ? null : 'date_or_memo';
     case 'proteinProfiles': return typeof record.daily_target_g === 'number' || typeof record.goal === 'string' ? null : 'profile_field';
     case 'proteinSources': return typeof record.name === 'string' ? null : 'name';
     case 'proteinIntakeLogs': return typeof record.protein_g === 'number' ? null : 'protein_g';
@@ -462,18 +469,23 @@ function analyzeConflicts(datasets: Map<RecoveryDatasetKey, NormalizedDataset>):
       out.push({ code: 'unsafe_attachment_path', domain: 'attachmentInventory', path: 'attachments/inventory.json', recordId: safeId(record.id) });
     }
     if (record.localAvailability === 'local_present' && record.localMissingConfirmed === true
-      || record.localAvailability === 'local_missing_confirmed' && typeof record.localBlobKey === 'string') {
+      || record.localAvailability === 'local_missing_confirmed' && typeof record.localBlobKey === 'string'
+        && record.locatorRetainedForRecovery !== true) {
       out.push({ code: 'contradictory_local_attachment_state', domain: 'attachmentInventory', path: 'attachments/inventory.json', recordId: safeId(record.id) });
     }
     if (record.remoteAvailability === 'remote_present' && record.remoteMissingConfirmed === true
-      || record.remoteAvailability === 'remote_missing_confirmed' && (typeof record.remoteBlobKey === 'string' || typeof record.remoteFileId === 'string')) {
+      || record.remoteAvailability === 'remote_missing_confirmed'
+        && (typeof record.remoteBlobKey === 'string' || typeof record.remoteFileId === 'string')
+        && record.locatorRetainedForRecovery !== true) {
       out.push({ code: 'contradictory_remote_attachment_state', domain: 'attachmentInventory', path: 'attachments/inventory.json', recordId: safeId(record.id) });
     }
     if (record.checksumStatus === 'checksum_mismatch' && !(typeof record.checksum === 'string' && typeof record.remoteChecksum === 'string')) {
       out.push({ code: 'incomplete_checksum_mismatch_evidence', domain: 'attachmentInventory', path: 'attachments/inventory.json', recordId: safeId(record.id) });
     }
     if (record.blobAvailability === 'blob_present' && record.blobMissingConfirmed === true
-      || record.blobAvailability === 'blob_missing_confirmed' && (typeof record.localBlobKey === 'string' || typeof record.remoteBlobKey === 'string' || typeof record.remoteFileId === 'string')) {
+      || record.blobAvailability === 'blob_missing_confirmed'
+        && (typeof record.localBlobKey === 'string' || typeof record.remoteBlobKey === 'string' || typeof record.remoteFileId === 'string')
+        && record.locatorRetainedForRecovery !== true) {
       out.push({ code: 'contradictory_blob_attachment_state', domain: 'attachmentInventory', path: 'attachments/inventory.json', recordId: safeId(record.id) });
     }
   }

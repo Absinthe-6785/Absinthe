@@ -25,11 +25,16 @@ export interface VaultExportValidationReport {
 export function validateVaultExportManifest(
   manifest: VaultBackupManifest,
 ): VaultExportValidationReport {
+  const migrated = migrateVaultBackupManifest(manifest);
+  return validateCanonicalVaultExportManifest(migrated.manifest);
+}
+
+export function validateCanonicalVaultExportManifest(
+  working: VaultBackupManifest,
+): VaultExportValidationReport {
   const errors: string[] = [];
   const warnings: string[] = [];
-  const migrated = migrateVaultBackupManifest(manifest);
-  const noteValidation = validateVaultBackupNotes(migrated.manifest.notes);
-  const working = migrated.manifest;
+  const noteValidation = validateVaultBackupNotes(working.notes);
 
   if (working.schemaVersion > VAULT_BACKUP_SCHEMA_VERSION) {
     errors.push('unsupported_schema');

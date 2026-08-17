@@ -15,6 +15,8 @@ export interface RecoveryCenterPanelProps {
   theme: { card: string; border: string; input: string; textMuted: string };
   onCreateBackup: () => void | Promise<void>;
   backingUp: boolean;
+  onCreateTemporaryFullBackup: () => void | Promise<void>;
+  fullBackingUp: boolean;
 }
 
 function formatTime(iso: string | null, fallback: string): string {
@@ -33,6 +35,8 @@ export function RecoveryCenterPanel({
   theme,
   onCreateBackup,
   backingUp,
+  onCreateTemporaryFullBackup,
+  fullBackingUp,
 }: RecoveryCenterPanelProps) {
   const { t } = useTranslation();
   const hasBackup = Boolean(recovery.lastExportAt || recovery.lastSnapshotAt);
@@ -84,6 +88,25 @@ export function RecoveryCenterPanel({
             >
               <Download size={16} />
               {backingUp ? t('vaultBackupZipping') : t('dataSafetyCreateBackup')}
+            </button>
+          </div>
+        </section>
+
+        <section className={`border-t pt-5 ${theme.border}`} data-settings-temporary-full-backup>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h3 className="font-heading text-base font-bold">{t('temporaryFullBackupTitle')}</h3>
+              <p className={`text-sm font-medium mt-1 ${theme.textMuted}`}>{t('temporaryFullBackupDesc')}</p>
+              <p className={`text-xs font-medium mt-2 ${theme.textMuted}`}>{t('temporaryFullBackupAttachmentNotice')}</p>
+            </div>
+            <button
+              type="button"
+              onClick={onCreateTemporaryFullBackup}
+              disabled={fullBackingUp}
+              className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl font-bold text-sm bg-primary text-primary-foreground disabled:opacity-60"
+            >
+              <Download size={16} />
+              {fullBackingUp ? t('temporaryFullBackupCreating') : t('temporaryFullBackupCreate')}
             </button>
           </div>
         </section>

@@ -12,6 +12,7 @@ import type { RecentActivityProjection } from '../../buildRecentActivityProjecti
 import type { ArchiveHistoryProjection } from '../knowledge/archive/archiveProjectionModels';
 import type { WorkspaceActivation } from '../knowledge/workspace/workspaceModels';
 import type { HomeContinueItem, HomeFoundationProjection, HomeWorkoutSummary } from './homeFoundationModels';
+import { readLocalHealthWorkoutDraft } from '../../../../lib/healthBackfillUiSafety';
 
 function summarizeWorkouts(workouts: readonly Workout[]): Omit<HomeWorkoutSummary, 'hasSession' | 'isDraft' | 'isLocked'> {
   const exerciseCount = workouts.filter(w => w.block_id !== '__session__').length;
@@ -24,17 +25,6 @@ function summarizeWorkouts(workouts: readonly Workout[]): Omit<HomeWorkoutSummar
     0,
   );
   return { exerciseCount, setCount, doneCount };
-}
-
-function readHealthDraft(todayKey: string): Workout[] | null {
-  try {
-    const raw = localStorage.getItem(`healthDraft:${todayKey}`);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Workout[];
-    return Array.isArray(parsed) && parsed.length > 0 ? parsed : null;
-  } catch {
-    return null;
-  }
 }
 
 function buildContinueItem(
@@ -89,9 +79,11 @@ function buildContinueItem(
 
 function buildWorkoutSummary(
   workouts: readonly Workout[],
+  accountId: string,
   todayKey: string,
 ): HomeWorkoutSummary {
-  const draft = readHealthDraft(todayKey);
+  const loadedDraft = readLocalHealthWorkoutDraft(localStorage, accountId, todayKey);
+  const draft = loadedDraft && loadedDraft.length > 0 ? loadedDraft : null;
   const active = draft ?? workouts;
   const summary = summarizeWorkouts(active);
   return {
@@ -116,6 +108,7 @@ export function buildHomeFoundationProjection(input: {
   plannerProjection: PlannerProjection | null;
   recentActivity: RecentActivityProjection;
   archiveHistory?: ArchiveHistoryProjection | null;
+  accountId: string;
   todayKey: string;
   locale?: Language | null;
   traceLimit?: number;
@@ -131,7 +124,7 @@ export function buildHomeFoundationProjection(input: {
     timetableSlots: input.plannerProjection?.timetableToday ?? [],
     activeRoutines: activeRoutines.length,
     completedRoutines,
-    workout: buildWorkoutSummary(input.workouts, input.todayKey),
+    workout: buildWorkoutSummary(input.workouts, input.accountId, input.todayKey),
     traces,
     archiveTracesToday: flattenArchiveTracesToday(input.archiveHistory),
   };

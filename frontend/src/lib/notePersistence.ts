@@ -3,7 +3,6 @@
  */
 import {
   NOTES_KEY,
-  defaultSeedNotes,
   loadRawNotesFromKey,
   mergeNoteArrays,
   registerNotesStorageBridge,
@@ -13,7 +12,6 @@ import {
 import { runPersistenceCleanup } from '@/lib/persistenceCleanup';
 import {
   markNotesOnboardingComplete,
-  shouldSeedOnboardingNotes,
 } from '@/lib/notesOnboarding';
 import {
   INDEXEDDB_FALLBACK_ERROR,
@@ -41,8 +39,19 @@ import {
   type PersistedNotesReplacementFailure,
   type PersistedNotesReplacementResult,
 } from '@/lib/recoverySafetyPolicy';
+import {
+  detachNotesAccountAuthority,
+  getActiveNotesAuthorityAccountId,
+  initializeAccountScopedNotesAuthority,
+  loadAccountScopedNotes,
+  resetNotesAccountAuthorityForTests,
+  saveAccountScopedNotes,
+  clearAccountScopedNotesAuthority,
+  type NotesAuthorityRequest,
+  type NotesAuthorityDomainState,
+} from '@/lib/notesAccountAuthority';
 
-export type NotesPersistenceMode = 'indexeddb' | 'localStorage';
+export type NotesPersistenceMode = 'accountScoped' | 'indexeddb' | 'localStorage';
 
 export type NotesPersistenceWriteResult =
   | { status: 'persisted' }
@@ -57,6 +66,11 @@ export interface NotesPersistenceInitResult {
   migrationMs: number;
   loadMs: number;
   fallbackError?: string;
+  accountId?: string;
+  requestGeneration?: number;
+  notesAuthorityState?: NotesAuthorityDomainState;
+  foldersAuthorityState?: NotesAuthorityDomainState;
+  legacyGlobalDataPresent?: boolean;
 }
 
 let persistenceMode: NotesPersistenceMode = 'localStorage';
@@ -108,13 +122,6 @@ function loadNotesFromLocalStorage(): NoteBase[] {
   return [];
 }
 
-async function resolveEmptyVaultNotes(): Promise<NoteBase[]> {
-  if (!shouldSeedOnboardingNotes()) return [];
-  const seeded = defaultSeedNotes();
-  markNotesOnboardingComplete();
-  return seeded;
-}
-
 function readCurrentLocalStorageNotes(): readonly { id: string }[] | null {
   try {
     const raw = localStorage.getItem(NOTES_KEY);
@@ -148,6 +155,30 @@ function saveNotesToLocalStorage(notes: readonly NoteBase[]): boolean {
 
 function saveNotesToLocalStorageResult(notes: unknown): NotesPersistenceWriteResult {
   if (!mayWriteLegacyNotes()) return { status: 'blocked', reason: 'recovery_mode_active' };
+  if (!Array.isArray(notes)) {
+    recordRecoveryBlock('replace_persisted_notes', 'unsafe_replacement');
+    return { status: 'rejected', reason: 'invalid_replacement' };
+  }
+  if (notes.length === 0 && isRecoveryModeActive()) {
+    recordRecoveryBlock('replace_persisted_notes', 'unsafe_replacement');
+    return { status: 'rejected', reason: 'empty_replacement' };
+  }
+  if (notes.length === 0) {
+    try {
+      localStorage.setItem(NOTES_KEY, JSON.stringify(notes));
+      return { status: 'persisted' };
+    } catch {
+      return { status: 'failed', reason: 'storage_failure' };
+    }
+  }
+  if (!notes.every(isCompletePersistedNote)) {
+    recordRecoveryBlock('replace_persisted_notes', 'unsafe_replacement');
+    return { status: 'rejected', reason: 'malformed_note' };
+  }
+  if (new Set(notes.map(note => note.id)).size !== notes.length) {
+    recordRecoveryBlock('replace_persisted_notes', 'unsafe_replacement');
+    return { status: 'rejected', reason: 'duplicate_id' };
+  }
   const validation = validateLocalStorageNotesReplacement(notes);
   if (!validation.ok) {
     recordRecoveryBlock('replace_persisted_notes', 'unsafe_replacement');
@@ -226,9 +257,6 @@ export async function migrateLocalStorageNotesToIndexedDb(): Promise<{ migrated:
     notes = legacy;
     backupNotesBeforeDurabilityWrite('migrate-local-to-idb', legacy);
     markNotesOnboardingComplete();
-  } else if (shouldSeedOnboardingNotes()) {
-    notes = defaultSeedNotes();
-    markNotesOnboardingComplete();
   } else {
     notes = [];
   }
@@ -240,16 +268,34 @@ export async function migrateLocalStorageNotesToIndexedDb(): Promise<{ migrated:
   return { migrated: true, count: notes.length };
 }
 
-export async function initNotesPersistence(): Promise<NotesPersistenceInitResult> {
+export async function initNotesPersistence(
+  accountId?: string,
+  request?: NotesAuthorityRequest,
+): Promise<NotesPersistenceInitResult> {
   const migrationStarted = performance.now();
+
+  if (accountId?.trim()) {
+    const snapshot = await initializeAccountScopedNotesAuthority(accountId, request);
+    persistenceMode = 'accountScoped';
+    notesCache = snapshot.notes;
+    persistenceHydrated = true;
+    return {
+      notes: snapshot.notes,
+      mode: 'accountScoped',
+      migrated: false,
+      migrationMs: 0,
+      loadMs: performance.now() - migrationStarted,
+      accountId: snapshot.accountId,
+      requestGeneration: snapshot.requestGeneration,
+      notesAuthorityState: snapshot.notesState,
+      foldersAuthorityState: snapshot.foldersState,
+      legacyGlobalDataPresent: snapshot.notesState.legacyGlobalDataPresent,
+    };
+  }
 
   if (!canUseIndexedDb()) {
     persistenceMode = 'localStorage';
-    let notes = loadNotesFromLocalStorage();
-    if (notes.length === 0) {
-      notes = await resolveEmptyVaultNotes();
-      if (notes.length > 0) saveNotesToLocalStorage(notes);
-    }
+    const notes = loadNotesFromLocalStorage();
     notesCache = notes;
     persistenceHydrated = true;
     runLegacyPersistenceCleanupIfWritable();
@@ -275,8 +321,6 @@ export async function initNotesPersistence(): Promise<NotesPersistenceInitResult
       if (localRescue.length > 0) {
         backupNotesBeforeDurabilityWrite('rescue-local-after-empty-idb', localRescue);
         resolved = localRescue;
-      } else {
-        resolved = await resolveEmptyVaultNotes();
       }
       if (resolved.length > 0) await saveNotesToIndexedDb(resolved);
     }
@@ -296,11 +340,7 @@ export async function initNotesPersistence(): Promise<NotesPersistenceInitResult
     };
   } catch {
     persistenceMode = 'localStorage';
-    let notes = loadNotesFromLocalStorage();
-    if (notes.length === 0) {
-      notes = await resolveEmptyVaultNotes();
-      if (notes.length > 0) saveNotesToLocalStorage(notes);
-    }
+    const notes = loadNotesFromLocalStorage();
     notesCache = notes;
     persistenceHydrated = true;
     runLegacyPersistenceCleanupIfWritable();
@@ -316,6 +356,12 @@ export async function initNotesPersistence(): Promise<NotesPersistenceInitResult
 }
 
 export async function loadNotesAsync(): Promise<NoteBase[]> {
+  const accountId = getActiveNotesAuthorityAccountId();
+  if (persistenceMode === 'accountScoped' && accountId) {
+    const notes = await loadAccountScopedNotes(accountId);
+    notesCache = notes;
+    return notes;
+  }
   if (persistenceMode === 'indexeddb' && canUseIndexedDb()) {
     try {
       const notes = await loadNotesFromIndexedDb();
@@ -332,8 +378,22 @@ export async function loadNotesAsync(): Promise<NoteBase[]> {
   return notes;
 }
 
-export async function saveNotesAsync(notes: unknown): Promise<NotesPersistenceWriteResult> {
+async function saveNotesAsyncInternal(
+  notes: unknown,
+): Promise<NotesPersistenceWriteResult> {
   const epoch = captureOperationEpoch();
+  const accountId = getActiveNotesAuthorityAccountId();
+  if (persistenceMode === 'accountScoped' && accountId) {
+    if (!Array.isArray(notes)) return { status: 'rejected', reason: 'invalid_replacement' };
+    if (!persistenceHydrated) return { status: 'rejected', reason: 'empty_replacement' };
+    if (!notes.every(isCompletePersistedNote)) return { status: 'rejected', reason: 'malformed_note' };
+    if (new Set(notes.map(note => note.id)).size !== notes.length) return { status: 'rejected', reason: 'duplicate_id' };
+    const ok = await saveAccountScopedNotes(accountId, notes as unknown as readonly NoteBase[]);
+    if (!isOperationEpochCurrent(epoch)) return { status: 'blocked', reason: 'stale_epoch' };
+    if (!ok) return { status: 'failed', reason: 'indexeddb_rejected' };
+    notesCache = [...notes] as NoteBase[];
+    return { status: 'persisted' };
+  }
   if (!mayWriteLegacyNotes()) return { status: 'blocked', reason: 'recovery_mode_active' };
   if (!Array.isArray(notes)) {
     recordRecoveryBlock('replace_persisted_notes', 'unsafe_replacement');
@@ -368,7 +428,16 @@ export async function saveNotesAsync(notes: unknown): Promise<NotesPersistenceWr
   return result;
 }
 
+export async function saveNotesAsync(notes: unknown): Promise<NotesPersistenceWriteResult> {
+  return saveNotesAsyncInternal(notes);
+}
+
 export async function deleteNoteFromPersistence(noteId: string): Promise<boolean> {
+  const accountId = getActiveNotesAuthorityAccountId();
+  if (persistenceMode === 'accountScoped' && accountId) {
+    const current = await loadAccountScopedNotes(accountId);
+    return saveAccountScopedNotes(accountId, current.filter(note => note.id !== noteId));
+  }
   if (!mayWriteLegacyNotes() || !mayDeleteLegacyStorage()) {
     recordRecoveryBlock('delete_legacy_storage');
     return false;
@@ -391,6 +460,12 @@ export async function deleteNoteFromPersistence(noteId: string): Promise<boolean
 }
 
 export async function clearNotesPersistence(): Promise<void> {
+  const accountId = getActiveNotesAuthorityAccountId();
+  if (persistenceMode === 'accountScoped' && accountId) {
+    await clearAccountScopedNotesAuthority(accountId);
+    notesCache = [];
+    return;
+  }
   if (!mayWriteLegacyNotes() || !mayDeleteLegacyStorage()) {
     recordRecoveryBlock('delete_legacy_storage');
     return;
@@ -422,6 +497,15 @@ export function resetNotesPersistenceForTests(): void {
   notesCache = null;
   lastIndexedDbRevision = 0;
   persistenceHydrated = false;
+  resetNotesAccountAuthorityForTests();
+}
+
+/** Detach memory from an account without changing any durable account data. */
+export function detachNotesPersistenceAccount(): void {
+  detachNotesAccountAuthority();
+  persistenceMode = 'localStorage';
+  notesCache = null;
+  persistenceHydrated = false;
 }
 
 export { INDEXEDDB_FALLBACK_ERROR, NOTES_IDB_REV_KEY };
@@ -433,7 +517,7 @@ registerNotesStorageBridge(
       recordRecoveryBlock('replace_persisted_notes', 'unsafe_replacement');
       return 'rejected';
     }
-    if (persistenceMode === 'indexeddb') {
+    if (persistenceMode === 'indexeddb' || persistenceMode === 'accountScoped') {
       void saveNotesAsync(notes);
       return 'pending';
     }

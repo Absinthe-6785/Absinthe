@@ -35,7 +35,7 @@ describe('vault backup store round-trip', () => {
     });
   });
 
-  it('exports and restores through the notes store without corruption', () => {
+  it('exports and restores through the notes store without corruption', async () => {
     const { notes, folders, importVaultRestore } = useNotesStore.getState();
     const manifest = buildValidatedVaultBackupManifest(notes, folders);
     const parsed = parseVaultBackupJson(JSON.stringify(manifest));
@@ -45,7 +45,7 @@ describe('vault backup store round-trip', () => {
     expect(preview.valid).toBe(true);
     expect(preview.validation?.corruptedNoteIds).toEqual([]);
 
-    const result = importVaultRestore(parsed!, 'replace');
+    const result = await importVaultRestore(parsed!, 'replace');
     expect(result.importedNotes + result.replacedNotes).toBeGreaterThan(0);
 
     const restored = useNotesStore.getState().notes.filter(n => !n.deletedAt);
@@ -53,5 +53,6 @@ describe('vault backup store round-trip', () => {
     expect(restored.find(n => n.id === 'n2')?.title).toBe('Second');
     expect(restored.find(n => n.id === 'n3')?.title).toBe('Third heading');
     expect(restored.find(n => n.id === 'n1')?.properties?.status).toBe('active');
+    expect(useNotesStore.getState().folders).toEqual([{ id: 'f1', name: 'Work', createdAt: 1 }]);
   });
 });

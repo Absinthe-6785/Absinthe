@@ -61,9 +61,15 @@ export const HealthInbodyQuickPanel = memo(forwardRef<HTMLDivElement, HealthInbo
                   inputMode="decimal"
                   min="0"
                   step="0.1"
-                  value={localInbody[field] !== 0 ? localInbody[field] : ''}
+                  value={localInbody[field] ?? ''}
                   placeholder="0"
-                  onChange={e => { setIsInbodyDirty(true); setLocalInbody(prev => ({ ...prev, [field]: Number(e.target.value) })); }}
+                  onChange={e => {
+                    setIsInbodyDirty(true);
+                    setLocalInbody(prev => ({
+                      ...prev,
+                      [field]: e.target.value === '' ? null : Number(e.target.value),
+                    }));
+                  }}
                   className="w-full bg-transparent text-sm font-black outline-none tabular-nums"
                 />
                 <span className={`text-[9px] font-semibold ${theme.textMuted}`}>{unit}</span>

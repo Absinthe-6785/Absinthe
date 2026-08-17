@@ -20,6 +20,7 @@ import {
 } from './proteinQuickAdd';
 
 export interface ProteinTrackerProps {
+  accountId: string;
   theme: Theme;
   darkMode: boolean;
   selectedDate: Date;
@@ -31,6 +32,7 @@ export interface ProteinTrackerProps {
 }
 
 export function ProteinTracker({
+  accountId,
   theme,
   darkMode,
   selectedDate,
@@ -56,7 +58,7 @@ export function ProteinTracker({
     mutateProfile,
     mutateSources,
     mutateIntake,
-  } = useProteinData(dateStr, selectedDate, formatDate);
+  } = useProteinData(dateStr, selectedDate, formatDate, accountId);
 
   const [profWeight, setProfWeight] = useState('');
   const [profGoal, setProfGoal] = useState<'muscle' | 'maintain' | 'fat' | 'athlete'>('muscle');

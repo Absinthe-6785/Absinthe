@@ -29,8 +29,11 @@ describe('k114 audits', () => {
   });
 
   it('sync loop guards present', () => {
-    expect(auditSyncLoop()).toContain('hydrate-coalesce');
-    expect(auditSyncLoop()).toContain('bootstrap-once-wired');
+    const guards = auditSyncLoop();
+    expect(guards).toContain('hydrate-coalesce');
+    expect(guards).toContain('bootstrap-once-wired');
+    expect(guards).toContain('account-lifecycle-reset-wired');
+    expect(guards).toContain('legacy-notes-hydrate-push-not-reactivated');
   });
 
   it('request gate hooks', () => {

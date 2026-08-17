@@ -712,8 +712,38 @@ async def save_inbody(log: InbodyLogCreate, user_id: str = Depends(get_current_u
 # ==========================================
 class NoteFolderCreate(BaseModel): id: str; name: str; created_at: int
 
+def _bootstrap_page(result, user_id: str, offset: int, limit: int):
+    rows = result.data or []
+    total_count = result.count
+    if not isinstance(total_count, int) or total_count < 0:
+        raise HTTPException(status_code=503, detail="bootstrap completeness count unavailable")
+    return {
+        "account_id": user_id,
+        "rows": rows,
+        "total_count": total_count,
+        "offset": offset,
+        "limit": limit,
+        "complete": offset + len(rows) >= total_count,
+    }
+
+
 @app.get("/api/note_folders")
-async def get_note_folders(user_id: str = Depends(get_current_user)):
+async def get_note_folders(
+    user_id: str = Depends(get_current_user),
+    bootstrap: bool = Query(default=False),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=500, ge=1, le=500),
+):
+    if bootstrap:
+        result = (
+            supabase.table("note_folders")
+            .select("*", count="exact")
+            .eq("user_id", user_id)
+            .order("created_at")
+            .range(offset, offset + limit - 1)
+            .execute()
+        )
+        return _bootstrap_page(result, user_id, offset, limit)
     return supabase.table("note_folders").select("*").eq("user_id", user_id).order("created_at").execute().data or []
 
 @app.post("/api/note_folders")
@@ -851,8 +881,22 @@ def _fetch_user_table(user_id: str, table: str, order: str | None = None):
 async def get_notes(
     user_id: str = Depends(get_current_user),
     updated_after: int = Query(default=0, ge=0),
+    bootstrap: bool = Query(default=False),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=500, ge=1, le=500),
 ):
     """Delta sync contract: return notes or tombstones changed after the cursor."""
+    if bootstrap:
+        # Bootstrap is a complete account snapshot, not a delta.  Keep the
+        # existing delta predicate out of this branch so a zero/legacy
+        # timestamp can never silently omit a row from the proven total.
+        q = supabase.table("notes").select("*", count="exact").eq("user_id", user_id)
+        return _bootstrap_page(
+            q.order("updated_at", desc=True).range(offset, offset + limit - 1).execute(),
+            user_id,
+            offset,
+            limit,
+        )
     q = (
         supabase.table("notes")
         .select("*")

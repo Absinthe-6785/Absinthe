@@ -315,7 +315,7 @@ describe('K-304 notes overview signal panel adapter implementation plan', () => 
     expect(noteView).toContain('const notes = useNotesStore');
     expect(noteView).toContain('const activeNoteId = useNotesStore');
     expect(noteViewEditorArea).toContain('NoteGraphViewLazy');
-    expect(notePersistence).toContain("export type NotesPersistenceMode = 'indexeddb' | 'localStorage';");
+    expect(notePersistence).toContain("export type NotesPersistenceMode = 'accountScoped' | 'indexeddb' | 'localStorage';");
   });
 
   it('uses deterministic source assertions without git, shell, or ref topology dependencies', () => {

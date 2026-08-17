@@ -28,3 +28,24 @@ export const authFetch = async (url: string, options: RequestInit = {}): Promise
     },
   });
 };
+
+/**
+ * Temporary RTU bootstrap boundary.  This helper is deliberately read-only:
+ * it is allowed to run while the normal remote-sync/mutation mode is paused,
+ * but rejects every method other than GET/HEAD before a request is sent.
+ */
+export const authReadFetch = async (url: string, options: RequestInit = {}): Promise<Response> => {
+  const method = (options.method ?? 'GET').toUpperCase();
+  if (method !== 'GET' && method !== 'HEAD') throw new Error('read_only_bootstrap_method_rejected');
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) throw new Error('Not authenticated');
+  return fetch(url, {
+    ...options,
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers,
+      Authorization: `Bearer ${session.access_token}`,
+    },
+  });
+};

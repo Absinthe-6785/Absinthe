@@ -55,6 +55,20 @@ describe('noteIndexedDb', () => {
     expect(loaded.find(n => n.id === 'n-2')?.body).toContain('[[links]]');
   });
 
+  it('enforces complete, unique, non-empty, and disjoint replacement guards', async () => {
+    const existing = sampleNote('existing', 'keep me');
+    expect(await saveNotesToIndexedDb([existing])).toBe(true);
+    setRecoveryModeActiveForTest(true);
+
+    expect(await saveNotesToIndexedDb([])).toBe(false);
+    expect(await saveNotesToIndexedDb([{ id: 'malformed' } as NoteBase])).toBe(false);
+    expect(await saveNotesToIndexedDb([existing, existing])).toBe(false);
+    expect(await saveNotesToIndexedDb([sampleNote('replacement', 'not allowed')])).toBe(false);
+    expect(await loadNotesFromIndexedDb()).toMatchObject([
+      expect.objectContaining({ id: existing.id, title: existing.title, body: existing.body }),
+    ]);
+  });
+
   it('deleteNoteFromIndexedDb removes one record', async () => {
     await saveNotesToIndexedDb([
       sampleNote('n-1', 'a'),

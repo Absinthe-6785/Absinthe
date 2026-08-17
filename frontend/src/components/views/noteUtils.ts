@@ -17,7 +17,6 @@ import { protectMathInMarkdown } from '../../lib/math/mathParse';
 import { renderProtectedMathBlock } from '../../lib/math/katexRender';
 import {
   markNotesOnboardingComplete,
-  shouldSeedOnboardingNotes,
 } from '../../lib/notesOnboarding';
 import {
   sanitizeRelationsForSync,
@@ -25,6 +24,13 @@ import {
   stripRawBlobData,
 } from '../../lib/blobPayloadBoundary';
 import { mayWriteLegacyNotes } from '../../lib/recoverySafetyPolicy';
+import {
+  isNotesAccountAuthorityActive,
+  loadAccountScopedActiveNoteId,
+  loadAccountScopedFolders,
+  saveAccountScopedActiveNoteId,
+  saveAccountScopedFolders,
+} from '../../lib/notesAccountAuthority';
 
 // 순환 참조 방지: useAppStore에서 import하지 않고 독립 타입 정의
 // useAppStore의 Note/NoteFolder와 구조적으로 동일 (TypeScript 구조적 타이핑으로 호환)
@@ -236,7 +242,7 @@ export function migrateLegacyStorageIfNeeded(): void {
 
   const mergedNotes = noteGroups.length > 0
     ? mergeNoteArrays(...noteGroups)
-    : (shouldSeedOnboardingNotes() ? defaultSeedNotes() : []);
+    : [];
   if (mergedNotes.length > 0) markNotesOnboardingComplete();
   else if (noteGroups.length > 0) markNotesOnboardingComplete();
   saveNotes(mergedNotes);
@@ -292,11 +298,15 @@ export function loadNotes(): NoteBase[] {
 }
 
 export function loadFolders(): NoteFolderBase[] {
+  if (isNotesAccountAuthorityActive()) return loadAccountScopedFolders();
   migrateLegacyStorageIfNeeded();
   return loadRawFolders(FOLDERS_KEY) ?? [];
 }
 
 export function loadActiveNoteId(notes: NoteBase[]): string | null {
+  if (isNotesAccountAuthorityActive()) {
+    return loadAccountScopedActiveNoteId(notes) ?? notes.find(n => !n.deletedAt)?.id ?? null;
+  }
   migrateLegacyStorageIfNeeded();
   try {
     const s = localStorage.getItem(ACTIVE_KEY);
@@ -330,6 +340,7 @@ export function saveNotes(notes: NoteBase[]): boolean {
 }
 
 export function saveFolders(folders: NoteFolderBase[]): boolean {
+  if (isNotesAccountAuthorityActive()) return saveAccountScopedFolders(folders);
   if (!mayWriteLegacyNotes()) return false;
   try {
     localStorage.setItem(FOLDERS_KEY, JSON.stringify(folders));
@@ -340,12 +351,23 @@ export function saveFolders(folders: NoteFolderBase[]): boolean {
 }
 
 export function saveActiveNoteId(id: string | null): void {
+  if (isNotesAccountAuthorityActive()) {
+    saveAccountScopedActiveNoteId(id);
+    return;
+  }
   if (!mayWriteLegacyNotes()) return;
   try { localStorage.setItem(ACTIVE_KEY, id ?? ''); } catch { /**/ }
 }
 
 /** Settings Reset 등 — notes localStorage 전부 제거 */
 export function clearNotesStorage(): void {
+  if (isNotesAccountAuthorityActive()) {
+    // The paired account-scoped IndexedDB clear is performed by
+    // clearNotesPersistence; never fall back to the legacy global keys.
+    saveAccountScopedFolders([]);
+    saveAccountScopedActiveNoteId(null);
+    return;
+  }
   if (!mayWriteLegacyNotes()) return;
   try {
     localStorage.removeItem(NOTES_KEY);

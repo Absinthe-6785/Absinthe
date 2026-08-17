@@ -3,6 +3,8 @@ import * as recoverySafetyPolicy from './recoverySafetyPolicy';
 import {
   K326_LEGACY_WRITE_FENCE_KEY,
   K326_LEGACY_WRITE_FENCE_PREFIX,
+  LOCAL_CORE_JSON_RESTORE_OPERATION,
+  LOCAL_CORE_JSON_RESTORE_VALIDATION,
   RECOVERY_MODE_MESSAGE,
   LegacyCutoverFenceError,
   RecoveryModeBlockedError,
@@ -27,6 +29,7 @@ import {
   mayReplacePersistedNotes,
   mayReset,
   mayRestore,
+  mayRestoreLocalCoreJsonBackup,
   mayUndoRestore,
   mayUploadRemote,
   recordRecoveryBlock,
@@ -34,6 +37,7 @@ import {
   scanLegacyNotesCutoverFences,
   resetRecoverySafetyDiagnosticsForTest,
   setRecoveryModeActiveForTest,
+  type LocalCoreJsonRestoreAuthorizationInput,
 } from './recoverySafetyPolicy';
 
 function memoryStorage(): Storage {
@@ -67,6 +71,20 @@ function writePhysicalSettlement(identity: ReturnType<typeof createLegacyNotesCu
   localStorage.setItem(artifact.key, artifact.raw);
 }
 
+function safeLocalCoreRestoreInput(): LocalCoreJsonRestoreAuthorizationInput {
+  return {
+    operation: LOCAL_CORE_JSON_RESTORE_OPERATION,
+    syncMode: 'local',
+    strategy: 'replace',
+    createVerifiedSnapshot: true,
+    restoreCore: true,
+    restoreExtensions: false,
+    restoreCloud: false,
+    backupValidation: LOCAL_CORE_JSON_RESTORE_VALIDATION,
+    selectedNoteCount: 103,
+  };
+}
+
 describe('K-319 recovery safety policy', () => {
   beforeEach(() => {
     vi.stubGlobal('localStorage', memoryStorage());
@@ -83,6 +101,75 @@ describe('K-319 recovery safety policy', () => {
       mayEmptyTrash(), mayReset(), mayApplyCrossTabMutation(), mayDeleteLegacyStorage(),
     ]).toEqual([false, false, false, false, false, false, false, false]);
     expect(RECOVERY_MODE_MESSAGE).toContain('recovery mode');
+  });
+
+  it('allows only the local-core restore exception while recovery mode remains active', () => {
+    const input = safeLocalCoreRestoreInput();
+    expect(mayRestore()).toBe(false);
+    expect(mayRestoreLocalCoreJsonBackup(input)).toBe(true);
+
+    localStorage.setItem('absinthe-notes-sync-mode', 'remote');
+    expect(mayRestoreLocalCoreJsonBackup(input)).toBe(false);
+    localStorage.setItem('absinthe-notes-sync-mode', 'hybrid');
+    expect(mayRestoreLocalCoreJsonBackup(input)).toBe(false);
+    localStorage.setItem('absinthe-notes-sync-mode', 'local');
+    expect(mayRestoreLocalCoreJsonBackup(input)).toBe(true);
+
+    const authorization = createRecoveryCutoverAuthorization({
+      namespaceKey: 'a'.repeat(64),
+      cutoverSessionId: 'local-core-restore',
+      targetGenerationId: 'local-core-generation',
+      purpose: 'test',
+    });
+    beginLegacyNotesCutoverFence(authorization, createLegacyNotesCutoverFenceIdentity(authorization));
+    expect(mayRestoreLocalCoreJsonBackup(input)).toBe(false);
+  });
+
+  it.each([
+    ['strategy skip', { strategy: 'skip' }],
+    ['strategy undefined', { strategy: undefined }],
+    ['strategy malformed', { strategy: true }],
+    ['snapshot false', { createVerifiedSnapshot: false }],
+    ['snapshot undefined', { createVerifiedSnapshot: undefined }],
+    ['snapshot truthy malformed', { createVerifiedSnapshot: 'true' }],
+    ['extensions true', { restoreExtensions: true }],
+    ['extensions undefined', { restoreExtensions: undefined }],
+    ['extensions malformed', { restoreExtensions: 0 }],
+    ['cloud true', { restoreCloud: true }],
+    ['cloud undefined', { restoreCloud: undefined }],
+    ['cloud malformed', { restoreCloud: '' }],
+    ['remote input', { syncMode: 'remote' }],
+    ['hybrid input', { syncMode: 'hybrid' }],
+    ['sync malformed', { syncMode: 'LOCAL' }],
+    ['validation invalid', { backupValidation: 'invalid' }],
+    ['validation undefined', { backupValidation: undefined }],
+    ['validation malformed', { backupValidation: true }],
+    ['core false', { restoreCore: false }],
+    ['empty selection', { selectedNoteCount: 0 }],
+  ])('fails closed for %s', (_label, patch) => {
+    expect(mayRestoreLocalCoreJsonBackup({ ...safeLocalCoreRestoreInput(), ...patch })).toBe(false);
+  });
+
+  it.each([
+    'strategy',
+    'createVerifiedSnapshot',
+    'restoreExtensions',
+    'restoreCloud',
+    'syncMode',
+    'backupValidation',
+  ])('fails closed when %s is omitted', field => {
+    const input = { ...safeLocalCoreRestoreInput() } as Record<string, unknown>;
+    delete input[field];
+    expect(mayRestoreLocalCoreJsonBackup(input)).toBe(false);
+  });
+
+  it('rejects extra, inherited, accessor, and non-object authorization inputs', () => {
+    expect(mayRestoreLocalCoreJsonBackup({ ...safeLocalCoreRestoreInput(), extra: true })).toBe(false);
+    expect(mayRestoreLocalCoreJsonBackup(Object.create(safeLocalCoreRestoreInput()))).toBe(false);
+    const accessor = { ...safeLocalCoreRestoreInput() } as Record<string, unknown>;
+    Object.defineProperty(accessor, 'strategy', { enumerable: true, get: () => 'replace' });
+    expect(mayRestoreLocalCoreJsonBackup(accessor)).toBe(false);
+    expect(mayRestoreLocalCoreJsonBackup(null)).toBe(false);
   });
 
   it('rejects empty, malformed, and partial replacement snapshots', () => {

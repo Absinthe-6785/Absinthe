@@ -942,6 +942,107 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     cleanup(root, host);
   });
 
+  it('blocks causally eligible attachment upload and recovery controls in Return-to-Use isolation mode', async () => {
+    vi.stubEnv('VITE_ABSINTHE_RETURN_TO_USE_ATTACHMENT_ISOLATION', 'false');
+    const migrateFn = vi.fn(async () => migrationReport());
+    const cleanupExecutorFn = vi.fn(async () => cleanupExecutorReport());
+    const restoreBackupFn = vi.fn(async () => restoreReport());
+    const diagnosticsFn = vi.fn(async () => diagnosticsReport({ uploadItems: [uploadItem()] }));
+    const recoverAttachmentFn = vi.fn(async () => recoveryResult());
+    const uploadAttachmentFn = vi.fn(async () => uploadResult());
+    const props = {
+      migrateFn,
+      cleanupExecutorFn,
+      restoreBackupFn,
+      diagnosticsFn,
+      recoverAttachmentFn,
+      uploadAttachmentFn,
+      remoteProviderConnection: availableProviderConnection({ canUpload: true, canRecover: true }),
+      googleDriveSessionController: manualGoogleDriveController({ connected: true }),
+    };
+    try {
+      const element = panelElement(props);
+      const { root, host } = render(element);
+      click(buttonByText(host, 'Attachment storage maintenance'));
+      click(buttonByText(host, 'Scan embedded attachments'));
+      await flushAsync();
+      expect(buttonByText(host, 'Migrate embedded attachments').disabled).toBe(false);
+      expect(buttonByText(host, 'Run orphan review').disabled).toBe(false);
+      click(buttonByText(host, 'Run orphan review'));
+      await flushAsync();
+      click(buttonByText(host, 'Refresh diagnostics'));
+      await flushAsync();
+      const readySelection = readyQueueSelections(host)[0];
+      if (!(readySelection instanceof HTMLInputElement)) throw new Error('eligible upload selection missing');
+      expect(buttonByText(host, 'Upload selected').disabled).toBe(true);
+      click(readySelection);
+      expect(buttonByText(host, 'Upload selected').disabled).toBe(false);
+      expect(buttonByText(host, 'Recover')).toBeInstanceOf(HTMLButtonElement);
+
+      vi.stubEnv('VITE_ABSINTHE_RETURN_TO_USE_ATTACHMENT_ISOLATION', 'true');
+      act(() => root.render(panelElement(props)));
+      await flushAsync();
+      expect(host.textContent).toContain('Attachments are temporarily disabled while local backup safety is being completed.');
+      const uploadButton = buttonByText(host, 'Upload selected');
+      expect(uploadButton.disabled).toBe(true);
+      click(uploadButton);
+      const blockedRecovery = host.querySelector('[data-recovery-reason-code="return_to_use_attachment_isolation"]');
+      if (!(blockedRecovery instanceof HTMLElement)) throw new Error('eligible recovery isolation state missing');
+      act(() => blockedRecovery.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+      expect(recoverAttachmentFn).not.toHaveBeenCalled();
+      expect(uploadAttachmentFn).not.toHaveBeenCalled();
+      expect(migrateFn).not.toHaveBeenCalled();
+      expect(cleanupExecutorFn).not.toHaveBeenCalled();
+      expect(restoreBackupFn).not.toHaveBeenCalled();
+      cleanup(root, host);
+    } finally {
+      vi.stubEnv('VITE_ABSINTHE_RETURN_TO_USE_ATTACHMENT_ISOLATION', 'false');
+    }
+  });
+
+  it('blocks restore after a real backup is selected when isolation becomes active', async () => {
+    vi.stubEnv('VITE_ABSINTHE_RETURN_TO_USE_ATTACHMENT_ISOLATION', 'false');
+    const summary = backupSummary();
+    const listBackupsFn = vi.fn(async () => [summary]);
+    const migrateFn = vi.fn(async () => migrationReportWithBackup());
+    const restoreBackupFn = vi.fn(async () => restoreReport());
+    const props = {
+      notes: [note('migrated body')],
+      listBackupsFn,
+      migrateFn,
+      restoreBackupFn,
+    };
+    const { root, host } = render(panelElement(props));
+
+    click(buttonByText(host, 'Attachment storage maintenance'));
+    click(buttonByText(host, 'Scan embedded attachments'));
+    await flushAsync();
+    click(buttonByText(host, 'Migrate embedded attachments'));
+    click(buttonByText(host, 'Confirm migration'));
+    await flushAsync();
+    click(buttonByText(host, 'Load migration backups'));
+    await flushAsync();
+    click(buttonContaining(host, 'Scanned note', 'Restorable', 'Current note matches the migrated checkpoint'));
+
+    const input = host.querySelector('input[aria-label="Restore confirmation phrase"]');
+    if (!(input instanceof HTMLInputElement)) throw new Error('restore confirmation input missing');
+    changeInput(input, `RESTORE ${summary.backupKey.slice(0, 18)}`);
+    expect(buttonByText(host, 'Restore selected backup').disabled).toBe(false);
+
+    vi.stubEnv('VITE_ABSINTHE_RETURN_TO_USE_ATTACHMENT_ISOLATION', 'true');
+    act(() => {
+      root.render(panelElement(props));
+    });
+    await flushAsync();
+
+    const restoreButton = buttonByText(host, 'Restore selected backup');
+    expect(restoreButton.disabled).toBe(true);
+    click(restoreButton);
+    expect(restoreBackupFn).not.toHaveBeenCalled();
+    vi.stubEnv('VITE_ABSINTHE_RETURN_TO_USE_ATTACHMENT_ISOLATION', 'false');
+    cleanup(root, host);
+  });
+
   it('scan button runs the K-148 audit and shows a safe summary', async () => {
     const { auditFn, root, host } = renderPanel();
 

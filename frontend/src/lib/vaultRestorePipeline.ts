@@ -18,12 +18,17 @@ import type { VaultSnapshot } from './vaultSnapshotBuild';
 import { assessSnapshotRestoreReadiness } from './vaultSnapshotValidate';
 import type { VaultPortableExtensions } from './vaultPortableExtensions';
 import {
+  LOCAL_CORE_JSON_RESTORE_OPERATION,
+  LOCAL_CORE_JSON_RESTORE_VALIDATION,
   RecoveryModeBlockedError,
   assertCurrentOperationEpoch,
   captureOperationEpoch,
   mayRestore,
+  mayRestoreLocalCoreJsonBackup,
   recordRecoveryBlock,
+  type LocalCoreJsonRestoreAuthorizationInput,
 } from './recoverySafetyPolicy';
+import { resolveNotesRuntimeSyncMode } from './syncMode';
 
 export const LAST_VAULT_EXPORT_KEY = 'absinthe:last-vault-export:v1';
 
@@ -69,6 +74,29 @@ export interface FullVaultRestorePreview {
   core: VaultRestorePreview;
   impact: VaultRestoreImpact;
   exportValidation: ReturnType<typeof validateVaultExportManifest>;
+}
+
+export function resolveInitialVaultRestoreStrategy(
+  preview: Pick<VaultRestorePreview, 'valid' | 'conflictCount'>,
+): VaultRestoreConflictStrategy {
+  return preview.valid && preview.conflictCount === 0 ? 'replace' : 'skip';
+}
+
+function isValidVaultRestoreManifest(manifest: VaultBackupManifest): boolean {
+  try {
+    return validateVaultExportManifest(manifest).valid;
+  } catch {
+    return false;
+  }
+}
+
+function selectedNoteCount(options: VaultRestorePipelineOptions): number {
+  try {
+    const size = options.selection?.noteIds?.size;
+    return typeof size === 'number' && Number.isSafeInteger(size) && size > 0 ? size : 0;
+  } catch {
+    return 0;
+  }
 }
 
 export function recordLastVaultExport(timestamp = new Date().toISOString()): void {
@@ -165,7 +193,7 @@ export interface VaultRestorePipelineDeps {
   importCore: (
     manifest: VaultBackupManifest,
     strategy: VaultRestoreConflictStrategy,
-  ) => VaultRestoreResult;
+  ) => VaultRestoreResult | PromiseLike<VaultRestoreResult>;
   getNotes: () => NoteBase[];
   getFolders: () => NoteFolder[];
 }
@@ -175,7 +203,21 @@ export async function executeVaultRestorePipeline(
   options: VaultRestorePipelineOptions,
   deps: VaultRestorePipelineDeps,
 ): Promise<VaultRestorePipelineResult> {
-  if (!mayRestore()) {
+  const authorizationInput = {
+    operation: LOCAL_CORE_JSON_RESTORE_OPERATION,
+    syncMode: resolveNotesRuntimeSyncMode(),
+    strategy: options.strategy,
+    createVerifiedSnapshot: options.backupBeforeRestore,
+    restoreCore: options.restoreCore,
+    restoreExtensions: options.restoreExtensions,
+    restoreCloud: options.restoreCloud,
+    backupValidation: isValidVaultRestoreManifest(manifest)
+      ? LOCAL_CORE_JSON_RESTORE_VALIDATION
+      : 'invalid',
+    selectedNoteCount: selectedNoteCount(options),
+  } satisfies LocalCoreJsonRestoreAuthorizationInput;
+  const allowed = mayRestoreLocalCoreJsonBackup(authorizationInput) || mayRestore();
+  if (!allowed) {
     recordRecoveryBlock('restore');
     throw new RecoveryModeBlockedError('restore');
   }
@@ -194,7 +236,7 @@ export async function executeVaultRestorePipeline(
   if (options.restoreCore && options.selection.noteIds.size > 0) {
     assertCurrentOperationEpoch(operationEpoch, 'restore');
     const filtered = filterManifestBySelection(manifest, options.selection);
-    core = deps.importCore(filtered, options.strategy);
+    core = await deps.importCore(filtered, options.strategy);
   }
 
   if (options.restoreExtensions && manifest.extensions) {

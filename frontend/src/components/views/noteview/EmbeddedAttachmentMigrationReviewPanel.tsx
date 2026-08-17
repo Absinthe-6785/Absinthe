@@ -63,6 +63,10 @@ import type { NoteChromeColors } from '../noteEditorTheme';
 import type { NoteBase as Note } from '../noteUtils';
 import { PixelInventoryCard, type PixelInventoryState } from '../../common/PixelInventory';
 import { GoogleDriveManualConnectionPanel } from './GoogleDriveManualConnectionPanel';
+import {
+  isReturnToUseAttachmentIsolationEnabled,
+  RETURN_TO_USE_ATTACHMENT_ISOLATION_MESSAGE,
+} from '../../../lib/returnToUseAttachmentIsolation';
 
 type MigrationReviewState = 'idle' | 'scanning' | 'ready' | 'migrating' | 'complete' | 'error';
 type CleanupReviewState = 'idle' | 'reviewing' | 'complete' | 'error';
@@ -613,6 +617,7 @@ export function EmbeddedAttachmentMigrationReviewPanel({
   googleDriveUploadRepository,
   googleDriveUploadBlobAdapter,
 }: EmbeddedAttachmentMigrationReviewPanelProps) {
+  const attachmentIsolationEnabled = isReturnToUseAttachmentIsolationEnabled();
   const [expanded, setExpanded] = useState(false);
   const [status, setStatus] = useState<MigrationReviewState>('idle');
   const [cleanupStatus, setCleanupStatus] = useState<CleanupReviewState>('idle');
@@ -821,6 +826,7 @@ export function EmbeddedAttachmentMigrationReviewPanel({
   };
 
   const runCleanup = async () => {
+    if (attachmentIsolationEnabled) return;
     if (!cleanupReport || !cleanupCanExecute) return;
     const selectedCandidateIds = Array.from(selectedCleanupCandidateIds).filter(candidateId => selectableCleanupCandidateIds.has(candidateId));
     if (selectedCandidateIds.length !== selectedCleanupCandidateIds.size) {
@@ -857,6 +863,7 @@ export function EmbeddedAttachmentMigrationReviewPanel({
   };
 
   const migrate = async () => {
+    if (attachmentIsolationEnabled) return;
     if (!canMigrate) return;
     if (!confirming) {
       setConfirming(true);
@@ -912,6 +919,7 @@ export function EmbeddedAttachmentMigrationReviewPanel({
   };
 
   const runRestore = async () => {
+    if (attachmentIsolationEnabled) return;
     if (!selectedBackup || !selectedBackupEligibility || !restoreCanRun) return;
     setRestoreStatus('running');
     setRestoreError(null);
@@ -966,6 +974,11 @@ export function EmbeddedAttachmentMigrationReviewPanel({
   };
 
   const runRecovery = async (attachmentId: string) => {
+    if (attachmentIsolationEnabled) {
+      setRecoveryStatus('error');
+      setRecoveryError(RETURN_TO_USE_ATTACHMENT_ISOLATION_MESSAGE);
+      return;
+    }
     if (runningRecoveryAttachmentId === attachmentId) {
       setRecoveryStatus('error');
       setRecoveryError(reasonLabel('recovery_in_progress'));
@@ -1024,6 +1037,11 @@ export function EmbeddedAttachmentMigrationReviewPanel({
   };
 
   const runUpload = async (attachmentId: string): Promise<AttachmentExplicitUploadResult | null> => {
+    if (attachmentIsolationEnabled) {
+      setUploadStatus('error');
+      setUploadError(RETURN_TO_USE_ATTACHMENT_ISOLATION_MESSAGE);
+      return null;
+    }
     if (runningUploadAttachmentIdsRef.current.size > 0) {
       setUploadStatus('error');
       setUploadError(uploadReasonLabel(
@@ -1245,6 +1263,11 @@ export function EmbeddedAttachmentMigrationReviewPanel({
   };
 
   const runSelectedUploadQueueItems = async (visibleReadyItems: readonly ManualUploadQueueReviewItem[]) => {
+    if (attachmentIsolationEnabled) {
+      setUploadStatus('error');
+      setUploadError(RETURN_TO_USE_ATTACHMENT_ISOLATION_MESSAGE);
+      return;
+    }
     if (uploadQueueRunStatus === 'running' || runningUploadAttachmentIdsRef.current.size > 0) {
       setUploadStatus('error');
       setUploadError(uploadReasonLabel('another_upload_in_progress'));
@@ -1315,7 +1338,7 @@ export function EmbeddedAttachmentMigrationReviewPanel({
           {items.slice(0, 3).map(item => (
             <div key={item.attachmentId} data-upload-queue-review-item style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start', flexWrap: 'wrap', minWidth: 0, maxWidth: '100%', fontSize: 10, color: c.textMuted, lineHeight: 1.4 }}>
               <div data-upload-queue-review-text style={{ display: 'flex', alignItems: 'flex-start', gap: 6, minWidth: 0, flex: '1 1 165px', maxWidth: '100%' }}>
-                {options.executable ? (
+                {options.executable && !attachmentIsolationEnabled ? (
                   <input
                     type="checkbox"
                     className="abs-focus-ring"
@@ -1324,7 +1347,8 @@ export function EmbeddedAttachmentMigrationReviewPanel({
                     checked={selectedUploadQueueAttachmentIds.has(item.attachmentId)}
                     onChange={event => toggleUploadQueueSelection(item.attachmentId, event.currentTarget.checked)}
                     disabled={
-                      uploadQueueRunStatus === 'running'
+                      attachmentIsolationEnabled
+                      || uploadQueueRunStatus === 'running'
                       || Boolean(runningUploadAttachmentId)
                       || (!selectedUploadQueueAttachmentIds.has(item.attachmentId) && selectedUploadQueueAttachmentIds.size >= maxManualUploadQueueSelection)
                     }
@@ -1338,13 +1362,13 @@ export function EmbeddedAttachmentMigrationReviewPanel({
                   {runningUploadAttachmentId && runningUploadAttachmentId !== item.attachmentId && options.executable ? ' - one upload is currently in progress' : ''}
                 </div>
               </div>
-              {options.executable ? (
+              {options.executable && !attachmentIsolationEnabled ? (
                 <button
                   type="button"
                   className="btbtn abs-focus-ring"
                   data-upload-queue-review-action
                   onClick={() => runUpload(item.attachmentId)}
-                  disabled={Boolean(runningUploadAttachmentId) || uploadQueueRunStatus === 'running'}
+                  disabled={attachmentIsolationEnabled || Boolean(runningUploadAttachmentId) || uploadQueueRunStatus === 'running'}
                   style={{ padding: '4px 7px', fontSize: 9.5, fontWeight: 800, color: c.accent, borderColor: `${c.accent}66`, flexShrink: 0, whiteSpace: 'nowrap' }}
                 >
                   {runningUploadAttachmentId === item.attachmentId ? 'Uploading...' : 'Upload this item'}
@@ -1396,6 +1420,11 @@ export function EmbeddedAttachmentMigrationReviewPanel({
       </button>
       {expanded ? (
         <div style={{ borderTop: `1px solid ${c.sideBdr}`, padding: 10, display: 'flex', flexDirection: 'column', gap: 9 }}>
+          {attachmentIsolationEnabled ? (
+            <div data-return-to-use-attachment-isolation style={{ border: `1px solid ${c.accent}55`, borderRadius: 6, padding: 8, fontSize: 10.5, lineHeight: 1.45, color: c.textMuted }}>
+              {RETURN_TO_USE_ATTACHMENT_ISOLATION_MESSAGE} Read-only scans, reviews, and diagnostics remain available.
+            </div>
+          ) : null}
           <p style={{ margin: 0, fontSize: 10.5, lineHeight: 1.45, color: c.textMuted }}>
             Review embedded data URLs before converting them into local attachment records. Nothing runs automatically.
           </p>
@@ -1414,14 +1443,15 @@ export function EmbeddedAttachmentMigrationReviewPanel({
               type="button"
               className="btbtn"
               onClick={migrate}
-              disabled={!canMigrate}
+              disabled={attachmentIsolationEnabled || !canMigrate}
               style={{
                 padding: '6px 9px',
                 fontSize: 11,
                 fontWeight: 700,
-                color: canMigrate ? c.accent : c.textFaint,
-                borderColor: canMigrate ? `${c.accent}66` : c.sideBdr,
+                color: canMigrate && !attachmentIsolationEnabled ? c.accent : c.textFaint,
+                borderColor: canMigrate && !attachmentIsolationEnabled ? `${c.accent}66` : c.sideBdr,
               }}
+              title={attachmentIsolationEnabled ? RETURN_TO_USE_ATTACHMENT_ISOLATION_MESSAGE : undefined}
             >
               {status === 'migrating'
                 ? 'Migrating...'
@@ -1431,7 +1461,7 @@ export function EmbeddedAttachmentMigrationReviewPanel({
             </button>
           </div>
 
-          {confirming ? (
+          {confirming && !attachmentIsolationEnabled ? (
             <div style={{ fontSize: 10.5, lineHeight: 1.45, color: c.textMuted, border: `1px solid ${c.accent}44`, borderRadius: 6, padding: 8 }}>
               This will create local attachment records and backups before replacing embedded data URLs with attachment references.
             </div>
@@ -1585,7 +1615,8 @@ export function EmbeddedAttachmentMigrationReviewPanel({
                               <input
                                 type="checkbox"
                                 checked={selectedCleanupCandidateIds.has(candidateId)}
-                                disabled={cleanupExecuting}
+                                disabled={attachmentIsolationEnabled || cleanupExecuting}
+                                title={attachmentIsolationEnabled ? RETURN_TO_USE_ATTACHMENT_ISOLATION_MESSAGE : undefined}
                                 onChange={event => toggleCleanupCandidate(candidateId, event.currentTarget.checked)}
                                 aria-label={`Select ${cleanupTypeLabels[candidate.type] ?? candidate.type}`}
                               />
@@ -1626,7 +1657,8 @@ export function EmbeddedAttachmentMigrationReviewPanel({
                     value={cleanupConfirmation}
                     onChange={event => setCleanupConfirmation(event.currentTarget.value)}
                     placeholder={cleanupConfirmationPhrase}
-                    disabled={!cleanupReport || cleanupExecuting}
+                    disabled={attachmentIsolationEnabled || !cleanupReport || cleanupExecuting}
+                    title={attachmentIsolationEnabled ? RETURN_TO_USE_ATTACHMENT_ISOLATION_MESSAGE : undefined}
                     aria-label="Cleanup confirmation phrase"
                     style={{
                       border: `1px solid ${c.sideBdr}`,
@@ -1642,14 +1674,15 @@ export function EmbeddedAttachmentMigrationReviewPanel({
                       type="button"
                       className="btbtn"
                       onClick={runCleanup}
-                      disabled={!cleanupCanExecute}
+                      disabled={attachmentIsolationEnabled || !cleanupCanExecute}
                       style={{
                         padding: '6px 9px',
                         fontSize: 11,
                         fontWeight: 800,
-                        color: cleanupCanExecute ? c.danger : c.textFaint,
-                        borderColor: cleanupCanExecute ? `${c.danger}66` : c.sideBdr,
+                        color: cleanupCanExecute && !attachmentIsolationEnabled ? c.danger : c.textFaint,
+                        borderColor: cleanupCanExecute && !attachmentIsolationEnabled ? `${c.danger}66` : c.sideBdr,
                       }}
+                      title={attachmentIsolationEnabled ? RETURN_TO_USE_ATTACHMENT_ISOLATION_MESSAGE : undefined}
                     >
                       {cleanupExecuting ? 'Cleaning selected...' : 'Clean selected local items'}
                     </button>
@@ -1786,7 +1819,8 @@ export function EmbeddedAttachmentMigrationReviewPanel({
                       value={restoreConfirmation}
                       onChange={event => setRestoreConfirmation(event.currentTarget.value)}
                       placeholder={selectedRestorePhrase}
-                      disabled={!selectedBackupEligibility.safe || restoreBusy}
+                      disabled={attachmentIsolationEnabled || !selectedBackupEligibility.safe || restoreBusy}
+                      title={attachmentIsolationEnabled ? RETURN_TO_USE_ATTACHMENT_ISOLATION_MESSAGE : undefined}
                       aria-label="Restore confirmation phrase"
                       style={{
                         border: `1px solid ${c.sideBdr}`,
@@ -1801,15 +1835,16 @@ export function EmbeddedAttachmentMigrationReviewPanel({
                       type="button"
                       className="btbtn"
                       onClick={runRestore}
-                      disabled={!restoreCanRun}
+                      disabled={attachmentIsolationEnabled || !restoreCanRun}
                       style={{
                         padding: '6px 9px',
                         fontSize: 11,
                         fontWeight: 800,
-                        color: restoreCanRun ? c.accent : c.textFaint,
-                        borderColor: restoreCanRun ? `${c.accent}66` : c.sideBdr,
+                        color: restoreCanRun && !attachmentIsolationEnabled ? c.accent : c.textFaint,
+                        borderColor: restoreCanRun && !attachmentIsolationEnabled ? `${c.accent}66` : c.sideBdr,
                         alignSelf: 'flex-start',
                       }}
+                      title={attachmentIsolationEnabled ? RETURN_TO_USE_ATTACHMENT_ISOLATION_MESSAGE : undefined}
                     >
                       {restoreBusy ? 'Restoring backup...' : 'Restore selected backup'}
                     </button>
@@ -1846,11 +1881,13 @@ export function EmbeddedAttachmentMigrationReviewPanel({
                 Diagnostics are read-only by default. Per-attachment recovery is available only when a provider is configured and you explicitly recover one eligible item.
               </p>
             </div>
-            <GoogleDriveManualConnectionPanel
-              colors={c}
-              controller={googleDriveSessionController}
-              onConnectionStatusChange={setGoogleDriveSessionConnection}
-            />
+            {attachmentIsolationEnabled ? null : (
+              <GoogleDriveManualConnectionPanel
+                colors={c}
+                controller={googleDriveSessionController}
+                onConnectionStatusChange={setGoogleDriveSessionConnection}
+              />
+            )}
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
               <button
                 type="button"
@@ -2008,6 +2045,7 @@ export function EmbeddedAttachmentMigrationReviewPanel({
                           const visibleReadyItems = uploadQueueReview.groups.eligible.slice(0, maxManualUploadQueueSelection);
                           const selectedVisibleCount = visibleReadyItems.filter(item => selectedUploadQueueAttachmentIds.has(item.attachmentId)).length;
                           const runDisabled = selectedVisibleCount === 0
+                            || attachmentIsolationEnabled
                             || uploadQueueRunStatus === 'running'
                             || Boolean(runningUploadAttachmentId);
                           return (
@@ -2020,7 +2058,8 @@ export function EmbeddedAttachmentMigrationReviewPanel({
                                   type="button"
                                   className="btbtn abs-focus-ring"
                                   onClick={() => runSelectedUploadQueueItems(visibleReadyItems)}
-                                  disabled={runDisabled}
+                                  disabled={attachmentIsolationEnabled || runDisabled}
+                                  title={attachmentIsolationEnabled ? RETURN_TO_USE_ATTACHMENT_ISOLATION_MESSAGE : undefined}
                                   style={{ padding: '5px 8px', fontSize: 10, fontWeight: 800, color: c.accent, borderColor: `${c.accent}66`, flexShrink: 0 }}
                                 >
                                   {uploadQueueRunStatus === 'running' ? 'Uploading selected...' : 'Upload selected'}
@@ -2076,7 +2115,11 @@ export function EmbeddedAttachmentMigrationReviewPanel({
                                   provider {item.remoteProvider ?? 'none'} - status {item.remoteSyncStatus ?? 'unknown'} - blob {shortValue(item.localBlobKey)}
                                 </div>
                               </div>
-                              {canUpload || running ? (
+                              {attachmentIsolationEnabled ? (
+                                <span data-upload-reason-code="return_to_use_attachment_isolation" data-upload-reason-severity="blocked" style={{ fontSize: 9.5, color: c.textFaint, maxWidth: 180, textAlign: 'right' }}>
+                                  {RETURN_TO_USE_ATTACHMENT_ISOLATION_MESSAGE}
+                                </span>
+                              ) : canUpload || running ? (
                                 <button
                                   type="button"
                                   className="btbtn"
@@ -2149,7 +2192,11 @@ export function EmbeddedAttachmentMigrationReviewPanel({
                                   provider {item.remoteProvider ?? 'none'} 쨌 status {item.remoteSyncStatus ?? 'unknown'} 쨌 remote {shortValue(item.remoteFileId)}
                                 </div>
                               </div>
-                              {canRecover || running ? (
+                              {attachmentIsolationEnabled ? (
+                                <span data-recovery-reason-code="return_to_use_attachment_isolation" data-recovery-reason-severity="blocked" style={{ fontSize: 9.5, color: c.textFaint, maxWidth: 180, textAlign: 'right' }}>
+                                  {RETURN_TO_USE_ATTACHMENT_ISOLATION_MESSAGE}
+                                </span>
+                              ) : canRecover || running ? (
                                 <button
                                   type="button"
                                   className="btbtn"

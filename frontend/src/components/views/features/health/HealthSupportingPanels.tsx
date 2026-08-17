@@ -10,6 +10,7 @@ import { K121_SKELETON_HEIGHT } from '../../../../lib/k121SkeletonHeights';
 import { useTranslation } from '../../../../lib/i18n';
 
 export interface HealthSupportingPanelsProps {
+  accountId: string;
   selectedDate: Date;
   currentDate: Date;
   setCurrentDate: (d: Date) => void;
@@ -31,6 +32,7 @@ export interface HealthSupportingPanelsProps {
 }
 
 export const HealthSupportingPanels = memo(function HealthSupportingPanels({
+  accountId,
   selectedDate,
   currentDate,
   setCurrentDate,
@@ -101,9 +103,15 @@ export const HealthSupportingPanels = memo(function HealthSupportingPanels({
                       inputMode="decimal"
                       min="0"
                       step="0.1"
-                      value={localInbody[field] !== 0 ? localInbody[field] : ''}
+                      value={localInbody[field] ?? ''}
                       placeholder="0"
-                      onChange={e => { setIsInbodyDirty(true); setLocalInbody(prev => ({ ...prev, [field]: Number(e.target.value) })); }}
+                      onChange={e => {
+                        setIsInbodyDirty(true);
+                        setLocalInbody(prev => ({
+                          ...prev,
+                          [field]: e.target.value === '' ? null : Number(e.target.value),
+                        }));
+                      }}
                       className="w-full bg-transparent text-base font-black outline-none tabular-nums"
                     />
                     <span className={`text-[10px] font-semibold ${theme.textMuted}`}>{unit}</span>
@@ -114,6 +122,7 @@ export const HealthSupportingPanels = memo(function HealthSupportingPanels({
           </div>
           <div className="order-2 flex min-w-0 flex-col lg:order-3 xl:h-full xl:min-h-0">
             <ProteinTracker
+              accountId={accountId}
               mode="compact"
               theme={theme}
               darkMode={appSettings.darkMode}

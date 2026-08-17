@@ -1,4 +1,5 @@
 import { sha256Hex } from './localDatabase/outboxIdentity';
+import { resolveNotesRuntimeSyncMode } from './syncMode';
 
 /** K-319 — fail-closed incident recovery boundary for legacy data paths. */
 export const RECOVERY_MODE_MESSAGE = 'Data recovery mode is active. This action is temporarily unavailable.';
@@ -539,6 +540,61 @@ export type PersistedNotesReplacementResult =
   | { ok: false; reason: PersistedNotesReplacementFailure };
 
 const mayUseLegacyMutationPath = () => !recoveryModeActive && !isLegacyNotesWriteBlockedByCutover();
+
+export const LOCAL_CORE_JSON_RESTORE_OPERATION = 'LOCAL_CORE_JSON_NOTES_FOLDERS_RESTORE' as const;
+export const LOCAL_CORE_JSON_RESTORE_VALIDATION = 'verified_valid' as const;
+
+export interface LocalCoreJsonRestoreAuthorizationInput {
+  operation: typeof LOCAL_CORE_JSON_RESTORE_OPERATION;
+  syncMode: 'local' | 'remote' | 'hybrid';
+  strategy: 'skip' | 'replace' | 'duplicate';
+  createVerifiedSnapshot: boolean;
+  restoreCore: boolean;
+  restoreExtensions: boolean;
+  restoreCloud: boolean;
+  backupValidation: typeof LOCAL_CORE_JSON_RESTORE_VALIDATION | 'invalid';
+  selectedNoteCount: number;
+}
+
+const LOCAL_CORE_JSON_RESTORE_AUTHORIZATION_FIELDS = [
+  'operation',
+  'syncMode',
+  'strategy',
+  'createVerifiedSnapshot',
+  'restoreCore',
+  'restoreExtensions',
+  'restoreCloud',
+  'backupValidation',
+  'selectedNoteCount',
+] as const;
+
+/**
+ * Narrow Return-to-Use exception for an already validated local notes/folders
+ * JSON restore. The exact runtime profile is checked here so callers cannot
+ * reinterpret omitted, undefined, or truthy/falsy malformed values as safe.
+ */
+export function mayRestoreLocalCoreJsonBackup(input: unknown): boolean {
+  try {
+    if (!exactOwnDataKeys(input, LOCAL_CORE_JSON_RESTORE_AUTHORIZATION_FIELDS)) return false;
+    const candidate = input as Record<string, unknown>;
+    return candidate.operation === LOCAL_CORE_JSON_RESTORE_OPERATION
+      && candidate.syncMode === 'local'
+      && resolveNotesRuntimeSyncMode() === 'local'
+      && candidate.strategy === 'replace'
+      && candidate.createVerifiedSnapshot === true
+      && candidate.restoreCore === true
+      && candidate.restoreExtensions === false
+      && candidate.restoreCloud === false
+      && candidate.backupValidation === LOCAL_CORE_JSON_RESTORE_VALIDATION
+      && typeof candidate.selectedNoteCount === 'number'
+      && Number.isSafeInteger(candidate.selectedNoteCount)
+      && candidate.selectedNoteCount > 0
+      && !isLegacyNotesWriteBlockedByCutover();
+  } catch {
+    return false;
+  }
+}
+
 export const mayHydrateRemote = mayUseLegacyMutationPath;
 export const mayUploadRemote = mayUseLegacyMutationPath;
 export const mayRestore = mayUseLegacyMutationPath;

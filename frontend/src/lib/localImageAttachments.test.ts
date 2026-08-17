@@ -100,6 +100,25 @@ describe('local image attachments', () => {
     expect(result.body).not.toContain('base64');
   });
 
+  it('fails closed before any blob or metadata write when Return-to-Use attachment isolation is active', async () => {
+    vi.stubEnv('VITE_ABSINTHE_RETURN_TO_USE_ATTACHMENT_ISOLATION', 'true');
+    const repository = memoryRepository();
+    const blobAdapter = memoryBlobAdapter();
+    try {
+      await expect(attachLocalImageToNote({
+        noteId: 'note-1',
+        file: imageFile(),
+        currentBody: 'body',
+        repository,
+        blobAdapter,
+      })).rejects.toThrow('Attachments are temporarily disabled');
+      expect(blobAdapter.putBlob).not.toHaveBeenCalled();
+      expect(repository.records.size).toBe(0);
+    } finally {
+      vi.stubEnv('VITE_ABSINTHE_RETURN_TO_USE_ATTACHMENT_ISOLATION', 'false');
+    }
+  });
+
   it('keeps Notes sync payload lightweight after attachment insertion', async () => {
     const result = await attachLocalImageToNote({
       noteId: 'note-1',

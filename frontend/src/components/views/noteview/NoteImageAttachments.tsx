@@ -6,6 +6,10 @@ import type { AttachmentMetadata } from '../../../lib/attachmentRepository';
 import { createLocalAttachmentBlobAdapter } from '../../../lib/attachmentBlobIndexedDb';
 import { createLocalAttachmentMetadataRepository } from '../../../lib/attachmentMetadataIndexedDb';
 import { attachLocalImageToNote } from '../../../lib/localImageAttachments';
+import {
+  isReturnToUseAttachmentIsolationEnabled,
+  RETURN_TO_USE_ATTACHMENT_ISOLATION_MESSAGE,
+} from '../../../lib/returnToUseAttachmentIsolation';
 
 const metadataRepository = createLocalAttachmentMetadataRepository();
 const blobAdapter = createLocalAttachmentBlobAdapter();
@@ -35,6 +39,7 @@ export function NoteImageAttachments({ note, colors: c, readOnly, onUpdateBody }
   const [attachments, setAttachments] = useState<AttachmentPreview[]>([]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const attachmentIsolationEnabled = isReturnToUseAttachmentIsolationEnabled();
 
   const revokeLoadedUrls = useCallback(() => {
     for (const url of objectUrlsRef.current) {
@@ -61,6 +66,10 @@ export function NoteImageAttachments({ note, colors: c, readOnly, onUpdateBody }
   }, [loadAttachments, revokeLoadedUrls]);
 
   const attachFile = useCallback(async (file: File) => {
+    if (isReturnToUseAttachmentIsolationEnabled()) {
+      setError(RETURN_TO_USE_ATTACHMENT_ISOLATION_MESSAGE);
+      return;
+    }
     setBusy(true);
     setError('');
     try {
@@ -87,6 +96,10 @@ export function NoteImageAttachments({ note, colors: c, readOnly, onUpdateBody }
   }, [attachFile]);
 
   const handleRemove = useCallback(async (id: string) => {
+    if (isReturnToUseAttachmentIsolationEnabled()) {
+      setError(RETURN_TO_USE_ATTACHMENT_ISOLATION_MESSAGE);
+      return;
+    }
     const deletedAt = new Date().toISOString();
     await metadataRepository.tombstoneAttachment(id, deletedAt);
     await loadAttachments();
@@ -123,8 +136,8 @@ export function NoteImageAttachments({ note, colors: c, readOnly, onUpdateBody }
             type="button"
             className="btbtn"
             onClick={() => inputRef.current?.click()}
-            disabled={busy}
-            title="Attach image"
+            disabled={busy || attachmentIsolationEnabled}
+            title={attachmentIsolationEnabled ? RETURN_TO_USE_ATTACHMENT_ISOLATION_MESSAGE : 'Attach image'}
             style={{
               minHeight: 30,
               padding: '0 10px',
@@ -140,10 +153,15 @@ export function NoteImageAttachments({ note, colors: c, readOnly, onUpdateBody }
             }}
           >
             <ImageIcon size={13} />
-            {busy ? 'Attaching' : 'Attach image'}
+            {busy ? 'Attaching' : attachmentIsolationEnabled ? 'Attachments disabled' : 'Attach image'}
           </button>
         ) : null}
       </div>
+      {!readOnly && attachmentIsolationEnabled ? (
+        <div data-return-to-use-attachment-isolation style={{ color: c.textMuted, fontSize: 10.5, lineHeight: 1.45, marginBottom: 8 }}>
+          {RETURN_TO_USE_ATTACHMENT_ISOLATION_MESSAGE}
+        </div>
+      ) : null}
       {error ? (
         <div style={{ color: c.danger, fontSize: 11, marginBottom: 8 }}>{error}</div>
       ) : null}
@@ -183,7 +201,8 @@ export function NoteImageAttachments({ note, colors: c, readOnly, onUpdateBody }
                     type="button"
                     className="btbtn"
                     onClick={() => void handleRemove(metadata.id)}
-                    title="Remove image"
+                    disabled={attachmentIsolationEnabled}
+                    title={attachmentIsolationEnabled ? RETURN_TO_USE_ATTACHMENT_ISOLATION_MESSAGE : 'Remove image'}
                     style={{ width: 28, height: 28, color: c.textMuted, flexShrink: 0 }}
                   >
                     <X size={13} />

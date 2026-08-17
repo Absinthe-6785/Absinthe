@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
-import { NOTES_RUNTIME_SYNC_MODE_KEY } from './notesSyncClient';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { NOTES_RUNTIME_SYNC_MODE_KEY, RETURN_TO_USE_LOCAL_LOCK_ENV } from './notesSyncClient';
 
 const getSessionMock = vi.fn();
 
@@ -22,9 +22,14 @@ vi.stubGlobal('localStorage', {
   clear: () => { storage.clear(); },
 });
 
+beforeEach(() => {
+  storage.clear();
+  vi.stubEnv(RETURN_TO_USE_LOCAL_LOCK_ENV, 'false');
+  vi.stubEnv('VITE_ABSINTHE_SYNC_MODE', '');
+});
+
 describe('fetcher local-only mode', () => {
   it('pauses remote fetches before Supabase auth is touched', async () => {
-    storage.clear();
     const { fetcher, isLocalOnlyRemotePausedError } = await import('./fetcher');
 
     try {

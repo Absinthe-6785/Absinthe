@@ -10,6 +10,9 @@ export const BACKUP_FALLBACK_TITLE = 'Untitled';
 export type VaultBackupNoteIssueCode =
   | 'missing_id'
   | 'missing_title'
+  | 'invalid_folder_id'
+  | 'invalid_created_at'
+  | 'invalid_updated_at'
   | 'markdown_unparseable'
   | 'legacy_body_field'
   | 'legacy_properties_shape'
@@ -100,6 +103,7 @@ export function repairVaultBackupNoteEntry(
   raw: LegacyBackupNote,
 ): { entry: VaultBackupNoteEntry; issues: VaultBackupNoteIssue[] } {
   const issues: VaultBackupNoteIssue[] = [];
+  const rawRecord = raw as unknown as Record<string, unknown>;
   const noteId = String(raw.id ?? '').trim();
 
   let markdown = String(raw.markdown ?? '');
@@ -132,10 +136,16 @@ export function repairVaultBackupNoteEntry(
   const entry: VaultBackupNoteEntry = {
     id: noteId,
     title,
-    folderId: raw.folderId ?? null,
+    // Preserve malformed persisted primitives for the canonical validator to
+    // reject; compatibility normalization must not silently coerce them.
+    folderId: (Object.prototype.hasOwnProperty.call(rawRecord, 'folderId')
+      ? rawRecord.folderId
+      : undefined) as VaultBackupNoteEntry['folderId'],
     starred: Boolean(raw.starred),
-    createdAt: typeof raw.createdAt === 'number' ? raw.createdAt : undefined,
-    updatedAt: typeof raw.updatedAt === 'number' ? raw.updatedAt : Date.now(),
+    createdAt: (Object.prototype.hasOwnProperty.call(rawRecord, 'createdAt')
+      ? rawRecord.createdAt
+      : undefined) as VaultBackupNoteEntry['createdAt'],
+    updatedAt: rawRecord.updatedAt as VaultBackupNoteEntry['updatedAt'],
     markdown,
     properties,
     relations,
@@ -213,24 +223,43 @@ export function validateVaultBackupNotes(
   const issues: VaultBackupNoteIssue[] = [];
   const corruptedNoteIds: string[] = [];
   const repairedNoteIds = new Set<string>();
+  const markCorrupted = (noteId: string) => {
+    if (!corruptedNoteIds.includes(noteId)) corruptedNoteIds.push(noteId);
+  };
 
   for (const note of notes) {
     if (!note.id?.trim()) {
       const id = note.id || 'unknown';
-      corruptedNoteIds.push(id);
+      markCorrupted(id);
       issues.push(issue(id, note.title ?? '', 'id', 'missing_id', 'Note is missing a stable id', false));
       continue;
     }
 
     if (!note.title?.trim()) {
-      corruptedNoteIds.push(note.id);
+      markCorrupted(note.id);
       issues.push(issue(note.id, note.title ?? '', 'title', 'missing_title', 'Note is missing a title', false));
       continue;
     }
 
+    if (note.folderId !== null && typeof note.folderId !== 'string') {
+      markCorrupted(note.id);
+      issues.push(issue(note.id, note.title, 'folderId', 'invalid_folder_id', 'Note folderId must be null or a string', false));
+    }
+
+    if (note.createdAt !== undefined
+      && (typeof note.createdAt !== 'number' || !Number.isFinite(note.createdAt))) {
+      markCorrupted(note.id);
+      issues.push(issue(note.id, note.title, 'createdAt', 'invalid_created_at', 'Note createdAt must be a finite number when present', false));
+    }
+
+    if (typeof note.updatedAt !== 'number' || !Number.isFinite(note.updatedAt)) {
+      markCorrupted(note.id);
+      issues.push(issue(note.id, note.title, 'updatedAt', 'invalid_updated_at', 'Note updatedAt must be a finite number', false));
+    }
+
     const parsed = safeParseNoteMarkdown(note.markdown ?? '');
     if (!parsed.ok) {
-      corruptedNoteIds.push(note.id);
+      markCorrupted(note.id);
       issues.push(issue(note.id, note.title, 'markdown', 'markdown_unparseable', parsed.reason, false));
     }
   }
