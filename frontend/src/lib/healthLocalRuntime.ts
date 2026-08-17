@@ -55,14 +55,60 @@ function blocksById(datasets: HealthRecoveryDatasets): Map<string, ExerciseBlock
   }]));
 }
 
-function workoutRow(row: HealthRecoveryRecord, blocks: Map<string, ExerciseBlock>): Workout | null {
+export function deriveGlobalHealthExerciseRecentRanks(
+  datasets: HealthRecoveryDatasets,
+): ReadonlyMap<string, number> {
+  const rows = datasets.workout_logs
+    .filter(row => stringValue(row.block_id).length > 0 && typeof row.date === 'string' && row.date.length > 0)
+    .map(row => ({
+      blockId: String(row.block_id),
+      date: String(row.date),
+      rowId: String(row.id),
+    }))
+    .sort((left, right) => (
+      right.date.localeCompare(left.date)
+      || left.blockId.localeCompare(right.blockId)
+      || left.rowId.localeCompare(right.rowId)
+    ));
+  const ranks = new Map<string, number>();
+  for (const row of rows) {
+    if (!ranks.has(row.blockId)) ranks.set(row.blockId, ranks.size);
+  }
+  return ranks;
+}
+
+function historicalExerciseBlock(row: HealthRecoveryRecord, blockId: string): ExerciseBlock {
+  const name = ['exercise_name', 'block_name', 'exercise_block_name']
+    .map(key => row[key])
+    .find((value): value is string => typeof value === 'string' && value.trim().length > 0);
+  const sets = Array.isArray(row.sets) ? row.sets : [];
+  const isCardio = sets.some(set => (
+    !!set && typeof set === 'object' && (set as Record<string, unknown>).type === 'cardio'
+  ));
+  return {
+    id: blockId,
+    name: name?.trim() ?? `Historical exercise (${blockId.slice(0, 8)})`,
+    type: isCardio ? 'cardio' : 'strength',
+    tags: [],
+  };
+}
+
+function blockForWorkoutRow(
+  row: HealthRecoveryRecord,
+  blocks: Map<string, ExerciseBlock>,
+): { blockId: string; block: ExerciseBlock } | null {
   const blockId = stringValue(row.block_id);
-  const block = blocks.get(blockId);
-  if (!block) return null;
+  if (!blockId) return null;
+  return { blockId, block: blocks.get(blockId) ?? historicalExerciseBlock(row, blockId) };
+}
+
+function workoutRow(row: HealthRecoveryRecord, blocks: Map<string, ExerciseBlock>): Workout | null {
+  const resolved = blockForWorkoutRow(row, blocks);
+  if (!resolved) return null;
   return {
     id: String(row.id),
-    block_id: blockId,
-    exercise_blocks: block,
+    block_id: resolved.blockId,
+    exercise_blocks: resolved.block,
     sets: structuredClone(row.sets as WorkoutSet[]),
     sort_order: Number.isInteger(row.sort_order) ? row.sort_order as number : undefined,
     local_version: computeLocalHealthLogicalVersion([row]),
@@ -119,14 +165,20 @@ export async function readLocalHealthDaily(accountId: string, date: string): Pro
 }
 
 export type LocalHealthStaticProjection = {
-  healthBlocks: ExerciseBlock[];
+  healthBlocks: Array<ExerciseBlock & { recentRank?: number }>;
   healthRoutines: HealthRoutine[];
 };
 
-export async function readLocalHealthStatic(accountId: string): Promise<LocalHealthStaticProjection> {
-  const datasets = await (await createLocalHealthRepository(accountId)).readAll();
+export function projectLocalHealthStatic(
+  datasets: HealthRecoveryDatasets,
+): LocalHealthStaticProjection {
+  const blocks = blocksById(datasets);
+  const recentRanks = deriveGlobalHealthExerciseRecentRanks(datasets);
   return {
-    healthBlocks: [...blocksById(datasets).values()],
+    healthBlocks: [...blocks.values()].map(block => {
+      const recentRank = recentRanks.get(block.id);
+      return recentRank === undefined ? block : { ...block, recentRank };
+    }),
     healthRoutines: datasets.health_routines.map(row => ({
       id: String(row.id),
       day_name: stringValue(row.day_name),
@@ -135,27 +187,39 @@ export async function readLocalHealthStatic(accountId: string): Promise<LocalHea
   };
 }
 
+export async function readLocalHealthStatic(accountId: string): Promise<LocalHealthStaticProjection> {
+  const datasets = await (await createLocalHealthRepository(accountId)).readAll();
+  return projectLocalHealthStatic(datasets);
+}
+
+export function projectLocalHealthWorkoutRange(
+  datasets: HealthRecoveryDatasets,
+  startDate: string,
+  endDate: string,
+): RangeWorkoutRow[] {
+  const blocks = blocksById(datasets);
+  return datasets.workout_logs
+    .filter(row => typeof row.date === 'string' && row.date >= startDate && row.date <= endDate)
+    .reduce<RangeWorkoutRow[]>((rows, row) => {
+      const resolved = blockForWorkoutRow(row, blocks);
+      if (!resolved) return rows;
+      rows.push({
+        date: String(row.date),
+        block_id: resolved.blockId,
+        exercise_blocks: { name: resolved.block.name },
+        sets: structuredClone(row.sets as WorkoutSet[]),
+      });
+      return rows;
+    }, []);
+}
+
 export async function readLocalHealthWorkoutRange(
   accountId: string,
   startDate: string,
   endDate: string,
 ): Promise<RangeWorkoutRow[]> {
   const datasets = await (await createLocalHealthRepository(accountId)).readAll();
-  const blocks = blocksById(datasets);
-  return datasets.workout_logs
-    .filter(row => typeof row.date === 'string' && row.date >= startDate && row.date <= endDate)
-    .reduce<RangeWorkoutRow[]>((rows, row) => {
-      const blockId = stringValue(row.block_id);
-      const block = blocks.get(blockId);
-      if (!block) return rows;
-      rows.push({
-        date: String(row.date),
-        block_id: blockId,
-        exercise_blocks: { name: block.name },
-        sets: structuredClone(row.sets as WorkoutSet[]),
-      });
-      return rows;
-    }, []);
+  return projectLocalHealthWorkoutRange(datasets, startDate, endDate);
 }
 
 export async function readLocalPreviousWorkout(

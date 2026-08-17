@@ -518,6 +518,7 @@ export const HealthView = ({
           if (!currentAccountOperation(accountOperation)) return;
           mutateDaily();
           mutateMonthWorkoutRows();
+          mutateStatic();
         } else {
         const res = await authFetch(`${API_URL}/api/workouts/${dbId}`, { method: 'DELETE' });
         if (!res.ok) throw new Error(`[${res.status}]`);
@@ -663,6 +664,7 @@ export const HealthView = ({
         setIsWorkoutLocked(true);
         mutateDaily();
         mutateMonthWorkoutRows();
+        mutateStatic();
         return;
       } catch (error) {
         if (!currentAccountOperation(accountOperation)) return;
@@ -697,6 +699,7 @@ export const HealthView = ({
       setIsDirty(false);
       setIsWorkoutLocked(true);
       mutateDaily();
+      if (localMode) mutateStatic();
       if (isMobile) {
         requestAnimationFrame(() => {
           inbodyQuickRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -708,6 +711,7 @@ export const HealthView = ({
       setIsDirty(false);
       setIsWorkoutLocked(true);
       mutateDaily();
+      if (localMode) mutateStatic();
       if (isMobile) {
         requestAnimationFrame(() => {
           inbodyQuickRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -832,38 +836,6 @@ export const HealthView = ({
   }), [monthWorkoutRows, selectedDateKey, weightUnits]);
 
   const workoutDates = healthProjection.workoutDates;
-
-  const blockQuickCaptureMeta = useMemo(() => {
-    const formatSetPreview = (sets: readonly WorkoutSet[] | undefined, blockId: string): string => {
-      const lastDone = [...(sets ?? [])].reverse().find(s => s.done) ?? [...(sets ?? [])].reverse()[0];
-      if (!lastDone) return '';
-      if (isStrengthSet(lastDone)) {
-        const reps = lastDone.reps !== '' ? String(lastDone.reps) : '-';
-        if (lastDone.type === 'bodyweight') return `${reps} reps`;
-        const weight = lastDone.kg !== '' ? displayKg(lastDone.kg, blockId) : '-';
-        return `${weight}${getUnit(blockId)} x ${reps}`;
-      }
-      if (isCardioSet(lastDone)) {
-        return [lastDone.time, lastDone.distance ? `${lastDone.distance}km` : ''].filter(Boolean).join(' · ');
-      }
-      return '';
-    };
-
-    const byBlock = new Map<string, { lastDate: string; summary: string; recentRank: number }>();
-    [...monthWorkoutRows]
-      .filter(row => row.block_id && row.date)
-      .sort((a, b) => String(b.date).localeCompare(String(a.date)))
-      .forEach((row, index) => {
-        const blockId = row.block_id;
-        if (!blockId || byBlock.has(blockId)) return;
-        byBlock.set(blockId, {
-          lastDate: row.date ?? '',
-          summary: formatSetPreview(row.sets, blockId),
-          recentRank: index,
-        });
-      });
-    return byBlock;
-  }, [monthWorkoutRows, weightUnits]);
 
   const workoutSessionSummary = useMemo(() => {
     const exerciseCount = localWorkouts.filter(w => w.block_id !== '__session__').length;
@@ -1021,7 +993,6 @@ export const HealthView = ({
           onDeleteBlock={handleDeleteBlock}
           onNewBlock={() => openBlockModal()}
           mobileVisible={mobileHealthTab === 'blocks'}
-          quickCaptureMeta={blockQuickCaptureMeta}
         />
 
         <div className={`xl:h-full xl:min-h-0 ${WORKSPACE_CARD.sm} ${WORKSPACE_CARD_SURFACE} flex flex-col overflow-hidden transition-colors ${theme.card} ${mobileHealthTab === 'routine' ? '' : 'hidden lg:flex'}`} data-k126-workout-routine>
