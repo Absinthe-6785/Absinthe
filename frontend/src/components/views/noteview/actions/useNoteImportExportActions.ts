@@ -100,6 +100,7 @@ export function useNoteImportExportActions(params: UseNoteViewActionsParams) {
       let nextBody = activeNote.body;
       for (const file of imageFiles) {
         const result = await attachLocalImageToNote({
+          accountId: useNotesStore.getState().activeAccountId ?? '',
           noteId: activeNote.id,
           file,
           currentBody: nextBody,

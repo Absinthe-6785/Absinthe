@@ -6,6 +6,7 @@ import type { AttachmentMetadata } from '../../../lib/attachmentRepository';
 import { createLocalAttachmentBlobAdapter } from '../../../lib/attachmentBlobIndexedDb';
 import { createLocalAttachmentMetadataRepository } from '../../../lib/attachmentMetadataIndexedDb';
 import { attachLocalImageToNote } from '../../../lib/localImageAttachments';
+import { getActiveNotesAuthorityAccountId } from '../../../lib/notesAccountAuthority';
 import {
   isReturnToUseAttachmentIsolationEnabled,
   RETURN_TO_USE_ATTACHMENT_ISOLATION_MESSAGE,
@@ -74,6 +75,7 @@ export function NoteImageAttachments({ note, colors: c, readOnly, onUpdateBody }
     setError('');
     try {
       const result = await attachLocalImageToNote({
+        accountId: getActiveNotesAuthorityAccountId() ?? '',
         noteId: note.id,
         file,
         currentBody: note.body,

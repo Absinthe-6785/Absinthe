@@ -1,6 +1,6 @@
 import {
   attachmentReference,
-  type AttachmentMetadata,
+  type AccountScopedAttachmentMetadata,
   type AttachmentRepository,
   type BlobStorageAdapter,
 } from './attachmentRepository';
@@ -20,6 +20,7 @@ export const SUPPORTED_LOCAL_IMAGE_TYPES = new Set([
 export const LOCAL_IMAGE_ATTACHMENT_MAX_BYTES = 15 * 1024 * 1024;
 
 export interface AttachLocalImageInput {
+  accountId: string;
   noteId: string;
   file: File;
   currentBody: string;
@@ -30,9 +31,15 @@ export interface AttachLocalImageInput {
 }
 
 export interface AttachLocalImageResult {
-  metadata: AttachmentMetadata;
+  metadata: AccountScopedAttachmentMetadata;
   body: string;
   reference: string;
+}
+
+export function localAttachmentBlobKey(accountId: string, attachmentId: string): string {
+  const normalizedAccountId = accountId.trim();
+  if (!normalizedAccountId) throw new Error('Local attachment requires an account id');
+  return `local-image/${encodeURIComponent(normalizedAccountId)}/${attachmentId}`;
 }
 
 function randomId(): string {
@@ -77,7 +84,8 @@ export async function attachLocalImageToNote(input: AttachLocalImageInput): Prom
   const now = input.now ?? (() => new Date().toISOString());
   const id = input.idFactory?.() ?? randomId();
   const createdAt = now();
-  const localBlobKey = `local-image/${id}`;
+  const accountId = input.accountId.trim();
+  const localBlobKey = localAttachmentBlobKey(accountId, id);
   const checksum = await checksumBlob(input.file);
 
   await blobAdapter.putBlob({
@@ -87,8 +95,9 @@ export async function attachLocalImageToNote(input: AttachLocalImageInput): Prom
     checksum,
   });
 
-  const metadata: AttachmentMetadata = {
+  const metadata: AccountScopedAttachmentMetadata = {
     id,
+    accountId,
     noteId: input.noteId,
     fileName: input.file.name || `${id}.image`,
     mimeType: input.file.type,

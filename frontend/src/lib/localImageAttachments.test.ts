@@ -72,6 +72,7 @@ describe('local image attachments', () => {
     const blobAdapter = memoryBlobAdapter();
 
     const result = await attachLocalImageToNote({
+      accountId: 'account-a',
       noteId: 'note-1',
       file: imageFile(),
       currentBody: 'body',
@@ -82,16 +83,17 @@ describe('local image attachments', () => {
     });
 
     expect(blobAdapter.putBlob).toHaveBeenCalledWith(expect.objectContaining({
-      key: 'local-image/att-1',
+      key: 'local-image/account-a/att-1',
       blob: expect.any(Blob),
       mimeType: 'image/png',
     }));
     expect(result.metadata).toMatchObject({
       id: 'att-1',
+      accountId: 'account-a',
       noteId: 'note-1',
       fileName: 'scan.png',
       mimeType: 'image/png',
-      localBlobKey: 'local-image/att-1',
+      localBlobKey: 'local-image/account-a/att-1',
       source: 'local',
     });
     expect(repository.records.get('att-1')).toEqual(result.metadata);
@@ -106,6 +108,7 @@ describe('local image attachments', () => {
     const blobAdapter = memoryBlobAdapter();
     try {
       await expect(attachLocalImageToNote({
+        accountId: 'account-a',
         noteId: 'note-1',
         file: imageFile(),
         currentBody: 'body',
@@ -121,6 +124,7 @@ describe('local image attachments', () => {
 
   it('keeps Notes sync payload lightweight after attachment insertion', async () => {
     const result = await attachLocalImageToNote({
+      accountId: 'account-a',
       noteId: 'note-1',
       file: imageFile('photo.webp', 'image/webp'),
       currentBody: '',

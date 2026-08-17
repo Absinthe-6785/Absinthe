@@ -14,10 +14,11 @@ import {
 } from '../lib/recoverySafetyPolicy';
 import { NOTES_RUNTIME_SYNC_MODE_KEY } from '../lib/notesSyncClient';
 
-const { deleteSingleRemoteNoteMock, authReadFetchMock, authFetchMock } = vi.hoisted(() => ({
+const { deleteSingleRemoteNoteMock, authReadFetchMock, authFetchMock, attachmentGcMock } = vi.hoisted(() => ({
   deleteSingleRemoteNoteMock: vi.fn(),
   authReadFetchMock: vi.fn(),
   authFetchMock: vi.fn(),
+  attachmentGcMock: vi.fn(),
 }));
 
 vi.mock('../lib/notesSingleDeleteRemote', () => ({
@@ -28,6 +29,11 @@ vi.mock('../lib/supabase', () => ({
   authFetch: (...args: unknown[]) => authFetchMock(...args),
   authReadFetch: (...args: unknown[]) => authReadFetchMock(...args),
 }));
+
+vi.mock('../lib/noteAttachmentGc', async importOriginal => {
+  const actual = await importOriginal<typeof import('../lib/noteAttachmentGc')>();
+  return { ...actual, gcOrphanedLocalNoteAttachments: (...args: unknown[]) => attachmentGcMock(...args) };
+});
 
 const storage = new Map<string, string>();
 vi.stubGlobal('localStorage', {
@@ -136,6 +142,10 @@ beforeEach(async () => {
   deleteSingleRemoteNoteMock.mockResolvedValue({ ok: true, outcome: 'deleted' });
   authFetchMock.mockReset();
   authReadFetchMock.mockReset();
+  attachmentGcMock.mockReset();
+  attachmentGcMock.mockResolvedValue({
+    candidateCount: 0, reclaimedBlobCount: 0, reclaimedMetadataCount: 0, results: [],
+  });
   useNotesStore.setState({
     notes: [], folders: [], activeNoteId: null, activeFolderId: null,
     activeAccountId: null, notesAuthorityState: 'NOT_LOADED', foldersAuthorityState: 'NOT_LOADED',
@@ -465,6 +475,7 @@ describe('POST_RTU_03 account-scoped trash and permanent deletion', () => {
     expect(await deletePrepared('image-heavy')).toBe(true);
     expect(useNotesStore.getState().notes).toEqual([]);
     expect(await loadAccountScopedNotes('account-a')).toEqual([]);
+    expect(attachmentGcMock).not.toHaveBeenCalled();
   });
 
   it('does not delete a shared attachment reference from a remaining Note', async () => {
@@ -475,5 +486,34 @@ describe('POST_RTU_03 account-scoped trash and permanent deletion', () => {
     ]);
     expect(await deletePrepared('delete-me')).toBe(true);
     expect(useNotesStore.getState().notes).toEqual([expect.objectContaining({ id: 'keep-me', body: shared })]);
+    await vi.waitFor(() => expect(attachmentGcMock).toHaveBeenCalledTimes(1));
+    const input = attachmentGcMock.mock.calls[0]?.[0];
+    expect([...input.candidateAttachmentIds]).toEqual(['shared-image']);
+    expect(input.getSurvivingNotes()).toEqual([expect.objectContaining({ id: 'keep-me', body: shared })]);
+  });
+
+  it('keeps the durable Note deletion committed when best-effort attachment GC fails', async () => {
+    attachmentGcMock.mockRejectedValueOnce(new Error('attachment gc unavailable'));
+    await seedAccount('account-a', [
+      note('delete-with-attachment', { body: 'attachment://exclusive-image', deletedAt: 20, updatedAt: 20 }),
+    ]);
+
+    expect(await deletePrepared('delete-with-attachment')).toBe(true);
+    await vi.waitFor(() => expect(attachmentGcMock).toHaveBeenCalledTimes(1));
+    expect(useNotesStore.getState().notes).toEqual([]);
+    expect(await loadAccountScopedNotes('account-a')).toEqual([]);
+  });
+
+  it('does not start attachment GC when the durable Note deletion fails', async () => {
+    deleteSingleRemoteNoteMock.mockResolvedValueOnce({
+      ok: false, outcome: 'confirmed_not_deleted', error: 'remote_rejected',
+    });
+    await seedAccount('account-a', [
+      note('kept-with-attachment', { body: 'attachment://kept-image', deletedAt: 20, updatedAt: 20 }),
+    ]);
+
+    expect(await deletePrepared('kept-with-attachment')).toBe(false);
+    expect(attachmentGcMock).not.toHaveBeenCalled();
+    expect(useNotesStore.getState().notes).toHaveLength(1);
   });
 });
