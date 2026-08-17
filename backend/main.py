@@ -948,7 +948,17 @@ async def delete_note(note_id: str, user_id: str = Depends(get_current_user)):
     row = supabase.table("notes").select("user_id").eq("id", note_id).maybe_single().execute().data
     if not row: raise HTTPException(status_code=404, detail="Not found")
     verify_owner(row["user_id"], user_id)
-    return supabase.table("notes").delete().eq("id", note_id).execute().data
+    deleted = (
+        supabase.table("notes")
+        .delete()
+        .eq("id", note_id)
+        .eq("user_id", user_id)
+        .execute()
+        .data or []
+    )
+    if len(deleted) != 1 or deleted[0].get("id") != note_id or deleted[0].get("user_id") != user_id:
+        raise HTTPException(status_code=409, detail="Delete not confirmed")
+    return {"deleted": True, "note_id": note_id, "account_id": user_id}
 
 # ==========================================
 # Backup & Restore

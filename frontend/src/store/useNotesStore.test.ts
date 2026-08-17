@@ -191,13 +191,13 @@ describe('useNotesStore local-only sync mode', () => {
     useNotesStore.getState().flushPendingSync();
     await useNotesStore.getState().hydrateFromDB();
     useNotesStore.getState().deleteFolder(folderId);
-    useNotesStore.getState().permanentDeleteNote(id);
+    await useNotesStore.getState().permanentDeleteNote(id as never);
 
     vi.advanceTimersByTime(600);
     await Promise.resolve();
 
     expect(authFetchMock).not.toHaveBeenCalled();
-    expect(useNotesStore.getState().syncError).toBeNull();
+    expect(useNotesStore.getState().syncError).toContain('operation context is stale');
   });
 });
 
@@ -435,7 +435,7 @@ describe('useNotesStore — metadata updatedAt & hydrate merge', () => {
   });
 });
 
-describe('useNotesStore — permanentDeleteNote pending cleanup', () => {
+describe('useNotesStore — permanentDeleteNote authorization boundary', () => {
   beforeEach(() => {
     resetStore();
     vi.useFakeTimers();
@@ -443,7 +443,7 @@ describe('useNotesStore — permanentDeleteNote pending cleanup', () => {
   });
   afterEach(() => vi.useRealTimers());
 
-  it('does not POST deleted note when body debounce timer fires', async () => {
+  it('does not mutate or call remote APIs for an unprepared delete', async () => {
     const id = 'note-del';
     useNotesStore.setState({
       notes: [{ id, title: 'T', body: 'draft', updatedAt: 1, folderId: null, deletedAt: Date.now() }],
@@ -451,49 +451,34 @@ describe('useNotesStore — permanentDeleteNote pending cleanup', () => {
     });
     authFetchMock.mockClear();
 
-    useNotesStore.getState().updateNote(id, { body: 'unsynced edit' });
-    useNotesStore.getState().permanentDeleteNote(id);
+    await useNotesStore.getState().permanentDeleteNote(id as never);
 
-    expect(useNotesStore.getState().notes.some(n => n.id === id)).toBe(false);
-
-    vi.advanceTimersByTime(600);
-    await Promise.resolve();
-
-    const postCalls = authFetchMock.mock.calls.filter(
-      ([url, opts]) =>
-        String(url).includes('/api/notes') &&
-        (opts as RequestInit)?.method === 'POST',
-    );
-    expect(postCalls).toHaveLength(0);
+    expect(useNotesStore.getState().notes.some(n => n.id === id)).toBe(true);
+    expect(authFetchMock).not.toHaveBeenCalled();
+    expect(useNotesStore.getState().syncError).toContain('operation context is stale');
   });
 });
 
 describe('useNotesStore — delete failure & local save errors', () => {
   beforeEach(() => resetStore());
 
-  it('permanentDeleteNote sets syncError on DELETE failure and retrySync retries DELETE', async () => {
+  it('unprepared permanentDeleteNote fails closed and retrySync does not invent a DELETE', async () => {
     const id = 'note-del-fail';
     useNotesStore.setState({
       notes: [{ id, title: 'T', body: '', updatedAt: 1, folderId: null, deletedAt: Date.now() }],
       activeNoteId: id,
     });
 
-    authFetchMock.mockResolvedValueOnce(failResponse(503));
-    useNotesStore.getState().permanentDeleteNote(id);
-    await Promise.resolve();
+    await useNotesStore.getState().permanentDeleteNote(id as never);
 
-    expect(useNotesStore.getState().notes.some(n => n.id === id)).toBe(false);
-    expect(useNotesStore.getState().syncError).toContain('503');
+    expect(useNotesStore.getState().notes.some(n => n.id === id)).toBe(true);
+    expect(useNotesStore.getState().syncError).toContain('operation context is stale');
 
-    authFetchMock.mockResolvedValueOnce(okJson({}));
     useNotesStore.getState().retrySync();
     await Promise.resolve();
-
-    expect(authFetchMock).toHaveBeenLastCalledWith(
-      expect.stringContaining(`/api/notes/${id}`),
-      expect.objectContaining({ method: 'DELETE' }),
-    );
-    expect(useNotesStore.getState().syncError).toBeNull();
+    const deleteCalls = authFetchMock.mock.calls.filter(([, options]) =>
+      (options as RequestInit | undefined)?.method === 'DELETE');
+    expect(deleteCalls).toHaveLength(0);
   });
 
   it('sets syncError when notes localStorage save fails and retrySync clears after recovery', async () => {
@@ -586,7 +571,7 @@ describe('useNotesStore — K-96A trash cleanup', () => {
     authFetchMock.mockResolvedValue(okJson({}));
   });
 
-  it('deleteNotePermanently removes trashed note and picks next trashed active id', () => {
+  it('deleteNotePermanently requires an account-scoped prepared authorization', async () => {
     useNotesStore.setState({
       notes: [
         { id: 'a', title: 'A', body: 'one', updatedAt: 1, folderId: null, deletedAt: 100 },
@@ -596,10 +581,10 @@ describe('useNotesStore — K-96A trash cleanup', () => {
       activeFolderId: 'trash',
     });
 
-    useNotesStore.getState().deleteNotePermanently('a');
+    await useNotesStore.getState().deleteNotePermanently('a' as never);
 
-    expect(useNotesStore.getState().notes.map(n => n.id)).toEqual(['b']);
-    expect(useNotesStore.getState().activeNoteId).toBe('b');
+    expect(useNotesStore.getState().notes.map(n => n.id)).toEqual(['a', 'b']);
+    expect(useNotesStore.getState().activeNoteId).toBe('a');
   });
 
   it('emptyTrash removes all deleted notes and keeps folders', () => {
