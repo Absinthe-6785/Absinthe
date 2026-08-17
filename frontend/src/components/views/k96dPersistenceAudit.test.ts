@@ -9,6 +9,7 @@ import { NOTES_KEY, type NoteBase } from '@/components/views/noteUtils';
 import {
   NOTES_IDB_MIGRATION_FLAG,
   NOTES_IDB_REV_KEY,
+  clearIndexedDbNotes,
   countIndexedDbNotes,
   markIndexedDbMigrationComplete,
   saveNotesToIndexedDb,
@@ -142,7 +143,7 @@ describe('k96d cross-version safety', () => {
     resetNotesPersistenceForTests();
     clearAllVaultSnapshots();
     localStorage.removeItem(NOTES_IDB_MIGRATION_FLAG);
-    await saveNotesToIndexedDb([]);
+    await clearIndexedDbNotes();
   });
 
   it('migrates localStorage notes to IndexedDB without data loss', async () => {
@@ -210,9 +211,26 @@ describe('k96d cross-version safety', () => {
   });
 
   it('reflects cross-tab IndexedDB revision changes', async () => {
+    const seed: NoteBase = {
+      id: 'seed',
+      title: 'Seed',
+      body: '',
+      updatedAt: Date.now(),
+      folderId: null,
+      deletedAt: null,
+    };
+    expect(await saveNotesToIndexedDb([seed])).toBe(true);
     await initNotesPersistence();
+    expect(getNotesPersistenceMode()).toBe('indexeddb');
     const before = localStorage.getItem(NOTES_IDB_REV_KEY);
-    await saveNotesAsync([{ id: 'x', title: 'X', body: '', updatedAt: Date.now() }]);
+    await saveNotesAsync([{
+      id: 'x',
+      title: 'X',
+      body: '',
+      updatedAt: Date.now(),
+      folderId: null,
+      deletedAt: null,
+    }]);
     const after = localStorage.getItem(NOTES_IDB_REV_KEY);
     expect(after).not.toBe(before);
     expect(getNotesPersistenceMode()).toBe('indexeddb');
@@ -241,7 +259,7 @@ describe('k96dPersistence audit matrix', () => {
     resetNotesPersistenceForTests();
     clearAllVaultSnapshots();
     localStorage.removeItem(NOTES_IDB_MIGRATION_FLAG);
-    await saveNotesToIndexedDb([]);
+    await clearIndexedDbNotes();
   });
 
   it('measures persistence cleanup at 100 / 300 / 1000 / 3000 notes', async () => {

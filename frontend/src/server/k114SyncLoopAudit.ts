@@ -22,8 +22,21 @@ export function auditSyncLoop(): readonly string[] {
   const store = readFileSync(join(ROOT, 'store/useNotesStore.ts'), 'utf8');
   const guards: string[] = [...K114_SYNC_LOOP_GUARD];
   if (!app.includes('notesBootstrapStarted')) guards.push('MISSING: bootstrap ref');
-  if (app.includes('hydrateFromDB()') && app.includes('notesBootstrapStarted.current = true')) {
-    guards.push('bootstrap-once-wired');
+  const bootstrapGuardWired =
+    app.includes('const notesBootstrapStarted = useRef(false);') &&
+    app.includes('if (notesBootstrapStarted.current) return;') &&
+    app.includes('notesBootstrapStarted.current = true;') &&
+    app.includes('initNotesStorage(authUser.id)') &&
+    app.includes('bootstrapFromSupabase()');
+  if (bootstrapGuardWired) guards.push('bootstrap-once-wired');
+  if (
+    app.includes('notesBootstrapStarted.current = false;') &&
+    app.includes('detachNotesStorage();')
+  ) {
+    guards.push('account-lifecycle-reset-wired');
+  }
+  if (!app.includes('hydrateFromDB()') && !app.includes('syncNoteToDB(')) {
+    guards.push('legacy-notes-hydrate-push-not-reactivated');
   }
   if (store.includes('applyingStorageMerge')) guards.push('storage-merge-guard');
   if (store.includes('runCoalescedHydrate')) guards.push('hydrate-coalesce');

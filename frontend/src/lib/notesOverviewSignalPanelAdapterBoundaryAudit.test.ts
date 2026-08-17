@@ -318,7 +318,7 @@ describe('K-303 notes overview signal panel adapter boundary audit', () => {
     expect(notesStore).toContain('initNotesStorage');
     expect(notesStore).toContain('loadNotesAsync');
     expect(notesStore).toContain('saveNotesAsync');
-    expect(notePersistence).toContain("export type NotesPersistenceMode = 'indexeddb' | 'localStorage';");
+    expect(notePersistence).toContain("export type NotesPersistenceMode = 'accountScoped' | 'indexeddb' | 'localStorage';");
     expect(notePersistence).toContain('saveNotesToIndexedDb');
     expect(notePersistence).toContain('saveNotesToLocalStorage');
     expect(noteGraphLazy).toContain("import('../NoteGraphView')");
