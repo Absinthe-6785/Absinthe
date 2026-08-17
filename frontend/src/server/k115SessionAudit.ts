@@ -19,8 +19,8 @@ export const K115_SESSION_SCENARIOS = [
 
 export interface K115SessionPolicy {
   bodySyncDebounceMs: number;
-  coalescedHydrate: boolean;
-  deltaSyncDefault: boolean;
+  accountBootstrap: boolean;
+  completeSnapshotBootstrap: boolean;
   memoryWatchdog: boolean;
   maxPendingBodySync: string;
 }
@@ -32,8 +32,9 @@ export function readK115SessionPolicy(): K115SessionPolicy {
   const debounceMatch = store.match(/BODY_SYNC_MS\s*=\s*(\d+)/);
   return {
     bodySyncDebounceMs: debounceMatch ? Number(debounceMatch[1]) : 0,
-    coalescedHydrate: store.includes('runCoalescedHydrate'),
-    deltaSyncDefault: client.includes('resolveNotesSyncMode'),
+    accountBootstrap: store.includes('bootstrapFromSupabase'),
+    completeSnapshotBootstrap: client.includes('fetchCompleteNotesFoldersSnapshot')
+      && client.includes('updated_after=0&bootstrap=true'),
     memoryWatchdog: backend.includes('RequestMemoryWatchdog'),
     maxPendingBodySync: store.includes('pendingBodySync') ? 'Map per note id' : 'none',
   };
@@ -45,13 +46,13 @@ export function auditSessionStability(): readonly string[] {
     ...K115_SESSION_DURATIONS_MIN.map(m => `${m}min-session`),
     ...K115_SESSION_SCENARIOS,
     `debounce-${policy.bodySyncDebounceMs}ms`,
-    policy.coalescedHydrate ? 'hydrate-coalesced' : 'hydrate-uncoalesced',
-    policy.deltaSyncDefault ? 'delta-default' : 'full-default',
+    policy.accountBootstrap ? 'account-bootstrap' : 'account-bootstrap-missing',
+    policy.completeSnapshotBootstrap ? 'complete-snapshot' : 'complete-snapshot-missing',
     policy.memoryWatchdog ? 'watchdog-on' : 'watchdog-off',
   ];
 }
 
-/** Simulated request budget per 2h session with delta sync (batched POSTs). */
+/** Simulated request budget per 2h session with bounded bootstrap (batched POSTs). */
 export function estimateSessionRequestCount(editsPerHour: number, hours = 2): number {
   const bootstrap = 2;
   const deltaPerHour = 4;

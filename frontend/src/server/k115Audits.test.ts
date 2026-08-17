@@ -14,14 +14,15 @@ describe('k115 release candidate audits', () => {
     const guards = auditStartupGuards();
     expect(guards.bootstrapOnce).toBe(true);
     expect(guards.noDuplicateHydration).toBe(true);
-    expect(guards.coalescedHydrate).toBe(true);
+    expect(guards.completeSnapshotBootstrap).toBe(true);
+    expect(guards.retiredHydratePaths).toBe(true);
     expect(auditLargeVaultStartup().length).toBeGreaterThan(0);
   });
 
   it('B — session stability policy', () => {
     const items = auditSessionStability();
-    expect(items).toContain('hydrate-coalesced');
-    expect(items).toContain('delta-default');
+    expect(items).toContain('account-bootstrap');
+    expect(items).toContain('complete-snapshot');
     expect(estimateSessionRequestCount(120)).toBeLessThan(500);
   });
 
@@ -63,7 +64,7 @@ describe('k115 release candidate audits', () => {
   it('I — render production validation', () => {
     expect(auditRenderReady()).toBe(true);
     expect(auditRenderRc()).toContain('bootstrap-once');
-    expect(auditRenderRc()).toContain('delta-adopted');
+    expect(auditRenderRc()).toContain('complete-snapshot-adopted');
     expect(auditRenderRc()).toContain('no-get-loop');
   });
 });

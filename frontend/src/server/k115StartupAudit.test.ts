@@ -2,11 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { auditStartupGuards, runK115StartupMatrix } from './k115StartupAudit';
 
 describe('k115StartupAudit', () => {
-  it('startup guards prevent duplicate hydration', () => {
+  it('startup guards prevent duplicate account bootstrap', () => {
     const guards = auditStartupGuards();
     expect(guards.bootstrapOnce).toBe(true);
-    expect(guards.coalescedHydrate).toBe(true);
-    expect(guards.deltaAfterBootstrap).toBe(true);
+    expect(guards.completeSnapshotBootstrap).toBe(true);
+    expect(guards.retiredHydratePaths).toBe(true);
   });
 
   it('startup matrix scales with vault size', () => {

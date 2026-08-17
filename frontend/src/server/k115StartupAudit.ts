@@ -14,8 +14,9 @@ function read(rel: string): string {
 }
 
 export const K115_STARTUP_PHASES = [
-  'initNotesPersistence',
-  'hydrateFromDB',
+  'initNotesStorage',
+  'fetchCompleteNotesFoldersSnapshot',
+  'bootstrapFromSupabase durable apply/readback',
   'knowledgeIndexService.buildFromNotes',
   'runPeriodicSnapshotSlots',
 ] as const;
@@ -69,8 +70,8 @@ export function runK115StartupMatrix(): K115StartupRow[] {
 export function auditStartupGuards(): {
   bootstrapOnce: boolean;
   noDuplicateHydration: boolean;
-  coalescedHydrate: boolean;
-  deltaAfterBootstrap: boolean;
+  completeSnapshotBootstrap: boolean;
+  retiredHydratePaths: boolean;
   phases: readonly string[];
 } {
   const app = read('components/AppContent.tsx');
@@ -80,8 +81,10 @@ export function auditStartupGuards(): {
     bootstrapOnce: app.includes('notesBootstrapStarted') && app.includes('notesBootstrapStarted.current = true'),
     noDuplicateHydration:
       app.includes('notesBootstrapStarted.current') && app.includes('if (notesBootstrapStarted.current) return'),
-    coalescedHydrate: store.includes('runCoalescedHydrate'),
-    deltaAfterBootstrap: client.includes('updated_after') && client.includes('resolveNotesSyncMode'),
+    completeSnapshotBootstrap: store.includes('fetchCompleteNotesFoldersSnapshot')
+      && store.includes('bootstrapFromSupabase')
+      && client.includes('updated_after=0&bootstrap=true'),
+    retiredHydratePaths: !store.includes('hydrateFromDB') && !store.includes('hydrateFromDBFull'),
     phases: K115_STARTUP_PHASES,
   };
 }

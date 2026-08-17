@@ -7,7 +7,6 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 export const K114_SYNC_LOOP_GUARD = [
   'AppContent notesBootstrapStarted ref',
-  'runCoalescedHydrate shared promise',
   'storage merge applyingStorageMerge flag',
 ] as const;
 
@@ -39,6 +38,8 @@ export function auditSyncLoop(): readonly string[] {
     guards.push('legacy-notes-hydrate-push-not-reactivated');
   }
   if (store.includes('applyingStorageMerge')) guards.push('storage-merge-guard');
-  if (store.includes('runCoalescedHydrate')) guards.push('hydrate-coalesce');
+  if (!store.includes('hydrateFromDB') && !store.includes('hydrateFromDBFull')) {
+    guards.push('legacy-hydrate-entry-points-retired');
+  }
   return guards;
 }
