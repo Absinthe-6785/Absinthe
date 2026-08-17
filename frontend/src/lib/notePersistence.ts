@@ -11,9 +11,6 @@ import {
 } from '@/components/views/noteUtils';
 import { runPersistenceCleanup } from '@/lib/persistenceCleanup';
 import {
-  markNotesOnboardingComplete,
-} from '@/lib/notesOnboarding';
-import {
   INDEXEDDB_FALLBACK_ERROR,
   NOTES_IDB_MIGRATION_FLAG,
   NOTES_IDB_REV_KEY,
@@ -114,10 +111,7 @@ function backupNotesBeforeDurabilityWrite(
 
 function loadNotesFromLocalStorage(): NoteBase[] {
   const raw = loadRawNotesFromKey(NOTES_KEY);
-  if (raw && raw.length > 0) {
-    markNotesOnboardingComplete();
-    return raw;
-  }
+  if (raw && raw.length > 0) return raw;
   if (raw) return [];
   return [];
 }
@@ -242,7 +236,6 @@ export async function migrateLocalStorageNotesToIndexedDb(): Promise<{ migrated:
       backupNotesBeforeDurabilityWrite('merge-local-into-existing-idb', legacy);
       const ok = await saveNotesToIndexedDb(merged);
       if (!ok) throw new Error('IndexedDB migration merge failed');
-      markNotesOnboardingComplete();
       markIndexedDbMigrationComplete();
       removeLegacyNotesKeyIfAllowed();
       return { migrated: true, count: merged.length };
@@ -256,7 +249,6 @@ export async function migrateLocalStorageNotesToIndexedDb(): Promise<{ migrated:
   if (legacy.length > 0) {
     notes = legacy;
     backupNotesBeforeDurabilityWrite('migrate-local-to-idb', legacy);
-    markNotesOnboardingComplete();
   } else {
     notes = [];
   }
@@ -314,9 +306,7 @@ export async function initNotesPersistence(
     const loadStarted = performance.now();
     const notes = await loadNotesFromIndexedDb();
     let resolved = notes;
-    if (notes.length > 0) {
-      markNotesOnboardingComplete();
-    } else {
+    if (notes.length === 0) {
       const localRescue = loadNotesFromLocalStorage();
       if (localRescue.length > 0) {
         backupNotesBeforeDurabilityWrite('rescue-local-after-empty-idb', localRescue);
@@ -365,7 +355,6 @@ export async function loadNotesAsync(): Promise<NoteBase[]> {
   if (persistenceMode === 'indexeddb' && canUseIndexedDb()) {
     try {
       const notes = await loadNotesFromIndexedDb();
-      if (notes.length > 0) markNotesOnboardingComplete();
       notesCache = notes;
       lastIndexedDbRevision = readNotesIndexedDbRevision();
       return notesCache;
