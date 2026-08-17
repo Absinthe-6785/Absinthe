@@ -40,7 +40,6 @@ import {
 } from '../lib/notePersistence';
 import { activateRecoveryMode, setRecoveryModeActiveForTest } from '../lib/recoverySafetyPolicy';
 import {
-  NOTES_FOLDERS_BOOTSTRAP_KEY,
   NOTES_LAST_SYNC_KEY,
   NOTES_RUNTIME_SYNC_MODE_KEY,
 } from '../lib/notesSyncClient';
@@ -74,10 +73,6 @@ function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>(res => { resolve = res; });
   return { promise, resolve };
-}
-
-function skipFolderBootstrap() {
-  storage.set(NOTES_FOLDERS_BOOTSTRAP_KEY, '1');
 }
 
 function noteApiCalls(method?: string) {
@@ -141,25 +136,6 @@ describe('useNotesStore — import & DB sync', () => {
     expect(useNotesStore.getState().syncError).toBeNull();
   });
 
-  it('hydrateFromDB uploads local-only notes then merges', async () => {
-    const local = sampleNote();
-    useNotesStore.setState({ notes: [local], activeNoteId: local.id });
-    storage.set(NOTES_KEY, JSON.stringify([local]));
-
-    authFetchMock
-      .mockResolvedValueOnce(okJson([]))   // folders
-      .mockResolvedValueOnce(okJson([]))   // notes GET empty
-      .mockResolvedValueOnce(okJson({}));  // note POST
-
-    await useNotesStore.getState().hydrateFromDB();
-
-    expect(authFetchMock).toHaveBeenCalledWith(
-      expect.stringContaining('/api/notes'),
-      expect.objectContaining({ method: 'POST' }),
-    );
-    expect(useNotesStore.getState().notes.some(n => n.id === local.id)).toBe(true);
-  });
-
   it('initNotesStorage merges pre-hydration in-memory notes with stored notes', async () => {
     const stored = { ...sampleNote(), id: 'stored-note', title: 'Stored', updatedAt: 10 };
     const draft = { ...sampleNote(), id: 'draft-note', title: 'Draft', updatedAt: 20 };
@@ -182,14 +158,13 @@ describe('useNotesStore local-only sync mode', () => {
   });
   afterEach(() => vi.useRealTimers());
 
-  it('does not call notes cloud APIs for create, edit, flush, hydrate, folders, or delete', async () => {
+  it('does not call notes cloud APIs for create, edit, flush, folders, or delete', async () => {
     authFetchMock.mockResolvedValue(okJson([]));
 
     const id = useNotesStore.getState().createNote({ title: 'Local', body: 'draft' });
     const folderId = useNotesStore.getState().createFolder('Local Folder');
     useNotesStore.getState().updateNote(id, { body: 'local edit' });
     useNotesStore.getState().flushPendingSync();
-    await useNotesStore.getState().hydrateFromDB();
     useNotesStore.getState().deleteFolder(folderId);
     await useNotesStore.getState().permanentDeleteNote(id as never);
 
@@ -273,25 +248,6 @@ describe('useNotesStore — Settings Reset', () => {
     expect(stored[0].id).toBe(notes[0].id);
   });
 
-  it('after reset, hydrate does not resurrect wiped notes', async () => {
-    const old = sampleNote();
-    useNotesStore.setState({ notes: [old] });
-    useNotesStore.getState().resetAllNotes();
-
-    authFetchMock
-      .mockResolvedValueOnce(okJson([]))
-      .mockResolvedValueOnce(okJson([]))
-      .mockResolvedValue(okJson({}));
-
-    await useNotesStore.getState().hydrateFromDB();
-
-    expect(useNotesStore.getState().notes.some(n => n.id === old.id)).toBe(false);
-    const postedOld = authFetchMock.mock.calls.some(([, opts]) => {
-      const body = (opts as RequestInit)?.body;
-      return typeof body === 'string' && body.includes(old.id);
-    });
-    expect(postedOld).toBe(false);
-  });
 });
 
 describe('useNotesStore — per-note pending queue', () => {
@@ -358,7 +314,7 @@ describe('useNotesStore — per-note pending queue', () => {
 describe('useNotesStore — metadata updatedAt & hydrate merge', () => {
   beforeEach(() => resetStore());
 
-  it('moveNoteToTrash bumps updatedAt so trash state wins on hydrate', async () => {
+  it('moveNoteToTrash bumps updatedAt so trash state remains newer than the prior note', () => {
     const before = Date.now();
     const note: NoteBase = {
       id: 'n-trash', title: 'T', body: 'b', updatedAt: 100,
@@ -371,16 +327,7 @@ describe('useNotesStore — metadata updatedAt & hydrate merge', () => {
     expect(trashed.deletedAt).not.toBeNull();
     expect(trashed.updatedAt).toBeGreaterThanOrEqual(before);
 
-    authFetchMock
-      .mockResolvedValueOnce(okJson([]))
-      .mockResolvedValueOnce(okJson([{
-        id: note.id, title: 'T', body: 'b', updated_at: 100, folder_id: null, deleted_at: null,
-      }]));
-
-    await useNotesStore.getState().hydrateFromDB();
-
-    const after = useNotesStore.getState().notes.find(n => n.id === note.id)!;
-    expect(after.deletedAt).not.toBeNull();
+    expect(useNotesStore.getState().notes.find(n => n.id === note.id)?.deletedAt).not.toBeNull();
   });
 
   it('deleteFolder bumps updatedAt on affected notes', () => {
@@ -399,25 +346,6 @@ describe('useNotesStore — metadata updatedAt & hydrate merge', () => {
     const updated = useNotesStore.getState().notes.find(n => n.id === note.id)!;
     expect(updated.folderId).toBeNull();
     expect(updated.updatedAt).toBeGreaterThanOrEqual(before);
-  });
-
-  it('hydrate keeps local folderId when local updatedAt is newer than DB', async () => {
-    const note: NoteBase = {
-      id: 'n-folder', title: 'T', body: 'b', updatedAt: 500,
-      folderId: 'folder-new', deletedAt: null,
-    };
-    useNotesStore.setState({ notes: [note] });
-
-    authFetchMock
-      .mockResolvedValueOnce(okJson([]))
-      .mockResolvedValueOnce(okJson([{
-        id: note.id, title: 'T', body: 'b', updated_at: 100,
-        folder_id: 'folder-old', deleted_at: null,
-      }]));
-
-    await useNotesStore.getState().hydrateFromDB();
-
-    expect(useNotesStore.getState().notes[0].folderId).toBe('folder-new');
   });
 
   it('updateNote folderId change bumps updatedAt (already via updateNote)', () => {
@@ -607,205 +535,18 @@ describe('useNotesStore — K-96A trash cleanup', () => {
   });
 });
 
-describe('useNotesStore K-142 notes delta sync foundation', () => {
-  beforeEach(() => resetStore());
-
-  it('remote mode pulls changed-since only', async () => {
-    skipFolderBootstrap();
-    storage.set(NOTES_LAST_SYNC_KEY, '123');
-    authFetchMock.mockResolvedValueOnce(okJson([]));
-
-    await useNotesStore.getState().hydrateFromDB();
-
-    expect(authFetchMock).toHaveBeenCalledWith(
-      expect.stringContaining('/api/notes?updated_after=123'),
-    );
-    expect(noteApiCalls('GET')[0][0]).not.toMatch(/\/api\/notes$/);
-  });
-
-  it('empty remote pull does not clear local notes', async () => {
-    skipFolderBootstrap();
-    storage.set(NOTES_LAST_SYNC_KEY, '200');
-    const local = { ...sampleNote(), id: 'local-note', title: 'Keep me', updatedAt: 100 };
-    useNotesStore.setState({ notes: [local], activeNoteId: local.id });
-    authFetchMock.mockResolvedValueOnce(okJson([]));
-
-    await useNotesStore.getState().hydrateFromDB();
-
-    expect(useNotesStore.getState().notes).toHaveLength(1);
-    expect(useNotesStore.getState().notes[0].id).toBe(local.id);
-    expect(noteApiCalls('POST')).toHaveLength(0);
-  });
-
-  it('dirty local note is pushed after delta pull', async () => {
-    skipFolderBootstrap();
-    storage.set(NOTES_LAST_SYNC_KEY, '50');
-    const local = { ...sampleNote(), id: 'dirty-note', updatedAt: 100 };
-    useNotesStore.setState({ notes: [local], activeNoteId: local.id });
-    authFetchMock
-      .mockResolvedValueOnce(okJson([]))
-      .mockResolvedValueOnce(okJson({}));
-
-    await useNotesStore.getState().hydrateFromDB();
-
-    const posts = noteApiCalls('POST');
-    expect(posts).toHaveLength(1);
-    expect((posts[0][1] as RequestInit).body).toContain('dirty-note');
-  });
-
-  it('clean local note is not pushed', async () => {
-    skipFolderBootstrap();
-    storage.set(NOTES_LAST_SYNC_KEY, '200');
-    const local = { ...sampleNote(), id: 'clean-note', updatedAt: 100 };
-    useNotesStore.setState({ notes: [local], activeNoteId: local.id });
-    authFetchMock.mockResolvedValueOnce(okJson([]));
-
-    await useNotesStore.getState().hydrateFromDB();
-
-    expect(noteApiCalls('POST')).toHaveLength(0);
-  });
-
-  it('deleted local note syncs as a tombstone', async () => {
-    skipFolderBootstrap();
-    storage.set(NOTES_LAST_SYNC_KEY, '50');
-    const deleted = { ...sampleNote(), id: 'deleted-note', updatedAt: 100, deletedAt: 120 };
-    useNotesStore.setState({ notes: [deleted], activeNoteId: null });
-    authFetchMock
-      .mockResolvedValueOnce(okJson([]))
-      .mockResolvedValueOnce(okJson({}));
-
-    await useNotesStore.getState().hydrateFromDB();
-
-    const posts = noteApiCalls('POST');
-    expect(posts).toHaveLength(1);
-    expect(JSON.parse((posts[0][1] as RequestInit).body as string)).toMatchObject({
-      id: 'deleted-note',
-      deleted_at: 120,
-    });
-  });
-
-  it('remote pull merges into local notes instead of replacing them', async () => {
-    skipFolderBootstrap();
-    storage.set(NOTES_LAST_SYNC_KEY, '200');
-    const local = { ...sampleNote(), id: 'local-note', title: 'Local', updatedAt: 150 };
-    useNotesStore.setState({ notes: [local], activeNoteId: local.id });
-    authFetchMock.mockResolvedValueOnce(okJson([{
-      id: 'remote-note',
-      title: 'Remote',
-      body: 'remote body',
-      updated_at: 300,
-      folder_id: null,
-      deleted_at: null,
-    }]));
-
-    await useNotesStore.getState().hydrateFromDB();
-
-    expect(useNotesStore.getState().notes.map(n => n.id).sort()).toEqual(['local-note', 'remote-note']);
-  });
-
-  it('stale late remote data cannot overwrite newer local in-memory edits', async () => {
-    skipFolderBootstrap();
-    storage.set(NOTES_LAST_SYNC_KEY, '100');
-    const local = { ...sampleNote(), id: 'same-note', body: 'new local body', updatedAt: 300 };
-    useNotesStore.setState({ notes: [local], activeNoteId: local.id });
-    authFetchMock
-      .mockResolvedValueOnce(okJson([{
-        id: 'same-note',
-        title: 'Remote',
-        body: 'stale remote body',
-        updated_at: 200,
-        folder_id: null,
-        deleted_at: null,
-      }]))
-      .mockResolvedValueOnce(okJson({}));
-
-    await useNotesStore.getState().hydrateFromDB();
-
-    expect(useNotesStore.getState().notes.find(n => n.id === 'same-note')?.body).toBe('new local body');
-    const posts = noteApiCalls('POST');
-    expect(posts).toHaveLength(1);
-    expect((posts[0][1] as RequestInit).body).toContain('new local body');
-  });
-
-  it('newer remote tombstone hides an older local note', async () => {
-    skipFolderBootstrap();
-    storage.set(NOTES_LAST_SYNC_KEY, '200');
-    const local = { ...sampleNote(), id: 'same-note', body: 'old local body', updatedAt: 100, deletedAt: null };
-    useNotesStore.setState({ notes: [local], activeNoteId: local.id });
-    authFetchMock
-      .mockResolvedValueOnce(okJson([{
-        id: 'same-note',
-        title: 'Remote deleted',
-        body: 'old local body',
-        updated_at: 100,
-        folder_id: null,
-        deleted_at: 300,
-      }]))
-      .mockResolvedValueOnce(okJson({}));
-
-    await useNotesStore.getState().hydrateFromDB();
-
-    expect(useNotesStore.getState().notes.find(n => n.id === 'same-note')?.deletedAt).toBe(300);
-    expect(JSON.parse((noteApiCalls('POST')[0][1] as RequestInit).body as string)).toMatchObject({
-      id: 'same-note',
-      deleted_at: 300,
-    });
-  });
-
-  it('stale remote tombstone does not delete a newer local edit', async () => {
-    skipFolderBootstrap();
-    storage.set(NOTES_LAST_SYNC_KEY, '100');
-    const local = { ...sampleNote(), id: 'same-note', body: 'new local body', updatedAt: 400, deletedAt: null };
-    useNotesStore.setState({ notes: [local], activeNoteId: local.id });
-    authFetchMock
-      .mockResolvedValueOnce(okJson([{
-        id: 'same-note',
-        title: 'Remote deleted',
-        body: 'stale tombstone',
-        updated_at: 50,
-        folder_id: null,
-        deleted_at: 300,
-      }]))
-      .mockResolvedValueOnce(okJson({}));
-
-    await useNotesStore.getState().hydrateFromDB();
-
-    const note = useNotesStore.getState().notes.find(n => n.id === 'same-note');
-    expect(note?.deletedAt).toBeNull();
-    expect(note?.body).toBe('new local body');
-  });
-
-  it('does not advance the cursor when coupled dirty push fails', async () => {
-    skipFolderBootstrap();
-    storage.set(NOTES_LAST_SYNC_KEY, '100');
-    const local = { ...sampleNote(), id: 'dirty-note', updatedAt: 300 };
-    useNotesStore.setState({ notes: [local], activeNoteId: local.id });
-    authFetchMock
-      .mockResolvedValueOnce(okJson([]))
-      .mockResolvedValueOnce(failResponse(503));
-
-    await useNotesStore.getState().hydrateFromDB();
-
-    expect(storage.get(NOTES_LAST_SYNC_KEY)).toBe('100');
-    expect(useNotesStore.getState().syncError).toContain('503');
-  });
-});
-
 describe('K-319 recovery freeze guards', () => {
   beforeEach(() => {
     resetStore();
     setRecoveryModeActiveForTest(true);
   });
 
-  it('blocks upload and hydration below the UI without advancing the cursor', async () => {
-    storage.set(NOTES_LAST_SYNC_KEY, '123');
+  it('blocks remote upload below the UI without mutating local state', async () => {
     useNotesStore.setState({ notes: [sampleNote()], syncError: null });
 
     expect(await useNotesStore.getState().syncNoteToDB(sampleNote())).toBe(false);
-    await useNotesStore.getState().hydrateFromDB();
 
     expect(authFetchMock).not.toHaveBeenCalled();
-    expect(storage.get(NOTES_LAST_SYNC_KEY)).toBe('123');
     expect(useNotesStore.getState().syncError).toContain('recovery mode');
   });
 
@@ -876,28 +617,6 @@ describe('K-319 recovery freeze guards', () => {
 
     expect(storage.get(NOTES_KEY)).toBe(original);
     expect(storage.has(SNAPSHOT_INDEX_KEY)).toBe(false);
-  });
-
-  it('K-319A drops a stale folder hydration response without state, persistence, or marker changes', async () => {
-    setRecoveryModeActiveForTest(false);
-    const folders = [{ id: 'local-folder', name: 'Local', createdAt: 1 }];
-    const persisted = JSON.stringify(folders);
-    useNotesStore.setState({ folders, savedAt: null, syncError: null });
-    storage.set(FOLDERS_KEY, persisted);
-    const response = deferred<ReturnType<typeof okJson>>();
-    authFetchMock.mockReturnValueOnce(response.promise);
-
-    const hydration = useNotesStore.getState().hydrateFromDB();
-    await vi.waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(1));
-    activateRecoveryMode();
-    response.resolve(okJson([{ id: 'remote-folder', name: 'Remote', created_at: 2 }]));
-    await hydration;
-
-    expect(useNotesStore.getState().folders).toEqual(folders);
-    expect(storage.get(FOLDERS_KEY)).toBe(persisted);
-    expect(storage.has(NOTES_FOLDERS_BOOTSTRAP_KEY)).toBe(false);
-    expect(useNotesStore.getState().savedAt).toBeNull();
-    expect(useNotesStore.getState().syncError).toContain('recovery mode');
   });
 
   it('K-319A reports a stale upload as blocked without clearing errors, savedAt, or cursor', async () => {

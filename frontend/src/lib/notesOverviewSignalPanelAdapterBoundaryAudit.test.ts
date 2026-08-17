@@ -314,7 +314,7 @@ describe('K-303 notes overview signal panel adapter boundary audit', () => {
     const noteGraphLazy = read(noteGraphViewLazyPath);
     const noteGraph = read(noteGraphViewPath);
 
-    expect(notesStore).toContain('hydrateFromDB');
+    expect(notesStore).toContain('bootstrapFromSupabase');
     expect(notesStore).toContain('initNotesStorage');
     expect(notesStore).toContain('loadNotesAsync');
     expect(notesStore).toContain('saveNotesAsync');

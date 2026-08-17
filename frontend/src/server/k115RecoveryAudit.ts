@@ -12,8 +12,9 @@ export const K115_RECOVERY_FLOWS = [
   'offline-localStorage-fallback',
   'empty-vault-bootstrap',
   'snapshot-restore-vaultSnapshotStore',
+  'local-core-json-restore',
+  'vault-import',
   'recovery-center-settings',
-  'hydrateFromDBFull-recovery',
 ] as const;
 
 export function auditRecoveryWiring(): Record<string, boolean> {
@@ -24,7 +25,9 @@ export function auditRecoveryWiring(): Record<string, boolean> {
   const panel = readFileSync(join(ROOT, 'components/views/features/settings/RecoveryCenterPanel.tsx'), 'utf8');
   return {
     retrySync: store.includes('retrySync:') && store.includes('syncError'),
-    hydrateFromDBFull: store.includes('hydrateFromDBFull') && client.includes('recovery'),
+    localCoreRestore: store.includes('withLocalCoreJsonRestoreAuthorities')
+      && store.includes('applyVaultRestore'),
+    vaultImport: store.includes('importVaultRestore') && client.includes('fetchCompleteNotesFoldersSnapshot'),
     recoveryCenter: settings.includes('RecoveryCenterPanel') && settings.includes('useRecoveryCenter'),
     snapshotValidate: recovery.includes('validateVaultSnapshot'),
     snapshotEnumerate: recovery.includes('enumerateVaultSnapshots'),
@@ -43,5 +46,5 @@ export function auditRecoveryRc(): readonly string[] {
 
 export function auditRecoveryComplete(): boolean {
   const w = auditRecoveryWiring();
-  return w.retrySync && w.hydrateFromDBFull && w.recoveryCenter && w.snapshotValidate;
+  return w.retrySync && w.localCoreRestore && w.vaultImport && w.recoveryCenter && w.snapshotValidate;
 }

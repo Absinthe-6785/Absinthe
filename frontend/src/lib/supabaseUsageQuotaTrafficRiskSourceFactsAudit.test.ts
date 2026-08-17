@@ -159,8 +159,9 @@ describe('K-296 Supabase usage quota traffic risk source facts audit', () => {
 
     expect(notesSync).toContain('updated_after=');
     expect(notesSync).toContain('NOTES_LAST_SYNC_KEY');
-    expect(notesSync).toContain('fetchNotesFromCloud');
-    expect(notesSync).toContain('fetchFoldersFromCloud');
+    expect(notesSync).toContain('fetchCompleteNotesFoldersSnapshot');
+    expect(notesSync).not.toContain('fetchNotesFromCloud');
+    expect(notesSync).not.toContain('fetchFoldersFromCloud');
 
     expect(prevWorkout).toContain('PREV_WORKOUT_FETCH_CONCURRENCY = 4');
     expect(prevWorkout).toContain('createConcurrencyPool');

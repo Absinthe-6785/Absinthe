@@ -64,7 +64,6 @@ import { deleteSingleRemoteNote } from '../lib/notesSingleDeleteRemote';
 import {
   type NoteBase as Note,
   type NoteFolderBase as NoteFolder,
-  loadNotes,
   loadFolders,
   loadActiveNoteId,
   saveFolders,
@@ -72,7 +71,6 @@ import {
   clearNotesStorage,
   createDefaultWelcomeNotes,
   mergeNoteArrays,
-  mergeFolderArrays,
   mergeNotesFromStorageJson,
   mergeFoldersFromStorageJson,
   normalizeNoteFolderId,
@@ -81,7 +79,6 @@ import {
   NOTES_KEY,
   FOLDERS_KEY,
   ACTIVE_KEY,
-  NOTE_TRASH_RETENTION_MS,
   LOCAL_NOTES_SAVE_ERROR,
   LOCAL_FOLDERS_SAVE_ERROR,
   normalizeNote,
@@ -96,20 +93,12 @@ import { recordArchiveRestore } from '../components/views/features/knowledge/arc
 import { knowledgeIndexService } from '../components/views/features/knowledge';
 import { invalidateNoteGalaxyMapCache } from '../components/views/features/knowledge/graph/knowledgeUniverse/galaxyClustering';
 import {
-  fetchFoldersFromCloud,
-  fetchNotesFromCloud,
   fetchCompleteNotesFoldersSnapshot,
   mapDbFolder,
-  mergeDeltaNoteRows,
-  computeLastSyncTimestamp,
   getNoteSyncStatus,
   isNotesCloudSyncEnabled,
   noteRevisionTime,
-  selectDirtyNotesForPush,
-  writeLastNotesSyncAt,
-  type NotesSyncMode,
 } from '../lib/notesSyncClient';
-import { runCoalescedHydrate } from '../lib/syncRequestGate';
 import {
   clearKnowledgeHistory,
   recordNoteCreated,
@@ -128,7 +117,6 @@ import {
   isOperationEpochCurrent,
   mayApplyCrossTabMutation,
   mayEmptyTrash,
-  mayHydrateRemote,
   mayReset,
   mayRestoreLocalCoreJsonBackup,
   isRecoveryModeActive,
@@ -194,8 +182,6 @@ interface NotesState {
   canUndoVaultRestore: () => boolean;
   vaultRestoreCanUndo: boolean;
 
-  hydrateFromDB: (options?: { mode?: NotesSyncMode }) => Promise<void>;
-  hydrateFromDBFull: () => Promise<void>;
   bootstrapFromSupabase: () => Promise<void>;
   syncNoteToDB: (note: Note) => Promise<boolean>;
   flushPendingSync: () => void;
@@ -1451,106 +1437,6 @@ export const useNotesStore = create<NotesState>((set, get) => {
         void syncNoteToDB(n);
       }
       void removeFolderFromDB(id);
-    },
-
-    hydrateFromDB: async (options) => {
-      await runCoalescedHydrate(async () => {
-        if (!mayHydrateRemote()) {
-          recordRecoveryBlock('hydrate_remote');
-          set({ isSyncing: false, syncError: RECOVERY_MODE_MESSAGE });
-          return;
-        }
-        const operationEpoch = captureOperationEpoch();
-        if (!isNotesCloudSyncEnabled()) {
-          set({ isSyncing: false, syncError: null });
-          return;
-        }
-        const mode = options?.mode;
-        set({ isSyncing: true });
-        try {
-          try {
-            const folderResult = await fetchFoldersFromCloud(mode);
-            assertCurrentOperationEpoch(operationEpoch, 'hydrate_remote');
-            if (!folderResult.skipped) {
-              const dbFolders: NoteFolder[] = folderResult.rows.map(mapDbFolder);
-              const localFolders = get().folders;
-              const dbIds = new Set(dbFolders.map(f => f.id));
-              const localOnly = localFolders.filter(f => !dbIds.has(f.id));
-              const mergedFolders = mergeFolderArrays(localOnly, dbFolders);
-              if (mergedFolders.length > 0) {
-                assertCurrentOperationEpoch(operationEpoch, 'hydrate_remote');
-                set({ folders: mergedFolders });
-                assertCurrentOperationEpoch(operationEpoch, 'hydrate_remote');
-                persistFolders(mergedFolders);
-                if (localOnly.length > 0) {
-                  await Promise.allSettled(localOnly.map(f => syncFolderToDB(f)));
-                }
-              }
-            }
-          } catch (folderErr) {
-            if (folderErr instanceof RecoveryModeBlockedError) throw folderErr;
-            set({ syncError: folderErr instanceof Error ? folderErr.message : 'Failed to load folders' });
-          }
-
-          const notesResult = await fetchNotesFromCloud(mode);
-          assertCurrentOperationEpoch(operationEpoch, 'hydrate_remote');
-          const raw = notesResult.rows;
-          const localNotes = get().notes;
-          const dbNotes: Note[] = raw.map((n: Parameters<typeof mapDbNote>[0]) => {
-            const local = localNotes.find(l => l.id === n.id);
-            return mapDbNote(n, local);
-          });
-
-          if (dbNotes.length > 0) {
-            const expired = dbNotes.filter(
-              n => n.deletedAt && Date.now() - n.deletedAt >= NOTE_TRASH_RETENTION_MS,
-            );
-            expired.forEach(n => { void removeNoteFromDB(n.id); });
-
-            const merged = mergeDeltaNoteRows(localNotes, dbNotes);
-            assertCurrentOperationEpoch(operationEpoch, 'hydrate_remote');
-            const prevActive = get().activeNoteId;
-            const stillValid = merged.some(n => n.id === prevActive && !n.deletedAt);
-            const nextActive = stillValid ? prevActive : (merged.find(n => !n.deletedAt)?.id ?? null);
-            set({ notes: merged, activeNoteId: nextActive, vaultStructureVersion: get().vaultStructureVersion + 1 });
-            persistNotes(merged);
-            saveActiveNoteId(nextActive);
-            rebuildKnowledgeIndex(merged);
-          }
-
-          const dirtyNotes = selectDirtyNotesForPush(get().notes, notesResult.lastSyncAt);
-          const pushResults = await Promise.all(
-            dirtyNotes.map(async note => ({ note, ok: await syncNoteToDB(note) })),
-          );
-          assertCurrentOperationEpoch(operationEpoch, 'hydrate_remote');
-          const failedPush = pushResults.some(result => !result.ok);
-          const pushedNotes = pushResults
-            .filter((result): result is { note: Note; ok: true } => result.ok)
-            .map(result => result.note);
-          if (!failedPush && (raw.length > 0 || pushedNotes.length > 0)) {
-            writeLastNotesSyncAt(computeLastSyncTimestamp([
-              ...raw,
-              ...pushedNotes.map(n => ({
-                id: n.id,
-                title: n.title,
-                body: n.body,
-                updated_at: n.updatedAt,
-                folder_id: n.folderId,
-                deleted_at: n.deletedAt,
-              })),
-            ]));
-          }
-          if (!failedPush) set({ syncError: null });
-        } catch (err) {
-          set({ syncError: err instanceof Error ? err.message : 'Failed to load from cloud' });
-        } finally {
-          set({ isSyncing: false });
-        }
-      });
-    },
-
-    hydrateFromDBFull: async () => {
-      await get().hydrateFromDB({ mode: 'recovery' });
     },
 
     bootstrapFromSupabase: async () => {
