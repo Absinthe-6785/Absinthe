@@ -326,15 +326,18 @@ describe('temporary Return-to-Use full recovery package', () => {
     ]));
   });
 
-  it('exposes the verified full package separately from the legacy backup in Recovery Center', () => {
+  it('keeps temporary recovery entry points dormant outside the normal Recovery Center', () => {
     const panel = readFileSync(join(process.cwd(), 'src/components/views/features/settings/RecoveryCenterPanel.tsx'), 'utf8');
     const settings = readFileSync(join(process.cwd(), 'src/components/views/SettingsView.tsx'), 'utf8');
-    expect(panel).toContain('data-settings-temporary-full-backup');
-    expect(panel).toContain('onCreateTemporaryFullBackup');
-    expect(panel).toContain('temporaryFullBackupAttachmentNotice');
-    expect(settings).toContain('downloadTemporaryReturnToUseRecoveryArchive');
+    expect(panel).not.toContain('data-settings-temporary-full-backup');
+    expect(panel).not.toContain('onCreateTemporaryFullBackup');
+    expect(panel).not.toContain('temporaryFullBackupAttachmentNotice');
+    expect(settings).not.toContain('downloadTemporaryReturnToUseRecoveryArchive');
     expect(settings).toContain('doVaultBackupZip');
-    expect(settings).toContain('doTemporaryFullBackup');
+    expect(settings).toContain('useVaultRestoreFlow');
+    expect(settings).toContain('VaultRestoreModal');
+    expect(settings).not.toContain('doTemporaryFullBackup');
+    expect(settings).not.toContain('HealthRecoveryImportPanel');
     expect(settings).not.toContain('health-recovery-export.html');
   });
 });
