@@ -1,5 +1,7 @@
 import {
+  attachmentMetadataAccountId,
   isAttachmentMetadataLightweight,
+  type AccountScopedAttachmentMetadata,
   type AttachmentMetadata,
   type AttachmentRepository,
   type AttachmentTimestamp,
@@ -7,7 +9,7 @@ import {
 
 export const ATTACHMENT_METADATA_DB_NAME = 'absinthe.attachments.metadata';
 export const ATTACHMENT_METADATA_STORE = 'metadata';
-export const ATTACHMENT_METADATA_DB_VERSION = 1;
+export const ATTACHMENT_METADATA_DB_VERSION = 2;
 
 function canUseIndexedDb(): boolean {
   try {
@@ -27,10 +29,14 @@ function openAttachmentMetadataDb(): Promise<IDBDatabase> {
     request.onerror = () => reject(request.error ?? new Error('Attachment metadata IndexedDB open failed'));
     request.onupgradeneeded = () => {
       const db = request.result;
+      let store: IDBObjectStore;
       if (!db.objectStoreNames.contains(ATTACHMENT_METADATA_STORE)) {
-        const store = db.createObjectStore(ATTACHMENT_METADATA_STORE, { keyPath: 'id' });
+        store = db.createObjectStore(ATTACHMENT_METADATA_STORE, { keyPath: 'id' });
         store.createIndex('noteId', 'noteId', { unique: false });
+      } else {
+        store = request.transaction!.objectStore(ATTACHMENT_METADATA_STORE);
       }
+      if (!store.indexNames.contains('accountId')) store.createIndex('accountId', 'accountId', { unique: false });
     };
     request.onsuccess = () => resolve(request.result);
   });
@@ -42,9 +48,11 @@ function normalizeTimestamp(value: unknown, fallback: string): string {
 
 export function normalizeAttachmentMetadata(raw: AttachmentMetadata): AttachmentMetadata {
   const now = new Date().toISOString();
+  const accountId = attachmentMetadataAccountId(raw);
   const metadata: AttachmentMetadata = {
     ...raw,
     id: raw.id.trim(),
+    ...(accountId ? { accountId } : {}),
     noteId: raw.noteId?.trim() || undefined,
     fileName: raw.fileName.trim(),
     mimeType: raw.mimeType.trim(),
@@ -123,6 +131,26 @@ export class LocalAttachmentMetadataRepository implements AttachmentRepository {
     }
   }
 
+  async listAttachmentsForAccount(accountId: string): Promise<AccountScopedAttachmentMetadata[]> {
+    const normalizedAccountId = accountId.trim();
+    if (!normalizedAccountId) return [];
+    const db = await openAttachmentMetadataDb();
+    try {
+      return await new Promise((resolve, reject) => {
+        const tx = db.transaction(ATTACHMENT_METADATA_STORE, 'readonly');
+        const request = tx.objectStore(ATTACHMENT_METADATA_STORE).index('accountId').getAll(normalizedAccountId);
+        request.onerror = () => reject(request.error ?? new Error('Attachment metadata account read failed'));
+        request.onsuccess = () => resolve((Array.isArray(request.result) ? request.result : [])
+          .map(normalizeRecord)
+          .filter((item): item is AccountScopedAttachmentMetadata => item !== null
+            && attachmentMetadataAccountId(item) === normalizedAccountId)
+          .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
+      });
+    } finally {
+      db.close();
+    }
+  }
+
   async listAttachmentsForNote(noteId: string): Promise<AttachmentMetadata[]> {
     const normalizedNoteId = noteId.trim();
     const all = await this.listAttachments();
@@ -176,6 +204,32 @@ export class LocalAttachmentMetadataRepository implements AttachmentRepository {
         tx.oncomplete = () => resolve();
         const request = store.delete(id);
         request.onerror = () => reject(request.error ?? new Error('Attachment metadata delete failed'));
+      });
+    } finally {
+      db.close();
+    }
+  }
+
+  async deleteAttachmentMetadataForAccount(id: string, accountId: string): Promise<boolean> {
+    const normalizedAccountId = accountId.trim();
+    if (!normalizedAccountId) return false;
+    const db = await openAttachmentMetadataDb();
+    try {
+      return await new Promise<boolean>((resolve, reject) => {
+        const tx = db.transaction(ATTACHMENT_METADATA_STORE, 'readwrite');
+        const store = tx.objectStore(ATTACHMENT_METADATA_STORE);
+        const request = store.get(id);
+        let deleted = false;
+        request.onerror = () => reject(request.error ?? new Error('Attachment metadata scoped lookup failed'));
+        request.onsuccess = () => {
+          const current = normalizeRecord(request.result);
+          if (current && attachmentMetadataAccountId(current) === normalizedAccountId) {
+            store.delete(id);
+            deleted = true;
+          }
+        };
+        tx.onerror = () => reject(tx.error ?? new Error('Attachment metadata scoped delete failed'));
+        tx.oncomplete = () => resolve(deleted);
       });
     } finally {
       db.close();

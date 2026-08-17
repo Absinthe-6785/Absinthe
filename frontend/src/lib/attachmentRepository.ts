@@ -63,6 +63,16 @@ export interface AttachmentMetadata {
   syncStatus?: AttachmentSyncStatus;
 }
 
+/** New local records may prove ownership; base AttachmentMetadata remains the legacy-compatible contract. */
+export interface AccountScopedAttachmentMetadata extends AttachmentMetadata {
+  accountId: string;
+}
+
+export function attachmentMetadataAccountId(metadata: AttachmentMetadata): string | null {
+  const accountId = (metadata as Partial<AccountScopedAttachmentMetadata>).accountId;
+  return typeof accountId === 'string' && accountId.trim() ? accountId.trim() : null;
+}
+
 export interface AttachmentBlobWrite {
   key: string;
   blob: Blob;
@@ -101,12 +111,14 @@ export interface BlobStorageAdapter {
 
 export interface AttachmentRepository {
   listAttachments(): Promise<AttachmentMetadata[]>;
+  listAttachmentsForAccount?(accountId: string): Promise<AccountScopedAttachmentMetadata[]>;
   listAttachmentsForNote(noteId: string): Promise<AttachmentMetadata[]>;
   getAttachment(id: string): Promise<AttachmentMetadata | null>;
   putAttachment(metadata: AttachmentMetadata): Promise<void>;
   updateAttachment(id: string, patch: Partial<AttachmentMetadata>): Promise<void>;
   tombstoneAttachment(id: string, deletedAt?: AttachmentTimestamp): Promise<void>;
   deleteAttachmentMetadata(id: string): Promise<void>;
+  deleteAttachmentMetadataForAccount?(id: string, accountId: string): Promise<boolean>;
   putMetadata(metadata: AttachmentMetadata): Promise<AttachmentMetadata>;
   getMetadata(id: string): Promise<AttachmentMetadata | null>;
   listForNote(noteId: string): Promise<AttachmentMetadata[]>;

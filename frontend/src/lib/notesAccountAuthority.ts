@@ -3,6 +3,7 @@ import {
   captureOperationEpoch,
   isOperationEpochCurrent,
 } from '@/lib/recoverySafetyPolicy';
+import { withAccountNotesAttachmentMutationLock } from './notesAttachmentMutationLock';
 
 /**
  * Local authority boundary for the Notes core.  This deliberately does not
@@ -162,7 +163,6 @@ const NOTES_ACCOUNT_RECOVERY_CONTEXT = Symbol('notes-account-recovery-context');
 const recoveryContexts = new WeakMap<object, NotesRecoveryOperation>();
 const NOTES_SINGLE_DELETE_AUTHORIZATION = Symbol('notes-single-delete-authorization');
 const singleDeleteOperations = new WeakMap<object, NotesSingleDeleteOperation>();
-const accountMutationTails = new Map<string, Promise<void>>();
 
 type ScopedReadResult<T> =
   | { readonly kind: 'absent' }
@@ -196,19 +196,22 @@ function singleDeletePrefix(accountId: string): string {
 }
 
 async function runAccountMutationExclusive<T>(accountId: string, action: () => Promise<T>): Promise<T> {
-  const normalized = normalizedAccountId(accountId);
-  const previous = accountMutationTails.get(normalized) ?? Promise.resolve();
-  let release!: () => void;
-  const gate = new Promise<void>(resolve => { release = resolve; });
-  const tail = previous.catch(() => undefined).then(() => gate);
-  accountMutationTails.set(normalized, tail);
-  await previous.catch(() => undefined);
-  try {
-    return await action();
-  } finally {
-    release();
-    if (accountMutationTails.get(normalized) === tail) accountMutationTails.delete(normalized);
-  }
+  return withAccountNotesAttachmentMutationLock({
+    accountId: normalizedAccountId(accountId),
+    operation: action,
+  });
+}
+
+/**
+ * Shares the origin-wide account-scoped Notes mutation lock with bounded local
+ * attachment cleanup. Callers remain responsible for validating their active
+ * authority and namespace before entering the mutation.
+ */
+export function runAccountScopedNotesMutation<T>(
+  accountId: string,
+  action: () => Promise<T>,
+): Promise<T> {
+  return runAccountMutationExclusive(accountId, action);
 }
 
 function validSingleDeleteMarker(value: unknown, accountId: string, storageKey: string): value is NotesSingleDeleteMarker {
@@ -1166,12 +1169,10 @@ export async function saveAccountScopedNotes(accountId: string, notes: readonly 
   });
 }
 
-export async function saveNotesForRecoveryContext(
-  context: NotesAccountRecoveryContext,
+async function saveNotesForRecoveryContextInternal(
+  request: NotesAuthorityRequest,
   notes: readonly NoteBase[],
 ): Promise<boolean> {
-  const request = recoveryRequest(context);
-  if (!request) return false;
   try {
     await replaceAccountNotes(request.accountId, notes);
     writeState(request.accountId, NOTES_CORE_DOMAIN, notes.length === 0 ? 'LOADED_EMPTY' : 'LOADED_POPULATED', notes.length);
@@ -1180,6 +1181,15 @@ export async function saveNotesForRecoveryContext(
     try { writeState(request.accountId, NOTES_CORE_DOMAIN, 'RECOVERY_REQUIRED', 0); } catch { /**/ }
     return false;
   }
+}
+
+export async function saveNotesForRecoveryContext(
+  context: NotesAccountRecoveryContext,
+  notes: readonly NoteBase[],
+): Promise<boolean> {
+  const request = recoveryRequest(context);
+  if (!request) return false;
+  return runAccountMutationExclusive(request.accountId, () => saveNotesForRecoveryContextInternal(request, notes));
 }
 
 export async function loadNotesForRecoveryContext(context: NotesAccountRecoveryContext): Promise<NoteBase[]> {
@@ -1238,7 +1248,7 @@ async function restoreNotesFoldersForRecoveryContext(
   previousNotes: readonly NoteBase[],
   previousFolders: readonly NoteFolderBase[],
 ): Promise<boolean> {
-  const notesRestored = await saveNotesForRecoveryContext(context, previousNotes);
+  const notesRestored = await saveNotesForRecoveryContextInternal(request, previousNotes);
   const foldersRestored = saveFoldersForRecoveryContext(context, previousFolders);
   if (!notesRestored || !foldersRestored) {
     markNotesFoldersRecoveryRequired(request);
@@ -1298,7 +1308,7 @@ async function applyNotesFoldersForRecoveryContextInternal(
   try {
     await notifyBootstrapApplyStage('after-marker');
     if (!isNotesAuthorityRequestActive(request)) throw new Error('notes_bootstrap_stale');
-    const notesSaved = await saveNotesForRecoveryContext(context, nextNotes);
+    const notesSaved = await saveNotesForRecoveryContextInternal(request, nextNotes);
     if (!notesSaved) {
       return {
         applied: false,
@@ -1396,18 +1406,20 @@ export function saveAccountScopedActiveNoteId(noteId: string | null): boolean {
 export async function clearAccountScopedNotesAuthority(accountId: string): Promise<void> {
   const request = getActiveNotesAuthorityRequest();
   if (!request || request.accountId !== normalizedAccountId(accountId)) throw new Error('notes_account_scope_inactive');
-  await replaceAccountNotes(accountId, []);
-  assertActiveRequest(request);
-  writeState(accountId, NOTES_CORE_DOMAIN, 'LOADED_EMPTY', 0);
-  if (!writeFolders(accountId, [])) throw new Error('notes_account_authority_folders_clear_failed');
-  saveAccountScopedActiveNoteId(null);
+  await runAccountMutationExclusive(accountId, async () => {
+    assertActiveRequest(request);
+    await replaceAccountNotes(accountId, []);
+    assertActiveRequest(request);
+    writeState(accountId, NOTES_CORE_DOMAIN, 'LOADED_EMPTY', 0);
+    if (!writeFolders(accountId, [])) throw new Error('notes_account_authority_folders_clear_failed');
+    saveAccountScopedActiveNoteId(null);
+  });
 }
 
 export function resetNotesAccountAuthorityForTests(): void {
   activeRequest = null;
   nextRequestGeneration = 0;
   nextRecoveryOperation = 0;
-  accountMutationTails.clear();
   testReadNotesOverride = null;
   testBootstrapStageOverride = null;
 }

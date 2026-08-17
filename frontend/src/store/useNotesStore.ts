@@ -39,6 +39,7 @@ import {
   type NotesAccountRecoveryContext,
   activateNotesAccountAuthority,
   getActiveNotesAuthorityAccountId,
+  loadAccountScopedNotes,
   createNotesAccountRecoveryContext,
   isNotesAuthorityRequestActive,
   isNotesAccountRecoveryContextActive,
@@ -141,6 +142,7 @@ import { resolveNotesRuntimeSyncMode } from '../lib/syncMode';
 import { validateCanonicalVaultExportManifest } from '../lib/vaultExportValidate';
 import { stableRecoveryJson } from '../lib/recoveryExportPackage';
 import { sha256Hex } from '../lib/localDatabase/outboxIdentity';
+import { collectNoteAttachmentRefs, gcOrphanedLocalNoteAttachments } from '../lib/noteAttachmentGc';
 
 export type { Note, NoteFolder };
 export { estimateDeletedNoteBytes };
@@ -1289,16 +1291,20 @@ export const useNotesStore = create<NotesState>((set, get) => {
         set({ syncError: 'Permanent delete was blocked because its account or operation context is stale.' });
         return false;
       }
+      const targetBeforeDelete = get().notes.find(note => note.id === begun.noteId);
       const beforeRemote = validateNotesSingleDeleteTarget(
         authorization,
         begun.accountId,
-        get().notes.find(note => note.id === begun.noteId),
+        targetBeforeDelete,
       );
       if (!beforeRemote.valid) {
         abortNotesSingleDelete(authorization);
         set({ syncError: `Permanent delete was not completed (${beforeRemote.reason}). The Note was kept.` });
         return false;
       }
+      const attachmentGcCandidates = targetBeforeDelete
+        ? collectNoteAttachmentRefs(targetBeforeDelete)
+        : new Set<string>();
       const remote = await deleteSingleRemoteNote(authorization, begun.accountId, begun.noteId);
       if (!remote.ok) {
         if (remote.outcome === 'confirmed_not_deleted') abortNotesSingleDelete(authorization);
@@ -1353,6 +1359,21 @@ export const useNotesStore = create<NotesState>((set, get) => {
       setCachedNotes(notes);
       saveActiveNoteId(nextActive);
       invalidateNoteGalaxyMapCache();
+      if (attachmentGcCandidates.size > 0) {
+        void gcOrphanedLocalNoteAttachments({
+          accountId: begun.accountId,
+          candidateAttachmentIds: attachmentGcCandidates,
+          getSurvivingNotes: () => get().activeAccountId === begun.accountId ? get().notes : null,
+          readDurableSurvivingNotes: async () => {
+            if (get().activeAccountId !== begun.accountId) return null;
+            try {
+              return await loadAccountScopedNotes(begun.accountId);
+            } catch {
+              return null;
+            }
+          },
+        }).catch(() => { /* Best-effort GC must never change the committed Note deletion. */ });
+      }
       return true;
     },
 

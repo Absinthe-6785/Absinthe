@@ -1,9 +1,10 @@
 // @vitest-environment happy-dom
 import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AttachmentMetadata, BlobStorageAdapter } from './attachmentRepository';
+import type { AccountScopedAttachmentMetadata, AttachmentMetadata, BlobStorageAdapter } from './attachmentRepository';
 import {
   ATTACHMENT_METADATA_DB_NAME,
+  ATTACHMENT_METADATA_DB_VERSION,
   clearAttachmentMetadataIndexedDb,
   createLocalAttachmentMetadataRepository,
   normalizeAttachmentMetadata,
@@ -12,9 +13,10 @@ import {
 const CREATED_AT = '2026-01-01T00:00:00.000Z';
 const UPDATED_AT = '2026-01-02T00:00:00.000Z';
 
-function sampleAttachment(id: string, noteId = 'note-1'): AttachmentMetadata {
+function sampleAttachment(id: string, noteId = 'note-1', accountId = 'account-a'): AccountScopedAttachmentMetadata {
   return {
     id,
+    accountId,
     noteId,
     fileName: `${id}.pdf`,
     mimeType: 'application/pdf',
@@ -35,10 +37,37 @@ describe('attachment metadata IndexedDB repository', () => {
     } catch {
       /** first open */
     }
+    await new Promise<void>((resolve, reject) => {
+      const request = indexedDB.deleteDatabase(ATTACHMENT_METADATA_DB_NAME);
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+      request.onblocked = () => reject(new Error('Attachment metadata test database delete blocked'));
+    });
   });
 
   it('uses an explicit local metadata store name', () => {
     expect(ATTACHMENT_METADATA_DB_NAME).toBe('absinthe.attachments.metadata');
+    expect(ATTACHMENT_METADATA_DB_VERSION).toBe(2);
+  });
+
+  it('upgrades the legacy global store without assigning ownership to legacy records', async () => {
+    const legacy = sampleAttachment('legacy-upgrade');
+    delete (legacy as Partial<AccountScopedAttachmentMetadata>).accountId;
+    await new Promise<void>((resolve, reject) => {
+      const request = indexedDB.open(ATTACHMENT_METADATA_DB_NAME, 1);
+      request.onupgradeneeded = () => {
+        const store = request.result.createObjectStore('metadata', { keyPath: 'id' });
+        store.createIndex('noteId', 'noteId', { unique: false });
+        store.put(legacy);
+      };
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => { request.result.close(); resolve(); };
+    });
+
+    const repo = createLocalAttachmentMetadataRepository();
+    await expect(repo.getAttachment('legacy-upgrade')).resolves.toMatchObject({ id: 'legacy-upgrade' });
+    await expect(repo.listAttachmentsForAccount?.('account-a')).resolves.toEqual([]);
+    await expect(repo.deleteAttachmentMetadataForAccount?.('legacy-upgrade', 'account-a')).resolves.toBe(false);
   });
 
   it('creates and reads attachment metadata locally', async () => {
@@ -59,6 +88,22 @@ describe('attachment metadata IndexedDB repository', () => {
 
     const noteAttachments = await repo.listAttachmentsForNote('note-1');
     expect(noteAttachments.map(item => item.id)).toEqual(['att-1', 'att-2']);
+  });
+
+  it('lists and conditionally deletes metadata inside one explicit account namespace', async () => {
+    const repo = createLocalAttachmentMetadataRepository();
+    await repo.putAttachment(sampleAttachment('att-a', 'note-a', 'account-a'));
+    await repo.putAttachment(sampleAttachment('att-b', 'note-b', 'account-b'));
+    await repo.putAttachment({ ...sampleAttachment('legacy'), accountId: undefined });
+
+    await expect(repo.listAttachmentsForAccount?.('account-a')).resolves.toEqual([
+      expect.objectContaining({ id: 'att-a', accountId: 'account-a' }),
+    ]);
+    await expect(repo.deleteAttachmentMetadataForAccount?.('att-b', 'account-a')).resolves.toBe(false);
+    await expect(repo.getAttachment('att-b')).resolves.toMatchObject({ accountId: 'account-b' });
+    await expect(repo.deleteAttachmentMetadataForAccount?.('att-a', 'account-a')).resolves.toBe(true);
+    await expect(repo.getAttachment('att-a')).resolves.toBeNull();
+    await expect(repo.getAttachment('legacy')).resolves.not.toBeNull();
   });
 
   it('updates metadata while preserving id and createdAt', async () => {
