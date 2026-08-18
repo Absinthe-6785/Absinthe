@@ -52,7 +52,10 @@ export async function applyCloudRestore(
   try {
     const res = await authFetch(`${API_URL}/api/restore`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Absinthe-Recovery-Intent': 'restore-confirmed',
+      },
       body: JSON.stringify(payload),
     });
     if (!isOperationEpochCurrent(operationEpoch) || !mayRestore()) {
