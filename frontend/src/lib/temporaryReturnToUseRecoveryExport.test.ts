@@ -1,7 +1,7 @@
 import JSZip from 'jszip';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { NoteBase } from '@/components/views/noteUtils';
 import type { AppSettings } from '@/types';
 import type { AttachmentMetadata } from './attachmentRepository';
@@ -153,6 +153,22 @@ describe('temporary Return-to-Use full recovery package', () => {
     }
     expect(zip.file('absinthe-temporary-return-to-use/recovery/notes/active.json')).not.toBeNull();
     expect(zip.file('absinthe-temporary-return-to-use/recovery/notes/tombstones.json')).not.toBeNull();
+    const entries = Object.values(zip.files);
+    expect(entries.some(entry => entry.dir)).toBe(true);
+    expect(entries.every(entry => entry.date.getTime() === Date.parse('1980-01-01T00:00:00.000Z'))).toBe(true);
+  });
+
+  it('keeps archive bytes stable when the wall clock changes between builds', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date('2026-08-17T13:00:00.000Z'));
+      const first = await build();
+      vi.setSystemTime(new Date('2035-01-02T03:04:05.000Z'));
+      const second = await build();
+      expect(first.bytes).toEqual(second.bytes);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('archives available blobs separately and truthfully classifies missing blobs', async () => {
@@ -326,15 +342,18 @@ describe('temporary Return-to-Use full recovery package', () => {
     ]));
   });
 
-  it('exposes the verified full package separately from the legacy backup in Recovery Center', () => {
+  it('keeps temporary recovery entry points dormant outside the normal Recovery Center', () => {
     const panel = readFileSync(join(process.cwd(), 'src/components/views/features/settings/RecoveryCenterPanel.tsx'), 'utf8');
     const settings = readFileSync(join(process.cwd(), 'src/components/views/SettingsView.tsx'), 'utf8');
-    expect(panel).toContain('data-settings-temporary-full-backup');
-    expect(panel).toContain('onCreateTemporaryFullBackup');
-    expect(panel).toContain('temporaryFullBackupAttachmentNotice');
-    expect(settings).toContain('downloadTemporaryReturnToUseRecoveryArchive');
+    expect(panel).not.toContain('data-settings-temporary-full-backup');
+    expect(panel).not.toContain('onCreateTemporaryFullBackup');
+    expect(panel).not.toContain('temporaryFullBackupAttachmentNotice');
+    expect(settings).not.toContain('downloadTemporaryReturnToUseRecoveryArchive');
     expect(settings).toContain('doVaultBackupZip');
-    expect(settings).toContain('doTemporaryFullBackup');
+    expect(settings).toContain('useVaultRestoreFlow');
+    expect(settings).toContain('VaultRestoreModal');
+    expect(settings).not.toContain('doTemporaryFullBackup');
+    expect(settings).not.toContain('HealthRecoveryImportPanel');
     expect(settings).not.toContain('health-recovery-export.html');
   });
 });

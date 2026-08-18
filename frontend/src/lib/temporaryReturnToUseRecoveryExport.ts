@@ -428,6 +428,7 @@ async function createArchive(
   }
   zip.file(`${ROOT}/manifest.json`, manifestText, { date: FIXED_ZIP_DATE, createFolders: true });
   zip.file(`${ROOT}/checksums.sha256`, checksumText, { date: FIXED_ZIP_DATE, createFolders: true });
+  for (const entry of Object.values(zip.files)) entry.date = FIXED_ZIP_DATE;
   return {
     bytes: await zip.generateAsync({ type: 'uint8array', compression: 'STORE', platform: 'DOS' }),
     manifest,

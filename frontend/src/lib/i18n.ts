@@ -36,13 +36,6 @@ export function languageFromIntlLocale(locale?: string | null): Language {
 
 // ── 번역 사전 ────────────────────────────────────────────────────────
 const translations = {
-  temporaryFullBackupTitle: { en: 'Temporary full recovery package', ko: '임시 전체 복구 패키지', ja: '一時完全復旧パッケージ' },
-  temporaryFullBackupDesc: { en: 'Export Notes, all local Health datasets, safe preferences, snapshots, attachment metadata, and available local blobs. The ZIP is reopened and checksum-verified before success.', ko: '노트, 모든 로컬 건강 데이터, 안전한 설정, 스냅샷, 첨부 메타데이터와 사용 가능한 로컬 파일을 내보냅니다. 성공 전에 ZIP을 다시 열어 체크섬을 검증합니다.', ja: 'ノート、全ローカル健康データ、安全な設定、スナップショット、添付メタデータと利用可能なローカルファイルを出力し、成功前にZIPを再読込して検証します。' },
-  temporaryFullBackupAttachmentNotice: { en: 'Missing attachment blobs are listed as missing; they are never claimed as backed up.', ko: '없는 첨부 파일은 누락으로 표시되며 백업되었다고 표시하지 않습니다.', ja: '存在しない添付ファイルは欠落として記録され、バックアップ済みとは表示されません。' },
-  temporaryFullBackupCreate: { en: 'Create Full Recovery ZIP', ko: '전체 복구 ZIP 만들기', ja: '完全復旧ZIPを作成' },
-  temporaryFullBackupCreating: { en: 'Verifying ZIP...', ko: 'ZIP 검증 중...', ja: 'ZIPを検証中...' },
-  temporaryFullBackupComplete: { en: 'Full recovery ZIP downloaded and verified.', ko: '전체 복구 ZIP을 다운로드하고 검증했습니다.', ja: '完全復旧ZIPをダウンロードして検証しました。' },
-  temporaryFullBackupFailed: { en: 'Full recovery ZIP could not be verified. Nothing was reported as backed up.', ko: '전체 복구 ZIP을 검증할 수 없어 백업 성공으로 처리하지 않았습니다.', ja: '完全復旧ZIPを検証できなかったため、バックアップ成功として扱いませんでした。' },
   // ── 공통 ──────────────────────────────────────────────────────────
   save:           { en: 'Save',           ko: '저장',         ja: '保存'         },
   cancel:         { en: 'Cancel',         ko: '취소',         ja: 'キャンセル'   },
