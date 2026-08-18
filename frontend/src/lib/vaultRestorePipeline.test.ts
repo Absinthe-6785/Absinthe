@@ -419,6 +419,15 @@ describe('vaultRestorePipeline', () => {
     };
     const result = await applyCloudRestore(cloud);
     expect(result.applied).toBe(true);
+    expect(authFetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/restore'),
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          'X-Absinthe-Recovery-Intent': 'restore-confirmed',
+        }),
+      }),
+    );
   });
 
   it('applyCloudRestore skips when cloud block missing', async () => {

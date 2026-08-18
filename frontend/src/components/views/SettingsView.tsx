@@ -36,6 +36,13 @@ import { RECOVERY_MODE_MESSAGE, mayReset, recordRecoveryBlock } from '../../lib/
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
 
+export function buildResetRequestInit(): RequestInit {
+  return {
+    method: 'DELETE',
+    headers: { 'X-Absinthe-Recovery-Intent': 'reset-confirmed' },
+  };
+}
+
 export const SettingsView = ({
   appSettings, updateSetting, showToast, theme, mutateDaily, mutateStatic, onSignOut, user,
   settingsScrollTarget,
@@ -119,7 +126,7 @@ export const SettingsView = ({
     }
 
     try {
-      const res = await authFetch(`${API_URL}/api/reset`, { method: 'DELETE' });
+      const res = await authFetch(`${API_URL}/api/reset`, buildResetRequestInit());
       if (res.ok) {
         resetAllNotes();
         showToast(t('resetSuccess'));
