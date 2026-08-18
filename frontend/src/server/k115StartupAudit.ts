@@ -6,6 +6,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { NoteBase } from '@/components/views/noteUtils';
 import { runK114LargeVaultMatrix } from './k114LargeVaultAudit';
+import { auditAppContentStartupContract } from './k114SyncPathAudit';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -77,10 +78,17 @@ export function auditStartupGuards(): {
   const app = read('components/AppContent.tsx');
   const store = read('store/useNotesStore.ts');
   const client = read('lib/notesSyncClient.ts');
+  const coordinator = read('lib/startupBootstrapCoordinator.ts');
+  const appContract = auditAppContentStartupContract(app);
+  const coordinatorGenerationGuard = coordinator.includes('generations')
+    && coordinator.includes('publish')
+    && coordinator.includes('if (!active || generations[domain] !== generation) return');
   return {
-    bootstrapOnce: app.includes('notesBootstrapStarted') && app.includes('notesBootstrapStarted.current = true'),
-    noDuplicateHydration:
-      app.includes('notesBootstrapStarted.current') && app.includes('if (notesBootstrapStarted.current) return'),
+    bootstrapOnce: appContract.appContentOnceGuard,
+    noDuplicateHydration: appContract.appContentOnceGuard
+      && coordinatorGenerationGuard
+      && !app.includes('hydrateFromDB')
+      && !app.includes('hydrateFromDBFull'),
     completeSnapshotBootstrap: store.includes('fetchCompleteNotesFoldersSnapshot')
       && store.includes('bootstrapFromSupabase')
       && client.includes('updated_after=0&bootstrap=true'),

@@ -26,6 +26,7 @@ export const useDailyData = (
   dateStr: string,
   onError?: (msg: string) => void,
   accountId?: string,
+  healthReady = true,
 ): UseDailyDataResult => {
   const base = `${API_URL}/api`;
   const localMode = isLocalOnlyRuntime();
@@ -61,7 +62,7 @@ export const useDailyData = (
 
   const { data: localHealth, mutate: mutateLocalHealth, isLoading: l6 } =
     useSWR(
-      localMode && accountId ? ['local-health-daily', accountId, dateStr] as const : null,
+      localMode && accountId && healthReady ? ['local-health-daily', accountId, dateStr] as const : null,
       ([, ownerId, selectedDate]) => readLocalHealthDaily(ownerId, selectedDate),
       swrOpts,
     );
@@ -106,6 +107,6 @@ export const useDailyData = (
     mutate,
     mutateTodos,
     mutateRoutines,
-    isLoading: localMode ? l6 : l1 || l2 || l3 || l4 || l5,
+    isLoading: localMode ? !healthReady || l6 : l1 || l2 || l3 || l4 || l5,
   };
 };

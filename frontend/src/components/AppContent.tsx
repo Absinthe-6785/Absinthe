@@ -28,6 +28,13 @@ import { runPeriodicSnapshotSlots } from '../lib/vaultSnapshotAuto';
 import { GlobalSearchHost } from './views/features/search/GlobalSearchHost';
 import { useTranslation } from '../lib/i18n';
 import { bootstrapHealthFromSupabase, HEALTH_LOCAL_BOOTSTRAP_COMPLETE_EVENT } from '../lib/healthSupabaseBootstrap';
+import { runHealthBootstrapSingleFlight } from '../lib/healthBootstrapSingleFlight';
+import { shouldUseRemoteData } from '../lib/remoteBoundary';
+import {
+  startIndependentStartup,
+  type IndependentStartupRun,
+  type StartupDomainState,
+} from '../lib/startupBootstrapCoordinator';
 
 // ── 상수 — 모듈 레벨로 분리해 매 렌더마다 재생성 방지 ──────────────
 const THEME_COLORS: ThemeColor[] = [
@@ -39,15 +46,74 @@ const THEME_COLORS: ThemeColor[] = [
   { id: 'gray',   bg: 'bg-slate-500',  text: 'text-white', border: 'border-slate-500'  },
 ];
 
+type StartupState = {
+  notes: StartupDomainState;
+  health: StartupDomainState;
+};
+
+function pendingStartupState(healthBootstrapRequired: boolean): StartupState {
+  return {
+    notes: { status: 'pending', error: null },
+    health: healthBootstrapRequired
+      ? { status: 'pending', error: null }
+      : { status: 'ready', error: null },
+  };
+}
+
+function StartupFailureBoundary({
+  message,
+  onRetry,
+}: {
+  message: string;
+  onRetry: () => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <div className="flex flex-1 items-center justify-center p-6" role="alert">
+      <div className="w-full max-w-md rounded-2xl border border-danger/30 bg-surface p-6 text-center shadow-absinthe-lg">
+        <p className="font-semibold text-primary">{message}</p>
+        <button
+          type="button"
+          onClick={onRetry}
+          className="mt-4 rounded-xl bg-primary px-4 py-2 text-sm font-bold text-primary-foreground"
+        >
+          {t('startupRetry')}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function StartupFailureNotice({
+  message,
+  onRetry,
+}: {
+  message: string;
+  onRetry: () => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <div className="mb-3 flex items-center justify-between gap-3 rounded-xl border border-danger/30 bg-surface px-4 py-3 text-sm text-primary" role="status">
+      <span>{message}</span>
+      <button type="button" onClick={onRetry} className="shrink-0 rounded-lg bg-primary px-3 py-1.5 font-bold text-primary-foreground">
+        {t('startupRetry')}
+      </button>
+    </div>
+  );
+}
+
 export function AppContent({ authUser }: { authUser: User }) {
   const { appSettings, updateSetting } = useAppStore();
   const { t } = useTranslation();
+  const translationRef = useRef(t);
+  translationRef.current = t;
   const bootstrapFromSupabase = useNotesStore(s => s.bootstrapFromSupabase);
   const initNotesStorage = useNotesStore(s => s.initNotesStorage);
   const detachNotesStorage = useNotesStore(s => s.detachNotesStorage);
-  // Reset in the effect cleanup so an account change gets a fresh local
-  // namespace while duplicate renders for the same account remain gated.
-  const notesBootstrapStarted = useRef(false);
+  const startupRunRef = useRef<IndependentStartupRun | null>(null);
+  const healthBootstrapRequired = !shouldUseRemoteData() && authUser.id !== 'local-user';
+  const shouldBootstrapHealth = authUser.id !== 'local-user';
+  const [startupState, setStartupState] = useState<StartupState>(() => pendingStartupState(healthBootstrapRequired));
 
   // ── 1. now / formatDate / isToday ────────────────────────────────
   const { now, formatDate, isToday } = useNow();
@@ -62,34 +128,55 @@ export function AppContent({ authUser }: { authUser: User }) {
   const [activeTab, setActiveTab] = useState<TabId>('home');
   const [settingsScrollTarget, setSettingsScrollTarget] = useState<SettingsSectionId | null>(null);
 
-  // 앱 시작 시 IndexedDB/localStorage 노트 로드 후 DB 동기화 (K-114: once per session)
+  // Notes and Health have separate internal sequencing, but both begin after
+  // the same authenticated account boundary. A slow domain no longer holds
+  // the other domain's startup or the unrelated shell.
   useEffect(() => {
-    if (notesBootstrapStarted.current) return;
-    notesBootstrapStarted.current = true;
     let cancelled = false;
-    initNotesStorage(authUser.id)
-      .then(() => cancelled ? undefined : bootstrapFromSupabase())
-      .then(() => {
+    setStartupState(pendingStartupState(healthBootstrapRequired));
+    const run = startIndependentStartup({
+      startNotes: async () => {
+        await initNotesStorage(authUser.id);
         if (cancelled) return;
-        // Health uses its own reviewed account-scoped durable authority.  A
-        // Notes failure must not clear Health and vice versa, so this is an
-        // independent best-effort bootstrap with no remote mutation path.
-        if (authUser.id !== 'local-user') {
-          void bootstrapHealthFromSupabase({ accountId: authUser.id, email: authUser.email })
-            .catch(() => undefined);
+        await bootstrapFromSupabase();
+        if (cancelled) return;
+        const notesState = useNotesStore.getState();
+        const authorityFailed = notesState.notesAuthorityState === 'RECOVERY_REQUIRED'
+          || notesState.foldersAuthorityState === 'RECOVERY_REQUIRED';
+        const emptyAfterFailure = Boolean(notesState.syncError)
+          && notesState.notes.length === 0
+          && notesState.folders.length === 0;
+        if (authorityFailed || emptyAfterFailure) {
+          throw new Error('notes_startup_recovery_required');
         }
         const { notes, folders } = useNotesStore.getState();
         runPeriodicSnapshotSlots(notes, folders);
         void migrateLegacyDdays(count => {
-          if (count > 0) showToast(t('scheduleCountdownMigrated').replace('{count}', String(count)), 'info');
+          if (count > 0 && !cancelled) {
+            showToast(translationRef.current('scheduleCountdownMigrated').replace('{count}', String(count)), 'info');
+          }
         });
-      });
+      },
+      startHealth: shouldBootstrapHealth
+        ? async () => {
+          await runHealthBootstrapSingleFlight(authUser.id, () => bootstrapHealthFromSupabase({
+            accountId: authUser.id,
+            email: authUser.email,
+          }));
+        }
+        : null,
+      onStateChange: (domain, state) => {
+        setStartupState(previous => ({ ...previous, [domain]: state }));
+      },
+    });
+    startupRunRef.current = run;
     return () => {
       cancelled = true;
-      notesBootstrapStarted.current = false;
+      run.cancel();
+      startupRunRef.current = null;
       detachNotesStorage();
     };
-  }, [authUser.email, authUser.id, bootstrapFromSupabase, detachNotesStorage, initNotesStorage, showToast, t]);
+  }, [authUser.email, authUser.id, bootstrapFromSupabase, detachNotesStorage, healthBootstrapRequired, initNotesStorage, showToast, shouldBootstrapHealth]);
 
   useEffect(() => {
     const unregisterNotes = registerNotesTabSwitcher(() => setActiveTab('note'));
@@ -133,12 +220,13 @@ export function AppContent({ authUser }: { authUser: User }) {
 
   // ── 4. SWR ────────────────────────────────────────────────────────
   const dateStr = formatDate(selectedDate);
+  const healthRuntimeReady = !healthBootstrapRequired || startupState.health.status === 'ready';
   const {
     schedules, todos, routines, workouts, inbody,
     mutate: mutateDaily,
     mutateTodos, mutateRoutines,
     isLoading: isDailyLoading,
-  } = useDailyData(dateStr, showToast, authUser.id);
+  } = useDailyData(dateStr, showToast, authUser.id, healthRuntimeReady);
 
   // useNow가 1분마다 now를 갱신 → AppContent 리렌더 → monthStart/monthEnd 매번 재계산.
   // currentDate가 바뀔 때만 실제로 값이 달라지므로 useMemo로 명시적 메모이제이션.
@@ -149,7 +237,7 @@ export function AppContent({ authUser }: { authUser: User }) {
   const {
     markedDates, healthBlocks, healthRoutines, weeklySchedules,
     mutate: mutateStatic,
-  } = useStaticData(monthStart, monthEnd, showToast, authUser.id);
+  } = useStaticData(monthStart, monthEnd, showToast, authUser.id, healthRuntimeReady);
 
   useEffect(() => {
     const refreshLocalHealth = () => {
@@ -227,7 +315,26 @@ export function AppContent({ authUser }: { authUser: User }) {
         <Suspense fallback={<ViewLoadingFallback />}>
           {activeTab === 'home'      && <HomeView       {...globalProps} />}
           {activeTab === 'planner'   && <PlannerView   {...globalProps} />}
-          {activeTab === 'health'    && <HealthView    {...globalProps} />}
+          {activeTab === 'health' && healthBootstrapRequired && startupState.health.status === 'pending' && (
+            <ViewLoadingFallback label={t('startupHealthLoading')} />
+          )}
+          {activeTab === 'health' && healthBootstrapRequired && startupState.health.status === 'failed' && (
+            <StartupFailureBoundary
+              message={t('startupHealthFailed')}
+              onRetry={() => startupRunRef.current?.retry('health')}
+            />
+          )}
+          {activeTab === 'health' && (!healthBootstrapRequired || startupState.health.status === 'ready') && (
+            <>
+              {startupState.health.status === 'failed' && (
+                <StartupFailureNotice
+                  message={t('startupHealthFailed')}
+                  onRetry={() => startupRunRef.current?.retry('health')}
+                />
+              )}
+              <HealthView {...globalProps} />
+            </>
+          )}
           {activeTab === 'analytics' && <AnalyticsView {...globalProps} />}
           {activeTab === 'settings'  && (
             <SettingsView
@@ -238,7 +345,16 @@ export function AppContent({ authUser }: { authUser: User }) {
           )}
           {activeTab === 'recipe'    && <RecipeView showToast={showToast} appSettings={appSettings} updateSetting={updateSetting} theme={theme} THEME_COLORS={THEME_COLORS}/>}
         </Suspense>
-        {activeTab === 'note'      && <NoteView showToast={showToast} />}
+        {activeTab === 'note' && startupState.notes.status === 'pending' && (
+          <ViewLoadingFallback label={t('startupNotesLoading')} />
+        )}
+        {activeTab === 'note' && startupState.notes.status === 'failed' && (
+          <StartupFailureBoundary
+            message={t('startupNotesFailed')}
+            onRetry={() => startupRunRef.current?.retry('notes')}
+          />
+        )}
+        {activeTab === 'note' && startupState.notes.status === 'ready' && <NoteView showToast={showToast} />}
       </div>
 
       {toast && (

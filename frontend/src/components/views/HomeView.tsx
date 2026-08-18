@@ -354,7 +354,9 @@ export const HomeView = ({
             ) : null}
 
             <HomeSection title={t('homeWorkout')} dataHook="workout" theme={theme}>
-              {projection.workout.hasSession ? (
+              {isDailyLoading ? (
+                <p className={`text-sm ${theme.textMuted}`}>{t('loading')}</p>
+              ) : projection.workout.hasSession ? (
                 <div className="flex flex-col gap-2">
                   <div className="flex flex-wrap gap-1.5">
                     <span className={`rounded-lg px-2 py-1 text-[11px] font-bold ${theme.textMuted} ${appSettings.darkMode ? 'bg-surface-alt' : 'bg-gray-100'}`}>

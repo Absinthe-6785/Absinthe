@@ -22,6 +22,7 @@ export const useStaticData = (
   monthEndStr: string,
   onError?: (msg: string) => void,
   accountId?: string,
+  healthReady = true,
 ): UseStaticDataResult => {
   const base = `${API_URL}/api`;
   const localMode = isLocalOnlyRuntime();
@@ -53,7 +54,7 @@ export const useStaticData = (
     remoteSWRKey(`${base}/weekly_schedules`), fetcher, swrOpts,
   );
   const { data: localHealth, mutate: mutateLocalHealth } = useSWR(
-    localMode && accountId ? ['local-health-static', accountId] as const : null,
+    localMode && accountId && healthReady ? ['local-health-static', accountId] as const : null,
     ([, ownerId]) => readLocalHealthStatic(ownerId),
     swrOpts,
   );
