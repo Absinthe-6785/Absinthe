@@ -2,11 +2,13 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { auditAppContentStartupContract } from './k114SyncPathAudit';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 export const K114_SYNC_LOOP_GUARD = [
-  'AppContent notesBootstrapStarted ref',
+  'AppContent independent startup coordinator',
+  'account-scoped startup cancellation boundary',
   'storage merge applyingStorageMerge flag',
 ] as const;
 
@@ -19,19 +21,10 @@ export const K114_LOOP_RISK_PATTERNS = [
 export function auditSyncLoop(): readonly string[] {
   const app = readFileSync(join(ROOT, 'components/AppContent.tsx'), 'utf8');
   const store = readFileSync(join(ROOT, 'store/useNotesStore.ts'), 'utf8');
+  const appContract = auditAppContentStartupContract(app);
   const guards: string[] = [...K114_SYNC_LOOP_GUARD];
-  if (!app.includes('notesBootstrapStarted')) guards.push('MISSING: bootstrap ref');
-  const bootstrapGuardWired =
-    app.includes('const notesBootstrapStarted = useRef(false);') &&
-    app.includes('if (notesBootstrapStarted.current) return;') &&
-    app.includes('notesBootstrapStarted.current = true;') &&
-    app.includes('initNotesStorage(authUser.id)') &&
-    app.includes('bootstrapFromSupabase()');
-  if (bootstrapGuardWired) guards.push('bootstrap-once-wired');
-  if (
-    app.includes('notesBootstrapStarted.current = false;') &&
-    app.includes('detachNotesStorage();')
-  ) {
+  if (appContract.appContentOnceGuard) guards.push('bootstrap-once-wired');
+  if (appContract.cancellationBoundaryWired && appContract.accountScoped) {
     guards.push('account-lifecycle-reset-wired');
   }
   if (!app.includes('hydrateFromDB()') && !app.includes('syncNoteToDB(')) {
