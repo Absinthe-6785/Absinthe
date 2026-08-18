@@ -5,7 +5,13 @@ import { auditMobileChecklist, auditMobileTouchTargets, auditMobileDomains } fro
 import { auditDesktopLayout, auditDesktopPanels } from './k115DesktopAudit';
 import { auditKeyboardRc, auditKeyboardMatrix } from './k115KeyboardAudit';
 import { auditProjectionIndependence, auditProjectionRc } from './k115ProjectionAudit';
-import { auditRecoveryComplete, auditRecoveryRc } from './k115RecoveryAudit';
+import {
+  auditRecoveryComplete,
+  auditRecoveryPanelContract,
+  auditRecoveryRc,
+  recoveryWiringComplete,
+  type K115RecoveryWiring,
+} from './k115RecoveryAudit';
 import { auditPerformanceMatrix, runK115PerformanceMatrix } from './k115PerformanceAudit';
 import { auditRenderReady, auditRenderRc } from './k115RenderAudit';
 
@@ -53,6 +59,54 @@ describe('k115 release candidate audits', () => {
   it('G — error recovery', () => {
     expect(auditRecoveryComplete()).toBe(true);
     expect(auditRecoveryRc()).toContain('sync-failure-retrySync');
+    expect(auditRecoveryPanelContract(`
+      <section data-settings-data-safety-restore>
+        <button onClick={vaultRestore.openFilePicker} />
+      </section>
+      <section data-settings-data-safety-snapshots>
+        <button onClick={() => vaultRestore.openSnapshotRestore(snap.snapshotId)} />
+      </section>
+    `))
+      .toBe(true);
+    expect(auditRecoveryPanelContract('<section>Restore snapshots</section>')).toBe(false);
+  });
+
+  it('requires executable recovery capabilities, not markers alone', () => {
+    const complete: K115RecoveryWiring = {
+      retrySync: true,
+      localCoreRestore: true,
+      vaultImport: true,
+      recoveryCenter: true,
+      snapshotValidate: true,
+      snapshotEnumerate: true,
+      panelRestore: true,
+      offlineNotes: true,
+      storageMergeGuard: true,
+    };
+    expect(recoveryWiringComplete(complete)).toBe(true);
+    for (const capability of [
+      'panelRestore',
+      'snapshotEnumerate',
+      'offlineNotes',
+      'storageMergeGuard',
+    ] as const) {
+      expect(recoveryWiringComplete({ ...complete, [capability]: false })).toBe(false);
+    }
+    expect(auditRecoveryPanelContract(
+      '<section data-settings-data-safety-restore data-settings-data-safety-snapshots />',
+    )).toBe(false);
+    expect(auditRecoveryPanelContract(`
+      <section data-settings-data-safety-restore />
+      <section data-settings-data-safety-snapshots>
+        <button onClick={() => vaultRestore.openSnapshotRestore(snap.snapshotId)} />
+      </section>
+    `)).toBe(false);
+    expect(auditRecoveryPanelContract(`
+      <section data-settings-data-safety-restore>
+        <button onClick={vaultRestore.openFilePicker} />
+      </section>
+      <section data-settings-data-safety-snapshots />
+    `)).toBe(false);
   });
 
   it('H — performance matrix', () => {

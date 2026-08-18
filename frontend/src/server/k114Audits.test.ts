@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { auditSyncPaths } from './k114SyncPathAudit';
-import { auditSyncLoop } from './k114SyncLoopAudit';
+import { auditSyncLoop, auditSyncLoopSources } from './k114SyncLoopAudit';
 import { auditMemoryProfile } from './k114MemoryProfileAudit';
 import { auditLargeVault, runK114LargeVaultMatrix } from './k114LargeVaultAudit';
 import { auditLeakCandidates } from './k114LeakAudit';
@@ -18,6 +18,22 @@ describe('k114 audits', () => {
     expect(guards).toContain('bootstrap-once-wired');
     expect(guards).toContain('account-lifecycle-reset-wired');
     expect(guards).toContain('legacy-hydrate-entry-points-retired');
+  });
+
+  it('sync loop audit fails closed when a source guard is absent', () => {
+    const app = `
+      startIndependentStartup({
+        startNotes: async () => {
+          await initNotesStorage(authUser.id);
+          await bootstrapFromSupabase();
+        },
+      });
+      return () => { run.cancel(); detachNotesStorage(); };
+    `;
+    expect(auditSyncLoopSources(app, 'applyingStorageMerge')).toContain('storage-merge-guard');
+    expect(auditSyncLoopSources(app.replace('startIndependentStartup', 'legacyStartup'), ''))
+      .not.toContain('AppContent independent startup coordinator');
+    expect(auditSyncLoopSources(app, '')).not.toContain('storage-merge-guard');
   });
 
   it('backend memory profile', () => {
