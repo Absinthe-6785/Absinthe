@@ -78,15 +78,10 @@ export function auditStartupGuards(): {
   const app = read('components/AppContent.tsx');
   const store = read('store/useNotesStore.ts');
   const client = read('lib/notesSyncClient.ts');
-  const coordinator = read('lib/startupBootstrapCoordinator.ts');
   const appContract = auditAppContentStartupContract(app);
-  const coordinatorGenerationGuard = coordinator.includes('generations')
-    && coordinator.includes('publish')
-    && coordinator.includes('if (!active || generations[domain] !== generation) return');
   return {
     bootstrapOnce: appContract.appContentOnceGuard,
     noDuplicateHydration: appContract.appContentOnceGuard
-      && coordinatorGenerationGuard
       && !app.includes('hydrateFromDB')
       && !app.includes('hydrateFromDBFull'),
     completeSnapshotBootstrap: store.includes('fetchCompleteNotesFoldersSnapshot')

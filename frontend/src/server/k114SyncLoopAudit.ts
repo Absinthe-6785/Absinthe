@@ -18,21 +18,28 @@ export const K114_LOOP_RISK_PATTERNS = [
   'folder fetch on every notes merge',
 ] as const;
 
-export function auditSyncLoop(): readonly string[] {
-  const app = readFileSync(join(ROOT, 'components/AppContent.tsx'), 'utf8');
-  const store = readFileSync(join(ROOT, 'store/useNotesStore.ts'), 'utf8');
+export function auditSyncLoopSources(app: string, store: string): readonly string[] {
   const appContract = auditAppContentStartupContract(app);
-  const guards: string[] = [...K114_SYNC_LOOP_GUARD];
-  if (appContract.appContentOnceGuard) guards.push('bootstrap-once-wired');
+  const guards: string[] = [];
+  if (appContract.coordinatorWired) guards.push(K114_SYNC_LOOP_GUARD[0]);
   if (appContract.cancellationBoundaryWired && appContract.accountScoped) {
-    guards.push('account-lifecycle-reset-wired');
+    guards.push(K114_SYNC_LOOP_GUARD[1], 'account-lifecycle-reset-wired');
   }
+  if (appContract.appContentOnceGuard) guards.push('bootstrap-once-wired');
   if (!app.includes('hydrateFromDB()') && !app.includes('syncNoteToDB(')) {
     guards.push('legacy-notes-hydrate-push-not-reactivated');
   }
-  if (store.includes('applyingStorageMerge')) guards.push('storage-merge-guard');
+  if (store.includes('applyingStorageMerge')) {
+    guards.push(K114_SYNC_LOOP_GUARD[2], 'storage-merge-guard');
+  }
   if (!store.includes('hydrateFromDB') && !store.includes('hydrateFromDBFull')) {
     guards.push('legacy-hydrate-entry-points-retired');
   }
   return guards;
+}
+
+export function auditSyncLoop(): readonly string[] {
+  const app = readFileSync(join(ROOT, 'components/AppContent.tsx'), 'utf8');
+  const store = readFileSync(join(ROOT, 'store/useNotesStore.ts'), 'utf8');
+  return auditSyncLoopSources(app, store);
 }

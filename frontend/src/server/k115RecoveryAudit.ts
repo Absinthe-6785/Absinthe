@@ -7,6 +7,30 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
+/**
+ * Recovery controls are identified by stable data contracts, not by visible
+ * copy or an incidental component name.  The sections are the durable restore
+ * and snapshot-history entry points that the recovery behavior tests exercise.
+ */
+export function auditRecoveryPanelContract(panelSrc: string): boolean {
+  return panelSrc.includes('data-settings-data-safety-restore')
+    && /onClick\s*=\s*\{\s*[A-Za-z_$][\w$]*\s*\.\s*openFilePicker\s*\}/.test(panelSrc)
+    && panelSrc.includes('data-settings-data-safety-snapshots')
+    && /onClick\s*=\s*\{\s*\(\s*\)\s*=>\s*[A-Za-z_$][\w$]*\s*\.\s*openSnapshotRestore\s*\(/.test(panelSrc);
+}
+
+export interface K115RecoveryWiring {
+  retrySync: boolean;
+  localCoreRestore: boolean;
+  vaultImport: boolean;
+  recoveryCenter: boolean;
+  snapshotValidate: boolean;
+  snapshotEnumerate: boolean;
+  panelRestore: boolean;
+  offlineNotes: boolean;
+  storageMergeGuard: boolean;
+}
+
 export const K115_RECOVERY_FLOWS = [
   'sync-failure-retrySync',
   'offline-localStorage-fallback',
@@ -17,7 +41,7 @@ export const K115_RECOVERY_FLOWS = [
   'recovery-center-settings',
 ] as const;
 
-export function auditRecoveryWiring(): Record<string, boolean> {
+export function auditRecoveryWiring(): K115RecoveryWiring {
   const store = readFileSync(join(ROOT, 'store/useNotesStore.ts'), 'utf8');
   const client = readFileSync(join(ROOT, 'lib/notesSyncClient.ts'), 'utf8');
   const settings = readFileSync(join(ROOT, 'components/views/SettingsView.tsx'), 'utf8');
@@ -31,8 +55,11 @@ export function auditRecoveryWiring(): Record<string, boolean> {
     recoveryCenter: settings.includes('RecoveryCenterPanel') && settings.includes('useRecoveryCenter'),
     snapshotValidate: recovery.includes('validateVaultSnapshot'),
     snapshotEnumerate: recovery.includes('enumerateVaultSnapshots'),
-    panelRestore: panel.includes('recovery') || panel.includes('snapshot'),
-    offlineNotes: store.includes('initNotesStorage'),
+    panelRestore: auditRecoveryPanelContract(panel),
+    offlineNotes: store.includes('initNotesStorage:') && store.includes('detachNotesStorage:'),
+    storageMergeGuard: store.includes('applyingStorageMerge')
+      && store.includes('mayApplyCrossTabMutation')
+      && store.includes('recordRecoveryBlock'),
   };
 }
 
@@ -45,6 +72,17 @@ export function auditRecoveryRc(): readonly string[] {
 }
 
 export function auditRecoveryComplete(): boolean {
-  const w = auditRecoveryWiring();
-  return w.retrySync && w.localCoreRestore && w.vaultImport && w.recoveryCenter && w.snapshotValidate;
+  return recoveryWiringComplete(auditRecoveryWiring());
+}
+
+export function recoveryWiringComplete(w: K115RecoveryWiring): boolean {
+  return w.retrySync
+    && w.localCoreRestore
+    && w.vaultImport
+    && w.recoveryCenter
+    && w.snapshotValidate
+    && w.snapshotEnumerate
+    && w.panelRestore
+    && w.offlineNotes
+    && w.storageMergeGuard;
 }
