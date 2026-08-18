@@ -85,52 +85,6 @@ export type Database = {
           created_at?: string;
         };
       };
-      memos: {
-        Row: {
-          id: string;
-          user_id: string;
-          date: string;
-          content: string;
-          updated_at: string;
-        };
-        Insert: {
-          id?: string;
-          user_id: string;
-          date: string;
-          content?: string;
-          updated_at?: string;
-        };
-        Update: {
-          id?: string;
-          user_id?: string;
-          date?: string;
-          content?: string;
-          updated_at?: string;
-        };
-      };
-      routine_status: {
-        Row: {
-          id: string;
-          user_id: string;
-          date: string;
-          routine_id: string;
-          completed: boolean;
-        };
-        Insert: {
-          id?: string;
-          user_id: string;
-          date: string;
-          routine_id: string;
-          completed?: boolean;
-        };
-        Update: {
-          id?: string;
-          user_id?: string;
-          date?: string;
-          routine_id?: string;
-          completed?: boolean;
-        };
-      };
     };
   };
 };
