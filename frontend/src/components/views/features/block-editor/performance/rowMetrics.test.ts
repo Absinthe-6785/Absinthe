@@ -1,7 +1,9 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
 import { makeBlock } from '../../../blockUtils';
+import { commitDragDrop } from '../../../editorDragDrop';
 import {
+  getVirtualRowMetrics,
   getVisibleRowMetrics,
   resolveDropTargetFromRows,
   resolveOverlayFrame,
@@ -33,18 +35,15 @@ describe('rowMetrics', () => {
     const paragraph = makeBlock('paragraph', { id: 'a' });
     const getBlock = (id: string) => (id === 'a' ? paragraph : makeBlock('paragraph', { id }));
 
-    expect(resolveDropTargetFromRows(10, rows, [], getBlock)).toEqual({
-      overId: 'a',
-      overPos: 'before',
-    });
-    expect(resolveDropTargetFromRows(30, rows, [], getBlock)).toEqual({
-      overId: 'a',
-      overPos: 'after',
-    });
-    expect(resolveDropTargetFromRows(90, rows, [], getBlock)).toEqual({
-      overId: 'b',
-      overPos: 'after',
-    });
+    const before = resolveDropTargetFromRows(10, rows, [], getBlock);
+    const middle = resolveDropTargetFromRows(30, rows, [], getBlock);
+    const after = resolveDropTargetFromRows(90, rows, [], getBlock);
+    expect(before).toEqual({ overId: 'a', overPos: 'before' });
+    expect(middle).toEqual({ overId: 'a', overPos: 'after' });
+    expect(after).toEqual({ overId: 'b', overPos: 'after' });
+    expect(before?.indicatorY).toBe(0);
+    expect(middle?.indicatorY).toBe(40);
+    expect(after?.indicatorY).toBe(80);
   });
 
   it('resolves inside for collapsed toggle rows', () => {
@@ -54,6 +53,106 @@ describe('rowMetrics', () => {
       overId: 't',
       overPos: 'inside',
     });
+  });
+
+  it('splits a large visual gap at the adjacent slot boundary with no dead zone', () => {
+    const rows: BlockRowHit[] = [
+      { blockId: 'a', top: 0, bottom: 40 },
+      { blockId: 'b', top: 100, bottom: 140 },
+    ];
+
+    const upperGap = resolveDropTargetFromRows(69, rows, []);
+    const boundary = resolveDropTargetFromRows(70, rows, []);
+    const lowerGap = resolveDropTargetFromRows(90, rows, []);
+    expect(upperGap).toEqual({ overId: 'a', overPos: 'after' });
+    expect(boundary).toEqual({ overId: 'b', overPos: 'before' });
+    expect(lowerGap).toEqual({ overId: 'b', overPos: 'before' });
+    expect(upperGap?.indicatorY).toBe(70);
+    expect(boundary?.indicatorY).toBe(70);
+    expect(lowerGap?.indicatorY).toBe(70);
+  });
+
+  it('keeps unequal and multiline sibling zones sorted and contiguous', () => {
+    const rows: BlockRowHit[] = [
+      { blockId: 'heading', top: 0, bottom: 30 },
+      { blockId: 'multiline', top: 80, bottom: 240 },
+      { blockId: 'list', top: 260, bottom: 300 },
+    ];
+
+    const hits = [
+      resolveDropTargetFromRows(15, rows, []),
+      resolveDropTargetFromRows(55, rows, []),
+      resolveDropTargetFromRows(65, rows, []),
+      resolveDropTargetFromRows(250, rows, []),
+      resolveDropTargetFromRows(270, rows, []),
+    ];
+    expect(hits.map(hit => `${hit?.overId}:${hit?.overPos}`)).toEqual([
+      'heading:after',
+      'multiline:before',
+      'multiline:before',
+      'list:before',
+      'list:before',
+    ]);
+    expect(hits.map(hit => hit?.indicatorY)).toEqual([55, 55, 55, 250, 250]);
+  });
+
+  it('maps a one-pixel move across a slot boundary to one adjacent destination', () => {
+    const rows: BlockRowHit[] = [
+      { blockId: 'a', top: 0, bottom: 20 },
+      { blockId: 'b', top: 120, bottom: 150 },
+      { blockId: 'c', top: 170, bottom: 190 },
+    ];
+    const before = resolveDropTargetFromRows(69, rows, []);
+    const after = resolveDropTargetFromRows(70, rows, []);
+    expect(before).toEqual({ overId: 'a', overPos: 'after' });
+    expect(after).toEqual({ overId: 'b', overPos: 'before' });
+    expect(before?.indicatorY).toBe(70);
+    expect(after?.indicatorY).toBe(70);
+  });
+
+  it('uses the resolved slot indicator for the same commit destination', () => {
+    const rows: BlockRowHit[] = [
+      { blockId: 'a', top: 0, bottom: 40 },
+      { blockId: 'b', top: 120, bottom: 160 },
+    ];
+    const hit = resolveDropTargetFromRows(80, rows, []);
+    expect(hit).toEqual({ overId: 'b', overPos: 'before' });
+    const source = makeBlock('paragraph', { id: 'source', content: 'source' });
+    const a = makeBlock('paragraph', { id: 'a', content: 'A' });
+    const b = makeBlock('paragraph', { id: 'b', content: 'B' });
+    expect(hit?.indicatorY).toBe(80);
+    // The existing commit API consumes the same canonical overId/overPos pair.
+    expect(commitDragDrop([source, a, b], ['source'], hit!.overId, hit!.overPos)?.map(block => block.id))
+      .toEqual(['a', 'source', 'b']);
+  });
+
+  it('keeps virtual row boundaries in client space after editor scrolling', () => {
+    const scroll = document.createElement('div');
+    scroll.scrollTop = 80;
+    scroll.getBoundingClientRect = () => ({
+      left: 20, width: 400, top: 120, bottom: 520, right: 420, height: 400, x: 20, y: 120,
+      toJSON: () => ({}),
+    } as DOMRect);
+    const virtualizer = {
+      measurementsCache: [
+        { start: 0, size: 40 },
+        { start: 100, size: 60 },
+      ],
+      getOffsetForIndex: (index: number) => [index === 0 ? 0 : 100, 'start'] as [number, string],
+    };
+    const blocks = [
+      makeBlock('paragraph', { id: 'a' }),
+      makeBlock('paragraph', { id: 'b' }),
+    ];
+    const rows = getVirtualRowMetrics(virtualizer as never, blocks, scroll);
+    expect(rows.map(row => [row.top, row.bottom])).toEqual([[40, 80], [140, 200]]);
+
+    const beforeBoundary = resolveDropTargetFromRows(109, rows, []);
+    const afterBoundary = resolveDropTargetFromRows(110, rows, []);
+    expect(beforeBoundary).toEqual({ overId: 'a', overPos: 'after' });
+    expect(afterBoundary).toEqual({ overId: 'b', overPos: 'before' });
+    expect(beforeBoundary?.indicatorY).toBe(110);
+    expect(afterBoundary?.indicatorY).toBe(110);
   });
 
   it('resolveOverlayFrame uses row metrics when DOM is absent', () => {

@@ -50,12 +50,16 @@ function LineIndicator({
   frame,
   position,
   accent,
+  indicatorY,
 }: {
   frame: OverlayFrame;
   position: 'before' | 'after';
   accent: string;
+  indicatorY?: number | null;
 }) {
-  const y = position === 'before' ? frame.top - 1 : frame.top + frame.height - 1;
+  const y = typeof indicatorY === 'number'
+    ? indicatorY - 1
+    : position === 'before' ? frame.top - 1 : frame.top + frame.height - 1;
   return (
     <div
       style={{
@@ -153,10 +157,10 @@ export function DragOverlay({
         <InsideIndicator frame={dropFrame} accent={accent} />
       )}
       {showDrop && dragState.overPos === 'before' && (
-        <LineIndicator frame={dropFrame} position="before" accent={accent} />
+        <LineIndicator frame={dropFrame} position="before" accent={accent} indicatorY={dragState.indicatorY} />
       )}
       {showDrop && dragState.overPos === 'after' && (
-        <LineIndicator frame={dropFrame} position="after" accent={accent} />
+        <LineIndicator frame={dropFrame} position="after" accent={accent} indicatorY={dragState.indicatorY} />
       )}
     </>,
     host,

@@ -4,7 +4,6 @@
 import type { Block } from '../../../blockUtils';
 import { isToggleBlockType } from '../../../toggleBlockTypes';
 import {
-  blockIdAtRow,
   listRootBlockRows,
   type BlockRowHit,
 } from '../../../documentFocus';
@@ -24,6 +23,25 @@ export interface RowMetricsOptions {
 export interface DropTargetHit {
   overId: string;
   overPos: 'before' | 'after' | 'inside';
+  /** Exact viewport Y for the insertion indicator when the destination is a slot. */
+  indicatorY?: number;
+}
+
+/** Preserve the existing `{ overId, overPos }` resolver shape while carrying slot geometry. */
+export function createDropTargetHit(
+  overId: string,
+  overPos: DropTargetHit['overPos'],
+  indicatorY?: number,
+): DropTargetHit {
+  const hit: DropTargetHit = { overId, overPos };
+  if (typeof indicatorY === 'number') {
+    Object.defineProperty(hit, 'indicatorY', {
+      configurable: true,
+      enumerable: false,
+      value: indicatorY,
+    });
+  }
+  return hit;
 }
 
 /**
@@ -41,6 +59,65 @@ export function resolveDropPositionFromRect(
     return 'inside';
   }
   return clientY < rect.top + height / 2 ? 'before' : 'after';
+}
+
+/** Mounted root rows, measured from the draggable block wrappers themselves. */
+export function getMountedRootBlockRows(editorRoot: HTMLElement): BlockRowHit[] {
+  const rows: BlockRowHit[] = [];
+  const virtualList = Array.from(editorRoot.children)
+    .find(child => child.classList.contains('be-virtual-block-list')) as HTMLElement | undefined;
+
+  if (virtualList) {
+    for (const rowEl of Array.from(virtualList.children)) {
+      const blockEl = Array.from(rowEl.children)
+        .find(child => child.classList.contains('be-block')) as HTMLElement | undefined;
+      if (!blockEl) continue;
+      const rect = blockEl.getBoundingClientRect();
+      rows.push({ blockId: blockEl.getAttribute('data-drag-id') ?? '', top: rect.top, bottom: rect.bottom });
+    }
+    return rows.filter(row => row.blockId);
+  }
+
+  for (const child of Array.from(editorRoot.children)) {
+    if (!child.classList.contains('be-block')) continue;
+    const blockEl = child as HTMLElement;
+    const rect = blockEl.getBoundingClientRect();
+    rows.push({ blockId: blockEl.getAttribute('data-drag-id') ?? '', top: rect.top, bottom: rect.bottom });
+  }
+  return rows.filter(row => row.blockId);
+}
+
+/**
+ * Resolve a mounted gap using the same sibling zones as the virtual fallback.
+ * The root filter keeps nested toggle editors out of the root sibling scope.
+ */
+export function resolveDropTargetFromMountedRows(
+  clientX: number,
+  clientY: number,
+  draggingIds: string[],
+): DropTargetHit | null {
+  const sourceRoot = draggingIds[0]
+    ? (document.querySelector(`[data-drag-id="${draggingIds[0]}"]`)
+      ?.closest('.be-editor-root.be-blocks-root') as HTMLElement | null)
+    : null;
+  const roots = sourceRoot
+    ? [sourceRoot]
+    : Array.from(document.querySelectorAll<HTMLElement>('.be-editor-root.be-blocks-root'))
+      .sort((a, b) => Number(a.classList.contains('be-editor-nested')) - Number(b.classList.contains('be-editor-nested')));
+
+  for (const root of roots) {
+    const rows = getMountedRootBlockRows(root);
+    if (rows.length === 0) continue;
+    const rootRect = root.getBoundingClientRect();
+    const hasRootRect = rootRect.width > 0 || rootRect.height > 0;
+    const horizontalMatch = !hasRootRect || (clientX >= rootRect.left - 64 && clientX <= rootRect.right + 16);
+    const verticalMatch = !hasRootRect
+      || (clientY >= Math.min(rootRect.top, rows[0]!.top) - 2
+        && clientY <= Math.max(rootRect.bottom, rows[rows.length - 1]!.bottom) + 2);
+    if (!horizontalMatch || !verticalMatch) continue;
+    return resolveDropTargetFromRows(clientY, rows, draggingIds);
+  }
+  return null;
 }
 
 /** Visible mounted rows from DOM measurements. */
@@ -137,34 +214,48 @@ export function resolveDropTargetFromRows(
 ): DropTargetHit | null {
   if (rows.length === 0) return null;
 
-  const eligible = rows.filter(r => !draggingIds.includes(r.blockId));
+  const eligible = rows
+    .filter(r => !draggingIds.includes(r.blockId))
+    .sort((a, b) => a.top - b.top || a.bottom - b.bottom);
   if (eligible.length === 0) return null;
 
-  const { blockId, belowAll } = blockIdAtRow(
-    clientY,
-    document.createElement('div'),
-    eligible.map(r => r.blockId),
-    eligible,
-  );
+  const boundaries = eligible.slice(0, -1).map((row, index) => {
+    const next = eligible[index + 1]!;
+    return (row.bottom + next.top) / 2;
+  });
 
-  if (belowAll) {
-    const last = eligible[eligible.length - 1]!;
-    return { overId: last.blockId, overPos: 'after' };
+  for (let index = 0; index < eligible.length; index += 1) {
+    const row = eligible[index]!;
+    const height = Math.max(0, row.bottom - row.top);
+    const midpoint = row.top + height / 2;
+    const zoneTop = index === 0 ? Number.NEGATIVE_INFINITY : boundaries[index - 1]!;
+    const zoneBottom = index === eligible.length - 1 ? Number.POSITIVE_INFINITY : boundaries[index]!;
+
+    const block = getBlock?.(row.blockId);
+    if (block != null && isToggleBlockType(block.type)
+      && clientY >= row.top && clientY <= row.bottom
+      && (block.collapsed || clientY > row.top + height * 0.35)) {
+      return { overId: row.blockId, overPos: 'inside' };
+    }
+
+    if (clientY >= zoneTop && clientY < midpoint) {
+      return createDropTargetHit(
+        row.blockId,
+        'before',
+        index === 0 ? row.top : boundaries[index - 1],
+      );
+    }
+    if (clientY >= midpoint && clientY < zoneBottom) {
+      return createDropTargetHit(
+        row.blockId,
+        'after',
+        index === eligible.length - 1 ? row.bottom : boundaries[index],
+      );
+    }
   }
 
-  if (!blockId || draggingIds.includes(blockId)) return null;
-
-  const row = rowForBlockId(eligible, blockId);
-  if (!row) return null;
-
-  const block = getBlock?.(blockId);
-  const overPos = resolveDropPositionFromRect(
-    clientY,
-    { top: row.top, bottom: row.bottom },
-    {
-      isToggle: block != null && isToggleBlockType(block.type),
-      collapsed: block?.collapsed,
-    },
-  );
-  return { overId: blockId, overPos };
+  // Defensive fallback for malformed/overlapping measurements: keep the
+  // destination deterministic without introducing a dead drop region.
+  const last = eligible[eligible.length - 1]!;
+  return createDropTargetHit(last.blockId, 'after', last.bottom);
 }

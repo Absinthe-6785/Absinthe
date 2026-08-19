@@ -14,7 +14,11 @@ import {
   setDragStateStore,
   updateDragStateOver,
 } from './features/block-editor/performance/dragStateStore';
-import { resolveDropPositionFromRect } from './features/block-editor/performance/rowMetrics';
+import {
+  createDropTargetHit,
+  resolveDropPositionFromRect,
+  resolveDropTargetFromMountedRows,
+} from './features/block-editor/performance/rowMetrics';
 import { syncDragDom } from './features/block-editor/performance/dragDomSync';
 
 const DRAG_REJECT_MS = 420;
@@ -49,6 +53,7 @@ export interface DragState {
   draggingIds: string[];
   overId: string | null;
   overPos: 'before' | 'after' | 'inside' | null;
+  indicatorY?: number | null;
 }
 
 export interface UseDragDropResult {
@@ -63,7 +68,7 @@ export type DragOverResolver = (
   clientX: number,
   clientY: number,
   draggingIds: string[],
-) => { overId: string; overPos: 'before' | 'after' | 'inside' } | null;
+) => { overId: string; overPos: 'before' | 'after' | 'inside'; indicatorY?: number } | null;
 
 export interface UseDragDropOptions {
   getSelectedIds?: () => string[];
@@ -94,7 +99,7 @@ export function resolveDragOverFromPoint(
   clientX: number,
   clientY: number,
   draggingIds: string[],
-): { overId: string; overPos: 'before' | 'after' | 'inside' } | null {
+): { overId: string; overPos: 'before' | 'after' | 'inside'; indicatorY?: number } | null {
   const els = document.elementsFromPoint(clientX, clientY);
   const blockEl = els.find(
     el => el.classList.contains('be-block') &&
@@ -110,7 +115,11 @@ export function resolveDragOverFromPoint(
       isToggle: blockType === 'toggle',
       collapsed: collapsedToggle,
     });
-    return { overId, overPos };
+    return createDropTargetHit(
+      overId,
+      overPos,
+      overPos === 'before' ? rect.top : overPos === 'after' ? rect.bottom : undefined,
+    );
   }
 
   const toggleDropEl = els.find(
@@ -125,7 +134,7 @@ export function resolveDragOverFromPoint(
     };
   }
 
-  return null;
+  return resolveDropTargetFromMountedRows(clientX, clientY, draggingIds);
 }
 
 /** Indent-aware drop target line (Notion-style). */
@@ -230,11 +239,15 @@ export function useDragDrop(
     const captureEl = e.currentTarget as HTMLElement;
     const pointerId = e.pointerId;
 
-    const updateOver = (overId: string | null, overPos: DragState['overPos']) => {
+    const updateOver = (
+      overId: string | null,
+      overPos: DragState['overPos'],
+      indicatorY?: number,
+    ) => {
       const current = getDragStateSnapshot();
       if (!current || current.draggingIds[0] !== primaryId) return;
       if (isDragOverUnchanged(current, overId, overPos)) return;
-      updateDragStateOver(overId, overPos);
+      updateDragStateOver(overId, overPos, indicatorY);
       syncDragDom(getDragStateSnapshot(), () => getEditorRootRef.current?.() ?? null);
     };
 
@@ -245,7 +258,7 @@ export function useDragDrop(
       } catch {
         // happy-dom / unsupported capture — window listeners still apply
       }
-      publishDragState({ draggingIds, overId: null, overPos: null });
+      publishDragState({ draggingIds, overId: null, overPos: null, indicatorY: null });
     };
 
     const cleanup = (shouldCommit: boolean) => {
@@ -299,7 +312,7 @@ export function useDragDrop(
       const resolve = resolveDragOverRef.current ?? resolveDragOverFromPoint;
       const hit = resolve(ev.clientX, ev.clientY, draggingIds);
       if (hit) {
-        updateOver(hit.overId, hit.overPos);
+        updateOver(hit.overId, hit.overPos, hit.indicatorY);
       } else {
         updateOver(null, null);
       }
