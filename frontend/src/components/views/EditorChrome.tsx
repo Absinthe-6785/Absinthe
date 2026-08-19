@@ -95,7 +95,9 @@ export function BlockHandles({
 
   useLayoutEffect(() => {
     const handlesEl = handlesRef.current;
-    if (!handlesEl) return;
+    // Hidden handles are not interactive. Defer geometry reads until the
+    // block is hovered or pinned so virtualized scrolling stays layout-free.
+    if (!handlesEl || !controlsVisible) return;
     const blockEl = handlesEl.closest('.be-block') as HTMLElement | null;
     if (!blockEl) return;
 
