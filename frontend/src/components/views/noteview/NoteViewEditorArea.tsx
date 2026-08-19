@@ -12,7 +12,6 @@ import {
 } from 'lucide-react';
 import type { EditorSearchScope } from '../editorSearch';
 import { collectEditorSearchMatches } from '../editorSearch';
-import { shouldSuppressEditorKeyboardShortcuts } from '../searchFocusIsolation';
 import {
   BlockEditor,
   useBlockEditor,
@@ -83,6 +82,15 @@ interface NoteBlockEditorProps {
   virtualScrollParentRef?: RefObject<HTMLElement | null>;
 }
 
+function editorHistoryShortcutTarget(event: KeyboardEvent): HTMLElement | null {
+  const eventTarget = event.target instanceof HTMLElement
+    ? event.target
+    : document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  if (!eventTarget?.closest('.be-editor-root.be-blocks-root')) return null;
+  if (eventTarget.closest('input, textarea, select, button, a, [role="button"]')) return null;
+  return eventTarget;
+}
+
 const NoteBlockEditor = forwardRef<BlockEditorHandle, NoteBlockEditorProps>(function NoteBlockEditor(
   {
     body, onBodyChange, colors, readOnly, searchQuery, searchScope, searchMatchIndex,
@@ -113,15 +121,22 @@ const NoteBlockEditor = forwardRef<BlockEditorHandle, NoteBlockEditorProps>(func
   useEffect(() => {
     if (readOnly) return;
     const handler = (e: KeyboardEvent) => {
-      if (shouldSuppressEditorKeyboardShortcuts()) return;
+      if (e.isComposing || e.altKey || !editorHistoryShortcutTarget(e)) return;
       if (!(e.ctrlKey || e.metaKey)) return;
       const k = e.key.toLowerCase();
-      if (k === 'z' && !e.shiftKey)              { e.preventDefault(); e.stopImmediatePropagation(); undo(); }
-      else if (k === 'y' || (k === 'z' && e.shiftKey)) { e.preventDefault(); e.stopImmediatePropagation(); redo(); }
+      if (k === 'z' && !e.shiftKey && canUndo()) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        undo();
+      } else if ((k === 'y' || (k === 'z' && e.shiftKey)) && canRedo()) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        redo();
+      }
     };
     window.addEventListener('keydown', handler, true);
     return () => window.removeEventListener('keydown', handler, true);
-  }, [undo, redo, readOnly]);
+  }, [undo, redo, canUndo, canRedo, readOnly]);
 
   return (
     <BlockEditor

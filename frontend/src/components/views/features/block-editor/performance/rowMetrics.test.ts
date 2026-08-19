@@ -155,6 +155,37 @@ describe('rowMetrics', () => {
     expect(afterBoundary?.indicatorY).toBe(110);
   });
 
+  it('keeps multiline text, heading, and list blocks atomic at sibling boundaries', () => {
+    const rows: BlockRowHit[] = [
+      { blockId: 'heading', top: 0, bottom: 84 },
+      { blockId: 'list', top: 124, bottom: 268 },
+      { blockId: 'paragraph', top: 308, bottom: 348 },
+    ];
+    const blocks = new Map([
+      ['heading', makeBlock('heading2', { id: 'heading', content: '첫 줄\n둘째 줄' })],
+      ['list', makeBlock('bullet', { id: 'list', content: 'alpha **bold**\nbeta 日本語 한국어' })],
+      ['paragraph', makeBlock('paragraph', { id: 'paragraph', content: 'one\ntwo\nthree' })],
+    ]);
+    const getBlock = (id: string) => blocks.get(id);
+
+    const headingInterior = resolveDropTargetFromRows(42, rows, [], getBlock);
+    const listInterior = resolveDropTargetFromRows(200, rows, [], getBlock);
+    const paragraphInterior = resolveDropTargetFromRows(320, rows, [], getBlock);
+
+    expect(headingInterior).toEqual({ overId: 'heading', overPos: 'after' });
+    expect(listInterior).toEqual({ overId: 'list', overPos: 'after' });
+    expect(paragraphInterior).toEqual({ overId: 'paragraph', overPos: 'before' });
+    expect(headingInterior?.indicatorY).toBe(104);
+    expect(listInterior?.indicatorY).toBe(288);
+    expect(paragraphInterior?.indicatorY).toBe(288);
+    expect([headingInterior?.indicatorY, listInterior?.indicatorY, paragraphInterior?.indicatorY])
+      .not.toContain(42);
+    expect([headingInterior?.indicatorY, listInterior?.indicatorY, paragraphInterior?.indicatorY])
+      .not.toContain(200);
+    expect([headingInterior?.indicatorY, listInterior?.indicatorY, paragraphInterior?.indicatorY])
+      .not.toContain(320);
+  });
+
   it('resolveOverlayFrame uses row metrics when DOM is absent', () => {
     const scroll = document.createElement('div');
     scroll.getBoundingClientRect = () => ({

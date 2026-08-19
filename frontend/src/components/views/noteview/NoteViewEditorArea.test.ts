@@ -88,6 +88,17 @@ function clipboardData({ image, text }: { image?: File; text?: string }) {
   return { items, getData: () => text ?? '' };
 }
 
+function fireKey(target: EventTarget, key: string, options: KeyboardEventInit = {}) {
+  const event = new KeyboardEvent('keydown', {
+    key,
+    bubbles: true,
+    cancelable: true,
+    ...options,
+  });
+  act(() => target.dispatchEvent(event));
+  return event;
+}
+
 afterEach(() => vi.unstubAllEnvs());
 
 describe('NoteViewEditorArea Return-to-Use attachment isolation', () => {
@@ -122,6 +133,65 @@ describe('NoteViewEditorArea Return-to-Use attachment isolation', () => {
     act(() => editable.dispatchEvent(textPaste));
     expect(onBodyChange).toHaveBeenCalled();
     expect(attachImageFilesToActiveNote).not.toHaveBeenCalled();
+    cleanup(mounted.root, mounted.host);
+  });
+
+  it('uses the existing block history for scoped undo and redo shortcuts', () => {
+    const onBodyChange = vi.fn();
+    const mounted = renderEditor(makeProps(onBodyChange, vi.fn()));
+    const getEditable = () => mounted.host.querySelector('[contenteditable="true"]') as HTMLElement;
+    const editable = getEditable();
+    editable.focus();
+
+    act(() => {
+      editable.textContent = 'changed';
+      editable.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    onBodyChange.mockClear();
+
+    expect(fireKey(getEditable(), 'z', { ctrlKey: true }).defaultPrevented).toBe(true);
+    expect(onBodyChange).toHaveBeenLastCalledWith('hello');
+
+    expect(fireKey(getEditable(), 'z', { metaKey: true, shiftKey: true }).defaultPrevented).toBe(true);
+    expect(onBodyChange).toHaveBeenLastCalledWith('changed');
+
+    expect(fireKey(getEditable(), 'z', { ctrlKey: true }).defaultPrevented).toBe(true);
+    expect(onBodyChange).toHaveBeenLastCalledWith('hello');
+
+    expect(fireKey(getEditable(), 'y', { ctrlKey: true }).defaultPrevented).toBe(true);
+    expect(onBodyChange).toHaveBeenLastCalledWith('changed');
+
+    expect(fireKey(getEditable(), 'z', { metaKey: true }).defaultPrevented).toBe(true);
+    expect(onBodyChange).toHaveBeenLastCalledWith('hello');
+    expect(fireKey(getEditable(), 'z', { metaKey: true, shiftKey: true }).defaultPrevented).toBe(true);
+    expect(onBodyChange).toHaveBeenLastCalledWith('changed');
+
+    cleanup(mounted.root, mounted.host);
+  });
+
+  it('does not hijack unrelated inputs or active IME composition', () => {
+    const onBodyChange = vi.fn();
+    const mounted = renderEditor(makeProps(onBodyChange, vi.fn()));
+    const editable = mounted.host.querySelector('[contenteditable="true"]') as HTMLElement;
+    editable.focus();
+    act(() => {
+      editable.textContent = 'changed';
+      editable.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    onBodyChange.mockClear();
+
+    const outsideInput = document.createElement('input');
+    document.body.appendChild(outsideInput);
+    outsideInput.focus();
+    expect(fireKey(outsideInput, 'z', { ctrlKey: true }).defaultPrevented).toBe(false);
+    expect(onBodyChange).not.toHaveBeenCalled();
+
+    editable.focus();
+    const composing = fireKey(editable, 'z', { ctrlKey: true, isComposing: true });
+    expect(composing.defaultPrevented).toBe(false);
+    expect(onBodyChange).not.toHaveBeenCalled();
+
+    outsideInput.remove();
     cleanup(mounted.root, mounted.host);
   });
 });
