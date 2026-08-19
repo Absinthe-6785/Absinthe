@@ -154,8 +154,60 @@ describe('drag isolation', () => {
       });
     }
 
-    expect(document.querySelector('.be-drop-line')).toBeTruthy();
+    act(() => {
+      window.dispatchEvent(new PointerEvent('pointermove', {
+        bubbles: true,
+        cancelable: true,
+        clientX: 200,
+        clientY: 36,
+        pointerId: 1,
+        button: 0,
+        buttons: 1,
+        pointerType: 'mouse',
+      }));
+    });
+    const afterTarget = document.querySelector('[data-drag-id="b0"]') as HTMLElement;
+    expect(afterTarget.classList.contains('be-drop-target-after')).toBe(true);
+
+    act(() => {
+      window.dispatchEvent(new PointerEvent('pointermove', {
+        bubbles: true,
+        cancelable: true,
+        clientX: 200,
+        clientY: 4 * ROW_H + 12,
+        pointerId: 1,
+        button: 0,
+        buttons: 1,
+        pointerType: 'mouse',
+      }));
+    });
+
+    const firstTarget = document.querySelector('[data-drag-id="b0"]') as HTMLElement;
+    const finalTarget = document.querySelector('[data-drag-id="b4"]') as HTMLElement;
+    expect(firstTarget.classList.contains('be-drop-target')).toBe(false);
+    expect(finalTarget.classList.contains('be-drop-target')).toBe(true);
+    expect(finalTarget.classList.contains('be-drop-target-before')).toBe(true);
+    expect(document.querySelectorAll('.be-drop-target')).toHaveLength(1);
+    expect(document.querySelector('.be-drop-highlight')).toBeFalsy();
+    expect(document.querySelector('.be-drop-line')).toBeFalsy();
     expect(singleBlockRenderCount).toBe(rendersAfterMount);
     expect(document.querySelector('.be-block.be-dragging')).toBeTruthy();
+
+    act(() => {
+      window.dispatchEvent(new PointerEvent('pointerup', {
+        bubbles: true,
+        cancelable: true,
+        clientX: 200,
+        clientY: 4 * ROW_H + 12,
+        pointerId: 1,
+        button: 0,
+        buttons: 0,
+        pointerType: 'mouse',
+      }));
+    });
+
+    expect(document.querySelectorAll('.be-drop-target')).toHaveLength(0);
+    expect(document.querySelector('.be-drop-highlight')).toBeFalsy();
+    expect(document.querySelector('.be-drop-line')).toBeFalsy();
   });
 });

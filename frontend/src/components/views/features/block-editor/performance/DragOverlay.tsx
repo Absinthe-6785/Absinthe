@@ -6,7 +6,6 @@ import React, { useLayoutEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { findBlockById, type Block } from '../../../blockUtils';
 import { isToggleBlockType } from '../../../toggleBlockTypes';
-import { DropInsertIndicator } from '../../../editorDragDrop';
 import type { BlockEditorColors } from '../../../editorTypes';
 import {
   resolveOverlayFrame,
@@ -46,33 +45,6 @@ function InsideIndicator({ frame, accent }: { frame: OverlayFrame; accent: strin
   );
 }
 
-function LineIndicator({
-  frame,
-  position,
-  accent,
-}: {
-  frame: OverlayFrame;
-  position: 'before' | 'after';
-  accent: string;
-}) {
-  const y = position === 'before' ? frame.top - 1 : frame.top + frame.height - 1;
-  return (
-    <div
-      style={{
-        position: 'fixed',
-        top: y,
-        left: frame.left + frame.indentLeft,
-        width: Math.max(0, frame.width - frame.indentLeft),
-        height: 0,
-        zIndex: 10000,
-        pointerEvents: 'none',
-      }}
-    >
-      <DropInsertIndicator position={position} indentLeft={0} accent={accent} />
-    </div>
-  );
-}
-
 function DragGhost({ frame }: { frame: OverlayFrame }) {
   return (
     <div
@@ -100,12 +72,12 @@ export function DragOverlay({
   getRowMetricsOptions,
 }: DragOverlayProps) {
   const dragState = useDragStateSnapshot();
-  const [dropFrame, setDropFrame] = useState<OverlayFrame | null>(null);
+  const [insideFrame, setInsideFrame] = useState<OverlayFrame | null>(null);
   const [ghostFrames, setGhostFrames] = useState<OverlayFrame[]>([]);
 
   useLayoutEffect(() => {
     if (!dragState) {
-      setDropFrame(null);
+      setInsideFrame(null);
       setGhostFrames([]);
       return;
     }
@@ -116,11 +88,11 @@ export function DragOverlay({
       getBlocks,
     };
 
-    if (dragState.overId && dragState.overPos) {
+    if (dragState.overId && dragState.overPos === 'inside') {
       const frame = resolveOverlayFrame(dragState.overId, metricsOpts);
-      setDropFrame(frame);
+      setInsideFrame(frame);
     } else {
-      setDropFrame(null);
+      setInsideFrame(null);
     }
 
     const ghosts: OverlayFrame[] = [];
@@ -139,8 +111,7 @@ export function DragOverlay({
   const overBlock = dragState.overId
     ? findBlockById(getBlocks(), dragState.overId) as Block | null
     : null;
-  const showDrop = dropFrame
-    && dragState.overId
+  const showDrop = dragState.overId
     && dragState.overPos
     && !dragState.draggingIds.includes(dragState.overId);
 
@@ -149,14 +120,8 @@ export function DragOverlay({
       {ghostFrames.map((frame, i) => (
         <DragGhost key={`ghost-${i}`} frame={frame} />
       ))}
-      {showDrop && dragState.overPos === 'inside' && overBlock != null && isToggleBlockType(overBlock.type) && (
-        <InsideIndicator frame={dropFrame} accent={accent} />
-      )}
-      {showDrop && dragState.overPos === 'before' && (
-        <LineIndicator frame={dropFrame} position="before" accent={accent} />
-      )}
-      {showDrop && dragState.overPos === 'after' && (
-        <LineIndicator frame={dropFrame} position="after" accent={accent} />
+      {showDrop && insideFrame && dragState.overPos === 'inside' && overBlock != null && isToggleBlockType(overBlock.type) && (
+        <InsideIndicator frame={insideFrame} accent={accent} />
       )}
     </>,
     host,

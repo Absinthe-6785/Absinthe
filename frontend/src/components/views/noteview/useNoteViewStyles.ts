@@ -63,10 +63,14 @@ export function buildNoteViewStyles(c: NoteChromeColors, dark: boolean): string 
     .btbtn:disabled{opacity:.45;cursor:not-allowed}
     .be-context-chip-btn{background:none;cursor:pointer;font:inherit;transition:background .12s,color .12s,filter .12s}
     .be-context-chip-btn:hover{filter:brightness(1.06)}
-    .be-editor-toolbar-btn{background:${c.card};border:1px solid ${c.toolBdr};color:${c.textMuted};cursor:pointer;padding:0;width:24px;height:24px;border-radius:6px;transition:all .12s;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;box-sizing:border-box}
+    .be-editor-toolbar-btn{background:${c.card};border:1px solid ${c.toolBdr};color:${c.textMuted};cursor:pointer;padding:0;min-width:30px;min-height:30px;width:30px;height:30px;border-radius:7px;transition:background .12s,color .12s,border-color .12s,box-shadow .12s;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;box-sizing:border-box}
+    .be-editor-toolbar-btn svg{width:14px;height:14px}
     .be-editor-toolbar-btn:hover{background:${c.cardHov};color:${c.accent}}
     .be-editor-toolbar-btn:active{background:${c.accentBg}}
     .be-editor-toolbar-btn:focus-visible{outline:none;box-shadow:0 0 0 2px ${c.accent}55}
+    .be-editor-toolbar-btn:disabled{opacity:.42;cursor:not-allowed}
+    .be-editor-toolbar{gap:8px}
+    .be-attachment-isolation-sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
     .be-editor-toolbar-scope{font-size:10px;padding:0 8px;height:24px;border-radius:6px;cursor:pointer;display:inline-flex;align-items:center;box-sizing:border-box;border:1px solid ${c.toolBdr};background:${c.card};color:${c.textMuted};transition:all .12s}
     .be-editor-toolbar-scope:hover{background:${c.cardHov}}
     .be-editor-toolbar-scope.active{background:${c.accentBg};color:${c.accent};border-color:${c.accent}}

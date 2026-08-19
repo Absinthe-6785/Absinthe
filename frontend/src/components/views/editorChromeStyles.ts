@@ -41,17 +41,17 @@ export const EDITOR_CHROME_STYLES = `
     flex-direction: row;
     align-items: flex-start;
     cursor: text;
-    min-height: 28px;
+    min-height: 30px;
   }
   .be-gutter {
     position: relative;
     flex: 0 0 ${K123_EDITOR_GUTTER_PX}px;
     width: ${K123_EDITOR_GUTTER_PX}px;
     margin-left: -${K123_EDITOR_GUTTER_PX}px;
-    min-height: 28px;
+    min-height: 30px;
     z-index: 2;
     pointer-events: auto;
-    opacity: 0.32;
+    opacity: 1;
     transition: opacity .12s ease-out;
     touch-action: none;
   }
@@ -92,7 +92,7 @@ export const EDITOR_CHROME_STYLES = `
     opacity: 0;
     visibility: hidden;
     pointer-events: none;
-    transition: opacity .12s, visibility .12s;
+    transition: opacity .15s ease, visibility 0s linear .15s;
     z-index: 3;
   }
   .be-block:hover > .be-gutter > .be-handles,
@@ -104,6 +104,7 @@ export const EDITOR_CHROME_STYLES = `
     opacity: 1 !important;
     visibility: visible !important;
     pointer-events: auto !important;
+    transition-delay: 0s;
   }
   .be-handle-btn {
     position: relative;
@@ -164,7 +165,20 @@ export const EDITOR_CHROME_STYLES = `
   .be-controls-visible .be-handle-btn {
     color: var(--be-accent, #8B5CF6);
   }
+  .be-handle-btn:hover {
+    background: var(--be-accent-bg, rgba(139,92,246,0.1));
+  }
   .be-handle-btn:hover .be-grip-dot { opacity: 1; }
+  .be-selection-toolbar button {
+    width: 40px !important;
+    min-width: 40px !important;
+    height: 40px !important;
+    min-height: 40px !important;
+  }
+  .be-selection-toolbar button svg {
+    width: 16px !important;
+    height: 16px !important;
+  }
   .be-block-selected {
     background: var(--be-block-selected-bg, rgba(139,92,246,0.05));
   }
@@ -187,24 +201,13 @@ export const EDITOR_CHROME_STYLES = `
   .be-block-active.be-block-selected {
     background: var(--be-block-active-selected-bg, rgba(139,92,246,0.08));
   }
-  .be-block-active:not(.be-toggle-header-block) > .be-gutter::before {
-    content: '';
-    position: absolute;
-    right: 6px;
-    top: 3px;
-    bottom: 3px;
-    width: 2px;
-    border-radius: 2px;
-    background: var(--be-accent, #8B5CF6);
-    opacity: 0.55;
-    pointer-events: none;
-    z-index: 0;
-  }
-  .be-block-active.be-block-selected:not(.be-toggle-header-block) > .be-gutter::before {
-    opacity: 0.7;
-  }
   .be-block.be-dragging {
     opacity: 0.4;
+  }
+  .be-block.be-drop-target {
+    background: var(--be-block-hover-bg, rgba(139,92,246,0.035));
+    border-radius: 8px;
+    transition: background .12s ease, box-shadow .12s ease, opacity .12s ease;
   }
   .be-editor-root.be-drag-active,
   .be-editor-root.be-drag-active * {
@@ -214,8 +217,22 @@ export const EDITOR_CHROME_STYLES = `
     max-width: var(--be-doc-width, 720px);
     margin: 0 auto;
     font-family: var(--be-font-family, system-ui, sans-serif);
-    font-size: var(--be-font-size, 16px);
+    font-size: calc(var(--be-font-size, 16px) + 1px);
+    line-height: 1.65;
+    letter-spacing: -0.005em;
     color: var(--be-text, inherit);
+  }
+  @media (min-width: 769px) {
+    .be-editor-toolbar-btn {
+      min-width: 36px !important;
+      min-height: 36px !important;
+      width: 36px !important;
+      height: 36px !important;
+    }
+    .be-editor-toolbar-btn svg {
+      width: 15px !important;
+      height: 15px !important;
+    }
   }
   .be-document-edit {
     padding-left: ${K123_EDITOR_GUTTER_PX}px;
@@ -270,6 +287,8 @@ export const EDITOR_CHROME_STYLES = `
     user-select: text;
     -webkit-user-select: text;
   }
+  .be-content strong { font-weight: 700; }
+  .be-content em { font-style: italic; }
   .be-toggle-wrap {
     margin: 4px 0;
     position: relative;
@@ -319,12 +338,6 @@ export const EDITOR_CHROME_STYLES = `
   }
   .be-toggle-heading-wrap.be-toggle-collapsed > .be-toggle-header-block {
     opacity: 0.92;
-  }
-  .be-drop-line { animation: be-drop-pulse .9s ease-in-out infinite alternate; }
-  .be-drop-dot { animation: be-drop-pulse .9s ease-in-out infinite alternate; }
-  @keyframes be-drop-pulse {
-    from { opacity: 0.75; }
-    to { opacity: 1; }
   }
   .be-mark {
     opacity: 0.35;
@@ -424,6 +437,8 @@ export const EDITOR_CHROME_STYLES = `
   }
   /* K-118 — mobile editor + embed overflow */
   .be-editor-root { overflow-x: clip; max-width: 100%; }
+  /* Block gutters use a negative inline margin; keep the actual block root from clipping them. */
+  .be-editor-root.be-blocks-root { overflow-x: visible; }
   [data-k118-embed-preview] { max-width: 100%; }
   .be-document .be-image-block,
   .be-document [data-block-type="table"],

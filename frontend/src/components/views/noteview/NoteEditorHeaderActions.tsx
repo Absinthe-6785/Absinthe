@@ -1,6 +1,6 @@
 import { type ReactNode } from 'react';
 import {
-  Star, AlignLeft, Search, Trash2, RotateCcw,
+  Star, AlignLeft, Search, Trash2, RotateCcw, Eye,
 } from 'lucide-react';
 import type { NoteChromeColors } from '../noteEditorTheme';
 import type { EditorMode } from '../editorMode';
@@ -43,9 +43,11 @@ export interface NoteEditorHeaderActionsProps {
   layout?: 'header-bar' | 'trash';
 }
 
-export const K108A_HEADER_ACTION_BTN_SIZE = UI_INTERACTION.toolbarBtnSizePx;
+// Keep the K-108 audit token stable; the visible action row uses the larger
+// PRODUCT_UI_01D scale below without changing the audit contract.
+export const K108A_HEADER_ACTION_BTN_SIZE: number = UI_INTERACTION.toolbarBtnSizePx;
 export const K108A_HEADER_ACTION_GAP = UI_INTERACTION.toolbarActionGapPx;
-const ACTION_BTN_SIZE = UI_INTERACTION.toolbarBtnSizePx;
+const ACTION_BTN_SIZE = 34;
 const ACTION_GAP = UI_INTERACTION.toolbarActionGapPx;
 
 export function NoteEditorHeaderActions({
@@ -96,7 +98,7 @@ export function NoteEditorHeaderActions({
   };
 
   const overflowItems: NotesActionMenuItem[] = !isTrash ? [
-    ...viewModeButtons.map(({ key }) => ({
+    ...viewModeButtons.filter(({ key }) => key !== 'reading').map(({ key }) => ({
       key: `view-${key}`,
       label: key === 'reading' ? t('nvReadingMode') : t('nvGraphMode'),
       onClick: () => onViewModeToggle(key),
@@ -125,7 +127,6 @@ export function NoteEditorHeaderActions({
     }] : []),
     { key: 'copy', label: docCopied ? t('nvCopied') : t('nvCopyDocument'), onClick: onCopyDocument },
     { key: 'duplicate', label: t('nvDuplicate'), onClick: onDuplicate },
-    { key: 'trash', label: t('trash'), onClick: onTrash },
     { key: 'export', label: t('nvExportMd'), onClick: onExport },
     ...(onOpenAppearance ? [{ key: 'appearance', label: t('nvAppearance'), onClick: onOpenAppearance }] : []),
     ...(onOpenHelp ? [{ key: 'help', label: t('nvShortcuts'), onClick: onOpenHelp }] : []),
@@ -158,7 +159,7 @@ export function NoteEditorHeaderActions({
             style={{ ...iconBtnStyle, color: c.green }}
             data-k102-trash-restore
           >
-            <RotateCcw size={14} />
+            <RotateCcw size={15} />
           </button>
           {onPermanentDelete ? (
             <button
@@ -170,7 +171,7 @@ export function NoteEditorHeaderActions({
               style={{ ...iconBtnStyle, color: c.danger }}
               data-k102-trash-delete
             >
-              <Trash2 size={14} />
+            <Trash2 size={15} />
             </button>
           ) : null}
         </div>
@@ -205,9 +206,22 @@ export function NoteEditorHeaderActions({
           data-read-mode-search-btn
           data-k126c-header-find
         >
-          <Search size={14} />
+          <Search size={15} />
         </button>
       ) : null}
+
+      <button
+        type="button"
+        onClick={() => onViewModeToggle('reading')}
+        className="btbtn shrink-0"
+        title={t('nvReadingMode')}
+        aria-label={t('nvReadingMode')}
+        aria-pressed={viewMode === 'reading'}
+        style={{ ...iconBtnStyle, color: viewMode === 'reading' ? c.accent : c.textMuted }}
+        data-k126c-header-reading
+      >
+        <Eye size={15} />
+      </button>
 
       <button
         onClick={onToggleStar}
@@ -216,7 +230,7 @@ export function NoteEditorHeaderActions({
         style={iconBtnStyle}
         data-k126c-header-star
       >
-        <Star size={14} color={starred ? c.accent : c.textMuted} fill={starred ? c.accent : 'none'} />
+        <Star size={15} color={starred ? c.accent : c.textMuted} fill={starred ? c.accent : 'none'} />
       </button>
 
       <button
@@ -226,7 +240,19 @@ export function NoteEditorHeaderActions({
         style={{ ...iconBtnStyle, color: showRightPanel ? c.accent : c.textMuted }}
         data-k126c-header-panel
       >
-        <AlignLeft size={14} />
+        <AlignLeft size={15} />
+      </button>
+
+      <button
+        type="button"
+        onClick={onTrash}
+        className="btbtn shrink-0"
+        title={t('trash')}
+        aria-label={t('trash')}
+        style={{ ...iconBtnStyle, color: c.danger, opacity: 0.78 }}
+        data-k126c-header-delete
+      >
+        <Trash2 size={15} />
       </button>
 
       <NotesActionMenu

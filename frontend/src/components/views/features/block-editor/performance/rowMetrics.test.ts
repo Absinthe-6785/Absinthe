@@ -1,7 +1,9 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
 import { makeBlock } from '../../../blockUtils';
+import { commitDragDrop } from '../../../editorDragDrop';
 import {
+  getVirtualRowMetrics,
   getVisibleRowMetrics,
   resolveDropTargetFromRows,
   resolveOverlayFrame,
@@ -33,18 +35,15 @@ describe('rowMetrics', () => {
     const paragraph = makeBlock('paragraph', { id: 'a' });
     const getBlock = (id: string) => (id === 'a' ? paragraph : makeBlock('paragraph', { id }));
 
-    expect(resolveDropTargetFromRows(10, rows, [], getBlock)).toEqual({
-      overId: 'a',
-      overPos: 'before',
-    });
-    expect(resolveDropTargetFromRows(30, rows, [], getBlock)).toEqual({
-      overId: 'a',
-      overPos: 'after',
-    });
-    expect(resolveDropTargetFromRows(90, rows, [], getBlock)).toEqual({
-      overId: 'b',
-      overPos: 'after',
-    });
+    const before = resolveDropTargetFromRows(10, rows, [], getBlock);
+    const middle = resolveDropTargetFromRows(30, rows, [], getBlock);
+    const after = resolveDropTargetFromRows(90, rows, [], getBlock);
+    expect(before).toEqual({ overId: 'a', overPos: 'before' });
+    expect(middle).toEqual({ overId: 'a', overPos: 'after' });
+    expect(after).toEqual({ overId: 'b', overPos: 'after' });
+    expect(before?.indicatorY).toBe(0);
+    expect(middle?.indicatorY).toBe(40);
+    expect(after?.indicatorY).toBe(80);
   });
 
   it('resolves inside for collapsed toggle rows', () => {
@@ -54,6 +53,188 @@ describe('rowMetrics', () => {
       overId: 't',
       overPos: 'inside',
     });
+  });
+
+  it('splits a large visual gap at the adjacent slot boundary with no dead zone', () => {
+    const rows: BlockRowHit[] = [
+      { blockId: 'a', top: 0, bottom: 40 },
+      { blockId: 'b', top: 100, bottom: 140 },
+    ];
+
+    const upperGap = resolveDropTargetFromRows(69, rows, []);
+    const boundary = resolveDropTargetFromRows(70, rows, []);
+    const lowerGap = resolveDropTargetFromRows(90, rows, []);
+    expect(upperGap).toEqual({ overId: 'a', overPos: 'after' });
+    expect(boundary).toEqual({ overId: 'b', overPos: 'before' });
+    expect(lowerGap).toEqual({ overId: 'b', overPos: 'before' });
+    expect(upperGap?.indicatorY).toBe(70);
+    expect(boundary?.indicatorY).toBe(70);
+    expect(lowerGap?.indicatorY).toBe(70);
+  });
+
+  it('keeps unequal and multiline sibling zones sorted and contiguous', () => {
+    const rows: BlockRowHit[] = [
+      { blockId: 'heading', top: 0, bottom: 30 },
+      { blockId: 'multiline', top: 80, bottom: 240 },
+      { blockId: 'list', top: 260, bottom: 300 },
+    ];
+
+    const hits = [
+      resolveDropTargetFromRows(15, rows, []),
+      resolveDropTargetFromRows(55, rows, []),
+      resolveDropTargetFromRows(65, rows, []),
+      resolveDropTargetFromRows(250, rows, []),
+      resolveDropTargetFromRows(270, rows, []),
+    ];
+    expect(hits.map(hit => `${hit?.overId}:${hit?.overPos}`)).toEqual([
+      'heading:after',
+      'multiline:before',
+      'multiline:before',
+      'list:before',
+      'list:before',
+    ]);
+    expect(hits.map(hit => hit?.indicatorY)).toEqual([55, 55, 55, 250, 250]);
+  });
+
+  it('maps a one-pixel move across a slot boundary to one adjacent destination', () => {
+    const rows: BlockRowHit[] = [
+      { blockId: 'a', top: 0, bottom: 20 },
+      { blockId: 'b', top: 120, bottom: 150 },
+      { blockId: 'c', top: 170, bottom: 190 },
+    ];
+    const before = resolveDropTargetFromRows(69, rows, []);
+    const after = resolveDropTargetFromRows(70, rows, []);
+    expect(before).toEqual({ overId: 'a', overPos: 'after' });
+    expect(after).toEqual({ overId: 'b', overPos: 'before' });
+    expect(before?.indicatorY).toBe(70);
+    expect(after?.indicatorY).toBe(70);
+  });
+
+  it('uses the resolved slot indicator for the same commit destination', () => {
+    const rows: BlockRowHit[] = [
+      { blockId: 'a', top: 0, bottom: 40 },
+      { blockId: 'b', top: 120, bottom: 160 },
+    ];
+    const hit = resolveDropTargetFromRows(80, rows, []);
+    expect(hit).toEqual({ overId: 'b', overPos: 'before' });
+    const source = makeBlock('paragraph', { id: 'source', content: 'source' });
+    const a = makeBlock('paragraph', { id: 'a', content: 'A' });
+    const b = makeBlock('paragraph', { id: 'b', content: 'B' });
+    expect(hit?.indicatorY).toBe(80);
+    // The existing commit API consumes the same canonical overId/overPos pair.
+    expect(commitDragDrop([source, a, b], ['source'], hit!.overId, hit!.overPos)?.map(block => block.id))
+      .toEqual(['a', 'source', 'b']);
+  });
+
+  it('keeps virtual row boundaries in client space after editor scrolling', () => {
+    const scroll = document.createElement('div');
+    scroll.scrollTop = 80;
+    scroll.getBoundingClientRect = () => ({
+      left: 20, width: 400, top: 120, bottom: 520, right: 420, height: 400, x: 20, y: 120,
+      toJSON: () => ({}),
+    } as DOMRect);
+    const virtualizer = {
+      measurementsCache: [
+        { start: 0, size: 40 },
+        { start: 100, size: 60 },
+      ],
+      getOffsetForIndex: (index: number) => [index === 0 ? 0 : 100, 'start'] as [number, string],
+    };
+    const blocks = [
+      makeBlock('paragraph', { id: 'a' }),
+      makeBlock('paragraph', { id: 'b' }),
+    ];
+    const rows = getVirtualRowMetrics(virtualizer as never, blocks, scroll);
+    expect(rows.map(row => [row.top, row.bottom])).toEqual([[40, 80], [140, 200]]);
+
+    const beforeBoundary = resolveDropTargetFromRows(109, rows, []);
+    const afterBoundary = resolveDropTargetFromRows(110, rows, []);
+    expect(beforeBoundary).toEqual({ overId: 'a', overPos: 'after' });
+    expect(afterBoundary).toEqual({ overId: 'b', overPos: 'before' });
+    expect(beforeBoundary?.indicatorY).toBe(110);
+    expect(afterBoundary?.indicatorY).toBe(110);
+  });
+
+  it('keeps multiline text, heading, and list blocks atomic at sibling boundaries', () => {
+    const rows: BlockRowHit[] = [
+      { blockId: 'heading', top: 0, bottom: 84 },
+      { blockId: 'list', top: 124, bottom: 268 },
+      { blockId: 'paragraph', top: 308, bottom: 348 },
+    ];
+    const blocks = new Map([
+      ['heading', makeBlock('heading2', { id: 'heading', content: '첫 줄\n둘째 줄' })],
+      ['list', makeBlock('bullet', { id: 'list', content: 'alpha **bold**\nbeta 日本語 한국어' })],
+      ['paragraph', makeBlock('paragraph', { id: 'paragraph', content: 'one\ntwo\nthree' })],
+    ]);
+    const getBlock = (id: string) => blocks.get(id);
+
+    const headingInterior = resolveDropTargetFromRows(42, rows, [], getBlock);
+    const listInterior = resolveDropTargetFromRows(200, rows, [], getBlock);
+    const paragraphInterior = resolveDropTargetFromRows(320, rows, [], getBlock);
+
+    expect(headingInterior).toEqual({ overId: 'heading', overPos: 'after' });
+    expect(listInterior).toEqual({ overId: 'list', overPos: 'after' });
+    expect(paragraphInterior).toEqual({ overId: 'paragraph', overPos: 'before' });
+    expect(headingInterior?.indicatorY).toBe(104);
+    expect(listInterior?.indicatorY).toBe(288);
+    expect(paragraphInterior?.indicatorY).toBe(288);
+    expect([headingInterior?.indicatorY, listInterior?.indicatorY, paragraphInterior?.indicatorY])
+      .not.toContain(42);
+    expect([headingInterior?.indicatorY, listInterior?.indicatorY, paragraphInterior?.indicatorY])
+      .not.toContain(200);
+    expect([headingInterior?.indicatorY, listInterior?.indicatorY, paragraphInterior?.indicatorY])
+      .not.toContain(320);
+  });
+
+  it('keeps moved multiline heights attached to ids and siblings non-overlapping', () => {
+    const a = makeBlock('paragraph', { id: 'a', content: 'A' });
+    const multiline = makeBlock('paragraph', { id: 'multiline', content: 'one\ntwo\nthree' });
+    const c = makeBlock('paragraph', { id: 'c', content: 'C' });
+    const scroll = document.createElement('div');
+    scroll.getBoundingClientRect = () => ({
+      left: 0, width: 400, top: 0, bottom: 600, right: 400, height: 600, x: 0, y: 0,
+      toJSON: () => ({}),
+    } as DOMRect);
+
+    const cases = [
+      {
+        blocks: [a, multiline, c],
+        measurementsCache: [
+          { key: 'a', start: 0, size: 40 },
+          { key: 'multiline', start: 64, size: 132 },
+          { key: 'c', start: 220, size: 40 },
+        ],
+      },
+      {
+        blocks: [a, c, multiline],
+        measurementsCache: [
+          { key: 'a', start: 0, size: 40 },
+          { key: 'c', start: 64, size: 40 },
+          { key: 'multiline', start: 128, size: 132 },
+        ],
+      },
+      {
+        blocks: [multiline, a, c],
+        measurementsCache: [
+          { key: 'multiline', start: 0, size: 132 },
+          { key: 'a', start: 156, size: 40 },
+          { key: 'c', start: 220, size: 40 },
+        ],
+      },
+    ];
+
+    for (const testCase of cases) {
+      const rows = getVirtualRowMetrics({
+        measurementsCache: testCase.measurementsCache,
+        getOffsetForIndex: (index: number) => [testCase.measurementsCache[index]!.start, 'start'],
+      } as never, testCase.blocks, scroll);
+      expect(rows.map(row => row.blockId)).toEqual(testCase.blocks.map(block => block.id));
+      expect(rows.find(row => row.blockId === 'multiline')?.bottom
+        - rows.find(row => row.blockId === 'multiline')?.top).toBe(132);
+      for (let index = 1; index < rows.length; index += 1) {
+        expect(rows[index - 1]!.bottom).toBeLessThanOrEqual(rows[index]!.top);
+      }
+    }
   });
 
   it('resolveOverlayFrame uses row metrics when DOM is absent', () => {

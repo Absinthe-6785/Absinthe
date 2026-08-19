@@ -1,9 +1,12 @@
 /**
- * Imperative drag chrome — keeps .be-dragging / toggle drop classes off the React tree.
+ * Imperative drag chrome — keeps drag/source/target classes off the React tree.
  */
 import type { DragState } from '../../../editorDragDrop';
 
 const DRAGGING_CLASS = 'be-dragging';
+const DROP_TARGET_CLASS = 'be-drop-target';
+const DROP_TARGET_BEFORE_CLASS = 'be-drop-target-before';
+const DROP_TARGET_AFTER_CLASS = 'be-drop-target-after';
 const TOGGLE_DROP_CLASS = 'be-toggle-drop-active';
 const DRAG_SESSION_CLASS = 'be-drag-active';
 
@@ -37,6 +40,21 @@ function setToggleDropActive(toggleId: string | null): void {
   toggleChildrenEl(toggleId)?.classList.add(TOGGLE_DROP_CLASS);
 }
 
+function setDropTarget(targetId: string | null, position: 'before' | 'after' | null): void {
+  document.querySelectorAll<HTMLElement>(
+    `.${DROP_TARGET_CLASS}, .${DROP_TARGET_BEFORE_CLASS}, .${DROP_TARGET_AFTER_CLASS}`,
+  ).forEach(node => {
+    node.classList.remove(DROP_TARGET_CLASS, DROP_TARGET_BEFORE_CLASS, DROP_TARGET_AFTER_CLASS);
+  });
+  if (!targetId || !position) return;
+  const target = blockEl(targetId);
+  if (!target) return;
+  target.classList.add(
+    DROP_TARGET_CLASS,
+    position === 'before' ? DROP_TARGET_BEFORE_CLASS : DROP_TARGET_AFTER_CLASS,
+  );
+}
+
 function setDragSessionActive(on: boolean, getEditorRoot?: () => HTMLElement | null): void {
   const root = getEditorRoot?.() ?? document.querySelector('.be-editor-root');
   if (!(root instanceof HTMLElement)) return;
@@ -45,6 +63,7 @@ function setDragSessionActive(on: boolean, getEditorRoot?: () => HTMLElement | n
 
 let prevDraggingIds: string[] = [];
 let prevOverInsideId: string | null = null;
+let prevOverTargetKey = '';
 
 export function syncDragDom(
   state: DragState | null,
@@ -53,9 +72,11 @@ export function syncDragDom(
   if (!state) {
     for (const id of prevDraggingIds) setDraggingClass(id, false);
     prevDraggingIds = [];
+    setDropTarget(null, null);
     setToggleDropActive(null);
     setDragSessionActive(false, getEditorRoot);
     prevOverInsideId = null;
+    prevOverTargetKey = '';
     return;
   }
 
@@ -74,13 +95,29 @@ export function syncDragDom(
     prevOverInsideId = insideId;
   }
 
+  const targetId = state.overId
+    && state.overPos !== 'inside'
+    && !state.draggingIds.includes(state.overId)
+    ? state.overId
+    : null;
+  const targetPosition = targetId && (state.overPos === 'before' || state.overPos === 'after')
+    ? state.overPos
+    : null;
+  const targetKey = `${targetId ?? ''}:${targetPosition ?? ''}`;
+  if (targetKey !== prevOverTargetKey) {
+    setDropTarget(targetId, targetPosition);
+    prevOverTargetKey = targetKey;
+  }
+
   setDragSessionActive(true, getEditorRoot);
 }
 
 export function resetDragDomSync(): void {
   for (const id of prevDraggingIds) setDraggingClass(id, false);
   prevDraggingIds = [];
+  setDropTarget(null, null);
   setToggleDropActive(null);
   setDragSessionActive(false);
   prevOverInsideId = null;
+  prevOverTargetKey = '';
 }

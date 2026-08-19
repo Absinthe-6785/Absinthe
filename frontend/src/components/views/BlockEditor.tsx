@@ -721,7 +721,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     <>
       <div
         ref={assignEditorRootRef}
-        className={`be-editor-root${depth > 0 ? ' be-editor-nested' : ''}${isGutterDragging ? ' be-gutter-dragging' : ''}`}
+        className={`be-editor-root be-blocks-root${depth > 0 ? ' be-editor-nested' : ''}${isGutterDragging ? ' be-gutter-dragging' : ''}`}
         style={{ paddingLeft: readOnly ? 0 : (depth > 0 ? NESTED_EDITOR_PADDING_LEFT_PX : 0), position:'relative' }}
         onPointerDown={depth === 0 && !readOnly ? handleDocumentFocusPointerDown : undefined}
         onClick={depth === 0 ? handleFootnoteClick : undefined}

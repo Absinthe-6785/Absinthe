@@ -160,7 +160,7 @@ export function NoteImageAttachments({ note, colors: c, readOnly, onUpdateBody }
         ) : null}
       </div>
       {!readOnly && attachmentIsolationEnabled ? (
-        <div data-return-to-use-attachment-isolation style={{ color: c.textMuted, fontSize: 10.5, lineHeight: 1.45, marginBottom: 8 }}>
+        <div className="be-attachment-isolation-sr" aria-live="polite">
           {RETURN_TO_USE_ATTACHMENT_ISOLATION_MESSAGE}
         </div>
       ) : null}

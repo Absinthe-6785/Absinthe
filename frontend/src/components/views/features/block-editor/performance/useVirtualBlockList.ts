@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { defaultRangeExtractor, useVirtualizer } from '@tanstack/react-virtual';
 import type { Block } from '../../../blockUtils';
 import { BlockHeightCache } from './blockHeightCache';
@@ -24,6 +24,14 @@ export interface UseVirtualBlockListResult {
   enabled: boolean;
 }
 
+/** Keep virtual measurements attached to the block, never to its old index. */
+export function virtualBlockItemKey(
+  blocks: readonly Pick<Block, 'id'>[],
+  index: number,
+): string | number {
+  return blocks[index]?.id ?? index;
+}
+
 export function useVirtualBlockList({
   blocks,
   enabled,
@@ -37,11 +45,17 @@ export function useVirtualBlockList({
   const blocksRef = useRef(blocks);
   blocksRef.current = blocks;
 
+  const getItemKey = useCallback(
+    (index: number) => virtualBlockItemKey(blocksRef.current, index),
+    [],
+  );
+
   const pinnedIndicesRef = useRef<number[]>([]);
 
   const virtualizer = useVirtualizer({
     count: enabled ? blocks.length : 0,
     getScrollElement,
+    getItemKey,
     overscan,
     rangeExtractor: (range) => {
       const base = defaultRangeExtractor(range);
@@ -72,10 +86,10 @@ export function useVirtualBlockList({
 
   const blockIdsKey = blocks.map(b => b.id).join('\0');
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!enabled) return;
     if (getScrollElement()) virtualizer.measure();
-  }, [enabled, getScrollElement, virtualizer, blocks.length]);
+  }, [enabled, getScrollElement, virtualizer, blockIdsKey]);
 
   useEffect(() => {
     if (!enabled) return;
