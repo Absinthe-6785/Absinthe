@@ -130,6 +130,25 @@ describe('gutter drag integration', () => {
     expect(getComputedStyle(strip.closest('.be-gutter')!).pointerEvents).toBe('auto');
   });
 
+  it('renders the normal editor block gutter and six-dot handle at rest', () => {
+    mountEditor(blocks);
+    const block = document.querySelector('[data-drag-id="blk-b"]') as HTMLElement | null;
+    const innerRoot = document.querySelector('.be-editor-root.be-blocks-root') as HTMLElement | null;
+    const gutter = block?.querySelector(':scope > .be-gutter') as HTMLElement | null;
+    const handles = gutter?.querySelector(':scope > .be-handles') as HTMLElement | null;
+
+    expect(block).not.toBeNull();
+    expect(innerRoot).not.toBeNull();
+    expect(innerRoot?.classList.contains('be-document-edit')).toBe(false);
+    expect(innerRoot?.classList.contains('be-blocks-root')).toBe(true);
+    expect(getComputedStyle(innerRoot!).overflowX).toBe('visible');
+    expect(gutter).not.toBeNull();
+    expect(handles).not.toBeNull();
+    expect(handles?.querySelectorAll('.be-grip-dot')).toHaveLength(6);
+    expect(getComputedStyle(handles!).visibility).toBe('visible');
+    expect(getComputedStyle(handles!).pointerEvents).toBe('auto');
+  });
+
   it('pointerdown on gutter strip selects anchor block', () => {
     mountEditor(blocks);
     firePointer(stripFor('blk-b'), 'pointerdown', ROW_H * 1 + 10);

@@ -458,6 +458,8 @@ export const EDITOR_CHROME_STYLES = `
   }
   /* K-118 — mobile editor + embed overflow */
   .be-editor-root { overflow-x: clip; max-width: 100%; }
+  /* Block gutters use a negative inline margin; keep the actual block root from clipping them. */
+  .be-editor-root.be-blocks-root { overflow-x: visible; }
   [data-k118-embed-preview] { max-width: 100%; }
   .be-document .be-image-block,
   .be-document [data-block-type="table"],
