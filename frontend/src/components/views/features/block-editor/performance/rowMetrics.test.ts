@@ -6,7 +6,6 @@ import {
   getVirtualRowMetrics,
   getVisibleRowMetrics,
   resolveDropTargetFromRows,
-  resolveDropHighlightGeometry,
   resolveOverlayFrame,
   type BlockRowHit,
 } from './rowMetrics';
@@ -54,35 +53,6 @@ describe('rowMetrics', () => {
       overId: 't',
       overPos: 'inside',
     });
-  });
-
-  it('uses the resolved before/after slot for a shallow target highlight', () => {
-    const frame = { top: 100, left: 20, width: 640, height: 160, indentLeft: 32 };
-    const before = resolveDropHighlightGeometry(frame, 'before', 76);
-    const after = resolveDropHighlightGeometry(frame, 'after', 284);
-
-    expect(before).toEqual({
-      position: 'before', top: 71, left: 52, width: 608, height: 10,
-    });
-    expect(after).toEqual({
-      position: 'after', top: 279, left: 52, width: 608, height: 10,
-    });
-    expect(before.top + before.height / 2).toBe(76);
-    expect(after.top + after.height / 2).toBe(284);
-  });
-
-  it('keeps multiline and single-line highlights at the resolved outer slot', () => {
-    const multiline = { top: 40, left: 0, width: 500, height: 132, indentLeft: 0 };
-    const singleLine = { top: 220, left: 0, width: 500, height: 40, indentLeft: 0 };
-    const multiHighlight = resolveDropHighlightGeometry(multiline, 'after', 196);
-    const singleHighlight = resolveDropHighlightGeometry(singleLine, 'before', 196);
-
-    expect(multiHighlight.top + multiHighlight.height / 2).toBe(196);
-    expect(singleHighlight.top + singleHighlight.height / 2).toBe(196);
-    expect(multiHighlight.top >= multiline.top
-      && multiHighlight.top + multiHighlight.height <= multiline.top + multiline.height).toBe(false);
-    expect(singleHighlight.top >= singleLine.top
-      && singleHighlight.top + singleHighlight.height <= singleLine.top + singleLine.height).toBe(false);
   });
 
   it('splits a large visual gap at the adjacent slot boundary with no dead zone', () => {

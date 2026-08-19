@@ -159,39 +159,6 @@ export interface OverlayFrame {
   indentLeft: number;
 }
 
-export type DropHighlightPosition = 'before' | 'after';
-
-export interface DropHighlightGeometry {
-  position: DropHighlightPosition;
-  top: number;
-  left: number;
-  width: number;
-  height: number;
-}
-
-/**
- * Turn the already-resolved sibling slot into a shallow placement surface.
- * The resolver owns `indicatorY`; this helper never derives a destination from
- * pointer geometry and deliberately keeps the highlight outside the text row.
- */
-export function resolveDropHighlightGeometry(
-  frame: OverlayFrame,
-  position: DropHighlightPosition,
-  indicatorY?: number | null,
-): DropHighlightGeometry {
-  const height = 10;
-  const anchorY = typeof indicatorY === 'number'
-    ? indicatorY
-    : position === 'before' ? frame.top : frame.top + frame.height;
-  return {
-    position,
-    top: anchorY - height / 2,
-    left: frame.left + frame.indentLeft,
-    width: Math.max(0, frame.width - frame.indentLeft),
-    height,
-  };
-}
-
 /** Map a row hit to fixed overlay coordinates (virtual-safe). */
 export function overlayFrameFromRow(
   row: BlockRowHit,
