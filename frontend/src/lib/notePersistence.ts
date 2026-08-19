@@ -16,7 +16,6 @@ import {
   NOTES_IDB_REV_KEY,
   canUseIndexedDb,
   clearIndexedDbNotes,
-  deleteNoteFromIndexedDb,
   isIndexedDbMigrationComplete,
   isIndexedDbNotesEmpty,
   loadNotesFromIndexedDb,
