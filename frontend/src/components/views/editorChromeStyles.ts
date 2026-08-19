@@ -204,6 +204,11 @@ export const EDITOR_CHROME_STYLES = `
   .be-block.be-dragging {
     opacity: 0.4;
   }
+  .be-block.be-drop-target {
+    background: var(--be-block-hover-bg, rgba(139,92,246,0.035));
+    border-radius: 8px;
+    transition: background .12s ease, box-shadow .12s ease, opacity .12s ease;
+  }
   .be-editor-root.be-drag-active,
   .be-editor-root.be-drag-active * {
     user-select: none;
@@ -333,12 +338,6 @@ export const EDITOR_CHROME_STYLES = `
   }
   .be-toggle-heading-wrap.be-toggle-collapsed > .be-toggle-header-block {
     opacity: 0.92;
-  }
-  .be-drop-line { animation: be-drop-pulse .9s ease-in-out infinite alternate; }
-  .be-drop-dot { animation: be-drop-pulse .9s ease-in-out infinite alternate; }
-  @keyframes be-drop-pulse {
-    from { opacity: 0.75; }
-    to { opacity: 1; }
   }
   .be-mark {
     opacity: 0.35;
