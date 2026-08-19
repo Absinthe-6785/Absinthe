@@ -143,7 +143,8 @@ export function EditableBlock({
       }
     } else {
       lastContent.current = text;
-      onContentChange(block.id, text);
+      // Keep intermediate IME text local. The completed composition is the
+      // single history transaction committed from compositionend below.
     }
 
     const offset = getCaretOffset(el);
@@ -342,8 +343,11 @@ export function EditableBlock({
   const handleCompositionStart = useCallback(() => { composingRef.current = true; }, []);
   const handleCompositionEnd = useCallback((e: React.CompositionEvent<HTMLElement>) => {
     composingRef.current = false;
+    const text = getElText(e.currentTarget);
+    lastContent.current = text;
+    onContentChange(block.id, text);
     paintLive(e.currentTarget, true);
-  }, [paintLive]);
+  }, [block.id, onContentChange, paintLive]);
 
   const handlePaste = useCallback((e: React.ClipboardEvent<HTMLElement>) => {
     e.preventDefault();

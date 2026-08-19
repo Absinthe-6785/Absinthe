@@ -4,12 +4,14 @@ import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BlockEditor } from '../../../BlockEditor';
+import { makeBlock } from '../../../blockUtils';
 import { EDITOR_CHROME_STYLES } from '../../../editorChromeStyles';
 import { generateBenchmarkBlocks } from '../../../editorBenchmark';
 import { setVirtualBlocksPocOverride } from './virtualBlocksFlag';
 import { estimateBlockHeight } from './blockHeightEstimates';
 import { BlockHeightCache } from './blockHeightCache';
 import { scrollToBlockId, type BlockVirtualizer } from './scrollToBlockId';
+import { virtualBlockItemKey } from './useVirtualBlockList';
 
 const AUDIT_COLORS = {
   bg: '#fff', text: '#111', textMuted: '#666', textFaint: '#999',
@@ -96,6 +98,25 @@ describe('virtualBlockList POC', () => {
     expect(cache.get('a')).toBe(48);
     cache.delete('a');
     expect(cache.get('a')).toBeUndefined();
+  });
+
+  it('keeps measurement keys attached to block ids across repeated reorders', () => {
+    const blocks = [
+      makeBlock('paragraph', { id: 'a', content: 'A' }),
+      makeBlock('paragraph', { id: 'multiline', content: 'one\ntwo\nthree' }),
+      makeBlock('paragraph', { id: 'c', content: 'C' }),
+    ];
+    expect(blocks.map((_, index) => virtualBlockItemKey(blocks, index)))
+      .toEqual(['a', 'multiline', 'c']);
+
+    const movedOnce = [blocks[0]!, blocks[2]!, blocks[1]!];
+    expect(movedOnce.map((_, index) => virtualBlockItemKey(movedOnce, index)))
+      .toEqual(['a', 'c', 'multiline']);
+
+    const movedTwice = [movedOnce[2]!, movedOnce[0]!, movedOnce[1]!];
+    expect(movedTwice.map((_, index) => virtualBlockItemKey(movedTwice, index)))
+      .toEqual(['multiline', 'a', 'c']);
+    expect(movedTwice[0]?.content).toContain('one\ntwo\nthree');
   });
 
   it('scrollToBlockId scrolls virtualizer to block index', () => {

@@ -186,6 +186,57 @@ describe('rowMetrics', () => {
       .not.toContain(320);
   });
 
+  it('keeps moved multiline heights attached to ids and siblings non-overlapping', () => {
+    const a = makeBlock('paragraph', { id: 'a', content: 'A' });
+    const multiline = makeBlock('paragraph', { id: 'multiline', content: 'one\ntwo\nthree' });
+    const c = makeBlock('paragraph', { id: 'c', content: 'C' });
+    const scroll = document.createElement('div');
+    scroll.getBoundingClientRect = () => ({
+      left: 0, width: 400, top: 0, bottom: 600, right: 400, height: 600, x: 0, y: 0,
+      toJSON: () => ({}),
+    } as DOMRect);
+
+    const cases = [
+      {
+        blocks: [a, multiline, c],
+        measurementsCache: [
+          { key: 'a', start: 0, size: 40 },
+          { key: 'multiline', start: 64, size: 132 },
+          { key: 'c', start: 220, size: 40 },
+        ],
+      },
+      {
+        blocks: [a, c, multiline],
+        measurementsCache: [
+          { key: 'a', start: 0, size: 40 },
+          { key: 'c', start: 64, size: 40 },
+          { key: 'multiline', start: 128, size: 132 },
+        ],
+      },
+      {
+        blocks: [multiline, a, c],
+        measurementsCache: [
+          { key: 'multiline', start: 0, size: 132 },
+          { key: 'a', start: 156, size: 40 },
+          { key: 'c', start: 220, size: 40 },
+        ],
+      },
+    ];
+
+    for (const testCase of cases) {
+      const rows = getVirtualRowMetrics({
+        measurementsCache: testCase.measurementsCache,
+        getOffsetForIndex: (index: number) => [testCase.measurementsCache[index]!.start, 'start'],
+      } as never, testCase.blocks, scroll);
+      expect(rows.map(row => row.blockId)).toEqual(testCase.blocks.map(block => block.id));
+      expect(rows.find(row => row.blockId === 'multiline')?.bottom
+        - rows.find(row => row.blockId === 'multiline')?.top).toBe(132);
+      for (let index = 1; index < rows.length; index += 1) {
+        expect(rows[index - 1]!.bottom).toBeLessThanOrEqual(rows[index]!.top);
+      }
+    }
+  });
+
   it('resolveOverlayFrame uses row metrics when DOM is absent', () => {
     const scroll = document.createElement('div');
     scroll.getBoundingClientRect = () => ({

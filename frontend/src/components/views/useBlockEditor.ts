@@ -38,6 +38,17 @@ function isStructuralBlockChange(prev: Block[], next: Block[]): boolean {
   return false;
 }
 
+/**
+ * ContentEditable emits one normalized content update per user edit. Keep
+ * those updates as bounded typing transactions so a short sequence can be
+ * undone incrementally, while structural operations continue to be grouped by
+ * their own operation boundary.
+ */
+function isTextContentChange(prev: Block[], next: Block[]): boolean {
+  if (isStructuralBlockChange(prev, next) || prev.length !== next.length) return false;
+  return prev.some((block, index) => block.content !== next[index]?.content);
+}
+
 export function useBlockEditor(body: string, onBodyChange: (md: string) => void) {
   const [blocks, setBlocks] = useState<Block[]>(() => loadValidatedBlocks(body, markdownToBlocks));
   const prevBodyRef = useRef(body);
@@ -76,9 +87,10 @@ export function useBlockEditor(body: string, onBodyChange: (md: string) => void)
 
     const now = Date.now();
     const structural = isStructuralBlockChange(blocksRef.current, newBlocks);
+    const textEdit = isTextContentChange(blocksRef.current, newBlocks);
     const outsideCoalesce = now - lastSnapTimeRef.current > COALESCE_MS;
 
-    if (structural || outsideCoalesce) {
+    if (structural || textEdit || outsideCoalesce) {
       pushHistorySnapshot();
       lastSnapTimeRef.current = now;
     }

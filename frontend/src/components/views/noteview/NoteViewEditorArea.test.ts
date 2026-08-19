@@ -30,14 +30,19 @@ const note = {
   id: 'note-1', title: 'Note', body: 'hello', updatedAt: 1, folderId: null, deletedAt: null,
 } as never;
 
-function makeProps(onBodyChange: ReturnType<typeof vi.fn>, attachImageFilesToActiveNote: ReturnType<typeof vi.fn>) {
+function makeProps(
+  onBodyChange: ReturnType<typeof vi.fn>,
+  attachImageFilesToActiveNote: ReturnType<typeof vi.fn>,
+  body = 'hello',
+) {
+  const activeNote = { ...note, body } as never;
   const layout = {
     hideEditorArea: false, isMobile: false, isCompactChrome: false, isFocusPresetActive: false,
     isTrash: false, showRightPanel: false, viewMode: 'edit', showAppearance: false,
     isDragOver: false, headerTagsExpanded: false, docCopied: false, dark: false, isEmptyVault: false,
   } as never;
   const data = {
-    c: colors, activeNote: note, activeNoteId: 'note-1', notes: [note], folders: [], titleDraft: 'Note',
+    c: colors, activeNote, activeNoteId: 'note-1', notes: [activeNote], folders: [], titleDraft: 'Note',
     activeNoteKind: null, noteTags: [], syncError: null, isSyncing: false, savedAt: null, viewModes: [],
     noteAreaProperty: undefined, noteLinkedProjectTitle: '', noteLinkedProjectId: null,
     noteLearningPathLabel: null, noteContextReviewEntry: null, noteConnectionCount: 0,
@@ -165,6 +170,67 @@ describe('NoteViewEditorArea Return-to-Use attachment isolation', () => {
     expect(onBodyChange).toHaveBeenLastCalledWith('hello');
     expect(fireKey(getEditable(), 'z', { metaKey: true, shiftKey: true }).defaultPrevented).toBe(true);
     expect(onBodyChange).toHaveBeenLastCalledWith('changed');
+
+    cleanup(mounted.root, mounted.host);
+  });
+
+  it('keeps short typing undo/redo incremental and clears obsolete redo', () => {
+    const onBodyChange = vi.fn();
+    const mounted = renderEditor(makeProps(onBodyChange, vi.fn(), ''));
+    const getEditable = () => mounted.host.querySelector('[contenteditable="true"]') as HTMLElement;
+    const input = (text: string) => act(() => {
+      const editable = getEditable();
+      editable.textContent = text;
+      editable.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+
+    input('a');
+    input('as');
+    input('asd');
+    onBodyChange.mockClear();
+
+    expect(fireKey(getEditable(), 'z', { ctrlKey: true }).defaultPrevented).toBe(true);
+    expect(onBodyChange).toHaveBeenLastCalledWith('as');
+    expect(fireKey(getEditable(), 'z', { ctrlKey: true }).defaultPrevented).toBe(true);
+    expect(onBodyChange).toHaveBeenLastCalledWith('a');
+    expect(fireKey(getEditable(), 'z', { ctrlKey: true }).defaultPrevented).toBe(true);
+    expect(onBodyChange).toHaveBeenLastCalledWith('');
+
+    expect(fireKey(getEditable(), 'z', { ctrlKey: true, shiftKey: true }).defaultPrevented).toBe(true);
+    expect(onBodyChange).toHaveBeenLastCalledWith('a');
+    expect(fireKey(getEditable(), 'y', { ctrlKey: true }).defaultPrevented).toBe(true);
+    expect(onBodyChange).toHaveBeenLastCalledWith('as');
+    expect(fireKey(getEditable(), 'y', { ctrlKey: true }).defaultPrevented).toBe(true);
+    expect(onBodyChange).toHaveBeenLastCalledWith('asd');
+
+    expect(fireKey(getEditable(), 'z', { ctrlKey: true }).defaultPrevented).toBe(true);
+    input('new');
+    onBodyChange.mockClear();
+    expect(fireKey(getEditable(), 'y', { ctrlKey: true }).defaultPrevented).toBe(false);
+    expect(onBodyChange).not.toHaveBeenCalled();
+
+    cleanup(mounted.root, mounted.host);
+  });
+
+  it('commits one completed IME composition instead of intermediate history states', () => {
+    const onBodyChange = vi.fn();
+    const mounted = renderEditor(makeProps(onBodyChange, vi.fn(), ''));
+    const editable = mounted.host.querySelector('[contenteditable="true"]') as HTMLElement;
+
+    act(() => editable.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true })));
+    act(() => {
+      editable.textContent = 'ㅎ';
+      editable.dispatchEvent(new Event('input', { bubbles: true }));
+      editable.textContent = '한';
+      editable.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(onBodyChange).not.toHaveBeenCalled();
+
+    act(() => editable.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true })));
+    expect(onBodyChange).toHaveBeenLastCalledWith('한');
+    onBodyChange.mockClear();
+    expect(fireKey(editable, 'z', { ctrlKey: true }).defaultPrevented).toBe(true);
+    expect(onBodyChange).toHaveBeenLastCalledWith('');
 
     cleanup(mounted.root, mounted.host);
   });
