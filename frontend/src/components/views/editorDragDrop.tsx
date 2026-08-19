@@ -115,6 +115,21 @@ export function resolveDragOverFromPoint(
       isToggle: blockType === 'toggle',
       collapsed: collapsedToggle,
     });
+
+    // A sibling slot is defined by the outer draggable wrappers, never by
+    // text-line or inline-span geometry. Reuse the mounted-row resolver when
+    // the pointer and source are in the same editor root; it returns the exact
+    // canonical slot (and boundary Y) that the commit path consumes.
+    const sourceRoot = draggingIds[0]
+      ? document.querySelector(`[data-drag-id="${draggingIds[0]}"]`)
+        ?.closest('.be-editor-root.be-blocks-root')
+      : null;
+    const targetRoot = blockEl.closest('.be-editor-root.be-blocks-root');
+    if (sourceRoot && targetRoot === sourceRoot && overPos !== 'inside') {
+      const mountedHit = resolveDropTargetFromMountedRows(clientX, clientY, draggingIds);
+      if (mountedHit) return mountedHit;
+    }
+
     return createDropTargetHit(
       overId,
       overPos,
@@ -246,7 +261,8 @@ export function useDragDrop(
     ) => {
       const current = getDragStateSnapshot();
       if (!current || current.draggingIds[0] !== primaryId) return;
-      if (isDragOverUnchanged(current, overId, overPos)) return;
+      if (isDragOverUnchanged(current, overId, overPos)
+        && (indicatorY === undefined || current.indicatorY === indicatorY)) return;
       updateDragStateOver(overId, overPos, indicatorY);
       syncDragDom(getDragStateSnapshot(), () => getEditorRootRef.current?.() ?? null);
     };

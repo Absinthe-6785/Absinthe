@@ -1,7 +1,12 @@
-import { afterEach, describe, expect, it } from 'vitest';
-import { makeBlock } from './blockUtils';
+// @vitest-environment happy-dom
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { makeBlock, type Block } from './blockUtils';
 import { applyDragDrop } from './blockTree';
-import { commitDragDrop, clearPendingDragRejectTimers } from './editorDragDrop';
+import {
+  commitDragDrop,
+  clearPendingDragRejectTimers,
+  resolveDragOverFromPoint,
+} from './editorDragDrop';
 
 /** Smoke tests for drag-drop module contract (logic lives in blockTree). */
 describe('editorDragDrop contract', () => {
@@ -39,5 +44,89 @@ describe('commitDragDrop', () => {
 describe('clearPendingDragRejectTimers', () => {
   it('is safe to call when no timers are pending', () => {
     expect(() => clearPendingDragRejectTimers()).not.toThrow();
+  });
+});
+
+describe('resolveDragOverFromPoint outer-block geometry', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    Reflect.deleteProperty(document, 'elementsFromPoint');
+    document.body.innerHTML = '';
+  });
+
+  it.each([
+    ['two-line paragraph', 'paragraph', 64, 132, 72],
+    ['three-line paragraph', 'paragraph', 64, 156, 72],
+    ['wrapped heading', 'heading2', 64, 112, 72],
+    ['wrapped list item', 'bullet', 64, 144, 72],
+    ['unequal block heights', 'paragraph', 120, 220, 128],
+    ['large visual gap', 'paragraph', 200, 280, 208],
+    ['consecutive multiline blocks', 'paragraph', 64, 176, 72],
+    ['scrolled editor', 'paragraph', -96, -4, -88],
+  ])('%s uses an outer sibling boundary for indicator and commit', (
+    _name,
+    targetType,
+    targetTop,
+    targetBottom,
+    pointerY,
+  ) => {
+    const root = document.createElement('div');
+    root.className = 'be-editor-root be-blocks-root';
+    const rects = [
+      { id: 'source', type: 'paragraph', top: -220, bottom: -180 },
+      { id: 'a', type: 'paragraph', top: 0, bottom: 40 },
+      { id: 'b', type: targetType, top: targetTop, bottom: targetBottom },
+      { id: 'c', type: 'paragraph', top: targetBottom + 24, bottom: targetBottom + 64 },
+    ];
+    const elements = new Map<string, HTMLElement>();
+    for (const item of rects) {
+      const el = document.createElement('div');
+      el.className = 'be-block';
+      el.dataset.dragId = item.id;
+      el.dataset.blockType = item.type;
+      el.getBoundingClientRect = () => ({
+        top: item.top,
+        bottom: item.bottom,
+        left: 0,
+        right: 800,
+        width: 800,
+        height: item.bottom - item.top,
+        x: 0,
+        y: item.top,
+        toJSON: () => ({}),
+      } as DOMRect);
+      root.appendChild(el);
+      elements.set(item.id, el);
+    }
+    document.body.appendChild(root);
+    Object.defineProperty(document, 'elementsFromPoint', {
+      configurable: true,
+      value: () => [elements.get('b')!],
+    });
+
+    const hit = resolveDragOverFromPoint(400, pointerY, ['source']);
+    expect(hit).not.toBeNull();
+    expect(hit!.overId).toBe('b');
+    expect(hit!.overPos).toBe('before');
+    const siblingRects = rects.filter(rect => rect.id !== 'source').sort((a, b) => a.top - b.top);
+    const targetIndex = siblingRects.findIndex(rect => rect.id === 'b');
+    const expectedY = targetIndex === 0
+      ? siblingRects[0]!.top
+      : (siblingRects[targetIndex - 1]!.bottom + siblingRects[targetIndex]!.top) / 2;
+    expect(hit!.indicatorY).toBe(expectedY);
+    for (const rect of siblingRects) {
+      expect(hit!.indicatorY! <= rect.top || hit!.indicatorY! >= rect.bottom).toBe(true);
+    }
+    if (targetIndex > 0) {
+      expect(hit!.indicatorY! >= siblingRects[targetIndex - 1]!.bottom).toBe(true);
+    }
+    expect(hit!.indicatorY! <= siblingRects[targetIndex]!.top).toBe(true);
+
+    const source = makeBlock('paragraph', { id: 'source', content: 'source' });
+    const a = makeBlock('paragraph', { id: 'a', content: 'A' });
+    const b = makeBlock(targetType as Block['type'], { id: 'b', content: 'B' });
+    const c = makeBlock('paragraph', { id: 'c', content: 'C' });
+    const committed = commitDragDrop([source, a, b, c], ['source'], hit!.overId, hit!.overPos);
+    expect(committed?.map(block => block.id)).toEqual(['a', 'source', 'b', 'c']);
   });
 });

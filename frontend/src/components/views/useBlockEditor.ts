@@ -1,7 +1,7 @@
 /**
  * useBlockEditor.ts — body(마크다운) ↔ Block[] binding + undo/redo
  */
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, useLayoutEffect } from 'react';
 import {
   type Block,
   blocksToMarkdown,
@@ -10,9 +10,95 @@ import {
   makeBlock,
 } from './blockUtils';
 import { loadValidatedBlocks } from './documentRecovery';
+import { readBlockText } from './editableDom';
+import {
+  getCaretOffset,
+  getSelectionOffsets,
+  setSelectionOffsets,
+} from './features/block-editor/features/selection';
 
 const COALESCE_MS = 500;
 const HISTORY_LIMIT = 200;
+
+interface EditorSelectionSnapshot {
+  blockId: string;
+  anchorOffset: number;
+  focusOffset: number;
+}
+
+interface HistoryEntry {
+  md: string;
+  blocks: Block[];
+  selection: EditorSelectionSnapshot | null;
+}
+
+function editableTarget(target: EventTarget | null): HTMLElement | null {
+  if (!(target instanceof HTMLElement)) return null;
+  const editable = target.closest<HTMLElement>('.be-editable[data-block-id]');
+  return editable && isEditableElement(editable) ? editable : null;
+}
+
+function isEditableElement(el: HTMLElement): boolean {
+  return el.isContentEditable || el.getAttribute('contenteditable') === ''
+    || el.getAttribute('contenteditable') === 'true';
+}
+
+function captureSelectionFor(el: HTMLElement): EditorSelectionSnapshot | null {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return null;
+  const range = selection.getRangeAt(0);
+  if (!el.contains(range.startContainer) || !el.contains(range.endContainer)) return null;
+  const ordered = getSelectionOffsets(el);
+  const caret = getCaretOffset(el);
+  return {
+    blockId: el.dataset.blockId ?? '',
+    anchorOffset: ordered?.start ?? caret,
+    focusOffset: ordered?.end ?? caret,
+  };
+}
+
+function captureEditorSelection(): EditorSelectionSnapshot | null {
+  const active = document.activeElement instanceof HTMLElement
+    ? activeElementEditable(document.activeElement)
+    : null;
+  if (active) return captureSelectionFor(active);
+  const selection = window.getSelection();
+  const anchor = selection?.anchorNode instanceof Node
+    ? selection.anchorNode.parentElement?.closest<HTMLElement>('.be-editable[data-block-id]')
+    : null;
+  return anchor && isEditableElement(anchor) ? captureSelectionFor(anchor) : null;
+}
+
+function activeElementEditable(el: HTMLElement): HTMLElement | null {
+  const editable = el.closest<HTMLElement>('.be-editable[data-block-id]');
+  return editable && isEditableElement(editable) ? editable : null;
+}
+
+function restoreEditorSelection(snapshot: EditorSelectionSnapshot | null): void {
+  if (!snapshot) return;
+  const editable = findEditableForSnapshot(snapshot);
+  if (!editable) return;
+
+  const scrollContainer = editable.closest<HTMLElement>('.editor-drop-zone');
+  const scrollTop = scrollContainer?.scrollTop;
+  const scrollLeft = scrollContainer?.scrollLeft;
+  const length = readBlockText(editable).length;
+  const anchor = Math.max(0, Math.min(length, snapshot.anchorOffset));
+  const focus = Math.max(0, Math.min(length, snapshot.focusOffset));
+  try {
+    editable.focus({ preventScroll: true });
+  } catch {
+    editable.focus();
+  }
+  setSelectionOffsets(editable, anchor, focus);
+  if (scrollContainer && typeof scrollTop === 'number') scrollContainer.scrollTop = scrollTop;
+  if (scrollContainer && typeof scrollLeft === 'number') scrollContainer.scrollLeft = scrollLeft;
+}
+
+function findEditableForSnapshot(snapshot: EditorSelectionSnapshot): HTMLElement | null {
+  return Array.from(document.querySelectorAll<HTMLElement>('.be-editable[data-block-id]'))
+    .find(el => el.dataset.blockId === snapshot.blockId && isEditableElement(el)) ?? null;
+}
 
 /** NoteView ref API — re-exported from BlockEditor for stable import path */
 export interface BlockEditorHandle {
@@ -54,17 +140,68 @@ export function useBlockEditor(body: string, onBodyChange: (md: string) => void)
   const prevBodyRef = useRef(body);
   const blocksRef = useRef(blocks);
 
-  const historyRef = useRef<{ past: string[]; future: string[] }>({ past: [], future: [] });
+  const historyRef = useRef<{ past: HistoryEntry[]; future: HistoryEntry[] }>({ past: [], future: [] });
   const lastMdRef = useRef(body);
   const lastSnapTimeRef = useRef(0);
+  const pendingBeforeSelectionRef = useRef<EditorSelectionSnapshot | null>(null);
+  const pendingRestoreSelectionRef = useRef<EditorSelectionSnapshot | null>(null);
+  const currentSelectionRef = useRef<EditorSelectionSnapshot | null>(null);
 
   useEffect(() => {
     blocksRef.current = blocks;
   }, [blocks]);
 
-  const pushHistorySnapshot = useCallback(() => {
+  // Capture the browser selection before the native edit mutates the DOM. This
+  // keeps selection history editor-local without threading DOM state through
+  // every block editing callback.
+  useEffect(() => {
+    const captureBeforeEdit = (event: Event) => {
+      const editable = editableTarget(event.target);
+      const snapshot = editable ? captureSelectionFor(editable) : null;
+      if (snapshot) pendingBeforeSelectionRef.current = snapshot;
+    };
+    const clearForPointerOutsideEditor = (event: Event) => {
+      if (!editableTarget(event.target)) pendingBeforeSelectionRef.current = null;
+    };
+    document.addEventListener('beforeinput', captureBeforeEdit, true);
+    document.addEventListener('keydown', captureBeforeEdit, true);
+    document.addEventListener('paste', captureBeforeEdit, true);
+    document.addEventListener('compositionstart', captureBeforeEdit, true);
+    document.addEventListener('pointerdown', clearForPointerOutsideEditor, true);
+    return () => {
+      document.removeEventListener('beforeinput', captureBeforeEdit, true);
+      document.removeEventListener('keydown', captureBeforeEdit, true);
+      document.removeEventListener('paste', captureBeforeEdit, true);
+      document.removeEventListener('compositionstart', captureBeforeEdit, true);
+      document.removeEventListener('pointerdown', clearForPointerOutsideEditor, true);
+    };
+  }, []);
+
+  useLayoutEffect(() => {
+    const snapshot = pendingRestoreSelectionRef.current;
+    if (!snapshot) return undefined;
+    pendingRestoreSelectionRef.current = null;
+    const editable = findEditableForSnapshot(snapshot);
+    const expectedContent = blocks.find(block => block.id === snapshot.blockId)?.content;
+    if (editable && expectedContent != null && readBlockText(editable) === expectedContent) {
+      restoreEditorSelection(snapshot);
+      return undefined;
+    }
+    if (!editable || typeof window.requestAnimationFrame !== 'function') {
+      restoreEditorSelection(snapshot);
+      return undefined;
+    }
+    const frame = window.requestAnimationFrame(() => restoreEditorSelection(snapshot));
+    return () => window.cancelAnimationFrame(frame);
+  }, [blocks]);
+
+  const pushHistorySnapshot = useCallback((selection?: EditorSelectionSnapshot | null) => {
     const h = historyRef.current;
-    h.past.push(lastMdRef.current);
+    h.past.push({
+      md: lastMdRef.current,
+      blocks: blocksRef.current,
+      selection: selection === undefined ? captureEditorSelection() : selection,
+    });
     if (h.past.length > HISTORY_LIMIT) h.past.shift();
     h.future = [];
   }, []);
@@ -72,18 +209,23 @@ export function useBlockEditor(body: string, onBodyChange: (md: string) => void)
   useEffect(() => {
     if (body !== prevBodyRef.current) {
       if (body !== lastMdRef.current) {
-        pushHistorySnapshot();
+        pushHistorySnapshot(captureEditorSelection());
         lastSnapTimeRef.current = Date.now();
       }
       prevBodyRef.current = body;
       lastMdRef.current = body;
-      setBlocks(loadValidatedBlocks(body, markdownToBlocks));
+      const nextBlocks = loadValidatedBlocks(body, markdownToBlocks);
+      blocksRef.current = nextBlocks;
+      setBlocks(nextBlocks);
     }
   }, [body, pushHistorySnapshot]);
 
   const handleBlockChange = useCallback((newBlocks: Block[]) => {
     const md = blocksToMarkdown(newBlocks);
-    if (md === lastMdRef.current) return;
+    if (md === lastMdRef.current) {
+      pendingBeforeSelectionRef.current = null;
+      return;
+    }
 
     const now = Date.now();
     const structural = isStructuralBlockChange(blocksRef.current, newBlocks);
@@ -91,39 +233,53 @@ export function useBlockEditor(body: string, onBodyChange: (md: string) => void)
     const outsideCoalesce = now - lastSnapTimeRef.current > COALESCE_MS;
 
     if (structural || textEdit || outsideCoalesce) {
-      pushHistorySnapshot();
+      pushHistorySnapshot(pendingBeforeSelectionRef.current ?? captureEditorSelection());
       lastSnapTimeRef.current = now;
     }
 
+    currentSelectionRef.current = captureEditorSelection();
+    pendingBeforeSelectionRef.current = null;
+    blocksRef.current = newBlocks;
     setBlocks(newBlocks);
     lastMdRef.current = md;
     prevBodyRef.current = md;
     onBodyChange(md);
   }, [onBodyChange, pushHistorySnapshot]);
 
-  const applyMd = useCallback((md: string) => {
-    lastMdRef.current = md;
-    prevBodyRef.current = md;
+  const applyHistoryEntry = useCallback((entry: HistoryEntry) => {
+    lastMdRef.current = entry.md;
+    prevBodyRef.current = entry.md;
     lastSnapTimeRef.current = Date.now();
-    setBlocks(loadValidatedBlocks(md, markdownToBlocks));
-    onBodyChange(md);
+    blocksRef.current = entry.blocks;
+    currentSelectionRef.current = entry.selection;
+    pendingRestoreSelectionRef.current = entry.selection;
+    setBlocks(entry.blocks);
+    onBodyChange(entry.md);
   }, [onBodyChange]);
 
   const undo = useCallback(() => {
     const h = historyRef.current;
     if (h.past.length === 0) return;
-    const prev = h.past.pop() as string;
-    h.future.push(lastMdRef.current);
-    applyMd(prev);
-  }, [applyMd]);
+    const prev = h.past.pop() as HistoryEntry;
+    h.future.push({
+      md: lastMdRef.current,
+      blocks: blocksRef.current,
+      selection: currentSelectionRef.current ?? captureEditorSelection(),
+    });
+    applyHistoryEntry(prev);
+  }, [applyHistoryEntry]);
 
   const redo = useCallback(() => {
     const h = historyRef.current;
     if (h.future.length === 0) return;
-    const next = h.future.pop() as string;
-    h.past.push(lastMdRef.current);
-    applyMd(next);
-  }, [applyMd]);
+    const next = h.future.pop() as HistoryEntry;
+    h.past.push({
+      md: lastMdRef.current,
+      blocks: blocksRef.current,
+      selection: currentSelectionRef.current ?? captureEditorSelection(),
+    });
+    applyHistoryEntry(next);
+  }, [applyHistoryEntry]);
 
   const canUndo = useCallback(() => historyRef.current.past.length > 0, []);
   const canRedo = useCallback(() => historyRef.current.future.length > 0, []);

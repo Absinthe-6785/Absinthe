@@ -89,7 +89,6 @@ export function EditableBlock({
   const liveRafRef = useRef<number | null>(null);
   const staticMouseRef = useRef<{ x: number; y: number } | null>(null);
   const staticActivateFromPointerRef = useRef(false);
-  const isEditing = isActive;
 
   const paintLive = useCallback((el: HTMLElement, restoreCaret = true) => {
     const plain = getElText(el);
@@ -102,12 +101,13 @@ export function EditableBlock({
     const el = editableRef.current;
     if (!el) return;
     if (block.content !== lastContent.current) {
-      if (!isEditing || document.activeElement !== el) {
-        paintEditableLive(el, block.content, c, wikiTargets, searchQuery);
-        lastContent.current = block.content;
-      }
+      // History restores publish a new block snapshot while this same
+      // contenteditable remains mounted. Always reconcile the rendered text;
+      // stable React keys keep the DOM node and its focus continuity intact.
+      paintEditableLive(el, block.content, c, wikiTargets, searchQuery);
+      lastContent.current = block.content;
     }
-  }, [block.content, editableRef, c, wikiTargets, searchQuery, isEditing]);
+  }, [block.content, editableRef, c, wikiTargets, searchQuery]);
 
   useEffect(() => {
     const el = editableRef.current;
