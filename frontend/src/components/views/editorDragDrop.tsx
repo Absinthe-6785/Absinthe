@@ -14,6 +14,7 @@ import {
   setDragStateStore,
   updateDragStateOver,
 } from './features/block-editor/performance/dragStateStore';
+import { resolveDropPositionFromRect } from './features/block-editor/performance/rowMetrics';
 import { syncDragDom } from './features/block-editor/performance/dragDomSync';
 
 const DRAG_REJECT_MS = 420;
@@ -104,13 +105,11 @@ export function resolveDragOverFromPoint(
     const overId = blockEl.getAttribute('data-drag-id') ?? '';
     const blockType = blockEl.getAttribute('data-block-type');
     const rect = blockEl.getBoundingClientRect();
-    let overPos: 'before' | 'after' | 'inside';
     const collapsedToggle = blockEl.getAttribute('data-toggle-collapsed') === 'true';
-    if (blockType === 'toggle' && (collapsedToggle || clientY > rect.top + rect.height * 0.35)) {
-      overPos = 'inside';
-    } else {
-      overPos = clientY < rect.top + rect.height / 2 ? 'before' : 'after';
-    }
+    const overPos = resolveDropPositionFromRect(clientY, rect, {
+      isToggle: blockType === 'toggle',
+      collapsed: collapsedToggle,
+    });
     return { overId, overPos };
   }
 

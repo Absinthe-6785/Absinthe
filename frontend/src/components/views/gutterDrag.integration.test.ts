@@ -8,8 +8,11 @@ import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BlockEditor } from './BlockEditor';
 import { EDITOR_CHROME_STYLES } from './editorChromeStyles';
+import { alignHandleToFirstVisualLine } from './EditorChrome';
+import { resolveDragOverFromPoint, commitDragDrop } from './editorDragDrop';
 import { makeBlock, type Block } from './blockUtils';
 import type { BlockEditorColors } from './editorTypes';
+import { resolveDropPositionFromRect } from './features/block-editor/performance/rowMetrics';
 
 const colors: BlockEditorColors = {
   bg: '#fff', text: '#111', textMuted: '#666', textFaint: '#999',
@@ -184,6 +187,47 @@ describe('gutter drag integration', () => {
     expect(menu).not.toBeNull();
     expect(menu?.classList.contains('be-block-handle-menu')).toBe(true);
     expect(menu?.querySelectorAll('button').length).toBeGreaterThan(10);
+  });
+
+  it('anchors a handle to the first visual line instead of the block center', () => {
+    mountEditor(blocks);
+    const block = document.querySelector('[data-drag-id="blk-b"]') as HTMLElement;
+    const handles = block.querySelector('.be-handles') as HTMLElement;
+    const editable = block.querySelector('.be-editable') as HTMLElement;
+    block.getBoundingClientRect = () => rect(40, 100, 360, 200);
+    editable.getBoundingClientRect = () => rect(96, 112, 320, 120);
+
+    alignHandleToFirstVisualLine(handles);
+
+    expect(handles.style.top).not.toBe('50%');
+    expect(parseFloat(handles.style.top)).toBeGreaterThan(0);
+    expect(parseFloat(handles.style.top)).toBeLessThan(200);
+    expect(handles.style.transform).toBe('translate(-50%, -50%)');
+  });
+
+  it('uses the same block-rect midpoint for mounted drops and the commit destination', () => {
+    const target = document.createElement('div');
+    target.className = 'be-block';
+    target.setAttribute('data-drag-id', 'target');
+    target.getBoundingClientRect = () => rect(40, 100, 360, 100);
+    document.body.appendChild(target);
+    Object.defineProperty(document, 'elementsFromPoint', {
+      configurable: true,
+      value: () => [target],
+    });
+
+    const targetRect = target.getBoundingClientRect();
+    expect(resolveDropPositionFromRect(124, targetRect)).toBe('before');
+    expect(resolveDragOverFromPoint(120, 124, [])).toEqual({ overId: 'target', overPos: 'before' });
+    expect(resolveDropPositionFromRect(176, targetRect)).toBe('after');
+    const afterHit = resolveDragOverFromPoint(120, 176, []);
+    expect(afterHit).toEqual({ overId: 'target', overPos: 'after' });
+
+    const source = makeBlock('paragraph', { id: 'source', content: 'source' });
+    const destination = makeBlock('paragraph', { id: 'target', content: 'target' });
+    expect(commitDragDrop([source, destination], ['source'], 'target', afterHit!.overPos)?.map(b => b.id))
+      .toEqual(['target', 'source']);
+    delete (document as Document & { elementsFromPoint?: unknown }).elementsFromPoint;
   });
 
   it('pointermove B→D selects B,C,D with visual be-block-selected', () => {

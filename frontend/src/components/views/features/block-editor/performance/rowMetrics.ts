@@ -26,6 +26,23 @@ export interface DropTargetHit {
   overPos: 'before' | 'after' | 'inside';
 }
 
+/**
+ * Resolve the vertical destination from one block's actual geometry.
+ * Mounted DOM hit-testing and virtual-row fallback both use this function so
+ * the indicator and the eventual commit cannot disagree on before/after.
+ */
+export function resolveDropPositionFromRect(
+  clientY: number,
+  rect: Pick<DOMRect, 'top' | 'bottom'>,
+  options: { isToggle?: boolean; collapsed?: boolean } = {},
+): DropTargetHit['overPos'] {
+  const height = Math.max(0, rect.bottom - rect.top);
+  if (options.isToggle && (options.collapsed || clientY > rect.top + height * 0.35)) {
+    return 'inside';
+  }
+  return clientY < rect.top + height / 2 ? 'before' : 'after';
+}
+
 /** Visible mounted rows from DOM measurements. */
 export function getVisibleRowMetrics(options: RowMetricsOptions): BlockRowHit[] {
   const root = options.getEditorRoot();
@@ -141,13 +158,13 @@ export function resolveDropTargetFromRows(
   if (!row) return null;
 
   const block = getBlock?.(blockId);
-  const blockType = block?.type;
-  const collapsedToggle = block != null && isToggleBlockType(block.type) && block.collapsed;
-
-  if (block != null && isToggleBlockType(block.type) && (collapsedToggle || clientY > row.top + (row.bottom - row.top) * 0.35)) {
-    return { overId: blockId, overPos: 'inside' };
-  }
-
-  const overPos = clientY < row.top + (row.bottom - row.top) / 2 ? 'before' : 'after';
+  const overPos = resolveDropPositionFromRect(
+    clientY,
+    { top: row.top, bottom: row.bottom },
+    {
+      isToggle: block != null && isToggleBlockType(block.type),
+      collapsed: block?.collapsed,
+    },
+  );
   return { overId: blockId, overPos };
 }
