@@ -5,7 +5,6 @@ import { resolveNotesRuntimeSyncMode } from './syncMode';
 export const RECOVERY_MODE_MESSAGE = 'Data recovery mode is active. This action is temporarily unavailable.';
 
 export type RecoveryOperation =
-  | 'hydrate_remote'
   | 'upload_remote'
   | 'restore'
   | 'undo_restore'
@@ -595,7 +594,6 @@ export function mayRestoreLocalCoreJsonBackup(input: unknown): boolean {
   }
 }
 
-export const mayHydrateRemote = mayUseLegacyMutationPath;
 export const mayUploadRemote = mayUseLegacyMutationPath;
 export const mayRestore = mayUseLegacyMutationPath;
 export const mayUndoRestore = mayUseLegacyMutationPath;

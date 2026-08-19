@@ -24,7 +24,6 @@ import {
   mayApplyCrossTabMutation,
   mayDeleteLegacyStorage,
   mayEmptyTrash,
-  mayHydrateRemote,
   mayWriteLegacyNotes,
   mayReplacePersistedNotes,
   mayReset,
@@ -97,9 +96,9 @@ describe('K-319 recovery safety policy', () => {
   it('is fail-closed and exposes no unsafe operation', () => {
     expect(isRecoveryModeActive()).toBe(true);
     expect([
-      mayHydrateRemote(), mayUploadRemote(), mayRestore(), mayUndoRestore(),
+      mayUploadRemote(), mayRestore(), mayUndoRestore(),
       mayEmptyTrash(), mayReset(), mayApplyCrossTabMutation(), mayDeleteLegacyStorage(),
-    ]).toEqual([false, false, false, false, false, false, false, false]);
+    ]).toEqual([false, false, false, false, false, false, false]);
     expect(RECOVERY_MODE_MESSAGE).toContain('recovery mode');
   });
 
@@ -197,7 +196,7 @@ describe('K-319 recovery safety policy', () => {
     expect(isOperationEpochCurrent(epoch)).toBe(true);
     activateRecoveryMode();
     expect(isOperationEpochCurrent(epoch)).toBe(false);
-    expect(() => assertCurrentOperationEpoch(epoch, 'hydrate_remote'))
+    expect(() => assertCurrentOperationEpoch(epoch, 'upload_remote'))
       .toThrow(RecoveryModeBlockedError);
   });
 

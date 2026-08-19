@@ -17,7 +17,6 @@ export { resolveCopySelection } from './copy/copySelection';
 export {
   classifyClipboardPayloadVariant,
   getLastCopyClipboardVerification,
-  scheduleAsyncClipboardVerification,
   verifyCopyClipboardSync,
   type ClipboardPayloadVariant,
   type CopyClipboardVerification,

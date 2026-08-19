@@ -280,15 +280,6 @@ export function getLastNotesStorageBridgeSaveResult(): NotesStorageBridgeSaveRes
   return lastStorageBridgeSaveResult;
 }
 
-export function loadNotes(): NoteBase[] {
-  migrateLegacyStorageIfNeeded();
-  if (externalSyncLoad) return externalSyncLoad();
-  const raw = loadRawNotes(NOTES_KEY);
-  if (raw && raw.length > 0) return raw;
-  if (raw) return [];
-  return [];
-}
-
 export function loadFolders(): NoteFolderBase[] {
   if (isNotesAccountAuthorityActive()) return loadAccountScopedFolders();
   migrateLegacyStorageIfNeeded();
@@ -368,14 +359,6 @@ export function clearNotesStorage(): void {
   } catch { /**/ }
 }
 
-export async function clearNotesStorageAsync(): Promise<void> {
-  clearNotesStorage();
-  try {
-    const { clearNotesPersistence } = await import('@/lib/notePersistence');
-    await clearNotesPersistence();
-  } catch { /**/ }
-}
-
 /** Settings reset — explicit welcome note creation. */
 export function createDefaultWelcomeNotes(): NoteBase[] {
   const notes = defaultSeedNotes();
@@ -386,18 +369,6 @@ export function createDefaultWelcomeNotes(): NoteBase[] {
   return notes;
 }
 
-export async function loadNotesAsync(): Promise<NoteBase[]> {
-  const { loadNotesAsync: loadAsync } = await import('@/lib/notePersistence');
-  return loadAsync();
-}
-
-export async function saveNotesAsync(notes: unknown) {
-  const { saveNotesAsync: saveAsync } = await import('@/lib/notePersistence');
-  return saveAsync(notes);
-}
-
-/** @deprecated use loadNotes */
-export const nvLoadNotes = loadNotes;
 /** @deprecated use loadFolders */
 export const nvLoadFolders = loadFolders;
 /** @deprecated use saveNotes */
