@@ -28,8 +28,8 @@ export function metadataChipStyle(
   };
 }
 
-export const EDITOR_TOOLBAR_BTN_SIZE = 24;
-export const EDITOR_TOOLBAR_GAP = 6;
+export const EDITOR_TOOLBAR_BTN_SIZE = 30;
+export const EDITOR_TOOLBAR_GAP = 8;
 
 export function editorToolbarButtonStyle(c: NoteChromeColors): CSSProperties {
   return {
@@ -39,7 +39,7 @@ export function editorToolbarButtonStyle(c: NoteChromeColors): CSSProperties {
     width: EDITOR_TOOLBAR_BTN_SIZE,
     height: EDITOR_TOOLBAR_BTN_SIZE,
     padding: 0,
-    borderRadius: 6,
+    borderRadius: 7,
     border: `1px solid ${c.toolBdr}`,
     background: c.card,
     color: c.textMuted,

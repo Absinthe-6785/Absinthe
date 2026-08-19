@@ -29,6 +29,7 @@ export function BlockGutter({ blockId, readOnly, onPointerDown, children }: Bloc
   if (readOnly) return null;
   return (
     <div className="be-gutter" data-gutter-block-id={blockId}>
+      <span className="be-block-marker" aria-hidden="true" />
       <div
         className="be-gutter-strip"
         title={GUTTER_RANGE_TITLE}

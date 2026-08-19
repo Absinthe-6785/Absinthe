@@ -41,19 +41,33 @@ export const EDITOR_CHROME_STYLES = `
     flex-direction: row;
     align-items: flex-start;
     cursor: text;
-    min-height: 28px;
+    min-height: 30px;
   }
   .be-gutter {
     position: relative;
     flex: 0 0 ${K123_EDITOR_GUTTER_PX}px;
     width: ${K123_EDITOR_GUTTER_PX}px;
     margin-left: -${K123_EDITOR_GUTTER_PX}px;
-    min-height: 28px;
+    min-height: 30px;
     z-index: 2;
     pointer-events: auto;
-    opacity: 0.32;
+    opacity: 1;
     transition: opacity .12s ease-out;
     touch-action: none;
+  }
+  .be-block-marker {
+    position: absolute;
+    left: 7px;
+    top: 8px;
+    bottom: 8px;
+    width: 3px;
+    border-radius: 3px;
+    background: var(--be-text-muted, #71717A);
+    opacity: 0.68;
+    transform: scaleX(1);
+    transition: opacity .12s ease-out, background .12s ease-out, transform .12s ease-out;
+    pointer-events: none;
+    z-index: 2;
   }
   .be-editor-nested .be-gutter {
     flex-basis: 44px;
@@ -79,6 +93,16 @@ export const EDITOR_CHROME_STYLES = `
   .be-editor-root.be-gutter-dragging .be-gutter {
     opacity: 1;
   }
+  .be-block:hover > .be-gutter > .be-block-marker,
+  .be-block.be-block-active > .be-gutter > .be-block-marker,
+  .be-block.be-controls-visible > .be-gutter > .be-block-marker,
+  .be-block.be-block-selected > .be-gutter > .be-block-marker,
+  .be-block.be-dragging > .be-gutter > .be-block-marker,
+  .be-editor-root.be-gutter-dragging .be-block-marker {
+    background: var(--be-accent, #8B5CF6);
+    opacity: 1;
+    transform: scaleX(1.2);
+  }
   .be-editor-root.be-gutter-dragging {
     user-select: none;
     cursor: default;
@@ -89,9 +113,9 @@ export const EDITOR_CHROME_STYLES = `
     position: relative;
   }
   .be-handles {
-    opacity: 0;
-    visibility: hidden;
-    pointer-events: none;
+    opacity: 0.58;
+    visibility: visible;
+    pointer-events: auto;
     transition: opacity .12s, visibility .12s;
     z-index: 3;
   }
@@ -165,6 +189,16 @@ export const EDITOR_CHROME_STYLES = `
     color: var(--be-accent, #8B5CF6);
   }
   .be-handle-btn:hover .be-grip-dot { opacity: 1; }
+  .be-selection-toolbar button {
+    width: 40px !important;
+    min-width: 40px !important;
+    height: 40px !important;
+    min-height: 40px !important;
+  }
+  .be-selection-toolbar button svg {
+    width: 16px !important;
+    height: 16px !important;
+  }
   .be-block-selected {
     background: var(--be-block-selected-bg, rgba(139,92,246,0.05));
   }
@@ -187,22 +221,6 @@ export const EDITOR_CHROME_STYLES = `
   .be-block-active.be-block-selected {
     background: var(--be-block-active-selected-bg, rgba(139,92,246,0.08));
   }
-  .be-block-active:not(.be-toggle-header-block) > .be-gutter::before {
-    content: '';
-    position: absolute;
-    right: 6px;
-    top: 3px;
-    bottom: 3px;
-    width: 2px;
-    border-radius: 2px;
-    background: var(--be-accent, #8B5CF6);
-    opacity: 0.55;
-    pointer-events: none;
-    z-index: 0;
-  }
-  .be-block-active.be-block-selected:not(.be-toggle-header-block) > .be-gutter::before {
-    opacity: 0.7;
-  }
   .be-block.be-dragging {
     opacity: 0.4;
   }
@@ -214,8 +232,22 @@ export const EDITOR_CHROME_STYLES = `
     max-width: var(--be-doc-width, 720px);
     margin: 0 auto;
     font-family: var(--be-font-family, system-ui, sans-serif);
-    font-size: var(--be-font-size, 16px);
+    font-size: calc(var(--be-font-size, 16px) + 1px);
+    line-height: 1.65;
+    letter-spacing: -0.005em;
     color: var(--be-text, inherit);
+  }
+  @media (min-width: 769px) {
+    .be-editor-toolbar-btn {
+      min-width: 36px !important;
+      min-height: 36px !important;
+      width: 36px !important;
+      height: 36px !important;
+    }
+    .be-editor-toolbar-btn svg {
+      width: 15px !important;
+      height: 15px !important;
+    }
   }
   .be-document-edit {
     padding-left: ${K123_EDITOR_GUTTER_PX}px;
@@ -270,6 +302,8 @@ export const EDITOR_CHROME_STYLES = `
     user-select: text;
     -webkit-user-select: text;
   }
+  .be-content strong { font-weight: 700; }
+  .be-content em { font-style: italic; }
   .be-toggle-wrap {
     margin: 4px 0;
     position: relative;

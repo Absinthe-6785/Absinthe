@@ -328,13 +328,11 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
   }, [blockEditorRef, editorSearchQuery, searchMatchIdx, activeNote?.body, activeNoteId]);
 
   const attachmentIsolationEnabled = isReturnToUseAttachmentIsolationEnabled();
-  const [attachmentIsolationNotice, setAttachmentIsolationNotice] = useState<string | null>(null);
   const handleEditorDropWithAttachmentIsolation = useCallback((event: React.DragEvent<HTMLDivElement>) => {
     const hasImageFile = Array.from(event.dataTransfer.items).some(item => item.kind === 'file' && item.type.startsWith('image/'));
     if (attachmentIsolationEnabled && hasImageFile && !(event.target as HTMLElement).closest('.be-image-block')) {
       event.preventDefault();
       setIsDragOver(false);
-      setAttachmentIsolationNotice(RETURN_TO_USE_ATTACHMENT_ISOLATION_MESSAGE);
       return;
     }
     handleEditorDrop(event);
@@ -795,8 +793,8 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
                     <kbd style={{ background: c.card, border: `1px solid ${c.toolBdr}`, borderRadius: 6, padding: '2px 5px', fontSize: 10, fontFamily: 'monospace', height: METADATA_CHIP_HEIGHT, display: 'inline-flex', alignItems: 'center', boxSizing: 'border-box' }}>⌘B</kbd> {t('editorToolbarBold')} ·
                     <kbd style={{ background: c.card, border: `1px solid ${c.toolBdr}`, borderRadius: 6, padding: '2px 5px', fontSize: 10, fontFamily: 'monospace', height: METADATA_CHIP_HEIGHT, display: 'inline-flex', alignItems: 'center', boxSizing: 'border-box' }}>⌘⇧1</kbd> {t('editorToolbarHeading')}
                   </span>
-                  <button onClick={() => importInputRef.current?.click()} className="be-editor-toolbar-btn" title={t('nvImportMd')} style={{ marginLeft: 'auto' }}>
-                    <Upload size={12}/>
+                  <button type="button" onClick={() => importInputRef.current?.click()} className="be-editor-toolbar-btn" title={t('nvImportMd')} style={{ marginLeft: 'auto' }}>
+                    <Upload size={14}/>
                   </button>
                   <button
                     onClick={insertEmptyImageBlockAtCursor}
@@ -805,7 +803,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
                     disabled={attachmentIsolationEnabled}
                     aria-disabled={attachmentIsolationEnabled}
                   >
-                    <ImageIcon size={12}/>
+                    <ImageIcon size={14}/>
                   </button>
                   {attachmentIsolationEnabled ? (
                     <span data-return-to-use-attachment-isolation style={{ fontSize: 10, color: c.textMuted, lineHeight: 1.35 }}>
@@ -823,7 +821,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
                       className="be-editor-toolbar-btn"
                       title={t('nvAppearance')}
                       style={{ color: showAppearance ? c.accent : undefined }}>
-                      <Type size={12}/>
+                      <Type size={14}/>
                     </button>
                     {showAppearance && (
                       <div style={{
@@ -905,7 +903,6 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
                   if (!imageItem) return;
                   e.preventDefault();
                   if (attachmentIsolationEnabled) {
-                    setAttachmentIsolationNotice(RETURN_TO_USE_ATTACHMENT_ISOLATION_MESSAGE);
                     return;
                   }
                   const file = imageItem.getAsFile();
@@ -913,11 +910,6 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
                   attachImageFilesToActiveNote([file]);
                 }}
                 onDrop={handleEditorDropWithAttachmentIsolation}>
-                {attachmentIsolationNotice ? (
-                  <div data-return-to-use-attachment-isolation style={{ margin: '8px auto', maxWidth: NOTE_DOCUMENT_MAX_WIDTH, color: c.textMuted, fontSize: 10.5, lineHeight: 1.45 }}>
-                    {attachmentIsolationNotice}
-                  </div>
-                ) : null}
                 {isDragOver && (
                   <div className="editor-drop-overlay">
                     <ImageIcon size={22}/> 이미지를 놓아 삽입
