@@ -154,7 +154,8 @@ describe('drag isolation', () => {
       });
     }
 
-    expect(document.querySelector('.be-drop-line')).toBeTruthy();
+    expect(document.querySelector('.be-drop-highlight')).toBeTruthy();
+    expect(document.querySelector('.be-drop-line')).toBeFalsy();
     expect(singleBlockRenderCount).toBe(rendersAfterMount);
     expect(document.querySelector('.be-block.be-dragging')).toBeTruthy();
   });

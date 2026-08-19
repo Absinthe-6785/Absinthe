@@ -6,9 +6,9 @@ import React, { useLayoutEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { findBlockById, type Block } from '../../../blockUtils';
 import { isToggleBlockType } from '../../../toggleBlockTypes';
-import { DropInsertIndicator } from '../../../editorDragDrop';
 import type { BlockEditorColors } from '../../../editorTypes';
 import {
+  resolveDropHighlightGeometry,
   resolveOverlayFrame,
   type OverlayFrame,
   type RowMetricsOptions,
@@ -46,34 +46,41 @@ function InsideIndicator({ frame, accent }: { frame: OverlayFrame; accent: strin
   );
 }
 
-function LineIndicator({
+function DropHighlight({
+  overId,
   frame,
   position,
   accent,
   indicatorY,
 }: {
+  overId: string;
   frame: OverlayFrame;
   position: 'before' | 'after';
   accent: string;
   indicatorY?: number | null;
 }) {
-  const y = typeof indicatorY === 'number'
-    ? indicatorY - 1
-    : position === 'before' ? frame.top - 1 : frame.top + frame.height - 1;
+  const geometry = resolveDropHighlightGeometry(frame, position, indicatorY);
   return (
     <div
+      className={`be-drop-highlight be-drop-highlight-${position}`}
+      data-drop-highlight="true"
+      data-drop-highlight-position={position}
+      data-drop-target-id={overId}
       style={{
         position: 'fixed',
-        top: y,
-        left: frame.left + frame.indentLeft,
-        width: Math.max(0, frame.width - frame.indentLeft),
-        height: 0,
+        top: geometry.top,
+        left: geometry.left,
+        width: geometry.width,
+        height: geometry.height,
+        borderRadius: 6,
+        background: `${accent}14`,
+        boxShadow: `0 0 0 1px ${accent}20`,
+        transition: 'top 120ms ease, left 120ms ease, width 120ms ease, opacity 120ms ease',
+        opacity: 0.92,
         zIndex: 10000,
         pointerEvents: 'none',
       }}
-    >
-      <DropInsertIndicator position={position} indentLeft={0} accent={accent} />
-    </div>
+    />
   );
 }
 
@@ -156,11 +163,11 @@ export function DragOverlay({
       {showDrop && dragState.overPos === 'inside' && overBlock != null && isToggleBlockType(overBlock.type) && (
         <InsideIndicator frame={dropFrame} accent={accent} />
       )}
-      {showDrop && dragState.overPos === 'before' && (
-        <LineIndicator frame={dropFrame} position="before" accent={accent} indicatorY={dragState.indicatorY} />
+      {showDrop && dragState.overPos === 'before' && dragState.overId && (
+        <DropHighlight overId={dragState.overId} frame={dropFrame} position="before" accent={accent} indicatorY={dragState.indicatorY} />
       )}
-      {showDrop && dragState.overPos === 'after' && (
-        <LineIndicator frame={dropFrame} position="after" accent={accent} indicatorY={dragState.indicatorY} />
+      {showDrop && dragState.overPos === 'after' && dragState.overId && (
+        <DropHighlight overId={dragState.overId} frame={dropFrame} position="after" accent={accent} indicatorY={dragState.indicatorY} />
       )}
     </>,
     host,
