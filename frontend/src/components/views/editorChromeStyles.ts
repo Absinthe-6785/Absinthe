@@ -55,20 +55,6 @@ export const EDITOR_CHROME_STYLES = `
     transition: opacity .12s ease-out;
     touch-action: none;
   }
-  .be-block-marker {
-    position: absolute;
-    left: 7px;
-    top: 8px;
-    bottom: 8px;
-    width: 3px;
-    border-radius: 3px;
-    background: var(--be-text-muted, #71717A);
-    opacity: 0.68;
-    transform: scaleX(1);
-    transition: opacity .12s ease-out, background .12s ease-out, transform .12s ease-out;
-    pointer-events: none;
-    z-index: 2;
-  }
   .be-editor-nested .be-gutter {
     flex-basis: 44px;
     width: 44px;
@@ -93,16 +79,6 @@ export const EDITOR_CHROME_STYLES = `
   .be-editor-root.be-gutter-dragging .be-gutter {
     opacity: 1;
   }
-  .be-block:hover > .be-gutter > .be-block-marker,
-  .be-block.be-block-active > .be-gutter > .be-block-marker,
-  .be-block.be-controls-visible > .be-gutter > .be-block-marker,
-  .be-block.be-block-selected > .be-gutter > .be-block-marker,
-  .be-block.be-dragging > .be-gutter > .be-block-marker,
-  .be-editor-root.be-gutter-dragging .be-block-marker {
-    background: var(--be-accent, #8B5CF6);
-    opacity: 1;
-    transform: scaleX(1.2);
-  }
   .be-editor-root.be-gutter-dragging {
     user-select: none;
     cursor: default;
@@ -113,10 +89,10 @@ export const EDITOR_CHROME_STYLES = `
     position: relative;
   }
   .be-handles {
-    opacity: 0.58;
-    visibility: visible;
-    pointer-events: auto;
-    transition: opacity .12s, visibility .12s;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity .15s ease, visibility 0s linear .15s;
     z-index: 3;
   }
   .be-block:hover > .be-gutter > .be-handles,
@@ -128,6 +104,7 @@ export const EDITOR_CHROME_STYLES = `
     opacity: 1 !important;
     visibility: visible !important;
     pointer-events: auto !important;
+    transition-delay: 0s;
   }
   .be-handle-btn {
     position: relative;
@@ -187,6 +164,9 @@ export const EDITOR_CHROME_STYLES = `
   .be-handle-btn:hover,
   .be-controls-visible .be-handle-btn {
     color: var(--be-accent, #8B5CF6);
+  }
+  .be-handle-btn:hover {
+    background: var(--be-accent-bg, rgba(139,92,246,0.1));
   }
   .be-handle-btn:hover .be-grip-dot { opacity: 1; }
   .be-selection-toolbar button {

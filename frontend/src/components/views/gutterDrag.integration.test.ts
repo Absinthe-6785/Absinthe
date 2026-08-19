@@ -130,23 +130,36 @@ describe('gutter drag integration', () => {
     expect(getComputedStyle(strip.closest('.be-gutter')!).pointerEvents).toBe('auto');
   });
 
-  it('renders the normal editor block gutter and six-dot handle at rest', () => {
+  it('keeps the document clean at rest and reveals only the hovered block handle', () => {
     mountEditor(blocks);
     const block = document.querySelector('[data-drag-id="blk-b"]') as HTMLElement | null;
     const innerRoot = document.querySelector('.be-editor-root.be-blocks-root') as HTMLElement | null;
     const gutter = block?.querySelector(':scope > .be-gutter') as HTMLElement | null;
     const handles = gutter?.querySelector(':scope > .be-handles') as HTMLElement | null;
+    const otherHandles = document.querySelector('[data-drag-id="blk-c"] .be-handles') as HTMLElement | null;
 
     expect(block).not.toBeNull();
     expect(innerRoot).not.toBeNull();
     expect(innerRoot?.classList.contains('be-document-edit')).toBe(false);
     expect(innerRoot?.classList.contains('be-blocks-root')).toBe(true);
     expect(getComputedStyle(innerRoot!).overflowX).toBe('visible');
+    expect(document.querySelectorAll('.be-block-marker')).toHaveLength(0);
     expect(gutter).not.toBeNull();
     expect(handles).not.toBeNull();
     expect(handles?.querySelectorAll('.be-grip-dot')).toHaveLength(6);
+    expect(getComputedStyle(handles!).opacity).toBe('0');
+    expect(getComputedStyle(handles!).visibility).toBe('hidden');
+    expect(getComputedStyle(handles!).pointerEvents).toBe('none');
+
+    act(() => {
+      block?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, relatedTarget: document.body }));
+    });
+    expect(block?.classList.contains('be-controls-visible')).toBe(true);
     expect(getComputedStyle(handles!).visibility).toBe('visible');
     expect(getComputedStyle(handles!).pointerEvents).toBe('auto');
+    expect(getComputedStyle(otherHandles!).opacity).toBe('0');
+    expect(getComputedStyle(otherHandles!).visibility).toBe('hidden');
+    expect(getComputedStyle(otherHandles!).pointerEvents).toBe('none');
   });
 
   it('pointerdown on gutter strip selects anchor block', () => {
@@ -154,6 +167,23 @@ describe('gutter drag integration', () => {
     firePointer(stripFor('blk-b'), 'pointerdown', ROW_H * 1 + 10);
     expect(selectedIds()).toEqual(['blk-b']);
     expect(document.querySelector('.be-editor-root.be-gutter-dragging')).toBeTruthy();
+  });
+
+  it('keeps the existing block context menu on right-click', () => {
+    mountEditor(blocks);
+    const block = document.querySelector('[data-drag-id="blk-b"]') as HTMLElement;
+    act(() => {
+      block.dispatchEvent(new MouseEvent('contextmenu', {
+        bubbles: true,
+        cancelable: true,
+        clientX: 120,
+        clientY: ROW_H + 10,
+      }));
+    });
+    const menu = document.querySelector('[data-k120-editor-context-menu]');
+    expect(menu).not.toBeNull();
+    expect(menu?.classList.contains('be-block-handle-menu')).toBe(true);
+    expect(menu?.querySelectorAll('button').length).toBeGreaterThan(10);
   });
 
   it('pointermove B→D selects B,C,D with visual be-block-selected', () => {
