@@ -953,6 +953,8 @@ const translations = {
   nvTogglePanel:            { en: 'Toggle panel', ko: '패널 토글', ja: 'パネル切替' },
   nvMoreActions:            { en: 'More actions', ko: '더보기', ja: 'その他' },
   nvExportMd:               { en: 'Export as .md', ko: '.md로 내보내기', ja: '.mdとしてエクスポート' },
+  nvSyncIssue:              { en: 'Sync issue', ko: '동기화 문제', ja: '同期の問題' },
+  nvSyncIssueRetry:         { en: 'Sync issue. Retry sync', ko: '동기화 문제. 클라우드 동기화 재시도', ja: '同期の問題。同期を再試行' },
   nvRetrySync:              { en: 'Retry cloud sync', ko: '클라우드 동기화 재시도', ja: 'クラウド同期を再試行' },
   nvReadingMode:            { en: 'Reading mode (Ctrl+E)', ko: '읽기 모드 (Ctrl+E)', ja: '閲覧モード (Ctrl+E)' },
   nvGraphMode:              { en: 'Cosmos (Ctrl+G)', ko: '코스모스 (Ctrl+G)', ja: 'コスモス (Ctrl+G)' },

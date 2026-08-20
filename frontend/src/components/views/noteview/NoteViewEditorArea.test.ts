@@ -3,6 +3,7 @@ import { act, createElement, createRef } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { NoteViewEditorArea } from './NoteViewEditorArea';
+import { getTranslator } from '../../../lib/i18n';
 
 vi.mock('./NoteEditorHeaderActions', () => ({ NoteEditorHeaderActions: () => null }));
 vi.mock('./NoteBreadcrumbBar', () => ({ NoteBreadcrumbBar: () => null }));
@@ -34,6 +35,7 @@ function makeProps(
   onBodyChange: ReturnType<typeof vi.fn>,
   attachImageFilesToActiveNote: ReturnType<typeof vi.fn>,
   body = 'hello',
+  options: { syncError?: string | null; isSyncing?: boolean; retrySync?: ReturnType<typeof vi.fn> } = {},
 ) {
   const activeNote = { ...note, body } as never;
   const layout = {
@@ -43,7 +45,7 @@ function makeProps(
   } as never;
   const data = {
     c: colors, activeNote, activeNoteId: 'note-1', notes: [activeNote], folders: [], titleDraft: 'Note',
-    activeNoteKind: null, noteTags: [], syncError: null, isSyncing: false, savedAt: null, viewModes: [],
+    activeNoteKind: null, noteTags: [], syncError: options.syncError ?? null, isSyncing: options.isSyncing ?? false, savedAt: null, viewModes: [],
     noteAreaProperty: undefined, noteLinkedProjectTitle: '', noteLinkedProjectId: null,
     noteLearningPathLabel: null, noteContextReviewEntry: null, noteConnectionCount: 0,
     noteCosmosTier: 'core', activeTag: null, searchQuery: '', searchScope: 'document', searchMatchIdx: 0,
@@ -58,7 +60,7 @@ function makeProps(
     blockEditorRef: createRef(), editorScrollRef: createRef<HTMLDivElement>(), virtualScrollApiRef: createRef(),
     searchInputRef: createRef<HTMLInputElement>(), importInputRef: createRef<HTMLInputElement>(),
     setMobileShowEditor: noop, setActiveNoteId: noop, handleExitFocusPreset: noop, handleTitleChange: noop,
-    handleTitleCompositionEnd: noop, noteUpdate: noop, retrySync: noop, setViewMode: noop,
+    handleTitleCompositionEnd: noop, noteUpdate: noop, retrySync: options.retrySync ?? noop, setViewMode: noop,
     openEditEventDialog: noop, openMilestoneDialog: noop, handleToggleAreaNote: noop, toggleStar: noop,
     duplicateNote: noop, setShowRightPanel: noop, handleCopyDocument: noop, exportNote: noop,
     restoreNote: noop, moveNoteToTrash: noop, onPermanentDelete: noop, setActiveFolderId: noop,
@@ -107,6 +109,44 @@ function fireKey(target: EventTarget, key: string, options: KeyboardEventInit = 
 afterEach(() => vi.unstubAllEnvs());
 
 describe('NoteViewEditorArea Return-to-Use attachment isolation', () => {
+  it('presents sync errors as a compact generic retry control', () => {
+    const retrySync = vi.fn();
+    const rawDiagnostic = `notes_bootstrap_missing_remote_${'x'.repeat(180)}`;
+    const mounted = renderEditor(makeProps(vi.fn(), vi.fn(), 'hello', { syncError: rawDiagnostic, retrySync }));
+    const control = mounted.host.querySelector('[data-note-sync-error-control]');
+
+    expect(control).toBeInstanceOf(HTMLButtonElement);
+    expect(control?.textContent).toContain('동기화 문제');
+    expect(control?.textContent).not.toContain(rawDiagnostic);
+    expect(control?.getAttribute('aria-label')).toBe('동기화 문제. 클라우드 동기화 재시도');
+    expect(control?.getAttribute('style')).toContain('max-width');
+    expect(control?.getAttribute('style')).toContain('overflow: hidden');
+
+    act(() => (control as HTMLButtonElement).click());
+    expect(retrySync).toHaveBeenCalledTimes(1);
+    cleanup(mounted.root, mounted.host);
+  });
+
+  it('keeps syncing and idle states separate from the error control', () => {
+    const syncing = renderEditor(makeProps(vi.fn(), vi.fn(), 'hello', { isSyncing: true }));
+    expect(syncing.host.textContent).toContain('동기화 중…');
+    expect(syncing.host.querySelector('[data-note-sync-error-control]')).toBeNull();
+    cleanup(syncing.root, syncing.host);
+
+    const idle = renderEditor(makeProps(vi.fn(), vi.fn()));
+    expect(idle.host.textContent).not.toContain('동기화 중…');
+    expect(idle.host.querySelector('[data-note-sync-error-control]')).toBeNull();
+    cleanup(idle.root, idle.host);
+  });
+
+  it('provides sync issue labels in every supported locale', () => {
+    for (const lang of ['en', 'ko', 'ja'] as const) {
+      const t = getTranslator(lang);
+      expect(t('nvSyncIssue')).not.toBe('nvSyncIssue');
+      expect(t('nvSyncIssueRetry')).not.toBe('nvSyncIssueRetry');
+    }
+  });
+
   it('blocks image paste while preserving ordinary text editing and text paste', () => {
     vi.stubEnv('VITE_ABSINTHE_RETURN_TO_USE_ATTACHMENT_ISOLATION', 'true');
     const onBodyChange = vi.fn();
