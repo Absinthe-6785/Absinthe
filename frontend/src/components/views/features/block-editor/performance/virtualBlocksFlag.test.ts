@@ -7,8 +7,8 @@ import {
 
 describe('virtualBlocksFlag', () => {
   beforeEach(() => {
-    vi.stubEnv('VITE_DISABLE_VIRTUAL_BLOCKS', '');
-    vi.stubEnv('VITE_VIRTUAL_BLOCKS_POC', '');
+    vi.stubEnv('VITE_DISABLE_VIRTUAL_BLOCKS', undefined);
+    vi.stubEnv('VITE_VIRTUAL_BLOCKS_POC', undefined);
   });
 
   afterEach(() => {
