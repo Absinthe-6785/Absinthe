@@ -158,7 +158,7 @@ describe('K-296 Supabase usage quota traffic risk source facts audit', () => {
     expect(statics).toContain('revalidateOnFocus: false');
 
     expect(notesSync).toContain('updated_after=');
-    expect(notesSync).toContain('NOTES_LAST_SYNC_KEY');
+    expect(notesSync).not.toContain('NOTES_LAST_SYNC_KEY');
     expect(notesSync).toContain('fetchCompleteNotesFoldersSnapshot');
     expect(notesSync).not.toContain('fetchNotesFromCloud');
     expect(notesSync).not.toContain('fetchFoldersFromCloud');

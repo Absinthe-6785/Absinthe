@@ -1,5 +1,5 @@
 /**
- * K-114 — Account-scoped complete snapshot bootstrap and local durable sync metadata.
+ * K-114 — Account-scoped complete snapshot bootstrap and note-local sync status.
  */
 import { API_URL } from './config';
 import { authReadFetch } from './supabase';
@@ -12,8 +12,7 @@ export {
   type NotesRuntimeSyncMode,
 } from './syncMode';
 
-export const NOTES_LAST_SYNC_KEY = 'absinthe-notes-last-sync-at';
-export type NotesSyncStatus = 'clean' | 'dirty' | 'deleted' | 'conflict';
+export type NotesSyncStatus = 'dirty' | 'deleted';
 
 export interface DbNoteRow {
   id: string;
@@ -162,17 +161,6 @@ export async function fetchCompleteNotesFoldersSnapshot(accountId: string): Prom
   return { notes: notes as DbNoteRow[], folders: folders as FoldersFetchRows };
 }
 
-export function readLastNotesSyncAt(): number | null {
-  try {
-    const raw = localStorage.getItem(NOTES_LAST_SYNC_KEY);
-    if (!raw) return null;
-    const n = Number(raw);
-    return Number.isFinite(n) && n > 0 ? n : null;
-  } catch {
-    return null;
-  }
-}
-
 export function mapDbFolder(row: { id: string; name: string; created_at: number }): NoteFolder {
   return { id: row.id, name: row.name, createdAt: row.created_at };
 }
@@ -183,11 +171,7 @@ export function noteRevisionTime(note: { updatedAt: number; deletedAt: number | 
 
 export function getNoteSyncStatus(
   note: { updatedAt: number; deletedAt: number | null },
-  lastSyncAt: number | null = readLastNotesSyncAt(),
 ): NotesSyncStatus {
-  const cursor = lastSyncAt ?? 0;
-  const revision = noteRevisionTime(note);
-  if (revision <= cursor) return 'clean';
   if (note.deletedAt != null && note.deletedAt >= note.updatedAt) return 'deleted';
   return 'dirty';
 }

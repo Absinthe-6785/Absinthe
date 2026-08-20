@@ -95,7 +95,6 @@ import { invalidateNoteGalaxyMapCache } from '../components/views/features/knowl
 import {
   fetchCompleteNotesFoldersSnapshot,
   mapDbFolder,
-  getNoteSyncStatus,
   isNotesCloudSyncEnabled,
   noteRevisionTime,
 } from '../lib/notesSyncClient';
@@ -786,12 +785,6 @@ export const useNotesStore = create<NotesState>((set, get) => {
     const operationEpoch = captureOperationEpoch();
     if (!isNotesCloudSyncEnabled()) {
       lastFailedNote = null;
-      if (!lastFailedDeleteId) set({ syncError: null, savedAt: new Date() });
-      else set({ savedAt: new Date() });
-      return true;
-    }
-    const syncStatus = getNoteSyncStatus(note);
-    if (syncStatus === 'clean') {
       if (!lastFailedDeleteId) set({ syncError: null, savedAt: new Date() });
       else set({ savedAt: new Date() });
       return true;
