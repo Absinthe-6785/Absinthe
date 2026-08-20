@@ -41,9 +41,6 @@ describe('rowMetrics', () => {
     expect(before).toEqual({ overId: 'a', overPos: 'before' });
     expect(middle).toEqual({ overId: 'a', overPos: 'after' });
     expect(after).toEqual({ overId: 'b', overPos: 'after' });
-    expect(before?.indicatorY).toBe(0);
-    expect(middle?.indicatorY).toBe(40);
-    expect(after?.indicatorY).toBe(80);
   });
 
   it('resolves inside for collapsed toggle rows', () => {
@@ -67,9 +64,6 @@ describe('rowMetrics', () => {
     expect(upperGap).toEqual({ overId: 'a', overPos: 'after' });
     expect(boundary).toEqual({ overId: 'b', overPos: 'before' });
     expect(lowerGap).toEqual({ overId: 'b', overPos: 'before' });
-    expect(upperGap?.indicatorY).toBe(70);
-    expect(boundary?.indicatorY).toBe(70);
-    expect(lowerGap?.indicatorY).toBe(70);
   });
 
   it('keeps unequal and multiline sibling zones sorted and contiguous', () => {
@@ -93,7 +87,6 @@ describe('rowMetrics', () => {
       'list:before',
       'list:before',
     ]);
-    expect(hits.map(hit => hit?.indicatorY)).toEqual([55, 55, 55, 250, 250]);
   });
 
   it('maps a one-pixel move across a slot boundary to one adjacent destination', () => {
@@ -106,11 +99,9 @@ describe('rowMetrics', () => {
     const after = resolveDropTargetFromRows(70, rows, []);
     expect(before).toEqual({ overId: 'a', overPos: 'after' });
     expect(after).toEqual({ overId: 'b', overPos: 'before' });
-    expect(before?.indicatorY).toBe(70);
-    expect(after?.indicatorY).toBe(70);
   });
 
-  it('uses the resolved slot indicator for the same commit destination', () => {
+  it('uses the resolved slot destination for the same commit result', () => {
     const rows: BlockRowHit[] = [
       { blockId: 'a', top: 0, bottom: 40 },
       { blockId: 'b', top: 120, bottom: 160 },
@@ -120,7 +111,6 @@ describe('rowMetrics', () => {
     const source = makeBlock('paragraph', { id: 'source', content: 'source' });
     const a = makeBlock('paragraph', { id: 'a', content: 'A' });
     const b = makeBlock('paragraph', { id: 'b', content: 'B' });
-    expect(hit?.indicatorY).toBe(80);
     // The existing commit API consumes the same canonical overId/overPos pair.
     expect(commitDragDrop([source, a, b], ['source'], hit!.overId, hit!.overPos)?.map(block => block.id))
       .toEqual(['a', 'source', 'b']);
@@ -151,8 +141,6 @@ describe('rowMetrics', () => {
     const afterBoundary = resolveDropTargetFromRows(110, rows, []);
     expect(beforeBoundary).toEqual({ overId: 'a', overPos: 'after' });
     expect(afterBoundary).toEqual({ overId: 'b', overPos: 'before' });
-    expect(beforeBoundary?.indicatorY).toBe(110);
-    expect(afterBoundary?.indicatorY).toBe(110);
   });
 
   it('keeps multiline text, heading, and list blocks atomic at sibling boundaries', () => {
@@ -175,15 +163,6 @@ describe('rowMetrics', () => {
     expect(headingInterior).toEqual({ overId: 'heading', overPos: 'after' });
     expect(listInterior).toEqual({ overId: 'list', overPos: 'after' });
     expect(paragraphInterior).toEqual({ overId: 'paragraph', overPos: 'before' });
-    expect(headingInterior?.indicatorY).toBe(104);
-    expect(listInterior?.indicatorY).toBe(288);
-    expect(paragraphInterior?.indicatorY).toBe(288);
-    expect([headingInterior?.indicatorY, listInterior?.indicatorY, paragraphInterior?.indicatorY])
-      .not.toContain(42);
-    expect([headingInterior?.indicatorY, listInterior?.indicatorY, paragraphInterior?.indicatorY])
-      .not.toContain(200);
-    expect([headingInterior?.indicatorY, listInterior?.indicatorY, paragraphInterior?.indicatorY])
-      .not.toContain(320);
   });
 
   it('keeps moved multiline heights attached to ids and siblings non-overlapping', () => {

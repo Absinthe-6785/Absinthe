@@ -63,7 +63,7 @@ describe('resolveDragOverFromPoint outer-block geometry', () => {
     ['large visual gap', 'paragraph', 200, 280, 208],
     ['consecutive multiline blocks', 'paragraph', 64, 176, 72],
     ['scrolled editor', 'paragraph', -96, -4, -88],
-  ])('%s uses an outer sibling boundary for indicator and commit', (
+  ])('%s uses an outer sibling boundary for target and commit', (
     _name,
     targetType,
     targetTop,
@@ -108,20 +108,6 @@ describe('resolveDragOverFromPoint outer-block geometry', () => {
     expect(hit).not.toBeNull();
     expect(hit!.overId).toBe('b');
     expect(hit!.overPos).toBe('before');
-    const siblingRects = rects.filter(rect => rect.id !== 'source').sort((a, b) => a.top - b.top);
-    const targetIndex = siblingRects.findIndex(rect => rect.id === 'b');
-    const expectedY = targetIndex === 0
-      ? siblingRects[0]!.top
-      : (siblingRects[targetIndex - 1]!.bottom + siblingRects[targetIndex]!.top) / 2;
-    expect(hit!.indicatorY).toBe(expectedY);
-    for (const rect of siblingRects) {
-      expect(hit!.indicatorY! <= rect.top || hit!.indicatorY! >= rect.bottom).toBe(true);
-    }
-    if (targetIndex > 0) {
-      expect(hit!.indicatorY! >= siblingRects[targetIndex - 1]!.bottom).toBe(true);
-    }
-    expect(hit!.indicatorY! <= siblingRects[targetIndex]!.top).toBe(true);
-
     const source = makeBlock('paragraph', { id: 'source', content: 'source' });
     const a = makeBlock('paragraph', { id: 'a', content: 'A' });
     const b = makeBlock(targetType as Block['type'], { id: 'b', content: 'B' });

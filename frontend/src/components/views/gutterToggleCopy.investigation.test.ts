@@ -17,32 +17,8 @@ import {
 } from './features/block-editor/features/clipboard';
 import { EDITOR_CHROME_STYLES } from './editorChromeStyles';
 import { setSelectionOffsets } from './editableDom';
-import { markdownToBlocks, type Block } from './blockUtils';
-
-const EJU_NOTE_MD = `# EJU Study Timeline
-
-> Grammar Module
-  ## Particles
-  - は vs が
-  - を particle usage
-    - nested bullet
-  1. Drill set A
-  2. Drill set B
-  > Vocab nest
-    ### Core kanji
-    - 読む
-    - 書く
-
-> Reading Module
-  ## Comprehension
-  - Main idea questions
-  - Detail matching
-  1. Practice passage 1
-  2. Practice passage 2
-
-## Global review checklist
-- Redo wrong answers
-- Time yourself`;
+import { type Block } from './blockUtils';
+import { makeEjuBlocks } from '@/test/fixtures/ejuClipboardFixtures';
 
 const ROW_H = 48;
 
@@ -267,9 +243,7 @@ function dumpTrace(t: GutterCopyTrace): void {
 }
 
 describe('gutter-selected toggle → Ctrl+C (exact QA reproduction)', () => {
-  const ejuBlocks = markdownToBlocks(EJU_NOTE_MD).filter(
-    b => b.type !== 'paragraph' || b.content.trim() !== '',
-  );
+  const ejuBlocks = makeEjuBlocks();
   const grammarToggle = ejuBlocks.find(b => b.type === 'toggle' && b.content === 'Grammar Module')!;
   const childIds = grammarToggle.children.map(c => c.id);
 

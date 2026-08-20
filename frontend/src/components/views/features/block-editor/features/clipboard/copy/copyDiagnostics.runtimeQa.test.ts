@@ -7,31 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { classifyClipboardHtml, installCopyDiagnostics } from './copyDiagnostics';
 import { installEditorCopyListener } from './copyListener';
 import { markdownToBlocks } from '../../../../../blockUtils';
-
-const EJU_NOTE_MD = `# EJU Study Timeline
-
-> Grammar Module
-  ## Particles
-  - は vs が
-  - を particle usage
-    - nested bullet
-  1. Drill set A
-  2. Drill set B
-  > Vocab nest
-    ### Core kanji
-    - 読む
-    - 書く
-
-> Reading Module
-  ## Comprehension
-  - Main idea questions
-  - Detail matching
-  1. Practice passage 1
-  2. Practice passage 2
-
-## Global review checklist
-- Redo wrong answers
-- Time yourself`;
+import { makeEjuBlocks } from '@/test/fixtures/ejuClipboardFixtures';
 
 /** DOM HTML Chromium produces when copying from .be-toggle-wrap (non-semantic). */
 const EJU_DOM_CLIPBOARD_HTML = `<meta charset='utf-8'>
@@ -247,9 +223,7 @@ function runRuntimeCopy(opts: {
 }
 
 describe('runtime QA — EJU failing reproduction gestures', () => {
-  const ejuBlocks = markdownToBlocks(EJU_NOTE_MD).filter(
-    b => b.type !== 'paragraph' || b.content.trim() !== '',
-  );
+  const ejuBlocks = makeEjuBlocks();
   const grammarToggle = ejuBlocks.find(b => b.type === 'toggle' && b.content === 'Grammar Module')!;
   const bulletBlock = grammarToggle.children.find(b => b.type === 'bullet' && b.content === 'は vs が')!;
 

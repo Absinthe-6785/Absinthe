@@ -8,31 +8,7 @@ import { assertTreesEqual } from './blockCopy.test';
 import { classifyClipboardHtml } from './copyDiagnostics';
 import { makeBlock, markdownToBlocks } from '../../../../../blockUtils';
 import { clipboardToBlocks } from '../paste/pasteOrchestrator';
-
-const EJU_NOTE_MD = `# EJU Study Timeline
-
-> Grammar Module
-  ## Particles
-  - は vs が
-  - を particle usage
-    - nested bullet
-  1. Drill set A
-  2. Drill set B
-  > Vocab nest
-    ### Core kanji
-    - 読む
-    - 書く
-
-> Reading Module
-  ## Comprehension
-  - Main idea questions
-  - Detail matching
-  1. Practice passage 1
-  2. Practice passage 2
-
-## Global review checklist
-- Redo wrong answers
-- Time yourself`;
+import { makeEjuBlocks } from '@/test/fixtures/ejuClipboardFixtures';
 
 function mockCopyEvent() {
   const data: Record<string, string> = {};
@@ -209,9 +185,7 @@ describe('reading-mode semantic copy (UX-3A.2)', () => {
   });
 
   it('EJU fixture — reading-mode copy matches edit-mode semantic round-trip', () => {
-    const ejuBlocks = markdownToBlocks(EJU_NOTE_MD).filter(
-      b => b.type !== 'paragraph' || b.content.trim() !== '',
-    );
+    const ejuBlocks = makeEjuBlocks();
     const grammarToggle = ejuBlocks.find(b => b.type === 'toggle' && b.content === 'Grammar Module')!;
 
     mountToggleWrap(grammarToggle, [
@@ -230,9 +204,7 @@ describe('reading-mode semantic copy (UX-3A.2)', () => {
   });
 
   it('EJU checklist tail — multi-block reading selection preserves block tree', () => {
-    const ejuBlocks = markdownToBlocks(EJU_NOTE_MD).filter(
-      b => b.type !== 'paragraph' || b.content.trim() !== '',
-    );
+    const ejuBlocks = makeEjuBlocks();
     const tail = ejuBlocks.slice(-3);
 
     const heading = mountReadingText(tail[0].id, tail[0].type, tail[0].content, 'h2');

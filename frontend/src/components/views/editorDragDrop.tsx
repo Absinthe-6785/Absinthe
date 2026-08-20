@@ -53,7 +53,6 @@ export interface DragState {
   draggingIds: string[];
   overId: string | null;
   overPos: 'before' | 'after' | 'inside' | null;
-  indicatorY?: number | null;
 }
 
 export interface UseDragDropResult {
@@ -68,7 +67,7 @@ export type DragOverResolver = (
   clientX: number,
   clientY: number,
   draggingIds: string[],
-) => { overId: string; overPos: 'before' | 'after' | 'inside'; indicatorY?: number } | null;
+) => { overId: string; overPos: 'before' | 'after' | 'inside' } | null;
 
 export interface UseDragDropOptions {
   getSelectedIds?: () => string[];
@@ -99,7 +98,7 @@ export function resolveDragOverFromPoint(
   clientX: number,
   clientY: number,
   draggingIds: string[],
-): { overId: string; overPos: 'before' | 'after' | 'inside'; indicatorY?: number } | null {
+): { overId: string; overPos: 'before' | 'after' | 'inside' } | null {
   const els = document.elementsFromPoint(clientX, clientY);
   const blockEl = els.find(
     el => el.classList.contains('be-block') &&
@@ -118,8 +117,8 @@ export function resolveDragOverFromPoint(
 
     // A sibling slot is defined by the outer draggable wrappers, never by
     // text-line or inline-span geometry. Reuse the mounted-row resolver when
-    // the pointer and source are in the same editor root; it returns the exact
-    // canonical slot (and boundary Y) that the commit path consumes.
+    // the pointer and source are in the same editor root so target resolution
+    // and the commit path share one canonical destination.
     const sourceRoot = draggingIds[0]
       ? document.querySelector(`[data-drag-id="${draggingIds[0]}"]`)
         ?.closest('.be-editor-root.be-blocks-root')
@@ -133,7 +132,6 @@ export function resolveDragOverFromPoint(
     return createDropTargetHit(
       overId,
       overPos,
-      overPos === 'before' ? rect.top : overPos === 'after' ? rect.bottom : undefined,
     );
   }
 
@@ -257,13 +255,11 @@ export function useDragDrop(
     const updateOver = (
       overId: string | null,
       overPos: DragState['overPos'],
-      indicatorY?: number,
     ) => {
       const current = getDragStateSnapshot();
       if (!current || current.draggingIds[0] !== primaryId) return;
-      if (isDragOverUnchanged(current, overId, overPos)
-        && (indicatorY === undefined || current.indicatorY === indicatorY)) return;
-      updateDragStateOver(overId, overPos, indicatorY);
+      if (isDragOverUnchanged(current, overId, overPos)) return;
+      updateDragStateOver(overId, overPos);
       syncDragDom(getDragStateSnapshot(), () => getEditorRootRef.current?.() ?? null);
     };
 
@@ -274,7 +270,7 @@ export function useDragDrop(
       } catch {
         // happy-dom / unsupported capture — window listeners still apply
       }
-      publishDragState({ draggingIds, overId: null, overPos: null, indicatorY: null });
+      publishDragState({ draggingIds, overId: null, overPos: null });
     };
 
     const cleanup = (shouldCommit: boolean) => {
@@ -328,7 +324,7 @@ export function useDragDrop(
       const resolve = resolveDragOverRef.current ?? resolveDragOverFromPoint;
       const hit = resolve(ev.clientX, ev.clientY, draggingIds);
       if (hit) {
-        updateOver(hit.overId, hit.overPos, hit.indicatorY);
+        updateOver(hit.overId, hit.overPos);
       } else {
         updateOver(null, null);
       }

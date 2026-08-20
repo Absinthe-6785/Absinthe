@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { auditStartupGuards, auditLargeVaultStartup } from './k115StartupAudit';
+import { auditStartupGuards, auditLargeVaultStartup, runK115StartupMatrix } from './k115StartupAudit';
 import { auditSessionStability, estimateSessionRequestCount } from './k115SessionAudit';
 import { auditMobileChecklist, auditMobileTouchTargets, auditMobileDomains } from './k115MobileAudit';
 import { auditDesktopLayout, auditDesktopPanels } from './k115DesktopAudit';
@@ -23,6 +23,9 @@ describe('k115 release candidate audits', () => {
     expect(guards.completeSnapshotBootstrap).toBe(true);
     expect(guards.retiredHydratePaths).toBe(true);
     expect(auditLargeVaultStartup().length).toBeGreaterThan(0);
+    const matrix = runK115StartupMatrix();
+    expect(matrix).toHaveLength(4);
+    expect(matrix.at(-1)?.noteCount).toBe(5000);
   });
 
   it('B — session stability policy', () => {

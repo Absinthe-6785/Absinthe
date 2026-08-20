@@ -6,32 +6,8 @@
 import { describe, expect, it } from 'vitest';
 import { handleEditorCopyEvent } from './blockCopy';
 import { classifyClipboardHtml } from './copyDiagnostics';
-import { makeBlock, markdownToBlocks } from '../../../../../blockUtils';
-
-const EJU_NOTE_MD = `# EJU Study Timeline
-
-> Grammar Module
-  ## Particles
-  - は vs が
-  - を particle usage
-    - nested bullet
-  1. Drill set A
-  2. Drill set B
-  > Vocab nest
-    ### Core kanji
-    - 読む
-    - 書く
-
-> Reading Module
-  ## Comprehension
-  - Main idea questions
-  - Detail matching
-  1. Practice passage 1
-  2. Practice passage 2
-
-## Global review checklist
-- Redo wrong answers
-- Time yourself`;
+import { makeBlock } from '../../../../../blockUtils';
+import { makeEjuBlocks } from '@/test/fixtures/ejuClipboardFixtures';
 
 function mockCopyEvent() {
   const data: Record<string, string> = {};
@@ -51,9 +27,7 @@ function mockCopyEvent() {
 }
 
 describe('copy path investigation', () => {
-  const ejuBlocks = markdownToBlocks(EJU_NOTE_MD).filter(
-    b => b.type !== 'paragraph' || b.content.trim() !== '',
-  );
+  const ejuBlocks = makeEjuBlocks();
   const grammarToggle = ejuBlocks.find(b => b.type === 'toggle' && b.content === 'Grammar Module')!;
 
   it('Q1/Q2: multi-select semantic path writes details HTML and preventDefault', () => {

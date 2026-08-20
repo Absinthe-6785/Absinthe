@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from 'vitest';
-import { makeBlock, markdownToBlocks, type Block } from '../../../../../blockUtils';
+import { makeBlock, type Block } from '../../../../../blockUtils';
 import {
   applySemanticCopy,
   blocksToCopyHtml,
@@ -11,6 +11,7 @@ import {
 import { classifyClipboardPayloadVariant } from './copyClipboardVerification';
 import { classifyClipboardHtml } from './copyDiagnostics';
 import { clipboardToBlocks } from '../paste/pasteOrchestrator';
+import { makeEjuBlocks } from '@/test/fixtures/ejuClipboardFixtures';
 
 type TreeShape = { type: string; content?: string; checked?: boolean; collapsed?: boolean; indent?: number; children?: TreeShape[] };
 
@@ -222,34 +223,7 @@ describe('blockCopy semantic round-trip', () => {
   });
 
   it('full EJU note — tree equality after semantic copy round-trip', () => {
-    const EJU_NOTE_MD = `# EJU Study Timeline
-
-> Grammar Module
-  ## Particles
-  - は vs が
-  - を particle usage
-    - nested bullet
-  1. Drill set A
-  2. Drill set B
-  > Vocab nest
-    ### Core kanji
-    - 読む
-    - 書く
-
-> Reading Module
-  ## Comprehension
-  - Main idea questions
-  - Detail matching
-  1. Practice passage 1
-  2. Practice passage 2
-
-## Global review checklist
-- Redo wrong answers
-- Time yourself`;
-
-    const original = markdownToBlocks(EJU_NOTE_MD).filter(
-      b => b.type !== 'paragraph' || b.content.trim() !== '',
-    );
+    const original = makeEjuBlocks();
     assertTreesEqual(original, roundTrip(original));
   });
 });

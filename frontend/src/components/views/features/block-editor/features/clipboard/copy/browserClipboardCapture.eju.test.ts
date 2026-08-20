@@ -17,16 +17,7 @@ import { installEditorCopyListener } from './copyListener';
 import { BlockEditor } from '../../../../../BlockEditor';
 import { EDITOR_CHROME_STYLES } from '../../../../../editorChromeStyles';
 import { markdownToBlocks } from '../../../../../blockUtils';
-
-const EJU_NOTE_MD = `# EJU Study Timeline
-
-> Grammar Module
-  ## Particles
-  - は vs が
-  - を particle usage
-  > Vocab nest
-    ### Core kanji
-    - 読む`;
+import { EJU_SHORT_NOTE_MARKDOWN, makeEjuBlocks } from '@/test/fixtures/ejuClipboardFixtures';
 
 const ROW_H = 48;
 
@@ -84,9 +75,7 @@ function mockClipboardRead(payloads: Array<{ type: string; data: string }>) {
 }
 
 describe('browser clipboard capture — gutter toggle Ctrl+C', () => {
-  const ejuBlocks = markdownToBlocks(EJU_NOTE_MD).filter(
-    b => b.type !== 'paragraph' || b.content.trim() !== '',
-  );
+  const ejuBlocks = makeEjuBlocks(EJU_SHORT_NOTE_MARKDOWN);
   const grammarToggle = ejuBlocks.find(b => b.type === 'toggle' && b.content === 'Grammar Module')!;
   const expectedHtml = blocksToCopyHtml([grammarToggle]);
 
