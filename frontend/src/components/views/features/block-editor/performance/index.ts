@@ -1,7 +1,4 @@
 export {
-  getVirtualBlocksDisableOverride,
-  getVirtualBlocksPocOverride,
-  isVirtualBlocksEnvOptedOut,
   isVirtualBlocksPocEnabled,
   setVirtualBlocksDisableOverride,
   setVirtualBlocksPocOverride,

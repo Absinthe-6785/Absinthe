@@ -5,8 +5,7 @@
  * 1. BlockEditor `virtualBlocksPoc` prop (tests / explicit override)
  * 2. Test-only overrides (`setVirtualBlocksPocOverride` / `setVirtualBlocksDisableOverride`)
  * 3. `VITE_DISABLE_VIRTUAL_BLOCKS=true` — opt-out
- * 4. `VITE_VIRTUAL_BLOCKS_POC=false` — legacy opt-out
- * 5. Default: **enabled**
+ * 4. Default: **enabled**
  */
 
 /** Test-only force-enable (null = use env/default). */
@@ -18,21 +17,12 @@ export function setVirtualBlocksPocOverride(value: boolean | null): void {
   testOverride = value;
 }
 
-export function getVirtualBlocksPocOverride(): boolean | null {
-  return testOverride;
-}
-
 export function setVirtualBlocksDisableOverride(value: boolean | null): void {
   testDisableOverride = value;
 }
 
-export function getVirtualBlocksDisableOverride(): boolean | null {
-  return testDisableOverride;
-}
-
-export function isVirtualBlocksEnvOptedOut(): boolean {
-  return import.meta.env.VITE_DISABLE_VIRTUAL_BLOCKS === 'true'
-    || import.meta.env.VITE_VIRTUAL_BLOCKS_POC === 'false';
+function isVirtualBlocksEnvOptedOut(): boolean {
+  return import.meta.env.VITE_DISABLE_VIRTUAL_BLOCKS === 'true';
 }
 
 /** Whether root block virtualization is active. */

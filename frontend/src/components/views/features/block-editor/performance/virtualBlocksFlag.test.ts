@@ -1,20 +1,40 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  getVirtualBlocksDisableOverride,
-  getVirtualBlocksPocOverride,
-  isVirtualBlocksEnvOptedOut,
   isVirtualBlocksPocEnabled,
   setVirtualBlocksDisableOverride,
   setVirtualBlocksPocOverride,
 } from './virtualBlocksFlag';
 
 describe('virtualBlocksFlag', () => {
+  beforeEach(() => {
+    vi.stubEnv('VITE_DISABLE_VIRTUAL_BLOCKS', '');
+    vi.stubEnv('VITE_VIRTUAL_BLOCKS_POC', '');
+  });
+
   afterEach(() => {
     setVirtualBlocksPocOverride(null);
     setVirtualBlocksDisableOverride(null);
+    vi.unstubAllEnvs();
   });
 
-  it('defaults to true (production rollout)', () => {
+  it('defaults to true when the canonical rollback env is absent', () => {
+    expect(isVirtualBlocksPocEnabled()).toBe(true);
+  });
+
+  it('canonical rollback env disables root virtualization', () => {
+    vi.stubEnv('VITE_DISABLE_VIRTUAL_BLOCKS', 'true');
+    expect(isVirtualBlocksPocEnabled()).toBe(false);
+  });
+
+  it('malformed or non-matching canonical env values leave virtualization enabled', () => {
+    for (const value of ['false', '1', 'TRUE', 'yes']) {
+      vi.stubEnv('VITE_DISABLE_VIRTUAL_BLOCKS', value);
+      expect(isVirtualBlocksPocEnabled()).toBe(true);
+    }
+  });
+
+  it('legacy VITE_VIRTUAL_BLOCKS_POC no longer controls the result', () => {
+    vi.stubEnv('VITE_VIRTUAL_BLOCKS_POC', 'false');
     expect(isVirtualBlocksPocEnabled()).toBe(true);
   });
 
@@ -26,13 +46,11 @@ describe('virtualBlocksFlag', () => {
   it('test enable override applies when no prop override', () => {
     setVirtualBlocksPocOverride(true);
     expect(isVirtualBlocksPocEnabled()).toBe(true);
-    expect(getVirtualBlocksPocOverride()).toBe(true);
   });
 
   it('test disable override opts out', () => {
     setVirtualBlocksDisableOverride(true);
     expect(isVirtualBlocksPocEnabled()).toBe(false);
-    expect(getVirtualBlocksDisableOverride()).toBe(true);
   });
 
   it('disable override beats enable override', () => {
@@ -41,7 +59,13 @@ describe('virtualBlocksFlag', () => {
     expect(isVirtualBlocksPocEnabled()).toBe(false);
   });
 
-  it('isVirtualBlocksEnvOptedOut reflects env flags', () => {
-    expect(typeof isVirtualBlocksEnvOptedOut()).toBe('boolean');
+  it('null reset restores normal env decision behavior', () => {
+    setVirtualBlocksPocOverride(false);
+    setVirtualBlocksDisableOverride(true);
+    expect(isVirtualBlocksPocEnabled()).toBe(false);
+
+    setVirtualBlocksPocOverride(null);
+    setVirtualBlocksDisableOverride(null);
+    expect(isVirtualBlocksPocEnabled()).toBe(true);
   });
 });
