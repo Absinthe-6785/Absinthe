@@ -12,31 +12,7 @@ import {
 } from './copyClipboardVerification';
 import { installEditorCopyListener } from './copyListener';
 import { blocksToMarkdown, markdownToBlocks } from '../../../../../blockUtils';
-
-const EJU_NOTE_MD = `# EJU Study Timeline
-
-> Grammar Module
-  ## Particles
-  - は vs が
-  - を particle usage
-    - nested bullet
-  1. Drill set A
-  2. Drill set B
-  > Vocab nest
-    ### Core kanji
-    - 読む
-    - 書く
-
-> Reading Module
-  ## Comprehension
-  - Main idea questions
-  - Detail matching
-  1. Practice passage 1
-  2. Practice passage 2
-
-## Global review checklist
-- Redo wrong answers
-- Time yourself`;
+import { makeEjuBlocks } from '@/test/fixtures/ejuClipboardFixtures';
 
 function mountReadingEjuToggle(toggle: ReturnType<typeof markdownToBlocks>[0]) {
   const wrap = document.createElement('div');
@@ -76,9 +52,7 @@ function selectToggleWrap(wrap: HTMLElement): void {
 }
 
 describe('UX-3A.2 live clipboard verification — EJU production copy path', () => {
-  const ejuBlocks = markdownToBlocks(EJU_NOTE_MD).filter(
-    b => b.type !== 'paragraph' || b.content.trim() !== '',
-  );
+  const ejuBlocks = makeEjuBlocks();
   const grammarToggle = ejuBlocks.find(b => b.type === 'toggle' && b.content === 'Grammar Module')!;
 
   beforeEach(() => {

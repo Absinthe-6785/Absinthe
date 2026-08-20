@@ -188,8 +188,6 @@ describe('drag isolation', () => {
     expect(finalTarget.classList.contains('be-drop-target')).toBe(true);
     expect(finalTarget.classList.contains('be-drop-target-before')).toBe(true);
     expect(document.querySelectorAll('.be-drop-target')).toHaveLength(1);
-    expect(document.querySelector('.be-drop-highlight')).toBeFalsy();
-    expect(document.querySelector('.be-drop-line')).toBeFalsy();
     expect(singleBlockRenderCount).toBe(rendersAfterMount);
     expect(document.querySelector('.be-block.be-dragging')).toBeTruthy();
 
@@ -207,7 +205,6 @@ describe('drag isolation', () => {
     });
 
     expect(document.querySelectorAll('.be-drop-target')).toHaveLength(0);
-    expect(document.querySelector('.be-drop-highlight')).toBeFalsy();
-    expect(document.querySelector('.be-drop-line')).toBeFalsy();
+    expect(document.querySelector('.be-block.be-dragging')).toBeFalsy();
   });
 });

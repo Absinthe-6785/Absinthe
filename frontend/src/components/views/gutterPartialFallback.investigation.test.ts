@@ -16,17 +16,8 @@ import {
 import { EDITOR_CHROME_STYLES } from './editorChromeStyles';
 import { readBlockText, setSelectionOffsets } from './editableDom';
 import { getSelectionOffsets } from './features/block-editor/features/selection';
-import { markdownToBlocks, type Block } from './blockUtils';
-
-const EJU_NOTE_MD = `# EJU Study Timeline
-
-> Grammar Module
-  ## Particles
-  - は vs が
-  - を particle usage
-  > Vocab nest
-    ### Core kanji
-    - 読む`;
+import { type Block } from './blockUtils';
+import { makeEjuBlocks, EJU_SHORT_NOTE_MARKDOWN } from '@/test/fixtures/ejuClipboardFixtures';
 
 const ROW_H = 48;
 
@@ -222,9 +213,7 @@ function runCopy(rootBlocks: Block[], selectedIds: Set<string>): CopyOutcome {
 }
 
 describe('single-gutter-partial-fallback exact condition', () => {
-  const ejuBlocks = markdownToBlocks(EJU_NOTE_MD).filter(
-    b => b.type !== 'paragraph' || b.content.trim() !== '',
-  );
+  const ejuBlocks = makeEjuBlocks(EJU_SHORT_NOTE_MARKDOWN);
   const grammarToggle = ejuBlocks.find(b => b.type === 'toggle' && b.content === 'Grammar Module')!;
   const childIds = grammarToggle.children.map(c => c.id);
 

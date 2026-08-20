@@ -23,31 +23,20 @@ export interface RowMetricsOptions {
 export interface DropTargetHit {
   overId: string;
   overPos: 'before' | 'after' | 'inside';
-  /** Exact viewport Y for the insertion indicator when the destination is a slot. */
-  indicatorY?: number;
 }
 
-/** Preserve the existing `{ overId, overPos }` resolver shape while carrying slot geometry. */
+/** Preserve the canonical destination contract used by drag commit. */
 export function createDropTargetHit(
   overId: string,
   overPos: DropTargetHit['overPos'],
-  indicatorY?: number,
 ): DropTargetHit {
-  const hit: DropTargetHit = { overId, overPos };
-  if (typeof indicatorY === 'number') {
-    Object.defineProperty(hit, 'indicatorY', {
-      configurable: true,
-      enumerable: false,
-      value: indicatorY,
-    });
-  }
-  return hit;
+  return { overId, overPos };
 }
 
 /**
  * Resolve the vertical destination from one block's actual geometry.
  * Mounted DOM hit-testing and virtual-row fallback both use this function so
- * the indicator and the eventual commit cannot disagree on before/after.
+ * target resolution and the eventual commit cannot disagree on before/after.
  */
 export function resolveDropPositionFromRect(
   clientY: number,
@@ -242,14 +231,12 @@ export function resolveDropTargetFromRows(
       return createDropTargetHit(
         row.blockId,
         'before',
-        index === 0 ? row.top : boundaries[index - 1],
       );
     }
     if (clientY >= midpoint && clientY < zoneBottom) {
       return createDropTargetHit(
         row.blockId,
         'after',
-        index === eligible.length - 1 ? row.bottom : boundaries[index],
       );
     }
   }
@@ -257,5 +244,5 @@ export function resolveDropTargetFromRows(
   // Defensive fallback for malformed/overlapping measurements: keep the
   // destination deterministic without introducing a dead drop region.
   const last = eligible[eligible.length - 1]!;
-  return createDropTargetHit(last.blockId, 'after', last.bottom);
+  return createDropTargetHit(last.blockId, 'after');
 }

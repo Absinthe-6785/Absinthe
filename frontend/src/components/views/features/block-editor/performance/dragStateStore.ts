@@ -30,11 +30,10 @@ export function setDragStateStore(next: DragState | null): void {
 export function updateDragStateOver(
   overId: string | null,
   overPos: DragState['overPos'],
-  indicatorY?: number,
 ): void {
   if (!snapshot) return;
   if (isDragOverUnchanged(snapshot, overId, overPos)) return;
-  snapshot = { ...snapshot, overId, overPos, indicatorY: indicatorY ?? null };
+  snapshot = { ...snapshot, overId, overPos };
   emit();
 }
 

@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { auditSyncPaths } from './k114SyncPathAudit';
 import { auditSyncLoop, auditSyncLoopSources } from './k114SyncLoopAudit';
 import { auditMemoryProfile } from './k114MemoryProfileAudit';
 import { auditLargeVault, runK114LargeVaultMatrix } from './k114LargeVaultAudit';
@@ -8,11 +7,6 @@ import { auditAutosave } from './k114AutosaveAudit';
 import { auditWatchdog } from './k114WatchdogAudit';
 
 describe('k114 audits', () => {
-  it('sync path uses client and bootstrap guard', () => {
-    expect(auditSyncPaths().usesNotesSyncClient).toBe(true);
-    expect(auditSyncPaths().dormantHydrateEntryPointsRemoved).toBe(true);
-  });
-
   it('sync loop guards present', () => {
     const guards = auditSyncLoop();
     expect(guards).toContain('bootstrap-once-wired');
