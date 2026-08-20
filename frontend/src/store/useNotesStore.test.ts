@@ -40,7 +40,6 @@ import {
 } from '../lib/notePersistence';
 import { activateRecoveryMode, setRecoveryModeActiveForTest } from '../lib/recoverySafetyPolicy';
 import {
-  NOTES_LAST_SYNC_KEY,
   NOTES_RUNTIME_SYNC_MODE_KEY,
 } from '../lib/notesSyncClient';
 import {
@@ -619,9 +618,8 @@ describe('K-319 recovery freeze guards', () => {
     expect(storage.has(SNAPSHOT_INDEX_KEY)).toBe(false);
   });
 
-  it('K-319A reports a stale upload as blocked without clearing errors, savedAt, or cursor', async () => {
+  it('K-319A reports a stale upload as blocked without clearing errors or savedAt', async () => {
     setRecoveryModeActiveForTest(false);
-    storage.set(NOTES_LAST_SYNC_KEY, '123');
     useNotesStore.setState({ notes: [sampleNote()], savedAt: null, syncError: 'existing error' });
     const response = deferred<ReturnType<typeof okJson>>();
     authFetchMock.mockReturnValueOnce(response.promise);
@@ -634,7 +632,6 @@ describe('K-319 recovery freeze guards', () => {
     expect(await upload).toBe(false);
     expect(useNotesStore.getState().savedAt).toBeNull();
     expect(useNotesStore.getState().syncError).toContain('recovery mode');
-    expect(storage.get(NOTES_LAST_SYNC_KEY)).toBe('123');
   });
 
   it('rejects destructive cross-tab replacement without rebroadcast or state change', () => {

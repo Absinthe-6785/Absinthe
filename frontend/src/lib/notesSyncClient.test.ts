@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   getNoteSyncStatus,
   isNotesCloudSyncEnabled,
-  NOTES_LAST_SYNC_KEY,
   NOTES_RUNTIME_SYNC_MODE_KEY,
   RETURN_TO_USE_LOCAL_LOCK_ENV,
   resolveNotesRuntimeSyncMode,
@@ -23,6 +22,8 @@ beforeEach(() => {
 });
 
 describe('notesSyncClient', () => {
+  const legacyNotesLastSyncKey = 'absinthe-notes-last-sync-at';
+
   it('defaults runtime sync to local-only', () => {
     expect(resolveNotesRuntimeSyncMode()).toBe('local');
     expect(isNotesCloudSyncEnabled()).toBe(false);
@@ -61,11 +62,27 @@ describe('notesSyncClient', () => {
     expect(isNotesCloudSyncEnabled()).toBe(true);
   });
 
-  it('formalizes local note sync status from the last-sync cursor', () => {
-    storage.set(NOTES_LAST_SYNC_KEY, '100');
-    expect(getNoteSyncStatus({ updatedAt: 100, deletedAt: null }, 100)).toBe('clean');
-    expect(getNoteSyncStatus({ updatedAt: 101, deletedAt: null }, 100)).toBe('dirty');
-    expect(getNoteSyncStatus({ updatedAt: 101, deletedAt: 120 }, 100)).toBe('deleted');
+  it('classifies an eligible note as dirty from note-local state', () => {
+    expect(getNoteSyncStatus({ updatedAt: 100, deletedAt: null })).toBe('dirty');
+  });
+
+  it('classifies tombstoned notes as deleted from note-local state', () => {
+    expect(getNoteSyncStatus({ updatedAt: 101, deletedAt: 120 })).toBe('deleted');
+  });
+
+  it.each([
+    ['stale', '100'],
+    ['future-dated', String(Number.MAX_SAFE_INTEGER)],
+    ['malformed', 'not-a-timestamp'],
+  ])('ignores %s historical legacy cursor state for upload eligibility', (_label, value) => {
+    storage.set(legacyNotesLastSyncKey, value);
+    expect(getNoteSyncStatus({ updatedAt: 100, deletedAt: null })).toBe('dirty');
+  });
+
+  it('keeps account-scoped Note decisions independent from the shared legacy cursor', () => {
+    storage.set(legacyNotesLastSyncKey, String(Number.MAX_SAFE_INTEGER));
+    expect(getNoteSyncStatus({ updatedAt: 100, deletedAt: null })).toBe('dirty');
+    expect(getNoteSyncStatus({ updatedAt: 200, deletedAt: null })).toBe('dirty');
   });
 
 });
