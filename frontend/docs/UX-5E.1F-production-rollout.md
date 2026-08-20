@@ -6,9 +6,12 @@
 | --- | --- |
 | **Default** | Virtualization **on** at root (`depth === 0`) |
 | **Opt-out env** | `VITE_DISABLE_VIRTUAL_BLOCKS=true` |
-| **Legacy opt-out** | `VITE_VIRTUAL_BLOCKS_POC=false` |
 | **Prop override** | `BlockEditor virtualBlocksPoc={false}` |
 | **Test overrides** | `setVirtualBlocksDisableOverride` / `setVirtualBlocksPocOverride` |
+
+`VITE_VIRTUAL_BLOCKS_POC` is retired and is no longer read as a production
+rollback alias. `VITE_DISABLE_VIRTUAL_BLOCKS=true` is the single supported
+environment rollback mechanism.
 
 ## Architecture (unchanged from UX-5E.1A–1E)
 

@@ -252,7 +252,7 @@ Full copy/paste timings: see `runDataLayerAudit` in test output.
 | **Drag pin indices** | Extra rows mounted during DnD |
 | **TOC scroll spy** | Full heading DOM probe each rAF |
 | **Search highlight** | O(matches) block decoration |
-| **Legacy opt-out** (`VITE_DISABLE_VIRTUAL_BLOCKS`) | 1000-block mount **5.4 s** |
+| **Canonical opt-out** (`VITE_DISABLE_VIRTUAL_BLOCKS`) | 1000-block mount **5.4 s** |
 
 ### Estimated impact if extended (not implemented)
 

@@ -2,20 +2,22 @@
 
 ## Scope
 
-Root-level block virtualization behind `VIRTUAL_BLOCKS_POC` (default **off**). Not production rollout.
+Historical root-level block virtualization proof of concept. This document
+retains the original POC context; the production runtime is now default-on
+and no longer reads `VITE_VIRTUAL_BLOCKS_POC`.
 
-## Feature flag
+## Historical POC controls
 
-| Mechanism | Default |
-| --------- | ------- |
-| `VITE_VIRTUAL_BLOCKS_POC=true` | `false` |
-| `BlockEditor` prop `virtualBlocksPoc` | overrides env (tests) |
+| Mechanism | Historical behavior |
+| --------- | ------------------- |
+| `VITE_VIRTUAL_BLOCKS_POC` | Retired; no longer controls production virtualization |
+| `BlockEditor` prop `virtualBlocksPoc` | explicit test/performance override |
 | `setVirtualBlocksPocOverride()` | test-only |
 
 ## Architecture
 
 - **`useVirtualBlockList`** — `@tanstack/react-virtual` hook with per-type `estimateSize` + `measureElement`
-- **`VirtualBlockList`** — replaces root `blocks.map` when flag on (`depth === 0` only)
+- **`VirtualBlockList`** — replaced root `blocks.map` when the POC flag was on (`depth === 0` only)
 - **`BlockHeightCache`** — `Map<blockId, height>` updated on measure
 - **`scrollToBlockId`** — exposed via `virtualScrollApiRef` on `BlockEditor`
 - **Scroll parent** — `.editor-drop-zone` (NoteView) or audit scroll wrapper
