@@ -16,7 +16,6 @@ import {
   NOTES_IDB_REV_KEY,
   canUseIndexedDb,
   clearIndexedDbNotes,
-  deleteNoteFromIndexedDb,
   isIndexedDbMigrationComplete,
   isIndexedDbNotesEmpty,
   loadNotesFromIndexedDb,
@@ -193,24 +192,12 @@ export function saveNotesSyncResult(notes: unknown): NotesPersistenceWriteResult
   return saveNotesToLocalStorageResult(notes);
 }
 
-export function isNotesPersistenceHydrated(): boolean {
-  return persistenceHydrated;
-}
-
 export function getNotesPersistenceMode(): NotesPersistenceMode {
   return persistenceMode;
 }
 
-export function getCachedNotes(): NoteBase[] | null {
-  return notesCache;
-}
-
 export function setCachedNotes(notes: readonly NoteBase[]): void {
   notesCache = [...notes];
-}
-
-export function clearNotesPersistenceCache(): void {
-  notesCache = null;
 }
 
 export function loadNotesSync(): NoteBase[] {
@@ -421,33 +408,6 @@ export async function saveNotesAsync(notes: unknown): Promise<NotesPersistenceWr
   return saveNotesAsyncInternal(notes);
 }
 
-export async function deleteNoteFromPersistence(noteId: string): Promise<boolean> {
-  const accountId = getActiveNotesAuthorityAccountId();
-  if (persistenceMode === 'accountScoped' && accountId) {
-    const current = await loadAccountScopedNotes(accountId);
-    return saveAccountScopedNotes(accountId, current.filter(note => note.id !== noteId));
-  }
-  if (!mayWriteLegacyNotes() || !mayDeleteLegacyStorage()) {
-    recordRecoveryBlock('delete_legacy_storage');
-    return false;
-  }
-  if (notesCache) {
-    notesCache = notesCache.filter(n => n.id !== noteId);
-  }
-
-  if (persistenceMode === 'indexeddb' && canUseIndexedDb()) {
-    const ok = await deleteNoteFromIndexedDb(noteId);
-    if (ok) {
-      lastIndexedDbRevision = readNotesIndexedDbRevision();
-      return true;
-    }
-    persistenceMode = 'localStorage';
-  }
-
-  if (!notesCache) return false;
-  return saveNotesToLocalStorage(notesCache);
-}
-
 export async function clearNotesPersistence(): Promise<void> {
   const accountId = getActiveNotesAuthorityAccountId();
   if (persistenceMode === 'accountScoped' && accountId) {
@@ -472,13 +432,6 @@ export async function clearNotesPersistence(): Promise<void> {
 
 export function isNotesIndexedDbRevisionEvent(key: string | null): boolean {
   return key === NOTES_IDB_REV_KEY;
-}
-
-export function hasNotesIndexedDbRevisionChanged(): boolean {
-  const current = readNotesIndexedDbRevision();
-  if (current === lastIndexedDbRevision) return false;
-  lastIndexedDbRevision = current;
-  return true;
 }
 
 export function resetNotesPersistenceForTests(): void {
