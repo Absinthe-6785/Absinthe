@@ -593,9 +593,32 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
             {/* Cloud sync status — decorative saved-at clock removed K-108A */}
             {!isTrash && (
               syncError ? (
-                <button type="button" onClick={retrySync} className="btbtn" title={t('nvRetrySync')}
-                  style={{ fontSize: 9, color: c.danger, display: 'flex', alignItems: 'center', gap: 3, padding: '2px 6px' }}>
-                  <AlertTriangle size={10}/> {syncError}
+                <button
+                  type="button"
+                  onClick={retrySync}
+                  className="btbtn"
+                  data-note-sync-error-control
+                  title={t('nvSyncIssueRetry')}
+                  aria-label={t('nvSyncIssueRetry')}
+                  style={{
+                    fontSize: 9,
+                    color: c.danger,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 3,
+                    padding: '2px 6px',
+                    flex: '0 1 160px',
+                    minWidth: 0,
+                    maxWidth: 160,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  <AlertTriangle size={10} aria-hidden="true" />
+                  <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {t('nvSyncIssue')}
+                  </span>
                 </button>
               ) : isSyncing ? (
                 <span style={{ fontSize: 9, color: c.textMuted, display: 'flex', alignItems: 'center', gap: 3 }}>
