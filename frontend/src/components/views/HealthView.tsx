@@ -1456,6 +1456,7 @@ export const HealthView = ({
               t={t}
               formatDate={date => formatLongDate(new Date(`${date}T12:00:00`), lang)}
               formatWeight={(value, blockId) => displayKg(value, blockId)}
+              weightUnit={blockId => getUnit(blockId)}
               onRetry={() => { void mutatePreviousWorkout(); }}
             />
           )}

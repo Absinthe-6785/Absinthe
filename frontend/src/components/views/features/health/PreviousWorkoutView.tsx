@@ -1,4 +1,4 @@
-import type { Theme, WorkoutSet } from '../../../../types';
+import type { StrengthSet, Theme, WorkoutSet } from '../../../../types';
 import { isCardioSet, isStrengthSet } from '../../../../types';
 import type { TranslationKey } from '../../../../lib/i18n';
 import type { PreviousWorkoutSession } from './previousWorkoutSession';
@@ -12,6 +12,7 @@ export interface PreviousWorkoutViewProps {
   t: (key: TranslationKey) => string;
   formatDate: (date: string) => string;
   formatWeight: (value: number | string, blockId: string) => string;
+  weightUnit: (blockId: string) => 'kg' | 'lbs';
   onRetry: () => void;
 }
 
@@ -19,20 +20,41 @@ function valueOrDash(value: string | number | undefined): string {
   return value === undefined || value === '' ? '—' : String(value);
 }
 
-function StrengthSetRow({ set, blockId, blockType, formatWeight, t, theme }: {
+export function formatPreviousStrengthWeight(
+  set: StrengthSet,
+  blockId: string,
+  blockType: string,
+  formatWeight: (value: number | string, blockId: string) => string,
+  weightUnit: 'kg' | 'lbs',
+  bodyweightLabel: string,
+): string {
+  if (set.type === 'bodyweight' || blockType === 'bodyweight') return bodyweightLabel;
+  const value = formatWeight(set.kg, blockId);
+  return valueOrDash(value) === '—' ? '—' : `${value} ${weightUnit}`;
+}
+
+function StrengthSetRow({ set, blockId, blockType, formatWeight, weightUnit, t, theme }: {
   set: WorkoutSet;
   blockId: string;
   blockType: string;
   formatWeight: (value: number | string, blockId: string) => string;
+  weightUnit: (blockId: string) => 'kg' | 'lbs';
   t: (key: TranslationKey) => string;
   theme: Theme;
 }) {
   if (!isStrengthSet(set)) return null;
-  const weight = blockType === 'bodyweight' ? null : formatWeight(set.kg, blockId);
+  const weight = formatPreviousStrengthWeight(
+    set,
+    blockId,
+    blockType,
+    formatWeight,
+    weightUnit(blockId),
+    t('previousBodyweight'),
+  );
   return (
     <div className={`grid grid-cols-[auto_1fr_1fr] items-center gap-2 rounded-xl border px-3 py-2.5 text-sm ${theme.border} ${theme.input}`}>
       <span className={`text-xs font-bold ${theme.textMuted}`}>{t('previousSetLabel').replace('{set}', String(set.set))}</span>
-      <span className="text-center font-bold tabular-nums">{weight ? `${weight} kg` : t('previousBodyweight')}</span>
+      <span className="text-center font-bold tabular-nums">{weight}</span>
       <span className="text-right font-semibold tabular-nums">{valueOrDash(set.reps)} {t('previousReps')}</span>
     </div>
   );
@@ -62,6 +84,7 @@ export function PreviousWorkoutView({
   t,
   formatDate,
   formatWeight,
+  weightUnit,
   onRetry,
 }: PreviousWorkoutViewProps) {
   if (isLoading) {
@@ -97,9 +120,9 @@ export function PreviousWorkoutView({
           </div>
           <div className="space-y-2">
             {row.sets.map((set, index) => (
-              isCardioSet(set)
-                ? <CardioSetRow key={`${set.set}-${index}`} set={set} t={t} theme={theme} />
-                : <StrengthSetRow key={`${set.set}-${index}`} set={set} blockId={row.blockId} blockType={row.exerciseBlock.type} formatWeight={formatWeight} t={t} theme={theme} />
+                isCardioSet(set)
+                  ? <CardioSetRow key={`${set.set}-${index}`} set={set} t={t} theme={theme} />
+                : <StrengthSetRow key={`${set.set}-${index}`} set={set} blockId={row.blockId} blockType={row.exerciseBlock.type} formatWeight={formatWeight} weightUnit={weightUnit} t={t} theme={theme} />
             ))}
           </div>
         </article>
