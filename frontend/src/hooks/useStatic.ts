@@ -2,7 +2,6 @@ import { useCallback, useMemo } from 'react';
 import useSWR from 'swr';
 import { fetcher, isLocalOnlyRemotePausedError } from '../lib/fetcher';
 import { API_URL } from '../lib/config';
-import { remoteSWRKey } from '../lib/remoteBoundary';
 import { isLocalOnlyRuntime } from '../lib/localAuth';
 import { readLocalHealthStatic } from '../lib/healthLocalRuntime';
 import { ExerciseBlock, HealthRoutine, WeeklySchedule } from '../types';
@@ -16,6 +15,18 @@ interface UseStaticDataResult {
   weeklySchedules: WeeklySchedule[];
   mutate: () => void;
 }
+
+export type AccountBoundHealthStaticKey = readonly ['health-static', string, string];
+
+export function accountBoundHealthStaticKey(
+  url: string,
+  accountId?: string,
+  enabled = true,
+): AccountBoundHealthStaticKey | null {
+  return enabled && accountId ? ['health-static', accountId, url] : null;
+}
+
+const fetchAccountBoundHealthStatic = <T>(key: AccountBoundHealthStaticKey): Promise<T> => fetcher<T>(key[2]);
 
 export const useStaticData = (
   monthStartStr: string,
@@ -40,18 +51,28 @@ export const useStaticData = (
   );
 
   const { data: rawDates = [], mutate: mutateDates } = useSWR<(string | { date: string })[]>(
-    remoteSWRKey(`${base}/schedules/dates?start_date=${monthStartStr}&end_date=${monthEndStr}`),
-    fetcher,
+    accountBoundHealthStaticKey(
+      `${base}/schedules/dates?start_date=${monthStartStr}&end_date=${monthEndStr}`,
+      accountId,
+      !localMode,
+    ),
+    fetchAccountBoundHealthStatic,
     swrOpts,
   );
   const { data: healthBlocks = [], mutate: mutateBlocks } = useSWR<ExerciseBlock[]>(
-    remoteSWRKey(`${base}/blocks`), fetcher, swrOpts,
+    accountBoundHealthStaticKey(`${base}/blocks`, accountId, !localMode),
+    fetchAccountBoundHealthStatic,
+    swrOpts,
   );
   const { data: healthRoutines = [], mutate: mutateRoutines } = useSWR<HealthRoutine[]>(
-    remoteSWRKey(`${base}/health_routines`), fetcher, swrOpts,
+    accountBoundHealthStaticKey(`${base}/health_routines`, accountId, !localMode),
+    fetchAccountBoundHealthStatic,
+    swrOpts,
   );
   const { data: weeklySchedules = [], mutate: mutateWeekly } = useSWR<WeeklySchedule[]>(
-    remoteSWRKey(`${base}/weekly_schedules`), fetcher, swrOpts,
+    accountBoundHealthStaticKey(`${base}/weekly_schedules`, accountId, !localMode),
+    fetchAccountBoundHealthStatic,
+    swrOpts,
   );
   const { data: localHealth, mutate: mutateLocalHealth } = useSWR(
     localMode && accountId && healthReady ? ['local-health-static', accountId] as const : null,

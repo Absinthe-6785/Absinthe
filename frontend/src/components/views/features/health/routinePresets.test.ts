@@ -106,4 +106,27 @@ describe('routine preset foundation', () => {
     expect(preset.days[1].blocks).toEqual(['squat']);
     expect(synced.legacySyncPending).toBe(false);
   });
+
+  it('keeps account transition state pending until the new account rows arrive', () => {
+    const accountARoutines = [{ id: 'account-a-routine', day_name: 'Day 1', blocks: ['account-a-block'] }] as const;
+    const accountBRoutines = [{ id: 'account-b-routine', day_name: 'Day 1', blocks: ['account-b-block'] }] as const;
+    const accountAState = createRoutinePresetState({ routines: accountARoutines, splitCount: 1 });
+    writeRoutinePresetState(localStorage, 'account-a', accountAState);
+
+    const accountBInitial = createRoutinePresetState({ routines: [], splitCount: 3 });
+    expect(accountBInitial.legacySyncPending).toBe(true);
+    expect(routinePresetById(accountBInitial).days[0].blocks).toEqual([]);
+    expect(readRoutinePresetState(localStorage, 'account-b')).toBeNull();
+
+    const accountBSynced = syncLegacyDefaultRoutinePreset(accountBInitial, {
+      routines: accountBRoutines,
+      splitCount: 1,
+    });
+    expect(routinePresetById(accountBSynced).days[0].blocks).toEqual(['account-b-block']);
+    expect(routinePresetById(accountBSynced).days[0].blocks).not.toContain('account-a-block');
+    writeRoutinePresetState(localStorage, 'account-b', accountBSynced);
+
+    expect(readRoutinePresetState(localStorage, 'account-a')).toEqual(accountAState);
+    expect(readRoutinePresetState(localStorage, 'account-b')).toEqual(accountBSynced);
+  });
 });

@@ -188,6 +188,11 @@ export const HealthView = ({
     setRoutinePresetState(next);
     setSplitCountInput(String(routinePresetById(next).splitCount));
     setPresetMenuOpen(false);
+    setPresetRenameDraft('');
+    setShowAssembleModal(false);
+    setActiveDayForm('');
+    setTempRoutineBlocks([]);
+    setTempRoutineSetCounts({});
   // Account identity is the reset boundary; the initial static rows are merged below.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user.id]);
@@ -539,16 +544,15 @@ export const HealthView = ({
       accountId: user.id,
       generation: accountGenerationRef.current,
     };
-    const existing = selectedHealthRoutines.find(routine => routine.day_name === activeDayForm);
+    const existingRoutineId = activePreset.days.find(day => day.dayName === activeDayForm)?.legacyRoutineId;
     let ok = true;
     if (activePreset.id === DEFAULT_ROUTINE_PRESET_ID) {
       if (localMode) {
         try {
           const repository = await createLocalHealthRepository(accountOperation.accountId);
-          await repository.createOrUpdate('health_routines', {
-            id: existing?.id ?? `${DEFAULT_ROUTINE_PRESET_ID}:${activeDayForm}`,
-            user_id: accountOperation.accountId,
-            day_name: activeDayForm,
+          await repository.saveRoutine({
+            id: existingRoutineId,
+            dayName: activeDayForm,
             blocks: [...tempRoutineBlocks],
           });
           if (!currentAccountOperation(accountOperation)) return;
