@@ -2,6 +2,7 @@ import { useCallback, useMemo } from 'react';
 import useSWR from 'swr';
 import { fetcher, isLocalOnlyRemotePausedError } from '../lib/fetcher';
 import { API_URL } from '../lib/config';
+import { remoteSWRKey } from '../lib/remoteBoundary';
 import { isLocalOnlyRuntime } from '../lib/localAuth';
 import { readLocalHealthStatic } from '../lib/healthLocalRuntime';
 import { ExerciseBlock, HealthRoutine, WeeklySchedule } from '../types';
@@ -23,7 +24,8 @@ export function accountBoundHealthStaticKey(
   accountId?: string,
   enabled = true,
 ): AccountBoundHealthStaticKey | null {
-  return enabled && accountId ? ['health-static', accountId, url] : null;
+  const remoteKey = remoteSWRKey(url);
+  return enabled && accountId && remoteKey ? ['health-static', accountId, remoteKey] : null;
 }
 
 const fetchAccountBoundHealthStatic = <T>(key: AccountBoundHealthStaticKey): Promise<T> => fetcher<T>(key[2]);
