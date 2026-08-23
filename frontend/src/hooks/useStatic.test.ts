@@ -33,6 +33,11 @@ describe('account-bound Health static cache keys', () => {
     storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'remote');
     vi.stubEnv(RETURN_TO_USE_LOCAL_LOCK_ENV, 'true');
     expect(accountBoundHealthStaticKey('/api/health_routines', 'account-a')).toBeNull();
+  });
+
+  it('does not create a cache key when explicitly disabled', () => {
+    storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'remote');
+    vi.stubEnv(RETURN_TO_USE_LOCAL_LOCK_ENV, 'false');
     expect(accountBoundHealthStaticKey('/api/health_routines', 'account-a', false)).toBeNull();
   });
 });
