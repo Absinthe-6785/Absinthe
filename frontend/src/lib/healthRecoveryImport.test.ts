@@ -1409,6 +1409,48 @@ describe('local Health backfill writes', () => {
     expect((await db.readAccountSnapshot(OWNER)).datasets.workout_logs).toHaveLength(1);
     db.close();
   });
+
+  it('atomically upserts local health routines with UUID identities and exact verified counts', async () => {
+    const databaseName = `absinthe.health.backfill-routine-write.${crypto.randomUUID()}`;
+    const db = await createLocalHealthDriver({ databaseName });
+    const datasets = minimalDatasets(OWNER, 'ROUTINE BLOCK');
+    await seedVerifiedAccount(db, OWNER, datasets, 'routine-write');
+    const repository = new HealthRepository(db, OWNER);
+    const blockId = datasets.exercise_blocks[0].id as string;
+
+    const created = await repository.saveRoutine({ dayName: 'Day 1', blocks: [blockId] });
+    expect(created.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+    const afterCreate = await repository.readAll();
+    expect(afterCreate.health_routines).toHaveLength(1);
+    expect(afterCreate.health_routines[0]).toMatchObject({ id: created.id, day_name: 'Day 1', blocks: [blockId] });
+    const createdState = await repository.readImportState();
+    expect(createdState).toMatchObject({ datasetCounts: { health_routines: 1 }, totalRowCount: 2 });
+
+    const updated = await repository.saveRoutine({ id: created.id, dayName: 'Day 1', blocks: [] });
+    expect(updated.id).toBe(created.id);
+    expect(await repository.readAll()).toMatchObject({ health_routines: [{ id: created.id, blocks: [] }] });
+    const updatedState = await repository.readImportState();
+    expect(updatedState).toMatchObject({ datasetCounts: { health_routines: 1 }, totalRowCount: 2 });
+
+    const second = await repository.saveRoutine({ dayName: 'Day 2', blocks: [] });
+    const failing = await createLocalHealthDriver({
+      databaseName,
+      testHooks: { failLocalWriteAfterDelete: 'routine' },
+    });
+    await expect(new HealthRepository(failing, OWNER).saveRoutine({
+      id: second.id,
+      dayName: 'Day 2',
+      blocks: [blockId],
+    })).rejects.toThrow('health_local_routine_write_injected_failure');
+    const afterFailedWrite = await repository.readAll();
+    expect(afterFailedWrite.health_routines.find(row => row.id === second.id)).toMatchObject({
+      day_name: 'Day 2',
+      blocks: [],
+    });
+    expect(await repository.readImportState()).toMatchObject({ datasetCounts: { health_routines: 2 }, totalRowCount: 3 });
+    failing.close();
+    db.close();
+  });
 });
 
 describe('local Health runtime projection helpers', () => {

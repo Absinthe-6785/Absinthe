@@ -80,6 +80,17 @@ export type LocalInbodyWriteInput = {
   expectedVersion: string | null;
 };
 
+export type LocalRoutineWriteInput = {
+  id?: string;
+  dayName: string;
+  blocks: string[];
+};
+
+export type LocalRoutineWriteResult = {
+  id: string;
+  version: string;
+};
+
 export type LocalHealthWriteResult = {
   id: string;
   date: string;
@@ -136,6 +147,7 @@ export interface LocalHealthDriver {
   saveWorkout(input: LocalWorkoutWriteInput & { accountId: string }): Promise<LocalHealthWriteResult>;
   deleteWorkout(accountId: string, workoutId: string, expectedVersion: string): Promise<void>;
   saveInbody(input: LocalInbodyWriteInput & { accountId: string }): Promise<LocalHealthWriteResult>;
+  saveRoutine(input: LocalRoutineWriteInput & { accountId: string }): Promise<LocalRoutineWriteResult>;
   putRecord(dataset: HealthRecoveryDatasetName, accountId: string, record: HealthRecoveryRecord): Promise<void>;
   deleteRecord(dataset: HealthRecoveryDatasetName, accountId: string, identity: string): Promise<void>;
   close(): void;
@@ -149,7 +161,7 @@ export type LocalHealthDriverTestHooks = {
   onAuthoritativeReadTransactionCreated?: () => void;
   beforePendingRecoveryTransition?: () => void | Promise<void>;
   beforePendingFinalizeTransition?: () => void | Promise<void>;
-  failLocalWriteAfterDelete?: 'workout' | 'workout-delete' | 'inbody';
+  failLocalWriteAfterDelete?: 'workout' | 'workout-delete' | 'inbody' | 'routine';
 };
 
 function requestResult<T>(request: IDBRequest<T>): Promise<T> {
@@ -324,6 +336,17 @@ function validateLocalInbodyInput(input: LocalInbodyWriteInput, accountId: strin
     if (value !== null && (typeof value !== 'number' || !Number.isFinite(value) || value < 0)) {
       throw new Error(`health_local_inbody_${field}_invalid`);
     }
+  }
+}
+
+function validateLocalRoutineInput(input: LocalRoutineWriteInput, accountId: string): void {
+  if (!accountId || typeof accountId !== 'string') throw new Error('health_local_write_account_required');
+  if (typeof input.dayName !== 'string' || input.dayName.trim() === '') {
+    throw new Error('health_local_routine_day_invalid');
+  }
+  if (input.id !== undefined && !isUuid(input.id)) throw new Error('health_local_routine_id_invalid');
+  if (!Array.isArray(input.blocks) || !input.blocks.every(isUuid)) {
+    throw new Error('health_local_routine_blocks_invalid');
   }
 }
 
@@ -883,6 +906,57 @@ export class IndexedDbLocalHealthDriver implements LocalHealthDriver {
     };
   }
 
+  async saveRoutine(input: LocalRoutineWriteInput & { accountId: string }): Promise<LocalRoutineWriteResult> {
+    validateLocalRoutineInput(input, input.accountId);
+    let persistedId = input.id ?? '';
+    let persistedVersion = '';
+    const tx = this.db.transaction([...HEALTH_RECOVERY_DATASETS, HEALTH_LOCAL_IMPORT_STATE_STORE], 'readwrite');
+    const completion = transactionDone(tx);
+    try {
+      const { state: currentState, datasets } = await this.assertWritableState(tx, input.accountId);
+      const store = tx.objectStore('health_routines');
+      const existing = datasets.health_routines.map(record => ({
+        storageKey: storageKey('health_routines', input.accountId, record),
+        accountId: input.accountId,
+        record,
+      } satisfies StoredHealthRecord));
+      const existingById = input.id
+        ? existing.find(item => item.record.id === input.id)
+        : undefined;
+      if (input.id && !existingById) throw new Error('health_local_routine_not_found');
+      const sameDay = existing.filter(item => item.record.day_name === input.dayName);
+      const rowsToReplace = existingById && !sameDay.some(item => item.record.id === existingById.record.id)
+        ? [...sameDay, existingById]
+        : sameDay;
+      persistedId = existingById?.record.id as string | undefined
+        ?? sameDay[0]?.record.id as string | undefined
+        ?? crypto.randomUUID();
+      for (const item of rowsToReplace) store.delete(item.storageKey);
+      if (this.hooks.failLocalWriteAfterDelete === 'routine') throw new Error('health_local_routine_write_injected_failure');
+      const nextRecord: HealthRecoveryRecord = {
+        id: persistedId,
+        user_id: input.accountId,
+        day_name: input.dayName,
+        blocks: [...input.blocks],
+      };
+      persistedVersion = computeLocalHealthLogicalVersion([nextRecord]) as string;
+      store.put({
+        storageKey: storageKey('health_routines', input.accountId, nextRecord),
+        accountId: input.accountId,
+        record: cloneRecord(nextRecord),
+      } satisfies StoredHealthRecord);
+      tx.objectStore(HEALTH_LOCAL_IMPORT_STATE_STORE).put(
+        cloneRecord(adjustVerifiedStateCount(currentState, 'health_routines', 1 - rowsToReplace.length)),
+      );
+    } catch (error) {
+      abortTransactionSafely(tx);
+      await completion.catch(() => undefined);
+      throw error;
+    }
+    await completion;
+    return { id: persistedId, version: persistedVersion };
+  }
+
   async putRecord(dataset: HealthRecoveryDatasetName, accountId: string, record: HealthRecoveryRecord): Promise<void> {
     if (record.user_id !== accountId) throw new Error('health_local_record_owner_mismatch');
     const tx = this.db.transaction(dataset, 'readwrite');
@@ -943,6 +1017,10 @@ export class HealthRepository {
 
   saveInbody(input: Omit<LocalInbodyWriteInput, 'accountId'>): Promise<LocalHealthWriteResult> {
     return this.driver.saveInbody({ ...input, accountId: this.accountId });
+  }
+
+  saveRoutine(input: LocalRoutineWriteInput): Promise<LocalRoutineWriteResult> {
+    return this.driver.saveRoutine({ ...input, accountId: this.accountId });
   }
 }
 

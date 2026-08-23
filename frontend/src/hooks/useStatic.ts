@@ -17,6 +17,19 @@ interface UseStaticDataResult {
   mutate: () => void;
 }
 
+export type AccountBoundHealthStaticKey = readonly ['health-static', string, string];
+
+export function accountBoundHealthStaticKey(
+  url: string,
+  accountId?: string,
+  enabled = true,
+): AccountBoundHealthStaticKey | null {
+  const remoteKey = remoteSWRKey(url);
+  return enabled && accountId && remoteKey ? ['health-static', accountId, remoteKey] : null;
+}
+
+const fetchAccountBoundHealthStatic = <T>(key: AccountBoundHealthStaticKey): Promise<T> => fetcher<T>(key[2]);
+
 export const useStaticData = (
   monthStartStr: string,
   monthEndStr: string,
@@ -40,18 +53,28 @@ export const useStaticData = (
   );
 
   const { data: rawDates = [], mutate: mutateDates } = useSWR<(string | { date: string })[]>(
-    remoteSWRKey(`${base}/schedules/dates?start_date=${monthStartStr}&end_date=${monthEndStr}`),
-    fetcher,
+    accountBoundHealthStaticKey(
+      `${base}/schedules/dates?start_date=${monthStartStr}&end_date=${monthEndStr}`,
+      accountId,
+      !localMode,
+    ),
+    fetchAccountBoundHealthStatic,
     swrOpts,
   );
   const { data: healthBlocks = [], mutate: mutateBlocks } = useSWR<ExerciseBlock[]>(
-    remoteSWRKey(`${base}/blocks`), fetcher, swrOpts,
+    accountBoundHealthStaticKey(`${base}/blocks`, accountId, !localMode),
+    fetchAccountBoundHealthStatic,
+    swrOpts,
   );
   const { data: healthRoutines = [], mutate: mutateRoutines } = useSWR<HealthRoutine[]>(
-    remoteSWRKey(`${base}/health_routines`), fetcher, swrOpts,
+    accountBoundHealthStaticKey(`${base}/health_routines`, accountId, !localMode),
+    fetchAccountBoundHealthStatic,
+    swrOpts,
   );
   const { data: weeklySchedules = [], mutate: mutateWeekly } = useSWR<WeeklySchedule[]>(
-    remoteSWRKey(`${base}/weekly_schedules`), fetcher, swrOpts,
+    accountBoundHealthStaticKey(`${base}/weekly_schedules`, accountId, !localMode),
+    fetchAccountBoundHealthStatic,
+    swrOpts,
   );
   const { data: localHealth, mutate: mutateLocalHealth } = useSWR(
     localMode && accountId && healthReady ? ['local-health-static', accountId] as const : null,
