@@ -10,6 +10,7 @@ import type {
   WorkoutSet,
 } from '../types';
 import type { RangeWorkoutRow } from '../components/views/features/health/workout/workoutMetrics';
+import type { PreviousWorkoutHistoryRow } from '../components/views/features/health/previousWorkoutSession';
 import {
   computeLocalHealthLogicalVersion,
   createLocalHealthDriver,
@@ -220,6 +221,36 @@ export async function readLocalHealthWorkoutRange(
 ): Promise<RangeWorkoutRow[]> {
   const datasets = await (await createLocalHealthRepository(accountId)).readAll();
   return projectLocalHealthWorkoutRange(datasets, startDate, endDate);
+}
+
+export function projectLocalPreviousWorkoutRows(
+  datasets: HealthRecoveryDatasets,
+  startDate: string,
+  endDate: string,
+): PreviousWorkoutHistoryRow[] {
+  const blocks = blocksById(datasets);
+  return datasets.workout_logs.flatMap((row): PreviousWorkoutHistoryRow[] => {
+    if (typeof row.date !== 'string' || row.date < startDate || row.date > endDate) return [];
+    const resolved = blockForWorkoutRow(row, blocks);
+    if (!resolved || !Array.isArray(row.sets)) return [];
+    return [{
+      date: row.date,
+      blockId: resolved.blockId,
+      exerciseBlock: resolved.block,
+      sets: structuredClone(row.sets as WorkoutSet[]),
+      sortOrder: Number.isInteger(row.sort_order) ? row.sort_order as number : Number.MAX_SAFE_INTEGER,
+      rowId: typeof row.id === 'string' ? row.id : undefined,
+    }];
+  });
+}
+
+export async function readLocalPreviousWorkoutRows(
+  accountId: string,
+  startDate: string,
+  endDate: string,
+): Promise<PreviousWorkoutHistoryRow[]> {
+  const datasets = await (await createLocalHealthRepository(accountId)).readAll();
+  return projectLocalPreviousWorkoutRows(datasets, startDate, endDate);
 }
 
 export async function readLocalPreviousWorkout(
