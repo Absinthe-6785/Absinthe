@@ -37,11 +37,25 @@ import { readHealthSectionPrefs } from './features/health/healthSectionPrefs';
 import { buildSetsFromPlannedCount, buildSetsFromPrevCount } from './features/health/workoutSetCount';
 import { fetchPrevWorkoutForBlocks } from './features/health/prevWorkoutFetch';
 import {
-  getRoutinePlannedSetCount,
   getRoutinePlannedSetsForDay,
   saveRoutinePlannedSetsForDay,
   showsPlannedSetCount,
 } from './features/health/routinePlannedSets';
+import {
+  DEFAULT_ROUTINE_PRESET_ID,
+  createEmptyRoutinePreset,
+  createRoutinePresetId,
+  createRoutinePresetState,
+  readRoutinePresetState,
+  routinePresetById,
+  routinePresetPlannedSetCount,
+  routinePresetToHealthRoutines,
+  sanitizeRoutinePresetName,
+  syncLegacyDefaultRoutinePreset,
+  updateRoutinePresetState,
+  writeRoutinePresetState,
+  type RoutinePresetState,
+} from './features/health/routinePresets';
 import useSWR from 'swr';
 import { fetcher } from '../../lib/fetcher';
 import { remoteSWRKey } from '../../lib/remoteBoundary';
@@ -85,7 +99,7 @@ export const HealthView = ({
       accountGenerationRef.current,
     );
 
-  const [splitCount, setSplitCount] = useState<number>(() => {
+  const [legacySplitCount, setLegacySplitCount] = useState<number>(() => {
     const saved = localStorage.getItem('healthSplitCount');
     return saved ? Math.min(7, Math.max(1, Number(saved))) : 3;
   });
@@ -93,6 +107,27 @@ export const HealthView = ({
     const saved = localStorage.getItem('healthSplitCount');
     return saved ? String(Math.min(7, Math.max(1, Number(saved)))) : '3';
   });
+  const [routinePresetState, setRoutinePresetState] = useState<RoutinePresetState>(() => (
+    readRoutinePresetState(localStorage, user.id)
+      ?? createRoutinePresetState({
+        routines: healthRoutines ?? [],
+        splitCount: legacySplitCount,
+        plannedSetsByDay: Object.fromEntries(
+          Array.from({ length: 7 }, (_, index) => {
+            const dayName = `Day ${index + 1}`;
+            return [dayName, getRoutinePlannedSetsForDay(dayName)];
+          }),
+        ),
+      })
+  ));
+  const [presetMenuOpen, setPresetMenuOpen] = useState(false);
+  const [presetRenameDraft, setPresetRenameDraft] = useState('');
+  const activePreset = routinePresetById(routinePresetState);
+  const selectedHealthRoutines = useMemo(
+    () => routinePresetToHealthRoutines(activePreset),
+    [activePreset],
+  );
+  const splitCount = activePreset.splitCount;
   const [showBlockModal, setShowBlockModal] = useState(false);
   const [newBlock, setNewBlock] = useState<Partial<ExerciseBlock>>({ name: '', type: 'strength', tags: [], cardio_mode: 'both' });
   // editingBlock: 수정 대상 블록 (null이면 신규 생성 모드)
@@ -122,6 +157,62 @@ export const HealthView = ({
   // ── lbs 입력 중 raw 값 보존 (wIdx-sIdx 키) — 변환 재계산으로 커서 고정되는 버그 방지
   const [rawKgInput, setRawKgInput] = useState<Record<string, string>>({});
   const [localWorkouts, setLocalWorkouts] = useState<Workout[]>([]);
+  const persistRoutinePreset = useCallback((update: (current: RoutinePresetState) => RoutinePresetState) => {
+    setRoutinePresetState(current => {
+      const next = update(current);
+      if (next !== current) writeRoutinePresetState(localStorage, user.id, next);
+      return next;
+    });
+  }, [user.id]);
+  const applyRoutinePresetAction = useCallback((action: Parameters<typeof updateRoutinePresetState>[1]) => {
+    setRoutinePresetState(current => {
+      const next = updateRoutinePresetState(current, action);
+      if (next !== current) writeRoutinePresetState(localStorage, user.id, next);
+      return next;
+    });
+  }, [user.id]);
+
+  // Account changes must never reuse another account's selected preset or draft.
+  useEffect(() => {
+    const persisted = readRoutinePresetState(localStorage, user.id);
+    const next = persisted ?? createRoutinePresetState({
+      routines: healthRoutines ?? [],
+      splitCount: legacySplitCount,
+      plannedSetsByDay: Object.fromEntries(
+        Array.from({ length: 7 }, (_, index) => {
+          const dayName = `Day ${index + 1}`;
+          return [dayName, getRoutinePlannedSetsForDay(dayName)];
+        }),
+      ),
+    });
+    setRoutinePresetState(next);
+    setSplitCountInput(String(routinePresetById(next).splitCount));
+    setPresetMenuOpen(false);
+  // Account identity is the reset boundary; the initial static rows are merged below.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user.id]);
+
+  useEffect(() => {
+    setRoutinePresetState(current => {
+      const next = syncLegacyDefaultRoutinePreset(current, {
+        routines: healthRoutines ?? [],
+        splitCount: legacySplitCount,
+        plannedSetsByDay: Object.fromEntries(
+          Array.from({ length: 7 }, (_, index) => {
+            const dayName = `Day ${index + 1}`;
+            return [dayName, getRoutinePlannedSetsForDay(dayName)];
+          }),
+        ),
+      });
+      if (next !== current) writeRoutinePresetState(localStorage, user.id, next);
+      return next;
+    });
+  }, [healthRoutines, legacySplitCount, user.id]);
+
+  useEffect(() => {
+    setSplitCountInput(String(activePreset.splitCount));
+  }, [activePreset.id, activePreset.splitCount]);
+
   // ── 날짜별 메모 ───────────────────────────────────────────────────────
   const [workoutMemo, setWorkoutMemo] = useState('');
   // ── 이전 세션 데이터 / PR — block_id 키로 캐시 ───────────────────────
@@ -299,10 +390,10 @@ export const HealthView = ({
   }, [prevData, selectedDate, formatDate, user.id]);
 
   useEffect(() => {
-    if (!healthRoutines?.length) return;
-    const ids = healthRoutines.flatMap((r: HealthRoutine) => r.blocks);
-    void ensurePrevData(ids, 'HealthView.healthRoutines');
-  }, [healthRoutines, ensurePrevData]);
+    if (!selectedHealthRoutines.length) return;
+    const ids = selectedHealthRoutines.flatMap((r: HealthRoutine) => r.blocks);
+    void ensurePrevData(ids, 'HealthView.selectedRoutinePreset');
+  }, [selectedHealthRoutines, ensurePrevData]);
 
   // isDirtyRef: workouts effect가 stale closure로 draft를 덮어쓰는 경쟁 조건 방어.
   // isDirty state 대신 ref를 읽으면 항상 최신값을 참조하므로 deps 없이 안전.
@@ -362,7 +453,12 @@ export const HealthView = ({
       });
   }, [inbody, isInbodyDirty]);
 
-  useEscapeKey(() => { setShowBlockModal(false); setShowAssembleModal(false); clearConfirm(); });
+  useEscapeKey(() => {
+    setShowBlockModal(false);
+    setShowAssembleModal(false);
+    setPresetMenuOpen(false);
+    clearConfirm();
+  });
 
   // ── 운동 블록 ──────────────────────────────────────────────────────
   const openBlockModal = (block?: ExerciseBlock) => {
@@ -409,9 +505,13 @@ export const HealthView = ({
   // ── 루틴 조합 ──────────────────────────────────────────────────────
   const openAssembleModal = (dayName: string) => {
     setActiveDayForm(dayName);
-    const existing = healthRoutines.find((r: HealthRoutine) => r.day_name === dayName);
+    const existing = selectedHealthRoutines.find((r: HealthRoutine) => r.day_name === dayName);
     setTempRoutineBlocks(existing?.blocks ?? []);
-    setTempRoutineSetCounts(getRoutinePlannedSetsForDay(dayName));
+    const selectedDay = activePreset.days.find(day => day.dayName === dayName);
+    setTempRoutineSetCounts({
+      ...(selectedDay?.plannedSets ?? {}),
+      ...(selectedDay ? {} : getRoutinePlannedSetsForDay(dayName)),
+    });
     setShowAssembleModal(true);
   };
   const toggleBlockInRoutine = (blockId: string) => {
@@ -428,25 +528,66 @@ export const HealthView = ({
       if (b) {
         setTempRoutineSetCounts(counts => ({
           ...counts,
-          [blockId]: getRoutinePlannedSetCount(activeDayForm, blockId, b.type, prevData[blockId]?.prev_sets),
+          [blockId]: routinePresetPlannedSetCount(activePreset, activeDayForm, blockId, b.type, prevData[blockId]?.prev_sets),
         }));
       }
       return [...prev, blockId];
     });
   };
   const handleSaveRoutine = async () => {
-    const ok = await api('POST', '/api/health_routines', { day_name: activeDayForm, blocks: tempRoutineBlocks }, { revalidate: 'static', successMsg: t('routineSaved') });
-    if (ok) {
-      saveRoutinePlannedSetsForDay(activeDayForm, tempRoutineBlocks, tempRoutineSetCounts);
-      setShowAssembleModal(false);
+    const accountOperation: HealthAccountGenerationToken = {
+      accountId: user.id,
+      generation: accountGenerationRef.current,
+    };
+    const existing = selectedHealthRoutines.find(routine => routine.day_name === activeDayForm);
+    let ok = true;
+    if (activePreset.id === DEFAULT_ROUTINE_PRESET_ID) {
+      if (localMode) {
+        try {
+          const repository = await createLocalHealthRepository(accountOperation.accountId);
+          await repository.createOrUpdate('health_routines', {
+            id: existing?.id ?? `${DEFAULT_ROUTINE_PRESET_ID}:${activeDayForm}`,
+            user_id: accountOperation.accountId,
+            day_name: activeDayForm,
+            blocks: [...tempRoutineBlocks],
+          });
+          if (!currentAccountOperation(accountOperation)) return;
+          mutateStatic?.();
+          showToast(t('routineSaved'));
+        } catch {
+          ok = false;
+          showToast(t('routineSaveFailed'), 'error');
+        }
+      } else {
+        ok = await api(
+          'POST',
+          '/api/health_routines',
+          { day_name: activeDayForm, blocks: tempRoutineBlocks },
+          { revalidate: 'static', successMsg: t('routineSaved') },
+        );
+      }
     }
+    if (!ok || !currentAccountOperation(accountOperation)) return;
+    persistRoutinePreset(current => updateRoutinePresetState(current, {
+      type: 'set-day',
+      presetId: activePreset.id,
+      dayName: activeDayForm,
+      blocks: tempRoutineBlocks,
+      plannedSets: tempRoutineSetCounts,
+    }));
+    if (activePreset.id !== DEFAULT_ROUTINE_PRESET_ID) showToast(t('routineSaved'));
+    if (activePreset.id === DEFAULT_ROUTINE_PRESET_ID) {
+      // Keep the existing legacy export keys in sync for old recovery packages.
+      saveRoutinePlannedSetsForDay(activeDayForm, tempRoutineBlocks, tempRoutineSetCounts);
+    }
+    setShowAssembleModal(false);
   };
 
   // ── 워크아웃 로컬 조작 ─────────────────────────────────────────────
   const handleLoadRoutine = async (e: ChangeEvent<HTMLSelectElement>) => {
     const dayName = e.target.value;
     if (!dayName || dayName === '__load__') return;
-    const routine = healthRoutines.find((r: HealthRoutine) => r.day_name === dayName);
+    const routine = selectedHealthRoutines.find((r: HealthRoutine) => r.day_name === dayName);
     if (!routine?.blocks?.length) { showToast(t('noBlocks'), 'error'); e.target.value = '__load__'; return; }
 
     const routineOrdered: Workout[] = [];
@@ -459,7 +600,7 @@ export const HealthView = ({
       const b = healthBlocks.find((bk: ExerciseBlock) => bk.id === id);
       if (!b) continue;
       const prevSets = await fetchPrevForBlock(id);
-      const count = getRoutinePlannedSetCount(dayName, id, b.type, prevSets);
+      const count = routinePresetPlannedSetCount(activePreset, dayName, id, b.type, prevSets);
       routineOrdered.push({
         id: `temp-${Date.now()}-${b.id}`,
         block_id: b.id,
@@ -474,6 +615,78 @@ export const HealthView = ({
     e.target.value = '__load__';
     showToast(t('loaded'));
   };
+
+  const commitPresetSplit = () => {
+    const nextSplit = Math.min(7, Math.max(1, Number(splitCountInput) || 1));
+    applyRoutinePresetAction({ type: 'set-split', presetId: activePreset.id, splitCount: nextSplit });
+    setSplitCountInput(String(nextSplit));
+    if (activePreset.id === DEFAULT_ROUTINE_PRESET_ID) {
+      setLegacySplitCount(nextSplit);
+      localStorage.setItem('healthSplitCount', String(nextSplit));
+    }
+  };
+
+  const handleCreatePreset = () => {
+    applyRoutinePresetAction({
+      type: 'create',
+      preset: createEmptyRoutinePreset(createRoutinePresetId(), t('healthPresetNew')),
+    });
+    setPresetMenuOpen(false);
+  };
+
+  const handleDuplicatePreset = () => {
+    const duplicate = {
+      ...activePreset,
+      id: createRoutinePresetId(),
+      name: sanitizeRoutinePresetName(`${activePreset.name} ${t('healthPresetCopySuffix')}`),
+      days: activePreset.days.map(day => ({
+        ...day,
+        blocks: [...day.blocks],
+        plannedSets: { ...day.plannedSets },
+        legacyRoutineId: undefined,
+      })),
+    };
+    applyRoutinePresetAction({
+      type: 'duplicate',
+      sourcePresetId: activePreset.id,
+      preset: duplicate,
+    });
+    setPresetMenuOpen(false);
+  };
+
+  const beginPresetRename = () => {
+    setPresetRenameDraft(activePreset.name);
+    setPresetMenuOpen(true);
+  };
+
+  const commitPresetRename = () => {
+    const nextName = presetRenameDraft.trim();
+    if (!nextName) {
+      showToast(t('healthPresetNameRequired'), 'error');
+      return;
+    }
+    applyRoutinePresetAction({ type: 'rename', presetId: activePreset.id, name: sanitizeRoutinePresetName(nextName, activePreset.name) });
+    setPresetRenameDraft('');
+    setPresetMenuOpen(false);
+  };
+
+  const handleDeletePreset = () => {
+    if (routinePresetState.presets.length <= 1) {
+      showToast(t('healthPresetLastCannotDelete'), 'error');
+      return;
+    }
+    if (activePreset.id === DEFAULT_ROUTINE_PRESET_ID) {
+      showToast(t('healthPresetDefaultCannotDelete'), 'error');
+      return;
+    }
+    showConfirm(
+      t('healthPresetDeleteConfirm').replace('{name}', activePreset.name),
+      () => applyRoutinePresetAction({ type: 'delete', presetId: activePreset.id }),
+      { confirmLabel: t('deleteLabel') },
+    );
+    setPresetMenuOpen(false);
+  };
+
   const handleAddWorkoutToToday = async (block: ExerciseBlock) => {
     if (localWorkouts.find(w => w.block_id === block.id)) return showToast(t('alreadyAdded'), 'error');
     const prevSets = await fetchPrevForBlock(block.id);
@@ -996,28 +1209,63 @@ export const HealthView = ({
         />
 
         <div className={`xl:h-full xl:min-h-0 ${WORKSPACE_CARD.sm} ${WORKSPACE_CARD_SURFACE} flex flex-col overflow-hidden transition-colors ${theme.card} ${mobileHealthTab === 'routine' ? '' : 'hidden lg:flex'}`} data-k126-workout-routine>
-          <div className="flex justify-between items-center mb-2.5">
-            <h2 className="font-heading text-base font-bold">{t('routineSetup')}</h2>
-            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl ${theme.input}`}>
+          <div className="flex flex-wrap justify-between items-center gap-2 mb-2.5">
+            <div className="flex min-w-0 items-center gap-2">
+              <h2 className="font-heading text-base font-bold shrink-0">{t('routineSetup')}</h2>
+              <select
+                aria-label={t('healthPresetLabel')}
+                value={activePreset.id}
+                onChange={e => {
+                  applyRoutinePresetAction({ type: 'switch', presetId: e.target.value });
+                  setPresetMenuOpen(false);
+                }}
+                className={`min-w-0 max-w-[150px] rounded-xl border px-2.5 py-1.5 text-xs font-bold outline-none ${theme.input}`}
+              >
+                {routinePresetState.presets.map(preset => (
+                  <option key={preset.id} value={preset.id}>{preset.name}</option>
+                ))}
+              </select>
+              <div className="relative shrink-0">
+                <button
+                  type="button"
+                  aria-label={t('healthPresetActions')}
+                  aria-expanded={presetMenuOpen}
+                  onClick={() => setPresetMenuOpen(open => !open)}
+                  className={`rounded-xl p-1.5 ${theme.hoverBg}`}
+                >
+                  <MoreHorizontal size={17} aria-hidden />
+                </button>
+                {presetMenuOpen && (
+                  <div className={`absolute left-0 top-full z-30 mt-1 w-48 rounded-xl border p-1.5 shadow-lg ${theme.card} ${theme.border}`}>
+                    <button type="button" onClick={handleCreatePreset} className={`w-full rounded-lg px-2.5 py-2 text-left text-xs font-bold ${theme.hoverBg}`}>{t('healthPresetNew')}</button>
+                    <button type="button" onClick={handleDuplicatePreset} className={`w-full rounded-lg px-2.5 py-2 text-left text-xs font-bold ${theme.hoverBg}`}>{t('healthPresetDuplicate')}</button>
+                    {presetRenameDraft ? (
+                      <div className="flex gap-1 p-1">
+                        <input
+                          autoFocus
+                          value={presetRenameDraft}
+                          maxLength={48}
+                          onChange={e => setPresetRenameDraft(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') commitPresetRename(); }}
+                          className={`min-w-0 flex-1 rounded-lg px-2 py-1.5 text-xs font-semibold outline-none ${theme.input}`}
+                        />
+                        <button type="button" onClick={commitPresetRename} className="rounded-lg bg-primary px-2 text-primary-foreground"><Check size={13} /></button>
+                      </div>
+                    ) : (
+                      <button type="button" onClick={beginPresetRename} className={`w-full rounded-lg px-2.5 py-2 text-left text-xs font-bold ${theme.hoverBg}`}>{t('healthPresetRename')}</button>
+                    )}
+                    <button type="button" onClick={handleDeletePreset} className="w-full rounded-lg px-2.5 py-2 text-left text-xs font-bold text-danger hover:bg-danger/10">{t('healthPresetDelete')}</button>
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className={`flex shrink-0 items-center gap-2 px-3 py-1.5 rounded-xl ${theme.input}`}>
               <input
                 type="number" inputMode="numeric" min="1" max="7"
                 value={splitCountInput}
                 onChange={e => setSplitCountInput(e.target.value)}
-                onBlur={() => {
-                  const n = Math.min(7, Math.max(1, Number(splitCountInput) || 1));
-                  setSplitCount(n);
-                  setSplitCountInput(String(n));
-                  localStorage.setItem('healthSplitCount', String(n));
-                }}
-                onKeyDown={e => {
-                  if (e.key === 'Enter') {
-                    const n = Math.min(7, Math.max(1, Number(splitCountInput) || 1));
-                    setSplitCount(n);
-                    setSplitCountInput(String(n));
-                    localStorage.setItem('healthSplitCount', String(n));
-                    (e.target as HTMLInputElement).blur();
-                  }
-                }}
+                onBlur={commitPresetSplit}
+                onKeyDown={e => { if (e.key === 'Enter') { commitPresetSplit(); (e.target as HTMLInputElement).blur(); } }}
                 className="w-8 bg-transparent text-lg font-bold outline-none text-center tabular-nums"/>
               <span className={`text-xs font-semibold ${theme.textMuted}`}>{t('splits')}</span>
             </div>
@@ -1025,7 +1273,7 @@ export const HealthView = ({
           <div className="grid flex-1 grid-cols-1 2xl:grid-cols-2 gap-2 lg:gap-2.5 min-h-0 overflow-y-auto overscroll-contain pr-1" data-k136b-routine-scroll>
             {Array.from({ length: splitCount }).map((_, i) => {
               const dayName = `Day ${i + 1}`;
-              const routine = healthRoutines?.find((r: HealthRoutine) => r.day_name === dayName);
+              const routine = selectedHealthRoutines.find((r: HealthRoutine) => r.day_name === dayName);
               const blocks = (routine?.blocks ?? [])
                 .map((id: string) => healthBlocks?.find((b: ExerciseBlock) => b.id === id))
                 .filter((b): b is ExerciseBlock => !!b);
@@ -1043,7 +1291,7 @@ export const HealthView = ({
                         <span className="truncate">{b.name}</span>
                         {showsPlannedSetCount(b.type) ? (
                           <span className={`shrink-0 tabular-nums ${theme.textMuted}`}>
-                            {t('k76SetCount').replace('{count}', String(getRoutinePlannedSetCount(dayName, b.id, b.type, prevData[b.id]?.prev_sets)))}
+                            {t('k76SetCount').replace('{count}', String(routinePresetPlannedSetCount(activePreset, dayName, b.id, b.type, prevData[b.id]?.prev_sets)))}
                           </span>
                         ) : null}
                       </div>
@@ -1709,7 +1957,7 @@ export const HealthView = ({
                                 inputMode="numeric"
                                 min={1}
                                 max={12}
-                                value={tempRoutineSetCounts[id] ?? getRoutinePlannedSetCount(activeDayForm, id, b.type, prevData[id]?.prev_sets)}
+                                value={tempRoutineSetCounts[id] ?? routinePresetPlannedSetCount(activePreset, activeDayForm, id, b.type, prevData[id]?.prev_sets)}
                                 onClick={e => e.stopPropagation()}
                                 onChange={e => {
                                   const n = Math.min(12, Math.max(1, Number(e.target.value) || 1));
