@@ -4,6 +4,7 @@ import {
   deriveGlobalHealthExerciseRecentRanks,
   projectLocalHealthDaily,
   projectLocalHealthStatic,
+  projectLocalPreviousWorkoutRows,
   projectLocalHealthWorkoutRange,
 } from './healthLocalRuntime';
 
@@ -123,6 +124,31 @@ describe('local Health catalog/date projection boundary', () => {
     expect(july.map(row => row.block_id)).toEqual([PRESS_ID]);
     expect(august.map(row => row.block_id)).toEqual([SQUAT_ID]);
     expect(juneAgain.map(row => row.block_id)).toEqual([HISTORICAL_ID]);
+    expect(source).toEqual(sourceBefore);
+  });
+
+  it('projects bounded historical rows through the local repository boundary without rewriting recovery data', () => {
+    const source = datasets();
+    source.workout_logs.push(
+      {
+        id: 'previous-squat', user_id: OWNER, date: '2026-08-03', block_id: SQUAT_ID,
+        sets: [{ type: 'strength', set: 1, kg: 95, reps: 5, done: true }], sort_order: 1,
+      },
+      {
+        id: 'previous-press', user_id: OWNER, date: '2026-08-03', block_id: PRESS_ID,
+        sets: [{ type: 'strength', set: 1, kg: 65, reps: 8, done: true }], sort_order: 0,
+      },
+    );
+    const sourceBefore = structuredClone(source);
+
+    const rows = projectLocalPreviousWorkoutRows(source, '2026-08-03', '2026-08-03');
+
+    expect(rows.map(row => [row.date, row.blockId, row.sortOrder])).toEqual([
+      ['2026-08-03', SQUAT_ID, 1],
+      ['2026-08-03', PRESS_ID, 0],
+    ]);
+    expect(rows[0]?.exerciseBlock.name).toBe('Squat');
+    rows[0]!.sets[0] = { type: 'strength', set: 1, kg: 1, reps: 1, done: false };
     expect(source).toEqual(sourceBefore);
   });
 });
