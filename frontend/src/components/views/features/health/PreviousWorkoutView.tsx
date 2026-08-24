@@ -6,15 +6,19 @@ import { formatSavedWeight } from './healthWeight';
 
 export interface PreviousWorkoutViewProps {
   session: PreviousWorkoutSession | null;
+  sessions: readonly PreviousWorkoutSession[];
+  selectedDate: string | null;
   isLoading: boolean;
   hasError: boolean;
   theme: Theme;
   darkMode: boolean;
   t: (key: TranslationKey) => string;
   formatDate: (date: string) => string;
+  formatCompactDate: (date: string) => string;
   formatWeight: (value: number | string, blockId: string) => string;
   weightUnit: (blockId: string) => 'kg' | 'lbs';
   onRetry: () => void;
+  onSelectDate: (date: string) => void;
 }
 
 function valueOrDash(value: string | number | undefined): string {
@@ -78,15 +82,19 @@ function CardioSetRow({ set, t, theme }: { set: WorkoutSet; t: (key: Translation
 
 export function PreviousWorkoutView({
   session,
+  sessions,
+  selectedDate,
   isLoading,
   hasError,
   theme,
   darkMode,
   t,
   formatDate,
+  formatCompactDate,
   formatWeight,
   weightUnit,
   onRetry,
+  onSelectDate,
 }: PreviousWorkoutViewProps) {
   if (isLoading) {
     return <div className={`flex flex-1 items-center justify-center rounded-2xl border px-4 py-12 text-sm ${theme.border} ${theme.textMuted}`} data-health-previous-loading>{t('previousWorkoutLoading')}</div>;
@@ -103,12 +111,37 @@ export function PreviousWorkoutView({
     );
   }
 
+  const dateSelector = sessions.length > 0 ? (
+    <section className={`shrink-0 rounded-2xl border px-3 py-3 ${theme.border} ${theme.input}`} data-health-previous-date-browser>
+      <p className={`mb-2 text-xs font-bold ${theme.textMuted}`}>{t('previousWorkoutDates')}</p>
+      <div className="flex max-w-full gap-2 overflow-x-auto pb-1" role="group" aria-label={t('previousWorkoutDates')}>
+        {sessions.map(candidate => {
+          const isSelected = candidate.date === selectedDate;
+          return (
+            <button
+              key={candidate.date}
+              type="button"
+              aria-pressed={isSelected}
+              onClick={() => onSelectDate(candidate.date)}
+              className={`min-h-[42px] shrink-0 rounded-xl border px-3 py-2 text-xs font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
+                isSelected ? 'border-primary bg-primary text-primary-foreground' : `${theme.border} ${theme.card} ${theme.textMuted}`
+              }`}
+            >
+              {formatCompactDate(candidate.date)}
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  ) : null;
+
   if (!session) {
-    return <div className={`flex flex-1 items-center justify-center rounded-2xl border border-dashed px-4 py-12 text-center text-sm ${theme.border} ${theme.textMuted}`} data-health-previous-empty>{t('previousWorkoutEmpty')}</div>;
+    return <div className="flex min-h-0 flex-1 flex-col gap-3" data-health-previous-content>{dateSelector}<div className={`flex flex-1 items-center justify-center rounded-2xl border border-dashed px-4 py-12 text-center text-sm ${theme.border} ${theme.textMuted}`} data-health-previous-empty>{t('previousWorkoutEmpty')}</div></div>;
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto space-y-3 pr-1" data-health-previous-workout>
+    <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1" data-health-previous-workout>
+      {dateSelector}
       <div className={`rounded-2xl border px-4 py-3 ${theme.border} ${darkMode ? 'bg-surface/40' : 'bg-gray-50/70'}`}>
         <p className="font-heading text-lg font-bold">{t('previousWorkout')}</p>
         <p className={`mt-1 text-xs font-medium ${theme.textMuted}`}>{formatDate(session.date)}</p>

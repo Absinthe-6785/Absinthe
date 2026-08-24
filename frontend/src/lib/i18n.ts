@@ -559,6 +559,7 @@ const translations = {
   tabPrevious:    { en: 'Previous',         ko: '이전 운동',      ja: '前回'             },
   previousWorkoutToggle: { en: 'Workout history view', ko: '운동 기록 보기', ja: 'ワークアウト履歴表示' },
   previousWorkout: { en: 'Previous Workout', ko: '이전 운동',      ja: '前回のワークアウト' },
+  previousWorkoutDates: { en: 'Recent workout dates', ko: '최근 운동 날짜', ja: '最近のワークアウト日' },
   previousWorkoutEmpty: { en: 'No previous workout yet.', ko: '이전 운동 기록이 없습니다.', ja: '前回のワークアウトはまだありません。' },
   previousWorkoutLoading: { en: 'Loading previous workout…', ko: '이전 운동을 불러오는 중…', ja: '前回のワークアウトを読み込み中…' },
   previousWorkoutError: { en: 'Previous workout could not be loaded.', ko: '이전 운동을 불러오지 못했습니다.', ja: '前回のワークアウトを読み込めませんでした。' },
