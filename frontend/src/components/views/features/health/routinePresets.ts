@@ -12,6 +12,8 @@ export type RoutinePresetDay = {
   blocks: string[];
   plannedSets: Record<string, number>;
   legacyRoutineId?: string;
+  /** Marks a day that the user has explicitly edited, including clearing it. */
+  locallyAuthored?: boolean;
 };
 
 export type RoutinePreset = {
@@ -27,6 +29,8 @@ export type RoutinePresetState = {
   presets: RoutinePreset[];
   /** True only until the first account-scoped state observes legacy remote rows. */
   legacySyncPending?: boolean;
+  /** Highest account routine day observed, used to distinguish new data from an intentional split reduction. */
+  legacyObservedSplitCount?: number;
 };
 
 export type RoutinePresetStateOptions = {
@@ -86,7 +90,27 @@ function normalizeDay(value: unknown, fallbackDayName: string): RoutinePresetDay
   const legacyRoutineId = typeof raw.legacyRoutineId === 'string' && raw.legacyRoutineId.length > 0
     ? raw.legacyRoutineId
     : undefined;
-  return { dayName, blocks, plannedSets, ...(legacyRoutineId ? { legacyRoutineId } : {}) };
+  const locallyAuthored = raw.locallyAuthored === true;
+  return {
+    dayName,
+    blocks,
+    plannedSets,
+    ...(legacyRoutineId ? { legacyRoutineId } : {}),
+    ...(locallyAuthored ? { locallyAuthored: true } : {}),
+  };
+}
+
+function dayNumber(dayName: string): number {
+  const match = /^Day\s+(\d+)$/.exec(dayName);
+  return match ? Number(match[1]) : 0;
+}
+
+function highestDayNumber(days: readonly { dayName: string }[]): number {
+  return days.reduce((max, day) => Math.max(max, dayNumber(day.dayName)), 0);
+}
+
+export function observedRoutineSplitCount(routines: readonly HealthRoutine[]): number {
+  return routines.reduce((max, routine) => Math.max(max, dayNumber(routine.day_name)), 0);
 }
 
 function normalizePreset(value: unknown, index: number): RoutinePreset | null {
@@ -95,7 +119,10 @@ function normalizePreset(value: unknown, index: number): RoutinePreset | null {
   const id = typeof raw.id === 'string' && raw.id.trim() ? raw.id.trim() : `preset-${index + 1}`;
   const splitCount = clampRoutineSplit(Number(raw.splitCount));
   const rawDays = Array.isArray(raw.days) ? raw.days : [];
-  const days = Array.from({ length: splitCount }, (_, dayIndex) => {
+  const dayCount = clampRoutineSplit(Math.max(splitCount, highestDayNumber(rawDays
+    .filter((day): day is Record<string, unknown> => !!day && typeof day === 'object')
+    .map(day => ({ dayName: typeof day.dayName === 'string' ? day.dayName : '' })))));
+  const days = Array.from({ length: dayCount }, (_, dayIndex) => {
     const candidate = rawDays.find(day => (
       day && typeof day === 'object' && (day as Record<string, unknown>).dayName === dayNameFor(dayIndex)
     ));
@@ -133,6 +160,9 @@ export function normalizeRoutinePresetState(value: unknown): RoutinePresetState 
     activePresetId: presets.some(preset => preset.id === requestedActive) ? requestedActive : presets[0].id,
     presets,
     legacySyncPending: raw.legacySyncPending === true,
+    legacyObservedSplitCount: typeof raw.legacyObservedSplitCount === 'number'
+      ? clampRoutineSplit(raw.legacyObservedSplitCount)
+      : undefined,
   };
 }
 
@@ -173,7 +203,7 @@ function dayFromLegacy(
 }
 
 export function createLegacyRoutinePreset({ routines, splitCount, plannedSetsByDay = {} }: RoutinePresetStateOptions): RoutinePreset {
-  const normalizedSplit = clampRoutineSplit(splitCount);
+  const normalizedSplit = clampRoutineSplit(Math.max(splitCount, observedRoutineSplitCount(routines)));
   return {
     id: DEFAULT_ROUTINE_PRESET_ID,
     name: 'Default',
@@ -184,11 +214,13 @@ export function createLegacyRoutinePreset({ routines, splitCount, plannedSetsByD
 
 export function createRoutinePresetState(options: RoutinePresetStateOptions): RoutinePresetState {
   const preset = createLegacyRoutinePreset(options);
+  const observedSplit = observedRoutineSplitCount(options.routines);
   return {
     version: ROUTINE_PRESET_STATE_VERSION,
     activePresetId: preset.id,
     presets: [preset],
     legacySyncPending: options.routines.length === 0,
+    ...(observedSplit > 0 ? { legacyObservedSplitCount: observedSplit } : {}),
   };
 }
 
@@ -196,27 +228,39 @@ export function syncLegacyDefaultRoutinePreset(
   state: RoutinePresetState,
   options: RoutinePresetStateOptions,
 ): RoutinePresetState {
-  if (!state.legacySyncPending || options.routines.length === 0) return state;
+  if (options.routines.length === 0) return state;
   const defaultPreset = state.presets.find(preset => preset.id === DEFAULT_ROUTINE_PRESET_ID);
   if (!defaultPreset) return { ...state, legacySyncPending: false };
-  const synced = createLegacyRoutinePreset(options);
-  const observedSplit = options.routines.reduce((max, routine) => {
-    const match = /^Day\s+(\d+)$/.exec(routine.day_name);
-    return match ? Math.max(max, Number(match[1])) : max;
-  }, 0);
-  const splitCount = clampRoutineSplit(Math.max(defaultPreset.splitCount, synced.splitCount, observedSplit));
-  const days = Array.from({ length: splitCount }, (_, index) => {
+  const observedSplit = observedRoutineSplitCount(options.routines);
+  const previousObservedSplit = state.legacyObservedSplitCount ?? 0;
+  const newlyObservedHigherDay = observedSplit > previousObservedSplit;
+  const knownObservedSplit = Math.max(previousObservedSplit, observedSplit);
+  const splitCount = clampRoutineSplit(Math.max(defaultPreset.splitCount, newlyObservedHigherDay ? observedSplit : 0));
+  const synced = createLegacyRoutinePreset({ ...options, splitCount });
+  const days = Array.from({ length: Math.max(splitCount, highestDayNumber(defaultPreset.days)) }, (_, index) => {
     const dayName = dayNameFor(index);
     const existing = defaultPreset.days.find(day => day.dayName === dayName);
     const legacy = synced.days.find(day => day.dayName === dayName) ?? emptyDay(dayName);
-    const hasExistingContent = !!existing && (existing.blocks.length > 0 || Object.keys(existing.plannedSets).length > 0 || !!existing.legacyRoutineId);
-    return hasExistingContent ? { ...existing, legacyRoutineId: existing.legacyRoutineId ?? legacy.legacyRoutineId } : legacy;
+    const hasExistingContent = !!existing && (
+      existing.blocks.length > 0
+      || Object.keys(existing.plannedSets).length > 0
+      || !!existing.legacyRoutineId
+      || existing.locallyAuthored === true
+    );
+    return hasExistingContent
+      ? { ...existing, legacyRoutineId: existing.legacyRoutineId ?? legacy.legacyRoutineId }
+      : legacy;
   });
   const mergedDefault = { ...defaultPreset, splitCount, days };
+  const pendingChanged = state.legacySyncPending !== false;
+  if (!pendingChanged
+    && state.legacyObservedSplitCount === knownObservedSplit
+    && JSON.stringify(mergedDefault) === JSON.stringify(defaultPreset)) return state;
   return {
     ...state,
     presets: state.presets.map(preset => preset.id === DEFAULT_ROUTINE_PRESET_ID ? mergedDefault : preset),
     legacySyncPending: false,
+    ...(knownObservedSplit > 0 ? { legacyObservedSplitCount: knownObservedSplit } : {}),
   };
 }
 
@@ -241,7 +285,7 @@ export function routinePresetById(state: RoutinePresetState, presetId = state.ac
 }
 
 export function routinePresetToHealthRoutines(preset: RoutinePreset): HealthRoutine[] {
-  return preset.days.map(day => ({
+  return preset.days.slice(0, preset.splitCount).map(day => ({
     id: day.legacyRoutineId ?? `${preset.id}:${day.dayName}`,
     day_name: day.dayName,
     blocks: [...day.blocks],
@@ -297,7 +341,8 @@ export function updateRoutinePresetState(state: RoutinePresetState, action: Rout
   if (!target) return state;
   if (action.type === 'set-split') {
     const splitCount = clampRoutineSplit(action.splitCount);
-    const days = Array.from({ length: splitCount }, (_, index) => (
+    const dayCount = Math.max(splitCount, highestDayNumber(target.days));
+    const days = Array.from({ length: dayCount }, (_, index) => (
       target.days.find(day => day.dayName === dayNameFor(index)) ?? emptyDay(dayNameFor(index))
     ));
     return {
@@ -307,9 +352,11 @@ export function updateRoutinePresetState(state: RoutinePresetState, action: Rout
   }
   if (action.type === 'set-day') {
     const dayName = action.dayName;
+    const existing = target.days.some(day => day.dayName === dayName);
     const days = target.days.map(day => day.dayName === dayName
-      ? { ...day, blocks: [...action.blocks], plannedSets: { ...action.plannedSets } }
+      ? { ...day, blocks: [...action.blocks], plannedSets: { ...action.plannedSets }, locallyAuthored: true }
       : day);
+    if (!existing) days.push({ ...emptyDay(dayName), blocks: [...action.blocks], plannedSets: { ...action.plannedSets }, locallyAuthored: true });
     return {
       ...state,
       presets: state.presets.map(preset => preset.id === target.id ? { ...preset, days } : preset),
