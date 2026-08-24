@@ -44,6 +44,11 @@ import {
   type PreviousWorkoutHistoryRow,
 } from './features/health/previousWorkoutSession';
 import { buildPreviousWorkoutHistoryProjection } from './features/health/previousWorkoutProjection';
+import { useHealthWorkoutDraft } from './features/health/useHealthWorkoutDraft';
+import {
+  isCurrentHealthWorkoutOperationScope,
+  type HealthWorkoutOperationScope,
+} from './features/health/healthWorkoutOperationScope';
 import { readHealthSectionPrefs } from './features/health/healthSectionPrefs';
 import { buildSetsFromPlannedCount, buildSetsFromPrevCount } from './features/health/workoutSetCount';
 import { fetchPrevWorkoutForBlocks } from './features/health/prevWorkoutFetch';
@@ -87,10 +92,8 @@ import { shouldUseRemoteData } from '../../lib/remoteBoundary';
 import { createLocalHealthRepository, readLocalHealthWorkoutRange, readLocalPreviousWorkoutRows } from '../../lib/healthLocalRuntime';
 import {
   isCurrentHealthAccountGeneration,
-  localHealthDraftKey,
   localHealthMemoKey,
   localHealthWriteFailureDisposition,
-  readLocalHealthWorkoutDraft,
   type HealthAccountGenerationToken,
 } from '../../lib/healthBackfillUiSafety';
 
@@ -177,8 +180,6 @@ export const HealthView = ({
   const [isPreviousSheetOpen, setIsPreviousSheetOpen] = useState(false);
   const [selectedPreviousDate, setSelectedPreviousDate] = useState<string | null>(null);
   const [healthSection, setHealthSection] = useState<HealthWorkspaceSection>('workout');
-  // isDirty: 사용자가 세트를 편집 중인 상태.
-  const [isDirty, setIsDirty] = useState(false);
   const [copied, setCopied] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isWorkoutLocked, setIsWorkoutLocked] = useState(false);
@@ -189,9 +190,6 @@ export const HealthView = ({
   const pendingLatestWorkoutIndexRef = useRef<number | null>(null);
   const quickCaptureInputRef = useRef<HTMLInputElement | null>(null);
   const pendingFocusSetRef = useRef<{ wIdx: number; sIdx: number } | null>(null);
-  // ── lbs 입력 중 raw 값 보존 (wIdx-sIdx 키) — 변환 재계산으로 커서 고정되는 버그 방지
-  const [rawKgInput, setRawKgInput] = useState<Record<string, string>>({});
-  const [localWorkouts, setLocalWorkouts] = useState<Workout[]>([]);
   const persistRoutinePreset = useCallback((update: (current: RoutinePresetState) => RoutinePresetState) => {
     setRoutinePresetState(current => {
       const next = update(current);
@@ -358,26 +356,6 @@ export const HealthView = ({
     return lines.join('\n');
   }, [weightUnits]);
 
-  const handleCopySummary = useCallback(async () => {
-    const text = buildWorkoutSummary(formatDate(selectedDate), localWorkouts, workoutMemo);
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // clipboard API 미지원 시 fallback
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      ta.style.position = 'fixed';
-      ta.style.opacity  = '0';
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand('copy');
-      document.body.removeChild(ta);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
-  }, [buildWorkoutSummary, formatDate, selectedDate, localWorkouts, workoutMemo]);
   // ── 드래그 정렬 상태 (워크아웃) ──────────────────────────────────
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
@@ -403,7 +381,14 @@ export const HealthView = ({
 
   // ── Draft 자동 저장/복원 ──────────────────────────────────────────
   const selectedDateDraftKey = formatDate(selectedDate);
-  const draftKey = localHealthDraftKey(user.id, selectedDateDraftKey);
+  const activeWorkoutDateKeyRef = useRef(selectedDateDraftKey);
+  activeWorkoutDateKeyRef.current = selectedDateDraftKey;
+  const currentWorkoutOperation = (scope: HealthWorkoutOperationScope): boolean =>
+    isCurrentHealthWorkoutOperationScope(
+      scope,
+      activeWorkoutDateKeyRef.current,
+      currentAccountOperation,
+    );
   const memoKey = localHealthMemoKey(user.id, selectedDateDraftKey);
 
   // selectedDate 변경 시 메모도 localStorage에서 복원
@@ -415,6 +400,44 @@ export const HealthView = ({
     setPrevData({});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDate, user.id, memoKey]);
+
+  const {
+    localWorkouts,
+    setLocalWorkouts,
+    isDirty,
+    setIsDirty,
+    isDirtyRef,
+    rawKgInput,
+    setRawKgInput,
+    replaceFromHydration,
+    clearStoredDraft,
+    clearDirtyAfterSave,
+  } = useHealthWorkoutDraft({
+    accountId: user.id,
+    dateKey: selectedDateDraftKey,
+    onDraftRestored: () => showToast(t('draftRestored')),
+  });
+
+  const handleCopySummary = useCallback(async () => {
+    const text = buildWorkoutSummary(formatDate(selectedDate), localWorkouts, workoutMemo);
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // clipboard API 미지원 시 fallback
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity  = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  }, [buildWorkoutSummary, formatDate, selectedDate, localWorkouts, workoutMemo]);
 
   const ensurePrevData = useCallback(async (blockIds: readonly string[], source: string) => {
     const missing = [...new Set(blockIds.filter(id => id && id !== '__session__'))]
@@ -455,41 +478,15 @@ export const HealthView = ({
     void ensurePrevData(ids, 'HealthView.selectedRoutinePreset');
   }, [selectedHealthRoutines, ensurePrevData]);
 
-  // isDirtyRef: workouts effect가 stale closure로 draft를 덮어쓰는 경쟁 조건 방어.
-  // isDirty state 대신 ref를 읽으면 항상 최신값을 참조하므로 deps 없이 안전.
-  const isDirtyRef = useRef(false);
-  useEffect(() => { isDirtyRef.current = isDirty; }, [isDirty]);
-
-  // selectedDate 변경 시: draft가 있으면 복원, 없으면 서버 데이터로 초기화
+  // selectedDate 변경 시에도 lock/save/InBody 정책은 HealthView가 소유한다.
+  // Draft/input reset and hydration remain inside useHealthWorkoutDraft.
   useEffect(() => {
-    setLocalWorkouts([]);
-    setIsDirty(false);
-    isDirtyRef.current = false;
-    setRawKgInput({});
     setIsWorkoutLocked(false);
     setIsSaving(false);
     setIsInbodyDirty(false);
     setLocalInbody({ weight: null, smm: null, pbf: null, local_version: null });
-    const draft = readLocalHealthWorkoutDraft(
-      localStorage,
-      user.id,
-      selectedDateDraftKey,
-    );
-    if (draft && draft.length > 0) {
-      setLocalWorkouts(draft);
-      setIsDirty(true);
-      isDirtyRef.current = true;
-      showToast(t('draftRestored'));
-    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDate, user.id, selectedDateDraftKey]);
-
-  // isDirty 중 localWorkouts 변경 시마다 draft 저장
-  useEffect(() => {
-    if (isDirty && localWorkouts.length > 0) {
-      localStorage.setItem(draftKey, JSON.stringify(localWorkouts));
-    }
-  }, [localWorkouts, isDirty, draftKey]);
 
   // workouts(SWR)가 갱신될 때 isDirtyRef로 판단 → draft 복원 직후 덮어쓰기 방지
   useEffect(() => {
@@ -499,10 +496,10 @@ export const HealthView = ({
         const bo = b.sort_order ?? 9999;
         return ao - bo;
       });
-      setLocalWorkouts(sorted);
+      replaceFromHydration(sorted);
       setIsWorkoutLocked(sorted.length > 0);
     }
-  }, [workouts]);
+  }, [replaceFromHydration, workouts]);
 
   useEffect(() => {
     if (!isInbodyDirty)
@@ -790,9 +787,12 @@ export const HealthView = ({
   };
 
   const handleRemoveWorkout = async (index: number, dbId: string) => {
-    const accountOperation: HealthAccountGenerationToken = {
-      accountId: user.id,
-      generation: accountGenerationRef.current,
+    const operationScope: HealthWorkoutOperationScope = {
+      accountOperation: {
+        accountId: user.id,
+        generation: accountGenerationRef.current,
+      },
+      dateKey: selectedDateDraftKey,
     };
     try {
       // 세션 구분선은 DB에 없으므로 API 호출 없이 바로 제거
@@ -800,26 +800,27 @@ export const HealthView = ({
         if (localMode) {
           const expectedVersion = localWorkouts[index]?.local_version;
           if (!expectedVersion) throw new Error('health_local_workout_expected_version_missing');
-          const repository = await createLocalHealthRepository(accountOperation.accountId);
-          if (!currentAccountOperation(accountOperation)) return;
+          const repository = await createLocalHealthRepository(operationScope.accountOperation.accountId);
+          if (!currentWorkoutOperation(operationScope)) return;
           await repository.deleteWorkout(dbId, expectedVersion);
-          if (!currentAccountOperation(accountOperation)) return;
+          if (!currentWorkoutOperation(operationScope)) return;
           mutateDaily();
           mutateMonthWorkoutRows();
           mutateStatic();
         } else {
-        const res = await authFetch(`${API_URL}/api/workouts/${dbId}`, { method: 'DELETE' });
-        if (!res.ok) throw new Error(`[${res.status}]`);
-        // DB 삭제 성공 즉시 mutateDaily → SWR 캐시도 동기화.
-        mutateDaily();
+          const res = await authFetch(`${API_URL}/api/workouts/${dbId}`, { method: 'DELETE' });
+          if (!res.ok) throw new Error(`[${res.status}]`);
+          if (!currentWorkoutOperation(operationScope)) return;
+          // DB 삭제 성공 즉시 mutateDaily → SWR 캐시도 동기화.
+          mutateDaily();
         }
       }
       const next = localWorkouts.filter((_, i) => i !== index);
-      if (!currentAccountOperation(accountOperation)) return;
+      if (!currentWorkoutOperation(operationScope)) return;
       setLocalWorkouts(next);
-      if (next.length === 0) { setIsDirty(false); localStorage.removeItem(draftKey); }
+      if (next.length === 0) { setIsDirty(false); clearStoredDraft(); }
     } catch (error) {
-      if (!currentAccountOperation(accountOperation)) return;
+      if (!currentWorkoutOperation(operationScope)) return;
       const failure = localHealthWriteFailureDisposition(error);
       showToast(t(failure.kind === 'conflict' ? 'healthWriteConflict' : 'failedRemove'), 'error');
     }
@@ -951,11 +952,14 @@ export const HealthView = ({
   const handleSaveWorkouts = async () => {
     if (localWorkouts.filter(w => w.block_id !== '__session__').length === 0)
       return showToast(t('noWorkouts'), 'error');
-    setIsSaving(true);
-    const accountOperation: HealthAccountGenerationToken = {
-      accountId: user.id,
-      generation: accountGenerationRef.current,
+    const operationScope: HealthWorkoutOperationScope = {
+      accountOperation: {
+        accountId: user.id,
+        generation: accountGenerationRef.current,
+      },
+      dateKey: selectedDateDraftKey,
     };
+    setIsSaving(true);
     const normalizedWorkouts = localWorkouts.map(workout => ({
       ...workout,
       sets: workout.sets.map(set => {
@@ -966,8 +970,8 @@ export const HealthView = ({
 
     if (localMode) {
       try {
-        const repository = await createLocalHealthRepository(accountOperation.accountId);
-        if (!currentAccountOperation(accountOperation)) return;
+        const repository = await createLocalHealthRepository(operationScope.accountOperation.accountId);
+        if (!currentWorkoutOperation(operationScope)) return;
         const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
         const results = await repository.saveWorkouts(normalizedWorkouts
           .filter(w => w.block_id !== '__session__')
@@ -979,7 +983,7 @@ export const HealthView = ({
             sortOrder,
             expectedVersion: w.local_version ?? null,
           })));
-        if (!currentAccountOperation(accountOperation)) return;
+        if (!currentWorkoutOperation(operationScope)) return;
         let resultIndex = 0;
         setLocalWorkouts(normalizedWorkouts.map(workout => {
           if (workout.block_id === '__session__') return workout;
@@ -987,16 +991,15 @@ export const HealthView = ({
           return result ? { ...workout, id: result.id, local_version: result.version } : workout;
         }));
         setIsSaving(false);
-        localStorage.removeItem(draftKey);
         showToast(t('workoutSaved'));
-        setIsDirty(false);
+        clearDirtyAfterSave();
         setIsWorkoutLocked(true);
         mutateDaily();
         mutateMonthWorkoutRows();
         mutateStatic();
         return;
       } catch (error) {
-        if (!currentAccountOperation(accountOperation)) return;
+        if (!currentWorkoutOperation(operationScope)) return;
         const failure = localHealthWriteFailureDisposition(error);
         setIsSaving(false);
         showToast(t(failure.kind === 'conflict' ? 'healthWriteConflict' : 'failedSave'), 'error');
@@ -1016,17 +1019,21 @@ export const HealthView = ({
           method: 'POST',
           body: JSON.stringify({ date: formatDate(selectedDate), block_id: w.block_id, sets: w.sets, sort_order: dbIdx }),
         });
+        if (!currentWorkoutOperation(operationScope)) return;
         if (!res.ok) failed++;
-      } catch { failed++; }
+      } catch {
+        if (!currentWorkoutOperation(operationScope)) return;
+        failed++;
+      }
       dbIdx++;
     }
     const total = dbIdx; // 실제 저장 시도한 운동 수
+    if (!currentWorkoutOperation(operationScope)) return;
     setIsSaving(false);
     if (failed === 0) {
       setLocalWorkouts(normalizedWorkouts);
-      localStorage.removeItem(draftKey);
       showToast(t('workoutSaved'));
-      setIsDirty(false);
+      clearDirtyAfterSave();
       setIsWorkoutLocked(true);
       mutateDaily();
       if (localMode) mutateStatic();
@@ -1036,9 +1043,8 @@ export const HealthView = ({
         });
       }
     } else if (failed < total) {
-      localStorage.removeItem(draftKey);
       showToast(t('partialSave').replace('{done}', String(total - failed)).replace('{total}', String(total)), 'error');
-      setIsDirty(false);
+      clearDirtyAfterSave();
       setIsWorkoutLocked(true);
       mutateDaily();
       if (localMode) mutateStatic();
