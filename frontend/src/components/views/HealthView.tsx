@@ -36,6 +36,7 @@ import { WorkoutPrBadge } from './features/health/WorkoutPrBadge';
 import { PreviousWorkoutView } from './features/health/PreviousWorkoutView';
 import { PreviousWorkoutSheet } from './features/health/PreviousWorkoutSheet';
 import { previousWorkoutSWRConfig } from './features/health/previousWorkoutSWR';
+import { HealthMobileSetupNav, type HealthMobileSurface, type HealthSetupSection } from './features/health/HealthMobileSetupNav';
 import {
   normalizePreviousWorkoutRows,
   previousWorkoutRange,
@@ -166,11 +167,14 @@ export const HealthView = ({
   // activeTagFilter: 현재 선택된 태그 필터 (null이면 전체)
   const [activeTagFilter, setActiveTagFilter] = useState<string | null>(null);
   const [showAssembleModal, setShowAssembleModal] = useState(false);
-  const [activeDayForm, setActiveDayForm] = useState('');
+  const [activeDayForm, setActiveDayForm] = useState('Day 1');
   const [tempRoutineBlocks, setTempRoutineBlocks] = useState<string[]>([]);
   const [tempRoutineSetCounts, setTempRoutineSetCounts] = useState<Record<string, number>>({});
   // 모바일 전용 탭 상태 — 데스크탑에서는 무시됨
-  const [mobileHealthTab, setMobileHealthTab] = useState<'blocks' | 'routine' | 'workout' | 'previous'>('workout');
+  const [mobileHealthTab, setMobileHealthTab] = useState<HealthMobileSurface | 'previous'>('workout');
+  const [setupSection, setSetupSection] = useState<HealthSetupSection>('routine');
+  const [showQuickAddExercise, setShowQuickAddExercise] = useState(false);
+  const [quickAddQuery, setQuickAddQuery] = useState('');
   const [isPreviousSheetOpen, setIsPreviousSheetOpen] = useState(false);
   const [selectedPreviousDate, setSelectedPreviousDate] = useState<string | null>(null);
   const [healthSection, setHealthSection] = useState<HealthWorkspaceSection>('workout');
@@ -181,6 +185,7 @@ export const HealthView = ({
   const [isWorkoutLocked, setIsWorkoutLocked] = useState(false);
   const [workoutOverflowIndex, setWorkoutOverflowIndex] = useState<number | null>(null);
   const inbodyQuickRef = useRef<HTMLDivElement>(null);
+  const wasMobileRef = useRef(isMobile);
   const latestWorkoutRecordRef = useRef<HTMLDivElement>(null);
   const pendingLatestWorkoutIndexRef = useRef<number | null>(null);
   const quickCaptureInputRef = useRef<HTMLInputElement | null>(null);
@@ -221,7 +226,10 @@ export const HealthView = ({
     setPresetMenuOpen(false);
     setPresetRenameDraft('');
     setShowAssembleModal(false);
-    setActiveDayForm('');
+    setActiveDayForm('Day 1');
+    setSetupSection('routine');
+    setShowQuickAddExercise(false);
+    setQuickAddQuery('');
     setTempRoutineBlocks([]);
     setTempRoutineSetCounts({});
     setSelectedPreviousDate(null);
@@ -232,19 +240,25 @@ export const HealthView = ({
 
   useEffect(() => {
     setMobileHealthTab('workout');
+    setSetupSection('routine');
+    setShowQuickAddExercise(false);
   }, [user.id]);
 
   useEffect(() => {
     // The contextual sheet is intentionally mobile-only. Closing it on a
     // responsive transition also prevents a mobile overlay from surviving
     // into the unchanged desktop Today/Previous layout.
+    const enteringMobile = isMobile && !wasMobileRef.current;
     if (!isMobile) {
       setIsPreviousSheetOpen(false);
-    } else if (mobileHealthTab === 'previous') {
+      setShowQuickAddExercise(false);
+    } else if (enteringMobile || mobileHealthTab === 'previous') {
       // Desktop may leave the shared toggle on Previous; mobile has no such
       // permanent tab, so return to the mounted Workout surface.
       setMobileHealthTab('workout');
+      setSetupSection('routine');
     }
+    wasMobileRef.current = isMobile;
   }, [isMobile, mobileHealthTab]);
 
   useEffect(() => {
@@ -504,6 +518,8 @@ export const HealthView = ({
   useEscapeKey(() => {
     setShowBlockModal(false);
     setShowAssembleModal(false);
+    setShowQuickAddExercise(false);
+    setQuickAddQuery('');
     setPresetMenuOpen(false);
     clearConfirm();
   });
@@ -746,6 +762,19 @@ export const HealthView = ({
       sets: buildSetsFromPrevCount(block.type, prevSets),
     }]);
   };
+
+  const handleQuickPresetChange = (presetId: string) => {
+    applyRoutinePresetAction({ type: 'switch', presetId });
+    const nextPreset = routinePresetById(routinePresetState, presetId);
+    const currentDayNumber = Number(activeDayForm.replace('Day ', ''));
+    setActiveDayForm(currentDayNumber >= 1 && currentDayNumber <= nextPreset.splitCount ? activeDayForm : 'Day 1');
+  };
+
+  const quickAddBlocks = useMemo(() => {
+    const query = quickAddQuery.trim().toLowerCase();
+    return (healthBlocks ?? []).filter(block => !query
+      || [block.name, ...(block.tags ?? [])].join(' ').toLowerCase().includes(query));
+  }, [healthBlocks, quickAddQuery]);
 
   // ── 세션 구분선 ───────────────────────────────────────────────────
   const SESSION_KEYS = ['sessionMorning', 'sessionAfternoon', 'sessionEvening'] as const;
@@ -1323,19 +1352,13 @@ export const HealthView = ({
     <div className="flex flex-col gap-3 lg:gap-4 pb-8 xl:grid xl:flex-1 xl:pb-0 min-h-0 xl:h-full xl:overflow-hidden xl:grid-cols-[minmax(340px,0.37fr)_minmax(680px,0.63fr)]" data-k129b-health-overview data-k134a-health-flow data-k134b-health-natural-scroll data-k136a-health-workspace-flow>
       {/* ── 좌측: Routine + Blocks (~38%) ── */}
       <div className="flex flex-col gap-2.5 shrink-0 xl:grid xl:grid-rows-[minmax(0,0.52fr)_minmax(0,0.48fr)] xl:gap-3 xl:h-full min-h-0 xl:min-w-0 xl:overflow-hidden" data-k129b-health-secondary data-k136a-health-left>
-        {/* 모바일 전용 탭 헤더 */}
-        <div className="flex lg:hidden gap-2">
-          {(['workout', 'routine', 'blocks'] as const).map(tab => (
-            <button key={tab}
-              onClick={() => setMobileHealthTab(tab)}
-              className={`flex-1 min-h-[44px] py-2.5 rounded-xl text-xs font-bold transition-colors
-                ${mobileHealthTab === tab
-                  ? 'bg-primary text-primary-foreground'
-                  : `${theme.input} ${theme.textMuted}`}`}>
-              {tab === 'blocks' ? t('tabBlocks') : tab === 'routine' ? t('tabRoutine') : t('tabWorkout')}
-            </button>
-          ))}
-        </div>
+        <HealthMobileSetupNav
+          activeSurface={mobileHealthTab === 'setup' ? 'setup' : 'workout'}
+          onSurfaceChange={setMobileHealthTab}
+          activeSection={setupSection}
+          onSectionChange={setSetupSection}
+          theme={theme}
+        />
         <HealthBlockLibrary
           blocks={healthBlocks ?? []}
           activeTagFilter={activeTagFilter}
@@ -1346,10 +1369,10 @@ export const HealthView = ({
           onEditBlock={openBlockModal}
           onDeleteBlock={handleDeleteBlock}
           onNewBlock={() => openBlockModal()}
-          mobileVisible={mobileHealthTab === 'blocks'}
+          mobileVisible={mobileHealthTab === 'setup' && setupSection === 'blocks'}
         />
 
-        <div className={`xl:h-full xl:min-h-0 ${WORKSPACE_CARD.sm} ${WORKSPACE_CARD_SURFACE} flex flex-col overflow-hidden transition-colors ${theme.card} ${mobileHealthTab === 'routine' ? '' : 'hidden lg:flex'}`} data-k126-workout-routine>
+        <div className={`xl:h-full xl:min-h-0 ${WORKSPACE_CARD.sm} ${WORKSPACE_CARD_SURFACE} flex flex-col overflow-hidden transition-colors ${theme.card} ${mobileHealthTab === 'setup' && setupSection === 'routine' ? '' : 'hidden lg:flex'}`} data-k126-workout-routine data-health-09b-routine>
           <div className="flex flex-wrap justify-between items-center gap-2 mb-2.5">
             <div className="flex min-w-0 items-center gap-2">
               <h2 className="font-heading text-base font-bold shrink-0">{t('routineSetup')}</h2>
@@ -1497,16 +1520,27 @@ export const HealthView = ({
               )}
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2 shrink-0">
-              {isMobile && !isDesktopPrevious && (
-                <button
-                  type="button"
-                  onClick={() => setIsPreviousSheetOpen(true)}
-                  className={`inline-flex min-h-[44px] items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-bold ${theme.border} ${theme.textMuted} hover:text-foreground abs-focus-ring`}
-                  data-health-previous-trigger
-                >
-                  <History size={15} aria-hidden />
-                  {t('previousWorkout')}
-                </button>
+              {isMobile && !isDesktopPrevious && !isWorkoutLocked && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setIsPreviousSheetOpen(true)}
+                    className={`inline-flex min-h-[44px] items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-bold ${theme.border} ${theme.textMuted} hover:text-foreground abs-focus-ring`}
+                    data-health-previous-trigger
+                  >
+                    <History size={15} aria-hidden />
+                    {t('previousWorkout')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setQuickAddQuery(''); setShowQuickAddExercise(true); }}
+                    className={`inline-flex min-h-[44px] items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-bold ${theme.border} ${theme.textMuted} hover:text-foreground abs-focus-ring`}
+                    data-health-quick-add-exercise
+                  >
+                    <Plus size={15} aria-hidden />
+                    {t('addExercise')}
+                  </button>
+                </>
               )}
               <div className={`hidden lg:flex items-center rounded-xl border p-0.5 ${theme.border} ${theme.input}`} role="group" aria-label={t('previousWorkoutToggle')}>
                 <button
@@ -1526,6 +1560,26 @@ export const HealthView = ({
               </div>
             {!isWorkoutLocked && !isDesktopPrevious && (
               <div className="flex items-center gap-2">
+                {isMobile && (
+                  <div className="flex min-w-0 items-center gap-1.5" data-health-quick-setup>
+                    <select
+                      aria-label={t('healthPresetLabel')}
+                      value={activePreset.id}
+                      onChange={e => handleQuickPresetChange(e.target.value)}
+                      className={`min-h-[40px] min-w-0 max-w-[120px] rounded-xl border px-2 py-2 text-xs font-bold outline-none ${theme.input} ${theme.border}`}
+                    >
+                      {routinePresetState.presets.map(preset => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
+                    </select>
+                    <select
+                      aria-label={t('healthDayLabel')}
+                      value={activeDayForm}
+                      onChange={e => setActiveDayForm(e.target.value)}
+                      className={`min-h-[40px] max-w-[88px] rounded-xl border px-2 py-2 text-xs font-bold outline-none ${theme.input} ${theme.border}`}
+                    >
+                      {Array.from({ length: splitCount }).map((_, i) => <option key={i} value={`Day ${i + 1}`}>{t('loadDay').replace('{n}', String(i + 1))}</option>)}
+                    </select>
+                  </div>
+                )}
                 {/* 세션 구분선 추가 드롭다운 */}
                 <select
                   onChange={e => {
@@ -1587,14 +1641,14 @@ export const HealthView = ({
                   <div className="flex shrink-0 flex-wrap gap-2">
                     <button
                       type="button"
-                      onClick={() => setMobileHealthTab('blocks')}
+                      onClick={() => { setMobileHealthTab('setup'); setSetupSection('blocks'); }}
                       className="inline-flex min-h-[44px] items-center justify-center rounded-xl bg-primary px-4 py-2 text-sm font-bold text-primary-foreground"
                     >
                       {t('k99EmptyHealthWorkoutsAction')}
                     </button>
                     <button
                       type="button"
-                      onClick={() => setMobileHealthTab('routine')}
+                      onClick={() => { setMobileHealthTab('setup'); setSetupSection('routine'); }}
                       className={`inline-flex min-h-[44px] items-center justify-center rounded-xl border px-4 py-2 text-sm font-bold ${theme.border} ${theme.textMuted} hover:text-foreground`}
                     >
                       {t('tabRoutine')}
@@ -2055,6 +2109,58 @@ export const HealthView = ({
         selectedDate={effectivePreviousDate}
         onSelectDate={setSelectedPreviousDate}
       />
+
+      {showQuickAddExercise && isMobile && (
+        <div
+          className="fixed inset-0 z-[90] flex items-end justify-center bg-black/60 p-3 backdrop-blur-sm"
+          role="presentation"
+          onClick={() => setShowQuickAddExercise(false)}
+          data-health-quick-add-overlay
+        >
+          <div
+            className={`${WORKSPACE_MODAL_SURFACE} w-full max-w-lg max-h-[78dvh] ${theme.card}`}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="health-quick-add-title"
+            onClick={event => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <h2 id="health-quick-add-title" className="font-heading text-lg font-bold">{t('addExercise')}</h2>
+              <button type="button" onClick={() => setShowQuickAddExercise(false)} className={`rounded-xl p-2 ${theme.hoverBg}`} aria-label={t('close')}>
+                <X size={18} aria-hidden />
+              </button>
+            </div>
+            <input
+              autoFocus
+              type="search"
+              value={quickAddQuery}
+              onChange={event => setQuickAddQuery(event.target.value)}
+              placeholder={t('healthExerciseSearchPlaceholder')}
+              className={`mb-3 w-full rounded-xl border px-3 py-2.5 text-sm font-semibold outline-none ${theme.input} ${theme.border}`}
+              data-health-quick-add-search
+            />
+            <div className="min-h-0 max-h-[52dvh] space-y-2 overflow-y-auto overscroll-contain" data-health-quick-add-list>
+              {quickAddBlocks.length === 0 ? (
+                <p className={`py-6 text-center text-sm font-semibold ${theme.textMuted}`}>{t('healthExerciseSearchEmpty')}</p>
+              ) : quickAddBlocks.map(block => (
+                <button
+                  key={block.id}
+                  type="button"
+                  onClick={() => {
+                    void handleAddWorkoutToToday(block);
+                    setShowQuickAddExercise(false);
+                  }}
+                  className={`flex min-h-[48px] w-full items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left ${theme.border} ${theme.hoverBg}`}
+                  data-health-quick-add-block={block.id}
+                >
+                  <span className="min-w-0 truncate text-sm font-bold">{block.name}</span>
+                  <Plus size={16} className="shrink-0 text-primary" aria-hidden />
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── 블록 생성/수정 모달 ── */}
       {showBlockModal && (
