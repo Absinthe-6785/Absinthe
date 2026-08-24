@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback, MouseEvent, ChangeEvent, TouchEvent } from 'react';
-import { Plus, X, Trash2, Save, Dumbbell, Activity, ChevronLeft, ChevronRight, Lock, Pencil, GripVertical, Loader2, ClipboardCopy, Check, FileText, MoreHorizontal, History } from 'lucide-react';
+import { Plus, X, Trash2, Save, Dumbbell, Activity, ChevronLeft, ChevronRight, Lock, Pencil, GripVertical, Loader2, ClipboardCopy, Check, FileText, MoreHorizontal } from 'lucide-react';
 import { authFetch } from '../../lib/supabase';
 import { API_URL } from '../../lib/config';
 import { useConfirm } from '../../hooks/useConfirm';
@@ -37,6 +37,7 @@ import { PreviousWorkoutView } from './features/health/PreviousWorkoutView';
 import { PreviousWorkoutSheet } from './features/health/PreviousWorkoutSheet';
 import { previousWorkoutSWRConfig } from './features/health/previousWorkoutSWR';
 import { HealthMobileSetupNav, type HealthMobileSurface, type HealthSetupSection } from './features/health/HealthMobileSetupNav';
+import { HealthMobileWorkoutActions } from './features/health/HealthMobileWorkoutActions';
 import {
   normalizePreviousWorkoutRows,
   previousWorkoutRange,
@@ -1520,28 +1521,16 @@ export const HealthView = ({
               )}
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2 shrink-0">
-              {isMobile && !isDesktopPrevious && !isWorkoutLocked && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setIsPreviousSheetOpen(true)}
-                    className={`inline-flex min-h-[44px] items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-bold ${theme.border} ${theme.textMuted} hover:text-foreground abs-focus-ring`}
-                    data-health-previous-trigger
-                  >
-                    <History size={15} aria-hidden />
-                    {t('previousWorkout')}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { setQuickAddQuery(''); setShowQuickAddExercise(true); }}
-                    className={`inline-flex min-h-[44px] items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-bold ${theme.border} ${theme.textMuted} hover:text-foreground abs-focus-ring`}
-                    data-health-quick-add-exercise
-                  >
-                    <Plus size={15} aria-hidden />
-                    {t('addExercise')}
-                  </button>
-                </>
-              )}
+              <HealthMobileWorkoutActions
+                isMobile={isMobile}
+                isDesktopPrevious={isDesktopPrevious}
+                isWorkoutLocked={isWorkoutLocked}
+                previousLabel={t('previousWorkout')}
+                addExerciseLabel={t('addExercise')}
+                theme={theme}
+                onPrevious={() => setIsPreviousSheetOpen(true)}
+                onAddExercise={() => { setQuickAddQuery(''); setShowQuickAddExercise(true); }}
+              />
               <div className={`hidden lg:flex items-center rounded-xl border p-0.5 ${theme.border} ${theme.input}`} role="group" aria-label={t('previousWorkoutToggle')}>
                 <button
                   type="button"
