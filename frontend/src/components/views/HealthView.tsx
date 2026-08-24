@@ -41,11 +41,9 @@ import { HealthMobileWorkoutActions } from './features/health/HealthMobileWorkou
 import {
   normalizePreviousWorkoutRows,
   previousWorkoutRange,
-  defaultPreviousWorkoutDate,
-  listPreviousWorkoutSessions,
-  resolvePreviousWorkoutSessionByDate,
   type PreviousWorkoutHistoryRow,
 } from './features/health/previousWorkoutSession';
+import { buildPreviousWorkoutHistoryProjection } from './features/health/previousWorkoutProjection';
 import { readHealthSectionPrefs } from './features/health/healthSectionPrefs';
 import { buildSetsFromPlannedCount, buildSetsFromPrevCount } from './features/health/workoutSetCount';
 import { fetchPrevWorkoutForBlocks } from './features/health/prevWorkoutFetch';
@@ -1190,28 +1188,25 @@ export const HealthView = ({
   } = useSWR<PreviousWorkoutHistoryRow[]>(previousWorkoutKey, previousWorkoutFetcher, {
     ...previousWorkoutSWRConfig,
   });
-  const previousWorkoutSessions = useMemo(
-    () => listPreviousWorkoutSessions(previousWorkoutRows, selectedDateKey),
-    [previousWorkoutRows, selectedDateKey],
+  const previousWorkoutProjection = useMemo(
+    () => buildPreviousWorkoutHistoryProjection({
+      rows: previousWorkoutRows,
+      referenceDate: selectedDateKey,
+      selectedDate: selectedPreviousDate,
+    }),
+    [previousWorkoutRows, selectedDateKey, selectedPreviousDate],
   );
-  const automaticPreviousDate = useMemo(
-    () => defaultPreviousWorkoutDate(previousWorkoutSessions, selectedDateKey),
-    [previousWorkoutSessions, selectedDateKey],
-  );
-  const effectivePreviousDate = selectedPreviousDate && previousWorkoutSessions.some(session => session.date === selectedPreviousDate)
-    ? selectedPreviousDate
-    : automaticPreviousDate;
+  const {
+    sessions: previousWorkoutSessions,
+    automaticDate: automaticPreviousDate,
+    effectiveDate: effectivePreviousDate,
+    session: previousWorkoutSession,
+  } = previousWorkoutProjection;
   useEffect(() => {
     setSelectedPreviousDate(current => current && previousWorkoutSessions.some(session => session.date === current)
       ? current
       : automaticPreviousDate);
   }, [automaticPreviousDate, previousWorkoutSessions]);
-  const previousWorkoutSession = useMemo(
-    () => effectivePreviousDate
-      ? resolvePreviousWorkoutSessionByDate(previousWorkoutRows, effectivePreviousDate, selectedDateKey)
-      : null,
-    [effectivePreviousDate, previousWorkoutRows, selectedDateKey],
-  );
 
   const healthProjection = useMemo(() => buildHealthProjection({
     rangeWorkouts: monthWorkoutRows,
