@@ -19,6 +19,8 @@ export interface PreviousWorkoutViewProps {
   weightUnit: (blockId: string) => 'kg' | 'lbs';
   onRetry: () => void;
   onSelectDate: (date: string) => void;
+  /** The parent owns scrolling when Previous is rendered inside a sheet. */
+  scrollMode?: 'contained' | 'inherited';
 }
 
 function valueOrDash(value: string | number | undefined): string {
@@ -95,6 +97,7 @@ export function PreviousWorkoutView({
   weightUnit,
   onRetry,
   onSelectDate,
+  scrollMode = 'contained',
 }: PreviousWorkoutViewProps) {
   if (isLoading) {
     return <div className={`flex flex-1 items-center justify-center rounded-2xl border px-4 py-12 text-sm ${theme.border} ${theme.textMuted}`} data-health-previous-loading>{t('previousWorkoutLoading')}</div>;
@@ -140,7 +143,10 @@ export function PreviousWorkoutView({
   }
 
   return (
-    <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1" data-health-previous-workout>
+    <div
+      className={`min-h-0 flex-1 space-y-3 ${scrollMode === 'contained' ? 'overflow-y-auto pr-1' : ''}`}
+      data-health-previous-workout
+    >
       {dateSelector}
       <div className={`rounded-2xl border px-4 py-3 ${theme.border} ${darkMode ? 'bg-surface/40' : 'bg-gray-50/70'}`}>
         <p className="font-heading text-lg font-bold">{t('previousWorkout')}</p>
