@@ -43,7 +43,11 @@ import {
 import { readHealthSectionPrefs } from './features/health/healthSectionPrefs';
 import { buildSetsFromPlannedCount, buildSetsFromPrevCount } from './features/health/workoutSetCount';
 import { fetchPrevWorkoutForBlocks } from './features/health/prevWorkoutFetch';
-import { formatPreviousMicroCue } from './features/health/previousMicroCue';
+import {
+  formatPreviousBestCue,
+  formatPreviousSetReference,
+  matchPreviousSetReference,
+} from './features/health/previousMicroCue';
 import {
   editableWeightValue as editableWeightInput,
   formatCanonicalWeight,
@@ -1570,22 +1574,22 @@ export const HealthView = ({
               }
 
               /* ── 일반 운동 카드 렌더링 ── */
-              const previousCue = formatPreviousMicroCue(
+              const previousBestCue = formatPreviousBestCue(
                 prevData[w.block_id]?.prev_sets,
                 getUnit(w.block_id),
                 w.exercise_blocks?.type,
               );
-              const previousCueLabel = previousCue?.kind === 'bodyweight'
-                ? t('previousMicroCueBodyweight').replace('{reps}', previousCue.reps)
-                : previousCue?.reps
-                  ? t('previousMicroCueWeightReps')
-                    .replace('{weight}', previousCue.weight)
-                    .replace('{unit}', previousCue.unit)
-                    .replace('{reps}', previousCue.reps)
-                  : previousCue
-                    ? t('previousMicroCueWeightOnly')
-                      .replace('{weight}', previousCue.weight)
-                      .replace('{unit}', previousCue.unit)
+              const previousBestLabel = previousBestCue?.kind === 'bodyweight'
+                ? t('previousBestBodyweight').replace('{reps}', previousBestCue.reps)
+                : previousBestCue?.reps
+                  ? t('previousBestWeightReps')
+                    .replace('{weight}', previousBestCue.weight)
+                    .replace('{unit}', previousBestCue.unit)
+                    .replace('{reps}', previousBestCue.reps)
+                  : previousBestCue
+                    ? t('previousBestWeightOnly')
+                      .replace('{weight}', previousBestCue.weight)
+                      .replace('{unit}', previousBestCue.unit)
                     : null;
               return (
                 <div
@@ -1653,13 +1657,13 @@ export const HealthView = ({
                     <p className={`text-[11px] font-bold mt-0.5 ${theme.textMuted}`}>
                       {t('healthExerciseSetSummary').replace('{count}', String(w.sets.length))}
                     </p>
-                    {previousCueLabel && (
+                    {previousBestLabel && (
                       <p
                         className={`mt-1 truncate text-[11px] font-semibold ${theme.textMuted}`}
                         data-health-previous-micro-cue
-                        title={previousCueLabel}
+                        title={previousBestLabel}
                       >
-                        {previousCueLabel}
+                        {previousBestLabel}
                       </p>
                     )}
                   </div>
@@ -1700,6 +1704,29 @@ export const HealthView = ({
                 <div className="space-y-2.5" data-k129c-set-group>
                   {(w.sets || []).map((s: WorkoutSet, sIdx: number) => {
                     const isDS = isStrengthSet(s) && s.is_dropset;
+                    const previousSet = matchPreviousSetReference(
+                      s,
+                      prevData[w.block_id]?.prev_sets,
+                      w.exercise_blocks?.type,
+                      w.sets,
+                    );
+                    const previousSetCue = formatPreviousSetReference(
+                      previousSet,
+                      getUnit(w.block_id),
+                      w.exercise_blocks?.type,
+                    );
+                    const previousSetLabel = previousSetCue?.kind === 'bodyweight'
+                      ? t('previousSetReferenceBodyweight').replace('{reps}', previousSetCue.reps)
+                      : previousSetCue?.reps
+                        ? t('previousSetReferenceWeightReps')
+                          .replace('{weight}', previousSetCue.weight)
+                          .replace('{unit}', previousSetCue.unit)
+                          .replace('{reps}', previousSetCue.reps)
+                        : previousSetCue
+                          ? t('previousSetReferenceWeightOnly')
+                            .replace('{weight}', previousSetCue.weight)
+                            .replace('{unit}', previousSetCue.unit)
+                          : null;
                     return (
                       <div key={sIdx} className={`rounded-xl overflow-hidden transition-opacity ${s.done ? 'opacity-55' : ''}`}>
                         {/* 드랍세트 구분선 */}
@@ -1792,6 +1819,15 @@ export const HealthView = ({
                             </svg>
                           </button>
                         </div>
+                        {previousSetLabel && (
+                          <p
+                            className={`px-3 pt-1 text-[11px] font-semibold ${theme.textMuted}`}
+                            data-health-previous-set-reference
+                            title={previousSetLabel}
+                          >
+                            {previousSetLabel}
+                          </p>
+                        )}
                       </div>
                     );
                   })}
