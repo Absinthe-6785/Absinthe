@@ -43,6 +43,7 @@ import {
 import { readHealthSectionPrefs } from './features/health/healthSectionPrefs';
 import { buildSetsFromPlannedCount, buildSetsFromPrevCount } from './features/health/workoutSetCount';
 import { fetchPrevWorkoutForBlocks } from './features/health/prevWorkoutFetch';
+import { formatPreviousMicroCue } from './features/health/previousMicroCue';
 import {
   editableWeightValue as editableWeightInput,
   formatCanonicalWeight,
@@ -1569,6 +1570,23 @@ export const HealthView = ({
               }
 
               /* ── 일반 운동 카드 렌더링 ── */
+              const previousCue = formatPreviousMicroCue(
+                prevData[w.block_id]?.prev_sets,
+                getUnit(w.block_id),
+                w.exercise_blocks?.type,
+              );
+              const previousCueLabel = previousCue?.kind === 'bodyweight'
+                ? t('previousMicroCueBodyweight').replace('{reps}', previousCue.reps)
+                : previousCue?.reps
+                  ? t('previousMicroCueWeightReps')
+                    .replace('{weight}', previousCue.weight)
+                    .replace('{unit}', previousCue.unit)
+                    .replace('{reps}', previousCue.reps)
+                  : previousCue
+                    ? t('previousMicroCueWeightOnly')
+                      .replace('{weight}', previousCue.weight)
+                      .replace('{unit}', previousCue.unit)
+                    : null;
               return (
                 <div
                 key={w.id}
@@ -1635,6 +1653,15 @@ export const HealthView = ({
                     <p className={`text-[11px] font-bold mt-0.5 ${theme.textMuted}`}>
                       {t('healthExerciseSetSummary').replace('{count}', String(w.sets.length))}
                     </p>
+                    {previousCueLabel && (
+                      <p
+                        className={`mt-1 truncate text-[11px] font-semibold ${theme.textMuted}`}
+                        data-health-previous-micro-cue
+                        title={previousCueLabel}
+                      >
+                        {previousCueLabel}
+                      </p>
+                    )}
                   </div>
                   <WorkoutPrBadge badge={prBadgeMap[w.block_id] ?? null} darkMode={appSettings.darkMode} />
                 </div>
