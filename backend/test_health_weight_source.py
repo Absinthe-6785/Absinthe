@@ -50,8 +50,10 @@ class FakeTable:
             return SimpleNamespace(data=[])
         if self.operation == "insert":
             assert self.inserted is not None
+            inserted = deepcopy(self.inserted)
+            inserted.setdefault("id", f"generated-{len(self.database.rows) + 1}")
             self.database.operations.append(("insert", deepcopy(self.inserted)))
-            self.database.rows.append(deepcopy(self.inserted))
+            self.database.rows.append(inserted)
             return SimpleNamespace(data=[self.inserted])
         raise AssertionError(f"unexpected operation: {self.operation}")
 
