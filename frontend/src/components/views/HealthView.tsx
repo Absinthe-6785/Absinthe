@@ -35,6 +35,7 @@ import { HealthSupportingPanels } from './features/health/HealthSupportingPanels
 import { WorkoutPrBadge } from './features/health/WorkoutPrBadge';
 import { PreviousWorkoutView } from './features/health/PreviousWorkoutView';
 import { PreviousWorkoutSheet } from './features/health/PreviousWorkoutSheet';
+import { previousWorkoutSWRConfig } from './features/health/previousWorkoutSWR';
 import {
   normalizePreviousWorkoutRows,
   previousWorkoutRange,
@@ -1157,10 +1158,7 @@ export const HealthView = ({
     isLoading: isPreviousWorkoutLoading,
     mutate: mutatePreviousWorkout,
   } = useSWR<PreviousWorkoutHistoryRow[]>(previousWorkoutKey, previousWorkoutFetcher, {
-    revalidateOnFocus: false,
-    // Closing and reopening the contextual sheet must reuse the same cached
-    // range rather than issuing a second request for the same date window.
-    revalidateIfStale: false,
+    ...previousWorkoutSWRConfig,
   });
   const previousWorkoutSessions = useMemo(
     () => listPreviousWorkoutSessions(previousWorkoutRows, selectedDateKey),
