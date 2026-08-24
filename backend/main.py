@@ -1101,9 +1101,8 @@ def _workout_sets(value: object) -> bool:
             if has_source_value != has_source_unit:
                 return False
             if has_source_value and (
-                not isinstance(item.get("weight_source_value"), (int, float))
-                or not math.isfinite(float(item["weight_source_value"]))
-                or float(item["weight_source_value"]) < 0
+                not _finite_number(item.get("weight_source_value"))
+                or item["weight_source_value"] < 0
                 or item.get("weight_source_unit") not in {"kg", "lbs"}
             ):
                 return False

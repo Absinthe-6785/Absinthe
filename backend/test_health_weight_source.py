@@ -135,6 +135,10 @@ def test_remote_save_accepts_source_aware_and_legacy_sets(workout_client):
         strength_set(weight_source_unit="lbs"),
         strength_set(weight_source_value=225.68, weight_source_unit="ounces"),
         strength_set(weight_source_value=-1, weight_source_unit="kg"),
+        strength_set(weight_source_value=True, weight_source_unit="kg"),
+        strength_set(weight_source_value=False, weight_source_unit="lbs"),
+        strength_set(weight_source_value="225.68", weight_source_unit="kg"),
+        strength_set(weight_source_value=None, weight_source_unit="lbs"),
     ],
 )
 def test_remote_save_rejects_malformed_source_pairs_before_writes(workout_client, invalid_set):
@@ -144,6 +148,22 @@ def test_remote_save_rejects_malformed_source_pairs_before_writes(workout_client
 
     assert response.status_code == 422
     assert supabase.operations == []
+
+
+@pytest.mark.parametrize(
+    ("source_value", "source_unit"),
+    [(0, "kg"), (0.0, "lbs")],
+)
+def test_remote_save_accepts_numeric_zero_source_values(workout_client, source_value, source_unit):
+    client, supabase = workout_client
+
+    response = client.post(
+        "/api/workouts",
+        json=workout_payload([strength_set(weight_source_value=source_value, weight_source_unit=source_unit)]),
+    )
+
+    assert response.status_code == 200
+    assert supabase.operations[0][0] == "insert"
 
 
 def test_invalid_remote_update_preserves_existing_row(workout_client):
@@ -157,7 +177,7 @@ def test_invalid_remote_update_preserves_existing_row(workout_client):
 
     response = client.post(
         "/api/workouts",
-        json=workout_payload([strength_set(weight_source_value=225.68)]),
+        json=workout_payload([strength_set(weight_source_value=True, weight_source_unit="kg")]),
     )
 
     assert response.status_code == 422
