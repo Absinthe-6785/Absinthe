@@ -14,11 +14,13 @@ class FakeTable:
         self.database = database
         self.table = table
         self.operation: str | None = None
+        self.columns: str | None = None
         self.filters: list[tuple[str, object]] = []
         self.inserted: dict | None = None
 
-    def select(self, _columns: str):
+    def select(self, columns: str):
         self.operation = "select"
+        self.columns = columns
         return self
 
     def eq(self, column: str, value: object):
@@ -34,13 +36,18 @@ class FakeTable:
         self.inserted = row
         return self
 
+    def order(self, _column: str):
+        return self
+
     def execute(self):
         if self.operation == "select":
             rows = [
                 row for row in self.database.rows
                 if all(row.get(column) == value for column, value in self.filters)
             ]
-            return SimpleNamespace(data=[{"id": row["id"]} for row in rows])
+            if self.columns == "id":
+                return SimpleNamespace(data=[{"id": row["id"]} for row in rows])
+            return SimpleNamespace(data=deepcopy(rows))
         if self.operation == "delete":
             self.database.operations.append(("delete", self.filters))
             self.database.rows = [
@@ -104,6 +111,12 @@ def test_remote_save_accepts_source_aware_and_legacy_sets(workout_client):
     source_aware = strength_set(weight_source_value=225.68, weight_source_unit="lbs")
 
     source_response = client.post("/api/workouts", json=workout_payload([source_aware]))
+
+    read_response = client.get("/api/workouts", params={"date": "2026-08-24"})
+    assert read_response.status_code == 200
+    assert read_response.json()[0]["sets"][0]["weight_source_value"] == 225.68
+    assert read_response.json()[0]["sets"][0]["weight_source_unit"] == "lbs"
+
     legacy_response = client.post("/api/workouts", json=workout_payload([strength_set()]))
 
     assert source_response.status_code == 200
