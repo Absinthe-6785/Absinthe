@@ -44,6 +44,13 @@ import { readHealthSectionPrefs } from './features/health/healthSectionPrefs';
 import { buildSetsFromPlannedCount, buildSetsFromPrevCount } from './features/health/workoutSetCount';
 import { fetchPrevWorkoutForBlocks } from './features/health/prevWorkoutFetch';
 import {
+  editableWeightValue as editableWeightInput,
+  formatCanonicalWeight,
+  formatSavedWeight,
+  inputToCanonicalKg,
+  normalizeStrengthSetForSave,
+} from './features/health/healthWeight';
+import {
   getRoutinePlannedSetsForDay,
   saveRoutinePlannedSetsForDay,
   showsPlannedSetCount,
@@ -167,6 +174,7 @@ export const HealthView = ({
   const pendingFocusSetRef = useRef<{ wIdx: number; sIdx: number } | null>(null);
   // ── lbs 입력 중 raw 값 보존 (wIdx-sIdx 키) — 변환 재계산으로 커서 고정되는 버그 방지
   const [rawKgInput, setRawKgInput] = useState<Record<string, string>>({});
+  const weightEditKeysRef = useRef(new Set<string>());
   const [localWorkouts, setLocalWorkouts] = useState<Workout[]>([]);
   const persistRoutinePreset = useCallback((update: (current: RoutinePresetState) => RoutinePresetState) => {
     setRoutinePresetState(current => {
@@ -267,7 +275,7 @@ export const HealthView = ({
           lines.push(`   ${parts.join('  ')}`);
         } else {
           const unit = weightUnits[w.block_id] === 'lbs' ? 'lbs' : 'kg';
-          const displayVal = s.kg !== '' ? displayKg(s.kg, w.block_id) : '';
+          const displayVal = isStrengthSet(s) ? formatSavedWeight(s, unit) : '';
           const kgStr = displayVal !== '' ? `${displayVal}${unit}` : '-';
           const reps = s.reps !== '' ? `${s.reps}reps` : '-';
           const drop = s.is_dropset ? ' [DROP]' : '';
@@ -341,25 +349,8 @@ export const HealthView = ({
 
   // weightUnits: zustand store persist
   const getUnit = (blockId: string): 'kg' | 'lbs' => weightUnits[blockId] ?? 'kg';
-
-  const KG_PER_LBS = 0.45359237;
-  const r1 = (n: number) => parseFloat(n.toFixed(1));
-  const displayKg = (kg: number | string, blockId: string): string => {
-    const n = parseFloat(String(kg));
-    if (isNaN(n) || kg === '' || kg === null) return '';
-    return getUnit(blockId) === 'lbs'
-      ? String(r1(n / KG_PER_LBS))
-      : String(r1(n));
-  };
-  const inputToKg = (val: string, blockId: string): string => {
-    if (val === '' || val === null) return '';
-    const n = parseFloat(val);
-    if (isNaN(n)) return '';
-    // lbs → kg: 반올림 없이 원본 정밀도 유지 (반올림하면 역변환 시 오차 발생)
-    return getUnit(blockId) === 'lbs'
-      ? String(n * KG_PER_LBS)
-      : val;
-  };
+  const displayKg = (kg: number | string, blockId: string): string =>
+    formatCanonicalWeight(kg, getUnit(blockId));
 
   // ── Draft 자동 저장/복원 ──────────────────────────────────────────
   const selectedDateDraftKey = formatDate(selectedDate);
@@ -425,6 +416,8 @@ export const HealthView = ({
     setLocalWorkouts([]);
     setIsDirty(false);
     isDirtyRef.current = false;
+    setRawKgInput({});
+    weightEditKeysRef.current.clear();
     setIsWorkoutLocked(false);
     setIsSaving(false);
     setIsInbodyDirty(false);
@@ -459,6 +452,7 @@ export const HealthView = ({
         return ao - bo;
       });
       setLocalWorkouts(sorted);
+      weightEditKeysRef.current.clear();
       setIsWorkoutLocked(sorted.length > 0);
     }
   }, [workouts]);
@@ -858,6 +852,42 @@ export const HealthView = ({
       return next;
     });
   };
+  const handleWeightInput = (wIdx: number, sIdx: number, raw: string) => {
+    const workout = localWorkouts[wIdx];
+    if (!workout) return;
+    const unit = getUnit(workout.block_id);
+    const key = `${workout.id}:${sIdx}`;
+    weightEditKeysRef.current.add(key);
+    setRawKgInput(prev => ({ ...prev, [`${wIdx}-${sIdx}`]: raw }));
+    setIsDirty(true);
+    setLocalWorkouts(prev => {
+      const next = [...prev];
+      next[wIdx] = {
+        ...next[wIdx],
+        sets: next[wIdx].sets.map((set, index) => index === sIdx
+          ? {
+            ...set,
+            kg: inputToCanonicalKg(raw, unit),
+            weight_input_raw: raw,
+            weight_input_unit: unit,
+          } as WorkoutSet
+          : set),
+      };
+      return next;
+    });
+  };
+  const handleToggleWeightUnit = (blockId: string) => {
+    setRawKgInput(previous => {
+      const next = { ...previous };
+      localWorkouts.forEach((workout, wIdx) => {
+        if (workout.block_id === blockId) {
+          workout.sets.forEach((_, sIdx) => delete next[`${wIdx}-${sIdx}`]);
+        }
+      });
+      return next;
+    });
+    toggleWeightUnit(blockId);
+  };
   const handleSaveWorkouts = async () => {
     if (localWorkouts.filter(w => w.block_id !== '__session__').length === 0)
       return showToast(t('noWorkouts'), 'error');
@@ -866,13 +896,21 @@ export const HealthView = ({
       accountId: user.id,
       generation: accountGenerationRef.current,
     };
+    const normalizedWorkouts = localWorkouts.map(workout => ({
+      ...workout,
+      sets: workout.sets.map((set, sIdx) => {
+        if (!isStrengthSet(set)) return set;
+        const edited = weightEditKeysRef.current.has(`${workout.id}:${sIdx}`);
+        return normalizeStrengthSetForSave(set, getUnit(workout.block_id), edited);
+      }),
+    }));
 
     if (localMode) {
       try {
         const repository = await createLocalHealthRepository(accountOperation.accountId);
         if (!currentAccountOperation(accountOperation)) return;
         const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-        const results = await repository.saveWorkouts(localWorkouts
+        const results = await repository.saveWorkouts(normalizedWorkouts
           .filter(w => w.block_id !== '__session__')
           .map((w, sortOrder) => ({
             id: uuidPattern.test(w.id) ? w.id : undefined,
@@ -884,11 +922,12 @@ export const HealthView = ({
           })));
         if (!currentAccountOperation(accountOperation)) return;
         let resultIndex = 0;
-        setLocalWorkouts(previous => previous.map(workout => {
+        setLocalWorkouts(normalizedWorkouts.map(workout => {
           if (workout.block_id === '__session__') return workout;
           const result = results[resultIndex++];
           return result ? { ...workout, id: result.id, local_version: result.version } : workout;
         }));
+        weightEditKeysRef.current.clear();
         setIsSaving(false);
         localStorage.removeItem(draftKey);
         showToast(t('workoutSaved'));
@@ -911,8 +950,8 @@ export const HealthView = ({
     // 세션 구분선(__session__)은 DB 저장 불필요 — 스킵
     let failed = 0;
     let dbIdx = 0; // 실제 DB 저장 순서 (세션 구분선 제외)
-    for (let idx = 0; idx < localWorkouts.length; idx++) {
-      const w = localWorkouts[idx];
+    for (let idx = 0; idx < normalizedWorkouts.length; idx++) {
+      const w = normalizedWorkouts[idx];
       if (w.block_id === '__session__') continue;
       try {
         const res = await authFetch(`${API_URL}/api/workouts`, {
@@ -926,6 +965,8 @@ export const HealthView = ({
     const total = dbIdx; // 실제 저장 시도한 운동 수
     setIsSaving(false);
     if (failed === 0) {
+      setLocalWorkouts(normalizedWorkouts);
+      weightEditKeysRef.current.clear();
       localStorage.removeItem(draftKey);
       showToast(t('workoutSaved'));
       setIsDirty(false);
@@ -1624,7 +1665,7 @@ export const HealthView = ({
                     {w.exercise_blocks?.type !== 'bodyweight' && (
                       <div className="flex-1 flex items-center justify-center">
                         <button
-                          onClick={() => toggleWeightUnit(w.block_id)}
+                          onClick={() => handleToggleWeightUnit(w.block_id)}
                           className={`flex items-center gap-0.5 px-2 py-0.5 rounded-lg transition-colors text-[11px] font-bold
                             ${appSettings.darkMode ? 'bg-surface-alt hover:bg-[#48484A]' : 'bg-gray-100 hover:bg-gray-200'}`}>
                           <span className={getUnit(w.block_id) === 'kg' ? 'text-primary' : theme.textMuted}>kg</span>
@@ -1674,15 +1715,15 @@ export const HealthView = ({
                             <input type="number" inputMode="decimal" min="0"
                               ref={pendingFocusSetRef.current?.wIdx === wIdx && pendingFocusSetRef.current?.sIdx === sIdx ? quickCaptureInputRef : undefined}
                               step={getUnit(w.block_id) === 'lbs' ? '10' : '5'}
-                              value={rawKgInput[`${wIdx}-${sIdx}`] ?? displayKg(s.kg, w.block_id)}
+                              value={rawKgInput[`${wIdx}-${sIdx}`] ?? editableWeightInput(s, getUnit(w.block_id))}
                               placeholder="—"
                               onChange={e => {
                                 const raw = e.target.value;
                                 setRawKgInput(prev => ({ ...prev, [`${wIdx}-${sIdx}`]: raw }));
-                                handleUpdateSet(wIdx, sIdx, 'kg', inputToKg(raw, w.block_id));
+                                handleWeightInput(wIdx, sIdx, raw);
                               }}
                               onFocus={() => {
-                                setRawKgInput(prev => ({ ...prev, [`${wIdx}-${sIdx}`]: displayKg(s.kg, w.block_id) }));
+                                setRawKgInput(prev => ({ ...prev, [`${wIdx}-${sIdx}`]: editableWeightInput(s, getUnit(w.block_id)) }));
                               }}
                               onBlur={() => {
                                 setRawKgInput(prev => { const n = { ...prev }; delete n[`${wIdx}-${sIdx}`]; return n; });

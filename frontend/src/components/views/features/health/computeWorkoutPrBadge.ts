@@ -23,17 +23,18 @@ export function computeWorkoutPrBadge(
 ): WorkoutPrBadgeData | null {
   if (!pd || w.exercise_blocks?.type === 'cardio') return null;
 
-  const curMax = Math.max(
+  const curMaxKg = Math.max(
     0,
     ...w.sets
       .filter(s => isStrengthSet(s) && s.done && (s as StrengthSet).kg !== '')
-      .map(s => toDisplay(parseFloat(String((s as StrengthSet).kg)), w.block_id)),
+      .map(s => parseKg((s as StrengthSet).kg)),
   );
-  const prevMax = pd.prev_sets
+  const prevMaxKg = pd.prev_sets
     .filter(s => isStrengthSet(s) && s.done && (s as StrengthSet).kg !== '')
-    .reduce((m, s) => Math.max(m, toDisplay(parseFloat(String((s as StrengthSet).kg)), w.block_id)), 0);
-  const prKgDisplay = pd.pr_kg !== null ? toDisplay(pd.pr_kg, w.block_id) : null;
-  const isPR = prKgDisplay !== null && curMax > 0 && curMax > prKgDisplay;
+    .reduce((m, s) => Math.max(m, parseKg((s as StrengthSet).kg)), 0);
+  const curMax = toDisplay(curMaxKg, w.block_id);
+  const prevMax = toDisplay(prevMaxKg, w.block_id);
+  const isPR = pd.pr_kg !== null && curMaxKg > 0 && curMaxKg > pd.pr_kg;
   const diff = curMax > 0 && prevMax > 0 ? parseFloat((curMax - prevMax).toFixed(1)) : 0;
 
   return {
@@ -43,6 +44,11 @@ export function computeWorkoutPrBadge(
     showDiff: prevMax > 0 && !isPR,
     unit,
   };
+}
+
+function parseKg(kg: number | string): number {
+  const value = typeof kg === 'number' ? kg : Number(kg);
+  return Number.isFinite(value) && value > 0 ? value : 0;
 }
 
 export function computeWorkoutPrBadgeMap(

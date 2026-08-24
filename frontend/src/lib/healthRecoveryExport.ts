@@ -193,6 +193,18 @@ function validateSet(dataset: HealthRecoveryDatasetName, rowIndex: number, value
   if (set.type === 'strength' || set.type === 'bodyweight') {
     if (!finitePersisted(set.kg, true)) out.push(issue(dataset, rowIndex, `${prefix}.kg`, 'finite_numeric_or_empty_required'));
     if (!finitePersisted(set.reps, true)) out.push(issue(dataset, rowIndex, `${prefix}.reps`, 'finite_numeric_or_empty_required'));
+    const hasSourceValue = Object.prototype.hasOwnProperty.call(set, 'weight_source_value');
+    const hasSourceUnit = Object.prototype.hasOwnProperty.call(set, 'weight_source_unit');
+    if (hasSourceValue !== hasSourceUnit) {
+      out.push(issue(dataset, rowIndex, prefix, 'weight_source_metadata_must_be_pair'));
+    } else if (hasSourceValue && (
+      typeof set.weight_source_value !== 'number'
+      || !Number.isFinite(set.weight_source_value)
+      || set.weight_source_value < 0
+      || (set.weight_source_unit !== 'kg' && set.weight_source_unit !== 'lbs')
+    )) {
+      out.push(issue(dataset, rowIndex, prefix, 'weight_source_metadata_invalid'));
+    }
   } else if (set.type === 'cardio') {
     if (typeof set.time !== 'string') out.push(issue(dataset, rowIndex, `${prefix}.time`, 'string_required'));
     if (!finitePersisted(set.distance, true)) out.push(issue(dataset, rowIndex, `${prefix}.distance`, 'finite_numeric_or_empty_required'));

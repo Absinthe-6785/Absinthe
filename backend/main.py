@@ -1094,6 +1094,17 @@ def _workout_sets(value: object) -> bool:
                 return False
             if not _finite_persisted(item.get("reps"), allow_empty=True):
                 return False
+            has_source_value = "weight_source_value" in item
+            has_source_unit = "weight_source_unit" in item
+            if has_source_value != has_source_unit:
+                return False
+            if has_source_value and (
+                not isinstance(item.get("weight_source_value"), (int, float))
+                or not math.isfinite(float(item["weight_source_value"]))
+                or float(item["weight_source_value"]) < 0
+                or item.get("weight_source_unit") not in {"kg", "lbs"}
+            ):
+                return False
         elif item["type"] == "cardio":
             if not isinstance(item.get("time"), str) or not isinstance(item.get("pace"), str):
                 return False

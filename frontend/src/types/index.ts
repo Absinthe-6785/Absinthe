@@ -51,6 +51,14 @@ export interface StrengthSet {
   reps: number | string;
   done: boolean;
   is_dropset?: boolean;  // 드랍세트 여부 — 이전 세트와 무게만 변경
+  /** Saved per-set source value used for stable kg/lbs display round trips. */
+  weight_source_value?: number;
+  /** Unit in which the saved source value was entered. */
+  weight_source_unit?: 'kg' | 'lbs';
+  /** Draft-only raw input; stripped at the workout save boundary. */
+  weight_input_raw?: string;
+  /** Draft-only unit for weight_input_raw; stripped at the workout save boundary. */
+  weight_input_unit?: 'kg' | 'lbs';
 }
 export interface CardioSet {
   type: 'cardio';

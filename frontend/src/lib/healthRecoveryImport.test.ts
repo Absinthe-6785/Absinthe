@@ -929,6 +929,26 @@ describe('local Health backfill writes', () => {
     reopened.close();
   });
 
+  it('preserves additive saved weight provenance through the local repository', async () => {
+    const databaseName = `absinthe.health.backfill-weight-source.${crypto.randomUUID()}`;
+    const db = await createLocalHealthDriver({ databaseName });
+    const datasets = minimalDatasets(OWNER, 'SOURCE BLOCK');
+    await seedVerifiedAccount(db, OWNER, datasets, 'weight-source');
+    const blockId = datasets.exercise_blocks[0].id as string;
+    const result = await new HealthRepository(db, OWNER).saveWorkout({
+      ...localWorkoutInput(blockId, '2024-04-12', 102.37),
+      sets: [{
+        type: 'strength', set: 1, kg: 102.37, reps: 8, done: true,
+        weight_source_value: 225.68, weight_source_unit: 'lbs',
+      }],
+    });
+    expect(result.id).toBeTruthy();
+    expect((await db.readDatasets(OWNER)).workout_logs[0]?.sets[0]).toMatchObject({
+      kg: 102.37, weight_source_value: 225.68, weight_source_unit: 'lbs',
+    });
+    db.close();
+  });
+
   it('replaces the same date/block logical workout without duplicating and preserves identity', async () => {
     const databaseName = `absinthe.health.backfill-workout-update.${crypto.randomUUID()}`;
     const db = await createLocalHealthDriver({ databaseName });
