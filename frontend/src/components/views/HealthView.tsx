@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback, MouseEvent, ChangeEvent, TouchEvent } from 'react';
-import { Plus, X, Trash2, Save, Dumbbell, Activity, ChevronLeft, ChevronRight, Lock, Pencil, GripVertical, Loader2, ClipboardCopy, Check, FileText, MoreHorizontal } from 'lucide-react';
+import { Plus, X, Trash2, Save, Dumbbell, Activity, ChevronLeft, ChevronRight, Lock, Pencil, GripVertical, Loader2, ClipboardCopy, Check, FileText, MoreHorizontal, History } from 'lucide-react';
 import { authFetch } from '../../lib/supabase';
 import { API_URL } from '../../lib/config';
 import { useConfirm } from '../../hooks/useConfirm';
@@ -34,6 +34,8 @@ import { HealthBlockLibrary } from './features/health/HealthBlockLibrary';
 import { HealthSupportingPanels } from './features/health/HealthSupportingPanels';
 import { WorkoutPrBadge } from './features/health/WorkoutPrBadge';
 import { PreviousWorkoutView } from './features/health/PreviousWorkoutView';
+import { PreviousWorkoutSheet } from './features/health/PreviousWorkoutSheet';
+import { previousWorkoutSWRConfig } from './features/health/previousWorkoutSWR';
 import {
   normalizePreviousWorkoutRows,
   previousWorkoutRange,
@@ -169,6 +171,7 @@ export const HealthView = ({
   const [tempRoutineSetCounts, setTempRoutineSetCounts] = useState<Record<string, number>>({});
   // 모바일 전용 탭 상태 — 데스크탑에서는 무시됨
   const [mobileHealthTab, setMobileHealthTab] = useState<'blocks' | 'routine' | 'workout' | 'previous'>('workout');
+  const [isPreviousSheetOpen, setIsPreviousSheetOpen] = useState(false);
   const [selectedPreviousDate, setSelectedPreviousDate] = useState<string | null>(null);
   const [healthSection, setHealthSection] = useState<HealthWorkspaceSection>('workout');
   // isDirty: 사용자가 세트를 편집 중인 상태.
@@ -222,6 +225,7 @@ export const HealthView = ({
     setTempRoutineBlocks([]);
     setTempRoutineSetCounts({});
     setSelectedPreviousDate(null);
+    setIsPreviousSheetOpen(false);
   // Account identity is the reset boundary; the initial static rows are merged below.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user.id]);
@@ -229,6 +233,19 @@ export const HealthView = ({
   useEffect(() => {
     setMobileHealthTab('workout');
   }, [user.id]);
+
+  useEffect(() => {
+    // The contextual sheet is intentionally mobile-only. Closing it on a
+    // responsive transition also prevents a mobile overlay from surviving
+    // into the unchanged desktop Today/Previous layout.
+    if (!isMobile) {
+      setIsPreviousSheetOpen(false);
+    } else if (mobileHealthTab === 'previous') {
+      // Desktop may leave the shared toggle on Previous; mobile has no such
+      // permanent tab, so return to the mounted Workout surface.
+      setMobileHealthTab('workout');
+    }
+  }, [isMobile, mobileHealthTab]);
 
   useEffect(() => {
     setRoutinePresetState(current => {
@@ -1120,7 +1137,9 @@ export const HealthView = ({
   );
   const previousWorkoutRemoteUrl = `${API_URL}/api/workouts/range?start_date=${previousWorkoutRangeDates.startDate}&end_date=${previousWorkoutRangeDates.endDate}`;
   const previousWorkoutRemoteKey = remoteSWRKey(previousWorkoutRemoteUrl);
-  const previousWorkoutKey: PreviousWorkoutSWRKey | null = mobileHealthTab === 'previous'
+  const isDesktopPrevious = !isMobile && mobileHealthTab === 'previous';
+  const isPreviousContextOpen = isDesktopPrevious || isPreviousSheetOpen;
+  const previousWorkoutKey: PreviousWorkoutSWRKey | null = isPreviousContextOpen
     ? localMode
       ? ['local', user.id, previousWorkoutRangeDates.startDate, previousWorkoutRangeDates.endDate]
       : previousWorkoutRemoteKey
@@ -1138,7 +1157,9 @@ export const HealthView = ({
     error: previousWorkoutError,
     isLoading: isPreviousWorkoutLoading,
     mutate: mutatePreviousWorkout,
-  } = useSWR<PreviousWorkoutHistoryRow[]>(previousWorkoutKey, previousWorkoutFetcher, { revalidateOnFocus: false });
+  } = useSWR<PreviousWorkoutHistoryRow[]>(previousWorkoutKey, previousWorkoutFetcher, {
+    ...previousWorkoutSWRConfig,
+  });
   const previousWorkoutSessions = useMemo(
     () => listPreviousWorkoutSessions(previousWorkoutRows, selectedDateKey),
     [previousWorkoutRows, selectedDateKey],
@@ -1304,14 +1325,14 @@ export const HealthView = ({
       <div className="flex flex-col gap-2.5 shrink-0 xl:grid xl:grid-rows-[minmax(0,0.52fr)_minmax(0,0.48fr)] xl:gap-3 xl:h-full min-h-0 xl:min-w-0 xl:overflow-hidden" data-k129b-health-secondary data-k136a-health-left>
         {/* 모바일 전용 탭 헤더 */}
         <div className="flex lg:hidden gap-2">
-          {(['workout', 'previous', 'routine', 'blocks'] as const).map(tab => (
+          {(['workout', 'routine', 'blocks'] as const).map(tab => (
             <button key={tab}
               onClick={() => setMobileHealthTab(tab)}
               className={`flex-1 min-h-[44px] py-2.5 rounded-xl text-xs font-bold transition-colors
                 ${mobileHealthTab === tab
                   ? 'bg-primary text-primary-foreground'
                   : `${theme.input} ${theme.textMuted}`}`}>
-              {tab === 'blocks' ? t('tabBlocks') : tab === 'routine' ? t('tabRoutine') : tab === 'previous' ? t('tabPrevious') : t('tabWorkout')}
+              {tab === 'blocks' ? t('tabBlocks') : tab === 'routine' ? t('tabRoutine') : t('tabWorkout')}
             </button>
           ))}
         </div>
@@ -1430,7 +1451,7 @@ export const HealthView = ({
         className={`lg:min-w-0 min-h-0 shrink-0 pb-3 lg:pb-0 lg:pr-1 xl:overflow-hidden
           flex flex-col gap-2.5
           xl:grid xl:grid-rows-[minmax(0,0.58fr)_minmax(0,0.42fr)] xl:gap-3 xl:h-full
-          ${mobileHealthTab === 'workout' || mobileHealthTab === 'previous' ? 'flex xl:grid' : 'hidden lg:flex xl:grid'}`}
+          ${mobileHealthTab === 'workout' || isDesktopPrevious ? 'flex xl:grid' : 'hidden lg:flex xl:grid'}`}
         data-k129b-health-primary
         data-k136a-health-center
         data-k138-health-right-grid
@@ -1449,14 +1470,14 @@ export const HealthView = ({
             <div className="flex justify-between items-start gap-4">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <h2 className="font-heading text-xl font-bold">{mobileHealthTab === 'previous' ? t('previousWorkout') : t('todayWorkout')}</h2>
-                {mobileHealthTab !== 'previous' && (
+                <h2 className="font-heading text-xl font-bold">{isDesktopPrevious ? t('previousWorkout') : t('todayWorkout')}</h2>
+                {!isDesktopPrevious && (
                   <span className={`rounded-full px-2.5 py-1 text-[11px] font-black ${isWorkoutLocked ? (appSettings.darkMode ? 'bg-green-900/40 text-green-300' : 'bg-green-50 text-green-700') : (appSettings.darkMode ? 'bg-blue-900/35 text-blue-300' : 'bg-blue-50 text-blue-700')}`}>
                     {isWorkoutLocked ? t('healthSessionSaved') : t('healthSessionActive')}
                   </span>
                 )}
               </div>
-              {mobileHealthTab !== 'previous' && (
+              {!isDesktopPrevious && (
                 <>
                   <p className={`text-xs font-medium mt-1 ${theme.textMuted}`}>
                     {formatLongDate(selectedDate, lang)}
@@ -1476,23 +1497,34 @@ export const HealthView = ({
               )}
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2 shrink-0">
+              {isMobile && !isDesktopPrevious && (
+                <button
+                  type="button"
+                  onClick={() => setIsPreviousSheetOpen(true)}
+                  className={`inline-flex min-h-[44px] items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-bold ${theme.border} ${theme.textMuted} hover:text-foreground abs-focus-ring`}
+                  data-health-previous-trigger
+                >
+                  <History size={15} aria-hidden />
+                  {t('previousWorkout')}
+                </button>
+              )}
               <div className={`hidden lg:flex items-center rounded-xl border p-0.5 ${theme.border} ${theme.input}`} role="group" aria-label={t('previousWorkoutToggle')}>
                 <button
                   type="button"
                   onClick={() => setMobileHealthTab('workout')}
-                  className={`rounded-lg px-2.5 py-1.5 text-xs font-bold ${mobileHealthTab !== 'previous' ? 'bg-primary text-primary-foreground' : theme.textMuted}`}
+                  className={`rounded-lg px-2.5 py-1.5 text-xs font-bold ${!isDesktopPrevious ? 'bg-primary text-primary-foreground' : theme.textMuted}`}
                 >
                   {t('todayShort')}
                 </button>
                 <button
                   type="button"
                   onClick={() => setMobileHealthTab('previous')}
-                  className={`rounded-lg px-2.5 py-1.5 text-xs font-bold ${mobileHealthTab === 'previous' ? 'bg-primary text-primary-foreground' : theme.textMuted}`}
+                  className={`rounded-lg px-2.5 py-1.5 text-xs font-bold ${isDesktopPrevious ? 'bg-primary text-primary-foreground' : theme.textMuted}`}
                 >
                   {t('tabPrevious')}
                 </button>
               </div>
-            {!isWorkoutLocked && mobileHealthTab !== 'previous' && (
+            {!isWorkoutLocked && !isDesktopPrevious && (
               <div className="flex items-center gap-2">
                 {/* 세션 구분선 추가 드롭다운 */}
                 <select
@@ -1518,7 +1550,7 @@ export const HealthView = ({
           </div>
           </div>
 
-          {mobileHealthTab === 'previous' && (
+          {isDesktopPrevious && (
             <PreviousWorkoutView
               session={previousWorkoutSession}
               isLoading={isPreviousWorkoutLoading}
@@ -1536,7 +1568,7 @@ export const HealthView = ({
               onSelectDate={setSelectedPreviousDate}
             />
           )}
-          <div className={mobileHealthTab === 'previous' ? 'hidden' : 'contents'}>
+          <div className={isDesktopPrevious ? 'hidden' : 'contents'}>
           <div
             className={`min-h-0 flex-1 overscroll-contain space-y-3 pr-1 scroll-smooth
               ${hasWorkoutRecords
@@ -2004,6 +2036,25 @@ export const HealthView = ({
     </div>
     </>
       )}
+
+      <PreviousWorkoutSheet
+        open={isPreviousSheetOpen && isMobile}
+        onOpenChange={setIsPreviousSheetOpen}
+        session={previousWorkoutSession}
+        isLoading={isPreviousWorkoutLoading}
+        hasError={!!previousWorkoutError}
+        theme={theme}
+        darkMode={appSettings.darkMode}
+        t={t}
+        formatDate={date => formatLongDate(new Date(`${date}T12:00:00`), lang)}
+        formatCompactDate={date => formatAbsoluteDateKey(date, lang)}
+        formatWeight={(value, blockId) => displayKg(value, blockId)}
+        weightUnit={blockId => getUnit(blockId)}
+        onRetry={() => { void mutatePreviousWorkout(); }}
+        sessions={previousWorkoutSessions}
+        selectedDate={effectivePreviousDate}
+        onSelectDate={setSelectedPreviousDate}
+      />
 
       {/* ── 블록 생성/수정 모달 ── */}
       {showBlockModal && (
