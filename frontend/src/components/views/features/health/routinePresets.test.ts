@@ -38,6 +38,14 @@ describe('routine preset foundation', () => {
     expect(routinePresetToHealthRoutines(preset)).toEqual(routines);
   });
 
+  it('derives the fresh Default split from the highest known legacy day', () => {
+    const dayFour = { id: 'legacy-day-4', day_name: 'Day 4', blocks: ['deadlift'] } as const;
+    const preset = createRoutinePresetState({ routines: [...routines, dayFour], splitCount: 3 });
+    expect(preset.presets[0].splitCount).toBe(4);
+    expect(preset.presets[0].days[3].blocks).toEqual(['deadlift']);
+    expect(preset.legacySyncPending).toBe(false);
+  });
+
   it('keeps switching and day edits isolated to the selected preset', () => {
     const state = createRoutinePresetState({ routines, splitCount: 2 });
     const custom = createEmptyRoutinePreset('custom', 'Strength', 2);
@@ -105,6 +113,60 @@ describe('routine preset foundation', () => {
     expect(preset.days[0].blocks).toEqual(['user-block']);
     expect(preset.days[1].blocks).toEqual(['squat']);
     expect(synced.legacySyncPending).toBe(false);
+  });
+
+  it('reconciles a persisted three-day Default when Day 4 arrives later', () => {
+    const initial = createRoutinePresetState({ routines: [], splitCount: 3 });
+    const local = updateRoutinePresetState(initial, {
+      type: 'set-day', presetId: DEFAULT_ROUTINE_PRESET_ID, dayName: 'Day 1', blocks: ['local-block'], plannedSets: { 'local-block': 4 },
+    });
+    const persisted = { ...local, legacySyncPending: false };
+    const synced = syncLegacyDefaultRoutinePreset(persisted, {
+      routines: [...routines, { id: 'legacy-day-4', day_name: 'Day 4', blocks: ['deadlift'] }],
+      splitCount: 3,
+    });
+    const preset = routinePresetById(synced);
+    expect(preset.splitCount).toBe(4);
+    expect(preset.days[0].blocks).toEqual(['local-block']);
+    expect(preset.days[3].blocks).toEqual(['deadlift']);
+  });
+
+  it('recovers known Day 4 on a three-to-four expansion and preserves it across shrink/expand', () => {
+    const initial = createRoutinePresetState({ routines, splitCount: 3 });
+    const withDayFour = syncLegacyDefaultRoutinePreset(initial, {
+      routines: [...routines, { id: 'legacy-day-4', day_name: 'Day 4', blocks: ['deadlift'] }],
+      splitCount: 3,
+    });
+    const expanded = updateRoutinePresetState(withDayFour, {
+      type: 'set-split', presetId: DEFAULT_ROUTINE_PRESET_ID, splitCount: 4,
+    });
+    expect(routinePresetById(expanded).days[3].blocks).toEqual(['deadlift']);
+    const reduced = updateRoutinePresetState(expanded, {
+      type: 'set-split', presetId: DEFAULT_ROUTINE_PRESET_ID, splitCount: 3,
+    });
+    expect(routinePresetById(reduced).days[3].blocks).toEqual(['deadlift']);
+    const reducedAndReconciled = syncLegacyDefaultRoutinePreset(reduced, {
+      routines: [...routines, { id: 'legacy-day-4', day_name: 'Day 4', blocks: ['deadlift'] }],
+      splitCount: 3,
+    });
+    expect(routinePresetById(reducedAndReconciled).splitCount).toBe(3);
+    const restored = updateRoutinePresetState(reduced, {
+      type: 'set-split', presetId: DEFAULT_ROUTINE_PRESET_ID, splitCount: 4,
+    });
+    expect(routinePresetToHealthRoutines(routinePresetById(restored)).find(day => day.day_name === 'Day 4')?.blocks).toEqual(['deadlift']);
+  });
+
+  it('does not replace an explicitly cleared local day with legacy content', () => {
+    const initial = createRoutinePresetState({ routines, splitCount: 2 });
+    const cleared = updateRoutinePresetState(initial, {
+      type: 'set-day', presetId: DEFAULT_ROUTINE_PRESET_ID, dayName: 'Day 2', blocks: [], plannedSets: {},
+    });
+    const synced = syncLegacyDefaultRoutinePreset(cleared, {
+      routines: [{ id: 'legacy-day-2-new', day_name: 'Day 2', blocks: ['squat'] }],
+      splitCount: 2,
+    });
+    expect(routinePresetById(synced).days[1].blocks).toEqual([]);
+    expect(routinePresetById(synced).days[1].locallyAuthored).toBe(true);
   });
 
   it('keeps account transition state pending until the new account rows arrive', () => {

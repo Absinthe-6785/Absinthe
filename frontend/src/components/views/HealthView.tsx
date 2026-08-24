@@ -75,6 +75,7 @@ import {
   writeRoutinePresetState,
   type RoutinePresetState,
 } from './features/health/routinePresets';
+import { isRoutinePresetMenuOutsideTarget } from './features/health/routinePresetMenu';
 import useSWR from 'swr';
 import { fetcher } from '../../lib/fetcher';
 import { remoteSWRKey } from '../../lib/remoteBoundary';
@@ -145,6 +146,7 @@ export const HealthView = ({
   ));
   const [presetMenuOpen, setPresetMenuOpen] = useState(false);
   const [presetRenameDraft, setPresetRenameDraft] = useState('');
+  const presetMenuRef = useRef<HTMLDivElement>(null);
   const activePreset = routinePresetById(routinePresetState);
   const selectedHealthRoutines = useMemo(
     () => routinePresetToHealthRoutines(activePreset),
@@ -240,6 +242,15 @@ export const HealthView = ({
       return next;
     });
   }, [healthRoutines, legacySplitCount, user.id]);
+
+  useEffect(() => {
+    if (!presetMenuOpen) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      if (isRoutinePresetMenuOutsideTarget(presetMenuRef.current, event.target)) setPresetMenuOpen(false);
+    };
+    document.addEventListener('pointerdown', handlePointerDown);
+    return () => document.removeEventListener('pointerdown', handlePointerDown);
+  }, [presetMenuOpen]);
 
   useEffect(() => {
     setSplitCountInput(String(activePreset.splitCount));
@@ -1312,18 +1323,19 @@ export const HealthView = ({
                   <option key={preset.id} value={preset.id}>{preset.name}</option>
                 ))}
               </select>
-              <div className="relative shrink-0">
+              <div ref={presetMenuRef} className="relative shrink-0">
                 <button
                   type="button"
                   aria-label={t('healthPresetActions')}
                   aria-expanded={presetMenuOpen}
+                  aria-controls="health-preset-actions-menu"
                   onClick={() => setPresetMenuOpen(open => !open)}
                   className={`rounded-xl p-1.5 ${theme.hoverBg}`}
                 >
                   <MoreHorizontal size={17} aria-hidden />
                 </button>
                 {presetMenuOpen && (
-                  <div className={`absolute left-0 top-full z-30 mt-1 w-48 rounded-xl border p-1.5 shadow-lg ${theme.card} ${theme.border}`}>
+                  <div id="health-preset-actions-menu" role="menu" className={`absolute left-0 top-full z-30 mt-1 w-48 rounded-xl border p-1.5 shadow-lg ${theme.card} ${theme.border}`}>
                     <button type="button" onClick={handleCreatePreset} className={`w-full rounded-lg px-2.5 py-2 text-left text-xs font-bold ${theme.hoverBg}`}>{t('healthPresetNew')}</button>
                     <button type="button" onClick={handleDuplicatePreset} className={`w-full rounded-lg px-2.5 py-2 text-left text-xs font-bold ${theme.hoverBg}`}>{t('healthPresetDuplicate')}</button>
                     {presetRenameDraft ? (
