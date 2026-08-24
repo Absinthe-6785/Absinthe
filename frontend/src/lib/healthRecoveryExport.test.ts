@@ -114,6 +114,30 @@ describe('complete Health recovery export', () => {
     })).rejects.toThrow('health_field_validation_failed');
   });
 
+  it('preserves and validates additive saved weight source metadata', async () => {
+    const input = datasets();
+    input.workout_logs[0].sets = [{
+      type: 'strength', set: 1, kg: 102.37, reps: 5, done: true,
+      weight_source_value: 225.68, weight_source_unit: 'lbs',
+    }];
+    expect(validateHealthRecoveryDatasets(input, USER_ID)).toEqual([]);
+    const exported = await buildHealthRecoveryExport({
+      sourceAccount: { userId: USER_ID, email: 'a@b.test' }, exportedAt: '2026-08-12T00:00:00Z', datasets: input,
+    });
+    expect(exported.datasets.workout_logs[0]?.sets).toEqual(input.workout_logs[0]?.sets);
+  });
+
+  it('rejects incomplete saved weight source metadata without weakening recovery validation', () => {
+    const input = datasets();
+    input.workout_logs[0].sets = [{
+      type: 'strength', set: 1, kg: 100, reps: 5, done: true,
+      weight_source_value: 100,
+    }];
+    expect(validateHealthRecoveryDatasets(input, USER_ID)).toContainEqual(expect.objectContaining({
+      dataset: 'workout_logs', code: 'weight_source_metadata_must_be_pair',
+    }));
+  });
+
   it('verifies canonical checksum and all derived metadata after readback', async () => {
     const result = await buildHealthRecoveryExport({ sourceAccount: { userId: USER_ID, email: 'a@b.test' }, exportedAt: '2026-08-12T00:00:00Z', datasets: datasets() });
     const serialized = serializeHealthRecoveryExport(result);

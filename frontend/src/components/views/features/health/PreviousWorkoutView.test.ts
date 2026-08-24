@@ -25,6 +25,14 @@ describe('Previous Workout strength/bodyweight display', () => {
       .not.toBe('220.5 kg');
   });
 
+  it('uses the saved per-set source value for Previous display round trips', () => {
+    const saved = strength({ kg: 102.37, weight_source_value: 225.68, weight_source_unit: 'lbs' });
+    expect(formatPreviousStrengthWeight(saved, 'press', 'strength', formatWeight, 'kg', 'Bodyweight'))
+      .toBe('102.4 kg');
+    expect(formatPreviousStrengthWeight(saved, 'press', 'strength', formatWeight, 'lbs', 'Bodyweight'))
+      .toBe('225.68 lbs');
+  });
+
   it('uses the canonical bodyweight type instead of missing weight', () => {
     expect(formatPreviousStrengthWeight(strength({ type: 'bodyweight', kg: '' }), 'pull-up', 'strength', formatWeight, 'kg', 'Bodyweight'))
       .toBe('Bodyweight');

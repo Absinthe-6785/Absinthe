@@ -555,6 +555,8 @@ async def get_prev_workout(block_id: str, before_date: str, user_id: str = Depen
 
 @app.post("/api/workouts")
 async def save_workout(log: WorkoutLogCreate, user_id: str = Depends(get_current_user)):
+    if not _workout_sets(log.sets):
+        raise HTTPException(status_code=422, detail="Invalid workout sets")
     existing = supabase.table("workout_logs").select("id").eq("user_id", user_id).eq("date", log.date).eq("block_id", log.block_id).execute().data
     if existing:
         # 중복 행이 여러 개일 수 있으므로 모두 삭제 후 재insert — sort_order 확실히 반영
@@ -1093,6 +1095,16 @@ def _workout_sets(value: object) -> bool:
             if not _finite_persisted(item.get("kg"), allow_empty=True):
                 return False
             if not _finite_persisted(item.get("reps"), allow_empty=True):
+                return False
+            has_source_value = "weight_source_value" in item
+            has_source_unit = "weight_source_unit" in item
+            if has_source_value != has_source_unit:
+                return False
+            if has_source_value and (
+                not _finite_number(item.get("weight_source_value"))
+                or item["weight_source_value"] < 0
+                or item.get("weight_source_unit") not in {"kg", "lbs"}
+            ):
                 return False
         elif item["type"] == "cardio":
             if not isinstance(item.get("time"), str) or not isinstance(item.get("pace"), str):

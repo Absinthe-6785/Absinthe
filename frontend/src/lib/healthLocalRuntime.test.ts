@@ -127,6 +127,18 @@ describe('local Health catalog/date projection boundary', () => {
     expect(source).toEqual(sourceBefore);
   });
 
+  it('preserves source metadata through local Previous and range projections', () => {
+    const source = datasets();
+    source.workout_logs[0].sets = [{
+      type: 'strength', set: 1, kg: 102.37, reps: 5, done: true,
+      weight_source_value: 225.68, weight_source_unit: 'lbs',
+    }];
+    const previous = projectLocalPreviousWorkoutRows(source, '2026-08-10', '2026-08-10');
+    const range = projectLocalHealthWorkoutRange(source, '2026-08-10', '2026-08-10');
+    expect(previous[0]?.sets[0]).toMatchObject({ weight_source_value: 225.68, weight_source_unit: 'lbs' });
+    expect(range[0]?.sets[0]).toMatchObject({ weight_source_value: 225.68, weight_source_unit: 'lbs' });
+  });
+
   it('projects bounded historical rows through the local repository boundary without rewriting recovery data', () => {
     const source = datasets();
     source.workout_logs.push(

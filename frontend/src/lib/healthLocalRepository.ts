@@ -316,6 +316,15 @@ function validateLocalWorkoutInput(input: LocalWorkoutWriteInput, accountId: str
       if (!isFiniteLocalNumber(set.kg, true) || !isFiniteLocalNumber(set.reps, true)) {
         throw new Error(`health_local_workout_set_measurement_invalid:${index}`);
       }
+      const hasSourceValue = Object.prototype.hasOwnProperty.call(set, 'weight_source_value');
+      const hasSourceUnit = Object.prototype.hasOwnProperty.call(set, 'weight_source_unit');
+      if (hasSourceValue !== hasSourceUnit
+        || (hasSourceValue && (typeof set.weight_source_value !== 'number'
+          || !Number.isFinite(set.weight_source_value)
+          || set.weight_source_value < 0
+          || (set.weight_source_unit !== 'kg' && set.weight_source_unit !== 'lbs')))) {
+        throw new Error(`health_local_workout_set_source_invalid:${index}`);
+      }
     } else if (set.type === 'cardio') {
       if (typeof set.time !== 'string' || !isFiniteLocalNumber(set.distance, true) || typeof set.pace !== 'string') {
         throw new Error(`health_local_workout_set_cardio_invalid:${index}`);

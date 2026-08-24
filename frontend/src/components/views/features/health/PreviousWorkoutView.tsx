@@ -2,6 +2,7 @@ import type { StrengthSet, Theme, WorkoutSet } from '../../../../types';
 import { isCardioSet, isStrengthSet } from '../../../../types';
 import type { TranslationKey } from '../../../../lib/i18n';
 import type { PreviousWorkoutSession } from './previousWorkoutSession';
+import { formatSavedWeight } from './healthWeight';
 
 export interface PreviousWorkoutViewProps {
   session: PreviousWorkoutSession | null;
@@ -29,7 +30,7 @@ export function formatPreviousStrengthWeight(
   bodyweightLabel: string,
 ): string {
   if (set.type === 'bodyweight' || blockType === 'bodyweight') return bodyweightLabel;
-  const value = formatWeight(set.kg, blockId);
+  const value = formatSavedWeight(set, weightUnit) || formatWeight(set.kg, blockId);
   return valueOrDash(value) === '—' ? '—' : `${value} ${weightUnit}`;
 }
 
