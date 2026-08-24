@@ -14,7 +14,7 @@ export type PreviousWorkoutHistoryRow = Readonly<{
 export type PreviousWorkoutSession = Readonly<{
   date: string;
   rows: readonly PreviousWorkoutHistoryRow[];
-  matchStrategy: 'weekday';
+  matchStrategy: 'weekday' | 'date';
 }>;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -66,6 +66,62 @@ function weekday(value: string): number {
   return dateFromKey(value).getDay();
 }
 
+function sortSessionRows(rows: readonly PreviousWorkoutHistoryRow[]): PreviousWorkoutHistoryRow[] {
+  return rows
+    .map((row, index) => ({ row, index }))
+    .sort((left, right) => (
+      left.row.sortOrder - right.row.sortOrder
+      || (left.row.rowId ?? '').localeCompare(right.row.rowId ?? '')
+      || left.index - right.index
+    ))
+    .map(({ row }) => ({ ...row, sets: structuredClone(row.sets) }));
+}
+
+/**
+ * Build the bounded, date-only history browser from the already fetched rows.
+ * A date is one coherent session; rows are never combined across dates.
+ */
+export function listPreviousWorkoutSessions(
+  rows: readonly PreviousWorkoutHistoryRow[],
+  referenceDate: string,
+): PreviousWorkoutSession[] {
+  if (!validDateKey(referenceDate)) return [];
+  const grouped = new Map<string, PreviousWorkoutHistoryRow[]>();
+  rows.forEach(row => {
+    if (!validDateKey(row.date) || row.date >= referenceDate || row.sets.length === 0) return;
+    const dateRows = grouped.get(row.date) ?? [];
+    dateRows.push(row);
+    grouped.set(row.date, dateRows);
+  });
+  return [...grouped.keys()]
+    .sort((left, right) => right.localeCompare(left))
+    .map(date => ({
+      date,
+      rows: sortSessionRows(grouped.get(date) ?? []),
+      matchStrategy: 'date' as const,
+    }));
+}
+
+/** Pick the initial recommendation without taking control away from the user. */
+export function defaultPreviousWorkoutDate(
+  sessions: readonly PreviousWorkoutSession[],
+  referenceDate: string,
+): string | null {
+  if (!validDateKey(referenceDate)) return null;
+  return sessions.find(session => weekday(session.date) === weekday(referenceDate))?.date
+    ?? sessions[0]?.date
+    ?? null;
+}
+
+/** Resolve exactly one selected date from the bounded, already-fetched range. */
+export function resolvePreviousWorkoutSessionByDate(
+  rows: readonly PreviousWorkoutHistoryRow[],
+  date: string,
+  referenceDate: string,
+): PreviousWorkoutSession | null {
+  return listPreviousWorkoutSessions(rows, referenceDate).find(session => session.date === date) ?? null;
+}
+
 function exerciseBlockFromRemote(row: Record<string, unknown>, blockId: string): ExerciseBlock {
   const nested = isRecord(row.exercise_blocks) ? row.exercise_blocks : undefined;
   const rawType = nested?.type ?? row.exercise_type;
@@ -110,15 +166,9 @@ export function resolvePreviousWorkoutSession(
   rows: readonly PreviousWorkoutHistoryRow[],
   referenceDate: string,
 ): PreviousWorkoutSession | null {
-  if (!validDateKey(referenceDate)) return null;
-  const candidates = rows
-    .filter(row => validDateKey(row.date) && row.date < referenceDate && weekday(row.date) === weekday(referenceDate) && row.sets.length > 0)
-    .sort((left, right) => right.date.localeCompare(left.date));
-  const matchedDate = candidates[0]?.date;
+  const sessions = listPreviousWorkoutSessions(rows, referenceDate);
+  const matchedDate = sessions.find(session => weekday(session.date) === weekday(referenceDate))?.date;
   if (!matchedDate) return null;
-  const matchedRows = candidates
-    .filter(row => row.date === matchedDate)
-    .sort((left, right) => left.sortOrder - right.sortOrder || (left.rowId ?? '').localeCompare(right.rowId ?? ''))
-    .map(row => ({ ...row, sets: structuredClone(row.sets) }));
-  return { date: matchedDate, rows: matchedRows, matchStrategy: 'weekday' };
+  const matched = sessions.find(session => session.date === matchedDate);
+  return matched ? { ...matched, matchStrategy: 'weekday' } : null;
 }

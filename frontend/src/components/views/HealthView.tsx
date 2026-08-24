@@ -26,7 +26,7 @@ import { HealthWorkspaceNav, HEALTH_WORKSPACE_SECTIONS, type HealthWorkspaceSect
 import { ProteinTracker } from './features/health/nutrition';
 import { getRecoveryEntry } from './features/health/recovery/recoveryNotes';
 import { WORKSPACE_CARD, WORKSPACE_CARD_RADIUS_CLASS, WORKSPACE_CARD_SURFACE, WORKSPACE_MODAL_SURFACE } from '../common/workspaceCardSizes';
-import { formatLongDate } from './k102DateFormat';
+import { formatAbsoluteDateKey, formatLongDate } from './k102DateFormat';
 import { buildHealthProjection } from './features/health/buildHealthProjection';
 import type { RangeWorkoutRow } from './features/health/workout/workoutMetrics';
 import { computeWorkoutPrBadgeMap } from './features/health/computeWorkoutPrBadge';
@@ -37,7 +37,9 @@ import { PreviousWorkoutView } from './features/health/PreviousWorkoutView';
 import {
   normalizePreviousWorkoutRows,
   previousWorkoutRange,
-  resolvePreviousWorkoutSession,
+  defaultPreviousWorkoutDate,
+  listPreviousWorkoutSessions,
+  resolvePreviousWorkoutSessionByDate,
   type PreviousWorkoutHistoryRow,
 } from './features/health/previousWorkoutSession';
 import { readHealthSectionPrefs } from './features/health/healthSectionPrefs';
@@ -167,6 +169,7 @@ export const HealthView = ({
   const [tempRoutineSetCounts, setTempRoutineSetCounts] = useState<Record<string, number>>({});
   // 모바일 전용 탭 상태 — 데스크탑에서는 무시됨
   const [mobileHealthTab, setMobileHealthTab] = useState<'blocks' | 'routine' | 'workout' | 'previous'>('workout');
+  const [selectedPreviousDate, setSelectedPreviousDate] = useState<string | null>(null);
   const [healthSection, setHealthSection] = useState<HealthWorkspaceSection>('workout');
   // isDirty: 사용자가 세트를 편집 중인 상태.
   const [isDirty, setIsDirty] = useState(false);
@@ -218,6 +221,7 @@ export const HealthView = ({
     setActiveDayForm('');
     setTempRoutineBlocks([]);
     setTempRoutineSetCounts({});
+    setSelectedPreviousDate(null);
   // Account identity is the reset boundary; the initial static rows are merged below.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user.id]);
@@ -1135,9 +1139,27 @@ export const HealthView = ({
     isLoading: isPreviousWorkoutLoading,
     mutate: mutatePreviousWorkout,
   } = useSWR<PreviousWorkoutHistoryRow[]>(previousWorkoutKey, previousWorkoutFetcher, { revalidateOnFocus: false });
-  const previousWorkoutSession = useMemo(
-    () => resolvePreviousWorkoutSession(previousWorkoutRows, selectedDateKey),
+  const previousWorkoutSessions = useMemo(
+    () => listPreviousWorkoutSessions(previousWorkoutRows, selectedDateKey),
     [previousWorkoutRows, selectedDateKey],
+  );
+  const automaticPreviousDate = useMemo(
+    () => defaultPreviousWorkoutDate(previousWorkoutSessions, selectedDateKey),
+    [previousWorkoutSessions, selectedDateKey],
+  );
+  const effectivePreviousDate = selectedPreviousDate && previousWorkoutSessions.some(session => session.date === selectedPreviousDate)
+    ? selectedPreviousDate
+    : automaticPreviousDate;
+  useEffect(() => {
+    setSelectedPreviousDate(current => current && previousWorkoutSessions.some(session => session.date === current)
+      ? current
+      : automaticPreviousDate);
+  }, [automaticPreviousDate, previousWorkoutSessions]);
+  const previousWorkoutSession = useMemo(
+    () => effectivePreviousDate
+      ? resolvePreviousWorkoutSessionByDate(previousWorkoutRows, effectivePreviousDate, selectedDateKey)
+      : null,
+    [effectivePreviousDate, previousWorkoutRows, selectedDateKey],
   );
 
   const healthProjection = useMemo(() => buildHealthProjection({
@@ -1505,9 +1527,13 @@ export const HealthView = ({
               darkMode={appSettings.darkMode}
               t={t}
               formatDate={date => formatLongDate(new Date(`${date}T12:00:00`), lang)}
+              formatCompactDate={date => formatAbsoluteDateKey(date, lang)}
               formatWeight={(value, blockId) => displayKg(value, blockId)}
               weightUnit={blockId => getUnit(blockId)}
               onRetry={() => { void mutatePreviousWorkout(); }}
+              sessions={previousWorkoutSessions}
+              selectedDate={effectivePreviousDate}
+              onSelectDate={setSelectedPreviousDate}
             />
           )}
           <div className={mobileHealthTab === 'previous' ? 'hidden' : 'contents'}>

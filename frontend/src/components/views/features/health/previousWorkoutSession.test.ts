@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { WorkoutSet } from '../../../../types';
 import {
+  defaultPreviousWorkoutDate,
+  listPreviousWorkoutSessions,
   normalizePreviousWorkoutRows,
   previousWorkoutRange,
   resolvePreviousWorkoutSession,
+  resolvePreviousWorkoutSessionByDate,
   type PreviousWorkoutHistoryRow,
 } from './previousWorkoutSession';
 
@@ -96,5 +99,53 @@ describe('previous workout session resolution', () => {
       startDate: '2025-08-24',
       endDate: '2026-08-23',
     });
+  });
+
+  it('groups same-date rows once, newest first, and excludes current/future rows', () => {
+    const sessions = listPreviousWorkoutSessions([
+      row('2026-08-25', 'future', 0),
+      row('2026-08-24', 'current', 0),
+      row('2026-08-21', 'bench', 2),
+      row('2026-08-21', 'squat', 1),
+      row('2026-08-18', 'row', 0),
+    ], '2026-08-24');
+
+    expect(sessions.map(session => session.date)).toEqual(['2026-08-21', '2026-08-18']);
+    expect(sessions[0]?.rows.map(item => item.blockId)).toEqual(['squat', 'bench']);
+  });
+
+  it('keeps the same-weekday recommendation before the most-recent fallback', () => {
+    const sessions = listPreviousWorkoutSessions([
+      row('2026-08-17', 'monday', 0),
+      row('2026-08-21', 'friday', 0),
+    ], '2026-08-24');
+
+    expect(defaultPreviousWorkoutDate(sessions, '2026-08-24')).toBe('2026-08-17');
+    expect(defaultPreviousWorkoutDate(
+      listPreviousWorkoutSessions([row('2026-08-21', 'friday', 0)], '2026-08-24'),
+      '2026-08-24',
+    )).toBe('2026-08-21');
+  });
+
+  it('resolves an explicitly selected date without combining another session', () => {
+    const session = resolvePreviousWorkoutSessionByDate([
+      row('2026-08-21', 'selected-a', 1),
+      row('2026-08-21', 'selected-b', 0),
+      row('2026-08-18', 'other-date', 0),
+    ], '2026-08-21', '2026-08-24');
+
+    expect(session?.date).toBe('2026-08-21');
+    expect(session?.rows.map(item => item.blockId)).toEqual(['selected-b', 'selected-a']);
+    expect(new Set(session?.rows.map(item => item.date))).toEqual(new Set(['2026-08-21']));
+  });
+
+  it('drops a selected date that becomes future when the reference date changes', () => {
+    const sessions = listPreviousWorkoutSessions([
+      row('2026-08-21', 'recent', 0),
+      row('2026-08-17', 'fallback', 0),
+    ], '2026-08-20');
+
+    expect(sessions.map(session => session.date)).toEqual(['2026-08-17']);
+    expect(defaultPreviousWorkoutDate(sessions, '2026-08-20')).toBe('2026-08-17');
   });
 });
