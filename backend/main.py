@@ -555,6 +555,8 @@ async def get_prev_workout(block_id: str, before_date: str, user_id: str = Depen
 
 @app.post("/api/workouts")
 async def save_workout(log: WorkoutLogCreate, user_id: str = Depends(get_current_user)):
+    if not _workout_sets(log.sets):
+        raise HTTPException(status_code=422, detail="Invalid workout sets")
     existing = supabase.table("workout_logs").select("id").eq("user_id", user_id).eq("date", log.date).eq("block_id", log.block_id).execute().data
     if existing:
         # 중복 행이 여러 개일 수 있으므로 모두 삭제 후 재insert — sort_order 확실히 반영

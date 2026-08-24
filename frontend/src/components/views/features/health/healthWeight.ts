@@ -81,6 +81,13 @@ export function editableWeightValue(
   return formatSavedWeight(set, displayUnit);
 }
 
+export function hasWeightInputDraft(
+  set: Pick<StrengthSet, 'weight_input_raw' | 'weight_input_unit'>,
+): boolean {
+  return typeof set.weight_input_raw === 'string'
+    && (set.weight_input_unit === 'kg' || set.weight_input_unit === 'lbs');
+}
+
 export function inputToCanonicalKg(value: string, unit: WeightUnit): string {
   if (value === '') return '';
   const parsed = finiteNumber(value);
@@ -91,7 +98,6 @@ export function inputToCanonicalKg(value: string, unit: WeightUnit): string {
 export function normalizeStrengthSetForSave(
   set: StrengthSet,
   activeUnit: WeightUnit,
-  weightEdited = false,
 ): StrengthSet {
   const {
     weight_input_raw: rawInput,
@@ -111,8 +117,8 @@ export function normalizeStrengthSetForSave(
       : persisted;
   }
 
-  const hasRawInput = rawInput !== undefined;
-  if (!weightEdited && !hasRawInput) {
+  const hasRawInput = hasWeightInputDraft({ weight_input_raw: rawInput, weight_input_unit: rawInputUnit });
+  if (!hasRawInput) {
     // Preserve legacy kg-only records and source-aware records when a user only
     // toggles units or edits a non-weight field.
     return sourceMetadataExists

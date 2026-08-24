@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import type { StrengthSet } from '../../../../types';
+import { makeNextSet, type StrengthSet } from '../../../../types';
 import {
   canonicalWeightKg,
   editableWeightValue,
   formatSavedWeight,
+  hasWeightInputDraft,
   normalizeStrengthSetForSave,
   roundWeightSource,
 } from './healthWeight';
@@ -24,7 +25,7 @@ describe('Health weight source precision', () => {
   it('normalizes kg saves without restricting active input precision', () => {
     const editing = strength({ kg: '102.34567', weight_input_raw: '102.34567', weight_input_unit: 'kg' });
     expect(editing.weight_input_raw).toBe('102.34567');
-    expect(normalizeStrengthSetForSave(editing, 'kg', true)).toMatchObject({
+    expect(normalizeStrengthSetForSave(editing, 'kg')).toMatchObject({
       kg: 102.35, weight_source_value: 102.35, weight_source_unit: 'kg',
     });
   });
@@ -37,6 +38,28 @@ describe('Health weight source precision', () => {
     );
     expect(saved).toMatchObject({ weight_source_value: 225.68, weight_source_unit: 'lbs' });
     expect(saved.kg).toBe(canonicalWeightKg(225.68, 'lbs'));
+  });
+
+  it('preserves the actual edit unit when display toggles before save', () => {
+    const editedInLbs = strength({
+      kg: '102.365821',
+      weight_input_raw: '225.678',
+      weight_input_unit: 'lbs',
+    });
+    expect(normalizeStrengthSetForSave(editedInLbs, 'kg')).toMatchObject({
+      weight_source_value: 225.68,
+      weight_source_unit: 'lbs',
+    });
+
+    const editedInKg = strength({
+      kg: '105.25789',
+      weight_input_raw: '105.25789',
+      weight_input_unit: 'kg',
+    });
+    expect(normalizeStrengthSetForSave(editedInKg, 'kg')).toMatchObject({
+      weight_source_value: 105.26,
+      weight_source_unit: 'kg',
+    });
   });
 
   it('uses source values for alternate display and does not drift on toggles', () => {
@@ -92,8 +115,37 @@ describe('Health weight source precision', () => {
 
   it('does not invent or discard bodyweight source semantics', () => {
     const bodyweight = strength({ type: 'bodyweight', kg: '', reps: 8 });
-    expect(normalizeStrengthSetForSave(bodyweight, 'kg', true)).toEqual(bodyweight);
+    expect(normalizeStrengthSetForSave(bodyweight, 'kg')).toEqual(bodyweight);
     const existing = strength({ type: 'bodyweight', kg: 80, reps: 8, weight_source_value: 176.37, weight_source_unit: 'lbs' });
-    expect(normalizeStrengthSetForSave(existing, 'kg', false)).toEqual(existing);
+    expect(normalizeStrengthSetForSave(existing, 'kg')).toEqual(existing);
+  });
+
+  it('uses set-local edit metadata safely across set structure changes', () => {
+    const untouched = strength({ kg: 100, weight_source_value: 100, weight_source_unit: 'kg' });
+    const edited = strength({ kg: '102.365821', weight_input_raw: '225.678', weight_input_unit: 'lbs' });
+
+    const afterRemovingBeforeEdited = [untouched, edited].map(set => normalizeStrengthSetForSave(set, 'kg'));
+    expect(afterRemovingBeforeEdited[0]).toMatchObject({ weight_source_value: 100, weight_source_unit: 'kg' });
+    expect(afterRemovingBeforeEdited[1]).toMatchObject({ weight_source_value: 225.68, weight_source_unit: 'lbs' });
+
+    const afterRemovingEdited = [untouched].map(set => normalizeStrengthSetForSave(set, 'kg'));
+    expect(afterRemovingEdited[0]).toMatchObject({ weight_source_value: 100, weight_source_unit: 'kg' });
+
+    const afterAdding = [edited, strength()].map(set => normalizeStrengthSetForSave(set, 'kg'));
+    expect(afterAdding[0]).toMatchObject({ weight_source_value: 225.68, weight_source_unit: 'lbs' });
+    expect(afterAdding[1]).not.toHaveProperty('weight_source_value');
+
+    const reordered = [edited, untouched].reverse().map(set => normalizeStrengthSetForSave(set, 'kg'));
+    expect(reordered[0]).toMatchObject({ weight_source_value: 100, weight_source_unit: 'kg' });
+    expect(reordered[1]).toMatchObject({ weight_source_value: 225.68, weight_source_unit: 'lbs' });
+  });
+
+  it('does not carry explicit edit metadata into a copied drop set', () => {
+    const edited = strength({ kg: '102.365821', weight_input_raw: '225.678', weight_input_unit: 'lbs' });
+    const copied = makeNextSet(edited, true) as StrengthSet;
+    expect(copied).not.toHaveProperty('weight_input_raw');
+    expect(copied).not.toHaveProperty('weight_input_unit');
+    expect(hasWeightInputDraft(edited)).toBe(true);
+    expect(hasWeightInputDraft(copied)).toBe(false);
   });
 });

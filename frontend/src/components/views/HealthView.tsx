@@ -174,7 +174,6 @@ export const HealthView = ({
   const pendingFocusSetRef = useRef<{ wIdx: number; sIdx: number } | null>(null);
   // ── lbs 입력 중 raw 값 보존 (wIdx-sIdx 키) — 변환 재계산으로 커서 고정되는 버그 방지
   const [rawKgInput, setRawKgInput] = useState<Record<string, string>>({});
-  const weightEditKeysRef = useRef(new Set<string>());
   const [localWorkouts, setLocalWorkouts] = useState<Workout[]>([]);
   const persistRoutinePreset = useCallback((update: (current: RoutinePresetState) => RoutinePresetState) => {
     setRoutinePresetState(current => {
@@ -417,7 +416,6 @@ export const HealthView = ({
     setIsDirty(false);
     isDirtyRef.current = false;
     setRawKgInput({});
-    weightEditKeysRef.current.clear();
     setIsWorkoutLocked(false);
     setIsSaving(false);
     setIsInbodyDirty(false);
@@ -452,7 +450,6 @@ export const HealthView = ({
         return ao - bo;
       });
       setLocalWorkouts(sorted);
-      weightEditKeysRef.current.clear();
       setIsWorkoutLocked(sorted.length > 0);
     }
   }, [workouts]);
@@ -856,8 +853,6 @@ export const HealthView = ({
     const workout = localWorkouts[wIdx];
     if (!workout) return;
     const unit = getUnit(workout.block_id);
-    const key = `${workout.id}:${sIdx}`;
-    weightEditKeysRef.current.add(key);
     setRawKgInput(prev => ({ ...prev, [`${wIdx}-${sIdx}`]: raw }));
     setIsDirty(true);
     setLocalWorkouts(prev => {
@@ -898,10 +893,9 @@ export const HealthView = ({
     };
     const normalizedWorkouts = localWorkouts.map(workout => ({
       ...workout,
-      sets: workout.sets.map((set, sIdx) => {
+      sets: workout.sets.map(set => {
         if (!isStrengthSet(set)) return set;
-        const edited = weightEditKeysRef.current.has(`${workout.id}:${sIdx}`);
-        return normalizeStrengthSetForSave(set, getUnit(workout.block_id), edited);
+        return normalizeStrengthSetForSave(set, getUnit(workout.block_id));
       }),
     }));
 
@@ -927,7 +921,6 @@ export const HealthView = ({
           const result = results[resultIndex++];
           return result ? { ...workout, id: result.id, local_version: result.version } : workout;
         }));
-        weightEditKeysRef.current.clear();
         setIsSaving(false);
         localStorage.removeItem(draftKey);
         showToast(t('workoutSaved'));
@@ -966,7 +959,6 @@ export const HealthView = ({
     setIsSaving(false);
     if (failed === 0) {
       setLocalWorkouts(normalizedWorkouts);
-      weightEditKeysRef.current.clear();
       localStorage.removeItem(draftKey);
       showToast(t('workoutSaved'));
       setIsDirty(false);
