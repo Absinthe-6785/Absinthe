@@ -101,6 +101,28 @@ type PreviousWorkoutSWRKey =
   | readonly ['local', string, string, string]
   | readonly ['remote', string, string];
 
+type RoutinePresetStateUpdate =
+  | RoutinePresetState
+  | ((current: RoutinePresetState) => RoutinePresetState);
+
+function initialRoutinePresetState(
+  accountId: string,
+  routines: readonly HealthRoutine[],
+  splitCount: number,
+): RoutinePresetState {
+  return readRoutinePresetState(localStorage, accountId)
+    ?? createRoutinePresetState({
+      routines,
+      splitCount,
+      plannedSetsByDay: Object.fromEntries(
+        Array.from({ length: 7 }, (_, index) => {
+          const dayName = `Day ${index + 1}`;
+          return [dayName, getRoutinePlannedSetsForDay(dayName)];
+        }),
+      ),
+    });
+}
+
 export const HealthView = ({
   currentDate, setCurrentDate, selectedDate, setSelectedDate,
   formatDate, isToday, showToast, mutateDaily, mutateStatic,
@@ -134,25 +156,51 @@ export const HealthView = ({
     const saved = localStorage.getItem('healthSplitCount');
     return saved ? Math.min(7, Math.max(1, Number(saved))) : 3;
   });
-  const [splitCountInput, setSplitCountInput] = useState<string>(() => {
+  const [routinePresetBinding, setRoutinePresetBinding] = useState<{
+    accountId: string;
+    state: RoutinePresetState;
+  }>(() => ({
+    accountId: user.id,
+    state: initialRoutinePresetState(user.id, healthRoutines ?? [], legacySplitCount),
+  }));
+  const routinePresetState = routinePresetBinding.accountId === user.id
+    ? routinePresetBinding.state
+    : initialRoutinePresetState(user.id, healthRoutines ?? [], legacySplitCount);
+  const [splitCountInputBinding, setSplitCountInputBinding] = useState<{
+    accountId: string;
+    value: string;
+  }>(() => {
     const saved = localStorage.getItem('healthSplitCount');
-    return saved ? String(Math.min(7, Math.max(1, Number(saved)))) : '3';
+    return {
+      accountId: user.id,
+      value: saved ? String(Math.min(7, Math.max(1, Number(saved)))) : '3',
+    };
   });
-  const [routinePresetState, setRoutinePresetState] = useState<RoutinePresetState>(() => (
-    readRoutinePresetState(localStorage, user.id)
-      ?? createRoutinePresetState({
-        routines: healthRoutines ?? [],
-        splitCount: legacySplitCount,
-        plannedSetsByDay: Object.fromEntries(
-          Array.from({ length: 7 }, (_, index) => {
-            const dayName = `Day ${index + 1}`;
-            return [dayName, getRoutinePlannedSetsForDay(dayName)];
-          }),
-        ),
-      })
-  ));
+  const splitCountInput = splitCountInputBinding.accountId === user.id
+    ? splitCountInputBinding.value
+    : String(routinePresetById(routinePresetState).splitCount);
+  const setSplitCountInput = (value: string) => {
+    setSplitCountInputBinding(current => (
+      current.accountId === user.id && current.value === value
+        ? current
+        : { accountId: user.id, value }
+    ));
+  };
+  const routinePresetAccountReady = routinePresetBinding.accountId === user.id;
+  const setRoutinePresetState = (update: RoutinePresetStateUpdate) => {
+    setRoutinePresetBinding(current => {
+      const currentState = current.accountId === user.id
+        ? current.state
+        : initialRoutinePresetState(user.id, healthRoutines ?? [], legacySplitCount);
+      const next = typeof update === 'function' ? update(currentState) : update;
+      if (current.accountId === user.id && next === current.state) return current;
+      return { accountId: user.id, state: next };
+    });
+  };
   const [presetMenuOpen, setPresetMenuOpen] = useState(false);
   const [presetRenameDraft, setPresetRenameDraft] = useState('');
+  const [presetConfirmAccountId, setPresetConfirmAccountId] = useState<string | null>(null);
+  const presetConfirmAccountIdRef = useRef<string | null>(null);
   const presetMenuRef = useRef<HTMLDivElement>(null);
   const activePreset = routinePresetById(routinePresetState);
   const selectedHealthRoutines = useMemo(
@@ -205,19 +253,25 @@ export const HealthView = ({
     });
   }, [user.id]);
 
+  const clearPresetConfirmationMarker = () => {
+    presetConfirmAccountIdRef.current = null;
+    setPresetConfirmAccountId(null);
+  };
+
+  const handleConfirmCancel = () => {
+    clearPresetConfirmationMarker();
+    clearConfirm();
+  };
+
   // Account changes must never reuse another account's selected preset or draft.
   useEffect(() => {
-    const persisted = readRoutinePresetState(localStorage, user.id);
-    const next = persisted ?? createRoutinePresetState({
-      routines: healthRoutines ?? [],
-      splitCount: legacySplitCount,
-      plannedSetsByDay: Object.fromEntries(
-        Array.from({ length: 7 }, (_, index) => {
-          const dayName = `Day ${index + 1}`;
-          return [dayName, getRoutinePlannedSetsForDay(dayName)];
-        }),
-      ),
-    });
+    const previousPresetConfirmAccountId = presetConfirmAccountIdRef.current;
+    if (previousPresetConfirmAccountId && previousPresetConfirmAccountId !== user.id
+      && presetConfirmAccountIdRef.current === previousPresetConfirmAccountId) {
+      clearPresetConfirmationMarker();
+      clearConfirm();
+    }
+    const next = initialRoutinePresetState(user.id, healthRoutines ?? [], legacySplitCount);
     setRoutinePresetState(next);
     setSplitCountInput(String(routinePresetById(next).splitCount));
     setPresetMenuOpen(false);
@@ -517,7 +571,7 @@ export const HealthView = ({
     setShowQuickAddExercise(false);
     setQuickAddQuery('');
     setPresetMenuOpen(false);
-    clearConfirm();
+    handleConfirmCancel();
   });
 
   // ── 운동 블록 ──────────────────────────────────────────────────────
@@ -555,6 +609,7 @@ export const HealthView = ({
 
   const handleDeleteBlock = (id: string, e: MouseEvent) => {
     e.stopPropagation();
+    clearPresetConfirmationMarker();
     showConfirm(t('deleteBlock'), () => {
       void api('DELETE', `/api/blocks/${id}`, undefined, { revalidate: 'static', successMsg: t('blockDeleted') });
     },
@@ -738,9 +793,22 @@ export const HealthView = ({
       showToast(t('healthPresetDefaultCannotDelete'), 'error');
       return;
     }
+    const accountOperation: HealthAccountGenerationToken = {
+      accountId: user.id,
+      generation: accountGenerationRef.current,
+    };
+    presetConfirmAccountIdRef.current = accountOperation.accountId;
+    setPresetConfirmAccountId(accountOperation.accountId);
     showConfirm(
       t('healthPresetDeleteConfirm').replace('{name}', activePreset.name),
-      () => applyRoutinePresetAction({ type: 'delete', presetId: activePreset.id }),
+      () => {
+        if (!currentAccountOperation(accountOperation)) {
+          clearPresetConfirmationMarker();
+          return;
+        }
+        clearPresetConfirmationMarker();
+        applyRoutinePresetAction({ type: 'delete', presetId: activePreset.id });
+      },
       { confirmLabel: t('deleteLabel') },
     );
     setPresetMenuOpen(false);
@@ -1379,7 +1447,7 @@ export const HealthView = ({
                 >
                   <MoreHorizontal size={17} aria-hidden />
                 </button>
-                {presetMenuOpen && (
+                {routinePresetAccountReady && presetMenuOpen && (
                   <div id="health-preset-actions-menu" role="menu" className={`absolute left-0 top-full z-30 mt-1 w-48 rounded-xl border p-1.5 shadow-lg ${theme.card} ${theme.border}`}>
                     <button type="button" onClick={handleCreatePreset} className={`w-full rounded-lg px-2.5 py-2 text-left text-xs font-bold ${theme.hoverBg}`}>{t('healthPresetNew')}</button>
                     <button type="button" onClick={handleDuplicatePreset} className={`w-full rounded-lg px-2.5 py-2 text-left text-xs font-bold ${theme.hoverBg}`}>{t('healthPresetDuplicate')}</button>
@@ -2215,7 +2283,7 @@ export const HealthView = ({
       )}
 
       {/* ── 루틴 조합 모달 ── */}
-      {showAssembleModal && (() => {
+      {routinePresetAccountReady && showAssembleModal && (() => {
         // 태그별 그룹화 — Assemble 모달
         const assembleGroups: Record<string, ExerciseBlock[]> = {};
         (healthBlocks || []).forEach((b: ExerciseBlock) => {
@@ -2363,7 +2431,7 @@ export const HealthView = ({
 
       </div>
 
-      {confirm && <ConfirmModal message={confirm.message} onConfirm={handleConfirm} onCancel={clearConfirm} darkMode={appSettings.darkMode} confirmLabel={confirm.confirmLabel} variant={confirm.variant}/>}
+      {confirm && (!presetConfirmAccountId || presetConfirmAccountId === user.id) && <ConfirmModal message={confirm.message} onConfirm={handleConfirm} onCancel={handleConfirmCancel} darkMode={appSettings.darkMode} confirmLabel={confirm.confirmLabel} variant={confirm.variant}/>}
     </div>
     </WorkspaceErrorBoundary>
   );
