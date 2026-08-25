@@ -51,6 +51,24 @@ type StartupState = {
   health: StartupDomainState;
 };
 
+const SAFE_STARTUP_DIAGNOSTIC_CODES = new Set([
+  'notes_startup_recovery_required',
+  'health_bootstrap_authenticated_account_mismatch',
+  'health_bootstrap_stale_account',
+  'health_local_data_not_verified',
+  'health_local_verified_data_malformed',
+  'health_local_verified_state_mismatch',
+  'health_pending_snapshot_missing',
+  'health_pending_snapshot_binding_mismatch',
+  'health_indexeddb_unavailable',
+]);
+
+function safeStartupDiagnosticCode(error: string | null): string {
+  return error && SAFE_STARTUP_DIAGNOSTIC_CODES.has(error)
+    ? error
+    : 'startup_domain_failed';
+}
+
 function pendingStartupState(healthBootstrapRequired: boolean): StartupState {
   return {
     notes: { status: 'pending', error: null },
@@ -167,6 +185,9 @@ export function AppContent({ authUser }: { authUser: User }) {
         : null,
       onStateChange: (domain, state) => {
         setStartupState(previous => ({ ...previous, [domain]: state }));
+        if (import.meta.env.DEV && state.status === 'failed') {
+          console.error(`[${domain}-startup] ${safeStartupDiagnosticCode(state.error)}`);
+        }
       },
     });
     startupRunRef.current = run;
@@ -377,9 +398,12 @@ export function AppContent({ authUser }: { authUser: User }) {
         </div>
       )}
 
-      {/* Fix 9: 모든 탭에서 로딩 인디케이터 표시 */}
-      {isDailyLoading && (
-        <div className="fixed top-6 right-6 bg-surface-alt p-3 rounded-absinthe-full shadow-absinthe-lg z-[999] text-primary">
+      {/* Daily data fetch feedback; Health startup has its own boundary. */}
+      {isDailyLoading && (activeTab === 'home' || activeTab === 'health') && (
+        <div
+          data-testid="global-daily-spinner"
+          className="fixed top-6 right-6 bg-surface-alt p-3 rounded-absinthe-full shadow-absinthe-lg z-[999] text-primary"
+        >
           <Loader2 size={20} className="animate-spin" />
         </div>
       )}

@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => {
     detachNotesStorage: vi.fn(),
     healthBootstrap: vi.fn(),
     healthReadiness: [] as boolean[],
+    dailyLoading: false,
     showToast: vi.fn(),
   };
 });
@@ -70,7 +71,7 @@ vi.mock('../hooks/useDaily', () => ({
     mocks.healthReadiness.push(Boolean(args[3]));
     return {
       schedules: [], todos: [], routines: [], workouts: [], inbody: {},
-      mutate: vi.fn(), mutateTodos: vi.fn(), mutateRoutines: vi.fn(), isLoading: false,
+      mutate: vi.fn(), mutateTodos: vi.fn(), mutateRoutines: vi.fn(), isLoading: mocks.dailyLoading,
     };
   },
 }));
@@ -82,12 +83,29 @@ vi.mock('../hooks/useStatic', () => ({
 }));
 
 vi.mock('../theme', () => ({ buildThemeClasses: () => ({}) }));
-vi.mock('./common/Sidebar', () => ({ Sidebar: () => null }));
-vi.mock('./common/ViewLoadingFallback', () => ({ ViewLoadingFallback: () => null }));
+vi.mock('./common/Sidebar', () => ({
+  Sidebar: ({ setActiveTab }: { setActiveTab: (tab: string) => void }) => createElement(
+    'div',
+    null,
+    createElement(
+      'button',
+      { type: 'button', 'data-testid': 'nav-health', onClick: () => setActiveTab('health') },
+      'Health',
+    ),
+    createElement(
+      'button',
+      { type: 'button', 'data-testid': 'nav-notes', onClick: () => setActiveTab('note') },
+      'Notes',
+    ),
+  ),
+}));
+vi.mock('./common/ViewLoadingFallback', () => ({
+  ViewLoadingFallback: ({ label }: { label?: string }) => createElement('div', { 'data-testid': 'view-loading' }, label),
+}));
 vi.mock('./views/NoteView', () => ({ NoteView: () => null }));
-vi.mock('./views/HomeView', () => ({ HomeView: () => null }));
+vi.mock('./views/HomeView', () => ({ HomeView: () => createElement('div', { 'data-testid': 'home-view' }) }));
 vi.mock('./views/PlannerView', () => ({ PlannerView: () => null }));
-vi.mock('./views/HealthView', () => ({ HealthView: () => null }));
+vi.mock('./views/HealthView', () => ({ HealthView: () => createElement('div', { 'data-testid': 'health-view' }) }));
 vi.mock('./views/AnalyticsView', () => ({ AnalyticsView: () => null }));
 vi.mock('./views/SettingsView', () => ({ SettingsView: () => null }));
 vi.mock('./views/RecipeView', () => ({ RecipeView: () => null }));
@@ -133,6 +151,7 @@ describe('AppContent startup lifecycle integration', () => {
     mocks.detachNotesStorage.mockReset();
     mocks.healthBootstrap.mockReset();
     mocks.healthReadiness.length = 0;
+    mocks.dailyLoading = false;
     mocks.showToast.mockReset();
     container = document.createElement('div');
     document.body.appendChild(container);
@@ -220,5 +239,93 @@ describe('AppContent startup lifecycle integration', () => {
     await flushStartup();
 
     expect(mocks.healthReadiness).toEqual(readinessBeforeLogout);
+  });
+
+  it('keeps the unrelated Home surface clear while Health startup is pending', async () => {
+    const health = deferred();
+    mocks.healthBootstrap.mockReturnValue(health.promise);
+    const { AppContent } = await import('./AppContent');
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(createElement(AppContent, { authUser: user('pending-account') }));
+    });
+    await flushStartup();
+
+    expect(container?.querySelector('[data-testid="home-view"]')).not.toBeNull();
+    expect(container?.querySelector('[data-testid="global-daily-spinner"]')).toBeNull();
+    health.resolve();
+    await flushStartup();
+  });
+
+  it('keeps genuine local daily fetch feedback on the Home surface', async () => {
+    mocks.dailyLoading = true;
+    const health = deferred();
+    mocks.healthBootstrap.mockReturnValue(health.promise);
+    const { AppContent } = await import('./AppContent');
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(createElement(AppContent, { authUser: user('daily-loading-account') }));
+    });
+    await flushStartup();
+
+    expect(container?.querySelector('[data-testid="global-daily-spinner"]')).not.toBeNull();
+    health.resolve();
+    await flushStartup();
+  });
+
+  it('does not show daily fetch feedback on the unrelated Notes surface', async () => {
+    mocks.dailyLoading = true;
+    const health = deferred();
+    mocks.healthBootstrap.mockReturnValue(health.promise);
+    const { AppContent } = await import('./AppContent');
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(createElement(AppContent, { authUser: user('notes-surface-account') }));
+    });
+    await flushStartup();
+
+    await act(async () => {
+      (container?.querySelector('[data-testid="nav-notes"]') as HTMLButtonElement)?.click();
+    });
+    expect(container?.querySelector('[data-testid="global-daily-spinner"]')).toBeNull();
+    health.resolve();
+    await flushStartup();
+  });
+
+  it('keeps a fatal Health startup boundary while leaving Home without the global spinner', async () => {
+    mocks.healthBootstrap.mockRejectedValue(new Error('health_bootstrap_authenticated_account_mismatch'));
+    const { AppContent } = await import('./AppContent');
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(createElement(AppContent, { authUser: user('fatal-account') }));
+    });
+    await flushStartup();
+
+    expect(container?.querySelector('[data-testid="global-daily-spinner"]')).toBeNull();
+    await act(async () => {
+      (container?.querySelector('[data-testid="nav-health"]') as HTMLButtonElement)?.click();
+    });
+    expect(container?.querySelector('[role="alert"]')?.textContent).toContain('startupHealthFailed');
+    expect(container?.querySelector('[data-testid="health-view"]')).toBeNull();
+  });
+
+  it('mounts Health after the remote bootstrap is safely rejected but local authority is preserved', async () => {
+    mocks.healthBootstrap.mockResolvedValue({
+      disposition: 'READY_FROM_PRESERVED_LOCAL',
+      reason: 'health_bootstrap_incomplete_remote_preserved_local',
+    });
+    const { AppContent } = await import('./AppContent');
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(createElement(AppContent, { authUser: user('preserved-account') }));
+    });
+    await flushStartup();
+
+    await act(async () => {
+      (container?.querySelector('[data-testid="nav-health"]') as HTMLButtonElement)?.click();
+    });
+    expect(container?.querySelector('[data-testid="health-view"]')).not.toBeNull();
+    expect(container?.querySelector('[role="alert"]')).toBeNull();
+    expect(mocks.healthReadiness.at(-1)).toBe(true);
   });
 });

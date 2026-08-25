@@ -22,6 +22,14 @@ export interface UseDailyDataResult {
   isLoading: boolean;
 }
 
+export function getDailyDataLoading(
+  localMode: boolean,
+  localHealthLoading: boolean,
+  remoteLoading: readonly boolean[],
+): boolean {
+  return localMode ? localHealthLoading : remoteLoading.some(Boolean);
+}
+
 export const useDailyData = (
   dateStr: string,
   onError?: (msg: string) => void,
@@ -107,6 +115,6 @@ export const useDailyData = (
     mutate,
     mutateTodos,
     mutateRoutines,
-    isLoading: localMode ? !healthReady || l6 : l1 || l2 || l3 || l4 || l5,
+    isLoading: getDailyDataLoading(localMode, l6, [l1, l2, l3, l4, l5]),
   };
 };
