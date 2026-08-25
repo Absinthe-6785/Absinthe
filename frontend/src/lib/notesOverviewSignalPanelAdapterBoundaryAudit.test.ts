@@ -152,7 +152,7 @@ describe('K-303 notes overview signal panel adapter boundary audit', () => {
       'frontend/src/components/AppContent.tsx',
       'frontend/src/components/views/NoteView.tsx',
       'frontend/src/components/views/noteview/NoteViewEditorArea.tsx',
-      'AppContent.tsx` renders `<NoteView showToast={showToast} />`',
+      'AppContent.tsx` renders `<NoteView showToast={showToast} accountId={authUser.id} />`',
       'NoteViewEditorArea.tsx` mounts `NoteGraphViewLazy`',
       'NotesOverviewSignalPanel` is not imported or mounted',
       'useNotesStore.ts` owns Notes runtime state',
@@ -304,7 +304,7 @@ describe('K-303 notes overview signal panel adapter boundary audit', () => {
       expect(read(path), path).not.toContain('NotesOverviewSignalPanel');
     });
 
-    expect(read(appContentPath)).toContain("<NoteView showToast={showToast} />");
+    expect(read(appContentPath)).toContain("<NoteView showToast={showToast} accountId={authUser.id} />");
     expect(read(noteViewEditorAreaPath)).toContain('NoteGraphViewLazy');
   });
 

@@ -14,6 +14,7 @@ export const AnalyticsView = (props: AnalyticsProps) => {
         appSettings={props.appSettings}
         theme={props.theme}
         showToast={props.showToast}
+        accountId={props.accountId}
       />
     );
   }

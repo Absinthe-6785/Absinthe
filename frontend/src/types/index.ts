@@ -178,6 +178,7 @@ export interface HealthProps extends BaseViewProps, DateProps, MutateProps {
 }
 
 export interface AnalyticsProps extends BaseViewProps {
+  accountId?: string;
   mutateStatic: () => void;
   now: DateTime;
   formatDate: (d: Date | DateTime) => string;

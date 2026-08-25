@@ -107,7 +107,7 @@ frontend/src/components/views/NoteGraphView.tsx
 
 Current mount tree:
 
-- `AppContent.tsx` renders `<NoteView showToast={showToast} />` when `activeTab === 'note'`.
+- `AppContent.tsx` renders `<NoteView showToast={showToast} accountId={authUser.id} />` when `activeTab === 'note'`.
 - `NoteView.tsx` owns the Notes workspace state composition and passes child props into `NoteViewSidebar`, `NoteViewEditorArea`, and context panels.
 - `NoteViewEditorArea.tsx` mounts `NoteGraphViewLazy` for graph/Cosmos surfaces.
 - `NotesOverviewSignalPanel` is not imported or mounted by `AppContent.tsx`, `NoteView.tsx`, `NoteViewEditorArea.tsx`, or `NotesCosmosStaticPreview.tsx`.

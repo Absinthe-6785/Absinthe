@@ -12,12 +12,18 @@ import type { VaultPortableExtensions } from './vaultPortableExtensions';
 import { useAppStore } from '@/store/useAppStore';
 import type { AppSettings } from '@/types';
 import { mayRestore, recordRecoveryBlock } from './recoverySafetyPolicy';
+import { adoptLegacyRoutinePresetExtension } from '@/components/views/features/health/routinePresetAuthority';
 
 export interface VaultExtensionApplyResult {
   applied: boolean;
   sections: string[];
   errors: string[];
   blocked?: true;
+}
+
+export interface VaultHealthRestoreAuthority {
+  accountId: string;
+  isCurrentAccount: () => boolean;
 }
 
 function clearPrefixedKeys(prefix: string): void {
@@ -57,6 +63,7 @@ function applyAppSettingsPersisted(settings: unknown): void {
 
 export function applyVaultExtensionsRestore(
   extensions: VaultPortableExtensions | null | undefined,
+  healthAuthority?: VaultHealthRestoreAuthority,
 ): VaultExtensionApplyResult {
   const sections: string[] = [];
   const errors: string[] = [];
@@ -106,13 +113,31 @@ export function applyVaultExtensionsRestore(
 
     if (extensions.health) {
       const h = extensions.health;
-      if (h.splitCount != null) {
-        localStorage.setItem('healthSplitCount', String(h.splitCount));
-        sections.push('healthSplitCount');
-      }
-      if (h.routinePlannedSets) {
-        localStorage.setItem('healthRoutinePlannedSets', JSON.stringify(h.routinePlannedSets));
-        sections.push('routinePlannedSets');
+      const hasLegacyHealthMetadata = h.splitCount != null || h.routinePlannedSets != null;
+      if (hasLegacyHealthMetadata && healthAuthority) {
+        const adoption = adoptLegacyRoutinePresetExtension({
+          storage: localStorage,
+          accountId: healthAuthority.accountId,
+          splitCount: h.splitCount,
+          plannedSetsByDay: h.routinePlannedSets,
+          isCurrentAccount: healthAuthority.isCurrentAccount,
+        });
+        if (adoption.status === 'adopted' || adoption.status === 'already-adopted') {
+          sections.push('routinePresetState');
+        } else if (adoption.status === 'aborted' || adoption.status === 'write-failed') {
+          errors.push(`routine_preset_adoption_${adoption.status}`);
+        }
+      } else {
+        // These keys remain compatibility/export projections only. Runtime
+        // preset initialization never reads them automatically.
+        if (h.splitCount != null) {
+          localStorage.setItem('healthSplitCount', String(h.splitCount));
+          sections.push('healthSplitCount');
+        }
+        if (h.routinePlannedSets) {
+          localStorage.setItem('healthRoutinePlannedSets', JSON.stringify(h.routinePlannedSets));
+          sections.push('routinePlannedSets');
+        }
       }
       if (h.recoveryLog) {
         localStorage.setItem('absinthe:recovery-log', JSON.stringify(h.recoveryLog));

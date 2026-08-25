@@ -65,7 +65,6 @@ import {
   normalizeStrengthSetForSave,
 } from './features/health/healthWeight';
 import {
-  getRoutinePlannedSetsForDay,
   saveRoutinePlannedSetsForDay,
   showsPlannedSetCount,
 } from './features/health/routinePlannedSets';
@@ -108,18 +107,11 @@ type RoutinePresetStateUpdate =
 function initialRoutinePresetState(
   accountId: string,
   routines: readonly HealthRoutine[],
-  splitCount: number,
 ): RoutinePresetState {
   return readRoutinePresetState(localStorage, accountId)
     ?? createRoutinePresetState({
       routines,
-      splitCount,
-      plannedSetsByDay: Object.fromEntries(
-        Array.from({ length: 7 }, (_, index) => {
-          const dayName = `Day ${index + 1}`;
-          return [dayName, getRoutinePlannedSetsForDay(dayName)];
-        }),
-      ),
+      splitCount: 3,
     });
 }
 
@@ -152,28 +144,23 @@ export const HealthView = ({
       accountGenerationRef.current,
     );
 
-  const [legacySplitCount, setLegacySplitCount] = useState<number>(() => {
-    const saved = localStorage.getItem('healthSplitCount');
-    return saved ? Math.min(7, Math.max(1, Number(saved))) : 3;
-  });
   const [routinePresetBinding, setRoutinePresetBinding] = useState<{
     accountId: string;
     state: RoutinePresetState;
   }>(() => ({
     accountId: user.id,
-    state: initialRoutinePresetState(user.id, healthRoutines ?? [], legacySplitCount),
+    state: initialRoutinePresetState(user.id, healthRoutines ?? []),
   }));
   const routinePresetState = routinePresetBinding.accountId === user.id
     ? routinePresetBinding.state
-    : initialRoutinePresetState(user.id, healthRoutines ?? [], legacySplitCount);
+    : initialRoutinePresetState(user.id, healthRoutines ?? []);
   const [splitCountInputBinding, setSplitCountInputBinding] = useState<{
     accountId: string;
     value: string;
   }>(() => {
-    const saved = localStorage.getItem('healthSplitCount');
     return {
       accountId: user.id,
-      value: saved ? String(Math.min(7, Math.max(1, Number(saved)))) : '3',
+      value: String(routinePresetById(routinePresetBinding.state).splitCount),
     };
   });
   const splitCountInput = splitCountInputBinding.accountId === user.id
@@ -191,7 +178,7 @@ export const HealthView = ({
     setRoutinePresetBinding(current => {
       const currentState = current.accountId === user.id
         ? current.state
-        : initialRoutinePresetState(user.id, healthRoutines ?? [], legacySplitCount);
+        : initialRoutinePresetState(user.id, healthRoutines ?? []);
       const next = typeof update === 'function' ? update(currentState) : update;
       if (current.accountId === user.id && next === current.state) return current;
       return { accountId: user.id, state: next };
@@ -271,8 +258,9 @@ export const HealthView = ({
       clearPresetConfirmationMarker();
       clearConfirm();
     }
-    const next = initialRoutinePresetState(user.id, healthRoutines ?? [], legacySplitCount);
+    const next = initialRoutinePresetState(user.id, healthRoutines ?? []);
     setRoutinePresetState(next);
+    if (!readRoutinePresetState(localStorage, user.id)) writeRoutinePresetState(localStorage, user.id, next);
     setSplitCountInput(String(routinePresetById(next).splitCount));
     setPresetMenuOpen(false);
     setPresetRenameDraft('');
@@ -316,18 +304,12 @@ export const HealthView = ({
     setRoutinePresetState(current => {
       const next = syncLegacyDefaultRoutinePreset(current, {
         routines: healthRoutines ?? [],
-        splitCount: legacySplitCount,
-        plannedSetsByDay: Object.fromEntries(
-          Array.from({ length: 7 }, (_, index) => {
-            const dayName = `Day ${index + 1}`;
-            return [dayName, getRoutinePlannedSetsForDay(dayName)];
-          }),
-        ),
+        splitCount: routinePresetById(current).splitCount,
       });
       if (next !== current) writeRoutinePresetState(localStorage, user.id, next);
       return next;
     });
-  }, [healthRoutines, legacySplitCount, user.id]);
+  }, [healthRoutines, user.id]);
 
   useEffect(() => {
     if (!presetMenuOpen) return;
@@ -625,7 +607,6 @@ export const HealthView = ({
     const selectedDay = activePreset.days.find(day => day.dayName === dayName);
     setTempRoutineSetCounts({
       ...(selectedDay?.plannedSets ?? {}),
-      ...(selectedDay ? {} : getRoutinePlannedSetsForDay(dayName)),
     });
     setShowAssembleModal(true);
   };
@@ -655,6 +636,24 @@ export const HealthView = ({
       generation: accountGenerationRef.current,
     };
     const existingRoutineId = activePreset.days.find(day => day.dayName === activeDayForm)?.legacyRoutineId;
+    const nextPresetState = updateRoutinePresetState(routinePresetState, {
+      type: 'set-day',
+      presetId: activePreset.id,
+      dayName: activeDayForm,
+      blocks: tempRoutineBlocks,
+      plannedSets: tempRoutineSetCounts,
+    });
+    // RoutinePresetState is the authority. Persist it before projecting the
+    // Default day to remote/local compatibility rows so a projection failure
+    // cannot make a stale row authoritative on the next bootstrap.
+    if (activePreset.id === DEFAULT_ROUTINE_PRESET_ID) {
+      if (!currentAccountOperation(accountOperation)) return;
+      if (nextPresetState !== routinePresetState && !writeRoutinePresetState(localStorage, user.id, nextPresetState)) {
+        showToast(t('routineSaveFailed'), 'error');
+        return;
+      }
+      setRoutinePresetState(nextPresetState);
+    }
     let ok = true;
     if (activePreset.id === DEFAULT_ROUTINE_PRESET_ID) {
       if (localMode) {
@@ -682,7 +681,7 @@ export const HealthView = ({
       }
     }
     if (!ok || !currentAccountOperation(accountOperation)) return;
-    persistRoutinePreset(current => updateRoutinePresetState(current, {
+    if (activePreset.id !== DEFAULT_ROUTINE_PRESET_ID) persistRoutinePreset(current => updateRoutinePresetState(current, {
       type: 'set-day',
       presetId: activePreset.id,
       dayName: activeDayForm,
@@ -735,7 +734,6 @@ export const HealthView = ({
     applyRoutinePresetAction({ type: 'set-split', presetId: activePreset.id, splitCount: nextSplit });
     setSplitCountInput(String(nextSplit));
     if (activePreset.id === DEFAULT_ROUTINE_PRESET_ID) {
-      setLegacySplitCount(nextSplit);
       localStorage.setItem('healthSplitCount', String(nextSplit));
     }
   };

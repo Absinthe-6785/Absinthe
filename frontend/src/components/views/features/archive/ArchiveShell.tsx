@@ -10,6 +10,7 @@ import { WorkspaceErrorBoundary } from '../../../common/WorkspaceErrorBoundary';
 import { useArchiveProjection } from './hooks/useArchiveProjection';
 
 export interface ArchiveShellProps {
+  accountId?: string;
   now: DateTime;
   appSettings: AppSettings;
   theme: Theme;
@@ -20,6 +21,7 @@ export interface ArchiveShellProps {
 /** K-109 Archive — history workspace with unified projection. */
 export function ArchiveShell({
   now,
+  accountId,
   appSettings,
   theme,
   showToast,
@@ -28,7 +30,7 @@ export function ArchiveShell({
   const nowDate = useMemo(() => now.toJSDate(), [now]);
   const { projection, isLoading } = useArchiveProjection(nowDate, appSettings.language);
   const t = getTranslator(resolveAppLanguage(appSettings.language));
-  const vaultRestore = useVaultRestoreFlow(showToast, t, cloudSyncEnabled);
+  const vaultRestore = useVaultRestoreFlow(showToast, t, cloudSyncEnabled, accountId);
 
   return (
     <>

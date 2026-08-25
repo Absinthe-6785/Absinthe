@@ -149,11 +149,12 @@ function ensureUniquePresetIds(presets: RoutinePreset[]): RoutinePreset[] {
 export function normalizeRoutinePresetState(value: unknown): RoutinePresetState | null {
   if (!value || typeof value !== 'object') return null;
   const raw = value as Record<string, unknown>;
+  if (raw.version !== ROUTINE_PRESET_STATE_VERSION) return null;
   const normalized = Array.isArray(raw.presets)
     ? raw.presets.map(normalizePreset).filter((preset): preset is RoutinePreset => preset !== null)
     : [];
   const presets = ensureUniquePresetIds(normalized);
-  if (presets.length === 0) return null;
+  if (presets.length === 0 || !presets.some(preset => preset.id === DEFAULT_ROUTINE_PRESET_ID)) return null;
   const requestedActive = typeof raw.activePresetId === 'string' ? raw.activePresetId : '';
   return {
     version: ROUTINE_PRESET_STATE_VERSION,
@@ -179,12 +180,14 @@ export function readRoutinePresetState(storage: Storage, accountId: string): Rou
   }
 }
 
-export function writeRoutinePresetState(storage: Storage, accountId: string, state: RoutinePresetState): void {
+export function writeRoutinePresetState(storage: Storage, accountId: string, state: RoutinePresetState): boolean {
   try {
     storage.setItem(routinePresetStorageKey(accountId), JSON.stringify(state));
+    return true;
   } catch {
     // Browser storage can be unavailable in privacy-restricted contexts. The
     // in-memory React state remains usable for the current session.
+    return false;
   }
 }
 

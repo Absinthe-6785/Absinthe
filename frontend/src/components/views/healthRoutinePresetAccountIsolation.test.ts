@@ -310,10 +310,11 @@ describe('HEALTH_10D account transition isolation', () => {
 
     expect(presetSelect().value).toBe('health-default');
     expect(presetSelect().value).not.toBe('account-a-custom');
-    expect((container!.querySelector('input[type="number"]') as HTMLInputElement).value).toBe('5');
+    expect((container!.querySelector('input[type="number"]') as HTMLInputElement).value).toBe('3');
     await settle();
     expect(readRoutinePresetState(localStorage, 'account-a')?.activePresetId).toBe('account-a-custom');
-    expect(readRoutinePresetState(localStorage, 'account-b')).toBeNull();
+    expect(readRoutinePresetState(localStorage, 'account-b')?.presets[0].splitCount).toBe(3);
+    expect(readRoutinePresetState(localStorage, 'account-b')?.presets[0].days[0].plannedSets).toEqual({});
     expect(localStorage.getItem('healthSplitCount')).toBe('5');
     expect(getRoutinePlannedSetsForDay('Day 1').push).toBe(7);
     expect(localStorage.getItem('healthRoutinePlannedSets')).toContain('push');

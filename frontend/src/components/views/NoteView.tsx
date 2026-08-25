@@ -219,13 +219,14 @@ import { VaultRestoreModal } from './features/knowledge/VaultRestoreModal';
 
 interface NoteViewProps {
   showToast?: (msg: string, type?: 'success' | 'error') => void;
+  accountId?: string;
 }
 
 // ── 메인 컴포넌트 ─────────────────────────────────────────────────────
-export const NoteView = ({ showToast = () => {} }: NoteViewProps) => {
+export const NoteView = ({ showToast = () => {}, accountId }: NoteViewProps) => {
   useRenderDiagnostic('NoteView');
   const { t, lang } = useTranslation();
-  const vaultRestore = useVaultRestoreFlow(showToast, t);
+  const vaultRestore = useVaultRestoreFlow(showToast, t, false, accountId);
 
   const { appSettings, updateSetting } = useAppStore();
   const dark = appSettings.darkMode;

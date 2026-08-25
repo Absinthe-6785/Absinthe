@@ -299,7 +299,7 @@ describe('K-306 notes overview signal panel adapter closure audit', () => {
       expect(source, path).not.toContain('NotesOverviewSignalPanel');
     });
 
-    expect(read(appContentPath)).toContain("<NoteView showToast={showToast} />");
+    expect(read(appContentPath)).toContain("<NoteView showToast={showToast} accountId={authUser.id} />");
     expect(read(noteViewEditorAreaPath)).toContain('NoteGraphViewLazy');
   });
 
