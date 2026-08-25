@@ -68,22 +68,9 @@ import {
   saveRoutinePlannedSetsForDay,
   showsPlannedSetCount,
 } from './features/health/routinePlannedSets';
-import {
-  DEFAULT_ROUTINE_PRESET_ID,
-  createEmptyRoutinePreset,
-  createRoutinePresetId,
-  createRoutinePresetState,
-  readRoutinePresetState,
-  routinePresetById,
-  routinePresetPlannedSetCount,
-  routinePresetToHealthRoutines,
-  sanitizeRoutinePresetName,
-  syncLegacyDefaultRoutinePreset,
-  updateRoutinePresetState,
-  writeRoutinePresetState,
-  type RoutinePresetState,
-} from './features/health/routinePresets';
+import { DEFAULT_ROUTINE_PRESET_ID } from './features/health/routinePresets';
 import { isRoutinePresetMenuOutsideTarget } from './features/health/routinePresetMenu';
+import { useRoutinePresetController } from './features/health/useRoutinePresetController';
 import useSWR from 'swr';
 import { fetcher } from '../../lib/fetcher';
 import { remoteSWRKey } from '../../lib/remoteBoundary';
@@ -99,21 +86,6 @@ import {
 type PreviousWorkoutSWRKey =
   | readonly ['local', string, string, string]
   | readonly ['remote', string, string];
-
-type RoutinePresetStateUpdate =
-  | RoutinePresetState
-  | ((current: RoutinePresetState) => RoutinePresetState);
-
-function initialRoutinePresetState(
-  accountId: string,
-  routines: readonly HealthRoutine[],
-): RoutinePresetState {
-  return readRoutinePresetState(localStorage, accountId)
-    ?? createRoutinePresetState({
-      routines,
-      splitCount: 3,
-    });
-}
 
 export const HealthView = ({
   currentDate, setCurrentDate, selectedDate, setSelectedDate,
@@ -144,28 +116,46 @@ export const HealthView = ({
       accountGenerationRef.current,
     );
 
-  const [routinePresetBinding, setRoutinePresetBinding] = useState<{
-    accountId: string;
-    state: RoutinePresetState;
-  }>(() => ({
+  const routinePresetController = useRoutinePresetController({
     accountId: user.id,
-    state: initialRoutinePresetState(user.id, healthRoutines ?? []),
-  }));
-  const routinePresetState = routinePresetBinding.accountId === user.id
-    ? routinePresetBinding.state
-    : initialRoutinePresetState(user.id, healthRoutines ?? []);
+    healthRoutines: healthRoutines ?? [],
+    accountOperation: {
+      accountId: user.id,
+      generation: accountGenerationRef.current,
+    },
+    isCurrentAccountOperation: currentAccountOperation,
+    onPresetConfirmationInvalidated: clearConfirm,
+  });
+  const {
+    routinePresetState,
+    activePreset,
+    selectedHealthRoutines,
+    accountReady: routinePresetAccountReady,
+    splitCount,
+    presetConfirmAccountId,
+    createPreset,
+    duplicatePreset,
+    renamePreset,
+    deletePreset,
+    selectPreset,
+    setPresetSplit,
+    setPresetDay,
+    getPlannedSetCount,
+    beginPresetConfirmation,
+    clearPresetConfirmationMarker,
+  } = routinePresetController;
   const [splitCountInputBinding, setSplitCountInputBinding] = useState<{
     accountId: string;
     value: string;
   }>(() => {
     return {
       accountId: user.id,
-      value: String(routinePresetById(routinePresetBinding.state).splitCount),
+      value: String(activePreset.splitCount),
     };
   });
   const splitCountInput = splitCountInputBinding.accountId === user.id
     ? splitCountInputBinding.value
-    : String(routinePresetById(routinePresetState).splitCount);
+    : String(activePreset.splitCount);
   const setSplitCountInput = (value: string) => {
     setSplitCountInputBinding(current => (
       current.accountId === user.id && current.value === value
@@ -173,28 +163,9 @@ export const HealthView = ({
         : { accountId: user.id, value }
     ));
   };
-  const routinePresetAccountReady = routinePresetBinding.accountId === user.id;
-  const setRoutinePresetState = (update: RoutinePresetStateUpdate) => {
-    setRoutinePresetBinding(current => {
-      const currentState = current.accountId === user.id
-        ? current.state
-        : initialRoutinePresetState(user.id, healthRoutines ?? []);
-      const next = typeof update === 'function' ? update(currentState) : update;
-      if (current.accountId === user.id && next === current.state) return current;
-      return { accountId: user.id, state: next };
-    });
-  };
   const [presetMenuOpen, setPresetMenuOpen] = useState(false);
   const [presetRenameDraft, setPresetRenameDraft] = useState('');
-  const [presetConfirmAccountId, setPresetConfirmAccountId] = useState<string | null>(null);
-  const presetConfirmAccountIdRef = useRef<string | null>(null);
   const presetMenuRef = useRef<HTMLDivElement>(null);
-  const activePreset = routinePresetById(routinePresetState);
-  const selectedHealthRoutines = useMemo(
-    () => routinePresetToHealthRoutines(activePreset),
-    [activePreset],
-  );
-  const splitCount = activePreset.splitCount;
   const [showBlockModal, setShowBlockModal] = useState(false);
   const [newBlock, setNewBlock] = useState<Partial<ExerciseBlock>>({ name: '', type: 'strength', tags: [], cardio_mode: 'both' });
   // editingBlock: 수정 대상 블록 (null이면 신규 생성 모드)
@@ -225,43 +196,14 @@ export const HealthView = ({
   const pendingLatestWorkoutIndexRef = useRef<number | null>(null);
   const quickCaptureInputRef = useRef<HTMLInputElement | null>(null);
   const pendingFocusSetRef = useRef<{ wIdx: number; sIdx: number } | null>(null);
-  const persistRoutinePreset = useCallback((update: (current: RoutinePresetState) => RoutinePresetState) => {
-    setRoutinePresetState(current => {
-      const next = update(current);
-      if (next !== current) writeRoutinePresetState(localStorage, user.id, next);
-      return next;
-    });
-  }, [user.id]);
-  const applyRoutinePresetAction = useCallback((action: Parameters<typeof updateRoutinePresetState>[1]) => {
-    setRoutinePresetState(current => {
-      const next = updateRoutinePresetState(current, action);
-      if (next !== current) writeRoutinePresetState(localStorage, user.id, next);
-      return next;
-    });
-  }, [user.id]);
-
-  const clearPresetConfirmationMarker = () => {
-    presetConfirmAccountIdRef.current = null;
-    setPresetConfirmAccountId(null);
-  };
-
   const handleConfirmCancel = () => {
     clearPresetConfirmationMarker();
     clearConfirm();
   };
 
-  // Account changes must never reuse another account's selected preset or draft.
+  // Account changes reset only view-local transient state here. The canonical
+  // Routine/Preset binding and its account-safety marker live in the hook.
   useEffect(() => {
-    const previousPresetConfirmAccountId = presetConfirmAccountIdRef.current;
-    if (previousPresetConfirmAccountId && previousPresetConfirmAccountId !== user.id
-      && presetConfirmAccountIdRef.current === previousPresetConfirmAccountId) {
-      clearPresetConfirmationMarker();
-      clearConfirm();
-    }
-    const next = initialRoutinePresetState(user.id, healthRoutines ?? []);
-    setRoutinePresetState(next);
-    if (!readRoutinePresetState(localStorage, user.id)) writeRoutinePresetState(localStorage, user.id, next);
-    setSplitCountInput(String(routinePresetById(next).splitCount));
     setPresetMenuOpen(false);
     setPresetRenameDraft('');
     setShowAssembleModal(false);
@@ -273,8 +215,6 @@ export const HealthView = ({
     setTempRoutineSetCounts({});
     setSelectedPreviousDate(null);
     setIsPreviousSheetOpen(false);
-  // Account identity is the reset boundary; the initial static rows are merged below.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user.id]);
 
   useEffect(() => {
@@ -301,17 +241,6 @@ export const HealthView = ({
   }, [isMobile, mobileHealthTab]);
 
   useEffect(() => {
-    setRoutinePresetState(current => {
-      const next = syncLegacyDefaultRoutinePreset(current, {
-        routines: healthRoutines ?? [],
-        splitCount: routinePresetById(current).splitCount,
-      });
-      if (next !== current) writeRoutinePresetState(localStorage, user.id, next);
-      return next;
-    });
-  }, [healthRoutines, user.id]);
-
-  useEffect(() => {
     if (!presetMenuOpen) return;
     const handlePointerDown = (event: PointerEvent) => {
       if (isRoutinePresetMenuOutsideTarget(presetMenuRef.current, event.target)) setPresetMenuOpen(false);
@@ -322,7 +251,7 @@ export const HealthView = ({
 
   useEffect(() => {
     setSplitCountInput(String(activePreset.splitCount));
-  }, [activePreset.id, activePreset.splitCount]);
+  }, [activePreset.id, activePreset.splitCount, user.id]);
 
   // ── 날짜별 메모 ───────────────────────────────────────────────────────
   const [workoutMemo, setWorkoutMemo] = useState('');
@@ -624,47 +553,35 @@ export const HealthView = ({
       if (b) {
         setTempRoutineSetCounts(counts => ({
           ...counts,
-          [blockId]: routinePresetPlannedSetCount(activePreset, activeDayForm, blockId, b.type, prevData[blockId]?.prev_sets),
+          [blockId]: getPlannedSetCount(activeDayForm, blockId, b.type, prevData[blockId]?.prev_sets),
         }));
       }
       return [...prev, blockId];
     });
   };
   const handleSaveRoutine = async () => {
-    const accountOperation: HealthAccountGenerationToken = {
-      accountId: user.id,
-      generation: accountGenerationRef.current,
-    };
-    const existingRoutineId = activePreset.days.find(day => day.dayName === activeDayForm)?.legacyRoutineId;
-    const nextPresetState = updateRoutinePresetState(routinePresetState, {
-      type: 'set-day',
+    const result = setPresetDay({
       presetId: activePreset.id,
       dayName: activeDayForm,
       blocks: tempRoutineBlocks,
       plannedSets: tempRoutineSetCounts,
     });
-    // RoutinePresetState is the authority. Persist it before projecting the
-    // Default day to remote/local compatibility rows so a projection failure
-    // cannot make a stale row authoritative on the next bootstrap.
-    if (activePreset.id === DEFAULT_ROUTINE_PRESET_ID) {
-      if (!currentAccountOperation(accountOperation)) return;
-      if (nextPresetState !== routinePresetState && !writeRoutinePresetState(localStorage, user.id, nextPresetState)) {
-        showToast(t('routineSaveFailed'), 'error');
-        return;
-      }
-      setRoutinePresetState(nextPresetState);
+    if (!result.ok) {
+      showToast(t('routineSaveFailed'), 'error');
+      return;
     }
+    const projection = result.projection;
     let ok = true;
-    if (activePreset.id === DEFAULT_ROUTINE_PRESET_ID) {
+    if (projection) {
       if (localMode) {
         try {
-          const repository = await createLocalHealthRepository(accountOperation.accountId);
+          const repository = await createLocalHealthRepository(projection.accountId);
           await repository.saveRoutine({
-            id: existingRoutineId,
-            dayName: activeDayForm,
-            blocks: [...tempRoutineBlocks],
+            id: projection.existingRoutineId,
+            dayName: projection.dayName,
+            blocks: [...projection.blocks],
           });
-          if (!currentAccountOperation(accountOperation)) return;
+          if (!currentAccountOperation(projection.accountOperation)) return;
           mutateStatic?.();
           showToast(t('routineSaved'));
         } catch {
@@ -675,23 +592,17 @@ export const HealthView = ({
         ok = await api(
           'POST',
           '/api/health_routines',
-          { day_name: activeDayForm, blocks: tempRoutineBlocks },
+          { day_name: projection.dayName, blocks: projection.blocks },
           { revalidate: 'static', successMsg: t('routineSaved') },
         );
       }
     }
-    if (!ok || !currentAccountOperation(accountOperation)) return;
-    if (activePreset.id !== DEFAULT_ROUTINE_PRESET_ID) persistRoutinePreset(current => updateRoutinePresetState(current, {
-      type: 'set-day',
-      presetId: activePreset.id,
-      dayName: activeDayForm,
-      blocks: tempRoutineBlocks,
-      plannedSets: tempRoutineSetCounts,
-    }));
-    if (activePreset.id !== DEFAULT_ROUTINE_PRESET_ID) showToast(t('routineSaved'));
-    if (activePreset.id === DEFAULT_ROUTINE_PRESET_ID) {
+    if (!ok || !currentAccountOperation(result.accountOperation)) return;
+    if (projection) {
       // Keep the existing legacy export keys in sync for old recovery packages.
       saveRoutinePlannedSetsForDay(activeDayForm, tempRoutineBlocks, tempRoutineSetCounts);
+    } else {
+      showToast(t('routineSaved'));
     }
     setShowAssembleModal(false);
   };
@@ -713,7 +624,7 @@ export const HealthView = ({
       const b = healthBlocks.find((bk: ExerciseBlock) => bk.id === id);
       if (!b) continue;
       const prevSets = await fetchPrevForBlock(id);
-      const count = routinePresetPlannedSetCount(activePreset, dayName, id, b.type, prevSets);
+      const count = getPlannedSetCount(dayName, id, b.type, prevSets);
       routineOrdered.push({
         id: `temp-${Date.now()}-${b.id}`,
         block_id: b.id,
@@ -731,38 +642,20 @@ export const HealthView = ({
 
   const commitPresetSplit = () => {
     const nextSplit = Math.min(7, Math.max(1, Number(splitCountInput) || 1));
-    applyRoutinePresetAction({ type: 'set-split', presetId: activePreset.id, splitCount: nextSplit });
-    setSplitCountInput(String(nextSplit));
-    if (activePreset.id === DEFAULT_ROUTINE_PRESET_ID) {
+    const result = setPresetSplit(activePreset.id, nextSplit);
+    setSplitCountInput(String(result.ok ? nextSplit : activePreset.splitCount));
+    if (result.ok && activePreset.id === DEFAULT_ROUTINE_PRESET_ID) {
       localStorage.setItem('healthSplitCount', String(nextSplit));
     }
   };
 
   const handleCreatePreset = () => {
-    applyRoutinePresetAction({
-      type: 'create',
-      preset: createEmptyRoutinePreset(createRoutinePresetId(), t('healthPresetNew')),
-    });
+    createPreset(t('healthPresetNew'));
     setPresetMenuOpen(false);
   };
 
   const handleDuplicatePreset = () => {
-    const duplicate = {
-      ...activePreset,
-      id: createRoutinePresetId(),
-      name: sanitizeRoutinePresetName(`${activePreset.name} ${t('healthPresetCopySuffix')}`),
-      days: activePreset.days.map(day => ({
-        ...day,
-        blocks: [...day.blocks],
-        plannedSets: { ...day.plannedSets },
-        legacyRoutineId: undefined,
-      })),
-    };
-    applyRoutinePresetAction({
-      type: 'duplicate',
-      sourcePresetId: activePreset.id,
-      preset: duplicate,
-    });
+    duplicatePreset(`${activePreset.name} ${t('healthPresetCopySuffix')}`);
     setPresetMenuOpen(false);
   };
 
@@ -777,7 +670,7 @@ export const HealthView = ({
       showToast(t('healthPresetNameRequired'), 'error');
       return;
     }
-    applyRoutinePresetAction({ type: 'rename', presetId: activePreset.id, name: sanitizeRoutinePresetName(nextName, activePreset.name) });
+    renamePreset(activePreset.id, nextName);
     setPresetRenameDraft('');
     setPresetMenuOpen(false);
   };
@@ -791,21 +684,17 @@ export const HealthView = ({
       showToast(t('healthPresetDefaultCannotDelete'), 'error');
       return;
     }
-    const accountOperation: HealthAccountGenerationToken = {
-      accountId: user.id,
-      generation: accountGenerationRef.current,
-    };
-    presetConfirmAccountIdRef.current = accountOperation.accountId;
-    setPresetConfirmAccountId(accountOperation.accountId);
+    const confirmation = beginPresetConfirmation();
+    if (!confirmation) return;
     showConfirm(
       t('healthPresetDeleteConfirm').replace('{name}', activePreset.name),
       () => {
-        if (!currentAccountOperation(accountOperation)) {
-          clearPresetConfirmationMarker();
+        if (!currentAccountOperation(confirmation.accountOperation)) {
+          confirmation.clear();
           return;
         }
         clearPresetConfirmationMarker();
-        applyRoutinePresetAction({ type: 'delete', presetId: activePreset.id });
+        deletePreset(activePreset.id);
       },
       { confirmLabel: t('deleteLabel') },
     );
@@ -826,8 +715,8 @@ export const HealthView = ({
   };
 
   const handleQuickPresetChange = (presetId: string) => {
-    applyRoutinePresetAction({ type: 'switch', presetId });
-    const nextPreset = routinePresetById(routinePresetState, presetId);
+    selectPreset(presetId);
+    const nextPreset = routinePresetState.presets.find(preset => preset.id === presetId) ?? routinePresetState.presets[0];
     const currentDayNumber = Number(activeDayForm.replace('Day ', ''));
     setActiveDayForm(currentDayNumber >= 1 && currentDayNumber <= nextPreset.splitCount ? activeDayForm : 'Day 1');
   };
@@ -1425,7 +1314,7 @@ export const HealthView = ({
                 aria-label={t('healthPresetLabel')}
                 value={activePreset.id}
                 onChange={e => {
-                  applyRoutinePresetAction({ type: 'switch', presetId: e.target.value });
+                  selectPreset(e.target.value);
                   setPresetMenuOpen(false);
                 }}
                 className={`min-w-0 max-w-[150px] rounded-xl border px-2.5 py-1.5 text-xs font-bold outline-none ${theme.input}`}
@@ -1501,7 +1390,7 @@ export const HealthView = ({
                         <span className="truncate">{b.name}</span>
                         {showsPlannedSetCount(b.type) ? (
                           <span className={`shrink-0 tabular-nums ${theme.textMuted}`}>
-                            {t('k76SetCount').replace('{count}', String(routinePresetPlannedSetCount(activePreset, dayName, b.id, b.type, prevData[b.id]?.prev_sets)))}
+                            {t('k76SetCount').replace('{count}', String(getPlannedSetCount(dayName, b.id, b.type, prevData[b.id]?.prev_sets)))}
                           </span>
                         ) : null}
                       </div>
@@ -2370,7 +2259,7 @@ export const HealthView = ({
                                 inputMode="numeric"
                                 min={1}
                                 max={12}
-                                value={tempRoutineSetCounts[id] ?? routinePresetPlannedSetCount(activePreset, activeDayForm, id, b.type, prevData[id]?.prev_sets)}
+                                value={tempRoutineSetCounts[id] ?? getPlannedSetCount(activeDayForm, id, b.type, prevData[id]?.prev_sets)}
                                 onClick={e => e.stopPropagation()}
                                 onChange={e => {
                                   const n = Math.min(12, Math.max(1, Number(e.target.value) || 1));
