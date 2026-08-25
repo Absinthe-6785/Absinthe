@@ -58,7 +58,7 @@ export const SettingsView = ({
   const notes = useNotesStore(s => s.notes);
   const folders = useNotesStore(s => s.folders);
   const cloudSyncEnabled = shouldUseRemoteData() && Boolean(user?.id);
-  const vaultRestore = useVaultRestoreFlow(showToast, t, cloudSyncEnabled);
+  const vaultRestore = useVaultRestoreFlow(showToast, t, cloudSyncEnabled, user?.id);
   const recovery = useRecoveryCenter(cloudSyncEnabled);
   const [backingUpZip, setBackingUpZip] = useState(false);
   const [storageTick, setStorageTick] = useState(0);

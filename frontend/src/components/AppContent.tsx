@@ -335,7 +335,7 @@ export function AppContent({ authUser }: { authUser: User }) {
               <HealthView {...globalProps} />
             </>
           )}
-          {activeTab === 'analytics' && <AnalyticsView {...globalProps} />}
+          {activeTab === 'analytics' && <AnalyticsView {...globalProps} accountId={authUser.id} />}
           {activeTab === 'settings'  && (
             <SettingsView
               {...globalProps}
@@ -354,7 +354,7 @@ export function AppContent({ authUser }: { authUser: User }) {
             onRetry={() => startupRunRef.current?.retry('notes')}
           />
         )}
-        {activeTab === 'note' && startupState.notes.status === 'ready' && <NoteView showToast={showToast} />}
+        {activeTab === 'note' && startupState.notes.status === 'ready' && <NoteView showToast={showToast} accountId={authUser.id} />}
       </div>
 
       {toast && (

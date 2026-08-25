@@ -52,6 +52,7 @@ export function useVaultRestoreFlow(
   showToast: (msg: string, type?: 'success' | 'error') => void,
   t: (key: TranslationKey) => string,
   cloudSyncEnabled = false,
+  accountId?: string,
 ) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const notes = useNotesStore(s => s.notes);
@@ -65,6 +66,12 @@ export function useVaultRestoreFlow(
   const [pipelineOptions, setPipelineOptions] = useState<VaultRestorePipelineOptions>(DEFAULT_PIPELINE_OPTIONS);
   const [importing, setImporting] = useState(false);
   const [restoreSource, setRestoreSource] = useState<'export' | 'snapshot'>('export');
+  const accountIdRef = useRef(accountId);
+  const accountGenerationRef = useRef(0);
+  if (accountIdRef.current !== accountId) {
+    accountIdRef.current = accountId;
+    accountGenerationRef.current += 1;
+  }
 
   const openManifestPreview = useCallback((
     manifest: NonNullable<ReturnType<typeof parseVaultBackupJson>>,
@@ -215,10 +222,19 @@ export function useVaultRestoreFlow(
     }
     setImporting(true);
     try {
+      const initiatingAccountId = accountIdRef.current;
+      const initiatingGeneration = accountGenerationRef.current;
       const options: VaultRestorePipelineOptions = {
         ...pipelineOptions,
         strategy,
         selection,
+        ...(initiatingAccountId ? {
+          healthAuthority: {
+            accountId: initiatingAccountId,
+            isCurrentAccount: () => accountIdRef.current === initiatingAccountId
+              && accountGenerationRef.current === initiatingGeneration,
+          },
+        } : {}),
       };
       const result = await executeVaultRestorePipeline(preview.manifest, options, {
         importCore: (m, s) => importVaultRestore(m, s),
@@ -264,6 +280,7 @@ export function useVaultRestoreFlow(
     importVaultRestore,
     showToast,
     t,
+    accountId,
   ]);
 
   return {

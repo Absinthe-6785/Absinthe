@@ -29,6 +29,7 @@ import {
   type LocalCoreJsonRestoreAuthorizationInput,
 } from './recoverySafetyPolicy';
 import { resolveNotesRuntimeSyncMode } from './syncMode';
+import type { VaultHealthRestoreAuthority } from './vaultExtensionApply';
 
 export const LAST_VAULT_EXPORT_KEY = 'absinthe:last-vault-export:v1';
 
@@ -61,6 +62,7 @@ export interface VaultRestorePipelineOptions {
   restoreExtensions: boolean;
   restoreCloud: boolean;
   backupBeforeRestore: boolean;
+  healthAuthority?: VaultHealthRestoreAuthority;
 }
 
 export interface VaultRestorePipelineResult {
@@ -241,7 +243,7 @@ export async function executeVaultRestorePipeline(
 
   if (options.restoreExtensions && manifest.extensions) {
     assertCurrentOperationEpoch(operationEpoch, 'restore');
-    extensions = applyVaultExtensionsRestore(manifest.extensions);
+    extensions = applyVaultExtensionsRestore(manifest.extensions, options.healthAuthority);
   }
 
   if (options.restoreCloud && manifest.cloud) {
