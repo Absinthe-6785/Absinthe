@@ -152,7 +152,7 @@ describe('K-305 notes overview signal panel adapter implementation boundary', ()
       expect(source, path).not.toContain('NotesOverviewSignalPanel');
     });
 
-    expect(read(appContentPath)).toContain("<NoteView showToast={showToast} />");
+    expect(read(appContentPath)).toContain("<NoteView showToast={showToast} accountId={authUser.id} />");
     expect(read(noteViewEditorAreaPath)).toContain('NoteGraphViewLazy');
   });
 
