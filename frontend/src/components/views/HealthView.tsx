@@ -1,6 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback, MouseEvent, ChangeEvent, TouchEvent } from 'react';
 import { Plus, X, Trash2, Save, Dumbbell, Activity, ChevronLeft, ChevronRight, Lock, Pencil, GripVertical, Loader2, ClipboardCopy, Check, FileText, MoreHorizontal } from 'lucide-react';
-import { authFetch } from '../../lib/supabase';
 import { API_URL } from '../../lib/config';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useAppStore } from '../../store/useAppStore';
@@ -38,6 +37,7 @@ import { PreviousWorkoutSheet } from './features/health/PreviousWorkoutSheet';
 import { previousWorkoutSWRConfig } from './features/health/previousWorkoutSWR';
 import { HealthMobileSetupNav, type HealthMobileSurface, type HealthSetupSection } from './features/health/HealthMobileSetupNav';
 import { HealthMobileWorkoutActions } from './features/health/HealthMobileWorkoutActions';
+import { deleteHealthWorkout, saveHealthWorkouts } from './features/health/healthWorkoutPersistence';
 import {
   normalizePreviousWorkoutRows,
   previousWorkoutRange,
@@ -797,20 +797,22 @@ export const HealthView = ({
     try {
       // 세션 구분선은 DB에 없으므로 API 호출 없이 바로 제거
       if (dbId !== 'session' && !dbId.startsWith('session-') && !dbId.startsWith('temp')) {
+        const expectedVersion = localWorkouts[index]?.local_version;
+        if (localMode && !expectedVersion) throw new Error('health_local_workout_expected_version_missing');
+        const result = await deleteHealthWorkout({
+          mode: localMode ? 'local' : 'remote',
+          accountId: operationScope.accountOperation.accountId,
+          workoutId: dbId,
+          expectedVersion: expectedVersion ?? '',
+          shouldContinue: () => currentWorkoutOperation(operationScope),
+        });
+        if (!currentWorkoutOperation(operationScope)) return;
+        if (result.status === 'aborted') return;
         if (localMode) {
-          const expectedVersion = localWorkouts[index]?.local_version;
-          if (!expectedVersion) throw new Error('health_local_workout_expected_version_missing');
-          const repository = await createLocalHealthRepository(operationScope.accountOperation.accountId);
-          if (!currentWorkoutOperation(operationScope)) return;
-          await repository.deleteWorkout(dbId, expectedVersion);
-          if (!currentWorkoutOperation(operationScope)) return;
           mutateDaily();
           mutateMonthWorkoutRows();
           mutateStatic();
         } else {
-          const res = await authFetch(`${API_URL}/api/workouts/${dbId}`, { method: 'DELETE' });
-          if (!res.ok) throw new Error(`[${res.status}]`);
-          if (!currentWorkoutOperation(operationScope)) return;
           // DB 삭제 성공 즉시 mutateDaily → SWR 캐시도 동기화.
           mutateDaily();
         }
@@ -968,22 +970,19 @@ export const HealthView = ({
       }),
     }));
 
-    if (localMode) {
-      try {
-        const repository = await createLocalHealthRepository(operationScope.accountOperation.accountId);
-        if (!currentWorkoutOperation(operationScope)) return;
-        const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-        const results = await repository.saveWorkouts(normalizedWorkouts
-          .filter(w => w.block_id !== '__session__')
-          .map((w, sortOrder) => ({
-            id: uuidPattern.test(w.id) ? w.id : undefined,
-            date: formatDate(selectedDate),
-            blockId: w.block_id,
-            sets: w.sets as unknown as Record<string, unknown>[],
-            sortOrder,
-            expectedVersion: w.local_version ?? null,
-          })));
-        if (!currentWorkoutOperation(operationScope)) return;
+    try {
+      const persistence = await saveHealthWorkouts({
+        mode: localMode ? 'local' : 'remote',
+        accountId: operationScope.accountOperation.accountId,
+        date: formatDate(selectedDate),
+        workouts: normalizedWorkouts,
+        shouldContinue: () => currentWorkoutOperation(operationScope),
+      });
+      if (!currentWorkoutOperation(operationScope)) return;
+      if (persistence.status === 'aborted') return;
+
+      if (localMode) {
+        const results = persistence.localResults ?? [];
         let resultIndex = 0;
         setLocalWorkouts(normalizedWorkouts.map(workout => {
           if (workout.block_id === '__session__') return workout;
@@ -998,63 +997,41 @@ export const HealthView = ({
         mutateMonthWorkoutRows();
         mutateStatic();
         return;
-      } catch (error) {
-        if (!currentWorkoutOperation(operationScope)) return;
-        const failure = localHealthWriteFailureDisposition(error);
-        setIsSaving(false);
-        showToast(t(failure.kind === 'conflict' ? 'healthWriteConflict' : 'failedSave'), 'error');
-        return;
       }
-    }
 
-    // 순차 저장 — sort_order 보장을 위해 병렬(allSettled) 대신 순서대로 await
-    // 세션 구분선(__session__)은 DB 저장 불필요 — 스킵
-    let failed = 0;
-    let dbIdx = 0; // 실제 DB 저장 순서 (세션 구분선 제외)
-    for (let idx = 0; idx < normalizedWorkouts.length; idx++) {
-      const w = normalizedWorkouts[idx];
-      if (w.block_id === '__session__') continue;
-      try {
-        const res = await authFetch(`${API_URL}/api/workouts`, {
-          method: 'POST',
-          body: JSON.stringify({ date: formatDate(selectedDate), block_id: w.block_id, sets: w.sets, sort_order: dbIdx }),
-        });
-        if (!currentWorkoutOperation(operationScope)) return;
-        if (!res.ok) failed++;
-      } catch {
-        if (!currentWorkoutOperation(operationScope)) return;
-        failed++;
+      setIsSaving(false);
+      if (persistence.status === 'success') {
+        setLocalWorkouts(normalizedWorkouts);
+        showToast(t('workoutSaved'));
+        clearDirtyAfterSave();
+        setIsWorkoutLocked(true);
+        mutateDaily();
+        if (localMode) mutateStatic();
+        if (isMobile) {
+          requestAnimationFrame(() => {
+            inbodyQuickRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          });
+        }
+      } else if (persistence.status === 'partial') {
+        showToast(t('partialSave').replace('{done}', String(persistence.succeeded)).replace('{total}', String(persistence.total)), 'error');
+        clearDirtyAfterSave();
+        setIsWorkoutLocked(true);
+        mutateDaily();
+        if (localMode) mutateStatic();
+        if (isMobile) {
+          requestAnimationFrame(() => {
+            inbodyQuickRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          });
+        }
+      } else {
+        showToast(t('failedSave'), 'error');
       }
-      dbIdx++;
-    }
-    const total = dbIdx; // 실제 저장 시도한 운동 수
-    if (!currentWorkoutOperation(operationScope)) return;
-    setIsSaving(false);
-    if (failed === 0) {
-      setLocalWorkouts(normalizedWorkouts);
-      showToast(t('workoutSaved'));
-      clearDirtyAfterSave();
-      setIsWorkoutLocked(true);
-      mutateDaily();
-      if (localMode) mutateStatic();
-      if (isMobile) {
-        requestAnimationFrame(() => {
-          inbodyQuickRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-        });
-      }
-    } else if (failed < total) {
-      showToast(t('partialSave').replace('{done}', String(total - failed)).replace('{total}', String(total)), 'error');
-      clearDirtyAfterSave();
-      setIsWorkoutLocked(true);
-      mutateDaily();
-      if (localMode) mutateStatic();
-      if (isMobile) {
-        requestAnimationFrame(() => {
-          inbodyQuickRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-        });
-      }
-    } else {
-      showToast(t('failedSave'), 'error');
+    } catch (error) {
+      if (!currentWorkoutOperation(operationScope)) return;
+      const failure = localHealthWriteFailureDisposition(error);
+      setIsSaving(false);
+      showToast(t(failure.kind === 'conflict' ? 'healthWriteConflict' : 'failedSave'), 'error');
+      return;
     }
   };
   // ── 드래그 정렬 핸들러 ────────────────────────────────────────────
