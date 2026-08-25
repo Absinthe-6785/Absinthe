@@ -199,6 +199,8 @@ export const HealthView = ({
   };
   const [presetMenuOpen, setPresetMenuOpen] = useState(false);
   const [presetRenameDraft, setPresetRenameDraft] = useState('');
+  const [presetConfirmAccountId, setPresetConfirmAccountId] = useState<string | null>(null);
+  const presetConfirmAccountIdRef = useRef<string | null>(null);
   const presetMenuRef = useRef<HTMLDivElement>(null);
   const activePreset = routinePresetById(routinePresetState);
   const selectedHealthRoutines = useMemo(
@@ -251,8 +253,24 @@ export const HealthView = ({
     });
   }, [user.id]);
 
+  const clearPresetConfirmationMarker = () => {
+    presetConfirmAccountIdRef.current = null;
+    setPresetConfirmAccountId(null);
+  };
+
+  const handleConfirmCancel = () => {
+    clearPresetConfirmationMarker();
+    clearConfirm();
+  };
+
   // Account changes must never reuse another account's selected preset or draft.
   useEffect(() => {
+    const previousPresetConfirmAccountId = presetConfirmAccountIdRef.current;
+    if (previousPresetConfirmAccountId && previousPresetConfirmAccountId !== user.id
+      && presetConfirmAccountIdRef.current === previousPresetConfirmAccountId) {
+      clearPresetConfirmationMarker();
+      clearConfirm();
+    }
     const next = initialRoutinePresetState(user.id, healthRoutines ?? [], legacySplitCount);
     setRoutinePresetState(next);
     setSplitCountInput(String(routinePresetById(next).splitCount));
@@ -553,7 +571,7 @@ export const HealthView = ({
     setShowQuickAddExercise(false);
     setQuickAddQuery('');
     setPresetMenuOpen(false);
-    clearConfirm();
+    handleConfirmCancel();
   });
 
   // ── 운동 블록 ──────────────────────────────────────────────────────
@@ -591,6 +609,7 @@ export const HealthView = ({
 
   const handleDeleteBlock = (id: string, e: MouseEvent) => {
     e.stopPropagation();
+    clearPresetConfirmationMarker();
     showConfirm(t('deleteBlock'), () => {
       void api('DELETE', `/api/blocks/${id}`, undefined, { revalidate: 'static', successMsg: t('blockDeleted') });
     },
@@ -774,9 +793,22 @@ export const HealthView = ({
       showToast(t('healthPresetDefaultCannotDelete'), 'error');
       return;
     }
+    const accountOperation: HealthAccountGenerationToken = {
+      accountId: user.id,
+      generation: accountGenerationRef.current,
+    };
+    presetConfirmAccountIdRef.current = accountOperation.accountId;
+    setPresetConfirmAccountId(accountOperation.accountId);
     showConfirm(
       t('healthPresetDeleteConfirm').replace('{name}', activePreset.name),
-      () => applyRoutinePresetAction({ type: 'delete', presetId: activePreset.id }),
+      () => {
+        if (!currentAccountOperation(accountOperation)) {
+          clearPresetConfirmationMarker();
+          return;
+        }
+        clearPresetConfirmationMarker();
+        applyRoutinePresetAction({ type: 'delete', presetId: activePreset.id });
+      },
       { confirmLabel: t('deleteLabel') },
     );
     setPresetMenuOpen(false);
@@ -2399,7 +2431,7 @@ export const HealthView = ({
 
       </div>
 
-      {confirm && <ConfirmModal message={confirm.message} onConfirm={handleConfirm} onCancel={clearConfirm} darkMode={appSettings.darkMode} confirmLabel={confirm.confirmLabel} variant={confirm.variant}/>}
+      {confirm && (!presetConfirmAccountId || presetConfirmAccountId === user.id) && <ConfirmModal message={confirm.message} onConfirm={handleConfirm} onCancel={handleConfirmCancel} darkMode={appSettings.darkMode} confirmLabel={confirm.confirmLabel} variant={confirm.variant}/>}
     </div>
     </WorkspaceErrorBoundary>
   );

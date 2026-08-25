@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { createElement } from 'react';
+import { createElement, useEffect } from 'react';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { flushSync } from 'react-dom';
@@ -21,6 +21,13 @@ const mocks = vi.hoisted(() => ({
   mutateStatic: vi.fn(),
   showConfirm: vi.fn(),
   clearConfirm: vi.fn(),
+  confirmModal: {
+    current: null as {
+      message: string;
+      onConfirm: () => void | Promise<void>;
+      onCancel: () => void;
+    } | null,
+  },
   notesState: {
     notes: [],
     createNote: vi.fn(),
@@ -39,14 +46,6 @@ vi.mock('../../lib/remoteBoundary', () => ({
 vi.mock('../../lib/fetcher', () => ({ fetcher: vi.fn(async () => []) }));
 vi.mock('swr', () => ({
   default: () => ({ data: [], mutate: vi.fn(), isLoading: false, error: undefined }),
-}));
-vi.mock('../../hooks/useConfirm', () => ({
-  useConfirm: () => ({
-    confirm: null,
-    showConfirm: mocks.showConfirm,
-    clearConfirm: mocks.clearConfirm,
-    handleConfirm: vi.fn(),
-  }),
 }));
 vi.mock('../../hooks/useEscapeKey', () => ({ useEscapeKey: vi.fn() }));
 vi.mock('../../hooks/useIsMobile', () => ({ useIsMobile: () => mocks.mobile }));
@@ -74,7 +73,11 @@ vi.mock('../../lib/healthLocalRuntime', () => ({
   readLocalPreviousWorkoutRows: vi.fn(async () => []),
 }));
 vi.mock('../../lib/healthBackfillUiSafety', () => ({
-  isCurrentHealthAccountGeneration: () => true,
+  isCurrentHealthAccountGeneration: (
+    token: { accountId: string; generation: number },
+    accountId: string,
+    generation: number,
+  ) => token.accountId === accountId && token.generation === generation,
   localHealthDraftKey: (accountId: string, dateKey: string) => `healthDraft:${accountId}:${dateKey}`,
   readLocalHealthWorkoutDraft: () => null,
   localHealthMemoKey: (accountId: string, dateKey: string) => `healthMemo:${accountId}:${dateKey}`,
@@ -102,9 +105,38 @@ vi.mock('./features/health/previousMicroCue', () => ({
 }));
 vi.mock('./features/health/healthSectionPrefs', () => ({ readHealthSectionPrefs: () => ({}) }));
 vi.mock('../../lib/i18n', () => ({
-  useTranslation: () => ({ t: (key: string) => key, lang: 'en' }),
+  useTranslation: () => ({
+    t: (key: string) => key === 'healthPresetDeleteConfirm' ? 'Delete {name}' : key,
+    lang: 'en',
+  }),
 }));
-vi.mock('../common/ConfirmModal', () => ({ ConfirmModal: () => null }));
+vi.mock('../common/ConfirmModal', () => ({
+  ConfirmModal: ({
+    message,
+    onConfirm,
+    onCancel,
+    confirmLabel,
+  }: {
+    message: string;
+    onConfirm: () => void | Promise<void>;
+    onCancel: () => void;
+    confirmLabel?: string;
+  }) => {
+    mocks.confirmModal.current = { message, onConfirm, onCancel };
+    useEffect(() => () => {
+      if (mocks.confirmModal.current?.onConfirm === onConfirm) {
+        mocks.confirmModal.current = null;
+      }
+    }, [onConfirm]);
+    return createElement(
+      'div',
+      { role: 'dialog', 'data-testid': 'health-confirm-modal' },
+      createElement('p', {}, message),
+      createElement('button', { type: 'button', 'data-testid': 'health-confirm-cancel', onClick: onCancel }, 'Cancel'),
+      createElement('button', { type: 'button', 'data-testid': 'health-confirm-accept', onClick: onConfirm }, confirmLabel ?? 'Confirm'),
+    );
+  },
+}));
 vi.mock('../common/WorkspaceCardSkeleton', () => ({ WorkspaceCardSkeleton: () => null }));
 vi.mock('../common/WorkspaceErrorBoundary', () => ({
   WorkspaceErrorBoundary: ({ children }: { children: unknown }) => children,
@@ -192,6 +224,27 @@ function presetSelect(): HTMLSelectElement {
   return container!.querySelector('select[aria-label="healthPresetLabel"]') as HTMLSelectElement;
 }
 
+async function openPresetDeleteConfirmation(): Promise<NonNullable<typeof mocks.confirmModal.current>> {
+  const actionsButton = container!.querySelector('button[aria-label="healthPresetActions"]') as HTMLButtonElement;
+  await act(async () => actionsButton.click());
+  const deleteButton = Array.from(container!.querySelectorAll('button'))
+    .find(button => button.textContent?.trim() === 'healthPresetDelete') as HTMLButtonElement | undefined;
+  if (!deleteButton) throw new Error('preset delete action was not rendered');
+  await act(async () => deleteButton.click());
+  await settle();
+  const confirmation = mocks.confirmModal.current;
+  if (!confirmation) throw new Error('preset delete confirmation was not rendered');
+  return confirmation;
+}
+
+function writeCustomPreset(accountId: string, presetId: string, name: string) {
+  const state = createRoutinePresetState({ routines: [], splitCount: 1 });
+  state.presets.push(createEmptyRoutinePreset(presetId, name, 1));
+  state.activePresetId = presetId;
+  writeRoutinePresetState(localStorage, accountId, state);
+  return state;
+}
+
 beforeEach(() => {
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   localStorage.clear();
@@ -203,6 +256,7 @@ beforeEach(() => {
   mocks.mutateStatic.mockReset();
   mocks.showConfirm.mockReset();
   mocks.clearConfirm.mockReset();
+  mocks.confirmModal.current = null;
   mocks.notesState.notes = [];
 });
 
@@ -287,5 +341,77 @@ describe('HEALTH_10D account transition isolation', () => {
     await settle();
     expect(readRoutinePresetState(localStorage, 'account-a')?.activePresetId).toBe('account-a-custom');
     expect(readRoutinePresetState(localStorage, 'account-b')?.activePresetId).toBe('account-b-custom');
+  });
+
+  it('hides an A preset deletion confirmation during the synchronous A -> B render', async () => {
+    writeCustomPreset('account-a', 'account-a-custom', 'A Custom');
+    writeCustomPreset('account-b', 'account-b-custom', 'B Custom');
+
+    await mount(healthProps());
+    const confirmation = await openPresetDeleteConfirmation();
+    expect(confirmation.message).toContain('A Custom');
+
+    flushSync(() => root?.render(createElement(HealthView, healthProps({
+      user: { id: 'account-b', name: 'Account B' },
+    }))));
+
+    expect(container!.querySelector('[role="dialog"]')).toBeNull();
+    expect(presetSelect().value).toBe('account-b-custom');
+  });
+
+  it('clears the stale confirmation after stabilization and keeps a new B confirmation', async () => {
+    writeCustomPreset('account-a', 'account-a-custom', 'A Custom');
+    writeCustomPreset('account-b', 'account-b-custom', 'B Custom');
+
+    await mount(healthProps());
+    await openPresetDeleteConfirmation();
+    flushSync(() => root?.render(createElement(HealthView, healthProps({
+      user: { id: 'account-b', name: 'Account B' },
+    }))));
+    await settle();
+
+    expect(mocks.confirmModal.current).toBeNull();
+    const bConfirmation = await openPresetDeleteConfirmation();
+    expect(bConfirmation.message).toContain('B Custom');
+    await settle();
+    expect(mocks.confirmModal.current?.message).toContain('B Custom');
+  });
+
+  it('makes a stale A confirmation callback a no-op while B is current', async () => {
+    const accountA = writeCustomPreset('account-a', 'account-a-custom', 'A Custom');
+    const accountB = writeCustomPreset('account-b', 'account-b-custom', 'B Custom');
+    const accountABefore = JSON.stringify(accountA);
+    const accountBBefore = JSON.stringify(accountB);
+
+    await mount(healthProps());
+    const staleConfirmation = await openPresetDeleteConfirmation();
+    flushSync(() => root?.render(createElement(HealthView, healthProps({
+      user: { id: 'account-b', name: 'Account B' },
+    }))));
+
+    await act(async () => {
+      await staleConfirmation.onConfirm();
+    });
+    await settle();
+
+    expect(JSON.stringify(readRoutinePresetState(localStorage, 'account-a'))).toBe(accountABefore);
+    expect(JSON.stringify(readRoutinePresetState(localStorage, 'account-b'))).toBe(accountBBefore);
+    expect(presetSelect().value).toBe('account-b-custom');
+  });
+
+  it('still deletes a custom preset when the initiating account remains current', async () => {
+    writeCustomPreset('account-a', 'account-a-custom', 'A Custom');
+
+    await mount(healthProps());
+    const confirmation = await openPresetDeleteConfirmation();
+    await act(async () => {
+      await confirmation.onConfirm();
+    });
+    await settle();
+
+    const state = readRoutinePresetState(localStorage, 'account-a');
+    expect(state?.presets.some(preset => preset.id === 'account-a-custom')).toBe(false);
+    expect(state?.activePresetId).toBe('health-default');
+    expect(presetSelect().value).toBe('health-default');
   });
 });
