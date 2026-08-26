@@ -8,6 +8,14 @@ K-216 is docs/audit only. K-216 does not implement Cosmos Map. K-216 does not ch
 
 The audit goal is to identify current shipped/runtime surfaces, current shared components, current empty/loading states, current graph/runtime surfaces, the future Cosmos Map concept, unimplemented concepts, source-verified facts, and assumptions requiring future verification.
 
+## LEAN_03 Current-State Reconciliation
+
+The inventory below preserves the historical K-216 observation that
+`frontend/src/components/common/EmptyState.tsx` was present as an older wrapper
+around `ProductEmptyState`. LEAN_03 revalidated that the wrapper has no current
+runtime, test, or tooling import and removed only that obsolete file.
+`ProductEmptyState.tsx` remains the active shared empty-state surface.
+
 ## Source Inspection Scope
 
 | Source / surface | Current role | Runtime UI? | Docs/test only? | Direct relationship to future Cosmos Map |

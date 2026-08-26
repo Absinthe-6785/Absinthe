@@ -144,7 +144,8 @@ describe('K-287 auth Supabase runtime access restoration source facts audit', ()
     for (const required of [
       '## Public Surface Audit',
       '`frontend/src/components/views/LoginScreen.tsx`',
-      '`frontend/src/components/common/LoginScreen.tsx`',
+      '## LEAN_03 Current-State Reconciliation',
+      'the common component is unreachable',
       'No app Supabase auth callback route file was identified',
       '`frontend/src/lib/googleDriveOAuthCallback.ts` exists',
       'not be treated as the app Supabase auth callback.',
@@ -267,7 +268,7 @@ describe('K-287 auth Supabase runtime access restoration source facts audit', ()
     }
   });
 
-  it('verifies referenced source files exist', () => {
+  it('verifies referenced source files exist and the retired common login is absent', () => {
     for (const path of [
       appPath,
       mainPath,
@@ -279,7 +280,6 @@ describe('K-287 auth Supabase runtime access restoration source facts audit', ()
       staticHookPath,
       appContentPath,
       loginViewPath,
-      commonLoginPath,
       appLocalAuthTestPath,
       localAuthTestPath,
       supabaseBoundaryTestPath,
@@ -287,6 +287,8 @@ describe('K-287 auth Supabase runtime access restoration source facts audit', ()
     ]) {
       expect(existsSync(path)).toBe(true);
     }
+
+    expect(existsSync(commonLoginPath)).toBe(false);
   });
 
   it('verifies post-K-289 auth gate source facts without changing local data boundaries', () => {
