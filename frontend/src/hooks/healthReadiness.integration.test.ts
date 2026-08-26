@@ -79,7 +79,7 @@ describe('Health readiness hook integration', () => {
     document.body.appendChild(host);
   });
 
-  it('does not read Health before ready, then preserves a genuinely loaded-empty result', async () => {
+  it('does not read Health before ready or report startup readiness as daily loading', async () => {
     await act(async () => {
       root = createRoot(host!);
       root.render(createElement(Probe, { healthReady: false }));
@@ -88,7 +88,7 @@ describe('Health readiness hook integration', () => {
     expect(mocks.dailyReader).not.toHaveBeenCalled();
     expect(mocks.staticReader).not.toHaveBeenCalled();
     expect(mocks.localKeys).toHaveLength(0);
-    expect(host!.firstElementChild?.getAttribute('data-daily-loading')).toBe('true');
+    expect(host!.firstElementChild?.getAttribute('data-daily-loading')).toBe('false');
     expect(host!.firstElementChild?.getAttribute('data-daily-empty')).toBe('true');
     expect(host!.firstElementChild?.getAttribute('data-static-empty')).toBe('true');
 
