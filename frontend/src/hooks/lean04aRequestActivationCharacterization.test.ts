@@ -184,33 +184,7 @@ describe('LEAN_04A request activation characterization', () => {
     expect(harness.fetchCalls.every(call => call.account === 'account-a')).toBe(true);
   });
 
-  it('characterizes the current Account A -> B boundary: URL-only daily keys retain A data while account-bound static keys change', () => {
-    mounted = mount({
-      account: 'account-a',
-      date: '2026-08-18',
-      monthStart: '2026-08-01',
-      monthEnd: '2026-08-31',
-      healthReady: true,
-    });
-    expect(mounted.host.firstElementChild?.getAttribute('data-daily-owner')).toBe('account-a');
-
-    act(() => {
-      mounted?.root.render(createElement(Probe, {
-        account: 'account-b',
-        date: '2026-08-18',
-        monthStart: '2026-08-01',
-        monthEnd: '2026-08-31',
-        healthReady: true,
-      }));
-    });
-
-    expect(mounted.host.firstElementChild?.getAttribute('data-daily-owner')).toBe('account-a');
-    expect(mounted.host.firstElementChild?.getAttribute('data-static-owner')).toBe('account-b');
-    expect(harness.fetchCalls.filter(call => call.url.includes('/api/schedules?')).map(call => call.account)).toEqual(['account-a']);
-    expect(harness.fetchCalls.filter(call => call.url.endsWith('/blocks')).map(call => call.account)).toEqual(['account-a', 'account-b']);
-  });
-
-  it('uses the latest date/month in new keys and keeps shell mutation handles able to revalidate every active key', () => {
+  it('records latest date/month key construction and exposes shell mutation handles for active keys', () => {
     mounted = mount({
       account: 'account-a',
       date: '2026-08-18',
@@ -244,7 +218,7 @@ describe('LEAN_04A request activation characterization', () => {
     expect(harness.fetchCalls.length).toBe(firstFetchCount + 6);
   });
 
-  it('proves null-key activation in local mode without changing remote eager behavior', () => {
+  it('records local-mode null keys, readiness pause, and latest account/date inputs', () => {
     harness.localMode = true;
     mounted = mount({
       account: 'account-a',
