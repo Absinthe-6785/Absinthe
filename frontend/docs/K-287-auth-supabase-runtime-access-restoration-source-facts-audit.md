@@ -341,3 +341,13 @@ K-287 has these explicit non-goals:
 K-287 locks source facts only.
 
 K-287 does not restore auth behavior yet. Current local/no-login access structure is documented from source. Protected, public, and test/dev boundaries are identified. Future restoration must protect product surfaces while keeping login/callback public. AI/Codex verification should be solved with test/dev-only strategy, not production bypass. Auth restoration must preserve local-first data ownership. Backup/provider/Signal Panel remain untouched. Local runtime data remains source of truth. Remote systems remain support layers.
+
+## LEAN_03 Current-State Reconciliation
+
+The public-surface observations above preserve the historical K-287 source
+facts. At that audit point, `frontend/src/components/common/LoginScreen.tsx`
+existed but was not imported by `App.tsx`. LEAN_03 revalidated that
+`frontend/src/components/views/LoginScreen.tsx` remains the active runtime
+login/sign-up authority, that the common component is unreachable, and that
+the obsolete common file can be removed without changing authentication
+behavior.

@@ -104,7 +104,8 @@ describe('K-288 auth Supabase runtime access restoration implementation plan', (
       'Backup, export, import, restore, preflight, provider recovery',
       '## Protected / Public Surface Plan',
       '`frontend/src/components/views/LoginScreen.tsx`',
-      '`frontend/src/components/common/LoginScreen.tsx`',
+      '## LEAN_03 Current-State Reconciliation',
+      'active runtime authority remains `frontend/src/components/views/LoginScreen.tsx`',
       'App Supabase auth callback route: none was found',
       '`frontend/src/components/AppContent.tsx`: protected app shell.',
       '`frontend/src/components/views/NoteView.tsx`',
@@ -262,7 +263,7 @@ describe('K-288 auth Supabase runtime access restoration implementation plan', (
     }
   });
 
-  it('verifies referenced source and prior audit files exist', () => {
+  it('verifies referenced source and prior audit files, while excluding the retired common login', () => {
     for (const path of [
       k286DocPath,
       k287DocPath,
@@ -274,7 +275,6 @@ describe('K-288 auth Supabase runtime access restoration implementation plan', (
       supabasePath,
       appContentPath,
       loginViewPath,
-      commonLoginPath,
       googleDriveOAuthCallbackPath,
       appLocalAuthTestPath,
       localAuthTestPath,
@@ -282,6 +282,8 @@ describe('K-288 auth Supabase runtime access restoration implementation plan', (
     ]) {
       expect(existsSync(path)).toBe(true);
     }
+
+    expect(existsSync(commonLoginPath)).toBe(false);
   });
 
   it('uses source-invariant assertions without git branch topology', () => {

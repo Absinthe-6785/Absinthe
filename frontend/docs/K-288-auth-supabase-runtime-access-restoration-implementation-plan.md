@@ -388,3 +388,11 @@ K-288 has these explicit non-goals:
 K-288 defines the auth restoration implementation plan only.
 
 K-288 does not restore auth behavior yet. K-289 may implement protected `AppContent` access restoration if K-288 acceptance criteria are satisfied. Protected product surfaces should require authenticated Supabase session. Login/auth callback must remain public. Sync mode must not be used as auth bypass. Local-first data ownership must be preserved. AI/Codex verification should use test/dev-only strategy, not production bypass. Backup/provider/Signal Panel remain untouched. Local runtime data remains source of truth. Remote systems remain support layers.
+
+## LEAN_03 Current-State Reconciliation
+
+The legacy `frontend/src/components/common/LoginScreen.tsx` references in
+this plan describe the candidate surface known when K-288 was written. LEAN_03
+revalidated that the component was not runtime-reachable and removed it. The
+active runtime authority remains `frontend/src/components/views/LoginScreen.tsx`;
+no authentication behavior changed.
