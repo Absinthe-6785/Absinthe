@@ -126,22 +126,35 @@ function settings() {
   return { darkMode: true, defaultCategory: 'General', defaultColor: 'blue', language: 'en' as const };
 }
 
-function mount(): { root: Root; host: HTMLDivElement } {
+type SearchDataOverrides = Partial<{
+  schedules: unknown[];
+  todos: unknown[];
+  routines: unknown[];
+  workouts: unknown[];
+  healthBlocks: unknown[];
+  weeklySchedules: unknown[];
+}>;
+
+function mount(overrides: SearchDataOverrides = {}): { root: Root; host: HTMLDivElement } {
   const host = document.createElement('div');
   document.body.appendChild(host);
   const root = createRoot(host);
+  const data = {
+    schedules: [{ id: 's1', text: 'schedule', category: 'work', start_time: '09:00', end_time: '10:00', color: '#fff' }],
+    todos: [{ id: 't1', text: 'todo', done: false }],
+    routines: [{ id: 'r1', text: 'routine' }],
+    workouts: [{ id: 'w1', exercise_blocks: { name: 'workout', type: 'strength' } }],
+    healthBlocks: [{ id: 'b1', name: 'block', type: 'strength', tags: [] }],
+    weeklySchedules: [{ id: 'ws1', title: 'weekly', day: 1, start_time: '09:00', end_time: '10:00', color: '#fff' }],
+    ...overrides,
+  };
   act(() => {
     root.render(createElement(
       SWRConfig,
       { value: { provider: () => new Map(), dedupingInterval: 0, revalidateOnFocus: false } },
       createElement(GlobalSearchHost, {
         appSettings: settings(),
-        schedules: [{ id: 's1', text: 'schedule', category: 'work', start_time: '09:00', end_time: '10:00', color: '#fff' }],
-        todos: [{ id: 't1', text: 'todo', done: false }],
-        routines: [{ id: 'r1', text: 'routine' }],
-        workouts: [{ id: 'w1', exercise_blocks: { name: 'workout', type: 'strength' } }],
-        healthBlocks: [{ id: 'b1', name: 'block', type: 'strength', tags: [] }],
-        weeklySchedules: [{ id: 'ws1', title: 'weekly', day: 1, start_time: '09:00', end_time: '10:00', color: '#fff' }],
+        ...data,
       }),
     ));
   });
@@ -237,6 +250,8 @@ describe('LEAN_04B GlobalSearchHost lifecycle characterization', () => {
     await flush();
     expect(harness.palette?.open).toBe(true);
     expect(harness.palette?.query).toBe('saved query');
+    expect(harness.projectionInputs.at(-1)?.query).toBe('saved query');
+    expect(Boolean(String(harness.projectionInputs.at(-1)?.query ?? '').trim())).toBe(true);
     expect(harness.recipeRequests.length).toBeGreaterThanOrEqual(1);
   });
 
@@ -257,11 +272,13 @@ describe('LEAN_04B GlobalSearchHost lifecycle characterization', () => {
   });
 
   it('passes an unavailable Health group as empty data without exposing a Health readiness state to Search', async () => {
-    mounted = mount();
+    mounted = mount({ healthBlocks: [] });
     openSearch();
     act(() => harness.palette?.onQueryChange('block'));
     await flush();
-    expect(harness.projectionInputs.at(-1)?.healthBlocks).toEqual(expect.any(Array));
+    expect(harness.projectionInputs.at(-1)?.healthBlocks).toEqual([]);
+    expect(harness.projectionInputs.at(-1)?.schedules).toHaveLength(1);
+    expect(harness.projectionInputs.at(-1)?.todos).toHaveLength(1);
     expect(harness.projectionInputs.at(-1)).not.toHaveProperty('healthReady');
     expect(harness.projectionInputs.at(-1)).not.toHaveProperty('healthError');
   });
