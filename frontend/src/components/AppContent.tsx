@@ -15,7 +15,7 @@ import { buildThemeClasses } from '../theme';
 import { Sidebar, TabId, type SettingsSectionId } from './common/Sidebar';
 import { ViewLoadingFallback } from './common/ViewLoadingFallback';
 
-import { NoteView } from './views/NoteView';
+import { NotesRouteBoundary } from './NotesRouteBoundary';
 
 const HomeView = lazy(() => import('./views/HomeView').then(m => ({ default: m.HomeView })));
 const PlannerView = lazy(() => import('./views/PlannerView').then(m => ({ default: m.PlannerView })));
@@ -387,7 +387,9 @@ export function AppContent({ authUser }: { authUser: User }) {
             onRetry={() => startupRunRef.current?.retry('notes')}
           />
         )}
-        {activeTab === 'note' && startupState.notes.status === 'ready' && <NoteView showToast={showToast} accountId={authUser.id} />}
+        {startupState.notes.status === 'ready' && (
+          <NotesRouteBoundary active={activeTab === 'note'} showToast={showToast} accountId={authUser.id} />
+        )}
       </div>
 
       {toast && (

@@ -152,7 +152,8 @@ describe('K-305 notes overview signal panel adapter implementation boundary', ()
       expect(source, path).not.toContain('NotesOverviewSignalPanel');
     });
 
-    expect(read(appContentPath)).toContain("<NoteView showToast={showToast} accountId={authUser.id} />");
+    expect(read(appContentPath)).toContain("import { NotesRouteBoundary } from './NotesRouteBoundary';");
+    expect(read(appContentPath)).toContain('<NotesRouteBoundary');
     expect(read(noteViewEditorAreaPath)).toContain('NoteGraphViewLazy');
   });
 

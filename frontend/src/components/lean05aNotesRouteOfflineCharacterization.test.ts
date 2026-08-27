@@ -322,7 +322,8 @@ describe('LEAN_05A Notes route offline-first characterization', () => {
 
   it('records the current production ownership and boundary arrangement', () => {
     const appContent = sourceAt('AppContent.tsx');
-    expect(appContent).toContain("import { NoteView } from './views/NoteView';");
+    expect(appContent).toContain("import { NotesRouteBoundary } from './NotesRouteBoundary';");
+    expect(appContent).not.toContain("import { NoteView } from './views/NoteView';");
     expect(appContent).toContain("import { useNotesStore } from '../store/useNotesStore';");
     expect(appContent).toContain('startIndependentStartup');
     expect(appContent).toContain('await initNotesStorage(authUser.id);');
@@ -334,12 +335,22 @@ describe('LEAN_05A Notes route offline-first characterization', () => {
 
     const suspenseStart = appContent.indexOf('<Suspense fallback={<ViewLoadingFallback />}>');
     const suspenseEnd = appContent.indexOf('</Suspense>', suspenseStart);
-    const notesReadyRender = appContent.indexOf("activeTab === 'note' && startupState.notes.status === 'ready'");
+    const notesReadyRender = appContent.indexOf("startupState.notes.status === 'ready'");
     expect(suspenseStart).toBeGreaterThanOrEqual(0);
     expect(suspenseEnd).toBeGreaterThan(suspenseStart);
     expect(notesReadyRender).toBeGreaterThan(suspenseEnd);
-    expect(appContent).not.toContain('NotesRouteErrorBoundary');
-    expect(appContent).not.toContain('ChunkLoadError');
+    expect(appContent).toContain('<NotesRouteBoundary');
+
+    const routeBoundary = sourceAt('NotesRouteBoundary.tsx');
+    expect(routeBoundary).toContain("import('./views/NoteView')");
+    expect(routeBoundary).toContain('lazy(');
+    expect(routeBoundary).toContain('NotesRouteErrorBoundary');
+    expect(routeBoundary).toContain('useMemo(() => createLazyNoteView(), [retryKey])');
+    expect(routeBoundary).toContain('setRetryKey(previous => previous + 1)');
+    expect(routeBoundary).toContain("t('notesRouteLoadFailed')");
+    expect(routeBoundary).toContain("t('notesRouteLoading')");
+    expect(routeBoundary).not.toContain('startupRunRef');
+    expect(routeBoundary).not.toContain('detachNotesStorage');
 
     const noteView = sourceAt('views/NoteView.tsx');
     expect(noteView).not.toMatch(/ErrorBoundary|<Suspense|lazy\(/);
