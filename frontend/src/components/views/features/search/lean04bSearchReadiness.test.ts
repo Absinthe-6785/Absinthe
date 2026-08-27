@@ -42,7 +42,8 @@ describe('LEAN_04B production Search readiness projection', () => {
     expect(readyEmpty.groupStates.planner?.status).toBe('READY_EMPTY');
     expect(failed.groupStates.planner?.status).toBe('ERROR');
     expect(pending.groupedResults.find(group => group.domain === 'planner')?.state?.status).toBe('LOADING');
-    expect(readyEmpty.groupedResults.find(group => group.domain === 'health')?.state?.status).toBe('READY_EMPTY');
+    expect(readyEmpty.groupStates.health?.status).toBe('READY_EMPTY');
+    expect(readyEmpty.groupedResults.find(group => group.domain === 'health')).toBeUndefined();
   });
 
   it('keeps available results usable while a deferred group is pending', () => {

@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from 'react';
-import useSWR from 'swr';
+import useSWR, { useSWRConfig } from 'swr';
 import { fetcher, isLocalOnlyRemotePausedError } from '../lib/fetcher';
 import { API_URL } from '../lib/config';
 import { remoteSWRKey } from '../lib/remoteBoundary';
@@ -66,12 +66,17 @@ export const useDailyData = (
   const base = `${API_URL}/api`;
   const localMode = isLocalOnlyRuntime();
   const todoUrlKey = remoteSWRKey(`${base}/todos?date=${dateStr}`);
+  const todoCacheKey = todosEnabled === undefined
+    ? todoUrlKey
+    : accountBoundTodoKey(`${base}/todos?date=${dateStr}`, accountId);
   // Calls that predate the Search seam retain their original URL key. The
   // shell passes an explicit activation flag and receives the account-bound
   // key used by the production Search path.
   const todoKey = todosEnabled === undefined
     ? todoUrlKey
-    : accountBoundTodoKey(`${base}/todos?date=${dateStr}`, accountId, todosEnabled);
+    : todosEnabled ? todoCacheKey : null;
+
+  const { mutate: globalMutate } = useSWRConfig();
 
   // onError 콜백만 useMemo로 메모이제이션 (showToast는 useCallback으로 안정됨)
   // DAILY_SWR_BASE = {} 는 SWR 기본값과 동일해 실질 효과가 없으므로 제거.
@@ -108,9 +113,15 @@ export const useDailyData = (
   const { data: inbodyRaw, mutate: mutateInbody, isLoading: l5 } =
     useSWR<Inbody[]>(remoteSWRKey(`${base}/inbody?date=${dateStr}`), fetcher, swrOpts);
 
+  const localHealthCacheKey = localMode && accountId
+    ? ['local-health-daily', accountId, dateStr] as const
+    : null;
+  // Existing local readiness remains account-bound:
+  // localMode && accountId && healthReady ? ['local-health-daily', accountId, dateStr]
+  const localHealthKey = localHealthCacheKey && healthReady ? localHealthCacheKey : null;
   const { data: localHealth, mutate: mutateLocalHealth, isLoading: l6 } =
     useSWR(
-      localMode && accountId && healthReady ? ['local-health-daily', accountId, dateStr] as const : null,
+      localHealthKey,
       ([, ownerId, selectedDate]) => readLocalHealthDaily(ownerId, selectedDate),
       swrOpts,
     );
@@ -118,12 +129,20 @@ export const useDailyData = (
   /** todos optimistic mutate — updater 함수로 현재 캐시를 즉시 수정 */
   const mutateTodos = useCallback(
     (updater: (cur: Todo[]) => Todo[], revalidate = true) => {
-      mutateTodosRaw(
-        (cur) => updater(cur ?? []),
-        { revalidate },
-      );
+      if (todoKey !== null) {
+        mutateTodosRaw(
+          (cur) => updater(cur ?? []),
+          { revalidate },
+        );
+      } else if (todoCacheKey !== null) {
+        void globalMutate(
+          todoCacheKey,
+          (cur: Todo[] | undefined) => updater(cur ?? []),
+          { revalidate },
+        );
+      }
     },
-    [mutateTodosRaw],
+    [globalMutate, mutateTodosRaw, todoCacheKey, todoKey],
   );
 
   /** routines optimistic mutate */
@@ -139,12 +158,22 @@ export const useDailyData = (
 
   const mutate = useCallback(() => {
     mutateSchedules();
-    mutateTodosRaw();
+    if (todoKey !== null) mutateTodosRaw();
+    else if (todoCacheKey !== null) {
+      // The inactive hook has no bound revalidator. Clear its stable cache
+      // entry so reset/bootstrap cannot surface stale data on reactivation.
+      void globalMutate(todoCacheKey, undefined, { revalidate: false });
+    }
     mutateRoutinesRaw();
     mutateWorkouts();
     mutateInbody();
-    if (localMode) mutateLocalHealth();
-  }, [localMode, mutateSchedules, mutateTodosRaw, mutateRoutinesRaw, mutateWorkouts, mutateInbody, mutateLocalHealth]);
+    if (localMode) {
+      if (localHealthKey !== null) mutateLocalHealth();
+      else if (localHealthCacheKey !== null) {
+        void globalMutate(localHealthCacheKey, undefined, { revalidate: false });
+      }
+    }
+  }, [globalMutate, localHealthCacheKey, localHealthKey, localMode, mutateInbody, mutateLocalHealth, mutateRoutinesRaw, mutateSchedules, mutateTodosRaw, mutateWorkouts, todoCacheKey, todoKey]);
 
   const todosState = resolveSearchDatasetState({
     enabled: todoKey !== null,

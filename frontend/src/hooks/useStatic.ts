@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from 'react';
-import useSWR from 'swr';
+import useSWR, { useSWRConfig } from 'swr';
 import { fetcher, isLocalOnlyRemotePausedError } from '../lib/fetcher';
 import { API_URL } from '../lib/config';
 import { remoteSWRKey } from '../lib/remoteBoundary';
@@ -43,6 +43,7 @@ export const useStaticData = (
 ): UseStaticDataResult => {
   const base = `${API_URL}/api`;
   const localMode = isLocalOnlyRuntime();
+  const { mutate: globalMutate } = useSWRConfig();
 
   const swrOpts = useMemo(
     () => ({
@@ -65,11 +66,8 @@ export const useStaticData = (
     fetchAccountBoundHealthStatic,
     swrOpts,
   );
-  const healthBlocksKey = accountBoundHealthStaticKey(
-    `${base}/blocks`,
-    accountId,
-    !localMode && healthBlocksEnabled,
-  );
+  const healthBlocksCacheKey = accountBoundHealthStaticKey(`${base}/blocks`, accountId, !localMode);
+  const healthBlocksKey = healthBlocksEnabled ? healthBlocksCacheKey : null;
   const {
     data: healthBlocksData,
     mutate: mutateBlocks,
@@ -91,8 +89,11 @@ export const useStaticData = (
     fetchAccountBoundHealthStatic,
     swrOpts,
   );
-  const localHealthKey = localMode && accountId && healthReady && healthBlocksEnabled
+  const localHealthCacheKey = localMode && accountId
     ? ['local-health-static', accountId] as const
+    : null;
+  const localHealthKey = localHealthCacheKey && healthReady && healthBlocksEnabled
+    ? localHealthCacheKey
     : null;
   // Existing local readiness remains account-bound:
   // localMode && accountId && healthReady ? ['local-health-static', accountId]
@@ -118,11 +119,21 @@ export const useStaticData = (
 
   const mutate = useCallback(() => {
     mutateDates();
-    mutateBlocks();
+    if (healthBlocksKey !== null) mutateBlocks();
+    else if (healthBlocksCacheKey !== null) {
+      // The inactive hook has no bound revalidator. Clear its stable cache
+      // entry so reset/bootstrap cannot surface stale blocks on reactivation.
+      void globalMutate(healthBlocksCacheKey, undefined, { revalidate: false });
+    }
     mutateRoutines();
     mutateWeekly();
-    if (localMode) mutateLocalHealth();
-  }, [localMode, mutateDates, mutateBlocks, mutateRoutines, mutateWeekly, mutateLocalHealth]);
+    if (localMode) {
+      if (localHealthKey !== null) mutateLocalHealth();
+      else if (localHealthCacheKey !== null) {
+        void globalMutate(localHealthCacheKey, undefined, { revalidate: false });
+      }
+    }
+  }, [globalMutate, healthBlocksCacheKey, healthBlocksKey, localHealthCacheKey, localHealthKey, localMode, mutateBlocks, mutateDates, mutateLocalHealth, mutateRoutines, mutateWeekly]);
 
   const healthBlocks = localMode ? localHealth?.healthBlocks : healthBlocksData;
   const healthBlocksState = resolveSearchDatasetState({

@@ -43,6 +43,7 @@ vi.mock('swr', () => ({
     }
     return { data: undefined, mutate: vi.fn(), isLoading: false };
   },
+  useSWRConfig: () => ({ mutate: vi.fn() }),
 }));
 
 vi.mock('../lib/localAuth', () => ({ isLocalOnlyRuntime: () => true }));

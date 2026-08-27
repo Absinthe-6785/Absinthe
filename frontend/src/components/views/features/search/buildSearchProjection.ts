@@ -88,7 +88,10 @@ function groupByDomain(
     };
   }).filter(g => (
     g.count > 0
-    || (g.state !== undefined && (g.state.status !== 'READY_WITH_RESULTS' || g.state.validating))
+    || (g.state !== undefined && (
+      g.state.status !== 'READY_WITH_RESULTS'
+      && (g.state.status !== 'READY_EMPTY' || g.state.validating)
+    ))
   ));
 }
 

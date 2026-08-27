@@ -173,4 +173,50 @@ describe('LEAN_04B Search activation seam', () => {
     expect(todoRequests[0]?.url).toContain('date=2026-08-26');
     expect(todoRequests[0]?.url).not.toContain('date=2026-08-25');
   });
+
+  async function warmThenDeactivate(): Promise<void> {
+    root = createRoot(host!);
+    await act(async () => render({ account: 'account-a', todosEnabled: true, healthBlocksEnabled: true }));
+    await flush();
+
+    harness.todoResolvers.splice(0).forEach(resolve => resolve([{ id: 'todo-before-reset', text: 'stale', done: false }]));
+    harness.blockResolvers.splice(0).forEach(resolve => resolve([{ id: 'block-before-reset', name: 'stale', type: 'strength', tags: [] }]));
+    await flush();
+    expect(harness.latest?.daily.todos).toEqual([{ id: 'todo-before-reset', text: 'stale', done: false }]);
+    expect(harness.latest?.stat.healthBlocks).toEqual([{ id: 'block-before-reset', name: 'stale', type: 'strength', tags: [] }]);
+
+    await act(async () => render({ account: 'account-a', todosEnabled: false, healthBlocksEnabled: false }));
+    await flush();
+  }
+
+  it('clears warm deferred caches when reset invalidates them while inactive', async () => {
+    await warmThenDeactivate();
+
+    harness.latest?.daily.mutate();
+    harness.latest?.stat.mutate();
+    await flush();
+
+    await act(async () => render({ account: 'account-a', todosEnabled: true, healthBlocksEnabled: true }));
+    expect(harness.latest?.daily.todos).toEqual([]);
+    expect(harness.latest?.stat.healthBlocks).toEqual([]);
+    expect(harness.latest?.daily.todosState.status).toBe('LOADING');
+    expect(harness.latest?.stat.healthBlocksState.status).toBe('LOADING');
+  });
+
+  it('clears warm deferred caches when bootstrap refresh invalidates them while inactive', async () => {
+    await warmThenDeactivate();
+
+    // The production bootstrap-complete listener calls these same shell-level
+    // mutation functions; exercise that refresh contract while both keys are
+    // inactive rather than relying on a later fetch to overwrite stale data.
+    harness.latest?.daily.mutate();
+    harness.latest?.stat.mutate();
+    await flush();
+
+    await act(async () => render({ account: 'account-a', todosEnabled: true, healthBlocksEnabled: true }));
+    expect(harness.latest?.daily.todos).toEqual([]);
+    expect(harness.latest?.stat.healthBlocks).toEqual([]);
+    expect(harness.latest?.daily.todosState.status).toBe('LOADING');
+    expect(harness.latest?.stat.healthBlocksState.status).toBe('LOADING');
+  });
 });
