@@ -58,7 +58,7 @@ describe('LEAN_04B Search source characterization', () => {
     expect(daily).toContain('remoteSWRKey(`${base}/todos?date=${dateStr}`)');
     expect(daily).toContain("localMode && accountId && healthReady ? ['local-health-daily', accountId, dateStr]");
     expect(statics).toContain("['health-static', accountId, remoteKey]");
-    expect(statics).toContain("localMode && accountId && healthReady ? ['local-health-static', accountId]");
+    expect(statics).toContain('const localHealthKey = localHealthCacheKey && healthReady && (healthBlocksEnabled || healthRoutinesEnabled)');
     expect(statics).toContain('readLocalHealthStatic(ownerId)');
     expect(host).not.toContain('accountId');
   });
