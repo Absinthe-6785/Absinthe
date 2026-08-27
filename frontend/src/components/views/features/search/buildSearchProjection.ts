@@ -27,6 +27,7 @@ import {
 } from './buildSearchDomainResults';
 import { buildHighlightsForResults } from './searchHighlight';
 import { buildSearchRecentGroups } from './searchRecentStorage';
+import type { SearchDatasetState } from '../../../../lib/searchReadiness';
 
 export interface SearchProjectionInput {
   query: string;
@@ -35,9 +36,11 @@ export interface SearchProjectionInput {
   folders: readonly NoteFolder[];
   schedules: readonly Schedule[];
   todos: readonly Todo[];
+  todosState?: SearchDatasetState;
   routines: readonly Routine[];
   workouts: readonly Workout[];
   healthBlocks: readonly ExerciseBlock[];
+  healthBlocksState?: SearchDatasetState;
   weeklySchedules: readonly WeeklySchedule[];
   recipes: readonly Recipe[];
   recentSearches: readonly SearchRecentEntry[];
@@ -69,16 +72,35 @@ function mapWorkspaceResult(r: WorkspaceSearchResult): SearchResultItem {
   };
 }
 
-function groupByDomain(results: readonly SearchResultItem[]): SearchProjection['groupedResults'] {
+function groupByDomain(
+  results: readonly SearchResultItem[],
+  groupStates: Partial<Record<SearchDomain, SearchDatasetState>>,
+): SearchProjection['groupedResults'] {
   return SEARCH_DOMAIN_ORDER.map(domain => {
     const domainResults = results.filter(r => r.domain === domain);
+    const state = groupStates[domain];
     return {
       domain,
       labelKey: SEARCH_DOMAIN_LABEL_KEYS[domain],
       results: domainResults,
       count: domainResults.length,
+      ...(state ? { state } : {}),
     };
-  }).filter(g => g.count > 0);
+  }).filter(g => (
+    g.count > 0
+    || (g.state !== undefined && (g.state.status !== 'READY_WITH_RESULTS' || g.state.validating))
+  ));
+}
+
+function alignStateToResults(
+  state: SearchDatasetState | undefined,
+  resultCount: number,
+): SearchDatasetState | undefined {
+  if (!state) return undefined;
+  if (resultCount > 0 && state.status === 'READY_EMPTY') {
+    return { ...state, status: 'READY_WITH_RESULTS' };
+  }
+  return state;
 }
 
 function buildCounts(results: readonly SearchResultItem[]): SearchProjection['counts'] {
@@ -128,7 +150,12 @@ export function buildSearchProjection(input: SearchProjectionInput): SearchProje
     : [];
 
   const results = [...noteResults, ...plannerResults, ...healthResults, ...recipeResults, ...archiveResults];
-  const groupedResults = groupByDomain(results);
+  const groupStates: Partial<Record<SearchDomain, SearchDatasetState>> = {};
+  const plannerState = alignStateToResults(input.todosState, plannerResults.length);
+  const healthState = alignStateToResults(input.healthBlocksState, healthResults.length);
+  if (plannerState) groupStates.planner = plannerState;
+  if (healthState) groupStates.health = healthState;
+  const groupedResults = groupByDomain(results, groupStates);
   const counts = buildCounts(results);
   const highlights = buildHighlightsForResults(results, trimmed);
   const recentSearchesGrouped = buildSearchRecentGroups(recentSearches, now);
@@ -146,6 +173,7 @@ export function buildSearchProjection(input: SearchProjectionInput): SearchProje
     counts,
     highlights,
     recentSearches: recentSearchesGrouped,
+    groupStates,
     empty,
     generatedAt: now.toISOString(),
   };

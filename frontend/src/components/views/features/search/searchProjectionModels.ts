@@ -1,4 +1,5 @@
 import type { WorkspaceSearchResultKind } from '../knowledge/workspace/buildWorkspaceSearch';
+import type { SearchDatasetState } from '../../../../lib/searchReadiness';
 
 /** K-111 cross-domain search domains. */
 export type SearchDomain = 'notes' | 'planner' | 'health' | 'recipe' | 'archive';
@@ -51,6 +52,7 @@ export interface SearchDomainGroup {
   labelKey: string;
   results: SearchResultItem[];
   count: number;
+  state?: SearchDatasetState;
 }
 
 export interface SearchRecentItem {
@@ -89,6 +91,8 @@ export interface SearchProjection {
   counts: SearchCounts;
   highlights: ReadonlyMap<string, SearchHighlight>;
   recentSearches: SearchRecentGroups;
+  /** Per-domain deferred readiness; absent for domains with no deferred source. */
+  groupStates: Partial<Record<SearchDomain, SearchDatasetState>>;
   empty: SearchEmptyFlags;
   generatedAt: string;
 }

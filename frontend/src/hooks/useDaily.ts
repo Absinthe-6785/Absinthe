@@ -5,11 +5,14 @@ import { API_URL } from '../lib/config';
 import { remoteSWRKey } from '../lib/remoteBoundary';
 import { isLocalOnlyRuntime } from '../lib/localAuth';
 import { readLocalHealthDaily } from '../lib/healthLocalRuntime';
+import { resolveSearchDatasetState, type SearchDatasetState } from '../lib/searchReadiness';
 import { Schedule, Todo, Routine, Workout, Inbody } from '../types';
 
 export interface UseDailyDataResult {
   schedules: Schedule[];
   todos: Todo[];
+  /** Readiness for the Search-deferred todo source. */
+  todosState: SearchDatasetState;
   routines: Routine[];
   workouts: Workout[];
   inbody: Inbody;
@@ -21,6 +24,29 @@ export interface UseDailyDataResult {
   mutateRoutines: (updater: (cur: Routine[]) => Routine[], revalidate?: boolean) => void;
   isLoading: boolean;
 }
+
+export type AccountBoundTodoKey = string;
+
+/**
+ * Keep the request URL unchanged while giving each account its own SWR cache
+ * namespace. This prevents a deferred Search activation from reusing another
+ * account's todo response after an account transition.
+ */
+export function accountBoundTodoKey(
+  url: string,
+  accountId?: string,
+  enabled = true,
+): AccountBoundTodoKey | null {
+  const remoteKey = remoteSWRKey(url);
+  return enabled && accountId && remoteKey
+    ? `${remoteKey}\u0000absinthe-account=${encodeURIComponent(accountId)}`
+    : null;
+}
+
+const fetchAccountBoundTodo = <T>(key: AccountBoundTodoKey): Promise<T> => {
+  const separator = key.indexOf('\u0000');
+  return fetcher<T>(separator >= 0 ? key.slice(0, separator) : key);
+};
 
 export function getDailyDataLoading(
   localMode: boolean,
@@ -35,9 +61,17 @@ export const useDailyData = (
   onError?: (msg: string) => void,
   accountId?: string,
   healthReady = true,
+  todosEnabled?: boolean,
 ): UseDailyDataResult => {
   const base = `${API_URL}/api`;
   const localMode = isLocalOnlyRuntime();
+  const todoUrlKey = remoteSWRKey(`${base}/todos?date=${dateStr}`);
+  // Calls that predate the Search seam retain their original URL key. The
+  // shell passes an explicit activation flag and receives the account-bound
+  // key used by the production Search path.
+  const todoKey = todosEnabled === undefined
+    ? todoUrlKey
+    : accountBoundTodoKey(`${base}/todos?date=${dateStr}`, accountId, todosEnabled);
 
   // onError 콜백만 useMemo로 메모이제이션 (showToast는 useCallback으로 안정됨)
   // DAILY_SWR_BASE = {} 는 SWR 기본값과 동일해 실질 효과가 없으므로 제거.
@@ -56,8 +90,14 @@ export const useDailyData = (
   const { data: schedules = [], mutate: mutateSchedules, isLoading: l1 } =
     useSWR<Schedule[]>(remoteSWRKey(`${base}/schedules?date=${dateStr}`), fetcher, swrOpts);
 
-  const { data: todos = [], mutate: mutateTodosRaw, isLoading: l2 } =
-    useSWR<Todo[]>(remoteSWRKey(`${base}/todos?date=${dateStr}`), fetcher, swrOpts);
+  const {
+    data: todosData,
+    mutate: mutateTodosRaw,
+    isLoading: l2,
+    isValidating: todosIsValidating,
+    error: todosError,
+  } = useSWR<Todo[], AccountBoundTodoKey | null>(todoKey, fetchAccountBoundTodo, swrOpts);
+  const todos = todosData ?? [];
 
   const { data: routines = [], mutate: mutateRoutinesRaw, isLoading: l3 } =
     useSWR<Routine[]>(remoteSWRKey(`${base}/routines_with_logs?date=${dateStr}`), fetcher, swrOpts);
@@ -106,15 +146,26 @@ export const useDailyData = (
     if (localMode) mutateLocalHealth();
   }, [localMode, mutateSchedules, mutateTodosRaw, mutateRoutinesRaw, mutateWorkouts, mutateInbody, mutateLocalHealth]);
 
+  const todosState = resolveSearchDatasetState({
+    enabled: todoKey !== null,
+    data: todosData,
+    isLoading: l2,
+    isValidating: todosIsValidating,
+    error: todosError,
+  });
+
   return {
     schedules,
     todos,
+    todosState,
     routines: localMode ? localHealth?.routines ?? [] : routines,
     workouts: localMode ? localHealth?.workouts ?? [] : workouts,
     inbody: localMode ? localHealth?.inbody ?? { weight: 0, smm: 0, pbf: 0 } : inbodyRaw?.[0] ?? { weight: 0, smm: 0, pbf: 0 },
     mutate,
     mutateTodos,
     mutateRoutines,
-    isLoading: getDailyDataLoading(localMode, l6, [l1, l2, l3, l4, l5]),
+    // Search-deferred todo loading is intentionally excluded from the global
+    // daily spinner; Search owns that group's pending state.
+    isLoading: getDailyDataLoading(localMode, l6, [l1, false, l3, l4, l5]),
   };
 };
