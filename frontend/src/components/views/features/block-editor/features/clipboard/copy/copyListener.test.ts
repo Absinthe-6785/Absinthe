@@ -109,12 +109,9 @@ describe('installEditorCopyListener (UX-3A.3)', () => {
     try {
       buildProductionBundle(outDir);
 
-      // Resolve entry from index.html — not readdir's first index-*.js (code-split chunks share the prefix).
-      const entryPath = resolveProductionEntryBundle(outDir);
-      const entryBundle = fs.readFileSync(entryPath, 'utf8');
-      expect(countCopyListenerRegistrations(entryBundle)).toBeGreaterThan(0);
-
-      // Listener must exist somewhere in shipped JS (guards tree-shaking).
+      // The Notes editor is a route-local async chunk, so the listener may no
+      // longer be part of the initial entry. It must remain in shipped JS.
+      resolveProductionEntryBundle(outDir);
       const assetDir = path.join(outDir, 'assets');
       const shippedJs = fs.readdirSync(assetDir)
         .filter(f => f.endsWith('.js'))

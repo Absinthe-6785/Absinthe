@@ -304,7 +304,8 @@ describe('K-303 notes overview signal panel adapter boundary audit', () => {
       expect(read(path), path).not.toContain('NotesOverviewSignalPanel');
     });
 
-    expect(read(appContentPath)).toContain("<NoteView showToast={showToast} accountId={authUser.id} />");
+    expect(read(appContentPath)).toContain("import { NotesRouteBoundary } from './NotesRouteBoundary';");
+    expect(read(appContentPath)).toContain('<NotesRouteBoundary');
     expect(read(noteViewEditorAreaPath)).toContain('NoteGraphViewLazy');
   });
 

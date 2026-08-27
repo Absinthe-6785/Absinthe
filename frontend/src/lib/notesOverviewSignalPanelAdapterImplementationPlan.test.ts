@@ -311,7 +311,8 @@ describe('K-304 notes overview signal panel adapter implementation plan', () => 
     expect(signalPanel).toContain("readonly generatedFrom: 'local-note-metadata';");
     expect(signalPanelTest).toContain('caps recent notes to five without sorting the input array');
     expect(signalPanelTest).toContain('remains unmounted from runtime Notes and Static Preview surfaces');
-    expect(appContent).toContain("<NoteView showToast={showToast} accountId={authUser.id} />");
+    expect(appContent).toContain("import { NotesRouteBoundary } from './NotesRouteBoundary';");
+    expect(appContent).toContain('<NotesRouteBoundary');
     expect(noteView).toContain('const notes = useNotesStore');
     expect(noteView).toContain('const activeNoteId = useNotesStore');
     expect(noteViewEditorArea).toContain('NoteGraphViewLazy');
