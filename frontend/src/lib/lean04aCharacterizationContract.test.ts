@@ -78,7 +78,7 @@ const CURRENT_KEY_CLASSIFICATION = {
   todos: 'URL_ONLY',
   routines: 'URL_ONLY',
   workouts: 'URL_ONLY',
-  inbody: 'URL_ONLY',
+  inbody: 'ACCOUNT_NAMESPACED',
   markedDates: 'ACCOUNT_NAMESPACED',
   healthBlocks: 'ACCOUNT_NAMESPACED',
   healthRoutines: 'ACCOUNT_NAMESPACED',
@@ -90,7 +90,7 @@ function source(relativePath: string): string {
 }
 
 describe('LEAN_04A characterization contract and protected boundaries', () => {
-  it('records the bounded MODEL_A future activation contract without wiring it into production', () => {
+  it('records the bounded MODEL_A activation contract used by the production shell', () => {
     expect(FUTURE_ACTIVATION_CONTRACT.HOME).toEqual({
       schedules: 'active', routines: 'active', workouts: 'active', weeklySchedules: 'active',
       todos: 'inactive', inbody: 'inactive', markedDates: 'inactive', healthBlocks: 'inactive', healthRoutines: 'inactive',
@@ -113,8 +113,8 @@ describe('LEAN_04A characterization contract and protected boundaries', () => {
     const app = source('components/AppContent.tsx');
     const search = source('components/views/features/search/GlobalSearchHost.tsx');
     expect(app).toContain("useState<TabId>('home')");
-    expect(app).toContain('useDailyData(dateStr, showToast, authUser.id, healthRuntimeReady)');
-    expect(app).toContain('useStaticData(monthStart, monthEnd, showToast, authUser.id, healthRuntimeReady)');
+    expect(app).toContain('useDailyData(dateStr, showToast, authUser.id, healthRuntimeReady, todosSearchActive, inbodyActive)');
+    expect(app).toContain('useStaticData(monthStart, monthEnd, showToast, authUser.id, healthRuntimeReady, healthBlocksSearchActive, markedDatesActive, healthRoutinesActive)');
     expect(app).toContain('<GlobalSearchHost');
     expect(app).toContain('schedules={schedules}');
     expect(app).toContain('routines={routines}');
@@ -136,7 +136,7 @@ describe('LEAN_04A characterization contract and protected boundaries', () => {
       todos: 'URL_ONLY',
       routines: 'URL_ONLY',
       workouts: 'URL_ONLY',
-      inbody: 'URL_ONLY',
+      inbody: 'ACCOUNT_NAMESPACED',
       markedDates: 'ACCOUNT_NAMESPACED',
       healthBlocks: 'ACCOUNT_NAMESPACED',
       healthRoutines: 'ACCOUNT_NAMESPACED',
@@ -148,7 +148,7 @@ describe('LEAN_04A characterization contract and protected boundaries', () => {
     expect(daily).toContain('remoteSWRKey(`${base}/todos?date=${dateStr}`)');
     expect(daily).toContain('remoteSWRKey(`${base}/routines_with_logs?date=${dateStr}`)');
     expect(daily).toContain('remoteSWRKey(`${base}/workouts?date=${dateStr}`)');
-    expect(daily).toContain('remoteSWRKey(`${base}/inbody?date=${dateStr}`)');
+    expect(daily).toContain('accountBoundInbodyKey(inbodyUrl, accountId)');
     expect(statics).toContain("['health-static', accountId, remoteKey]");
     expect(statics).toContain('accountBoundHealthStaticKey(');
     expect(FUTURE_ACTIVATION_CONTRACT.HOME.todos).toBe('inactive');

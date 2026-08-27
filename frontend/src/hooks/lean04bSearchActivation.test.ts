@@ -53,8 +53,8 @@ function Probe({
   healthBlocksEnabled: boolean;
 }) {
   harness.currentAccount = account as 'account-a' | 'account-b';
-  const daily = useDailyData(date, undefined, account, true, todosEnabled);
-  const stat = useStaticData('2026-08-01', '2026-08-31', undefined, account, true, healthBlocksEnabled);
+  const daily = useDailyData(date, undefined, account, true, todosEnabled, false);
+  const stat = useStaticData('2026-08-01', '2026-08-31', undefined, account, true, healthBlocksEnabled, false, false);
   harness.latest = { daily, stat };
   return createElement('output', {
     'data-todos-status': daily.todosState.status,
