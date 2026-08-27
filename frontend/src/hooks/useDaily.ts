@@ -27,6 +27,8 @@ export interface UseDailyDataResult {
 
 export type AccountBoundTodoKey = string;
 
+export type AccountBoundInbodyKey = string;
+
 /**
  * Keep the request URL unchanged while giving each account its own SWR cache
  * namespace. This prevents a deferred Search activation from reusing another
@@ -48,6 +50,27 @@ const fetchAccountBoundTodo = <T>(key: AccountBoundTodoKey): Promise<T> => {
   return fetcher<T>(separator >= 0 ? key.slice(0, separator) : key);
 };
 
+/**
+ * Keep the InBody request URL unchanged while separating each account's SWR
+ * cache entry. The account marker is part of the cache identity only; it is
+ * never sent to the backend.
+ */
+export function accountBoundInbodyKey(
+  url: string,
+  accountId?: string,
+  enabled = true,
+): AccountBoundInbodyKey | null {
+  const remoteKey = remoteSWRKey(url);
+  return enabled && accountId && remoteKey
+    ? `${remoteKey}\u0000absinthe-account=${encodeURIComponent(accountId)}\u0000inbody`
+    : null;
+}
+
+const fetchAccountBoundInbody = <T>(key: AccountBoundInbodyKey): Promise<T> => {
+  const separator = key.indexOf('\u0000');
+  return fetcher<T>(separator >= 0 ? key.slice(0, separator) : key);
+};
+
 export function getDailyDataLoading(
   localMode: boolean,
   localHealthLoading: boolean,
@@ -62,6 +85,7 @@ export const useDailyData = (
   accountId?: string,
   healthReady = true,
   todosEnabled?: boolean,
+  inbodyEnabled = true,
 ): UseDailyDataResult => {
   const base = `${API_URL}/api`;
   const localMode = isLocalOnlyRuntime();
@@ -75,6 +99,9 @@ export const useDailyData = (
   const todoKey = todosEnabled === undefined
     ? todoUrlKey
     : todosEnabled ? todoCacheKey : null;
+  const inbodyUrl = `${base}/inbody?date=${dateStr}`;
+  const inbodyCacheKey = accountBoundInbodyKey(inbodyUrl, accountId);
+  const inbodyKey = inbodyEnabled ? inbodyCacheKey : null;
 
   const { mutate: globalMutate } = useSWRConfig();
 
@@ -111,7 +138,7 @@ export const useDailyData = (
     useSWR<Workout[]>(remoteSWRKey(`${base}/workouts?date=${dateStr}`), fetcher, swrOpts);
 
   const { data: inbodyRaw, mutate: mutateInbody, isLoading: l5 } =
-    useSWR<Inbody[]>(remoteSWRKey(`${base}/inbody?date=${dateStr}`), fetcher, swrOpts);
+    useSWR<Inbody[], AccountBoundInbodyKey | null>(inbodyKey, fetchAccountBoundInbody, swrOpts);
 
   const localHealthCacheKey = localMode && accountId
     ? ['local-health-daily', accountId, dateStr] as const
@@ -166,14 +193,18 @@ export const useDailyData = (
     }
     mutateRoutinesRaw();
     mutateWorkouts();
-    mutateInbody();
+    if (inbodyKey !== null) mutateInbody();
+    else if (inbodyCacheKey !== null) {
+      // Keep reset/bootstrap invalidation available while InBody is inactive.
+      void globalMutate(inbodyCacheKey, undefined, { revalidate: false });
+    }
     if (localMode) {
       if (localHealthKey !== null) mutateLocalHealth();
       else if (localHealthCacheKey !== null) {
         void globalMutate(localHealthCacheKey, undefined, { revalidate: false });
       }
     }
-  }, [globalMutate, localHealthCacheKey, localHealthKey, localMode, mutateInbody, mutateLocalHealth, mutateRoutinesRaw, mutateSchedules, mutateTodosRaw, mutateWorkouts, todoCacheKey, todoKey]);
+  }, [globalMutate, inbodyCacheKey, inbodyKey, localHealthCacheKey, localHealthKey, localMode, mutateInbody, mutateLocalHealth, mutateRoutinesRaw, mutateSchedules, mutateTodosRaw, mutateWorkouts, todoCacheKey, todoKey]);
 
   const todosState = resolveSearchDatasetState({
     enabled: todoKey !== null,

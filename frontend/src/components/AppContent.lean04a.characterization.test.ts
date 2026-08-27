@@ -145,7 +145,12 @@ describe('LEAN_04A AppContent shell/event characterization', () => {
     expect((mocks as typeof mocks & { dailyArgs?: unknown[] }).dailyArgs?.[0]).toBe('2026-08-18');
     expect((mocks as typeof mocks & { dailyArgs?: unknown[] }).dailyArgs?.[2]).toBe('account-a');
     expect((mocks as typeof mocks & { dailyArgs?: unknown[] }).dailyArgs?.[3]).toBe(true);
+    expect((mocks as typeof mocks & { dailyArgs?: unknown[] }).dailyArgs?.[4]).toBe(false);
+    expect((mocks as typeof mocks & { dailyArgs?: unknown[] }).dailyArgs?.[5]).toBe(false);
     expect((mocks as typeof mocks & { staticArgs?: unknown[] }).staticArgs?.[3]).toBe('account-a');
+    expect((mocks as typeof mocks & { staticArgs?: unknown[] }).staticArgs?.[5]).toBe(false);
+    expect((mocks as typeof mocks & { staticArgs?: unknown[] }).staticArgs?.[6]).toBe(false);
+    expect((mocks as typeof mocks & { staticArgs?: unknown[] }).staticArgs?.[7]).toBe(false);
     expect(mocks.homeProps?.mutateDaily).toBe(mocks.dailyMutate);
     expect(mocks.homeProps?.mutateStatic).toBe(mocks.staticMutate);
     expect(mocks.homeProps?.mutateTodos).toBe(mocks.mutateTodos);

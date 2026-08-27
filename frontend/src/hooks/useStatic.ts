@@ -40,6 +40,8 @@ export const useStaticData = (
   accountId?: string,
   healthReady = true,
   healthBlocksEnabled = true,
+  markedDatesEnabled = true,
+  healthRoutinesEnabled = true,
 ): UseStaticDataResult => {
   const base = `${API_URL}/api`;
   const localMode = isLocalOnlyRuntime();
@@ -57,12 +59,14 @@ export const useStaticData = (
     [onError],
   );
 
+  const markedDatesCacheKey = accountBoundHealthStaticKey(
+    `${base}/schedules/dates?start_date=${monthStartStr}&end_date=${monthEndStr}`,
+    accountId,
+    !localMode,
+  );
+  const markedDatesKey = markedDatesEnabled ? markedDatesCacheKey : null;
   const { data: rawDates = [], mutate: mutateDates } = useSWR<(string | { date: string })[]>(
-    accountBoundHealthStaticKey(
-      `${base}/schedules/dates?start_date=${monthStartStr}&end_date=${monthEndStr}`,
-      accountId,
-      !localMode,
-    ),
+    markedDatesKey,
     fetchAccountBoundHealthStatic,
     swrOpts,
   );
@@ -79,8 +83,10 @@ export const useStaticData = (
     fetchAccountBoundHealthStatic,
     swrOpts,
   );
+  const healthRoutinesCacheKey = accountBoundHealthStaticKey(`${base}/health_routines`, accountId, !localMode);
+  const healthRoutinesKey = healthRoutinesEnabled ? healthRoutinesCacheKey : null;
   const { data: healthRoutines = [], mutate: mutateRoutines } = useSWR<HealthRoutine[]>(
-    accountBoundHealthStaticKey(`${base}/health_routines`, accountId, !localMode),
+    healthRoutinesKey,
     fetchAccountBoundHealthStatic,
     swrOpts,
   );
@@ -92,11 +98,12 @@ export const useStaticData = (
   const localHealthCacheKey = localMode && accountId
     ? ['local-health-static', accountId] as const
     : null;
-  const localHealthKey = localHealthCacheKey && healthReady && healthBlocksEnabled
+  const localHealthKey = localHealthCacheKey && healthReady && (healthBlocksEnabled || healthRoutinesEnabled)
     ? localHealthCacheKey
     : null;
   // Existing local readiness remains account-bound:
-  // localMode && accountId && healthReady ? ['local-health-static', accountId]
+  // localMode && accountId && healthReady && (healthBlocksEnabled || healthRoutinesEnabled)
+  //   ? ['local-health-static', accountId]
   const {
     data: localHealth,
     mutate: mutateLocalHealth,
@@ -118,14 +125,22 @@ export const useStaticData = (
   );
 
   const mutate = useCallback(() => {
-    mutateDates();
+    if (markedDatesKey !== null) mutateDates();
+    else if (markedDatesCacheKey !== null) {
+      // Keep reset/bootstrap invalidation available while markedDates is inactive.
+      void globalMutate(markedDatesCacheKey, undefined, { revalidate: false });
+    }
     if (healthBlocksKey !== null) mutateBlocks();
     else if (healthBlocksCacheKey !== null) {
       // The inactive hook has no bound revalidator. Clear its stable cache
       // entry so reset/bootstrap cannot surface stale blocks on reactivation.
       void globalMutate(healthBlocksCacheKey, undefined, { revalidate: false });
     }
-    mutateRoutines();
+    if (healthRoutinesKey !== null) mutateRoutines();
+    else if (healthRoutinesCacheKey !== null) {
+      // Keep reset/bootstrap invalidation available while Health routines are inactive.
+      void globalMutate(healthRoutinesCacheKey, undefined, { revalidate: false });
+    }
     mutateWeekly();
     if (localMode) {
       if (localHealthKey !== null) mutateLocalHealth();
@@ -133,9 +148,11 @@ export const useStaticData = (
         void globalMutate(localHealthCacheKey, undefined, { revalidate: false });
       }
     }
-  }, [globalMutate, healthBlocksCacheKey, healthBlocksKey, localHealthCacheKey, localHealthKey, localMode, mutateBlocks, mutateDates, mutateLocalHealth, mutateRoutines, mutateWeekly]);
+  }, [globalMutate, healthBlocksCacheKey, healthBlocksKey, healthRoutinesCacheKey, healthRoutinesKey, localHealthCacheKey, localHealthKey, localMode, markedDatesCacheKey, markedDatesKey, mutateBlocks, mutateDates, mutateLocalHealth, mutateRoutines, mutateWeekly]);
 
-  const healthBlocks = localMode ? localHealth?.healthBlocks : healthBlocksData;
+  const healthBlocks = localMode
+    ? healthBlocksEnabled ? localHealth?.healthBlocks : []
+    : healthBlocksData;
   const healthBlocksState = resolveSearchDatasetState({
     enabled: localMode ? localHealthKey !== null : healthBlocksKey !== null,
     data: healthBlocks,
@@ -148,7 +165,7 @@ export const useStaticData = (
     markedDates,
     healthBlocks: healthBlocks ?? [],
     healthBlocksState,
-    healthRoutines: localMode ? localHealth?.healthRoutines ?? [] : healthRoutines,
+    healthRoutines: localMode && healthRoutinesEnabled ? localHealth?.healthRoutines ?? [] : healthRoutines,
     weeklySchedules,
     mutate,
   };

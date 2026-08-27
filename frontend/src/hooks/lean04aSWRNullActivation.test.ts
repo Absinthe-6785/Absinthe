@@ -174,10 +174,13 @@ describe('LEAN_04A null-key activation semantics', () => {
     });
     await flush();
     expect(host?.querySelector('output')?.getAttribute('data-daily-owner')).toBe('account-a');
-    const accountBStaticRequests = productionHarness.requests.splice(0);
+    const accountBActivationRequests = productionHarness.requests.splice(0);
+    expect(accountBActivationRequests).toHaveLength(5);
+    const accountBStaticRequests = accountBActivationRequests.filter(request => !request.url.includes('/inbody?'));
     expect(accountBStaticRequests).toHaveLength(4);
     expect(accountBStaticRequests.some(request => new URL(request.url).searchParams.has('date'))).toBe(false);
-    resolveRequests(accountBStaticRequests);
+    expect(accountBActivationRequests.some(request => request.url.includes('/inbody?'))).toBe(true);
+    resolveRequests(accountBActivationRequests);
     await flush();
 
     productionHarness.latest?.daily.mutate();

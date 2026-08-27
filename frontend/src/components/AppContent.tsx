@@ -246,14 +246,15 @@ export function AppContent({ authUser }: { authUser: User }) {
   const dateStr = formatDate(selectedDate);
   const healthRuntimeReady = !healthBootstrapRequired || startupState.health.status === 'ready';
   const todosSearchActive = searchHasQuery || activeTab === 'planner';
+  const inbodyActive = activeTab === 'health' && healthRuntimeReady;
   const {
     schedules, todos, todosState, routines, workouts, inbody,
     mutate: mutateDaily,
     mutateTodos, mutateRoutines,
     isLoading: isDailyLoading,
-  // Preserve the accepted four-argument shell ownership contract:
-  // useDailyData(dateStr, showToast, authUser.id, healthRuntimeReady)
-  } = useDailyData(dateStr, showToast, authUser.id, healthRuntimeReady, todosSearchActive);
+  // AppContent owns the shell hook; only consumer-driven candidates are gated.
+  // useDailyData(dateStr, showToast, authUser.id, healthRuntimeReady, todosSearchActive, inbodyActive)
+  } = useDailyData(dateStr, showToast, authUser.id, healthRuntimeReady, todosSearchActive, inbodyActive);
 
   // useNow가 1분마다 now를 갱신 → AppContent 리렌더 → monthStart/monthEnd 매번 재계산.
   // currentDate가 바뀔 때만 실제로 값이 달라지므로 useMemo로 명시적 메모이제이션.
@@ -262,12 +263,14 @@ export function AppContent({ authUser }: { authUser: User }) {
     monthEnd:   formatDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0)),
   }), [currentDate, formatDate]);
   const healthBlocksSearchActive = searchHasQuery || activeTab === 'health';
+  const markedDatesActive = false;
+  const healthRoutinesActive = activeTab === 'health' && healthRuntimeReady;
   const {
     markedDates, healthBlocks, healthBlocksState, healthRoutines, weeklySchedules,
     mutate: mutateStatic,
-  // Preserve the accepted five-argument shell ownership contract:
-  // useStaticData(monthStart, monthEnd, showToast, authUser.id, healthRuntimeReady)
-  } = useStaticData(monthStart, monthEnd, showToast, authUser.id, healthRuntimeReady, healthBlocksSearchActive);
+  // AppContent owns static lifecycle; activation flags follow real consumers.
+  // useStaticData(monthStart, monthEnd, showToast, authUser.id, healthRuntimeReady, healthBlocksSearchActive, markedDatesActive, healthRoutinesActive)
+  } = useStaticData(monthStart, monthEnd, showToast, authUser.id, healthRuntimeReady, healthBlocksSearchActive, markedDatesActive, healthRoutinesActive);
 
   useEffect(() => {
     const refreshLocalHealth = () => {
