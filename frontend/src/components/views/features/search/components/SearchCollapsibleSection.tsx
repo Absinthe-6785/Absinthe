@@ -10,6 +10,8 @@ export interface SearchCollapsibleSectionProps {
   onToggle: () => void;
   colors: NoteChromeColors;
   children: ReactNode;
+  stateLabel?: string;
+  stateStatus?: string;
 }
 
 export function SearchCollapsibleSection({
@@ -20,6 +22,8 @@ export function SearchCollapsibleSection({
   onToggle,
   colors: c,
   children,
+  stateLabel,
+  stateStatus,
 }: SearchCollapsibleSectionProps) {
   return (
     <section
@@ -44,8 +48,16 @@ export function SearchCollapsibleSection({
           color: c.textMuted,
         }}
       >
-        <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase' }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 10, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase' }}>
           {title} ({count})
+          {stateLabel ? (
+            <span
+              data-k111-section-state={stateStatus}
+              style={{ fontSize: 9, fontWeight: 600, letterSpacing: 0, textTransform: 'none', color: c.textFaint }}
+            >
+              {stateLabel}
+            </span>
+          ) : null}
         </span>
         <ChevronDown
           size={12}

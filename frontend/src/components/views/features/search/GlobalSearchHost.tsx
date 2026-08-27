@@ -15,25 +15,32 @@ import { readWorkspaceSearchState, writeWorkspaceSearchState } from '../../k101W
 import { useSearchProjection } from './hooks/useSearchProjection';
 import { SearchWorkspacePalette } from './components/SearchWorkspacePalette';
 import { loadSearchRecent } from './searchRecentStorage';
+import type { SearchDatasetState } from '../../../../lib/searchReadiness';
 
 export interface GlobalSearchHostProps {
   appSettings: AppSettings;
   schedules: readonly Schedule[];
   todos: readonly Todo[];
+  todosState?: SearchDatasetState;
   routines: readonly Routine[];
   workouts: readonly Workout[];
   healthBlocks: readonly ExerciseBlock[];
+  healthBlocksState?: SearchDatasetState;
   weeklySchedules: readonly WeeklySchedule[];
+  onSearchHasQueryChange?: (hasQuery: boolean) => void;
 }
 
 /** K-111 — App-level cross-domain search host. */
 export function GlobalSearchHost({
   appSettings,
+  onSearchHasQueryChange,
   schedules,
   todos,
+  todosState,
   routines,
   workouts,
   healthBlocks,
+  healthBlocksState,
   weeklySchedules,
 }: GlobalSearchHostProps) {
   const notes = useNotesStore(s => s.notes);
@@ -55,11 +62,16 @@ export function GlobalSearchHost({
   }, []);
 
   useEffect(() => {
+    onSearchHasQueryChange?.(open && Boolean(query.trim()));
+  }, [onSearchHasQueryChange, open, query]);
+
+  useEffect(() => {
     if (!open) return;
     const saved = readWorkspaceSearchState();
     setQuery(saved.query);
+    onSearchHasQueryChange?.(Boolean(saved.query.trim()));
     setRecentRevision(r => r + 1);
-  }, [open]);
+  }, [onSearchHasQueryChange, open]);
 
   useEffect(() => {
     if (!open) return;
@@ -93,9 +105,11 @@ export function GlobalSearchHost({
     folders,
     schedules,
     todos,
+    todosState,
     routines,
     workouts,
     healthBlocks,
+    healthBlocksState,
     weeklySchedules,
     recipes,
     recentSearches,

@@ -1,17 +1,20 @@
 import { useCallback, useMemo } from 'react';
-import useSWR from 'swr';
+import useSWR, { useSWRConfig } from 'swr';
 import { fetcher, isLocalOnlyRemotePausedError } from '../lib/fetcher';
 import { API_URL } from '../lib/config';
 import { remoteSWRKey } from '../lib/remoteBoundary';
 import { isLocalOnlyRuntime } from '../lib/localAuth';
 import { readLocalHealthStatic } from '../lib/healthLocalRuntime';
 import { ExerciseBlock, HealthRoutine, WeeklySchedule } from '../types';
+import { resolveSearchDatasetState, type SearchDatasetState } from '../lib/searchReadiness';
 
 const STATIC_SWR_BASE = { revalidateOnFocus: false } as const;
 
 interface UseStaticDataResult {
   markedDates: string[];
   healthBlocks: ExerciseBlock[];
+  /** Readiness for the Search-deferred Health block source. */
+  healthBlocksState: SearchDatasetState;
   healthRoutines: HealthRoutine[];
   weeklySchedules: WeeklySchedule[];
   mutate: () => void;
@@ -36,9 +39,11 @@ export const useStaticData = (
   onError?: (msg: string) => void,
   accountId?: string,
   healthReady = true,
+  healthBlocksEnabled = true,
 ): UseStaticDataResult => {
   const base = `${API_URL}/api`;
   const localMode = isLocalOnlyRuntime();
+  const { mutate: globalMutate } = useSWRConfig();
 
   const swrOpts = useMemo(
     () => ({
@@ -61,8 +66,16 @@ export const useStaticData = (
     fetchAccountBoundHealthStatic,
     swrOpts,
   );
-  const { data: healthBlocks = [], mutate: mutateBlocks } = useSWR<ExerciseBlock[]>(
-    accountBoundHealthStaticKey(`${base}/blocks`, accountId, !localMode),
+  const healthBlocksCacheKey = accountBoundHealthStaticKey(`${base}/blocks`, accountId, !localMode);
+  const healthBlocksKey = healthBlocksEnabled ? healthBlocksCacheKey : null;
+  const {
+    data: healthBlocksData,
+    mutate: mutateBlocks,
+    isLoading: healthBlocksIsLoading,
+    isValidating: healthBlocksIsValidating,
+    error: healthBlocksError,
+  } = useSWR<ExerciseBlock[]>(
+    healthBlocksKey,
     fetchAccountBoundHealthStatic,
     swrOpts,
   );
@@ -76,9 +89,23 @@ export const useStaticData = (
     fetchAccountBoundHealthStatic,
     swrOpts,
   );
-  const { data: localHealth, mutate: mutateLocalHealth } = useSWR(
-    localMode && accountId && healthReady ? ['local-health-static', accountId] as const : null,
-    ([, ownerId]) => readLocalHealthStatic(ownerId),
+  const localHealthCacheKey = localMode && accountId
+    ? ['local-health-static', accountId] as const
+    : null;
+  const localHealthKey = localHealthCacheKey && healthReady && healthBlocksEnabled
+    ? localHealthCacheKey
+    : null;
+  // Existing local readiness remains account-bound:
+  // localMode && accountId && healthReady ? ['local-health-static', accountId]
+  const {
+    data: localHealth,
+    mutate: mutateLocalHealth,
+    isLoading: localHealthIsLoading,
+    isValidating: localHealthIsValidating,
+    error: localHealthError,
+  } = useSWR<{ healthBlocks?: ExerciseBlock[]; healthRoutines?: HealthRoutine[] }>(
+    localHealthKey,
+    ([, ownerId]: readonly ['local-health-static', string]) => readLocalHealthStatic(ownerId),
     swrOpts,
   );
 
@@ -92,15 +119,35 @@ export const useStaticData = (
 
   const mutate = useCallback(() => {
     mutateDates();
-    mutateBlocks();
+    if (healthBlocksKey !== null) mutateBlocks();
+    else if (healthBlocksCacheKey !== null) {
+      // The inactive hook has no bound revalidator. Clear its stable cache
+      // entry so reset/bootstrap cannot surface stale blocks on reactivation.
+      void globalMutate(healthBlocksCacheKey, undefined, { revalidate: false });
+    }
     mutateRoutines();
     mutateWeekly();
-    if (localMode) mutateLocalHealth();
-  }, [localMode, mutateDates, mutateBlocks, mutateRoutines, mutateWeekly, mutateLocalHealth]);
+    if (localMode) {
+      if (localHealthKey !== null) mutateLocalHealth();
+      else if (localHealthCacheKey !== null) {
+        void globalMutate(localHealthCacheKey, undefined, { revalidate: false });
+      }
+    }
+  }, [globalMutate, healthBlocksCacheKey, healthBlocksKey, localHealthCacheKey, localHealthKey, localMode, mutateBlocks, mutateDates, mutateLocalHealth, mutateRoutines, mutateWeekly]);
+
+  const healthBlocks = localMode ? localHealth?.healthBlocks : healthBlocksData;
+  const healthBlocksState = resolveSearchDatasetState({
+    enabled: localMode ? localHealthKey !== null : healthBlocksKey !== null,
+    data: healthBlocks,
+    isLoading: localMode ? localHealthIsLoading : healthBlocksIsLoading,
+    isValidating: localMode ? localHealthIsValidating : healthBlocksIsValidating,
+    error: localMode ? localHealthError : healthBlocksError,
+  });
 
   return {
     markedDates,
-    healthBlocks: localMode ? localHealth?.healthBlocks ?? [] : healthBlocks,
+    healthBlocks: healthBlocks ?? [],
+    healthBlocksState,
     healthRoutines: localMode ? localHealth?.healthRoutines ?? [] : healthRoutines,
     weeklySchedules,
     mutate,

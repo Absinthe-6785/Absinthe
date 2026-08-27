@@ -11,6 +11,7 @@ import { UI_INTERACTION } from '../../../../../lib/uiInteractionTokens';
 import { UI_SPACING } from '../../../../../lib/uiSpacingTokens';
 import type { SearchProjection, SearchResultItem, SearchDomain } from '../searchProjectionModels';
 import { SEARCH_DOMAIN_LABEL_KEYS } from '../searchProjectionModels';
+import type { SearchDatasetState } from '../../../../../lib/searchReadiness';
 import { useSearchSectionPrefs } from '../hooks/useSearchSectionPrefs';
 import { SearchCollapsibleSection } from './SearchCollapsibleSection';
 import { SearchVirtualList } from './SearchVirtualList';
@@ -42,6 +43,18 @@ export interface SearchWorkspacePaletteProps {
   onClose: () => void;
   onRecentRevision: () => void;
   isSearching?: boolean;
+}
+
+function groupStateLabel(state: SearchDatasetState | undefined, t: (key: TranslationKey) => string): string | undefined {
+  if (!state) return undefined;
+  if (state.error !== undefined) return t('k111GroupError');
+  if (state.status === 'NOT_READY') return t('k111GroupNotReady');
+  if (state.status === 'LOADING') return t('k111GroupLoading');
+  if (state.status === 'READY_EMPTY') {
+    return state.validating ? t('k111GroupRefreshing') : t('k111GroupReadyEmpty');
+  }
+  if (state.validating) return t('k111GroupRefreshing');
+  return undefined;
 }
 
 function recordRecent(result: SearchResultItem): void {
@@ -195,6 +208,8 @@ export function SearchWorkspacePalette({
   );
 
   const activeDescendantId = flatResults.length > 0 ? `k111-search-opt-${activeIndex}` : undefined;
+  const groupStates = projection.groupStates ?? {};
+  const hasStatefulGroups = projection.groupedResults.some(group => group.state !== undefined);
 
   if (!open) return null;
 
@@ -359,7 +374,7 @@ export function SearchWorkspacePalette({
                 {t('k111EmptyNoQueryHint')}
               </p>
             </div>
-          ) : projection.empty.noResults ? (
+          ) : projection.empty.noResults && !hasStatefulGroups ? (
             <ProductEmptyState
               icon={Search}
               title={t('workspaceSearchNoResults')}
@@ -373,6 +388,8 @@ export function SearchWorkspacePalette({
               {projection.groupedResults.map(group => {
                 const prefKey = DOMAIN_PREF_KEYS[group.domain];
                 const collapsed = prefs[prefKey];
+                const state = group.state ?? groupStates[group.domain];
+                const stateLabel = groupStateLabel(state, t);
                 const offset = rowOffset;
                 rowOffset += group.results.length;
                 return (
@@ -384,17 +401,29 @@ export function SearchWorkspacePalette({
                     collapsed={collapsed}
                     onToggle={() => toggle(prefKey)}
                     colors={c}
+                    stateLabel={stateLabel}
+                    stateStatus={state?.status}
                   >
-                    <SearchVirtualList
-                      results={group.results}
-                      projection={projection}
-                      colors={c}
-                      lang={lang}
-                      activeIndex={activeIndex}
-                      setActiveIndex={setActiveIndex}
-                      onSelect={handleSelect}
-                      rowIndexOffset={offset}
-                    />
+                    {group.results.length > 0 ? (
+                      <SearchVirtualList
+                        results={group.results}
+                        projection={projection}
+                        colors={c}
+                        lang={lang}
+                        activeIndex={activeIndex}
+                        setActiveIndex={setActiveIndex}
+                        onSelect={handleSelect}
+                        rowIndexOffset={offset}
+                      />
+                    ) : stateLabel ? (
+                      <div
+                        role="status"
+                        data-k111-search-group-state={state?.status}
+                        style={{ padding: '8px 10px 10px', fontSize: 11, color: c.textFaint }}
+                      >
+                        {stateLabel}
+                      </div>
+                    ) : null}
                   </SearchCollapsibleSection>
                 );
               })}

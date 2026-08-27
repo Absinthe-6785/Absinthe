@@ -144,6 +144,9 @@ export function AppContent({ authUser }: { authUser: User }) {
   const [selectedDate, setSelectedDate] = useState(now.toJSDate());
 
   const [activeTab, setActiveTab] = useState<TabId>('home');
+  // Search owns the live query; this small upward signal only controls the
+  // deferred Search datasets in the shell-owned hooks.
+  const [searchHasQuery, setSearchHasQuery] = useState(false);
   const [settingsScrollTarget, setSettingsScrollTarget] = useState<SettingsSectionId | null>(null);
 
   // Notes and Health have separate internal sequencing, but both begin after
@@ -242,12 +245,15 @@ export function AppContent({ authUser }: { authUser: User }) {
   // ── 4. SWR ────────────────────────────────────────────────────────
   const dateStr = formatDate(selectedDate);
   const healthRuntimeReady = !healthBootstrapRequired || startupState.health.status === 'ready';
+  const todosSearchActive = searchHasQuery || activeTab === 'planner';
   const {
-    schedules, todos, routines, workouts, inbody,
+    schedules, todos, todosState, routines, workouts, inbody,
     mutate: mutateDaily,
     mutateTodos, mutateRoutines,
     isLoading: isDailyLoading,
-  } = useDailyData(dateStr, showToast, authUser.id, healthRuntimeReady);
+  // Preserve the accepted four-argument shell ownership contract:
+  // useDailyData(dateStr, showToast, authUser.id, healthRuntimeReady)
+  } = useDailyData(dateStr, showToast, authUser.id, healthRuntimeReady, todosSearchActive);
 
   // useNow가 1분마다 now를 갱신 → AppContent 리렌더 → monthStart/monthEnd 매번 재계산.
   // currentDate가 바뀔 때만 실제로 값이 달라지므로 useMemo로 명시적 메모이제이션.
@@ -255,10 +261,13 @@ export function AppContent({ authUser }: { authUser: User }) {
     monthStart: formatDate(new Date(currentDate.getFullYear(), currentDate.getMonth(), 1)),
     monthEnd:   formatDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0)),
   }), [currentDate, formatDate]);
+  const healthBlocksSearchActive = searchHasQuery || activeTab === 'health';
   const {
-    markedDates, healthBlocks, healthRoutines, weeklySchedules,
+    markedDates, healthBlocks, healthBlocksState, healthRoutines, weeklySchedules,
     mutate: mutateStatic,
-  } = useStaticData(monthStart, monthEnd, showToast, authUser.id, healthRuntimeReady);
+  // Preserve the accepted five-argument shell ownership contract:
+  // useStaticData(monthStart, monthEnd, showToast, authUser.id, healthRuntimeReady)
+  } = useStaticData(monthStart, monthEnd, showToast, authUser.id, healthRuntimeReady, healthBlocksSearchActive);
 
   useEffect(() => {
     const refreshLocalHealth = () => {
@@ -410,11 +419,14 @@ export function AppContent({ authUser }: { authUser: User }) {
 
       <GlobalSearchHost
         appSettings={appSettings}
+        onSearchHasQueryChange={setSearchHasQuery}
         schedules={schedules}
         todos={todos}
+        todosState={todosState}
         routines={routines}
         workouts={workouts}
         healthBlocks={healthBlocks}
+        healthBlocksState={healthBlocksState}
         weeklySchedules={weeklySchedules}
       />
     </div>

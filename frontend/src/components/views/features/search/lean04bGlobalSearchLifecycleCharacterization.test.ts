@@ -23,6 +23,7 @@ const harness = vi.hoisted(() => ({
   recipeResolvers: [] as Array<(value: unknown) => void>,
   openers: [] as Array<() => void>,
   writes: [] as Array<{ query: string; filter: string }>,
+  activationSignals: [] as boolean[],
   discoveryCalls: 0,
 }));
 
@@ -135,7 +136,10 @@ type SearchDataOverrides = Partial<{
   weeklySchedules: unknown[];
 }>;
 
-function mount(overrides: SearchDataOverrides = {}): { root: Root; host: HTMLDivElement } {
+function mount(
+  overrides: SearchDataOverrides = {},
+  onSearchHasQueryChange?: (hasQuery: boolean) => void,
+): { root: Root; host: HTMLDivElement } {
   const host = document.createElement('div');
   document.body.appendChild(host);
   const root = createRoot(host);
@@ -154,6 +158,7 @@ function mount(overrides: SearchDataOverrides = {}): { root: Root; host: HTMLDiv
       { value: { provider: () => new Map(), dedupingInterval: 0, revalidateOnFocus: false } },
       createElement(GlobalSearchHost, {
         appSettings: settings(),
+        onSearchHasQueryChange,
         ...data,
       }),
     ));
@@ -182,6 +187,7 @@ describe('LEAN_04B GlobalSearchHost lifecycle characterization', () => {
     harness.recipeResolvers.length = 0;
     harness.openers.length = 0;
     harness.writes.length = 0;
+    harness.activationSignals.length = 0;
     harness.discoveryCalls = 0;
     sessionStorage.clear();
   });
@@ -253,6 +259,17 @@ describe('LEAN_04B GlobalSearchHost lifecycle characterization', () => {
     expect(harness.projectionInputs.at(-1)?.query).toBe('saved query');
     expect(Boolean(String(harness.projectionInputs.at(-1)?.query ?? '').trim())).toBe(true);
     expect(harness.recipeRequests.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('signals deferred activation immediately when a persisted non-empty query is reopened', async () => {
+    harness.persisted = { query: 'saved query', filter: 'all' };
+    mounted = mount({}, value => harness.activationSignals.push(value));
+
+    expect(harness.activationSignals).toContain(false);
+    openSearch();
+    await flush();
+
+    expect(harness.activationSignals).toContain(true);
   });
 
   it('recomputes the closed projection when shell data changes, even though no result filtering runs for an empty query', () => {
