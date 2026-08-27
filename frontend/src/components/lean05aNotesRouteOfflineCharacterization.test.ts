@@ -125,7 +125,9 @@ type ChunkBoundaryState = {
 /**
  * Test-only route boundary. Production currently has no equivalent for lazy
  * NoteView rejection; the no-boundary cases below therefore run separately.
- * This boundary models the narrow future containment needed for comparison.
+ * This boundary models the narrow future Model-B containment contract:
+ * route-local Suspense/error handling with fresh-identity retry, while eager
+ * Notes authority stays outside the lazy UI and preload remains optional.
  */
 class NotesChunkBoundary extends Component<ChunkBoundaryProps, ChunkBoundaryState> {
   state: ChunkBoundaryState = { error: null, retryKey: 0 };
@@ -181,7 +183,8 @@ type RouteHarnessProps = {
  * Mirrors the production ownership order without changing production code:
  * shell → eager Notes authority/startup → activeTab → route-scoped
  * Suspense/lazy UI. The lazy module itself is test-only so the lifecycle can
- * be driven with deterministic deferred imports.
+ * be driven with deterministic deferred imports. The counters characterize
+ * this ownership shape; they do not replace protected persistence internals.
  */
 function RouteHarness({
   startupState,
@@ -450,7 +453,7 @@ describe('LEAN_05A Notes route offline-first characterization', () => {
     expect(failedTrace.startupRuns).toBe(1);
   });
 
-  it('shows a production-equivalent uncaught rejection when no route error boundary exists', async () => {
+  it('shows an uncaught rejection unmounting the shell and detaching authority without a route boundary', async () => {
     const trace = newTrace();
     const rejected = tracedLazy(trace, async () => {
       throw new Error('ChunkLoadError: stale Notes chunk');
@@ -483,9 +486,11 @@ describe('LEAN_05A Notes route offline-first characterization', () => {
     expect(observedError).toBeTruthy();
     expect(String(observedError)).toContain('ChunkLoadError');
     expect(mounted.host.querySelector('[data-testid="notes-chunk-error"]')).toBeNull();
+    expect(mounted.host.querySelector('[data-testid="shell"]')).toBeNull();
     expect(mounted.host.querySelector('[data-testid="navigation"]')).toBeNull();
     expect(trace.authorityInitializations).toBe(1);
     expect(trace.startupRuns).toBe(1);
+    expect(trace.authorityDetachments).toBe(1);
   });
 
   it('proves React.lazy rejection caching and the narrow new-identity retry behavior', async () => {
@@ -546,6 +551,7 @@ describe('LEAN_05A Notes route offline-first characterization', () => {
     expect(recoveredTrace.persistenceBindings).toBe(1);
     expect(recoveredTrace.syncBindings).toBe(1);
     expect(recoveredTrace.accountBindings).toBe(1);
+    expect(recoveredTrace.authorityDetachments).toBe(0);
   });
 
   it('keeps shell tabs and local-only authority usable with a bounded route boundary after failure', async () => {
@@ -571,6 +577,7 @@ describe('LEAN_05A Notes route offline-first characterization', () => {
     expect(trace.remoteRequests).toBe(0);
     expect(trace.authorityInitializations).toBe(1);
     expect(trace.startupRuns).toBe(1);
+    expect(trace.authorityDetachments).toBe(0);
 
     await act(async () => mounted?.controller.setTab?.('planner'));
     expect(mounted.host.querySelector('[data-testid="planner-route"]')).not.toBeNull();
@@ -608,7 +615,7 @@ describe('LEAN_05A Notes route offline-first characterization', () => {
     await flush();
   });
 
-  it('records the absence of a repository service-worker/PWA lazy-chunk precache guarantee', () => {
+  it('records the repository service-worker/PWA lazy-chunk precache guard, backed by source audit', () => {
     const frontendRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
     const indexHtml = readFileSync(join(frontendRoot, 'index.html'), 'utf8');
     const publicRoot = join(frontendRoot, 'public');
