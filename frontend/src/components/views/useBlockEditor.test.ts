@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
 import { act, createElement, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { type Block } from './blockUtils';
+import { copyBlocksToClipboard } from './features/block-editor/features/clipboard/copy/copyToClipboard';
 import { useBlockEditor, type BlockEditorHandle } from './useBlockEditor';
 import {
   getCaretOffset,
@@ -10,6 +11,10 @@ import {
   setCaretOffset,
   setSelectionOffsets,
 } from './features/block-editor/features/selection';
+
+vi.mock('./features/block-editor/features/clipboard/copy/copyToClipboard', () => ({
+  copyBlocksToClipboard: vi.fn(),
+}));
 
 type HistoryApi = BlockEditorHandle & {
   handleBlockChange: (blocks: Block[]) => void;
@@ -59,7 +64,41 @@ function paragraphBlocks(apiRef: { current: HistoryApi | null }): Block[] {
 }
 
 describe('useBlockEditor history transactions', () => {
-  afterEach(() => { document.body.innerHTML = ''; });
+  afterEach(() => {
+    document.body.innerHTML = '';
+    vi.clearAllMocks();
+  });
+
+  it('routes document copy through the eager clipboard helper with current blocks', async () => {
+    const copy = vi.mocked(copyBlocksToClipboard);
+    copy.mockResolvedValue(true);
+    const mounted = mountHistoryHarness('A\nB\nC');
+    const api = mounted.apiRef.current!;
+    const blocks = api.getBlocks();
+    let result: boolean | undefined;
+
+    await act(async () => {
+      result = await api.copyDocument();
+    });
+
+    expect(result).toBe(true);
+    expect(copy).toHaveBeenCalledTimes(1);
+    expect(copy.mock.calls[0]?.[0]).toBe(blocks);
+
+    act(() => mounted.root?.unmount());
+  });
+
+  it('preserves clipboard-helper rejection through the document-copy contract', async () => {
+    const copy = vi.mocked(copyBlocksToClipboard);
+    const error = new Error('clipboard unavailable');
+    copy.mockRejectedValue(error);
+    const mounted = mountHistoryHarness('A\nB\nC');
+    const api = mounted.apiRef.current!;
+
+    await expect(api.copyDocument()).rejects.toBe(error);
+
+    act(() => mounted.root?.unmount());
+  });
 
   it('keeps structural reorder undoable and redoable', () => {
     const mounted = mountHistoryHarness();

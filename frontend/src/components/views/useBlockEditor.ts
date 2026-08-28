@@ -16,6 +16,7 @@ import {
   getSelectionOffsets,
   setSelectionOffsets,
 } from './features/block-editor/features/selection';
+import { copyBlocksToClipboard } from './features/block-editor/features/clipboard/copy/copyToClipboard';
 
 const COALESCE_MS = 500;
 const HISTORY_LIMIT = 200;
@@ -341,9 +342,6 @@ export function useBlockEditor(body: string, onBodyChange: (md: string) => void)
   const getBlocks = useCallback(() => blocks, [blocks]);
 
   const copyDocument = useCallback(async () => {
-    const { copyBlocksToClipboard } = await import(
-      './features/block-editor/features/clipboard/copy/copyToClipboard'
-    );
     return copyBlocksToClipboard(blocks);
   }, [blocks]);
 
