@@ -2035,11 +2035,19 @@ const translationKeys = [
 export type TranslationKey = (typeof translationKeys)[number];
 
 export function buildLocaleDictionary(values: readonly string[]): Record<TranslationKey, string> {
+  if (values.length !== translationKeys.length) {
+    throw new Error(
+      `Locale dictionary length mismatch: expected ${translationKeys.length}, received ${values.length}`,
+    );
+  }
+
+  const invalidValueIndex = values.findIndex(value => typeof value !== 'string');
+  if (invalidValueIndex !== -1) {
+    throw new Error(`Locale dictionary value at index ${invalidValueIndex} must be a string`);
+  }
+
   return Object.fromEntries(
-    translationKeys.flatMap((key, index) => {
-      const value = values[index];
-      return value === undefined ? [] : [[key, value] as const];
-    }),
+    translationKeys.map((key, index) => [key, values[index]!] as const),
   ) as Record<TranslationKey, string>;
 }
 
