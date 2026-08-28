@@ -50,6 +50,7 @@ const translations = {
   startupNotesFailed: { en: 'Notes needs recovery before it can be shown.', ko: '노트를 표시하기 전에 복구 확인이 필요합니다.', ja: 'ノートを表示する前に復旧確認が必要です。' },
   notesRouteLoading: { en: 'Loading Notes…', ko: '노트를 불러오는 중…', ja: 'ノートを読み込み中…' },
   notesRouteLoadFailed: { en: "Notes couldn't be loaded.", ko: '노트를 불러오지 못했습니다.', ja: 'ノートを読み込めませんでした。' },
+  notesContextPanelLoadFailed: { en: "Panel couldn't be loaded.", ko: '패널을 불러오지 못했습니다.', ja: 'パネルを読み込めませんでした。' },
   startupHealthFailed: { en: 'Health data could not be prepared yet.', ko: '헬스 데이터를 아직 준비하지 못했습니다.', ja: 'ヘルスデータをまだ準備できませんでした。' },
   startupRetry: { en: 'Retry', ko: '다시 시도', ja: '再試行' },
   signOut:        { en: 'Sign Out',       ko: '로그아웃',     ja: 'サインアウト' },
