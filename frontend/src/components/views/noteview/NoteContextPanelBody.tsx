@@ -1,5 +1,5 @@
 import type { RefObject } from 'react';
-import { useMemo } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useNotesStore } from '../../../store/useNotesStore';
 import type { NoteChromeColors } from '../noteEditorTheme';
 import type { NoteBase as Note, TocItem } from '../noteUtils';
@@ -12,8 +12,6 @@ import { NoteContextTocOutline } from './NoteContextTocOutline';
 import { useRenderDiagnostic } from './renderDiagnostics';
 import { formatLongTimestamp } from '../k102DateFormat';
 import { LinksContextPanel, CosmosContextFooter } from '../features/knowledge/components/LinksContextPanel';
-import { DiscoveryPanel } from '../features/knowledge/components/DiscoveryPanel';
-import { TimelinePanel } from '../features/knowledge/components/TimelinePanel';
 import {
   BacklinkPanel,
   ReferenceExplorerPanel,
@@ -30,7 +28,6 @@ import {
   MilestoneEditorPanel,
   NotePropertiesPanel,
   NoteTagsPanel,
-  NoteRelationsPanel,
   knowledgeIndexService,
   isStudyProjectContainer,
   isProjectMilestone,
@@ -60,6 +57,13 @@ import type { GroupedRelatedNotes } from '../features/knowledge/related/groupRel
 import { buildVaultHealthMetrics } from '../features/knowledge/health/vaultHealthMetrics';
 import type { NoteNavigationSource } from '@/lib/noteNavigationStack';
 import type { NoteBreadcrumbSegment } from '@/lib/noteBreadcrumb';
+import {
+  createLazySecondaryContextPanel,
+  NoteSecondaryContextPanelBoundary,
+} from './NoteSecondaryContextPanelBoundary';
+import type {
+  NoteSecondaryContextPanelProps,
+} from './NoteSecondaryContextPanelContract';
 
 const NOTE_REQUIRED_CONTEXT_TABS: ReadonlySet<KnowledgeContextTab> = new Set([
   'toc', 'links', 'graph', 'insights', 'actions', 'properties', 'tags', 'relations', 'stats',
@@ -215,6 +219,15 @@ export function NoteContextPanelBody({
       : undefined),
     [rightPanel, vaultStructureVersion],
   );
+  const [secondaryPanelRetryKey, setSecondaryPanelRetryKey] = useState(0);
+  const LazySecondaryContextPanel = useMemo(
+    () => createLazySecondaryContextPanel(),
+    [secondaryPanelRetryKey],
+  );
+  const retrySecondaryContextPanel = useCallback(
+    () => setSecondaryPanelRetryKey(previous => previous + 1),
+    [],
+  );
   const {
     createNote,
     noteUpdate,
@@ -270,6 +283,74 @@ export function NoteContextPanelBody({
     handleDismissBootstrapSummary,
     handleExportHistory,
   } = dashboardContext;
+
+  let secondaryPanelProps: NoteSecondaryContextPanelProps | null = null;
+  if (rightPanel === 'discover') {
+    secondaryPanelProps = {
+      panel: 'discover',
+      panelProps: {
+        colors: c,
+        feed: discoveryFeed,
+        vaultHealth,
+        vaultPhase: cosmosVaultPhase,
+        onNavigateToNote: id => openNoteById(id, 'discovery', [
+          { type: 'key', key: 'k38DashboardTitle' },
+        ]),
+        onCreateRelation: handleDiscoveryCreateRelation,
+        onCreateHub: handleCosmosCreateHub,
+        onLearnLinking: handleStartWikiLink,
+        onOpenGraph: handleOpenCosmosGraph,
+      },
+    };
+  } else if (
+    rightPanel === 'timeline'
+    && cosmosEvolutionSummary
+    && cosmosEvolutionStory
+    && knowledgeJourney
+    && evolutionInsights
+  ) {
+    secondaryPanelProps = {
+      panel: 'timeline',
+      panelProps: {
+        colors: c,
+        timeline: knowledgeTimeline,
+        mode: timelineMode,
+        onModeChange: setTimelineMode,
+        historyEvents,
+        notes,
+        evolutionSummary: cosmosEvolutionSummary,
+        evolutionStory: cosmosEvolutionStory,
+        discoveryProgress,
+        knowledgeJourney,
+        evolutionInsights,
+        bootstrapSummary: bootstrapImportSummary,
+        initialSelectedArea: timelineInitialArea,
+        onDismissBootstrap: handleDismissBootstrapSummary,
+        onExport: handleExportHistory,
+        onNavigateToNote: id => openNoteById(id, 'timeline', [
+          { type: 'key', key: 'k42PanelTimeline' },
+        ]),
+        onCreateNote: () => createNote(),
+      },
+    };
+  } else if (rightPanel === 'relations' && activeNote) {
+    secondaryPanelProps = {
+      panel: 'relations',
+      panelProps: {
+        colors: c,
+        note: activeNote,
+        wikiTargets,
+        outgoing: resolvedOutgoingRelations,
+        incoming: incomingRelationDisplays,
+        onUpdateRelations: relations => noteUpdate(activeNote.id, { relations }),
+        onNavigateToNote: id => openNoteById(id, 'relation'),
+        onResolveTargetId: title =>
+          knowledgeIndexService.resolveNoteId(title)
+          ?? findNoteByTitle(title, notes)?.id,
+        onStartWikiLink: handleStartWikiLink,
+      },
+    };
+  }
 
   return (
     <>
@@ -466,43 +547,12 @@ export function NoteContextPanelBody({
             </KnowledgePanelEmpty>
           )}
 
-          {rightPanel === 'discover' && (
-            <DiscoveryPanel
-              colors={c}
-              feed={discoveryFeed}
-              vaultHealth={vaultHealth}
-              vaultPhase={cosmosVaultPhase}
-              onNavigateToNote={id => openNoteById(id, 'discovery', [
-                { type: 'key', key: 'k38DashboardTitle' },
-              ])}
-              onCreateRelation={handleDiscoveryCreateRelation}
-              onCreateHub={handleCosmosCreateHub}
-              onLearnLinking={handleStartWikiLink}
-              onOpenGraph={handleOpenCosmosGraph}
-            />
-          )}
-
-          {rightPanel === 'timeline' && cosmosEvolutionSummary && cosmosEvolutionStory && knowledgeJourney && evolutionInsights && (
-            <TimelinePanel
-              colors={c}
-              timeline={knowledgeTimeline}
-              mode={timelineMode}
-              onModeChange={setTimelineMode}
-              historyEvents={historyEvents}
-              notes={notes}
-              evolutionSummary={cosmosEvolutionSummary}
-              evolutionStory={cosmosEvolutionStory}
-              discoveryProgress={discoveryProgress}
-              knowledgeJourney={knowledgeJourney}
-              evolutionInsights={evolutionInsights}
-              bootstrapSummary={bootstrapImportSummary}
-              initialSelectedArea={timelineInitialArea}
-              onDismissBootstrap={handleDismissBootstrapSummary}
-              onExport={handleExportHistory}
-              onNavigateToNote={id => openNoteById(id, 'timeline', [
-                { type: 'key', key: 'k42PanelTimeline' },
-              ])}
-              onCreateNote={() => createNote()}
+          {secondaryPanelProps && (
+            <NoteSecondaryContextPanelBoundary
+              {...secondaryPanelProps}
+              LazyPanelComponent={LazySecondaryContextPanel}
+              retryKey={secondaryPanelRetryKey}
+              onRetry={retrySecondaryContextPanel}
             />
           )}
 
@@ -564,23 +614,6 @@ export function NoteContextPanelBody({
                 setActiveTag(tag);
               }}
               onOpenProperties={() => openContextPanel('properties')}
-            />
-          )}
-
-          {rightPanel === 'relations' && activeNote && (
-            <NoteRelationsPanel
-              colors={c}
-              note={activeNote}
-              wikiTargets={wikiTargets}
-              outgoing={resolvedOutgoingRelations}
-              incoming={incomingRelationDisplays}
-              onUpdateRelations={relations => noteUpdate(activeNote.id, { relations })}
-              onNavigateToNote={id => openNoteById(id, 'relation')}
-              onResolveTargetId={title =>
-                knowledgeIndexService.resolveNoteId(title)
-                ?? findNoteByTitle(title, notes)?.id
-              }
-              onStartWikiLink={handleStartWikiLink}
             />
           )}
 

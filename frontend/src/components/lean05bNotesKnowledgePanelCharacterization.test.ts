@@ -377,6 +377,8 @@ describe('LEAN_05B Notes knowledge-panel tab split characterization', () => {
   it('inventories the exact current panel keys, static imports, activation gates, and eager authority', () => {
     const noteView = sourceAt('views/NoteView.tsx');
     const body = sourceAt('views/noteview/NoteContextPanelBody.tsx');
+    const appContent = sourceAt('AppContent.tsx');
+    const notesRouteBoundary = sourceAt('NotesRouteBoundary.tsx');
     const config = sourceAt('views/noteview/useNoteViewPanelConfig.tsx');
     const gates = sourceAt('views/noteview/contextPanelTabGate.ts');
     const panelsHook = sourceAt('views/noteview/useNoteViewPanels.ts');
@@ -396,14 +398,30 @@ describe('LEAN_05B Notes knowledge-panel tab split characterization', () => {
     expect(noteView).toContain('registerSearchNoteHandlers');
     expect(noteView).toContain('parseQuery');
     expect(noteView).not.toMatch(/import\([^)]*(DiscoveryPanel|TimelinePanel|NoteRelationsPanel)/);
+    expect(noteView).not.toContain('NoteRelationsPanel');
 
-    expect(body).toContain("import { DiscoveryPanel } from '../features/knowledge/components/DiscoveryPanel';");
-    expect(body).toContain("import { TimelinePanel } from '../features/knowledge/components/TimelinePanel';");
-    expect(body).toContain('NoteRelationsPanel');
-    expect(body).not.toContain('lazy(');
+    expect(body).not.toContain("import { DiscoveryPanel } from '../features/knowledge/components/DiscoveryPanel';");
+    expect(body).not.toContain("import { TimelinePanel } from '../features/knowledge/components/TimelinePanel';");
+    expect(body).not.toContain('NoteRelationsPanel');
+    expect(body).toContain('createLazySecondaryContextPanel');
+    expect(body).toContain('NoteSecondaryContextPanelBoundary');
+    expect(body).toContain('secondaryPanelRetryKey');
+    expect(appContent).not.toContain('NoteSecondaryContextPanel');
+    expect(notesRouteBoundary).not.toContain('NoteSecondaryContextPanel');
     expect(body).toContain("rightPanel === 'discover'");
     expect(body).toContain("rightPanel === 'timeline'");
     expect(body).toContain("rightPanel === 'relations'");
+
+    const secondaryPanel = sourceAt('views/noteview/NoteSecondaryContextPanel.tsx');
+    const secondaryBoundary = sourceAt('views/noteview/NoteSecondaryContextPanelBoundary.tsx');
+    expect(secondaryBoundary).toContain("import('./NoteSecondaryContextPanel')");
+    expect(secondaryBoundary).toContain('Suspense');
+    expect(secondaryBoundary).toContain('getDerivedStateFromError');
+    expect(secondaryBoundary).toContain('onRetry');
+    expect(secondaryPanel).toContain("from '../features/knowledge/components/DiscoveryPanel';");
+    expect(secondaryPanel).toContain("from '../features/knowledge/components/TimelinePanel';");
+    expect(secondaryPanel).toContain("from '../features/knowledge/components/NoteRelationsPanel';");
+    expect(secondaryPanel).not.toContain("from '../features/knowledge';");
 
     expect(gates).toContain("tab === 'discover'");
     expect(gates).toContain("tab === 'timeline'");

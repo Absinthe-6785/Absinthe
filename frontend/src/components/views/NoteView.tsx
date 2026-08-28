@@ -116,7 +116,6 @@ import {
   noteMatchesPageTag,
   NotePropertiesPanel,
   NoteTagsPanel,
-  NoteRelationsPanel,
   CosmosInsightsPanel,
   CosmosActionsPanel,
   parseNoteMarkdown,
