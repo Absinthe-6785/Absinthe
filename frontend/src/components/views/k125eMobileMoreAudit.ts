@@ -9,7 +9,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 export function auditK125eMobileMoreSheet(): Record<string, boolean> {
   const sheet = readFileSync(join(ROOT, 'components/common/MobileMoreSheet.tsx'), 'utf8');
-  const i18n = readFileSync(join(ROOT, 'lib/i18n.ts'), 'utf8');
+  const i18nKeys = readFileSync(join(ROOT, 'lib/i18n/keys.ts'), 'utf8');
   return {
     sheetHook: sheet.includes('data-k126-mobile-more-sheet'),
     backdropHook: sheet.includes('data-k126-mobile-more-backdrop'),
@@ -21,7 +21,7 @@ export function auditK125eMobileMoreSheet(): Record<string, boolean> {
     removedAbout: !sheet.includes('data-k126-more-about'),
     safeAreaPadding: sheet.includes('safe-area-inset-bottom'),
     touchTargets: sheet.includes('touchTargetMinPx'),
-    i18nKeys: i18n.includes('k132MoreDataSafety') && i18n.includes('k126MoreSheetTitle'),
+    i18nKeys: i18nKeys.includes('k132MoreDataSafety') && i18nKeys.includes('k126MoreSheetTitle'),
   };
 }
 
