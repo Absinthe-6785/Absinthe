@@ -142,6 +142,7 @@ async function createTwoRecoveryConflicts(
     .mockResolvedValueOnce({ ok: false, outcome: 'ambiguous', error: 'notes_delete_remote_unavailable' });
   expect(await deletePrepared(noteA.id)).toBe(false);
   expect(await deletePrepared(noteB.id)).toBe(false);
+  expect(singleDeleteMarkerCount()).toBe(2);
 
   useNotesStore.getState().updateNote(noteA.id, { title: 'A newer local revision' });
   useNotesStore.getState().updateNote(noteB.id, { title: 'B newer local revision' });
