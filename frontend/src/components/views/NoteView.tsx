@@ -240,6 +240,10 @@ export const NoteView = ({ showToast = () => {}, accountId }: NoteViewProps) => 
   const isSyncing = useNotesStore(s => s.isSyncing);
   const savedAt = useNotesStore(s => s.savedAt);
   const syncError = useNotesStore(s => s.syncError);
+  const syncIssueRetryable = useNotesStore(s => {
+    if (!s.syncError || s.syncIssue?.message !== s.syncError) return true;
+    return s.syncIssue.retryable;
+  });
   const setActiveNoteId = useNotesStore(s => s.setActiveNoteId);
   const storeCreateNote = useNotesStore(s => s.createNote);
   const updateNote = useNotesStore(s => s.updateNote);
@@ -1385,7 +1389,7 @@ export const NoteView = ({ showToast = () => {}, accountId }: NoteViewProps) => 
       showAppearance, isDragOver, headerTagsExpanded, docCopied, dark, isEmptyVault,
     },
     editorData: {
-      c, activeNote, activeNoteId, notes, folders, titleDraft, activeNoteKind, noteTags, syncError, isSyncing,
+      c, activeNote, activeNoteId, notes, folders, titleDraft, activeNoteKind, noteTags, syncError, syncIssueRetryable, isSyncing,
       savedAt, viewModes: VIEW_MODES, noteAreaProperty, noteLinkedProjectTitle, noteLinkedProjectId,
       noteLearningPathLabel, noteContextReviewEntry, noteConnectionCount, noteCosmosTier, activeTag, searchQuery,
       searchScope, searchMatchIdx, editorSearchQuery, blockColors, wikiTargets, appSettings, knowledgeTimeline,
@@ -1477,7 +1481,7 @@ export const NoteView = ({ showToast = () => {}, accountId }: NoteViewProps) => 
     handleOpenTimeline, handleOpenEvolution, handleNavigateToArea, handleCreateLearningPathStepNote,
     handleUpdateNoteProperties, handleNavigateToProjectEditor, setEditingLearningPathId, resumeWorkspace, handleEmptyTrash, hideEditorArea,
     isFocusPresetActive, showRightPanel, viewMode, showAppearance, isDragOver, headerTagsExpanded, docCopied,
-    activeNote, titleDraft, activeNoteKind, noteTags, syncError, isSyncing, savedAt, VIEW_MODES, noteAreaProperty,
+    activeNote, titleDraft, activeNoteKind, noteTags, syncError, syncIssueRetryable, isSyncing, savedAt, VIEW_MODES, noteAreaProperty,
     noteLinkedProjectTitle, noteLinkedProjectId, noteLearningPathLabel, noteContextReviewEntry, noteConnectionCount,
     noteCosmosTier, searchScope, searchMatchIdx, editorSearchQuery, blockColors, wikiTargets, appSettings,
     activeFocusPreset, titleInputRef, titleComposingRef, blockEditorRef, editorScrollRef, virtualScrollApiRef,

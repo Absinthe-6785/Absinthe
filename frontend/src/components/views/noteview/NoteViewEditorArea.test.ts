@@ -35,7 +35,7 @@ function makeProps(
   onBodyChange: ReturnType<typeof vi.fn>,
   attachImageFilesToActiveNote: ReturnType<typeof vi.fn>,
   body = 'hello',
-  options: { syncError?: string | null; isSyncing?: boolean; retrySync?: ReturnType<typeof vi.fn> } = {},
+  options: { syncError?: string | null; syncIssueRetryable?: boolean; isSyncing?: boolean; retrySync?: ReturnType<typeof vi.fn> } = {},
 ) {
   const activeNote = { ...note, body } as never;
   const layout = {
@@ -45,7 +45,7 @@ function makeProps(
   } as never;
   const data = {
     c: colors, activeNote, activeNoteId: 'note-1', notes: [activeNote], folders: [], titleDraft: 'Note',
-    activeNoteKind: null, noteTags: [], syncError: options.syncError ?? null, isSyncing: options.isSyncing ?? false, savedAt: null, viewModes: [],
+    activeNoteKind: null, noteTags: [], syncError: options.syncError ?? null, syncIssueRetryable: options.syncIssueRetryable, isSyncing: options.isSyncing ?? false, savedAt: null, viewModes: [],
     noteAreaProperty: undefined, noteLinkedProjectTitle: '', noteLinkedProjectId: null,
     noteLearningPathLabel: null, noteContextReviewEntry: null, noteConnectionCount: 0,
     noteCosmosTier: 'core', activeTag: null, searchQuery: '', searchScope: 'document', searchMatchIdx: 0,
@@ -137,6 +137,20 @@ describe('NoteViewEditorArea Return-to-Use attachment isolation', () => {
     expect(idle.host.textContent).not.toContain('동기화 중…');
     expect(idle.host.querySelector('[data-note-sync-error-control]')).toBeNull();
     cleanup(idle.root, idle.host);
+  });
+
+  it('keeps a non-retryable issue visible without a misleading retry action', () => {
+    const retrySync = vi.fn();
+    const mounted = renderEditor(makeProps(vi.fn(), vi.fn(), 'hello', {
+      syncError: 'bootstrap still active',
+      syncIssueRetryable: false,
+      retrySync,
+    }));
+    expect(mounted.host.querySelector('[data-note-sync-error-control]')).toBeNull();
+    expect(mounted.host.querySelector('[data-note-sync-error-indicator]')).not.toBeNull();
+    expect(mounted.host.textContent).toContain('동기화 문제');
+    expect(retrySync).not.toHaveBeenCalled();
+    cleanup(mounted.root, mounted.host);
   });
 
   it('provides sync issue labels in every supported locale', () => {
