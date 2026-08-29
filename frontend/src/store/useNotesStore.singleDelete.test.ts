@@ -417,6 +417,49 @@ describe('POST_RTU_03 account-scoped trash and permanent deletion', () => {
       .toBeNull();
   });
 
+  it('keeps a Note A recovery conflict when an unrelated Note B is deleted, then clears on matching reconciliation', async () => {
+    const noteA = note('recovery-conflict-a', { deletedAt: 20, updatedAt: 20 });
+    const noteB = note('recovery-delete-b', { deletedAt: 30, updatedAt: 30 });
+    await seedAccount('account-a', [noteA, noteB]);
+    deleteSingleRemoteNoteMock.mockResolvedValueOnce({
+      ok: false, outcome: 'ambiguous', error: 'notes_delete_remote_unavailable',
+    });
+    expect(await deletePrepared(noteA.id)).toBe(false);
+
+    useNotesStore.getState().updateNote(noteA.id, { title: 'A newer local revision' });
+    await vi.waitFor(async () => {
+      expect((await loadAccountScopedNotes('account-a')).find(item => item.id === noteA.id))
+        .toEqual(expect.objectContaining({ title: 'A newer local revision', deletedAt: 20 }));
+    });
+
+    useNotesStore.getState().detachNotesStorage();
+    await useNotesStore.getState().initNotesStorage('account-a');
+    authReadFetchMock.mockImplementation((url: string) => Promise.resolve(
+      url.includes('/api/notes?') ? noteSnapshot('account-a', noteB) : emptySnapshot('account-a'),
+    ));
+    await useNotesStore.getState().bootstrapFromSupabase();
+
+    expect(useNotesStore.getState().syncIssue).toEqual(expect.objectContaining({
+      source: 'recovery_permanent_delete',
+      targetId: noteA.id,
+    }));
+
+    expect(await deletePrepared(noteB.id)).toBe(true);
+    expect(useNotesStore.getState().syncIssue).toEqual(expect.objectContaining({
+      source: 'recovery_permanent_delete',
+      targetId: noteA.id,
+    }));
+
+    expect(await saveAccountScopedNotes('account-a', [noteA])).toBe(true);
+    useNotesStore.setState({ notes: [noteA], activeNoteId: noteA.id });
+    authReadFetchMock.mockImplementation(() => Promise.resolve(emptySnapshot('account-a')));
+    await useNotesStore.getState().bootstrapFromSupabase();
+
+    expect(useNotesStore.getState().syncError).toBeNull();
+    expect(useNotesStore.getState().syncIssue).toBeNull();
+    expect(singleDeleteMarkerPresent()).toBe(false);
+  });
+
   it('preserves a newer trashed Note when remote later becomes absent', async () => {
     const original = note('remote-absent-trashed-newer', { deletedAt: 20, updatedAt: 20 });
     await seedAccount('account-a', [original]);

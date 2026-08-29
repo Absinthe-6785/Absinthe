@@ -2,19 +2,34 @@
 import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NoteBase } from '../components/views/noteUtils';
+import { FOLDERS_KEY } from '../components/views/noteUtils';
 import { NOTES_RUNTIME_SYNC_MODE_KEY } from '../lib/notesSyncClient';
 import { resetNotesPersistenceForTests } from '../lib/notePersistence';
 import { setRecoveryModeActiveForTest } from '../lib/recoverySafetyPolicy';
 
-const { authFetchMock, authReadFetchMock } = vi.hoisted(() => ({
+const { authFetchMock, authReadFetchMock, persistenceHarness } = vi.hoisted(() => ({
   authFetchMock: vi.fn(),
   authReadFetchMock: vi.fn(),
+  persistenceHarness: {
+    intercept: false,
+    saveNotesAsyncMock: vi.fn(),
+  },
 }));
 
 vi.mock('../lib/supabase', () => ({
   authFetch: (...args: unknown[]) => authFetchMock(...args),
   authReadFetch: (...args: unknown[]) => authReadFetchMock(...args),
 }));
+
+vi.mock('../lib/notePersistence', async importOriginal => {
+  const actual = await importOriginal<typeof import('../lib/notePersistence')>();
+  return {
+    ...actual,
+    saveNotesAsync: (...args: unknown[]) => persistenceHarness.intercept
+      ? persistenceHarness.saveNotesAsyncMock(...args)
+      : actual.saveNotesAsync(...args),
+  };
+});
 
 const storage = new Map<string, string>();
 vi.stubGlobal('localStorage', {
@@ -66,6 +81,8 @@ function resetStore() {
   storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'remote');
   authFetchMock.mockReset();
   authReadFetchMock.mockReset();
+  persistenceHarness.intercept = false;
+  persistenceHarness.saveNotesAsyncMock.mockReset();
   resetNotesPersistenceForTests();
   useNotesStore.setState({
     notes: [],
@@ -171,6 +188,30 @@ describe('Notes sync-issue ownership and clearing contract', () => {
     expect(authFetchMock).not.toHaveBeenCalled();
   });
 
+  it('does not dismiss active local or recovery ownership when no retry target exists', async () => {
+    setRecoveryModeActiveForTest(true);
+    useNotesStore.setState({
+      syncError: 'local durability failure',
+      syncIssue: { source: 'local_notes_persistence', retryable: true, message: 'local durability failure' },
+    });
+    useNotesStore.getState().retrySync();
+    await Promise.resolve();
+    expect(useNotesStore.getState().syncIssue?.source).toBe('local_notes_persistence');
+
+    setRecoveryModeActiveForTest(false);
+    useNotesStore.setState({
+      syncError: 'recovery conflict',
+      syncIssue: {
+        source: 'recovery_permanent_delete', targetId: 'note-a', retryable: false, message: 'recovery conflict',
+      },
+    });
+    useNotesStore.getState().retrySync();
+    await Promise.resolve();
+    expect(useNotesStore.getState().syncIssue).toEqual(expect.objectContaining({
+      source: 'recovery_permanent_delete', targetId: 'note-a',
+    }));
+  });
+
   it('clears a local persistence issue after the corresponding local retry succeeds', async () => {
     storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'local');
     const item = note('local-failure');
@@ -185,6 +226,41 @@ describe('Notes sync-issue ownership and clearing contract', () => {
     setItem.mockRestore();
 
     useNotesStore.getState().retrySync();
+    await vi.waitFor(() => expect(useNotesStore.getState().syncError).toBeNull());
+  });
+
+  it('keeps a local Notes write failure through successful initialization and clears it after a verified write', async () => {
+    storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'local');
+    await useNotesStore.getState().initNotesStorage('account-init');
+    const item = note('init-read-does-not-prove-write');
+    persistenceHarness.intercept = true;
+    persistenceHarness.saveNotesAsyncMock.mockResolvedValue({ status: 'failed', reason: 'indexeddb_rejected' });
+
+    useNotesStore.getState().importNote(item);
+    await vi.waitFor(() => expect(useNotesStore.getState().syncIssue?.source).toBe('local_notes_persistence'));
+
+    await useNotesStore.getState().initNotesStorage('account-init');
+    expect(useNotesStore.getState().syncIssue?.source).toBe('local_notes_persistence');
+
+    persistenceHarness.saveNotesAsyncMock.mockResolvedValue({ status: 'persisted' });
+    useNotesStore.getState().updateNote(item.id, { title: 'verified' });
+    await vi.waitFor(() => expect(useNotesStore.getState().syncError).toBeNull());
+  });
+
+  it('keeps a local Folder write failure visible when its remote sync also fails, then clears after a local write', async () => {
+    authFetchMock.mockResolvedValueOnce(failedResponse()).mockResolvedValue(okResponse());
+    const setItem = vi.spyOn(localStorage, 'setItem').mockImplementation((key, value) => {
+      if (key === FOLDERS_KEY) throw new Error('quota');
+      storage.set(key, value);
+    });
+
+    const folderId = useNotesStore.getState().createFolder('Local failure');
+    expect(useNotesStore.getState().syncIssue?.source).toBe('local_folders_persistence');
+    await vi.waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(1));
+    expect(useNotesStore.getState().syncIssue?.source).toBe('local_folders_persistence');
+
+    setItem.mockRestore();
+    useNotesStore.getState().renameFolder(folderId, 'Local recovery');
     await vi.waitFor(() => expect(useNotesStore.getState().syncError).toBeNull());
   });
 

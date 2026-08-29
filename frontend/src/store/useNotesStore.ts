@@ -148,8 +148,10 @@ type SyncIssueSource =
   | 'folder_remote'
   | 'local_notes_persistence'
   | 'local_folders_persistence'
+  | 'initialization'
   | 'bootstrap'
-  | 'recovery';
+  | 'recovery'
+  | 'recovery_permanent_delete';
 
 interface SyncIssueState {
   readonly source: SyncIssueSource;
@@ -157,6 +159,30 @@ interface SyncIssueState {
   readonly retryable: boolean;
   /** Matches syncError so direct test/runtime state replacements cannot reuse stale ownership. */
   readonly message: string;
+}
+
+function isSafetyCriticalSyncIssueSource(source: SyncIssueSource): boolean {
+  return source === 'local_notes_persistence'
+    || source === 'local_folders_persistence'
+    || source === 'recovery'
+    || source === 'recovery_permanent_delete';
+}
+
+function isLowerPrioritySyncIssueSource(source: SyncIssueSource): boolean {
+  return source === 'note_remote_write'
+    || source === 'note_remote_delete'
+    || source === 'folder_remote'
+    || source === 'bootstrap'
+    || source === 'initialization';
+}
+
+function shouldPreserveExistingSyncIssue(
+  existing: SyncIssueState | null,
+  incoming: SyncIssueSource,
+): boolean {
+  return existing !== null
+    && isSafetyCriticalSyncIssueSource(existing.source)
+    && isLowerPrioritySyncIssueSource(incoming);
 }
 
 interface NotesState {
@@ -805,6 +831,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
     source: SyncIssueSource,
     options: { targetId?: string; retryable?: boolean } = {},
   ): void => {
+    if (shouldPreserveExistingSyncIssue(currentSyncIssue(), source)) return;
     set({
       syncError: message,
       syncIssue: {
@@ -819,7 +846,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
   const clearSyncIssue = (source: SyncIssueSource, targetId?: string): boolean => {
     const issue = currentSyncIssue();
     if (!issue || issue.source !== source
-      || (targetId !== undefined && issue.targetId !== undefined && issue.targetId !== targetId)) return false;
+      || issue.targetId !== targetId) return false;
     set({ syncError: null, syncIssue: null });
     return true;
   };
@@ -1337,7 +1364,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
       const accountId = state.activeAccountId;
       const note = state.notes.find(candidate => candidate.id === id);
       if (!accountId || !note?.deletedAt) {
-        setSyncIssue('Permanent delete requires one trashed Note in the active account.', 'recovery');
+        setSyncIssue('Permanent delete requires one trashed Note in the active account.', 'recovery_permanent_delete', { targetId: id });
         return null;
       }
       const authorization = prepareNotesSingleDelete({
@@ -1347,7 +1374,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
         explicitUserAction: true,
       });
       if (!authorization) {
-        setSyncIssue('Permanent delete authorization could not be established.', 'recovery');
+        setSyncIssue('Permanent delete authorization could not be established.', 'recovery_permanent_delete', { targetId: id });
       }
       return authorization;
     },
@@ -1357,7 +1384,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
     deleteNotePermanently: async (authorization) => {
       const begun = await beginNotesSingleDelete(authorization);
       if (!begun) {
-        setSyncIssue('Permanent delete was blocked because its account or operation context is stale.', 'recovery');
+        setSyncIssue('Permanent delete was blocked because its account or operation context is stale.', 'recovery_permanent_delete');
         return false;
       }
       const targetBeforeDelete = get().notes.find(note => note.id === begun.noteId);
@@ -1368,7 +1395,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
       );
       if (!beforeRemote.valid) {
         abortNotesSingleDelete(authorization);
-        setSyncIssue(`Permanent delete was not completed (${beforeRemote.reason}). The Note was kept.`, 'recovery');
+        setSyncIssue(`Permanent delete was not completed (${beforeRemote.reason}). The Note was kept.`, 'recovery_permanent_delete', { targetId: begun.noteId });
         return false;
       }
       const attachmentGcCandidates = targetBeforeDelete
@@ -1379,11 +1406,11 @@ export const useNotesStore = create<NotesState>((set, get) => {
         if (remote.outcome === 'confirmed_not_deleted') abortNotesSingleDelete(authorization);
         setSyncIssue(remote.outcome === 'ambiguous'
           ? 'Permanent delete could not be confirmed; it will be reconciled safely. The Note was kept.'
-          : `Permanent delete failed (${remote.error}). The Note was kept.`, 'recovery');
+          : `Permanent delete failed (${remote.error}). The Note was kept.`, 'recovery_permanent_delete', { targetId: begun.noteId });
         return false;
       }
       if (!confirmNotesSingleRemoteDelete(authorization)) {
-        setSyncIssue('Permanent delete stopped after the remote response became stale. The local Note was kept.', 'recovery');
+        setSyncIssue('Permanent delete stopped after the remote response became stale. The local Note was kept.', 'recovery_permanent_delete', { targetId: begun.noteId });
         return false;
       }
       const commit = await commitNotesSingleDelete(
@@ -1397,7 +1424,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
       if (commit.status !== 'COMMITTED') {
         setSyncIssue(commit.status === 'CONFLICT'
           ? `Permanent delete was not completed (${commit.reason}). The newer or restored Note was kept.`
-          : 'Permanent delete could not be verified in local durable storage. The visible Note was kept.', 'recovery');
+          : 'Permanent delete could not be verified in local durable storage. The visible Note was kept.', 'recovery_permanent_delete', { targetId: begun.noteId });
         return false;
       }
 
@@ -1424,7 +1451,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
         indexContentVersion: get().indexContentVersion + 1,
         savedAt: new Date(),
       });
-      clearSyncIssue('recovery');
+      clearSyncIssue('recovery_permanent_delete', id);
       setCachedNotes(notes);
       saveActiveNoteId(nextActive);
       invalidateNoteGalaxyMapCache();
@@ -1573,8 +1600,17 @@ export const useNotesStore = create<NotesState>((set, get) => {
         const conflictMessage = preservedConflictIds.size > 0
           ? 'Permanent delete conflict was preserved locally and requires explicit resolution.'
           : null;
+        const conflictTargetId = preservedConflictIds.size === 1
+          ? [...preservedConflictIds][0]
+          : undefined;
         const existingIssue = currentSyncIssue();
-        const keepExistingIssue = !conflictMessage && existingIssue && existingIssue.source !== 'bootstrap';
+        const resolvedRecoveryConflict = existingIssue?.source === 'recovery_permanent_delete'
+          && existingIssue.targetId !== undefined
+          && deleteReconciliation.markersToClear.some(marker => marker.noteId === existingIssue.targetId);
+        const keepExistingIssue = !conflictMessage
+          && existingIssue
+          && existingIssue.source !== 'bootstrap'
+          && !resolvedRecoveryConflict;
         set({
           notes,
           folders,
@@ -1584,7 +1620,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
           vaultStructureVersion: get().vaultStructureVersion + 1,
           syncError: conflictMessage ?? (keepExistingIssue ? get().syncError : null),
           syncIssue: conflictMessage
-            ? { source: 'recovery', retryable: false, message: conflictMessage }
+            ? { source: 'recovery_permanent_delete', targetId: conflictTargetId, retryable: false, message: conflictMessage }
             : (keepExistingIssue ? existingIssue : null),
         });
         saveActiveNoteId(nextActive);
@@ -1658,7 +1694,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
           notesAuthorityState: 'RECOVERY_REQUIRED',
           foldersAuthorityState: 'RECOVERY_REQUIRED',
         });
-        setSyncIssue(error instanceof Error ? error.message : LOCAL_NOTES_SAVE_ERROR, 'local_notes_persistence');
+        setSyncIssue(error instanceof Error ? error.message : LOCAL_NOTES_SAVE_ERROR, 'initialization');
         rebuildKnowledgeIndex([]);
         throw error;
       }
@@ -1687,11 +1723,11 @@ export const useNotesStore = create<NotesState>((set, get) => {
         vaultStructureVersion: get().vaultStructureVersion + 1,
       });
       if (fallbackError) {
-        // The fallback warning is owned by local Notes persistence and can be
-        // cleared by a later successful local write.
-        setSyncIssue(fallbackError, 'local_notes_persistence', { retryable: true });
+        // Initialization fallback is distinct from a failed local write. A
+        // readable load does not prove that a prior write failure recovered.
+        setSyncIssue(fallbackError, 'initialization', { retryable: true });
       } else {
-        clearSyncIssue('local_notes_persistence');
+        clearSyncIssue('initialization');
       }
       if (!result.accountId && (notes.length !== result.notes.length || currentNotes.length > 0)) {
         persistNotes(notes);
@@ -1763,6 +1799,11 @@ function setStoreSyncIssue(
   source: SyncIssueSource,
   options: { targetId?: string; retryable?: boolean } = {},
 ): void {
+  const state = useNotesStore.getState();
+  const existing = state.syncIssue && state.syncError === state.syncIssue.message
+    ? state.syncIssue
+    : null;
+  if (shouldPreserveExistingSyncIssue(existing, source)) return;
   useNotesStore.setState({
     syncError: message,
     syncIssue: {
