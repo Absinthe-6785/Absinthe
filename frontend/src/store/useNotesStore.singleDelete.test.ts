@@ -132,6 +132,33 @@ async function deletePrepared(noteId: string): Promise<boolean> {
   return useNotesStore.getState().deleteNotePermanently(authorization!);
 }
 
+async function createTwoRecoveryConflicts(
+  accountId: string,
+  noteA: NoteBase,
+  noteB: NoteBase,
+): Promise<void> {
+  deleteSingleRemoteNoteMock
+    .mockResolvedValueOnce({ ok: false, outcome: 'ambiguous', error: 'notes_delete_remote_unavailable' })
+    .mockResolvedValueOnce({ ok: false, outcome: 'ambiguous', error: 'notes_delete_remote_unavailable' });
+  expect(await deletePrepared(noteA.id)).toBe(false);
+  expect(await deletePrepared(noteB.id)).toBe(false);
+
+  useNotesStore.getState().updateNote(noteA.id, { title: 'A newer local revision' });
+  useNotesStore.getState().updateNote(noteB.id, { title: 'B newer local revision' });
+  await vi.waitFor(async () => {
+    const saved = await loadAccountScopedNotes(accountId);
+    expect(saved.find(item => item.id === noteA.id))
+      .toEqual(expect.objectContaining({ title: 'A newer local revision', deletedAt: noteA.deletedAt }));
+    expect(saved.find(item => item.id === noteB.id))
+      .toEqual(expect.objectContaining({ title: 'B newer local revision', deletedAt: noteB.deletedAt }));
+  });
+
+  useNotesStore.getState().detachNotesStorage();
+  await useNotesStore.getState().initNotesStorage(accountId);
+  authReadFetchMock.mockImplementation(() => Promise.resolve(emptySnapshot(accountId)));
+  await useNotesStore.getState().bootstrapFromSupabase();
+}
+
 beforeEach(async () => {
   resetNotesPersistenceForTests();
   resetNotesAccountAuthorityForTests();
@@ -457,6 +484,69 @@ describe('POST_RTU_03 account-scoped trash and permanent deletion', () => {
 
     expect(useNotesStore.getState().syncError).toBeNull();
     expect(useNotesStore.getState().syncIssue).toBeNull();
+    expect(singleDeleteMarkerPresent()).toBe(false);
+  });
+
+  it('preserves an unrelated multi-conflict resolution and clears after the final conflict', async () => {
+    const noteA = note('recovery-conflict-a', { deletedAt: 20, updatedAt: 20 });
+    const noteB = note('recovery-conflict-b', { deletedAt: 30, updatedAt: 30 });
+    await seedAccount('account-a', [noteA, noteB]);
+    await createTwoRecoveryConflicts('account-a', noteA, noteB);
+
+    expect(useNotesStore.getState().syncIssue).toEqual(expect.objectContaining({
+      source: 'recovery_permanent_delete',
+      targetId: noteA.id,
+    }));
+    await useNotesStore.getState().bootstrapFromSupabase();
+    expect(useNotesStore.getState().syncIssue).toEqual(expect.objectContaining({ targetId: noteA.id }));
+
+    const conflictedA = useNotesStore.getState().notes.find(item => item.id === noteA.id)!;
+    expect(await saveAccountScopedNotes('account-a', [conflictedA, noteB])).toBe(true);
+    useNotesStore.setState({ notes: [conflictedA, noteB], activeNoteId: noteA.id });
+    await useNotesStore.getState().bootstrapFromSupabase();
+
+    expect(useNotesStore.getState().syncIssue).toEqual(expect.objectContaining({
+      source: 'recovery_permanent_delete',
+      targetId: noteA.id,
+    }));
+    expect(singleDeleteMarkerCount()).toBe(1);
+
+    expect(await saveAccountScopedNotes('account-a', [noteA])).toBe(true);
+    useNotesStore.setState({ notes: [noteA], activeNoteId: noteA.id });
+    await useNotesStore.getState().bootstrapFromSupabase();
+
+    expect(useNotesStore.getState().syncIssue).toBeNull();
+    expect(useNotesStore.getState().syncError).toBeNull();
+    expect(singleDeleteMarkerPresent()).toBe(false);
+  });
+
+  it('rebinds a multi-conflict recovery issue when its representative resolves first', async () => {
+    const noteA = note('recovery-conflict-a', { deletedAt: 20, updatedAt: 20 });
+    const noteB = note('recovery-conflict-b', { deletedAt: 30, updatedAt: 30 });
+    await seedAccount('account-a', [noteA, noteB]);
+    await createTwoRecoveryConflicts('account-a', noteA, noteB);
+
+    expect(useNotesStore.getState().syncIssue).toEqual(expect.objectContaining({
+      source: 'recovery_permanent_delete',
+      targetId: noteA.id,
+    }));
+    const conflictedB = useNotesStore.getState().notes.find(item => item.id === noteB.id)!;
+    expect(await saveAccountScopedNotes('account-a', [noteA, conflictedB])).toBe(true);
+    useNotesStore.setState({ notes: [noteA, conflictedB], activeNoteId: noteB.id });
+    await useNotesStore.getState().bootstrapFromSupabase();
+
+    expect(useNotesStore.getState().syncIssue).toEqual(expect.objectContaining({
+      source: 'recovery_permanent_delete',
+      targetId: noteB.id,
+    }));
+    expect(singleDeleteMarkerCount()).toBe(1);
+
+    expect(await saveAccountScopedNotes('account-a', [noteB])).toBe(true);
+    useNotesStore.setState({ notes: [noteB], activeNoteId: noteB.id });
+    await useNotesStore.getState().bootstrapFromSupabase();
+
+    expect(useNotesStore.getState().syncIssue).toBeNull();
+    expect(useNotesStore.getState().syncError).toBeNull();
     expect(singleDeleteMarkerPresent()).toBe(false);
   });
 

@@ -1600,8 +1600,8 @@ export const useNotesStore = create<NotesState>((set, get) => {
         const conflictMessage = preservedConflictIds.size > 0
           ? 'Permanent delete conflict was preserved locally and requires explicit resolution.'
           : null;
-        const conflictTargetId = preservedConflictIds.size === 1
-          ? [...preservedConflictIds][0]
+        const conflictTargetId = preservedConflictIds.size > 0
+          ? [...preservedConflictIds].sort()[0]
           : undefined;
         const existingIssue = currentSyncIssue();
         const resolvedRecoveryConflict = existingIssue?.source === 'recovery_permanent_delete'
