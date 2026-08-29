@@ -185,6 +185,8 @@ export interface NoteViewEditorData {
   activeNoteKind: NoteKind | null;
   noteTags: string[];
   syncError: string | null;
+  /** False for an active non-retryable issue; keeps the warning visible without a misleading action. */
+  syncIssueRetryable?: boolean;
   isSyncing: boolean;
   savedAt: Date | null;
   viewModes: ReadonlyArray<{ key: 'reading' | 'graph'; icon: React.ReactNode; label: string }>;
@@ -286,7 +288,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
   } = layout;
   const {
     c, activeNote, activeNoteId, notes, folders, titleDraft, activeNoteKind, noteTags,
-    syncError, isSyncing, savedAt, viewModes: VIEW_MODES, noteAreaProperty, noteLinkedProjectTitle,
+    syncError, syncIssueRetryable = true, isSyncing, savedAt, viewModes: VIEW_MODES, noteAreaProperty, noteLinkedProjectTitle,
     noteLinkedProjectId, noteLearningPathLabel, noteContextReviewEntry, noteConnectionCount,
     noteCosmosTier, activeTag, searchQuery, searchScope, searchMatchIdx, editorSearchQuery,
     blockColors, wikiTargets, appSettings, knowledgeTimeline, activeFocusPreset, discoveryFeed,
@@ -592,7 +594,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
             )}
             {/* Cloud sync status — decorative saved-at clock removed K-108A */}
             {!isTrash && (
-              syncError ? (
+              syncError && syncIssueRetryable !== false ? (
                 <button
                   type="button"
                   onClick={retrySync}
@@ -620,6 +622,31 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
                     {t('nvSyncIssue')}
                   </span>
                 </button>
+              ) : syncError ? (
+                <span
+                  data-note-sync-error-indicator
+                  title={t('nvSyncIssue')}
+                  aria-label={t('nvSyncIssue')}
+                  style={{
+                    fontSize: 9,
+                    color: c.danger,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 3,
+                    padding: '2px 6px',
+                    flex: '0 1 160px',
+                    minWidth: 0,
+                    maxWidth: 160,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  <AlertTriangle size={10} aria-hidden="true" />
+                  <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {t('nvSyncIssue')}
+                  </span>
+                </span>
               ) : isSyncing ? (
                 <span style={{ fontSize: 9, color: c.textMuted, display: 'flex', alignItems: 'center', gap: 3 }}>
                   <span style={{ width: 6, height: 6, borderRadius: '50%', background: c.textMuted, opacity: 0.6, animation: 'pulse 1s infinite' }}/>
