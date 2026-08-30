@@ -218,6 +218,71 @@ describe('CalendarShell', () => {
     expect(html).not.toContain('data-planner-calendar-week');
   });
 
+  it('renders multiple eligible Todos once in the active production calendar surface', () => {
+    const html = renderToStaticMarkup(
+      createElement(CalendarShell, shellProps({
+        schedules: [{
+          id: 'schedule-visible',
+          text: 'Study',
+          start_time: '09:00',
+          end_time: '10:00',
+          is_dday: false,
+          color: 'purple',
+          category: 'Personal',
+        }],
+        routines: [{
+          id: 'routine-visible',
+          date: '2027-02-03',
+          text: 'Stretch',
+          done: false,
+          is_active: true,
+        }],
+        todos: [
+          { id: 'todo-render-1', date: '2027-02-03', text: 'Pack bag', done: false },
+          { id: 'todo-render-2', date: '2027-02-03', text: 'Charge phone', done: true },
+        ],
+      })),
+    );
+
+    expect(html).toContain('data-planner-day-todos');
+    expect(html).toContain('data-planner-day-todo="todo-render-1"');
+    expect(html).toContain('data-planner-day-todo="todo-render-2"');
+    expect((html.match(/data-planner-day-todo="/g) ?? []).length).toBe(2);
+    expect(html).toContain('Pack bag');
+    expect(html).toContain('Charge phone');
+    expect(html).toContain('Study');
+    expect(html).toContain('Stretch');
+  });
+
+  it('keeps an empty Todo collection safe while schedule and routine surfaces remain mounted', () => {
+    const html = renderToStaticMarkup(
+      createElement(CalendarShell, shellProps({
+        schedules: [{
+          id: 'schedule-empty-todo',
+          text: 'Read',
+          start_time: '11:00',
+          end_time: '12:00',
+          is_dday: false,
+          color: 'blue',
+          category: 'Personal',
+        }],
+        routines: [{
+          id: 'routine-empty-todo',
+          date: '2027-02-03',
+          text: 'Walk',
+          done: true,
+          is_active: true,
+        }],
+        todos: [],
+      })),
+    );
+
+    expect(html).not.toContain('data-planner-day-todos');
+    expect(html).toContain('data-planner-day-routines');
+    expect(html).toContain('Read');
+    expect(html).toContain('Walk');
+  });
+
   it('renders period navigation controls when onAnchorDateChange is provided', () => {
     const html = renderToStaticMarkup(
       createElement(CalendarShell, shellProps({ onAnchorDateChange: () => {} })),
