@@ -305,6 +305,104 @@ describe('POST_RTU_03 account-scoped trash and permanent deletion', () => {
     }));
   });
 
+  it('rebinds a resolved B preflight to an active A marker before final A reconciliation', async () => {
+    const recoveryNote = note('recovery-marker-a', { deletedAt: 20, updatedAt: 20 });
+    const preflightNote = note('markerless-preflight-b');
+    await seedAccount('account-a', [recoveryNote, preflightNote]);
+    deleteSingleRemoteNoteMock.mockResolvedValueOnce({
+      ok: false, outcome: 'ambiguous', error: 'notes_delete_remote_unavailable',
+    });
+
+    expect(await deletePrepared(recoveryNote.id)).toBe(false);
+    const markerBefore = [...storage.entries()].find(([key]) => key.includes('single-delete'));
+    expect(markerBefore).toBeDefined();
+    expect(useNotesStore.getState().syncIssue).toEqual(expect.objectContaining({
+      source: 'recovery_permanent_delete',
+      targetId: recoveryNote.id,
+    }));
+
+    expect(useNotesStore.getState().prepareNotePermanentDelete(preflightNote.id)).toBeNull();
+    expect(useNotesStore.getState().syncIssue).toEqual(expect.objectContaining({
+      source: 'recovery_permanent_delete',
+      targetId: preflightNote.id,
+    }));
+
+    setRecoveryModeActiveForTest(false);
+    useNotesStore.getState().moveNoteToTrash(preflightNote.id);
+    await vi.waitFor(async () => {
+      expect((await loadAccountScopedNotes('account-a')).find(item => item.id === preflightNote.id)?.deletedAt)
+        .not.toBeNull();
+    });
+
+    expect(useNotesStore.getState().prepareNotePermanentDelete(preflightNote.id)).not.toBeNull();
+    expect(useNotesStore.getState().syncIssue).toEqual(expect.objectContaining({
+      source: 'recovery_permanent_delete',
+      targetId: recoveryNote.id,
+      message: 'Permanent delete conflict was preserved locally and requires explicit resolution.',
+    }));
+    expect([...storage.entries()].find(([key]) => key.includes('single-delete'))).toEqual(markerBefore);
+
+    authReadFetchMock.mockImplementation((url: string) => Promise.resolve(
+      url.includes('/api/notes?')
+        ? noteSnapshot('account-a', useNotesStore.getState().notes.find(item => item.id === preflightNote.id)!)
+        : emptySnapshot('account-a'),
+    ));
+    await useNotesStore.getState().bootstrapFromSupabase();
+
+    expect(useNotesStore.getState().syncIssue).toBeNull();
+    expect(singleDeleteMarkerPresent()).toBe(false);
+  });
+
+  it('uses the established deterministic representative when multiple markers remain after B resolves', async () => {
+    const markerA = note('recovery-marker-a', { deletedAt: 20, updatedAt: 20 });
+    const markerC = note('recovery-marker-c', { deletedAt: 30, updatedAt: 30 });
+    const preflightNote = note('markerless-preflight-b');
+    await seedAccount('account-a', [markerA, markerC, preflightNote]);
+    deleteSingleRemoteNoteMock
+      .mockResolvedValueOnce({ ok: false, outcome: 'ambiguous', error: 'notes_delete_remote_unavailable' })
+      .mockResolvedValueOnce({ ok: false, outcome: 'ambiguous', error: 'notes_delete_remote_unavailable' });
+
+    expect(await deletePrepared(markerA.id)).toBe(false);
+    expect(await deletePrepared(markerC.id)).toBe(false);
+    useNotesStore.getState().updateNote(markerA.id, { title: 'A newer local revision' });
+    useNotesStore.getState().updateNote(markerC.id, { title: 'C newer local revision' });
+    await vi.waitFor(async () => {
+      const saved = await loadAccountScopedNotes('account-a');
+      expect(saved.find(item => item.id === markerA.id)?.title).toBe('A newer local revision');
+      expect(saved.find(item => item.id === markerC.id)?.title).toBe('C newer local revision');
+    });
+
+    useNotesStore.getState().detachNotesStorage();
+    await useNotesStore.getState().initNotesStorage('account-a');
+    authReadFetchMock.mockImplementation((url: string) => Promise.resolve(
+      url.includes('/api/notes?')
+        ? noteSnapshot('account-a', preflightNote)
+        : emptySnapshot('account-a'),
+    ));
+    await useNotesStore.getState().bootstrapFromSupabase();
+    expect(singleDeleteMarkerCount()).toBe(2);
+    expect(useNotesStore.getState().syncIssue).toEqual(expect.objectContaining({
+      source: 'recovery_permanent_delete',
+      targetId: markerA.id,
+    }));
+
+    expect(useNotesStore.getState().prepareNotePermanentDelete(preflightNote.id)).toBeNull();
+    setRecoveryModeActiveForTest(false);
+    useNotesStore.getState().moveNoteToTrash(preflightNote.id);
+    await vi.waitFor(async () => {
+      expect((await loadAccountScopedNotes('account-a')).find(item => item.id === preflightNote.id)?.deletedAt)
+        .not.toBeNull();
+    });
+    expect(useNotesStore.getState().prepareNotePermanentDelete(preflightNote.id)).not.toBeNull();
+
+    expect(useNotesStore.getState().syncIssue).toEqual(expect.objectContaining({
+      source: 'recovery_permanent_delete',
+      targetId: markerA.id,
+      message: 'Permanent delete conflict was preserved locally and requires explicit resolution.',
+    }));
+    expect(singleDeleteMarkerCount()).toBe(2);
+  });
+
   it('keeps the Note and surfaces a bounded error when remote deletion fails', async () => {
     await seedAccount('account-a', [note('failed-note', { deletedAt: 20, updatedAt: 20 })]);
     deleteSingleRemoteNoteMock.mockResolvedValueOnce({

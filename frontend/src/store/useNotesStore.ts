@@ -53,8 +53,7 @@ import {
   prepareNotesSingleDelete,
   beginNotesSingleDelete,
   getNotesSingleDeleteTargetId,
-  hasNotesSingleDeleteMarker,
-  hasNotesSingleDeleteMarkers,
+  getNotesSingleDeleteMarkerNoteIds,
   confirmNotesSingleRemoteDelete,
   commitNotesSingleDelete,
   abortNotesSingleDelete,
@@ -169,6 +168,7 @@ const RESOLVABLE_RECOVERY_PERMANENT_DELETE_MESSAGES = new Set([
   'Permanent delete authorization could not be established.',
   'Permanent delete was blocked because its account or operation context is stale.',
 ]);
+const PERMANENT_DELETE_RECOVERY_MESSAGE = 'Permanent delete conflict was preserved locally and requires explicit resolution.';
 
 function isSafetyCriticalSyncIssueSource(source: SyncIssueSource): boolean {
   return source === 'local_notes_persistence'
@@ -868,17 +868,29 @@ export const useNotesStore = create<NotesState>((set, get) => {
     const issue = currentSyncIssue();
     if (!issue || issue.source !== 'recovery_permanent_delete'
       || !RESOLVABLE_RECOVERY_PERMANENT_DELETE_MESSAGES.has(issue.message)) return;
-    if (issue.targetId === undefined) {
-      if (hasNotesSingleDeleteMarkers(accountId)) return;
-    } else {
-      if (hasNotesSingleDeleteMarker(accountId, issue.targetId)) return;
-      const target = notes.find(note => note.id === issue.targetId);
-      if (!target || issue.message === 'Permanent delete was blocked because its account or operation context is stale.') {
-        clearSyncIssue('recovery_permanent_delete', issue.targetId);
-        return;
-      }
-      if (target.deletedAt === null) return;
+    let markerNoteIds: readonly string[];
+    try {
+      markerNoteIds = getNotesSingleDeleteMarkerNoteIds(accountId);
+    } catch {
+      // Marker read failure is recovery evidence, never proof of resolution.
+      return;
     }
+
+    if (issue.targetId !== undefined && markerNoteIds.includes(issue.targetId)) return;
+
+    if (issue.targetId !== undefined) {
+      const target = notes.find(note => note.id === issue.targetId);
+      if (target && issue.message !== 'Permanent delete was blocked because its account or operation context is stale.'
+        && target.deletedAt === null) return;
+    }
+
+    if (markerNoteIds.length > 0) {
+      setSyncIssue(PERMANENT_DELETE_RECOVERY_MESSAGE, 'recovery_permanent_delete', {
+        targetId: markerNoteIds[0],
+      });
+      return;
+    }
+
     clearSyncIssue('recovery_permanent_delete', issue.targetId);
   };
 

@@ -615,6 +615,17 @@ export function hasNotesSingleDeleteMarkers(accountId: string): boolean {
   }
 }
 
+/**
+ * Enumerates the account's durable single-delete targets in the same stable
+ * order used by bootstrap conflict representation. Marker read failures are
+ * intentionally surfaced so callers cannot interpret them as an empty set.
+ */
+export function getNotesSingleDeleteMarkerNoteIds(accountId: string): readonly string[] {
+  return listSingleDeleteMarkers(accountId)
+    .map(marker => marker.noteId)
+    .sort();
+}
+
 export function validateNotesSingleDeleteTarget(
   authorization: NotesSingleDeleteAuthorization,
   accountId: string,
