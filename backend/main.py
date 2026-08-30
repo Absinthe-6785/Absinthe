@@ -440,9 +440,13 @@ async def create_routine(routine: RoutineCreate, user_id: str = Depends(get_curr
 
 @app.post("/api/routine_logs")
 async def toggle_routine_log(log: RoutineLogUpdate, user_id: str = Depends(get_current_user)):
-    existing = supabase.table("routine_logs").select("*").eq("routine_id", log.routine_id).eq("date", log.date).execute().data
+    routine = supabase.table("routines").select("user_id").eq("id", log.routine_id).maybe_single().execute().data
+    if not routine: raise HTTPException(status_code=404, detail="Not found")
+    verify_owner(routine["user_id"], user_id)
+
+    existing = supabase.table("routine_logs").select("*").eq("user_id", user_id).eq("routine_id", log.routine_id).eq("date", log.date).execute().data
     if existing:
-        return supabase.table("routine_logs").update({"done": log.done}).eq("id", existing[0]["id"]).execute().data
+        return supabase.table("routine_logs").update({"done": log.done}).eq("id", existing[0]["id"]).eq("user_id", user_id).execute().data
     else:
         return supabase.table("routine_logs").insert({"user_id": user_id, **log.model_dump()}).execute().data
 
