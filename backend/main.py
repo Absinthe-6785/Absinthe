@@ -395,7 +395,7 @@ async def get_routines_with_logs(date: str, user_id: str = Depends(get_current_u
 @app.get("/api/routines/range")
 async def get_routines_range(start_date: str, end_date: str, user_id: str = Depends(get_current_user)):
     """CSV 내보내기용 기간별 루틴 로그 조회 (날짜별 done 상태 포함)"""
-    routines = supabase.table("routines").select("id, text, is_active").eq("user_id", user_id).execute().data or []
+    routines = supabase.table("routines").select("id, text, is_active, deleted_at").eq("user_id", user_id).execute().data or []
     logs = supabase.table("routine_logs").select("routine_id, date, done").eq("user_id", user_id).gte("date", start_date).lte("date", end_date).execute().data or []
     exc_rows = supabase.table("routine_exceptions").select("start_date, end_date").eq("user_id", user_id).execute().data or []
     # 예외일 날짜 집합 생성
