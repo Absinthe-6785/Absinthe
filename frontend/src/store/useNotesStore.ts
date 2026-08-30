@@ -1607,28 +1607,39 @@ export const useNotesStore = create<NotesState>((set, get) => {
         if (!isNotesAccountRecoveryContextActive(context)) throw new Error('notes_bootstrap_stale');
         const previousNotes = await loadNotesForRecoveryContext(context);
         const previousFolders = loadFoldersForRecoveryContext(context);
+        if (new Set(previousNotes.map(note => note.id)).size !== previousNotes.length
+          || new Set(previousFolders.map(folder => folder.id)).size !== previousFolders.length) {
+          throw new Error('notes_bootstrap_local_authority_duplicate_id');
+        }
         // Absence is not deletion evidence. Even a complete remote snapshot
-        // must not remove a proven local row unless its explicit tombstone is
-        // present in the response.
+        // must not remove a proven local row unless existing explicit deletion
+        // authority permits its absence.
         const remoteNoteIds = new Set(remote.notes.map(note => note.id));
         const remoteFolderIds = new Set(remote.folders.map(folder => folder.id));
         const deleteReconciliation = reconcileNotesSingleDeletesForBootstrap(accountId, remoteNoteIds, previousNotes);
-        if (previousNotes.some(note => !remoteNoteIds.has(note.id)
-          && !deleteReconciliation.authorizedMissingNoteIds.has(note.id)
-          && !deleteReconciliation.preservedConflictNoteIds.has(note.id))
-          || previousFolders.some(folder => !remoteFolderIds.has(folder.id))) {
-          throw new Error('notes_bootstrap_missing_remote_row_preserved_local');
-        }
         const preservedConflictIds = deleteReconciliation.preservedConflictNoteIds;
         const previousById = new Map(previousNotes.map(note => [note.id, note]));
         const notes = remote.notes.map(row => {
           const preserved = preservedConflictIds.has(row.id) ? previousById.get(row.id) : undefined;
           return preserved ?? mapDbNote(row, undefined);
         });
+        const noteIds = new Set(remoteNoteIds);
         for (const note of previousNotes) {
-          if (preservedConflictIds.has(note.id) && !remoteNoteIds.has(note.id)) notes.push(note);
+          if (noteIds.has(note.id) || deleteReconciliation.authorizedMissingNoteIds.has(note.id)) continue;
+          // Remote absence is not deletion evidence. Keep every proven local
+          // Note that has no explicit single-delete authorization or conflict.
+          notes.push(note);
+          noteIds.add(note.id);
         }
         const folders = remote.folders.map(mapDbFolder);
+        const folderIds = new Set(folders.map(folder => folder.id));
+        for (const folder of previousFolders) {
+          if (folderIds.has(folder.id)) continue;
+          // Folders use the same local-first absence rule; there is no folder
+          // deletion authority that would permit removing this local row here.
+          folders.push(folder);
+          folderIds.add(folder.id);
+        }
         const applied = await applyNotesFoldersForRecoveryContext(
           context, previousNotes, previousFolders, notes, folders,
         );

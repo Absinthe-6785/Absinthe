@@ -3,8 +3,10 @@ import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NoteBase } from '../components/views/noteUtils';
 import {
+  loadAccountScopedFolders,
   loadAccountScopedNotes,
   resetNotesAccountAuthorityForTests,
+  saveAccountScopedFolders,
   saveAccountScopedNotes,
 } from '../lib/notesAccountAuthority';
 import { resetNotesPersistenceForTests } from '../lib/notePersistence';
@@ -259,6 +261,72 @@ describe('POST_RTU_03 account-scoped trash and permanent deletion', () => {
     installRemoteSnapshot('account-a', [trashed]);
     await useNotesStore.getState().bootstrapFromSupabase();
 
+    expect(useNotesStore.getState().syncIssue).toBeNull();
+  });
+
+  it('preserves a local-only Note through a complete bootstrap and clears its bootstrap issue', async () => {
+    const localOnly = note('local-only-note');
+    await seedAccount('account-a', [localOnly]);
+    installRemoteSnapshot('account-a', []);
+
+    useNotesStore.setState({
+      syncError: 'stale bootstrap issue',
+      syncIssue: { source: 'bootstrap', retryable: false, message: 'stale bootstrap issue' },
+    });
+    await useNotesStore.getState().bootstrapFromSupabase();
+
+    expect(useNotesStore.getState().notes).toEqual([localOnly]);
+    expect((await loadAccountScopedNotes('account-a')).map(item => item.id)).toEqual([localOnly.id]);
+    expect(useNotesStore.getState().syncError).toBeNull();
+    expect(useNotesStore.getState().syncIssue).toBeNull();
+  });
+
+  it('preserves a local-only Folder through a complete bootstrap', async () => {
+    const localOnlyFolder = { id: 'local-only-folder', name: 'Local only', createdAt: 10 };
+    await seedAccount('account-a', []);
+    expect(saveAccountScopedFolders([localOnlyFolder])).toBe(true);
+    useNotesStore.setState({ notes: [], folders: [localOnlyFolder], activeAccountId: 'account-a' });
+    installRemoteSnapshot('account-a', []);
+
+    await useNotesStore.getState().bootstrapFromSupabase();
+
+    expect(useNotesStore.getState().folders).toEqual([localOnlyFolder]);
+    expect(loadAccountScopedFolders()).toEqual([localOnlyFolder]);
+    expect(useNotesStore.getState().syncError).toBeNull();
+    expect(useNotesStore.getState().syncIssue).toBeNull();
+  });
+
+  it('preserves multiple local-only Notes and Folders without duplicate IDs', async () => {
+    const localNotes = [note('local-only-a'), note('local-only-b', { updatedAt: 20 })];
+    const localFolders = [
+      { id: 'local-only-folder-a', name: 'A', createdAt: 10 },
+      { id: 'local-only-folder-b', name: 'B', createdAt: 20 },
+    ];
+    await seedAccount('account-a', localNotes);
+    expect(saveAccountScopedFolders(localFolders)).toBe(true);
+    useNotesStore.setState({ notes: localNotes, folders: localFolders, activeAccountId: 'account-a' });
+    installRemoteSnapshot('account-a', []);
+
+    await useNotesStore.getState().bootstrapFromSupabase();
+
+    expect(useNotesStore.getState().notes.map(item => item.id)).toEqual(['local-only-b', 'local-only-a']);
+    expect(useNotesStore.getState().folders.map(item => item.id)).toEqual(localFolders.map(item => item.id));
+    expect(new Set(useNotesStore.getState().notes.map(item => item.id)).size).toBe(localNotes.length);
+    expect(new Set(useNotesStore.getState().folders.map(item => item.id)).size).toBe(localFolders.length);
+  });
+
+  it('keeps an explicit remote Note tombstone authoritative for a matching local ID', async () => {
+    const local = note('explicit-tombstone');
+    const remoteTombstone = note('explicit-tombstone', { deletedAt: 20, updatedAt: 10 });
+    await seedAccount('account-a', [local]);
+    installRemoteSnapshot('account-a', [remoteTombstone]);
+
+    await useNotesStore.getState().bootstrapFromSupabase();
+
+    expect(useNotesStore.getState().notes).toEqual([
+      expect.objectContaining({ id: local.id, deletedAt: remoteTombstone.deletedAt }),
+    ]);
+    expect(useNotesStore.getState().notes).toHaveLength(1);
     expect(useNotesStore.getState().syncIssue).toBeNull();
   });
 
