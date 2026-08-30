@@ -296,6 +296,7 @@ export const PlannerView = ({
         schedules={schedules}
         previousDaySchedules={prevSchedules}
         previousDayDate={prevDateStr}
+        todos={todos}
         routines={routines}
         ddaySchedules={ddaySchedules}
         weeklySchedules={weeklySchedules}

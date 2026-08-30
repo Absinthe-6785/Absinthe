@@ -11,6 +11,7 @@ import { DayScheduleTimeline } from '../day/DayScheduleTimeline';
 import type { DayScheduleActions } from '../day/dayScheduleActions';
 import { DayRoutineSummary } from '../day/DayRoutineSummary';
 import type { DayRoutineActions } from '../day/dayRoutineActions';
+import { DayTodoSummary } from '../day/DayTodoSummary';
 import { buildDayViewPayload } from '../../calendar/buildPlannerViewPayloads';
 import { WORKSPACE_CARD_RADIUS_CLASS } from '@/components/common/workspaceCardSizes';
 
@@ -69,6 +70,7 @@ export function PlannerTodayPanel({
     () => resolveTodayTimeline(plannerProjection, todayKey),
     [plannerProjection, todayKey],
   );
+  const todos = plannerProjection.calendar.views.day.bundle.todos;
 
   return (
     <div
@@ -92,6 +94,12 @@ export function PlannerTodayPanel({
               compactEmpty
             />
           </div>
+
+          {todos.length > 0 ? (
+            <section className="min-h-0" data-k117-schedule-section="todo">
+              <DayTodoSummary todos={todos} theme={theme} />
+            </section>
+          ) : null}
 
           <section className="min-h-0" data-k105-planner-today-schedule>
             <DayScheduleTimeline

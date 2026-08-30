@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import type { DateTime } from 'luxon';
 import type { NoteBase } from '../../../noteUtils';
-import type { AppSettings, Schedule, WeeklySchedule } from '../../../../../types';
+import type { AppSettings, Schedule, Todo, WeeklySchedule } from '../../../../../types';
 import { useNotesStore } from '../../../../../store/useNotesStore';
 import { useTranslation } from '../../../../../lib/i18n';
 import { buildRelativeDateLabels } from '../../../k102RelativeDateLabels';
@@ -14,6 +14,7 @@ import {
   type PlannerCalendarPresentation,
   type PlannerCalendarProjection,
   type PlannerDatedSchedule,
+  type PlannerDatedTodo,
   type PlannerEventCatalog,
 } from '../calendar';
 
@@ -25,6 +26,7 @@ export interface UsePlannerCalendarProjectionInput {
   schedules: readonly Schedule[];
   previousDaySchedules?: readonly Schedule[];
   previousDayDate?: string;
+  todos?: readonly Todo[];
   weeklySchedules: readonly WeeklySchedule[];
   appSettings: AppSettings;
 }
@@ -49,6 +51,18 @@ function toDatedSchedules(
   });
 }
 
+type TodoWithDate = Todo & { date?: string };
+
+function toDatedTodos(
+  todos: readonly Todo[],
+  date: string,
+): PlannerDatedTodo[] {
+  return todos.map(todo => ({
+    ...todo,
+    date: (todo as TodoWithDate).date ?? date,
+  }));
+}
+
 export function buildPlannerCalendarShellProjection(
   input: UsePlannerCalendarProjectionInput & {
     notes: readonly NoteBase[];
@@ -68,7 +82,7 @@ export function buildPlannerCalendarShellProjection(
     notes: input.notes,
     scheduleBlocks,
     weeklySchedules: input.weeklySchedules ?? [],
-    todos: [],
+    todos: toDatedTodos(input.todos ?? [], input.anchorDate),
     routines: [],
     anchorDate: input.anchorDate,
     viewMode: 'month',
@@ -117,7 +131,7 @@ export function usePlannerCalendarProjection(
       notes,
       scheduleBlocks,
       weeklySchedules: input.weeklySchedules,
-      todos: [],
+      todos: toDatedTodos(input.todos ?? [], input.anchorDate),
       routines: [],
       anchorDate: input.anchorDate,
       viewMode: 'month',
@@ -128,6 +142,7 @@ export function usePlannerCalendarProjection(
       notes,
       scheduleBlocks,
       input.weeklySchedules,
+      input.todos,
       input.anchorDate,
       input.now,
       eventCatalog,

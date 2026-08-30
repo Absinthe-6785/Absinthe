@@ -323,7 +323,7 @@ describe('MonthCalendarView', () => {
     expect(ko.labels.weekdayShortLabels.some(label => label.length > 0)).toBe(true);
   });
 
-  it('renders schedule blocks in month cells while omitting routines and tasks from the calendar context', () => {
+  it('renders schedule blocks in month cells and Todos in the mounted today surface', () => {
     const { plannerProjection, presentation } = buildPlannerProjectionFixture({
       scheduleBlocks: [{
         id: 'b1',
@@ -345,9 +345,9 @@ describe('MonthCalendarView', () => {
 
     expect(html).toContain('Deep Work');
     expect(html).toContain('10:00');
+    expect(html).toContain('Pack bag');
+    expect(html).toContain('data-planner-day-todo="t1"');
     expect(html).not.toContain('data-planner-upcoming-agenda');
-    expect(html).not.toContain('Pack bag');
-    expect(html).not.toContain('Stretch');
     const cellFeb3 = html.slice(
       html.indexOf('data-planner-month-cell="2027-02-03"'),
       html.indexOf('data-planner-month-cell="2027-02-04"'),
