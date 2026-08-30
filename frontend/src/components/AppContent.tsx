@@ -272,6 +272,13 @@ export function AppContent({ authUser }: { authUser: User }) {
   // useStaticData(monthStart, monthEnd, showToast, authUser.id, healthRuntimeReady, healthBlocksSearchActive, markedDatesActive, healthRoutinesActive)
   } = useStaticData(monthStart, monthEnd, showToast, authUser.id, healthRuntimeReady, healthBlocksSearchActive, markedDatesActive, healthRoutinesActive);
 
+  // A successful cloud restore changes Planner-owned remote rows. Revalidate
+  // only the already-mounted account-scoped shell data; no global cache clear.
+  const revalidatePlannerAfterRestore = useCallback(() => {
+    mutateDaily();
+    mutateStatic();
+  }, [mutateDaily, mutateStatic]);
+
   useEffect(() => {
     const refreshLocalHealth = () => {
       mutateDaily();
@@ -346,8 +353,8 @@ export function AppContent({ authUser }: { authUser: User }) {
 
       <div className="flex-1 overflow-hidden flex flex-col p-3 lg:p-0">
         <Suspense fallback={<ViewLoadingFallback />}>
-          {activeTab === 'home'      && <HomeView       {...globalProps} />}
-          {activeTab === 'planner'   && <PlannerView   {...globalProps} />}
+          {activeTab === 'home'      && <HomeView       key={authUser.id} {...globalProps} />}
+          {activeTab === 'planner'   && <PlannerView   key={authUser.id} {...globalProps} />}
           {activeTab === 'health' && healthBootstrapRequired && startupState.health.status === 'pending' && (
             <ViewLoadingFallback label={t('startupHealthLoading')} />
           )}
@@ -368,7 +375,13 @@ export function AppContent({ authUser }: { authUser: User }) {
               <HealthView {...globalProps} />
             </>
           )}
-          {activeTab === 'analytics' && <AnalyticsView {...globalProps} accountId={authUser.id} />}
+          {activeTab === 'analytics' && (
+            <AnalyticsView
+              {...globalProps}
+              accountId={authUser.id}
+              onPlannerRestoreComplete={revalidatePlannerAfterRestore}
+            />
+          )}
           {activeTab === 'settings'  && (
             <SettingsView
               {...globalProps}

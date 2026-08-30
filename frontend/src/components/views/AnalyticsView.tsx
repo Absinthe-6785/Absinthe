@@ -15,6 +15,7 @@ export const AnalyticsView = (props: AnalyticsProps) => {
         theme={props.theme}
         showToast={props.showToast}
         accountId={props.accountId}
+        onPlannerRestoreComplete={props.onPlannerRestoreComplete}
       />
     );
   }

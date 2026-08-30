@@ -38,8 +38,7 @@ import {
 } from './features/knowledge/workspace/workspaceSessionStorage';
 import type { RecentActivityItem } from './buildRecentActivityProjection';
 import { API_URL } from '../../lib/config';
-import { fetcher } from '../../lib/fetcher';
-import { remoteSWRKey } from '../../lib/remoteBoundary';
+import { accountBoundRemoteFetcher, accountBoundRemoteKey } from '../../lib/accountBoundRemote';
 import type { Schedule } from '../../types';
 import { formatLongDate } from './k102DateFormat';
 
@@ -136,13 +135,13 @@ export const HomeView = ({
   }, [selectedDate]);
   const prevDateStr = formatDate(prevDate);
   const { data: prevSchedules = [] } = useSWR<Schedule[]>(
-    remoteSWRKey(`${API_URL}/api/schedules?date=${prevDateStr}`),
-    fetcher,
+    accountBoundRemoteKey(`${API_URL}/api/schedules?date=${prevDateStr}`, user.id),
+    accountBoundRemoteFetcher,
     { revalidateOnFocus: false },
   );
   const { data: ddaySchedules = [] } = useSWR<ScheduleDday[]>(
-    remoteSWRKey(`${API_URL}/api/schedules/ddays`),
-    fetcher,
+    accountBoundRemoteKey(`${API_URL}/api/schedules/ddays`, user.id),
+    accountBoundRemoteFetcher,
     { revalidateOnFocus: false },
   );
 
