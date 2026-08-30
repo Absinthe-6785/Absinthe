@@ -8,6 +8,7 @@ RESTORE_TABLE_FIELDS = (
     "notes",
     "note_folders",
     "schedules",
+    "weekly_schedules",
     "todos",
     "routines",
     "routine_logs",
@@ -56,6 +57,10 @@ def _boolean(value: object) -> bool:
 
 def _integer(value: object) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _weekly_day(value: object) -> bool:
+    return _integer(value) and 0 <= value <= 6
 
 
 def _string_array(value: object) -> bool:
@@ -147,6 +152,12 @@ RESTORE_ROW_CONTRACTS: dict[str, tuple[frozenset[str], frozenset[str], dict[str,
          "is_dday": _boolean, "color": _non_empty_text, "category": _non_empty_text, "end_next_day": _boolean,
          "created_at": _timestamp},
     ),
+    "weekly_schedules": (
+        frozenset({"id", "user_id", "day", "title", "start_time", "end_time", "color"}),
+        frozenset({"day", "title", "start_time", "end_time", "color"}),
+        {"day": _weekly_day, "title": _non_empty_text, "start_time": _non_empty_text,
+         "end_time": _non_empty_text, "color": _non_empty_text},
+    ),
     "todos": (
         frozenset({"id", "user_id", "date", "text", "done", "created_at"}), frozenset({"date", "text"}),
         {"date": _non_empty_text, "text": lambda value: isinstance(value, str), "done": _boolean, "created_at": _timestamp},
@@ -220,6 +231,7 @@ class RestorePayload(BaseModel):
     notes: list[dict] = Field(default_factory=list)
     note_folders: list[dict] = Field(default_factory=list)
     schedules: list[dict] = Field(default_factory=list)
+    weekly_schedules: list[dict] = Field(default_factory=list)
     todos: list[dict] = Field(default_factory=list)
     routines: list[dict] = Field(default_factory=list)
     routine_logs: list[dict] = Field(default_factory=list)
