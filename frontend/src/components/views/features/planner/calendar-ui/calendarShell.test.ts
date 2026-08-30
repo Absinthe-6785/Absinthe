@@ -3,7 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { DateTime } from 'luxon';
-import type { AppSettings, Theme } from '../../../../types';
+import type { AppSettings, Theme, Todo } from '../../../../types';
 import type { NoteBase } from '../../../noteUtils';
 import { applyEventToNote } from '../../knowledge/trace/eventNotes';
 import { CalendarShell } from './CalendarShell';
@@ -16,7 +16,10 @@ import {
   buildPlannerCalendarProjection,
   formatPlannerCalendarPresentation,
 } from '../calendar';
-import { buildPlannerCalendarShellProjection } from './usePlannerCalendarProjection';
+import {
+  buildPlannerCalendarShellProjection,
+  usePlannerCalendarProjection,
+} from './usePlannerCalendarProjection';
 
 vi.mock('../../../../../store/useNotesStore', () => ({
   useNotesStore: (selector: (state: { notes: NoteBase[] }) => unknown) => selector({ notes: [] }),
@@ -63,6 +66,22 @@ function shellProps(overrides: Partial<Parameters<typeof CalendarShell>[0]> = {}
   };
 }
 
+function ProjectionProbe({ todos }: { todos: readonly Todo[] }) {
+  const { projection } = usePlannerCalendarProjection({
+    now: NOW,
+    anchorDate: '2027-02-03',
+    schedules: [],
+    weeklySchedules: [],
+    appSettings,
+    todos,
+  });
+  const bundle = projection.byDate.get('2027-02-03');
+  return createElement('output', {
+    'data-todo-count': String(bundle?.todos.length ?? 0),
+    'data-todo-ids': bundle?.todos.map(todo => todo.id).join(',') ?? '',
+  });
+}
+
 describe('DEFAULT_PLANNER_CALENDAR_MODE', () => {
   it('keeps month as the supporting calendar mode', () => {
     expect(DEFAULT_PLANNER_CALENDAR_MODE).toBe('month');
@@ -98,6 +117,66 @@ describe('buildPlannerCalendarShellProjection', () => {
     expect(result.projection.views.month.cells).toHaveLength(42);
     expect(result.presentation.labels.monthTitle).toContain('2027');
     expect(JSON.stringify(result.projection)).not.toMatch(/February/);
+  });
+
+  it('keeps fetched Todos in the visible calendar bundle without mutating the source collection', () => {
+    const todos: Array<Todo & { date: string }> = [
+      { id: 'todo-visible-1', date: '2027-02-03', text: 'Visible first', done: false },
+      { id: 'todo-visible-2', date: '2027-02-03', text: 'Visible second', done: true },
+      { id: 'todo-outside', date: '2027-04-01', text: 'Outside range', done: false },
+    ];
+    const originalTodos = todos.map(todo => ({ ...todo }));
+
+    const result = buildPlannerCalendarShellProjection({
+      notes: [],
+      now: NOW,
+      anchorDate: '2027-02-03',
+      schedules: [{
+        id: 's1',
+        text: 'Study',
+        start_time: '09:00',
+        end_time: '10:00',
+        is_dday: false,
+        color: 'purple',
+        category: 'Personal',
+      }],
+      weeklySchedules: [],
+      appSettings,
+      todos,
+    });
+
+    expect(result.projection.byDate.get('2027-02-03')?.todos).toEqual([
+      { id: 'todo-visible-1', text: 'Visible first', done: false },
+      { id: 'todo-visible-2', text: 'Visible second', done: true },
+    ]);
+    expect(result.projection.byDate.get('2027-04-01')).toBeUndefined();
+    expect(result.projection.byDate.get('2027-02-03')?.blocks).toHaveLength(1);
+    expect(todos).toEqual(originalTodos);
+  });
+
+  it('keeps an empty Todo collection empty in the calendar bundle', () => {
+    const result = buildPlannerCalendarShellProjection({
+      notes: [],
+      now: NOW,
+      anchorDate: '2027-02-03',
+      schedules: [],
+      weeklySchedules: [],
+      appSettings,
+      todos: [],
+    });
+
+    expect(result.projection.byDate.get('2027-02-03')?.todos).toEqual([]);
+  });
+
+  it('passes fetched Todos through the real calendar projection hook', () => {
+    const html = renderToStaticMarkup(createElement(ProjectionProbe, {
+      todos: [
+        { id: 'todo-hook-1', date: '2027-02-03', text: 'Hook visible', done: false },
+      ],
+    }));
+
+    expect(html).toContain('data-todo-count="1"');
+    expect(html).toContain('data-todo-ids="todo-hook-1"');
   });
 });
 
