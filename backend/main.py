@@ -1052,6 +1052,7 @@ async def import_backup(payload: RestorePayload, user_id: str = Depends(get_curr
     upsert("note_folders",    payload.note_folders)
     upsert("notes",           payload.notes)
     upsert("schedules",       payload.schedules)
+    upsert("weekly_schedules", payload.weekly_schedules)
     upsert("todos",           payload.todos)
     upsert("routines",        payload.routines)
     upsert("routine_logs",    payload.routine_logs)

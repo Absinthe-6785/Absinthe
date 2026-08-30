@@ -430,6 +430,57 @@ describe('vaultRestorePipeline', () => {
     );
   });
 
+  it('carries weekly schedules from a parsed v3 package into the restore payload', async () => {
+    const weekly = {
+      id: 'weekly-1',
+      user_id: 'backup-user',
+      day: 2,
+      title: 'Weekly study',
+      start_time: '09:00',
+      end_time: '10:00',
+      color: 'blue',
+    };
+    const cloud = {
+      schemaVersion: 1 as const,
+      fetchedAt: '2026-06-01T00:00:00Z',
+      completeness: 'full' as const,
+      errors: [] as string[],
+      planner: { schedules: [], todos: [], routines: [], routineLogs: [], weeklySchedules: [weekly], recipes: [], ddays: [], routineExceptions: [] },
+      health: { exerciseBlocks: [], workoutLogs: [], inbodyLogs: [], healthRoutines: [], proteinSources: [], proteinProfile: null },
+    };
+    const packageManifest = buildVaultBackupManifestV3([note('n1')], [], cloud);
+    const parsed = parseVaultBackupJson(JSON.stringify(packageManifest));
+
+    expect(parsed?.cloud?.planner.weeklySchedules).toEqual([weekly]);
+    await applyCloudRestore(parsed?.cloud);
+
+    const [, request] = authFetchMock.mock.calls.at(-1)!;
+    expect(JSON.parse(String(request?.body))).toMatchObject({ weekly_schedules: [weekly] });
+  });
+
+  it('keeps a v3 package without weekly schedules non-destructive', async () => {
+    const cloud = {
+      schemaVersion: 1 as const,
+      fetchedAt: '2026-06-01T00:00:00Z',
+      completeness: 'full' as const,
+      errors: [] as string[],
+      planner: { schedules: [], todos: [], routines: [], routineLogs: [], weeklySchedules: [], recipes: [], ddays: [], routineExceptions: [] },
+      health: { exerciseBlocks: [], workoutLogs: [], inbodyLogs: [], healthRoutines: [], proteinSources: [], proteinProfile: null },
+    };
+    const packageManifest = buildVaultBackupManifestV3([note('n1')], [], cloud);
+    const legacyManifest = JSON.parse(JSON.stringify(packageManifest)) as Record<string, unknown>;
+    const legacyCloud = legacyManifest.cloud as Record<string, unknown>;
+    const legacyPlanner = legacyCloud.planner as Record<string, unknown>;
+    delete legacyPlanner.weeklySchedules;
+    const parsed = parseVaultBackupJson(JSON.stringify(legacyManifest));
+
+    expect(parsed?.cloud?.planner.weeklySchedules).toBeUndefined();
+    await applyCloudRestore(parsed?.cloud);
+
+    const [, request] = authFetchMock.mock.calls.at(-1)!;
+    expect(JSON.parse(String(request?.body))).toMatchObject({ weekly_schedules: [] });
+  });
+
   it('applyCloudRestore skips when cloud block missing', async () => {
     const result = await applyCloudRestore(null);
     expect(result.applied).toBe(false);

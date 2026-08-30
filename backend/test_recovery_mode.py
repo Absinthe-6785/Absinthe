@@ -90,6 +90,20 @@ def schedule_row(schedule_id: str = "schedule-1") -> dict:
     }
 
 
+def weekly_schedule_row(weekly_id: str = "weekly-1", user_id: str | None = None) -> dict:
+    row = {
+        "id": weekly_id,
+        "day": 0,
+        "title": "Weekly study",
+        "start_time": "09:00",
+        "end_time": "10:00",
+        "color": "blue",
+    }
+    if user_id is not None:
+        row["user_id"] = user_id
+    return row
+
+
 @pytest.fixture
 def destructive_client(monkeypatch: pytest.MonkeyPatch):
     supabase = FakeSupabase()
@@ -310,3 +324,106 @@ def test_late_table_collision_causes_zero_writes(destructive_client):
     )
     assert response.status_code == 409
     assert supabase.writes == []
+
+
+def test_restore_dispatches_weekly_schedule_and_rebinds_current_owner(destructive_client):
+    client, supabase = destructive_client
+    response = client.post(
+        "/api/restore",
+        headers={"X-Absinthe-Recovery-Intent": main.RESTORE_RECOVERY_INTENT},
+        json={"weekly_schedules": [weekly_schedule_row()]},
+    )
+    assert response.status_code == 200
+    upserts = [write for write in supabase.writes if write["kind"] == "upsert"]
+    assert len(upserts) == 1
+    assert upserts[0]["table"] == "weekly_schedules"
+    assert upserts[0]["rows"] == [{**weekly_schedule_row(), "user_id": "test-user"}]
+    assert upserts[0]["on_conflict"] == "id"
+
+
+def test_restore_rejects_foreign_serialized_weekly_owner_before_write(destructive_client):
+    client, supabase = destructive_client
+    response = client.post(
+        "/api/restore",
+        headers={"X-Absinthe-Recovery-Intent": main.RESTORE_RECOVERY_INTENT},
+        json={"weekly_schedules": [weekly_schedule_row(user_id="other-user")]},
+    )
+    assert response.status_code == 403
+    assert supabase.writes == []
+
+
+def test_restore_rejects_foreign_weekly_id_before_write(destructive_client):
+    client, supabase = destructive_client
+    supabase.existing_by_table["weekly_schedules"] = [weekly_schedule_row(user_id="other-user")]
+    response = client.post(
+        "/api/restore",
+        headers={"X-Absinthe-Recovery-Intent": main.RESTORE_RECOVERY_INTENT},
+        json={"weekly_schedules": [weekly_schedule_row()]},
+    )
+    assert response.status_code == 409
+    assert supabase.writes == []
+
+
+def test_restore_upserts_same_user_weekly_id_without_delete(destructive_client):
+    client, supabase = destructive_client
+    existing = weekly_schedule_row(user_id="test-user")
+    supabase.existing_by_table["weekly_schedules"] = [existing]
+    replacement = {**weekly_schedule_row(), "title": "Updated weekly study"}
+    response = client.post(
+        "/api/restore",
+        headers={"X-Absinthe-Recovery-Intent": main.RESTORE_RECOVERY_INTENT},
+        json={"weekly_schedules": [replacement]},
+    )
+    assert response.status_code == 200
+    assert [write["kind"] for write in supabase.writes] == ["upsert"]
+    assert supabase.writes[0]["table"] == "weekly_schedules"
+    assert supabase.writes[0]["rows"] == [{**replacement, "user_id": "test-user"}]
+
+
+def test_restore_weekly_absence_and_empty_collection_are_non_destructive(destructive_client):
+    client, supabase = destructive_client
+    existing = weekly_schedule_row("weekly-existing", user_id="test-user")
+    supabase.existing_by_table["weekly_schedules"] = [existing]
+    headers = {"X-Absinthe-Recovery-Intent": main.RESTORE_RECOVERY_INTENT}
+
+    empty = client.post("/api/restore", headers=headers, json={"weekly_schedules": []})
+    missing = client.post("/api/restore", headers=headers, json={})
+
+    assert empty.status_code == 200
+    assert missing.status_code == 200
+    assert supabase.writes == []
+    assert supabase.existing_by_table["weekly_schedules"] == [existing]
+
+
+def test_restore_rejects_malformed_weekly_row_before_any_write(destructive_client):
+    client, supabase = destructive_client
+    response = client.post(
+        "/api/restore",
+        headers={"X-Absinthe-Recovery-Intent": main.RESTORE_RECOVERY_INTENT},
+        json={
+            "schedules": [schedule_row()],
+            "weekly_schedules": [{**weekly_schedule_row(), "start_time": 900}],
+        },
+    )
+    assert response.status_code == 422
+    assert supabase.writes == []
+
+
+def test_restore_preserves_existing_planner_domain_dispatch(destructive_client):
+    client, supabase = destructive_client
+    response = client.post(
+        "/api/restore",
+        headers={"X-Absinthe-Recovery-Intent": main.RESTORE_RECOVERY_INTENT},
+        json={
+            "schedules": [schedule_row()],
+            "todos": [{"date": "2026-08-18", "text": "Task"}],
+            "routines": [{"text": "Routine"}],
+            "routine_logs": [{"date": "2026-08-18", "done": False}],
+            "ddays": [{"date": "2026-08-18", "text": "D-day"}],
+            "routine_exceptions": [{"start_date": "2026-08-18", "end_date": "2026-08-19"}],
+        },
+    )
+    assert response.status_code == 200
+    assert [write["table"] for write in supabase.writes] == [
+        "schedules", "todos", "routines", "routine_logs", "ddays", "routine_exceptions",
+    ]

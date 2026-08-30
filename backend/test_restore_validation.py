@@ -13,6 +13,7 @@ EXPECTED_TABLES = (
     "notes",
     "note_folders",
     "schedules",
+    "weekly_schedules",
     "todos",
     "routines",
     "routine_logs",
@@ -28,6 +29,7 @@ EXPECTED_ALLOWED_FIELDS = {
     "notes": {"id", "user_id", "title", "body", "updated_at", "folder_id", "deleted_at", "starred", "properties", "relations"},
     "note_folders": {"id", "user_id", "name", "created_at"},
     "schedules": {"id", "user_id", "date", "text", "start_time", "end_time", "is_dday", "color", "category", "end_next_day", "created_at"},
+    "weekly_schedules": {"id", "user_id", "day", "title", "start_time", "end_time", "color"},
     "todos": {"id", "user_id", "date", "text", "done", "created_at"},
     "routines": {"id", "user_id", "text", "created_date", "created_timestamp", "created_at", "deleted_at", "is_active"},
     "routine_logs": {"id", "user_id", "routine_id", "date", "done", "is_completed"},
@@ -43,6 +45,7 @@ VALID_MINIMAL_ROWS = {
     "notes": {"title": "Note", "body": "", "updated_at": 0},
     "note_folders": {"name": "Folder", "created_at": 0},
     "schedules": {"date": "2026-08-28", "text": "Study", "start_time": "09:00", "end_time": "10:00"},
+    "weekly_schedules": {"day": 0, "title": "Weekly study", "start_time": "09:00", "end_time": "10:00", "color": "blue"},
     "todos": {"date": "2026-08-28", "text": "Task"},
     "routines": {"text": "Routine"},
     "routine_logs": {"date": "2026-08-28", "done": False},
@@ -58,6 +61,7 @@ REQUIRED_FIELDS = {
     "notes": ("title", "body", "updated_at"),
     "note_folders": ("name", "created_at"),
     "schedules": ("date", "text", "start_time", "end_time"),
+    "weekly_schedules": ("day", "title", "start_time", "end_time", "color"),
     "todos": ("date", "text"),
     "routines": ("text",),
     "routine_logs": ("date", "done"),
@@ -118,6 +122,31 @@ def test_full_notes_and_workout_rows_accept():
             "sort_order": 0,
         },
     )
+
+
+def test_weekly_schedule_restore_contract_accepts_safe_fields_and_server_owner():
+    rv._validate_restore_row(
+        "weekly_schedules",
+        {
+            "id": "weekly-1",
+            "user_id": "user-1",
+            "day": 0,
+            "title": "Weekly study",
+            "start_time": "09:00",
+            "end_time": "10:00",
+            "color": "blue",
+        },
+    )
+
+
+def test_weekly_schedule_restore_contract_rejects_unsafe_or_malformed_fields():
+    valid = dict(VALID_MINIMAL_ROWS["weekly_schedules"])
+    with pytest.raises(ValueError, match="unknown_restore_field:weekly_schedules:created_at"):
+        rv._validate_restore_row("weekly_schedules", {**valid, "created_at": 1})
+    with pytest.raises(ValueError, match="invalid_restore_field:weekly_schedules:day"):
+        rv._validate_restore_row("weekly_schedules", {**valid, "day": 7})
+    with pytest.raises(ValueError, match="invalid_restore_field:weekly_schedules:start_time"):
+        rv._validate_restore_row("weekly_schedules", {**valid, "start_time": 900})
 
 
 @pytest.mark.parametrize(

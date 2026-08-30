@@ -38,6 +38,7 @@ export async function applyCloudRestore(
     notes: [],
     note_folders: [],
     schedules: cloud.planner.schedules ?? [],
+    weekly_schedules: cloud.planner.weeklySchedules ?? [],
     todos: cloud.planner.todos ?? [],
     routines: cloud.planner.routines ?? [],
     routine_logs: cloud.planner.routineLogs ?? [],
