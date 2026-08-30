@@ -52,6 +52,9 @@ import {
   USER_INITIATED_SINGLE_NOTE_DELETE,
   prepareNotesSingleDelete,
   beginNotesSingleDelete,
+  getNotesSingleDeleteTargetId,
+  hasNotesSingleDeleteMarker,
+  hasNotesSingleDeleteMarkers,
   confirmNotesSingleRemoteDelete,
   commitNotesSingleDelete,
   abortNotesSingleDelete,
@@ -160,6 +163,12 @@ interface SyncIssueState {
   /** Matches syncError so direct test/runtime state replacements cannot reuse stale ownership. */
   readonly message: string;
 }
+
+const RESOLVABLE_RECOVERY_PERMANENT_DELETE_MESSAGES = new Set([
+  'Permanent delete requires one trashed Note in the active account.',
+  'Permanent delete authorization could not be established.',
+  'Permanent delete was blocked because its account or operation context is stale.',
+]);
 
 function isSafetyCriticalSyncIssueSource(source: SyncIssueSource): boolean {
   return source === 'local_notes_persistence'
@@ -851,6 +860,28 @@ export const useNotesStore = create<NotesState>((set, get) => {
     return true;
   };
 
+  const clearResolvedPermanentDeleteIssue = (
+    accountId: string | null,
+    notes: readonly Note[],
+  ): void => {
+    if (!accountId) return;
+    const issue = currentSyncIssue();
+    if (!issue || issue.source !== 'recovery_permanent_delete'
+      || !RESOLVABLE_RECOVERY_PERMANENT_DELETE_MESSAGES.has(issue.message)) return;
+    if (issue.targetId === undefined) {
+      if (hasNotesSingleDeleteMarkers(accountId)) return;
+    } else {
+      if (hasNotesSingleDeleteMarker(accountId, issue.targetId)) return;
+      const target = notes.find(note => note.id === issue.targetId);
+      if (!target || issue.message === 'Permanent delete was blocked because its account or operation context is stale.') {
+        clearSyncIssue('recovery_permanent_delete', issue.targetId);
+        return;
+      }
+      if (target.deletedAt === null) return;
+    }
+    clearSyncIssue('recovery_permanent_delete', issue.targetId);
+  };
+
   const dismissNoTargetStaleSyncIssue = (): void => {
     if (!get().syncError) return;
     const issue = currentSyncIssue();
@@ -1375,6 +1406,8 @@ export const useNotesStore = create<NotesState>((set, get) => {
       });
       if (!authorization) {
         setSyncIssue('Permanent delete authorization could not be established.', 'recovery_permanent_delete', { targetId: id });
+      } else {
+        clearResolvedPermanentDeleteIssue(accountId, state.notes);
       }
       return authorization;
     },
@@ -1384,7 +1417,9 @@ export const useNotesStore = create<NotesState>((set, get) => {
     deleteNotePermanently: async (authorization) => {
       const begun = await beginNotesSingleDelete(authorization);
       if (!begun) {
-        setSyncIssue('Permanent delete was blocked because its account or operation context is stale.', 'recovery_permanent_delete');
+        setSyncIssue('Permanent delete was blocked because its account or operation context is stale.', 'recovery_permanent_delete', {
+          targetId: getNotesSingleDeleteTargetId(authorization) ?? undefined,
+        });
         return false;
       }
       const targetBeforeDelete = get().notes.find(note => note.id === begun.noteId);
@@ -1623,6 +1658,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
             ? { source: 'recovery_permanent_delete', targetId: conflictTargetId, retryable: false, message: conflictMessage }
             : (keepExistingIssue ? existingIssue : null),
         });
+        clearResolvedPermanentDeleteIssue(accountId, notes);
         saveActiveNoteId(nextActive);
         rebuildKnowledgeIndex(notes);
       } catch (error) {
@@ -1728,6 +1764,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
         setSyncIssue(fallbackError, 'initialization', { retryable: true });
       } else {
         clearSyncIssue('initialization');
+        clearResolvedPermanentDeleteIssue(result.accountId ?? null, notes);
       }
       if (!result.accountId && (notes.length !== result.notes.length || currentNotes.length > 0)) {
         persistNotes(notes);

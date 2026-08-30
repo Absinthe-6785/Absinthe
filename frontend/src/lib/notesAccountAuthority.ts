@@ -593,6 +593,28 @@ export function prepareNotesSingleDelete(
   return authorization;
 }
 
+/** Returns the prepared Note id without exposing or mutating the authorization operation. */
+export function getNotesSingleDeleteTargetId(
+  authorization: NotesSingleDeleteAuthorization,
+): string | null {
+  if (!authorization || (typeof authorization !== 'object' && typeof authorization !== 'function')) return null;
+  return singleDeleteOperations.get(authorization)?.noteId ?? null;
+}
+
+/** Treat malformed durable markers as present so recovery remains fail-closed. */
+export function hasNotesSingleDeleteMarker(accountId: string, noteId: string): boolean {
+  return readSingleDeleteMarker(accountId, noteId) !== null;
+}
+
+/** Returns whether any durable single-delete evidence remains for the account. */
+export function hasNotesSingleDeleteMarkers(accountId: string): boolean {
+  try {
+    return listSingleDeleteMarkers(accountId).length > 0;
+  } catch {
+    return true;
+  }
+}
+
 export function validateNotesSingleDeleteTarget(
   authorization: NotesSingleDeleteAuthorization,
   accountId: string,
