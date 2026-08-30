@@ -593,6 +593,39 @@ export function prepareNotesSingleDelete(
   return authorization;
 }
 
+/** Returns the prepared Note id without exposing or mutating the authorization operation. */
+export function getNotesSingleDeleteTargetId(
+  authorization: NotesSingleDeleteAuthorization,
+): string | null {
+  if (!authorization || (typeof authorization !== 'object' && typeof authorization !== 'function')) return null;
+  return singleDeleteOperations.get(authorization)?.noteId ?? null;
+}
+
+/** Treat malformed durable markers as present so recovery remains fail-closed. */
+export function hasNotesSingleDeleteMarker(accountId: string, noteId: string): boolean {
+  return readSingleDeleteMarker(accountId, noteId) !== null;
+}
+
+/** Returns whether any durable single-delete evidence remains for the account. */
+export function hasNotesSingleDeleteMarkers(accountId: string): boolean {
+  try {
+    return listSingleDeleteMarkers(accountId).length > 0;
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Enumerates the account's durable single-delete targets in the same stable
+ * order used by bootstrap conflict representation. Marker read failures are
+ * intentionally surfaced so callers cannot interpret them as an empty set.
+ */
+export function getNotesSingleDeleteMarkerNoteIds(accountId: string): readonly string[] {
+  return listSingleDeleteMarkers(accountId)
+    .map(marker => marker.noteId)
+    .sort();
+}
+
 export function validateNotesSingleDeleteTarget(
   authorization: NotesSingleDeleteAuthorization,
   accountId: string,
