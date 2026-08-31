@@ -10,6 +10,7 @@ import { useNow } from '../hooks/useNow';
 import { useToast } from '../hooks/useToast';
 import { useDailyData } from '../hooks/useDaily';
 import { useStaticData } from '../hooks/useStatic';
+import { useSWRConfig } from 'swr';
 import { ThemeColor, ViewProps } from '../types';
 import { buildThemeClasses } from '../theme';
 import { Sidebar, TabId, type SettingsSectionId } from './common/Sidebar';
@@ -30,6 +31,7 @@ import { useTranslation } from '../lib/i18n';
 import { bootstrapHealthFromSupabase, HEALTH_LOCAL_BOOTSTRAP_COMPLETE_EVENT } from '../lib/healthSupabaseBootstrap';
 import { runHealthBootstrapSingleFlight } from '../lib/healthBootstrapSingleFlight';
 import { shouldUseRemoteData } from '../lib/remoteBoundary';
+import { revalidatePlannerAccountCache } from '../lib/plannerCacheRevalidation';
 import {
   startIndependentStartup,
   type IndependentStartupRun,
@@ -272,6 +274,17 @@ export function AppContent({ authUser }: { authUser: User }) {
   // useStaticData(monthStart, monthEnd, showToast, authUser.id, healthRuntimeReady, healthBlocksSearchActive, markedDatesActive, healthRoutinesActive)
   } = useStaticData(monthStart, monthEnd, showToast, authUser.id, healthRuntimeReady, healthBlocksSearchActive, markedDatesActive, healthRoutinesActive);
 
+  const { mutate: globalMutate } = useSWRConfig();
+
+  // A successful cloud restore changes Planner-owned remote rows. Revalidate
+  // only this account's affected Planner keys (including inactive dates); no
+  // global cache clear.
+  const revalidatePlannerAfterRestore = useCallback(() => {
+    mutateDaily();
+    mutateStatic();
+    revalidatePlannerAccountCache(globalMutate, authUser.id);
+  }, [authUser.id, globalMutate, mutateDaily, mutateStatic]);
+
   useEffect(() => {
     const refreshLocalHealth = () => {
       mutateDaily();
@@ -346,8 +359,8 @@ export function AppContent({ authUser }: { authUser: User }) {
 
       <div className="flex-1 overflow-hidden flex flex-col p-3 lg:p-0">
         <Suspense fallback={<ViewLoadingFallback />}>
-          {activeTab === 'home'      && <HomeView       {...globalProps} />}
-          {activeTab === 'planner'   && <PlannerView   {...globalProps} />}
+          {activeTab === 'home'      && <HomeView       key={authUser.id} {...globalProps} />}
+          {activeTab === 'planner'   && <PlannerView   key={authUser.id} {...globalProps} />}
           {activeTab === 'health' && healthBootstrapRequired && startupState.health.status === 'pending' && (
             <ViewLoadingFallback label={t('startupHealthLoading')} />
           )}
@@ -368,7 +381,13 @@ export function AppContent({ authUser }: { authUser: User }) {
               <HealthView {...globalProps} />
             </>
           )}
-          {activeTab === 'analytics' && <AnalyticsView {...globalProps} accountId={authUser.id} />}
+          {activeTab === 'analytics' && (
+            <AnalyticsView
+              {...globalProps}
+              accountId={authUser.id}
+              onPlannerRestoreComplete={revalidatePlannerAfterRestore}
+            />
+          )}
           {activeTab === 'settings'  && (
             <SettingsView
               {...globalProps}

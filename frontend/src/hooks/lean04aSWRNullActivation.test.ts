@@ -79,12 +79,15 @@ type ProductionProbeProps = {
 function ProductionProbe({ active, account, date, monthStart, monthEnd }: ProductionProbeProps) {
   productionHarness.currentAccount = account;
   productionHarness.remoteActive = active;
-  const daily = useDailyData(date, undefined, account, true);
+  const daily = useDailyData(date, undefined, account, true, true, true);
   const stat = useStaticData(monthStart, monthEnd, undefined, account, true);
   productionHarness.latest = { daily, stat };
   return createElement('output', {
     'data-daily-owner': String(daily.schedules[0]?.account ?? ''),
     'data-daily-id': String(daily.schedules[0]?.id ?? ''),
+    'data-todo-owner': String((daily.todos[0] as { account?: string } | undefined)?.account ?? ''),
+    'data-routine-owner': String((daily.routines[0] as { account?: string } | undefined)?.account ?? ''),
+    'data-workout-owner': String((daily.workouts[0] as { account?: string } | undefined)?.account ?? ''),
     'data-marked-date': String(stat.markedDates[0] ?? ''),
   });
 }
@@ -142,7 +145,7 @@ describe('LEAN_04A null-key activation semantics', () => {
     host = null;
   });
 
-  it('reproduces a stale account A value under account B with a real shared SWR cache while B revalidation is pending', async () => {
+  it('isolates every active daily/static response when the authenticated account changes', async () => {
     const cache = new Map<unknown, unknown>();
     const config = { provider: () => cache, dedupingInterval: 0, revalidateOnFocus: false };
     root = createRoot(host!);
@@ -162,6 +165,9 @@ describe('LEAN_04A null-key activation semantics', () => {
     resolveRequests(initialRequests);
     await flush();
     expect(host?.querySelector('output')?.getAttribute('data-daily-owner')).toBe('account-a');
+    expect(host?.querySelector('output')?.getAttribute('data-todo-owner')).toBe('account-a');
+    expect(host?.querySelector('output')?.getAttribute('data-routine-owner')).toBe('account-a');
+    expect(host?.querySelector('output')?.getAttribute('data-workout-owner')).toBe('account-a');
 
     await act(async () => {
       renderProductionProbe(root!, config, {
@@ -173,26 +179,35 @@ describe('LEAN_04A null-key activation semantics', () => {
       });
     });
     await flush();
-    expect(host?.querySelector('output')?.getAttribute('data-daily-owner')).toBe('account-a');
+    expect(host?.querySelector('output')?.getAttribute('data-daily-owner')).toBe('');
+    expect(host?.querySelector('output')?.getAttribute('data-todo-owner')).toBe('');
+    expect(host?.querySelector('output')?.getAttribute('data-routine-owner')).toBe('');
+    expect(host?.querySelector('output')?.getAttribute('data-workout-owner')).toBe('');
     const accountBActivationRequests = productionHarness.requests.splice(0);
-    expect(accountBActivationRequests).toHaveLength(5);
-    const accountBStaticRequests = accountBActivationRequests.filter(request => !request.url.includes('/inbody?'));
+    expect(accountBActivationRequests).toHaveLength(9);
+    const accountBStaticRequests = accountBActivationRequests.filter(request => !new URL(request.url).searchParams.has('date'));
     expect(accountBStaticRequests).toHaveLength(4);
     expect(accountBStaticRequests.some(request => new URL(request.url).searchParams.has('date'))).toBe(false);
-    expect(accountBActivationRequests.some(request => request.url.includes('/inbody?'))).toBe(true);
+    const accountBDailyRequests = accountBActivationRequests.filter(request => new URL(request.url).searchParams.has('date'));
+    expect(accountBDailyRequests).toHaveLength(5);
+    expect(accountBDailyRequests.some(request => request.url.includes('/inbody?'))).toBe(true);
+    expect(accountBActivationRequests.every(request => !request.url.includes('\u0000'))).toBe(true);
     resolveRequests(accountBActivationRequests);
     await flush();
+    expect(host?.querySelector('output')?.getAttribute('data-daily-owner')).toBe('account-b');
+    expect(host?.querySelector('output')?.getAttribute('data-todo-owner')).toBe('account-b');
+    expect(host?.querySelector('output')?.getAttribute('data-routine-owner')).toBe('account-b');
+    expect(host?.querySelector('output')?.getAttribute('data-workout-owner')).toBe('account-b');
 
+    productionHarness.requests.length = 0;
     productionHarness.latest?.daily.mutate();
     await flush();
-    const accountBRequests = productionHarness.requests.filter(request => request.account === 'account-b');
+    const accountBRequests = productionHarness.requests;
     expect(accountBRequests).toHaveLength(5);
     expect(accountBRequests.every(request => new URL(request.url).searchParams.get('date') === '2026-08-18')).toBe(true);
-    expect(host?.querySelector('output')?.getAttribute('data-daily-owner')).toBe('account-a');
+    expect(host?.querySelector('output')?.getAttribute('data-daily-owner')).toBe('account-b');
 
-    const scheduleRequest = accountBRequests.find(request => new URL(request.url).pathname.endsWith('/schedules'));
-    expect(scheduleRequest).toBeDefined();
-    scheduleRequest?.resolve(responseFor(scheduleRequest.url, scheduleRequest.account));
+    resolveRequests(accountBRequests);
     await flush();
     expect(host?.querySelector('output')?.getAttribute('data-daily-owner')).toBe('account-b');
   });

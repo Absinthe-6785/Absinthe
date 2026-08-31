@@ -74,10 +74,10 @@ const FUTURE_ACTIVATION_CONTRACT: Record<string, Record<string, Activation>> = {
 };
 
 const CURRENT_KEY_CLASSIFICATION = {
-  schedules: 'URL_ONLY',
-  todos: 'URL_ONLY',
-  routines: 'URL_ONLY',
-  workouts: 'URL_ONLY',
+  schedules: 'ACCOUNT_NAMESPACED',
+  todos: 'ACCOUNT_NAMESPACED',
+  routines: 'ACCOUNT_NAMESPACED',
+  workouts: 'ACCOUNT_NAMESPACED',
   inbody: 'ACCOUNT_NAMESPACED',
   markedDates: 'ACCOUNT_NAMESPACED',
   healthBlocks: 'ACCOUNT_NAMESPACED',
@@ -132,10 +132,10 @@ describe('LEAN_04A characterization contract and protected boundaries', () => {
 
   it('classifies cache-key identity separately from endpoint URLs', () => {
     expect(CURRENT_KEY_CLASSIFICATION).toEqual({
-      schedules: 'URL_ONLY',
-      todos: 'URL_ONLY',
-      routines: 'URL_ONLY',
-      workouts: 'URL_ONLY',
+      schedules: 'ACCOUNT_NAMESPACED',
+      todos: 'ACCOUNT_NAMESPACED',
+      routines: 'ACCOUNT_NAMESPACED',
+      workouts: 'ACCOUNT_NAMESPACED',
       inbody: 'ACCOUNT_NAMESPACED',
       markedDates: 'ACCOUNT_NAMESPACED',
       healthBlocks: 'ACCOUNT_NAMESPACED',
@@ -144,10 +144,11 @@ describe('LEAN_04A characterization contract and protected boundaries', () => {
     });
     const daily = source('hooks/useDaily.ts');
     const statics = source('hooks/useStatic.ts');
-    expect(daily).toContain('remoteSWRKey(`${base}/schedules?date=${dateStr}`)');
+    expect(daily).toContain('accountBoundRemoteKey(`${base}/schedules?date=${dateStr}`, accountId)');
     expect(daily).toContain('remoteSWRKey(`${base}/todos?date=${dateStr}`)');
-    expect(daily).toContain('remoteSWRKey(`${base}/routines_with_logs?date=${dateStr}`)');
-    expect(daily).toContain('remoteSWRKey(`${base}/workouts?date=${dateStr}`)');
+    expect(daily).toContain('accountBoundTodoKey(`${base}/todos?date=${dateStr}`, accountId)');
+    expect(daily).toContain('accountBoundRemoteKey(`${base}/routines_with_logs?date=${dateStr}`, accountId)');
+    expect(daily).toContain('accountBoundRemoteKey(`${base}/workouts?date=${dateStr}`, accountId)');
     expect(daily).toContain('accountBoundInbodyKey(inbodyUrl, accountId)');
     expect(statics).toContain("['health-static', accountId, remoteKey]");
     expect(statics).toContain('accountBoundHealthStaticKey(');
@@ -166,7 +167,7 @@ describe('LEAN_04A characterization contract and protected boundaries', () => {
     expect(app).toContain("isDailyLoading && (activeTab === 'home' || activeTab === 'health')");
     expect(app).toContain('mutateDaily, mutateStatic');
     expect(app).toContain('mutateTodos, mutateRoutines');
-    expect(app).toContain('<PlannerView   {...globalProps} />');
+    expect(app).toContain('<PlannerView   key={authUser.id} {...globalProps} />');
     expect(app).toContain('<HealthView {...globalProps} />');
     expect(bootstrap).toContain('window.dispatchEvent(new Event(HEALTH_LOCAL_BOOTSTRAP_COMPLETE_EVENT))');
     expect(source('hooks/useDaily.ts')).toContain('revalidateOnFocus: false');

@@ -16,6 +16,7 @@ export interface ArchiveShellProps {
   theme: Theme;
   showToast: (msg: string, type?: ToastType) => void;
   cloudSyncEnabled?: boolean;
+  onPlannerRestoreComplete?: () => void;
 }
 
 /** K-109 Archive — history workspace with unified projection. */
@@ -26,11 +27,18 @@ export function ArchiveShell({
   theme,
   showToast,
   cloudSyncEnabled = false,
+  onPlannerRestoreComplete,
 }: ArchiveShellProps) {
   const nowDate = useMemo(() => now.toJSDate(), [now]);
   const { projection, isLoading } = useArchiveProjection(nowDate, appSettings.language);
   const t = getTranslator(resolveAppLanguage(appSettings.language));
-  const vaultRestore = useVaultRestoreFlow(showToast, t, cloudSyncEnabled, accountId);
+  const vaultRestore = useVaultRestoreFlow(
+    showToast,
+    t,
+    cloudSyncEnabled,
+    accountId,
+    onPlannerRestoreComplete,
+  );
 
   return (
     <>

@@ -158,6 +158,8 @@ interface DateProps {
 // 뷰별 Props
 // ─────────────────────────────────────────────
 export interface PlannerProps extends BaseViewProps, DateProps, MutateProps, OptimisticProps {
+  /** Authenticated account identity used for Planner-only remote cache keys. */
+  user?: { id: string; name: string };
   schedules: Schedule[];
   todos: Todo[];
   routines: Routine[];
@@ -179,6 +181,7 @@ export interface HealthProps extends BaseViewProps, DateProps, MutateProps {
 
 export interface AnalyticsProps extends BaseViewProps {
   accountId?: string;
+  onPlannerRestoreComplete?: () => void;
   mutateStatic: () => void;
   now: DateTime;
   formatDate: (d: Date | DateTime) => string;

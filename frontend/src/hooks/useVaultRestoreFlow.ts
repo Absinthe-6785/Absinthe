@@ -30,6 +30,7 @@ import { parseVaultBackupZip } from '@/lib/vaultBackupZip';
 import { loadSnapshotPayload } from '@/lib/vaultSnapshotStore';
 import { VaultRestoreSnapshotError } from '@/lib/vaultRestoreSnapshot';
 import { useNotesStore } from '@/store/useNotesStore';
+import { shouldRevalidatePlannerAfterRestore } from '@/lib/plannerRestoreRevalidation';
 
 async function parseBackupFile(file: File): Promise<ReturnType<typeof parseVaultBackupJson>> {
   if (file.name.endsWith('.zip') || file.type === 'application/zip') {
@@ -53,6 +54,7 @@ export function useVaultRestoreFlow(
   t: (key: TranslationKey) => string,
   cloudSyncEnabled = false,
   accountId?: string,
+  onRestoreComplete?: () => void,
 ) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const notes = useNotesStore(s => s.notes);
@@ -242,6 +244,16 @@ export function useVaultRestoreFlow(
         getFolders: () => useNotesStore.getState().folders,
       });
 
+      if (shouldRevalidatePlannerAfterRestore({
+        cloudApplied: result.cloud?.applied,
+        initiatingAccountId,
+        currentAccountId: accountIdRef.current,
+        initiatingGeneration,
+        currentGeneration: accountGenerationRef.current,
+      })) {
+        onRestoreComplete?.();
+      }
+
       const coreTotal = result.core
         ? result.core.importedNotes + result.core.replacedNotes + result.core.duplicatedNotes
         : 0;
@@ -281,6 +293,7 @@ export function useVaultRestoreFlow(
     showToast,
     t,
     accountId,
+    onRestoreComplete,
   ]);
 
   return {

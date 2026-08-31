@@ -1,8 +1,7 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import useSWR from 'swr';
-import { fetcher } from '../../lib/fetcher';
 import { API_URL } from '../../lib/config';
-import { remoteSWRKey } from '../../lib/remoteBoundary';
+import { accountBoundRemoteFetcher, accountBoundRemoteKey } from '../../lib/accountBoundRemote';
 import { X, Calendar } from 'lucide-react';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useEscapeKey } from '../../hooks/useEscapeKey';
@@ -31,8 +30,10 @@ export const PlannerView = ({
   now, currentDate, setCurrentDate, selectedDate, setSelectedDate,
   formatDate, isToday, showToast,   mutateDaily, mutateStatic, mutateRoutines,
   appSettings, schedules, todos, routines, weeklySchedules, theme, THEME_COLORS,
+  user,
 }: PlannerProps) => {
   const { t, lang } = useTranslation();
+  const accountId = user?.id;
   const { mutate: api } = useApiMutation(mutateDaily, mutateStatic, showToast);
   const { confirm, showConfirm, clearConfirm, handleConfirm } = useConfirm();
 
@@ -68,13 +69,13 @@ export const PlannerView = ({
   }, [selectedDate]);
   const prevDateStr = useMemo(() => formatDate(prevDate), [prevDate, formatDate]);
   const { data: prevSchedules = [] } = useSWR<Schedule[]>(
-    remoteSWRKey(`${API_URL}/api/schedules?date=${prevDateStr}`),
-    fetcher,
+    accountBoundRemoteKey(`${API_URL}/api/schedules?date=${prevDateStr}`, accountId),
+    accountBoundRemoteFetcher,
     { revalidateOnFocus: false }
   );
   const { data: ddaySchedules = [], mutate: mutateDdaySchedules } = useSWR<ScheduleDday[]>(
-    remoteSWRKey(`${API_URL}/api/schedules/ddays`),
-    fetcher,
+    accountBoundRemoteKey(`${API_URL}/api/schedules/ddays`, accountId),
+    accountBoundRemoteFetcher,
     { revalidateOnFocus: false },
   );
   // 전날 일정 — calendar projection carry-over

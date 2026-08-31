@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, createElement } from 'react';
+import { act, createElement, useEffect } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -16,6 +16,8 @@ const mocks = vi.hoisted(() => ({
   detachNotesStorage: vi.fn(),
   showToast: vi.fn(),
   homeProps: null as Record<string, unknown> | null,
+  homeMounts: 0,
+  homeUnmounts: 0,
 }));
 
 vi.mock('../lib/supabase', () => ({ supabase: { auth: { signOut: vi.fn() } } }));
@@ -72,6 +74,10 @@ vi.mock('./common/ViewLoadingFallback', () => ({ ViewLoadingFallback: () => null
 vi.mock('./views/NoteView', () => ({ NoteView: () => null }));
 vi.mock('./views/HomeView', () => ({
   HomeView: (props: Record<string, unknown>) => {
+    useEffect(() => {
+      mocks.homeMounts += 1;
+      return () => { mocks.homeUnmounts += 1; };
+    }, []);
     mocks.homeProps = props;
     return createElement('div', { 'data-testid': 'lean04a-home' });
   },
@@ -120,6 +126,8 @@ describe('LEAN_04A AppContent shell/event characterization', () => {
     mocks.detachNotesStorage.mockReset();
     mocks.showToast.mockReset();
     mocks.homeProps = null;
+    mocks.homeMounts = 0;
+    mocks.homeUnmounts = 0;
     delete (mocks as typeof mocks & { dailyArgs?: unknown[] }).dailyArgs;
     delete (mocks as typeof mocks & { staticArgs?: unknown[] }).staticArgs;
     host = document.createElement('div');
@@ -160,5 +168,25 @@ describe('LEAN_04A AppContent shell/event characterization', () => {
     expect(mocks.dailyMutate).toHaveBeenCalledOnce();
     expect(mocks.staticMutate).toHaveBeenCalledOnce();
     expect(mocks.healthBootstrap).toHaveBeenCalledOnce();
+  });
+
+  it('remounts only the account-owned Home surface on an authenticated account transition', async () => {
+    const { AppContent } = await import('./AppContent');
+    await act(async () => {
+      root = createRoot(host!);
+      root.render(createElement(AppContent, { authUser: accountUser('account-a') }));
+    });
+    await flush();
+    expect(mocks.homeMounts).toBe(1);
+    expect(mocks.homeUnmounts).toBe(0);
+
+    await act(async () => {
+      root?.render(createElement(AppContent, { authUser: accountUser('account-b') }));
+    });
+    await flush();
+
+    expect(mocks.homeMounts).toBe(2);
+    expect(mocks.homeUnmounts).toBe(1);
+    expect((mocks.homeProps?.user as { id?: string } | undefined)?.id).toBe('account-b');
   });
 });

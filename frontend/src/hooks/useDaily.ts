@@ -1,8 +1,13 @@
 import { useCallback, useMemo } from 'react';
 import useSWR, { useSWRConfig } from 'swr';
-import { fetcher, isLocalOnlyRemotePausedError } from '../lib/fetcher';
+import { isLocalOnlyRemotePausedError } from '../lib/fetcher';
 import { API_URL } from '../lib/config';
 import { remoteSWRKey } from '../lib/remoteBoundary';
+import {
+  accountBoundRemoteFetcher,
+  accountBoundRemoteKey,
+  type AccountBoundRemoteKey,
+} from '../lib/accountBoundRemote';
 import { isLocalOnlyRuntime } from '../lib/localAuth';
 import { readLocalHealthDaily } from '../lib/healthLocalRuntime';
 import { resolveSearchDatasetState, type SearchDatasetState } from '../lib/searchReadiness';
@@ -25,9 +30,9 @@ export interface UseDailyDataResult {
   isLoading: boolean;
 }
 
-export type AccountBoundTodoKey = string;
+export type AccountBoundTodoKey = AccountBoundRemoteKey;
 
-export type AccountBoundInbodyKey = string;
+export type AccountBoundInbodyKey = AccountBoundRemoteKey;
 
 /**
  * Keep the request URL unchanged while giving each account its own SWR cache
@@ -39,16 +44,10 @@ export function accountBoundTodoKey(
   accountId?: string,
   enabled = true,
 ): AccountBoundTodoKey | null {
-  const remoteKey = remoteSWRKey(url);
-  return enabled && accountId && remoteKey
-    ? `${remoteKey}\u0000absinthe-account=${encodeURIComponent(accountId)}`
-    : null;
+  return accountBoundRemoteKey(url, accountId, enabled);
 }
 
-const fetchAccountBoundTodo = <T>(key: AccountBoundTodoKey): Promise<T> => {
-  const separator = key.indexOf('\u0000');
-  return fetcher<T>(separator >= 0 ? key.slice(0, separator) : key);
-};
+const fetchAccountBoundTodo = accountBoundRemoteFetcher;
 
 /**
  * Keep the InBody request URL unchanged while separating each account's SWR
@@ -66,10 +65,7 @@ export function accountBoundInbodyKey(
     : null;
 }
 
-const fetchAccountBoundInbody = <T>(key: AccountBoundInbodyKey): Promise<T> => {
-  const separator = key.indexOf('\u0000');
-  return fetcher<T>(separator >= 0 ? key.slice(0, separator) : key);
-};
+const fetchAccountBoundInbody = accountBoundRemoteFetcher;
 
 export function getDailyDataLoading(
   localMode: boolean,
@@ -102,6 +98,9 @@ export const useDailyData = (
   const inbodyUrl = `${base}/inbody?date=${dateStr}`;
   const inbodyCacheKey = accountBoundInbodyKey(inbodyUrl, accountId);
   const inbodyKey = inbodyEnabled ? inbodyCacheKey : null;
+  const schedulesKey = accountBoundRemoteKey(`${base}/schedules?date=${dateStr}`, accountId);
+  const routinesKey = accountBoundRemoteKey(`${base}/routines_with_logs?date=${dateStr}`, accountId);
+  const workoutsKey = accountBoundRemoteKey(`${base}/workouts?date=${dateStr}`, accountId);
 
   const { mutate: globalMutate } = useSWRConfig();
 
@@ -120,7 +119,7 @@ export const useDailyData = (
   );
 
   const { data: schedules = [], mutate: mutateSchedules, isLoading: l1 } =
-    useSWR<Schedule[]>(remoteSWRKey(`${base}/schedules?date=${dateStr}`), fetcher, swrOpts);
+    useSWR<Schedule[], AccountBoundRemoteKey | null>(schedulesKey, accountBoundRemoteFetcher, swrOpts);
 
   const {
     data: todosData,
@@ -132,10 +131,10 @@ export const useDailyData = (
   const todos = todosData ?? [];
 
   const { data: routines = [], mutate: mutateRoutinesRaw, isLoading: l3 } =
-    useSWR<Routine[]>(remoteSWRKey(`${base}/routines_with_logs?date=${dateStr}`), fetcher, swrOpts);
+    useSWR<Routine[], AccountBoundRemoteKey | null>(routinesKey, accountBoundRemoteFetcher, swrOpts);
 
   const { data: workouts = [], mutate: mutateWorkouts, isLoading: l4 } =
-    useSWR<Workout[]>(remoteSWRKey(`${base}/workouts?date=${dateStr}`), fetcher, swrOpts);
+    useSWR<Workout[], AccountBoundRemoteKey | null>(workoutsKey, accountBoundRemoteFetcher, swrOpts);
 
   const { data: inbodyRaw, mutate: mutateInbody, isLoading: l5 } =
     useSWR<Inbody[], AccountBoundInbodyKey | null>(inbodyKey, fetchAccountBoundInbody, swrOpts);

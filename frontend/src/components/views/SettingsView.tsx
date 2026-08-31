@@ -10,6 +10,7 @@
  */
 
 import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useSWRConfig } from 'swr';
 import { Settings, AlertTriangle, LogOut, ShieldCheck } from 'lucide-react';
 import { authFetch } from '../../lib/supabase';
 import { ViewProps } from '../../types';
@@ -33,6 +34,7 @@ import { getVaultStorageMetrics } from '../../lib/vaultStorageMetrics';
 import { shouldUseRemoteData } from '../../lib/remoteBoundary';
 import type { SettingsSectionId } from '../common/Sidebar';
 import { RECOVERY_MODE_MESSAGE, mayReset, recordRecoveryBlock } from '../../lib/recoverySafetyPolicy';
+import { revalidatePlannerAccountCache } from '../../lib/plannerCacheRevalidation';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
 
@@ -58,7 +60,19 @@ export const SettingsView = ({
   const notes = useNotesStore(s => s.notes);
   const folders = useNotesStore(s => s.folders);
   const cloudSyncEnabled = shouldUseRemoteData() && Boolean(user?.id);
-  const vaultRestore = useVaultRestoreFlow(showToast, t, cloudSyncEnabled, user?.id);
+  const { mutate: globalMutate } = useSWRConfig();
+  const revalidatePlannerAfterRestore = useCallback(() => {
+    mutateDaily();
+    mutateStatic();
+    revalidatePlannerAccountCache(globalMutate, user?.id);
+  }, [globalMutate, mutateDaily, mutateStatic, user?.id]);
+  const vaultRestore = useVaultRestoreFlow(
+    showToast,
+    t,
+    cloudSyncEnabled,
+    user?.id,
+    revalidatePlannerAfterRestore,
+  );
   const recovery = useRecoveryCenter(cloudSyncEnabled);
   const [backingUpZip, setBackingUpZip] = useState(false);
   const [storageTick, setStorageTick] = useState(0);
