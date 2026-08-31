@@ -76,6 +76,10 @@ class _RecordingQuery:
         self.filters.append((column, value))
         return self
 
+    def is_(self, column: str, value: object) -> "_RecordingQuery":
+        self.filters.append(("is", column, value))
+        return self
+
     def order(self, column: str, *, desc: bool = False) -> "_RecordingQuery":
         self.ordering.append((column, desc))
         return self
@@ -201,8 +205,8 @@ def test_normal_client_is_process_local_singleton_and_crud_has_no_request_auth_m
         assert first and second and inserted
         assert create_calls == [(TEST_URL, TEST_ANON_KEY)]
         assert [query.filters for query in client.executed[:2]] == [
-            [("user_id", "user-a")],
-            [("user_id", "user-b")],
+            [("user_id", "user-a"), ("is", "deleted_at", "null")],
+            [("user_id", "user-b"), ("is", "deleted_at", "null")],
         ]
         assert client.executed[2].insert_payload == {
             "user_id": "user-a",
@@ -228,7 +232,10 @@ def test_main_supabase_compatibility_surface_resolves_symbol_at_call_time(
         result = asyncio.run(module.get_recipes("replacement-user"))
 
         assert result
-        assert replacement.executed[0].filters == [("user_id", "replacement-user")]
+        assert replacement.executed[0].filters == [
+            ("user_id", "replacement-user"),
+            ("is", "deleted_at", "null"),
+        ]
         assert original.executed == []
         assert module.__dict__["supabase"] is replacement
 

@@ -2030,6 +2030,12 @@ const translationKeys = [
   "catPersonal",
   "catSleep",
   "catSocial",
+  "deletedRecipes",
+  "noDeletedRecipes",
+  "restoreRecipe",
+  "recipeRestored",
+  "failLoadDeletedRecipes",
+  "failRestoreRecipe",
 ] as const;
 
 export type TranslationKey = (typeof translationKeys)[number];

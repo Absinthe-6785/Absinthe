@@ -4,6 +4,8 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 import os
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 from jwt.exceptions import InvalidTokenError
 from supabase import create_client, Client
@@ -22,10 +24,19 @@ from remote_mutation import (
     rejected_response,
 )
 from restore_validation import MAX_RESTORE_ROWS, RESTORE_TABLE_FIELDS, RestorePayload, _non_empty_text, _workout_sets
+from schema_readiness import verify_recipe_deleted_at_schema
 
 load_dotenv()
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    # Render/uvicorn activates this app through the ASGI lifespan.  Refuse
+    # activation until the additive Recipe tombstone migration is queryable.
+    verify_recipe_deleted_at_schema(supabase)
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
 
 _raw_origins = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")
 ALLOWED_ORIGINS = [o.strip() for o in _raw_origins.split(",") if o.strip()]
@@ -835,7 +846,31 @@ class NoteBatchCreate(BaseModel):
 # ==========================================
 @app.get("/api/recipes")
 async def get_recipes(user_id: str = Depends(get_current_user)):
-    return supabase.table("recipes").select("*").eq("user_id", user_id).order("created_at", desc=True).execute().data or []
+    return (
+        supabase.table("recipes")
+        .select("*")
+        .eq("user_id", user_id)
+        .is_("deleted_at", "null")
+        .order("created_at", desc=True)
+        .execute()
+        .data
+        or []
+    )
+
+
+@app.get("/api/recipes/trash")
+async def get_deleted_recipes(user_id: str = Depends(get_current_user)):
+    """Return only this account's recoverable, soft-deleted Recipes."""
+    return (
+        supabase.table("recipes")
+        .select("*")
+        .eq("user_id", user_id)
+        .not_.is_("deleted_at", "null")
+        .order("deleted_at", desc=True)
+        .execute()
+        .data
+        or []
+    )
 
 @app.post("/api/recipes")
 async def create_recipe(recipe: RecipeCreate, user_id: str = Depends(get_current_user)):
@@ -852,9 +887,11 @@ async def create_recipe(recipe: RecipeCreate, user_id: str = Depends(get_current
 
 @app.put("/api/recipes/{recipe_id}")
 async def update_recipe(recipe_id: str, recipe: RecipeCreate, user_id: str = Depends(get_current_user)):
-    row = supabase.table("recipes").select("user_id").eq("id", recipe_id).maybe_single().execute().data
+    row = supabase.table("recipes").select("user_id, deleted_at").eq("id", recipe_id).maybe_single().execute().data
     if not row: raise HTTPException(status_code=404, detail="Not found")
     verify_owner(row["user_id"], user_id)
+    if row.get("deleted_at") is not None:
+        raise HTTPException(status_code=404, detail="Not found")
     data = supabase.table("recipes").update({
         "title": recipe.title,
         "category": recipe.category,
@@ -862,20 +899,72 @@ async def update_recipe(recipe_id: str, recipe: RecipeCreate, user_id: str = Dep
         "steps": recipe.steps,
         "memo": recipe.memo,
         "starred": recipe.starred,
-    }).eq("id", recipe_id).eq("user_id", user_id).execute().data or []
+    }).eq("id", recipe_id).eq("user_id", user_id).is_("deleted_at", "null").execute().data or []
     if not data:
         raise HTTPException(status_code=404, detail="Not found")
     return data[0]
 
 @app.delete("/api/recipes/{recipe_id}")
 async def delete_recipe(recipe_id: str, user_id: str = Depends(get_current_user)):
-    row = supabase.table("recipes").select("user_id").eq("id", recipe_id).maybe_single().execute().data
+    row = supabase.table("recipes").select("user_id, deleted_at").eq("id", recipe_id).maybe_single().execute().data
     if not row: raise HTTPException(status_code=404, detail="Not found")
     verify_owner(row["user_id"], user_id)
-    data = supabase.table("recipes").delete().eq("id", recipe_id).eq("user_id", user_id).execute().data or []
-    if not data:
+    if row.get("deleted_at") is not None:
         raise HTTPException(status_code=404, detail="Not found")
-    return data
+    deleted_at = datetime.now(timezone.utc).isoformat()
+    data = (
+        supabase.table("recipes")
+        .update({"deleted_at": deleted_at})
+        .eq("id", recipe_id)
+        .eq("user_id", user_id)
+        .is_("deleted_at", "null")
+        .execute()
+        .data
+        or []
+    )
+    if len(data) != 1:
+        raise HTTPException(status_code=404, detail="Not found")
+    deleted = data[0]
+    if (
+        not isinstance(deleted, dict)
+        or deleted.get("id") != recipe_id
+        or deleted.get("user_id") != user_id
+        or deleted.get("deleted_at") is None
+    ):
+        raise HTTPException(status_code=409, detail="Delete not confirmed")
+    return {"deleted": True, "recipe_id": recipe_id, "account_id": user_id, "deleted_at": deleted["deleted_at"]}
+
+
+@app.post("/api/recipes/{recipe_id}/restore")
+async def restore_deleted_recipe(recipe_id: str, user_id: str = Depends(get_current_user)):
+    """Restore one owned Recipe without allowing active-row overwrites."""
+    row = supabase.table("recipes").select("user_id, deleted_at").eq("id", recipe_id).maybe_single().execute().data
+    if not row:
+        raise HTTPException(status_code=404, detail="Not found")
+    verify_owner(row["user_id"], user_id)
+    if row.get("deleted_at") is None:
+        raise HTTPException(status_code=409, detail="Recipe is not deleted")
+    data = (
+        supabase.table("recipes")
+        .update({"deleted_at": None})
+        .eq("id", recipe_id)
+        .eq("user_id", user_id)
+        .not_.is_("deleted_at", "null")
+        .execute()
+        .data
+        or []
+    )
+    if len(data) != 1:
+        raise HTTPException(status_code=404, detail="Not found")
+    restored = data[0]
+    if (
+        not isinstance(restored, dict)
+        or restored.get("id") != recipe_id
+        or restored.get("user_id") != user_id
+        or restored.get("deleted_at") is not None
+    ):
+        raise HTTPException(status_code=409, detail="Restore not confirmed")
+    return restored
 
 # ==========================================
 # Routine Exceptions (예외일)
@@ -902,6 +991,9 @@ async def delete_routine_exception(exc_id: str, user_id: str = Depends(get_curre
 
 def _fetch_user_table(user_id: str, table: str, order: str | None = None):
     q = supabase.table(table).select("*").eq("user_id", user_id)
+    if table == "recipes":
+        # Active backups must not turn a recoverable delete back into an active row.
+        q = q.is_("deleted_at", "null")
     if order:
         q = q.order(order)
     return q.execute().data or []
@@ -1051,7 +1143,7 @@ def validate_restore_existing_id_ownership(
         try:
             columns = "id, user_id"
             if table == "recipes":
-                columns = "id, user_id, title, category, ingredients, steps, memo, starred"
+                columns = "id, user_id, title, category, ingredients, steps, memo, starred, deleted_at"
             result = (
                 supabase.table(table)
                 .select(columns)

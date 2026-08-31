@@ -8,6 +8,7 @@ export interface Recipe {
   memo: string;
   starred: boolean;
   created_at: string;
+  deleted_at?: string | null;
 }
 
 export const RECIPE_CATEGORIES = [

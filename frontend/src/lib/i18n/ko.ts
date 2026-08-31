@@ -2030,6 +2030,12 @@ const koTranslations = [
   "개인",
   "수면",
   "사교",
+  "최근 삭제됨",
+  "삭제된 레시피가 없습니다.",
+  "복원",
+  "레시피 복원됨",
+  "삭제된 레시피를 불러오지 못했습니다.",
+  "레시피 복원 실패",
 ] as const;
 
 export default koTranslations;

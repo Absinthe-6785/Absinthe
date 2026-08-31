@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Search, X, Plus, BookMarked, Star } from 'lucide-react';
+import { Search, X, Plus, BookMarked, Star, Trash2, RotateCcw } from 'lucide-react';
 import type { AppSettings, Theme } from '../../../../../types';
 import { resolveAppLanguage, getTranslator } from '../../../../../lib/i18n';
 import { WorkspaceLayout } from '../../../../common/workspaceLayout';
@@ -35,6 +35,9 @@ export interface RecipeStudioViewProps {
   onToggleStar: (recipe: Recipe) => void;
   onEdit: (recipe: Recipe) => void;
   onDelete: (id: string, title: string) => void;
+  deletedRecipes: readonly Recipe[];
+  deletedLoading: boolean;
+  onRestore: (id: string) => void;
   onMarkCooked: (id: string) => void;
   onOpenCookingNote?: (recipe: Recipe) => void;
   onNewRecipe: () => void;
@@ -52,6 +55,9 @@ export function RecipeStudioView({
   onToggleStar,
   onEdit,
   onDelete,
+  deletedRecipes,
+  deletedLoading,
+  onRestore,
   onMarkCooked,
   onOpenCookingNote,
   onNewRecipe,
@@ -65,6 +71,7 @@ export function RecipeStudioView({
   const [activeCategory, setActiveCategory] = useState<RecipeCategory>('All');
   const [showStarredOnly, setShowStarredOnly] = useState(false);
   const [sortOrder, setSortOrder] = useState<'newest' | 'oldest' | 'title'>('newest');
+  const [showTrash, setShowTrash] = useState(false);
 
   const visible = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
@@ -105,13 +112,25 @@ export function RecipeStudioView({
               theme={theme}
               dark={dark}
               trailing={(
-                <WorkspaceToolbarPrimary
-                  label={t('newRecipe')}
-                  icon={<Plus size={UI_INTERACTION.toolbarIconSizePx} />}
-                  onClick={onNewRecipe}
-                  className="w-auto shrink-0 px-4"
-                  dataHook="data-k110-new-recipe"
-                />
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowTrash(value => !value)}
+                    className={`inline-flex items-center gap-1.5 min-h-[40px] shrink-0 rounded-xl border px-3 text-xs font-bold transition-colors ${theme.border} ${dark ? 'hover:bg-white/10' : 'hover:bg-gray-100'}`}
+                    data-k110-recipe-trash-toggle
+                    aria-expanded={showTrash}
+                  >
+                    <Trash2 size={14} />
+                    {t('deletedRecipes')} {deletedRecipes.length > 0 ? `(${deletedRecipes.length})` : ''}
+                  </button>
+                  <WorkspaceToolbarPrimary
+                    label={t('newRecipe')}
+                    icon={<Plus size={UI_INTERACTION.toolbarIconSizePx} />}
+                    onClick={onNewRecipe}
+                    className="w-auto shrink-0 px-4"
+                    dataHook="data-k110-new-recipe"
+                  />
+                </div>
               )}
             />
           </WorkspaceToolbar>
@@ -224,6 +243,51 @@ export function RecipeStudioView({
                 )}
               </div>
             </section>
+
+            {showTrash && (
+              <section className={`${WORKSPACE_CARD_SURFACE} ${theme.card}`} data-k110-recipe-trash>
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h2 className={WORKSPACE_SECTION_TITLE_CLASS}>{t('deletedRecipes')}</h2>
+                    <p className={`text-xs ${theme.textMuted}`}>{t('noDeletedRecipes')}</p>
+                  </div>
+                  <Trash2 size={16} className={theme.textMuted} aria-hidden="true" />
+                </div>
+                {deletedLoading && (
+                  <p className={`mt-3 text-sm ${theme.textMuted}`}>{t('loading')}</p>
+                )}
+                {!deletedLoading && deletedRecipes.length === 0 && (
+                  <p className={`mt-3 text-sm ${theme.textMuted}`} data-k110-recipe-trash-empty>
+                    {t('noDeletedRecipes')}
+                  </p>
+                )}
+                {!deletedLoading && deletedRecipes.length > 0 && (
+                  <div className="mt-3 space-y-2" data-k110-recipe-trash-list>
+                    {deletedRecipes.map(recipe => (
+                      <div
+                        key={recipe.id}
+                        className={`flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5 ${theme.border} ${dark ? 'bg-surface' : 'bg-white'}`}
+                        data-k110-recipe-trash-row={recipe.id}
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-bold">{recipe.title}</p>
+                          <p className={`text-[11px] ${theme.textMuted}`}>{recipe.category}</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => onRestore(recipe.id)}
+                          className="inline-flex min-h-[40px] shrink-0 items-center gap-1.5 rounded-xl px-3 text-xs font-bold text-primary hover:bg-primary/10"
+                          data-k110-recipe-restore={recipe.id}
+                        >
+                          <RotateCcw size={14} />
+                          {t('restoreRecipe')}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+            )}
 
             <RecipeIngredientsSection
               ingredientGroups={projection.ingredientGroups}

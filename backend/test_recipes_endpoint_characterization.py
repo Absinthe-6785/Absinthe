@@ -45,6 +45,7 @@ class FakeRecipeQuery:
         self.filters: list[tuple[str, Any]] = []
         self.order_calls: list[tuple[str, bool]] = []
         self.single = False
+        self.limit_count: int | None = None
         self.payload: dict[str, Any] | None = None
 
     def select(self, columns: str) -> "FakeRecipeQuery":
@@ -56,8 +57,20 @@ class FakeRecipeQuery:
         self.filters.append((column, value))
         return self
 
+    def is_(self, column: str, value: Any) -> "FakeRecipeQuery":
+        self.filters.append(("is", column, value))
+        return self
+
+    @property
+    def not_(self) -> "FakeRecipeNegatedFilters":
+        return FakeRecipeNegatedFilters(self)
+
     def order(self, column: str, *, desc: bool = False) -> "FakeRecipeQuery":
         self.order_calls.append((column, desc))
+        return self
+
+    def limit(self, count: int) -> "FakeRecipeQuery":
+        self.limit_count = count
         return self
 
     def maybe_single(self) -> "FakeRecipeQuery":
@@ -79,12 +92,32 @@ class FakeRecipeQuery:
         return self
 
     def execute(self) -> SimpleNamespace:
-        self.client.executed.append(self)
+        def _matches(row: dict[str, Any]) -> bool:
+            for item in self.filters:
+                if len(item) == 2:
+                    column, value = item
+                    if row.get(column) != value:
+                        return False
+                    continue
+                kind, column, value = item
+                if kind == "is" and value == "null" and row.get(column) is not None:
+                    return False
+                if kind == "not_is" and value == "null" and row.get(column) is None:
+                    return False
+            return True
+
         matches = [
             row
             for row in self.client.rows
-            if all(row.get(column) == value for column, value in self.filters)
+            if _matches(row)
         ]
+
+        # The app lifespan performs a read-only schema probe. Keep that setup
+        # query out of endpoint-contract assertions while still exercising the
+        # same adapter path.
+        is_schema_probe = self.operation == "select" and self.columns == "deleted_at" and self.limit_count == 1
+        if not is_schema_probe:
+            self.client.executed.append(self)
 
         if self.operation == "select":
             if self.single:
@@ -96,6 +129,8 @@ class FakeRecipeQuery:
                 data = [{"user_id": row.get("user_id")} for row in matches]
             else:
                 data = matches
+            if self.limit_count is not None:
+                data = data[: self.limit_count]
             return SimpleNamespace(data=deepcopy(data))
 
         if self.operation == "insert":
@@ -116,20 +151,12 @@ class FakeRecipeQuery:
             if self.client.before_write is not None:
                 self.client.before_write(self)
                 self.client.before_write = None
-            for row in self.client.rows:
-                if all(row.get(column) == value for column, value in self.filters):
-                    row.update(self.payload)
+            matched_rows = [row for row in self.client.rows if _matches(row)]
+            for row in matched_rows:
+                row.update(self.payload)
             if self.client.update_data is not _UNSET:
                 return SimpleNamespace(data=deepcopy(self.client.update_data))
-            return SimpleNamespace(
-                data=deepcopy(
-                    [
-                        row
-                        for row in self.client.rows
-                        if all(row.get(column) == value for column, value in self.filters)
-                    ]
-                )
-            )
+            return SimpleNamespace(data=deepcopy(matched_rows))
 
         if self.operation == "delete":
             self.client.write_queries.append(self)
@@ -139,18 +166,27 @@ class FakeRecipeQuery:
             deleted = [
                 row
                 for row in self.client.rows
-                if all(row.get(column) == value for column, value in self.filters)
+                if _matches(row)
             ]
             self.client.rows[:] = [
                 row
                 for row in self.client.rows
-                if not all(row.get(column) == value for column, value in self.filters)
+                if not _matches(row)
             ]
             if self.client.delete_data is not _UNSET:
                 return SimpleNamespace(data=deepcopy(self.client.delete_data))
             return SimpleNamespace(data=deepcopy(deleted))
 
         raise AssertionError(f"Unexpected Recipes operation: {self.operation}")
+
+
+class FakeRecipeNegatedFilters:
+    def __init__(self, query: FakeRecipeQuery) -> None:
+        self.query = query
+
+    def is_(self, column: str, value: Any) -> FakeRecipeQuery:
+        self.query.filters.append(("not_is", column, value))
+        return self.query
 
 
 class FakeSupabase:
@@ -207,7 +243,13 @@ def test_get_success_is_user_scoped_ordered_and_raw(recipes_client):
         "title": "Old",
         "created_at": "2026-08-01T00:00:00Z",
     }
-    fake.rows[:] = [owned_new, owned_old, {"id": "other", "user_id": OTHER_USER_ID}]
+    owned_deleted = {
+        "id": "recipe-deleted",
+        "user_id": USER_ID,
+        "title": "Deleted",
+        "deleted_at": "2026-08-03T00:00:00Z",
+    }
+    fake.rows[:] = [owned_new, owned_old, owned_deleted, {"id": "other", "user_id": OTHER_USER_ID}]
 
     response = client.get("/api/recipes")
 
@@ -217,7 +259,7 @@ def test_get_success_is_user_scoped_ordered_and_raw(recipes_client):
     query = fake.executed[0]
     assert query.operation == "select"
     assert query.columns == "*"
-    assert query.filters == [("user_id", USER_ID)]
+    assert query.filters == [("user_id", USER_ID), ("is", "deleted_at", "null")]
     assert query.order_calls == [("created_at", True)]
 
 
@@ -329,11 +371,11 @@ def test_put_success_uses_full_payload_and_returns_first_updated_row(recipes_cli
     assert len(fake.executed) == 2
     lookup, update = fake.executed
     assert lookup.operation == "select"
-    assert lookup.columns == "user_id"
+    assert lookup.columns == "user_id, deleted_at"
     assert lookup.filters == [("id", recipe_id)]
     assert lookup.single is True
     assert update.operation == "update"
-    assert update.filters == [("id", recipe_id), ("user_id", USER_ID)]
+    assert update.filters == [("id", recipe_id), ("user_id", USER_ID), ("is", "deleted_at", "null")]
     assert fake.updated_payloads == [
         {
             "title": "After",
@@ -365,6 +407,20 @@ def test_put_owner_mismatch_returns_403_without_write(recipes_client):
     assert response.status_code == 403
     assert response.json() == {"detail": "Forbidden"}
     assert fake.write_queries == []
+
+
+def test_put_deleted_recipe_fails_closed_without_reactivating_it(recipes_client):
+    client, fake = recipes_client
+    recipe_id = "recipe-deleted-update"
+    fake.rows[:] = [{"id": recipe_id, "user_id": USER_ID, "title": "Deleted", "deleted_at": "2026-08-01T00:00:00Z"}]
+
+    response = client.put(f"/api/recipes/{recipe_id}", json=recipe_body(title="Must stay deleted"))
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Not found"}
+    assert fake.write_queries == []
+    assert fake.rows[0]["title"] == "Deleted"
+    assert fake.rows[0]["deleted_at"] == "2026-08-01T00:00:00Z"
 
 
 def test_put_ownership_race_fails_closed_without_foreign_update(recipes_client):
@@ -406,26 +462,34 @@ def test_put_zero_row_after_owner_preread_fails_closed(recipes_client):
     assert fake.rows == []
 
 
-def test_delete_success_checks_owner_targets_id_and_returns_raw_data(recipes_client):
+def test_delete_success_soft_deletes_owned_row_and_confirms_state(recipes_client):
     client, fake = recipes_client
     recipe_id = "recipe-delete"
     row = {"id": recipe_id, "user_id": USER_ID, "title": "Delete me"}
     fake.rows[:] = [row]
-    raw_deleted = [row | {"server_only": "raw"}]
-    fake.delete_data = raw_deleted
+    fake.update_data = [row | {"server_only": "raw", "deleted_at": "2026-08-31T00:00:00+00:00"}]
 
     response = client.delete(f"/api/recipes/{recipe_id}")
 
     assert response.status_code == 200
-    assert response.json() == raw_deleted
+    assert response.json() == {
+        "deleted": True,
+        "recipe_id": recipe_id,
+        "account_id": USER_ID,
+        "deleted_at": "2026-08-31T00:00:00+00:00",
+    }
     assert len(fake.executed) == 2
     lookup, delete = fake.executed
     assert lookup.operation == "select"
-    assert lookup.columns == "user_id"
+    assert lookup.columns == "user_id, deleted_at"
     assert lookup.filters == [("id", recipe_id)]
     assert lookup.single is True
-    assert delete.operation == "delete"
-    assert delete.filters == [("id", recipe_id), ("user_id", USER_ID)]
+    assert delete.operation == "update"
+    assert delete.filters == [("id", recipe_id), ("user_id", USER_ID), ("is", "deleted_at", "null")]
+    assert fake.updated_payloads[0]["deleted_at"]
+    assert fake.rows[0]["id"] == recipe_id
+    assert fake.rows[0]["title"] == "Delete me"
+    assert fake.rows[0]["deleted_at"]
 
 
 def test_delete_missing_row_returns_404_without_delete(recipes_client):
@@ -449,7 +513,7 @@ def test_delete_owner_mismatch_returns_403_without_delete(recipes_client):
     assert fake.write_queries == []
 
 
-def test_delete_ownership_race_fails_closed_without_foreign_delete(recipes_client):
+def test_delete_ownership_race_fails_closed_without_foreign_update(recipes_client):
     client, fake = recipes_client
     recipe_id = "recipe-race-delete"
     fake.rows[:] = [{"id": recipe_id, "user_id": USER_ID, "title": "Keep me"}]
@@ -479,6 +543,129 @@ def test_delete_zero_row_after_owner_preread_fails_closed(recipes_client):
     fake.before_write = remove_before_final_delete
 
     response = client.delete(f"/api/recipes/{recipe_id}")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Not found"}
+    assert fake.rows == []
+
+
+def test_get_trash_is_current_user_scoped_and_excludes_active_rows(recipes_client):
+    client, fake = recipes_client
+    deleted = {
+        "id": "recipe-deleted",
+        "user_id": USER_ID,
+        "title": "Deleted",
+        "deleted_at": "2026-08-03T00:00:00Z",
+    }
+    active = {"id": "recipe-active", "user_id": USER_ID, "title": "Active", "deleted_at": None}
+    foreign = {"id": "recipe-foreign", "user_id": OTHER_USER_ID, "deleted_at": "2026-08-04T00:00:00Z"}
+    fake.rows[:] = [deleted, active, foreign]
+
+    response = client.get("/api/recipes/trash")
+
+    assert response.status_code == 200
+    assert response.json() == [deleted]
+    query = fake.executed[0]
+    assert query.filters == [("user_id", USER_ID), ("not_is", "deleted_at", "null")]
+    assert query.order_calls == [("deleted_at", True)]
+
+
+def test_active_backup_recipe_fetch_excludes_soft_deleted_rows(recipes_client):
+    _, fake = recipes_client
+    active = {"id": "recipe-active", "user_id": USER_ID, "deleted_at": None}
+    deleted = {"id": "recipe-deleted", "user_id": USER_ID, "deleted_at": "2026-08-03T00:00:00Z"}
+    fake.rows[:] = [active, deleted]
+
+    result = main._fetch_user_table(USER_ID, "recipes", "created_at")
+
+    assert result == [active]
+    query = fake.executed[0]
+    assert query.filters == [("user_id", USER_ID), ("is", "deleted_at", "null")]
+    assert query.order_calls == [("created_at", False)]
+
+
+def test_delete_already_deleted_row_is_not_physical_or_successful_again(recipes_client):
+    client, fake = recipes_client
+    recipe_id = "recipe-already-deleted"
+    fake.rows[:] = [{"id": recipe_id, "user_id": USER_ID, "deleted_at": "2026-08-01T00:00:00Z"}]
+
+    response = client.delete(f"/api/recipes/{recipe_id}")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Not found"}
+    assert fake.write_queries == []
+    assert fake.rows[0]["deleted_at"] == "2026-08-01T00:00:00Z"
+
+
+def test_restore_deleted_recipe_clears_tombstone_for_owned_row(recipes_client):
+    client, fake = recipes_client
+    recipe_id = "recipe-restore"
+    fake.rows[:] = [{"id": recipe_id, "user_id": USER_ID, "title": "Restore", "deleted_at": "2026-08-01T00:00:00Z"}]
+
+    response = client.post(f"/api/recipes/{recipe_id}/restore")
+
+    assert response.status_code == 200
+    assert response.json()["id"] == recipe_id
+    assert response.json()["deleted_at"] is None
+    assert len(fake.executed) == 2
+    lookup, restore = fake.executed
+    assert lookup.columns == "user_id, deleted_at"
+    assert restore.operation == "update"
+    assert restore.filters == [("id", recipe_id), ("user_id", USER_ID), ("not_is", "deleted_at", "null")]
+    assert fake.updated_payloads == [{"deleted_at": None}]
+    assert fake.rows[0]["deleted_at"] is None
+
+
+def test_restore_active_recipe_is_not_a_successful_noop(recipes_client):
+    client, fake = recipes_client
+    recipe_id = "recipe-active"
+    fake.rows[:] = [{"id": recipe_id, "user_id": USER_ID, "deleted_at": None}]
+
+    response = client.post(f"/api/recipes/{recipe_id}/restore")
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": "Recipe is not deleted"}
+    assert fake.write_queries == []
+
+
+def test_restore_foreign_recipe_is_forbidden_without_write(recipes_client):
+    client, fake = recipes_client
+    recipe_id = "recipe-foreign"
+    fake.rows[:] = [{"id": recipe_id, "user_id": OTHER_USER_ID, "deleted_at": "2026-08-01T00:00:00Z"}]
+
+    response = client.post(f"/api/recipes/{recipe_id}/restore")
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Forbidden"}
+    assert fake.write_queries == []
+
+
+def test_restore_ownership_race_fails_closed_without_foreign_update(recipes_client):
+    client, fake = recipes_client
+    recipe_id = "recipe-restore-race"
+    fake.rows[:] = [{"id": recipe_id, "user_id": USER_ID, "deleted_at": "2026-08-01T00:00:00Z"}]
+
+    def change_owner_before_restore(_query):
+        fake.rows[0]["user_id"] = OTHER_USER_ID
+
+    fake.before_write = change_owner_before_restore
+    response = client.post(f"/api/recipes/{recipe_id}/restore")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Not found"}
+    assert fake.rows[0]["deleted_at"] == "2026-08-01T00:00:00Z"
+
+
+def test_restore_zero_row_after_preread_fails_closed(recipes_client):
+    client, fake = recipes_client
+    recipe_id = "recipe-zero-restore"
+    fake.rows[:] = [{"id": recipe_id, "user_id": USER_ID, "deleted_at": "2026-08-01T00:00:00Z"}]
+
+    def remove_before_restore(_query):
+        fake.rows.clear()
+
+    fake.before_write = remove_before_restore
+    response = client.post(f"/api/recipes/{recipe_id}/restore")
 
     assert response.status_code == 404
     assert response.json() == {"detail": "Not found"}

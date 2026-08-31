@@ -384,6 +384,35 @@ def test_restore_recipe_identical_same_user_collision_is_idempotent(destructive_
     assert [write for write in supabase.writes if write["table"] == "recipes"] == []
 
 
+def test_restore_preserves_soft_deleted_recipe_collision_without_resurrection(destructive_client):
+    client, supabase = destructive_client
+    deleted = recipe_row(
+        "recipe-soft-deleted",
+        user_id="test-user",
+        title="Keep deleted content",
+        deleted_at="2026-08-31T00:00:00Z",
+    )
+    backup = recipe_row("recipe-soft-deleted", title="Backup must not resurrect")
+    supabase.existing_by_table["recipes"] = [deleted]
+
+    response = client.post(
+        "/api/restore",
+        headers={"X-Absinthe-Recovery-Intent": main.RESTORE_RECOVERY_INTENT},
+        json={"recipes": [backup]},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["recipe_restore"] == {
+        "requested": 1,
+        "restored": 0,
+        "preserved": 1,
+        "idempotent": 0,
+        "conflicts": 1,
+    }
+    assert supabase.existing_by_table["recipes"] == [deleted]
+    assert [write for write in supabase.writes if write["table"] == "recipes"] == []
+
+
 def test_restore_recipe_collision_does_not_block_unrelated_new_recipe(destructive_client):
     client, supabase = destructive_client
     current = recipe_row("recipe-existing", user_id="test-user", title="Keep current")
