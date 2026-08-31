@@ -3,6 +3,7 @@
 export const RECIPE_VIEW_RECENTS_KEY = 'absinthe-recipe-view-recents';
 export const RECIPE_COOK_HISTORY_KEY = 'absinthe-recipe-cook-history';
 export const RECIPE_EDIT_RECENTS_KEY = 'absinthe-recipe-edit-recents';
+export const RECIPE_ACTIVITY_ACCOUNT_SEPARATOR = ':account:';
 
 const MAX_ENTRIES = 48;
 
@@ -12,7 +13,15 @@ export interface RecipeActivityEntry {
   title?: string;
 }
 
-function readEntries(key: string): RecipeActivityEntry[] {
+function accountScopedKey(baseKey: string, accountId?: string): string | null {
+  const normalized = accountId?.trim();
+  return normalized
+    ? `${baseKey}${RECIPE_ACTIVITY_ACCOUNT_SEPARATOR}${encodeURIComponent(normalized)}`
+    : null;
+}
+
+function readEntries(key: string | null): RecipeActivityEntry[] {
+  if (!key) return [];
   try {
     const raw = localStorage.getItem(key);
     if (!raw) return [];
@@ -24,46 +33,57 @@ function readEntries(key: string): RecipeActivityEntry[] {
   }
 }
 
-function writeEntries(key: string, entries: RecipeActivityEntry[]): void {
+function writeEntries(key: string | null, entries: RecipeActivityEntry[]): void {
+  if (!key) return;
   try {
     localStorage.setItem(key, JSON.stringify(entries.slice(0, MAX_ENTRIES)));
   } catch { /* ignore */ }
 }
 
-function pushEntry(key: string, recipeId: string, at = Date.now()): void {
+function pushEntry(baseKey: string, recipeId: string, accountId?: string, at = Date.now()): void {
+  const key = accountScopedKey(baseKey, accountId);
   const next = [{ recipeId, at }, ...readEntries(key).filter(e => e.recipeId !== recipeId)];
   writeEntries(key, next);
 }
 
-export function readRecipeViewRecents(): RecipeActivityEntry[] {
-  return readEntries(RECIPE_VIEW_RECENTS_KEY);
+export function readRecipeViewRecents(accountId?: string): RecipeActivityEntry[] {
+  return readEntries(accountScopedKey(RECIPE_VIEW_RECENTS_KEY, accountId));
 }
 
-export function readRecipeCookHistory(): RecipeActivityEntry[] {
-  return readEntries(RECIPE_COOK_HISTORY_KEY);
+export function readRecipeCookHistory(accountId?: string): RecipeActivityEntry[] {
+  return readEntries(accountScopedKey(RECIPE_COOK_HISTORY_KEY, accountId));
 }
 
-export function readRecipeEditRecents(): RecipeActivityEntry[] {
-  return readEntries(RECIPE_EDIT_RECENTS_KEY);
+export function readRecipeEditRecents(accountId?: string): RecipeActivityEntry[] {
+  return readEntries(accountScopedKey(RECIPE_EDIT_RECENTS_KEY, accountId));
 }
 
-export function recordRecipeView(recipeId: string, title?: string): void {
-  const next = [{ recipeId, at: Date.now(), title }, ...readEntries(RECIPE_VIEW_RECENTS_KEY).filter(e => e.recipeId !== recipeId)];
-  writeEntries(RECIPE_VIEW_RECENTS_KEY, next);
+export function recordRecipeView(recipeId: string, title?: string, accountId?: string): void {
+  const key = accountScopedKey(RECIPE_VIEW_RECENTS_KEY, accountId);
+  const next = [{ recipeId, at: Date.now(), title }, ...readEntries(key).filter(e => e.recipeId !== recipeId)];
+  writeEntries(key, next);
 }
 
-export function recordRecipeCook(recipeId: string): void {
-  pushEntry(RECIPE_COOK_HISTORY_KEY, recipeId);
+export function recordRecipeCook(recipeId: string, accountId?: string): void {
+  pushEntry(RECIPE_COOK_HISTORY_KEY, recipeId, accountId);
 }
 
-export function recordRecipeEdit(recipeId: string): void {
-  pushEntry(RECIPE_EDIT_RECENTS_KEY, recipeId);
+export function recordRecipeEdit(recipeId: string, accountId?: string): void {
+  pushEntry(RECIPE_EDIT_RECENTS_KEY, recipeId, accountId);
 }
 
 export function clearRecipeActivityForTest(): void {
   try {
-    localStorage.removeItem(RECIPE_VIEW_RECENTS_KEY);
-    localStorage.removeItem(RECIPE_COOK_HISTORY_KEY);
-    localStorage.removeItem(RECIPE_EDIT_RECENTS_KEY);
+    const baseKeys = [RECIPE_VIEW_RECENTS_KEY, RECIPE_COOK_HISTORY_KEY, RECIPE_EDIT_RECENTS_KEY];
+    for (const key of baseKeys) localStorage.removeItem(key);
+    const keysToRemove: string[] = [];
+    const length = typeof localStorage.length === 'number' ? localStorage.length : 0;
+    for (let index = 0; index < length; index += 1) {
+      const key = localStorage.key(index);
+      if (key && baseKeys.some(base => key.startsWith(`${base}${RECIPE_ACTIVITY_ACCOUNT_SEPARATOR}`))) {
+        keysToRemove.push(key);
+      }
+    }
+    for (const key of keysToRemove) localStorage.removeItem(key);
   } catch { /* ignore */ }
 }

@@ -16,6 +16,7 @@ const harness = vi.hoisted(() => ({
   account: 'account-a',
   requests: [] as PlannerRequest[],
   notesState: { notes: [], folders: [], vaultStructureVersion: 0 },
+  recipeRecents: {} as Record<string, Array<{ recipeId: string; title: string; at: number }>>,
 }));
 
 vi.mock('../../lib/config', () => ({ API_URL: 'https://example.invalid' }));
@@ -103,10 +104,27 @@ vi.mock('../common/WorkspaceErrorBoundary', () => ({ WorkspaceErrorBoundary: ({ 
 vi.mock('../common/WorkspacePageHeader', () => ({ WorkspacePageHeader: () => null }));
 vi.mock('../common/ProductEmptyState', () => ({ ProductEmptyState: () => null }));
 vi.mock('../../lib/noteNavigation', () => ({ openNote: vi.fn(), switchToTab: vi.fn() }));
-vi.mock('./buildRecentActivityProjection', () => ({ buildRecentActivityProjection: () => ({ groups: [] }) }));
+vi.mock('./buildRecentActivityProjection', () => ({
+  buildRecentActivityProjection: ({ recipeRecents }: { recipeRecents: Array<{ recipeId: string; title: string; at: number }> }) => ({
+    groups: [{
+      bucket: 'today',
+      items: recipeRecents.map(entry => ({
+        id: `recipe:${entry.recipeId}`,
+        domain: 'recipe',
+        kind: 'viewed',
+        title: entry.title,
+        timestamp: entry.at,
+        relativeLabel: 'now',
+        recipeId: entry.recipeId,
+      })),
+    }],
+  }),
+}));
 vi.mock('./k102RelativeDateLabels', () => ({ buildRelativeDateLabels: () => ({}) }));
 vi.mock('./features/planner/plannerActivityStorage', () => ({ readPlannerActivityRecents: () => [] }));
-vi.mock('./features/recipe/recipeActivityStorage', () => ({ readRecipeViewRecents: () => [] }));
+vi.mock('./features/recipe/recipeActivityStorage', () => ({
+  readRecipeViewRecents: (accountId?: string) => harness.recipeRecents[accountId ?? ''] ?? [],
+}));
 vi.mock('./features/knowledge/archive/archiveRestoreRecents', () => ({ readArchiveRestoreRecents: () => [] }));
 vi.mock('./features/planner/calendar-ui/usePlannerCalendarProjection', () => ({
   usePlannerCalendarProjection: ({ schedules, previousDaySchedules }: { schedules: unknown[]; previousDaySchedules: unknown[] }) => ({
@@ -126,7 +144,7 @@ vi.mock('./features/planner/hooks/useCountdownReviewed', () => ({ useCountdownRe
 vi.mock('./features/knowledge/databaseViews/parseDatabaseDate', () => ({ toDateKey: (date: Date) => date.toISOString().slice(0, 10) }));
 vi.mock('./features/archive/hooks/useArchiveProjection', () => ({ useArchiveProjection: () => ({ projection: { historyItems: [] } }) }));
 vi.mock('./features/home/buildHomeFoundationProjection', () => ({
-  buildHomeFoundationProjection: ({ plannerProjection, routines, workouts }: { plannerProjection?: { todayItems?: unknown[] }; routines: unknown[]; workouts: unknown[] }) => ({
+  buildHomeFoundationProjection: ({ plannerProjection, routines, workouts, recentActivity }: { plannerProjection?: { todayItems?: unknown[] }; routines: unknown[]; workouts: unknown[]; recentActivity?: { groups?: Array<{ items?: unknown[] }> } }) => ({
     continueItem: null,
     todayAgenda: plannerProjection?.todayItems ?? [],
     timetableSlots: [],
@@ -140,7 +158,7 @@ vi.mock('./features/home/buildHomeFoundationProjection', () => ({
       isDraft: false,
       isLocked: false,
     },
-    traces: [],
+    traces: recentActivity?.groups?.flatMap(group => group.items ?? []) ?? [],
     archiveTracesToday: 0,
   }),
 }));
@@ -216,6 +234,10 @@ describe('Planner/Home account-bound production paths', () => {
   beforeEach(() => {
     harness.account = 'account-a';
     harness.requests.length = 0;
+    harness.recipeRecents = {
+      'account-a': [{ recipeId: 'recipe-a', title: 'Account A recipe', at: Date.now() }],
+      'account-b': [{ recipeId: 'recipe-b', title: 'Account B recipe', at: Date.now() }],
+    };
     host = document.createElement('div');
     document.body.appendChild(host);
   });
@@ -287,5 +309,23 @@ describe('Planner/Home account-bound production paths', () => {
     expect(host?.textContent ?? '').not.toContain('account-a');
     expect(host?.querySelector('[data-daily-sources]')?.getAttribute('data-daily-sources')).not.toContain('account-a');
     expect(harness.requests.every(request => request.account === 'account-b')).toBe(true);
+  });
+
+  it('does not expose Account A Recipe activity in Home after an authenticated A -> B transition', async () => {
+    const cache = new Map<unknown, unknown>();
+    root = createRoot(host!);
+    await act(async () => {
+      renderProbe(root!, cache, { active: true, account: 'account-a' });
+    });
+    await flush();
+    expect(host?.textContent ?? '').toContain('Account A recipe');
+
+    await act(async () => {
+      renderProbe(root!, cache, { active: true, account: 'account-b' });
+    });
+    expect(host?.textContent ?? '').not.toContain('Account A recipe');
+    await flush();
+    expect(host?.textContent ?? '').toContain('Account B recipe');
+    expect(host?.textContent ?? '').not.toContain('Account A recipe');
   });
 });

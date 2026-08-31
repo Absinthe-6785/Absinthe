@@ -176,13 +176,13 @@ export const HomeView = ({
   const recentActivity = useMemo(() => buildRecentActivityProjection({
     notes: useNotesStore.getState().notes,
     plannerRecents: readPlannerActivityRecents(),
-    recipeRecents: readRecipeViewRecents(),
+    recipeRecents: readRecipeViewRecents(user.id),
     archiveRestoreRecents: readArchiveRestoreRecents(),
     labels: buildRelativeDateLabels(t),
     locale: lang,
     now: todayDate,
     limitPerBucket: 6,
-  }), [vaultStructureVersion, t, lang, todayDate]);
+  }), [vaultStructureVersion, t, lang, todayDate, user.id]);
 
   const { projection: archiveProjection } = useArchiveProjection(todayDate, lang);
 

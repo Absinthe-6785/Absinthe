@@ -3,9 +3,8 @@ import useSWR from 'swr';
 import { useNotesStore } from '../../../../store/useNotesStore';
 import { buildNoteChrome } from '../../noteEditorTheme';
 import type { AppSettings, Schedule, Todo, Routine, Workout, WeeklySchedule, ExerciseBlock } from '../../../../types';
-import { fetcher } from '../../../../lib/fetcher';
 import { API_URL } from '../../../../lib/config';
-import { remoteSWRKey } from '../../../../lib/remoteBoundary';
+import { accountBoundRemoteFetcher, accountBoundRemoteKey } from '../../../../lib/accountBoundRemote';
 import type { Recipe } from '../recipe/recipeTypes';
 import { registerWorkspaceSearchOpener } from '../../../../lib/noteNavigation';
 import { resolveAppLanguage } from '../../../../lib/i18n';
@@ -18,6 +17,7 @@ import { loadSearchRecent } from './searchRecentStorage';
 import type { SearchDatasetState } from '../../../../lib/searchReadiness';
 
 export interface GlobalSearchHostProps {
+  accountId?: string;
   appSettings: AppSettings;
   schedules: readonly Schedule[];
   todos: readonly Todo[];
@@ -32,6 +32,7 @@ export interface GlobalSearchHostProps {
 
 /** K-111 — App-level cross-domain search host. */
 export function GlobalSearchHost({
+  accountId,
   appSettings,
   onSearchHasQueryChange,
   schedules,
@@ -52,8 +53,8 @@ export function GlobalSearchHost({
   const [isSearching, setIsSearching] = useState(false);
 
   const { data: recipes = [] } = useSWR<Recipe[]>(
-    open ? remoteSWRKey(`${API_URL}/api/recipes`) : null,
-    fetcher,
+    accountBoundRemoteKey(`${API_URL}/api/recipes`, accountId, open),
+    accountBoundRemoteFetcher,
     { revalidateOnFocus: false },
   );
 
@@ -94,8 +95,8 @@ export function GlobalSearchHost({
   );
 
   const recentSearches = useMemo(
-    () => loadSearchRecent(),
-    [open, recentRevision],
+    () => loadSearchRecent(accountId),
+    [accountId, open, recentRevision],
   );
 
   const projection = useSearchProjection({
@@ -130,6 +131,7 @@ export function GlobalSearchHost({
 
   return (
     <SearchWorkspacePalette
+      accountId={accountId}
       colors={colors}
       projection={projection}
       open={open}

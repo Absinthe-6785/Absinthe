@@ -157,6 +157,7 @@ function mount(
       SWRConfig,
       { value: { provider: () => new Map(), dedupingInterval: 0, revalidateOnFocus: false } },
       createElement(GlobalSearchHost, {
+        accountId: 'account-a',
         appSettings: settings(),
         onSearchHasQueryChange,
         ...data,

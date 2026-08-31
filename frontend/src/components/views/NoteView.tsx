@@ -1346,6 +1346,7 @@ export const NoteView = ({ showToast = () => {}, accountId }: NoteViewProps) => 
   const childPropInput = useNoteViewChildPropInput(useMemo(() => ({
     sidebarLayout: { hideLeftChrome, hideSecondaryChrome, hideNoteList, isMobile, isTablet, isCompactChrome, isWorkspacePanelMode, sidebarCollapsed, mobileSidebarOpen },
     sidebarData: {
+      accountId,
       c, dark, notes, folders, activeFolderId, activeTag, activeNoteCount, trashCount, starredCount,
       sidebarTodayCount, sidebarYesterdayCount, sidebarWeekCount, sidebarMonthCount, isTrash, noteListFilter,
       searchQuery, sidebarSearchQuery, knowledgeQueryInfo, workspaceActivation, isTraceLensMode, todayTraceKey, isTraceDayMode, traceDate,
@@ -1447,7 +1448,7 @@ export const NoteView = ({ showToast = () => {}, accountId }: NoteViewProps) => 
     },
   }), [
     hideLeftChrome, hideSecondaryChrome, hideNoteList, isMobile, isTablet, isCompactChrome, isWorkspacePanelMode,
-    sidebarCollapsed, mobileSidebarOpen, c, dark, notes, folders, activeFolderId, activeTag, activeNoteCount, isEmptyVault,
+    sidebarCollapsed, mobileSidebarOpen, accountId, c, dark, notes, folders, activeFolderId, activeTag, activeNoteCount, isEmptyVault,
       trashCount, starredCount, sidebarTodayCount, sidebarMonthCount, isTrash, noteListFilter, searchQuery, sidebarSearchQuery, knowledgeQueryInfo, workspaceActivation, isTraceLensMode,
     todayTraceKey, isTraceDayMode, traceDate, isTraceRangeMode, traceRange, currentTraceMonthKey,
     currentTraceQuarterKey, currentTraceYearKey, areaNotes, isTraceAreaMode, traceAreaId, isTraceDiscoveryMode,

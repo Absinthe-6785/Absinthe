@@ -15,7 +15,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('swr', () => ({
   default: (key: string | null) => {
-    const deleted = typeof key === 'string' && key.endsWith('/api/recipes/trash');
+    const deleted = typeof key === 'string' && key.includes('/api/recipes/trash');
     return {
       data: deleted ? [deletedRecipe] : [activeRecipe],
       isLoading: false,
@@ -104,6 +104,7 @@ const emptyProjection = {
 };
 
 const props = {
+  accountId: 'account-a',
   showToast: mocks.showToast,
   updateSetting: vi.fn(),
   appSettings: { darkMode: true, defaultCategory: 'Other', defaultColor: 'blue', language: 'en' as const },

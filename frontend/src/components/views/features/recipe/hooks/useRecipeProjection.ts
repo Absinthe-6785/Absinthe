@@ -11,6 +11,7 @@ import {
 export interface UseRecipeProjectionOptions {
   locale?: string;
   now?: Date;
+  accountId?: string;
   /** Bump after UI-only activity writes (view / cook / edit). */
   activityTick?: number;
 }
@@ -21,16 +22,17 @@ export function useRecipeProjection(
 ): RecipeProjection {
   const locale = options?.locale;
   const now = options?.now;
+  const accountId = options?.accountId;
   const activityTick = options?.activityTick ?? 0;
 
   return useMemo(() => {
     return buildRecipeProjection({
       recipes,
-      viewRecents: readRecipeViewRecents(),
-      cookHistory: readRecipeCookHistory(),
-      editRecents: readRecipeEditRecents(),
+      viewRecents: readRecipeViewRecents(accountId),
+      cookHistory: readRecipeCookHistory(accountId),
+      editRecents: readRecipeEditRecents(accountId),
       now: now ?? new Date(),
       locale,
     });
-  }, [recipes, locale, now, activityTick]);
+  }, [recipes, locale, now, accountId, activityTick]);
 }

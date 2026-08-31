@@ -35,6 +35,7 @@ const DOMAIN_PREF_KEYS: Record<SearchDomain, SearchSectionPrefKey> = {
 };
 
 export interface SearchWorkspacePaletteProps {
+  accountId?: string;
   colors: NoteChromeColors;
   projection: SearchProjection;
   open: boolean;
@@ -57,18 +58,18 @@ function groupStateLabel(state: SearchDatasetState | undefined, t: (key: Transla
   return undefined;
 }
 
-function recordRecent(result: SearchResultItem): void {
+function recordRecent(result: SearchResultItem, accountId?: string): void {
   pushSearchRecent({
     domain: result.domain,
     kind: String(result.kind),
     id: result.recipeId ?? result.noteId ?? result.plannerItemId ?? result.id,
     title: result.title,
-  });
+  }, accountId);
 }
 
-function navigateResult(result: SearchResultItem): void {
+function navigateResult(result: SearchResultItem, accountId?: string): void {
   const handlers = getSearchNoteHandlers();
-  recordRecent(result);
+  recordRecent(result, accountId);
 
   if (result.domain === 'notes') {
     switchToTab('note');
@@ -121,6 +122,7 @@ function navigateResult(result: SearchResultItem): void {
 }
 
 export function SearchWorkspacePalette({
+  accountId,
   colors: c,
   projection,
   open,
@@ -160,15 +162,15 @@ export function SearchWorkspacePalette({
   }, [query, projection.generatedAt]);
 
   const handleSelect = useCallback((result: SearchResultItem) => {
-    navigateResult(result);
+    navigateResult(result, accountId);
     onRecentRevision();
     onClose();
-  }, [onClose, onRecentRevision]);
+  }, [accountId, onClose, onRecentRevision]);
 
   const handleClearRecent = useCallback(() => {
-    clearSearchRecentHistory();
+    clearSearchRecentHistory(accountId);
     onRecentRevision();
-  }, [onRecentRevision]);
+  }, [accountId, onRecentRevision]);
 
   useEffect(() => {
     if (!open) return;
