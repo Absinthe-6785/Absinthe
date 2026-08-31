@@ -862,15 +862,20 @@ async def update_recipe(recipe_id: str, recipe: RecipeCreate, user_id: str = Dep
         "steps": recipe.steps,
         "memo": recipe.memo,
         "starred": recipe.starred,
-    }).eq("id", recipe_id).execute().data
-    return data[0] if data else {}
+    }).eq("id", recipe_id).eq("user_id", user_id).execute().data or []
+    if not data:
+        raise HTTPException(status_code=404, detail="Not found")
+    return data[0]
 
 @app.delete("/api/recipes/{recipe_id}")
 async def delete_recipe(recipe_id: str, user_id: str = Depends(get_current_user)):
     row = supabase.table("recipes").select("user_id").eq("id", recipe_id).maybe_single().execute().data
     if not row: raise HTTPException(status_code=404, detail="Not found")
     verify_owner(row["user_id"], user_id)
-    return supabase.table("recipes").delete().eq("id", recipe_id).execute().data
+    data = supabase.table("recipes").delete().eq("id", recipe_id).eq("user_id", user_id).execute().data or []
+    if not data:
+        raise HTTPException(status_code=404, detail="Not found")
+    return data
 
 # ==========================================
 # Routine Exceptions (예외일)
