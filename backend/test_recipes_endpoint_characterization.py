@@ -45,6 +45,7 @@ class FakeRecipeQuery:
         self.filters: list[tuple[str, Any]] = []
         self.order_calls: list[tuple[str, bool]] = []
         self.single = False
+        self.limit_count: int | None = None
         self.payload: dict[str, Any] | None = None
 
     def select(self, columns: str) -> "FakeRecipeQuery":
@@ -68,6 +69,10 @@ class FakeRecipeQuery:
         self.order_calls.append((column, desc))
         return self
 
+    def limit(self, count: int) -> "FakeRecipeQuery":
+        self.limit_count = count
+        return self
+
     def maybe_single(self) -> "FakeRecipeQuery":
         self.single = True
         return self
@@ -87,8 +92,6 @@ class FakeRecipeQuery:
         return self
 
     def execute(self) -> SimpleNamespace:
-        self.client.executed.append(self)
-
         def _matches(row: dict[str, Any]) -> bool:
             for item in self.filters:
                 if len(item) == 2:
@@ -109,6 +112,13 @@ class FakeRecipeQuery:
             if _matches(row)
         ]
 
+        # The app lifespan performs a read-only schema probe. Keep that setup
+        # query out of endpoint-contract assertions while still exercising the
+        # same adapter path.
+        is_schema_probe = self.operation == "select" and self.columns == "deleted_at" and self.limit_count == 1
+        if not is_schema_probe:
+            self.client.executed.append(self)
+
         if self.operation == "select":
             if self.single:
                 row = matches[0] if matches else None
@@ -119,6 +129,8 @@ class FakeRecipeQuery:
                 data = [{"user_id": row.get("user_id")} for row in matches]
             else:
                 data = matches
+            if self.limit_count is not None:
+                data = data[: self.limit_count]
             return SimpleNamespace(data=deepcopy(data))
 
         if self.operation == "insert":

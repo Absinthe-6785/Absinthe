@@ -74,4 +74,4 @@ jobs:
           cache-dependency-path: backend/pyproject.toml
       - run: python -m pip install --upgrade pip
       - run: python -m pip install -r requirements.txt
-      - run: python -m pytest test_recovery_mode.py -q
+      - run: python -m pytest test_recovery_mode.py test_recipe_schema_readiness.py test_recipes_endpoint_characterization.py -q

@@ -4,6 +4,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 import os
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 from jwt.exceptions import InvalidTokenError
@@ -23,10 +24,19 @@ from remote_mutation import (
     rejected_response,
 )
 from restore_validation import MAX_RESTORE_ROWS, RESTORE_TABLE_FIELDS, RestorePayload, _non_empty_text, _workout_sets
+from schema_readiness import verify_recipe_deleted_at_schema
 
 load_dotenv()
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    # Render/uvicorn activates this app through the ASGI lifespan.  Refuse
+    # activation until the additive Recipe tombstone migration is queryable.
+    verify_recipe_deleted_at_schema(supabase)
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
 
 _raw_origins = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")
 ALLOWED_ORIGINS = [o.strip() for o in _raw_origins.split(",") if o.strip()]
