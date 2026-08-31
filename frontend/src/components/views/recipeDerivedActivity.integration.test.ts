@@ -3,13 +3,69 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { NoteViewSidebar } from './noteview/NoteViewSidebar';
+import { NoteView } from './NoteView';
 import {
   clearRecipeActivityForTest,
   recordRecipeView,
 } from './features/recipe/recipeActivityStorage';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+const harness = vi.hoisted(() => ({
+  childProps: null as any,
+  noop: vi.fn(),
+  notesState: {
+    notes: [],
+    folders: [],
+    vaultStructureVersion: 0,
+    indexContentVersion: 0,
+    activeNoteId: null,
+    isSyncing: false,
+    savedAt: null,
+    syncError: null,
+    syncIssue: null,
+  } as Record<string, unknown>,
+}));
+
+vi.mock('./noteview/index', async () => {
+  const actual = await vi.importActual<typeof import('./noteview/index')>('./noteview/index');
+  const proxy = new Proxy({}, { get: () => harness.noop });
+  return {
+    ...actual,
+    useNoteViewActions: () => proxy,
+    useNoteViewDashboard: () => ({
+      historyEvents: [],
+      discoveryFeed: { items: [] },
+      unifiedWorkspaceDashboard: {},
+      learningPathOverview: { paths: [], totalPathCount: 0 },
+      subjectWorkspaces: [],
+      cosmosVaultPhase: {},
+      knowledgeTimeline: { periods: [], areaEvolution: [], milestones: [] },
+      activitySummary: {},
+      cosmosEvolutionSummary: null,
+      cosmosEvolutionStory: null,
+      knowledgeJourney: null,
+      evolutionInsights: {},
+      bootstrapImportSummary: null,
+      discoveryProgress: {},
+      dashboardRecentActivity: [],
+      dashboardLatestMilestone: null,
+      handleDismissBootstrapSummary: harness.noop,
+      handleExportHistory: harness.noop,
+    }),
+    useNoteViewPanels: () => proxy,
+    useNoteViewChildPropInput: () => ({}),
+    useNoteViewChildProps: () => ({
+      sidebarProps: harness.childProps,
+      editorAreaProps: {},
+      contextPanelProps: {},
+    }),
+    useNoteViewPanelConfig: () => ({ viewModes: [], rightPanels: [] }),
+    NoteViewEditorArea: () => null,
+    NoteContextPanelBody: () => null,
+    NoteViewShortcutsModal: () => null,
+  };
+});
 
 vi.mock('../common/WorkspaceSectionNav', () => ({ WorkspaceSectionNav: () => null }));
 vi.mock('../common/WorkspacePageHeader', () => ({ WorkspacePageHeader: () => null }));
@@ -43,11 +99,98 @@ vi.mock('./features/knowledge', () => ({
   AreaTraceView: () => null,
   AreaDiscoveryView: () => null,
   DatabaseViewPanel: () => null,
+  buildFormulaQueryCatalog: () => [],
+  buildKnowledgeMaintenanceData: () => ({}),
+  buildDailyTraceProjection: () => ({ activities: [], events: [], milestones: [] }),
+  buildRangeLensProjection: () => ({ notesTouched: 0 }),
+  buildAreaTraceProjection: () => ({ activities: [], events: [], milestones: [] }),
+  buildAreaRangeLensProjection: () => ({ notesTouched: 0 }),
+  buildAreaDiscoveryProjection: () => ({ observations: [] }),
+  currentTraceMonth: () => ({ year: 2026, month: 8 }),
+  currentTraceQuarter: () => ({ year: 2026, quarter: 3 }),
+  currentTraceYear: () => 2026,
+  listAreaNotes: () => [],
+  useNoteWorkspace: () => ({
+    workspaceActivation: { kind: 'none' },
+    setWorkspaceActivation: harness.noop,
+    savedViews: [],
+    ruleCollections: [],
+    databaseViews: [],
+    activeSavedView: undefined,
+    activeSmartCollection: undefined,
+    activeRuleCollection: undefined,
+    activeDatabaseView: undefined,
+    isDatabaseViewMode: false,
+    isDashboardMode: false,
+    dashboard: {},
+    resumeWorkspace: null,
+    recentNotes: [],
+    shouldSkipUserSort: false,
+    smartCollectionCounts: {},
+    ruleCollectionCounts: {},
+    databaseViewCounts: {},
+    activeDatabaseViewNoteCount: 0,
+    canSaveCurrentView: false,
+    canCreateRuleCollection: false,
+    canCreateDatabaseView: false,
+    safeNotesForDatabase: [],
+    applyWorkspaceToNotes: (notes: unknown[]) => notes,
+    isWorkspaceKindActive: () => false,
+    handleActivateSavedView: harness.noop,
+    handleClearSavedView: harness.noop,
+    handleActivateSmartCollection: harness.noop,
+    handleClearSmartCollection: harness.noop,
+    handleActivateRuleCollection: harness.noop,
+    handleClearRuleCollection: harness.noop,
+    handleCreateRuleCollection: harness.noop,
+    handleRenameRuleCollection: harness.noop,
+    handleDeleteRuleCollection: harness.noop,
+    handleActivateDatabaseView: harness.noop,
+    handleClearDatabaseView: harness.noop,
+    handleCreateDatabaseView: harness.noop,
+    handleCreateDatabaseViewFromTemplate: harness.noop,
+    handleRenameDatabaseView: harness.noop,
+    handleDeleteDatabaseView: harness.noop,
+    handleCreateSavedView: harness.noop,
+    handleRenameSavedView: harness.noop,
+    handleDeleteSavedView: harness.noop,
+    patchActiveDatabaseView: harness.noop,
+    pinnedWorkspaces: [],
+    recentWork: [],
+    isWorkspacePinned: () => false,
+    handleActivateWorkspaceRef: harness.noop,
+    handleTogglePinWorkspace: harness.noop,
+    handleUnpinWorkspace: harness.noop,
+    handleMovePinnedWorkspace: harness.noop,
+    handleClearRecentWork: harness.noop,
+    handleActivateDashboard: harness.noop,
+    handleClearDashboard: harness.noop,
+    handleResumeLastWorkspace: harness.noop,
+    handleLeaveDashboardForNote: harness.noop,
+    focusPresets: [],
+    focusPresetTargets: [],
+    focusSession: { activePresetId: null },
+    activeFocusPreset: null,
+    isFocusPresetActive: false,
+    focusUiPreferences: { hideSidebar: false, hideSecondaryPanels: false, hideGraph: false },
+    focusWorkspaceOptions: [],
+    handleCreateFocusPreset: harness.noop,
+    handleDeleteFocusPreset: harness.noop,
+    handleActivateFocusPreset: harness.noop,
+    handleExitFocusPreset: harness.noop,
+    quickCapture: null,
+    handleQuickCapture: harness.noop,
+    taskTemplates: [],
+    journalTemplates: [],
+    handleCreateTask: harness.noop,
+    handleCreateJournal: harness.noop,
+    handleCreateTaskDatabase: harness.noop,
+    handleCreateJournalDatabase: harness.noop,
+  }),
 }));
 vi.mock('./features/knowledge/collections/sidebarSmartCollections', () => ({ getSidebarSmartCollections: () => [] }));
 vi.mock('./NoteSidebarVirtualList', () => ({ NoteSidebarVirtualList: () => null }));
 vi.mock('./EmbeddedAttachmentMigrationReviewPanel', () => ({ EmbeddedAttachmentMigrationReviewPanel: () => null }));
-vi.mock('../notes/NotesOverviewSignalPanelContainer', () => ({ NotesOverviewSignalPanelContainer: () => null }));
 vi.mock('../searchFocusIsolation', () => ({ SIDEBAR_NOTE_SEARCH_ATTR: 'data-sidebar-search' }));
 vi.mock('../../lib/i18n', () => ({
   resolveIntlLocale: () => 'en-US',
@@ -115,14 +258,32 @@ vi.mock('../../lib/trashNoteStorage', () => ({
 vi.mock('../../lib/noteNavigation', () => ({
   openWorkspaceSearch: vi.fn(),
   switchToTab: vi.fn(),
+  registerNotesTrashOpener: () => () => {},
+  registerSearchNoteHandlers: () => () => {},
 }));
 vi.mock('./features/planner/plannerActivityStorage', () => ({ readPlannerActivityRecents: () => [] }));
 vi.mock('./features/knowledge/archive/archiveRestoreRecents', () => ({ readArchiveRestoreRecents: () => [] }));
 vi.mock('../../store/useNotesStore', () => ({
   useNotesStore: Object.assign(
-    (selector: (state: Record<string, unknown>) => unknown) => selector({ notes: [], vaultStructureVersion: 0 }),
-    { getState: () => ({ notes: [] }) },
+    (selector: (state: Record<string, unknown>) => unknown) => selector(harness.notesState),
+    { getState: () => harness.notesState },
   ),
+}));
+vi.mock('../../store/useAppStore', () => ({
+  useAppStore: () => ({
+    appSettings: { darkMode: true },
+    updateSetting: harness.noop,
+  }),
+}));
+vi.mock('../../hooks/useViewportLayout', () => ({ useViewportLayout: () => ({ isMobile: false, isTablet: false }) }));
+vi.mock('../../hooks/useModalA11y', () => ({ useModalA11y: () => {} }));
+vi.mock('../../hooks/useConfirm', () => ({
+  useConfirm: () => ({ confirm: null, showConfirm: harness.noop, clearConfirm: harness.noop, handleConfirm: harness.noop }),
+}));
+vi.mock('../../hooks/useVaultRestoreFlow', () => ({ useVaultRestoreFlow: () => ({ openFilePicker: harness.noop }) }));
+vi.mock('../../lib/noteNavigationStack', () => ({
+  navigateToNoteWithHistory: harness.noop,
+  seedNoteNavigationStack: harness.noop,
 }));
 
 const colors = {
@@ -260,6 +421,11 @@ describe('Notes Recipe-derived activity account boundary', () => {
 
   beforeEach(() => {
     clearRecipeActivityForTest();
+    harness.childProps = {
+      layout: sidebarLayout(),
+      data: sidebarData('account-a'),
+      handlers: sidebarHandlers(),
+    };
     host = document.createElement('div');
     document.body.appendChild(host);
     root = createRoot(host);
@@ -275,19 +441,16 @@ describe('Notes Recipe-derived activity account boundary', () => {
     recordRecipeView('recipe-a', 'Account A recipe', 'account-a');
     recordRecipeView('recipe-b', 'Account B recipe', 'account-b');
 
-    act(() => root.render(createElement(NoteViewSidebar, {
-      layout: sidebarLayout(),
-      data: sidebarData('account-a'),
-      handlers: sidebarHandlers(),
-    })));
+    act(() => root.render(createElement(NoteView, { accountId: 'account-a' })));
     expect(host.querySelector('output')?.getAttribute('data-notes-recipe-activity')).toContain('recipe-a:Account A recipe');
     expect(host.querySelector('output')?.getAttribute('data-notes-recipe-activity')).not.toContain('recipe-b');
 
-    act(() => root.render(createElement(NoteViewSidebar, {
+    harness.childProps = {
       layout: sidebarLayout(),
       data: sidebarData('account-b'),
       handlers: sidebarHandlers(),
-    })));
+    };
+    act(() => root.render(createElement(NoteView, { accountId: 'account-b' })));
     const output = host.querySelector('output')?.getAttribute('data-notes-recipe-activity');
     expect(output).toContain('recipe-b:Account B recipe');
     expect(output).not.toContain('recipe-a');
