@@ -79,6 +79,7 @@ export interface NoteViewSidebarLayout {
 }
 
 export interface NoteViewSidebarData {
+  accountId?: string;
   c: NoteChromeColors;
   dark: boolean;
   notes: Note[];
@@ -309,6 +310,7 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
     isCompactChrome, isWorkspacePanelMode, sidebarCollapsed, mobileSidebarOpen,
   } = layout;
   const {
+    accountId,
     c, dark, notes, folders, activeFolderId, activeTag, activeNoteCount, trashCount, starredCount,
     sidebarTodayCount, sidebarYesterdayCount, sidebarWeekCount, sidebarMonthCount,
     isTrash, noteListFilter, searchQuery, sidebarSearchQuery, knowledgeQueryInfo, workspaceActivation, isTraceLensMode, todayTraceKey,
@@ -342,11 +344,11 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
   const crossDomainActivity = useMemo(() => buildRecentActivityProjection({
     notes: activeNotes,
     plannerRecents: readPlannerActivityRecents(),
-    recipeRecents: readRecipeViewRecents(),
+    recipeRecents: readRecipeViewRecents(accountId),
     archiveRestoreRecents: readArchiveRestoreRecents(),
     labels: buildRelativeDateLabels(t),
     locale: lang,
-  }), [activeNotes, t, lang]);
+  }), [accountId, activeNotes, t, lang]);
   const isTraceWeekMode = isTraceRangeMode
     && traceRange?.kind === 'custom'
     && weekTraceBounds

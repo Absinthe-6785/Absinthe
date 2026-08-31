@@ -42,9 +42,9 @@ describe('LEAN_04B Search source characterization', () => {
     expect(app).toContain('weeklySchedules={weeklySchedules}');
     expect(app.indexOf('<GlobalSearchHost')).toBeGreaterThan(app.indexOf('</Suspense>'));
     expect(host).not.toContain('inbody');
-    expect(host).toContain('open ? remoteSWRKey(`${API_URL}/api/recipes`) : null');
+    expect(host).toContain('accountBoundRemoteKey(`${API_URL}/api/recipes`, accountId, open)');
     expect(host).toContain('recipes,');
-    expect(source('components/views/RecipeView.tsx')).toContain('remoteSWRKey(`${API_URL}/api/recipes`)');
+    expect(source('components/views/RecipeView.tsx')).toContain('accountBoundRemoteKey(`${API_URL}/api/recipes`, accountId)');
     expect(projection).toContain('const plannerResults = trimmed');
     expect(projection).toContain('const healthResults = trimmed');
     expect(projection).toContain('const recipeResults = trimmed');
@@ -60,7 +60,7 @@ describe('LEAN_04B Search source characterization', () => {
     expect(statics).toContain("['health-static', accountId, remoteKey]");
     expect(statics).toContain('const localHealthKey = localHealthCacheKey && healthReady && (healthBlocksEnabled || healthRoutinesEnabled)');
     expect(statics).toContain('readLocalHealthStatic(ownerId)');
-    expect(host).not.toContain('accountId');
+    expect(host).toContain('accountId?: string');
   });
 
   it('pins that Search has no dataset readiness or account-generation state today', () => {
@@ -68,7 +68,7 @@ describe('LEAN_04B Search source characterization', () => {
     const projection = source('components/views/features/search/buildSearchProjection.ts');
     expect(host).not.toContain('isLoading');
     expect(host).not.toContain('error:');
-    expect(host).not.toContain('accountId');
+    expect(host).toContain('accountId');
     expect(projection).not.toContain('loading');
     expect(projection).not.toContain('accountGeneration');
     expect(projection).toContain('noResults: trimmed.length > 0 && results.length === 0');

@@ -19,6 +19,7 @@ export function useNoteViewSidebarProps(input: UseNoteViewSidebarPropsInput): No
     isWorkspacePanelMode,
     sidebarCollapsed,
     mobileSidebarOpen,
+    accountId,
     c,
     dark,
     notes,
@@ -233,6 +234,7 @@ export function useNoteViewSidebarProps(input: UseNoteViewSidebarPropsInput): No
       mobileSidebarOpen,
     },
     data: {
+      accountId,
       c,
       dark,
       notes,
@@ -437,7 +439,7 @@ export function useNoteViewSidebarProps(input: UseNoteViewSidebarPropsInput): No
     },
   }), [
     hideLeftChrome, hideSecondaryChrome, hideNoteList, isMobile, isTablet, isCompactChrome,
-    isWorkspacePanelMode, sidebarCollapsed, mobileSidebarOpen, c, dark, notes, folders,
+    isWorkspacePanelMode, sidebarCollapsed, mobileSidebarOpen, accountId, c, dark, notes, folders,
     activeFolderId, activeTag, activeNoteCount, trashCount, starredCount,
     sidebarTodayCount, sidebarYesterdayCount, sidebarWeekCount, sidebarMonthCount, isTrash, noteListFilter, searchQuery, sidebarSearchQuery,
     knowledgeQueryInfo, workspaceActivation, isTraceLensMode, todayTraceKey, isTraceDayMode,

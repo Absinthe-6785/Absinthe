@@ -195,7 +195,7 @@ describe('LEAN_04A characterization contract and protected boundaries', () => {
     const doNotActivateForSearch = ['todos', 'healthBlocks'];
     expect(doNotActivateForSearch).toEqual(['todos', 'healthBlocks']);
     expect(source('components/AppContent.tsx')).toContain('<GlobalSearchHost');
-    expect(source('components/views/features/search/GlobalSearchHost.tsx')).toContain('open ? remoteSWRKey(`${API_URL}/api/recipes`) : null');
+    expect(source('components/views/features/search/GlobalSearchHost.tsx')).toContain('accountBoundRemoteKey(`${API_URL}/api/recipes`, accountId, open)');
     expect(source('components/views/features/search/hooks/useSearchProjection.ts')).toContain('buildSearchProjection({ ...input, now })');
     expect('LEAN_04B readiness dependency').toContain('LEAN_04B');
   });

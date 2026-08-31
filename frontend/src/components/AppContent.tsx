@@ -395,7 +395,7 @@ export function AppContent({ authUser }: { authUser: User }) {
               onSettingsScrollTargetConsumed={() => setSettingsScrollTarget(null)}
             />
           )}
-          {activeTab === 'recipe'    && <RecipeView showToast={showToast} appSettings={appSettings} updateSetting={updateSetting} theme={theme} THEME_COLORS={THEME_COLORS}/>}
+          {activeTab === 'recipe'    && <RecipeView key={authUser.id} accountId={authUser.id} showToast={showToast} appSettings={appSettings} updateSetting={updateSetting} theme={theme} THEME_COLORS={THEME_COLORS}/>}
         </Suspense>
         {activeTab === 'note' && startupState.notes.status === 'pending' && (
           <ViewLoadingFallback label={t('startupNotesLoading')} />
@@ -442,6 +442,8 @@ export function AppContent({ authUser }: { authUser: User }) {
       )}
 
       <GlobalSearchHost
+        key={authUser.id}
+        accountId={authUser.id}
         appSettings={appSettings}
         onSearchHasQueryChange={setSearchHasQuery}
         schedules={schedules}
