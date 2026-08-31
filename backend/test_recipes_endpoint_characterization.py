@@ -113,6 +113,9 @@ class FakeRecipeQuery:
             assert self.payload is not None
             self.client.write_queries.append(self)
             self.client.updated_payloads.append(deepcopy(self.payload))
+            if self.client.before_write is not None:
+                self.client.before_write(self)
+                self.client.before_write = None
             for row in self.client.rows:
                 if all(row.get(column) == value for column, value in self.filters):
                     row.update(self.payload)
@@ -130,6 +133,9 @@ class FakeRecipeQuery:
 
         if self.operation == "delete":
             self.client.write_queries.append(self)
+            if self.client.before_write is not None:
+                self.client.before_write(self)
+                self.client.before_write = None
             deleted = [
                 row
                 for row in self.client.rows
@@ -155,11 +161,13 @@ class FakeSupabase:
         insert_data: Any = _UNSET,
         update_data: Any = _UNSET,
         delete_data: Any = _UNSET,
+        before_write: Any = None,
     ) -> None:
         self.rows = deepcopy(rows or [])
         self.insert_data = insert_data
         self.update_data = update_data
         self.delete_data = delete_data
+        self.before_write = before_write
         self.executed: list[FakeRecipeQuery] = []
         self.write_queries: list[FakeRecipeQuery] = []
         self.inserted_payloads: list[dict[str, Any]] = []
@@ -325,7 +333,7 @@ def test_put_success_uses_full_payload_and_returns_first_updated_row(recipes_cli
     assert lookup.filters == [("id", recipe_id)]
     assert lookup.single is True
     assert update.operation == "update"
-    assert update.filters == [("id", recipe_id)]
+    assert update.filters == [("id", recipe_id), ("user_id", USER_ID)]
     assert fake.updated_payloads == [
         {
             "title": "After",
@@ -359,6 +367,45 @@ def test_put_owner_mismatch_returns_403_without_write(recipes_client):
     assert fake.write_queries == []
 
 
+def test_put_ownership_race_fails_closed_without_foreign_update(recipes_client):
+    client, fake = recipes_client
+    recipe_id = "recipe-race-update"
+    fake.rows[:] = [{"id": recipe_id, "user_id": USER_ID, "title": "Before"}]
+
+    def change_owner_before_final_update(_query):
+        fake.rows[0]["user_id"] = OTHER_USER_ID
+
+    fake.before_write = change_owner_before_final_update
+
+    response = client.put(
+        f"/api/recipes/{recipe_id}",
+        json=recipe_body(title="Should not apply"),
+    )
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Not found"}
+    assert fake.rows == [
+        {"id": recipe_id, "user_id": OTHER_USER_ID, "title": "Before"}
+    ]
+
+
+def test_put_zero_row_after_owner_preread_fails_closed(recipes_client):
+    client, fake = recipes_client
+    recipe_id = "recipe-zero-update"
+    fake.rows[:] = [{"id": recipe_id, "user_id": USER_ID, "title": "Before"}]
+
+    def remove_before_final_update(_query):
+        fake.rows.clear()
+
+    fake.before_write = remove_before_final_update
+
+    response = client.put(f"/api/recipes/{recipe_id}", json=recipe_body())
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Not found"}
+    assert fake.rows == []
+
+
 def test_delete_success_checks_owner_targets_id_and_returns_raw_data(recipes_client):
     client, fake = recipes_client
     recipe_id = "recipe-delete"
@@ -378,7 +425,7 @@ def test_delete_success_checks_owner_targets_id_and_returns_raw_data(recipes_cli
     assert lookup.filters == [("id", recipe_id)]
     assert lookup.single is True
     assert delete.operation == "delete"
-    assert delete.filters == [("id", recipe_id)]
+    assert delete.filters == [("id", recipe_id), ("user_id", USER_ID)]
 
 
 def test_delete_missing_row_returns_404_without_delete(recipes_client):
@@ -400,6 +447,42 @@ def test_delete_owner_mismatch_returns_403_without_delete(recipes_client):
     assert response.status_code == 403
     assert response.json() == {"detail": "Forbidden"}
     assert fake.write_queries == []
+
+
+def test_delete_ownership_race_fails_closed_without_foreign_delete(recipes_client):
+    client, fake = recipes_client
+    recipe_id = "recipe-race-delete"
+    fake.rows[:] = [{"id": recipe_id, "user_id": USER_ID, "title": "Keep me"}]
+
+    def change_owner_before_final_delete(_query):
+        fake.rows[0]["user_id"] = OTHER_USER_ID
+
+    fake.before_write = change_owner_before_final_delete
+
+    response = client.delete(f"/api/recipes/{recipe_id}")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Not found"}
+    assert fake.rows == [
+        {"id": recipe_id, "user_id": OTHER_USER_ID, "title": "Keep me"}
+    ]
+
+
+def test_delete_zero_row_after_owner_preread_fails_closed(recipes_client):
+    client, fake = recipes_client
+    recipe_id = "recipe-zero-delete"
+    fake.rows[:] = [{"id": recipe_id, "user_id": USER_ID, "title": "Already gone"}]
+
+    def remove_before_final_delete(_query):
+        fake.rows.clear()
+
+    fake.before_write = remove_before_final_delete
+
+    response = client.delete(f"/api/recipes/{recipe_id}")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Not found"}
+    assert fake.rows == []
 
 
 def test_invalid_bearer_authentication_returns_401(recipes_client, monkeypatch):
