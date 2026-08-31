@@ -43,6 +43,15 @@ export const RecipeView = ({ showToast, appSettings, theme }: RecipeViewProps) =
     fetcher,
     { onError: () => showToast(t('failLoadRecipes'), 'error') },
   );
+  const {
+    data: deletedRecipes = [],
+    isLoading: deletedLoading,
+    mutate: mutateDeletedRecipes,
+  } = useSWR<Recipe[]>(
+    remoteSWRKey(`${API_URL}/api/recipes/trash`),
+    fetcher,
+    { onError: () => showToast(t('failLoadDeletedRecipes'), 'error') },
+  );
 
   const locale = resolveAppLanguage(appSettings.language);
   const projection = useRecipeProjection(recipes, { locale, activityTick });
@@ -116,13 +125,37 @@ export const RecipeView = ({ showToast, appSettings, theme }: RecipeViewProps) =
         const res = await authFetch(`${API_URL}/api/recipes/${id}`, { method: 'DELETE' });
         if (!res.ok) throw new Error();
         mutateRecipes(prev => (prev ?? []).filter(r => r.id !== id), false);
+        void mutateDeletedRecipes();
         if (expandedId === id) setExpandedId(null);
         showToast(t('recipeDeleted'));
       } catch {
         showToast(t('failDeleteRecipe'), 'error');
       }
     }, { confirmLabel: 'Delete' });
-  }, [showConfirm, expandedId, showToast, mutateRecipes, t]);
+  }, [showConfirm, expandedId, showToast, mutateRecipes, mutateDeletedRecipes, t]);
+
+  const handleRestore = useCallback(async (id: string) => {
+    try {
+      const res = await authFetch(`${API_URL}/api/recipes/${id}/restore`, { method: 'POST' });
+      if (!res.ok) throw new Error();
+      const restoredPayload = await res.json() as Partial<Recipe>;
+      const deleted = deletedRecipes.find(recipe => recipe.id === id);
+      const restored = restoredPayload.id
+        ? restoredPayload as Recipe
+        : deleted
+          ? { ...deleted, deleted_at: null }
+          : null;
+      mutateDeletedRecipes(prev => (prev ?? []).filter(recipe => recipe.id !== id), false);
+      if (restored) {
+        mutateRecipes(prev => [restored, ...(prev ?? []).filter(recipe => recipe.id !== id)], false);
+      } else {
+        void mutateRecipes();
+      }
+      showToast(t('recipeRestored'));
+    } catch {
+      showToast(t('failRestoreRecipe'), 'error');
+    }
+  }, [deletedRecipes, mutateDeletedRecipes, mutateRecipes, showToast, t]);
 
   const handleToggleStar = useCallback(async (recipe: Recipe) => {
     const updated = { ...recipe, starred: !recipe.starred };
@@ -192,6 +225,9 @@ export const RecipeView = ({ showToast, appSettings, theme }: RecipeViewProps) =
         onToggleStar={handleToggleStar}
         onEdit={openEdit}
         onDelete={handleDelete}
+        deletedRecipes={deletedRecipes}
+        deletedLoading={deletedLoading}
+        onRestore={handleRestore}
         onMarkCooked={handleMarkCooked}
         onOpenCookingNote={handleOpenCookingNote}
         onNewRecipe={openNew}

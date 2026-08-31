@@ -2030,6 +2030,12 @@ const enTranslations = [
   "Personal",
   "Sleep",
   "Social",
+  "Recently deleted",
+  "No deleted recipes.",
+  "Restore",
+  "Recipe restored",
+  "Failed to load deleted recipes",
+  "Failed to restore recipe",
 ] as const;
 
 export default enTranslations;
