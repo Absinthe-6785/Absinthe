@@ -10,6 +10,7 @@ import { useNow } from '../hooks/useNow';
 import { useToast } from '../hooks/useToast';
 import { useDailyData } from '../hooks/useDaily';
 import { useStaticData } from '../hooks/useStatic';
+import { useSWRConfig } from 'swr';
 import { ThemeColor, ViewProps } from '../types';
 import { buildThemeClasses } from '../theme';
 import { Sidebar, TabId, type SettingsSectionId } from './common/Sidebar';
@@ -30,6 +31,7 @@ import { useTranslation } from '../lib/i18n';
 import { bootstrapHealthFromSupabase, HEALTH_LOCAL_BOOTSTRAP_COMPLETE_EVENT } from '../lib/healthSupabaseBootstrap';
 import { runHealthBootstrapSingleFlight } from '../lib/healthBootstrapSingleFlight';
 import { shouldUseRemoteData } from '../lib/remoteBoundary';
+import { revalidatePlannerAccountCache } from '../lib/plannerCacheRevalidation';
 import {
   startIndependentStartup,
   type IndependentStartupRun,
@@ -272,12 +274,16 @@ export function AppContent({ authUser }: { authUser: User }) {
   // useStaticData(monthStart, monthEnd, showToast, authUser.id, healthRuntimeReady, healthBlocksSearchActive, markedDatesActive, healthRoutinesActive)
   } = useStaticData(monthStart, monthEnd, showToast, authUser.id, healthRuntimeReady, healthBlocksSearchActive, markedDatesActive, healthRoutinesActive);
 
+  const { mutate: globalMutate } = useSWRConfig();
+
   // A successful cloud restore changes Planner-owned remote rows. Revalidate
-  // only the already-mounted account-scoped shell data; no global cache clear.
+  // only this account's affected Planner keys (including inactive dates); no
+  // global cache clear.
   const revalidatePlannerAfterRestore = useCallback(() => {
     mutateDaily();
     mutateStatic();
-  }, [mutateDaily, mutateStatic]);
+    revalidatePlannerAccountCache(globalMutate, authUser.id);
+  }, [authUser.id, globalMutate, mutateDaily, mutateStatic]);
 
   useEffect(() => {
     const refreshLocalHealth = () => {
