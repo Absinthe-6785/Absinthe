@@ -1015,16 +1015,46 @@ def validate_restore_ownership(payload: RestorePayload, user_id: str) -> None:
                 raise HTTPException(status_code=403, detail="Restore payload account mismatch")
 
 
-def validate_restore_existing_id_ownership(payload: RestorePayload, user_id: str) -> None:
-    """Preflight every supplied id before any restore upsert is allowed."""
+RECIPE_RESTORE_CONTENT_DEFAULTS = {
+    "category": "Other",
+    "ingredients": "",
+    "steps": "",
+    "memo": "",
+    "starred": False,
+}
+RECIPE_RESTORE_CONTENT_FIELDS = ("title", "category", "ingredients", "steps", "memo", "starred")
+
+
+def _recipe_restore_content(row: dict) -> tuple[object, ...]:
+    """Return only established user-editable Recipe content for collision checks."""
+    return tuple(
+        row.get(field, RECIPE_RESTORE_CONTENT_DEFAULTS.get(field))
+        for field in RECIPE_RESTORE_CONTENT_FIELDS
+    )
+
+
+def validate_restore_existing_id_ownership(
+    payload: RestorePayload,
+    user_id: str,
+) -> dict[str, dict[str, dict]]:
+    """Preflight every supplied id before any restore write is allowed.
+
+    The returned rows are retained for the Recipe restore policy.  Recipe has no
+    authoritative content-freshness field, so existing same-user IDs must be
+    preserved rather than sent through an overwrite-capable upsert.
+    """
+    existing_by_table: dict[str, dict[str, dict]] = {}
     for table in RESTORE_TABLE_FIELDS:
         ids = sorted({row["id"] for row in getattr(payload, table) if "id" in row})
         if not ids:
             continue
         try:
+            columns = "id, user_id"
+            if table == "recipes":
+                columns = "id, user_id, title, category, ingredients, steps, memo, starred"
             result = (
                 supabase.table(table)
-                .select("id, user_id")
+                .select(columns)
                 .in_("id", ids)
                 .execute()
             )
@@ -1036,6 +1066,7 @@ def validate_restore_existing_id_ownership(payload: RestorePayload, user_id: str
         if not isinstance(rows, list):
             raise HTTPException(status_code=503, detail="Restore ID ownership could not be verified")
         existing_ids: set[str] = set()
+        existing_by_table[table] = {}
         for row in rows:
             if not isinstance(row, dict) or not _non_empty_text(row.get("id")) or not _non_empty_text(row.get("user_id")):
                 raise HTTPException(status_code=503, detail="Restore ID ownership could not be verified")
@@ -1044,6 +1075,59 @@ def validate_restore_existing_id_ownership(payload: RestorePayload, user_id: str
             existing_ids.add(row["id"])
             if row["user_id"] != user_id:
                 raise HTTPException(status_code=409, detail="Restore ID belongs to another account")
+            existing_by_table[table][row["id"]] = row
+    return existing_by_table
+
+
+def restore_recipe_rows(
+    rows: list[dict],
+    user_id: str,
+    existing_rows: dict[str, dict],
+) -> dict[str, int]:
+    """Restore only Recipe rows that cannot collide with current same-user IDs.
+
+    Recipe currently has no server-authoritative revision/freshness field.  An
+    existing same-user ID is therefore preserved regardless of payload content;
+    only IDs absent from the preflight read are inserted.  ``insert`` is used so
+    a row that appears after preflight cannot be overwritten by a race.
+    """
+    to_insert: list[dict] = []
+    preserved = 0
+    idempotent = 0
+    conflicts = 0
+    for row in rows:
+        row_id = row.get("id")
+        existing = existing_rows.get(row_id) if isinstance(row_id, str) else None
+        if existing is not None:
+            preserved += 1
+            if _recipe_restore_content(existing) == _recipe_restore_content(row):
+                idempotent += 1
+            else:
+                conflicts += 1
+            continue
+        to_insert.append({
+            **{key: value for key, value in row.items() if key != "user_id"},
+            "user_id": user_id,
+        })
+
+    if to_insert:
+        try:
+            result = supabase.table("recipes").insert(to_insert).execute()
+        except Exception as error:
+            # A row appearing after preflight must fail closed; never fall back
+            # to an overwrite-capable upsert.
+            raise HTTPException(status_code=409, detail="Recipe restore conflict") from error
+        inserted = getattr(result, "data", None)
+        if not isinstance(inserted, list) or len(inserted) != len(to_insert):
+            raise HTTPException(status_code=503, detail="Recipe restore result could not be verified")
+
+    return {
+        "requested": len(rows),
+        "restored": len(to_insert),
+        "preserved": preserved,
+        "idempotent": idempotent,
+        "conflicts": conflicts,
+    }
 
 
 @app.post("/api/restore", dependencies=[Depends(require_restore_recovery_intent)])
@@ -1051,7 +1135,7 @@ async def import_backup(payload: RestorePayload, user_id: str = Depends(get_curr
     if RECOVERY_MODE_ACTIVE:
         raise HTTPException(status_code=423, detail="Data recovery mode is active")
     validate_restore_ownership(payload, user_id)
-    validate_restore_existing_id_ownership(payload, user_id)
+    existing_rows = validate_restore_existing_id_ownership(payload, user_id)
     """백업 JSON을 받아 각 테이블에 upsert (기존 데이터 유지, 충돌 시 덮어쓰기)"""
     def upsert(table: str, rows: list, conflict: str = "id"):
         if not rows: return
@@ -1069,7 +1153,15 @@ async def import_backup(payload: RestorePayload, user_id: str = Depends(get_curr
     upsert("workout_logs",    payload.workout_logs)
     upsert("inbody_logs",     payload.inbody_logs)
     upsert("ddays",           payload.ddays)
-    upsert("recipes",           payload.recipes)
+    recipe_restore = restore_recipe_rows(
+        payload.recipes,
+        user_id,
+        existing_rows.get("recipes", {}),
+    )
     upsert("routine_exceptions", payload.routine_exceptions)
     from datetime import datetime, timezone
-    return {"status": "ok", "restored_at": datetime.now(timezone.utc).isoformat()}
+    return {
+        "status": "ok",
+        "restored_at": datetime.now(timezone.utc).isoformat(),
+        "recipe_restore": recipe_restore,
+    }
