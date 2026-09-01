@@ -9,6 +9,9 @@ from pydantic import ValidationError
 import restore_validation as rv
 
 
+RECIPE_ID = "a0000000-0000-0000-0000-000000000001"
+
+
 EXPECTED_TABLES = (
     "notes",
     "note_folders",
@@ -53,7 +56,7 @@ VALID_MINIMAL_ROWS = {
     "workout_logs": {"date": "2026-08-28", "block_id": None, "sets": [], "sort_order": 0},
     "inbody_logs": {"date": "2026-08-28", "weight": 0, "smm": 0, "pbf": 0},
     "ddays": {"date": "2026-08-28", "text": "D-day"},
-    "recipes": {"title": "Recipe"},
+    "recipes": {"id": RECIPE_ID, "title": "Recipe"},
     "routine_exceptions": {"start_date": "2026-08-28", "end_date": "2026-08-29"},
 }
 
@@ -69,7 +72,7 @@ REQUIRED_FIELDS = {
     "workout_logs": ("date", "block_id", "sets", "sort_order"),
     "inbody_logs": ("date", "weight", "smm", "pbf"),
     "ddays": ("date", "text"),
-    "recipes": ("title",),
+    "recipes": ("id", "title"),
     "routine_exceptions": ("start_date", "end_date"),
 }
 
@@ -172,6 +175,32 @@ def test_restore_rows_reject_forbidden_extra_fields_and_invalid_ids():
     invalid_owner = dict(VALID_MINIMAL_ROWS["notes"], user_id="")
     with pytest.raises(ValueError, match="invalid_restore_owner:notes"):
         rv._validate_restore_row("notes", invalid_owner)
+
+
+@pytest.mark.parametrize(
+    "recipe_id",
+    [
+        None,
+        "",
+        " ",
+        "not-a-uuid",
+        RECIPE_ID.upper(),
+        RECIPE_ID.replace("-", ""),
+        f"{{{RECIPE_ID}}}",
+    ],
+)
+def test_recipe_restore_rejects_invalid_or_noncanonical_ids(recipe_id):
+    row = dict(VALID_MINIMAL_ROWS["recipes"], id=recipe_id)
+    with pytest.raises(ValueError, match="invalid_restore_id:recipes"):
+        rv._validate_restore_row("recipes", row)
+
+
+def test_recipe_restore_accepts_canonical_uuid_without_rewriting_it():
+    row = dict(VALID_MINIMAL_ROWS["recipes"])
+
+    rv._validate_restore_row("recipes", row)
+
+    assert row["id"] == RECIPE_ID
 
 
 def test_restore_rows_reject_non_finite_and_invalid_numeric_values():

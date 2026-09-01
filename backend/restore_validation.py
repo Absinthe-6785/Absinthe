@@ -1,5 +1,6 @@
 import math
 from collections.abc import Callable
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -93,6 +94,15 @@ def _nullable_timestamp(value: object) -> bool:
     return value is None or _timestamp(value)
 
 
+def _canonical_uuid(value: object) -> bool:
+    if not isinstance(value, str):
+        return False
+    try:
+        return str(UUID(value)) == value
+    except ValueError:
+        return False
+
+
 def _workout_sets(value: object) -> bool:
     if not _json_object_array(value):
         return False
@@ -131,8 +141,8 @@ RestoreFieldValidator = Callable[[object], bool]
 
 # These contracts mirror the existing create/update models and the fields read
 # by the current application.  Restore rows are database-shaped records, so
-# server-controlled user_id and optional database-generated id are handled
-# separately below.
+# server-controlled user_id and table-specific identity requirements are
+# handled separately below.
 RESTORE_ROW_CONTRACTS: dict[str, tuple[frozenset[str], frozenset[str], dict[str, RestoreFieldValidator]]] = {
     "notes": (
         frozenset({"id", "user_id", "title", "body", "updated_at", "folder_id", "deleted_at", "starred", "properties", "relations"}),
@@ -194,7 +204,7 @@ RESTORE_ROW_CONTRACTS: dict[str, tuple[frozenset[str], frozenset[str], dict[str,
     ),
     "recipes": (
         frozenset({"id", "user_id", "title", "category", "ingredients", "steps", "memo", "starred", "created_at"}),
-        frozenset({"title"}),
+        frozenset({"id", "title"}),
         {"title": _non_empty_text, "category": _non_empty_text, "ingredients": lambda value: isinstance(value, str),
          "steps": lambda value: isinstance(value, str), "memo": lambda value: isinstance(value, str),
          "starred": _boolean, "created_at": _timestamp},
@@ -218,6 +228,8 @@ def _validate_restore_row(table: str, row: object) -> None:
         raise ValueError(f"missing_restore_field:{table}:{missing_fields[0]}")
     if "id" in row and (not isinstance(row["id"], str) or not row["id"].strip()):
         raise ValueError(f"invalid_restore_id:{table}")
+    if table == "recipes" and not _canonical_uuid(row["id"]):
+        raise ValueError("invalid_restore_id:recipes")
     if "user_id" in row and (not isinstance(row["user_id"], str) or not row["user_id"].strip()):
         raise ValueError(f"invalid_restore_owner:{table}")
     for field, validator in validators.items():
