@@ -7,6 +7,7 @@ import { RecipeCollapsibleSection } from './RecipeCollapsibleSection';
 
 export interface RecipeCollectionsSectionProps {
   collectionGroups: readonly CollectionGroup[];
+  emptyAuthoritative: boolean;
   theme: Theme;
   appSettings: AppSettings;
   collapsed: boolean;
@@ -16,6 +17,7 @@ export interface RecipeCollectionsSectionProps {
 
 export function RecipeCollectionsSection({
   collectionGroups,
+  emptyAuthoritative,
   theme,
   appSettings,
   collapsed,
@@ -33,10 +35,10 @@ export function RecipeCollectionsSection({
       theme={theme}
       dark={appSettings.darkMode}
       lazy
-      isEmpty={collectionGroups.length === 0}
+      isEmpty={emptyAuthoritative && collectionGroups.length === 0}
       emptyHint={t('k110EmptyNoCollections')}
     >
-      {collectionGroups.length === 0 ? (
+      {collectionGroups.length === 0 && emptyAuthoritative ? (
         <ProductEmptyState
           icon={Library}
           title={t('k110EmptyNoCollections')}
@@ -44,7 +46,7 @@ export function RecipeCollectionsSection({
           dataHook="k110-empty-collections"
           theme={theme}
         />
-      ) : (
+      ) : collectionGroups.length > 0 ? (
         <div className="space-y-3" data-k110-collection-list>
           {collectionGroups.map(group => (
             <details
@@ -73,7 +75,7 @@ export function RecipeCollectionsSection({
             </details>
           ))}
         </div>
-      )}
+      ) : null}
     </RecipeCollapsibleSection>
   );
 }

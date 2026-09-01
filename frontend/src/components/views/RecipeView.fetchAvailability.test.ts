@@ -251,8 +251,14 @@ describe('Recipe fetch availability production wiring', () => {
 
     harness.active = { data: [], error: new Error('offline'), isLoading: false, isValidating: false };
     render(); await flush();
+    expect(harness.formProps?.authorityReady).toBe(false);
     await act(async () => harness.formProps?.onSave());
     expect(harness.authFetch).not.toHaveBeenCalled();
+
+    harness.active = { data: [], isLoading: false, isValidating: false };
+    render(); await flush();
+    expect(harness.formProps?.show).toBe(true);
+    expect(harness.formProps?.authorityReady).toBe(true);
   });
 
   it('keeps Edit draft unavailable on failure, preserves it, and never PUTs or resurrects', async () => {
@@ -261,6 +267,7 @@ describe('Recipe fetch availability production wiring', () => {
     harness.active = { data: undefined, error: new Error('offline'), isLoading: false, isValidating: false };
     render(); await flush();
     expect(harness.formProps?.conflict).toBe('remote-unavailable');
+    expect(harness.formProps?.authorityReady).toBe(false);
     expect(harness.formProps?.form).toEqual(draftForm);
     expect(readRecipeDraft('account-a').draft?.form).toEqual(draftForm);
     await act(async () => harness.formProps?.onSave());
@@ -277,6 +284,7 @@ describe('Recipe fetch availability production wiring', () => {
     harness.active = { data: [remote], isLoading: false, isValidating: false };
     render(); await flush();
     expect(harness.formProps?.conflict).toBeNull();
+    expect(harness.formProps?.authorityReady).toBe(true);
 
     harness.active = { data: undefined, error: new Error('offline again'), isLoading: false, isValidating: false };
     render(); await flush();
@@ -285,6 +293,7 @@ describe('Recipe fetch availability production wiring', () => {
     harness.active = { data: [{ ...remote, title: 'Changed remotely' }], isLoading: false, isValidating: false };
     render(); await flush();
     expect(harness.formProps?.conflict).toBe('remote-changed');
+    expect(harness.formProps?.authorityReady).toBe(true);
 
     harness.active = { data: undefined, error: new Error('offline once more'), isLoading: false, isValidating: false };
     render(); await flush();

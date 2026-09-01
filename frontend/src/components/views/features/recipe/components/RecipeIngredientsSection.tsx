@@ -8,6 +8,7 @@ import { RecipeCollapsibleSection } from './RecipeCollapsibleSection';
 
 export interface RecipeIngredientsSectionProps {
   ingredientGroups: readonly IngredientGroup[];
+  emptyAuthoritative: boolean;
   theme: Theme;
   appSettings: AppSettings;
   collapsed: boolean;
@@ -17,6 +18,7 @@ export interface RecipeIngredientsSectionProps {
 
 export function RecipeIngredientsSection({
   ingredientGroups,
+  emptyAuthoritative,
   theme,
   appSettings,
   collapsed,
@@ -40,10 +42,10 @@ export function RecipeIngredientsSection({
       theme={theme}
       dark={appSettings.darkMode}
       lazy
-      isEmpty={ingredientGroups.length === 0}
+      isEmpty={emptyAuthoritative && ingredientGroups.length === 0}
       emptyHint={t('k110EmptyNoIngredients')}
     >
-      {ingredientGroups.length === 0 ? (
+      {ingredientGroups.length === 0 && emptyAuthoritative ? (
         <ProductEmptyState
           icon={Leaf}
           title={t('k110EmptyNoIngredients')}
@@ -51,7 +53,7 @@ export function RecipeIngredientsSection({
           dataHook="k110-empty-ingredients"
           theme={theme}
         />
-      ) : (
+      ) : ingredientGroups.length > 0 ? (
         <div className="flex flex-col sm:flex-row gap-3 min-h-0" data-k110-ingredient-explorer>
           <ul className="sm:w-[140px] shrink-0 flex sm:flex-col gap-1 overflow-x-auto sm:overflow-y-auto pb-1 sm:pb-0 scrollbar-hide">
             {ingredientGroups.map(group => (
@@ -92,7 +94,7 @@ export function RecipeIngredientsSection({
             )}
           </div>
         </div>
-      )}
+      ) : null}
     </RecipeCollapsibleSection>
   );
 }
