@@ -203,11 +203,11 @@ RESTORE_ROW_CONTRACTS: dict[str, tuple[frozenset[str], frozenset[str], dict[str,
          "created_at": _timestamp},
     ),
     "recipes": (
-        frozenset({"id", "user_id", "title", "category", "ingredients", "steps", "memo", "starred", "created_at"}),
+        frozenset({"id", "user_id", "title", "category", "ingredients", "steps", "memo", "starred", "created_at", "deleted_at"}),
         frozenset({"id", "title"}),
         {"title": _non_empty_text, "category": _non_empty_text, "ingredients": lambda value: isinstance(value, str),
          "steps": lambda value: isinstance(value, str), "memo": lambda value: isinstance(value, str),
-         "starred": _boolean, "created_at": _timestamp},
+         "starred": _boolean, "created_at": _timestamp, "deleted_at": lambda value: value is None},
     ),
     "routine_exceptions": (
         frozenset({"id", "user_id", "start_date", "end_date", "reason"}), frozenset({"start_date", "end_date"}),

@@ -150,6 +150,7 @@ def recipe_row(recipe_id: str = RECIPE_ID_RESTORED, user_id: str | None = None, 
         "memo": "Serve warm",
         "starred": False,
         "created_at": "2026-08-18T00:00:00Z",
+        "deleted_at": None,
     }
     if user_id is not None:
         row["user_id"] = user_id
@@ -577,6 +578,23 @@ def test_restore_recipe_invalid_id_rejects_before_any_operation(destructive_clie
     )
 
     assert_restore_validation_error(response, "invalid_restore_id:recipes")
+    assert supabase.operations == []
+
+
+@pytest.mark.parametrize("deleted_at", ["2026-08-31T00:00:00Z", "not-a-timestamp"])
+def test_restore_recipe_non_null_deleted_at_rejects_before_any_operation(
+    destructive_client,
+    deleted_at,
+):
+    client, supabase = destructive_client
+
+    response = client.post(
+        "/api/restore",
+        headers={"X-Absinthe-Recovery-Intent": main.RESTORE_RECOVERY_INTENT},
+        json={"recipes": [recipe_row(deleted_at=deleted_at)]},
+    )
+
+    assert_restore_validation_error(response, "invalid_restore_field:recipes:deleted_at")
     assert supabase.operations == []
 
 

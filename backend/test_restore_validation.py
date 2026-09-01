@@ -40,7 +40,7 @@ EXPECTED_ALLOWED_FIELDS = {
     "workout_logs": {"id", "user_id", "date", "block_id", "sets", "sort_order"},
     "inbody_logs": {"id", "user_id", "date", "weight", "smm", "pbf"},
     "ddays": {"id", "user_id", "date", "text", "start_time", "end_time", "is_dday", "color", "category", "end_next_day", "created_at"},
-    "recipes": {"id", "user_id", "title", "category", "ingredients", "steps", "memo", "starred", "created_at"},
+    "recipes": {"id", "user_id", "title", "category", "ingredients", "steps", "memo", "starred", "created_at", "deleted_at"},
     "routine_exceptions": {"id", "user_id", "start_date", "end_date", "reason"},
 }
 
@@ -201,6 +201,32 @@ def test_recipe_restore_accepts_canonical_uuid_without_rewriting_it():
     rv._validate_restore_row("recipes", row)
 
     assert row["id"] == RECIPE_ID
+
+
+def test_recipe_restore_accepts_current_active_backup_shape_unchanged():
+    row = {
+        "id": RECIPE_ID,
+        "user_id": "user-a",
+        "title": "Recipe",
+        "category": "Other",
+        "ingredients": "water",
+        "steps": "boil",
+        "memo": "",
+        "starred": False,
+        "created_at": "2026-09-01T00:00:00Z",
+        "deleted_at": None,
+    }
+
+    rv._validate_restore_row("recipes", row)
+
+    assert row["deleted_at"] is None
+
+
+@pytest.mark.parametrize("deleted_at", ["2026-09-01T00:00:00Z", "", 0, False, {}])
+def test_recipe_restore_rejects_non_null_deleted_at(deleted_at):
+    row = dict(VALID_MINIMAL_ROWS["recipes"], deleted_at=deleted_at)
+    with pytest.raises(ValueError, match="invalid_restore_field:recipes:deleted_at"):
+        rv._validate_restore_row("recipes", row)
 
 
 def test_restore_rows_reject_non_finite_and_invalid_numeric_values():

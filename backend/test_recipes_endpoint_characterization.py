@@ -572,13 +572,30 @@ def test_get_trash_is_current_user_scoped_and_excludes_active_rows(recipes_clien
 
 def test_active_backup_recipe_fetch_excludes_soft_deleted_rows(recipes_client):
     _, fake = recipes_client
-    active = {"id": "recipe-active", "user_id": USER_ID, "deleted_at": None}
-    deleted = {"id": "recipe-deleted", "user_id": USER_ID, "deleted_at": "2026-08-03T00:00:00Z"}
+    active = {
+        "id": "a0000000-0000-0000-0000-000000000001",
+        "user_id": USER_ID,
+        "title": "Active",
+        "category": "Other",
+        "ingredients": "water",
+        "steps": "boil",
+        "memo": "",
+        "starred": False,
+        "created_at": "2026-08-03T00:00:00Z",
+        "deleted_at": None,
+    }
+    deleted = {
+        **active,
+        "id": "a0000000-0000-0000-0000-000000000002",
+        "deleted_at": "2026-08-03T00:00:00Z",
+    }
     fake.rows[:] = [active, deleted]
 
     result = main._fetch_user_table(USER_ID, "recipes", "created_at")
+    restore_payload = main.RestorePayload.model_validate({"recipes": result})
 
     assert result == [active]
+    assert restore_payload.recipes == [active]
     query = fake.executed[0]
     assert query.filters == [("user_id", USER_ID), ("is", "deleted_at", "null")]
     assert query.order_calls == [("created_at", False)]
