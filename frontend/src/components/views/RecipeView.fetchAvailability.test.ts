@@ -274,6 +274,32 @@ describe('Recipe fetch availability production wiring', () => {
     expect(harness.authFetch).not.toHaveBeenCalled();
   });
 
+  it('blocks an already-open Edit save through stale and cold-unavailable authority, then recovers', async () => {
+    const remote = recipe();
+    harness.active = { data: [remote], isLoading: false, isValidating: false };
+    render(); await flush();
+    act(() => harness.studioProps?.onEdit(remote)); await flush();
+    expect(harness.formProps?.show).toBe(true);
+    expect(harness.formProps?.authorityReady).toBe(true);
+
+    harness.active = { data: [remote], error: new Error('offline'), isLoading: false, isValidating: false };
+    render(); await flush();
+    expect(harness.formProps?.authorityReady).toBe(false);
+    await act(async () => harness.formProps?.onSave());
+    expect(harness.authFetch).not.toHaveBeenCalled();
+
+    harness.active = { data: undefined, error: new Error('offline'), isLoading: false, isValidating: false };
+    render(); await flush();
+    expect(harness.formProps?.authorityReady).toBe(false);
+    await act(async () => harness.formProps?.onSave());
+    expect(harness.authFetch).not.toHaveBeenCalled();
+
+    harness.active = { data: [remote], isLoading: false, isValidating: false };
+    render(); await flush();
+    expect(harness.formProps?.show).toBe(true);
+    expect(harness.formProps?.authorityReady).toBe(true);
+  });
+
   it('reclassifies an unavailable Edit draft after successful retry as unchanged, changed, or confirmed missing', async () => {
     const remote = recipe();
     writeRecipeDraft(editDraft(remote));
