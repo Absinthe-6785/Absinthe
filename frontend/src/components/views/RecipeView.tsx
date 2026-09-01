@@ -21,12 +21,28 @@ import { RecipeFormModal, type RecipeFormState } from './features/recipe/compone
 import { openRecipeCookingNote } from '../../lib/crossDomainReferences';
 import { registerSearchDomainHandlers } from './features/search/searchDomainNavigation';
 import { useNotesStore } from '../../store/useNotesStore';
+import {
+  normalizeRecipeDraftForm,
+  readRecipeDraft,
+  recipeDraftFormsEqual,
+  recipeToDraftForm,
+  removeRecipeDraft,
+  clearRecipeDraftAfterRemoteCommit,
+  writeRecipeDraft,
+  isValidSavedRecipe,
+  type RecipeDraftEnvelope,
+  type RecipeDraftForm,
+} from './features/recipe/recipeDraftStorage';
 
 export type { Recipe } from './features/recipe';
 
 interface RecipeViewProps extends BaseViewProps {
   accountId?: string;
 }
+
+type DraftConflict =
+  | { kind: 'remote-changed'; remote: Recipe }
+  | { kind: 'remote-unavailable' };
 
 export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeViewProps) => {
   const { t } = useTranslation();
@@ -37,10 +53,21 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
   const [editingId, setEditingId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [form, setForm] = useState<RecipeFormState>({ ...EMPTY_RECIPE_FORM });
+  const [draft, setDraft] = useState<RecipeDraftEnvelope | null>(null);
+  const [baseSnapshot, setBaseSnapshot] = useState<RecipeDraftForm | null>(null);
+  const [draftConflict, setDraftConflict] = useState<DraftConflict | null>(null);
+  const [draftStorageWarning, setDraftStorageWarning] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [formSession, setFormSession] = useState<number | null>(null);
   const [activityTick, setActivityTick] = useState(0);
   const accountIdRef = useRef(accountId);
   const accountGenerationRef = useRef(0);
   const mountedRef = useRef(true);
+  const draftGenerationRef = useRef(0);
+  const formSessionGenerationRef = useRef(0);
+  const activeFormSessionRef = useRef<number | null>(null);
+  const savingRef = useRef(false);
+  const recoveredDraftRef = useRef<string | null>(null);
   if (accountIdRef.current !== accountId) {
     accountIdRef.current = accountId;
     accountGenerationRef.current += 1;
@@ -82,6 +109,153 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
 
   const bumpActivity = useCallback(() => setActivityTick(n => n + 1), []);
 
+  const beginFormSession = useCallback(() => {
+    const generation = formSessionGenerationRef.current + 1;
+    formSessionGenerationRef.current = generation;
+    activeFormSessionRef.current = generation;
+    setFormSession(generation);
+  }, []);
+
+  const invalidateFormSession = useCallback(() => {
+    formSessionGenerationRef.current += 1;
+    activeFormSessionRef.current = null;
+    setFormSession(null);
+  }, []);
+
+  const currentBaseline = useCallback((): RecipeDraftForm => (
+    baseSnapshot ?? normalizeRecipeDraftForm(EMPTY_RECIPE_FORM)
+  ), [baseSnapshot]);
+
+  const isCurrentFormDirty = useCallback((candidate: RecipeDraftForm = form) => (
+    !recipeDraftFormsEqual(normalizeRecipeDraftForm(candidate), currentBaseline())
+  ), [currentBaseline, form]);
+
+  const persistComputedForm = useCallback((nextForm: RecipeDraftForm): boolean => {
+    setForm(nextForm);
+    if (!accountId) return false;
+
+    const normalized = normalizeRecipeDraftForm(nextForm);
+    if (recipeDraftFormsEqual(normalized, currentBaseline())) {
+      const removed = removeRecipeDraft(accountId);
+      if (removed) {
+        setDraft(null);
+        setDraftStorageWarning(false);
+      } else {
+        setDraftStorageWarning(true);
+      }
+      return removed;
+    }
+
+    const generation = draftGenerationRef.current + 1;
+    draftGenerationRef.current = generation;
+    const nextDraft: RecipeDraftEnvelope = {
+      version: 1,
+      accountId,
+      mode: editingId ? 'edit' : 'new',
+      recipeId: editingId,
+      form: normalized,
+      baseSnapshot: editingId ? currentBaseline() : null,
+      generation,
+    };
+    setDraft(nextDraft);
+    const written = writeRecipeDraft(nextDraft);
+    setDraftStorageWarning(!written);
+    return written;
+  }, [accountId, currentBaseline, editingId]);
+
+  const updateFormSession = formSession;
+  const updateForm = useCallback<React.Dispatch<React.SetStateAction<RecipeFormState>>>((update) => {
+    if (activeFormSessionRef.current !== updateFormSession || updateFormSession === null) return;
+    const next = typeof update === 'function'
+      ? update(form)
+      : update;
+    persistComputedForm(next);
+  }, [form, persistComputedForm, updateFormSession]);
+
+  const openFreshNew = useCallback(() => {
+    beginFormSession();
+    setForm({ ...EMPTY_RECIPE_FORM });
+    setBaseSnapshot(null);
+    setEditingId(null);
+    setDraftConflict(null);
+    setDraftStorageWarning(false);
+    setShowForm(true);
+  }, [beginFormSession]);
+
+  const openFreshEdit = useCallback((recipe: Recipe) => {
+    beginFormSession();
+    const snapshot = recipeToDraftForm(recipe);
+    setForm(snapshot);
+    setBaseSnapshot(snapshot);
+    setEditingId(recipe.id);
+    setDraftConflict(null);
+    setDraftStorageWarning(false);
+    setShowForm(true);
+  }, [beginFormSession]);
+
+  const applyRecoveredDraft = useCallback((candidate: RecipeDraftEnvelope) => {
+    beginFormSession();
+    draftGenerationRef.current = Math.max(draftGenerationRef.current, candidate.generation);
+    setDraft(candidate);
+    setForm(candidate.form);
+    setEditingId(candidate.recipeId);
+    setBaseSnapshot(candidate.baseSnapshot);
+    if (candidate.mode === 'new') {
+      setDraftConflict(null);
+      setShowForm(true);
+      return;
+    }
+
+    const remote = recipes.find(recipe => recipe.id === candidate.recipeId);
+    if (!remote) {
+      setDraftConflict({ kind: 'remote-unavailable' });
+    } else if (candidate.baseSnapshot && recipeDraftFormsEqual(recipeToDraftForm(remote), candidate.baseSnapshot)) {
+      setDraftConflict(null);
+    } else {
+      setDraftConflict({ kind: 'remote-changed', remote });
+    }
+    setShowForm(true);
+  }, [beginFormSession, recipes]);
+
+  useEffect(() => {
+    invalidateFormSession();
+    recoveredDraftRef.current = null;
+    draftGenerationRef.current = 0;
+    savingRef.current = false;
+    setSaving(false);
+    setShowForm(false);
+    setEditingId(null);
+    setBaseSnapshot(null);
+    setDraftConflict(null);
+    setDraft(null);
+    setForm({ ...EMPTY_RECIPE_FORM });
+    setDraftStorageWarning(false);
+    if (!accountId) return;
+
+    const result = readRecipeDraft(accountId);
+    setDraftStorageWarning(result.storageFailed);
+    if (!result.draft) return;
+    setDraft(result.draft);
+    draftGenerationRef.current = result.draft.generation;
+    if (result.draft.mode === 'new') {
+      beginFormSession();
+      recoveredDraftRef.current = `${accountId}:${result.draft.generation}`;
+      setForm(result.draft.form);
+      setEditingId(null);
+      setBaseSnapshot(null);
+      setDraftConflict(null);
+      setShowForm(true);
+    }
+  }, [accountId, beginFormSession, invalidateFormSession]);
+
+  useEffect(() => {
+    if (!draft || draft.mode !== 'edit' || loading || deletedLoading || !accountId) return;
+    const recoveryKey = `${accountId}:${draft.generation}`;
+    if (recoveredDraftRef.current === recoveryKey) return;
+    recoveredDraftRef.current = recoveryKey;
+    applyRecoveredDraft(draft);
+  }, [accountId, applyRecoveredDraft, deletedLoading, draft, loading]);
+
   const handleToggleExpand = useCallback((id: string) => {
     setExpandedId(prev => {
       const next = prev === id ? null : id;
@@ -111,42 +285,70 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
   }, [accountId, bumpActivity, showToast, t]);
 
   const handleSave = useCallback(async () => {
+    const submittedFormSession = activeFormSessionRef.current;
+    if (savingRef.current || draftConflict || submittedFormSession === null) return;
     if (!form.title.trim()) return showToast(t('enterRecipeTitle'), 'error');
 
     const accountSnapshot = captureAccountGeneration();
     if (!accountSnapshot.accountId) return;
-    const payload = { ...form, title: form.title.trim() };
+    const submittedGeneration = draftGenerationRef.current;
+    const submittedEditingId = editingId;
+    const payload = normalizeRecipeDraftForm({ ...form, title: form.title.trim() });
+    savingRef.current = true;
+    setSaving(true);
     try {
-      const url = editingId
-        ? `${API_URL}/api/recipes/${editingId}`
+      const url = submittedEditingId
+        ? `${API_URL}/api/recipes/${submittedEditingId}`
         : `${API_URL}/api/recipes`;
       const res = await authFetch(url, {
-        method: editingId ? 'PUT' : 'POST',
+        method: submittedEditingId ? 'PUT' : 'POST',
         body: JSON.stringify(payload),
       });
       if (!res.ok) throw new Error();
-      const saved: Recipe = await res.json();
+      const saved: unknown = await res.json();
       if (!isCurrentAccountGeneration(accountSnapshot)) return;
+      if (activeFormSessionRef.current !== submittedFormSession) return;
+      if (draftGenerationRef.current !== submittedGeneration) throw new Error();
+      if (!isValidSavedRecipe(saved, payload, submittedEditingId ?? undefined)) throw new Error();
+
+      const committedGeneration = draftGenerationRef.current + 1;
+      draftGenerationRef.current = committedGeneration;
+      invalidateFormSession();
+      const cleanup = clearRecipeDraftAfterRemoteCommit(
+        accountSnapshot.accountId,
+        committedGeneration,
+      );
+      const cleanupWarning = cleanup.removalFailed || !cleanup.cleared;
+      setDraft(null);
+      setDraftConflict(null);
+      setDraftStorageWarning(cleanupWarning);
 
       mutateRecipes(
-        prev => editingId
-          ? (prev ?? []).map(r => r.id === editingId ? saved : r)
+        prev => submittedEditingId
+          ? (prev ?? []).map(r => r.id === submittedEditingId ? saved : r)
           : [saved, ...(prev ?? [])],
         false,
       );
       void mutateRecipes();
       recordRecipeEdit(saved.id, accountSnapshot.accountId);
       bumpActivity();
-      showToast(editingId ? t('recipeUpdated') : t('recipeSaved'));
+      showToast(submittedEditingId ? t('recipeUpdated') : t('recipeSaved'));
+      if (cleanupWarning) showToast(t('recipeDraftStorageWarning'), 'error');
       setShowForm(false);
       setEditingId(null);
+      setBaseSnapshot(null);
       setForm({ ...EMPTY_RECIPE_FORM });
       setExpandedId(saved.id);
     } catch {
       if (!isCurrentAccountGeneration(accountSnapshot)) return;
       showToast(t('failSaveRecipe'), 'error');
+    } finally {
+      if (isCurrentAccountGeneration(accountSnapshot)) {
+        savingRef.current = false;
+        setSaving(false);
+      }
     }
-  }, [accountId, captureAccountGeneration, form, editingId, isCurrentAccountGeneration, showToast, mutateRecipes, bumpActivity, t]);
+  }, [bumpActivity, captureAccountGeneration, draftConflict, editingId, form, invalidateFormSession, isCurrentAccountGeneration, mutateRecipes, showToast, t]);
 
   const handleDelete = useCallback((id: string) => {
     showConfirm(t('deleteRecipe'), async () => {
@@ -215,29 +417,117 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
     }
   }, [captureAccountGeneration, isCurrentAccountGeneration, showToast, mutateRecipes, t]);
 
+  const discardCurrentDraft = useCallback((): boolean => {
+    if (!accountId) return false;
+    if (!removeRecipeDraft(accountId)) {
+      setDraftStorageWarning(true);
+      return false;
+    }
+    draftGenerationRef.current += 1;
+    invalidateFormSession();
+    setDraft(null);
+    setDraftConflict(null);
+    setDraftStorageWarning(false);
+    return true;
+  }, [accountId, invalidateFormSession]);
+
+  const requestReplaceDraft = useCallback((openRequested: () => void) => {
+    showConfirm(t('recipeDraftReplacementConfirm'), () => {
+      if (discardCurrentDraft()) openRequested();
+    }, { confirmLabel: t('recipeDraftDiscard') });
+  }, [discardCurrentDraft, showConfirm, t]);
+
   const openEdit = useCallback((recipe: Recipe) => {
-    setForm({
-      title: recipe.title,
-      category: recipe.category,
-      ingredients: recipe.ingredients ?? '',
-      steps: recipe.steps ?? '',
-      memo: recipe.memo ?? '',
-      starred: recipe.starred,
-    });
-    setEditingId(recipe.id);
-    setShowForm(true);
-  }, []);
+    if (!draft) {
+      openFreshEdit(recipe);
+      return;
+    }
+    if (draft.mode === 'edit' && draft.recipeId === recipe.id) {
+      applyRecoveredDraft(draft);
+      return;
+    }
+    requestReplaceDraft(() => openFreshEdit(recipe));
+  }, [applyRecoveredDraft, draft, openFreshEdit, requestReplaceDraft]);
 
   const openNew = useCallback(() => {
-    setForm({ ...EMPTY_RECIPE_FORM });
-    setEditingId(null);
-    setShowForm(true);
-  }, []);
+    if (!draft) {
+      openFreshNew();
+      return;
+    }
+    if (draft.mode === 'new') {
+      applyRecoveredDraft(draft);
+      return;
+    }
+    requestReplaceDraft(openFreshNew);
+  }, [applyRecoveredDraft, draft, openFreshNew, requestReplaceDraft]);
+
+  const closeFormNow = useCallback(() => {
+    invalidateFormSession();
+    setShowForm(false);
+  }, [invalidateFormSession]);
 
   const closeForm = useCallback(() => {
-    setShowForm(false);
-    setEditingId(null);
-  }, []);
+    if (savingRef.current || activeFormSessionRef.current === null) return;
+    if (isCurrentFormDirty()) {
+      const persisted = persistComputedForm(form);
+      if (!persisted) {
+        showConfirm(t('recipeDraftVolatileCloseConfirm'), closeFormNow, {
+          confirmLabel: t('close'),
+        });
+        return;
+      }
+    }
+    closeFormNow();
+  }, [closeFormNow, form, isCurrentFormDirty, persistComputedForm, showConfirm, t]);
+
+  const handleDiscardDraft = useCallback(() => {
+    const discard = () => {
+      if (!discardCurrentDraft()) return;
+      setForm({ ...EMPTY_RECIPE_FORM });
+      setBaseSnapshot(null);
+      setEditingId(null);
+      setShowForm(false);
+    };
+    if (isCurrentFormDirty()) {
+      showConfirm(t('recipeDraftDiscardConfirm'), discard, {
+        confirmLabel: t('recipeDraftDiscard'),
+      });
+      return;
+    }
+    discard();
+  }, [discardCurrentDraft, isCurrentFormDirty, showConfirm, t]);
+
+  const handleUseLocalDraft = useCallback(() => {
+    if (!draft || draftConflict?.kind !== 'remote-changed') return;
+    const nextBase = recipeToDraftForm(draftConflict.remote);
+    const generation = draftGenerationRef.current + 1;
+    draftGenerationRef.current = generation;
+    const nextDraft: RecipeDraftEnvelope = {
+      ...draft,
+      baseSnapshot: nextBase,
+      generation,
+    };
+    setBaseSnapshot(nextBase);
+    setDraft(nextDraft);
+    if (!writeRecipeDraft(nextDraft)) {
+      setDraftStorageWarning(true);
+    } else {
+      setDraftStorageWarning(false);
+    }
+    setDraftConflict(null);
+  }, [draft, draftConflict]);
+
+  const handleDiscardLocalConflict = useCallback(() => {
+    if (draftConflict?.kind !== 'remote-changed') {
+      handleDiscardDraft();
+      return;
+    }
+    const remote = draftConflict.remote;
+    showConfirm(t('recipeDraftDiscardConfirm'), () => {
+      if (!discardCurrentDraft()) return;
+      openFreshEdit(remote);
+    }, { confirmLabel: t('recipeDraftDiscard') });
+  }, [discardCurrentDraft, draftConflict, handleDiscardDraft, openFreshEdit, showConfirm, t]);
 
   const createNote = useNotesStore(s => s.createNote);
   const updateNote = useNotesStore(s => s.updateNote);
@@ -282,12 +572,17 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
         show={showForm}
         editingId={editingId}
         form={form}
-        setForm={setForm}
+        setForm={updateForm}
         theme={theme}
         dark={dark}
         t={t}
         onClose={closeForm}
         onSave={handleSave}
+        onDiscard={draftConflict ? handleDiscardLocalConflict : handleDiscardDraft}
+        onUseLocal={draftConflict?.kind === 'remote-changed' ? handleUseLocalDraft : undefined}
+        saving={saving}
+        conflict={draftConflict?.kind ?? null}
+        storageWarning={draftStorageWarning}
       />
 
       {confirm && (

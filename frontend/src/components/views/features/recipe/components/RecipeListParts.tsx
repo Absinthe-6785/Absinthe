@@ -1,6 +1,6 @@
 import { useRef, useEffect } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { X, Check, Star } from 'lucide-react';
+import { X, Check, Star, AlertTriangle, Trash2 } from 'lucide-react';
 import type { Theme } from '../../../../../types';
 import type { TranslationKey } from '../../../../../lib/i18n';
 import type { Recipe } from '../recipeTypes';
@@ -29,6 +29,11 @@ export interface RecipeFormModalProps {
   t: (key: TranslationKey) => string;
   onClose: () => void;
   onSave: () => void;
+  onDiscard: () => void;
+  onUseLocal?: () => void;
+  saving: boolean;
+  conflict: 'remote-changed' | 'remote-unavailable' | null;
+  storageWarning: boolean;
 }
 
 export function RecipeFormModal({
@@ -41,6 +46,11 @@ export function RecipeFormModal({
   t,
   onClose,
   onSave,
+  onDiscard,
+  onUseLocal,
+  saving,
+  conflict,
+  storageWarning,
 }: RecipeFormModalProps) {
   const titleRef = useRef<HTMLInputElement>(null);
 
@@ -67,13 +77,40 @@ export function RecipeFormModal({
           </button>
         </div>
 
-        <div className="space-y-4">
+        {storageWarning && (
+          <div className="mb-4 flex items-start gap-2 rounded-2xl border border-amber-400/40 bg-amber-400/10 px-4 py-3 text-sm text-amber-600" role="status" data-recipe-draft-storage-warning>
+            <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+            <span>{t('recipeDraftStorageWarning')}</span>
+          </div>
+        )}
+
+        {conflict && (
+          <div className="mb-4 rounded-2xl border border-amber-400/40 bg-amber-400/10 px-4 py-3" data-recipe-draft-conflict={conflict}>
+            <div className="flex items-start gap-2 text-sm text-amber-600">
+              <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+              <span>{t(conflict === 'remote-changed' ? 'recipeDraftConflict' : 'recipeDraftUnavailable')}</span>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {conflict === 'remote-changed' && onUseLocal && (
+                <button type="button" onClick={onUseLocal} className="rounded-xl bg-primary px-3 py-2 text-xs font-bold text-primary-foreground">
+                  {t('recipeDraftUseLocal')}
+                </button>
+              )}
+              <button type="button" onClick={onDiscard} className="rounded-xl border border-amber-500/30 px-3 py-2 text-xs font-bold text-amber-600">
+                {t('recipeDraftDiscard')}
+              </button>
+            </div>
+          </div>
+        )}
+
+        <fieldset className="space-y-4" disabled={saving} aria-disabled={conflict ? true : undefined}>
           <div>
             <label className={`block text-xs font-semibold mb-1.5 ${theme.textMuted}`}>{t('title')} *</label>
             <input
               ref={titleRef}
               value={form.title}
               onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
+              readOnly={Boolean(conflict)}
               placeholder={t('recipeName')}
               className={`w-full rounded-2xl px-4 py-3 text-sm font-semibold outline-none focus:ring-2 focus:ring-primary ${theme.input}`}
             />
@@ -86,6 +123,7 @@ export function RecipeFormModal({
                 <button
                   key={cat}
                   type="button"
+                  disabled={Boolean(conflict) || saving}
                   onClick={() => setForm(f => ({ ...f, category: cat }))}
                   className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
                     form.category === cat
@@ -106,6 +144,7 @@ export function RecipeFormModal({
             <textarea
               value={form.ingredients}
               onChange={e => setForm(f => ({ ...f, ingredients: e.target.value }))}
+              readOnly={Boolean(conflict)}
               placeholder={'200g chicken breast\n1 tbsp olive oil\n2 cloves garlic'}
               rows={4}
               className={`w-full rounded-2xl px-4 py-3 text-sm outline-none resize-none focus:ring-2 focus:ring-primary ${theme.input}`}
@@ -119,6 +158,7 @@ export function RecipeFormModal({
             <textarea
               value={form.steps}
               onChange={e => setForm(f => ({ ...f, steps: e.target.value }))}
+              readOnly={Boolean(conflict)}
               placeholder={'Preheat oven to 200°C\nSeason chicken with salt and pepper\nBake for 25 minutes'}
               rows={5}
               className={`w-full rounded-2xl px-4 py-3 text-sm outline-none resize-none focus:ring-2 focus:ring-primary ${theme.input}`}
@@ -130,6 +170,7 @@ export function RecipeFormModal({
             <textarea
               value={form.memo}
               onChange={e => setForm(f => ({ ...f, memo: e.target.value }))}
+              readOnly={Boolean(conflict)}
               placeholder={t('recipeTips')}
               rows={2}
               className={`w-full rounded-2xl px-4 py-3 text-sm outline-none resize-none focus:ring-2 focus:ring-primary ${theme.input}`}
@@ -138,6 +179,7 @@ export function RecipeFormModal({
 
           <button
             type="button"
+            disabled={Boolean(conflict) || saving}
             onClick={() => setForm(f => ({ ...f, starred: !f.starred }))}
             className={`flex items-center gap-2 px-4 py-2 rounded-2xl text-sm font-semibold transition-all ${
               form.starred ? 'bg-yellow-400/20 text-yellow-500' : `${dark ? 'bg-surface' : 'bg-gray-100'} ${theme.textMuted}`
@@ -146,15 +188,28 @@ export function RecipeFormModal({
             <Star size={14} fill={form.starred ? '#8B5CF6' : 'none'} color={form.starred ? '#8B5CF6' : undefined} />
             {form.starred ? t('recipeStarred') : t('addStarred')}
           </button>
-        </div>
+        </fieldset>
 
-        <button
-          type="button"
-          onClick={onSave}
-          className="w-full mt-6 py-3.5 rounded-2xl font-bold text-sm bg-primary text-primary-foreground hover:scale-[1.02] transition-transform active:scale-[0.98] flex items-center justify-center gap-2"
-        >
-          <Check size={16} /> {editingId ? t('updateRecipe') : t('saveRecipe')}
-        </button>
+        {!conflict && (
+          <div className="mt-6 flex gap-2">
+            <button
+              type="button"
+              onClick={onDiscard}
+              disabled={saving}
+              className={`flex items-center justify-center gap-2 rounded-2xl px-4 py-3.5 text-sm font-bold ${theme.textMuted} ${dark ? 'bg-white/5' : 'bg-gray-100'}`}
+            >
+              <Trash2 size={15} /> {t('recipeDraftDiscard')}
+            </button>
+            <button
+              type="button"
+              onClick={onSave}
+              disabled={saving}
+              className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-primary py-3.5 text-sm font-bold text-primary-foreground transition-transform enabled:hover:scale-[1.02] enabled:active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <Check size={16} /> {editingId ? t('updateRecipe') : t('saveRecipe')}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
