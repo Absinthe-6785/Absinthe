@@ -33,6 +33,11 @@ import {
   type RecipeDraftEnvelope,
   type RecipeDraftForm,
 } from './features/recipe/recipeDraftStorage';
+import {
+  recipeAuthorityIsReady,
+  recipeAuthorityIsUnavailable,
+  resolveRecipeAvailability,
+} from './features/recipe/recipeAvailability';
 
 export type { Recipe } from './features/recipe';
 
@@ -42,7 +47,8 @@ interface RecipeViewProps extends BaseViewProps {
 
 type DraftConflict =
   | { kind: 'remote-changed'; remote: Recipe }
-  | { kind: 'remote-unavailable' };
+  | { kind: 'remote-unavailable' }
+  | { kind: 'remote-missing' };
 
 export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeViewProps) => {
   const { t } = useTranslation();
@@ -89,20 +95,49 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
     accountGenerationRef.current += 1;
   }, []);
 
-  const { data: recipes = [], isLoading: loading, mutate: mutateRecipes } = useSWR<Recipe[]>(
+  const {
+    data: activeRecipeData,
+    error: activeRecipeError,
+    isLoading: activeRecipeLoading,
+    isValidating: activeRecipeValidating,
+    mutate: mutateRecipes,
+  } = useSWR<Recipe[]>(
     accountBoundRemoteKey(`${API_URL}/api/recipes`, accountId),
     accountBoundRemoteFetcher,
     { onError: () => showToast(t('failLoadRecipes'), 'error') },
   );
   const {
-    data: deletedRecipes = [],
-    isLoading: deletedLoading,
+    data: deletedRecipeData,
+    error: deletedRecipeError,
+    isLoading: deletedRecipeLoading,
+    isValidating: deletedRecipeValidating,
     mutate: mutateDeletedRecipes,
   } = useSWR<Recipe[]>(
     accountBoundRemoteKey(`${API_URL}/api/recipes/trash`, accountId),
     accountBoundRemoteFetcher,
     { onError: () => showToast(t('failLoadDeletedRecipes'), 'error') },
   );
+
+  const activeAvailability = resolveRecipeAvailability({
+    data: activeRecipeData,
+    error: activeRecipeError,
+    isLoading: activeRecipeLoading,
+    isValidating: activeRecipeValidating,
+  });
+  const trashAvailability = resolveRecipeAvailability({
+    data: deletedRecipeData,
+    error: deletedRecipeError,
+    isLoading: deletedRecipeLoading,
+    isValidating: deletedRecipeValidating,
+  });
+  const activeAuthorityReady = recipeAuthorityIsReady(activeAvailability);
+  const trashAuthorityReady = recipeAuthorityIsReady(trashAvailability);
+  const recipes = activeRecipeData ?? [];
+  const deletedRecipes = deletedRecipeData ?? [];
+  const activeAvailabilityRef = useRef(activeAvailability);
+  const trashAvailabilityRef = useRef(trashAvailability);
+  activeAvailabilityRef.current = activeAvailability;
+  trashAvailabilityRef.current = trashAvailability;
 
   const locale = resolveAppLanguage(appSettings.language);
   const projection = useRecipeProjection(recipes, { locale, accountId, activityTick });
@@ -206,16 +241,22 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
       return;
     }
 
+    if (!activeAuthorityReady) {
+      setDraftConflict({ kind: 'remote-unavailable' });
+      setShowForm(true);
+      return;
+    }
+
     const remote = recipes.find(recipe => recipe.id === candidate.recipeId);
     if (!remote) {
-      setDraftConflict({ kind: 'remote-unavailable' });
+      setDraftConflict({ kind: 'remote-missing' });
     } else if (candidate.baseSnapshot && recipeDraftFormsEqual(recipeToDraftForm(remote), candidate.baseSnapshot)) {
       setDraftConflict(null);
     } else {
       setDraftConflict({ kind: 'remote-changed', remote });
     }
     setShowForm(true);
-  }, [beginFormSession, recipes]);
+  }, [activeAuthorityReady, beginFormSession, recipes]);
 
   useEffect(() => {
     invalidateFormSession();
@@ -249,12 +290,20 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
   }, [accountId, beginFormSession, invalidateFormSession]);
 
   useEffect(() => {
-    if (!draft || draft.mode !== 'edit' || loading || deletedLoading || !accountId) return;
-    const recoveryKey = `${accountId}:${draft.generation}`;
+    if (!draft || draft.mode !== 'edit' || activeAvailability === 'LOADING' || !accountId) return;
+    const recoveryKey = `${accountId}:${draft.generation}:${activeAvailability}`;
     if (recoveredDraftRef.current === recoveryKey) return;
     recoveredDraftRef.current = recoveryKey;
     applyRecoveredDraft(draft);
-  }, [accountId, applyRecoveredDraft, deletedLoading, draft, loading]);
+  }, [accountId, activeAvailability, applyRecoveredDraft, draft]);
+
+  const retryActiveRecipes = useCallback(() => {
+    void mutateRecipes().catch(() => undefined);
+  }, [mutateRecipes]);
+
+  const retryDeletedRecipes = useCallback(() => {
+    void mutateDeletedRecipes().catch(() => undefined);
+  }, [mutateDeletedRecipes]);
 
   const handleToggleExpand = useCallback((id: string) => {
     setExpandedId(prev => {
@@ -286,7 +335,7 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
 
   const handleSave = useCallback(async () => {
     const submittedFormSession = activeFormSessionRef.current;
-    if (savingRef.current || draftConflict || submittedFormSession === null) return;
+    if (savingRef.current || draftConflict || submittedFormSession === null || !recipeAuthorityIsReady(activeAvailabilityRef.current)) return;
     if (!form.title.trim()) return showToast(t('enterRecipeTitle'), 'error');
 
     const accountSnapshot = captureAccountGeneration();
@@ -351,7 +400,9 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
   }, [bumpActivity, captureAccountGeneration, draftConflict, editingId, form, invalidateFormSession, isCurrentAccountGeneration, mutateRecipes, showToast, t]);
 
   const handleDelete = useCallback((id: string) => {
+    if (!recipeAuthorityIsReady(activeAvailabilityRef.current)) return;
     showConfirm(t('deleteRecipe'), async () => {
+      if (!recipeAuthorityIsReady(activeAvailabilityRef.current)) return;
       const accountSnapshot = captureAccountGeneration();
       if (!accountSnapshot.accountId) return;
       try {
@@ -371,6 +422,7 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
   }, [captureAccountGeneration, expandedId, isCurrentAccountGeneration, showConfirm, showToast, mutateRecipes, mutateDeletedRecipes, t]);
 
   const handleRestore = useCallback(async (id: string) => {
+    if (!recipeAuthorityIsReady(activeAvailabilityRef.current) || !recipeAuthorityIsReady(trashAvailabilityRef.current)) return;
     const accountSnapshot = captureAccountGeneration();
     if (!accountSnapshot.accountId) return;
     try {
@@ -398,6 +450,7 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
   }, [accountId, captureAccountGeneration, deletedRecipes, isCurrentAccountGeneration, mutateDeletedRecipes, mutateRecipes, showToast, t]);
 
   const handleToggleStar = useCallback(async (recipe: Recipe) => {
+    if (!recipeAuthorityIsReady(activeAvailabilityRef.current)) return;
     const accountSnapshot = captureAccountGeneration();
     if (!accountSnapshot.accountId) return;
     const updated = { ...recipe, starred: !recipe.starred };
@@ -438,6 +491,7 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
   }, [discardCurrentDraft, showConfirm, t]);
 
   const openEdit = useCallback((recipe: Recipe) => {
+    if (!recipeAuthorityIsReady(activeAvailabilityRef.current)) return;
     if (!draft) {
       openFreshEdit(recipe);
       return;
@@ -450,6 +504,7 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
   }, [applyRecoveredDraft, draft, openFreshEdit, requestReplaceDraft]);
 
   const openNew = useCallback(() => {
+    if (!recipeAuthorityIsReady(activeAvailabilityRef.current)) return;
     if (!draft) {
       openFreshNew();
       return;
@@ -552,14 +607,18 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
         recipes={recipes}
         theme={theme}
         appSettings={appSettings}
-        loading={loading}
+        activeAvailability={activeAvailability}
+        activeValidating={activeRecipeValidating}
+        onRetryActive={retryActiveRecipes}
         expandedId={expandedId}
         onToggleExpand={handleToggleExpand}
         onToggleStar={handleToggleStar}
         onEdit={openEdit}
         onDelete={handleDelete}
         deletedRecipes={deletedRecipes}
-        deletedLoading={deletedLoading}
+        trashAvailability={trashAvailability}
+        trashValidating={deletedRecipeValidating}
+        onRetryTrash={retryDeletedRecipes}
         onRestore={handleRestore}
         onMarkCooked={handleMarkCooked}
         onOpenCookingNote={handleOpenCookingNote}
@@ -583,6 +642,10 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
         saving={saving}
         conflict={draftConflict?.kind ?? null}
         storageWarning={draftStorageWarning}
+        authorityReady={activeAuthorityReady}
+        authorityUnavailable={recipeAuthorityIsUnavailable(activeAvailability)}
+        authorityValidating={activeRecipeValidating}
+        onRetryAuthority={retryActiveRecipes}
       />
 
       {confirm && (

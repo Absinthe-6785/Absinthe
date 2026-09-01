@@ -24,6 +24,7 @@ export function useSearchProjection(
       input.healthBlocksState,
       input.weeklySchedules,
       input.recipes,
+      input.recipeState,
       input.recentSearches,
       input.service,
       input.discoveryFeed,
