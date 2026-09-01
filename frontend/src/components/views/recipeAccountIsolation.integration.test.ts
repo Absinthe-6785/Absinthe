@@ -161,6 +161,7 @@ describe('Recipe account isolation production paths', () => {
   let cache: Map<unknown, unknown>;
 
   beforeEach(() => {
+    localStorage.clear();
     harness.account = 'account-a';
     harness.server = {
       'account-a': { active: [recipe('recipe-a', 'Account A recipe')], trash: [recipe('trash-a', 'Account A deleted', '2026-08-30T00:00:00Z')] },
@@ -315,7 +316,10 @@ describe('Recipe account isolation production paths', () => {
 
     harness.authFetch.mockResolvedValue({
       ok: true,
-      json: async () => recipe('recipe-created', 'Created recipe'),
+      json: async () => ({
+        ...recipe('recipe-created', 'Created recipe'),
+        ingredients: '', steps: '', memo: '',
+      }),
     } as Response);
     harness.fetches.length = 0;
     act(() => harness.studioProps?.onNewRecipe());
@@ -329,7 +333,10 @@ describe('Recipe account isolation production paths', () => {
 
     harness.authFetch.mockResolvedValue({
       ok: true,
-      json: async () => recipe('recipe-a', 'Updated recipe'),
+      json: async () => ({
+        ...recipe('recipe-a', 'Updated recipe'),
+        ingredients: '', steps: '', memo: '',
+      }),
     } as Response);
     harness.fetches.length = 0;
     act(() => harness.studioProps?.onEdit(recipe('recipe-a', 'Account A recipe')));
