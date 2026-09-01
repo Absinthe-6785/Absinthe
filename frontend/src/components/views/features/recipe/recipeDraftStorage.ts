@@ -27,6 +27,18 @@ export interface RecipeDraftReadResult {
   storageFailed: boolean;
 }
 
+export interface RecipeDraftCommitCleanupResult {
+  cleared: boolean;
+  removalFailed: boolean;
+}
+
+interface RecipeDraftCommittedMarker {
+  version: typeof RECIPE_DRAFT_VERSION;
+  accountId: string;
+  committed: true;
+  generation: number;
+}
+
 export const recipeDraftStorageKey = (accountId: string): string => (
   `${RECIPE_DRAFT_KEY_PREFIX}${encodeURIComponent(accountId)}`
 );
@@ -87,6 +99,16 @@ const isDraftEnvelope = (value: unknown, accountId: string): value is RecipeDraf
     && isDraftForm(draft.baseSnapshot);
 };
 
+const isCommittedMarker = (value: unknown, accountId: string): value is RecipeDraftCommittedMarker => {
+  if (!value || typeof value !== 'object') return false;
+  const marker = value as Record<string, unknown>;
+  return marker.version === RECIPE_DRAFT_VERSION
+    && marker.accountId === accountId
+    && marker.committed === true
+    && Number.isSafeInteger(marker.generation)
+    && Number(marker.generation) >= 0;
+};
+
 const removeInvalidCurrentKey = (accountId: string, storage: Storage): boolean => {
   try {
     storage.removeItem(recipeDraftStorageKey(accountId));
@@ -114,6 +136,9 @@ export function readRecipeDraft(
     parsed = JSON.parse(raw);
   } catch {
     return { draft: null, storageFailed: !removeInvalidCurrentKey(accountId, storage) };
+  }
+  if (isCommittedMarker(parsed, accountId)) {
+    return { draft: null, storageFailed: false };
   }
   if (!isDraftEnvelope(parsed, accountId)) {
     return { draft: null, storageFailed: !removeInvalidCurrentKey(accountId, storage) };
@@ -144,6 +169,37 @@ export function removeRecipeDraft(
     return true;
   } catch {
     return false;
+  }
+}
+
+export function clearRecipeDraftAfterRemoteCommit(
+  accountId: string,
+  generation: number,
+  storage: Storage = localStorage,
+): RecipeDraftCommitCleanupResult {
+  if (!accountId || !Number.isSafeInteger(generation) || generation < 0) {
+    return { cleared: false, removalFailed: false };
+  }
+
+  let markerWritten = false;
+  try {
+    const marker: RecipeDraftCommittedMarker = {
+      version: RECIPE_DRAFT_VERSION,
+      accountId,
+      committed: true,
+      generation,
+    };
+    storage.setItem(recipeDraftStorageKey(accountId), JSON.stringify(marker));
+    markerWritten = true;
+  } catch {
+    // A successful remove still clears the draft when marker persistence is unavailable.
+  }
+
+  try {
+    storage.removeItem(recipeDraftStorageKey(accountId));
+    return { cleared: true, removalFailed: false };
+  } catch {
+    return { cleared: markerWritten, removalFailed: true };
   }
 }
 

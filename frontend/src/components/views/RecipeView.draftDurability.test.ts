@@ -108,6 +108,7 @@ const theme = { card: '', input: '', border: '', text: '', textMuted: '', hoverB
 
 let root: Root;
 let host: HTMLDivElement;
+let restoreStorageSpies: Array<() => void> = [];
 
 function render(accountId?: string) {
   harness.account = accountId ?? 'anonymous';
@@ -146,6 +147,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  restoreStorageSpies.reverse().forEach(restore => restore());
+  restoreStorageSpies = [];
   vi.restoreAllMocks();
   act(() => root.unmount());
   host.remove();
@@ -230,6 +233,56 @@ describe('Recipe draft durability production path', () => {
     expect(harness.authFetch).not.toHaveBeenCalled();
   });
 
+  it('discards a conflicted local Edit draft and loads the current remote state without mutation', async () => {
+    const base = recipe('recipe-a');
+    writeRecipeDraft(envelope({
+      mode: 'edit',
+      recipeId: 'recipe-a',
+      baseSnapshot: { ...base, title: base.title },
+    }));
+    const currentRemote = { ...base, title: 'Current remote soup', memo: 'remote memo' };
+    harness.server['account-a'].active = [currentRemote];
+    render('account-a'); await flush();
+
+    expect(harness.formProps?.conflict).toBe('remote-changed');
+    expect(harness.formProps?.form.title).toBe('Local soup');
+    act(() => harness.formProps?.onDiscard()); await flush();
+    expect(harness.confirmMessage).toBe('recipeDraftDiscardConfirm');
+    await act(async () => { await harness.confirmAction?.(); }); await flush();
+
+    expect(readRecipeDraft('account-a').draft).toBeNull();
+    expect(harness.formProps?.show).toBe(true);
+    expect(harness.formProps?.editingId).toBe('recipe-a');
+    expect(harness.formProps?.form).toEqual(expect.objectContaining({
+      title: 'Current remote soup',
+      memo: 'remote memo',
+    }));
+    expect(harness.formProps?.form.title).not.toBe('Local soup');
+    expect(harness.authFetch).not.toHaveBeenCalled();
+  });
+
+  it('treats a restored-and-changed remote Recipe as an explicit conflict without PUT or resurrection', async () => {
+    const base = recipe('recipe-restored', 'Original soup');
+    writeRecipeDraft(envelope({
+      mode: 'edit',
+      recipeId: base.id,
+      baseSnapshot: { ...base },
+      form: { ...draftForm, title: 'Unsaved local soup' },
+    }));
+    harness.server['account-a'] = {
+      active: [{ ...base, title: 'Restored remote soup', deleted_at: null }],
+      trash: [],
+    };
+    render('account-a'); await flush();
+
+    expect(harness.formProps?.conflict).toBe('remote-changed');
+    expect(harness.formProps?.form.title).toBe('Unsaved local soup');
+    expect(readRecipeDraft('account-a').draft?.form.title).toBe('Unsaved local soup');
+    expect(harness.authFetch).not.toHaveBeenCalled();
+    await act(async () => { await harness.formProps?.onSave(); });
+    expect(harness.authFetch).not.toHaveBeenCalled();
+  });
+
   it('keeps deleted or missing Edit targets unavailable and never updates or resurrects them', async () => {
     const base = recipe('recipe-missing');
     writeRecipeDraft(envelope({ mode: 'edit', recipeId: base.id, baseSnapshot: base }));
@@ -289,6 +342,36 @@ describe('Recipe draft durability production path', () => {
     expect(harness.formProps?.show).toBe(false);
   });
 
+  it('keeps a committed Create successful when draft removeItem fails and blocks stale retry/write callbacks', async () => {
+    render('account-a'); await flush();
+    act(() => harness.studioProps?.onNewRecipe()); await setForm(draftForm);
+    const staleSave = harness.formProps?.onSave as (() => Promise<void>);
+    const staleSetForm = harness.formProps?.setForm as ((next: typeof draftForm) => void);
+    const removeItemSpy = vi.spyOn(localStorage, 'removeItem').mockImplementation(() => { throw new Error('remove disabled'); });
+    restoreStorageSpies.push(() => removeItemSpy.mockRestore());
+    harness.authFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ ...draftForm, id: 'created', created_at: '2026-09-01', deleted_at: null }),
+    } as Response);
+
+    await act(async () => { await staleSave(); }); await flush();
+
+    expect(harness.authFetch).toHaveBeenCalledTimes(1);
+    expect(harness.formProps?.show).toBe(false);
+    expect(harness.formProps?.saving).toBe(false);
+    expect(harness.formProps?.storageWarning).toBe(true);
+    expect(harness.showToast).toHaveBeenCalledWith('recipeSaved');
+    expect(harness.showToast).toHaveBeenCalledWith('recipeDraftStorageWarning', 'error');
+    expect(harness.showToast).not.toHaveBeenCalledWith('failSaveRecipe', 'error');
+    expect(readRecipeDraft('account-a').draft).toBeNull();
+
+    await act(async () => { await staleSave(); });
+    act(() => staleSetForm({ ...draftForm, title: 'Stale retry' }));
+    await flush();
+    expect(harness.authFetch).toHaveBeenCalledTimes(1);
+    expect(readRecipeDraft('account-a').draft).toBeNull();
+  });
+
   it('preserves failed or mismatched Update drafts and clears a confirmed matching active update', async () => {
     const remote = recipe('recipe-a');
     render('account-a'); await flush();
@@ -306,6 +389,37 @@ describe('Recipe draft durability production path', () => {
 
     harness.authFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ ...edited, id: 'recipe-a', created_at: '2026-09-01', deleted_at: null }) } as Response);
     await act(async () => { await harness.formProps?.onSave(); }); await flush();
+    expect(readRecipeDraft('account-a').draft).toBeNull();
+  });
+
+  it('keeps a committed Update successful when draft removeItem fails and invalidates stale form writes', async () => {
+    const remote = recipe('recipe-a');
+    render('account-a'); await flush();
+    act(() => harness.studioProps?.onEdit(remote)); await flush();
+    const edited = { ...draftForm, title: 'Committed update' };
+    await setForm(edited);
+    const staleSave = harness.formProps?.onSave as (() => Promise<void>);
+    const staleSetForm = harness.formProps?.setForm as ((next: typeof draftForm) => void);
+    const removeItemSpy = vi.spyOn(localStorage, 'removeItem').mockImplementation(() => { throw new Error('remove disabled'); });
+    restoreStorageSpies.push(() => removeItemSpy.mockRestore());
+    harness.authFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ ...edited, id: remote.id, created_at: remote.created_at, deleted_at: null }),
+    } as Response);
+
+    await act(async () => { await staleSave(); }); await flush();
+
+    expect(harness.authFetch).toHaveBeenCalledTimes(1);
+    expect(harness.formProps?.show).toBe(false);
+    expect(harness.formProps?.storageWarning).toBe(true);
+    expect(harness.showToast).toHaveBeenCalledWith('recipeUpdated');
+    expect(harness.showToast).not.toHaveBeenCalledWith('failSaveRecipe', 'error');
+    expect(readRecipeDraft('account-a').draft).toBeNull();
+
+    act(() => staleSetForm({ ...edited, memo: 'stale write' }));
+    await act(async () => { await staleSave(); });
+    await flush();
+    expect(harness.authFetch).toHaveBeenCalledTimes(1);
     expect(readRecipeDraft('account-a').draft).toBeNull();
   });
 
@@ -333,7 +447,8 @@ describe('Recipe draft durability production path', () => {
   it('surfaces localStorage failure, keeps the form, permits remote save, and confirms volatile Close', async () => {
     render('account-a'); await flush();
     act(() => harness.studioProps?.onNewRecipe()); await flush();
-    vi.spyOn(localStorage, 'setItem').mockImplementation(() => { throw new Error('quota'); });
+    const setItemSpy = vi.spyOn(localStorage, 'setItem').mockImplementation(() => { throw new Error('quota'); });
+    restoreStorageSpies.push(() => setItemSpy.mockRestore());
     await setForm(draftForm);
     expect(harness.formProps?.storageWarning).toBe(true);
     expect(harness.formProps?.form).toEqual(draftForm);
@@ -345,6 +460,27 @@ describe('Recipe draft durability production path', () => {
     harness.authFetch.mockResolvedValue({ ok: true, json: async () => ({ ...draftForm, id: 'created', created_at: '2026-09-01' }) } as Response);
     await act(async () => { await harness.formProps?.onSave(); }); await flush();
     expect(harness.authFetch).toHaveBeenCalledOnce();
+  });
+
+  it('invalidates a stale form persistence callback after explicit Discard', async () => {
+    render('account-a'); await flush();
+    act(() => harness.studioProps?.onNewRecipe()); await flush();
+    await setForm(draftForm);
+    expect(harness.formProps?.form).toEqual(draftForm);
+    expect(readRecipeDraft('account-a').draft?.form).toEqual(draftForm);
+    const staleSetForm = harness.formProps?.setForm as ((next: typeof draftForm) => void);
+
+    act(() => harness.formProps?.onDiscard()); await flush();
+    expect(harness.confirmMessage).toBe('recipeDraftDiscardConfirm');
+    await act(async () => { await harness.confirmAction?.(); }); await flush();
+    expect(readRecipeDraft('account-a').draft).toBeNull();
+    expect(harness.formProps?.show).toBe(false);
+
+    act(() => staleSetForm({ ...draftForm, title: 'Discarded stale write' }));
+    await flush();
+    expect(readRecipeDraft('account-a').draft).toBeNull();
+    expect(harness.formProps?.show).toBe(false);
+    expect(harness.authFetch).not.toHaveBeenCalled();
   });
 
   it('prevents a stale A save completion from clearing or mutating B draft, form, or cache', async () => {

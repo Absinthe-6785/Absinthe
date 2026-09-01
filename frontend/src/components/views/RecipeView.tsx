@@ -27,6 +27,7 @@ import {
   recipeDraftFormsEqual,
   recipeToDraftForm,
   removeRecipeDraft,
+  clearRecipeDraftAfterRemoteCommit,
   writeRecipeDraft,
   isValidSavedRecipe,
   type RecipeDraftEnvelope,
@@ -57,11 +58,14 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
   const [draftConflict, setDraftConflict] = useState<DraftConflict | null>(null);
   const [draftStorageWarning, setDraftStorageWarning] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [formSession, setFormSession] = useState<number | null>(null);
   const [activityTick, setActivityTick] = useState(0);
   const accountIdRef = useRef(accountId);
   const accountGenerationRef = useRef(0);
   const mountedRef = useRef(true);
   const draftGenerationRef = useRef(0);
+  const formSessionGenerationRef = useRef(0);
+  const activeFormSessionRef = useRef<number | null>(null);
   const savingRef = useRef(false);
   const recoveredDraftRef = useRef<string | null>(null);
   if (accountIdRef.current !== accountId) {
@@ -105,6 +109,19 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
 
   const bumpActivity = useCallback(() => setActivityTick(n => n + 1), []);
 
+  const beginFormSession = useCallback(() => {
+    const generation = formSessionGenerationRef.current + 1;
+    formSessionGenerationRef.current = generation;
+    activeFormSessionRef.current = generation;
+    setFormSession(generation);
+  }, []);
+
+  const invalidateFormSession = useCallback(() => {
+    formSessionGenerationRef.current += 1;
+    activeFormSessionRef.current = null;
+    setFormSession(null);
+  }, []);
+
   const currentBaseline = useCallback((): RecipeDraftForm => (
     baseSnapshot ?? normalizeRecipeDraftForm(EMPTY_RECIPE_FORM)
   ), [baseSnapshot]);
@@ -146,23 +163,27 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
     return written;
   }, [accountId, currentBaseline, editingId]);
 
+  const updateFormSession = formSession;
   const updateForm = useCallback<React.Dispatch<React.SetStateAction<RecipeFormState>>>((update) => {
+    if (activeFormSessionRef.current !== updateFormSession || updateFormSession === null) return;
     const next = typeof update === 'function'
       ? update(form)
       : update;
     persistComputedForm(next);
-  }, [form, persistComputedForm]);
+  }, [form, persistComputedForm, updateFormSession]);
 
   const openFreshNew = useCallback(() => {
+    beginFormSession();
     setForm({ ...EMPTY_RECIPE_FORM });
     setBaseSnapshot(null);
     setEditingId(null);
     setDraftConflict(null);
     setDraftStorageWarning(false);
     setShowForm(true);
-  }, []);
+  }, [beginFormSession]);
 
   const openFreshEdit = useCallback((recipe: Recipe) => {
+    beginFormSession();
     const snapshot = recipeToDraftForm(recipe);
     setForm(snapshot);
     setBaseSnapshot(snapshot);
@@ -170,9 +191,10 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
     setDraftConflict(null);
     setDraftStorageWarning(false);
     setShowForm(true);
-  }, []);
+  }, [beginFormSession]);
 
   const applyRecoveredDraft = useCallback((candidate: RecipeDraftEnvelope) => {
+    beginFormSession();
     draftGenerationRef.current = Math.max(draftGenerationRef.current, candidate.generation);
     setDraft(candidate);
     setForm(candidate.form);
@@ -193,9 +215,10 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
       setDraftConflict({ kind: 'remote-changed', remote });
     }
     setShowForm(true);
-  }, [recipes]);
+  }, [beginFormSession, recipes]);
 
   useEffect(() => {
+    invalidateFormSession();
     recoveredDraftRef.current = null;
     draftGenerationRef.current = 0;
     savingRef.current = false;
@@ -215,6 +238,7 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
     setDraft(result.draft);
     draftGenerationRef.current = result.draft.generation;
     if (result.draft.mode === 'new') {
+      beginFormSession();
       recoveredDraftRef.current = `${accountId}:${result.draft.generation}`;
       setForm(result.draft.form);
       setEditingId(null);
@@ -222,7 +246,7 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
       setDraftConflict(null);
       setShowForm(true);
     }
-  }, [accountId]);
+  }, [accountId, beginFormSession, invalidateFormSession]);
 
   useEffect(() => {
     if (!draft || draft.mode !== 'edit' || loading || deletedLoading || !accountId) return;
@@ -261,7 +285,8 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
   }, [accountId, bumpActivity, showToast, t]);
 
   const handleSave = useCallback(async () => {
-    if (savingRef.current || draftConflict) return;
+    const submittedFormSession = activeFormSessionRef.current;
+    if (savingRef.current || draftConflict || submittedFormSession === null) return;
     if (!form.title.trim()) return showToast(t('enterRecipeTitle'), 'error');
 
     const accountSnapshot = captureAccountGeneration();
@@ -282,16 +307,21 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
       if (!res.ok) throw new Error();
       const saved: unknown = await res.json();
       if (!isCurrentAccountGeneration(accountSnapshot)) return;
+      if (activeFormSessionRef.current !== submittedFormSession) return;
       if (draftGenerationRef.current !== submittedGeneration) throw new Error();
       if (!isValidSavedRecipe(saved, payload, submittedEditingId ?? undefined)) throw new Error();
 
-      draftGenerationRef.current += 1;
-      if (!removeRecipeDraft(accountSnapshot.accountId)) {
-        setDraftStorageWarning(true);
-        throw new Error();
-      }
+      const committedGeneration = draftGenerationRef.current + 1;
+      draftGenerationRef.current = committedGeneration;
+      invalidateFormSession();
+      const cleanup = clearRecipeDraftAfterRemoteCommit(
+        accountSnapshot.accountId,
+        committedGeneration,
+      );
+      const cleanupWarning = cleanup.removalFailed || !cleanup.cleared;
       setDraft(null);
       setDraftConflict(null);
+      setDraftStorageWarning(cleanupWarning);
 
       mutateRecipes(
         prev => submittedEditingId
@@ -303,6 +333,7 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
       recordRecipeEdit(saved.id, accountSnapshot.accountId);
       bumpActivity();
       showToast(submittedEditingId ? t('recipeUpdated') : t('recipeSaved'));
+      if (cleanupWarning) showToast(t('recipeDraftStorageWarning'), 'error');
       setShowForm(false);
       setEditingId(null);
       setBaseSnapshot(null);
@@ -317,7 +348,7 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
         setSaving(false);
       }
     }
-  }, [bumpActivity, captureAccountGeneration, draftConflict, editingId, form, isCurrentAccountGeneration, mutateRecipes, showToast, t]);
+  }, [bumpActivity, captureAccountGeneration, draftConflict, editingId, form, invalidateFormSession, isCurrentAccountGeneration, mutateRecipes, showToast, t]);
 
   const handleDelete = useCallback((id: string) => {
     showConfirm(t('deleteRecipe'), async () => {
@@ -393,11 +424,12 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
       return false;
     }
     draftGenerationRef.current += 1;
+    invalidateFormSession();
     setDraft(null);
     setDraftConflict(null);
     setDraftStorageWarning(false);
     return true;
-  }, [accountId]);
+  }, [accountId, invalidateFormSession]);
 
   const requestReplaceDraft = useCallback((openRequested: () => void) => {
     showConfirm(t('recipeDraftReplacementConfirm'), () => {
@@ -430,10 +462,12 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
   }, [applyRecoveredDraft, draft, openFreshNew, requestReplaceDraft]);
 
   const closeFormNow = useCallback(() => {
+    invalidateFormSession();
     setShowForm(false);
-  }, []);
+  }, [invalidateFormSession]);
 
   const closeForm = useCallback(() => {
+    if (savingRef.current || activeFormSessionRef.current === null) return;
     if (isCurrentFormDirty()) {
       const persisted = persistComputedForm(form);
       if (!persisted) {
