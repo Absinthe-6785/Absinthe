@@ -7,6 +7,7 @@ import { RecipeCollapsibleSection } from './RecipeCollapsibleSection';
 
 export interface RecipeHistorySectionProps {
   historyItems: readonly RecipeHistoryGroup[];
+  emptyAuthoritative: boolean;
   theme: Theme;
   appSettings: AppSettings;
   collapsed: boolean;
@@ -22,6 +23,7 @@ const BUCKET_LABEL_KEYS = {
 
 export function RecipeHistorySection({
   historyItems,
+  emptyAuthoritative,
   theme,
   appSettings,
   collapsed,
@@ -40,10 +42,10 @@ export function RecipeHistorySection({
       theme={theme}
       dark={appSettings.darkMode}
       lazy
-      isEmpty={isEmpty}
+      isEmpty={emptyAuthoritative && isEmpty}
       emptyHint={t('k110EmptyNoHistory')}
     >
-      {isEmpty ? (
+      {isEmpty && emptyAuthoritative ? (
         <ProductEmptyState
           icon={History}
           title={t('k110EmptyNoHistory')}
@@ -51,7 +53,7 @@ export function RecipeHistorySection({
           dataHook="k110-empty-history"
           theme={theme}
         />
-      ) : (
+      ) : !isEmpty ? (
         <div className="space-y-3" data-k110-history-list>
           {historyItems.map(group => {
             if (group.items.length === 0) return null;
@@ -83,7 +85,7 @@ export function RecipeHistorySection({
             );
           })}
         </div>
-      )}
+      ) : null}
     </RecipeCollapsibleSection>
   );
 }

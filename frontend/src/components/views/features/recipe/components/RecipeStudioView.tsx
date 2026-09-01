@@ -114,7 +114,7 @@ export function RecipeStudioView({
     <div
       className={`flex-1 overflow-hidden flex flex-col h-full rounded-none ${WORKSPACE_CARD_RADIUS_CLASS} lg:ml-3 bg-background px-3 lg:px-5 pt-3 lg:pt-5 pb-3 lg:pb-5`}
       data-k110-recipe-studio
-      data-recipe-empty={projection.empty.isEmpty ? 'true' : 'false'}
+      data-recipe-empty={activeReady && projection.empty.isEmpty ? 'true' : 'false'}
     >
       <WorkspaceLayout
         workspace="recipe"
@@ -347,6 +347,7 @@ export function RecipeStudioView({
 
             <RecipeIngredientsSection
               ingredientGroups={projection.ingredientGroups}
+              emptyAuthoritative={activeReady}
               theme={theme}
               appSettings={appSettings}
               collapsed={prefs.ingredientsCollapsed}
@@ -356,6 +357,7 @@ export function RecipeStudioView({
 
             <RecipeHistorySection
               historyItems={projection.historyItems}
+              emptyAuthoritative={activeReady}
               theme={theme}
               appSettings={appSettings}
               collapsed={prefs.historyCollapsed}
@@ -365,6 +367,7 @@ export function RecipeStudioView({
 
             <RecipeCollectionsSection
               collectionGroups={projection.collectionGroups}
+              emptyAuthoritative={activeReady}
               theme={theme}
               appSettings={appSettings}
               collapsed={prefs.collectionsCollapsed}
