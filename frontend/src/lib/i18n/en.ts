@@ -2038,12 +2038,15 @@ const enTranslations = [
   "Failed to restore recipe",
   "This draft could not be saved on this device. Keep this form open or save the Recipe remotely.",
   "The saved Recipe changed after this draft began. Choose which version to continue with.",
-  "This draft's saved Recipe is deleted or unavailable. It cannot be updated.",
+  "This draft's saved Recipe no longer exists. It cannot be updated.",
   "Use local draft",
   "Discard draft",
   "Discard the existing Recipe draft and open the requested Recipe?",
   "This draft is not stored on this device. Close and lose the unsaved changes?",
   "Discard this unsaved Recipe draft?",
+  "Cached Recipes may be out of date. Retry before making remote changes.",
+  "Cached deleted Recipes may be out of date. Retry before restoring.",
+  "The saved Recipe cannot be verified right now. Your local draft is preserved.",
 ] as const;
 
 export default enTranslations;

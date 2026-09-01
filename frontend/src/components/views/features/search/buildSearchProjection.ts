@@ -43,6 +43,7 @@ export interface SearchProjectionInput {
   healthBlocksState?: SearchDatasetState;
   weeklySchedules: readonly WeeklySchedule[];
   recipes: readonly Recipe[];
+  recipeState?: SearchDatasetState;
   recentSearches: readonly SearchRecentEntry[];
   now: Date;
   service?: KnowledgeIndexService;
@@ -89,8 +90,9 @@ function groupByDomain(
   }).filter(g => (
     g.count > 0
     || (g.state !== undefined && (
-      g.state.status !== 'READY_WITH_RESULTS'
-      && (g.state.status !== 'READY_EMPTY' || g.state.validating)
+      g.state.error !== undefined
+      || (g.state.status !== 'READY_WITH_RESULTS'
+      && (g.state.status !== 'READY_EMPTY' || g.state.validating))
     ))
   ));
 }
@@ -156,8 +158,10 @@ export function buildSearchProjection(input: SearchProjectionInput): SearchProje
   const groupStates: Partial<Record<SearchDomain, SearchDatasetState>> = {};
   const plannerState = alignStateToResults(input.todosState, plannerResults.length);
   const healthState = alignStateToResults(input.healthBlocksState, healthResults.length);
+  const recipeState = alignStateToResults(input.recipeState, recipeResults.length);
   if (plannerState) groupStates.planner = plannerState;
   if (healthState) groupStates.health = healthState;
+  if (recipeState) groupStates.recipe = recipeState;
   const groupedResults = groupByDomain(results, groupStates);
   const counts = buildCounts(results);
   const highlights = buildHighlightsForResults(results, trimmed);

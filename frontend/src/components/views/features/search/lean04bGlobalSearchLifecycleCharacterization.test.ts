@@ -20,7 +20,10 @@ const harness = vi.hoisted(() => ({
   palette: null as PaletteProps | null,
   projectionInputs: [] as Array<Record<string, unknown>>,
   recipeRequests: [] as unknown[],
-  recipeResolvers: [] as Array<(value: unknown) => void>,
+  recipeResolvers: [] as Array<{
+    resolve: (value: unknown) => void;
+    reject: (reason?: unknown) => void;
+  }>,
   openers: [] as Array<() => void>,
   writes: [] as Array<{ query: string; filter: string }>,
   activationSignals: [] as boolean[],
@@ -47,7 +50,7 @@ vi.mock('../../../../lib/remoteBoundary', () => ({
 vi.mock('../../../../lib/fetcher', () => ({
   fetcher: (key: unknown) => {
     harness.recipeRequests.push(key);
-    return new Promise(resolve => harness.recipeResolvers.push(resolve));
+    return new Promise((resolve, reject) => harness.recipeResolvers.push({ resolve, reject }));
   },
 }));
 
@@ -155,7 +158,7 @@ function mount(
   act(() => {
     root.render(createElement(
       SWRConfig,
-      { value: { provider: () => new Map(), dedupingInterval: 0, revalidateOnFocus: false } },
+      { value: { provider: () => new Map(), dedupingInterval: 0, revalidateOnFocus: false, shouldRetryOnError: false } },
       createElement(GlobalSearchHost, {
         accountId: 'account-a',
         appSettings: settings(),
@@ -230,9 +233,9 @@ describe('LEAN_04B GlobalSearchHost lifecycle characterization', () => {
     openSearch();
     await flush();
     const recipe = { id: 'recipe-a', title: 'Recipe A', category: 'Dinner' };
-    const resolver = harness.recipeResolvers.shift();
-    expect(resolver).toBeDefined();
-    act(() => resolver?.([recipe]));
+    const request = harness.recipeResolvers.shift();
+    expect(request).toBeDefined();
+    act(() => request?.resolve([recipe]));
     await flush();
     expect(harness.projectionInputs.at(-1)?.recipes).toEqual([recipe]);
 
@@ -241,6 +244,38 @@ describe('LEAN_04B GlobalSearchHost lifecycle characterization', () => {
     await flush();
     expect(harness.projectionInputs.at(-1)?.recipes).toEqual([recipe]);
     expect(harness.recipeRequests.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('preserves Recipe failure state for Search and recovers on a later successful activation', async () => {
+    mounted = mount();
+    openSearch();
+    await flush();
+    const failedRequest = harness.recipeResolvers.shift();
+    expect(failedRequest).toBeDefined();
+    act(() => failedRequest?.reject(new Error('recipes offline')));
+    await flush();
+
+    expect(harness.projectionInputs.at(-1)?.recipes).toEqual([]);
+    expect(harness.projectionInputs.at(-1)?.recipeState).toMatchObject({
+      status: 'ERROR',
+      validating: false,
+    });
+    expect(harness.projectionInputs.at(-1)?.todos).toHaveLength(1);
+
+    act(() => harness.palette?.onClose());
+    openSearch();
+    await flush();
+    const recoveredRequest = harness.recipeResolvers.shift();
+    expect(recoveredRequest).toBeDefined();
+    const recipe = { id: 'recipe-recovered', title: 'Recovered recipe', category: 'Dinner' };
+    act(() => recoveredRequest?.resolve([recipe]));
+    await flush();
+
+    expect(harness.projectionInputs.at(-1)?.recipes).toEqual([recipe]);
+    expect(harness.projectionInputs.at(-1)?.recipeState).toEqual({
+      status: 'READY_WITH_RESULTS',
+      validating: false,
+    });
   });
 
   it('closes by clearing the live query and reopens with the persisted query without changing the host mount', async () => {
@@ -279,7 +314,7 @@ describe('LEAN_04B GlobalSearchHost lifecycle characterization', () => {
     act(() => {
       mounted?.root.render(createElement(
         SWRConfig,
-        { value: { provider: () => new Map(), dedupingInterval: 0, revalidateOnFocus: false } },
+        { value: { provider: () => new Map(), dedupingInterval: 0, revalidateOnFocus: false, shouldRetryOnError: false } },
         createElement(GlobalSearchHost, {
           appSettings: settings(), schedules: [], todos: [], routines: [], workouts: [], healthBlocks: [], weeklySchedules: [],
         }),

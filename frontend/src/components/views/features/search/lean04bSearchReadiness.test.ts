@@ -83,6 +83,28 @@ describe('LEAN_04B production Search readiness projection', () => {
     expect(result.groupStates.planner?.status).toBe('READY_WITH_RESULTS');
   });
 
+  it('keeps a Recipe fetch failure explicit without removing other domain results', () => {
+    const error = new Error('recipes offline');
+    const result = projection({
+      schedules: [schedule],
+      recipeState: { status: 'ERROR', validating: false, error },
+    });
+
+    expect(result.results.map(item => item.id)).toContain('schedule-schedule-a');
+    expect(result.groupStates.recipe).toEqual({ status: 'ERROR', validating: false, error });
+    expect(result.groupedResults.find(group => group.domain === 'recipe')?.state?.status).toBe('ERROR');
+  });
+
+  it('does not collapse cached-empty plus Recipe error into a confirmed empty group', () => {
+    const error = new Error('recipes offline');
+    const result = projection({
+      recipeState: { status: 'READY_EMPTY', validating: false, error },
+    });
+
+    expect(result.groupStates.recipe).toEqual({ status: 'READY_EMPTY', validating: false, error });
+    expect(result.groupedResults.find(group => group.domain === 'recipe')?.state?.error).toBe(error);
+  });
+
   it('preserves warm data metadata during background revalidation', () => {
     const result = projection({
       todos: [{ id: 'todo-a', text: 'Morning todo', done: false }],

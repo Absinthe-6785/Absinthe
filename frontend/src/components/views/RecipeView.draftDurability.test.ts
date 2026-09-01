@@ -289,7 +289,7 @@ describe('Recipe draft durability production path', () => {
     harness.server['account-a'] = { active: [], trash: [{ ...base, deleted_at: '2026-09-01' }] };
     render('account-a'); await flush();
 
-    expect(harness.formProps?.conflict).toBe('remote-unavailable');
+    expect(harness.formProps?.conflict).toBe('remote-missing');
     expect(harness.formProps?.onUseLocal).toBeUndefined();
     await act(async () => { await harness.formProps?.onSave(); });
     expect(harness.authFetch).not.toHaveBeenCalled();

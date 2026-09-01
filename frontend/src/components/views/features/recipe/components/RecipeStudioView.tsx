@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Search, X, Plus, BookMarked, Star, Trash2, RotateCcw } from 'lucide-react';
+import { Search, X, Plus, BookMarked, Star, Trash2, RotateCcw, AlertTriangle, RefreshCw } from 'lucide-react';
 import type { AppSettings, Theme } from '../../../../../types';
 import { resolveAppLanguage, getTranslator } from '../../../../../lib/i18n';
 import { WorkspaceLayout } from '../../../../common/workspaceLayout';
@@ -23,20 +23,29 @@ import { RecipeHistorySection } from './RecipeHistorySection';
 import { RecipeCollectionsSection } from './RecipeCollectionsSection';
 import { RecipeVirtualList } from './RecipeListParts';
 import { ProductEmptyState } from '../../../../common/ProductEmptyState';
+import {
+  recipeAuthorityIsReady,
+  recipeAuthorityIsUnavailable,
+  type RecipeAvailability,
+} from '../recipeAvailability';
 
 export interface RecipeStudioViewProps {
   projection: RecipeProjection;
   recipes: readonly Recipe[];
   theme: Theme;
   appSettings: AppSettings;
-  loading: boolean;
+  activeAvailability: RecipeAvailability;
+  activeValidating: boolean;
+  onRetryActive: () => void;
   expandedId: string | null;
   onToggleExpand: (id: string) => void;
   onToggleStar: (recipe: Recipe) => void;
   onEdit: (recipe: Recipe) => void;
   onDelete: (id: string, title: string) => void;
   deletedRecipes: readonly Recipe[];
-  deletedLoading: boolean;
+  trashAvailability: RecipeAvailability;
+  trashValidating: boolean;
+  onRetryTrash: () => void;
   onRestore: (id: string) => void;
   onMarkCooked: (id: string) => void;
   onOpenCookingNote?: (recipe: Recipe) => void;
@@ -49,14 +58,18 @@ export function RecipeStudioView({
   recipes,
   theme,
   appSettings,
-  loading,
+  activeAvailability,
+  activeValidating,
+  onRetryActive,
   expandedId,
   onToggleExpand,
   onToggleStar,
   onEdit,
   onDelete,
   deletedRecipes,
-  deletedLoading,
+  trashAvailability,
+  trashValidating,
+  onRetryTrash,
   onRestore,
   onMarkCooked,
   onOpenCookingNote,
@@ -72,6 +85,10 @@ export function RecipeStudioView({
   const [showStarredOnly, setShowStarredOnly] = useState(false);
   const [sortOrder, setSortOrder] = useState<'newest' | 'oldest' | 'title'>('newest');
   const [showTrash, setShowTrash] = useState(false);
+  const activeReady = recipeAuthorityIsReady(activeAvailability);
+  const activeUnavailable = recipeAuthorityIsUnavailable(activeAvailability);
+  const trashReady = recipeAuthorityIsReady(trashAvailability);
+  const trashUnavailable = recipeAuthorityIsUnavailable(trashAvailability);
 
   const visible = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
@@ -127,6 +144,7 @@ export function RecipeStudioView({
                     label={t('newRecipe')}
                     icon={<Plus size={UI_INTERACTION.toolbarIconSizePx} />}
                     onClick={onNewRecipe}
+                    disabled={!activeReady}
                     className="w-auto shrink-0 px-4"
                     dataHook="data-k110-new-recipe"
                   />
@@ -137,19 +155,43 @@ export function RecipeStudioView({
         )}
         secondary={(
           <div className={`flex flex-col ${WORKSPACE_GAP_CLASS} min-h-0 overflow-y-auto ${UI_SPACING.scrollOverscroll}`} data-k110-recipe-sidebar data-k120-scroll-recipe>
-            <RecipeHomeSection
-              projection={projection}
-              theme={theme}
-              appSettings={appSettings}
-              onRecipeClick={handleRecipeNav}
-              onNewRecipe={onNewRecipe}
-            />
+            {activeAvailability === 'LOADING' ? (
+              <WorkspaceCardSkeleton theme={theme} minHeight="min-h-[160px]" bars={2} />
+            ) : activeUnavailable && recipes.length === 0 ? (
+              <RecipeAvailabilityNotice
+                domain="active"
+                stale={activeAvailability === 'STALE_WITH_DATA'}
+                validating={activeValidating}
+                onRetry={onRetryActive}
+                theme={theme}
+                t={t}
+              />
+            ) : (
+              <RecipeHomeSection
+                projection={projection}
+                theme={theme}
+                appSettings={appSettings}
+                onRecipeClick={handleRecipeNav}
+                onNewRecipe={onNewRecipe}
+              />
+            )}
           </div>
         )}
         primary={(
           <div className={`flex flex-col ${WORKSPACE_GAP_CLASS} min-h-0 flex-1`} data-k110-recipe-primary>
             <section className={`${WORKSPACE_CARD_SURFACE} flex flex-col min-h-0 flex-1 ${theme.card}`} data-k110-recipe-section="recipes">
               <h2 className={WORKSPACE_SECTION_TITLE_CLASS}>{t('k110SectionRecipes')}</h2>
+
+              {activeUnavailable && (
+                <RecipeAvailabilityNotice
+                  domain="active"
+                  stale={activeAvailability === 'STALE_WITH_DATA'}
+                  validating={activeValidating}
+                  onRetry={onRetryActive}
+                  theme={theme}
+                  t={t}
+                />
+              )}
 
               <div className="space-y-2 shrink-0 mb-2">
                 <div className={`flex items-center gap-2 px-3 py-2 rounded-xl border ${theme.border} ${theme.input}`}>
@@ -211,10 +253,10 @@ export function RecipeStudioView({
               </div>
 
               <div className="flex-1 min-h-0 overflow-y-auto">
-                {loading && (
+                {activeAvailability === 'LOADING' && (
                   <WorkspaceCardSkeleton theme={theme} minHeight="min-h-[200px]" bars={2} />
                 )}
-                {!loading && visible.length === 0 && (
+                {activeReady && visible.length === 0 && (
                   <div data-k121-empty-state="recipe-list">
                   <ProductEmptyState
                     icon={BookMarked}
@@ -226,7 +268,7 @@ export function RecipeStudioView({
                   />
                   </div>
                 )}
-                {!loading && visible.length > 0 && (
+                {activeAvailability !== 'LOADING' && visible.length > 0 && (
                   <RecipeVirtualList
                     recipes={visible}
                     theme={theme}
@@ -239,6 +281,7 @@ export function RecipeStudioView({
                     onDelete={onDelete}
                     onMarkCooked={onMarkCooked}
                     onOpenCookingNote={onOpenCookingNote}
+                    mutationsDisabled={!activeReady}
                   />
                 )}
               </div>
@@ -249,19 +292,31 @@ export function RecipeStudioView({
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <h2 className={WORKSPACE_SECTION_TITLE_CLASS}>{t('deletedRecipes')}</h2>
-                    <p className={`text-xs ${theme.textMuted}`}>{t('noDeletedRecipes')}</p>
+                    {trashAvailability === 'READY_EMPTY' && (
+                      <p className={`text-xs ${theme.textMuted}`}>{t('noDeletedRecipes')}</p>
+                    )}
                   </div>
                   <Trash2 size={16} className={theme.textMuted} aria-hidden="true" />
                 </div>
-                {deletedLoading && (
+                {trashAvailability === 'LOADING' && (
                   <p className={`mt-3 text-sm ${theme.textMuted}`}>{t('loading')}</p>
                 )}
-                {!deletedLoading && deletedRecipes.length === 0 && (
+                {trashUnavailable && (
+                  <RecipeAvailabilityNotice
+                    domain="trash"
+                    stale={trashAvailability === 'STALE_WITH_DATA'}
+                    validating={trashValidating}
+                    onRetry={onRetryTrash}
+                    theme={theme}
+                    t={t}
+                  />
+                )}
+                {trashAvailability === 'READY_EMPTY' && deletedRecipes.length === 0 && (
                   <p className={`mt-3 text-sm ${theme.textMuted}`} data-k110-recipe-trash-empty>
                     {t('noDeletedRecipes')}
                   </p>
                 )}
-                {!deletedLoading && deletedRecipes.length > 0 && (
+                {trashAvailability !== 'LOADING' && deletedRecipes.length > 0 && (
                   <div className="mt-3 space-y-2" data-k110-recipe-trash-list>
                     {deletedRecipes.map(recipe => (
                       <div
@@ -276,6 +331,7 @@ export function RecipeStudioView({
                         <button
                           type="button"
                           onClick={() => onRestore(recipe.id)}
+                          disabled={!activeReady || !trashReady}
                           className="inline-flex min-h-[40px] shrink-0 items-center gap-1.5 rounded-xl px-3 text-xs font-bold text-primary hover:bg-primary/10"
                           data-k110-recipe-restore={recipe.id}
                         >
@@ -318,6 +374,49 @@ export function RecipeStudioView({
           </div>
         )}
       />
+    </div>
+  );
+}
+
+function RecipeAvailabilityNotice({
+  domain,
+  stale,
+  validating,
+  onRetry,
+  theme,
+  t,
+}: {
+  domain: 'active' | 'trash';
+  stale: boolean;
+  validating: boolean;
+  onRetry: () => void;
+  theme: Theme;
+  t: ReturnType<typeof getTranslator>;
+}) {
+  const message = stale
+    ? t(domain === 'active' ? 'recipeRecipesStale' : 'recipeTrashStale')
+    : t(domain === 'active' ? 'failLoadRecipes' : 'failLoadDeletedRecipes');
+  return (
+    <div
+      className={`mt-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-400/40 bg-amber-400/10 px-4 py-3 text-sm ${theme.text}`}
+      role="status"
+      data-recipe-availability={domain}
+      data-recipe-availability-stale={stale ? 'true' : 'false'}
+    >
+      <span className="flex min-w-0 items-center gap-2 text-amber-600">
+        <AlertTriangle size={16} className="shrink-0" />
+        {message}
+      </span>
+      <button
+        type="button"
+        onClick={onRetry}
+        disabled={validating}
+        className="inline-flex min-h-[36px] items-center gap-1.5 rounded-xl border border-amber-500/30 px-3 text-xs font-bold text-amber-600 disabled:cursor-not-allowed disabled:opacity-60"
+        data-recipe-availability-retry={domain}
+      >
+        <RefreshCw size={13} className={validating ? 'animate-spin' : ''} />
+        {t('startupRetry')}
+      </button>
     </div>
   );
 }

@@ -14,7 +14,7 @@ import { readWorkspaceSearchState, writeWorkspaceSearchState } from '../../k101W
 import { useSearchProjection } from './hooks/useSearchProjection';
 import { SearchWorkspacePalette } from './components/SearchWorkspacePalette';
 import { loadSearchRecent } from './searchRecentStorage';
-import type { SearchDatasetState } from '../../../../lib/searchReadiness';
+import { resolveSearchDatasetState, type SearchDatasetState } from '../../../../lib/searchReadiness';
 
 export interface GlobalSearchHostProps {
   accountId?: string;
@@ -52,11 +52,23 @@ export function GlobalSearchHost({
   const [recentRevision, setRecentRevision] = useState(0);
   const [isSearching, setIsSearching] = useState(false);
 
-  const { data: recipes = [] } = useSWR<Recipe[]>(
+  const {
+    data: recipeData,
+    error: recipeError,
+    isLoading: recipeLoading,
+    isValidating: recipeValidating,
+  } = useSWR<Recipe[]>(
     accountBoundRemoteKey(`${API_URL}/api/recipes`, accountId, open),
     accountBoundRemoteFetcher,
     { revalidateOnFocus: false },
   );
+  const recipeState = resolveSearchDatasetState({
+    enabled: open,
+    data: recipeData,
+    error: recipeError,
+    isLoading: recipeLoading,
+    isValidating: recipeValidating,
+  });
 
   useEffect(() => {
     return registerWorkspaceSearchOpener(() => setOpen(true));
@@ -112,7 +124,8 @@ export function GlobalSearchHost({
     healthBlocks,
     healthBlocksState,
     weeklySchedules,
-    recipes,
+    recipes: recipeData ?? [],
+    recipeState,
     recentSearches,
     service: knowledgeIndexService,
     discoveryFeed,

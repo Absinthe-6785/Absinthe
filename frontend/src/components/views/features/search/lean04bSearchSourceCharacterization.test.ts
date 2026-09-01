@@ -43,7 +43,8 @@ describe('LEAN_04B Search source characterization', () => {
     expect(app.indexOf('<GlobalSearchHost')).toBeGreaterThan(app.indexOf('</Suspense>'));
     expect(host).not.toContain('inbody');
     expect(host).toContain('accountBoundRemoteKey(`${API_URL}/api/recipes`, accountId, open)');
-    expect(host).toContain('recipes,');
+    expect(host).toContain('recipes: recipeData ?? [],');
+    expect(host).toContain('recipeState,');
     expect(source('components/views/RecipeView.tsx')).toContain('accountBoundRemoteKey(`${API_URL}/api/recipes`, accountId)');
     expect(projection).toContain('const plannerResults = trimmed');
     expect(projection).toContain('const healthResults = trimmed');
@@ -63,13 +64,19 @@ describe('LEAN_04B Search source characterization', () => {
     expect(host).toContain('accountId?: string');
   });
 
-  it('pins that Search has no dataset readiness or account-generation state today', () => {
+  it('pins Recipe readiness to the existing Search state pipeline without adding account-generation or retry machinery', () => {
     const host = source('components/views/features/search/GlobalSearchHost.tsx');
     const projection = source('components/views/features/search/buildSearchProjection.ts');
-    expect(host).not.toContain('isLoading');
-    expect(host).not.toContain('error:');
+    expect(host).toContain('data: recipeData');
+    expect(host).toContain('error: recipeError');
+    expect(host).toContain('isLoading: recipeLoading');
+    expect(host).toContain('isValidating: recipeValidating');
+    expect(host).toContain('const recipeState = resolveSearchDatasetState({');
     expect(host).toContain('accountId');
-    expect(projection).not.toContain('loading');
+    expect(host).not.toContain('accountGeneration');
+    expect(host).not.toContain('mutateRecipes');
+    expect(projection).toContain('input.recipeState');
+    expect(projection).toContain('groupStates.recipe = recipeState');
     expect(projection).not.toContain('accountGeneration');
     expect(projection).toContain('noResults: trimmed.length > 0 && results.length === 0');
   });

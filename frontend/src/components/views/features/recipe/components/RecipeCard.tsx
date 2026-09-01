@@ -17,6 +17,7 @@ export interface RecipeCardProps {
   onMarkCooked?: () => void;
   onOpenCookingNote?: () => void;
   compact?: boolean;
+  mutationsDisabled?: boolean;
 }
 
 export function RecipeCard({
@@ -32,6 +33,7 @@ export function RecipeCard({
   onMarkCooked,
   onOpenCookingNote,
   compact = false,
+  mutationsDisabled = false,
 }: RecipeCardProps) {
   const ingredients = (recipe.ingredients ?? '').split('\n').filter(Boolean);
   const steps = (recipe.steps ?? '').split('\n').filter(Boolean);
@@ -56,6 +58,7 @@ export function RecipeCard({
         <div className="flex items-center gap-0.5 shrink-0">
           <button
             type="button"
+            disabled={mutationsDisabled}
             onClick={e => { e.stopPropagation(); onToggleStar(); }}
             className="p-1.5 rounded-lg hover:bg-yellow-400/20 transition-colors min-h-[44px] min-w-[44px] lg:min-h-0 lg:min-w-0 flex items-center justify-center"
             aria-label={t('recipeStarred')}
@@ -64,6 +67,7 @@ export function RecipeCard({
           </button>
           <button
             type="button"
+            disabled={mutationsDisabled}
             onClick={e => { e.stopPropagation(); onEdit(); }}
             className={`p-1.5 rounded-lg transition-colors min-h-[44px] min-w-[44px] lg:min-h-0 lg:min-w-0 flex items-center justify-center ${dark ? 'hover:bg-white/10' : 'hover:bg-gray-100'}`}
           >
@@ -71,6 +75,7 @@ export function RecipeCard({
           </button>
           <button
             type="button"
+            disabled={mutationsDisabled}
             onClick={e => { e.stopPropagation(); onDelete(); }}
             className="p-1.5 rounded-lg hover:bg-red-500/20 transition-colors min-h-[44px] min-w-[44px] lg:min-h-0 lg:min-w-0 flex items-center justify-center"
           >

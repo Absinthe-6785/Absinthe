@@ -2044,6 +2044,9 @@ const translationKeys = [
   "recipeDraftReplacementConfirm",
   "recipeDraftVolatileCloseConfirm",
   "recipeDraftDiscardConfirm",
+  "recipeRecipesStale",
+  "recipeTrashStale",
+  "recipeDraftRemoteUnavailable",
 ] as const;
 
 export type TranslationKey = (typeof translationKeys)[number];
