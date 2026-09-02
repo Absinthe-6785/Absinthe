@@ -10,15 +10,17 @@ import {
 import { validateVaultSnapshot, type VaultSnapshotValidationReport } from '@/lib/vaultSnapshotValidate';
 import {
   assessRecoveryProtectionStatus,
-  getLastVaultExportAt,
+  getLastVaultExportRecord,
   type RecoveryProtectionStatus,
 } from '@/lib/vaultRestorePipeline';
+import type { VaultBackupCoverage } from '@/lib/vaultBackupCoverage';
 
 export interface RecoveryCenterState {
   snapshots: VaultSnapshotSummary[];
   snapshotCount: number;
   lastSnapshotAt: string | null;
   lastExportAt: string | null;
+  lastExportCoverage: VaultBackupCoverage | null;
   protectionStatus: RecoveryProtectionStatus;
   refresh: () => void;
   validateSnapshot: (snapshotId: string) => VaultSnapshotValidationReport | null;
@@ -38,12 +40,15 @@ export function useRecoveryCenter(cloudSyncEnabled: boolean): RecoveryCenterStat
   }, [tick]);
 
   const lastSnapshotAt = snapshots[0]?.createdAt ?? null;
-  const lastExportAt = useMemo(() => getLastVaultExportAt(), [tick]);
+  const lastExport = useMemo(() => getLastVaultExportRecord(), [tick]);
+  const lastExportAt = lastExport?.exportedAt ?? null;
+  const lastExportCoverage = lastExport?.coverage ?? null;
 
   const protectionStatus = assessRecoveryProtectionStatus(
     lastSnapshotAt,
     lastExportAt,
     cloudSyncEnabled,
+    lastExportCoverage,
   );
 
   const validateSnapshot = useCallback(
@@ -65,6 +70,7 @@ export function useRecoveryCenter(cloudSyncEnabled: boolean): RecoveryCenterStat
     snapshotCount: snapshots.length,
     lastSnapshotAt,
     lastExportAt,
+    lastExportCoverage,
     protectionStatus,
     refresh,
     validateSnapshot,

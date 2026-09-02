@@ -32,6 +32,7 @@ import {
   buildVaultRestoreImpact,
   executeVaultRestorePipeline,
   getLastVaultExportAt,
+  getLastVaultExportRecord,
   manifestFromSnapshot,
   recordLastVaultExport,
   resolveInitialVaultRestoreStrategy,
@@ -389,16 +390,31 @@ describe('vaultRestorePipeline', () => {
   });
 
   it('records and reads last export timestamp', () => {
-    recordLastVaultExport('2026-06-14T12:00:00.000Z');
+    recordLastVaultExport('2026-06-14T12:00:00.000Z', 'complete');
     expect(getLastVaultExportAt()).toBe('2026-06-14T12:00:00.000Z');
+    expect(getLastVaultExportRecord()).toEqual({
+      exportedAt: '2026-06-14T12:00:00.000Z',
+      coverage: 'complete',
+    });
     expect(store.get(LAST_VAULT_EXPORT_KEY)).toBeTruthy();
   });
 
   it('assesses recovery protection status', () => {
     const recent = new Date().toISOString();
-    expect(assessRecoveryProtectionStatus(recent, recent, true)).toBe('protected');
+    expect(assessRecoveryProtectionStatus(recent, recent, true, 'complete')).toBe('protected');
+    expect(assessRecoveryProtectionStatus(recent, recent, true, 'local-only')).toBe('partial');
+    expect(assessRecoveryProtectionStatus(recent, recent, true, 'cloud-skipped')).toBe('partial');
+    expect(assessRecoveryProtectionStatus(recent, recent, true, 'cloud-partial')).toBe('partial');
     expect(assessRecoveryProtectionStatus(recent, null, false)).toBe('partial');
     expect(assessRecoveryProtectionStatus(null, null, false)).toBe('none');
+  });
+
+  it('reads a legacy timestamp-only export conservatively as limited', () => {
+    const recent = new Date().toISOString();
+    store.set(LAST_VAULT_EXPORT_KEY, JSON.stringify({ exportedAt: recent }));
+
+    expect(getLastVaultExportRecord()).toEqual({ exportedAt: recent, coverage: null });
+    expect(assessRecoveryProtectionStatus(null, recent, true, null)).toBe('partial');
   });
 
   it('applyVaultExtensionsRestore writes settings and views', () => {
