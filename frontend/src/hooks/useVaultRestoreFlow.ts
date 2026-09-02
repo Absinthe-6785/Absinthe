@@ -49,12 +49,18 @@ const DEFAULT_PIPELINE_OPTIONS: VaultRestorePipelineOptions = {
   backupBeforeRestore: true,
 };
 
+export interface VaultRestoreCompletionContext {
+  accountId: string;
+  recipeRowsRequested: number;
+  isCurrentAccount: () => boolean;
+}
+
 export function useVaultRestoreFlow(
   showToast: (msg: string, type?: 'success' | 'error') => void,
   t: (key: TranslationKey) => string,
   cloudSyncEnabled = false,
   accountId?: string,
-  onRestoreComplete?: () => void,
+  onRestoreComplete?: (context: VaultRestoreCompletionContext) => void,
 ) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const notes = useNotesStore(s => s.notes);
@@ -226,6 +232,8 @@ export function useVaultRestoreFlow(
     try {
       const initiatingAccountId = accountIdRef.current;
       const initiatingGeneration = accountGenerationRef.current;
+      const isInitiatingAccountCurrent = () => accountIdRef.current === initiatingAccountId
+        && accountGenerationRef.current === initiatingGeneration;
       const options: VaultRestorePipelineOptions = {
         ...pipelineOptions,
         strategy,
@@ -233,8 +241,7 @@ export function useVaultRestoreFlow(
         ...(initiatingAccountId ? {
           healthAuthority: {
             accountId: initiatingAccountId,
-            isCurrentAccount: () => accountIdRef.current === initiatingAccountId
-              && accountGenerationRef.current === initiatingGeneration,
+            isCurrentAccount: isInitiatingAccountCurrent,
           },
         } : {}),
       };
@@ -244,14 +251,20 @@ export function useVaultRestoreFlow(
         getFolders: () => useNotesStore.getState().folders,
       });
 
-      if (shouldRevalidatePlannerAfterRestore({
+      if (initiatingAccountId && shouldRevalidatePlannerAfterRestore({
         cloudApplied: result.cloud?.applied,
         initiatingAccountId,
         currentAccountId: accountIdRef.current,
         initiatingGeneration,
         currentGeneration: accountGenerationRef.current,
       })) {
-        onRestoreComplete?.();
+        onRestoreComplete?.({
+          accountId: initiatingAccountId,
+          recipeRowsRequested: pipelineOptions.restoreCloud
+            ? preview.manifest.cloud?.planner.recipes?.length ?? 0
+            : 0,
+          isCurrentAccount: isInitiatingAccountCurrent,
+        });
       }
 
       const coreTotal = result.core
