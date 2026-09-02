@@ -8,6 +8,21 @@ import pytest
 import main
 
 
+RECIPE_ID_RESTORED = "a0000000-0000-0000-0000-000000000001"
+RECIPE_ID_COLLISION = "a0000000-0000-0000-0000-000000000002"
+RECIPE_ID_IDENTICAL = "a0000000-0000-0000-0000-000000000003"
+RECIPE_ID_SOFT_DELETED = "a0000000-0000-0000-0000-000000000004"
+RECIPE_ID_EXISTING = "a0000000-0000-0000-0000-000000000005"
+RECIPE_ID_NEW = "a0000000-0000-0000-0000-000000000006"
+RECIPE_ID_RACE = "a0000000-0000-0000-0000-000000000007"
+RECIPE_ID_A = "a0000000-0000-0000-0000-000000000008"
+RECIPE_ID_B = "a0000000-0000-0000-0000-000000000009"
+RECIPE_ID_FOREIGN = "a0000000-0000-0000-0000-00000000000a"
+RECIPE_ID_INVALID_ROW = "a0000000-0000-0000-0000-00000000000b"
+RECIPE_ID_MIXED_LEFT = "a0000000-0000-0000-0000-00000000000c"
+RECIPE_ID_MIXED_RIGHT = "a0000000-0000-0000-0000-00000000000d"
+
+
 class FakeTable:
     def __init__(self, database: "FakeSupabase", table: str):
         self.database = database
@@ -125,7 +140,7 @@ def weekly_schedule_row(weekly_id: str = "weekly-1", user_id: str | None = None)
     return row
 
 
-def recipe_row(recipe_id: str = "recipe-1", user_id: str | None = None, **overrides: object) -> dict:
+def recipe_row(recipe_id: str = RECIPE_ID_RESTORED, user_id: str | None = None, **overrides: object) -> dict:
     row = {
         "id": recipe_id,
         "title": "Recipe",
@@ -135,11 +150,17 @@ def recipe_row(recipe_id: str = "recipe-1", user_id: str | None = None, **overri
         "memo": "Serve warm",
         "starred": False,
         "created_at": "2026-08-18T00:00:00Z",
+        "deleted_at": None,
     }
     if user_id is not None:
         row["user_id"] = user_id
     row.update(overrides)
     return row
+
+
+def assert_restore_validation_error(response, code: str) -> None:
+    assert response.status_code == 422
+    assert any(code in error.get("msg", "") for error in response.json()["detail"])
 
 
 @pytest.fixture
@@ -311,9 +332,9 @@ def test_restore_allows_existing_own_id_and_forces_authenticated_owner(destructi
     assert upsert["on_conflict"] == "id"
 
 
-def test_restore_recipe_without_current_row_inserts_and_rebinds_owner(destructive_client):
+def test_restore_current_vault_v3_recipe_row_inserts_and_rebinds_owner(destructive_client):
     client, supabase = destructive_client
-    payload_row = recipe_row("recipe-restored")
+    payload_row = recipe_row(RECIPE_ID_RESTORED)
 
     response = client.post(
         "/api/restore",
@@ -339,8 +360,8 @@ def test_restore_recipe_without_current_row_inserts_and_rebinds_owner(destructiv
 
 def test_restore_recipe_preserves_newer_current_same_user_row(destructive_client):
     client, supabase = destructive_client
-    current = recipe_row("recipe-collision", user_id="test-user", title="Current", memo="Newer")
-    older_backup = recipe_row("recipe-collision", title="Older", memo="Older")
+    current = recipe_row(RECIPE_ID_COLLISION, user_id="test-user", title="Current", memo="Newer")
+    older_backup = recipe_row(RECIPE_ID_COLLISION, title="Older", memo="Older")
     supabase.existing_by_table["recipes"] = [current]
 
     response = client.post(
@@ -363,7 +384,7 @@ def test_restore_recipe_preserves_newer_current_same_user_row(destructive_client
 
 def test_restore_recipe_identical_same_user_collision_is_idempotent(destructive_client):
     client, supabase = destructive_client
-    current = recipe_row("recipe-identical", user_id="test-user")
+    current = recipe_row(RECIPE_ID_IDENTICAL, user_id="test-user")
     supabase.existing_by_table["recipes"] = [current]
 
     response = client.post(
@@ -387,12 +408,12 @@ def test_restore_recipe_identical_same_user_collision_is_idempotent(destructive_
 def test_restore_preserves_soft_deleted_recipe_collision_without_resurrection(destructive_client):
     client, supabase = destructive_client
     deleted = recipe_row(
-        "recipe-soft-deleted",
+        RECIPE_ID_SOFT_DELETED,
         user_id="test-user",
         title="Keep deleted content",
         deleted_at="2026-08-31T00:00:00Z",
     )
-    backup = recipe_row("recipe-soft-deleted", title="Backup must not resurrect")
+    backup = recipe_row(RECIPE_ID_SOFT_DELETED, title="Backup must not resurrect")
     supabase.existing_by_table["recipes"] = [deleted]
 
     response = client.post(
@@ -415,10 +436,10 @@ def test_restore_preserves_soft_deleted_recipe_collision_without_resurrection(de
 
 def test_restore_recipe_collision_does_not_block_unrelated_new_recipe(destructive_client):
     client, supabase = destructive_client
-    current = recipe_row("recipe-existing", user_id="test-user", title="Keep current")
-    replacement = recipe_row("recipe-existing", title="Older backup")
-    identical = recipe_row("recipe-identical", user_id="test-user")
-    new_recipe = recipe_row("recipe-new", title="New backup")
+    current = recipe_row(RECIPE_ID_EXISTING, user_id="test-user", title="Keep current")
+    replacement = recipe_row(RECIPE_ID_EXISTING, title="Older backup")
+    identical = recipe_row(RECIPE_ID_IDENTICAL, user_id="test-user")
+    new_recipe = recipe_row(RECIPE_ID_NEW, title="New backup")
     supabase.existing_by_table["recipes"] = [current, identical]
 
     response = client.post(
@@ -446,8 +467,8 @@ def test_restore_recipe_collision_does_not_block_unrelated_new_recipe(destructiv
 
 def test_restore_recipe_preflight_insert_race_fails_closed_without_upsert(destructive_client):
     client, supabase = destructive_client
-    occupying = recipe_row("recipe-race", user_id="test-user", title="Current content", memo="Keep this")
-    backup = recipe_row("recipe-race", title="Backup content", memo="Must not win")
+    occupying = recipe_row(RECIPE_ID_RACE, user_id="test-user", title="Current content", memo="Keep this")
+    backup = recipe_row(RECIPE_ID_RACE, title="Backup content", memo="Must not win")
 
     def occupy_id_then_fail(_rows):
         supabase.existing_by_table["recipes"] = [occupying]
@@ -470,8 +491,8 @@ def test_restore_recipe_preflight_insert_race_fails_closed_without_upsert(destru
 
 def test_restore_preserves_current_recipe_omitted_from_backup(destructive_client):
     client, supabase = destructive_client
-    current_a = recipe_row("recipe-a", user_id="test-user", title="A")
-    current_b = recipe_row("recipe-b", user_id="test-user", title="Keep B", memo="Untouched")
+    current_a = recipe_row(RECIPE_ID_A, user_id="test-user", title="A")
+    current_b = recipe_row(RECIPE_ID_B, user_id="test-user", title="Keep B", memo="Untouched")
     supabase.existing_by_table["recipes"] = [current_a, current_b]
 
     response = client.post(
@@ -494,12 +515,12 @@ def test_restore_preserves_current_recipe_omitted_from_backup(destructive_client
 
 def test_restore_recipe_foreign_id_collision_still_rejects_before_any_write(destructive_client):
     client, supabase = destructive_client
-    supabase.existing_by_table["recipes"] = [recipe_row("recipe-foreign", user_id="other-user")]
+    supabase.existing_by_table["recipes"] = [recipe_row(RECIPE_ID_FOREIGN, user_id="other-user")]
 
     response = client.post(
         "/api/restore",
         headers={"X-Absinthe-Recovery-Intent": main.RESTORE_RECOVERY_INTENT},
-        json={"note_folders": [folder_row()], "recipes": [recipe_row("recipe-foreign")]},
+        json={"note_folders": [folder_row()], "recipes": [recipe_row(RECIPE_ID_FOREIGN)]},
     )
 
     assert response.status_code == 409
@@ -513,11 +534,147 @@ def test_restore_recipe_malformed_row_remains_strict_and_write_free(destructive_
     response = client.post(
         "/api/restore",
         headers={"X-Absinthe-Recovery-Intent": main.RESTORE_RECOVERY_INTENT},
-        json={"recipes": [recipe_row("recipe-invalid", unexpected=True)]},
+        json={"recipes": [recipe_row(RECIPE_ID_INVALID_ROW, unexpected=True)]},
     )
 
     assert response.status_code == 422
     assert supabase.writes == []
+
+
+def test_restore_recipe_missing_id_rejects_before_any_operation(destructive_client):
+    client, supabase = destructive_client
+    row = recipe_row()
+    row.pop("id")
+
+    response = client.post(
+        "/api/restore",
+        headers={"X-Absinthe-Recovery-Intent": main.RESTORE_RECOVERY_INTENT},
+        json={"recipes": [row]},
+    )
+
+    assert_restore_validation_error(response, "missing_restore_field:recipes:id")
+    assert supabase.operations == []
+
+
+@pytest.mark.parametrize(
+    "recipe_id",
+    [
+        None,
+        "",
+        " ",
+        "not-a-uuid",
+        RECIPE_ID_RESTORED.upper(),
+        RECIPE_ID_RESTORED.replace("-", ""),
+        f"{{{RECIPE_ID_RESTORED}}}",
+    ],
+)
+def test_restore_recipe_invalid_id_rejects_before_any_operation(destructive_client, recipe_id):
+    client, supabase = destructive_client
+
+    response = client.post(
+        "/api/restore",
+        headers={"X-Absinthe-Recovery-Intent": main.RESTORE_RECOVERY_INTENT},
+        json={"recipes": [recipe_row(recipe_id)]},
+    )
+
+    assert_restore_validation_error(response, "invalid_restore_id:recipes")
+    assert supabase.operations == []
+
+
+@pytest.mark.parametrize("deleted_at", ["2026-08-31T00:00:00Z", "not-a-timestamp"])
+def test_restore_recipe_non_null_deleted_at_rejects_before_any_operation(
+    destructive_client,
+    deleted_at,
+):
+    client, supabase = destructive_client
+
+    response = client.post(
+        "/api/restore",
+        headers={"X-Absinthe-Recovery-Intent": main.RESTORE_RECOVERY_INTENT},
+        json={"recipes": [recipe_row(deleted_at=deleted_at)]},
+    )
+
+    assert_restore_validation_error(response, "invalid_restore_field:recipes:deleted_at")
+    assert supabase.operations == []
+
+
+def test_restore_two_idless_recipes_reject_complete_payload(destructive_client):
+    client, supabase = destructive_client
+    left = recipe_row(title="Same logical Recipe")
+    right = recipe_row(title="Same logical Recipe")
+    left.pop("id")
+    right.pop("id")
+
+    response = client.post(
+        "/api/restore",
+        headers={"X-Absinthe-Recovery-Intent": main.RESTORE_RECOVERY_INTENT},
+        json={"recipes": [left, right]},
+    )
+
+    assert_restore_validation_error(response, "missing_restore_field:recipes:id")
+    assert supabase.operations == []
+
+
+def test_restore_mixed_valid_and_idless_recipes_rejects_before_all_table_operations(destructive_client):
+    client, supabase = destructive_client
+    idless = recipe_row(title="Invalid middle row")
+    idless.pop("id")
+
+    response = client.post(
+        "/api/restore",
+        headers={"X-Absinthe-Recovery-Intent": main.RESTORE_RECOVERY_INTENT},
+        json={
+            "note_folders": [folder_row()],
+            "recipes": [
+                recipe_row(RECIPE_ID_MIXED_LEFT, title="Left"),
+                idless,
+                recipe_row(RECIPE_ID_MIXED_RIGHT, title="Right"),
+            ],
+        },
+    )
+
+    assert_restore_validation_error(response, "missing_restore_field:recipes:id")
+    assert supabase.operations == []
+
+
+def test_restore_idless_logical_equivalent_of_deleted_recipe_cannot_insert(destructive_client):
+    client, supabase = destructive_client
+    deleted = recipe_row(
+        RECIPE_ID_SOFT_DELETED,
+        user_id="test-user",
+        title="Deleted Recipe",
+        deleted_at="2026-08-31T00:00:00Z",
+    )
+    idless = recipe_row(title="Deleted Recipe")
+    idless.pop("id")
+    supabase.existing_by_table["recipes"] = [deleted]
+
+    response = client.post(
+        "/api/restore",
+        headers={"X-Absinthe-Recovery-Intent": main.RESTORE_RECOVERY_INTENT},
+        json={"recipes": [idless]},
+    )
+
+    assert_restore_validation_error(response, "missing_restore_field:recipes:id")
+    assert supabase.operations == []
+    assert supabase.existing_by_table["recipes"] == [deleted]
+
+
+def test_repeated_idless_recipe_restore_never_increases_row_count(destructive_client):
+    client, supabase = destructive_client
+    idless = recipe_row(title="Repeated malformed backup")
+    idless.pop("id")
+
+    for _ in range(3):
+        response = client.post(
+            "/api/restore",
+            headers={"X-Absinthe-Recovery-Intent": main.RESTORE_RECOVERY_INTENT},
+            json={"recipes": [idless]},
+        )
+        assert_restore_validation_error(response, "missing_restore_field:recipes:id")
+
+    assert supabase.operations == []
+    assert supabase.existing_by_table.get("recipes", []) == []
 
 
 def test_restore_fails_closed_on_ambiguous_existing_id_metadata(destructive_client):
