@@ -1,7 +1,7 @@
 import type { VaultSnapshotSummary } from '@/lib/vaultSnapshotStore';
 import {
   assessRecoveryProtectionStatus,
-  getLastVaultExportAt,
+  getLastVaultExportRecord,
   type RecoveryProtectionStatus,
 } from '@/lib/vaultRestorePipeline';
 import type { ArchiveRestoreToolsProjection } from './archiveProjectionModels';
@@ -14,11 +14,13 @@ export function buildArchiveRestoreTools(
   },
 ): ArchiveRestoreToolsProjection {
   const lastSnapshotAt = snapshots[0]?.createdAt ?? null;
-  const lastExportAt = getLastVaultExportAt();
+  const lastExport = getLastVaultExportRecord();
+  const lastExportAt = lastExport?.exportedAt ?? null;
   const protectionStatus: RecoveryProtectionStatus = assessRecoveryProtectionStatus(
     lastSnapshotAt,
     lastExportAt,
     options?.cloudSyncEnabled ?? false,
+    lastExport?.coverage ?? null,
   );
 
   return {

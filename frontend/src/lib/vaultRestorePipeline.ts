@@ -30,6 +30,11 @@ import {
 } from './recoverySafetyPolicy';
 import { resolveNotesRuntimeSyncMode } from './syncMode';
 import type { VaultHealthRestoreAuthority } from './vaultExtensionApply';
+import {
+  isVaultBackupCoverage,
+  protectionForVaultBackupCoverage,
+  type VaultBackupCoverage,
+} from './vaultBackupCoverage';
 
 export const LAST_VAULT_EXPORT_KEY = 'absinthe:last-vault-export:v1';
 
@@ -101,23 +106,39 @@ function selectedNoteCount(options: VaultRestorePipelineOptions): number {
   }
 }
 
-export function recordLastVaultExport(timestamp = new Date().toISOString()): void {
+export interface LastVaultExportRecord {
+  exportedAt: string;
+  coverage: VaultBackupCoverage | null;
+}
+
+export function recordLastVaultExport(
+  timestamp = new Date().toISOString(),
+  coverage?: VaultBackupCoverage,
+): void {
   if (typeof localStorage === 'undefined') return;
   try {
-    localStorage.setItem(LAST_VAULT_EXPORT_KEY, JSON.stringify({ exportedAt: timestamp }));
+    localStorage.setItem(LAST_VAULT_EXPORT_KEY, JSON.stringify({ exportedAt: timestamp, coverage }));
   } catch { /**/ }
 }
 
-export function getLastVaultExportAt(): string | null {
+export function getLastVaultExportRecord(): LastVaultExportRecord | null {
   if (typeof localStorage === 'undefined') return null;
   try {
     const raw = localStorage.getItem(LAST_VAULT_EXPORT_KEY);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as { exportedAt?: string };
-    return parsed.exportedAt ?? null;
+    const parsed = JSON.parse(raw) as { exportedAt?: unknown; coverage?: unknown };
+    if (typeof parsed.exportedAt !== 'string') return null;
+    return {
+      exportedAt: parsed.exportedAt,
+      coverage: isVaultBackupCoverage(parsed.coverage) ? parsed.coverage : null,
+    };
   } catch {
     return null;
   }
+}
+
+export function getLastVaultExportAt(): string | null {
+  return getLastVaultExportRecord()?.exportedAt ?? null;
 }
 
 export function portableExtensionsFromSnapshot(snapshot: VaultSnapshot): VaultPortableExtensions {
@@ -260,13 +281,15 @@ export type RecoveryProtectionStatus = 'protected' | 'partial' | 'none';
 export function assessRecoveryProtectionStatus(
   lastSnapshotAt: string | null,
   lastExportAt: string | null,
-  cloudSyncEnabled: boolean,
+  _cloudSyncEnabled: boolean,
+  lastExportCoverage: VaultBackupCoverage | null = null,
 ): RecoveryProtectionStatus {
   const recentExport = lastExportAt
     && Date.now() - new Date(lastExportAt).getTime() < 7 * 24 * 60 * 60 * 1000;
   const hasSnapshot = Boolean(lastSnapshotAt);
 
-  if (recentExport && hasSnapshot && cloudSyncEnabled) return 'protected';
+  if (recentExport && lastExportCoverage
+    && protectionForVaultBackupCoverage(lastExportCoverage) === 'protected') return 'protected';
   if (recentExport || hasSnapshot) return 'partial';
   return 'none';
 }

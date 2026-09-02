@@ -9,7 +9,7 @@
  * Now useConfirm() keeps that wiring in one place.
  */
 
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useSWRConfig } from 'swr';
 import { Settings, AlertTriangle, LogOut, ShieldCheck } from 'lucide-react';
 import { authFetch } from '../../lib/supabase';
@@ -20,11 +20,14 @@ import { WORKSPACE_CARD_SURFACE } from '../common/workspaceCardSizes';
 import { WORKSPACE_GAP_CLASS } from '../../lib/uiSpacingTokens';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useTranslation } from '../../lib/i18n';
-import { buildVaultBackupManifestV3 } from '../../lib/exportVaultBackup';
 import { downloadVaultBackupZip } from '../../lib/vaultBackupZip';
 import { fetchVaultCloudBlock } from '../../lib/vaultCloudExport';
-import { assertExportReady } from '../../lib/vaultExportValidate';
 import { recordLastVaultExport } from '../../lib/vaultRestorePipeline';
+import {
+  downloadPendingReducedVaultBackup,
+  runVaultBackupAttempt,
+  type PendingReducedVaultBackup,
+} from '../../lib/vaultBackupFlow';
 import { useNotesStore } from '../../store/useNotesStore';
 import { useVaultRestoreFlow } from '../../hooks/useVaultRestoreFlow';
 import { useRecoveryCenter } from '../../hooks/useRecoveryCenter';
@@ -60,6 +63,8 @@ export const SettingsView = ({
   const notes = useNotesStore(s => s.notes);
   const folders = useNotesStore(s => s.folders);
   const cloudSyncEnabled = shouldUseRemoteData() && Boolean(user?.id);
+  const backupAuthorityRef = useRef({ accountId: user?.id ?? null, cloudExpected: cloudSyncEnabled });
+  backupAuthorityRef.current = { accountId: user?.id ?? null, cloudExpected: cloudSyncEnabled };
   const { mutate: globalMutate } = useSWRConfig();
   const revalidatePlannerAfterRestore = useCallback(() => {
     mutateDaily();
@@ -75,6 +80,7 @@ export const SettingsView = ({
   );
   const recovery = useRecoveryCenter(cloudSyncEnabled);
   const [backingUpZip, setBackingUpZip] = useState(false);
+  const [pendingReducedBackup, setPendingReducedBackup] = useState<PendingReducedVaultBackup | null>(null);
   const [storageTick, setStorageTick] = useState(0);
   const refreshStorageMetrics = useCallback(() => {
     setStorageTick(n => n + 1);
@@ -95,19 +101,15 @@ export const SettingsView = ({
     return () => window.clearTimeout(timer);
   }, [settingsScrollTarget, onSettingsScrollTargetConsumed]);
 
-  const buildExportManifest = async () => {
-    const active = notes.filter(n => !n.deletedAt);
-    const cloud = cloudSyncEnabled ? await fetchVaultCloudBlock() : null;
-    const manifest = buildVaultBackupManifestV3(active, folders, cloud);
-    const validation = assertExportReady(manifest);
-    if (!validation.valid) {
-      throw new Error(validation.errors[0] ?? 'export_validation_failed');
-    }
-    recordLastVaultExport(manifest.exportedAt);
-    return manifest;
-  };
+  useEffect(() => {
+    setPendingReducedBackup(pending => {
+      if (!pending) return pending;
+      return cloudSyncEnabled && pending.accountId === (user?.id ?? null) ? pending : null;
+    });
+  }, [cloudSyncEnabled, user?.id]);
 
   const doVaultBackupZip = async () => {
+    setPendingReducedBackup(null);
     const active = notes.filter(n => !n.deletedAt);
     if (active.length === 0) {
       showToast(t('vaultBackupEmpty'), 'error');
@@ -115,8 +117,53 @@ export const SettingsView = ({
     }
     setBackingUpZip(true);
     try {
-      await downloadVaultBackupZip(await buildExportManifest());
-      showToast(t('vaultBackupZipComplete'));
+      const result = await runVaultBackupAttempt({
+        notes: active,
+        folders,
+        cloudExpected: cloudSyncEnabled,
+        accountId: user?.id ?? null,
+      }, {
+        fetchCloud: fetchVaultCloudBlock,
+        download: downloadVaultBackupZip,
+        recordSuccess: recordLastVaultExport,
+        isAccountCurrent: accountId => backupAuthorityRef.current.cloudExpected
+          && backupAuthorityRef.current.accountId === accountId,
+      });
+      if (result.kind === 'pending') {
+        setPendingReducedBackup(result.pending);
+      } else {
+        showToast(t(result.coverage === 'complete'
+          ? 'vaultBackupZipComplete'
+          : 'dataSafetyLocalBackupComplete'));
+        refreshStorageMetrics();
+      }
+    } catch {
+      showToast(t('vaultBackupFailed'), 'error');
+    } finally {
+      setBackingUpZip(false);
+    }
+  };
+
+  const doLimitedVaultBackupZip = async () => {
+    if (!pendingReducedBackup) return;
+    setBackingUpZip(true);
+    try {
+      const result = await downloadPendingReducedVaultBackup(
+        pendingReducedBackup,
+        user?.id ?? null,
+        cloudSyncEnabled,
+        {
+          download: downloadVaultBackupZip,
+          recordSuccess: recordLastVaultExport,
+        },
+      );
+      if (result === 'stale-account') {
+        setPendingReducedBackup(null);
+        showToast(t('dataSafetyLimitedBackupExpired'), 'error');
+        return;
+      }
+      setPendingReducedBackup(null);
+      showToast(t('dataSafetyLimitedBackupComplete'));
       refreshStorageMetrics();
     } catch {
       showToast(t('vaultBackupFailed'), 'error');
@@ -237,7 +284,11 @@ export const SettingsView = ({
               storageMetrics={storageMetrics}
               theme={theme}
               onCreateBackup={doVaultBackupZip}
+              onRetryBackup={doVaultBackupZip}
+              onCreateLimitedBackup={doLimitedVaultBackupZip}
               backingUp={backingUpZip}
+              cloudSyncEnabled={cloudSyncEnabled}
+              pendingReducedBackup={pendingReducedBackup}
             />
           </div>
 
