@@ -50,6 +50,24 @@ type DraftConflict =
   | { kind: 'remote-unavailable' }
   | { kind: 'remote-missing' };
 
+const recipeStarMutationKey = (accountId: string, recipeId: string) => (
+  JSON.stringify([accountId, recipeId])
+);
+
+const isConfirmedRecipeStarResponse = (
+  value: unknown,
+  recipeId: string,
+  accountId: string,
+  target: boolean,
+): value is { starred: boolean } => {
+  if (!value || typeof value !== 'object') return false;
+  const row = value as Record<string, unknown>;
+  return row.id === recipeId
+    && row.user_id === accountId
+    && row.deleted_at === null
+    && row.starred === target;
+};
+
 export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeViewProps) => {
   const { t } = useTranslation();
   const dark = appSettings.darkMode;
@@ -66,14 +84,18 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
   const [saving, setSaving] = useState(false);
   const [formSession, setFormSession] = useState<number | null>(null);
   const [activityTick, setActivityTick] = useState(0);
+  const [pendingStarRecipeIds, setPendingStarRecipeIds] = useState<ReadonlySet<string>>(() => new Set());
   const accountIdRef = useRef(accountId);
   const accountGenerationRef = useRef(0);
   const mountedRef = useRef(true);
   const draftGenerationRef = useRef(0);
   const formSessionGenerationRef = useRef(0);
   const activeFormSessionRef = useRef<number | null>(null);
+  const activeEditingRecipeIdRef = useRef<string | null>(null);
   const savingRef = useRef(false);
   const recoveredDraftRef = useRef<string | null>(null);
+  const pendingStarMutationKeysRef = useRef(new Set<string>());
+  const unresolvedStarMutationKeysRef = useRef(new Set<string>());
   if (accountIdRef.current !== accountId) {
     accountIdRef.current = accountId;
     accountGenerationRef.current += 1;
@@ -209,6 +231,7 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
 
   const openFreshNew = useCallback(() => {
     beginFormSession();
+    activeEditingRecipeIdRef.current = null;
     setForm({ ...EMPTY_RECIPE_FORM });
     setBaseSnapshot(null);
     setEditingId(null);
@@ -219,6 +242,7 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
 
   const openFreshEdit = useCallback((recipe: Recipe) => {
     beginFormSession();
+    activeEditingRecipeIdRef.current = recipe.id;
     const snapshot = recipeToDraftForm(recipe);
     setForm(snapshot);
     setBaseSnapshot(snapshot);
@@ -230,6 +254,7 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
 
   const applyRecoveredDraft = useCallback((candidate: RecipeDraftEnvelope) => {
     beginFormSession();
+    activeEditingRecipeIdRef.current = candidate.mode === 'edit' ? candidate.recipeId : null;
     draftGenerationRef.current = Math.max(draftGenerationRef.current, candidate.generation);
     setDraft(candidate);
     setForm(candidate.form);
@@ -263,7 +288,9 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
     recoveredDraftRef.current = null;
     draftGenerationRef.current = 0;
     savingRef.current = false;
+    activeEditingRecipeIdRef.current = null;
     setSaving(false);
+    setPendingStarRecipeIds(new Set());
     setShowForm(false);
     setEditingId(null);
     setBaseSnapshot(null);
@@ -280,6 +307,7 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
     draftGenerationRef.current = result.draft.generation;
     if (result.draft.mode === 'new') {
       beginFormSession();
+      activeEditingRecipeIdRef.current = null;
       recoveredDraftRef.current = `${accountId}:${result.draft.generation}`;
       setForm(result.draft.form);
       setEditingId(null);
@@ -288,6 +316,24 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
       setShowForm(true);
     }
   }, [accountId, beginFormSession, invalidateFormSession]);
+
+  useEffect(() => {
+    if (activeAuthorityReady || !accountId || pendingStarRecipeIds.size === 0) return;
+    const releasedIds: string[] = [];
+    for (const recipeId of pendingStarRecipeIds) {
+      const key = recipeStarMutationKey(accountId, recipeId);
+      if (!unresolvedStarMutationKeysRef.current.has(key)) continue;
+      unresolvedStarMutationKeysRef.current.delete(key);
+      pendingStarMutationKeysRef.current.delete(key);
+      releasedIds.push(recipeId);
+    }
+    if (releasedIds.length === 0) return;
+    setPendingStarRecipeIds(previous => {
+      const next = new Set(previous);
+      releasedIds.forEach(recipeId => next.delete(recipeId));
+      return next;
+    });
+  }, [accountId, activeAuthorityReady, pendingStarRecipeIds]);
 
   useEffect(() => {
     if (!draft || draft.mode !== 'edit' || activeAvailability === 'LOADING' || !accountId) return;
@@ -336,6 +382,13 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
   const handleSave = useCallback(async () => {
     const submittedFormSession = activeFormSessionRef.current;
     if (savingRef.current || draftConflict || submittedFormSession === null || !recipeAuthorityIsReady(activeAvailabilityRef.current)) return;
+    const activeEditingRecipeId = activeEditingRecipeIdRef.current;
+    const activeAccountId = accountIdRef.current;
+    if (
+      activeEditingRecipeId
+      && activeAccountId
+      && pendingStarMutationKeysRef.current.has(recipeStarMutationKey(activeAccountId, activeEditingRecipeId))
+    ) return;
     if (!form.title.trim()) return showToast(t('enterRecipeTitle'), 'error');
 
     const accountSnapshot = captureAccountGeneration();
@@ -363,6 +416,7 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
       const committedGeneration = draftGenerationRef.current + 1;
       draftGenerationRef.current = committedGeneration;
       invalidateFormSession();
+      activeEditingRecipeIdRef.current = null;
       const cleanup = clearRecipeDraftAfterRemoteCommit(
         accountSnapshot.accountId,
         committedGeneration,
@@ -453,20 +507,67 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
     if (!recipeAuthorityIsReady(activeAvailabilityRef.current)) return;
     const accountSnapshot = captureAccountGeneration();
     if (!accountSnapshot.accountId) return;
-    const updated = { ...recipe, starred: !recipe.starred };
-    mutateRecipes(prev => (prev ?? []).map(r => r.id === recipe.id ? updated : r), false);
+    const pendingKey = recipeStarMutationKey(accountSnapshot.accountId, recipe.id);
+    if (
+      pendingStarMutationKeysRef.current.has(pendingKey)
+      || activeEditingRecipeIdRef.current === recipe.id
+    ) return;
+
+    pendingStarMutationKeysRef.current.add(pendingKey);
+    setPendingStarRecipeIds(previous => new Set(previous).add(recipe.id));
+    const target = !recipe.starred;
+    mutateRecipes(
+      prev => (prev ?? []).map(r => r.id === recipe.id ? { ...r, starred: target } : r),
+      false,
+    );
+
+    let confirmed = false;
+    let retainPendingUntilAuthorityChanges = false;
     try {
-      const res = await authFetch(`${API_URL}/api/recipes/${recipe.id}`, {
+      const res = await authFetch(`${API_URL}/api/recipes/${recipe.id}/star`, {
         method: 'PUT',
-        body: JSON.stringify(updated),
+        body: JSON.stringify({ starred: target }),
       });
       if (!res.ok) throw new Error();
+      const updated: unknown = await res.json();
       if (!isCurrentAccountGeneration(accountSnapshot)) return;
-      void mutateRecipes();
+      if (!isConfirmedRecipeStarResponse(updated, recipe.id, accountSnapshot.accountId, target)) {
+        throw new Error();
+      }
+      mutateRecipes(
+        prev => (prev ?? []).map(r => r.id === recipe.id ? { ...r, starred: updated.starred } : r),
+        false,
+      );
+      confirmed = true;
     } catch {
-      if (!isCurrentAccountGeneration(accountSnapshot)) return;
-      mutateRecipes(prev => (prev ?? []).map(r => r.id === recipe.id ? recipe : r), false);
-      showToast(t('failSaveRecipe'), 'error');
+      // A transport or response-validation failure is ambiguous. The server may
+      // have committed, so never restore a captured local Recipe snapshot.
+    }
+
+    if (isCurrentAccountGeneration(accountSnapshot)) {
+      try {
+        await mutateRecipes();
+      } catch {
+        if (isCurrentAccountGeneration(accountSnapshot) && recipeAuthorityIsReady(activeAvailabilityRef.current)) {
+          unresolvedStarMutationKeysRef.current.add(pendingKey);
+          retainPendingUntilAuthorityChanges = true;
+        }
+      }
+      if (!confirmed && isCurrentAccountGeneration(accountSnapshot)) {
+        showToast(t('failSaveRecipe'), 'error');
+      }
+    }
+
+    if (!isCurrentAccountGeneration(accountSnapshot) || !retainPendingUntilAuthorityChanges) {
+      unresolvedStarMutationKeysRef.current.delete(pendingKey);
+      pendingStarMutationKeysRef.current.delete(pendingKey);
+      if (isCurrentAccountGeneration(accountSnapshot)) {
+        setPendingStarRecipeIds(previous => {
+          const next = new Set(previous);
+          next.delete(recipe.id);
+          return next;
+        });
+      }
     }
   }, [captureAccountGeneration, isCurrentAccountGeneration, showToast, mutateRecipes, t]);
 
@@ -492,6 +593,11 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
 
   const openEdit = useCallback((recipe: Recipe) => {
     if (!recipeAuthorityIsReady(activeAvailabilityRef.current)) return;
+    const currentAccountId = accountIdRef.current;
+    if (
+      currentAccountId
+      && pendingStarMutationKeysRef.current.has(recipeStarMutationKey(currentAccountId, recipe.id))
+    ) return;
     if (!draft) {
       openFreshEdit(recipe);
       return;
@@ -518,6 +624,7 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
 
   const closeFormNow = useCallback(() => {
     invalidateFormSession();
+    activeEditingRecipeIdRef.current = null;
     setShowForm(false);
   }, [invalidateFormSession]);
 
@@ -540,6 +647,7 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
       if (!discardCurrentDraft()) return;
       setForm({ ...EMPTY_RECIPE_FORM });
       setBaseSnapshot(null);
+      activeEditingRecipeIdRef.current = null;
       setEditingId(null);
       setShowForm(false);
     };
@@ -613,6 +721,7 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
         expandedId={expandedId}
         onToggleExpand={handleToggleExpand}
         onToggleStar={handleToggleStar}
+        pendingStarRecipeIds={pendingStarRecipeIds}
         onEdit={openEdit}
         onDelete={handleDelete}
         deletedRecipes={deletedRecipes}

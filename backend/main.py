@@ -831,6 +831,9 @@ class RecipeCreate(BaseModel):
     memo: str = ''
     starred: bool = False
 
+class RecipeStarUpdate(BaseModel):
+    starred: bool
+
 class RoutineExceptionCreate(BaseModel):
     start_date: str
     end_date: str
@@ -903,6 +906,39 @@ async def update_recipe(recipe_id: str, recipe: RecipeCreate, user_id: str = Dep
     if not data:
         raise HTTPException(status_code=404, detail="Not found")
     return data[0]
+
+@app.put("/api/recipes/{recipe_id}/star")
+async def update_recipe_star(recipe_id: str, update: RecipeStarUpdate, user_id: str = Depends(get_current_user)):
+    row = supabase.table("recipes").select("user_id, deleted_at").eq("id", recipe_id).maybe_single().execute().data
+    if not row:
+        raise HTTPException(status_code=404, detail="Not found")
+    verify_owner(row["user_id"], user_id)
+    if row.get("deleted_at") is not None:
+        raise HTTPException(status_code=404, detail="Not found")
+    data = (
+        supabase.table("recipes")
+        .update({"starred": update.starred})
+        .eq("id", recipe_id)
+        .eq("user_id", user_id)
+        .is_("deleted_at", "null")
+        .execute()
+        .data
+    )
+    if data is None or (isinstance(data, list) and not data):
+        raise HTTPException(status_code=404, detail="Not found")
+    if not isinstance(data, list) or len(data) != 1:
+        raise HTTPException(status_code=409, detail="Star update not confirmed")
+    updated = data[0]
+    if (
+        not isinstance(updated, dict)
+        or updated.get("id") != recipe_id
+        or updated.get("user_id") != user_id
+        or "deleted_at" not in updated
+        or updated["deleted_at"] is not None
+        or updated.get("starred") is not update.starred
+    ):
+        raise HTTPException(status_code=409, detail="Star update not confirmed")
+    return updated
 
 @app.delete("/api/recipes/{recipe_id}")
 async def delete_recipe(recipe_id: str, user_id: str = Depends(get_current_user)):

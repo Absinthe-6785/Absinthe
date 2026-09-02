@@ -18,6 +18,7 @@ export interface RecipeCardProps {
   onOpenCookingNote?: () => void;
   compact?: boolean;
   mutationsDisabled?: boolean;
+  starPending?: boolean;
 }
 
 export function RecipeCard({
@@ -34,6 +35,7 @@ export function RecipeCard({
   onOpenCookingNote,
   compact = false,
   mutationsDisabled = false,
+  starPending = false,
 }: RecipeCardProps) {
   const ingredients = (recipe.ingredients ?? '').split('\n').filter(Boolean);
   const steps = (recipe.steps ?? '').split('\n').filter(Boolean);
@@ -58,16 +60,17 @@ export function RecipeCard({
         <div className="flex items-center gap-0.5 shrink-0">
           <button
             type="button"
-            disabled={mutationsDisabled}
+            disabled={mutationsDisabled || starPending}
             onClick={e => { e.stopPropagation(); onToggleStar(); }}
             className="p-1.5 rounded-lg hover:bg-yellow-400/20 transition-colors min-h-[44px] min-w-[44px] lg:min-h-0 lg:min-w-0 flex items-center justify-center"
             aria-label={t('recipeStarred')}
+            aria-busy={starPending}
           >
             <Star size={13} fill={recipe.starred ? '#8B5CF6' : 'none'} color={recipe.starred ? '#8B5CF6' : undefined} className={recipe.starred ? '' : theme.textMuted} />
           </button>
           <button
             type="button"
-            disabled={mutationsDisabled}
+            disabled={mutationsDisabled || starPending}
             onClick={e => { e.stopPropagation(); onEdit(); }}
             className={`p-1.5 rounded-lg transition-colors min-h-[44px] min-w-[44px] lg:min-h-0 lg:min-w-0 flex items-center justify-center ${dark ? 'hover:bg-white/10' : 'hover:bg-gray-100'}`}
           >

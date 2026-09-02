@@ -462,6 +462,174 @@ def test_put_zero_row_after_owner_preread_fails_closed(recipes_client):
     assert fake.rows == []
 
 
+@pytest.mark.parametrize("target", [True, False])
+def test_put_star_sets_absolute_value_idempotently_and_only_updates_starred(recipes_client, target):
+    client, fake = recipes_client
+    recipe_id = f"recipe-star-{str(target).lower()}"
+    original = {
+        "id": recipe_id,
+        "user_id": USER_ID,
+        "title": "Content V2",
+        "category": "Dinner",
+        "ingredients": "new ingredients",
+        "steps": "new steps",
+        "memo": "new memo",
+        "starred": not target,
+        "created_at": "2026-08-02T00:00:00Z",
+        "deleted_at": None,
+    }
+    fake.rows[:] = [original]
+
+    first = client.put(f"/api/recipes/{recipe_id}/star", json={"starred": target})
+    second = client.put(f"/api/recipes/{recipe_id}/star", json={"starred": target})
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["starred"] is target
+    assert second.json()["starred"] is target
+    assert fake.updated_payloads == [{"starred": target}, {"starred": target}]
+    assert fake.rows == [original | {"starred": target}]
+    for content_field in ("title", "category", "ingredients", "steps", "memo", "created_at"):
+        assert first.json()[content_field] == original[content_field]
+        assert second.json()[content_field] == original[content_field]
+    first_lookup, first_update, second_lookup, second_update = fake.executed
+    assert first_lookup.columns == "user_id, deleted_at"
+    assert second_lookup.columns == "user_id, deleted_at"
+    assert first_update.filters == [("id", recipe_id), ("user_id", USER_ID), ("is", "deleted_at", "null")]
+    assert second_update.filters == [("id", recipe_id), ("user_id", USER_ID), ("is", "deleted_at", "null")]
+
+
+def test_recipe_star_schema_requires_only_starred(recipes_client):
+    client, _ = recipes_client
+
+    fields = main.RecipeStarUpdate.model_fields
+    assert set(fields) == {"starred"}
+    assert fields["starred"].is_required()
+    assert client.put("/api/recipes/recipe", json={}).status_code == 422
+
+
+def test_put_star_missing_recipe_returns_404_without_write(recipes_client):
+    client, fake = recipes_client
+
+    response = client.put("/api/recipes/missing/star", json={"starred": True})
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Not found"}
+    assert fake.write_queries == []
+
+
+def test_put_star_foreign_recipe_is_forbidden_without_write(recipes_client):
+    client, fake = recipes_client
+    fake.rows[:] = [{"id": "recipe-foreign-star", "user_id": OTHER_USER_ID, "deleted_at": None}]
+
+    response = client.put("/api/recipes/recipe-foreign-star/star", json={"starred": True})
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Forbidden"}
+    assert fake.write_queries == []
+
+
+def test_put_star_soft_deleted_recipe_returns_404_without_write(recipes_client):
+    client, fake = recipes_client
+    fake.rows[:] = [{
+        "id": "recipe-deleted-star",
+        "user_id": USER_ID,
+        "starred": False,
+        "deleted_at": "2026-08-01T00:00:00Z",
+    }]
+
+    response = client.put("/api/recipes/recipe-deleted-star/star", json={"starred": True})
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Not found"}
+    assert fake.write_queries == []
+    assert fake.rows[0]["starred"] is False
+
+
+def test_put_star_ownership_race_fails_closed(recipes_client):
+    client, fake = recipes_client
+    recipe_id = "recipe-star-owner-race"
+    fake.rows[:] = [{"id": recipe_id, "user_id": USER_ID, "starred": False, "deleted_at": None}]
+
+    def change_owner_before_final_update(_query):
+        fake.rows[0]["user_id"] = OTHER_USER_ID
+
+    fake.before_write = change_owner_before_final_update
+    response = client.put(f"/api/recipes/{recipe_id}/star", json={"starred": True})
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Not found"}
+    assert fake.rows[0]["starred"] is False
+
+
+def test_put_star_deletion_race_fails_closed(recipes_client):
+    client, fake = recipes_client
+    recipe_id = "recipe-star-delete-race"
+    fake.rows[:] = [{"id": recipe_id, "user_id": USER_ID, "starred": False, "deleted_at": None}]
+
+    def delete_before_final_update(_query):
+        fake.rows[0]["deleted_at"] = "2026-08-01T00:00:00Z"
+
+    fake.before_write = delete_before_final_update
+    response = client.put(f"/api/recipes/{recipe_id}/star", json={"starred": True})
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Not found"}
+    assert fake.rows[0]["starred"] is False
+
+
+def test_put_star_null_update_result_fails_closed_as_not_found(recipes_client):
+    client, fake = recipes_client
+    recipe_id = "recipe-star-null-result"
+    fake.rows[:] = [{"id": recipe_id, "user_id": USER_ID, "starred": False, "deleted_at": None}]
+    fake.update_data = None
+
+    response = client.put(f"/api/recipes/{recipe_id}/star", json={"starred": True})
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Not found"}
+
+
+@pytest.mark.parametrize(
+    "unconfirmed",
+    [
+        {"id": "wrong-id", "user_id": USER_ID, "deleted_at": None, "starred": True},
+        {"id": "recipe-star-confirm", "user_id": OTHER_USER_ID, "deleted_at": None, "starred": True},
+        {"id": "recipe-star-confirm", "user_id": USER_ID, "starred": True},
+        {"id": "recipe-star-confirm", "user_id": USER_ID, "deleted_at": "2026-08-01T00:00:00Z", "starred": True},
+        {"id": "recipe-star-confirm", "user_id": USER_ID, "deleted_at": None, "starred": False},
+        "not-a-row",
+    ],
+)
+def test_put_star_rejects_unconfirmed_returned_row(recipes_client, unconfirmed):
+    client, fake = recipes_client
+    recipe_id = "recipe-star-confirm"
+    fake.rows[:] = [{"id": recipe_id, "user_id": USER_ID, "starred": False, "deleted_at": None}]
+    fake.update_data = [unconfirmed]
+
+    response = client.put(f"/api/recipes/{recipe_id}/star", json={"starred": True})
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": "Star update not confirmed"}
+
+
+def test_put_star_rejects_non_list_or_multiple_update_result(recipes_client):
+    client, fake = recipes_client
+    recipe_id = "recipe-star-malformed"
+    row = {"id": recipe_id, "user_id": USER_ID, "starred": True, "deleted_at": None}
+    fake.rows[:] = [row]
+
+    fake.update_data = row
+    malformed = client.put(f"/api/recipes/{recipe_id}/star", json={"starred": True})
+    fake.update_data = [row, row]
+    multiple = client.put(f"/api/recipes/{recipe_id}/star", json={"starred": True})
+
+    assert malformed.status_code == 409
+    assert multiple.status_code == 409
+    assert malformed.json() == {"detail": "Star update not confirmed"}
+    assert multiple.json() == {"detail": "Star update not confirmed"}
+
+
 def test_delete_success_soft_deletes_owned_row_and_confirms_state(recipes_client):
     client, fake = recipes_client
     recipe_id = "recipe-delete"

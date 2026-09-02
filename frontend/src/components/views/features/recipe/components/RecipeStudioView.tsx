@@ -40,6 +40,7 @@ export interface RecipeStudioViewProps {
   expandedId: string | null;
   onToggleExpand: (id: string) => void;
   onToggleStar: (recipe: Recipe) => void;
+  pendingStarRecipeIds?: ReadonlySet<string>;
   onEdit: (recipe: Recipe) => void;
   onDelete: (id: string, title: string) => void;
   deletedRecipes: readonly Recipe[];
@@ -64,6 +65,7 @@ export function RecipeStudioView({
   expandedId,
   onToggleExpand,
   onToggleStar,
+  pendingStarRecipeIds = new Set(),
   onEdit,
   onDelete,
   deletedRecipes,
@@ -277,6 +279,7 @@ export function RecipeStudioView({
                     t={t}
                     onToggleExpand={onToggleExpand}
                     onToggleStar={onToggleStar}
+                    pendingStarRecipeIds={pendingStarRecipeIds}
                     onEdit={onEdit}
                     onDelete={onDelete}
                     onMarkCooked={onMarkCooked}
