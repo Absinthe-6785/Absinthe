@@ -29,7 +29,10 @@ import {
   type PendingReducedVaultBackup,
 } from '../../lib/vaultBackupFlow';
 import { useNotesStore } from '../../store/useNotesStore';
-import { useVaultRestoreFlow } from '../../hooks/useVaultRestoreFlow';
+import {
+  useVaultRestoreFlow,
+  type VaultRestoreCompletionContext,
+} from '../../hooks/useVaultRestoreFlow';
 import { useRecoveryCenter } from '../../hooks/useRecoveryCenter';
 import { VaultRestoreModal } from './features/knowledge/VaultRestoreModal';
 import { RecoveryCenterPanel } from './features/settings/RecoveryCenterPanel';
@@ -38,6 +41,7 @@ import { shouldUseRemoteData } from '../../lib/remoteBoundary';
 import type { SettingsSectionId } from '../common/Sidebar';
 import { RECOVERY_MODE_MESSAGE, mayReset, recordRecoveryBlock } from '../../lib/recoverySafetyPolicy';
 import { revalidatePlannerAccountCache } from '../../lib/plannerCacheRevalidation';
+import { revalidateRecipeAccountCacheAfterRestore } from '../../lib/recipeCacheRevalidation';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
 
@@ -66,17 +70,23 @@ export const SettingsView = ({
   const backupAuthorityRef = useRef({ accountId: user?.id ?? null, cloudExpected: cloudSyncEnabled });
   backupAuthorityRef.current = { accountId: user?.id ?? null, cloudExpected: cloudSyncEnabled };
   const { mutate: globalMutate } = useSWRConfig();
-  const revalidatePlannerAfterRestore = useCallback(() => {
+  const revalidateAfterRestore = useCallback((context: VaultRestoreCompletionContext) => {
     mutateDaily();
     mutateStatic();
-    revalidatePlannerAccountCache(globalMutate, user?.id);
-  }, [globalMutate, mutateDaily, mutateStatic, user?.id]);
+    revalidatePlannerAccountCache(globalMutate, context.accountId);
+    if (context.recipeRowsRequested > 0) {
+      void revalidateRecipeAccountCacheAfterRestore(globalMutate, {
+        accountId: context.accountId,
+        isCurrentAccount: context.isCurrentAccount,
+      });
+    }
+  }, [globalMutate, mutateDaily, mutateStatic]);
   const vaultRestore = useVaultRestoreFlow(
     showToast,
     t,
     cloudSyncEnabled,
     user?.id,
-    revalidatePlannerAfterRestore,
+    revalidateAfterRestore,
   );
   const recovery = useRecoveryCenter(cloudSyncEnabled);
   const [backingUpZip, setBackingUpZip] = useState(false);

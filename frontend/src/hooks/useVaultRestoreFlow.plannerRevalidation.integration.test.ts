@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { accountBoundRemoteFetcher, accountBoundRemoteKey } from '../lib/accountBoundRemote';
 import { revalidatePlannerAccountCache } from '../lib/plannerCacheRevalidation';
+import { revalidateRecipeAccountCacheAfterRestore } from '../lib/recipeCacheRevalidation';
 import { useVaultRestoreFlow } from './useVaultRestoreFlow';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -20,6 +21,7 @@ const harness = vi.hoisted(() => ({
   revalidationCallbacks: 0,
   otherAccountRevalidations: 0,
   showToast: vi.fn(),
+  events: [] as string[],
 }));
 
 const restoreManifest = vi.hoisted(() => ({
@@ -31,7 +33,7 @@ const restoreManifest = vi.hoisted(() => ({
   folderCount: 0,
   cloud: {
     completeness: 'complete',
-    planner: { schedules: [] },
+    planner: { schedules: [], recipes: [] as Array<Record<string, unknown>> },
     health: { workoutLogs: [], inbodyLogs: [] },
   },
 }));
@@ -42,6 +44,7 @@ vi.mock('../lib/fetcher', () => ({
   fetcher: (input: unknown) => {
     const url = String(input);
     harness.requests.push({ url, account: harness.fetchAccount });
+    harness.events.push(`fetch:${url}`);
     return Promise.resolve([]);
   },
   isLocalOnlyRemotePausedError: () => false,
@@ -184,9 +187,15 @@ function RestoreHarness({ account, start }: { account: string; start: boolean })
     (key: string) => key,
     true,
     account,
-    () => {
+    context => {
       harness.revalidationCallbacks += 1;
-      revalidatePlannerAccountCache(globalMutate, account);
+      revalidatePlannerAccountCache(globalMutate, context.accountId);
+      if (context.recipeRowsRequested > 0) {
+        void revalidateRecipeAccountCacheAfterRestore(globalMutate, {
+          accountId: context.accountId,
+          isCurrentAccount: context.isCurrentAccount,
+        });
+      }
     },
   );
   const startedRef = useRef(false);
@@ -244,7 +253,13 @@ describe('useVaultRestoreFlow Planner revalidation production path', () => {
     harness.cloudResolvers.length = 0;
     harness.revalidationCallbacks = 0;
     harness.otherAccountRevalidations = 0;
+    harness.events.length = 0;
     harness.showToast.mockReset();
+    harness.showToast.mockImplementation(() => {
+      harness.events.push('toast');
+    });
+    restoreManifest.cloud.completeness = 'complete';
+    restoreManifest.cloud.planner.recipes.length = 0;
     host = document.createElement('div');
     document.body.appendChild(host);
   });
@@ -308,6 +323,10 @@ describe('useVaultRestoreFlow Planner revalidation production path', () => {
   });
 
   it('does not run success-only Planner invalidation when restore completion reports failure', async () => {
+    restoreManifest.cloud.planner.recipes.push({
+      id: '00000000-0000-4000-8000-000000000002',
+      title: 'Must not refresh',
+    });
     const cache = new Map<unknown, unknown>();
     root = createRoot(host!);
     await act(async () => renderRestore(root!, cache, { account: 'account-a', start: true }));
@@ -323,5 +342,74 @@ describe('useVaultRestoreFlow Planner revalidation production path', () => {
     expect(harness.revalidationCallbacks).toBe(0);
     expect(harness.otherAccountRevalidations).toBe(0);
     expect(harness.requests).toHaveLength(0);
+  });
+
+  it('dispatches an exact active Recipe GET before success UI when non-empty Recipe input applied', async () => {
+    restoreManifest.cloud.planner.recipes.push({
+      id: '00000000-0000-4000-8000-000000000001',
+      title: 'Backup input only',
+    });
+    const cache = new Map<unknown, unknown>();
+    root = createRoot(host!);
+    await act(async () => renderRestore(root!, cache, { account: 'account-a', start: true }));
+    await flush();
+    expect(harness.cloudResolvers).toHaveLength(1);
+    harness.requests.length = 0;
+    harness.events.length = 0;
+
+    await act(async () => {
+      harness.cloudResolvers.shift()!({ applied: true });
+    });
+    await flush();
+
+    const recipeRequests = harness.requests.filter(request => request.url.includes('/api/recipes'));
+    expect(recipeRequests).toEqual([{
+      url: 'https://example.invalid/api/recipes',
+      account: 'account-a',
+    }]);
+    expect(harness.requests.some(request => request.url.includes('/api/recipes/trash'))).toBe(false);
+    expect(harness.events.indexOf('fetch:https://example.invalid/api/recipes')).toBeGreaterThanOrEqual(0);
+    expect(harness.events.indexOf('fetch:https://example.invalid/api/recipes')).toBeLessThan(
+      harness.events.indexOf('toast'),
+    );
+  });
+
+  it('does not dispatch Recipe refresh for an empty Recipe domain', async () => {
+    const cache = new Map<unknown, unknown>();
+    root = createRoot(host!);
+    await act(async () => renderRestore(root!, cache, { account: 'account-a', start: true }));
+    await flush();
+    harness.requests.length = 0;
+
+    await act(async () => {
+      harness.cloudResolvers.shift()!({ applied: true });
+    });
+    await flush();
+
+    expect(harness.requests.some(request => request.url.includes('/api/recipes'))).toBe(false);
+    expect(harness.revalidationCallbacks).toBe(1);
+  });
+
+  it('refreshes non-empty Recipe input from a successfully applied partial cloud block', async () => {
+    restoreManifest.cloud.completeness = 'partial';
+    restoreManifest.cloud.planner.recipes.push({
+      id: '00000000-0000-4000-8000-000000000003',
+      title: 'Partial backup input',
+    });
+    const cache = new Map<unknown, unknown>();
+    root = createRoot(host!);
+    await act(async () => renderRestore(root!, cache, { account: 'account-a', start: true }));
+    await flush();
+    harness.requests.length = 0;
+
+    await act(async () => {
+      harness.cloudResolvers.shift()!({ applied: true });
+    });
+    await flush();
+
+    expect(harness.requests.filter(request => request.url.endsWith('/api/recipes'))).toEqual([{
+      url: 'https://example.invalid/api/recipes',
+      account: 'account-a',
+    }]);
   });
 });
