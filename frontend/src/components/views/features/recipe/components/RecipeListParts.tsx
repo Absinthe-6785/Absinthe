@@ -263,6 +263,7 @@ export interface RecipeVirtualListProps {
   t: (key: TranslationKey) => string;
   onToggleExpand: (id: string) => void;
   onToggleStar: (recipe: Recipe) => void;
+  pendingStarRecipeIds?: ReadonlySet<string>;
   onEdit: (recipe: Recipe) => void;
   onDelete: (id: string, title: string) => void;
   onMarkCooked?: (id: string) => void;
@@ -278,6 +279,7 @@ export function RecipeVirtualList({
   t,
   onToggleExpand,
   onToggleStar,
+  pendingStarRecipeIds = new Set(),
   onEdit,
   onDelete,
   onMarkCooked,
@@ -311,6 +313,7 @@ export function RecipeVirtualList({
       onMarkCooked={onMarkCooked ? () => onMarkCooked(recipe.id) : undefined}
       onOpenCookingNote={onOpenCookingNote ? () => onOpenCookingNote(recipe) : undefined}
       mutationsDisabled={mutationsDisabled}
+      starPending={pendingStarRecipeIds.has(recipe.id)}
     />
   );
 
