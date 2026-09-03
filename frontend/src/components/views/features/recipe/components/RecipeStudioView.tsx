@@ -140,7 +140,7 @@ export function RecipeStudioView({
                     aria-expanded={showTrash}
                   >
                     <Trash2 size={14} />
-                    {t('deletedRecipes')} {deletedRecipes.length > 0 ? `(${deletedRecipes.length})` : ''}
+                    {t('trash')} {deletedRecipes.length > 0 ? `(${deletedRecipes.length})` : ''}
                   </button>
                   <WorkspaceToolbarPrimary
                     label={t('newRecipe')}
@@ -294,10 +294,7 @@ export function RecipeStudioView({
               <section className={`${WORKSPACE_CARD_SURFACE} ${theme.card}`} data-k110-recipe-trash>
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <h2 className={WORKSPACE_SECTION_TITLE_CLASS}>{t('deletedRecipes')}</h2>
-                    {trashAvailability === 'READY_EMPTY' && (
-                      <p className={`text-xs ${theme.textMuted}`}>{t('noDeletedRecipes')}</p>
-                    )}
+                    <h2 className={WORKSPACE_SECTION_TITLE_CLASS}>{t('trash')}</h2>
                   </div>
                   <Trash2 size={16} className={theme.textMuted} aria-hidden="true" />
                 </div>

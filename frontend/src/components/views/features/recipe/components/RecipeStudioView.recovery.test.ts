@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { AppSettings, Theme } from '../../../../../types';
+import { useAppStore } from '../../../../../store/useAppStore';
 import { RecipeStudioView, type RecipeStudioViewProps } from './RecipeStudioView';
 import { RecipeFormModal, type RecipeFormModalProps } from './RecipeListParts';
 import type { RecipeProjection } from '../recipeProjectionModels';
@@ -194,6 +195,7 @@ function expectNoDerivedEmptyClaims() {
 
 beforeEach(() => {
   localStorage.clear();
+  useAppStore.getState().updateSetting('language', 'en');
 });
 
 afterEach(() => {
@@ -297,15 +299,21 @@ describe('RecipeStudioView recovery surface', () => {
 
     const toggle = host?.querySelector<HTMLButtonElement>('[data-k110-recipe-trash-toggle]');
     expect(toggle).not.toBeNull();
+    expect(toggle?.textContent).toContain('Trash');
+    expect(toggle?.textContent).not.toContain('Recently deleted');
     expect(host?.querySelector('[data-k110-recipe-trash]')).toBeNull();
 
     act(() => toggle?.click());
 
-    expect(host?.querySelector('[data-k110-recipe-trash]')).not.toBeNull();
+    const trash = host?.querySelector('[data-k110-recipe-trash]');
+    expect(trash).not.toBeNull();
+    expect(trash?.querySelector('h2')?.textContent).toBe('Trash');
+    expect(trash?.textContent).not.toContain('No deleted recipes.');
     expect(host?.querySelector('[data-k110-recipe-trash-row="recipe-deleted"]')).not.toBeNull();
 
     const restore = host?.querySelector<HTMLButtonElement>('[data-k110-recipe-restore="recipe-deleted"]');
     expect(restore).not.toBeNull();
+    expect(restore?.textContent).toContain('Restore');
     act(() => restore?.click());
     expect(onRestore).toHaveBeenCalledWith('recipe-deleted');
   });
@@ -320,6 +328,7 @@ describe('RecipeStudioView recovery surface', () => {
     act(() => host?.querySelector<HTMLButtonElement>('[data-k110-recipe-trash-toggle]')?.click());
 
     expect(host?.querySelector('[data-k110-recipe-trash-empty]')).toBeNull();
+    expect(host?.querySelector('[data-k110-recipe-trash]')?.textContent).not.toContain('No deleted recipes.');
     expect(host?.querySelector('[data-recipe-availability="trash"]')).not.toBeNull();
     act(() => host?.querySelector<HTMLButtonElement>('[data-recipe-availability-retry="trash"]')?.click());
     expect(onRetryTrash).toHaveBeenCalledTimes(1);
@@ -332,8 +341,22 @@ describe('RecipeStudioView recovery surface', () => {
     });
     act(() => host?.querySelector<HTMLButtonElement>('[data-k110-recipe-trash-toggle]')?.click());
 
-    expect(host?.querySelector('[data-k110-recipe-trash-empty]')).not.toBeNull();
+    const emptyMessages = Array.from(host?.querySelectorAll('[data-k110-recipe-trash] p') ?? [])
+      .filter(element => element.textContent === 'No deleted recipes.');
+    expect(host?.querySelector('[data-k110-recipe-trash-empty]')?.textContent).toBe('No deleted recipes.');
+    expect(emptyMessages).toHaveLength(1);
     expect(host?.querySelector('[data-recipe-availability="trash"]')).toBeNull();
+  });
+
+  it('does not render authoritative-empty copy while trash is loading', () => {
+    renderStudio(vi.fn(), {
+      deletedRecipes: [],
+      trashAvailability: 'LOADING',
+    });
+    act(() => host?.querySelector<HTMLButtonElement>('[data-k110-recipe-trash-toggle]')?.click());
+
+    expect(host?.querySelector('[data-k110-recipe-trash-empty]')).toBeNull();
+    expect(host?.querySelector('[data-k110-recipe-trash]')?.textContent).not.toContain('No deleted recipes.');
   });
 
   it('keeps warm trash rows visible but disables Restore while trash is stale', () => {
@@ -345,6 +368,8 @@ describe('RecipeStudioView recovery surface', () => {
 
     expect(host?.querySelector('[data-k110-recipe-trash-row="recipe-deleted"]')).not.toBeNull();
     expect(host?.querySelector('[data-recipe-availability="trash"][data-recipe-availability-stale="true"]')).not.toBeNull();
+    expect(host?.querySelector('[data-k110-recipe-trash-empty]')).toBeNull();
+    expect(host?.querySelector('[data-k110-recipe-trash]')?.textContent).not.toContain('No deleted recipes.');
     expect(host?.querySelector<HTMLButtonElement>('[data-k110-recipe-restore="recipe-deleted"]')?.disabled).toBe(true);
   });
 });
