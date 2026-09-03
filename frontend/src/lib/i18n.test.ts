@@ -144,6 +144,9 @@ describe('i18n locale dictionaries', () => {
     expect(enTranslations.k102DaysAgo).toBe('{count} days ago');
     expect(koTranslations.k102DaysAgo).toBe('{count}일 전');
     expect(jaTranslations.k102DaysAgo).toBe('{count}日前');
+    expect(enTranslations.trash).toBe('Trash');
+    expect(koTranslations.trash).toBe('휴지통');
+    expect(jaTranslations.trash).toBe('ゴミ箱');
   });
 
   it('resolves every extracted locale value through the public translator', async () => {
