@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, createElement } from 'react';
+import { act, createElement, StrictMode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -169,17 +169,18 @@ function starResponse(row: ReturnType<typeof recipe>, target: boolean, account =
 let root: Root;
 let host: HTMLDivElement;
 
-function render(accountId: string | null = 'account-a') {
+function render(accountId: string | null = 'account-a', { strictMode = false } = {}) {
   const resolvedAccountId = accountId ?? undefined;
   harness.renderingAccount = resolvedAccountId ?? '__logged-out__';
-  act(() => root.render(createElement(RecipeView, {
+  const view = createElement(RecipeView, {
     accountId: resolvedAccountId,
     showToast: harness.showToast,
     appSettings: settings,
     updateSetting: vi.fn(),
     theme,
     THEME_COLORS: [],
-  })));
+  });
+  act(() => root.render(strictMode ? createElement(StrictMode, null, view) : view));
 }
 
 async function flush() {
@@ -218,6 +219,64 @@ afterEach(() => {
 });
 
 describe('Recipe star mutation production path', () => {
+  it('completes authoritative star convergence after StrictMode effect replay', async () => {
+    const initial = recipe('recipe-a');
+    const currentV2 = recipe('recipe-a', {
+      title: 'Content V2', category: 'Lunch', ingredients: 'V2 ingredients', steps: 'V2 steps', memo: 'V2 memo',
+    });
+    activeState('account-a').data = [initial];
+    harness.serverRows.set('account-a', [{ ...currentV2, starred: true }]);
+    const request = deferred<any>();
+    harness.authFetch.mockReturnValueOnce(request.promise);
+    render('account-a', { strictMode: true });
+    await flush();
+
+    const operation = beginStar(initial);
+    activeState('account-a').data = [currentV2];
+    request.resolve(starResponse(initial, true));
+    await act(async () => { await operation; });
+    await flush();
+
+    expect(harness.authFetch).toHaveBeenCalledWith(
+      'https://api.example.test/api/recipes/recipe-a/star',
+      { method: 'PUT', body: JSON.stringify({ starred: true }) },
+    );
+    expect(activeState('account-a').data).toEqual([{ ...currentV2, starred: true }]);
+    expect(harness.activeMutates.get('account-a')).toHaveBeenCalledTimes(3);
+    const successMerge = harness.activeMutates.get('account-a')!.mock.calls[1][0];
+    expect(successMerge([{ ...currentV2, starred: false }])).toEqual([{ ...currentV2, starred: true }]);
+    expect(harness.studioProps?.pendingStarRecipeIds.has(initial.id)).toBe(false);
+    expect(harness.showToast).not.toHaveBeenCalled();
+
+    act(() => harness.studioProps?.onEdit(activeState('account-a').data?.[0]));
+    expect(harness.formProps?.show).toBe(true);
+  });
+
+  it('revalidates transport failure and clears star pending state after StrictMode replay', async () => {
+    const initial = recipe('recipe-a');
+    const currentV2 = recipe('recipe-a', { title: 'Content V2', memo: 'V2 memo', starred: true });
+    activeState('account-a').data = [initial];
+    harness.serverRows.set('account-a', [{ ...currentV2, starred: false }]);
+    const request = deferred<any>();
+    harness.authFetch.mockReturnValueOnce(request.promise);
+    render('account-a', { strictMode: true });
+    await flush();
+
+    const operation = beginStar(initial);
+    activeState('account-a').data = [currentV2];
+    request.reject(new TypeError('transport failed'));
+    await act(async () => { await operation; });
+    await flush();
+
+    expect(activeState('account-a').data).toEqual([{ ...currentV2, starred: false }]);
+    expect(harness.activeMutates.get('account-a')).toHaveBeenCalledTimes(2);
+    expect(harness.studioProps?.pendingStarRecipeIds.has(initial.id)).toBe(false);
+    expect(harness.showToast).toHaveBeenCalledWith('failSaveRecipe', 'error');
+
+    act(() => harness.studioProps?.onEdit(activeState('account-a').data?.[0]));
+    expect(harness.formProps?.show).toBe(true);
+  });
+
   it('uses the star-only endpoint and merges only authoritative starred into current cached content', async () => {
     const initial = recipe('recipe-a');
     const currentV2 = recipe('recipe-a', {

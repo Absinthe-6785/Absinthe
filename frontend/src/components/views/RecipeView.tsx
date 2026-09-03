@@ -112,9 +112,13 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
       && accountGenerationRef.current === snapshot.generation
   ), []);
 
-  useEffect(() => () => {
-    mountedRef.current = false;
-    accountGenerationRef.current += 1;
+  useEffect(() => {
+    mountedRef.current = true;
+
+    return () => {
+      mountedRef.current = false;
+      accountGenerationRef.current += 1;
+    };
   }, []);
 
   const {
