@@ -3,6 +3,7 @@ import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NoteBase } from '../components/views/noteUtils';
 import {
+  __testOnlyNotesAccountAuthorityHooks,
   loadAccountScopedFolders,
   loadAccountScopedNotes,
   resetNotesAccountAuthorityForTests,
@@ -163,6 +164,7 @@ async function createTwoRecoveryConflicts(
 }
 
 beforeEach(async () => {
+  useNotesStore.getState().detachNotesStorage();
   resetNotesPersistenceForTests();
   resetNotesAccountAuthorityForTests();
   storage.clear();
@@ -313,6 +315,202 @@ describe('POST_RTU_03 account-scoped trash and permanent deletion', () => {
     expect(useNotesStore.getState().folders.map(item => item.id)).toEqual(localFolders.map(item => item.id));
     expect(new Set(useNotesStore.getState().notes.map(item => item.id)).size).toBe(localNotes.length);
     expect(new Set(useNotesStore.getState().folders.map(item => item.id)).size).toBe(localFolders.length);
+  });
+
+  it('preserves current remote-only authoritative Note bootstrap behavior', async () => {
+    const remoteOnly = note('remote-only-authoritative', { title: 'Remote only', updatedAt: 30 });
+    await seedAccount('account-a', []);
+    installRemoteSnapshot('account-a', [remoteOnly]);
+
+    await useNotesStore.getState().bootstrapFromSupabase();
+
+    expect(useNotesStore.getState().notes).toEqual([remoteOnly]);
+    expect(await loadAccountScopedNotes('account-a')).toEqual([remoteOnly]);
+    expect(useNotesStore.getState().syncIssue).toBeNull();
+  });
+
+  it('fails closed before persistence when a remote-only row lacks complete authority fields', async () => {
+    const local = note('preserved-after-incomplete-remote', { updatedAt: 30 });
+    await seedAccount('account-a', [local]);
+    authReadFetchMock.mockImplementation((url: string) => Promise.resolve(
+      url.includes('/api/notes?')
+        ? okJson({
+          account_id: 'account-a',
+          rows: [{
+            id: 'incomplete-remote', user_id: 'account-a', title: 'Incomplete', body: 'body',
+            updated_at: 40, folder_id: null, deleted_at: null, starred: false, properties: null,
+          }],
+          total_count: 1, offset: 0, limit: 500, complete: true,
+        })
+        : emptySnapshot('account-a'),
+    ));
+
+    await useNotesStore.getState().bootstrapFromSupabase();
+
+    expect(useNotesStore.getState().notes).toEqual([local]);
+    expect(await loadAccountScopedNotes('account-a')).toEqual([local]);
+    expect(useNotesStore.getState().syncIssue).toEqual(expect.objectContaining({
+      source: 'bootstrap', message: 'notes_bootstrap_remote_note_incomplete',
+    }));
+  });
+
+  it('preserves and durably applies a newer local same-ID Note over an older remote row', async () => {
+    const local = note('revision-local-wins', {
+      title: 'Newer local title', body: 'newer locally durable body', updatedAt: 30,
+    });
+    const remote = note('revision-local-wins', {
+      title: 'Older remote title', body: 'older remote body', updatedAt: 20,
+    });
+    await seedAccount('account-a', [local]);
+    installRemoteSnapshot('account-a', [remote]);
+
+    await useNotesStore.getState().bootstrapFromSupabase();
+
+    expect(useNotesStore.getState().notes).toEqual([local]);
+    expect(await loadAccountScopedNotes('account-a')).toEqual([local]);
+    expect(authFetchMock).not.toHaveBeenCalled();
+  });
+
+  it('accepts and durably applies a newer authoritative remote same-ID Note', async () => {
+    const local = note('revision-remote-wins', { title: 'Older local', updatedAt: 20 });
+    const remote = note('revision-remote-wins', { title: 'Newer remote', updatedAt: 30 });
+    await seedAccount('account-a', [local]);
+    installRemoteSnapshot('account-a', [remote]);
+
+    await useNotesStore.getState().bootstrapFromSupabase();
+
+    expect(useNotesStore.getState().notes).toEqual([remote]);
+    expect(await loadAccountScopedNotes('account-a')).toEqual([remote]);
+    expect(useNotesStore.getState().syncIssue).toBeNull();
+  });
+
+  it('retains local-only metadata when equal revisions have equal canonical payloads', async () => {
+    const local = note('revision-equal', {
+      title: 'Equal', body: 'Equal body', updatedAt: 30, createdAt: 1, lastOpenedAt: 99,
+      properties: { Topic: 'notes' }, relations: { Related: ['note-b'] },
+    });
+    const remote = note('revision-equal', {
+      title: 'Equal', body: 'Equal body', updatedAt: 30,
+      properties: { Topic: 'notes' }, relations: { Related: ['note-b'] },
+    });
+    await seedAccount('account-a', [local]);
+    installRemoteSnapshot('account-a', [remote]);
+
+    await useNotesStore.getState().bootstrapFromSupabase();
+
+    expect(useNotesStore.getState().notes[0]).toEqual(local);
+    expect(useNotesStore.getState().notes[0]).toEqual(expect.objectContaining({
+      createdAt: 1, lastOpenedAt: 99,
+    }));
+    expect(useNotesStore.getState().syncIssue).toBeNull();
+  });
+
+  it('preserves local and records a bootstrap conflict for equal revision payload mismatch', async () => {
+    const local = note('revision-equal-conflict', { title: 'Local payload', updatedAt: 30 });
+    const remote = note('revision-equal-conflict', { title: 'Remote payload', updatedAt: 30 });
+    await seedAccount('account-a', [local]);
+    installRemoteSnapshot('account-a', [remote]);
+
+    await useNotesStore.getState().bootstrapFromSupabase();
+
+    expect(useNotesStore.getState().notes).toEqual([local]);
+    expect(await loadAccountScopedNotes('account-a')).toEqual([local]);
+    expect(useNotesStore.getState().syncIssue).toEqual(expect.objectContaining({
+      source: 'bootstrap', targetId: local.id, retryable: false,
+    }));
+    expect(authFetchMock).not.toHaveBeenCalled();
+  });
+
+  it('protects a pending local mutation from a newer remote row during bootstrap', async () => {
+    const local = note('pending-local-mutation', { title: 'Local', body: 'durable body', updatedAt: 20 });
+    const remote = note('pending-local-mutation', {
+      title: 'Remote', body: 'newer remote body', updatedAt: Number.MAX_SAFE_INTEGER,
+    });
+    await seedAccount('account-a', [local]);
+    setRecoveryModeActiveForTest(false);
+    useNotesStore.getState().updateNote(local.id, { body: 'pending local body' });
+    installRemoteSnapshot('account-a', [remote]);
+
+    await useNotesStore.getState().bootstrapFromSupabase();
+
+    expect(useNotesStore.getState().notes).toEqual([
+      expect.objectContaining({ id: local.id, body: 'pending local body' }),
+    ]);
+    expect(await loadAccountScopedNotes('account-a')).toEqual([
+      expect.objectContaining({ id: local.id, body: 'pending local body' }),
+    ]);
+    expect(useNotesStore.getState().syncIssue).toEqual(expect.objectContaining({
+      source: 'bootstrap', targetId: local.id,
+    }));
+    expect(authFetchMock).not.toHaveBeenCalled();
+  });
+
+  it('aborts without publication when a new local mutation begins during remote fetch', async () => {
+    const local = note('mid-bootstrap-mutation', { body: 'durable body', updatedAt: 20 });
+    const remote = note('mid-bootstrap-mutation', {
+      title: 'Remote', body: 'remote body', updatedAt: Number.MAX_SAFE_INTEGER,
+    });
+    const remoteNotes = deferred<ReturnType<typeof noteSnapshot>>();
+    await seedAccount('account-a', [local]);
+    authReadFetchMock.mockImplementation((url: string) => (
+      url.includes('/api/notes?')
+        ? remoteNotes.promise
+        : Promise.resolve(emptySnapshot('account-a'))
+    ));
+
+    const bootstrap = useNotesStore.getState().bootstrapFromSupabase();
+    await Promise.resolve();
+    setRecoveryModeActiveForTest(false);
+    useNotesStore.getState().updateNote(local.id, { body: 'new local body' });
+    remoteNotes.resolve(noteSnapshot('account-a', remote));
+    await bootstrap;
+
+    expect(useNotesStore.getState().notes).toEqual([
+      expect.objectContaining({ id: local.id, body: 'new local body' }),
+    ]);
+    await vi.waitFor(async () => {
+      expect(await loadAccountScopedNotes('account-a')).toEqual([
+        expect.objectContaining({ id: local.id, body: 'new local body' }),
+      ]);
+    });
+    expect(useNotesStore.getState().syncIssue).toEqual(expect.objectContaining({
+      source: 'bootstrap', message: 'notes_bootstrap_local_mutation_pending',
+    }));
+    expect(authFetchMock).not.toHaveBeenCalled();
+  });
+
+  it('does not publish a resolved snapshot after a local mutation begins during durable apply', async () => {
+    const hooks = __testOnlyNotesAccountAuthorityHooks;
+    expect(hooks).toBeDefined();
+    if (!hooks) throw new Error('notes authority test seam unavailable');
+    const local = note('mid-apply-mutation', { body: 'durable body', updatedAt: 20 });
+    const remote = note('mid-apply-mutation', { body: 'newer remote body', updatedAt: 30 });
+    await seedAccount('account-a', [local]);
+    installRemoteSnapshot('account-a', [remote]);
+    setRecoveryModeActiveForTest(false);
+    let mutated = false;
+    hooks.setBootstrapStageOverride(stage => {
+      if (stage !== 'after-notes-write' || mutated) return;
+      mutated = true;
+      useNotesStore.getState().updateNote(local.id, { body: 'local edit during apply' });
+    });
+
+    await useNotesStore.getState().bootstrapFromSupabase();
+    hooks.setBootstrapStageOverride(null);
+
+    expect(mutated).toBe(true);
+    expect(useNotesStore.getState().notes).toEqual([
+      expect.objectContaining({ id: local.id, body: 'local edit during apply' }),
+    ]);
+    await vi.waitFor(async () => {
+      expect(await loadAccountScopedNotes('account-a')).toEqual([
+        expect.objectContaining({ id: local.id, body: 'local edit during apply' }),
+      ]);
+    });
+    expect(useNotesStore.getState().syncIssue).toEqual(expect.objectContaining({
+      source: 'bootstrap', message: 'notes_bootstrap_local_mutation_pending',
+    }));
+    expect(authFetchMock).not.toHaveBeenCalled();
   });
 
   it('keeps an explicit remote Note tombstone authoritative for a matching local ID', async () => {
