@@ -19,6 +19,20 @@ export interface SameIdNoteAuthorityResolution {
   readonly conflict: boolean;
 }
 
+export interface ResolvedBootstrapNotesRevalidation {
+  readonly notes: NoteBase[];
+  readonly pendingRemoteSyncNotes: NoteBase[];
+  readonly conflictNoteIds: string[];
+}
+
+interface RevalidateResolvedBootstrapNotesInput {
+  readonly accountId: string;
+  readonly currentDurable: readonly NoteBase[];
+  readonly previousLocal: readonly NoteBase[];
+  readonly resolvedCandidate: readonly NoteBase[];
+  readonly authorizedMissingNoteIds: ReadonlySet<string>;
+}
+
 interface ResolveSameIdNoteAuthorityInput {
   readonly accountId: string;
   readonly local: NoteBase;
@@ -202,5 +216,81 @@ export function resolveSameIdNoteAuthority(
     resolved: local,
     pendingRemoteSync: false,
     conflict: !payloadsEqual,
+  };
+}
+
+function noteAsAuthoritativeBootstrapRow(note: NoteBase, accountId: string): DbNoteRow {
+  return {
+    id: note.id,
+    user_id: accountId,
+    title: note.title,
+    body: note.body,
+    updated_at: note.updatedAt,
+    folder_id: note.folderId,
+    deleted_at: note.deletedAt,
+    starred: Boolean(note.starred),
+    properties: note.properties ?? null,
+    relations: note.relations ?? null,
+  };
+}
+
+/**
+ * Revalidates an already-resolved bootstrap candidate against the durable
+ * account snapshot observed by the committing storage transaction. The same
+ * per-Note revision authority remains the sole same-ID decision algorithm.
+ */
+export function revalidateResolvedBootstrapNotes(
+  input: RevalidateResolvedBootstrapNotesInput,
+): ResolvedBootstrapNotesRevalidation {
+  const currentById = new Map(input.currentDurable.map(note => [note.id, note]));
+  const previousById = new Map(input.previousLocal.map(note => [note.id, note]));
+  const candidateById = new Map(input.resolvedCandidate.map(note => [note.id, note]));
+  const notes: NoteBase[] = [];
+  const pendingRemoteSyncNotes = new Map<string, NoteBase>();
+  const conflictNoteIds = new Set<string>();
+
+  for (const candidate of input.resolvedCandidate) {
+    const current = currentById.get(candidate.id);
+    if (!current) {
+      notes.push(candidate);
+      continue;
+    }
+    const resolution = resolveSameIdNoteAuthority({
+      accountId: input.accountId,
+      local: current,
+      remote: noteAsAuthoritativeBootstrapRow(candidate, input.accountId),
+      protectedDeleteConflict: false,
+      pendingLocalMutation: false,
+    });
+    const resolved = resolution.outcome === 'REMOTE_NEWER' ? candidate : current;
+    notes.push(resolved);
+    if (resolution.pendingRemoteSync) pendingRemoteSyncNotes.set(resolved.id, resolved);
+    if (resolution.conflict) conflictNoteIds.add(resolved.id);
+  }
+
+  for (const current of input.currentDurable) {
+    if (candidateById.has(current.id)) continue;
+    const previous = previousById.get(current.id);
+    if (input.authorizedMissingNoteIds.has(current.id) && previous) {
+      const resolution = resolveSameIdNoteAuthority({
+        accountId: input.accountId,
+        local: current,
+        remote: noteAsAuthoritativeBootstrapRow(previous, input.accountId),
+        protectedDeleteConflict: false,
+        pendingLocalMutation: false,
+      });
+      const authorizedAbsenceStillApplies = resolution.outcome === 'REMOTE_NEWER'
+        || resolution.outcome === 'EQUAL' && !resolution.conflict;
+      if (authorizedAbsenceStillApplies) continue;
+      if (resolution.pendingRemoteSync) pendingRemoteSyncNotes.set(current.id, current);
+      if (resolution.conflict) conflictNoteIds.add(current.id);
+    }
+    notes.push(current);
+  }
+
+  return {
+    notes,
+    pendingRemoteSyncNotes: [...pendingRemoteSyncNotes.values()],
+    conflictNoteIds: [...conflictNoteIds],
   };
 }

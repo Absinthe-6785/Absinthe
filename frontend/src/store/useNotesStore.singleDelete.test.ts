@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NoteBase } from '../components/views/noteUtils';
 import {
   __testOnlyNotesAccountAuthorityHooks,
+  NOTES_ACCOUNT_AUTHORITY_DATABASE_NAME,
   loadAccountScopedFolders,
   loadAccountScopedNotes,
   resetNotesAccountAuthorityForTests,
@@ -114,6 +115,24 @@ function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>(done => { resolve = done; });
   return { promise, resolve };
+}
+
+function putRawScopedNote(accountId: string, value: NoteBase): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(NOTES_ACCOUNT_AUTHORITY_DATABASE_NAME, 1);
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const database = request.result;
+      const transaction = database.transaction('notes', 'readwrite');
+      transaction.onerror = () => reject(transaction.error);
+      transaction.oncomplete = () => { database.close(); resolve(); };
+      transaction.objectStore('notes').put({
+        key: `${encodeURIComponent(accountId)}\u0000${value.id}`,
+        accountId,
+        note: value,
+      });
+    };
+  });
 }
 
 async function seedAccount(accountId: string, notes: NoteBase[]): Promise<void> {
@@ -505,6 +524,51 @@ describe('POST_RTU_03 account-scoped trash and permanent deletion', () => {
     await vi.waitFor(async () => {
       expect(await loadAccountScopedNotes('account-a')).toEqual([
         expect.objectContaining({ id: local.id, body: 'local edit during apply' }),
+      ]);
+    });
+    expect(useNotesStore.getState().syncIssue).toEqual(expect.objectContaining({
+      source: 'bootstrap', message: 'notes_bootstrap_local_mutation_pending',
+    }));
+    expect(authFetchMock).not.toHaveBeenCalled();
+  });
+
+  it('preserves a newer same-renderer durable edit before the bootstrap Notes transaction commits', async () => {
+    const hooks = __testOnlyNotesAccountAuthorityHooks;
+    expect(hooks).toBeDefined();
+    if (!hooks) throw new Error('notes authority test seam unavailable');
+    const local = note('same-renderer-mid-apply', { body: 'durable body', updatedAt: 20 });
+    const remote = note('same-renderer-mid-apply', { body: 'resolved remote body', updatedAt: 30 });
+    await seedAccount('account-a', [local]);
+    installRemoteSnapshot('account-a', [remote]);
+    setRecoveryModeActiveForTest(false);
+    let mutated = false;
+    let durableAfterAtomicWrite: NoteBase[] | null = null;
+    hooks.setBootstrapStageOverride(async stage => {
+      if (stage === 'after-marker' && !mutated) {
+        mutated = true;
+        useNotesStore.getState().updateNote(local.id, { body: 'newer same-renderer body' });
+        const newer = useNotesStore.getState().notes.find(item => item.id === local.id);
+        if (!newer) throw new Error('same-renderer mutation unavailable');
+        await putRawScopedNote('account-a', newer);
+      }
+      if (stage === 'after-notes-write') {
+        durableAfterAtomicWrite = await loadAccountScopedNotes('account-a');
+      }
+    });
+
+    await useNotesStore.getState().bootstrapFromSupabase();
+    hooks.setBootstrapStageOverride(null);
+
+    expect(mutated).toBe(true);
+    expect(durableAfterAtomicWrite).toEqual([
+      expect.objectContaining({ id: local.id, body: 'newer same-renderer body' }),
+    ]);
+    expect(useNotesStore.getState().notes).toEqual([
+      expect.objectContaining({ id: local.id, body: 'newer same-renderer body' }),
+    ]);
+    await vi.waitFor(async () => {
+      expect(await loadAccountScopedNotes('account-a')).toEqual([
+        expect.objectContaining({ id: local.id, body: 'newer same-renderer body' }),
       ]);
     });
     expect(useNotesStore.getState().syncIssue).toEqual(expect.objectContaining({

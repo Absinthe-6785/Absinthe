@@ -101,7 +101,9 @@ import {
 } from '../lib/notesSyncClient';
 import {
   normalizeAuthoritativeRemoteBootstrapNote,
+  revalidateResolvedBootstrapNotes,
   resolveSameIdNoteAuthority,
+  type ResolvedBootstrapNotesRevalidation,
 } from '../lib/notesBootstrapAuthority';
 import {
   clearKnowledgeHistory,
@@ -1602,10 +1604,10 @@ export const useNotesStore = create<NotesState>((set, get) => {
         const localById = new Map(previousById);
         for (const [noteId, pendingNote] of pendingLocalById) localById.set(noteId, pendingNote);
         const localAuthorityNotes = [...localById.values()];
-        const deleteReconciliation = reconcileNotesSingleDeletesForBootstrap(
+        let deleteReconciliation = reconcileNotesSingleDeletesForBootstrap(
           accountId, remoteNoteIds, localAuthorityNotes,
         );
-        const preservedConflictIds = deleteReconciliation.preservedConflictNoteIds;
+        let preservedConflictIds = deleteReconciliation.preservedConflictNoteIds;
         const authorityConflictIds = new Set<string>();
         const pendingRemoteNotes = new Map<string, Note>();
         const notes = remote.notes.map(row => {
@@ -1647,8 +1649,19 @@ export const useNotesStore = create<NotesState>((set, get) => {
         if (notesLocalMutationGeneration !== localMutationGeneration) {
           throw new Error('notes_bootstrap_local_mutation_pending');
         }
+        let atomicRevalidation: ResolvedBootstrapNotesRevalidation | null = null;
         const applied = await applyNotesFoldersForRecoveryContext(
           context, previousNotes, previousFolders, notes, folders,
+          (currentDurable, resolvedCandidate) => {
+            atomicRevalidation = revalidateResolvedBootstrapNotes({
+              accountId,
+              currentDurable,
+              previousLocal: previousNotes,
+              resolvedCandidate,
+              authorizedMissingNoteIds: deleteReconciliation.authorizedMissingNoteIds,
+            });
+            return atomicRevalidation.notes;
+          },
         );
         if (!applied.applied) {
           throw new Error(applied.rollbackVerified
@@ -1659,6 +1672,17 @@ export const useNotesStore = create<NotesState>((set, get) => {
         if (notesLocalMutationGeneration !== localMutationGeneration) {
           throw new Error('notes_bootstrap_local_mutation_pending');
         }
+        const committedRevalidation = atomicRevalidation as ResolvedBootstrapNotesRevalidation | null;
+        if (!committedRevalidation) throw new Error('notes_bootstrap_atomic_revalidation_missing');
+        const committedNotes = applied.committedNotes;
+        for (const pendingNote of committedRevalidation.pendingRemoteSyncNotes) {
+          pendingRemoteNotes.set(pendingNote.id, pendingNote);
+        }
+        for (const noteId of committedRevalidation.conflictNoteIds) authorityConflictIds.add(noteId);
+        deleteReconciliation = reconcileNotesSingleDeletesForBootstrap(
+          accountId, remoteNoteIds, committedNotes,
+        );
+        preservedConflictIds = deleteReconciliation.preservedConflictNoteIds;
         if (!completeNotesSingleDeleteBootstrapReconciliation(deleteReconciliation.markersToClear)) {
           throw new Error('notes_single_delete_marker_clear_failed');
         }
@@ -1668,8 +1692,8 @@ export const useNotesStore = create<NotesState>((set, get) => {
           pendingBodySync.set(noteId, pendingNote);
         }
         const previousActive = get().activeNoteId;
-        const nextActive = notes.some(note => note.id === previousActive && !note.deletedAt)
-          ? previousActive : (notes.find(note => !note.deletedAt)?.id ?? null);
+        const nextActive = committedNotes.some(note => note.id === previousActive && !note.deletedAt)
+          ? previousActive : (committedNotes.find(note => !note.deletedAt)?.id ?? null);
         const permanentDeleteConflictMessage = preservedConflictIds.size > 0
           ? 'Permanent delete conflict was preserved locally and requires explicit resolution.'
           : null;
@@ -1698,10 +1722,10 @@ export const useNotesStore = create<NotesState>((set, get) => {
           && existingIssue.source !== 'bootstrap'
           && !resolvedRecoveryConflict;
         set({
-          notes,
+          notes: committedNotes,
           folders,
           activeNoteId: nextActive,
-          notesAuthorityState: notes.length === 0 ? 'LOADED_EMPTY' : 'LOADED_POPULATED',
+          notesAuthorityState: committedNotes.length === 0 ? 'LOADED_EMPTY' : 'LOADED_POPULATED',
           foldersAuthorityState: folders.length === 0 ? 'LOADED_EMPTY' : 'LOADED_POPULATED',
           vaultStructureVersion: get().vaultStructureVersion + 1,
           syncError: displayedConflictMessage ?? (keepExistingIssue ? get().syncError : null),
@@ -1714,9 +1738,9 @@ export const useNotesStore = create<NotesState>((set, get) => {
             }
             : (keepExistingIssue ? existingIssue : null),
         });
-        clearResolvedPermanentDeleteIssue(accountId, notes);
+        clearResolvedPermanentDeleteIssue(accountId, committedNotes);
         saveActiveNoteId(nextActive);
-        rebuildKnowledgeIndex(notes);
+        rebuildKnowledgeIndex(committedNotes);
       } catch (error) {
         if (isNotesAccountRecoveryContextActive(context)) {
           setSyncIssue(error instanceof Error ? error.message : 'notes_bootstrap_failed', 'bootstrap');
