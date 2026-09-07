@@ -53,6 +53,20 @@ function putRawScopedNote(value: unknown): Promise<void> {
   });
 }
 
+function deleteRawScopedNote(accountId: string, noteId: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(NOTES_ACCOUNT_AUTHORITY_DATABASE_NAME, 1);
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const database = request.result;
+      const transaction = database.transaction('notes', 'readwrite');
+      transaction.onerror = () => reject(transaction.error);
+      transaction.oncomplete = () => { database.close(); resolve(); };
+      transaction.objectStore('notes').delete(`${encodeURIComponent(accountId)}\u0000${noteId}`);
+    };
+  });
+}
+
 function foldersKey(accountId: string): string {
   return `absinthe.notes.account-authority.folders.v1:${encodeURIComponent(accountId)}:notes.folders`;
 }
@@ -345,6 +359,43 @@ describe('account-scoped Notes/Folders local authority', () => {
       committedNotes: [concurrentLocalOnly, bootstrapCandidate],
     });
     expect(await loadNotesForRecoveryContext(context)).toEqual([concurrentLocalOnly, bootstrapCandidate]);
+    hooks.setBootstrapStageOverride(null);
+  });
+
+  it('does not resurrect a previously local Note removed by a concurrent durable delete', async () => {
+    const hooks = __testOnlyNotesAccountAuthorityHooks;
+    expect(hooks).toBeDefined();
+    if (!hooks) throw new Error('notes authority test seam unavailable');
+    await initializeAccountScopedNotesAuthority('account-a');
+    const original = { ...note(1), body: 'original durable body', updatedAt: 10 };
+    const staleBootstrapCandidate = { ...original, body: 'stale remote body', updatedAt: 20 };
+    expect(await saveAccountScopedNotes('account-a', [original])).toBe(true);
+    const context = createNotesAccountRecoveryContext();
+    expect(context).not.toBeNull();
+    if (!context) throw new Error('recovery context unavailable');
+
+    let release = () => {};
+    let reachedResolve = () => {};
+    const reached = new Promise<void>(resolve => { reachedResolve = resolve; });
+    hooks.setBootstrapStageOverride(async stage => {
+      if (stage !== 'after-marker') return;
+      reachedResolve();
+      await new Promise<void>(resolve => { release = resolve; });
+    });
+    const applyPromise = applyNotesFoldersForRecoveryContext(
+      context, [original], [], [staleBootstrapCandidate], [],
+      revisionAwareResolver('account-a', [original]),
+    );
+    await reached;
+    await deleteRawScopedNote('account-a', original.id);
+    release();
+
+    await expect(applyPromise).resolves.toEqual({
+      applied: true,
+      rollbackVerified: true,
+      committedNotes: [],
+    });
+    expect(await loadNotesForRecoveryContext(context)).toEqual([]);
     hooks.setBootstrapStageOverride(null);
   });
 

@@ -252,6 +252,12 @@ export function revalidateResolvedBootstrapNotes(
   for (const candidate of input.resolvedCandidate) {
     const current = currentById.get(candidate.id);
     if (!current) {
+      // A row that existed in the original local snapshot but is absent from
+      // the committing transaction was removed by a newer durable mutation.
+      // Preserve that current durable absence instead of resurrecting the
+      // already-resolved bootstrap candidate. Genuinely remote-only rows have
+      // no previous local identity and remain eligible for insertion.
+      if (previousById.has(candidate.id)) continue;
       notes.push(candidate);
       continue;
     }
