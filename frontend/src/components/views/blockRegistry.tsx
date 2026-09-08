@@ -89,14 +89,17 @@ function renderTextBlock(block: Block, c: BlockEditorColors, ctx: BlockRenderCon
 
   switch (block.type) {
     case 'paragraph':
-      if (readOnly && !block.content?.trim()) return null;
       {
         const embedUrl = paragraphShowsEmbedPreview(block);
         if (readOnly && embedUrl) {
           return <MediaEmbedPreview url={embedUrl} colors={c} readOnly />;
         }
         const paragraphEl = readOnly ? (
-          <p {...readingCopyProps(block)} style={{ margin:'4px 0', lineHeight:1.65, fontSize:bodyFontSize, color:c.text }}>
+          <p
+            {...readingCopyProps(block)}
+            data-reading-empty-paragraph={!block.content?.trim() ? 'true' : undefined}
+            style={{ margin:'4px 0', lineHeight:1.65, minHeight:'1.65em', fontSize:bodyFontSize, color:c.text }}
+          >
             {inline(block.content)}
           </p>
         ) : (

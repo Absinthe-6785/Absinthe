@@ -64,10 +64,7 @@ import type { ReviewQueueEntry } from '../features/knowledge/review/reviewQueue'
 import type { FocusPreset } from '../features/knowledge/workspace/focusModeModels';
 import type { GraphNodeTier } from '../features/knowledge/graph/knowledgeUniverse/graphNodeTier';
 import type { NoteSyncPresentation } from './notesSyncPresentation';
-import {
-  isReturnToUseAttachmentIsolationEnabled,
-  RETURN_TO_USE_ATTACHMENT_ISOLATION_MESSAGE,
-} from '../../../lib/returnToUseAttachmentIsolation';
+import { isReturnToUseAttachmentIsolationEnabled } from '../../../lib/returnToUseAttachmentIsolation';
 
 interface NoteBlockEditorProps {
   body: string;
@@ -862,19 +859,14 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
                   <button type="button" onClick={() => importInputRef.current?.click()} className="be-editor-toolbar-btn" title={t('nvImportMd')} style={{ marginLeft: 'auto' }}>
                     <Upload size={14}/>
                   </button>
-                  <button
-                    onClick={insertEmptyImageBlockAtCursor}
-                    className="be-editor-toolbar-btn"
-                    title={attachmentIsolationEnabled ? RETURN_TO_USE_ATTACHMENT_ISOLATION_MESSAGE : t('nvInsertImage')}
-                    disabled={attachmentIsolationEnabled}
-                    aria-disabled={attachmentIsolationEnabled}
-                  >
-                    <ImageIcon size={14}/>
-                  </button>
-                  {attachmentIsolationEnabled ? (
-                    <span data-return-to-use-attachment-isolation style={{ fontSize: 10, color: c.textMuted, lineHeight: 1.35 }}>
-                      {RETURN_TO_USE_ATTACHMENT_ISOLATION_MESSAGE}
-                    </span>
+                  {!attachmentIsolationEnabled ? (
+                    <button
+                      onClick={insertEmptyImageBlockAtCursor}
+                      className="be-editor-toolbar-btn"
+                      title={t('nvInsertImage')}
+                    >
+                      <ImageIcon size={14}/>
+                    </button>
                   ) : null}
                   <div
                     style={{ position: 'relative' }}
@@ -1023,12 +1015,14 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
                           {t('nvReadingModeHint')}
                         </div>
                       )}
-                      <NoteImageAttachments
-                        note={activeNote}
-                        colors={c}
-                        readOnly={viewMode === 'reading'}
-                        onUpdateBody={body => noteUpdate(activeNote.id, { body })}
-                      />
+                      {!attachmentIsolationEnabled ? (
+                        <NoteImageAttachments
+                          note={activeNote}
+                          colors={c}
+                          readOnly={viewMode === 'reading'}
+                          onUpdateBody={body => noteUpdate(activeNote.id, { body })}
+                        />
+                      ) : null}
                       <NoteBlockEditor
                         ref={blockEditorRef}
                         key={activeNote.id}

@@ -3,8 +3,8 @@ import { makeBlock } from './blockUtils';
 import { shouldHideBlockInReadingMode } from './readingModeVisibility';
 
 describe('shouldHideBlockInReadingMode', () => {
-  it('hides empty text blocks', () => {
-    expect(shouldHideBlockInReadingMode(makeBlock('paragraph'))).toBe(true);
+  it('keeps explicit empty paragraphs while hiding other empty text shells', () => {
+    expect(shouldHideBlockInReadingMode(makeBlock('paragraph'))).toBe(false);
     expect(shouldHideBlockInReadingMode(makeBlock('heading2'))).toBe(true);
     expect(shouldHideBlockInReadingMode(makeBlock('bullet'))).toBe(true);
   });
