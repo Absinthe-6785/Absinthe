@@ -193,6 +193,7 @@ import {
 import { useTocScrollSpy } from './useTocScrollSpy';
 import { resetTocScrollStore, setTocScrollActiveIdx, getTocScrollActiveIdx } from './noteview/tocScrollStore';
 import { useRenderDiagnostic } from './noteview/renderDiagnostics';
+import { projectNoteSyncPresentation } from './noteview/notesSyncPresentation';
 import type { VirtualScrollApiRef } from './features/block-editor/performance';
 import { footnoteAnchorId } from './footnoteUtils';
 import { useNoteViewState, useNoteViewDashboard, useNoteViewPanels, useNoteViewActions, NoteContextPanelBody, NoteViewSidebar, NoteViewEditorArea, useNoteViewStyles, useNoteViewChildProps, useNoteViewChildPropInput, useNoteViewPanelConfig, NoteViewShortcutsModal } from './noteview/index';
@@ -240,10 +241,7 @@ export const NoteView = ({ showToast = () => {}, accountId }: NoteViewProps) => 
   const isSyncing = useNotesStore(s => s.isSyncing);
   const savedAt = useNotesStore(s => s.savedAt);
   const syncError = useNotesStore(s => s.syncError);
-  const syncIssueRetryable = useNotesStore(s => {
-    if (!s.syncError || s.syncIssue?.message !== s.syncError) return true;
-    return s.syncIssue.retryable;
-  });
+  const syncIssue = useNotesStore(s => s.syncIssue);
   const setActiveNoteId = useNotesStore(s => s.setActiveNoteId);
   const storeCreateNote = useNotesStore(s => s.createNote);
   const updateNote = useNotesStore(s => s.updateNote);
@@ -266,6 +264,10 @@ export const NoteView = ({ showToast = () => {}, accountId }: NoteViewProps) => 
   const activeNote = useMemo(
     () => notes.find(n => n.id === activeNoteId) ?? null,
     [notes, activeNoteId],
+  );
+  const syncPresentation = useMemo(
+    () => projectNoteSyncPresentation({ activeNoteId, syncError, syncIssue }),
+    [activeNoteId, syncError, syncIssue],
   );
 
   // ── Local UI state ────────────────────────────────────────────────
@@ -1390,7 +1392,7 @@ export const NoteView = ({ showToast = () => {}, accountId }: NoteViewProps) => 
       showAppearance, isDragOver, headerTagsExpanded, docCopied, dark, isEmptyVault,
     },
     editorData: {
-      c, activeNote, activeNoteId, notes, folders, titleDraft, activeNoteKind, noteTags, syncError, syncIssueRetryable, isSyncing,
+      c, activeNote, activeNoteId, notes, folders, titleDraft, activeNoteKind, noteTags, syncPresentation, isSyncing,
       savedAt, viewModes: VIEW_MODES, noteAreaProperty, noteLinkedProjectTitle, noteLinkedProjectId,
       noteLearningPathLabel, noteContextReviewEntry, noteConnectionCount, noteCosmosTier, activeTag, searchQuery,
       searchScope, searchMatchIdx, editorSearchQuery, blockColors, wikiTargets, appSettings, knowledgeTimeline,
@@ -1482,7 +1484,7 @@ export const NoteView = ({ showToast = () => {}, accountId }: NoteViewProps) => 
     handleOpenTimeline, handleOpenEvolution, handleNavigateToArea, handleCreateLearningPathStepNote,
     handleUpdateNoteProperties, handleNavigateToProjectEditor, setEditingLearningPathId, resumeWorkspace, handleEmptyTrash, hideEditorArea,
     isFocusPresetActive, showRightPanel, viewMode, showAppearance, isDragOver, headerTagsExpanded, docCopied,
-    activeNote, titleDraft, activeNoteKind, noteTags, syncError, syncIssueRetryable, isSyncing, savedAt, VIEW_MODES, noteAreaProperty,
+    activeNote, titleDraft, activeNoteKind, noteTags, syncPresentation, isSyncing, savedAt, VIEW_MODES, noteAreaProperty,
     noteLinkedProjectTitle, noteLinkedProjectId, noteLearningPathLabel, noteContextReviewEntry, noteConnectionCount,
     noteCosmosTier, searchScope, searchMatchIdx, editorSearchQuery, blockColors, wikiTargets, appSettings,
     activeFocusPreset, titleInputRef, titleComposingRef, blockEditorRef, editorScrollRef, virtualScrollApiRef,

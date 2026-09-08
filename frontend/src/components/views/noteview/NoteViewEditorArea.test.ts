@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { NoteViewEditorArea } from './NoteViewEditorArea';
 import { getTranslator } from '../../../lib/i18n';
+import { projectNoteSyncPresentation, type NoteSyncPresentation } from './notesSyncPresentation';
 
 vi.mock('./NoteEditorHeaderActions', () => ({ NoteEditorHeaderActions: () => null }));
 vi.mock('./NoteBreadcrumbBar', () => ({ NoteBreadcrumbBar: () => null }));
@@ -35,7 +36,7 @@ function makeProps(
   onBodyChange: ReturnType<typeof vi.fn>,
   attachImageFilesToActiveNote: ReturnType<typeof vi.fn>,
   body = 'hello',
-  options: { syncError?: string | null; syncIssueRetryable?: boolean; isSyncing?: boolean; retrySync?: ReturnType<typeof vi.fn> } = {},
+  options: { syncPresentation?: NoteSyncPresentation; isSyncing?: boolean; retrySync?: ReturnType<typeof vi.fn> } = {},
 ) {
   const activeNote = { ...note, body } as never;
   const layout = {
@@ -45,7 +46,7 @@ function makeProps(
   } as never;
   const data = {
     c: colors, activeNote, activeNoteId: 'note-1', notes: [activeNote], folders: [], titleDraft: 'Note',
-    activeNoteKind: null, noteTags: [], syncError: options.syncError ?? null, syncIssueRetryable: options.syncIssueRetryable, isSyncing: options.isSyncing ?? false, savedAt: null, viewModes: [],
+    activeNoteKind: null, noteTags: [], syncPresentation: options.syncPresentation ?? { kind: 'none' }, isSyncing: options.isSyncing ?? false, savedAt: null, viewModes: [],
     noteAreaProperty: undefined, noteLinkedProjectTitle: '', noteLinkedProjectId: null,
     noteLearningPathLabel: null, noteContextReviewEntry: null, noteConnectionCount: 0,
     noteCosmosTier: 'core', activeTag: null, searchQuery: '', searchScope: 'document', searchMatchIdx: 0,
@@ -109,16 +110,29 @@ function fireKey(target: EventTarget, key: string, options: KeyboardEventInit = 
 afterEach(() => vi.unstubAllEnvs());
 
 describe('NoteViewEditorArea Return-to-Use attachment isolation', () => {
-  it('presents sync errors as a compact generic retry control', () => {
+  it('presents retryable remote pending state as a compact controlled retry action', () => {
     const retrySync = vi.fn();
-    const rawDiagnostic = `notes_bootstrap_missing_remote_${'x'.repeat(180)}`;
-    const mounted = renderEditor(makeProps(vi.fn(), vi.fn(), 'hello', { syncError: rawDiagnostic, retrySync }));
+    const rawDiagnostic = 'TRANSPORT_AMBIGUOUS NOTE_ID_UNAVAILABLE database-detail';
+    const syncPresentation = projectNoteSyncPresentation({
+      activeNoteId: 'note-1',
+      syncError: rawDiagnostic,
+      syncIssue: {
+        source: 'note_remote_write', targetId: 'note-1', retryable: true,
+        message: rawDiagnostic, classification: 'REMOTE_NOT_CONFIRMED',
+      },
+    });
+    const mounted = renderEditor(makeProps(vi.fn(), vi.fn(), 'hello', {
+      syncPresentation,
+      retrySync,
+    }));
     const control = mounted.host.querySelector('[data-note-sync-error-control]');
+    const expected = getTranslator('ko')('nvSyncPending');
 
     expect(control).toBeInstanceOf(HTMLButtonElement);
-    expect(control?.textContent).toContain('동기화 문제');
+    expect(control?.textContent).toContain(expected);
     expect(control?.textContent).not.toContain(rawDiagnostic);
-    expect(control?.getAttribute('aria-label')).toBe('동기화 문제. 클라우드 동기화 재시도');
+    expect(control?.getAttribute('aria-label')).toContain(expected);
+    expect(control?.getAttribute('data-note-sync-presentation')).toBe('remote-pending');
     expect(control?.getAttribute('style')).toContain('max-width');
     expect(control?.getAttribute('style')).toContain('overflow: hidden');
 
@@ -139,25 +153,41 @@ describe('NoteViewEditorArea Return-to-Use attachment isolation', () => {
     cleanup(idle.root, idle.host);
   });
 
-  it('keeps a non-retryable issue visible without a misleading retry action', () => {
+  it.each([
+    ['local-save-problem', 'nvSyncLocalSaveProblem'],
+    ['auth-required', 'nvSyncAuthRequired'],
+    ['remote-conflict', 'nvSyncConflict'],
+  ] as const)('shows %s without a misleading remote retry action', (kind, messageKey) => {
     const retrySync = vi.fn();
     const mounted = renderEditor(makeProps(vi.fn(), vi.fn(), 'hello', {
-      syncError: 'bootstrap still active',
-      syncIssueRetryable: false,
+      syncPresentation: { kind, messageKey, retryable: false },
       retrySync,
     }));
+    const indicator = mounted.host.querySelector('[data-note-sync-error-indicator]');
     expect(mounted.host.querySelector('[data-note-sync-error-control]')).toBeNull();
-    expect(mounted.host.querySelector('[data-note-sync-error-indicator]')).not.toBeNull();
-    expect(mounted.host.textContent).toContain('동기화 문제');
+    expect(indicator).not.toBeNull();
+    expect(indicator?.getAttribute('data-note-sync-presentation')).toBe(kind);
+    expect(mounted.host.textContent).toContain(getTranslator('ko')(messageKey));
     expect(retrySync).not.toHaveBeenCalled();
+    cleanup(mounted.root, mounted.host);
+  });
+
+  it('shows no warning for confirmed-after-readback presentation', () => {
+    const mounted = renderEditor(makeProps(vi.fn(), vi.fn(), 'hello', {
+      syncPresentation: { kind: 'none' },
+    }));
+    expect(mounted.host.querySelector('[data-note-sync-error-control]')).toBeNull();
+    expect(mounted.host.querySelector('[data-note-sync-error-indicator]')).toBeNull();
     cleanup(mounted.root, mounted.host);
   });
 
   it('provides sync issue labels in every supported locale', () => {
     for (const lang of ['en', 'ko', 'ja'] as const) {
       const t = getTranslator(lang);
-      expect(t('nvSyncIssue')).not.toBe('nvSyncIssue');
-      expect(t('nvSyncIssueRetry')).not.toBe('nvSyncIssueRetry');
+      for (const key of [
+        'nvSyncLocalSaveProblem', 'nvSyncAuthRequired', 'nvSyncStatusUnconfirmed',
+        'nvSyncPending', 'nvSyncConflict', 'nvSyncRemoteRejected', 'nvSyncBootstrapProblem',
+      ] as const) expect(t(key)).not.toBe(key);
     }
   });
 

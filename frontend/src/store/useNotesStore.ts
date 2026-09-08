@@ -156,7 +156,7 @@ export interface CreateNoteOpts {
   folderContext?: string | null | 'trash' | 'starred';
 }
 
-type SyncIssueSource =
+export type SyncIssueSource =
   | 'note_remote_write'
   | 'note_remote_delete'
   | 'folder_remote'
@@ -167,7 +167,7 @@ type SyncIssueSource =
   | 'recovery'
   | 'recovery_permanent_delete';
 
-interface SyncIssueState {
+export interface SyncIssueState {
   readonly source: SyncIssueSource;
   readonly targetId?: string;
   readonly retryable: boolean;
