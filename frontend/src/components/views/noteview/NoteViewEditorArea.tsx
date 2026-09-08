@@ -63,6 +63,7 @@ import type { DiscoveryFeed } from '../features/knowledge/discovery';
 import type { ReviewQueueEntry } from '../features/knowledge/review/reviewQueue';
 import type { FocusPreset } from '../features/knowledge/workspace/focusModeModels';
 import type { GraphNodeTier } from '../features/knowledge/graph/knowledgeUniverse/graphNodeTier';
+import type { NoteSyncPresentation } from './notesSyncPresentation';
 import {
   isReturnToUseAttachmentIsolationEnabled,
   RETURN_TO_USE_ATTACHMENT_ISOLATION_MESSAGE,
@@ -184,9 +185,7 @@ export interface NoteViewEditorData {
   titleDraft: string;
   activeNoteKind: NoteKind | null;
   noteTags: string[];
-  syncError: string | null;
-  /** False for an active non-retryable issue; keeps the warning visible without a misleading action. */
-  syncIssueRetryable?: boolean;
+  syncPresentation: NoteSyncPresentation;
   isSyncing: boolean;
   savedAt: Date | null;
   viewModes: ReadonlyArray<{ key: 'reading' | 'graph'; icon: React.ReactNode; label: string }>;
@@ -288,7 +287,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
   } = layout;
   const {
     c, activeNote, activeNoteId, notes, folders, titleDraft, activeNoteKind, noteTags,
-    syncError, syncIssueRetryable = true, isSyncing, savedAt, viewModes: VIEW_MODES, noteAreaProperty, noteLinkedProjectTitle,
+    syncPresentation, isSyncing, savedAt, viewModes: VIEW_MODES, noteAreaProperty, noteLinkedProjectTitle,
     noteLinkedProjectId, noteLearningPathLabel, noteContextReviewEntry, noteConnectionCount,
     noteCosmosTier, activeTag, searchQuery, searchScope, searchMatchIdx, editorSearchQuery,
     blockColors, wikiTargets, appSettings, knowledgeTimeline, activeFocusPreset, discoveryFeed,
@@ -594,14 +593,15 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
             )}
             {/* Cloud sync status — decorative saved-at clock removed K-108A */}
             {!isTrash && (
-              syncError && syncIssueRetryable !== false ? (
+              syncPresentation.kind !== 'none' && syncPresentation.retryable ? (
                 <button
                   type="button"
                   onClick={retrySync}
                   className="btbtn"
                   data-note-sync-error-control
-                  title={t('nvSyncIssueRetry')}
-                  aria-label={t('nvSyncIssueRetry')}
+                  data-note-sync-presentation={syncPresentation.kind}
+                  title={t(syncPresentation.messageKey)}
+                  aria-label={`${t(syncPresentation.messageKey)} ${t('nvRetrySync')}`}
                   style={{
                     fontSize: 9,
                     color: c.danger,
@@ -619,14 +619,15 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
                 >
                   <AlertTriangle size={10} aria-hidden="true" />
                   <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {t('nvSyncIssue')}
+                    {t(syncPresentation.messageKey)}
                   </span>
                 </button>
-              ) : syncError ? (
+              ) : syncPresentation.kind !== 'none' ? (
                 <span
                   data-note-sync-error-indicator
-                  title={t('nvSyncIssue')}
-                  aria-label={t('nvSyncIssue')}
+                  data-note-sync-presentation={syncPresentation.kind}
+                  title={t(syncPresentation.messageKey)}
+                  aria-label={t(syncPresentation.messageKey)}
                   style={{
                     fontSize: 9,
                     color: c.danger,
@@ -644,7 +645,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
                 >
                   <AlertTriangle size={10} aria-hidden="true" />
                   <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {t('nvSyncIssue')}
+                    {t(syncPresentation.messageKey)}
                   </span>
                 </span>
               ) : isSyncing ? (

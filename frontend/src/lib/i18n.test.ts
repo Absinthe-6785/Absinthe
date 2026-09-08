@@ -8,7 +8,7 @@ import translationKeys, { buildLocaleDictionary } from './i18n/keys';
 import type { TranslationKey } from './i18n';
 
 const PLANNER_STORAGE_KEY = 'planner-storage';
-const EXPECTED_KEY_COUNT = 2_059;
+const EXPECTED_KEY_COUNT = 2_066;
 type Locale = 'en' | 'ko' | 'ja';
 
 // Independent authority generated from the accepted pre-extraction base.
@@ -16,9 +16,9 @@ type Locale = 'en' | 'ko' | 'ja';
 // translationKeys order, so it detects insertion, omission, reordering, and
 // substitution without using buildLocaleDictionary.
 const EXPECTED_LOCALE_INTEGRITY_SHA256: Record<Locale, string> = {
-  en: 'db8d3f231cab7c10965203f854efff0ac526eecb163a4ce5cfe6e76652e12d59',
-  ko: '7c98e1bcfd10a3462b0f4943ea26c3a402544240b64bffae3a68be762ba915e0',
-  ja: '7e0461e6472ec1b0c51c6485d1a6d338b4d96f20d649b89080cdc28e1ba41bca',
+  en: '1423b007ae29213cf9705d4e355a72f8dc97eaf5da4844e7c7307a48e0d5e7b2',
+  ko: 'b32dd31d04a63bcfd78751043689826afb10a6e7067aaa06ee5994e597abafe2',
+  ja: '46204ad5dfbee5177c410caddd6b23f1346f0c1111b2c48a86ce0e38b478c273',
 };
 
 function localeIntegrityDigest(values: readonly string[]) {
@@ -99,10 +99,10 @@ describe('i18n locale dictionaries', () => {
     missing.splice(1_000, 1);
 
     expect(() => buildLocaleDictionary(missing)).toThrow(
-      'Locale dictionary length mismatch: expected 2059, received 2058',
+      'Locale dictionary length mismatch: expected 2066, received 2065',
     );
     expect(() => assertLocaleValuesIntegrity('en', missing)).toThrow(
-      'Locale integrity length mismatch: expected 2059, received 2058',
+      'Locale integrity length mismatch: expected 2066, received 2065',
     );
   });
 
@@ -111,10 +111,10 @@ describe('i18n locale dictionaries', () => {
     extra.splice(1_000, 0, '__unexpected__');
 
     expect(() => buildLocaleDictionary(extra)).toThrow(
-      'Locale dictionary length mismatch: expected 2059, received 2060',
+      'Locale dictionary length mismatch: expected 2066, received 2067',
     );
     expect(() => assertLocaleValuesIntegrity('en', extra)).toThrow(
-      'Locale integrity length mismatch: expected 2059, received 2060',
+      'Locale integrity length mismatch: expected 2066, received 2067',
     );
   });
 

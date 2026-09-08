@@ -7,6 +7,7 @@ import { NOTES_RUNTIME_SYNC_MODE_KEY } from '../lib/notesSyncClient';
 import { resetNotesPersistenceForTests } from '../lib/notePersistence';
 import { activateNotesAccountAuthority } from '../lib/notesAccountAuthority';
 import { setRecoveryModeActiveForTest } from '../lib/recoverySafetyPolicy';
+import { projectNoteSyncPresentation } from '../components/views/noteview/notesSyncPresentation';
 
 const { authFetchMock, authReadFetchMock, persistenceHarness } = vi.hoisted(() => ({
   authFetchMock: vi.fn(),
@@ -126,6 +127,11 @@ function bindRemoteAccount() {
   useNotesStore.setState({ activeAccountId: 'account-a' });
 }
 
+function currentSyncPresentation() {
+  const { activeNoteId, syncError, syncIssue } = useNotesStore.getState();
+  return projectNoteSyncPresentation({ activeNoteId, syncError, syncIssue });
+}
+
 describe('Notes sync-issue ownership and clearing contract', () => {
   beforeEach(resetStore);
 
@@ -137,10 +143,64 @@ describe('Notes sync-issue ownership and clearing contract', () => {
     useNotesStore.getState().importNote(item);
     await vi.waitFor(() => expect(useNotesStore.getState().syncIssue?.classification).toBe('REMOTE_NOT_CONFIRMED'));
     expect(useNotesStore.getState().syncIssue?.source).toBe('note_remote_write');
+    expect(currentSyncPresentation()).toEqual({
+      kind: 'remote-pending', messageKey: 'nvSyncPending', retryable: true,
+    });
 
     await useNotesStore.getState().syncNoteToDB(item);
     expect(useNotesStore.getState().syncError).toBeNull();
     expect(useNotesStore.getState().syncIssue).toBeNull();
+    expect(currentSyncPresentation()).toEqual({ kind: 'none' });
+  });
+
+  it('projects production auth unavailability without a blind retry', async () => {
+    const item = note('auth-unavailable');
+    useNotesStore.setState({ notes: [item], activeNoteId: item.id });
+
+    expect(await useNotesStore.getState().syncNoteToDB(item)).toBe(false);
+    expect(useNotesStore.getState().syncIssue?.classification).toBe('AUTH_UNAVAILABLE');
+    expect(currentSyncPresentation()).toEqual({
+      kind: 'auth-required', messageKey: 'nvSyncAuthRequired', retryable: false,
+    });
+    expect(authFetchMock).not.toHaveBeenCalled();
+  });
+
+  it('projects an ambiguous production transport outcome as safely retryable and unconfirmed', async () => {
+    bindRemoteAccount();
+    const item = note('transport-ambiguous');
+    useNotesStore.setState({ notes: [item], activeNoteId: item.id });
+    authFetchMock.mockImplementation((_url, _options, control) => {
+      control?.onRequestStart?.();
+      return Promise.reject(new Error('lost response'));
+    });
+    authReadFetchMock.mockRejectedValue(new Error('readback unavailable'));
+
+    expect(await useNotesStore.getState().syncNoteToDB(item)).toBe(false);
+    expect(useNotesStore.getState().syncIssue?.classification).toBe('TRANSPORT_AMBIGUOUS');
+    expect(currentSyncPresentation()).toEqual({
+      kind: 'remote-unconfirmed', messageKey: 'nvSyncStatusUnconfirmed', retryable: true,
+    });
+  });
+
+  it('projects a production remote conflict without a blind retry', async () => {
+    bindRemoteAccount();
+    const item = note('remote-conflict');
+    useNotesStore.setState({ notes: [item], activeNoteId: item.id });
+    authFetchMock.mockImplementation((_url, _options, control) => {
+      control?.onRequestStart?.();
+      return Promise.reject(new Error('lost response'));
+    });
+    authReadFetchMock.mockResolvedValue(okResponse({
+      id: item.id, user_id: 'account-a', title: 'newer remote', body: item.body,
+      updated_at: item.updatedAt + 1, folder_id: null, deleted_at: null,
+      starred: false, properties: null, relations: null,
+    }));
+
+    expect(await useNotesStore.getState().syncNoteToDB(item)).toBe(false);
+    expect(useNotesStore.getState().syncIssue?.classification).toBe('REMOTE_CONFLICT');
+    expect(currentSyncPresentation()).toEqual({
+      kind: 'remote-conflict', messageKey: 'nvSyncConflict', retryable: false,
+    });
   });
 
   it('clears a failed Note DELETE only after matching delete success', async () => {
@@ -167,11 +227,15 @@ describe('Notes sync-issue ownership and clearing contract', () => {
     await useNotesStore.getState().bootstrapFromSupabase();
     expect(useNotesStore.getState().syncIssue?.source).toBe('bootstrap');
     expect(useNotesStore.getState().syncError).toContain('bootstrap network failure');
+    expect(currentSyncPresentation()).toEqual({
+      kind: 'bootstrap-problem', messageKey: 'nvSyncBootstrapProblem', retryable: false,
+    });
 
     fail = false;
     await useNotesStore.getState().bootstrapFromSupabase();
     expect(useNotesStore.getState().syncError).toBeNull();
     expect(useNotesStore.getState().syncIssue).toBeNull();
+    expect(currentSyncPresentation()).toEqual({ kind: 'none' });
   });
 
   it('does not let an unrelated successful folder write clear a Note failure', async () => {
@@ -321,6 +385,9 @@ describe('Notes sync-issue ownership and clearing contract', () => {
       source: 'local_notes_persistence',
       classification: 'LOCAL_PERSISTENCE_FAILURE',
     }));
+    expect(currentSyncPresentation()).toEqual({
+      kind: 'local-save-problem', messageKey: 'nvSyncLocalSaveProblem', retryable: false,
+    });
     setItem.mockRestore();
   });
 
@@ -365,6 +432,7 @@ describe('Notes sync-issue ownership and clearing contract', () => {
     expect(await upload).toBe(false);
     expect(useNotesStore.getState().savedAt).toBeNull();
     expect(useNotesStore.getState().syncIssue).toBeNull();
+    expect(currentSyncPresentation()).toEqual({ kind: 'none' });
   });
 
   it('publishes nothing when the recovery epoch changes while POST is pending', async () => {
