@@ -18,6 +18,7 @@ import {
   saveAccountScopedFolders,
   saveAccountScopedNotes,
 } from './notesAccountAuthority';
+import { revalidateResolvedBootstrapNotes } from './notesBootstrapAuthority';
 
 const storage = new Map<string, string>();
 vi.stubGlobal('localStorage', {
@@ -52,6 +53,20 @@ function putRawScopedNote(value: unknown): Promise<void> {
   });
 }
 
+function deleteRawScopedNote(accountId: string, noteId: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(NOTES_ACCOUNT_AUTHORITY_DATABASE_NAME, 1);
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const database = request.result;
+      const transaction = database.transaction('notes', 'readwrite');
+      transaction.onerror = () => reject(transaction.error);
+      transaction.oncomplete = () => { database.close(); resolve(); };
+      transaction.objectStore('notes').delete(`${encodeURIComponent(accountId)}\u0000${noteId}`);
+    };
+  });
+}
+
 function foldersKey(accountId: string): string {
   return `absinthe.notes.account-authority.folders.v1:${encodeURIComponent(accountId)}:notes.folders`;
 }
@@ -73,6 +88,29 @@ function note(index: number): NoteBase {
 
 function folder(index: number): NoteFolderBase {
   return { id: `a-folder-${index}`, name: `A Folder ${index}`, createdAt: index };
+}
+
+function acceptResolvedCandidate(
+  _currentDurable: readonly NoteBase[],
+  resolvedCandidate: readonly NoteBase[],
+): readonly NoteBase[] {
+  return resolvedCandidate;
+}
+
+function revisionAwareResolver(
+  accountId: string,
+  previousLocal: readonly NoteBase[],
+  authorizedMissingNoteIds: ReadonlySet<string> = new Set(),
+) {
+  return (currentDurable: readonly NoteBase[], resolvedCandidate: readonly NoteBase[]) => (
+    revalidateResolvedBootstrapNotes({
+      accountId,
+      currentDurable,
+      previousLocal,
+      resolvedCandidate,
+      authorizedMissingNoteIds,
+    }).notes
+  );
 }
 
 describe('account-scoped Notes/Folders local authority', () => {
@@ -161,6 +199,7 @@ describe('account-scoped Notes/Folders local authority', () => {
 
     await expect(applyNotesFoldersForRecoveryContext(
       context, previousNotes, previousFolders, nextNotes, nextFolders,
+      acceptResolvedCandidate,
     )).resolves.toEqual({ applied: false, rollbackVerified: true });
     expect(await loadNotesForRecoveryContext(context)).toEqual(previousNotes);
     expect(loadFoldersForRecoveryContext(context)).toEqual(previousFolders);
@@ -196,6 +235,7 @@ describe('account-scoped Notes/Folders local authority', () => {
     });
     const applyPromise = applyNotesFoldersForRecoveryContext(
       context, [note(1)], [folder(1)], [note(2)], [folder(2)],
+      acceptResolvedCandidate,
     );
     await reached;
     expect(hooks.readPendingBootstrapMarker('account-a')?.state).toBe('BOOTSTRAP_PENDING');
@@ -222,7 +262,12 @@ describe('account-scoped Notes/Folders local authority', () => {
     if (!context) throw new Error('recovery context unavailable');
     await expect(applyNotesFoldersForRecoveryContext(
       context, [note(1)], [folder(1)], [note(2)], [folder(2)],
-    )).resolves.toEqual({ applied: true, rollbackVerified: true });
+      acceptResolvedCandidate,
+    )).resolves.toEqual({
+      applied: true,
+      rollbackVerified: true,
+      committedNotes: [note(2)],
+    });
     expect(hooks.readPendingBootstrapMarker('account-a')).toBeNull();
 
     detachNotesAccountAuthority();
@@ -231,6 +276,293 @@ describe('account-scoped Notes/Folders local authority', () => {
     expect(restarted.folders.map(item => item.id)).toEqual(['a-folder-2']);
     expect(restarted.notesState.state).toBe('LOADED_POPULATED');
     expect(restarted.foldersState.state).toBe('LOADED_POPULATED');
+  });
+
+  it('does not overwrite a newer durable Note committed by an independent writer during bootstrap apply', async () => {
+    const hooks = __testOnlyNotesAccountAuthorityHooks;
+    expect(hooks).toBeDefined();
+    if (!hooks) throw new Error('notes authority test seam unavailable');
+    await initializeAccountScopedNotesAuthority('account-a');
+    const original = { ...note(1), body: 'original durable body', updatedAt: 10 };
+    const bootstrapCandidate = { ...original, body: 'resolved bootstrap body', updatedAt: 20 };
+    const independentNewer = { ...original, body: 'independent newer body', updatedAt: 30 };
+    expect(await saveAccountScopedNotes('account-a', [original])).toBe(true);
+    const context = createNotesAccountRecoveryContext();
+    expect(context).not.toBeNull();
+    if (!context) throw new Error('recovery context unavailable');
+
+    let release = () => {};
+    let reachedResolve = () => {};
+    const reached = new Promise<void>(resolve => { reachedResolve = resolve; });
+    hooks.setBootstrapStageOverride(async stage => {
+      if (stage !== 'after-marker') return;
+      reachedResolve();
+      await new Promise<void>(resolve => { release = resolve; });
+    });
+    const applyPromise = applyNotesFoldersForRecoveryContext(
+      context, [original], [], [bootstrapCandidate], [],
+      revisionAwareResolver('account-a', [original]),
+    );
+    await reached;
+    await putRawScopedNote({
+      key: `account-a\u0000${independentNewer.id}`,
+      accountId: 'account-a',
+      note: independentNewer,
+    });
+    release();
+
+    await expect(applyPromise).resolves.toEqual({
+      applied: true,
+      rollbackVerified: true,
+      committedNotes: [independentNewer],
+    });
+    expect(await loadNotesForRecoveryContext(context)).toEqual([independentNewer]);
+    hooks.setBootstrapStageOverride(null);
+  });
+
+  it('preserves a concurrently created local-only Note during atomic bootstrap replacement', async () => {
+    const hooks = __testOnlyNotesAccountAuthorityHooks;
+    expect(hooks).toBeDefined();
+    if (!hooks) throw new Error('notes authority test seam unavailable');
+    await initializeAccountScopedNotesAuthority('account-a');
+    const original = { ...note(1), updatedAt: 10 };
+    const bootstrapCandidate = { ...original, body: 'remote newer body', updatedAt: 20 };
+    const concurrentLocalOnly = { ...note(99), body: 'concurrent local-only body', updatedAt: 40 };
+    expect(await saveAccountScopedNotes('account-a', [original])).toBe(true);
+    const context = createNotesAccountRecoveryContext();
+    expect(context).not.toBeNull();
+    if (!context) throw new Error('recovery context unavailable');
+
+    let release = () => {};
+    let reachedResolve = () => {};
+    const reached = new Promise<void>(resolve => { reachedResolve = resolve; });
+    hooks.setBootstrapStageOverride(async stage => {
+      if (stage !== 'after-marker') return;
+      reachedResolve();
+      await new Promise<void>(resolve => { release = resolve; });
+    });
+    const applyPromise = applyNotesFoldersForRecoveryContext(
+      context, [original], [], [bootstrapCandidate], [],
+      revisionAwareResolver('account-a', [original]),
+    );
+    await reached;
+    await putRawScopedNote({
+      key: `account-a\u0000${concurrentLocalOnly.id}`,
+      accountId: 'account-a',
+      note: concurrentLocalOnly,
+    });
+    release();
+
+    await expect(applyPromise).resolves.toEqual({
+      applied: true,
+      rollbackVerified: true,
+      committedNotes: [concurrentLocalOnly, bootstrapCandidate],
+    });
+    expect(await loadNotesForRecoveryContext(context)).toEqual([concurrentLocalOnly, bootstrapCandidate]);
+    hooks.setBootstrapStageOverride(null);
+  });
+
+  it('does not resurrect a previously local Note removed by a concurrent durable delete', async () => {
+    const hooks = __testOnlyNotesAccountAuthorityHooks;
+    expect(hooks).toBeDefined();
+    if (!hooks) throw new Error('notes authority test seam unavailable');
+    await initializeAccountScopedNotesAuthority('account-a');
+    const original = { ...note(1), body: 'original durable body', updatedAt: 10 };
+    const staleBootstrapCandidate = { ...original, body: 'stale remote body', updatedAt: 20 };
+    expect(await saveAccountScopedNotes('account-a', [original])).toBe(true);
+    const context = createNotesAccountRecoveryContext();
+    expect(context).not.toBeNull();
+    if (!context) throw new Error('recovery context unavailable');
+
+    let release = () => {};
+    let reachedResolve = () => {};
+    const reached = new Promise<void>(resolve => { reachedResolve = resolve; });
+    hooks.setBootstrapStageOverride(async stage => {
+      if (stage !== 'after-marker') return;
+      reachedResolve();
+      await new Promise<void>(resolve => { release = resolve; });
+    });
+    const applyPromise = applyNotesFoldersForRecoveryContext(
+      context, [original], [], [staleBootstrapCandidate], [],
+      revisionAwareResolver('account-a', [original]),
+    );
+    await reached;
+    await deleteRawScopedNote('account-a', original.id);
+    release();
+
+    await expect(applyPromise).resolves.toEqual({
+      applied: true,
+      rollbackVerified: true,
+      committedNotes: [],
+    });
+    expect(await loadNotesForRecoveryContext(context)).toEqual([]);
+    hooks.setBootstrapStageOverride(null);
+  });
+
+  it('still applies a valid newer bootstrap candidate inside the atomic boundary', async () => {
+    await initializeAccountScopedNotesAuthority('account-a');
+    const original = { ...note(1), body: 'older local body', updatedAt: 10 };
+    const bootstrapCandidate = { ...original, body: 'newer remote body', updatedAt: 20 };
+    expect(await saveAccountScopedNotes('account-a', [original])).toBe(true);
+    const context = createNotesAccountRecoveryContext();
+    expect(context).not.toBeNull();
+    if (!context) throw new Error('recovery context unavailable');
+
+    await expect(applyNotesFoldersForRecoveryContext(
+      context, [original], [], [bootstrapCandidate], [],
+      revisionAwareResolver('account-a', [original]),
+    )).resolves.toEqual({
+      applied: true,
+      rollbackVerified: true,
+      committedNotes: [bootstrapCandidate],
+    });
+    expect(await loadNotesForRecoveryContext(context)).toEqual([bootstrapCandidate]);
+  });
+
+  it('preserves a newer durable tombstone committed during atomic bootstrap apply', async () => {
+    const hooks = __testOnlyNotesAccountAuthorityHooks;
+    expect(hooks).toBeDefined();
+    if (!hooks) throw new Error('notes authority test seam unavailable');
+    await initializeAccountScopedNotesAuthority('account-a');
+    const original = { ...note(1), body: 'original active body', updatedAt: 10 };
+    const bootstrapCandidate = { ...original, body: 'remote active body', updatedAt: 20 };
+    const concurrentTombstone = { ...original, body: 'locally deleted body', updatedAt: 30, deletedAt: 40 };
+    expect(await saveAccountScopedNotes('account-a', [original])).toBe(true);
+    const context = createNotesAccountRecoveryContext();
+    expect(context).not.toBeNull();
+    if (!context) throw new Error('recovery context unavailable');
+
+    let release = () => {};
+    let reachedResolve = () => {};
+    const reached = new Promise<void>(resolve => { reachedResolve = resolve; });
+    hooks.setBootstrapStageOverride(async stage => {
+      if (stage !== 'after-marker') return;
+      reachedResolve();
+      await new Promise<void>(resolve => { release = resolve; });
+    });
+    const applyPromise = applyNotesFoldersForRecoveryContext(
+      context, [original], [], [bootstrapCandidate], [],
+      revisionAwareResolver('account-a', [original]),
+    );
+    await reached;
+    await putRawScopedNote({
+      key: `account-a\u0000${concurrentTombstone.id}`,
+      accountId: 'account-a',
+      note: concurrentTombstone,
+    });
+    release();
+
+    await expect(applyPromise).resolves.toEqual({
+      applied: true,
+      rollbackVerified: true,
+      committedNotes: [concurrentTombstone],
+    });
+    expect(await loadNotesForRecoveryContext(context)).toEqual([concurrentTombstone]);
+    hooks.setBootstrapStageOverride(null);
+  });
+
+  it('preserves a newer durable restore when an older tombstone had authorized remote absence', async () => {
+    const hooks = __testOnlyNotesAccountAuthorityHooks;
+    expect(hooks).toBeDefined();
+    if (!hooks) throw new Error('notes authority test seam unavailable');
+    await initializeAccountScopedNotesAuthority('account-a');
+    const previousTombstone = {
+      ...note(1), body: 'deleted body', updatedAt: 20, deletedAt: 30,
+    };
+    const concurrentRestore = {
+      ...previousTombstone, body: 'restored newer body', updatedAt: 40, deletedAt: null,
+    };
+    expect(await saveAccountScopedNotes('account-a', [previousTombstone])).toBe(true);
+    const context = createNotesAccountRecoveryContext();
+    expect(context).not.toBeNull();
+    if (!context) throw new Error('recovery context unavailable');
+
+    let release = () => {};
+    let reachedResolve = () => {};
+    const reached = new Promise<void>(resolve => { reachedResolve = resolve; });
+    hooks.setBootstrapStageOverride(async stage => {
+      if (stage !== 'after-marker') return;
+      reachedResolve();
+      await new Promise<void>(resolve => { release = resolve; });
+    });
+    const applyPromise = applyNotesFoldersForRecoveryContext(
+      context, [previousTombstone], [], [], [],
+      revisionAwareResolver('account-a', [previousTombstone], new Set([previousTombstone.id])),
+    );
+    await reached;
+    await putRawScopedNote({
+      key: `account-a\u0000${concurrentRestore.id}`,
+      accountId: 'account-a',
+      note: concurrentRestore,
+    });
+    release();
+
+    await expect(applyPromise).resolves.toEqual({
+      applied: true,
+      rollbackVerified: true,
+      committedNotes: [concurrentRestore],
+    });
+    expect(await loadNotesForRecoveryContext(context)).toEqual([concurrentRestore]);
+    hooks.setBootstrapStageOverride(null);
+  });
+
+  it('aborts the whole Notes transaction when an atomic replacement row cannot be cloned', async () => {
+    await initializeAccountScopedNotesAuthority('account-a');
+    const previousNotes = [note(2), note(1)];
+    expect(await saveAccountScopedNotes('account-a', previousNotes)).toBe(true);
+    const context = createNotesAccountRecoveryContext();
+    expect(context).not.toBeNull();
+    if (!context) throw new Error('recovery context unavailable');
+    const invalidReplacement = {
+      ...note(3),
+      nonCloneable: () => undefined,
+    } as NoteBase;
+
+    await expect(applyNotesFoldersForRecoveryContext(
+      context, previousNotes, [], [note(3)], [],
+      () => [invalidReplacement],
+    )).resolves.toEqual({ applied: false, rollbackVerified: true });
+    expect(await loadNotesForRecoveryContext(context)).toEqual(previousNotes);
+    expect(loadFoldersForRecoveryContext(context)).toEqual([]);
+    expect(__testOnlyNotesAccountAuthorityHooks?.readPendingBootstrapMarker('account-a')).toBeNull();
+  });
+
+  it('does not let a Folder failure rollback overwrite a newer independent Notes commit', async () => {
+    const hooks = __testOnlyNotesAccountAuthorityHooks;
+    expect(hooks).toBeDefined();
+    if (!hooks) throw new Error('notes authority test seam unavailable');
+    await initializeAccountScopedNotesAuthority('account-a');
+    const original = { ...note(1), body: 'original body', updatedAt: 10 };
+    const bootstrapCandidate = { ...original, body: 'bootstrap body', updatedAt: 20 };
+    const independentNewer = { ...original, body: 'newer after bootstrap write', updatedAt: 30 };
+    expect(await saveAccountScopedNotes('account-a', [original])).toBe(true);
+    expect(saveAccountScopedFolders([folder(1)])).toBe(true);
+    const context = createNotesAccountRecoveryContext();
+    expect(context).not.toBeNull();
+    if (!context) throw new Error('recovery context unavailable');
+    hooks.setBootstrapStageOverride(async stage => {
+      if (stage !== 'after-notes-write') return;
+      await putRawScopedNote({
+        key: `account-a\u0000${independentNewer.id}`,
+        accountId: 'account-a',
+        note: independentNewer,
+      });
+    });
+    vi.spyOn(localStorage, 'setItem').mockImplementation((key, value) => {
+      if (key === foldersKey('account-a') && value.includes('a-folder-2')) {
+        throw new Error('injected folder write failure');
+      }
+      storage.set(key, value);
+    });
+
+    await expect(applyNotesFoldersForRecoveryContext(
+      context, [original], [folder(1)], [bootstrapCandidate], [folder(2)],
+      revisionAwareResolver('account-a', [original]),
+    )).resolves.toEqual({ applied: false, rollbackVerified: true });
+    expect(await loadNotesForRecoveryContext(context)).toEqual([independentNewer]);
+    expect(loadFoldersForRecoveryContext(context)).toEqual([folder(1)]);
+    hooks.setBootstrapStageOverride(null);
+    vi.restoreAllMocks();
   });
 
   it('keeps recovery evidence when marker clear fails after a verified apply', async () => {
@@ -248,6 +580,7 @@ describe('account-scoped Notes/Folders local authority', () => {
     });
     await expect(applyNotesFoldersForRecoveryContext(
       context, [], [], [note(2)], [folder(2)],
+      acceptResolvedCandidate,
     )).resolves.toEqual({ applied: false, rollbackVerified: false });
     expect(hooks.readPendingBootstrapMarker('account-a')?.state).toBe('BOOTSTRAP_PENDING');
     expect(getNotesAuthorityState('account-a', NOTES_CORE_DOMAIN).state).toBe('RECOVERY_REQUIRED');
@@ -273,6 +606,7 @@ describe('account-scoped Notes/Folders local authority', () => {
     });
     const applyPromise = applyNotesFoldersForRecoveryContext(
       context, [], [], [note(2)], [folder(2)],
+      acceptResolvedCandidate,
     );
     await reached;
     const accountB = await initializeAccountScopedNotesAuthority('account-b');
@@ -305,6 +639,7 @@ describe('account-scoped Notes/Folders local authority', () => {
     });
     const applyPromise = applyNotesFoldersForRecoveryContext(
       context, [], [], [note(2)], [folder(2)],
+      acceptResolvedCandidate,
     );
     await reached;
     const firstMarker = hooks.readPendingBootstrapMarker('account-a');
@@ -343,6 +678,7 @@ describe('account-scoped Notes/Folders local authority', () => {
     });
     const result = await applyNotesFoldersForRecoveryContext(
       context, previousNotes, previousFolders, [note(2)], [folder(2)],
+      acceptResolvedCandidate,
     );
     expect(result).toEqual({ applied: false, rollbackVerified: false });
     expect(getNotesAuthorityState('account-a', NOTES_CORE_DOMAIN).state).toBe('RECOVERY_REQUIRED');
@@ -376,6 +712,7 @@ describe('account-scoped Notes/Folders local authority', () => {
 
     await expect(applyNotesFoldersForRecoveryContext(
       context, previousNotes, previousFolders, [note(2)], [folder(2)],
+      acceptResolvedCandidate,
     )).resolves.toEqual({ applied: false, rollbackVerified: true });
     expect(await loadNotesForRecoveryContext(context)).toEqual(previousNotes);
     expect(loadFoldersForRecoveryContext(context)).toEqual(previousFolders);
@@ -409,6 +746,7 @@ describe('account-scoped Notes/Folders local authority', () => {
 
     await expect(applyNotesFoldersForRecoveryContext(
       context, previousNotes, previousFolders, [note(2)], [folder(2)],
+      acceptResolvedCandidate,
     )).resolves.toEqual({ applied: false, rollbackVerified: false });
     expect(getNotesAuthorityState('account-a', NOTES_CORE_DOMAIN).state).toBe('RECOVERY_REQUIRED');
     expect(getNotesAuthorityState('account-a', NOTES_FOLDERS_DOMAIN).state).toBe('RECOVERY_REQUIRED');

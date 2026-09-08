@@ -964,6 +964,25 @@ export function getNotesAuthorityState(
 
 let testReadNotesOverride: ((accountId: string) => Promise<ScopedReadResult<NoteBase>>) | null = null;
 
+function parseAccountNotes(accountId: string, raw: unknown): ScopedReadResult<NoteBase> {
+  const records = Array.isArray(raw) ? raw : [];
+  const normalizedAccount = normalizedAccountId(accountId);
+  const keyPrefix = noteKey(normalizedAccount, '');
+  const accountRecords: StoredScopedNote[] = [];
+  for (const item of records) {
+    if (!item || typeof item !== 'object') continue;
+    const stored = item as Partial<StoredScopedNote>;
+    const keyBelongsToAccount = typeof stored.key === 'string' && stored.key.startsWith(keyPrefix);
+    const ownershipClaimsAccount = stored.accountId === normalizedAccount;
+    if (!keyBelongsToAccount && !ownershipClaimsAccount) continue;
+    if (!keyBelongsToAccount || stored.accountId !== normalizedAccount
+      || !validNote(stored.note) || stored.key !== noteKey(normalizedAccount, stored.note.id)) return { kind: 'malformed' };
+    accountRecords.push(stored as StoredScopedNote);
+  }
+  if (accountRecords.length === 0) return { kind: 'absent' };
+  return { kind: 'valid', records: cloneNotes(accountRecords.map(item => item.note)) };
+}
+
 async function readAccountNotes(accountId: string): Promise<ScopedReadResult<NoteBase>> {
   if (testReadNotesOverride) return testReadNotesOverride(normalizedAccountId(accountId));
   const database = await openDatabase();
@@ -971,22 +990,7 @@ async function readAccountNotes(accountId: string): Promise<ScopedReadResult<Not
     const transaction = database.transaction(NOTES_STORE, 'readonly');
     const raw = await requestResult(transaction.objectStore(NOTES_STORE).getAll());
     await transactionDone(transaction);
-    const records = Array.isArray(raw) ? raw : [];
-    const normalizedAccount = normalizedAccountId(accountId);
-    const keyPrefix = noteKey(normalizedAccount, '');
-    const accountRecords: StoredScopedNote[] = [];
-    for (const item of records) {
-      if (!item || typeof item !== 'object') continue;
-      const stored = item as Partial<StoredScopedNote>;
-      const keyBelongsToAccount = typeof stored.key === 'string' && stored.key.startsWith(keyPrefix);
-      const ownershipClaimsAccount = stored.accountId === normalizedAccount;
-      if (!keyBelongsToAccount && !ownershipClaimsAccount) continue;
-      if (!keyBelongsToAccount || stored.accountId !== normalizedAccount
-        || !validNote(stored.note) || stored.key !== noteKey(normalizedAccount, stored.note.id)) return { kind: 'malformed' };
-      accountRecords.push(stored as StoredScopedNote);
-    }
-    if (accountRecords.length === 0) return { kind: 'absent' };
-    return { kind: 'valid', records: cloneNotes(accountRecords.map(item => item.note)) };
+    return parseAccountNotes(accountId, raw);
   } finally {
     database.close();
   }
@@ -1017,6 +1021,72 @@ async function replaceAccountNotes(accountId: string, notes: readonly NoteBase[]
       };
     });
     await transactionDone(transaction);
+  } finally {
+    database.close();
+  }
+}
+
+type ResolveAtomicBootstrapNotes = (
+  currentDurable: readonly NoteBase[],
+  resolvedCandidate: readonly NoteBase[],
+) => readonly NoteBase[];
+
+interface AtomicBootstrapNotesReplacement {
+  readonly previousNotes: NoteBase[];
+  readonly committedNotes: NoteBase[];
+}
+
+async function replaceBootstrapNotesAtomically(
+  accountId: string,
+  resolvedCandidate: readonly NoteBase[],
+  resolveNotes: ResolveAtomicBootstrapNotes,
+): Promise<AtomicBootstrapNotesReplacement> {
+  const normalizedAccount = normalizedAccountId(accountId);
+  const database = await openDatabase();
+  try {
+    const transaction = database.transaction(NOTES_STORE, 'readwrite');
+    const transactionCompletion = transactionDone(transaction);
+    const store = transaction.objectStore(NOTES_STORE);
+    const request = store.getAll();
+    let replacement: AtomicBootstrapNotesReplacement | null = null;
+    const replacementPrepared = new Promise<void>((resolve, reject) => {
+      request.onerror = () => reject(request.error ?? new Error('notes_account_authority_read_failed'));
+      request.onsuccess = () => {
+        try {
+          const currentRead = parseAccountNotes(normalizedAccount, request.result);
+          if (currentRead.kind === 'malformed') throw new Error('notes_account_authority_notes_malformed');
+          const previousNotes = currentRead.kind === 'valid' ? currentRead.records : [];
+          const committedNotes = cloneNotes(resolveNotes(
+            cloneNotes(previousNotes),
+            cloneNotes(resolvedCandidate),
+          ));
+          if (!committedNotes.every(validNote)
+            || new Set(committedNotes.map(note => note.id)).size !== committedNotes.length) {
+            throw new Error('notes_account_authority_invalid_notes');
+          }
+          for (const item of Array.isArray(request.result) ? request.result : []) {
+            if (item && typeof item === 'object' && (item as StoredScopedNote).accountId === normalizedAccount) {
+              store.delete((item as StoredScopedNote).key);
+            }
+          }
+          for (const note of committedNotes) {
+            store.put({
+              key: noteKey(normalizedAccount, note.id),
+              accountId: normalizedAccount,
+              note,
+            } satisfies StoredScopedNote);
+          }
+          replacement = { previousNotes: cloneNotes(previousNotes), committedNotes };
+          resolve();
+        } catch (error) {
+          try { transaction.abort(); } catch { /** transaction already failed */ }
+          reject(error);
+        }
+      };
+    });
+    await Promise.all([replacementPrepared, transactionCompletion]);
+    if (!replacement) throw new Error('notes_account_authority_atomic_replacement_missing');
+    return replacement;
   } finally {
     database.close();
   }
@@ -1270,6 +1340,35 @@ function sameFolders(left: readonly NoteFolderBase[], right: readonly NoteFolder
   return JSON.stringify(cloneFolders(left)) === JSON.stringify(cloneFolders(right));
 }
 
+function resolveAtomicBootstrapRollback(
+  currentDurable: readonly NoteBase[],
+  appliedNotes: readonly NoteBase[],
+  previousNotes: readonly NoteBase[],
+): NoteBase[] {
+  const appliedById = new Map(appliedNotes.map(note => [note.id, note]));
+  const previousById = new Map(previousNotes.map(note => [note.id, note]));
+  const restored: NoteBase[] = [];
+  const retainedIds = new Set<string>();
+  for (const current of currentDurable) {
+    const applied = appliedById.get(current.id);
+    if (!applied || !sameNotes([current], [applied])) {
+      restored.push(current);
+      retainedIds.add(current.id);
+      continue;
+    }
+    const previous = previousById.get(current.id);
+    if (previous) {
+      restored.push(previous);
+      retainedIds.add(previous.id);
+    }
+  }
+  for (const previous of previousNotes) {
+    if (retainedIds.has(previous.id) || appliedById.has(previous.id)) continue;
+    restored.push(previous);
+  }
+  return restored;
+}
+
 function markNotesFoldersRecoveryRequired(request: NotesAuthorityRequest): void {
   try { writeState(request.accountId, NOTES_CORE_DOMAIN, 'RECOVERY_REQUIRED', 0); } catch { /**/ }
   try { writeState(request.accountId, NOTES_FOLDERS_DOMAIN, 'RECOVERY_REQUIRED', 0); } catch { /**/ }
@@ -1280,17 +1379,35 @@ async function restoreNotesFoldersForRecoveryContext(
   context: NotesAccountRecoveryContext,
   previousNotes: readonly NoteBase[],
   previousFolders: readonly NoteFolderBase[],
+  appliedNotes: readonly NoteBase[],
 ): Promise<boolean> {
-  const notesRestored = await saveNotesForRecoveryContextInternal(request, previousNotes);
+  let restoredNotes: NoteBase[];
+  try {
+    const replacement = await replaceBootstrapNotesAtomically(
+      request.accountId,
+      previousNotes,
+      currentDurable => resolveAtomicBootstrapRollback(currentDurable, appliedNotes, previousNotes),
+    );
+    restoredNotes = replacement.committedNotes;
+    writeState(
+      request.accountId,
+      NOTES_CORE_DOMAIN,
+      restoredNotes.length === 0 ? 'LOADED_EMPTY' : 'LOADED_POPULATED',
+      restoredNotes.length,
+    );
+  } catch {
+    markNotesFoldersRecoveryRequired(request);
+    return false;
+  }
   const foldersRestored = saveFoldersForRecoveryContext(context, previousFolders);
-  if (!notesRestored || !foldersRestored) {
+  if (!foldersRestored) {
     markNotesFoldersRecoveryRequired(request);
     return false;
   }
   try {
     const readbackNotes = await loadNotesForRecoveryContext(context);
     const readbackFolders = loadFoldersForRecoveryContext(context);
-    const verified = sameNotes(readbackNotes, previousNotes) && sameFolders(readbackFolders, previousFolders);
+    const verified = sameNotes(readbackNotes, restoredNotes) && sameFolders(readbackFolders, previousFolders);
     if (!verified) markNotesFoldersRecoveryRequired(request);
     return verified;
   } catch {
@@ -1304,12 +1421,14 @@ async function rollbackPendingBootstrap(
   context: NotesAccountRecoveryContext,
   previousNotes: readonly NoteBase[],
   previousFolders: readonly NoteFolderBase[],
+  appliedNotes: readonly NoteBase[],
 ): Promise<boolean> {
   const restored = await restoreNotesFoldersForRecoveryContext(
     operation.request,
     context,
     previousNotes,
     previousFolders,
+    appliedNotes,
   );
   if (!restored) return false;
   const cleared = clearPendingBootstrapMarker(operation);
@@ -1317,10 +1436,16 @@ async function rollbackPendingBootstrap(
   return cleared;
 }
 
-export type NotesFoldersRecoveryApplyResult = {
-  applied: boolean;
-  rollbackVerified: boolean;
-};
+export type NotesFoldersRecoveryApplyResult =
+  | {
+    applied: true;
+    rollbackVerified: true;
+    committedNotes: NoteBase[];
+  }
+  | {
+    applied: false;
+    rollbackVerified: boolean;
+  };
 
 /** Applies both account-scoped domains and proves either the new or prior state. */
 async function applyNotesFoldersForRecoveryContextInternal(
@@ -1329,6 +1454,7 @@ async function applyNotesFoldersForRecoveryContextInternal(
   previousFolders: readonly NoteFolderBase[],
   nextNotes: readonly NoteBase[],
   nextFolders: readonly NoteFolderBase[],
+  resolveNotes: ResolveAtomicBootstrapNotes,
 ): Promise<NotesFoldersRecoveryApplyResult> {
   const operation = recoveryOperation(context);
   if (!operation) return { applied: false, rollbackVerified: false };
@@ -1338,18 +1464,23 @@ async function applyNotesFoldersForRecoveryContextInternal(
     markNotesFoldersRecoveryRequired(request);
     return { applied: false, rollbackVerified: false };
   }
+  let notesCommitted = false;
+  let durableNotesBeforeApply = cloneNotes(previousNotes);
+  let durableNotesApplied = cloneNotes(nextNotes);
   try {
     await notifyBootstrapApplyStage('after-marker');
     if (!isNotesAuthorityRequestActive(request)) throw new Error('notes_bootstrap_stale');
-    const notesSaved = await saveNotesForRecoveryContextInternal(request, nextNotes);
-    if (!notesSaved) {
-      return {
-        applied: false,
-        rollbackVerified: await rollbackPendingBootstrap(
-          operation, context, previousNotes, previousFolders,
-        ),
-      };
-    }
+    const atomicReplacement = await replaceBootstrapNotesAtomically(request.accountId, nextNotes, resolveNotes);
+    notesCommitted = true;
+    durableNotesBeforeApply = atomicReplacement.previousNotes;
+    const committedNotes = atomicReplacement.committedNotes;
+    durableNotesApplied = committedNotes;
+    writeState(
+      request.accountId,
+      NOTES_CORE_DOMAIN,
+      committedNotes.length === 0 ? 'LOADED_EMPTY' : 'LOADED_POPULATED',
+      committedNotes.length,
+    );
     await notifyBootstrapApplyStage('after-notes-write');
     if (!isNotesAuthorityRequestActive(request)) throw new Error('notes_bootstrap_stale');
     const foldersSaved = saveFoldersForRecoveryContext(context, nextFolders);
@@ -1357,7 +1488,7 @@ async function applyNotesFoldersForRecoveryContextInternal(
       return {
         applied: false,
         rollbackVerified: await rollbackPendingBootstrap(
-          operation, context, previousNotes, previousFolders,
+          operation, context, durableNotesBeforeApply, previousFolders, committedNotes,
         ),
       };
     }
@@ -1366,27 +1497,32 @@ async function applyNotesFoldersForRecoveryContextInternal(
     await notifyBootstrapApplyStage('before-readback');
     const readbackNotes = await loadNotesForRecoveryContext(context);
     const readbackFolders = loadFoldersForRecoveryContext(context);
-    if (!sameNotes(readbackNotes, nextNotes) || !sameFolders(readbackFolders, nextFolders)) {
+    if (!sameNotes(readbackNotes, committedNotes) || !sameFolders(readbackFolders, nextFolders)) {
       return {
         applied: false,
         rollbackVerified: await rollbackPendingBootstrap(
-          operation, context, previousNotes, previousFolders,
+          operation, context, durableNotesBeforeApply, previousFolders, committedNotes,
         ),
       };
     }
-    writeState(request.accountId, NOTES_CORE_DOMAIN, nextNotes.length === 0 ? 'LOADED_EMPTY' : 'LOADED_POPULATED', nextNotes.length);
+    writeState(request.accountId, NOTES_CORE_DOMAIN, committedNotes.length === 0 ? 'LOADED_EMPTY' : 'LOADED_POPULATED', committedNotes.length);
     writeState(request.accountId, NOTES_FOLDERS_DOMAIN, nextFolders.length === 0 ? 'LOADED_EMPTY' : 'LOADED_POPULATED', nextFolders.length);
     await notifyBootstrapApplyStage('before-marker-clear');
     if (!clearPendingBootstrapMarker(operation)) {
       markNotesFoldersRecoveryRequired(request);
       return { applied: false, rollbackVerified: false };
     }
-    return { applied: true, rollbackVerified: true };
+    return { applied: true, rollbackVerified: true, committedNotes: cloneNotes(committedNotes) };
   } catch {
+    if (!notesCommitted) {
+      const cleared = clearPendingBootstrapMarker(operation);
+      if (!cleared) markNotesFoldersRecoveryRequired(operation.request);
+      return { applied: false, rollbackVerified: cleared };
+    }
     return {
       applied: false,
       rollbackVerified: await rollbackPendingBootstrap(
-        operation, context, previousNotes, previousFolders,
+        operation, context, durableNotesBeforeApply, previousFolders, durableNotesApplied,
       ),
     };
   }
@@ -1398,11 +1534,12 @@ export async function applyNotesFoldersForRecoveryContext(
   previousFolders: readonly NoteFolderBase[],
   nextNotes: readonly NoteBase[],
   nextFolders: readonly NoteFolderBase[],
+  resolveNotes: ResolveAtomicBootstrapNotes,
 ): Promise<NotesFoldersRecoveryApplyResult> {
   const operation = recoveryOperation(context);
   if (!operation) return { applied: false, rollbackVerified: false };
   return runAccountMutationExclusive(operation.request.accountId, () => applyNotesFoldersForRecoveryContextInternal(
-    context, previousNotes, previousFolders, nextNotes, nextFolders,
+    context, previousNotes, previousFolders, nextNotes, nextFolders, resolveNotes,
   ));
 }
 
