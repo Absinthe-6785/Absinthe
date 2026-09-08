@@ -437,6 +437,65 @@ describe('Notes sync-issue ownership and clearing contract', () => {
     expect(useNotesStore.getState().syncIssue).toBeNull();
   });
 
+  it('confirms a committed Note after POST transport loss through the store path', async () => {
+    bindRemoteAccount();
+    const item = note('committed-after-transport-loss', {
+      title: 'Local title',
+      body: 'Local body',
+      updatedAt: 42,
+      starred: true,
+    });
+    useNotesStore.setState({
+      notes: [item],
+      activeNoteId: item.id,
+      savedAt: null,
+      syncError: 'Cloud sync could not be confirmed; the local Note was kept.',
+      syncIssue: {
+        source: 'note_remote_write',
+        targetId: item.id,
+        retryable: true,
+        message: 'Cloud sync could not be confirmed; the local Note was kept.',
+        classification: 'TRANSPORT_AMBIGUOUS',
+      },
+    });
+    const localBeforeSync = useNotesStore.getState().notes[0];
+    let remoteCommitted = false;
+    authFetchMock.mockImplementation(async (_url, options, control) => {
+      expect(options).toEqual(expect.objectContaining({ method: 'POST' }));
+      control?.onRequestStart?.();
+      remoteCommitted = true;
+      throw new Error('transport lost after remote commit');
+    });
+    authReadFetchMock.mockImplementation(async (url, options, control) => {
+      expect(remoteCommitted).toBe(true);
+      expect(url).toContain(`/api/notes/${encodeURIComponent(item.id)}`);
+      expect(options).toEqual(expect.objectContaining({ method: 'GET' }));
+      control?.onRequestStart?.();
+      return okResponse({
+        id: item.id,
+        user_id: 'account-a',
+        title: item.title,
+        body: item.body,
+        updated_at: item.updatedAt,
+        folder_id: null,
+        deleted_at: null,
+        starred: item.starred,
+        properties: null,
+        relations: null,
+      });
+    });
+
+    const result = await useNotesStore.getState().syncNoteToDB(item);
+
+    expect(result).toBe(true);
+    expect(authFetchMock).toHaveBeenCalledTimes(1);
+    expect(authReadFetchMock).toHaveBeenCalledTimes(1);
+    expect(useNotesStore.getState().syncIssue).toBeNull();
+    expect(useNotesStore.getState().syncError).toBeNull();
+    expect(useNotesStore.getState().savedAt).toBeInstanceOf(Date);
+    expect(useNotesStore.getState().notes.find(note => note.id === item.id)).toEqual(localBeforeSync);
+  });
+
   it('does not let an older POST success clear a newer local mutation issue', async () => {
     bindRemoteAccount();
     const item = note('newer-local-wins');
