@@ -135,6 +135,20 @@ function putRawScopedNote(accountId: string, value: NoteBase): Promise<void> {
   });
 }
 
+function deleteRawScopedNote(accountId: string, noteId: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(NOTES_ACCOUNT_AUTHORITY_DATABASE_NAME, 1);
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const database = request.result;
+      const transaction = database.transaction('notes', 'readwrite');
+      transaction.onerror = () => reject(transaction.error);
+      transaction.oncomplete = () => { database.close(); resolve(); };
+      transaction.objectStore('notes').delete(`${encodeURIComponent(accountId)}\u0000${noteId}`);
+    };
+  });
+}
+
 async function seedAccount(accountId: string, notes: NoteBase[]): Promise<void> {
   await useNotesStore.getState().initNotesStorage(accountId);
   expect(await saveAccountScopedNotes(accountId, notes)).toBe(true);
@@ -346,6 +360,63 @@ describe('POST_RTU_03 account-scoped trash and permanent deletion', () => {
     expect(useNotesStore.getState().notes).toEqual([remoteOnly]);
     expect(await loadAccountScopedNotes('account-a')).toEqual([remoteOnly]);
     expect(useNotesStore.getState().syncIssue).toBeNull();
+  });
+
+  it('captures the durable account-scoped local witness before requesting the remote snapshot', async () => {
+    const hooks = __testOnlyNotesAccountAuthorityHooks;
+    expect(hooks).toBeDefined();
+    if (!hooks) throw new Error('notes authority test seam unavailable');
+    const local = note('pre-fetch-local-witness', { updatedAt: 20 });
+    const witnessRead = deferred<{ kind: 'valid'; records: NoteBase[] }>();
+    let witnessReadStarted = false;
+    await seedAccount('account-a', [local]);
+    installRemoteSnapshot('account-a', [local]);
+    hooks.setReadNotesOverride(async accountId => {
+      expect(accountId).toBe('account-a');
+      witnessReadStarted = true;
+      return witnessRead.promise;
+    });
+
+    const bootstrap = useNotesStore.getState().bootstrapFromSupabase();
+    await vi.waitFor(() => expect(witnessReadStarted).toBe(true));
+    const remoteStartedBeforeWitnessCompleted = authReadFetchMock.mock.calls.length > 0;
+    hooks.setReadNotesOverride(null);
+    witnessRead.resolve({ kind: 'valid', records: [local] });
+    await bootstrap;
+
+    expect(remoteStartedBeforeWitnessCompleted).toBe(false);
+    expect(useNotesStore.getState().notes).toEqual([local]);
+    expect(await loadAccountScopedNotes('account-a')).toEqual([local]);
+  });
+
+  it('does not resurrect a completed independent delete while its stale remote snapshot request is in flight', async () => {
+    const deleted = note('deleted-during-remote-fetch', { updatedAt: 20, deletedAt: 20 });
+    const staleRemoteResponse = noteSnapshot('account-a', deleted);
+    const remoteNotes = deferred<ReturnType<typeof noteSnapshot>>();
+    await seedAccount('account-a', [deleted]);
+    authReadFetchMock.mockImplementation((url: string) => (
+      url.includes('/api/notes?')
+        ? remoteNotes.promise
+        : Promise.resolve(emptySnapshot('account-a'))
+    ));
+
+    const bootstrap = useNotesStore.getState().bootstrapFromSupabase();
+    await vi.waitFor(() => expect(authReadFetchMock.mock.calls.some(([url]) => (
+      typeof url === 'string' && url.includes('/api/notes?')
+    ))).toBe(true));
+
+    // Model the shared durable end state of an authorized delete completed by
+    // another renderer: the account row is gone and its transient marker has
+    // already been cleared, while this request still owns an older snapshot.
+    await deleteRawScopedNote('account-a', deleted.id);
+    expect(singleDeleteMarkerPresent()).toBe(false);
+    expect(await loadAccountScopedNotes('account-a')).toEqual([]);
+    remoteNotes.resolve(staleRemoteResponse);
+    await bootstrap;
+
+    expect(useNotesStore.getState().notes).toEqual([]);
+    expect(await loadAccountScopedNotes('account-a')).toEqual([]);
+    expect(singleDeleteMarkerPresent()).toBe(false);
   });
 
   it('fails closed before persistence when a remote-only row lacks complete authority fields', async () => {

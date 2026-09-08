@@ -1574,12 +1574,16 @@ export const useNotesStore = create<NotesState>((set, get) => {
       try {
         const accountId = getActiveNotesAuthorityAccountId();
         if (!accountId) throw new Error('notes_bootstrap_account_missing');
+        const previousNotes = await loadNotesForRecoveryContext(context);
+        if (!isNotesAccountRecoveryContextActive(context)) throw new Error('notes_bootstrap_stale');
+        if (notesLocalMutationGeneration !== localMutationGeneration) {
+          throw new Error('notes_bootstrap_local_mutation_pending');
+        }
         const remote = await fetchCompleteNotesFoldersSnapshot(accountId);
         if (!isNotesAccountRecoveryContextActive(context)) throw new Error('notes_bootstrap_stale');
         if (notesLocalMutationGeneration !== localMutationGeneration) {
           throw new Error('notes_bootstrap_local_mutation_pending');
         }
-        const previousNotes = await loadNotesForRecoveryContext(context);
         const previousFolders = loadFoldersForRecoveryContext(context);
         if (notesLocalMutationGeneration !== localMutationGeneration) {
           throw new Error('notes_bootstrap_local_mutation_pending');
