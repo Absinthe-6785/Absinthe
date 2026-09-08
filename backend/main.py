@@ -1034,6 +1034,162 @@ def _fetch_user_table(user_id: str, table: str, order: str | None = None):
         q = q.order(order)
     return q.execute().data or []
 
+
+NOTE_AUTHORITATIVE_COLUMNS = (
+    "id,user_id,title,body,updated_at,folder_id,deleted_at,starred,properties,relations"
+)
+NOTE_LEGACY_AUTHORITATIVE_COLUMNS = "id,user_id,title,body,updated_at,folder_id,deleted_at"
+NOTE_LEGACY_OPTIONAL_COLUMNS = frozenset({"starred", "properties", "relations"})
+
+
+def _database_error_code(error: Exception) -> str:
+    code = getattr(error, "code", None)
+    if isinstance(code, str):
+        return code
+    details = getattr(error, "details", None)
+    if isinstance(details, dict) and isinstance(details.get("code"), str):
+        return details["code"]
+    return ""
+
+
+def _is_missing_legacy_note_column(error: Exception) -> bool:
+    message = str(error).lower()
+    mentions_legacy_column = any(column in message for column in NOTE_LEGACY_OPTIONAL_COLUMNS)
+    return mentions_legacy_column and (
+        _database_error_code(error) in {"42703", "PGRST204"}
+        or "column" in message and ("does not exist" in message or "not found" in message)
+        or "column" in message and "schema cache" in message
+    )
+
+
+def _is_note_id_collision(error: Exception) -> bool:
+    message = str(error).lower()
+    return _database_error_code(error) == "23505" or (
+        "duplicate key" in message or "unique constraint" in message
+    )
+
+
+def _normalized_authoritative_note(
+    value: object,
+    *,
+    note_id: str,
+    user_id: str,
+    legacy_optional_columns: bool = False,
+    error_code: str = "NOTE_WRITE_UNCONFIRMED",
+) -> dict:
+    if not isinstance(value, dict):
+        raise HTTPException(status_code=409, detail=error_code)
+    row = dict(value)
+    if legacy_optional_columns:
+        row.setdefault("starred", False)
+        row.setdefault("properties", None)
+        row.setdefault("relations", None)
+    if set(row).intersection(NOTE_LEGACY_OPTIONAL_COLUMNS) != NOTE_LEGACY_OPTIONAL_COLUMNS:
+        raise HTTPException(status_code=409, detail=error_code)
+    if (
+        row.get("id") != note_id
+        or row.get("user_id") != user_id
+        or not isinstance(row.get("title"), str)
+        or not isinstance(row.get("body"), str)
+        or not isinstance(row.get("updated_at"), int)
+        or isinstance(row.get("updated_at"), bool)
+        or (row.get("folder_id") is not None and not isinstance(row.get("folder_id"), str))
+        or (row.get("deleted_at") is not None and (
+            not isinstance(row.get("deleted_at"), int) or isinstance(row.get("deleted_at"), bool)
+        ))
+        or not isinstance(row.get("starred"), bool)
+        or (row.get("properties") is not None and (
+            not isinstance(row.get("properties"), dict)
+            or not all(isinstance(key, str) and isinstance(item, str) for key, item in row["properties"].items())
+        ))
+        or (row.get("relations") is not None and (
+            not isinstance(row.get("relations"), dict)
+            or not all(
+                isinstance(key, str)
+                and isinstance(item, list)
+                and all(isinstance(note_id, str) for note_id in item)
+                for key, item in row["relations"].items()
+            )
+        ))
+    ):
+        raise HTTPException(status_code=409, detail=error_code)
+    return {column: row.get(column) for column in NOTE_AUTHORITATIVE_COLUMNS.split(",")}
+
+
+def _validated_note_mutation_row(
+    data: object,
+    *,
+    note_id: str,
+    user_id: str,
+    accepted_payload: dict,
+    legacy_optional_columns: bool = False,
+    empty_is_conflict: bool = False,
+) -> dict:
+    if empty_is_conflict and data == []:
+        raise HTTPException(status_code=409, detail="NOTE_WRITE_CONFLICT")
+    if not isinstance(data, list) or len(data) != 1:
+        raise HTTPException(status_code=409, detail="NOTE_WRITE_UNCONFIRMED")
+    row = _normalized_authoritative_note(
+        data[0],
+        note_id=note_id,
+        user_id=user_id,
+        legacy_optional_columns=legacy_optional_columns,
+        error_code="NOTE_WRITE_UNCONFIRMED",
+    )
+    for key, expected in accepted_payload.items():
+        if key != "user_id" and row.get(key) != expected:
+            raise HTTPException(status_code=409, detail="NOTE_WRITE_UNCONFIRMED")
+    return row
+
+
+def _execute_owned_note_mutation(
+    *,
+    note_id: str,
+    user_id: str,
+    payload: dict,
+    existing_owned_row: bool,
+) -> dict:
+    def execute(candidate: dict):
+        query = supabase.table("notes")
+        if existing_owned_row:
+            return (
+                query.update({key: value for key, value in candidate.items() if key != "user_id"})
+                .eq("id", note_id)
+                .eq("user_id", user_id)
+                .execute()
+            )
+        return query.insert(candidate).execute()
+
+    legacy = False
+    accepted_payload = payload
+    try:
+        result = execute(payload)
+    except Exception as error:
+        if _is_missing_legacy_note_column(error):
+            legacy = True
+            accepted_payload = {
+                key: value for key, value in payload.items()
+                if key not in NOTE_LEGACY_OPTIONAL_COLUMNS
+            }
+            try:
+                result = execute(accepted_payload)
+            except Exception as retry_error:
+                if not existing_owned_row and _is_note_id_collision(retry_error):
+                    raise HTTPException(status_code=409, detail="NOTE_ID_UNAVAILABLE") from None
+                raise
+        elif not existing_owned_row and _is_note_id_collision(error):
+            raise HTTPException(status_code=409, detail="NOTE_ID_UNAVAILABLE") from None
+        else:
+            raise
+    return _validated_note_mutation_row(
+        getattr(result, "data", None),
+        note_id=note_id,
+        user_id=user_id,
+        accepted_payload=accepted_payload,
+        legacy_optional_columns=legacy,
+        empty_is_conflict=existing_owned_row,
+    )
+
 @app.get("/api/notes")
 async def get_notes(
     user_id: str = Depends(get_current_user),
@@ -1064,15 +1220,28 @@ async def get_notes(
 
 @app.post("/api/notes")
 async def upsert_note(note: NoteCreate, user_id: str = Depends(get_current_user)):
-    data = {"user_id": user_id, **note.model_dump()}
-    try:
-        return supabase.table("notes").upsert(data, on_conflict="id").execute().data
-    except Exception:
-        # notes 테이블에 starred/properties 컬럼이 아직 없는 구 스키마 호환
-        data.pop("starred", None)
-        data.pop("properties", None)
-        data.pop("relations", None)
-        return supabase.table("notes").upsert(data, on_conflict="id").execute().data
+    owned = (
+        supabase.table("notes")
+        .select("id,user_id")
+        .eq("id", note.id)
+        .eq("user_id", user_id)
+        .maybe_single()
+        .execute()
+        .data
+    )
+    if owned is not None and (
+        not isinstance(owned, dict)
+        or owned.get("id") != note.id
+        or owned.get("user_id") != user_id
+    ):
+        raise HTTPException(status_code=409, detail="NOTE_WRITE_CONFLICT")
+    payload = {"user_id": user_id, **note.model_dump()}
+    return _execute_owned_note_mutation(
+        note_id=note.id,
+        user_id=user_id,
+        payload=payload,
+        existing_owned_row=owned is not None,
+    )
 
 @app.post("/api/notes/batch")
 async def upsert_notes_batch(
@@ -1099,6 +1268,37 @@ async def upsert_notes_batch(
             data = supabase.table("notes").upsert(slim, on_conflict="id").execute().data or []
         results.extend(data)
     return results
+
+
+@app.get("/api/notes/{note_id}")
+async def get_note(note_id: str, user_id: str = Depends(get_current_user)):
+    def execute(columns: str):
+        return (
+            supabase.table("notes")
+            .select(columns)
+            .eq("id", note_id)
+            .eq("user_id", user_id)
+            .maybe_single()
+            .execute()
+        )
+
+    legacy = False
+    try:
+        row = execute(NOTE_AUTHORITATIVE_COLUMNS).data
+    except Exception as error:
+        if not _is_missing_legacy_note_column(error):
+            raise
+        legacy = True
+        row = execute(NOTE_LEGACY_AUTHORITATIVE_COLUMNS).data
+    if row is None:
+        raise HTTPException(status_code=404, detail="Not found")
+    return _normalized_authoritative_note(
+        row,
+        note_id=note_id,
+        user_id=user_id,
+        legacy_optional_columns=legacy,
+        error_code="NOTE_READBACK_UNCONFIRMED",
+    )
 
 @app.delete("/api/notes/{note_id}")
 async def delete_note(note_id: str, user_id: str = Depends(get_current_user)):

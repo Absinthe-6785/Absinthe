@@ -26,8 +26,10 @@ const localStorageMock = {
 vi.stubGlobal('localStorage', localStorageMock);
 
 const authFetchMock = vi.fn();
+const authReadFetchMock = vi.fn();
 vi.mock('../lib/supabase', () => ({
   authFetch: (...args: unknown[]) => authFetchMock(...args),
+  authReadFetch: (...args: unknown[]) => authReadFetchMock(...args),
 }));
 
 // loadNotes() runs at module init — import after localStorage stub
@@ -39,6 +41,7 @@ import {
   validateLocalStorageNotesReplacement,
 } from '../lib/notePersistence';
 import { activateRecoveryMode, setRecoveryModeActiveForTest } from '../lib/recoverySafetyPolicy';
+import { activateNotesAccountAuthority } from '../lib/notesAccountAuthority';
 import {
   NOTES_RUNTIME_SYNC_MODE_KEY,
 } from '../lib/notesSyncClient';
@@ -61,7 +64,20 @@ const {
 } = await import('./useNotesStore');
 
 function okJson(data: unknown) {
-  return { ok: true, status: 200, json: async () => data };
+  return {
+    ok: true,
+    status: 200,
+    json: async () => {
+      if (!data || typeof data !== 'object' || Array.isArray(data) || Object.keys(data).length > 0) return data;
+      const request = [...authFetchMock.mock.calls].reverse().find(([url, options]) => (
+        String(url).endsWith('/api/notes') && (options as RequestInit | undefined)?.method === 'POST'
+      ));
+      const raw = (request?.[1] as RequestInit | undefined)?.body;
+      if (typeof raw !== 'string') return data;
+      const sent = JSON.parse(raw) as Record<string, unknown>;
+      return { ...sent, user_id: 'account-a', properties: sent.properties ?? null, relations: sent.relations ?? null };
+    },
+  };
 }
 
 function failResponse(status = 500) {
@@ -92,20 +108,29 @@ const sampleNote = (): NoteBase => ({
 });
 
 function resetStore() {
+  useNotesStore.getState().detachNotesStorage();
   setRecoveryModeActiveForTest(false);
   storage.clear();
   storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'remote');
   authFetchMock.mockReset();
+  authReadFetchMock.mockReset();
+  authReadFetchMock.mockResolvedValue({ ok: false, status: 404, json: async () => ({}) });
   resetNotesPersistenceForTests();
   useNotesStore.setState({
     notes: [],
     folders: [],
     activeNoteId: null,
     activeFolderId: null,
+    activeAccountId: null,
     isSyncing: false,
     savedAt: null,
     syncError: null,
   });
+}
+
+function bindRemoteAccount() {
+  activateNotesAccountAuthority('account-a');
+  useNotesStore.setState({ activeAccountId: 'account-a' });
 }
 
 describe('useNotesStore — import & DB sync', () => {
@@ -113,6 +138,7 @@ describe('useNotesStore — import & DB sync', () => {
   afterEach(() => vi.useRealTimers());
 
   it('importNote adds note to state, localStorage, and POSTs to API', async () => {
+    bindRemoteAccount();
     authFetchMock.mockResolvedValue(okJson({}));
 
     const note = sampleNote();
@@ -130,6 +156,7 @@ describe('useNotesStore — import & DB sync', () => {
           method: 'POST',
           body: JSON.stringify(noteSyncPayload(note)),
         }),
+        expect.objectContaining({ onRequestStart: expect.any(Function) }),
       );
     });
     expect(useNotesStore.getState().syncError).toBeNull();
@@ -178,6 +205,7 @@ describe('useNotesStore local-only sync mode', () => {
 describe('useNotesStore — sync failure & retry', () => {
   beforeEach(() => {
     resetStore();
+    bindRemoteAccount();
     vi.useFakeTimers();
   });
   afterEach(() => vi.useRealTimers());
@@ -189,14 +217,10 @@ describe('useNotesStore — sync failure & retry', () => {
 
     const note = sampleNote();
     useNotesStore.getState().importNote(note);
-    await Promise.resolve();
-
-    expect(useNotesStore.getState().syncError).toContain('503');
+    await vi.waitFor(() => expect(useNotesStore.getState().syncIssue?.classification).toBe('REMOTE_NOT_CONFIRMED'));
 
     useNotesStore.getState().retrySync();
-    await Promise.resolve();
-
-    expect(useNotesStore.getState().syncError).toBeNull();
+    await vi.waitFor(() => expect(useNotesStore.getState().syncError).toBeNull());
     expect(useNotesStore.getState().savedAt).toBeInstanceOf(Date);
     expect(authFetchMock).toHaveBeenCalledTimes(2);
   });
@@ -219,6 +243,7 @@ describe('useNotesStore — sync failure & retry', () => {
       expect.objectContaining({
         body: expect.stringContaining('edited body'),
       }),
+      expect.objectContaining({ onRequestStart: expect.any(Function) }),
     );
   });
 });
@@ -252,6 +277,7 @@ describe('useNotesStore — Settings Reset', () => {
 describe('useNotesStore — per-note pending queue', () => {
   beforeEach(() => {
     resetStore();
+    bindRemoteAccount();
     vi.useFakeTimers();
     authFetchMock.mockResolvedValue(okJson({}));
   });
@@ -618,8 +644,9 @@ describe('K-319 recovery freeze guards', () => {
     expect(storage.has(SNAPSHOT_INDEX_KEY)).toBe(false);
   });
 
-  it('K-319A reports a stale upload as blocked without clearing errors or savedAt', async () => {
+  it('K-319A discards a stale upload without publishing over existing errors or savedAt', async () => {
     setRecoveryModeActiveForTest(false);
+    bindRemoteAccount();
     useNotesStore.setState({ notes: [sampleNote()], savedAt: null, syncError: 'existing error' });
     const response = deferred<ReturnType<typeof okJson>>();
     authFetchMock.mockReturnValueOnce(response.promise);
@@ -631,7 +658,7 @@ describe('K-319 recovery freeze guards', () => {
 
     expect(await upload).toBe(false);
     expect(useNotesStore.getState().savedAt).toBeNull();
-    expect(useNotesStore.getState().syncError).toContain('recovery mode');
+    expect(useNotesStore.getState().syncError).toBe('existing error');
   });
 
   it('rejects destructive cross-tab replacement without rebroadcast or state change', () => {

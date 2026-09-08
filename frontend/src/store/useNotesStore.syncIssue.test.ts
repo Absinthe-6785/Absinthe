@@ -5,6 +5,7 @@ import type { NoteBase } from '../components/views/noteUtils';
 import { FOLDERS_KEY } from '../components/views/noteUtils';
 import { NOTES_RUNTIME_SYNC_MODE_KEY } from '../lib/notesSyncClient';
 import { resetNotesPersistenceForTests } from '../lib/notePersistence';
+import { activateNotesAccountAuthority } from '../lib/notesAccountAuthority';
 import { setRecoveryModeActiveForTest } from '../lib/recoverySafetyPolicy';
 
 const { authFetchMock, authReadFetchMock, persistenceHarness } = vi.hoisted(() => ({
@@ -44,11 +45,30 @@ vi.stubGlobal('localStorage', {
 const { useNotesStore } = await import('./useNotesStore');
 
 function okResponse(data: unknown = {}) {
-  return { ok: true, status: 200, json: async () => data };
+  return {
+    ok: true,
+    status: 200,
+    json: async () => {
+      if (!data || typeof data !== 'object' || Array.isArray(data) || Object.keys(data).length > 0) return data;
+      const request = [...authFetchMock.mock.calls].reverse().find(([url, options]) => (
+        String(url).endsWith('/api/notes') && (options as RequestInit | undefined)?.method === 'POST'
+      ));
+      const raw = (request?.[1] as RequestInit | undefined)?.body;
+      if (typeof raw !== 'string') return data;
+      const sent = JSON.parse(raw) as Record<string, unknown>;
+      return { ...sent, user_id: 'account-a', properties: sent.properties ?? null, relations: sent.relations ?? null };
+    },
+  };
 }
 
 function failedResponse(status = 503) {
   return { ok: false, status, json: async () => ({}) };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(res => { resolve = res; });
+  return { promise, resolve };
 }
 
 function emptySnapshot(accountId: string) {
@@ -76,11 +96,13 @@ function note(id: string, overrides: Partial<NoteBase> = {}): NoteBase {
 }
 
 function resetStore() {
+  useNotesStore.getState().detachNotesStorage();
   setRecoveryModeActiveForTest(false);
   storage.clear();
   storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'remote');
   authFetchMock.mockReset();
   authReadFetchMock.mockReset();
+  authReadFetchMock.mockResolvedValue({ ok: false, status: 404, json: async () => ({}) });
   persistenceHarness.intercept = false;
   persistenceHarness.saveNotesAsyncMock.mockReset();
   resetNotesPersistenceForTests();
@@ -99,15 +121,21 @@ function resetStore() {
   });
 }
 
+function bindRemoteAccount() {
+  activateNotesAccountAuthority('account-a');
+  useNotesStore.setState({ activeAccountId: 'account-a' });
+}
+
 describe('Notes sync-issue ownership and clearing contract', () => {
   beforeEach(resetStore);
 
   it('clears a failed Note POST only after matching success', async () => {
+    bindRemoteAccount();
     const item = note('write-failure');
     authFetchMock.mockResolvedValueOnce(failedResponse()).mockResolvedValueOnce(okResponse());
 
     useNotesStore.getState().importNote(item);
-    await vi.waitFor(() => expect(useNotesStore.getState().syncError).toContain('503'));
+    await vi.waitFor(() => expect(useNotesStore.getState().syncIssue?.classification).toBe('REMOTE_NOT_CONFIRMED'));
     expect(useNotesStore.getState().syncIssue?.source).toBe('note_remote_write');
 
     await useNotesStore.getState().syncNoteToDB(item);
@@ -147,22 +175,24 @@ describe('Notes sync-issue ownership and clearing contract', () => {
   });
 
   it('does not let an unrelated successful folder write clear a Note failure', async () => {
+    bindRemoteAccount();
     const item = note('unrelated-success');
     authFetchMock.mockResolvedValueOnce(failedResponse()).mockResolvedValue(okResponse());
     useNotesStore.getState().importNote(item);
-    await vi.waitFor(() => expect(useNotesStore.getState().syncError).toContain('503'));
+    await vi.waitFor(() => expect(useNotesStore.getState().syncIssue?.classification).toBe('REMOTE_NOT_CONFIRMED'));
 
     useNotesStore.getState().createFolder('Work');
     await vi.waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
-    expect(useNotesStore.getState().syncError).toContain('503');
+    expect(useNotesStore.getState().syncIssue?.classification).toBe('REMOTE_NOT_CONFIRMED');
     expect(useNotesStore.getState().syncIssue?.source).toBe('note_remote_write');
   });
 
   it('runs Retry for a valid failed Note target', async () => {
+    bindRemoteAccount();
     const item = note('retry-note');
     authFetchMock.mockResolvedValueOnce(failedResponse()).mockResolvedValueOnce(okResponse());
     useNotesStore.getState().importNote(item);
-    await vi.waitFor(() => expect(useNotesStore.getState().syncError).toContain('503'));
+    await vi.waitFor(() => expect(useNotesStore.getState().syncIssue?.classification).toBe('REMOTE_NOT_CONFIRMED'));
 
     useNotesStore.getState().retrySync();
     await vi.waitFor(() => expect(useNotesStore.getState().syncError).toBeNull());
@@ -272,5 +302,169 @@ describe('Notes sync-issue ownership and clearing contract', () => {
     useNotesStore.getState().detachNotesStorage();
     expect(useNotesStore.getState().syncError).toBeNull();
     expect(useNotesStore.getState().syncIssue).toBeNull();
+  });
+
+  it('does not start remote POST when the intended local Note write fails', async () => {
+    bindRemoteAccount();
+    const item = note('local-before-remote');
+    useNotesStore.setState({ notes: [item], activeNoteId: item.id });
+    const setItem = vi.spyOn(localStorage, 'setItem').mockImplementation((key, value) => {
+      if (key === 'notes-v2') throw new Error('quota');
+      storage.set(key, value);
+    });
+
+    useNotesStore.getState().updateNote(item.id, { title: 'must stay local' });
+    await Promise.resolve();
+
+    expect(authFetchMock).not.toHaveBeenCalled();
+    expect(useNotesStore.getState().syncIssue).toEqual(expect.objectContaining({
+      source: 'local_notes_persistence',
+      classification: 'LOCAL_PERSISTENCE_FAILURE',
+    }));
+    setItem.mockRestore();
+  });
+
+  it('retains the 600ms body debounce and waits for local persistence before POST', async () => {
+    vi.useFakeTimers();
+    bindRemoteAccount();
+    const item = note('debounced-local-first');
+    useNotesStore.setState({ notes: [item], activeNoteId: item.id });
+    authFetchMock.mockResolvedValue(okResponse());
+
+    useNotesStore.getState().updateNote(item.id, { body: 'edited' });
+    await vi.advanceTimersByTimeAsync(599);
+    expect(authFetchMock).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    await vi.runAllTimersAsync();
+
+    expect(authFetchMock).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(authFetchMock.mock.calls[0][1].body)).toEqual(expect.objectContaining({ body: 'edited' }));
+    vi.useRealTimers();
+  });
+
+  it('publishes nothing when account A becomes stale while its POST is pending', async () => {
+    bindRemoteAccount();
+    const item = note('account-switch-post');
+    useNotesStore.setState({ notes: [item], activeNoteId: item.id, savedAt: null });
+    const pending = deferred<ReturnType<typeof okResponse>>();
+    authFetchMock.mockImplementation((_url, _options, control) => {
+      control?.onRequestStart?.();
+      return pending.promise;
+    });
+
+    const upload = useNotesStore.getState().syncNoteToDB(item);
+    await vi.waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(1));
+    activateNotesAccountAuthority('account-b');
+    useNotesStore.setState({ notes: [], activeAccountId: 'account-b' });
+    pending.resolve(okResponse({
+      id: item.id, user_id: 'account-a', title: item.title, body: item.body,
+      updated_at: item.updatedAt, folder_id: null, deleted_at: null,
+      starred: false, properties: null, relations: null,
+    }));
+
+    expect(await upload).toBe(false);
+    expect(useNotesStore.getState().savedAt).toBeNull();
+    expect(useNotesStore.getState().syncIssue).toBeNull();
+  });
+
+  it('publishes nothing when the recovery epoch changes while POST is pending', async () => {
+    bindRemoteAccount();
+    const item = note('recovery-transition-post');
+    useNotesStore.setState({ notes: [item], activeNoteId: item.id, savedAt: null });
+    const pending = deferred<ReturnType<typeof okResponse>>();
+    authFetchMock.mockImplementation((_url, _options, control) => {
+      control?.onRequestStart?.();
+      return pending.promise;
+    });
+
+    const upload = useNotesStore.getState().syncNoteToDB(item);
+    await vi.waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(1));
+    setRecoveryModeActiveForTest(true);
+    pending.resolve(okResponse({
+      id: item.id, user_id: 'account-a', title: item.title, body: item.body,
+      updated_at: item.updatedAt, folder_id: null, deleted_at: null,
+      starred: false, properties: null, relations: null,
+    }));
+
+    expect(await upload).toBe(false);
+    expect(useNotesStore.getState().savedAt).toBeNull();
+    expect(useNotesStore.getState().syncIssue).toBeNull();
+  });
+
+  it('publishes nothing when the account changes during ambiguous readback', async () => {
+    bindRemoteAccount();
+    const item = note('account-switch-readback');
+    useNotesStore.setState({ notes: [item], activeNoteId: item.id, savedAt: null });
+    const pendingRead = deferred<ReturnType<typeof okResponse>>();
+    authFetchMock.mockImplementation((_url, _options, control) => {
+      control?.onRequestStart?.();
+      return Promise.reject(new Error('lost response'));
+    });
+    authReadFetchMock.mockReturnValue(pendingRead.promise);
+
+    const upload = useNotesStore.getState().syncNoteToDB(item);
+    await vi.waitFor(() => expect(authReadFetchMock).toHaveBeenCalledTimes(1));
+    activateNotesAccountAuthority('account-b');
+    useNotesStore.setState({ notes: [], activeAccountId: 'account-b' });
+    pendingRead.resolve(okResponse({
+      id: item.id, user_id: 'account-a', title: item.title, body: item.body,
+      updated_at: item.updatedAt, folder_id: null, deleted_at: null,
+      starred: false, properties: null, relations: null,
+    }));
+
+    expect(await upload).toBe(false);
+    expect(useNotesStore.getState().syncIssue).toBeNull();
+  });
+
+  it('publishes nothing when logout detaches Notes during ambiguous readback', async () => {
+    bindRemoteAccount();
+    const item = note('logout-readback');
+    useNotesStore.setState({ notes: [item], activeNoteId: item.id, savedAt: null });
+    const pendingRead = deferred<ReturnType<typeof okResponse>>();
+    authFetchMock.mockImplementation((_url, _options, control) => {
+      control?.onRequestStart?.();
+      return Promise.reject(new Error('lost response'));
+    });
+    authReadFetchMock.mockReturnValue(pendingRead.promise);
+
+    const upload = useNotesStore.getState().syncNoteToDB(item);
+    await vi.waitFor(() => expect(authReadFetchMock).toHaveBeenCalledTimes(1));
+    useNotesStore.getState().detachNotesStorage();
+    pendingRead.resolve(okResponse({}));
+
+    expect(await upload).toBe(false);
+    expect(useNotesStore.getState().activeAccountId).toBeNull();
+    expect(useNotesStore.getState().syncIssue).toBeNull();
+  });
+
+  it('does not let an older POST success clear a newer local mutation issue', async () => {
+    bindRemoteAccount();
+    const item = note('newer-local-wins');
+    useNotesStore.setState({ notes: [item], activeNoteId: item.id, savedAt: null });
+    const pending = deferred<ReturnType<typeof okResponse>>();
+    authFetchMock.mockImplementation((_url, _options, control) => {
+      control?.onRequestStart?.();
+      return pending.promise;
+    });
+
+    const oldUpload = useNotesStore.getState().syncNoteToDB(item);
+    await vi.waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(1));
+    useNotesStore.getState().updateNote(item.id, { body: 'newer local body' });
+    useNotesStore.setState({
+      syncError: 'newer local mutation remains pending',
+      syncIssue: {
+        source: 'note_remote_write', targetId: item.id, retryable: true,
+        message: 'newer local mutation remains pending', classification: 'REMOTE_NOT_CONFIRMED',
+      },
+    });
+    pending.resolve(okResponse({
+      id: item.id, user_id: 'account-a', title: item.title, body: item.body,
+      updated_at: item.updatedAt, folder_id: null, deleted_at: null,
+      starred: false, properties: null, relations: null,
+    }));
+
+    expect(await oldUpload).toBe(false);
+    expect(useNotesStore.getState().syncError).toBe('newer local mutation remains pending');
+    expect(useNotesStore.getState().savedAt).toBeNull();
   });
 });

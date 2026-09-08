@@ -43,11 +43,49 @@ describe('supabase authFetch remote boundary', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     const { authFetch } = await import('./supabase');
-    await authFetch('/api/test');
+    const onRequestStart = vi.fn();
+    await authFetch('/api/test', {}, { onRequestStart });
 
     expect(getSessionMock).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledWith('/api/test', expect.objectContaining({
       headers: expect.objectContaining({ Authorization: 'Bearer token' }),
     }));
+    expect(onRequestStart).toHaveBeenCalledTimes(1);
+    expect(onRequestStart.mock.invocationCallOrder[0]).toBeLessThan(fetchMock.mock.invocationCallOrder[0]);
+  });
+
+  it('does not mark a request started when authentication is unavailable', async () => {
+    storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'remote');
+    getSessionMock.mockResolvedValueOnce({ data: { session: null } });
+    const fetchMock = vi.fn();
+    const onRequestStart = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { authFetch } = await import('./supabase');
+    await expect(authFetch('/api/test', {}, { onRequestStart })).rejects.toThrow('Not authenticated');
+
+    expect(onRequestStart).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('does not mark a request started when request construction fails', async () => {
+    storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'remote');
+    getSessionMock.mockResolvedValueOnce({
+      data: { session: { access_token: 'token' } },
+    });
+    const fetchMock = vi.fn();
+    const onRequestStart = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const options = Object.defineProperty({}, 'headers', {
+      enumerable: true,
+      get: () => { throw new Error('request construction failed'); },
+    }) as RequestInit;
+
+    const { authFetch } = await import('./supabase');
+    await expect(authFetch('/api/test', options, { onRequestStart }))
+      .rejects.toThrow('request construction failed');
+
+    expect(onRequestStart).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
