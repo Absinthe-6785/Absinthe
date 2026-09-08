@@ -9,7 +9,9 @@ import { projectNoteSyncPresentation, type NoteSyncPresentation } from './notesS
 vi.mock('./NoteEditorHeaderActions', () => ({ NoteEditorHeaderActions: () => null }));
 vi.mock('./NoteBreadcrumbBar', () => ({ NoteBreadcrumbBar: () => null }));
 vi.mock('./WorkspaceContextBanner', () => ({ WorkspaceContextBanner: () => null }));
-vi.mock('./NoteImageAttachments', () => ({ NoteImageAttachments: () => null }));
+vi.mock('./NoteImageAttachments', () => ({
+  NoteImageAttachments: () => createElement('div', { 'data-note-image-attachments': true }),
+}));
 vi.mock('../features/knowledge/components/NoteContextStrip', () => ({ NoteContextStrip: () => null }));
 vi.mock('./NoteGraphViewLazy', () => ({ NoteGraphViewLazy: () => null }));
 
@@ -191,7 +193,7 @@ describe('NoteViewEditorArea Return-to-Use attachment isolation', () => {
     }
   });
 
-  it('blocks image paste while preserving ordinary text editing and text paste', () => {
+  it('omits disabled attachment UI while preserving ordinary text editing and image-paste isolation', () => {
     vi.stubEnv('VITE_ABSINTHE_RETURN_TO_USE_ATTACHMENT_ISOLATION', 'true');
     const onBodyChange = vi.fn();
     const attachImageFilesToActiveNote = vi.fn();
@@ -215,13 +217,51 @@ describe('NoteViewEditorArea Return-to-Use attachment isolation', () => {
     act(() => editable.dispatchEvent(imagePaste));
     expect(attachImageFilesToActiveNote).not.toHaveBeenCalled();
     expect(onBodyChange).not.toHaveBeenCalled();
-    expect(mounted.host.textContent).toContain('Attachments are temporarily disabled');
+    expect(mounted.host.textContent).not.toContain('Attachments are temporarily disabled');
+    expect(mounted.host.querySelector('[data-return-to-use-attachment-isolation]')).toBeNull();
+    expect(mounted.host.querySelector('[data-note-image-attachments]')).toBeNull();
+    expect(Array.from(mounted.host.querySelectorAll('button')).some(button => (
+      button.title === getTranslator('ko')('nvInsertImage')
+    ))).toBe(false);
+
+    const imageDrop = new Event('drop', { bubbles: true, cancelable: true });
+    Object.defineProperty(imageDrop, 'dataTransfer', {
+      value: { items: [{ kind: 'file', type: 'image/png' }] },
+    });
+    act(() => editorDropZone.dispatchEvent(imageDrop));
+    expect(imageDrop.defaultPrevented).toBe(true);
 
     const textPaste = new Event('paste', { bubbles: true, cancelable: true });
     Object.defineProperty(textPaste, 'clipboardData', { value: clipboardData({ text: ' pasted text' }) });
     act(() => editable.dispatchEvent(textPaste));
     expect(onBodyChange).toHaveBeenCalled();
     expect(attachImageFilesToActiveNote).not.toHaveBeenCalled();
+    cleanup(mounted.root, mounted.host);
+  });
+
+  it('keeps image controls and the attachment panel in the non-isolated editor', () => {
+    vi.stubEnv('VITE_ABSINTHE_RETURN_TO_USE_ATTACHMENT_ISOLATION', 'false');
+    const mounted = renderEditor(makeProps(vi.fn(), vi.fn()));
+
+    expect(mounted.host.querySelector('[data-note-image-attachments]')).not.toBeNull();
+    expect(Array.from(mounted.host.querySelectorAll('button')).some(button => (
+      button.title === getTranslator('ko')('nvInsertImage')
+    ))).toBe(true);
+
+    cleanup(mounted.root, mounted.host);
+  });
+
+  it('keeps historical inline image blocks visible while attachment creation UI is isolated', () => {
+    vi.stubEnv('VITE_ABSINTHE_RETURN_TO_USE_ATTACHMENT_ISOLATION', 'true');
+    const mounted = renderEditor(makeProps(
+      vi.fn(),
+      vi.fn(),
+      '![historical](data:image/png;base64,aGlzdG9yaWNhbA==)',
+    ));
+
+    expect(mounted.host.querySelector('.be-image-block')).not.toBeNull();
+    expect(mounted.host.querySelector('[data-note-image-attachments]')).toBeNull();
+
     cleanup(mounted.root, mounted.host);
   });
 

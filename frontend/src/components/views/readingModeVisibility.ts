@@ -2,7 +2,6 @@ import type { Block } from './blockUtils';
 import { isToggleBlockType } from './toggleBlockTypes';
 
 const EMPTY_TEXT_TYPES = new Set<Block['type']>([
-  'paragraph',
   'heading1',
   'heading2',
   'heading3',
@@ -15,6 +14,8 @@ const EMPTY_TEXT_TYPES = new Set<Block['type']>([
 
 /** Hide editor-only empty shells in reading mode so documents read cleanly. */
 export function shouldHideBlockInReadingMode(block: Block): boolean {
+  // Explicit paragraph blocks are document spacing, including when empty.
+  if (block.type === 'paragraph') return false;
   if (isToggleBlockType(block.type)) {
     return !block.content?.trim() && block.children.length === 0;
   }

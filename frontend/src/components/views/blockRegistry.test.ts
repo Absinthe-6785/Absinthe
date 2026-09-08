@@ -7,7 +7,7 @@ import {
 } from './blockRegistry';
 import type { BlockRenderContext } from './editorTypes';
 import type { BlockEditorColors } from './editorTypes';
-import { makeBlock } from './blockUtils';
+import { blocksToMarkdown, makeBlock, markdownToBlocks } from './blockUtils';
 
 const c: BlockEditorColors = {
   bg: '#fff', text: '#111', textMuted: '#666', textFaint: '#999',
@@ -72,10 +72,49 @@ describe('blockRegistry', () => {
     expect(node).toBeTruthy();
   });
 
-  it('renderBlockContent hides empty paragraph in readOnly', () => {
+  it('renderBlockContent preserves one line of spacing for an empty paragraph in readOnly', () => {
     const block = makeBlock('paragraph');
     const node = renderBlockContent(block, c, minimalCtx({ readOnly: true }));
-    expect(node).toBeNull();
+    expect(node).toBeTruthy();
+    expect(node).toMatchObject({
+      props: {
+        'data-reading-empty-paragraph': 'true',
+        style: expect.objectContaining({ minHeight: '1.65em' }),
+      },
+    });
+  });
+
+  it('preserves leading, consecutive, and trailing empty paragraphs through reading render', () => {
+    const markdown = '\n\nBody\n\n\n';
+    const blocks = markdownToBlocks(markdown);
+    const emptyParagraphs = blocks.filter(block => block.type === 'paragraph' && !block.content);
+    const renderedEmptyParagraphs = emptyParagraphs.map(block => (
+      renderBlockContent(block, c, minimalCtx({ readOnly: true }))
+    ));
+
+    expect(blocksToMarkdown(blocks)).toBe(markdown);
+    expect(emptyParagraphs).toHaveLength(5);
+    expect(renderedEmptyParagraphs).toHaveLength(emptyParagraphs.length);
+    expect(renderedEmptyParagraphs.every(node => (
+      node !== null
+      && typeof node === 'object'
+      && 'props' in node
+      && node.props['data-reading-empty-paragraph'] === 'true'
+      && node.props.style.minHeight === '1.65em'
+    ))).toBe(true);
+  });
+
+  it('does not mutate serialized body across edit-reading-edit rendering', () => {
+    const markdown = 'Paragraph A\n\nParagraph B';
+    const blocks = markdownToBlocks(markdown);
+    const renderAll = (readOnly: boolean) => blocks.map(block => (
+      renderBlockContent(block, c, minimalCtx({ readOnly }))
+    ));
+
+    expect(renderAll(false).every(Boolean)).toBe(true);
+    expect(renderAll(true).every(Boolean)).toBe(true);
+    expect(renderAll(false).every(Boolean)).toBe(true);
+    expect(blocksToMarkdown(blocks)).toBe(markdown);
   });
 
   it('renderBlockContent handles divider', () => {
