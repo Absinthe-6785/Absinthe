@@ -33,11 +33,13 @@ import {
   isNotesIndexedDbRevisionEvent,
   clearNotesPersistence,
   detachNotesPersistenceAccount,
+  type NotesPersistenceWriteResult,
 } from '../lib/notePersistence';
 import {
   type NotesAuthorityLoadState,
   type NotesAccountRecoveryContext,
   activateNotesAccountAuthority,
+  getActiveNotesAuthorityRequest,
   getActiveNotesAuthorityAccountId,
   loadAccountScopedNotes,
   createNotesAccountRecoveryContext,
@@ -61,6 +63,7 @@ import {
   completeNotesSingleDeleteBootstrapReconciliation,
   validateNotesSingleDeleteTarget,
   type NotesSingleDeleteAuthorization,
+  type NotesAuthorityRequest,
 } from '../lib/notesAccountAuthority';
 import { deleteSingleRemoteNote } from '../lib/notesSingleDeleteRemote';
 import {
@@ -98,6 +101,10 @@ import {
   fetchCompleteNotesFoldersSnapshot,
   mapDbFolder,
   isNotesCloudSyncEnabled,
+  writeNoteWithAuthoritativeReadback,
+  type NoteWritePayload,
+  type NotesRemoteContextState,
+  type NotesRemoteWriteClassification,
 } from '../lib/notesSyncClient';
 import {
   normalizeAuthoritativeRemoteBootstrapNote,
@@ -166,6 +173,7 @@ interface SyncIssueState {
   readonly retryable: boolean;
   /** Matches syncError so direct test/runtime state replacements cannot reuse stale ownership. */
   readonly message: string;
+  readonly classification?: NotesRemoteWriteClassification | 'LOCAL_PERSISTENCE_FAILURE' | 'RECOVERY_GUARD_REJECTION' | 'BOOTSTRAP_FAILURE';
 }
 
 const RESOLVABLE_RECOVERY_PERMANENT_DELETE_MESSAGES = new Set([
@@ -253,11 +261,23 @@ interface NotesState {
 
 // ── 노트별 body debounce (리렌더 불필요) ───────────────────────────
 // 단일 pending 슬롯은 노트 전환·탭 종료 시 이전 노트 sync 유실 → id별 Map 사용
-const pendingBodySync = new Map<string, Note>();
+interface PreparedNoteSyncAttempt {
+  readonly note: Note;
+  readonly payload: NoteWritePayload;
+  readonly accountId: string | null;
+  readonly authorityRequest: NotesAuthorityRequest | null;
+  readonly operationEpoch: number;
+  readonly attemptId: number;
+  readonly persistence: Promise<NotesPersistenceWriteResult>;
+}
+
+const pendingBodySync = new Map<string, PreparedNoteSyncAttempt>();
 const bodySyncTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const latestNoteSyncAttempts = new Map<string, number>();
 let lastFailedNote: Note | null = null;
 let lastFailedDeleteId: string | null = null;
 let notesLocalMutationGeneration = 0;
+let nextNoteSyncAttempt = 0;
 const BODY_SYNC_MS = 600;
 
 export const VAULT_RESTORE_DURABILITY_FAILURE_MESSAGE =
@@ -749,6 +769,26 @@ function clearAllBodySyncTimers() {
   bodySyncTimers.clear();
 }
 
+function nextSyncAttemptFor(noteId: string): number {
+  const attemptId = ++nextNoteSyncAttempt;
+  latestNoteSyncAttempts.set(noteId, attemptId);
+  return attemptId;
+}
+
+function finishNoteSyncAttempt(attempt: PreparedNoteSyncAttempt): void {
+  if (latestNoteSyncAttempts.get(attempt.note.id) === attempt.attemptId) {
+    latestNoteSyncAttempts.delete(attempt.note.id);
+  }
+}
+
+function sameNoteSyncPayload(left: NoteWritePayload, right: NoteWritePayload): boolean {
+  try {
+    return stableRecoveryJson(left) === stableRecoveryJson(right);
+  } catch {
+    return false;
+  }
+}
+
 function resolveFolderId(opts?: CreateNoteOpts): string | null {
   if (opts?.folderId !== undefined) return opts.folderId;
   return normalizeNoteFolderId(opts?.folderContext ?? null);
@@ -807,7 +847,11 @@ export const useNotesStore = create<NotesState>((set, get) => {
   const setSyncIssue = (
     message: string,
     source: SyncIssueSource,
-    options: { targetId?: string; retryable?: boolean } = {},
+    options: {
+      targetId?: string;
+      retryable?: boolean;
+      classification?: SyncIssueState['classification'];
+    } = {},
   ): void => {
     if (shouldPreserveExistingSyncIssue(currentSyncIssue(), source)) return;
     set({
@@ -817,6 +861,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
         targetId: options.targetId,
         retryable: options.retryable ?? false,
         message,
+        classification: options.classification,
       },
     });
   };
@@ -875,43 +920,130 @@ export const useNotesStore = create<NotesState>((set, get) => {
     if (retryTargetMissing) set({ syncError: null, syncIssue: null });
   };
 
+  const prepareNoteSyncAttempt = (
+    note: Note,
+    persistence: Promise<NotesPersistenceWriteResult>,
+  ): PreparedNoteSyncAttempt => {
+    const accountId = get().activeAccountId;
+    const authorityRequest = getActiveNotesAuthorityRequest();
+    if (lastFailedNote?.id === note.id) lastFailedNote = null;
+    return {
+      note: { ...note },
+      payload: noteSyncPayload(note) as unknown as NoteWritePayload,
+      accountId,
+      authorityRequest,
+      operationEpoch: captureOperationEpoch(),
+      attemptId: nextSyncAttemptFor(note.id),
+      persistence,
+    };
+  };
+
+  const noteSyncContextState = (attempt: PreparedNoteSyncAttempt): NotesRemoteContextState => {
+    if (!attempt.accountId || !attempt.authorityRequest
+      || get().activeAccountId !== attempt.accountId
+      || !isNotesAuthorityRequestActive(attempt.authorityRequest)) return 'STALE_ACCOUNT';
+    const current = get().notes.find(candidate => candidate.id === attempt.note.id);
+    if (!isOperationEpochCurrent(attempt.operationEpoch)
+      || latestNoteSyncAttempts.get(attempt.note.id) !== attempt.attemptId
+      || !current
+      || !sameNoteSyncPayload(noteSyncPayload(current) as unknown as NoteWritePayload, attempt.payload)) {
+      return 'STALE_OPERATION';
+    }
+    return 'CURRENT';
+  };
+
+  const syncPreparedNoteToDB = async (attempt: PreparedNoteSyncAttempt): Promise<boolean> => {
+    if (!mayUploadRemote()) {
+      finishNoteSyncAttempt(attempt);
+      recordRecoveryBlock('upload_remote');
+      setSyncIssue(RECOVERY_MODE_MESSAGE, 'recovery', { classification: 'RECOVERY_GUARD_REJECTION' });
+      return false;
+    }
+    const persistence = await attempt.persistence;
+    if (persistence.status !== 'persisted') {
+      finishNoteSyncAttempt(attempt);
+      return false;
+    }
+    if (latestNoteSyncAttempts.get(attempt.note.id) !== attempt.attemptId) return false;
+    if (!isNotesCloudSyncEnabled()) {
+      finishNoteSyncAttempt(attempt);
+      if (lastFailedNote?.id === attempt.note.id) lastFailedNote = null;
+      clearSyncIssue('note_remote_write', attempt.note.id);
+      set({ savedAt: new Date() });
+      return true;
+    }
+    if (!attempt.accountId || !attempt.authorityRequest) {
+      finishNoteSyncAttempt(attempt);
+      lastFailedNote = attempt.note;
+      setSyncIssue('Cloud sync authentication is unavailable.', 'note_remote_write', {
+        targetId: attempt.note.id,
+        retryable: true,
+        classification: 'AUTH_UNAVAILABLE',
+      });
+      return false;
+    }
+    const beforePost = noteSyncContextState(attempt);
+    if (beforePost !== 'CURRENT') {
+      finishNoteSyncAttempt(attempt);
+      return false;
+    }
+    const result = await writeNoteWithAuthoritativeReadback({
+      accountId: attempt.accountId,
+      payload: attempt.payload,
+      currentState: () => noteSyncContextState(attempt),
+    });
+    if (result.classification === 'STALE_ACCOUNT') {
+      finishNoteSyncAttempt(attempt);
+      return false;
+    }
+    if (result.classification === 'STALE_OPERATION') {
+      finishNoteSyncAttempt(attempt);
+      return false;
+    }
+    if (noteSyncContextState(attempt) !== 'CURRENT') {
+      finishNoteSyncAttempt(attempt);
+      return false;
+    }
+    if (result.classification === 'REMOTE_CONFIRMED'
+      || result.classification === 'REMOTE_CONFIRMED_AFTER_READBACK') {
+      finishNoteSyncAttempt(attempt);
+      if (lastFailedNote?.id === attempt.note.id) lastFailedNote = null;
+      clearSyncIssue('note_remote_write', attempt.note.id);
+      set({ savedAt: new Date() });
+      return true;
+    }
+    const nonRetryable = result.classification === 'REMOTE_CONFLICT'
+      || (result.classification === 'HTTP_REJECTION'
+        && (result.code === 'NOTE_ID_UNAVAILABLE' || result.code === 'NOTE_WRITE_CONFLICT'));
+    finishNoteSyncAttempt(attempt);
+    lastFailedNote = nonRetryable ? null : attempt.note;
+    const message = result.classification === 'REMOTE_CONFLICT'
+      ? 'Cloud sync conflict was preserved locally.'
+      : result.classification === 'REMOTE_NOT_CONFIRMED'
+        ? 'Cloud sync was not confirmed; the local Note was kept.'
+        : result.classification === 'TRANSPORT_AMBIGUOUS'
+          ? 'Cloud sync could not be confirmed; the local Note was kept.'
+          : result.classification === 'HTTP_REJECTION'
+            ? `Cloud sync was rejected (${result.code ?? result.httpStatus ?? 'request'}).`
+            : result.classification === 'AUTH_UNAVAILABLE'
+              ? 'Cloud sync authentication is unavailable.'
+              : 'Cloud sync request did not start.';
+    setSyncIssue(message, 'note_remote_write', {
+      targetId: attempt.note.id,
+      retryable: !nonRetryable,
+      classification: result.classification,
+    });
+    return false;
+  };
+
   const syncNoteToDB = async (note: Note): Promise<boolean> => {
     if (!mayUploadRemote()) {
       recordRecoveryBlock('upload_remote');
-      setSyncIssue(RECOVERY_MODE_MESSAGE, 'recovery');
+      setSyncIssue(RECOVERY_MODE_MESSAGE, 'recovery', { classification: 'RECOVERY_GUARD_REJECTION' });
       return false;
     }
-    const operationEpoch = captureOperationEpoch();
-    if (!isNotesCloudSyncEnabled()) {
-      if (lastFailedNote?.id === note.id) lastFailedNote = null;
-      clearSyncIssue('note_remote_write', note.id);
-      set({ savedAt: new Date() });
-      return true;
-    }
-    try {
-      const res = await authFetch(`${API_URL}/api/notes`, {
-        method: 'POST',
-        body: JSON.stringify(noteSyncPayload(note)),
-      });
-      assertCurrentOperationEpoch(operationEpoch, 'upload_remote');
-      if (!res.ok) {
-        lastFailedNote = note;
-        setSyncIssue(`Cloud sync failed (${res.status})`, 'note_remote_write', { targetId: note.id, retryable: true });
-        return false;
-      }
-      if (lastFailedNote?.id === note.id) lastFailedNote = null;
-      clearSyncIssue('note_remote_write', note.id);
-      set({ savedAt: new Date() });
-      return true;
-    } catch (err) {
-      if (err instanceof RecoveryModeBlockedError) {
-        setSyncIssue(RECOVERY_MODE_MESSAGE, 'recovery');
-        return false;
-      }
-      lastFailedNote = note;
-      setSyncIssue(err instanceof Error ? err.message : 'Cloud sync failed', 'note_remote_write', { targetId: note.id, retryable: true });
-      return false;
-    }
+    const persistence = persistNotes(get().notes);
+    return syncPreparedNoteToDB(prepareNoteSyncAttempt(note, persistence));
   };
 
   const removeNoteFromDB = async (id: string): Promise<boolean> => {
@@ -948,23 +1080,24 @@ export const useNotesStore = create<NotesState>((set, get) => {
     }
   };
 
-  const persistNotes = (notes: Note[]) => {
+  const persistNotes = (notes: Note[]): Promise<NotesPersistenceWriteResult> => {
     notesLocalMutationGeneration += 1;
     const handleResult = (result: ReturnType<typeof saveNotesSyncResult>) => {
       if (result.status !== 'persisted') {
         setSyncIssue(LOCAL_NOTES_SAVE_ERROR, 'local_notes_persistence', {
           retryable: result.status !== 'blocked',
+          classification: 'LOCAL_PERSISTENCE_FAILURE',
         });
       } else {
         clearSyncIssue('local_notes_persistence');
         scheduleAutoSnapshot(notes, get().folders);
       }
+      return result;
     };
     if (getNotesPersistenceMode() === 'localStorage') {
-      handleResult(saveNotesSyncResult(notes));
-      return;
+      return Promise.resolve(handleResult(saveNotesSyncResult(notes)));
     }
-    void saveNotesAsync(notes).then(handleResult);
+    return saveNotesAsync(notes).then(handleResult);
   };
 
   const persistFolders = (folders: NoteFolder[]) => {
@@ -1037,24 +1170,24 @@ export const useNotesStore = create<NotesState>((set, get) => {
     clearAllBodySyncTimers();
     const pending = [...pendingBodySync.values()];
     pendingBodySync.clear();
-    for (const note of pending) {
-      knowledgeIndexService.updateNote(note);
-      void syncNoteToDB(note);
+    for (const attempt of pending) {
+      knowledgeIndexService.updateNote(attempt.note);
+      void syncPreparedNoteToDB(attempt);
     }
     if (pending.length > 0) bumpIndexContent(set, get);
   };
 
-  const scheduleBodySync = (note: Note, set: (partial: Partial<NotesState> | ((state: NotesState) => Partial<NotesState>)) => void, get: () => NotesState) => {
-    pendingBodySync.set(note.id, note);
-    clearBodySyncTimer(note.id);
-    bodySyncTimers.set(note.id, setTimeout(() => {
-      bodySyncTimers.delete(note.id);
-      const latest = pendingBodySync.get(note.id);
-      pendingBodySync.delete(note.id);
+  const scheduleBodySync = (attempt: PreparedNoteSyncAttempt, set: (partial: Partial<NotesState> | ((state: NotesState) => Partial<NotesState>)) => void, get: () => NotesState) => {
+    pendingBodySync.set(attempt.note.id, attempt);
+    clearBodySyncTimer(attempt.note.id);
+    bodySyncTimers.set(attempt.note.id, setTimeout(() => {
+      bodySyncTimers.delete(attempt.note.id);
+      const latest = pendingBodySync.get(attempt.note.id);
+      pendingBodySync.delete(attempt.note.id);
       if (latest) {
-        knowledgeIndexService.updateNote(latest);
+        knowledgeIndexService.updateNote(latest.note);
         bumpIndexContent(set, get);
-        void syncNoteToDB(latest);
+        void syncPreparedNoteToDB(latest);
       }
     }, BODY_SYNC_MS));
   };
@@ -1108,23 +1241,23 @@ export const useNotesStore = create<NotesState>((set, get) => {
       };
       const notes = [note, ...get().notes];
       set({ notes, activeNoteId: id, vaultStructureVersion: get().vaultStructureVersion + 1 });
-      persistNotes(notes);
+      const persistence = persistNotes(notes);
       saveActiveNoteId(id);
       knowledgeIndexService.updateNote(note);
       invalidateNoteGalaxyMapCache();
       recordNoteCreated(id);
-      void syncNoteToDB(note);
+      void syncPreparedNoteToDB(prepareNoteSyncAttempt(note, persistence));
       return id;
     },
 
     importNote: (note) => {
       const notes = [note, ...get().notes];
       set({ notes, activeNoteId: note.id, vaultStructureVersion: get().vaultStructureVersion + 1 });
-      persistNotes(notes);
+      const persistence = persistNotes(notes);
       saveActiveNoteId(note.id);
       knowledgeIndexService.updateNote(note);
       invalidateNoteGalaxyMapCache();
-      void syncNoteToDB(note);
+      void syncPreparedNoteToDB(prepareNoteSyncAttempt(note, persistence));
     },
 
     importVaultRestore: (manifest, strategy) => {
@@ -1230,7 +1363,10 @@ export const useNotesStore = create<NotesState>((set, get) => {
               !beforeIds.has(note.id) ||
               (manifestIds.has(note.id) && strategy === 'replace')
             )) {
-              void syncNoteToDB(note);
+              void syncPreparedNoteToDB(prepareNoteSyncAttempt(
+                note,
+                Promise.resolve({ status: 'persisted' }),
+              ));
             }
           }
           persisted.folders
@@ -1264,12 +1400,14 @@ export const useNotesStore = create<NotesState>((set, get) => {
         return false;
       }
       set({ notes: snapshot.notes, folders: snapshot.folders });
-      persistNotes(snapshot.notes);
+      const persistence = persistNotes(snapshot.notes);
       persistFolders(snapshot.folders);
       for (const note of snapshot.notes) {
         knowledgeIndexService.updateNote(note);
       }
-      snapshot.notes.forEach(n => { void syncNoteToDB(n); });
+      snapshot.notes.forEach(n => {
+        void syncPreparedNoteToDB(prepareNoteSyncAttempt(n, persistence));
+      });
       clearVaultRestoreSnapshot();
       set({ vaultRestoreCanUndo: false });
       clearSyncIssue('recovery');
@@ -1286,18 +1424,18 @@ export const useNotesStore = create<NotesState>((set, get) => {
         n.id === id ? mergeNotePatch(n, normalizedPatch) : n
       );
       set({ notes });
-      persistNotes(notes);
+      const persistence = persistNotes(notes);
       const updated = notes.find(n => n.id === id);
       if (!updated) return;
       if (previous) recordNoteUpdateDiff(previous, updated);
       const bodyOnly = isBodyOnlyPatch(normalizedPatch);
       if (bodyOnly) {
-        scheduleBodySync(updated, set, get);
+        scheduleBodySync(prepareNoteSyncAttempt(updated, persistence), set, get);
       } else {
         syncKnowledgeIndexForNote(updated, normalizedPatch);
         bumpVaultStructure(set, get);
         flushPendingSync();
-        void syncNoteToDB(updated);
+        void syncPreparedNoteToDB(prepareNoteSyncAttempt(updated, persistence));
       }
     },
 
@@ -1306,10 +1444,10 @@ export const useNotesStore = create<NotesState>((set, get) => {
         n.id === id ? { ...n, starred: !n.starred } : n
       );
       set({ notes, vaultStructureVersion: get().vaultStructureVersion + 1 });
-      persistNotes(notes);
+      const persistence = persistNotes(notes);
       invalidateNoteGalaxyMapCache();
       const note = notes.find(n => n.id === id);
-      if (note) void syncNoteToDB(note);
+      if (note) void syncPreparedNoteToDB(prepareNoteSyncAttempt(note, persistence));
     },
 
     duplicateNote: (note) => {
@@ -1325,12 +1463,12 @@ export const useNotesStore = create<NotesState>((set, get) => {
       };
       const notes = [copy, ...get().notes];
       set({ notes, activeNoteId: id, vaultStructureVersion: get().vaultStructureVersion + 1 });
-      persistNotes(notes);
+      const persistence = persistNotes(notes);
       saveActiveNoteId(id);
       knowledgeIndexService.updateNote(copy);
       invalidateNoteGalaxyMapCache();
       recordNoteCreated(id);
-      void syncNoteToDB(copy);
+      void syncPreparedNoteToDB(prepareNoteSyncAttempt(copy, persistence));
       return id;
     },
 
@@ -1341,13 +1479,13 @@ export const useNotesStore = create<NotesState>((set, get) => {
       );
       const nextActive = notes.find(n => !n.deletedAt)?.id ?? null;
       set({ notes, activeNoteId: nextActive, vaultStructureVersion: get().vaultStructureVersion + 1 });
-      persistNotes(notes);
+      const persistence = persistNotes(notes);
       saveActiveNoteId(nextActive);
       invalidateNoteGalaxyMapCache();
       const trashed = notes.find(n => n.id === id);
       if (trashed) {
         knowledgeIndexService.removeNote(id);
-        void syncNoteToDB(trashed);
+        void syncPreparedNoteToDB(prepareNoteSyncAttempt(trashed, persistence));
       }
     },
 
@@ -1362,12 +1500,12 @@ export const useNotesStore = create<NotesState>((set, get) => {
         activeFolderId: restored?.folderId ?? get().activeFolderId,
         vaultStructureVersion: get().vaultStructureVersion + 1,
       });
-      persistNotes(notes);
+      const persistence = persistNotes(notes);
       saveActiveNoteId(id);
       invalidateNoteGalaxyMapCache();
       if (restored) {
         knowledgeIndexService.updateNote(restored);
-        void syncNoteToDB(restored);
+        void syncPreparedNoteToDB(prepareNoteSyncAttempt(restored, persistence));
         recordArchiveRestore(id);
       }
     },
@@ -1556,12 +1694,12 @@ export const useNotesStore = create<NotesState>((set, get) => {
       const folders = get().folders.filter(f => f.id !== id);
       const activeFolderId = get().activeFolderId === id ? null : get().activeFolderId;
       set({ folders, notes, activeFolderId, vaultStructureVersion: get().vaultStructureVersion + 1 });
-      persistNotes(notes);
+      const persistence = persistNotes(notes);
       persistFolders(folders);
       invalidateNoteGalaxyMapCache();
       for (const n of notes.filter(n => movedIds.has(n.id))) {
         knowledgeIndexService.updateNote(n);
-        void syncNoteToDB(n);
+        void syncPreparedNoteToDB(prepareNoteSyncAttempt(n, persistence));
       }
       void removeFolderFromDB(id);
     },
@@ -1599,8 +1737,8 @@ export const useNotesStore = create<NotesState>((set, get) => {
         const remoteFolderIds = new Set(remote.folders.map(folder => folder.id));
         const previousById = new Map(previousNotes.map(note => [note.id, note]));
         const pendingLocalById = new Map<string, Note>();
-        for (const [noteId, pendingNote] of pendingBodySync) {
-          if (previousById.has(noteId)) pendingLocalById.set(noteId, pendingNote);
+        for (const [noteId, pendingAttempt] of pendingBodySync) {
+          if (previousById.has(noteId)) pendingLocalById.set(noteId, pendingAttempt.note);
         }
         if (lastFailedNote && previousById.has(lastFailedNote.id)) {
           pendingLocalById.set(lastFailedNote.id, lastFailedNote);
@@ -1693,7 +1831,10 @@ export const useNotesStore = create<NotesState>((set, get) => {
         // This is deliberately marker-only. Bootstrap remains remote read-only;
         // an existing flush/user-write boundary performs any later convergence.
         for (const [noteId, pendingNote] of pendingRemoteNotes) {
-          pendingBodySync.set(noteId, pendingNote);
+          pendingBodySync.set(noteId, prepareNoteSyncAttempt(
+            pendingNote,
+            Promise.resolve({ status: 'persisted' }),
+          ));
         }
         const previousActive = get().activeNoteId;
         const nextActive = committedNotes.some(note => note.id === previousActive && !note.deletedAt)
@@ -1860,6 +2001,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
     detachNotesStorage: () => {
       clearAllBodySyncTimers();
       pendingBodySync.clear();
+      latestNoteSyncAttempts.clear();
       lastFailedNote = null;
       lastFailedDeleteId = null;
       detachNotesPersistenceAccount();
@@ -1889,6 +2031,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
       }
       clearAllBodySyncTimers();
       pendingBodySync.clear();
+      latestNoteSyncAttempts.clear();
       lastFailedNote = null;
       lastFailedDeleteId = null;
       clearKnowledgeHistory();

@@ -2,7 +2,7 @@
  * K-114 — Account-scoped complete snapshot bootstrap and note-local sync status.
  */
 import { API_URL } from './config';
-import { authReadFetch } from './supabase';
+import { authFetch, authReadFetch } from './supabase';
 import type { NoteFolderBase as NoteFolder } from '../components/views/noteUtils';
 export {
   isNotesCloudSyncEnabled,
@@ -25,6 +25,233 @@ export interface DbNoteRow {
   starred?: boolean;
   properties?: Record<string, string> | null;
   relations?: Record<string, string[]> | null;
+}
+
+export interface NoteWritePayload {
+  id: string;
+  title: string;
+  body: string;
+  updated_at: number;
+  folder_id: string | null;
+  deleted_at: number | null;
+  starred?: boolean;
+  properties?: Record<string, string> | null;
+  relations?: Record<string, string[]> | null;
+}
+
+export type NotesRemoteContextState = 'CURRENT' | 'STALE_ACCOUNT' | 'STALE_OPERATION';
+
+export type NotesRemoteWriteClassification =
+  | 'REMOTE_CONFIRMED'
+  | 'AUTH_UNAVAILABLE'
+  | 'REQUEST_NOT_STARTED'
+  | 'HTTP_REJECTION'
+  | 'TRANSPORT_AMBIGUOUS'
+  | 'REMOTE_CONFIRMED_AFTER_READBACK'
+  | 'REMOTE_NOT_CONFIRMED'
+  | 'REMOTE_CONFLICT'
+  | 'STALE_OPERATION'
+  | 'STALE_ACCOUNT';
+
+export interface NotesRemoteWriteResult {
+  classification: NotesRemoteWriteClassification;
+  httpStatus?: number;
+  code?: string;
+}
+
+export interface NotesRemoteWriteInput {
+  accountId: string;
+  payload: NoteWritePayload;
+  currentState: () => NotesRemoteContextState;
+}
+
+const AUTHORITATIVE_NOTE_KEYS = [
+  'body', 'deleted_at', 'folder_id', 'id', 'properties', 'relations',
+  'starred', 'title', 'updated_at', 'user_id',
+] as const;
+
+function validStringRecord(value: unknown): value is Record<string, string> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+    && Object.entries(value as Record<string, unknown>).every(([key, item]) => key.length > 0 && typeof item === 'string');
+}
+
+function validRelations(value: unknown): value is Record<string, string[]> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+    && Object.entries(value as Record<string, unknown>).every(([key, item]) => (
+      key.length > 0 && Array.isArray(item) && item.every(id => typeof id === 'string')
+    ));
+}
+
+export function validateAuthoritativeNoteRow(value: unknown, accountId: string): DbNoteRow | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  if (Object.keys(row).sort().join(',') !== [...AUTHORITATIVE_NOTE_KEYS].sort().join(',')) return null;
+  if (typeof row.id !== 'string' || row.user_id !== accountId
+    || typeof row.title !== 'string' || typeof row.body !== 'string'
+    || !Number.isSafeInteger(row.updated_at) || (row.updated_at as number) < 0
+    || (row.folder_id !== null && typeof row.folder_id !== 'string')
+    || (row.deleted_at !== null && (!Number.isSafeInteger(row.deleted_at) || (row.deleted_at as number) < 0))
+    || typeof row.starred !== 'boolean'
+    || (row.properties !== null && !validStringRecord(row.properties))
+    || (row.relations !== null && !validRelations(row.relations))) return null;
+  return row as unknown as DbNoteRow;
+}
+
+function orderedRecord(value: Record<string, string> | null | undefined): Record<string, string> | null {
+  if (!value || Object.keys(value).length === 0) return null;
+  return Object.fromEntries(Object.entries(value).sort(([left], [right]) => left.localeCompare(right)));
+}
+
+function orderedRelations(value: Record<string, string[]> | null | undefined): Record<string, string[]> | null {
+  if (!value || Object.keys(value).length === 0) return null;
+  return Object.fromEntries(Object.entries(value)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, ids]) => [key, [...ids]]));
+}
+
+function canonicalMutation(value: NoteWritePayload | DbNoteRow): string {
+  return JSON.stringify({
+    id: value.id,
+    title: value.title,
+    body: value.body,
+    folder_id: value.folder_id,
+    deleted_at: value.deleted_at,
+    starred: value.starred ?? false,
+    properties: orderedRecord(value.properties),
+    relations: orderedRelations(value.relations),
+  });
+}
+
+function effectiveRevision(value: Pick<NoteWritePayload, 'updated_at' | 'deleted_at'>): number {
+  return Math.max(value.updated_at, value.deleted_at ?? 0);
+}
+
+function matchingAuthoritativeMutation(row: DbNoteRow, payload: NoteWritePayload): boolean {
+  return row.id === payload.id
+    && effectiveRevision(row) >= effectiveRevision(payload)
+    && canonicalMutation(row) === canonicalMutation(payload);
+}
+
+async function responseCode(response: Response): Promise<string | undefined> {
+  try {
+    const body = await response.json() as unknown;
+    if (!body || typeof body !== 'object' || Array.isArray(body)) return undefined;
+    const detail = (body as { detail?: unknown }).detail;
+    if (typeof detail === 'string') return detail;
+    if (detail && typeof detail === 'object' && !Array.isArray(detail)
+      && typeof (detail as { code?: unknown }).code === 'string') {
+      return (detail as { code: string }).code;
+    }
+  } catch { /* A status/code classification never depends on an error body. */ }
+  return undefined;
+}
+
+function deterministicNoWrite(status: number, code?: string): boolean {
+  if (code === 'NOTE_WRITE_UNCONFIRMED') return false;
+  if (code === 'NOTE_ID_UNAVAILABLE' || code === 'NOTE_WRITE_CONFLICT') return true;
+  return status === 400 || status === 401 || status === 403 || status === 404
+    || status === 413 || status === 422;
+}
+
+function preRequestFailure(error: unknown): NotesRemoteWriteClassification {
+  return error instanceof Error && error.message === 'Not authenticated'
+    ? 'AUTH_UNAVAILABLE'
+    : 'REQUEST_NOT_STARTED';
+}
+
+/**
+ * Performs one Note POST and, only for an outcome that may have committed,
+ * one exact owner-scoped readback. It never retries the mutation.
+ */
+export async function writeNoteWithAuthoritativeReadback(
+  input: NotesRemoteWriteInput,
+): Promise<NotesRemoteWriteResult> {
+  const context = (): NotesRemoteWriteClassification | null => {
+    const state = input.currentState();
+    return state === 'CURRENT' ? null : state;
+  };
+  const initialStale = context();
+  if (initialStale) return { classification: initialStale };
+
+  const readback = async (): Promise<NotesRemoteWriteResult> => {
+    const beforeRead = context();
+    if (beforeRead) return { classification: beforeRead };
+    let response: Response;
+    try {
+      response = await authReadFetch(
+        `${API_URL}/api/notes/${encodeURIComponent(input.payload.id)}`,
+        { method: 'GET' },
+        {
+          onRequestStart: () => {
+            if (context()) throw new Error('notes_readback_context_stale');
+          },
+        },
+      );
+    } catch {
+      return context()
+        ? { classification: context() as NotesRemoteWriteClassification }
+        : { classification: 'TRANSPORT_AMBIGUOUS' };
+    }
+    const afterRead = context();
+    if (afterRead) return { classification: afterRead };
+    if (response.status === 404) return { classification: 'REMOTE_NOT_CONFIRMED', httpStatus: 404 };
+    if (!response.ok) return { classification: 'TRANSPORT_AMBIGUOUS', httpStatus: response.status };
+    let row: DbNoteRow | null = null;
+    try {
+      row = validateAuthoritativeNoteRow(await response.json(), input.accountId);
+    } catch { /* Invalid readback remains ambiguous. */ }
+    if (!row) return { classification: 'TRANSPORT_AMBIGUOUS' };
+    const finalRead = context();
+    if (finalRead) return { classification: finalRead };
+    if (matchingAuthoritativeMutation(row, input.payload)) {
+      return { classification: 'REMOTE_CONFIRMED_AFTER_READBACK' };
+    }
+    if (effectiveRevision(row) < effectiveRevision(input.payload)) {
+      return { classification: 'REMOTE_NOT_CONFIRMED' };
+    }
+    return { classification: 'REMOTE_CONFLICT' };
+  };
+
+  let requestStarted = false;
+  let response: Response;
+  try {
+    response = await authFetch(
+      `${API_URL}/api/notes`,
+      { method: 'POST', body: JSON.stringify(input.payload) },
+      {
+        onRequestStart: () => {
+          if (context()) throw new Error('notes_write_context_stale');
+          requestStarted = true;
+        },
+      },
+    );
+  } catch (error) {
+    const afterFailure = context();
+    if (afterFailure) return { classification: afterFailure };
+    if (!requestStarted) return { classification: preRequestFailure(error) };
+    return readback();
+  }
+
+  const afterPost = context();
+  if (afterPost) return { classification: afterPost };
+  if (response.ok) {
+    let row: DbNoteRow | null = null;
+    try {
+      row = validateAuthoritativeNoteRow(await response.json(), input.accountId);
+    } catch { /* A malformed 2xx may still have committed. */ }
+    if (row && matchingAuthoritativeMutation(row, input.payload)) {
+      return { classification: 'REMOTE_CONFIRMED' };
+    }
+    return readback();
+  }
+
+  const code = await responseCode(response);
+  const afterErrorBody = context();
+  if (afterErrorBody) return { classification: afterErrorBody };
+  if (deterministicNoWrite(response.status, code)) {
+    return { classification: 'HTTP_REJECTION', httpStatus: response.status, code };
+  }
+  return readback();
 }
 
 type FoldersFetchRows = Array<{ id: string; name: string; created_at: number; user_id?: string }>;
