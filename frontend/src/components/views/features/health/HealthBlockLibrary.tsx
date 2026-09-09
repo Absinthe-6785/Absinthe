@@ -112,11 +112,12 @@ export const HealthBlockLibrary = memo(function HealthBlockLibrary({
 
   return (
     <div
-      className={`${WORKSPACE_CARD.sm} min-h-0 xl:h-full xl:min-h-0 ${WORKSPACE_CARD_SURFACE_COMPACT} flex flex-col overflow-hidden transition-colors ${mobileVisible ? '' : 'hidden lg:flex'}`}
+      className={`${WORKSPACE_CARD.sm} min-h-0 xl:h-full xl:min-h-0 ${WORKSPACE_CARD_SURFACE_COMPACT} flex flex-col overflow-visible xl:overflow-hidden transition-colors ${mobileVisible ? '' : 'hidden lg:flex'}`}
       data-k107-health-block-library
       data-k126-exercise-library
+      data-health-composition-role="setup-library"
     >
-      <div className="flex justify-between items-center gap-3 mb-2">
+      <div className="flex justify-between items-center gap-3 mb-2 shrink-0">
         <h2 className="font-heading text-lg font-bold">{t('workoutLibrary')}</h2>
         <button type="button" onClick={onNewBlock} className="bg-primary text-primary-foreground px-2.5 py-2 rounded-xl shadow-sm min-h-[36px] min-w-[36px] inline-flex items-center justify-center">
           <Plus size={16} />
@@ -174,7 +175,7 @@ export const HealthBlockLibrary = memo(function HealthBlockLibrary({
         </p>
       )}
 
-      <div className="min-h-0 pb-1 flex-1 overflow-y-auto overscroll-contain pr-1" data-k136b-health-library-scroll>
+      <div className="min-h-0 pb-1 flex-1 overflow-visible xl:overflow-y-auto xl:overscroll-contain xl:pr-1" data-k136b-health-library-scroll data-health-scroll-owner="wide-library">
         <div className="space-y-2.5">
           {blockGroups.map(row => (
             <section key={row.key} className="min-w-0" data-k136a-health-block-section>

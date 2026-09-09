@@ -10,6 +10,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 export function auditK126aAnalyticsSimplification(): Record<string, boolean> {
   const panel = readFileSync(join(ROOT, 'components/views/features/health/HealthAnalyticsPanel.tsx'), 'utf8');
   const health = readFileSync(join(ROOT, 'components/views/HealthView.tsx'), 'utf8');
+  const composition = readFileSync(join(ROOT, 'components/views/features/health/HealthCompositionLayout.tsx'), 'utf8');
   const nav = readFileSync(join(ROOT, 'components/views/features/health/HealthWorkspaceNav.tsx'), 'utf8');
   return {
     twoColumnSummary: panel.includes('grid-cols-2') && panel.includes('data-k126-health-summary-grid'),
@@ -23,7 +24,8 @@ export function auditK126aAnalyticsSimplification(): Record<string, boolean> {
     overviewAnalysisSplit:
       !nav.includes("'analysis'") &&
       !health.includes("healthSection === 'analysis'") &&
-      health.includes('data-k129b-health-overview') &&
+      health.includes('HealthWorkoutComposition') &&
+      composition.includes('data-k129b-health-overview') &&
       !health.includes('data-k129b-health-analysis-view') &&
       !health.includes('<HealthAnalyticsPanel'),
     noConnectionsInOverview:
@@ -31,7 +33,7 @@ export function auditK126aAnalyticsSimplification(): Record<string, boolean> {
       !health.includes('data-k130a-health-connections'),
     workoutRecordsScroll:
       health.includes('data-k129b-workout-records-scroll') &&
-      health.includes('data-k134b-health-natural-scroll') &&
+      composition.includes('data-k134b-health-natural-scroll') &&
       !health.includes('lg:max-h-full'),
     inbodyQuickHook: readFileSync(join(ROOT, 'components/views/features/health/HealthInbodyQuickPanel.tsx'), 'utf8').includes('data-k126-inbody-quick'),
     scrollAfterSave: health.includes('inbodyQuickRef') && health.includes('scrollIntoView'),

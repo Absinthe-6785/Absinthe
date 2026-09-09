@@ -38,6 +38,12 @@ import { PreviousWorkoutSheet } from './features/health/PreviousWorkoutSheet';
 import { previousWorkoutSWRConfig } from './features/health/previousWorkoutSWR';
 import { HealthMobileSetupNav, type HealthMobileSurface, type HealthSetupSection } from './features/health/HealthMobileSetupNav';
 import { HealthMobileWorkoutActions } from './features/health/HealthMobileWorkoutActions';
+import {
+  HealthExecutionColumn,
+  HealthSetupColumn,
+  HealthSupportRegion,
+  HealthWorkoutComposition,
+} from './features/health/HealthCompositionLayout';
 import { deleteHealthWorkout, saveHealthWorkouts } from './features/health/healthWorkoutPersistence';
 import {
   normalizePreviousWorkoutRows,
@@ -1272,6 +1278,8 @@ export const HealthView = ({
       <div
         className={`flex-1 flex flex-col min-h-0 overflow-y-auto overscroll-contain xl:overflow-hidden ${UI_SPACING.scrollOverscroll}`}
         data-k120-scroll-health
+        data-health-scroll-contract="workspace-natural-below-wide-bounded-regions-wide"
+        data-health-scroll-owner="workspace-below-wide"
         onTouchStart={swipeHealthSection.onTouchStart}
         onTouchEnd={swipeHealthSection.onTouchEnd}
       >
@@ -1284,9 +1292,9 @@ export const HealthView = ({
 
       {healthSection === 'workout' && (
     <>
-    <div className="flex flex-col gap-3 lg:gap-4 pb-8 xl:grid xl:flex-1 xl:pb-0 min-h-0 xl:h-full xl:overflow-hidden xl:grid-cols-[minmax(340px,0.37fr)_minmax(680px,0.63fr)]" data-k129b-health-overview data-k134a-health-flow data-k134b-health-natural-scroll data-k136a-health-workspace-flow>
-      {/* ── 좌측: Routine + Blocks (~38%) ── */}
-      <div className="flex flex-col gap-2.5 shrink-0 xl:grid xl:grid-rows-[minmax(0,0.52fr)_minmax(0,0.48fr)] xl:gap-3 xl:h-full min-h-0 xl:min-w-0 xl:overflow-hidden" data-k129b-health-secondary data-k136a-health-left>
+    <HealthWorkoutComposition>
+      {/* ── Setup support: Routine + Blocks ── */}
+      <HealthSetupColumn>
         <HealthMobileSetupNav
           activeSurface={mobileHealthTab === 'setup' ? 'setup' : 'workout'}
           onSurfaceChange={setMobileHealthTab}
@@ -1307,8 +1315,8 @@ export const HealthView = ({
           mobileVisible={mobileHealthTab === 'setup' && setupSection === 'blocks'}
         />
 
-        <div className={`xl:h-full xl:min-h-0 ${WORKSPACE_CARD.sm} ${WORKSPACE_CARD_SURFACE} flex flex-col overflow-hidden transition-colors ${mobileHealthTab === 'setup' && setupSection === 'routine' ? '' : 'hidden lg:flex'}`} data-k126-workout-routine data-health-09b-routine>
-          <div className="flex flex-wrap justify-between items-center gap-2 mb-2.5">
+        <div className={`xl:h-full xl:min-h-0 ${WORKSPACE_CARD.sm} ${WORKSPACE_CARD_SURFACE} flex flex-col overflow-visible xl:overflow-hidden transition-colors ${mobileHealthTab === 'setup' && setupSection === 'routine' ? '' : 'hidden lg:flex'}`} data-k126-workout-routine data-health-09b-routine data-health-composition-role="setup-routine">
+          <div className="flex flex-wrap justify-between items-center gap-2 mb-2.5 shrink-0">
             <div className="flex min-w-0 items-center gap-2">
               <h2 className="font-heading text-base font-bold shrink-0">{t('routineSetup')}</h2>
               <select
@@ -1370,7 +1378,7 @@ export const HealthView = ({
               <span className={`text-xs font-semibold ${theme.textMuted}`}>{t('splits')}</span>
             </div>
           </div>
-          <div className="grid flex-1 grid-cols-1 2xl:grid-cols-2 gap-2 lg:gap-2.5 min-h-0 overflow-y-auto overscroll-contain pr-1" data-k136b-routine-scroll>
+          <div className="grid flex-1 grid-cols-1 2xl:grid-cols-2 gap-2 lg:gap-2.5 min-h-0 overflow-visible xl:overflow-y-auto xl:overscroll-contain xl:pr-1" data-k136b-routine-scroll data-health-scroll-owner="wide-routine">
             {Array.from({ length: splitCount }).map((_, i) => {
               const dayName = `Day ${i + 1}`;
               const routine = selectedHealthRoutines.find((r: HealthRoutine) => r.day_name === dayName);
@@ -1402,30 +1410,25 @@ export const HealthView = ({
             })}
           </div>
         </div>
-      </div>
+      </HealthSetupColumn>
 
-      {/* ── 우측: Today's Workout (primary ~62%) ── */}
-      <div
-        className={`lg:min-w-0 min-h-0 shrink-0 pb-3 lg:pb-0 lg:pr-1 xl:overflow-hidden
-          flex flex-col gap-2.5
-          xl:grid xl:grid-rows-[minmax(0,0.58fr)_minmax(0,0.42fr)] xl:gap-3 xl:h-full
-          ${mobileHealthTab === 'workout' || isDesktopPrevious ? 'flex xl:grid' : 'hidden lg:flex xl:grid'}`}
-        data-k129b-health-primary
-        data-k136a-health-center
-        data-k138-health-right-grid
-      >
+      {/* ── Primary execution: Today's Workout + subordinate support ── */}
+      <HealthExecutionColumn showOnCompact={mobileHealthTab === 'workout' || isDesktopPrevious}>
         <div
-          className={`${WORKSPACE_CARD_SURFACE} flex min-h-0 flex-col overflow-hidden transition-colors ${WORKSPACE_CARD.workoutHero} lg:min-h-[280px] xl:min-h-0 xl:h-full`}
+          className={`${WORKSPACE_CARD_SURFACE} flex min-h-0 flex-col overflow-visible xl:overflow-hidden transition-colors ${WORKSPACE_CARD.workoutHero} lg:min-h-[280px] xl:min-h-0 xl:h-full`}
           data-k129b-today-workout-primary
           data-k138-workout-row
           data-k137-workout-density={hasWorkoutRecords ? 'populated' : 'empty'}
+          data-health-composition-role="active-workout"
+          data-health-hierarchy-level="primary"
+          data-health-sticky-contract="workspace-save-below-wide-fixed-wide"
         >
         {isDailyLoading ? (
           <WorkspaceCardSkeleton theme={theme} minHeight={WORKSPACE_CARD.workoutHero} bars={4} />
         ) : (
         <>
-          <div className={`sticky top-0 z-20 -mx-1 px-1 pt-0 pb-3 mb-3 border-b backdrop-blur ${theme.border} ${theme.card}`} data-k129c-session-header>
-            <div className="flex justify-between items-start gap-4">
+          <div className={`shrink-0 z-20 -mx-1 px-1 pt-0 pb-3 mb-3 border-b backdrop-blur ${theme.border} ${theme.card}`} data-k129c-session-header>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="font-heading text-xl font-bold">{isDesktopPrevious ? t('previousWorkout') : t('todayWorkout')}</h2>
@@ -1454,7 +1457,7 @@ export const HealthView = ({
                 </>
               )}
             </div>
-            <div className="flex flex-wrap items-center justify-end gap-2 shrink-0">
+            <div className="flex w-full min-w-0 flex-wrap items-center justify-start gap-2 sm:w-auto sm:justify-end sm:shrink-0">
               <HealthMobileWorkoutActions
                 isMobile={isMobile}
                 isDesktopPrevious={isDesktopPrevious}
@@ -1482,7 +1485,7 @@ export const HealthView = ({
                 </button>
               </div>
             {!isWorkoutLocked && !isDesktopPrevious && (
-              <div className="flex items-center gap-2">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
                 {isMobile && (
                   <div className="flex min-w-0 items-center gap-1.5" data-health-quick-setup>
                     <select
@@ -1549,10 +1552,11 @@ export const HealthView = ({
           <div
             className={`min-h-0 flex-1 overscroll-contain space-y-3 pr-1 scroll-smooth
               ${hasWorkoutRecords
-                ? 'overflow-y-auto pb-24'
+                ? 'overflow-visible pb-4 xl:overflow-y-auto xl:pb-24'
                 : 'overflow-hidden flex flex-col justify-center pb-1'}`}
             data-k129b-workout-records-scroll
             data-k129c-session-timeline
+            data-health-scroll-owner="wide-active-workout"
           >
             {localWorkouts.length === 0 && (
               <div className={`rounded-2xl border border-dashed px-4 py-4 lg:px-5 lg:py-4 ${theme.border} ${appSettings.darkMode ? 'bg-surface/40' : 'bg-gray-50/70'}`} data-k121-empty-state="health-workouts" data-k129c-workout-empty data-k134a-workout-empty data-k134b-health-empty-compact>
@@ -1882,7 +1886,7 @@ export const HealthView = ({
 
                 {/* Add Set / Drop Set 버튼 — 잠금 시 숨김 */}
                 {!isWorkoutLocked && (
-                  <div className={`sticky bottom-2 z-10 mt-4 flex gap-2 rounded-2xl border p-2 backdrop-blur ${theme.border} ${theme.card}`} data-k129c-sticky-exercise-controls>
+                  <div className={`mt-4 flex gap-2 rounded-2xl border p-2 ${theme.border} ${theme.card}`} data-health-exercise-controls>
                     <button
                       onClick={() => handleCompleteSetAndAdd(wIdx, Math.max(0, w.sets.length - 1))}
                       disabled={w.sets.length === 0}
@@ -1905,8 +1909,30 @@ export const HealthView = ({
               </div>
             );
             })}
+            {/* The memo/note tail belongs to the scrollable workout workflow. */}
+            <div className="mt-2 rounded-xl p-2 bg-surface-alt" data-k104-health-workout-footer data-health-workout-scroll-tail>
+              <p className={`text-[10px] font-bold mb-1 ${theme.textMuted}`}>{t('memo')}</p>
+              <textarea
+                value={workoutMemo}
+                onChange={e => {
+                  setWorkoutMemo(e.target.value);
+                  localStorage.setItem(memoKey, e.target.value);
+                }}
+                placeholder={t('memoPlaceholder')}
+                rows={1}
+                className={`w-full bg-transparent outline-none resize-none text-sm leading-relaxed placeholder-gray-400 ${theme.text}`}
+              />
+              <button
+                type="button"
+                onClick={() => openHealthDayLog('workout')}
+                className={`mt-2 flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border ${theme.border} ${theme.textMuted} hover:text-foreground transition-colors min-h-[44px]`}
+              >
+                <FileText size={14} />
+                {t('healthOpenDayNote')}
+              </button>
+            </div>
           </div>
-          <div className={`${hasWorkoutRecords ? 'sticky bottom-0' : ''} z-30 shrink-0 pt-2 pb-1 border-t backdrop-blur ${theme.border} ${theme.card}`} data-k129c-sticky-workout-controls>
+          <div className={`z-30 shrink-0 pt-2 pb-1 border-t backdrop-blur ${theme.border} ${theme.card}`} data-health-workout-action-footer>
             {isWorkoutLocked ? (
               /* ── 잠금 상태: Saved 배너 + Edit 버튼만 표시 ── */
               <div className={`flex items-center justify-between gap-3 px-4 py-3 rounded-2xl border
@@ -1943,7 +1969,7 @@ export const HealthView = ({
               </div>
             ) : (
               /* ── 편집 상태: Complete Workout 버튼 ── */
-              <WorkspaceToolbar workspace="health" stickyPosition="bottom" legacyDataHook="data-k104-health-no-sticky-mobile">
+              <WorkspaceToolbar workspace="health" stickyPosition="bottom" legacyDataHook="data-k104-health-no-sticky-mobile" className="xl:relative xl:bottom-auto">
                 <WorkspaceToolbarPrimary
                   label={isSaving ? t('loading') : t('completeWorkout')}
                   icon={isSaving ? <Loader2 size={20} className="animate-spin" /> : <Save size={20} />}
@@ -1954,40 +1980,13 @@ export const HealthView = ({
                 />
               </WorkspaceToolbar>
             )}
-            {/* ── 날짜별 메모 ── */}
-            <div className="mt-2 rounded-xl p-2 bg-surface-alt" data-k104-health-workout-footer>
-              <p className={`text-[10px] font-bold mb-1 ${theme.textMuted}`}>{t('memo')}</p>
-              <textarea
-                value={workoutMemo}
-                onChange={e => {
-                  setWorkoutMemo(e.target.value);
-                  localStorage.setItem(memoKey, e.target.value);
-                }}
-                placeholder={t('memoPlaceholder')}
-                rows={1}
-                className={`w-full bg-transparent outline-none resize-none text-sm leading-relaxed placeholder-gray-400 ${theme.text}`}
-              />
-              <button
-                type="button"
-                onClick={() => openHealthDayLog('workout')}
-                className={`mt-2 flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border ${theme.border} ${theme.textMuted} hover:text-foreground transition-colors min-h-[44px]`}
-              >
-                <FileText size={14} />
-                {t('healthOpenDayNote')}
-              </button>
-           </div>
           </div>
           </div>
         </>
         )}
         </div>
 
-      <div
-        ref={inbodyQuickRef}
-        className="flex min-w-0 min-h-0 flex-col gap-2.5 pb-4 xl:h-full xl:pb-0 xl:overflow-hidden"
-        data-k136a-health-right
-        data-k138-support-row
-      >
+      <HealthSupportRegion ref={inbodyQuickRef}>
         <HealthSupportingPanels
           accountId={user.id}
           selectedDate={selectedDate}
@@ -2008,9 +2007,9 @@ export const HealthView = ({
           onOpenNutrition={() => setHealthSection('nutrition')}
           inbodyHistoryCollapsed={healthSectionPrefs.inbodyHistoryCollapsed}
         />
-      </div>
-      </div>
-    </div>
+      </HealthSupportRegion>
+      </HealthExecutionColumn>
+    </HealthWorkoutComposition>
     </>
       )}
 

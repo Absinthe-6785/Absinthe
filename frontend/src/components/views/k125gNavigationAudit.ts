@@ -52,11 +52,12 @@ export function auditK125gSectionNav(): Record<string, boolean> {
 
 export function auditK125gSpacingAndCards(): Record<string, boolean> {
   const health = readFileSync(join(ROOT, 'components/views/HealthView.tsx'), 'utf8');
+  const healthComposition = readFileSync(join(ROOT, 'components/views/features/health/HealthCompositionLayout.tsx'), 'utf8');
   const settings = readFileSync(join(ROOT, 'components/views/SettingsView.tsx'), 'utf8');
   const cardSizes = readFileSync(join(ROOT, 'components/common/workspaceCardSizes.ts'), 'utf8');
 
   return {
-    healthGapToken: health.includes('lg:gap-4'),
+    healthGapToken: health.includes('HealthWorkoutComposition') && healthComposition.includes('lg:gap-4'),
     settingsCardSurface: settings.includes('WORKSPACE_CARD_SURFACE'),
     cardSurfaceToken: cardSizes.includes('WORKSPACE_CARD_SURFACE'),
     settingsWorkspaceHook: settings.includes('data-workspace="settings"'),
