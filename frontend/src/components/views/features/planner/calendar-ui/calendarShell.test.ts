@@ -83,7 +83,7 @@ function ProjectionProbe({ todos }: { todos: readonly Todo[] }) {
 }
 
 describe('DEFAULT_PLANNER_CALENDAR_MODE', () => {
-  it('keeps month as the supporting calendar mode', () => {
+  it('keeps month as the primary calendar mode', () => {
     expect(DEFAULT_PLANNER_CALENDAR_MODE).toBe('month');
   });
 });
@@ -200,7 +200,7 @@ describe('calendar presentation labels', () => {
 });
 
 describe('CalendarShell', () => {
-  it('renders today-first schedule flow with calendar as supporting context', () => {
+  it('renders a planning-first schedule flow with calendar navigation in the primary surface', () => {
     const html = renderToStaticMarkup(
       createElement(CalendarShell, shellProps()),
     );
@@ -210,7 +210,13 @@ describe('CalendarShell', () => {
     expect(html).toContain('data-planner-calendar-period-nav');
     expect(html).toContain('data-planner-calendar-month');
     expect(html).toContain('data-k133b-schedule-flow');
-    expect(html).toContain('data-k133b-calendar-supporting-nav');
+    expect(html).toContain('data-k133b-calendar-primary-nav');
+    expect(html).toContain('data-planner-hierarchy="planning-first"');
+    expect(html).toContain('data-planner-primary-surface="calendar"');
+    expect(html).toContain('data-planner-primary-surface="timetable"');
+    expect(html).toContain('data-planner-support-role="today"');
+    expect(html).toContain('data-planner-support-role="dday"');
+    expect(html).toContain('data-planner-scroll-contract="flow-below-desktop-bounded-desktop"');
     expect(html).toContain('data-k117-schedule-workspace');
     expect(html).not.toContain('data-planner-upcoming-agenda');
     expect(html).not.toContain('data-planner-calendar-mode-switcher');

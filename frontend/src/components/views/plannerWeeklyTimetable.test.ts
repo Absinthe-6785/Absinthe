@@ -181,7 +181,7 @@ describe('WeeklyTimetableSection', () => {
 });
 
 describe('PlannerView timetable integration', () => {
-  it('mounts K-140 Schedule workspace grid with calendar-owned add event', async () => {
+  it('mounts the planning-first Schedule workspace with calendar-owned add event', async () => {
     const { PlannerView } = await import('./PlannerView');
     const html = renderToStaticMarkup(
       createElement(PlannerView, plannerProps()),
@@ -191,8 +191,11 @@ describe('PlannerView timetable integration', () => {
     expect(html).toContain('data-k117-schedule-workspace');
     expect(html).toContain('data-k140-schedule-grid');
     expect(html).toContain('data-k141-schedule-main-grid');
-    expect(html).toContain('data-k141-schedule-top-row');
-    expect(html).toContain('data-k141-schedule-bottom-row');
+    expect(html).toContain('data-planner-desktop-allocation="planning-column-support-rail"');
+    expect(html).toContain('data-planner-primary-surface="calendar"');
+    expect(html).toContain('data-planner-primary-surface="timetable"');
+    expect(html).toContain('data-planner-support-role="today"');
+    expect(html).toContain('data-planner-support-role="dday"');
     expect(html).toContain('data-planner-weekly-timetable');
     expect(html).toContain('data-k140-calendar-add-event');
     expect(html).toContain('data-k139-timetable-add-local');

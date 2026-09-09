@@ -74,7 +74,7 @@ describe('K-32.1 planner validation', () => {
     expect(html).not.toContain('data-planner-calendar-mode-option="week"');
   });
 
-  it('uses K-140 Schedule grid and calendar-owned add event', () => {
+  it('uses the UI-05 planning-first grid and calendar-owned add event', () => {
     const source = readSource('PlannerView.tsx');
     const month = readSource('features/planner/calendar-ui/month/MonthCalendarView.tsx');
     const periodNav = readSource('features/planner/calendar-ui/CalendarPeriodNav.tsx');
@@ -84,8 +84,11 @@ describe('K-32.1 planner validation', () => {
     expect(periodNav).toContain('data-k140-calendar-add-event');
     expect(month).toContain('data-k140-schedule-grid');
     expect(month).toContain('data-k141-schedule-main-grid');
-    expect(month).toContain('data-k141-schedule-top-row');
-    expect(month).toContain('data-k141-schedule-bottom-row');
+    expect(month).toContain('data-planner-desktop-allocation="planning-column-support-rail"');
+    expect(month).toContain('data-planner-primary-surface="calendar"');
+    expect(month).toContain('data-planner-primary-surface="timetable"');
+    expect(month).toContain('data-planner-support-role="today"');
+    expect(month).toContain('data-planner-support-role="dday"');
     expect(month).toContain('WeeklyTimetableSection');
     expect(month).toContain('data-k139-schedule-dday-list');
     expect(month).toContain('data-k139-schedule-dday-edit');

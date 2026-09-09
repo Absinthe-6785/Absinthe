@@ -16,14 +16,20 @@ export function auditScheduleDensityRecovery(): Record<string, boolean> {
   const timetable = readFileSync(join(ROOT, 'components/views/features/planner/WeeklyTimetableSection.tsx'), 'utf8');
 
   return {
-    todayFirstFlow: month.includes('data-k140-schedule-grid')
+    planningFirstFlow: month.includes('data-k140-schedule-grid')
       && month.includes('data-k133b-schedule-flow')
+      && month.indexOf('data-k117-schedule-section="calendar"') < month.indexOf('data-k117-schedule-section="today"')
       && month.indexOf('data-k117-schedule-section="today"') < month.indexOf('data-k117-schedule-section="timetable"')
-      && month.indexOf('data-k117-schedule-section="timetable"') < month.indexOf('data-k117-schedule-section="calendar"')
+      && month.indexOf('data-k117-schedule-section="timetable"') < month.indexOf('data-k139-schedule-dday-list')
       && !month.includes('data-k117-schedule-section="upcoming"'),
-    calendarSupporting: shell.includes('calendarHeader={(')
-      && month.includes('data-k133b-calendar-supporting-nav')
+    calendarPrimary: shell.includes('calendarHeader={(')
+      && month.includes('data-k133b-calendar-primary-nav')
+      && month.includes('data-planner-primary-surface="calendar"')
       && !shell.includes('header={('),
+    desktopSupportRail: month.includes('data-planner-desktop-allocation="planning-column-support-rail"')
+      && month.includes('lg:grid-cols-[minmax(0,3fr)_minmax(240px,1fr)]')
+      && month.includes('data-planner-support-role="today"')
+      && month.includes('data-planner-support-role="dday"'),
     upcomingNavRemoved: !nav.includes("'upcoming'")
       && !nav.includes('k80UpcomingAgenda'),
     compactMonthCells: cell.includes('min-h-[52px] lg:min-h-0')
