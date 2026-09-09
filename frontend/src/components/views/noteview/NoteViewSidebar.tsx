@@ -65,6 +65,7 @@ import type { NoteSortDirection, NoteSortField } from '../noteListSort';
 import { writeNoteListSectionPrefs, type NoteListSectionPrefs } from '../noteListSectionPrefs';
 import { K103_NOTE_LIST_WIDTH_PX, K103_NOTE_LIST_MIN_WIDTH_PX } from '../k103LayoutConstants';
 import { NoteListSortMenu } from './NoteListSortMenu';
+import { NotesAdvancedOrganizationDisclosure } from './NotesAdvancedOrganizationDisclosure';
 
 export interface NoteViewSidebarLayout {
   hideLeftChrome: boolean;
@@ -335,6 +336,11 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
     () => getSidebarSmartCollections(pinnedWorkspaces.map(p => ({ kind: p.kind, id: p.id }))),
     [pinnedWorkspaces],
   );
+  const advancedOrganizationActive = activeTag !== null
+    || isTraceAreaMode
+    || isTraceDiscoveryMode
+    || isDashboardMode
+    || workspaceActivation.kind !== 'none';
   const yesterdayTraceKey = useMemo(() => {
     const d = new Date(`${todayTraceKey}T12:00:00`);
     d.setDate(d.getDate() - 1);
@@ -743,6 +749,23 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
                     {trashCount > 0 && <span style={{ fontSize: 9, background: `${c.danger}20`, color: c.danger, borderRadius: 999, padding: '1px 5px', fontWeight: 700 }}>{trashCount}</span>}
                   </div>
                 </div>
+                <NotesAdvancedOrganizationDisclosure
+                  colors={c}
+                  expanded={workspaceExpanded}
+                  active={advancedOrganizationActive}
+                  label={`${t('k108ScGroupKnowledge')} · ${t('nvWorkspace')}`}
+                  onToggle={() => {
+                    setWorkspaceExpanded(value => {
+                      const next = !value;
+                      setListSectionPrefs(preferences => {
+                        const updated = { ...preferences, workspaceCollapsed: !next };
+                        writeNoteListSectionPrefs(updated);
+                        return updated;
+                      });
+                      return next;
+                    });
+                  }}
+                >
                 <div data-k104-areas-section>
                   <div
                     className="bseclbl k101-interactive k103-sidebar-sticky"
@@ -808,55 +831,29 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
                     </div>
                   </>
                 )}
-                <div style={{ borderTop: `1px solid ${c.sideBdr}`, marginTop: 4 }}>
-                  <div
-                    className="bseclbl"
-                    onClick={() => {
-                      setWorkspaceExpanded(v => {
-                        const next = !v;
-                        setListSectionPrefs(p => {
-                          const updated = { ...p, workspaceCollapsed: !next };
-                          writeNoteListSectionPrefs(updated);
-                          return updated;
-                        });
-                        return next;
-                      });
-                    }}
-                    style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
-                  >
-                    {workspaceExpanded
-                      ? <ChevronDown size={10} style={{ flexShrink: 0, color: c.textFaint }} />
-                      : <ChevronRight size={10} style={{ flexShrink: 0, color: c.textFaint }} />}
-                    <span>{t('nvWorkspace')}</span>
-                  </div>
-                  {workspaceExpanded && (
-                    <>
-                      <div
-                        className={`bfi ${isDashboardMode ? 'active' : ''}`}
-                        onClick={handleActivateDashboardWithTraceClear}
-                        style={{ gap: 4, fontSize: 11 }}
-                      >
-                        <LayoutDashboard size={10} color={isDashboardMode ? c.accent : c.textMuted} />
-                        <span style={{ flex: 1 }}>{t('wsDashboard')}</span>
-                      </div>
-                      <SmartCollectionsSection
-                        colors={c}
-                        collections={sidebarSmartCollections}
-                        activeCollectionId={isWorkspaceKindActive(workspaceActivation, 'smart-collection') && 'id' in workspaceActivation ? workspaceActivation.id : null}
-                        counts={smartCollectionCounts}
-                        onActivate={handleActivateSmartCollection}
-                        onClearActive={handleClearSmartCollection}
-                        isPinned={id => isWorkspacePinned('smart-collection', id)}
-                        onTogglePin={collection => handleTogglePinWorkspace({
-                          kind: 'smart-collection',
-                          id: collection.id,
-                          name: collection.name,
-                          subtitle: collection.description,
-                        })}
-                      />
-                    </>
-                  )}
+                <div
+                  className={`bfi ${isDashboardMode ? 'active' : ''}`}
+                  onClick={handleActivateDashboardWithTraceClear}
+                  style={{ gap: 4, fontSize: 11 }}
+                >
+                  <LayoutDashboard size={10} color={isDashboardMode ? c.accent : c.textMuted} />
+                  <span style={{ flex: 1 }}>{t('wsDashboard')}</span>
                 </div>
+                <SmartCollectionsSection
+                  colors={c}
+                  collections={sidebarSmartCollections}
+                  activeCollectionId={isWorkspaceKindActive(workspaceActivation, 'smart-collection') && 'id' in workspaceActivation ? workspaceActivation.id : null}
+                  counts={smartCollectionCounts}
+                  onActivate={handleActivateSmartCollection}
+                  onClearActive={handleClearSmartCollection}
+                  isPinned={id => isWorkspacePinned('smart-collection', id)}
+                  onTogglePin={collection => handleTogglePinWorkspace({
+                    kind: 'smart-collection',
+                    id: collection.id,
+                    name: collection.name,
+                    subtitle: collection.description,
+                  })}
+                />
                 <PinnedWorkspacesSection
                   colors={c}
                   pinned={pinnedWorkspaces}
@@ -948,6 +945,7 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
                     subtitle: view.query,
                   })}
                 />
+                </NotesAdvancedOrganizationDisclosure>
               </div>
             </>
           )}
@@ -958,6 +956,7 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
         id="noteview-note-list"
         role="region"
         aria-label={t('nvNoteList')}
+        data-notes-hierarchy-level="note-navigation"
         data-list-density={listDensity}
         style={{
         width: hideLeftChrome ? 0 : (hideSecondaryChrome || hideNoteList ? 0 : (isWorkspacePanelMode ? (isMobile ? '100%' : (isTablet ? '36%' : '42%')) : (isMobile ? '100%' : (isTablet ? 168 : K103_NOTE_LIST_WIDTH_PX)))),

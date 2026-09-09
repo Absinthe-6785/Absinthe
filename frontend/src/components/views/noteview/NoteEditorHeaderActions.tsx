@@ -234,9 +234,13 @@ export function NoteEditorHeaderActions({
       </button>
 
       <button
+        type="button"
         onClick={onTogglePanel}
         className={`btbtn shrink-0${isMobile ? ' btbtn-mobile' : ''}`}
         title={t('nvTogglePanel')}
+        aria-label={t('nvTogglePanel')}
+        aria-expanded={showRightPanel}
+        aria-controls="noteview-context-panel"
         style={{ ...iconBtnStyle, color: showRightPanel ? c.accent : c.textMuted }}
         data-k126c-header-panel
       >

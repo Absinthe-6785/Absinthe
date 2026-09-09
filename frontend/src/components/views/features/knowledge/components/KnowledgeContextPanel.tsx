@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, X } from 'lucide-react';
 import { useTranslation, type TranslationKey } from '../../../../../lib/i18n';
+import { UI_INTERACTION } from '../../../../../lib/uiInteractionTokens';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import { useResizablePanelWidth } from '../../../../../hooks/useResizablePanelWidth';
 
@@ -56,6 +57,7 @@ export interface KnowledgeContextPanelProps {
   activeTab: KnowledgeContextTab;
   tabs: readonly KnowledgeContextTabDef[];
   onTabChange: (tab: KnowledgeContextTab) => void;
+  onClose: () => void;
   children: ReactNode;
 }
 
@@ -67,6 +69,7 @@ export function KnowledgeContextPanel({
   activeTab,
   tabs,
   onTabChange,
+  onClose,
   children,
 }: KnowledgeContextPanelProps) {
   const { t } = useTranslation();
@@ -74,6 +77,11 @@ export function KnowledgeContextPanel({
   const asideRef = useRef<HTMLElement>(null);
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef<HTMLDivElement>(null);
+
+  const closePanel = useCallback(() => {
+    onClose();
+    document.querySelector<HTMLButtonElement>('[data-k126c-header-panel]')?.focus();
+  }, [onClose]);
 
   const primaryTabs = tabs.filter(tab => KNOWLEDGE_CONTEXT_PRIMARY_TABS.includes(tab.key));
   const moreTabs = tabs.filter(tab => !KNOWLEDGE_CONTEXT_PRIMARY_TABS.includes(tab.key));
@@ -126,9 +134,12 @@ export function KnowledgeContextPanel({
 
   return (
     <aside
+      id="noteview-context-panel"
       ref={asideRef}
       aria-label={t('nvSidePanel')}
       className={compact ? 'mobile-panel-drawer' : undefined}
+      data-notes-hierarchy-level="context"
+      data-notes-context-presentation={compact ? 'overlay' : 'aside'}
       style={{
         width: compact ? undefined : width,
         minWidth: compact ? undefined : width,
@@ -168,20 +179,41 @@ export function KnowledgeContextPanel({
           flexShrink: 0,
         }}
       >
-        <div
-          style={{
-            fontSize: 10,
-            fontWeight: 700,
-            color: c.textMuted,
-            letterSpacing: 0.4,
-            textTransform: 'uppercase',
-            marginBottom: 2,
-          }}
-        >
-          {t('k35ContextPanelTitle')}
-        </div>
-        <div style={{ fontSize: 9, color: c.textFaint, lineHeight: 1.4 }}>
-          {t('k35ContextPanelSubtitle')}
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div
+              style={{
+                fontSize: 10,
+                fontWeight: 700,
+                color: c.textMuted,
+                letterSpacing: 0.4,
+                textTransform: 'uppercase',
+                marginBottom: 2,
+              }}
+            >
+              {t('k35ContextPanelTitle')}
+            </div>
+            <div style={{ fontSize: 9, color: c.textFaint, lineHeight: 1.4 }}>
+              {t('k35ContextPanelSubtitle')}
+            </div>
+          </div>
+          <button
+            type="button"
+            className="btbtn"
+            title={t('close')}
+            aria-label={t('close')}
+            onClick={closePanel}
+            data-notes-context-close
+            style={{
+              minWidth: compact ? UI_INTERACTION.touchTargetMinPx : undefined,
+              minHeight: compact ? UI_INTERACTION.touchTargetMinPx : undefined,
+              padding: 4,
+              color: c.textMuted,
+              flexShrink: 0,
+            }}
+          >
+            <X size={14} />
+          </button>
         </div>
       </div>
 
