@@ -16,6 +16,11 @@ import { authFetch } from '../../lib/supabase';
 import { ViewProps } from '../../types';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { WorkspacePageHeader } from '../common/WorkspacePageHeader';
+import {
+  WORKSPACE_PAGE_SCROLL_CLASS,
+  WORKSPACE_PANE_ROOT_CLASS,
+  WORKSPACE_SCROLL_MODE,
+} from '../common/workspaceLayout';
 import { WORKSPACE_CARD_SURFACE } from '../common/workspaceCardSizes';
 import { WORKSPACE_GAP_CLASS } from '../../lib/uiSpacingTokens';
 import { useConfirm } from '../../hooks/useConfirm';
@@ -210,7 +215,7 @@ export const SettingsView = ({
   };
 
   return (
-    <div className={`flex-1 flex flex-col min-h-0 overflow-y-auto overscroll-contain py-1 pr-2 pb-4 animate-in fade-in duration-300 ${WORKSPACE_GAP_CLASS}`} data-workspace="settings">
+    <div className={`${WORKSPACE_PANE_ROOT_CLASS} flex flex-col py-1 pr-2 pb-4 animate-in fade-in duration-300 ${WORKSPACE_GAP_CLASS}`} data-workspace="settings" data-workspace-scroll-mode={WORKSPACE_SCROLL_MODE.page}>
       <div className="shrink-0 pl-2 pr-4 lg:pr-6">
         <WorkspacePageHeader
           workspace="settings"
@@ -223,7 +228,7 @@ export const SettingsView = ({
         />
       </div>
 
-      <div className="flex-1 min-h-0 bscroll-pane" data-settings-scroll data-k119-settings-scroll>
+      <div className={`${WORKSPACE_PAGE_SCROLL_CLASS} bscroll-pane`} data-workspace-scroll-owner="page" data-settings-scroll data-k119-settings-scroll>
         <div className={`max-w-3xl mx-auto ${WORKSPACE_GAP_CLASS}`}>
 
           {/* Appearance */}

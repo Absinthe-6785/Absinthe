@@ -1,22 +1,56 @@
-/** Shared viewport breakpoints for Notes / workspace surfaces. */
-export const VIEWPORT_BREAKPOINTS = {
-  mobile: 768,
-  tablet: 1024,
-  narrow: 1280,
+/**
+ * Canonical semantic viewport boundaries.
+ *
+ * These values intentionally match Tailwind's md/lg/xl minimum widths. A
+ * boundary value belongs to the category that starts at that value: 768 is
+ * tablet, 1024 is desktop, and 1280 is wide. Custom CSS and viewport hooks
+ * must derive semantic media queries from this module instead of repeating
+ * the numbers.
+ */
+export const VIEWPORT_BOUNDARIES = {
+  tablet: 768,
+  desktop: 1024,
+  wide: 1280,
 } as const;
+
+export const VIEWPORT_MEDIA_QUERIES = {
+  mobile: `(max-width: ${VIEWPORT_BOUNDARIES.tablet - 1}px)`,
+  tabletUp: `(min-width: ${VIEWPORT_BOUNDARIES.tablet}px)`,
+  compact: `(max-width: ${VIEWPORT_BOUNDARIES.desktop - 1}px)`,
+  desktopUp: `(min-width: ${VIEWPORT_BOUNDARIES.desktop}px)`,
+  narrow: `(max-width: ${VIEWPORT_BOUNDARIES.wide - 1}px)`,
+  wideUp: `(min-width: ${VIEWPORT_BOUNDARIES.wide}px)`,
+} as const;
+
+export type ViewportCategory = 'mobile' | 'tablet' | 'desktop' | 'wide';
 
 export const TOUCH_TARGET_MIN_PX = 44;
 
 export function isMobileWidth(width: number): boolean {
-  return width < VIEWPORT_BREAKPOINTS.mobile;
+  return width < VIEWPORT_BOUNDARIES.tablet;
 }
 
 export function isTabletWidth(width: number): boolean {
-  return width >= VIEWPORT_BREAKPOINTS.mobile && width < VIEWPORT_BREAKPOINTS.tablet;
+  return width >= VIEWPORT_BOUNDARIES.tablet && width < VIEWPORT_BOUNDARIES.desktop;
 }
 
 export function isNarrowWidth(width: number): boolean {
-  return width < VIEWPORT_BREAKPOINTS.narrow;
+  return width < VIEWPORT_BOUNDARIES.wide;
+}
+
+export function isDesktopWidth(width: number): boolean {
+  return width >= VIEWPORT_BOUNDARIES.desktop && width < VIEWPORT_BOUNDARIES.wide;
+}
+
+export function isWideWidth(width: number): boolean {
+  return width >= VIEWPORT_BOUNDARIES.wide;
+}
+
+export function classifyViewportWidth(width: number): ViewportCategory {
+  if (isMobileWidth(width)) return 'mobile';
+  if (isTabletWidth(width)) return 'tablet';
+  if (isDesktopWidth(width)) return 'desktop';
+  return 'wide';
 }
 
 /** Responsive stat grid — 2 columns on phone, 4 on desktop. */

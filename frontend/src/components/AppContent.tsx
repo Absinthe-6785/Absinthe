@@ -32,6 +32,7 @@ import { bootstrapHealthFromSupabase, HEALTH_LOCAL_BOOTSTRAP_COMPLETE_EVENT } fr
 import { runHealthBootstrapSingleFlight } from '../lib/healthBootstrapSingleFlight';
 import { shouldUseRemoteData } from '../lib/remoteBoundary';
 import { revalidatePlannerAccountCache } from '../lib/plannerCacheRevalidation';
+import { WORKSPACE_SCROLL_MODE, WORKSPACE_VIEWPORT_CLASS } from './common/workspaceLayout';
 import {
   startIndependentStartup,
   type IndependentStartupRun,
@@ -344,8 +345,10 @@ export function AppContent({ authUser }: { authUser: User }) {
 
   return (
     <div
-      className="flex flex-col lg:flex-row h-[100dvh] font-body p-0 lg:p-3 relative transition-colors duration-500 overflow-hidden bg-background"
+      className="flex flex-col lg:flex-row h-[100dvh] min-h-0 min-w-0 font-body p-0 lg:p-3 relative transition-colors duration-500 overflow-hidden bg-background"
       style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)' }}
+      data-app-shell
+      data-app-height-owner="dynamic-viewport"
     >
       <Sidebar
         activeTab={activeTab}
@@ -357,7 +360,11 @@ export function AppContent({ authUser }: { authUser: User }) {
         onOpenSettingsSection={openSettingsSection}
       />
 
-      <div className="flex-1 overflow-hidden flex flex-col p-3 lg:p-0">
+      <div
+        className={`${WORKSPACE_VIEWPORT_CLASS} flex flex-col p-3 lg:p-0`}
+        data-workspace-viewport
+        data-workspace-scroll-mode={WORKSPACE_SCROLL_MODE.delegated}
+      >
         <Suspense fallback={<ViewLoadingFallback />}>
           {activeTab === 'home'      && <HomeView       key={authUser.id} {...globalProps} />}
           {activeTab === 'planner'   && <PlannerView   key={authUser.id} {...globalProps} />}

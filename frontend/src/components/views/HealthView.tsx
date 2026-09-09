@@ -13,6 +13,7 @@ import { WorkspaceToolbar, WorkspaceToolbarPrimary } from '../common/WorkspaceTo
 import { WORKSPACE_GAP_CLASS } from '../../lib/uiSpacingTokens';
 import { UI_INTERACTION } from '../../lib/uiInteractionTokens';
 import { UI_SPACING } from '../../lib/uiSpacingTokens';
+import { WORKSPACE_PANE_ROOT_CLASS, WORKSPACE_SCROLL_MODE } from '../common/workspaceLayout';
 import { useTranslation } from '../../lib/i18n';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { useSwipeNavigation } from '../../hooks/useSwipeNavigation';
@@ -1247,7 +1248,7 @@ export const HealthView = ({
 
   return (
     <WorkspaceErrorBoundary workspace="health">
-    <div className={`flex-1 flex flex-col min-h-0 overflow-hidden animate-in fade-in duration-300 ${WORKSPACE_GAP_CLASS}`} data-workspace="health">
+    <div className={`${WORKSPACE_PANE_ROOT_CLASS} flex flex-col animate-in fade-in duration-300 ${WORKSPACE_GAP_CLASS}`} data-workspace="health" data-workspace-scroll-mode={WORKSPACE_SCROLL_MODE.pane}>
       <div className={`shrink-0 px-0.5 flex flex-col ${WORKSPACE_GAP_CLASS}`}>
         <WorkspacePageHeader
           workspace="health"

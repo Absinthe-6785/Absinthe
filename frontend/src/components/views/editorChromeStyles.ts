@@ -3,6 +3,7 @@
  */
 import { EDITOR_READING_STYLES } from './editorReading';
 import { K123_EDITOR_GUTTER_PX, K123_EDITOR_SHELL_MAX_PX } from '../../lib/k123EditorLayout';
+import { VIEWPORT_MEDIA_QUERIES } from '../../lib/responsiveLayout';
 
 export const K123_EDITOR_LAYOUT_STYLES = `
   .k123-editor-column-shell {
@@ -27,7 +28,7 @@ export const K123_EDITOR_LAYOUT_STYLES = `
     padding-top: 12px;
     padding-bottom: 48px;
   }
-  @media (min-width: 769px) {
+  @media ${VIEWPORT_MEDIA_QUERIES.tabletUp} {
     .k123-editor-body-pad {
       padding-top: 24px;
       padding-bottom: 80px;
@@ -222,7 +223,7 @@ export const EDITOR_CHROME_STYLES = `
     letter-spacing: -0.005em;
     color: var(--be-text, inherit);
   }
-  @media (min-width: 769px) {
+  @media ${VIEWPORT_MEDIA_QUERIES.tabletUp} {
     .be-editor-toolbar-btn {
       min-width: 36px !important;
       min-height: 36px !important;
@@ -447,7 +448,7 @@ export const EDITOR_CHROME_STYLES = `
   .be-document table {
     max-width: 100%;
   }
-  @media (min-width: 769px) {
+  @media ${VIEWPORT_MEDIA_QUERIES.tabletUp} {
     .be-document .be-image-block,
     .be-document [data-block-type="table"] {
       max-width: min(100%, calc(var(--be-doc-width, 980px) + 80px));

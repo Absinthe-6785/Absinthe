@@ -15,7 +15,7 @@ import {
   listArchivePeriodBrowseLinks,
   type ArchiveBrowseDestination,
 } from './home/archiveBrowsePresentation';
-import { WorkspaceLayout } from '../../../common/workspaceLayout';
+import { WorkspaceLayout, WORKSPACE_SCROLL_MODE } from '../../../common/workspaceLayout';
 import { WorkspacePageHeader } from '../../../common/WorkspacePageHeader';
 import { ProductEmptyState } from '../../../common/ProductEmptyState';
 import { Archive } from 'lucide-react';
@@ -77,6 +77,7 @@ export function ArchiveUnifiedView({
   return (
     <WorkspaceLayout
       workspace="archive"
+      scrollMode={WORKSPACE_SCROLL_MODE.page}
       header={(
         <WorkspacePageHeader
           workspace="archive"

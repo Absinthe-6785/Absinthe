@@ -3,6 +3,7 @@
  */
 
 import { K103_READING_MAX_WIDTH_PX } from './k103LayoutConstants';
+import { VIEWPORT_MEDIA_QUERIES } from '../../lib/responsiveLayout';
 
 export const READING_LINE_HEIGHT = 1.8;
 export const READING_MAX_WIDTH_PX = K103_READING_MAX_WIDTH_PX;
@@ -25,7 +26,7 @@ export const EDITOR_READING_STYLES = `
     line-height: ${READING_LINE_HEIGHT};
     padding-left: 0 !important;
   }
-  @media (max-width: 767px) {
+  @media ${VIEWPORT_MEDIA_QUERIES.mobile} {
     .be-editor-root.be-reading,
     .be-editor-root.be-document {
       max-width: 100%;

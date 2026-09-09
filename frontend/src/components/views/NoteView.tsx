@@ -24,6 +24,7 @@ import { useViewportLayout } from '../../hooks/useViewportLayout';
 import { useModalA11y } from '../../hooks/useModalA11y';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { SkipLink } from '../common/SkipLink';
+import { WORKSPACE_PANE_ROOT_CLASS, WORKSPACE_SCROLL_MODE } from '../common/workspaceLayout';
 import { useAppStore } from '../../store/useAppStore';
 import { useNotesStore } from '../../store/useNotesStore';
 import {
@@ -1508,7 +1509,13 @@ export const NoteView = ({ showToast = () => {}, accountId }: NoteViewProps) => 
   ]));
   const { sidebarProps, editorAreaProps, contextPanelProps } = useNoteViewChildProps(childPropInput);
   return (
-    <div data-compact-chrome={isCompactChrome || undefined} style={{ display: 'flex', height: '100%', background: c.wrap, color: c.text, fontFamily: 'system-ui, -apple-system, sans-serif', overflow: 'hidden', position: 'relative' }}>
+    <div
+      className={WORKSPACE_PANE_ROOT_CLASS}
+      data-workspace="notes"
+      data-workspace-scroll-mode={WORKSPACE_SCROLL_MODE.pane}
+      data-compact-chrome={isCompactChrome || undefined}
+      style={{ display: 'flex', height: '100%', minHeight: 0, minWidth: 0, background: c.wrap, color: c.text, fontFamily: 'system-ui, -apple-system, sans-serif', overflow: 'hidden', position: 'relative' }}
+    >
       <style>{CSS}</style>
       <SkipLink href="#noteview-main" label={t('skipToMain')} />
       <SkipLink href="#noteview-navigation" label={t('skipToNavigation')} />

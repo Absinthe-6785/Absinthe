@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react';
 import {
+  classifyViewportWidth,
   isMobileWidth,
   isNarrowWidth,
   isTabletWidth,
-  VIEWPORT_BREAKPOINTS,
+  VIEWPORT_BOUNDARIES,
+  VIEWPORT_MEDIA_QUERIES,
+  type ViewportCategory,
 } from '../lib/responsiveLayout';
 
 export interface ViewportLayout {
@@ -11,24 +14,24 @@ export interface ViewportLayout {
   isMobile: boolean;
   isTablet: boolean;
   isNarrow: boolean;
+  category: ViewportCategory;
 }
 
 export function useViewportLayout(): ViewportLayout {
   const [width, setWidth] = useState(
-    () => (typeof window !== 'undefined' ? window.innerWidth : VIEWPORT_BREAKPOINTS.narrow),
+    () => (typeof window !== 'undefined' ? window.innerWidth : VIEWPORT_BOUNDARIES.wide),
   );
 
   useEffect(() => {
     const onChange = () => setWidth(window.innerWidth);
-    const mqlMobile = window.matchMedia(`(max-width: ${VIEWPORT_BREAKPOINTS.mobile - 1}px)`);
-    const mqlTablet = window.matchMedia(`(max-width: ${VIEWPORT_BREAKPOINTS.tablet - 1}px)`);
-    mqlMobile.addEventListener('change', onChange);
-    mqlTablet.addEventListener('change', onChange);
+    const mediaQueries = [
+      VIEWPORT_MEDIA_QUERIES.mobile,
+      VIEWPORT_MEDIA_QUERIES.compact,
+      VIEWPORT_MEDIA_QUERIES.narrow,
+    ].map(query => window.matchMedia(query));
+    mediaQueries.forEach(query => query.addEventListener('change', onChange));
     onChange();
-    return () => {
-      mqlMobile.removeEventListener('change', onChange);
-      mqlTablet.removeEventListener('change', onChange);
-    };
+    return () => mediaQueries.forEach(query => query.removeEventListener('change', onChange));
   }, []);
 
   return {
@@ -36,5 +39,6 @@ export function useViewportLayout(): ViewportLayout {
     isMobile: isMobileWidth(width),
     isTablet: isTabletWidth(width),
     isNarrow: isNarrowWidth(width),
+    category: classifyViewportWidth(width),
   };
 }

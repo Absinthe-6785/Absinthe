@@ -2,7 +2,7 @@
  * K-99 — Responsive button & toolbar audit.
  */
 import { K99_BUTTON_PRESETS, type ButtonPresetSize } from '@/theme/k99ButtonPresets';
-import { TOUCH_TARGET_MIN_PX, VIEWPORT_BREAKPOINTS } from '@/lib/responsiveLayout';
+import { TOUCH_TARGET_MIN_PX, VIEWPORT_BOUNDARIES } from '@/lib/responsiveLayout';
 
 export const K99_BUTTON_SIZES = ['sm', 'md', 'lg'] as const satisfies readonly ButtonPresetSize[];
 
@@ -46,8 +46,8 @@ export function auditButtonPresets(): K99ButtonPresetRow[] {
 }
 
 export function auditToolbarAtWidth(viewportPx: number): K99ToolbarRow {
-  const isMobile = viewportPx < VIEWPORT_BREAKPOINTS.mobile;
-  const isNarrow = viewportPx < VIEWPORT_BREAKPOINTS.narrow;
+  const isMobile = viewportPx < VIEWPORT_BOUNDARIES.tablet;
+  const isNarrow = viewportPx < VIEWPORT_BOUNDARIES.wide;
   return {
     viewportPx,
     wrapsToolbar: isNarrow,

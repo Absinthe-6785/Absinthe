@@ -2,7 +2,11 @@ import { useMemo, useState } from 'react';
 import { Search, X, Plus, BookMarked, Star, Trash2, RotateCcw, AlertTriangle, RefreshCw } from 'lucide-react';
 import type { AppSettings, Theme } from '../../../../../types';
 import { resolveAppLanguage, getTranslator } from '../../../../../lib/i18n';
-import { WorkspaceLayout } from '../../../../common/workspaceLayout';
+import {
+  WorkspaceLayout,
+  WORKSPACE_PANE_ROOT_CLASS,
+  WORKSPACE_SCROLL_MODE,
+} from '../../../../common/workspaceLayout';
 import { WorkspaceToolbar, WorkspaceToolbarPrimary } from '../../../../common/WorkspaceToolbar';
 import { WorkspacePageHeader } from '../../../../common/WorkspacePageHeader';
 import { WorkspaceCardSkeleton } from '../../../../common/WorkspaceCardSkeleton';
@@ -114,12 +118,13 @@ export function RecipeStudioView({
 
   return (
     <div
-      className={`flex-1 overflow-hidden flex flex-col h-full rounded-none ${WORKSPACE_CARD_RADIUS_CLASS} lg:ml-3 bg-background px-3 lg:px-5 pt-3 lg:pt-5 pb-3 lg:pb-5`}
+      className={`${WORKSPACE_PANE_ROOT_CLASS} flex flex-col h-full rounded-none ${WORKSPACE_CARD_RADIUS_CLASS} lg:ml-3 bg-background px-3 lg:px-5 pt-3 lg:pt-5 pb-3 lg:pb-5`}
       data-k110-recipe-studio
       data-recipe-empty={activeReady && projection.empty.isEmpty ? 'true' : 'false'}
     >
       <WorkspaceLayout
         workspace="recipe"
+        scrollMode={WORKSPACE_SCROLL_MODE.pane}
         split
         header={(
           <WorkspaceToolbar workspace="recipe" className="!mb-0 !pb-0 bg-transparent" legacyDataHook="data-k110-recipe-header">
