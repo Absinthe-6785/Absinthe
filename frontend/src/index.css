@@ -9,6 +9,7 @@
   --color-surface-alt: #EDE8DF;
   --color-text: #1C1917;
   --color-muted: #78716C;
+  --color-muted-foreground: #78716C;
   --color-border: #E7E0D5;
   --color-primary: #8B5CF6;
   --color-primary-hover: #7C3AED;
@@ -22,6 +23,7 @@
   --color-accent-bg: rgba(139, 92, 246, 0.08);
   --color-input: #F5F2EC;
   --color-input-border: #E7E0D5;
+  --font-heading: 'Montserrat', sans-serif;
 
   /* K-116 semantic aliases */
   --bg-panel: var(--color-surface);

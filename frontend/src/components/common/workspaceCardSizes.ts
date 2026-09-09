@@ -8,17 +8,44 @@ export const WORKSPACE_CARD = {
   workoutHero: 'min-h-[280px] lg:min-h-0',
 } as const;
 
-/** K-127 — canonical card radius (matches UI_DENSITY cardRadius*Px). */
+/** K-127 — responsive radius retained for intentional local/workspace-specific shells. */
 export const WORKSPACE_CARD_RADIUS_CLASS = 'rounded-[20px] lg:rounded-[24px]';
 
-/** K-125G / K-127 — shared card surface rhythm across Tailwind workspaces. */
-export const WORKSPACE_CARD_SURFACE = `${WORKSPACE_CARD_RADIUS_CLASS} shadow-sm p-4 lg:p-5`;
+/**
+ * UI-02 — semantic shared-surface authority.
+ *
+ * These roles own color, radius, and shadow as one deterministic visual contract.
+ * Their current values reproduce the browser-resolved pre-UI-02 appearance while
+ * keeping future theme replacement centralized. Spacing remains role-specific.
+ */
+export const WORKSPACE_SURFACE_ROLE = {
+  card: {
+    colorClass: 'bg-surface text-foreground',
+    radiusClass: 'rounded-absinthe-xl',
+    shadowClass: 'shadow-sm',
+  },
+  modal: {
+    colorClass: 'bg-surface text-foreground',
+    radiusClass: 'rounded-absinthe-xl',
+    shadowClass: 'shadow-absinthe-md',
+  },
+} as const;
+
+function composeSurfaceVisual(role: keyof typeof WORKSPACE_SURFACE_ROLE): string {
+  const { colorClass, radiusClass, shadowClass } = WORKSPACE_SURFACE_ROLE[role];
+  return `${colorClass} ${radiusClass} ${shadowClass}`;
+}
+
+export const WORKSPACE_CARD_VISUAL_CLASS = composeSurfaceVisual('card');
+
+/** K-125G / K-127 — complete shared card surface across Tailwind workspaces. */
+export const WORKSPACE_CARD_SURFACE = `${WORKSPACE_CARD_VISUAL_CLASS} p-4 lg:p-5`;
 
 /** Denser nested cards (analytics tiles, side panels). */
-export const WORKSPACE_CARD_SURFACE_COMPACT = `${WORKSPACE_CARD_RADIUS_CLASS} shadow-sm p-3 lg:p-4`;
+export const WORKSPACE_CARD_SURFACE_COMPACT = `${WORKSPACE_CARD_VISUAL_CLASS} p-3 lg:p-4`;
 
 /** Modal / dialog shells. */
-export const WORKSPACE_MODAL_SURFACE = `${WORKSPACE_CARD_RADIUS_CLASS} p-5 lg:p-6 shadow-2xl`;
+export const WORKSPACE_MODAL_SURFACE = `${composeSurfaceVisual('modal')} p-5 lg:p-6`;
 
 /** K-127 — primary CTA button rhythm. */
 export const WORKSPACE_BTN_PRIMARY_CLASS =

@@ -1307,7 +1307,7 @@ export const HealthView = ({
           mobileVisible={mobileHealthTab === 'setup' && setupSection === 'blocks'}
         />
 
-        <div className={`xl:h-full xl:min-h-0 ${WORKSPACE_CARD.sm} ${WORKSPACE_CARD_SURFACE} flex flex-col overflow-hidden transition-colors ${theme.card} ${mobileHealthTab === 'setup' && setupSection === 'routine' ? '' : 'hidden lg:flex'}`} data-k126-workout-routine data-health-09b-routine>
+        <div className={`xl:h-full xl:min-h-0 ${WORKSPACE_CARD.sm} ${WORKSPACE_CARD_SURFACE} flex flex-col overflow-hidden transition-colors ${mobileHealthTab === 'setup' && setupSection === 'routine' ? '' : 'hidden lg:flex'}`} data-k126-workout-routine data-health-09b-routine>
           <div className="flex flex-wrap justify-between items-center gap-2 mb-2.5">
             <div className="flex min-w-0 items-center gap-2">
               <h2 className="font-heading text-base font-bold shrink-0">{t('routineSetup')}</h2>
@@ -1415,7 +1415,7 @@ export const HealthView = ({
         data-k138-health-right-grid
       >
         <div
-          className={`${WORKSPACE_CARD_SURFACE} flex min-h-0 flex-col overflow-hidden transition-colors ${WORKSPACE_CARD.workoutHero} lg:min-h-[280px] xl:min-h-0 ${theme.card} xl:h-full`}
+          className={`${WORKSPACE_CARD_SURFACE} flex min-h-0 flex-col overflow-hidden transition-colors ${WORKSPACE_CARD.workoutHero} lg:min-h-[280px] xl:min-h-0 xl:h-full`}
           data-k129b-today-workout-primary
           data-k138-workout-row
           data-k137-workout-density={hasWorkoutRecords ? 'populated' : 'empty'}
@@ -2041,7 +2041,7 @@ export const HealthView = ({
           data-health-quick-add-overlay
         >
           <div
-            className={`${WORKSPACE_MODAL_SURFACE} w-full max-w-lg max-h-[78dvh] ${theme.card}`}
+            className={`${WORKSPACE_MODAL_SURFACE} w-full max-w-lg max-h-[78dvh]`}
             role="dialog"
             aria-modal="true"
             aria-labelledby="health-quick-add-title"
@@ -2088,7 +2088,7 @@ export const HealthView = ({
       {/* ── 블록 생성/수정 모달 ── */}
       {showBlockModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4 backdrop-blur-sm" onClick={() => setShowBlockModal(false)}>
-          <div className={`${WORKSPACE_MODAL_SURFACE} w-full max-w-[380px] ${theme.card}`} onClick={e => e.stopPropagation()}>
+          <div className={`${WORKSPACE_MODAL_SURFACE} w-full max-w-[380px]`} onClick={e => e.stopPropagation()}>
             <h3 className="font-heading text-xl font-bold mb-6 flex justify-between items-center">
               {editingBlock ? t('editBlock') : t('newBlockLabel')}
               <button onClick={() => setShowBlockModal(false)} className={`p-2 rounded-full ${theme.hoverBg}`}><X size={18}/></button>
@@ -2186,7 +2186,7 @@ export const HealthView = ({
           a === 'OTHER' ? 1 : b === 'OTHER' ? -1 : a.localeCompare(b));
         return (
           <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4 backdrop-blur-sm" onClick={() => setShowAssembleModal(false)}>
-            <div className={`${WORKSPACE_MODAL_SURFACE} w-full max-w-[440px] flex flex-col max-h-[85vh] ${theme.card}`} onClick={e => e.stopPropagation()}>
+            <div className={`${WORKSPACE_MODAL_SURFACE} w-full max-w-[440px] flex flex-col max-h-[85vh]`} onClick={e => e.stopPropagation()}>
               <div className="flex justify-between items-center mb-5 shrink-0">
                 <div>
                   <h3 className="font-heading text-xl font-bold">{t('assembleTitle')} {activeDayForm}</h3>

@@ -186,7 +186,7 @@ export function RecipeStudioView({
         )}
         primary={(
           <div className={`flex flex-col ${WORKSPACE_GAP_CLASS} min-h-0 flex-1`} data-k110-recipe-primary>
-            <section className={`${WORKSPACE_CARD_SURFACE} flex flex-col min-h-0 flex-1 ${theme.card}`} data-k110-recipe-section="recipes">
+            <section className={`${WORKSPACE_CARD_SURFACE} flex flex-col min-h-0 flex-1`} data-k110-recipe-section="recipes">
               <h2 className={WORKSPACE_SECTION_TITLE_CLASS}>{t('k110SectionRecipes')}</h2>
 
               {activeUnavailable && (
@@ -296,7 +296,7 @@ export function RecipeStudioView({
             </section>
 
             {showTrash && (
-              <section className={`${WORKSPACE_CARD_SURFACE} ${theme.card}`} data-k110-recipe-trash>
+              <section className={WORKSPACE_CARD_SURFACE} data-k110-recipe-trash>
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <h2 className={WORKSPACE_SECTION_TITLE_CLASS}>{t('trash')}</h2>

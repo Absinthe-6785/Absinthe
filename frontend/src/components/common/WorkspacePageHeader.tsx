@@ -77,7 +77,7 @@ export function WorkspacePageHeader({
     );
   }
 
-  const headingClass = dark ? 'text-white' : 'text-gray-900';
+  const headingClass = theme?.text ?? 'text-foreground';
   const muted = theme?.textMuted ?? 'text-muted-foreground';
 
   return (

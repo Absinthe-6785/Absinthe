@@ -7,7 +7,7 @@ import {
 } from './tokens';
 
 const COLOR_KEYS = [
-  'background', 'surface', 'surfaceAlt', 'text', 'muted', 'border',
+  'background', 'surface', 'surfaceAlt', 'text', 'muted', 'mutedForeground', 'border',
   'primary', 'primaryHover', 'primaryForeground',
 ] as const;
 
@@ -38,7 +38,9 @@ describe('Absinthe design tokens', () => {
     const el = { style } as unknown as HTMLElement;
     applyTokensToElement(el, LIGHT_TOKENS);
     expect(style.setProperty).toHaveBeenCalledWith('--color-primary', '#8B5CF6');
+    expect(style.setProperty).toHaveBeenCalledWith('--color-muted-foreground', LIGHT_TOKENS.colors.mutedForeground);
     expect(style.setProperty).toHaveBeenCalledWith('--radius-md', '12px');
     expect(style.setProperty).toHaveBeenCalledWith('--shadow-menu', LIGHT_TOKENS.shadow.menu);
+    expect(style.setProperty).toHaveBeenCalledWith('--font-heading', LIGHT_TOKENS.typography.headingFamily);
   });
 });

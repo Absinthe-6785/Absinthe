@@ -10,7 +10,7 @@ import { ConfirmModal } from '../../../common/ConfirmModal';
 import { expandWeeklyScheduleDays, shouldFanOutWeeklyCreate, weeklyScheduleLinkedBlocks } from '../../k98aTimetableMultiDay';
 import { ProductEmptyState } from '../../../common/ProductEmptyState';
 import { isDuplicatedWeeklyTitle } from '../../k101TimetableDuplicateDays';
-import { WORKSPACE_CARD_RADIUS_CLASS } from '../../../common/workspaceCardSizes';
+import { WORKSPACE_CARD_VISUAL_CLASS } from '../../../common/workspaceCardSizes';
 
 const WEEKDAY_KEYS = ['weekdayMon', 'weekdayTue', 'weekdayWed', 'weekdayThu', 'weekdayFri', 'weekdaySat', 'weekdaySun'] as const;
 
@@ -237,8 +237,8 @@ export function WeeklyTimetableSection({
   return (
     <>
       <section
-        className={`w-full shadow-sm flex flex-col overflow-hidden transition-colors ${theme.card}
-          ${sectionEmbedded ? `${WORKSPACE_CARD_RADIUS_CLASS} p-3 lg:p-4` : `${WORKSPACE_CARD_RADIUS_CLASS} p-5 lg:p-6`}
+        className={`w-full ${WORKSPACE_CARD_VISUAL_CLASS} flex flex-col overflow-hidden transition-colors
+          ${sectionEmbedded ? 'p-3 lg:p-4' : 'p-5 lg:p-6'}
           ${sectionEmbedded ? 'h-full min-h-0' : ''}
           ${showGrid || showMobileList ? (sectionEmbedded ? '' : 'min-h-[360px] lg:min-h-[480px]') : ''}`}
         data-planner-weekly-timetable

@@ -13,7 +13,7 @@ import { DayRoutineSummary } from '../day/DayRoutineSummary';
 import type { DayRoutineActions } from '../day/dayRoutineActions';
 import { DayTodoSummary } from '../day/DayTodoSummary';
 import { buildDayViewPayload } from '../../calendar/buildPlannerViewPayloads';
-import { WORKSPACE_CARD_RADIUS_CLASS } from '@/components/common/workspaceCardSizes';
+import { WORKSPACE_CARD_VISUAL_CLASS } from '@/components/common/workspaceCardSizes';
 
 export interface PlannerTodayPanelProps {
   plannerProjection: PlannerProjection;
@@ -78,7 +78,7 @@ export function PlannerTodayPanel({
       data-k105-planner-today
       data-k108-planner-today
     >
-      <div className={`${WORKSPACE_CARD_RADIUS_CLASS} p-3 lg:p-4 shadow-sm h-full flex flex-col min-h-0 overflow-hidden ${theme.card}`}>
+      <div className={`${WORKSPACE_CARD_VISUAL_CLASS} p-3 lg:p-4 h-full flex flex-col min-h-0 overflow-hidden`}>
         <div className="flex items-center justify-between gap-2 mb-2">
           <h2 className="font-heading text-base font-bold">{t('plannerToday')}</h2>
           <span className={`text-[10px] font-bold uppercase tracking-wide ${theme.textMuted}`}>{todayLabel}</span>

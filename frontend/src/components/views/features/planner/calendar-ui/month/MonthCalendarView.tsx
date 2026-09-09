@@ -11,7 +11,7 @@ import type { DayRoutineActions } from '../day/dayRoutineActions';
 import { useElementVisible } from '@/hooks/useElementVisible';
 import { useTranslation } from '@/lib/i18n';
 import { WorkspaceCardSkeleton } from '@/components/common/WorkspaceCardSkeleton';
-import { WORKSPACE_CARD_RADIUS_CLASS } from '@/components/common/workspaceCardSizes';
+import { WORKSPACE_CARD_VISUAL_CLASS } from '@/components/common/workspaceCardSizes';
 
 type ScheduleDday = Schedule & { date: string };
 
@@ -142,7 +142,7 @@ export function MonthCalendarView({
           <section
             data-k117-schedule-section="calendar"
             ref={monthRef as React.RefObject<HTMLElement>}
-            className={`w-full min-h-0 h-full ${WORKSPACE_CARD_RADIUS_CLASS} p-2.5 lg:p-3 overflow-hidden flex flex-col shadow-sm ${theme.card}`}
+            className={`w-full min-h-0 h-full ${WORKSPACE_CARD_VISUAL_CLASS} p-2.5 lg:p-3 overflow-hidden flex flex-col`}
             data-k117-planner-calendar-adaptive
             data-k108-planner-month-lazy
           >
@@ -168,7 +168,7 @@ export function MonthCalendarView({
           </section>
 
           <section
-            className={`min-h-0 h-full ${WORKSPACE_CARD_RADIUS_CLASS} p-3 shadow-sm flex flex-col max-h-[300px] lg:max-h-none overflow-hidden ${theme.card}`}
+            className={`min-h-0 h-full ${WORKSPACE_CARD_VISUAL_CLASS} p-3 flex flex-col max-h-[300px] lg:max-h-none overflow-hidden`}
             data-k139-schedule-dday-list
           >
             <div className="flex items-center justify-between gap-2 mb-2 shrink-0">

@@ -12,6 +12,7 @@ module.exports = {
         'surface-alt': 'var(--color-surface-alt)',
         foreground: 'var(--color-text)',
         muted: 'var(--color-muted)',
+        'muted-foreground': 'var(--color-muted-foreground)',
         border: 'var(--color-border)',
         primary: {
           DEFAULT: 'var(--color-primary)',
@@ -30,6 +31,9 @@ module.exports = {
           border: 'var(--color-input-border)',
         },
         'accent-bg': 'var(--color-accent-bg)',
+      },
+      fontFamily: {
+        heading: 'var(--font-heading)',
       },
       spacing: {
         'absinthe-xs': 'var(--spacing-xs)',

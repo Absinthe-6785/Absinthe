@@ -12,14 +12,13 @@ export interface WorkspaceCardSkeletonProps {
 
 /** K-69 / K-127 — dimension-matched loading shell using shared card surface tokens. */
 export function WorkspaceCardSkeleton({
-  theme,
   minHeight = WORKSPACE_CARD.lg,
   bars = 3,
   className = '',
 }: WorkspaceCardSkeletonProps) {
   return (
     <div
-      className={`${WORKSPACE_CARD_SURFACE} flex flex-col gap-4 ${minHeight} ${theme.card} ${className}`}
+      className={`${WORKSPACE_CARD_SURFACE} flex flex-col gap-4 ${minHeight} ${className}`}
       data-workspace-card-skeleton
       data-k127-card-skeleton
       aria-hidden

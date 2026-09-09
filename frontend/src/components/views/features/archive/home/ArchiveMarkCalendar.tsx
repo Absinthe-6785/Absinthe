@@ -53,7 +53,7 @@ export function ArchiveMarkCalendar({
 
   return (
     <section
-      className={`${WORKSPACE_CARD_SURFACE} flex flex-col transition-colors ${theme.card}`}
+      className={`${WORKSPACE_CARD_SURFACE} flex flex-col transition-colors`}
       data-archive-mark-calendar
       data-archive-mark-calendar-empty={markCalendar.hasAnyMarks ? 'false' : 'true'}
       aria-label={t('archiveMarkCalendarTitle')}

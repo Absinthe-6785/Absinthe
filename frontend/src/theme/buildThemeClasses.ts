@@ -7,10 +7,10 @@ import type { Theme } from '../types';
 export function buildThemeClasses(): Theme {
   return {
     card: 'bg-surface text-foreground shadow-absinthe-md rounded-absinthe-xl',
-    input: 'bg-surface-alt text-foreground placeholder:text-muted border border-border',
+    input: 'bg-surface-alt text-foreground placeholder:text-muted-foreground border border-border',
     border: 'border-border',
     text: 'text-foreground',
-    textMuted: 'text-muted',
+    textMuted: 'text-muted-foreground',
     hoverBg: 'hover:bg-surface-alt',
   };
 }
