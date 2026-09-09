@@ -8,6 +8,8 @@ export interface ColorTokens {
   surfaceAlt: string;
   text: string;
   muted: string;
+  /** Secondary/helper copy; distinct from muted fills even when current values match. */
+  mutedForeground: string;
   border: string;
   primary: string;
   primaryHover: string;
@@ -52,11 +54,17 @@ export interface ShadowTokens {
   menu: string;
 }
 
+export interface TypographyTokens {
+  /** Shared product headings; document/editor typography remains workspace-specific. */
+  headingFamily: string;
+}
+
 export interface DesignTokens {
   colors: ColorTokens;
   spacing: SpacingTokens;
   radius: RadiusTokens;
   shadow: ShadowTokens;
+  typography: TypographyTokens;
 }
 
 /** Light — Ivory Paper + Purple */
@@ -67,6 +75,7 @@ export const LIGHT_TOKENS: DesignTokens = {
     surfaceAlt: '#EDE8DF',
     text: '#1C1917',
     muted: '#78716C',
+    mutedForeground: '#78716C',
     border: '#E7E0D5',
     primary: '#8B5CF6',
     primaryHover: '#7C3AED',
@@ -105,6 +114,9 @@ export const LIGHT_TOKENS: DesignTokens = {
     xl: '0 16px 48px rgba(28,25,23,0.12)',
     menu: '0 8px 24px rgba(28,25,23,0.12)',
   },
+  typography: {
+    headingFamily: "'Montserrat', sans-serif",
+  },
 };
 
 /** Dark — Midnight Purple + Charcoal */
@@ -115,6 +127,7 @@ export const DARK_TOKENS: DesignTokens = {
     surfaceAlt: '#252529',
     text: '#F4F4F5',
     muted: '#A1A1AA',
+    mutedForeground: '#A1A1AA',
     border: '#2E2E33',
     primary: '#8B5CF6',
     primaryHover: '#A78BFA',
@@ -138,6 +151,7 @@ export const DARK_TOKENS: DesignTokens = {
     xl: '0 16px 48px rgba(0,0,0,0.55)',
     menu: '0 8px 32px rgba(0,0,0,0.55)',
   },
+  typography: LIGHT_TOKENS.typography,
 };
 
 export function tokensForMode(mode: ThemeMode): DesignTokens {
@@ -146,7 +160,7 @@ export function tokensForMode(mode: ThemeMode): DesignTokens {
 
 /** Apply all design tokens as CSS custom properties on an element (usually :root). */
 export function applyTokensToElement(el: HTMLElement, tokens: DesignTokens): void {
-  const { colors: c, spacing: s, radius: r, shadow: sh } = tokens;
+  const { colors: c, spacing: s, radius: r, shadow: sh, typography: type } = tokens;
   const set = (k: string, v: string) => el.style.setProperty(k, v);
 
   set('--color-background', c.background);
@@ -154,6 +168,7 @@ export function applyTokensToElement(el: HTMLElement, tokens: DesignTokens): voi
   set('--color-surface-alt', c.surfaceAlt);
   set('--color-text', c.text);
   set('--color-muted', c.muted);
+  set('--color-muted-foreground', c.mutedForeground);
   set('--color-border', c.border);
   set('--color-primary', c.primary);
   set('--color-primary-hover', c.primaryHover);
@@ -188,4 +203,5 @@ export function applyTokensToElement(el: HTMLElement, tokens: DesignTokens): voi
   set('--shadow-lg', sh.lg);
   set('--shadow-xl', sh.xl);
   set('--shadow-menu', sh.menu);
+  set('--font-heading', type.headingFamily);
 }

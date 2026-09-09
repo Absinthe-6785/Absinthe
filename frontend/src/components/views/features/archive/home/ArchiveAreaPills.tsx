@@ -23,7 +23,7 @@ export function ArchiveAreaPills({
 
   return (
     <section
-      className={`${WORKSPACE_CARD_SURFACE} flex flex-col transition-colors ${theme.card}`}
+      className={`${WORKSPACE_CARD_SURFACE} flex flex-col transition-colors`}
       data-archive-area-pills
       data-archive-area-pills-empty={isEmpty ? 'true' : 'false'}
       aria-label={t('archiveAreaTitle')}

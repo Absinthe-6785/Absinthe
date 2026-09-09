@@ -27,7 +27,7 @@ export function ArchiveBrowseLinks({
 
   return (
     <section
-      className={`${WORKSPACE_CARD_SURFACE} flex flex-col transition-colors ${theme.card}`}
+      className={`${WORKSPACE_CARD_SURFACE} flex flex-col transition-colors`}
       data-archive-browse
       data-archive-browse-empty={isEmpty ? 'true' : 'false'}
       aria-label={t('archiveBrowseTitle')}

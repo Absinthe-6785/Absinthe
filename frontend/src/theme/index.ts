@@ -12,4 +12,5 @@ export {
   type SpacingTokens,
   type RadiusTokens,
   type ShadowTokens,
+  type TypographyTokens,
 } from './tokens';

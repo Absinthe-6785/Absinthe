@@ -84,7 +84,7 @@ export const HealthSupportingPanels = memo(function HealthSupportingPanels({
               workoutDates={workoutDates}
             />
           </div>
-          <div className={`${WORKSPACE_CARD.sm} ${WORKSPACE_CARD_SURFACE_COMPACT} order-1 flex min-w-0 flex-col px-3 py-2 transition-colors lg:order-2 xl:h-full xl:min-h-0 ${theme.card}`} data-inbody-panel>
+          <div className={`${WORKSPACE_CARD.sm} ${WORKSPACE_CARD_SURFACE_COMPACT} order-1 flex min-w-0 flex-col px-3 py-2 transition-colors lg:order-2 xl:h-full xl:min-h-0`} data-inbody-panel>
             <div className="flex items-center justify-between gap-2 mb-2">
               <h2 className="font-heading text-xs font-bold flex items-center gap-1.5"><Target size={12} className="text-primary" /> {t('inbody')}</h2>
               <button type="button" onClick={onSaveInbody} className="text-[10px] font-bold bg-primary text-primary-foreground px-2.5 py-1.5 rounded-lg hover:bg-gray-800 transition-colors shrink-0">{t('save')}</button>

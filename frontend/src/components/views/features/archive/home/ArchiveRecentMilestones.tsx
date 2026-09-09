@@ -22,7 +22,7 @@ export function ArchiveRecentMilestones({
 
   return (
     <section
-      className={`${WORKSPACE_CARD_SURFACE} flex flex-col transition-colors ${theme.card}`}
+      className={`${WORKSPACE_CARD_SURFACE} flex flex-col transition-colors`}
       data-archive-recent-milestones
       data-archive-recent-milestones-empty={isEmpty ? 'true' : 'false'}
       aria-label={t('archiveRecentMilestonesTitle')}

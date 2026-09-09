@@ -232,7 +232,7 @@ export const SettingsView = ({
         <div className={`max-w-3xl mx-auto ${WORKSPACE_GAP_CLASS}`}>
 
           {/* Appearance */}
-          <div className={`${WORKSPACE_CARD_SURFACE} flex flex-col relative overflow-hidden transition-colors ${theme.card}`} data-settings-section="general" data-k119-settings-card>
+          <div className={`${WORKSPACE_CARD_SURFACE} flex flex-col relative overflow-hidden transition-colors`} data-settings-section="general" data-k119-settings-card>
             <h2 className="font-heading text-lg font-bold mb-3 flex items-center gap-2">
               <Settings size={20} className="text-primary" />{t('dataSafetyAppearanceTitle')}
             </h2>
@@ -308,7 +308,7 @@ export const SettingsView = ({
           </div>
 
           {/* Danger zone */}
-          <div className={`${WORKSPACE_CARD_SURFACE} flex flex-col relative overflow-hidden border-2 border-red-500/20 transition-colors ${theme.card}`} data-settings-section="danger" data-k119-settings-card>
+          <div className={`${WORKSPACE_CARD_SURFACE} flex flex-col relative overflow-hidden border-2 border-red-500/20 transition-colors`} data-settings-section="danger" data-k119-settings-card>
             <h2 className="font-heading text-lg font-bold text-red-500 mb-3 flex items-center gap-2">
               <AlertTriangle size={20} />{t('k98SettingsDangerZone')}
             </h2>

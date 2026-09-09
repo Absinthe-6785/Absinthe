@@ -2,7 +2,7 @@ import { memo, type ReactNode } from 'react';
 import { ChevronDown, ChevronUp, TrendingUp } from 'lucide-react';
 import type { HealthProjection } from './buildHealthProjection';
 import type { Theme } from '../../../../types';
-import { WORKSPACE_CARD, WORKSPACE_CARD_RADIUS_CLASS, WORKSPACE_CARD_SURFACE_COMPACT } from '../../../common/workspaceCardSizes';
+import { WORKSPACE_CARD, WORKSPACE_CARD_SURFACE_COMPACT, WORKSPACE_CARD_VISUAL_CLASS } from '../../../common/workspaceCardSizes';
 import { useTranslation } from '../../../../lib/i18n';
 import { useElementVisible } from '../../../../hooks/useElementVisible';
 import { HealthVirtualList } from './HealthVirtualList';
@@ -96,7 +96,7 @@ export const HealthAnalyticsPanel = memo(function HealthAnalyticsPanel({
   return (
     <div
       ref={ref as React.RefObject<HTMLDivElement>}
-      className={`${standalone ? WORKSPACE_CARD.md : WORKSPACE_CARD.sm} ${standalone ? `${WORKSPACE_CARD_RADIUS_CLASS} p-3.5 lg:p-4 flex flex-col min-h-0 shadow-sm` : `${WORKSPACE_CARD_SURFACE_COMPACT} shrink-0`} transition-colors ${theme.card}`}
+      className={`${standalone ? WORKSPACE_CARD.md : WORKSPACE_CARD.sm} ${standalone ? `${WORKSPACE_CARD_VISUAL_CLASS} p-3.5 lg:p-4 flex flex-col min-h-0` : `${WORKSPACE_CARD_SURFACE_COMPACT} shrink-0`} transition-colors`}
       data-k107-health-analytics
       data-k121-health-analytics
       data-k126-health-analytics

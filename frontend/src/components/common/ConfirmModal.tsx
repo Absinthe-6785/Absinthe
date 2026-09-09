@@ -58,7 +58,7 @@ export const ConfirmModal = ({
           <button
             type="button"
             onClick={onCancel}
-            className="flex-1 py-3 rounded-absinthe-lg font-bold text-sm transition-colors bg-surface-alt hover:bg-border text-muted abs-focus-ring"
+            className="flex-1 py-3 rounded-absinthe-lg font-bold text-sm transition-colors bg-surface-alt hover:bg-border text-muted-foreground abs-focus-ring"
           >
             {t('cancel')}
           </button>

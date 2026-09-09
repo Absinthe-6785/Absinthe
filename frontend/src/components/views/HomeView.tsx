@@ -49,16 +49,14 @@ function HomeSection({
   title,
   children,
   dataHook,
-  theme,
 }: {
   title: string;
   children: ReactNode;
   dataHook: string;
-  theme: ViewProps['theme'];
 }) {
   return (
     <section
-      className={`${WORKSPACE_CARD_SURFACE} ${theme.card}`}
+      className={WORKSPACE_CARD_SURFACE}
       data-k132a-home-section={dataHook}
     >
       <h2 className="font-heading text-base font-bold mb-3">{title}</h2>
@@ -275,7 +273,7 @@ export const HomeView = ({
 
         <div className="flex-1 min-h-0" data-k132a-home-scroll>
           <div className="max-w-[760px] mx-auto flex flex-col gap-3 lg:gap-4">
-            <HomeSection title={t('homeContinue')} dataHook="continue" theme={theme}>
+            <HomeSection title={t('homeContinue')} dataHook="continue">
               {projection.continueItem ? (
                 <FlowRow
                   title={projection.continueItem.title}
@@ -293,7 +291,7 @@ export const HomeView = ({
               )}
             </HomeSection>
 
-            <HomeSection title={t('homeToday')} dataHook="today" theme={theme}>
+            <HomeSection title={t('homeToday')} dataHook="today">
               <p className={`text-[11px] font-medium mb-2 ${theme.textMuted}`}>
                 {formatLongDate(todayDate, lang)}
               </p>
@@ -339,7 +337,7 @@ export const HomeView = ({
             </HomeSection>
 
             {upcomingDdays.length > 0 ? (
-              <HomeSection title={t('k139UpcomingDday')} dataHook="dday" theme={theme}>
+              <HomeSection title={t('k139UpcomingDday')} dataHook="dday">
                 <div className="flex flex-col gap-1.5">
                   {upcomingDdays.map(({ item, daysUntil }) => (
                     <FlowRow
@@ -355,7 +353,7 @@ export const HomeView = ({
               </HomeSection>
             ) : null}
 
-            <HomeSection title={t('homeWorkout')} dataHook="workout" theme={theme}>
+            <HomeSection title={t('homeWorkout')} dataHook="workout">
               {isDailyLoading ? (
                 <p className={`text-sm ${theme.textMuted}`}>{t('loading')}</p>
               ) : projection.workout.hasSession ? (
@@ -393,7 +391,7 @@ export const HomeView = ({
               )}
             </HomeSection>
 
-            <HomeSection title={t('homeRecentTraces')} dataHook="traces" theme={theme}>
+            <HomeSection title={t('homeRecentTraces')} dataHook="traces">
               {projection.traces.length > 0 ? (
                 <div className="flex flex-col gap-1.5">
                   {projection.traces.map(item => (
@@ -425,7 +423,7 @@ export const HomeView = ({
               ) : null}
             </HomeSection>
 
-            <HomeSection title={t('homeQuickActions')} dataHook="actions" theme={theme}>
+            <HomeSection title={t('homeQuickActions')} dataHook="actions">
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"

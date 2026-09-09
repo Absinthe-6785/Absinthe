@@ -73,7 +73,7 @@ export function RecoveryCenterPanel({
   const backupCopy = resolveBackupControlCopy(cloudSyncEnabled);
 
   return (
-    <div className={`${WORKSPACE_CARD_SURFACE} flex flex-col relative overflow-hidden transition-colors ${theme.card}`} data-settings-data-safety>
+    <div className={`${WORKSPACE_CARD_SURFACE} flex flex-col relative overflow-hidden transition-colors`} data-settings-data-safety>
       <div className="space-y-5">
         <section data-settings-data-safety-status>
           <div className="flex items-start justify-between gap-3 mb-3">

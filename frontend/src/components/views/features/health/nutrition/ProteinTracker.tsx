@@ -250,7 +250,7 @@ export function ProteinTracker({
 
   if (proteinLoading) {
     return (
-      <div className={`${WORKSPACE_CARD_SURFACE} flex flex-col gap-3 ${cardTier} ${theme.card}`} data-workspace="nutrition">
+      <div className={`${WORKSPACE_CARD_SURFACE} flex flex-col gap-3 ${cardTier}`} data-workspace="nutrition">
         <div className="h-6 w-28 rounded-xl bg-current opacity-10 animate-pulse" />
         <div className="h-12 w-full rounded-2xl bg-current opacity-10 animate-pulse" />
         <div className="h-24 w-full rounded-2xl bg-current opacity-10 animate-pulse" />
@@ -331,7 +331,7 @@ export function ProteinTracker({
   if (mode === 'compact') {
     return (
       <div
-        className={`${WORKSPACE_CARD_SURFACE_COMPACT} flex h-full min-h-0 flex-col gap-2.5 transition-colors ${cardTier} ${theme.card}`}
+        className={`${WORKSPACE_CARD_SURFACE_COMPACT} flex h-full min-h-0 flex-col gap-2.5 transition-colors ${cardTier}`}
         data-workspace="nutrition-compact"
       >
         <div className="flex items-center justify-between gap-2">
@@ -371,7 +371,7 @@ export function ProteinTracker({
 
   return (
     <div
-      className={`${WORKSPACE_CARD_SURFACE} flex flex-col gap-4 transition-colors h-full ${cardTier} ${theme.card}`}
+      className={`${WORKSPACE_CARD_SURFACE} flex flex-col gap-4 transition-colors h-full ${cardTier}`}
       data-workspace="nutrition"
     >
       <div className="flex items-center justify-between">
