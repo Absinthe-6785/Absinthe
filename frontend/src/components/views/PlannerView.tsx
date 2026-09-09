@@ -10,6 +10,7 @@ import { ConfirmModal } from '../common/ConfirmModal';
 import { WorkspacePageHeader } from '../common/WorkspacePageHeader';
 import { WORKSPACE_GAP_CLASS } from '../../lib/uiSpacingTokens';
 import { WORKSPACE_MODAL_SURFACE } from '../common/workspaceCardSizes';
+import { WORKSPACE_PANE_ROOT_CLASS, WORKSPACE_SCROLL_MODE } from '../common/workspaceLayout';
 import { PlannerProps, Schedule } from '../../types';
 import { useTranslation } from '../../lib/i18n';
 import { CalendarShell } from './features/planner/calendar-ui';
@@ -280,7 +281,7 @@ export const PlannerView = ({
   }), [api, formatDate, mutateRoutines, selectedDate, showConfirm, t]);
 
   return (
-    <div className={`flex-1 flex flex-col min-h-0 overflow-hidden animate-in fade-in duration-300 ${WORKSPACE_GAP_CLASS}`} data-workspace="planner" data-k134b-workspace-scroll>
+    <div className={`${WORKSPACE_PANE_ROOT_CLASS} flex flex-col animate-in fade-in duration-300 ${WORKSPACE_GAP_CLASS}`} data-workspace="planner" data-workspace-scroll-mode={WORKSPACE_SCROLL_MODE.pane} data-k134b-workspace-scroll>
       <div className="shrink-0 px-0.5">
         <WorkspacePageHeader
           workspace="schedule"

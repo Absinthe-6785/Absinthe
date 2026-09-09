@@ -19,6 +19,7 @@ import { WorkspacePageHeader } from '../common/WorkspacePageHeader';
 import { ProductEmptyState } from '../common/ProductEmptyState';
 import { WORKSPACE_GAP_CLASS } from '../../lib/uiSpacingTokens';
 import { WORKSPACE_CARD_SURFACE } from '../common/workspaceCardSizes';
+import { WORKSPACE_PAGE_SCROLL_CLASS, WORKSPACE_SCROLL_MODE } from '../common/workspaceLayout';
 import { openNote, switchToTab } from '../../lib/noteNavigation';
 import { buildRecentActivityProjection } from './buildRecentActivityProjection';
 import { buildRelativeDateLabels } from './k102RelativeDateLabels';
@@ -255,8 +256,10 @@ export const HomeView = ({
   return (
     <WorkspaceErrorBoundary workspace="home">
       <div
-        className={`flex-1 flex flex-col min-h-0 overflow-y-auto overscroll-contain pr-1 pb-6 animate-in fade-in duration-300 ${WORKSPACE_GAP_CLASS}`}
+        className={`${WORKSPACE_PAGE_SCROLL_CLASS} flex flex-col pr-1 pb-6 animate-in fade-in duration-300 ${WORKSPACE_GAP_CLASS}`}
         data-workspace="home"
+        data-workspace-scroll-mode={WORKSPACE_SCROLL_MODE.page}
+        data-workspace-scroll-owner="page"
         data-k132a-home
       >
         <div className="shrink-0 px-0.5">

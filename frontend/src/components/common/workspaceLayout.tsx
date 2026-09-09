@@ -11,6 +11,27 @@ export const WORKSPACE_ZONE = {
 
 export type WorkspaceZone = keyof typeof WORKSPACE_ZONE;
 
+/**
+ * Structural scroll modes for a workspace bounded by AppContent.
+ *
+ * page: one page-level owner scrolls below the workspace header.
+ * pane: the workspace stays bounded and named child panes own scrolling.
+ * delegated: a specialized child application owns all scroll behavior.
+ *
+ * The contract deliberately contains no visual theme values.
+ */
+export const WORKSPACE_SCROLL_MODE = {
+  page: 'page',
+  pane: 'pane',
+  delegated: 'delegated',
+} as const;
+
+export type WorkspaceScrollMode = typeof WORKSPACE_SCROLL_MODE[keyof typeof WORKSPACE_SCROLL_MODE];
+
+export const WORKSPACE_VIEWPORT_CLASS = 'flex-1 min-h-0 min-w-0 overflow-hidden';
+export const WORKSPACE_PAGE_SCROLL_CLASS = 'flex-1 min-h-0 min-w-0 overflow-y-auto overscroll-contain';
+export const WORKSPACE_PANE_ROOT_CLASS = WORKSPACE_VIEWPORT_CLASS;
+
 export interface WorkspaceLayoutProps {
   /** Workspace identifier for tests and analytics */
   workspace: string;
@@ -19,8 +40,11 @@ export interface WorkspaceLayoutProps {
   secondary?: ReactNode;
   supporting?: ReactNode;
   className?: string;
+  contentClassName?: string;
   /** Horizontal split when secondary + primary sit side-by-side */
   split?: boolean;
+  /** Explicit page or pane scroll ownership inside the bounded app viewport. */
+  scrollMode: Exclude<WorkspaceScrollMode, 'delegated'>;
 }
 
 export function WorkspaceLayout({
@@ -30,12 +54,17 @@ export function WorkspaceLayout({
   secondary,
   supporting,
   className = '',
+  contentClassName = '',
   split = false,
+  scrollMode,
 }: WorkspaceLayoutProps) {
+  const pageScroll = scrollMode === WORKSPACE_SCROLL_MODE.page;
+
   return (
     <div
-      className={`flex flex-col min-h-0 flex-1 ${WORKSPACE_GAP_CLASS} ${className}`}
+      className={`flex flex-col ${WORKSPACE_VIEWPORT_CLASS} ${WORKSPACE_GAP_CLASS} ${className}`}
       data-workspace={workspace}
+      data-workspace-scroll-mode={scrollMode}
       data-k119-workspace-layout
     >
       {header ? (
@@ -45,9 +74,10 @@ export function WorkspaceLayout({
       ) : null}
 
       <div
-        className={`flex-1 min-h-0 flex flex-col ${WORKSPACE_GAP_CLASS} ${
+        className={`${pageScroll ? WORKSPACE_PAGE_SCROLL_CLASS : WORKSPACE_PANE_ROOT_CLASS} flex flex-col ${WORKSPACE_GAP_CLASS} ${
           split ? 'lg:flex-row' : ''
-        }`}
+        } ${contentClassName}`}
+        data-workspace-scroll-owner={pageScroll ? 'page' : undefined}
         data-k119-scroll-primary
       >
         {secondary ? (

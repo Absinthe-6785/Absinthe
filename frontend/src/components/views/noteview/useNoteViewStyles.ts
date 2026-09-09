@@ -3,6 +3,7 @@ import type { NoteChromeColors } from '../noteEditorTheme';
 import { interactionStateCss } from '../../../theme/k99InteractionTokens';
 import { UI_INTERACTION } from '../../../lib/uiInteractionTokens';
 import { K99_SCROLL_PANE_CLASS, K99_STICKY_HEADER_CLASS } from '../../common/k99ScrollChrome';
+import { VIEWPORT_MEDIA_QUERIES } from '../../../lib/responsiveLayout';
 
 export function buildNoteViewStyles(c: NoteChromeColors, dark: boolean): string {
   return `
@@ -74,7 +75,7 @@ export function buildNoteViewStyles(c: NoteChromeColors, dark: boolean): string 
     .be-editor-toolbar-scope{font-size:10px;padding:0 8px;height:24px;border-radius:6px;cursor:pointer;display:inline-flex;align-items:center;box-sizing:border-box;border:1px solid ${c.toolBdr};background:${c.card};color:${c.textMuted};transition:all .12s}
     .be-editor-toolbar-scope:hover{background:${c.cardHov}}
     .be-editor-toolbar-scope.active{background:${c.accentBg};color:${c.accent};border-color:${c.accent}}
-    @media (max-width: 768px) {
+    @media ${VIEWPORT_MEDIA_QUERIES.mobile} {
       .be-editor-toolbar-btn{min-width:44px;min-height:44px;width:36px;height:36px}
       .be-editor-toolbar-scope{min-height:44px;padding:0 10px}
     }

@@ -1,6 +1,10 @@
-import { describe, expect, it } from 'vitest';
+// @vitest-environment happy-dom
+import { createElement } from 'react';
+import { act } from 'react';
+import { createRoot } from 'react-dom/client';
+import { describe, expect, it, vi } from 'vitest';
 
-import { buildResetRequestInit } from './SettingsView';
+import { buildResetRequestInit, SettingsView } from './SettingsView';
 import {
   resolveBackupControlCopy,
   resolveDataSafetyStatusPresentation,
@@ -12,6 +16,51 @@ describe('SettingsView recovery request boundary', () => {
       method: 'DELETE',
       headers: { 'X-Absinthe-Recovery-Intent': 'reset-confirmed' },
     });
+  });
+});
+
+describe('SettingsView scroll contract', () => {
+  it('renders one page-level scroll owner inside a bounded workspace root', async () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    await act(async () => root.render(createElement(SettingsView, {
+      appSettings: {
+        darkMode: false,
+        defaultCategory: 'Personal',
+        defaultColor: 'gold',
+        language: 'en',
+      },
+      updateSetting: vi.fn(),
+      showToast: vi.fn(),
+      theme: {
+        card: 'bg-surface',
+        input: 'bg-surface-alt',
+        border: 'border-border',
+        text: 'text-foreground',
+        textMuted: 'text-muted',
+        hoverBg: 'hover:bg-surface-alt',
+      },
+      THEME_COLORS: [],
+      mutateDaily: vi.fn(),
+      mutateStatic: vi.fn(),
+      mutateTodos: vi.fn(),
+      mutateRoutines: vi.fn(),
+      onSignOut: vi.fn(),
+      user: { id: 'settings-account', name: 'Settings User' },
+    } as never)));
+
+    const workspace = container.querySelector('[data-workspace="settings"]');
+    const owners = workspace?.querySelectorAll('[data-workspace-scroll-owner="page"]');
+    expect(workspace?.getAttribute('data-workspace-scroll-mode')).toBe('page');
+    expect(workspace?.classList.contains('overflow-hidden')).toBe(true);
+    expect(workspace?.classList.contains('overflow-y-auto')).toBe(false);
+    expect(owners).toHaveLength(1);
+    expect(owners?.[0]?.hasAttribute('data-settings-scroll')).toBe(true);
+
+    act(() => root.unmount());
+    container.remove();
   });
 });
 

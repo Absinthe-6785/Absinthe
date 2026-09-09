@@ -157,6 +157,26 @@ describe('AppContent startup lifecycle integration', () => {
     document.body.appendChild(container);
   });
 
+  it('bounds a delegated workspace viewport inside the dynamic-height app shell', async () => {
+    const { AppContent } = await import('./AppContent');
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(createElement(AppContent, { authUser: user('shell-contract-account') }));
+    });
+    await flushStartup();
+
+    const shell = container?.querySelector('[data-app-shell]');
+    const viewport = shell?.querySelector('[data-workspace-viewport]');
+    expect(shell?.getAttribute('data-app-height-owner')).toBe('dynamic-viewport');
+    expect(shell?.classList.contains('h-[100dvh]')).toBe(true);
+    expect(shell?.classList.contains('overflow-hidden')).toBe(true);
+    expect(viewport?.getAttribute('data-workspace-scroll-mode')).toBe('delegated');
+    expect(viewport?.classList.contains('min-h-0')).toBe(true);
+    expect(viewport?.classList.contains('min-w-0')).toBe(true);
+    expect(viewport?.classList.contains('overflow-hidden')).toBe(true);
+    expect(viewport?.classList.contains('overflow-y-auto')).toBe(false);
+  });
+
   afterEach(() => {
     if (root) act(() => root?.unmount());
     container?.remove();
