@@ -396,7 +396,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
   };
 
   return (
-    <main id="noteview-main" tabIndex={-1} aria-label={t('nvEditorMain')} style={{ flex: 1, display: hideEditorArea ? 'none' : 'flex', flexDirection: 'column', minWidth: 0, background: c.editor }}>
+    <main id="noteview-main" tabIndex={-1} aria-label={t('nvEditorMain')} data-notes-hierarchy-level="document" style={{ flex: 1, display: hideEditorArea ? 'none' : 'flex', flexDirection: 'column', minWidth: 0, background: c.editor }}>
       {!isTrash && activeNote && (
         <div
           data-k117-note-top-actions

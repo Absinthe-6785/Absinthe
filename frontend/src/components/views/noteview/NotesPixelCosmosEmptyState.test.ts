@@ -2,11 +2,10 @@
 import { createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { NotesPixelCosmosEmptyState } from './NotesPixelCosmosEmptyState';
+import { resolveNotesPrimarySurfaceVisibility } from './NotesAdvancedOrganizationDisclosure';
 
 const colors = {
   accent: '#7c3aed',
@@ -135,13 +134,18 @@ describe('NotesPixelCosmosEmptyState', () => {
   });
 
   it('keeps mobile empty vault on the editor pane instead of squeezing it beside the note list', () => {
-    const noteViewSource = readFileSync(
-      join(process.cwd(), 'src/components/views/NoteView.tsx'),
-      'utf8',
-    );
+    expect(resolveNotesPrimarySurfaceVisibility({
+      isMobile: true,
+      mobileShowEditor: false,
+      hasActiveNote: false,
+      isMobileEmptyVault: true,
+    })).toEqual({ hideNoteList: true, hideEditorArea: false });
 
-    expect(noteViewSource).toContain("const isMobileEmptyVault = activeFolderId !== 'trash' && notes.every(n => n.deletedAt);");
-    expect(noteViewSource).toContain('const hideNoteList = (isMobile && mobileShowEditor && !!activeNoteId) || (isMobile && isMobileEmptyVault);');
-    expect(noteViewSource).toContain('const hideEditorArea = isMobile && !mobileShowEditor && !isMobileEmptyVault;');
+    expect(resolveNotesPrimarySurfaceVisibility({
+      isMobile: true,
+      mobileShowEditor: false,
+      hasActiveNote: true,
+      isMobileEmptyVault: false,
+    })).toEqual({ hideNoteList: false, hideEditorArea: true });
   });
 });

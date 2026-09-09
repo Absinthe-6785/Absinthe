@@ -198,6 +198,10 @@ import { projectNoteSyncPresentation } from './noteview/notesSyncPresentation';
 import type { VirtualScrollApiRef } from './features/block-editor/performance';
 import { footnoteAnchorId } from './footnoteUtils';
 import { useNoteViewState, useNoteViewDashboard, useNoteViewPanels, useNoteViewActions, NoteContextPanelBody, NoteViewSidebar, NoteViewEditorArea, useNoteViewStyles, useNoteViewChildProps, useNoteViewChildPropInput, useNoteViewPanelConfig, NoteViewShortcutsModal } from './noteview/index';
+import {
+  resolveNotesPrimarySurfaceVisibility,
+  shouldRevealNotesAdvancedOrganization,
+} from './noteview/NotesAdvancedOrganizationDisclosure';
 import { filterNotesForSidebarList } from './noteview/sidebarNoteListFilter';
 import {
   resolveDashboardLoadScope,
@@ -755,8 +759,12 @@ export const NoteView = ({ showToast = () => {}, accountId }: NoteViewProps) => 
   const hideLeftChrome = focusMode || hideSidebarByFocus;
   const hideSecondaryChrome = hideSecondaryByFocus;
   const isMobileEmptyVault = activeFolderId !== 'trash' && notes.every(n => n.deletedAt);
-  const hideNoteList = (isMobile && mobileShowEditor && !!activeNoteId) || (isMobile && isMobileEmptyVault);
-  const hideEditorArea = isMobile && !mobileShowEditor && !isMobileEmptyVault;
+  const { hideNoteList, hideEditorArea } = resolveNotesPrimarySurfaceVisibility({
+    isMobile,
+    mobileShowEditor,
+    hasActiveNote: Boolean(activeNoteId),
+    isMobileEmptyVault,
+  });
 
   useEffect(() => {
     if (isMobile) setMobileSidebarOpen(false);
@@ -781,10 +789,16 @@ export const NoteView = ({ showToast = () => {}, accountId }: NoteViewProps) => 
   const [databaseCreateSignal, setDatabaseCreateSignal] = useState(0);
 
   useEffect(() => {
-    if (isDashboardMode || isWorkspaceKindActive(workspaceActivation, 'smart-collection')) {
+    if (shouldRevealNotesAdvancedOrganization({
+      hasActiveTag: activeTag !== null,
+      isDashboardMode,
+      isTraceAreaMode,
+      isTraceDiscoveryMode,
+      hasWorkspaceActivation: workspaceActivation.kind !== 'none',
+    })) {
       setWorkspaceExpanded(true);
     }
-  }, [isDashboardMode, workspaceActivation, isWorkspaceKindActive]);
+  }, [activeTag, isDashboardMode, isTraceAreaMode, isTraceDiscoveryMode, workspaceActivation.kind]);
 
   useEffect(() => {
     if (databaseCreateSignal > 0) setWorkspaceExpanded(true);
@@ -1513,6 +1527,7 @@ export const NoteView = ({ showToast = () => {}, accountId }: NoteViewProps) => 
       className={WORKSPACE_PANE_ROOT_CLASS}
       data-workspace="notes"
       data-workspace-scroll-mode={WORKSPACE_SCROLL_MODE.pane}
+      data-notes-hierarchy="document-first"
       data-compact-chrome={isCompactChrome || undefined}
       style={{ display: 'flex', height: '100%', minHeight: 0, minWidth: 0, background: c.wrap, color: c.text, fontFamily: 'system-ui, -apple-system, sans-serif', overflow: 'hidden', position: 'relative' }}
     >
@@ -1560,6 +1575,7 @@ export const NoteView = ({ showToast = () => {}, accountId }: NoteViewProps) => 
           activeTab={rightPanel}
           tabs={RIGHT_PANELS}
           onTabChange={setRightPanel}
+          onClose={() => setShowRightPanel(false)}
         >
           <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <NoteContextPanelBody {...contextPanelProps} />

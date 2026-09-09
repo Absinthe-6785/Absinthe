@@ -25,6 +25,8 @@ describe('Notes semantic responsive contract', () => {
     [767, 'mobile'],
     [768, 'tablet'],
     [769, 'tablet'],
+    [1023, 'tablet'],
+    [1024, 'desktop'],
   ] as const)('uses the shared semantic category at %ipx', (width, category) => {
     expect(classifyViewportWidth(width)).toBe(category);
   });
