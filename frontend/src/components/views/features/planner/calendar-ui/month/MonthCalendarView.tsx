@@ -12,6 +12,7 @@ import { useElementVisible } from '@/hooks/useElementVisible';
 import { useTranslation } from '@/lib/i18n';
 import { WorkspaceCardSkeleton } from '@/components/common/WorkspaceCardSkeleton';
 import { WORKSPACE_CARD_VISUAL_CLASS } from '@/components/common/workspaceCardSizes';
+import { PLANNER_HIERARCHY } from '../plannerHierarchyLayout';
 
 type ScheduleDday = Schedule & { date: string };
 
@@ -38,7 +39,7 @@ export interface MonthCalendarViewProps {
   calendarHeader?: ReactNode;
 }
 
-/** K-140 desktop workspace: Today + Timetable, Calendar + compact D-Day. */
+/** UI-05 workspace: dominant planning column with a bounded Today/D-Day support rail. */
 export function MonthCalendarView({
   plannerProjection,
   presentation,
@@ -96,138 +97,152 @@ export function MonthCalendarView({
       data-k117-schedule-workspace
       data-k121-schedule-layout
       data-k133b-schedule-flow
+      data-planner-hierarchy="planning-first"
     >
       <div
-        className="grid grid-cols-1 gap-3 lg:gap-3 min-h-0 lg:h-full lg:min-h-0 lg:grid-rows-[minmax(0,52fr)_minmax(0,44fr)] lg:overflow-hidden"
+        className="grid grid-cols-1 gap-3 min-h-0 lg:h-full lg:grid-cols-[minmax(0,3fr)_minmax(240px,1fr)] lg:grid-rows-[minmax(0,3fr)_minmax(220px,2fr)] lg:overflow-hidden"
         data-k140-schedule-grid
         data-k141-schedule-main-grid
+        data-planner-desktop-allocation="planning-column-support-rail"
+        data-planner-compact-order={PLANNER_HIERARCHY.compactOrder.join('-')}
       >
-        <div
-          className="grid grid-cols-1 gap-3 min-h-0 lg:grid-cols-[minmax(0,36fr)_minmax(0,64fr)] lg:h-full lg:overflow-hidden"
-          data-k141-schedule-top-row
+        <section
+          data-k117-schedule-section="calendar"
+          data-planner-hierarchy-level="primary"
+          data-planner-primary-surface="calendar"
+          ref={monthRef as React.RefObject<HTMLElement>}
+          className={`w-full min-h-0 ${WORKSPACE_CARD_VISUAL_CLASS} p-2.5 lg:p-3 flex flex-col overflow-visible lg:col-start-1 lg:row-start-1 lg:h-full lg:overflow-hidden`}
+          data-k117-planner-calendar-adaptive
+          data-k108-planner-month-lazy
         >
-          <section className="min-h-0 h-full overflow-hidden" data-k117-schedule-section="today">
-            <PlannerTodayPanel
-              plannerProjection={plannerProjection}
-              presentation={presentation}
+          {calendarHeader ? (
+            <div className="mb-2 shrink-0" data-k133b-calendar-primary-nav>
+              {calendarHeader}
+            </div>
+          ) : null}
+          <div className="min-h-0 flex-1 overflow-visible lg:overflow-hidden">
+            {!showMonthGrid ? monthSkeleton : (
+              <MonthCalendarGrid
+                month={month}
+                weekdayLabels={presentation.labels.weekdayShortLabels}
+                theme={theme}
+                countdowns={plannerProjection.calendar.core.countdowns}
+                presentation={presentation}
+                onEventNoteClick={onEventNoteClick}
+                onDateSelect={onDateSelect}
+                onScheduleBlockClick={onScheduleBlockClick}
+              />
+            )}
+          </div>
+        </section>
+
+        <section
+          className="min-h-0 lg:col-start-2 lg:row-start-1 lg:h-full lg:overflow-hidden"
+          data-k117-schedule-section="today"
+          data-planner-hierarchy-level="secondary"
+          data-planner-support-role="today"
+        >
+          <PlannerTodayPanel
+            plannerProjection={plannerProjection}
+            presentation={presentation}
+            theme={theme}
+            todayKey={todayKey}
+            scheduleActions={scheduleActions}
+            routines={routines}
+            routineActions={routineActions}
+          />
+        </section>
+
+        {showTimetableSection ? (
+          <section
+            className="min-h-0 lg:col-start-1 lg:row-start-2 lg:h-full lg:overflow-hidden"
+            data-k117-schedule-section="timetable"
+            data-k117-timetable-section
+            data-planner-hierarchy-level="primary"
+            data-planner-primary-surface="timetable"
+          >
+            <WeeklyTimetableSection
+              weeklySchedules={[...weeklySchedules]}
               theme={theme}
-              todayKey={todayKey}
-              scheduleActions={scheduleActions}
-              routines={routines}
-              routineActions={routineActions}
+              appSettings={appSettings!}
+              THEME_COLORS={THEME_COLORS!}
+              mutateStatic={mutateStatic!}
+              showToast={showToast!}
+              sectionEmbedded
             />
           </section>
+        ) : (
+          <span
+            className="sr-only"
+            data-k117-schedule-section="timetable"
+            data-planner-hierarchy-level="primary"
+            data-planner-primary-surface="timetable"
+            aria-hidden="true"
+          />
+        )}
 
-          {showTimetableSection ? (
-            <section className="min-h-0 h-full overflow-hidden" data-k117-schedule-section="timetable" data-k117-timetable-section>
-              <WeeklyTimetableSection
-                weeklySchedules={[...weeklySchedules]}
-                theme={theme}
-                appSettings={appSettings!}
-                THEME_COLORS={THEME_COLORS!}
-                mutateStatic={mutateStatic!}
-                showToast={showToast!}
-                sectionEmbedded
-              />
-            </section>
-          ) : (
-            <span className="sr-only" data-k117-schedule-section="timetable" aria-hidden="true" />
-          )}
-        </div>
-
-        <div
-          className="grid grid-cols-1 gap-3 min-h-0 lg:grid-cols-[minmax(0,70fr)_minmax(240px,30fr)] lg:h-full lg:overflow-hidden"
-          data-k141-schedule-bottom-row
+        <section
+          className={`min-h-0 ${WORKSPACE_CARD_VISUAL_CLASS} p-3 flex flex-col max-h-[300px] overflow-hidden lg:col-start-2 lg:row-start-2 lg:h-full lg:max-h-none`}
+          data-k139-schedule-dday-list
+          data-planner-hierarchy-level="tertiary"
+          data-planner-support-role="dday"
         >
-          <section
-            data-k117-schedule-section="calendar"
-            ref={monthRef as React.RefObject<HTMLElement>}
-            className={`w-full min-h-0 h-full ${WORKSPACE_CARD_VISUAL_CLASS} p-2.5 lg:p-3 overflow-hidden flex flex-col`}
-            data-k117-planner-calendar-adaptive
-            data-k108-planner-month-lazy
-          >
-            {calendarHeader ? (
-              <div className="mb-2 shrink-0" data-k133b-calendar-supporting-nav>
-                {calendarHeader}
-              </div>
-            ) : null}
-            <div className="min-h-0 flex-1 overflow-hidden">
-              {!showMonthGrid ? monthSkeleton : (
-                <MonthCalendarGrid
-                  month={month}
-                  weekdayLabels={presentation.labels.weekdayShortLabels}
-                  theme={theme}
-                  countdowns={plannerProjection.calendar.core.countdowns}
-                  presentation={presentation}
-                  onEventNoteClick={onEventNoteClick}
-                  onDateSelect={onDateSelect}
-                  onScheduleBlockClick={onScheduleBlockClick}
-                />
-              )}
-            </div>
-          </section>
-
-          <section
-            className={`min-h-0 h-full ${WORKSPACE_CARD_VISUAL_CLASS} p-3 flex flex-col max-h-[300px] lg:max-h-none overflow-hidden`}
-            data-k139-schedule-dday-list
-          >
-            <div className="flex items-center justify-between gap-2 mb-2 shrink-0">
-              <h2 className="font-heading text-base font-bold">{t('dday')}</h2>
-            </div>
-            {upcomingDdays.length > 0 ? (
-              <ul className="flex flex-col gap-1.5 overflow-y-auto pr-1 min-h-0 flex-1">
-                {upcomingDdays.map(({ item, daysUntil }) => (
-                  <li key={item.id} className={`group rounded-xl px-3 py-2 ${theme.input}`} data-k139-schedule-dday={item.id}>
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className="text-sm font-bold truncate">{item.text}</span>
-                          <span className="text-xs font-black text-primary tabular-nums shrink-0">
-                            {daysUntil === 0 ? 'D-Day' : `D-${daysUntil}`}
-                          </span>
-                        </div>
-                        <p className={`text-[11px] font-semibold mt-0.5 ${theme.textMuted}`}>
-                          {item.date}{item.category ? ` · ${item.category}` : ''}
-                        </p>
+          <div className="flex items-center justify-between gap-2 mb-2 shrink-0">
+            <h2 className="font-heading text-base font-bold">{t('dday')}</h2>
+          </div>
+          {upcomingDdays.length > 0 ? (
+            <ul className="flex flex-col gap-1.5 overflow-y-auto pr-1 min-h-0 flex-1">
+              {upcomingDdays.map(({ item, daysUntil }) => (
+                <li key={item.id} className={`group rounded-xl px-3 py-2 ${theme.input}`} data-k139-schedule-dday={item.id}>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-sm font-bold truncate">{item.text}</span>
+                        <span className="text-xs font-black text-primary tabular-nums shrink-0">
+                          {daysUntil === 0 ? 'D-Day' : `D-${daysUntil}`}
+                        </span>
                       </div>
-                      {onEditDday || onDeleteDday ? (
-                        <div className="flex items-center gap-0.5 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 transition-opacity">
-                          {onEditDday ? (
-                            <button
-                              type="button"
-                              onClick={() => onEditDday(item)}
-                              className="min-h-[32px] min-w-[32px] inline-flex items-center justify-center rounded-full text-muted hover:text-foreground hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
-                              data-k139-schedule-dday-edit={item.id}
-                              aria-label={t('edit')}
-                            >
-                              <Edit2 size={13} />
-                            </button>
-                          ) : null}
-                          {onDeleteDday ? (
-                            <button
-                              type="button"
-                              onClick={() => onDeleteDday(item.id)}
-                              className="min-h-[32px] min-w-[32px] inline-flex items-center justify-center rounded-full text-muted hover:text-red-500 hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
-                              data-k139-schedule-dday-delete={item.id}
-                              aria-label={t('delete')}
-                            >
-                              <Trash2 size={13} />
-                            </button>
-                          ) : null}
-                        </div>
-                      ) : null}
+                      <p className={`text-[11px] font-semibold mt-0.5 ${theme.textMuted}`}>
+                        {item.date}{item.category ? ` · ${item.category}` : ''}
+                      </p>
                     </div>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <div className={`rounded-xl px-3 py-3 shrink-0 ${theme.input}`} data-k139-schedule-dday-empty>
-                <p className="text-sm font-bold">{t('k139NoDdaysYet')}</p>
-                <p className={`text-xs mt-1 ${theme.textMuted}`}>{t('k139DdayEmptyHint')}</p>
-              </div>
-            )}
-          </section>
-        </div>
+                    {onEditDday || onDeleteDday ? (
+                      <div className="flex items-center gap-0.5 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 transition-opacity">
+                        {onEditDday ? (
+                          <button
+                            type="button"
+                            onClick={() => onEditDday(item)}
+                            className="min-h-[32px] min-w-[32px] inline-flex items-center justify-center rounded-full text-muted hover:text-foreground hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+                            data-k139-schedule-dday-edit={item.id}
+                            aria-label={t('edit')}
+                          >
+                            <Edit2 size={13} />
+                          </button>
+                        ) : null}
+                        {onDeleteDday ? (
+                          <button
+                            type="button"
+                            onClick={() => onDeleteDday(item.id)}
+                            className="min-h-[32px] min-w-[32px] inline-flex items-center justify-center rounded-full text-muted hover:text-red-500 hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+                            data-k139-schedule-dday-delete={item.id}
+                            aria-label={t('delete')}
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className={`rounded-xl px-3 py-3 shrink-0 ${theme.input}`} data-k139-schedule-dday-empty>
+              <p className="text-sm font-bold">{t('k139NoDdaysYet')}</p>
+              <p className={`text-xs mt-1 ${theme.textMuted}`}>{t('k139DdayEmptyHint')}</p>
+            </div>
+          )}
+        </section>
       </div>
     </div>
   );

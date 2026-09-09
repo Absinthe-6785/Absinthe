@@ -38,7 +38,7 @@ export interface CalendarShellProps {
   onDeleteDday?: (id: string) => void;
 }
 
-/** Schedule shell: today-first flow with the month calendar as supporting context. */
+/** Schedule shell: planning-first flow with bounded desktop panes and natural compact scrolling. */
 export function CalendarShell({
   now,
   anchorDate,
@@ -103,6 +103,8 @@ export function CalendarShell({
       aria-label={t('plannerCalendarRegion')}
       data-planner-calendar-shell
       data-planner-calendar-mode="month"
+      data-planner-scroll-contract="flow-below-desktop-bounded-desktop"
+      data-planner-primary-scroll-owner="calendar-shell"
     >
       <MonthCalendarView
         plannerProjection={plannerProjection}

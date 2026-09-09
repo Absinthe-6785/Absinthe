@@ -74,18 +74,22 @@ export function PlannerTodayPanel({
 
   return (
     <div
-      className="flex flex-col min-h-0 w-full"
+      className="flex flex-col min-h-0 w-full lg:h-full lg:overflow-hidden"
       data-k105-planner-today
       data-k108-planner-today
     >
       <div className={`${WORKSPACE_CARD_VISUAL_CLASS} p-3 lg:p-4 h-full flex flex-col min-h-0 overflow-hidden`}>
-        <div className="flex items-center justify-between gap-2 mb-2">
+        <div className="flex items-center justify-between gap-2 mb-2 shrink-0">
           <h2 className="font-heading text-base font-bold">{t('plannerToday')}</h2>
           <span className={`text-[10px] font-bold uppercase tracking-wide ${theme.textMuted}`}>{todayLabel}</span>
         </div>
 
-        <div className="flex flex-col gap-2.5 min-h-0 flex-1" data-k139-schedule-today-stack>
-          <div className="min-h-0" data-k117-schedule-section="routine">
+        <div
+          className="flex flex-col gap-2.5 min-h-0 flex-1 lg:overflow-y-auto lg:overscroll-contain lg:pr-1"
+          data-k139-schedule-today-stack
+          data-planner-today-scroll-owner="desktop-body"
+        >
+          <div className="min-h-0 lg:shrink-0" data-k117-schedule-section="routine">
             <DayRoutineSummary
               routines={routines}
               isRoutineException={Boolean(routines[0]?.is_exception_day)}
@@ -96,12 +100,12 @@ export function PlannerTodayPanel({
           </div>
 
           {todos.length > 0 ? (
-            <section className="min-h-0" data-k117-schedule-section="todo">
+            <section className="min-h-0 lg:shrink-0" data-k117-schedule-section="todo">
               <DayTodoSummary todos={todos} theme={theme} />
             </section>
           ) : null}
 
-          <section className="min-h-0" data-k105-planner-today-schedule>
+          <section className="min-h-0 lg:shrink-0" data-k105-planner-today-schedule>
             <DayScheduleTimeline
               blocks={timeline.blocks}
               carryOverBlocks={timeline.carryOverBlocks}
