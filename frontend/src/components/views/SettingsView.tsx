@@ -49,6 +49,7 @@ import { revalidatePlannerAccountCache } from '../../lib/plannerCacheRevalidatio
 import { revalidateRecipeAccountCacheAfterRestore } from '../../lib/recipeCacheRevalidation';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
+const SETTINGS_SECTION_SCROLL_CLASS = 'scroll-mt-4';
 
 export function buildResetRequestInit(): RequestInit {
   return {
@@ -68,6 +69,7 @@ export const SettingsView = ({
   // DRY: keep confirm modal wiring in one hook.
   const { confirm, showConfirm, clearConfirm, handleConfirm } = useConfirm();
   const { t } = useTranslation();
+  const workspaceRef = useRef<HTMLDivElement>(null);
   const resetAllNotes = useNotesStore(s => s.resetAllNotes);
   const notes = useNotesStore(s => s.notes);
   const folders = useNotesStore(s => s.folders);
@@ -108,9 +110,11 @@ export const SettingsView = ({
   useEffect(() => {
     if (!settingsScrollTarget) return;
     const timer = window.setTimeout(() => {
-      document
-        .querySelector(`[data-settings-section="${settingsScrollTarget}"]`)
-        ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      const target = workspaceRef.current?.querySelector<HTMLElement>(
+        `[data-settings-section="${settingsScrollTarget}"]`,
+      );
+      if (!target) return;
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
       onSettingsScrollTargetConsumed?.();
     }, 120);
     return () => window.clearTimeout(timer);
@@ -215,7 +219,7 @@ export const SettingsView = ({
   };
 
   return (
-    <div className={`${WORKSPACE_PANE_ROOT_CLASS} flex flex-col py-1 pr-2 pb-4 animate-in fade-in duration-300 ${WORKSPACE_GAP_CLASS}`} data-workspace="settings" data-workspace-scroll-mode={WORKSPACE_SCROLL_MODE.page}>
+    <div ref={workspaceRef} className={`${WORKSPACE_PANE_ROOT_CLASS} flex flex-col py-1 pr-2 pb-4 animate-in fade-in duration-300 ${WORKSPACE_GAP_CLASS}`} data-workspace="settings" data-workspace-scroll-mode={WORKSPACE_SCROLL_MODE.page}>
       <div className="shrink-0 pl-2 pr-4 lg:pr-6">
         <WorkspacePageHeader
           workspace="settings"
@@ -229,11 +233,11 @@ export const SettingsView = ({
       </div>
 
       <div className={`${WORKSPACE_PAGE_SCROLL_CLASS} bscroll-pane`} data-workspace-scroll-owner="page" data-settings-scroll data-k119-settings-scroll>
-        <div className={`max-w-3xl mx-auto ${WORKSPACE_GAP_CLASS}`}>
+        <div className={`w-full max-w-3xl mx-auto pb-2 lg:pb-4 ${WORKSPACE_GAP_CLASS}`} data-settings-section-list>
 
           {/* Appearance */}
-          <div className={`${WORKSPACE_CARD_SURFACE} flex flex-col relative overflow-hidden transition-colors`} data-settings-section="general" data-k119-settings-card>
-            <h2 className="font-heading text-lg font-bold mb-3 flex items-center gap-2">
+          <section className={`${SETTINGS_SECTION_SCROLL_CLASS} ${WORKSPACE_CARD_SURFACE} flex flex-col relative overflow-hidden transition-colors`} data-settings-section="general" aria-labelledby="settings-general-heading" data-k119-settings-card>
+            <h2 id="settings-general-heading" className="font-heading text-lg font-bold mb-3 flex items-center gap-2" data-settings-section-heading>
               <Settings size={20} className="text-primary" />{t('dataSafetyAppearanceTitle')}
             </h2>
             <div className="space-y-3">
@@ -286,11 +290,11 @@ export const SettingsView = ({
                 </div>
               </div>
             </div>
-          </div>
+          </section>
 
           {/* Data Safety */}
-          <div data-settings-section="data-safety">
-            <h2 className="font-heading text-lg font-bold mb-3 flex items-center gap-2 px-1">
+          <section className={SETTINGS_SECTION_SCROLL_CLASS} data-settings-section="data-safety" aria-labelledby="settings-data-safety-heading">
+            <h2 id="settings-data-safety-heading" className="font-heading text-lg font-bold mb-3 flex items-center gap-2 px-1" data-settings-section-heading>
               <ShieldCheck size={20} className="text-primary" />{t('dataSafetyTitle')}
             </h2>
             <RecoveryCenterPanel
@@ -305,11 +309,11 @@ export const SettingsView = ({
               cloudSyncEnabled={cloudSyncEnabled}
               pendingReducedBackup={pendingReducedBackup}
             />
-          </div>
+          </section>
 
           {/* Danger zone */}
-          <div className={`${WORKSPACE_CARD_SURFACE} flex flex-col relative overflow-hidden border-2 border-red-500/20 transition-colors`} data-settings-section="danger" data-k119-settings-card>
-            <h2 className="font-heading text-lg font-bold text-red-500 mb-3 flex items-center gap-2">
+          <section className={`${SETTINGS_SECTION_SCROLL_CLASS} ${WORKSPACE_CARD_SURFACE} flex flex-col relative overflow-hidden border-2 border-red-500/20 transition-colors`} data-settings-section="danger" aria-labelledby="settings-danger-heading" data-k119-settings-card>
+            <h2 id="settings-danger-heading" className="font-heading text-lg font-bold text-red-500 mb-3 flex items-center gap-2" data-settings-section-heading>
               <AlertTriangle size={20} />{t('k98SettingsDangerZone')}
             </h2>
             <div className="space-y-4">
@@ -323,6 +327,7 @@ export const SettingsView = ({
                 <button
                   onClick={() => showConfirm(t('resetConfirm'), doResetData)}
                   className="bg-red-500/10 text-red-500 border border-red-500/20 px-6 py-3.5 rounded-xl font-bold text-sm hover:bg-red-500 hover:text-white transition-colors"
+                  data-settings-reset-action
                 >{t('resetData')}
                 </button>
               </div>
@@ -336,11 +341,12 @@ export const SettingsView = ({
                 <button
                   onClick={onSignOut}
                   className={`px-6 py-3.5 rounded-xl font-bold text-sm transition-colors border ${theme.border} ${theme.hoverBg}`}
+                  data-settings-sign-out-action
                 >{t('signOut')}
                 </button>
               </div>
             </div>
-          </div>
+          </section>
 
           {/* legacy data management removed - K-98A IA */}
 
