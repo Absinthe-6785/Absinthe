@@ -22,7 +22,13 @@ export const ConfirmModal = ({
 }: ConfirmModalProps) => {
   const { t } = useTranslation();
   const panelRef = useRef<HTMLDivElement>(null);
-  useModalA11y({ open: true, onClose: onCancel, containerRef: panelRef });
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  useModalA11y({
+    open: true,
+    onClose: onCancel,
+    containerRef: panelRef,
+    initialFocusRef: cancelRef,
+  });
 
   const resolvedConfirmLabel = confirmLabel ?? t('confirm');
 
@@ -38,6 +44,7 @@ export const ConfirmModal = ({
         role="dialog"
         aria-modal="true"
         aria-labelledby="confirm-modal-title"
+        tabIndex={-1}
         className="rounded-absinthe-xl p-7 w-full max-w-[340px] shadow-absinthe-xl flex flex-col gap-5 bg-surface text-foreground"
         onClick={(e) => e.stopPropagation()}
       >
@@ -56,6 +63,7 @@ export const ConfirmModal = ({
         </div>
         <div className="flex gap-3">
           <button
+            ref={cancelRef}
             type="button"
             onClick={onCancel}
             className="flex-1 py-3 rounded-absinthe-lg font-bold text-sm transition-colors bg-surface-alt hover:bg-border text-muted-foreground abs-focus-ring"

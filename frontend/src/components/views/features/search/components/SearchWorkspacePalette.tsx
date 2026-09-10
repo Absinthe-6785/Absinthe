@@ -139,7 +139,14 @@ export function SearchWorkspacePalette({
   const activeIndexRef = useRef(0);
   const { prefs, toggle } = useSearchSectionPrefs();
 
-  useModalA11y({ open, onClose, containerRef: panelRef });
+  useModalA11y({
+    open,
+    onClose,
+    containerRef: panelRef,
+    // This palette owns a two-step Escape contract: clear a query first,
+    // then close on the next Escape.
+    closeOnEscape: false,
+  });
 
   useEffect(() => {
     activeIndexRef.current = activeIndex;

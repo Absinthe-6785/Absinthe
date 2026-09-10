@@ -82,7 +82,13 @@ export function VaultRestoreModal({
 }: VaultRestoreModalProps) {
   const { t } = useTranslation();
   const panelRef = useRef<HTMLDivElement>(null);
-  useModalA11y({ open: true, onClose: onCancel, containerRef: panelRef });
+  const cancelButtonRef = useRef<HTMLButtonElement>(null);
+  useModalA11y({
+    open: true,
+    onClose: onCancel,
+    containerRef: panelRef,
+    initialFocusRef: cancelButtonRef,
+  });
 
   const selectedNoteCount = useMemo(
     () => preview.noteOptions.filter(n => selection.noteIds.has(n.id)).length,
@@ -111,8 +117,8 @@ export function VaultRestoreModal({
 
     return (
       <div className="fixed inset-0 flex items-center justify-center z-[200] p-4 backdrop-blur-sm" style={{ background: 'var(--color-overlay)' }} onClick={onCancel} role="presentation">
-        <div ref={panelRef} role="dialog" aria-modal="true" className="rounded-absinthe-xl p-6 w-full max-w-[440px] shadow-absinthe-xl bg-surface text-foreground flex flex-col gap-3" onClick={e => e.stopPropagation()}>
-          <p className="text-sm font-semibold text-center">{t('vaultRestoreFailedTitle')}</p>
+        <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby="vault-restore-failed-title" tabIndex={-1} className="rounded-absinthe-xl p-6 w-full max-w-[440px] shadow-absinthe-xl bg-surface text-foreground flex flex-col gap-3" onClick={e => e.stopPropagation()}>
+          <p id="vault-restore-failed-title" className="text-sm font-semibold text-center">{t('vaultRestoreFailedTitle')}</p>
           <p className="text-xs text-muted text-center">{t('vaultRestoreFailedReason').replace('{reason}', primaryReason)}</p>
           {repairedCount > 0 ? (
             <p className="text-xs text-center text-amber-600 dark:text-amber-300">
@@ -142,7 +148,7 @@ export function VaultRestoreModal({
           ) : (
             <p className="text-xs text-muted text-center">{t('vaultRestoreCannotRepair')}</p>
           )}
-          <button type="button" onClick={onCancel} className="w-full py-2.5 rounded-xl font-bold text-sm bg-surface-alt">{t('cancel')}</button>
+          <button ref={cancelButtonRef} type="button" onClick={onCancel} className="w-full py-2.5 rounded-xl font-bold text-sm bg-surface-alt abs-focus-ring">{t('cancel')}</button>
         </div>
       </div>
     );
@@ -157,6 +163,7 @@ export function VaultRestoreModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="vault-restore-title"
+        tabIndex={-1}
         className="rounded-absinthe-xl p-6 w-full max-w-[480px] max-h-[90vh] shadow-absinthe-xl bg-surface text-foreground flex flex-col gap-4 overflow-hidden"
         onClick={e => e.stopPropagation()}
       >
@@ -165,8 +172,8 @@ export function VaultRestoreModal({
             <Archive size={20} className="text-primary shrink-0" />
             <h2 id="vault-restore-title" className="text-base font-bold">{t(titleKey)}</h2>
           </div>
-          <button type="button" onClick={onCancel} aria-label={t('cancel')} className="p-1 rounded-lg hover:bg-surface-alt">
-            <X size={16} />
+          <button type="button" onClick={onCancel} aria-label={t('cancel')} className="p-1 rounded-lg hover:bg-surface-alt abs-focus-ring">
+            <X size={16} aria-hidden />
           </button>
         </div>
 
@@ -321,14 +328,14 @@ export function VaultRestoreModal({
         </div>
 
         <div className="flex gap-2 pt-1 shrink-0">
-          <button type="button" onClick={onCancel} disabled={importing} className="flex-1 py-2.5 rounded-xl font-bold text-sm bg-surface-alt disabled:opacity-50">
+          <button ref={cancelButtonRef} type="button" onClick={onCancel} disabled={importing} className="flex-1 py-2.5 rounded-xl font-bold text-sm bg-surface-alt disabled:opacity-50 abs-focus-ring">
             {t('cancel')}
           </button>
           <button
             type="button"
             onClick={onConfirm}
             disabled={importing || !canConfirm}
-            className="flex-1 py-2.5 rounded-xl font-bold text-sm bg-primary text-primary-foreground disabled:opacity-50"
+            className="flex-1 py-2.5 rounded-xl font-bold text-sm bg-primary text-primary-foreground disabled:opacity-50 abs-focus-ring"
           >
             {importing ? t('vaultRestoreImporting') : t('vaultRestoreConfirm')}
           </button>
