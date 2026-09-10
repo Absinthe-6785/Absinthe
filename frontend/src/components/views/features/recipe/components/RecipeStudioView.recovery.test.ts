@@ -67,6 +67,13 @@ const activeRecipe: Recipe = {
   deleted_at: null,
 };
 
+const populatedRecipes: Recipe[] = Array.from({ length: 18 }, (_, index) => ({
+  ...activeRecipe,
+  id: `recipe-${index + 1}`,
+  title: `Recipe ${index + 1}`,
+  created_at: new Date(Date.UTC(2026, 7, index + 1)).toISOString(),
+}));
+
 const activeSummary = {
   id: activeRecipe.id,
   title: activeRecipe.title,
@@ -203,6 +210,81 @@ afterEach(() => {
   root = null;
   host?.remove();
   host = null;
+});
+
+describe('UI-07 production Recipe composition hierarchy', () => {
+  it.each([390, 768, 1024, 1279, 1280, 1440])(
+    'keeps the populated list before bounded support at %ipx',
+    width => {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: width });
+      renderStudio(vi.fn(), {
+        projection: populatedProjection,
+        recipes: populatedRecipes,
+        activeAvailability: 'READY_WITH_DATA',
+      });
+
+      const composition = host!.querySelector<HTMLElement>('[data-recipe-composition="list-first"]')!;
+      const content = host!.querySelector<HTMLElement>('[data-recipe-composition-content]')!;
+      const primary = host!.querySelector<HTMLElement>('[data-recipe-composition-role="primary-list"]')!;
+      const controls = host!.querySelector<HTMLElement>('[data-recipe-composition-role="direct-controls"]')!;
+      const support = host!.querySelector<HTMLElement>('[data-recipe-composition-role="support"]')!;
+      const list = host!.querySelector<HTMLElement>('[data-k110-recipe-list]')!;
+      const cards = list.querySelectorAll('[data-k110-recipe-card]');
+      const wideOwners = host!.querySelectorAll('[data-recipe-scroll-owner-wide]');
+
+      expect(composition.getAttribute('data-workspace-scroll-mode')).toBe('pane');
+      expect(content.className).toContain('overflow-y-auto');
+      expect(content.className).toContain('xl:overflow-hidden');
+      expect(content.getAttribute('data-recipe-scroll-owner-pre-wide')).toBe('workspace');
+      expect(primary.parentElement).toBe(content);
+      expect(support.parentElement).toBe(content);
+      expect(primary.compareDocumentPosition(support) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(primary.getAttribute('data-recipe-hierarchy-level')).toBe('primary');
+      expect(controls.getAttribute('data-recipe-hierarchy-level')).toBe('secondary');
+      expect(support.getAttribute('data-recipe-hierarchy-level')).toBe('tertiary');
+      expect(primary.contains(controls)).toBe(true);
+      expect(primary.contains(host!.querySelector('[data-k110-recipe-search]'))).toBe(true);
+      expect(primary.contains(host!.querySelector('[data-k110-recipe-filters]'))).toBe(true);
+      expect(support.contains(host!.querySelector('[data-k110-recipe-home]'))).toBe(true);
+      expect(support.className).toContain('xl:w-[320px]');
+      expect(wideOwners).toHaveLength(2);
+      expect(Array.from(wideOwners, owner => owner.getAttribute('data-recipe-scroll-owner-wide'))).toEqual(['list', 'support']);
+      expect(wideOwners[0].contains(wideOwners[1])).toBe(false);
+      expect(cards).toHaveLength(populatedRecipes.length);
+      expect(cards[0]?.getAttribute('data-k110-recipe-card')).toBe('recipe-18');
+      expect(cards[9]?.getAttribute('data-k110-recipe-card')).toBe('recipe-9');
+      expect(cards[cards.length - 1]?.getAttribute('data-k110-recipe-card')).toBe('recipe-1');
+      expect(host!.querySelector('[data-k110-new-recipe]')).not.toBeNull();
+      expect(host!.querySelector('[data-k125-workspace-header="recipe"]')?.className).toContain('flex-col sm:flex-row');
+
+      act(() => host!.querySelector<HTMLButtonElement>('[data-k110-recipe-trash-toggle]')!.click());
+      expect(support.contains(host!.querySelector('[data-k110-recipe-trash]'))).toBe(true);
+      expect(support.contains(host!.querySelector('[data-k110-recipe-restore="recipe-deleted"]'))).toBe(true);
+    },
+  );
+
+  it('keeps a long mobile list in the natural workspace flow with its tail rendered', () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
+    const longList = Array.from({ length: 45 }, (_, index) => ({
+      ...activeRecipe,
+      id: `long-recipe-${index + 1}`,
+      title: `Long Recipe ${index + 1}`,
+      created_at: new Date(Date.UTC(2026, 0, index + 1)).toISOString(),
+    }));
+
+    renderStudio(vi.fn(), {
+      projection: populatedProjection,
+      recipes: longList,
+      activeAvailability: 'READY_WITH_DATA',
+    });
+
+    const list = host!.querySelector('[data-k110-recipe-list]');
+    const cards = list?.querySelectorAll('[data-k110-recipe-card]') ?? [];
+    expect(host!.querySelector('[data-k110-recipe-virtual-list]')).toBeNull();
+    expect(cards).toHaveLength(45);
+    expect(cards[0]?.getAttribute('data-k110-recipe-card')).toBe('long-recipe-45');
+    expect(cards[cards.length - 1]?.getAttribute('data-k110-recipe-card')).toBe('long-recipe-1');
+  });
 });
 
 describe('RecipeStudioView recovery surface', () => {

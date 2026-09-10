@@ -5,6 +5,7 @@ import type { Theme } from '../../../../../types';
 import type { TranslationKey } from '../../../../../lib/i18n';
 import type { Recipe } from '../recipeTypes';
 import { RECIPE_CATEGORIES, EMPTY_RECIPE_FORM } from '../recipeTypes';
+import { useViewportLayout } from '../../../../../hooks/useViewportLayout';
 import { RecipeCard } from './RecipeCard';
 
 const VIRTUALIZE_THRESHOLD = 40;
@@ -287,7 +288,8 @@ export function RecipeVirtualList({
   mutationsDisabled = false,
 }: RecipeVirtualListProps) {
   const parentRef = useRef<HTMLDivElement>(null);
-  const useVirtual = recipes.length >= VIRTUALIZE_THRESHOLD;
+  const { isNarrow } = useViewportLayout();
+  const useVirtual = !isNarrow && recipes.length >= VIRTUALIZE_THRESHOLD;
 
   const virtualizer = useVirtualizer({
     count: recipes.length,
@@ -319,7 +321,12 @@ export function RecipeVirtualList({
 
   if (!useVirtual) {
     return (
-      <div className="space-y-2" data-k110-recipe-list>
+      <div
+        className="space-y-2 xl:h-full xl:min-h-0 xl:overflow-y-auto xl:overscroll-contain"
+        data-k110-recipe-list
+        data-recipe-list-tail-reachable
+        data-recipe-scroll-owner-wide="list"
+      >
         {recipes.map(renderCard)}
       </div>
     );
@@ -328,9 +335,10 @@ export function RecipeVirtualList({
   return (
     <div
       ref={parentRef}
-      className="overflow-y-auto min-h-0 flex-1"
+      className="h-full min-h-0 overflow-y-auto overscroll-contain"
       data-k110-recipe-virtual-list
-      style={{ maxHeight: '70vh' }}
+      data-recipe-list-tail-reachable
+      data-recipe-scroll-owner-wide="list"
     >
       <div style={{ height: virtualizer.getTotalSize(), position: 'relative', width: '100%' }}>
         {virtualizer.getVirtualItems().map(vRow => {
