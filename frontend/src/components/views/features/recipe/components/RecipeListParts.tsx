@@ -346,6 +346,8 @@ export function RecipeVirtualList({
           return (
             <div
               key={recipe.id}
+              ref={virtualizer.measureElement}
+              data-index={vRow.index}
               style={{
                 position: 'absolute',
                 top: 0,

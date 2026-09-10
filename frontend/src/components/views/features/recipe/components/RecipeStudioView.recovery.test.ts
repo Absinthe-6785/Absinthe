@@ -3,6 +3,20 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+const virtualizerHarness = vi.hoisted(() => ({
+  measureElement: vi.fn(),
+}));
+
+vi.mock('@tanstack/react-virtual', () => ({
+  useVirtualizer: (options: { count: number; enabled?: boolean }) => ({
+    getTotalSize: () => options.count * 72,
+    getVirtualItems: () => options.enabled
+      ? Array.from({ length: Math.min(options.count, 8) }, (_, index) => ({ index, start: index * 72 }))
+      : [],
+    measureElement: virtualizerHarness.measureElement,
+  }),
+}));
+
 import type { AppSettings, Theme } from '../../../../../types';
 import { useAppStore } from '../../../../../store/useAppStore';
 import { RecipeStudioView, type RecipeStudioViewProps } from './RecipeStudioView';
@@ -202,6 +216,7 @@ function expectNoDerivedEmptyClaims() {
 
 beforeEach(() => {
   localStorage.clear();
+  virtualizerHarness.measureElement.mockClear();
   useAppStore.getState().updateSetting('language', 'en');
 });
 
@@ -254,7 +269,10 @@ describe('UI-07 production Recipe composition hierarchy', () => {
       expect(cards[0]?.getAttribute('data-k110-recipe-card')).toBe('recipe-18');
       expect(cards[9]?.getAttribute('data-k110-recipe-card')).toBe('recipe-9');
       expect(cards[cards.length - 1]?.getAttribute('data-k110-recipe-card')).toBe('recipe-1');
-      expect(host!.querySelector('[data-k110-new-recipe]')).not.toBeNull();
+      const newRecipe = host!.querySelector<HTMLElement>('[data-k110-new-recipe]')!;
+      expect(newRecipe.className).toContain('w-full');
+      expect(newRecipe.className).toContain('!w-auto');
+      expect(newRecipe.className).toContain('shrink-0');
       expect(host!.querySelector('[data-k125-workspace-header="recipe"]')?.className).toContain('flex-col sm:flex-row');
 
       act(() => host!.querySelector<HTMLButtonElement>('[data-k110-recipe-trash-toggle]')!.click());
@@ -284,6 +302,40 @@ describe('UI-07 production Recipe composition hierarchy', () => {
     expect(cards).toHaveLength(45);
     expect(cards[0]?.getAttribute('data-k110-recipe-card')).toBe('long-recipe-45');
     expect(cards[cards.length - 1]?.getAttribute('data-k110-recipe-card')).toBe('long-recipe-1');
+  });
+
+  it('connects wide variable-height Recipe rows to TanStack measurement by virtual index', () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1280 });
+    const longList = Array.from({ length: 45 }, (_, index) => ({
+      ...activeRecipe,
+      id: `wide-recipe-${index + 1}`,
+      title: `Wide Recipe ${index + 1}`,
+      created_at: new Date(Date.UTC(2026, 0, index + 1)).toISOString(),
+    }));
+    const onToggleExpand = vi.fn();
+
+    renderStudio(vi.fn(), {
+      projection: populatedProjection,
+      recipes: longList,
+      activeAvailability: 'READY_WITH_DATA',
+      expandedId: 'wide-recipe-45',
+      onToggleExpand,
+    });
+
+    const virtualList = host!.querySelector('[data-k110-recipe-virtual-list]')!;
+    const rows = virtualList.querySelectorAll<HTMLElement>('[data-index]');
+    const firstRow = rows[0];
+    const firstCard = firstRow.querySelector<HTMLElement>('[data-k110-recipe-card]')!;
+
+    expect(rows.length).toBeGreaterThan(1);
+    expect(firstRow.getAttribute('data-index')).toBe('0');
+    expect(firstCard.getAttribute('data-k110-recipe-card')).toBe('wide-recipe-45');
+    expect(firstRow.querySelector('ul')).not.toBeNull();
+    expect(firstRow.querySelector('ol')).not.toBeNull();
+    expect(virtualizerHarness.measureElement.mock.calls.some(([node]) => node === firstRow)).toBe(true);
+
+    act(() => firstCard.querySelector<HTMLElement>('.cursor-pointer')!.click());
+    expect(onToggleExpand).toHaveBeenCalledWith('wide-recipe-45');
   });
 });
 

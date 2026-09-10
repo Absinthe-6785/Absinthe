@@ -147,7 +147,7 @@ export function RecipeStudioView({
                     icon={<Plus size={UI_INTERACTION.toolbarIconSizePx} />}
                     onClick={onNewRecipe}
                     disabled={!activeReady}
-                    className="w-auto shrink-0 px-4"
+                    className="!w-auto shrink-0 px-4"
                     dataHook="data-k110-new-recipe"
                   />
                 </div>
