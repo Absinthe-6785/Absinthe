@@ -18,6 +18,26 @@ function ModalFixture({ onClose, noFocusable = false }: { onClose: () => void; n
   );
 }
 
+function NoPreferredFixture({ onClose }: { onClose: () => void }) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  useModalA11y({ open: true, onClose, containerRef: panelRef });
+  return createElement(
+    'div',
+    { ref: panelRef, role: 'dialog' },
+    createElement('div', { hidden: true }, createElement('button', { type: 'button', 'data-hidden-ancestor': true }, 'hidden ancestor')),
+    createElement('div', { style: { display: 'none' } }, createElement('button', { type: 'button', 'data-display-none-ancestor': true }, 'display none ancestor')),
+    createElement('div', { style: { visibility: 'hidden' } }, createElement('button', { type: 'button', 'data-visibility-hidden-ancestor': true }, 'visibility hidden ancestor')),
+    createElement('button', { type: 'button', 'data-first-action': true }, 'first'),
+    createElement('button', { type: 'button', 'data-last-action': true }, 'last'),
+  );
+}
+
+function EmptyNoPreferredFixture({ onClose }: { onClose: () => void }) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  useModalA11y({ open: true, onClose, containerRef: panelRef });
+  return createElement('div', { ref: panelRef, role: 'dialog' }, 'No controls');
+}
+
 describe('useModalA11y shared focus authority', () => {
   let host: HTMLDivElement;
   let root: Root;
@@ -49,6 +69,47 @@ describe('useModalA11y shared focus authority', () => {
   it('falls back to the dialog container when no control can receive focus', () => {
     act(() => root.render(createElement(ModalFixture, { onClose: vi.fn(), noFocusable: true })));
     expect(document.activeElement).toBe(host.querySelector('[role="dialog"]'));
+  });
+
+  it('focuses the first valid control without an initialFocusRef and restores the opener', () => {
+    const opener = document.createElement('button');
+    document.body.appendChild(opener);
+    opener.focus();
+
+    act(() => root.render(createElement(NoPreferredFixture, { onClose: vi.fn() })));
+    const dialog = host.querySelector<HTMLElement>('[role="dialog"]')!;
+    const first = dialog.querySelector<HTMLButtonElement>('[data-first-action]')!;
+    const last = dialog.querySelector<HTMLButtonElement>('[data-last-action]')!;
+    expect(document.activeElement).toBe(first);
+
+    first.focus();
+    act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true })));
+    expect(document.activeElement).toBe(last);
+
+    act(() => root.unmount());
+    expect(document.activeElement).toBe(opener);
+    opener.remove();
+    root = createRoot(host);
+  });
+
+  it('excludes controls under hidden ancestors from initial focus and cycling', () => {
+    act(() => root.render(createElement(NoPreferredFixture, { onClose: vi.fn() })));
+    const dialog = host.querySelector<HTMLElement>('[role="dialog"]')!;
+    const first = dialog.querySelector<HTMLButtonElement>('[data-first-action]')!;
+    const last = dialog.querySelector<HTMLButtonElement>('[data-last-action]')!;
+
+    expect(document.activeElement).toBe(first);
+    last.focus();
+    act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true })));
+    expect(document.activeElement).toBe(first);
+  });
+
+  it('makes and focuses the dialog container when no ref or focusable child exists', () => {
+    act(() => root.render(createElement(EmptyNoPreferredFixture, { onClose: vi.fn() })));
+    const dialog = host.querySelector<HTMLElement>('[role="dialog"]')!;
+
+    expect(dialog.getAttribute('tabindex')).toBe('-1');
+    expect(document.activeElement).toBe(dialog);
   });
 
   it('does not throw while restoring focus if the opener was removed', () => {

@@ -6,11 +6,19 @@ const FOCUSABLE_SELECTOR =
 function getFocusableElements(container: HTMLElement): HTMLElement[] {
   return Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
     el => {
-      if (el.hasAttribute('disabled') || el.tabIndex === -1 || el.hidden) return false;
+      if (!el.isConnected || el.hasAttribute('disabled') || el.tabIndex === -1) return false;
       if (el instanceof HTMLInputElement && el.type === 'hidden') return false;
       if (el.closest('[inert]')) return false;
-      const style = window.getComputedStyle(el);
-      return style.display !== 'none' && style.visibility !== 'hidden';
+
+      let current: HTMLElement | null = el;
+      while (current) {
+        if (current.hidden) return false;
+        const style = window.getComputedStyle(current);
+        if (style.display === 'none' || style.visibility === 'hidden') return false;
+        if (current === container) return true;
+        current = current.parentElement;
+      }
+      return false;
     },
   );
 }
@@ -43,13 +51,18 @@ export function useModalA11y({
 
     const previouslyFocused = document.activeElement as HTMLElement | null;
     const container = containerRef.current;
+    let addedContainerTabIndex = false;
 
-    if (container && initialFocusRef) {
+    if (container) {
       const focusable = getFocusableElements(container);
-      const preferred = initialFocusRef.current;
+      const preferred = initialFocusRef?.current;
       const target = preferred && focusable.includes(preferred)
         ? preferred
         : focusable[0] ?? container;
+      if (target === container && !container.hasAttribute('tabindex')) {
+        container.setAttribute('tabindex', '-1');
+        addedContainerTabIndex = true;
+      }
       target.focus();
     }
 
@@ -91,6 +104,9 @@ export function useModalA11y({
     window.addEventListener('keydown', handleKeyDown, true);
     return () => {
       window.removeEventListener('keydown', handleKeyDown, true);
+      if (addedContainerTabIndex && container?.getAttribute('tabindex') === '-1') {
+        container.removeAttribute('tabindex');
+      }
       if (previouslyFocused && previouslyFocused !== document.body && previouslyFocused.isConnected) {
         previouslyFocused.focus();
       }
