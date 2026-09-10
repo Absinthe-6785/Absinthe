@@ -2,11 +2,7 @@ import { useMemo, useState } from 'react';
 import { Search, X, Plus, BookMarked, Star, Trash2, RotateCcw, AlertTriangle, RefreshCw } from 'lucide-react';
 import type { AppSettings, Theme } from '../../../../../types';
 import { resolveAppLanguage, getTranslator } from '../../../../../lib/i18n';
-import {
-  WorkspaceLayout,
-  WORKSPACE_PANE_ROOT_CLASS,
-  WORKSPACE_SCROLL_MODE,
-} from '../../../../common/workspaceLayout';
+import { WORKSPACE_PANE_ROOT_CLASS } from '../../../../common/workspaceLayout';
 import { WorkspaceToolbar, WorkspaceToolbarPrimary } from '../../../../common/WorkspaceToolbar';
 import { WorkspacePageHeader } from '../../../../common/WorkspacePageHeader';
 import { WorkspaceCardSkeleton } from '../../../../common/WorkspaceCardSkeleton';
@@ -16,7 +12,7 @@ import {
   WORKSPACE_SECTION_TITLE_CLASS,
 } from '../../../../common/workspaceCardSizes';
 import { UI_INTERACTION } from '../../../../../lib/uiInteractionTokens';
-import { UI_SPACING, WORKSPACE_GAP_CLASS } from '../../../../../lib/uiSpacingTokens';
+import { WORKSPACE_GAP_CLASS } from '../../../../../lib/uiSpacingTokens';
 import type { RecipeProjection } from '../recipeProjectionModels';
 import type { Recipe, RecipeCategory } from '../recipeTypes';
 import { RECIPE_CATEGORIES } from '../recipeTypes';
@@ -26,6 +22,7 @@ import { RecipeIngredientsSection } from './RecipeIngredientsSection';
 import { RecipeHistorySection } from './RecipeHistorySection';
 import { RecipeCollectionsSection } from './RecipeCollectionsSection';
 import { RecipeVirtualList } from './RecipeListParts';
+import { RecipeCompositionLayout } from './RecipeCompositionLayout';
 import { ProductEmptyState } from '../../../../common/ProductEmptyState';
 import {
   recipeAuthorityIsReady,
@@ -122,10 +119,7 @@ export function RecipeStudioView({
       data-k110-recipe-studio
       data-recipe-empty={activeReady && projection.empty.isEmpty ? 'true' : 'false'}
     >
-      <WorkspaceLayout
-        workspace="recipe"
-        scrollMode={WORKSPACE_SCROLL_MODE.pane}
-        split
+      <RecipeCompositionLayout
         header={(
           <WorkspaceToolbar workspace="recipe" className="!mb-0 !pb-0 bg-transparent" legacyDataHook="data-k110-recipe-header">
             <WorkspacePageHeader
@@ -135,6 +129,7 @@ export function RecipeStudioView({
               icon={BookMarked}
               theme={theme}
               dark={dark}
+              className="flex-col sm:flex-row"
               trailing={(
                 <div className="flex items-center gap-2">
                   <button
@@ -152,7 +147,7 @@ export function RecipeStudioView({
                     icon={<Plus size={UI_INTERACTION.toolbarIconSizePx} />}
                     onClick={onNewRecipe}
                     disabled={!activeReady}
-                    className="w-auto shrink-0 px-4"
+                    className="!w-auto shrink-0 px-4"
                     dataHook="data-k110-new-recipe"
                   />
                 </div>
@@ -160,33 +155,9 @@ export function RecipeStudioView({
             />
           </WorkspaceToolbar>
         )}
-        secondary={(
-          <div className={`flex flex-col ${WORKSPACE_GAP_CLASS} min-h-0 overflow-y-auto ${UI_SPACING.scrollOverscroll}`} data-k110-recipe-sidebar data-k120-scroll-recipe>
-            {activeAvailability === 'LOADING' ? (
-              <WorkspaceCardSkeleton theme={theme} minHeight="min-h-[160px]" bars={2} />
-            ) : activeUnavailable && recipes.length === 0 ? (
-              <RecipeAvailabilityNotice
-                domain="active"
-                stale={activeAvailability === 'STALE_WITH_DATA'}
-                validating={activeValidating}
-                onRetry={onRetryActive}
-                theme={theme}
-                t={t}
-              />
-            ) : (
-              <RecipeHomeSection
-                projection={projection}
-                theme={theme}
-                appSettings={appSettings}
-                onRecipeClick={handleRecipeNav}
-                onNewRecipe={onNewRecipe}
-              />
-            )}
-          </div>
-        )}
         primary={(
           <div className={`flex flex-col ${WORKSPACE_GAP_CLASS} min-h-0 flex-1`} data-k110-recipe-primary>
-            <section className={`${WORKSPACE_CARD_SURFACE} flex flex-col min-h-0 flex-1`} data-k110-recipe-section="recipes">
+            <section className={`${WORKSPACE_CARD_SURFACE} flex flex-col min-h-0 shrink-0 xl:flex-1`} data-k110-recipe-section="recipes">
               <h2 className={WORKSPACE_SECTION_TITLE_CLASS}>{t('k110SectionRecipes')}</h2>
 
               {activeUnavailable && (
@@ -200,7 +171,11 @@ export function RecipeStudioView({
                 />
               )}
 
-              <div className="space-y-2 shrink-0 mb-2">
+              <div
+                className="space-y-2 shrink-0 mb-2"
+                data-recipe-composition-role="direct-controls"
+                data-recipe-hierarchy-level="secondary"
+              >
                 <div className={`flex items-center gap-2 px-3 py-2 rounded-xl border ${theme.border} ${theme.input}`}>
                   <Search size={14} className={theme.textMuted} />
                   <input
@@ -259,7 +234,7 @@ export function RecipeStudioView({
                 </div>
               </div>
 
-              <div className="flex-1 min-h-0 overflow-y-auto">
+              <div className="xl:flex-1 xl:min-h-0" data-recipe-list-viewport>
                 {activeAvailability === 'LOADING' && (
                   <WorkspaceCardSkeleton theme={theme} minHeight="min-h-[200px]" bars={2} />
                 )}
@@ -294,6 +269,30 @@ export function RecipeStudioView({
                 )}
               </div>
             </section>
+          </div>
+        )}
+        supporting={(
+          <>
+            {activeAvailability === 'LOADING' ? (
+              <WorkspaceCardSkeleton theme={theme} minHeight="min-h-[160px]" bars={2} />
+            ) : activeUnavailable && recipes.length === 0 ? (
+              <RecipeAvailabilityNotice
+                domain="active"
+                stale={activeAvailability === 'STALE_WITH_DATA'}
+                validating={activeValidating}
+                onRetry={onRetryActive}
+                theme={theme}
+                t={t}
+              />
+            ) : (
+              <RecipeHomeSection
+                projection={projection}
+                theme={theme}
+                appSettings={appSettings}
+                onRecipeClick={handleRecipeNav}
+                onNewRecipe={onNewRecipe}
+              />
+            )}
 
             {showTrash && (
               <section className={WORKSPACE_CARD_SURFACE} data-k110-recipe-trash>
@@ -379,7 +378,7 @@ export function RecipeStudioView({
               onToggle={() => toggle('collectionsCollapsed')}
               onRecipeClick={handleRecipeNav}
             />
-          </div>
+          </>
         )}
       />
     </div>
