@@ -647,12 +647,18 @@ describe('K-319 recovery freeze guards', () => {
   it('K-319A discards a stale upload without publishing over existing errors or savedAt', async () => {
     setRecoveryModeActiveForTest(false);
     bindRemoteAccount();
-    useNotesStore.setState({ notes: [sampleNote()], savedAt: null, syncError: 'existing error' });
+    const note = sampleNote();
+    useNotesStore.setState({ notes: [note], savedAt: null, syncError: 'existing error' });
     const response = deferred<ReturnType<typeof okJson>>();
-    authFetchMock.mockReturnValueOnce(response.promise);
+    const requestStarted = deferred<void>();
+    authFetchMock.mockImplementationOnce(() => {
+      requestStarted.resolve(undefined);
+      return response.promise;
+    });
 
-    const upload = useNotesStore.getState().syncNoteToDB(sampleNote());
-    await vi.waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(1));
+    const upload = useNotesStore.getState().syncNoteToDB(note);
+    await requestStarted.promise;
+    expect(authFetchMock).toHaveBeenCalledTimes(1);
     activateRecoveryMode();
     response.resolve(okJson({}));
 
