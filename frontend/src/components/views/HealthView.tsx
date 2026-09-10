@@ -1293,126 +1293,15 @@ export const HealthView = ({
       {healthSection === 'workout' && (
     <>
     <HealthWorkoutComposition>
-      {/* ── Setup support: Routine + Blocks ── */}
-      <HealthSetupColumn>
-        <HealthMobileSetupNav
-          activeSurface={mobileHealthTab === 'setup' ? 'setup' : 'workout'}
-          onSurfaceChange={setMobileHealthTab}
-          activeSection={setupSection}
-          onSectionChange={setSetupSection}
-          theme={theme}
-        />
-        <HealthBlockLibrary
-          blocks={healthBlocks ?? []}
-          activeTagFilter={activeTagFilter}
-          setActiveTagFilter={setActiveTagFilter}
-          theme={theme}
-          darkMode={appSettings.darkMode}
-          onAddToToday={handleAddWorkoutToToday}
-          onEditBlock={openBlockModal}
-          onDeleteBlock={handleDeleteBlock}
-          onNewBlock={() => openBlockModal()}
-          mobileVisible={mobileHealthTab === 'setup' && setupSection === 'blocks'}
-        />
+      <HealthMobileSetupNav
+        activeSurface={mobileHealthTab === 'setup' ? 'setup' : 'workout'}
+        onSurfaceChange={setMobileHealthTab}
+        activeSection={setupSection}
+        onSectionChange={setSetupSection}
+        theme={theme}
+      />
 
-        <div className={`xl:h-full xl:min-h-0 ${WORKSPACE_CARD.sm} ${WORKSPACE_CARD_SURFACE} flex flex-col overflow-visible xl:overflow-hidden transition-colors ${mobileHealthTab === 'setup' && setupSection === 'routine' ? '' : 'hidden lg:flex'}`} data-k126-workout-routine data-health-09b-routine data-health-composition-role="setup-routine">
-          <div className="flex flex-wrap justify-between items-center gap-2 mb-2.5 shrink-0">
-            <div className="flex min-w-0 items-center gap-2">
-              <h2 className="font-heading text-base font-bold shrink-0">{t('routineSetup')}</h2>
-              <select
-                aria-label={t('healthPresetLabel')}
-                value={activePreset.id}
-                onChange={e => {
-                  selectPreset(e.target.value);
-                  setPresetMenuOpen(false);
-                }}
-                className={`min-w-0 max-w-[150px] rounded-xl border px-2.5 py-1.5 text-xs font-bold outline-none ${theme.input}`}
-              >
-                {routinePresetState.presets.map(preset => (
-                  <option key={preset.id} value={preset.id}>{preset.name}</option>
-                ))}
-              </select>
-              <div ref={presetMenuRef} className="relative shrink-0">
-                <button
-                  type="button"
-                  aria-label={t('healthPresetActions')}
-                  aria-expanded={presetMenuOpen}
-                  aria-controls="health-preset-actions-menu"
-                  onClick={() => setPresetMenuOpen(open => !open)}
-                  className={`rounded-xl p-1.5 ${theme.hoverBg}`}
-                >
-                  <MoreHorizontal size={17} aria-hidden />
-                </button>
-                {routinePresetAccountReady && presetMenuOpen && (
-                  <div id="health-preset-actions-menu" role="menu" className={`absolute left-0 top-full z-30 mt-1 w-48 rounded-xl border p-1.5 shadow-lg ${theme.card} ${theme.border}`}>
-                    <button type="button" onClick={handleCreatePreset} className={`w-full rounded-lg px-2.5 py-2 text-left text-xs font-bold ${theme.hoverBg}`}>{t('healthPresetNew')}</button>
-                    <button type="button" onClick={handleDuplicatePreset} className={`w-full rounded-lg px-2.5 py-2 text-left text-xs font-bold ${theme.hoverBg}`}>{t('healthPresetDuplicate')}</button>
-                    {presetRenameDraft ? (
-                      <div className="flex gap-1 p-1">
-                        <input
-                          autoFocus
-                          value={presetRenameDraft}
-                          maxLength={48}
-                          onChange={e => setPresetRenameDraft(e.target.value)}
-                          onKeyDown={e => { if (e.key === 'Enter') commitPresetRename(); }}
-                          className={`min-w-0 flex-1 rounded-lg px-2 py-1.5 text-xs font-semibold outline-none ${theme.input}`}
-                        />
-                        <button type="button" onClick={commitPresetRename} className="rounded-lg bg-primary px-2 text-primary-foreground"><Check size={13} /></button>
-                      </div>
-                    ) : (
-                      <button type="button" onClick={beginPresetRename} className={`w-full rounded-lg px-2.5 py-2 text-left text-xs font-bold ${theme.hoverBg}`}>{t('healthPresetRename')}</button>
-                    )}
-                    <button type="button" onClick={handleDeletePreset} className="w-full rounded-lg px-2.5 py-2 text-left text-xs font-bold text-danger hover:bg-danger/10">{t('healthPresetDelete')}</button>
-                  </div>
-                )}
-              </div>
-            </div>
-            <div className={`flex shrink-0 items-center gap-2 px-3 py-1.5 rounded-xl ${theme.input}`}>
-              <input
-                type="number" inputMode="numeric" min="1" max="7"
-                value={splitCountInput}
-                onChange={e => setSplitCountInput(e.target.value)}
-                onBlur={commitPresetSplit}
-                onKeyDown={e => { if (e.key === 'Enter') { commitPresetSplit(); (e.target as HTMLInputElement).blur(); } }}
-                className="w-8 bg-transparent text-lg font-bold outline-none text-center tabular-nums"/>
-              <span className={`text-xs font-semibold ${theme.textMuted}`}>{t('splits')}</span>
-            </div>
-          </div>
-          <div className="grid flex-1 grid-cols-1 2xl:grid-cols-2 gap-2 lg:gap-2.5 min-h-0 overflow-visible xl:overflow-y-auto xl:overscroll-contain xl:pr-1" data-k136b-routine-scroll data-health-scroll-owner="wide-routine">
-            {Array.from({ length: splitCount }).map((_, i) => {
-              const dayName = `Day ${i + 1}`;
-              const routine = selectedHealthRoutines.find((r: HealthRoutine) => r.day_name === dayName);
-              const blocks = (routine?.blocks ?? [])
-                .map((id: string) => healthBlocks?.find((b: ExerciseBlock) => b.id === id))
-                .filter((b): b is ExerciseBlock => !!b);
-              return (
-                <div key={dayName} className={`rounded-xl p-3 border ${theme.border}`}>
-                  <div className="flex justify-between items-center mb-2">
-                    <h3 className="font-heading text-sm font-bold">{dayName}</h3>
-                    <button onClick={() => openAssembleModal(dayName)} className="text-[11px] text-blue-500 font-bold">{t('assembleBtn')}</button>
-                  </div>
-                  <div className="flex flex-col gap-1 min-h-[24px]">
-                    {blocks.length === 0 ? (
-                      <span className={`text-[10px] ${theme.textMuted}`}>—</span>
-                    ) : blocks.map(b => (
-                      <div key={b.id} className="flex items-center justify-between gap-2 text-xs font-semibold">
-                        <span className="truncate">{b.name}</span>
-                        {showsPlannedSetCount(b.type) ? (
-                          <span className={`shrink-0 tabular-nums ${theme.textMuted}`}>
-                            {t('k76SetCount').replace('{count}', String(getPlannedSetCount(dayName, b.id, b.type, prevData[b.id]?.prev_sets)))}
-                          </span>
-                        ) : null}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </HealthSetupColumn>
-
-      {/* ── Primary execution: Today's Workout + subordinate support ── */}
+      {/* ── Primary execution: Today's Workout ── */}
       <HealthExecutionColumn showOnCompact={mobileHealthTab === 'workout' || isDesktopPrevious}>
         <div
           className={`${WORKSPACE_CARD_SURFACE} flex min-h-0 flex-col overflow-visible xl:overflow-hidden transition-colors ${WORKSPACE_CARD.workoutHero} lg:min-h-[280px] xl:min-h-0 xl:h-full`}
@@ -1986,7 +1875,124 @@ export const HealthView = ({
         )}
         </div>
 
-      <HealthSupportRegion ref={inbodyQuickRef}>
+      </HealthExecutionColumn>
+
+      {/* ── Setup support: Routine + Blocks ── */}
+      <HealthSetupColumn>
+        <HealthBlockLibrary
+          blocks={healthBlocks ?? []}
+          activeTagFilter={activeTagFilter}
+          setActiveTagFilter={setActiveTagFilter}
+          theme={theme}
+          darkMode={appSettings.darkMode}
+          onAddToToday={handleAddWorkoutToToday}
+          onEditBlock={openBlockModal}
+          onDeleteBlock={handleDeleteBlock}
+          onNewBlock={() => openBlockModal()}
+          mobileVisible={mobileHealthTab === 'setup' && setupSection === 'blocks'}
+        />
+
+        <div className={`xl:h-full xl:min-h-0 ${WORKSPACE_CARD.sm} ${WORKSPACE_CARD_SURFACE} flex flex-col overflow-visible xl:overflow-hidden transition-colors ${mobileHealthTab === 'setup' && setupSection === 'routine' ? '' : 'hidden lg:flex'}`} data-k126-workout-routine data-health-09b-routine data-health-composition-role="setup-routine">
+          <div className="flex flex-wrap justify-between items-center gap-2 mb-2.5 shrink-0">
+            <div className="flex min-w-0 items-center gap-2">
+              <h2 className="font-heading text-base font-bold shrink-0">{t('routineSetup')}</h2>
+              <select
+                aria-label={t('healthPresetLabel')}
+                value={activePreset.id}
+                onChange={e => {
+                  selectPreset(e.target.value);
+                  setPresetMenuOpen(false);
+                }}
+                className={`min-w-0 max-w-[150px] rounded-xl border px-2.5 py-1.5 text-xs font-bold outline-none ${theme.input}`}
+              >
+                {routinePresetState.presets.map(preset => (
+                  <option key={preset.id} value={preset.id}>{preset.name}</option>
+                ))}
+              </select>
+              <div ref={presetMenuRef} className="relative shrink-0">
+                <button
+                  type="button"
+                  aria-label={t('healthPresetActions')}
+                  aria-expanded={presetMenuOpen}
+                  aria-controls="health-preset-actions-menu"
+                  onClick={() => setPresetMenuOpen(open => !open)}
+                  className={`rounded-xl p-1.5 ${theme.hoverBg}`}
+                >
+                  <MoreHorizontal size={17} aria-hidden />
+                </button>
+                {routinePresetAccountReady && presetMenuOpen && (
+                  <div id="health-preset-actions-menu" role="menu" className={`absolute left-0 top-full z-30 mt-1 w-48 rounded-xl border p-1.5 shadow-lg ${theme.card} ${theme.border}`}>
+                    <button type="button" onClick={handleCreatePreset} className={`w-full rounded-lg px-2.5 py-2 text-left text-xs font-bold ${theme.hoverBg}`}>{t('healthPresetNew')}</button>
+                    <button type="button" onClick={handleDuplicatePreset} className={`w-full rounded-lg px-2.5 py-2 text-left text-xs font-bold ${theme.hoverBg}`}>{t('healthPresetDuplicate')}</button>
+                    {presetRenameDraft ? (
+                      <div className="flex gap-1 p-1">
+                        <input
+                          autoFocus
+                          value={presetRenameDraft}
+                          maxLength={48}
+                          onChange={e => setPresetRenameDraft(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') commitPresetRename(); }}
+                          className={`min-w-0 flex-1 rounded-lg px-2 py-1.5 text-xs font-semibold outline-none ${theme.input}`}
+                        />
+                        <button type="button" onClick={commitPresetRename} className="rounded-lg bg-primary px-2 text-primary-foreground"><Check size={13} /></button>
+                      </div>
+                    ) : (
+                      <button type="button" onClick={beginPresetRename} className={`w-full rounded-lg px-2.5 py-2 text-left text-xs font-bold ${theme.hoverBg}`}>{t('healthPresetRename')}</button>
+                    )}
+                    <button type="button" onClick={handleDeletePreset} className="w-full rounded-lg px-2.5 py-2 text-left text-xs font-bold text-danger hover:bg-danger/10">{t('healthPresetDelete')}</button>
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className={`flex shrink-0 items-center gap-2 px-3 py-1.5 rounded-xl ${theme.input}`}>
+              <input
+                type="number" inputMode="numeric" min="1" max="7"
+                value={splitCountInput}
+                onChange={e => setSplitCountInput(e.target.value)}
+                onBlur={commitPresetSplit}
+                onKeyDown={e => { if (e.key === 'Enter') { commitPresetSplit(); (e.target as HTMLInputElement).blur(); } }}
+                className="w-8 bg-transparent text-lg font-bold outline-none text-center tabular-nums"/>
+              <span className={`text-xs font-semibold ${theme.textMuted}`}>{t('splits')}</span>
+            </div>
+          </div>
+          <div className="grid flex-1 grid-cols-1 2xl:grid-cols-2 gap-2 lg:gap-2.5 min-h-0 overflow-visible xl:overflow-y-auto xl:overscroll-contain xl:pr-1" data-k136b-routine-scroll data-health-scroll-owner="wide-routine">
+            {Array.from({ length: splitCount }).map((_, i) => {
+              const dayName = `Day ${i + 1}`;
+              const routine = selectedHealthRoutines.find((r: HealthRoutine) => r.day_name === dayName);
+              const blocks = (routine?.blocks ?? [])
+                .map((id: string) => healthBlocks?.find((b: ExerciseBlock) => b.id === id))
+                .filter((b): b is ExerciseBlock => !!b);
+              return (
+                <div key={dayName} className={`rounded-xl p-3 border ${theme.border}`}>
+                  <div className="flex justify-between items-center mb-2">
+                    <h3 className="font-heading text-sm font-bold">{dayName}</h3>
+                    <button onClick={() => openAssembleModal(dayName)} className="text-[11px] text-blue-500 font-bold">{t('assembleBtn')}</button>
+                  </div>
+                  <div className="flex flex-col gap-1 min-h-[24px]">
+                    {blocks.length === 0 ? (
+                      <span className={`text-[10px] ${theme.textMuted}`}>—</span>
+                    ) : blocks.map(b => (
+                      <div key={b.id} className="flex items-center justify-between gap-2 text-xs font-semibold">
+                        <span className="truncate">{b.name}</span>
+                        {showsPlannedSetCount(b.type) ? (
+                          <span className={`shrink-0 tabular-nums ${theme.textMuted}`}>
+                            {t('k76SetCount').replace('{count}', String(getPlannedSetCount(dayName, b.id, b.type, prevData[b.id]?.prev_sets)))}
+                          </span>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </HealthSetupColumn>
+
+      <HealthSupportRegion
+        ref={inbodyQuickRef}
+        showOnCompact={mobileHealthTab === 'workout' || isDesktopPrevious}
+      >
         <HealthSupportingPanels
           accountId={user.id}
           selectedDate={selectedDate}
@@ -2008,7 +2014,6 @@ export const HealthView = ({
           inbodyHistoryCollapsed={healthSectionPrefs.inbodyHistoryCollapsed}
         />
       </HealthSupportRegion>
-      </HealthExecutionColumn>
     </HealthWorkoutComposition>
     </>
       )}

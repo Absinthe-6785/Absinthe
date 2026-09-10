@@ -151,15 +151,29 @@ vi.mock('./features/health/HealthWorkspaceNav', () => ({
   HealthWorkspaceNav: () => null,
 }));
 vi.mock('./features/health/nutrition', () => ({ ProteinTracker: () => null }));
-vi.mock('./features/health/HealthBlockLibrary', () => ({ HealthBlockLibrary: () => null }));
-vi.mock('./features/health/HealthSupportingPanels', () => ({ HealthSupportingPanels: () => null }));
+vi.mock('./features/health/HealthBlockLibrary', () => ({
+  HealthBlockLibrary: ({ blocks }: { blocks: Array<{ id: string; name: string }> }) => createElement(
+    'section',
+    { 'data-health-test-region': 'library' },
+    ...blocks.map(block => createElement('button', { key: block.id, type: 'button' }, block.name)),
+  ),
+}));
+vi.mock('./features/health/HealthSupportingPanels', () => ({
+  HealthSupportingPanels: () => createElement(
+    'div',
+    { 'data-health-test-region': 'support-panels' },
+    createElement('section', {}, 'Calendar'),
+    createElement('section', {}, 'InBody'),
+    createElement('section', {}, 'Protein'),
+  ),
+}));
 vi.mock('./features/health/WorkoutPrBadge', () => ({ WorkoutPrBadge: () => null }));
 vi.mock('./features/health/PreviousWorkoutView', () => ({ PreviousWorkoutView: () => null }));
 vi.mock('./features/health/PreviousWorkoutSheet', () => ({ PreviousWorkoutSheet: () => null }));
 vi.mock('./features/health/HealthMobileWorkoutActions', () => ({ HealthMobileWorkoutActions: () => null }));
 
 import { HealthView } from './HealthView';
-import type { HealthProps, HealthRoutine, ExerciseBlock } from '../../types';
+import type { HealthProps, HealthRoutine, ExerciseBlock, Workout } from '../../types';
 
 const theme = {
   card: 'card', input: 'input', border: 'border', text: 'text', textMuted: 'muted', hoverBg: 'hover',
@@ -265,6 +279,66 @@ afterEach(() => {
   container?.remove();
   root = null;
   container = null;
+});
+
+describe('UI-06 production Health composition hierarchy', () => {
+  it.each([1024, 1279, 1280])(
+    'renders Today before populated setup and support at the %ipx boundary',
+    async width => {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: width });
+
+      const populatedBlocks: ExerciseBlock[] = Array.from({ length: 12 }, (_, index) => ({
+        id: `block-${index + 1}`,
+        name: `Exercise ${index + 1}`,
+        type: 'strength',
+        tags: ['UPPER'],
+        cardio_mode: 'both',
+      }));
+      const populatedWorkouts: Workout[] = populatedBlocks.slice(0, 4).map((block, index) => ({
+        id: `workout-${index + 1}`,
+        block_id: block.id,
+        exercise_blocks: block,
+        sets: Array.from({ length: 4 }, (_, setIndex) => ({
+          type: 'strength' as const,
+          set: setIndex + 1,
+          kg: '40',
+          reps: '8',
+          done: false,
+        })),
+      }));
+      const populatedRoutines = Array.from({ length: 7 }, (_, index) => routine(
+        `routine-${index + 1}`,
+        `Day ${index + 1}`,
+        populatedBlocks.slice(index, index + 4).map(block => block.id),
+      ));
+
+      await mount(healthProps({
+        healthBlocks: populatedBlocks,
+        healthRoutines: populatedRoutines,
+        workouts: populatedWorkouts,
+      }));
+
+      const composition = container!.querySelector('[data-health-composition="workout-first"]') as HTMLElement;
+      const execution = container!.querySelector('[data-health-composition-role="execution"]') as HTMLElement;
+      const active = container!.querySelector('[data-health-composition-role="active-workout"]') as HTMLElement;
+      const setup = container!.querySelector('[data-health-composition-role="setup"]') as HTMLElement;
+      const support = container!.querySelector('[data-health-composition-role="support"]') as HTMLElement;
+
+      expect(execution.parentElement).toBe(composition);
+      expect(setup.parentElement).toBe(composition);
+      expect(support.parentElement).toBe(composition);
+      expect(active.compareDocumentPosition(setup) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(setup.compareDocumentPosition(support) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(active.getAttribute('data-health-hierarchy-level')).toBe('primary');
+      expect(setup.getAttribute('data-health-hierarchy-level')).toBe('secondary');
+      expect(support.getAttribute('data-health-hierarchy-level')).toBe('tertiary');
+      expect(container!.querySelectorAll('[data-health-test-region="library"] button')).toHaveLength(12);
+      expect(container!.querySelector('[data-health-test-region="support-panels"]')?.textContent).toContain('Calendar');
+
+      expect(composition.className).toContain('xl:grid-cols-[minmax(300px,0.34fr)_minmax(0,1fr)]');
+      expect(composition.className).toContain('xl:grid-rows-[minmax(360px,68fr)_minmax(200px,32fr)]');
+    },
+  );
 });
 
 describe('HEALTH_10D account transition isolation', () => {
