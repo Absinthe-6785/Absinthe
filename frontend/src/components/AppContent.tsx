@@ -345,7 +345,7 @@ export function AppContent({ authUser }: { authUser: User }) {
 
   return (
     <div
-      className="flex flex-col lg:flex-row h-[100dvh] min-h-0 min-w-0 font-body p-0 lg:p-3 relative transition-colors duration-500 overflow-hidden bg-background"
+      className="abs-cosmos-shell flex flex-col lg:flex-row h-[100dvh] min-h-0 min-w-0 font-body p-0 lg:p-3 relative transition-colors duration-500 overflow-hidden bg-background"
       style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)' }}
       data-app-shell
       data-app-height-owner="dynamic-viewport"

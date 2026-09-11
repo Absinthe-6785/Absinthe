@@ -133,6 +133,25 @@ describe('UI-02 semantic visual contract', () => {
     expect(skipLinkRule).toContain('var(--color-focus)');
   });
 
+  it('keeps the production Cosmos layer decorative and independent from semantic state', () => {
+    const css = readFileSync(join(process.cwd(), 'src', 'index.css'), 'utf8');
+    const sidebarSource = readFileSync(join(process.cwd(), 'src', 'components', 'common', 'Sidebar.tsx'), 'utf8');
+    const shellRule = css.match(/\.abs-cosmos-shell\s*\{([^}]*)\}/s)?.[1];
+    const shellDecorationRule = css.match(/\.abs-cosmos-shell::before\s*\{([^}]*)\}/s)?.[1];
+    const sidebarRule = css.match(/\.abs-cosmos-sidebar\s*\{([^}]*)\}/s)?.[1];
+    const markerRule = css.match(/\.abs-cosmos-sidebar-marker\s*\{([^}]*)\}/s)?.[1];
+
+    expect(shellRule).toContain('var(--cosmos-void)');
+    expect(shellDecorationRule).toContain('pointer-events: none');
+    expect(sidebarRule).toContain('var(--cosmos-orbit)');
+    expect(sidebarRule).toContain('var(--cosmos-starlight)');
+    expect(markerRule).toContain('var(--cosmos-pale-blue-dot)');
+    expect(markerRule).toContain('pointer-events: none');
+    expect(sidebarSource).toContain("'bg-selected text-primary-foreground shadow-absinthe-sm'");
+    expect(sidebarSource).not.toContain("'bg-primary text-primary-foreground shadow-absinthe-sm'");
+    expect(sidebarSource).toContain('UI_INTERACTION.focusRingClass');
+  });
+
   it('renders representative shared copy with the semantic muted foreground role', async () => {
     container = document.createElement('div');
     document.body.appendChild(container);

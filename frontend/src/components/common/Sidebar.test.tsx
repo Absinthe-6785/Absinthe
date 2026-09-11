@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement } from 'react';
 import { Sidebar } from '../common/Sidebar';
+import { UI_INTERACTION } from '../../lib/uiInteractionTokens';
 
 const baseProps = () => ({
   activeTab: 'note' as const,
@@ -29,5 +30,23 @@ describe('Sidebar mobile navigation', () => {
     expect(html).toContain('aria-label="Archive"');
     expect(html).toContain('aria-label="Schedule"');
     expect(html).toContain('aria-label="Recipe"');
+  });
+
+  it('keeps dimensions while routing selected and focus states through semantic authority', () => {
+    const host = document.createElement('div');
+    host.innerHTML = renderToStaticMarkup(createElement(Sidebar, baseProps()));
+    const sidebar = host.querySelector<HTMLElement>('[data-k126-mobile-sidebar]')!;
+    const selected = sidebar.querySelector<HTMLElement>('[aria-label="Note"]')!;
+
+    expect(sidebar.classList.contains('abs-cosmos-sidebar')).toBe(true);
+    expect(sidebar.classList.contains('lg:w-[72px]')).toBe(true);
+    expect(selected.classList.contains('bg-selected')).toBe(true);
+    expect(selected.classList.contains('bg-primary')).toBe(false);
+    for (const focusClass of UI_INTERACTION.focusRingClass.split(/\s+/)) {
+      expect(selected.classList.contains(focusClass)).toBe(true);
+    }
+
+    const marker = sidebar.querySelector<HTMLElement>('[data-cosmos-sidebar-marker]')!;
+    expect(marker.getAttribute('aria-hidden')).toBe('true');
   });
 });

@@ -168,6 +168,7 @@ describe('AppContent startup lifecycle integration', () => {
     const shell = container?.querySelector('[data-app-shell]');
     const viewport = shell?.querySelector('[data-workspace-viewport]');
     expect(shell?.getAttribute('data-app-height-owner')).toBe('dynamic-viewport');
+    expect(shell?.classList.contains('abs-cosmos-shell')).toBe(true);
     expect(shell?.classList.contains('h-[100dvh]')).toBe(true);
     expect(shell?.classList.contains('overflow-hidden')).toBe(true);
     expect(viewport?.getAttribute('data-workspace-scroll-mode')).toBe('delegated');
