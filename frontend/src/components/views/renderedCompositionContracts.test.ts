@@ -3,19 +3,27 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createElement, type ReactElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { DateTime } from 'luxon';
+import { describe, expect, it, vi } from 'vitest';
 
 import { WORKSPACE_SCROLL_MODE } from '../common/workspaceLayout';
 import { classifyViewportWidth } from '../../lib/responsiveLayout';
-import {
-  HealthExecutionColumn,
-  HealthSetupColumn,
-  HealthSupportRegion,
-  HealthWorkoutComposition,
-} from './features/health/HealthCompositionLayout';
+import type { AppSettings, HealthProps, PlannerProps, Theme } from '../../types';
+import { NoteView } from './NoteView';
+import { PlannerView } from './PlannerView';
+import { HealthView } from './HealthView';
+import { SettingsView } from './SettingsView';
 import { HEALTH_WORKSPACE_SECTIONS } from './features/health/HealthWorkspaceNav';
 import { resolvePlannerHierarchyLayout } from './features/planner/calendar-ui/plannerHierarchyLayout';
-import { RecipeCompositionLayout } from './features/recipe/components/RecipeCompositionLayout';
+import {
+  RecipeStudioView,
+  type RecipeStudioViewProps,
+} from './features/recipe/components/RecipeStudioView';
+import type { RecipeProjection } from './features/recipe/recipeProjectionModels';
+
+vi.mock('../../hooks/useElementVisible', () => ({
+  useElementVisible: () => ({ ref: { current: null }, visible: true }),
+}));
 
 type WorkspaceContract = {
   workspace: 'notes' | 'planner' | 'health' | 'recipe' | 'settings';
@@ -23,7 +31,6 @@ type WorkspaceContract = {
   scrollMode: 'page' | 'pane';
   fullRegionOwnerCount: number;
   majorRegionMarkers: readonly string[];
-  breakpointContract: 'shared-768' | 'shared-1024' | 'shared-1280';
 };
 
 const WORKSPACE_CONTRACT_MATRIX: readonly WorkspaceContract[] = [
@@ -41,7 +48,6 @@ const WORKSPACE_CONTRACT_MATRIX: readonly WorkspaceContract[] = [
       'data-notes-hierarchy-level="note-navigation"',
       'data-notes-hierarchy-level="document"',
     ],
-    breakpointContract: 'shared-768',
   },
   {
     workspace: 'planner',
@@ -59,7 +65,6 @@ const WORKSPACE_CONTRACT_MATRIX: readonly WorkspaceContract[] = [
       'data-planner-primary-surface="timetable"',
       'data-planner-support-role="dday"',
     ],
-    breakpointContract: 'shared-1024',
   },
   {
     workspace: 'health',
@@ -77,7 +82,6 @@ const WORKSPACE_CONTRACT_MATRIX: readonly WorkspaceContract[] = [
       'data-health-composition-role="support"',
       'data-k136b-health-library-scroll',
     ],
-    breakpointContract: 'shared-1280',
   },
   {
     workspace: 'recipe',
@@ -93,7 +97,6 @@ const WORKSPACE_CONTRACT_MATRIX: readonly WorkspaceContract[] = [
       'data-recipe-composition-role="support"',
       'data-recipe-list-tail-reachable',
     ],
-    breakpointContract: 'shared-1280',
   },
   {
     workspace: 'settings',
@@ -107,9 +110,153 @@ const WORKSPACE_CONTRACT_MATRIX: readonly WorkspaceContract[] = [
       'data-settings-reset-action',
       'data-settings-sign-out-action',
     ],
-    breakpointContract: 'shared-768',
   },
 ] as const;
+
+const date = new Date('2026-01-10T00:00:00.000Z');
+const now = DateTime.fromJSDate(date);
+const appSettings: AppSettings = {
+  darkMode: false,
+  defaultCategory: 'Personal',
+  defaultColor: 'blue',
+  language: 'en',
+};
+const theme: Theme = {
+  card: 'bg-surface',
+  input: 'bg-surface-alt',
+  border: 'border-border',
+  text: 'text-foreground',
+  textMuted: 'text-muted',
+  hoverBg: 'hover:bg-surface-alt',
+};
+const themeColors = [{
+  id: 'blue',
+  bg: 'bg-blue-500',
+  text: 'text-white',
+  border: 'border-blue-500',
+}];
+const formatDate = (value: Date | DateTime): string => (
+  (value instanceof Date ? value : value.toJSDate()).toISOString().slice(0, 10)
+);
+
+const plannerProps: PlannerProps = {
+  now,
+  currentDate: date,
+  setCurrentDate: vi.fn(),
+  selectedDate: date,
+  setSelectedDate: vi.fn(),
+  formatDate,
+  isToday: () => true,
+  schedules: [],
+  todos: [],
+  routines: [],
+  markedDates: [],
+  weeklySchedules: [],
+  showToast: vi.fn(),
+  appSettings,
+  updateSetting: vi.fn(),
+  theme,
+  THEME_COLORS: themeColors,
+  mutateDaily: vi.fn(),
+  mutateStatic: vi.fn(),
+  mutateTodos: vi.fn(),
+  mutateRoutines: vi.fn(),
+  user: { id: 'ui09-planner', name: 'UI-09 Planner' },
+};
+
+const healthProps: HealthProps = {
+  now,
+  currentDate: date,
+  setCurrentDate: vi.fn(),
+  selectedDate: date,
+  setSelectedDate: vi.fn(),
+  formatDate,
+  isToday: () => true,
+  showToast: vi.fn(),
+  appSettings,
+  updateSetting: vi.fn(),
+  theme,
+  THEME_COLORS: themeColors,
+  mutateDaily: vi.fn(),
+  mutateStatic: vi.fn(),
+  user: { id: 'ui09-health', name: 'UI-09 Health' },
+  schedules: [],
+  weeklySchedules: [],
+  workouts: [],
+  healthBlocks: [],
+  healthRoutines: [],
+  inbody: {},
+  isDailyLoading: false,
+} as HealthProps;
+
+const recipeProjection: RecipeProjection = {
+  recentRecipes: { today: [], thisWeek: [], earlier: [] },
+  favoriteRecipes: [],
+  recentlyCooked: { today: [], yesterday: [], earlier: [] },
+  ingredientGroups: [],
+  historyItems: [],
+  collectionGroups: [],
+  suggestions: [],
+  allRecipes: [],
+  empty: {
+    noRecipes: false,
+    noFavorites: true,
+    noHistory: true,
+    noIngredients: true,
+    noCollections: true,
+    isEmpty: false,
+  },
+  generatedAt: '2026-09-11T00:00:00.000Z',
+};
+
+const recipe = {
+  id: 'ui09-recipe',
+  title: 'UI-09 Recipe',
+  category: 'Other',
+  ingredients: 'rice',
+  steps: 'Cook it',
+  memo: '',
+  starred: false,
+  created_at: '2026-09-11T00:00:00.000Z',
+  deleted_at: null,
+} as RecipeStudioViewProps['recipes'][number];
+
+const recipeProps: RecipeStudioViewProps = {
+  projection: recipeProjection,
+  recipes: [recipe],
+  theme,
+  appSettings,
+  activeAvailability: 'READY_WITH_DATA',
+  activeValidating: false,
+  onRetryActive: vi.fn(),
+  expandedId: null,
+  onToggleExpand: vi.fn(),
+  onToggleStar: vi.fn(),
+  onEdit: vi.fn(),
+  onDelete: vi.fn(),
+  deletedRecipes: [],
+  trashAvailability: 'READY_EMPTY',
+  trashValidating: false,
+  onRetryTrash: vi.fn(),
+  onRestore: vi.fn(),
+  onMarkCooked: vi.fn(),
+  onNewRecipe: vi.fn(),
+  onScrollToRecipe: vi.fn(),
+};
+
+const settingsProps = {
+  appSettings,
+  updateSetting: vi.fn(),
+  showToast: vi.fn(),
+  theme,
+  THEME_COLORS: themeColors,
+  mutateDaily: vi.fn(),
+  mutateStatic: vi.fn(),
+  mutateTodos: vi.fn(),
+  mutateRoutines: vi.fn(),
+  onSignOut: vi.fn(),
+  user: { id: 'ui09-settings', name: 'UI-09 Settings' },
+};
 
 function readProductionSources(contract: WorkspaceContract): string {
   return contract.sources
@@ -127,8 +274,23 @@ function render(element: ReactElement): HTMLElement {
   return host;
 }
 
+function renderProductionWorkspace(workspace: WorkspaceContract['workspace']): HTMLElement {
+  switch (workspace) {
+    case 'notes':
+      return render(createElement(NoteView, { accountId: 'ui09-notes' }));
+    case 'planner':
+      return render(createElement(PlannerView, plannerProps));
+    case 'health':
+      return render(createElement(HealthView, healthProps));
+    case 'recipe':
+      return render(createElement(RecipeStudioView, recipeProps));
+    case 'settings':
+      return render(createElement(SettingsView, settingsProps as never));
+  }
+}
+
 describe('UI-09 rendered composition contract matrix', () => {
-  it('keeps every major workspace on one declared root scroll model', () => {
+  it('links every major workspace to its declared production root and hierarchy markers', () => {
     expect(WORKSPACE_CONTRACT_MATRIX.map(contract => contract.workspace)).toEqual([
       'notes',
       'planner',
@@ -144,50 +306,51 @@ describe('UI-09 rendered composition contract matrix', () => {
         count(source, `data-workspace-scroll-mode={WORKSPACE_SCROLL_MODE.${contract.scrollMode}}`),
         contract.workspace,
       ).toBe(1);
-      expect(count(source, 'data-workspace-scroll-owner="page"'), contract.workspace)
-        .toBe(contract.fullRegionOwnerCount);
-
       for (const marker of contract.majorRegionMarkers) {
         expect(source, `${contract.workspace}: ${marker}`).toContain(marker);
       }
     }
   });
 
-  it('distinguishes bounded Health and Recipe pane owners from a page-level owner', () => {
-    const health = render(createElement(
-      HealthWorkoutComposition,
-      null,
-      createElement(HealthExecutionColumn, { showOnCompact: true }, 'Today'),
-      createElement(HealthSetupColumn, null, 'Library and routine'),
-      createElement(HealthSupportRegion, { showOnCompact: true }, 'Calendar, InBody, and Protein'),
-    ));
-    const healthComposition = health.querySelector('[data-health-composition="workout-first"]')!;
-    const healthRoles = Array.from(healthComposition.children, child => (
-      child.getAttribute('data-health-composition-role')
-    ));
+  it('counts full-region owners across each complete production-rendered workspace subtree', () => {
+    for (const contract of WORKSPACE_CONTRACT_MATRIX) {
+      const rendered = renderProductionWorkspace(contract.workspace);
+      const workspace = rendered.querySelector(`[data-workspace="${contract.workspace}"]`)!;
+      const owners = workspace.querySelectorAll('[data-workspace-scroll-owner="page"]');
 
-    expect(healthRoles).toEqual(['execution', 'setup', 'support']);
-    expect(health.querySelectorAll('[data-workspace-scroll-owner="page"]')).toHaveLength(0);
-    expect(health.querySelector('[data-health-scroll-owner="wide-support"]')).not.toBeNull();
-    expect(health.querySelector('[data-health-scroll-owner="wide-support"]')?.className)
-      .toContain('xl:overflow-y-auto');
+      expect(workspace, `${contract.workspace}: production root`).not.toBeNull();
+      expect(workspace.getAttribute('data-workspace-scroll-mode'), contract.workspace)
+        .toBe(WORKSPACE_SCROLL_MODE[contract.scrollMode]);
+      expect(owners, `${contract.workspace}: page-level owners in complete subtree`)
+        .toHaveLength(contract.fullRegionOwnerCount);
+    }
+  });
 
-    const recipe = render(createElement(RecipeCompositionLayout, {
-      header: createElement('h1', null, 'Recipes'),
-      primary: createElement('div', null, 'Recipe list'),
-      supporting: createElement('div', null, 'Recipe support'),
-    }));
+  it('uses production HealthView order and keeps bounded internal owners out of the page-owner count', () => {
+    const health = renderProductionWorkspace('health');
+    const healthRoot = health.querySelector('[data-workspace="health"]')!;
+    const healthComposition = healthRoot.querySelector('[data-health-composition="workout-first"]')!;
+    const execution = healthComposition.querySelector('[data-health-composition-role="execution"]')!;
+    const support = healthComposition.querySelector('[data-health-composition-role="support"]')!;
+    const boundedHealthOwners = healthComposition.querySelectorAll('[data-health-scroll-owner]');
+
+    expect(execution.parentElement).toBe(healthComposition);
+    expect(support.parentElement).toBe(healthComposition);
+    expect(execution.compareDocumentPosition(support) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy();
+    expect(boundedHealthOwners.length).toBeGreaterThan(0);
+    expect(healthRoot.querySelectorAll('[data-workspace-scroll-owner="page"]')).toHaveLength(0);
+
+    const recipe = renderProductionWorkspace('recipe');
     const recipeRoot = recipe.querySelector('[data-workspace="recipe"]')!;
-    const recipeContent = recipeRoot.querySelector('[data-recipe-composition-content]')!;
     const recipePrimary = recipeRoot.querySelector('[data-recipe-composition-role="primary-list"]')!;
     const recipeSupport = recipeRoot.querySelector('[data-recipe-composition-role="support"]')!;
+    const boundedRecipeOwners = recipeRoot.querySelectorAll('[data-recipe-scroll-owner-wide]');
 
-    expect(recipeRoot.getAttribute('data-workspace-scroll-mode')).toBe(WORKSPACE_SCROLL_MODE.pane);
-    expect(recipeRoot.querySelectorAll('[data-workspace-scroll-owner="page"]')).toHaveLength(0);
-    expect(recipeContent.getAttribute('data-recipe-scroll-owner-pre-wide')).toBe('workspace');
     expect(recipePrimary.compareDocumentPosition(recipeSupport) & Node.DOCUMENT_POSITION_FOLLOWING)
       .toBeTruthy();
-    expect(recipeSupport.querySelector('[data-recipe-scroll-owner-wide="support"]')).not.toBeNull();
+    expect(boundedRecipeOwners).toHaveLength(2);
+    expect(recipeRoot.querySelectorAll('[data-workspace-scroll-owner="page"]')).toHaveLength(0);
   });
 
   it('binds the 768 and 1279/1280 seams to shared authority without hierarchy drift', () => {
@@ -205,27 +368,17 @@ describe('UI-09 rendered composition contract matrix', () => {
     expect(atWide.rootScroll).toBe(beforeWide.rootScroll);
     expect(atWide.order).toEqual(beforeWide.order);
 
-    const health = render(createElement(HealthWorkoutComposition, null, 'Health'))
+    const health = renderProductionWorkspace('health')
       .querySelector('[data-health-composition]')!;
     expect(health.className).toContain('xl:grid');
     expect(health.className).toContain('xl:overflow-hidden');
 
-    const recipe = render(createElement(RecipeCompositionLayout, {
-      header: 'Header',
-      primary: 'List',
-      supporting: 'Support',
-    })).querySelector('[data-recipe-composition-content]')!;
+    const recipe = renderProductionWorkspace('recipe')
+      .querySelector('[data-recipe-composition-content]')!;
     expect(recipe.className).toContain('overflow-y-auto');
     expect(recipe.className).toContain('xl:flex-row');
     expect(recipe.className).toContain('xl:overflow-hidden');
 
-    expect(WORKSPACE_CONTRACT_MATRIX.map(contract => contract.breakpointContract)).toEqual([
-      'shared-768',
-      'shared-1024',
-      'shared-1280',
-      'shared-1280',
-      'shared-768',
-    ]);
   });
 
   it('keeps the accepted Health Overview removals and current navigation authority', () => {
