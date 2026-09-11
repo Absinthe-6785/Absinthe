@@ -169,6 +169,45 @@ describe('SettingsView scroll contract', () => {
     act(() => root.unmount());
     container.remove();
   });
+
+  it('does not consume a missing target and still resolves a later valid target', async () => {
+    vi.useFakeTimers();
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoView,
+    });
+    const consumed = vi.fn();
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    await act(async () => root.render(createElement(SettingsView, {
+      ...viewProps,
+      settingsScrollTarget: 'missing-target',
+      onSettingsScrollTargetConsumed: consumed,
+    } as never)));
+    await act(async () => vi.advanceTimersByTime(120));
+
+    expect(scrollIntoView).not.toHaveBeenCalled();
+    expect(consumed).not.toHaveBeenCalled();
+
+    await act(async () => root.render(createElement(SettingsView, {
+      ...viewProps,
+      settingsScrollTarget: 'danger',
+      onSettingsScrollTargetConsumed: consumed,
+    } as never)));
+    await act(async () => vi.advanceTimersByTime(120));
+
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    expect(scrollIntoView.mock.instances[0]).toBe(
+      container.querySelector('[data-settings-section="danger"]'),
+    );
+    expect(consumed).toHaveBeenCalledTimes(1);
+
+    act(() => root.unmount());
+    container.remove();
+  });
 });
 
 describe('Settings backup coverage presentation', () => {
