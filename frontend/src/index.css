@@ -7,6 +7,8 @@
   --color-background: #F5F0E8;
   --color-surface: #FAF7F2;
   --color-surface-alt: #EDE8DF;
+  --color-surface-elevated: #FAF7F2;
+  --color-surface-muted: #EDE8DF;
   --color-text: #1C1917;
   --color-muted: #78716C;
   --color-muted-foreground: #78716C;
@@ -14,8 +16,12 @@
   --color-primary: #8B5CF6;
   --color-primary-hover: #7C3AED;
   --color-primary-fg: #FFFFFF;
+  --color-selected: #8B5CF6;
+  --color-warning: #F59E0B;
   --color-danger: #DC2626;
   --color-success: #15803D;
+  --color-focus: #8B5CF6;
+  --color-disabled: #78716C;
   --color-overlay: rgba(0, 0, 0, 0.45);
   --color-sidebar: #F0EBE3;
   --color-sidebar-hover: #E5DFD5;
@@ -24,6 +30,15 @@
   --color-input: #F5F2EC;
   --color-input-border: #E7E0D5;
   --font-heading: 'Montserrat', sans-serif;
+
+  /* VIS-02 decorative-only Pixel/Cosmos vocabulary */
+  --cosmos-void: #F5F0E8;
+  --cosmos-pale-blue-dot: #3B82F6;
+  --cosmos-starlight: #FFFFFF;
+  --cosmos-orbit: #E7E0D5;
+  --cosmos-satellite: #78716C;
+  --cosmos-dust: #EDE8DF;
+  --cosmos-trace-glow: rgba(139, 92, 246, 0.08);
 
   /* K-116 semantic aliases */
   --bg-panel: var(--color-surface);
