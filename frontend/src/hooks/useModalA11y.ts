@@ -5,7 +5,21 @@ const FOCUSABLE_SELECTOR =
 
 function getFocusableElements(container: HTMLElement): HTMLElement[] {
   return Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
-    el => !el.hasAttribute('disabled') && el.tabIndex !== -1,
+    el => {
+      if (!el.isConnected || el.hasAttribute('disabled') || el.tabIndex === -1) return false;
+      if (el instanceof HTMLInputElement && el.type === 'hidden') return false;
+      if (el.closest('[inert]')) return false;
+
+      let current: HTMLElement | null = el;
+      while (current) {
+        if (current.hidden) return false;
+        const style = window.getComputedStyle(current);
+        if (style.display === 'none' || style.visibility === 'hidden') return false;
+        if (current === container) return true;
+        current = current.parentElement;
+      }
+      return false;
+    },
   );
 }
 
@@ -13,6 +27,8 @@ export interface UseModalA11yOptions {
   open: boolean;
   onClose: () => void;
   containerRef: RefObject<HTMLElement | null>;
+  /** Preferred safe focus target when the modal opens. */
+  initialFocusRef?: RefObject<HTMLElement | null>;
   /** When true, Escape closes the modal (default true). */
   closeOnEscape?: boolean;
 }
@@ -24,6 +40,7 @@ export function useModalA11y({
   open,
   onClose,
   containerRef,
+  initialFocusRef,
   closeOnEscape = true,
 }: UseModalA11yOptions): void {
   const onCloseRef = useRef(onClose);
@@ -33,6 +50,21 @@ export function useModalA11y({
     if (!open) return;
 
     const previouslyFocused = document.activeElement as HTMLElement | null;
+    const container = containerRef.current;
+    let addedContainerTabIndex = false;
+
+    if (container) {
+      const focusable = getFocusableElements(container);
+      const preferred = initialFocusRef?.current;
+      const target = preferred && focusable.includes(preferred)
+        ? preferred
+        : focusable[0] ?? container;
+      if (target === container && !container.hasAttribute('tabindex')) {
+        container.setAttribute('tabindex', '-1');
+        addedContainerTabIndex = true;
+      }
+      target.focus();
+    }
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (closeOnEscape && e.key === 'Escape') {
@@ -57,7 +89,10 @@ export function useModalA11y({
       const last = focusable[focusable.length - 1]!;
       const active = document.activeElement;
 
-      if (e.shiftKey && active === first) {
+      if (!active || !container.contains(active)) {
+        e.preventDefault();
+        (e.shiftKey ? last : first).focus();
+      } else if (e.shiftKey && active === first) {
         e.preventDefault();
         last.focus();
       } else if (!e.shiftKey && active === last) {
@@ -69,7 +104,12 @@ export function useModalA11y({
     window.addEventListener('keydown', handleKeyDown, true);
     return () => {
       window.removeEventListener('keydown', handleKeyDown, true);
-      previouslyFocused?.focus?.();
+      if (addedContainerTabIndex && container?.getAttribute('tabindex') === '-1') {
+        container.removeAttribute('tabindex');
+      }
+      if (previouslyFocused && previouslyFocused !== document.body && previouslyFocused.isConnected) {
+        previouslyFocused.focus();
+      }
     };
-  }, [open, closeOnEscape, containerRef]);
+  }, [open, closeOnEscape, containerRef, initialFocusRef]);
 }

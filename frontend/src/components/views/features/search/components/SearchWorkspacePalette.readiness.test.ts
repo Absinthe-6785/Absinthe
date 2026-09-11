@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildSearchProjection } from '../buildSearchProjection';
 import type { SearchDatasetState } from '../../../../../lib/searchReadiness';
 import { SearchWorkspacePalette } from './SearchWorkspacePalette';
@@ -125,5 +125,42 @@ describe('SearchWorkspacePalette readiness empty-state rendering', () => {
     expect(host.querySelector('[data-k111-empty-results]')).toBeNull();
     expect(host.querySelector('[data-k111-search-section="recipe"]')).not.toBeNull();
     expect(host.querySelector('[data-k111-section-state="ERROR"]')).not.toBeNull();
+  });
+
+  it('clears a non-empty query before Escape dismisses the palette', async () => {
+    const onQueryChange = vi.fn();
+    const onClose = vi.fn();
+    await act(async () => root.render(createElement(SearchWorkspacePalette, {
+      colors,
+      projection: makeProjection(
+        { status: 'READY_EMPTY', validating: false },
+        { status: 'READY_EMPTY', validating: false },
+      ),
+      open: true,
+      query: 'needle',
+      onQueryChange,
+      onClose,
+      onRecentRevision: () => undefined,
+    })));
+
+    act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })));
+
+    expect(onQueryChange).toHaveBeenCalledWith('');
+    expect(onClose).not.toHaveBeenCalled();
+
+    await act(async () => root.render(createElement(SearchWorkspacePalette, {
+      colors,
+      projection: makeProjection(
+        { status: 'READY_EMPTY', validating: false },
+        { status: 'READY_EMPTY', validating: false },
+      ),
+      open: true,
+      query: '',
+      onQueryChange,
+      onClose,
+      onRecentRevision: () => undefined,
+    })));
+    act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })));
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });
