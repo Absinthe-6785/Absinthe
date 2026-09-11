@@ -7,6 +7,7 @@ import { WORKSPACE_CARD_SURFACE } from '@/components/common/workspaceCardSizes';
 import type { PendingReducedVaultBackup } from '@/lib/vaultBackupFlow';
 import type { RecoveryProtectionStatus } from '@/lib/vaultRestorePipeline';
 import type { TranslationKey } from '@/lib/i18n';
+import { UI_INTERACTION } from '@/lib/uiInteractionTokens';
 
 type RecoveryCenter = ReturnType<typeof useRecoveryCenter>;
 type VaultRestoreFlow = ReturnType<typeof useVaultRestoreFlow>;
@@ -29,12 +30,12 @@ export function resolveDataSafetyStatusPresentation(status: RecoveryProtectionSt
   className: string;
 } {
   if (status === 'protected') {
-    return { labelKey: 'dataSafetyHealthy', className: 'bg-green-500/10 text-green-600' };
+    return { labelKey: 'dataSafetyHealthy', className: 'abs-settings-status-success text-foreground' };
   }
   if (status === 'partial') {
-    return { labelKey: 'dataSafetyLimited', className: 'bg-amber-500/10 text-amber-600' };
+    return { labelKey: 'dataSafetyLimited', className: 'abs-settings-status-warning text-foreground' };
   }
-  return { labelKey: 'dataSafetyNeedsBackup', className: 'bg-amber-500/10 text-amber-600' };
+  return { labelKey: 'dataSafetyNeedsBackup', className: 'abs-settings-status-warning text-foreground' };
 }
 
 export function resolveBackupControlCopy(cloudSyncEnabled: boolean): {
@@ -73,7 +74,7 @@ export function RecoveryCenterPanel({
   const backupCopy = resolveBackupControlCopy(cloudSyncEnabled);
 
   return (
-    <div className={`${WORKSPACE_CARD_SURFACE} flex flex-col relative overflow-hidden transition-colors`} data-settings-data-safety>
+    <div className={`${WORKSPACE_CARD_SURFACE} abs-cosmos-settings-card flex flex-col relative overflow-hidden transition-colors`} data-settings-data-safety>
       <div className="space-y-5">
         <section data-settings-data-safety-status>
           <div className="flex items-start justify-between gap-3 mb-3">
@@ -86,7 +87,7 @@ export function RecoveryCenterPanel({
               {t(status.labelKey)}
             </span>
           </div>
-          <div className={`grid sm:grid-cols-3 gap-3 p-4 rounded-2xl border ${theme.border} ${theme.input}`}>
+          <div className="grid sm:grid-cols-3 gap-3 p-4 rounded-2xl border border-border bg-surface-muted" data-settings-storage-summary>
             <div>
               <p className={`text-xs font-bold mb-1 ${theme.textMuted}`}>{t('dataSafetyLastBackup')}</p>
               <p className="text-sm font-bold">{formatTime(recovery.lastExportAt, t('dataSafetyNever'))}</p>
@@ -112,7 +113,8 @@ export function RecoveryCenterPanel({
               type="button"
               onClick={onCreateBackup}
               disabled={backingUp}
-              className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl font-bold text-sm bg-primary text-primary-foreground disabled:opacity-60"
+              className={`inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl font-bold text-sm bg-primary text-primary-foreground disabled:bg-surface-muted disabled:text-disabled disabled:opacity-100 ${UI_INTERACTION.focusRingClass}`}
+              data-settings-backup-action
             >
               <Download size={16} />
               {backingUp ? t('vaultBackupZipping') : t(backupCopy.actionKey)}
@@ -120,12 +122,12 @@ export function RecoveryCenterPanel({
           </div>
           {pendingReducedBackup && (
             <div
-              className="mt-4 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4"
+              className="abs-settings-warning-panel mt-4 rounded-2xl border p-4"
               data-settings-limited-backup-warning
               role="status"
             >
               <div className="flex items-start gap-3">
-                <AlertTriangle size={18} className="mt-0.5 shrink-0 text-amber-600" />
+                <AlertTriangle size={18} className="mt-0.5 shrink-0 text-warning" />
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-bold">{t('dataSafetyLimitedBackupTitle')}</p>
                   <p className={`mt-1 text-sm font-medium ${theme.textMuted}`}>
@@ -141,7 +143,7 @@ export function RecoveryCenterPanel({
                       type="button"
                       onClick={onRetryBackup}
                       disabled={backingUp}
-                      className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-bold disabled:opacity-60 ${theme.border} ${theme.input}`}
+                      className={`inline-flex items-center gap-2 rounded-xl border border-border bg-surface-muted px-4 py-2 text-sm font-bold disabled:text-disabled disabled:opacity-60 ${UI_INTERACTION.focusRingClass}`}
                     >
                       <RefreshCw size={15} />
                       {t('dataSafetyRetryBackup')}
@@ -150,7 +152,7 @@ export function RecoveryCenterPanel({
                       type="button"
                       onClick={onCreateLimitedBackup}
                       disabled={backingUp}
-                      className="inline-flex items-center gap-2 rounded-xl bg-amber-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-60"
+                      className={`abs-settings-warning-action inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-bold text-foreground disabled:text-disabled disabled:opacity-60 ${UI_INTERACTION.focusRingClass}`}
                     >
                       <Download size={15} />
                       {t('dataSafetyCreateLimitedBackup')}
@@ -171,7 +173,8 @@ export function RecoveryCenterPanel({
             <button
               type="button"
               onClick={vaultRestore.openFilePicker}
-              className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl font-bold text-sm bg-primary text-primary-foreground"
+              className={`inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl font-bold text-sm bg-primary text-primary-foreground ${UI_INTERACTION.focusRingClass}`}
+              data-settings-restore-action
             >
               <Upload size={16} />
               {t('dataSafetyRestoreBackup')}
@@ -193,7 +196,7 @@ export function RecoveryCenterPanel({
                   key={snap.snapshotId}
                   type="button"
                   onClick={() => vaultRestore.openSnapshotRestore(snap.snapshotId)}
-                  className={`flex items-center justify-between gap-3 text-left p-3 rounded-xl border ${theme.border} ${theme.input}`}
+                  className={`flex items-center justify-between gap-3 text-left p-3 rounded-xl border border-border bg-surface-muted hover:bg-surface-alt ${UI_INTERACTION.focusRingClass}`}
                 >
                   <span className="min-w-0">
                     <span className="block text-sm font-bold truncate">{formatTime(snap.createdAt, snap.createdAt)}</span>

@@ -2,10 +2,18 @@
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import type { PendingReducedVaultBackup } from '@/lib/vaultBackupFlow';
 import type { VaultBackupManifest } from '@/lib/exportVaultBackup';
-import { RecoveryCenterPanel, type RecoveryCenterPanelProps } from './RecoveryCenterPanel';
+import {
+  RecoveryCenterPanel,
+  resolveDataSafetyStatusPresentation,
+  type RecoveryCenterPanelProps,
+} from './RecoveryCenterPanel';
+import { UI_INTERACTION } from '@/lib/uiInteractionTokens';
+import { DARK_TOKENS, LIGHT_TOKENS } from '@/theme/tokens';
 
 vi.mock('@/lib/i18n', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -20,6 +28,36 @@ const storageMetrics = {
   lastSnapshotAt: null,
   lastSnapshotNoteCount: null,
 };
+
+type Rgb = readonly [number, number, number];
+
+function hexToRgb(hex: string): Rgb {
+  const value = hex.replace('#', '');
+  return [0, 2, 4].map(offset => Number.parseInt(value.slice(offset, offset + 2), 16)) as unknown as Rgb;
+}
+
+function mixSrgb(foreground: string, background: string, foregroundWeight: number): Rgb {
+  const fg = hexToRgb(foreground);
+  const bg = hexToRgb(background);
+  return fg.map((channel, index) => (
+    channel * foregroundWeight + bg[index]! * (1 - foregroundWeight)
+  )) as unknown as Rgb;
+}
+
+function relativeLuminance(rgb: Rgb): number {
+  const channels = rgb.map(channel => {
+    const value = channel / 255;
+    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * channels[0]! + 0.7152 * channels[1]! + 0.0722 * channels[2]!;
+}
+
+function contrastRatio(foreground: Rgb, background: Rgb): number {
+  const foregroundLuminance = relativeLuminance(foreground);
+  const backgroundLuminance = relativeLuminance(background);
+  return (Math.max(foregroundLuminance, backgroundLuminance) + 0.05)
+    / (Math.min(foregroundLuminance, backgroundLuminance) + 0.05);
+}
 
 function recovery(
   protectionStatus: RecoveryCenterPanelProps['recovery']['protectionStatus'] = 'partial',
@@ -105,6 +143,31 @@ function mounted(overrides: Partial<RecoveryCenterPanelProps> = {}) {
 }
 
 describe('RecoveryCenterPanel backup coverage presentation', () => {
+  it('routes protection status through semantic success and warning authority', () => {
+    expect(resolveDataSafetyStatusPresentation('protected').className).toBe('abs-settings-status-success text-foreground');
+    expect(resolveDataSafetyStatusPresentation('partial').className).toBe('abs-settings-status-warning text-foreground');
+    expect(resolveDataSafetyStatusPresentation('none').className).toBe('abs-settings-status-warning text-foreground');
+  });
+
+  it('keeps success and warning label contrast at or above 4.5 in both themes', () => {
+    const css = readFileSync(join(process.cwd(), 'src', 'index.css'), 'utf8');
+    const successRule = css.match(/\.abs-settings-status-success\s*\{([^}]*)\}/s)?.[1];
+    const warningRule = css.match(/\.abs-settings-status-warning,\s*\.abs-settings-warning-panel,\s*\.abs-settings-warning-action\s*\{([^}]*)\}/s)?.[1];
+
+    expect(successRule).toContain('var(--color-success) 10%');
+    expect(successRule).toContain('var(--color-surface-elevated)');
+    expect(warningRule).toContain('var(--color-warning) 10%');
+    expect(warningRule).toContain('var(--color-surface-elevated)');
+    expect(`${successRule}${warningRule}`).not.toContain('--cosmos-');
+
+    for (const tokens of [LIGHT_TOKENS, DARK_TOKENS]) {
+      const foreground = hexToRgb(tokens.colors.text);
+      const successBackground = mixSrgb(tokens.colors.success, tokens.colors.surfaceElevated, 0.10);
+      const warningBackground = mixSrgb(tokens.colors.warning, tokens.colors.surfaceElevated, 0.10);
+      expect(contrastRatio(foreground, successBackground)).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(foreground, warningBackground)).toBeGreaterThanOrEqual(4.5);
+    }
+  });
   it('renders local-only backup semantics from mounted props', () => {
     const { container } = mounted({ cloudSyncEnabled: false });
 
@@ -119,6 +182,18 @@ describe('RecoveryCenterPanel backup coverage presentation', () => {
     expect(container.textContent).toContain('dataSafetyBackupDesc');
     expect(container.textContent).toContain('dataSafetyCreateBackup');
     expect(container.querySelector('[data-settings-limited-backup-warning]')).toBeNull();
+
+    const panel = container.querySelector<HTMLElement>('[data-settings-data-safety]')!;
+    const summary = container.querySelector<HTMLElement>('[data-settings-storage-summary]')!;
+    const backup = container.querySelector<HTMLElement>('[data-settings-backup-action]')!;
+    const restore = container.querySelector<HTMLElement>('[data-settings-restore-action]')!;
+    expect(panel.classList.contains('abs-cosmos-settings-card')).toBe(true);
+    expect(summary.classList.contains('bg-surface-muted')).toBe(true);
+    for (const control of [backup, restore]) {
+      for (const focusClass of UI_INTERACTION.focusRingClass.split(/\s+/)) {
+        expect(control.classList.contains(focusClass)).toBe(true);
+      }
+    }
   });
 
   it('renders a partial protection warning and wires both mounted actions', () => {
@@ -131,14 +206,20 @@ describe('RecoveryCenterPanel backup coverage presentation', () => {
       onCreateLimitedBackup,
     });
 
-    expect(container.querySelector('[data-settings-limited-backup-warning]')).not.toBeNull();
+    const warning = container.querySelector<HTMLElement>('[data-settings-limited-backup-warning]')!;
+    expect(warning).not.toBeNull();
+    expect(warning.classList.contains('abs-settings-warning-panel')).toBe(true);
+    expect(warning.className).not.toContain('amber-');
+    const limitedBackup = button(container, 'dataSafetyCreateLimitedBackup');
+    expect(limitedBackup.classList.contains('text-foreground')).toBe(true);
+    expect(limitedBackup.classList.contains('text-warning')).toBe(false);
     expect(container.textContent).toContain('dataSafetyLimited');
     expect(container.textContent).toContain('dataSafetyLimitedBackupTitle');
     expect(container.textContent).toContain('dataSafetyLimitedBackupDesc');
     expect(container.textContent).toContain('dataSafetyLimitedBackupServerSafe');
 
     act(() => button(container, 'dataSafetyRetryBackup').click());
-    act(() => button(container, 'dataSafetyCreateLimitedBackup').click());
+    act(() => limitedBackup.click());
     expect(onRetryBackup).toHaveBeenCalledTimes(1);
     expect(onCreateLimitedBackup).toHaveBeenCalledTimes(1);
   });
@@ -157,7 +238,10 @@ describe('RecoveryCenterPanel backup coverage presentation', () => {
       pendingReducedBackup: pendingReducedBackup(false),
     });
 
-    expect(button(container, 'vaultBackupZipping').disabled).toBe(true);
+    const backup = button(container, 'vaultBackupZipping');
+    expect(backup.disabled).toBe(true);
+    expect(backup.classList.contains('disabled:bg-surface-muted')).toBe(true);
+    expect(backup.classList.contains('disabled:text-disabled')).toBe(true);
     expect(button(container, 'dataSafetyRetryBackup').disabled).toBe(true);
     expect(button(container, 'dataSafetyCreateLimitedBackup').disabled).toBe(true);
   });

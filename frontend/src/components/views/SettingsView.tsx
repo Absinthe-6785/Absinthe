@@ -23,6 +23,7 @@ import {
 } from '../common/workspaceLayout';
 import { WORKSPACE_CARD_SURFACE } from '../common/workspaceCardSizes';
 import { WORKSPACE_GAP_CLASS } from '../../lib/uiSpacingTokens';
+import { UI_INTERACTION } from '../../lib/uiInteractionTokens';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useTranslation } from '../../lib/i18n';
 import { downloadVaultBackupZip } from '../../lib/vaultBackupZip';
@@ -219,8 +220,8 @@ export const SettingsView = ({
   };
 
   return (
-    <div ref={workspaceRef} className={`${WORKSPACE_PANE_ROOT_CLASS} flex flex-col py-1 pr-2 pb-4 animate-in fade-in duration-300 ${WORKSPACE_GAP_CLASS}`} data-workspace="settings" data-workspace-scroll-mode={WORKSPACE_SCROLL_MODE.page}>
-      <div className="shrink-0 pl-2 pr-4 lg:pr-6">
+    <div ref={workspaceRef} className={`abs-cosmos-settings ${WORKSPACE_PANE_ROOT_CLASS} flex flex-col py-1 pr-2 pb-4 animate-in fade-in duration-300 ${WORKSPACE_GAP_CLASS}`} data-workspace="settings" data-workspace-scroll-mode={WORKSPACE_SCROLL_MODE.page}>
+      <div className="abs-cosmos-settings-header shrink-0 pl-2 pr-4 lg:pr-6" data-settings-header-shell>
         <WorkspacePageHeader
           workspace="settings"
           title={t('settingsTitle')}
@@ -236,7 +237,7 @@ export const SettingsView = ({
         <div className={`w-full max-w-3xl mx-auto pb-2 lg:pb-4 ${WORKSPACE_GAP_CLASS}`} data-settings-section-list>
 
           {/* Appearance */}
-          <section className={`${SETTINGS_SECTION_SCROLL_CLASS} ${WORKSPACE_CARD_SURFACE} flex flex-col relative overflow-hidden transition-colors`} data-settings-section="general" aria-labelledby="settings-general-heading" data-k119-settings-card>
+          <section className={`${SETTINGS_SECTION_SCROLL_CLASS} ${WORKSPACE_CARD_SURFACE} abs-cosmos-settings-card flex flex-col relative overflow-hidden transition-colors`} data-settings-section="general" aria-labelledby="settings-general-heading" data-k119-settings-card>
             <h2 id="settings-general-heading" className="font-heading text-lg font-bold mb-3 flex items-center gap-2" data-settings-section-heading>
               <Settings size={20} className="text-primary" />{t('dataSafetyAppearanceTitle')}
             </h2>
@@ -245,7 +246,7 @@ export const SettingsView = ({
                 <div>
                   <p className="text-base font-bold">{t('language')}</p>
                 </div>
-                <div className={`flex p-1.5 rounded-2xl border ${theme.border} ${theme.input}`}>
+                <div className="flex p-1.5 rounded-2xl border border-border bg-surface-muted" data-settings-segmented-control="language">
                   {([
                     { code: 'en', label: 'English' },
                     { code: 'ko', label: '한국어' },
@@ -254,10 +255,10 @@ export const SettingsView = ({
                     <button
                       key={code}
                       onClick={() => updateSetting('language', code)}
-                      className={`px-4 lg:px-5 py-2 rounded-xl text-sm font-bold transition-all ${
+                      className={`px-4 lg:px-5 py-2 rounded-xl text-sm font-bold transition-all ${UI_INTERACTION.focusRingClass} ${
                         appSettings.language === code || (!appSettings.language && code === 'en')
-                          ? 'bg-primary text-primary-foreground shadow-md'
-                          : 'text-gray-500 hover:text-current'
+                          ? 'abs-settings-selected-control bg-selected text-primary-foreground shadow-sm'
+                          : 'text-muted-foreground hover:bg-surface hover:text-foreground'
                       }`}
                     >
                       {label}
@@ -270,7 +271,7 @@ export const SettingsView = ({
                 <div>
                   <p className="text-base font-bold">{t('k100Theme')}</p>
                 </div>
-                <div className={`flex p-1.5 rounded-2xl border ${theme.border} ${theme.input}`}>
+                <div className="flex p-1.5 rounded-2xl border border-border bg-surface-muted" data-settings-segmented-control="theme">
                   {([
                     { dark: false, label: t('k100ThemeLight') },
                     { dark: true, label: t('k100ThemeDark') },
@@ -278,10 +279,10 @@ export const SettingsView = ({
                     <button
                       key={label}
                       onClick={() => updateSetting('darkMode', dark)}
-                      className={`px-4 lg:px-5 py-2 rounded-xl text-sm font-bold transition-all ${
+                      className={`px-4 lg:px-5 py-2 rounded-xl text-sm font-bold transition-all ${UI_INTERACTION.focusRingClass} ${
                         appSettings.darkMode === dark
-                          ? 'bg-primary text-primary-foreground shadow-md'
-                          : 'text-gray-500 hover:text-current'
+                          ? 'abs-settings-selected-control bg-selected text-primary-foreground shadow-sm'
+                          : 'text-muted-foreground hover:bg-surface hover:text-foreground'
                       }`}
                     >
                       {label}
@@ -312,21 +313,21 @@ export const SettingsView = ({
           </section>
 
           {/* Danger zone */}
-          <section className={`${SETTINGS_SECTION_SCROLL_CLASS} ${WORKSPACE_CARD_SURFACE} flex flex-col relative overflow-hidden border-2 border-red-500/20 transition-colors`} data-settings-section="danger" aria-labelledby="settings-danger-heading" data-k119-settings-card>
-            <h2 id="settings-danger-heading" className="font-heading text-lg font-bold text-red-500 mb-3 flex items-center gap-2" data-settings-section-heading>
+          <section className={`${SETTINGS_SECTION_SCROLL_CLASS} ${WORKSPACE_CARD_SURFACE} abs-cosmos-settings-card abs-cosmos-settings-danger flex flex-col relative overflow-hidden border-2 transition-colors`} data-settings-section="danger" aria-labelledby="settings-danger-heading" data-k119-settings-card>
+            <h2 id="settings-danger-heading" className="font-heading text-lg font-bold text-danger mb-3 flex items-center gap-2" data-settings-section-heading>
               <AlertTriangle size={20} />{t('k98SettingsDangerZone')}
             </h2>
             <div className="space-y-4">
               <div className={`flex flex-col lg:flex-row justify-between lg:items-center gap-3 lg:gap-0`}>
                 <div>
-                  <p className="text-base font-bold text-red-500 flex items-center gap-1.5">
+                  <p className="text-base font-bold text-danger flex items-center gap-1.5">
                     <AlertTriangle size={18} />{t('resetData')}
                   </p>
-                  <p className="text-sm font-medium mt-1 text-red-500/70">{t('resetDesc')}</p>
+                  <p className="text-sm font-medium mt-1 text-danger opacity-80">{t('resetDesc')}</p>
                 </div>
                 <button
                   onClick={() => showConfirm(t('resetConfirm'), doResetData)}
-                  className="bg-red-500/10 text-red-500 border border-red-500/20 px-6 py-3.5 rounded-xl font-bold text-sm hover:bg-red-500 hover:text-white transition-colors"
+                  className={`abs-settings-danger-action text-foreground border px-6 py-3.5 rounded-xl font-bold text-sm transition-colors ${UI_INTERACTION.focusRingClass}`}
                   data-settings-reset-action
                 >{t('resetData')}
                 </button>
@@ -340,7 +341,7 @@ export const SettingsView = ({
                 </div>
                 <button
                   onClick={onSignOut}
-                  className={`px-6 py-3.5 rounded-xl font-bold text-sm transition-colors border ${theme.border} ${theme.hoverBg}`}
+                  className={`px-6 py-3.5 rounded-xl font-bold text-sm transition-colors border border-border bg-surface-muted hover:bg-surface-alt ${UI_INTERACTION.focusRingClass}`}
                   data-settings-sign-out-action
                 >{t('signOut')}
                 </button>
