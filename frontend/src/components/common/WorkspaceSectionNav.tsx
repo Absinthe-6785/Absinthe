@@ -117,11 +117,11 @@ export function WorkspaceSectionNav({
             onClick={() => onSelect?.(id)}
             aria-current={selected ? 'page' : undefined}
             data-k125-section-nav-item={id}
-            className={`flex items-center font-bold transition-colors whitespace-nowrap shrink-0
+            className={`flex items-center font-bold transition-colors whitespace-nowrap shrink-0 ${UI_INTERACTION.focusRingClass}
               ${anchor
                 ? `gap-1 ${chipRadius} ${compact ? 'min-h-[44px] px-2 py-1.5 text-[10px]' : 'min-h-[44px] px-2.5 py-1.5 text-[11px]'} ${input} ${muted} hover:text-foreground hover:bg-muted/50`
                 : `gap-1.5 ${chipRadius} ${compact ? 'flex-1 min-w-0 min-h-[44px] px-2 py-2.5 text-[10px] justify-center' : 'min-h-[44px] px-3 py-2 text-xs'} ${
-                  selected ? 'bg-primary text-primary-foreground shadow-sm' : unselectedToggle
+                  selected ? 'bg-selected text-primary-foreground shadow-sm' : unselectedToggle
                 }`}`}
           >
             {Icon ? <Icon size={compact ? 12 : anchor ? 13 : UI_INTERACTION.toolbarIconSizePx} strokeWidth={UI_INTERACTION.toolbarIconStroke} className="shrink-0" /> : null}
