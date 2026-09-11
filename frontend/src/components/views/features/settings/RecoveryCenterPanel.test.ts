@@ -5,7 +5,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { PendingReducedVaultBackup } from '@/lib/vaultBackupFlow';
 import type { VaultBackupManifest } from '@/lib/exportVaultBackup';
-import { RecoveryCenterPanel, type RecoveryCenterPanelProps } from './RecoveryCenterPanel';
+import {
+  RecoveryCenterPanel,
+  resolveDataSafetyStatusPresentation,
+  type RecoveryCenterPanelProps,
+} from './RecoveryCenterPanel';
+import { UI_INTERACTION } from '@/lib/uiInteractionTokens';
 
 vi.mock('@/lib/i18n', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -105,6 +110,11 @@ function mounted(overrides: Partial<RecoveryCenterPanelProps> = {}) {
 }
 
 describe('RecoveryCenterPanel backup coverage presentation', () => {
+  it('routes protection status through semantic success and warning authority', () => {
+    expect(resolveDataSafetyStatusPresentation('protected').className).toBe('abs-settings-status-success text-success');
+    expect(resolveDataSafetyStatusPresentation('partial').className).toBe('abs-settings-status-warning text-warning');
+    expect(resolveDataSafetyStatusPresentation('none').className).toBe('abs-settings-status-warning text-warning');
+  });
   it('renders local-only backup semantics from mounted props', () => {
     const { container } = mounted({ cloudSyncEnabled: false });
 
@@ -119,6 +129,18 @@ describe('RecoveryCenterPanel backup coverage presentation', () => {
     expect(container.textContent).toContain('dataSafetyBackupDesc');
     expect(container.textContent).toContain('dataSafetyCreateBackup');
     expect(container.querySelector('[data-settings-limited-backup-warning]')).toBeNull();
+
+    const panel = container.querySelector<HTMLElement>('[data-settings-data-safety]')!;
+    const summary = container.querySelector<HTMLElement>('[data-settings-storage-summary]')!;
+    const backup = container.querySelector<HTMLElement>('[data-settings-backup-action]')!;
+    const restore = container.querySelector<HTMLElement>('[data-settings-restore-action]')!;
+    expect(panel.classList.contains('abs-cosmos-settings-card')).toBe(true);
+    expect(summary.classList.contains('bg-surface-muted')).toBe(true);
+    for (const control of [backup, restore]) {
+      for (const focusClass of UI_INTERACTION.focusRingClass.split(/\s+/)) {
+        expect(control.classList.contains(focusClass)).toBe(true);
+      }
+    }
   });
 
   it('renders a partial protection warning and wires both mounted actions', () => {
@@ -131,7 +153,10 @@ describe('RecoveryCenterPanel backup coverage presentation', () => {
       onCreateLimitedBackup,
     });
 
-    expect(container.querySelector('[data-settings-limited-backup-warning]')).not.toBeNull();
+    const warning = container.querySelector<HTMLElement>('[data-settings-limited-backup-warning]')!;
+    expect(warning).not.toBeNull();
+    expect(warning.classList.contains('abs-settings-warning-panel')).toBe(true);
+    expect(warning.className).not.toContain('amber-');
     expect(container.textContent).toContain('dataSafetyLimited');
     expect(container.textContent).toContain('dataSafetyLimitedBackupTitle');
     expect(container.textContent).toContain('dataSafetyLimitedBackupDesc');
@@ -157,7 +182,10 @@ describe('RecoveryCenterPanel backup coverage presentation', () => {
       pendingReducedBackup: pendingReducedBackup(false),
     });
 
-    expect(button(container, 'vaultBackupZipping').disabled).toBe(true);
+    const backup = button(container, 'vaultBackupZipping');
+    expect(backup.disabled).toBe(true);
+    expect(backup.classList.contains('disabled:bg-surface-muted')).toBe(true);
+    expect(backup.classList.contains('disabled:text-disabled')).toBe(true);
     expect(button(container, 'dataSafetyRetryBackup').disabled).toBe(true);
     expect(button(container, 'dataSafetyCreateLimitedBackup').disabled).toBe(true);
   });

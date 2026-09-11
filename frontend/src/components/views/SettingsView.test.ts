@@ -3,8 +3,11 @@ import { createElement } from 'react';
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import { buildResetRequestInit, SettingsView } from './SettingsView';
+import { UI_INTERACTION } from '../../lib/uiInteractionTokens';
 import {
   resolveBackupControlCopy,
   resolveDataSafetyStatusPresentation,
@@ -90,6 +93,7 @@ describe('SettingsView scroll contract', () => {
 
     await act(async () => root.render(createElement(SettingsView, viewProps as never)));
 
+    const workspace = container.querySelector<HTMLElement>('[data-workspace="settings"]');
     const sections = [...container.querySelectorAll<HTMLElement>('[data-settings-section]')];
     expect(sections.map(section => section.dataset.settingsSection)).toEqual([
       'general',
@@ -109,8 +113,48 @@ describe('SettingsView scroll contract', () => {
     expect(container.querySelectorAll('[data-workspace-scroll-owner="page"]')).toHaveLength(1);
     expect(container.querySelector('[data-settings-data-safety] [data-workspace-scroll-owner]')).toBeNull();
 
+    const general = container.querySelector<HTMLElement>('[data-settings-section="general"]')!;
+    const danger = container.querySelector<HTMLElement>('[data-settings-section="danger"]')!;
+    const selectedLanguage = container.querySelector<HTMLElement>('[data-settings-segmented-control="language"] button')!;
+    const reset = container.querySelector<HTMLElement>('[data-settings-reset-action]')!;
+    const signOut = container.querySelector<HTMLElement>('[data-settings-sign-out-action]')!;
+
+    expect(workspace?.classList.contains('abs-cosmos-settings')).toBe(true);
+    expect(container.querySelector('[data-settings-header-shell]')?.classList.contains('abs-cosmos-settings-header')).toBe(true);
+    expect(general.classList.contains('abs-cosmos-settings-card')).toBe(true);
+    expect(danger.classList.contains('abs-cosmos-settings-danger')).toBe(true);
+    expect(selectedLanguage.classList.contains('bg-selected')).toBe(true);
+    expect(selectedLanguage.classList.contains('bg-primary')).toBe(false);
+    expect(reset.classList.contains('text-danger')).toBe(true);
+    expect(reset.classList.contains('abs-settings-danger-action')).toBe(true);
+    expect(reset.className).not.toContain('red-500');
+    expect(signOut.classList.contains('bg-surface-muted')).toBe(true);
+    for (const control of [selectedLanguage, reset, signOut]) {
+      for (const focusClass of UI_INTERACTION.focusRingClass.split(/\s+/)) {
+        expect(control.classList.contains(focusClass)).toBe(true);
+      }
+    }
+
     act(() => root.unmount());
     container.remove();
+  });
+
+  it('keeps Settings Cosmos decoration static, pointer-transparent, and separate from semantic states', () => {
+    const css = readFileSync(join(process.cwd(), 'src', 'index.css'), 'utf8');
+    const headerMarker = css.match(/\.abs-cosmos-settings-header::after\s*\{([^}]*)\}/s)?.[1];
+    const cardMark = css.match(/\.abs-cosmos-settings-card::before\s*\{([^}]*)\}/s)?.[1];
+    const dangerAction = css.match(/\.abs-settings-danger-action\s*\{([^}]*)\}/s)?.[1];
+    const warningPanel = css.match(/\.abs-settings-warning-panel,\s*\.abs-settings-warning-action\s*\{([^}]*)\}/s)?.[1];
+
+    expect(headerMarker).toContain('var(--cosmos-pale-blue-dot)');
+    expect(headerMarker).toContain('pointer-events: none');
+    expect(cardMark).toContain('var(--cosmos-orbit)');
+    expect(cardMark).toContain('var(--cosmos-starlight)');
+    expect(cardMark).toContain('pointer-events: none');
+    expect(`${headerMarker}${cardMark}`).not.toMatch(/animation|transition|z-index/);
+    expect(dangerAction).toContain('var(--color-danger)');
+    expect(warningPanel).toContain('var(--color-warning)');
+    expect(`${dangerAction}${warningPanel}`).not.toContain('--cosmos-');
   });
 
   it.each([390, 768, 1024, 1279, 1280, 1440])(
