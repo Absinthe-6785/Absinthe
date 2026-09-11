@@ -49,7 +49,7 @@ export function CalendarPeriodNav({
 
   return (
     <div
-      className="flex items-center justify-between gap-2"
+      className="abs-cosmos-planner-toolbar flex items-center justify-between gap-2"
       data-planner-calendar-period-nav
       data-planner-calendar-period-mode={viewMode}
     >

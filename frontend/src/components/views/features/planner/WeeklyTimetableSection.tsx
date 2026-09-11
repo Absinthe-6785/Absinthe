@@ -237,7 +237,7 @@ export function WeeklyTimetableSection({
   return (
     <>
       <section
-        className={`w-full ${WORKSPACE_CARD_VISUAL_CLASS} flex flex-col overflow-hidden transition-colors
+        className={`abs-cosmos-planner-timetable w-full ${WORKSPACE_CARD_VISUAL_CLASS} flex flex-col overflow-hidden transition-colors
           ${sectionEmbedded ? 'p-3 lg:p-4' : 'p-5 lg:p-6'}
           ${sectionEmbedded ? 'h-full min-h-0' : ''}
           ${showGrid || showMobileList ? (sectionEmbedded ? '' : 'min-h-[360px] lg:min-h-[480px]') : ''}`}
