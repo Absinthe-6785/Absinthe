@@ -2,6 +2,8 @@
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import type { PendingReducedVaultBackup } from '@/lib/vaultBackupFlow';
 import type { VaultBackupManifest } from '@/lib/exportVaultBackup';
@@ -11,6 +13,7 @@ import {
   type RecoveryCenterPanelProps,
 } from './RecoveryCenterPanel';
 import { UI_INTERACTION } from '@/lib/uiInteractionTokens';
+import { DARK_TOKENS, LIGHT_TOKENS } from '@/theme/tokens';
 
 vi.mock('@/lib/i18n', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -25,6 +28,36 @@ const storageMetrics = {
   lastSnapshotAt: null,
   lastSnapshotNoteCount: null,
 };
+
+type Rgb = readonly [number, number, number];
+
+function hexToRgb(hex: string): Rgb {
+  const value = hex.replace('#', '');
+  return [0, 2, 4].map(offset => Number.parseInt(value.slice(offset, offset + 2), 16)) as unknown as Rgb;
+}
+
+function mixSrgb(foreground: string, background: string, foregroundWeight: number): Rgb {
+  const fg = hexToRgb(foreground);
+  const bg = hexToRgb(background);
+  return fg.map((channel, index) => (
+    channel * foregroundWeight + bg[index]! * (1 - foregroundWeight)
+  )) as unknown as Rgb;
+}
+
+function relativeLuminance(rgb: Rgb): number {
+  const channels = rgb.map(channel => {
+    const value = channel / 255;
+    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * channels[0]! + 0.7152 * channels[1]! + 0.0722 * channels[2]!;
+}
+
+function contrastRatio(foreground: Rgb, background: Rgb): number {
+  const foregroundLuminance = relativeLuminance(foreground);
+  const backgroundLuminance = relativeLuminance(background);
+  return (Math.max(foregroundLuminance, backgroundLuminance) + 0.05)
+    / (Math.min(foregroundLuminance, backgroundLuminance) + 0.05);
+}
 
 function recovery(
   protectionStatus: RecoveryCenterPanelProps['recovery']['protectionStatus'] = 'partial',
@@ -111,9 +144,29 @@ function mounted(overrides: Partial<RecoveryCenterPanelProps> = {}) {
 
 describe('RecoveryCenterPanel backup coverage presentation', () => {
   it('routes protection status through semantic success and warning authority', () => {
-    expect(resolveDataSafetyStatusPresentation('protected').className).toBe('abs-settings-status-success text-success');
-    expect(resolveDataSafetyStatusPresentation('partial').className).toBe('abs-settings-status-warning text-warning');
-    expect(resolveDataSafetyStatusPresentation('none').className).toBe('abs-settings-status-warning text-warning');
+    expect(resolveDataSafetyStatusPresentation('protected').className).toBe('abs-settings-status-success text-foreground');
+    expect(resolveDataSafetyStatusPresentation('partial').className).toBe('abs-settings-status-warning text-foreground');
+    expect(resolveDataSafetyStatusPresentation('none').className).toBe('abs-settings-status-warning text-foreground');
+  });
+
+  it('keeps success and warning label contrast at or above 4.5 in both themes', () => {
+    const css = readFileSync(join(process.cwd(), 'src', 'index.css'), 'utf8');
+    const successRule = css.match(/\.abs-settings-status-success\s*\{([^}]*)\}/s)?.[1];
+    const warningRule = css.match(/\.abs-settings-status-warning,\s*\.abs-settings-warning-panel,\s*\.abs-settings-warning-action\s*\{([^}]*)\}/s)?.[1];
+
+    expect(successRule).toContain('var(--color-success) 10%');
+    expect(successRule).toContain('var(--color-surface-elevated)');
+    expect(warningRule).toContain('var(--color-warning) 10%');
+    expect(warningRule).toContain('var(--color-surface-elevated)');
+    expect(`${successRule}${warningRule}`).not.toContain('--cosmos-');
+
+    for (const tokens of [LIGHT_TOKENS, DARK_TOKENS]) {
+      const foreground = hexToRgb(tokens.colors.text);
+      const successBackground = mixSrgb(tokens.colors.success, tokens.colors.surfaceElevated, 0.10);
+      const warningBackground = mixSrgb(tokens.colors.warning, tokens.colors.surfaceElevated, 0.10);
+      expect(contrastRatio(foreground, successBackground)).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(foreground, warningBackground)).toBeGreaterThanOrEqual(4.5);
+    }
   });
   it('renders local-only backup semantics from mounted props', () => {
     const { container } = mounted({ cloudSyncEnabled: false });
@@ -157,13 +210,16 @@ describe('RecoveryCenterPanel backup coverage presentation', () => {
     expect(warning).not.toBeNull();
     expect(warning.classList.contains('abs-settings-warning-panel')).toBe(true);
     expect(warning.className).not.toContain('amber-');
+    const limitedBackup = button(container, 'dataSafetyCreateLimitedBackup');
+    expect(limitedBackup.classList.contains('text-foreground')).toBe(true);
+    expect(limitedBackup.classList.contains('text-warning')).toBe(false);
     expect(container.textContent).toContain('dataSafetyLimited');
     expect(container.textContent).toContain('dataSafetyLimitedBackupTitle');
     expect(container.textContent).toContain('dataSafetyLimitedBackupDesc');
     expect(container.textContent).toContain('dataSafetyLimitedBackupServerSafe');
 
     act(() => button(container, 'dataSafetyRetryBackup').click());
-    act(() => button(container, 'dataSafetyCreateLimitedBackup').click());
+    act(() => limitedBackup.click());
     expect(onRetryBackup).toHaveBeenCalledTimes(1);
     expect(onCreateLimitedBackup).toHaveBeenCalledTimes(1);
   });

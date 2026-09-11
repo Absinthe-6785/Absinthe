@@ -257,7 +257,7 @@ export const SettingsView = ({
                       onClick={() => updateSetting('language', code)}
                       className={`px-4 lg:px-5 py-2 rounded-xl text-sm font-bold transition-all ${UI_INTERACTION.focusRingClass} ${
                         appSettings.language === code || (!appSettings.language && code === 'en')
-                          ? 'bg-selected text-primary-foreground shadow-sm'
+                          ? 'abs-settings-selected-control bg-selected text-primary-foreground shadow-sm'
                           : 'text-muted-foreground hover:bg-surface hover:text-foreground'
                       }`}
                     >
@@ -281,7 +281,7 @@ export const SettingsView = ({
                       onClick={() => updateSetting('darkMode', dark)}
                       className={`px-4 lg:px-5 py-2 rounded-xl text-sm font-bold transition-all ${UI_INTERACTION.focusRingClass} ${
                         appSettings.darkMode === dark
-                          ? 'bg-selected text-primary-foreground shadow-sm'
+                          ? 'abs-settings-selected-control bg-selected text-primary-foreground shadow-sm'
                           : 'text-muted-foreground hover:bg-surface hover:text-foreground'
                       }`}
                     >
@@ -327,7 +327,7 @@ export const SettingsView = ({
                 </div>
                 <button
                   onClick={() => showConfirm(t('resetConfirm'), doResetData)}
-                  className={`abs-settings-danger-action text-danger border px-6 py-3.5 rounded-xl font-bold text-sm transition-colors ${UI_INTERACTION.focusRingClass}`}
+                  className={`abs-settings-danger-action text-foreground border px-6 py-3.5 rounded-xl font-bold text-sm transition-colors ${UI_INTERACTION.focusRingClass}`}
                   data-settings-reset-action
                 >{t('resetData')}
                 </button>

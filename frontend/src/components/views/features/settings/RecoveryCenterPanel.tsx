@@ -30,12 +30,12 @@ export function resolveDataSafetyStatusPresentation(status: RecoveryProtectionSt
   className: string;
 } {
   if (status === 'protected') {
-    return { labelKey: 'dataSafetyHealthy', className: 'abs-settings-status-success text-success' };
+    return { labelKey: 'dataSafetyHealthy', className: 'abs-settings-status-success text-foreground' };
   }
   if (status === 'partial') {
-    return { labelKey: 'dataSafetyLimited', className: 'abs-settings-status-warning text-warning' };
+    return { labelKey: 'dataSafetyLimited', className: 'abs-settings-status-warning text-foreground' };
   }
-  return { labelKey: 'dataSafetyNeedsBackup', className: 'abs-settings-status-warning text-warning' };
+  return { labelKey: 'dataSafetyNeedsBackup', className: 'abs-settings-status-warning text-foreground' };
 }
 
 export function resolveBackupControlCopy(cloudSyncEnabled: boolean): {
@@ -152,7 +152,7 @@ export function RecoveryCenterPanel({
                       type="button"
                       onClick={onCreateLimitedBackup}
                       disabled={backingUp}
-                      className={`abs-settings-warning-action inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-bold text-warning disabled:text-disabled disabled:opacity-60 ${UI_INTERACTION.focusRingClass}`}
+                      className={`abs-settings-warning-action inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-bold text-foreground disabled:text-disabled disabled:opacity-60 ${UI_INTERACTION.focusRingClass}`}
                     >
                       <Download size={15} />
                       {t('dataSafetyCreateLimitedBackup')}

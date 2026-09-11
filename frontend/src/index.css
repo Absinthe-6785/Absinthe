@@ -169,7 +169,7 @@
 /* VIS-05 — quiet calibration treatment scoped to the Settings workspace. */
 .abs-cosmos-settings {
   position: relative;
-  background-color: color-mix(in srgb, var(--color-background) 96%, var(--cosmos-dust));
+  background-color: var(--color-background);
 }
 
 .abs-cosmos-settings-header {
@@ -212,6 +212,14 @@
   pointer-events: none;
 }
 
+.abs-settings-selected-control {
+  background-color: color-mix(in srgb, var(--color-selected) 88%, var(--color-text));
+}
+
+[data-theme='dark'] .abs-settings-selected-control {
+  background-color: color-mix(in srgb, var(--color-selected) 88%, var(--color-background));
+}
+
 .abs-cosmos-settings-danger {
   border-color: color-mix(in srgb, var(--color-danger) 30%, transparent);
   box-shadow:
@@ -221,22 +229,22 @@
 
 .abs-settings-danger-action {
   border-color: color-mix(in srgb, var(--color-danger) 30%, transparent);
-  background-color: color-mix(in srgb, var(--color-danger) 10%, transparent);
+  background-color: color-mix(in srgb, var(--color-danger) 10%, var(--color-surface-elevated));
 }
 
 .abs-settings-danger-action:hover {
-  color: var(--color-primary-fg);
-  background-color: var(--color-danger);
+  color: var(--color-text);
+  background-color: color-mix(in srgb, var(--color-danger) 18%, var(--color-surface-elevated));
 }
 
 .abs-settings-status-success {
-  background-color: color-mix(in srgb, var(--color-success) 10%, transparent);
+  background-color: color-mix(in srgb, var(--color-success) 10%, var(--color-surface-elevated));
 }
 
 .abs-settings-status-warning,
 .abs-settings-warning-panel,
 .abs-settings-warning-action {
-  background-color: color-mix(in srgb, var(--color-warning) 10%, transparent);
+  background-color: color-mix(in srgb, var(--color-warning) 10%, var(--color-surface-elevated));
 }
 
 .abs-settings-warning-panel,
@@ -245,7 +253,7 @@
 }
 
 .abs-settings-warning-action:hover {
-  background-color: color-mix(in srgb, var(--color-warning) 20%, transparent);
+  background-color: color-mix(in srgb, var(--color-warning) 20%, var(--color-surface-elevated));
 }
 
 /* K-99 — shared scroll chrome for workspace surfaces */
