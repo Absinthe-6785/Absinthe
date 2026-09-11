@@ -109,7 +109,7 @@ export function WorkspaceToolbarIconButton({
       aria-label={label}
       title={label}
       onClick={onClick}
-      className={`inline-flex items-center justify-center ${UI_INTERACTION.btnRadiusClass} transition-colors hover:bg-muted/60 ${UI_INTERACTION.focusRingClass} ${active ? 'bg-muted' : ''} ${className}`}
+      className={`inline-flex items-center justify-center ${UI_INTERACTION.btnRadiusClass} transition-colors hover:bg-muted/60 ${UI_INTERACTION.focusRingClass} ${active ? 'bg-selected text-primary-foreground' : ''} ${className}`}
       style={{
         width: UI_INTERACTION.toolbarBtnSizePx,
         height: UI_INTERACTION.toolbarBtnSizePx,

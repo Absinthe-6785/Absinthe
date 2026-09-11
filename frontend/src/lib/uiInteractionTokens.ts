@@ -10,7 +10,7 @@ export const UI_INTERACTION = {
   popoverViewportPaddingPx: 8,
   popoverAnchorGapPx: 4,
   popoverMaxHeightPx: 320,
-  focusRingClass: 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2',
+  focusRingClass: 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus focus-visible:outline-offset-2',
   touchTargetMinPx: TOUCH_TARGET_MIN_PX,
   toolbarIconSizePx: 16,
   toolbarIconStroke: 2.5,

@@ -20,12 +20,12 @@ export const WORKSPACE_CARD_RADIUS_CLASS = 'rounded-[20px] lg:rounded-[24px]';
  */
 export const WORKSPACE_SURFACE_ROLE = {
   card: {
-    colorClass: 'bg-surface text-foreground',
+    colorClass: 'bg-surface-elevated text-foreground',
     radiusClass: 'rounded-absinthe-xl',
     shadowClass: 'shadow-sm',
   },
   modal: {
-    colorClass: 'bg-surface text-foreground',
+    colorClass: 'bg-surface-elevated text-foreground',
     radiusClass: 'rounded-absinthe-xl',
     shadowClass: 'shadow-absinthe-md',
   },
@@ -49,7 +49,7 @@ export const WORKSPACE_MODAL_SURFACE = `${composeSurfaceVisual('modal')} p-5 lg:
 
 /** K-127 — primary CTA button rhythm. */
 export const WORKSPACE_BTN_PRIMARY_CLASS =
-  'inline-flex items-center justify-center gap-1.5 min-h-[44px] rounded-xl font-bold text-sm shadow-sm bg-primary text-primary-foreground hover:opacity-90 transition-opacity';
+  'inline-flex items-center justify-center gap-1.5 min-h-[44px] rounded-xl font-bold text-sm shadow-sm bg-primary text-primary-foreground hover:opacity-90 disabled:bg-surface-muted disabled:text-disabled disabled:shadow-none disabled:hover:opacity-100 transition-opacity';
 
 /** K-127 — secondary / outline CTA rhythm. */
 export const WORKSPACE_BTN_SECONDARY_CLASS =

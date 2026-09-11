@@ -4,6 +4,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConfirmModal } from './ConfirmModal';
+import { WORKSPACE_SURFACE_ROLE } from './workspaceCardSizes';
 
 vi.mock('../../lib/i18n', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -53,12 +54,18 @@ describe('ConfirmModal interaction contract', () => {
   it('provides valid dialog semantics and initially focuses the safe cancel action', () => {
     const { dialog, cancel } = renderHarness();
     const titleId = dialog.getAttribute('aria-labelledby');
+    const backdrop = dialog.parentElement!;
 
     expect(dialog.getAttribute('aria-modal')).toBe('true');
     expect(titleId).toBe('confirm-modal-title');
     expect(dialog.querySelector(`#${titleId}`)?.textContent).toBe('Delete this item?');
     expect(document.activeElement).toBe(cancel);
     expect(cancel.className).toContain('abs-focus-ring');
+    expect(backdrop.classList.contains('bg-overlay')).toBe(true);
+    expect(backdrop.style.background).toBe('');
+    for (const surfaceClass of WORKSPACE_SURFACE_ROLE.modal.colorClass.split(/\s+/)) {
+      expect(dialog.classList.contains(surfaceClass)).toBe(true);
+    }
   });
 
   it('contains forward, backward, and outside Tab movement', () => {

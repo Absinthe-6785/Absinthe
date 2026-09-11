@@ -2,6 +2,7 @@ import { useRef } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { useModalA11y } from '../../hooks/useModalA11y';
 import { useTranslation } from '../../lib/i18n';
+import { WORKSPACE_SURFACE_ROLE } from './workspaceCardSizes';
 
 interface ConfirmModalProps {
   message: string;
@@ -34,8 +35,7 @@ export const ConfirmModal = ({
 
   return (
     <div
-      className="fixed inset-0 flex items-center justify-center z-[200] p-4 backdrop-blur-sm"
-      style={{ background: 'var(--color-overlay)' }}
+      className="fixed inset-0 flex items-center justify-center z-[200] p-4 backdrop-blur-sm bg-overlay"
       onClick={onCancel}
       role="presentation"
     >
@@ -45,7 +45,7 @@ export const ConfirmModal = ({
         aria-modal="true"
         aria-labelledby="confirm-modal-title"
         tabIndex={-1}
-        className="rounded-absinthe-xl p-7 w-full max-w-[340px] shadow-absinthe-xl flex flex-col gap-5 bg-surface text-foreground"
+        className={`rounded-absinthe-xl p-7 w-full max-w-[340px] shadow-absinthe-xl flex flex-col gap-5 ${WORKSPACE_SURFACE_ROLE.modal.colorClass}`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex flex-col items-center gap-3 text-center">
