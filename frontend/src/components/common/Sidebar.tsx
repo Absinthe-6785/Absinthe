@@ -38,9 +38,10 @@ export const Sidebar = ({
   return (
   <>
   <div
-    className="w-full lg:w-[72px] rounded-none lg:rounded-absinthe-2xl flex flex-row lg:flex-col items-center justify-between gap-1 lg:gap-0 shadow-absinthe-xl mb-2 lg:mb-0 lg:mr-5 shrink-0 z-20 transition-colors duration-500 px-2 py-2 lg:py-5 bg-sidebar"
+    className="abs-cosmos-sidebar w-full lg:w-[72px] rounded-none lg:rounded-absinthe-2xl flex flex-row lg:flex-col items-center justify-between gap-1 lg:gap-0 shadow-absinthe-xl mb-2 lg:mb-0 lg:mr-5 shrink-0 z-20 transition-colors duration-500 px-2 py-2 lg:py-5 bg-sidebar"
     data-k126-mobile-sidebar
   >
+    <span className="abs-cosmos-sidebar-marker" aria-hidden="true" data-cosmos-sidebar-marker />
     {/* ── 주요 탭 ── */}
     <div className="flex min-w-0 flex-1 flex-row lg:flex-none lg:flex-col gap-1 lg:gap-1.5">
       {(['home', 'note', 'health', 'analytics', 'planner', 'recipe'] as const).map((tab) => {
@@ -62,10 +63,10 @@ export const Sidebar = ({
             key={tab}
             aria-label={label}
             onClick={() => setActiveTab(tab)}
-            className={`relative flex flex-col items-center justify-center gap-0.5 rounded-absinthe-lg transition-all
+            className={`relative flex flex-col items-center justify-center gap-0.5 rounded-absinthe-lg transition-all ${UI_INTERACTION.focusRingClass}
               px-1 py-2 sm:px-2.5 lg:px-1.5 lg:py-2.5 min-w-0 flex-1 lg:flex-none lg:w-full
               ${isActive
-                ? 'bg-primary text-primary-foreground shadow-absinthe-sm'
+                ? 'bg-selected text-primary-foreground shadow-absinthe-sm'
                 : 'text-sidebar-muted hover:bg-sidebar-hover hover:text-foreground'
               }`}
           >
@@ -84,9 +85,9 @@ export const Sidebar = ({
       type="button"
       aria-label={t('k126MoreSheetTitle')}
       onClick={() => setMoreOpen(true)}
-      className={`flex lg:hidden flex-col items-center justify-center gap-0.5 px-1 py-2 sm:px-2.5 w-12 sm:w-16 shrink-0 rounded-absinthe-lg transition-all ${
+      className={`flex lg:hidden flex-col items-center justify-center gap-0.5 px-1 py-2 sm:px-2.5 w-12 sm:w-16 shrink-0 rounded-absinthe-lg transition-all ${UI_INTERACTION.focusRingClass} ${
         moreOpen || activeTab === 'settings'
-          ? 'bg-primary text-primary-foreground shadow-absinthe-sm'
+          ? 'bg-selected text-primary-foreground shadow-absinthe-sm'
           : 'text-sidebar-muted hover:bg-sidebar-hover hover:text-foreground'
       }`}
       data-k126-mobile-more-trigger
@@ -103,7 +104,7 @@ export const Sidebar = ({
       <button
         aria-label={t('toggleDarkMode')}
         onClick={() => updateSetting('darkMode', !appSettings.darkMode)}
-        className="flex flex-col items-center justify-center gap-0.5 text-sidebar-muted px-2.5 py-2 lg:px-1.5 lg:py-2.5 w-16 lg:w-full rounded-absinthe-lg hover:bg-sidebar-hover hover:text-foreground transition-colors"
+        className={`flex flex-col items-center justify-center gap-0.5 text-sidebar-muted px-2.5 py-2 lg:px-1.5 lg:py-2.5 w-16 lg:w-full rounded-absinthe-lg hover:bg-sidebar-hover hover:text-foreground transition-colors ${UI_INTERACTION.focusRingClass}`}
       >
         {appSettings.darkMode ? (
           <Sun size={20} strokeWidth={2.25} className="text-primary" />
@@ -118,9 +119,9 @@ export const Sidebar = ({
       <button
         aria-label={t('settings')}
         onClick={() => setActiveTab('settings')}
-        className={`flex flex-col items-center justify-center gap-0.5 px-2.5 py-2 lg:px-1.5 lg:py-2.5 w-16 lg:w-full rounded-absinthe-lg transition-all ${
+        className={`flex flex-col items-center justify-center gap-0.5 px-2.5 py-2 lg:px-1.5 lg:py-2.5 w-16 lg:w-full rounded-absinthe-lg transition-all ${UI_INTERACTION.focusRingClass} ${
           activeTab === 'settings'
-            ? 'bg-primary text-primary-foreground shadow-absinthe-sm'
+            ? 'bg-selected text-primary-foreground shadow-absinthe-sm'
             : 'text-sidebar-muted hover:bg-sidebar-hover hover:text-foreground'
         }`}
       >
@@ -134,7 +135,7 @@ export const Sidebar = ({
         aria-label={t('signOut')}
         onClick={handleSignOut}
         title={t('signOutUser').replace('{name}', userName)}
-        className="flex flex-col items-center justify-center gap-0.5 text-sidebar-muted px-2.5 py-2 lg:px-1.5 lg:py-2.5 w-16 lg:w-full rounded-absinthe-lg hover:bg-sidebar-hover hover:text-danger transition-colors"
+        className={`flex flex-col items-center justify-center gap-0.5 text-sidebar-muted px-2.5 py-2 lg:px-1.5 lg:py-2.5 w-16 lg:w-full rounded-absinthe-lg hover:bg-sidebar-hover hover:text-danger transition-colors ${UI_INTERACTION.focusRingClass}`}
       >
         <LogOut size={20} strokeWidth={2.25} />
         <span className="text-[9px] font-bold leading-none text-sidebar-muted mt-0.5">{t('out')}</span>
