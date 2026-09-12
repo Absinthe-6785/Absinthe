@@ -4,6 +4,8 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { NotesOverviewSignalPanel } from './NotesOverviewSignalPanel';
+import { buildNoteChrome, type NoteThemeBridge } from '../views/noteEditorTheme';
+import type { AppSettings } from '../../types';
 
 const componentPath = join(process.cwd(), 'src', 'components', 'notes', 'NotesOverviewSignalPanel.tsx');
 const noteViewPath = join(process.cwd(), 'src', 'components', 'views', 'NoteView.tsx');
@@ -16,6 +18,24 @@ const noteViewEditorAreaPath = join(
   'NoteViewEditorArea.tsx',
 );
 const staticPreviewPath = join(process.cwd(), 'src', 'components', 'notes', 'NotesCosmosStaticPreview.tsx');
+const noteViewSidebarPath = join(
+  process.cwd(),
+  'src',
+  'components',
+  'views',
+  'noteview',
+  'NoteViewSidebar.tsx',
+);
+
+const baseSettings = {
+  darkMode: false,
+  notesFontFamily: 'system',
+  notesFontSize: 16,
+  notesTextColor: '',
+  notesAccentColor: '',
+} as AppSettings;
+
+const lightTheme = buildNoteChrome(false, baseSettings);
 
 type SignalPanelRecentNote = {
   id: string;
@@ -171,14 +191,17 @@ function manyRecentNotesFixture(): SignalPanelData {
   };
 }
 
-function renderPanel(data: SignalPanelData): string {
-  return renderToStaticMarkup(createElement(NotesOverviewSignalPanel, { data }))
+function renderPanel(data: SignalPanelData, theme: NoteThemeBridge = lightTheme): string {
+  return renderToStaticMarkup(createElement(NotesOverviewSignalPanel, { data, theme }))
     .replaceAll('&#x27;', "'")
     .replaceAll('&quot;', '"')
     .replaceAll('&amp;', '&');
 }
 
-function renderPanelInNarrowContainer(data: SignalPanelData): string {
+function renderPanelInNarrowContainer(
+  data: SignalPanelData,
+  theme: NoteThemeBridge = lightTheme,
+): string {
   return renderToStaticMarkup(
     createElement(
       'div',
@@ -189,7 +212,7 @@ function renderPanelInNarrowContainer(data: SignalPanelData): string {
           minWidth: 0,
         },
       },
-      createElement(NotesOverviewSignalPanel, { data }),
+      createElement(NotesOverviewSignalPanel, { data, theme }),
     ),
   )
     .replaceAll('&#x27;', "'")
@@ -361,6 +384,45 @@ describe('NotesOverviewSignalPanel', () => {
     expect(html).toContain(fixture.activeWriting.currentNoteTitle);
   });
 
+  it('renders light and dark semantic bridge roles without raw palette utilities', () => {
+    const lightHtml = renderPanel(activeFixture);
+    const darkTheme = buildNoteChrome(true, { ...baseSettings, darkMode: true });
+    const darkHtml = renderPanel(activeFixture, darkTheme);
+    const source = readSource(componentPath);
+
+    expect(lightHtml).toContain('data-notes-theme-mode="light"');
+    expect(lightHtml).toContain(`background-color:${lightTheme.semantic.surfaceMuted}`);
+    expect(lightHtml).toContain(`border-color:${lightTheme.semantic.selected}`);
+    expect(darkHtml).toContain('data-notes-theme-mode="dark"');
+    expect(darkHtml).toContain(`background-color:${darkTheme.semantic.surfaceMuted}`);
+    expect(darkHtml).toContain(`border-color:${darkTheme.semantic.selected}`);
+    expect(source).not.toMatch(/(?:slate|gray)-\d+/);
+    expect(source).not.toContain('bg-white');
+    expect(source).not.toContain('text-white');
+  });
+
+  it('keeps Notes text/accent overrides inside semantic roles and Cosmos decoration separate', () => {
+    const customTheme = buildNoteChrome(false, {
+      ...baseSettings,
+      notesTextColor: '#234567',
+      notesAccentColor: '#765432',
+      notesFontFamily: 'serif',
+      notesFontSize: 19,
+    });
+    const html = renderPanel(activeFixture, customTheme);
+
+    expect(html).toContain('color:#234567');
+    expect(html).toContain('border-color:#765432');
+    expect(html).toContain(`font-family:${customTheme.typography.fontFamily}`);
+    expect(html).toContain('data-selected-authority="semantic"');
+    expect(html).toContain('data-focus-authority="semantic"');
+    expect(html).toContain('data-disabled-authority="semantic"');
+    expect(html).toContain('data-notes-pale-blue-dot');
+    expect(html).toContain('aria-hidden="true"');
+    expect(html).toContain('pointer-events-none');
+    expect(customTheme.decorative.paleBlueDot).toBe(lightTheme.decorative.paleBlueDot);
+  });
+
   it('does not import forbidden runtime services or generated assets', () => {
     const source = readSource(componentPath);
 
@@ -400,13 +462,18 @@ describe('NotesOverviewSignalPanel', () => {
     expect(source).not.toContain('fetch(');
   });
 
-  it('remains unmounted from runtime Notes and Static Preview surfaces', () => {
+  it('is production-mounted only through the Notes dashboard signal-panel slot', () => {
     const noteView = readSource(noteViewPath);
     const noteViewEditorArea = readSource(noteViewEditorAreaPath);
+    const noteViewSidebar = readSource(noteViewSidebarPath);
     const staticPreview = readSource(staticPreviewPath);
 
     expect(noteView).not.toContain('NotesOverviewSignalPanel');
     expect(noteViewEditorArea).not.toContain('NotesOverviewSignalPanel');
+    expect(noteViewSidebar).toContain(
+      "import { NotesOverviewSignalPanelContainer } from '../../notes/NotesOverviewSignalPanelContainer'",
+    );
+    expect(noteViewSidebar).toContain('signalPanel={<NotesOverviewSignalPanelContainer />}');
     expect(staticPreview).not.toContain('NotesOverviewSignalPanel');
   });
 });

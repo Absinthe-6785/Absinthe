@@ -1,4 +1,5 @@
-import type { ReactElement } from 'react';
+import type { CSSProperties, ReactElement } from 'react';
+import type { NoteThemeBridge } from '../views/noteEditorTheme';
 
 const RECENT_NOTE_LIMIT = 5;
 
@@ -32,7 +33,60 @@ type SignalPanelData = {
 
 type NotesOverviewSignalPanelProps = {
   readonly data: SignalPanelData;
+  readonly theme: NoteThemeBridge;
 };
+
+type SignalPanelStyles = {
+  readonly root: CSSProperties;
+  readonly border: CSSProperties;
+  readonly surface: CSSProperties;
+  readonly mutedSurface: CSSProperties;
+  readonly text: CSSProperties;
+  readonly secondaryText: CSSProperties;
+  readonly selectedSurface: CSSProperties;
+  readonly unavailableSurface: CSSProperties;
+  readonly marker: CSSProperties;
+};
+
+function buildSignalPanelStyles(theme: NoteThemeBridge): SignalPanelStyles {
+  const { semantic, decorative } = theme;
+  // Light muted is a fill role and misses normal small-copy contrast. The pilot keeps
+  // metadata at text contrast there while retaining muted hierarchy in dark mode.
+  const secondaryText = theme.mode === 'light' ? semantic.text : semantic.mutedText;
+
+  return {
+    root: {
+      backgroundColor: semantic.surfaceMuted,
+      borderColor: semantic.border,
+      color: semantic.text,
+      fontFamily: theme.typography.fontFamily,
+    },
+    border: { borderColor: semantic.border },
+    surface: {
+      backgroundColor: semantic.surfaceElevated,
+      borderColor: semantic.border,
+    },
+    mutedSurface: {
+      backgroundColor: semantic.surfaceMuted,
+      borderColor: semantic.border,
+    },
+    text: { color: semantic.text },
+    secondaryText: { color: secondaryText },
+    selectedSurface: {
+      backgroundColor: semantic.selectedSurface,
+      borderColor: semantic.selected,
+    },
+    unavailableSurface: {
+      backgroundColor: semantic.surfaceMuted,
+      borderColor: semantic.border,
+      color: semantic.disabled,
+    },
+    marker: {
+      backgroundColor: decorative.paleBlueDot,
+      boxShadow: `0 0 0 1px ${decorative.orbit}`,
+    },
+  };
+}
 
 function noteCountLabel(noteCount: number | undefined): string {
   if (typeof noteCount !== 'number') {
@@ -90,54 +144,78 @@ function activeWritingDescription(activeWriting: SignalPanelActiveWriting): stri
 
 export function NotesOverviewSignalPanel({
   data,
+  theme,
 }: NotesOverviewSignalPanelProps): ReactElement {
   const visibleRecentNotes = data.recentNotes.slice(0, RECENT_NOTE_LIMIT);
   const isEmptyVault = !data.emptyState.hasNotes;
+  const styles = buildSignalPanelStyles(theme);
+  const activeWritingSurface = data.activeWriting.state === 'active'
+    ? styles.selectedSurface
+    : data.activeWriting.state === 'unavailable'
+      ? styles.unavailableSurface
+      : styles.mutedSurface;
 
   return (
     <article
-      className="notes-overview-signal-panel w-full max-w-full min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-50 p-4 text-slate-900"
+      className="notes-overview-signal-panel relative w-full max-w-full min-w-0 overflow-hidden rounded-lg border p-4"
+      style={styles.root}
       aria-labelledby="notes-overview-signal-panel-title"
       data-notes-overview-signal-panel
       data-source={data.generatedFrom}
       data-recent-note-limit={RECENT_NOTE_LIMIT}
+      data-notes-theme-mode={theme.mode}
+      data-selected-authority="semantic"
+      data-focus-authority="semantic"
+      data-disabled-authority="semantic"
     >
-      <header className="max-w-full min-w-0 border-b border-slate-200 pb-4">
-        <p className="break-words text-xs font-semibold uppercase tracking-wide text-slate-500">
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute right-3 top-3 h-[3px] w-[3px]"
+        style={styles.marker}
+        data-notes-pale-blue-dot
+      />
+      <header className="max-w-full min-w-0 border-b pb-4" style={styles.border}>
+        <p className="break-words text-xs font-semibold uppercase tracking-wide" style={styles.secondaryText}>
           Notes signal panel
         </p>
         <h2
           id="notes-overview-signal-panel-title"
-          className="mt-1 break-words text-xl font-semibold text-slate-950"
+          className="mt-1 break-words text-xl font-semibold"
+          style={styles.text}
         >
           Notes Overview
         </h2>
-        <p className="mt-2 max-w-3xl break-words text-sm leading-6 text-slate-700">
+        <p className="mt-2 max-w-3xl break-words text-sm leading-6" style={styles.secondaryText}>
           {orientationSummary(data)}
         </p>
-        <p className="mt-2 break-words text-xs leading-5 text-slate-600">
+        <p className="mt-2 break-words text-xs leading-5" style={styles.secondaryText}>
           Read-only local signal from {noteCountLabel(data.emptyState.noteCount)}.
         </p>
       </header>
 
       <div className="mt-4 grid max-w-full grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
         <section
-          className="min-w-0 rounded-lg border border-slate-200 bg-white p-3"
+          className="min-w-0 rounded-lg border p-3"
+          style={styles.surface}
           aria-labelledby="notes-overview-signal-panel-recent"
         >
           <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
             <div className="min-w-0">
-              <p className="break-words text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              <p className="break-words text-[11px] font-semibold uppercase tracking-wide" style={styles.secondaryText}>
                 Recent signal
               </p>
               <h3
                 id="notes-overview-signal-panel-recent"
-                className="mt-1 break-words text-sm font-semibold text-slate-950"
+                className="mt-1 break-words text-sm font-semibold"
+                style={styles.text}
               >
                 Recent notes
               </h3>
             </div>
-            <span className="rounded border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-600">
+            <span
+              className="rounded border px-2 py-1 text-[11px] font-semibold"
+              style={{ ...styles.mutedSurface, ...styles.secondaryText }}
+            >
               Showing {visibleRecentNotes.length} of {data.recentNotes.length}
             </span>
           </div>
@@ -147,23 +225,27 @@ export function NotesOverviewSignalPanel({
               {visibleRecentNotes.map(note => (
                 <li
                   key={note.id}
-                  className="min-w-0 rounded-md border border-slate-200 bg-slate-50/80 p-2"
+                  className="min-w-0 rounded-md border p-2"
+                  style={styles.mutedSurface}
                   data-recent-note-id={note.id}
                   data-signal-label={note.signalLabel}
                 >
                   <div className="flex min-w-0 flex-wrap items-center gap-2">
-                    <strong className="break-words text-sm text-slate-950">{note.title}</strong>
-                    <span className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[11px] font-semibold text-slate-600">
+                    <strong className="break-words text-sm" style={styles.text}>{note.title}</strong>
+                    <span
+                      className="rounded border px-1.5 py-0.5 text-[11px] font-semibold"
+                      style={{ ...styles.surface, ...styles.secondaryText }}
+                    >
                       Signal: recent
                     </span>
                   </div>
                   {note.updatedAt ? (
-                    <p className="mt-1 break-words text-xs leading-5 text-slate-600">
+                    <p className="mt-1 break-words text-xs leading-5" style={styles.secondaryText}>
                       Updated {note.updatedAt}
                     </p>
                   ) : null}
                   {!note.updatedAt && note.createdAt ? (
-                    <p className="mt-1 break-words text-xs leading-5 text-slate-600">
+                    <p className="mt-1 break-words text-xs leading-5" style={styles.secondaryText}>
                       Created {note.createdAt}
                     </p>
                   ) : null}
@@ -171,34 +253,36 @@ export function NotesOverviewSignalPanel({
               ))}
             </ol>
           ) : (
-            <p className="mt-3 break-words text-sm leading-6 text-slate-600">
+            <p className="mt-3 break-words text-sm leading-6" style={styles.secondaryText}>
               Recent notes are unavailable from the passed local-note metadata.
             </p>
           )}
         </section>
 
         <section
-          className="min-w-0 rounded-lg border border-slate-200 bg-white p-3"
+          className="min-w-0 rounded-lg border p-3"
+          style={styles.surface}
           aria-labelledby="notes-overview-signal-panel-active-writing"
           data-active-writing-state={data.activeWriting.state}
         >
-          <p className="break-words text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+          <p className="break-words text-[11px] font-semibold uppercase tracking-wide" style={styles.secondaryText}>
             Writing signal
           </p>
           <h3
             id="notes-overview-signal-panel-active-writing"
-            className="mt-1 break-words text-sm font-semibold text-slate-950"
+            className="mt-1 break-words text-sm font-semibold"
+            style={styles.text}
           >
             Active writing
           </h3>
-          <div className="mt-3 rounded-md border border-slate-200 bg-slate-50/80 p-3">
-            <p className="break-words text-sm font-semibold text-slate-950">
+          <div className="mt-3 rounded-md border p-3" style={activeWritingSurface}>
+            <p className="break-words text-sm font-semibold" style={styles.text}>
               {activeWritingLabel(data.activeWriting)}
             </p>
-            <p className="mt-1 break-words text-xs leading-5 text-slate-600">
+            <p className="mt-1 break-words text-xs leading-5" style={styles.secondaryText}>
               State: {data.activeWriting.state}
             </p>
-            <p className="mt-1 break-words text-xs leading-5 text-slate-600">
+            <p className="mt-1 break-words text-xs leading-5" style={styles.secondaryText}>
               {activeWritingDescription(data.activeWriting)}
             </p>
           </div>
@@ -207,19 +291,21 @@ export function NotesOverviewSignalPanel({
 
       {isEmptyVault ? (
         <section
-          className="mt-4 rounded-lg border border-slate-200 bg-white p-3"
+          className="mt-4 rounded-lg border p-3"
+          style={styles.surface}
           aria-labelledby="notes-overview-signal-panel-empty"
         >
-          <p className="break-words text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+          <p className="break-words text-[11px] font-semibold uppercase tracking-wide" style={styles.secondaryText}>
             Empty readout
           </p>
           <h3
             id="notes-overview-signal-panel-empty"
-            className="mt-1 break-words text-sm font-semibold text-slate-950"
+            className="mt-1 break-words text-sm font-semibold"
+            style={styles.text}
           >
             Empty vault
           </h3>
-          <p className="mt-2 break-words text-sm leading-6 text-slate-600">
+          <p className="mt-2 break-words text-sm leading-6" style={styles.secondaryText}>
             The full Notes empty state remains the primary onboarding surface. This panel only
             reports that no local note signal is available.
           </p>

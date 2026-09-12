@@ -1,6 +1,6 @@
 import type { AppSettings } from '../../types';
 import type { BlockEditorColors } from './editorTypes';
-import { tokensForMode } from '../../theme/tokens';
+import { tokensForMode, type ThemeMode } from '../../theme/tokens';
 
 export const NOTE_FONT_OPTIONS = [
   { id: 'system', label: 'System', value: "system-ui, -apple-system, 'Segoe UI', sans-serif" },
@@ -45,16 +45,56 @@ export interface NoteChromeColors {
   green: string;
 }
 
+export interface NoteThemeSemanticRoles {
+  workspace: string;
+  surface: string;
+  surfaceElevated: string;
+  surfaceMuted: string;
+  border: string;
+  selected: string;
+  selectedSurface: string;
+  text: string;
+  mutedText: string;
+  faintText: string;
+  input: string;
+  inputBorder: string;
+  focus: string;
+  disabled: string;
+  warning: string;
+  danger: string;
+  success: string;
+}
+
+export interface NoteThemeDecorativeRoles {
+  orbit: string;
+  paleBlueDot: string;
+}
+
+/**
+ * The single Notes bridge from global semantic/Cosmos tokens into Notes consumers.
+ * Legacy chrome fields remain available while bounded surfaces adopt explicit roles.
+ */
+export interface NoteThemeBridge extends NoteChromeColors {
+  mode: ThemeMode;
+  semantic: NoteThemeSemanticRoles;
+  decorative: NoteThemeDecorativeRoles;
+  typography: {
+    fontFamily: string;
+    fontSize: number;
+  };
+}
+
 /** Note chrome derived from Absinthe Design System tokens */
-export function buildNoteChrome(dark: boolean, settings: AppSettings): NoteChromeColors {
-  const t = tokensForMode(dark ? 'dark' : 'light');
+export function buildNoteChrome(dark: boolean, settings: AppSettings): NoteThemeBridge {
+  const mode: ThemeMode = dark ? 'dark' : 'light';
+  const t = tokensForMode(mode);
   const c = t.colors;
 
   const base: NoteChromeColors = {
     wrap: c.background,
     sidebar: c.sidebar,
     sideBdr: c.border,
-    notelist: dark ? '#16161A' : c.surfaceAlt,
+    notelist: dark ? c.sidebar : c.surfaceAlt,
     editor: c.surface,
     toolbar: c.surface,
     toolBdr: c.border,
@@ -64,15 +104,15 @@ export function buildNoteChrome(dark: boolean, settings: AppSettings): NoteChrom
     cardActBdr: c.primary,
     text: c.text,
     textMuted: c.muted,
-    textFaint: dark ? '#71717A' : '#A8A29E',
+    textFaint: c.sidebarMuted,
     accent: c.primary,
     accentBg: c.accentBg,
     input: c.input,
     inputBdr: c.inputBorder,
     badge: dark ? 'rgba(139,92,246,0.2)' : 'rgba(139,92,246,0.1)',
-    badgeTxt: dark ? '#A78BFA' : '#7C3AED',
+    badgeTxt: c.primaryHover,
     tag: c.accentBg,
-    tagTxt: dark ? '#A78BFA' : '#7C3AED',
+    tagTxt: c.primaryHover,
     danger: c.danger,
     green: c.success,
   };
@@ -93,7 +133,37 @@ export function buildNoteChrome(dark: boolean, settings: AppSettings): NoteChrom
       cardActBdr: accentOverride,
     };
   }
-  return result;
+  return {
+    ...result,
+    mode,
+    semantic: {
+      workspace: c.background,
+      surface: c.surface,
+      surfaceElevated: c.surfaceElevated,
+      surfaceMuted: c.surfaceMuted,
+      border: c.border,
+      selected: result.accent,
+      selectedSurface: result.accentBg,
+      text: result.text,
+      mutedText: result.textMuted,
+      faintText: result.textFaint,
+      input: c.input,
+      inputBorder: c.inputBorder,
+      focus: c.focus,
+      disabled: c.disabled,
+      warning: c.warning,
+      danger: c.danger,
+      success: c.success,
+    },
+    decorative: {
+      orbit: t.cosmosDecorative.orbit,
+      paleBlueDot: t.cosmosDecorative.paleBlueDot,
+    },
+    typography: {
+      fontFamily: resolveNoteFontFamily(settings),
+      fontSize: resolveNoteFontSize(settings),
+    },
+  };
 }
 
 /** @deprecated Use buildNoteChrome */

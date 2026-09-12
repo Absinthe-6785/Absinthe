@@ -1,6 +1,8 @@
 import { useMemo } from 'react';
 import { createNotesOverviewSignalPanelProps, type NotesOverviewSignalPanelAdapterInput } from './notesOverviewSignalPanelAdapter';
 import { NotesOverviewSignalPanel } from './NotesOverviewSignalPanel';
+import { buildNoteChrome } from '../views/noteEditorTheme';
+import { useAppStore } from '../../store/useAppStore';
 import { useNotesStore } from '../../store/useNotesStore';
 
 type NotesOverviewSignalPanelStoreNote = {
@@ -91,14 +93,19 @@ export function NotesOverviewSignalPanelContainer() {
     [],
   );
   const adapterInput = useNotesStore(selectSignalPanelInput);
+  const appSettings = useAppStore(state => state.appSettings);
   const panelProps = createNotesOverviewSignalPanelProps(adapterInput);
+  const theme = useMemo(
+    () => buildNoteChrome(Boolean(appSettings.darkMode), appSettings),
+    [appSettings],
+  );
 
   return (
     <div
       data-testid="notes-overview-signal-panel-container"
       data-notes-overview-signal-panel-container
     >
-      <NotesOverviewSignalPanel {...panelProps} />
+      <NotesOverviewSignalPanel {...panelProps} theme={theme} />
     </div>
   );
 }

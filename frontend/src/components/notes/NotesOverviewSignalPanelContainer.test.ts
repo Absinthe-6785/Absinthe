@@ -2,6 +2,7 @@
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { useAppStore } from '../../store/useAppStore';
 import { useNotesStore } from '../../store/useNotesStore';
 import {
   NotesOverviewSignalPanelContainer,
@@ -44,6 +45,19 @@ function resetStore() {
   });
 }
 
+function resetAppSettings() {
+  useAppStore.setState(state => ({
+    appSettings: {
+      ...state.appSettings,
+      darkMode: false,
+      notesFontFamily: 'system',
+      notesFontSize: 16,
+      notesTextColor: '',
+      notesAccentColor: '',
+    },
+  }));
+}
+
 async function renderContainer(): Promise<{ host: HTMLDivElement; root: Root }> {
   const host = document.createElement('div');
   document.body.appendChild(host);
@@ -59,11 +73,13 @@ async function renderContainer(): Promise<{ host: HTMLDivElement; root: Root }> 
 describe('NotesOverviewSignalPanelContainer', () => {
   beforeEach(() => {
     resetStore();
+    resetAppSettings();
   });
 
   afterEach(() => {
     document.body.innerHTML = '';
     resetStore();
+    resetAppSettings();
   });
 
   it('renders the Signal Panel with empty local notes', async () => {
@@ -94,6 +110,33 @@ describe('NotesOverviewSignalPanelContainer', () => {
     expect(host.textContent).not.toContain('Deleted local note');
     expect(host.textContent).not.toContain('body should stay private');
     expect(host.querySelector('[data-active-writing-state="active"]')).not.toBeNull();
+
+    await act(async () => root.unmount());
+  });
+
+  it('bridges live Notes appearance settings into the production-mounted pilot', async () => {
+    useNotesStore.setState({
+      notes: [note('themed', 'Themed note', 3000)],
+      activeNoteId: 'themed',
+    });
+    useAppStore.setState(state => ({
+      appSettings: {
+        ...state.appSettings,
+        darkMode: true,
+        notesFontFamily: 'serif',
+        notesFontSize: 19,
+        notesTextColor: '#C0FFEE',
+        notesAccentColor: '#FF00AA',
+      },
+    }));
+
+    const { host, root } = await renderContainer();
+    const article = host.querySelector<HTMLElement>('[data-notes-overview-signal-panel]');
+    expect(article?.dataset.notesThemeMode).toBe('dark');
+    expect(article?.style.color.toLowerCase()).toBe('#c0ffee');
+    expect(article?.style.fontFamily).toContain('Georgia');
+    expect(host.querySelector('[data-notes-pale-blue-dot]')?.getAttribute('aria-hidden')).toBe('true');
+    expect(host.innerHTML.toLowerCase()).toContain('#ff00aa');
 
     await act(async () => root.unmount());
   });
