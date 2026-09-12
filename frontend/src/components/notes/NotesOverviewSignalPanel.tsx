@@ -1,5 +1,6 @@
 import type { CSSProperties, ReactElement } from 'react';
 import type { NoteThemeBridge } from '../views/noteEditorTheme';
+import { PixelDecorativeMark } from '../common/PixelDecorativeMark';
 
 const RECENT_NOTE_LIMIT = 5;
 
@@ -45,11 +46,10 @@ type SignalPanelStyles = {
   readonly secondaryText: CSSProperties;
   readonly selectedSurface: CSSProperties;
   readonly unavailableSurface: CSSProperties;
-  readonly marker: CSSProperties;
 };
 
 function buildSignalPanelStyles(theme: NoteThemeBridge): SignalPanelStyles {
-  const { semantic, decorative } = theme;
+  const { semantic } = theme;
   // Light muted is a fill role and misses normal small-copy contrast. The pilot keeps
   // metadata at text contrast there while retaining muted hierarchy in dark mode.
   const secondaryText = theme.mode === 'light' ? semantic.text : semantic.mutedText;
@@ -80,10 +80,6 @@ function buildSignalPanelStyles(theme: NoteThemeBridge): SignalPanelStyles {
       backgroundColor: semantic.surfaceMuted,
       borderColor: semantic.border,
       color: semantic.disabled,
-    },
-    marker: {
-      backgroundColor: decorative.paleBlueDot,
-      boxShadow: `0 0 0 1px ${decorative.orbit}`,
     },
   };
 }
@@ -168,12 +164,7 @@ export function NotesOverviewSignalPanel({
       data-focus-authority="semantic"
       data-disabled-authority="semantic"
     >
-      <span
-        aria-hidden="true"
-        className="pointer-events-none absolute right-3 top-3 h-[3px] w-[3px]"
-        style={styles.marker}
-        data-notes-pale-blue-dot
-      />
+      <PixelDecorativeMark variant="trace" className="absolute right-2 top-2" />
       <header className="max-w-full min-w-0 border-b pb-4" style={styles.border}>
         <p className="break-words text-xs font-semibold uppercase tracking-wide" style={styles.secondaryText}>
           Notes signal panel

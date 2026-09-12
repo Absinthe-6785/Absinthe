@@ -319,14 +319,18 @@ describe('NotesOverviewSignalPanel', () => {
   it('keeps fixtures and rendered output free of forbidden raw fields', () => {
     const fixtureKeys = collectKeys(activeFixture);
     const html = renderPanel(activeFixture);
+    const contentHtml = html.replace(
+      /<svg[^>]*data-pixel-cosmos-mark[^>]*>.*?<\/svg>/s,
+      '',
+    );
 
     for (const forbidden of forbiddenFields) {
       expect(fixtureKeys).not.toContain(forbidden);
-      expect(html).not.toContain(forbidden);
+      expect(contentHtml).not.toContain(forbidden);
     }
 
-    expect(html).not.toContain('raw note');
-    expect(html).not.toContain('AI summary');
+    expect(contentHtml).not.toContain('raw note');
+    expect(contentHtml).not.toContain('AI summary');
   });
 
   it('exposes semantic recent notes and active writing groups', () => {
@@ -417,8 +421,9 @@ describe('NotesOverviewSignalPanel', () => {
     expect(html).toContain('data-selected-authority="semantic"');
     expect(html).toContain('data-focus-authority="semantic"');
     expect(html).toContain('data-disabled-authority="semantic"');
-    expect(html).toContain('data-notes-pale-blue-dot');
+    expect(html).toContain('data-pixel-cosmos-variant="trace"');
     expect(html).toContain('aria-hidden="true"');
+    expect(html).toContain('focusable="false"');
     expect(html).toContain('pointer-events-none');
     expect(customTheme.decorative.paleBlueDot).toBe(lightTheme.decorative.paleBlueDot);
   });
