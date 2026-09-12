@@ -1254,8 +1254,8 @@ export const HealthView = ({
 
   return (
     <WorkspaceErrorBoundary workspace="health">
-    <div className={`${WORKSPACE_PANE_ROOT_CLASS} flex flex-col animate-in fade-in duration-300 ${WORKSPACE_GAP_CLASS}`} data-workspace="health" data-workspace-scroll-mode={WORKSPACE_SCROLL_MODE.pane}>
-      <div className={`shrink-0 px-0.5 flex flex-col ${WORKSPACE_GAP_CLASS}`}>
+    <div className={`${WORKSPACE_PANE_ROOT_CLASS} abs-cosmos-health flex flex-col animate-in fade-in duration-300 ${WORKSPACE_GAP_CLASS}`} data-workspace="health" data-workspace-scroll-mode={WORKSPACE_SCROLL_MODE.pane}>
+      <div className={`abs-cosmos-health-header shrink-0 px-0.5 flex flex-col ${WORKSPACE_GAP_CLASS}`}>
         <WorkspacePageHeader
           workspace="health"
           title={t('health')}
@@ -1304,7 +1304,7 @@ export const HealthView = ({
       {/* ── Primary execution: Today's Workout ── */}
       <HealthExecutionColumn showOnCompact={mobileHealthTab === 'workout' || isDesktopPrevious}>
         <div
-          className={`${WORKSPACE_CARD_SURFACE} flex min-h-0 flex-col overflow-visible xl:overflow-hidden transition-colors ${WORKSPACE_CARD.workoutHero} lg:min-h-[280px] xl:min-h-0 xl:h-full`}
+          className={`${WORKSPACE_CARD_SURFACE} abs-cosmos-health-today flex min-h-0 flex-col overflow-visible xl:overflow-hidden transition-colors ${WORKSPACE_CARD.workoutHero} lg:min-h-[280px] xl:min-h-0 xl:h-full`}
           data-k129b-today-workout-primary
           data-k138-workout-row
           data-k137-workout-density={hasWorkoutRecords ? 'populated' : 'empty'}
@@ -1892,7 +1892,7 @@ export const HealthView = ({
           mobileVisible={mobileHealthTab === 'setup' && setupSection === 'blocks'}
         />
 
-        <div className={`xl:h-full xl:min-h-0 ${WORKSPACE_CARD.sm} ${WORKSPACE_CARD_SURFACE} flex flex-col overflow-visible xl:overflow-hidden transition-colors ${mobileHealthTab === 'setup' && setupSection === 'routine' ? '' : 'hidden lg:flex'}`} data-k126-workout-routine data-health-09b-routine data-health-composition-role="setup-routine">
+        <div className={`xl:h-full xl:min-h-0 ${WORKSPACE_CARD.sm} ${WORKSPACE_CARD_SURFACE} abs-cosmos-health-setup-surface flex flex-col overflow-visible xl:overflow-hidden transition-colors ${mobileHealthTab === 'setup' && setupSection === 'routine' ? '' : 'hidden lg:flex'}`} data-k126-workout-routine data-health-09b-routine data-health-composition-role="setup-routine">
           <div className="flex flex-wrap justify-between items-center gap-2 mb-2.5 shrink-0">
             <div className="flex min-w-0 items-center gap-2">
               <h2 className="font-heading text-base font-bold shrink-0">{t('routineSetup')}</h2>

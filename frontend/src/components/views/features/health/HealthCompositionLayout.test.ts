@@ -1,6 +1,8 @@
 // @vitest-environment happy-dom
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   HealthExecutionColumn,
@@ -10,6 +12,35 @@ import {
 } from './HealthCompositionLayout';
 
 describe('UI-06 Health composition primitives', () => {
+  it('binds VIS-07 decoration to Health surfaces without taking domain-state authority', () => {
+    const css = readFileSync(join(process.cwd(), 'src', 'index.css'), 'utf8');
+    const healthCss = css.match(/\/\* VIS-07[^]*$/)?.[0] ?? '';
+    const healthView = readFileSync(join(process.cwd(), 'src', 'components', 'views', 'HealthView.tsx'), 'utf8');
+    const library = readFileSync(join(process.cwd(), 'src', 'components', 'views', 'features', 'health', 'HealthBlockLibrary.tsx'), 'utf8');
+    const support = readFileSync(join(process.cwd(), 'src', 'components', 'views', 'features', 'health', 'HealthSupportingPanels.tsx'), 'utf8');
+    const workoutBlock = readFileSync(join(process.cwd(), 'src', 'components', 'views', 'features', 'health', 'WorkoutBlockCard.tsx'), 'utf8');
+    const prBadge = readFileSync(join(process.cwd(), 'src', 'components', 'views', 'features', 'health', 'WorkoutPrBadge.tsx'), 'utf8');
+    const protein = readFileSync(join(process.cwd(), 'src', 'components', 'views', 'features', 'health', 'nutrition', 'ProteinTracker.tsx'), 'utf8');
+
+    expect(healthView).toContain('abs-cosmos-health');
+    expect(healthView).toContain('abs-cosmos-health-header');
+    expect(healthView).toContain('abs-cosmos-health-today');
+    expect(healthView).toContain('abs-cosmos-health-setup-surface');
+    expect(library).toContain('abs-cosmos-health-setup-surface');
+    expect(support).toContain('abs-cosmos-health-support-grid');
+
+    expect(healthCss).toContain('background-color: var(--color-background)');
+    expect(healthCss).toContain('background-color: var(--color-surface-elevated)');
+    expect(healthCss).toContain('var(--color-selected) 32%');
+    expect(healthCss.match(/var\(--cosmos-pale-blue-dot\)/g)).toHaveLength(1);
+    expect(healthCss.match(/pointer-events: none/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(healthCss).not.toMatch(/animation|requestAnimationFrame|setInterval|setTimeout/);
+
+    expect(workoutBlock).not.toContain('abs-cosmos-health');
+    expect(prBadge).not.toContain('abs-cosmos-health');
+    expect(protein).not.toContain('abs-cosmos-health');
+  });
+
   it('assigns the accepted wide cells without adding compact nested scrolling', () => {
     const host = document.createElement('div');
     host.innerHTML = renderToStaticMarkup(
