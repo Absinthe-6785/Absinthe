@@ -30,7 +30,7 @@ export function RecipeCompositionLayout({
       data-workspace-scroll-mode={WORKSPACE_SCROLL_MODE.pane}
       data-recipe-composition="list-first"
     >
-      <div className="shrink-0" data-workspace-zone={WORKSPACE_ZONE.header}>
+      <div className="abs-cosmos-recipe-header shrink-0" data-workspace-zone={WORKSPACE_ZONE.header}>
         {header}
       </div>
 
@@ -40,7 +40,7 @@ export function RecipeCompositionLayout({
         data-recipe-scroll-owner-pre-wide="workspace"
       >
         <main
-          className="flex min-h-0 min-w-0 shrink-0 flex-col xl:flex-1"
+          className="abs-cosmos-recipe-primary flex min-h-0 min-w-0 shrink-0 flex-col xl:flex-1"
           data-workspace-zone={WORKSPACE_ZONE.primary}
           data-recipe-composition-role="primary-list"
           data-recipe-hierarchy-level="primary"
@@ -49,7 +49,7 @@ export function RecipeCompositionLayout({
         </main>
 
         <aside
-          className="flex min-h-0 shrink-0 flex-col xl:w-[320px] 2xl:w-[360px]"
+          className="abs-cosmos-recipe-support-rail flex min-h-0 shrink-0 flex-col xl:w-[320px] 2xl:w-[360px]"
           data-workspace-zone={WORKSPACE_ZONE.supporting}
           data-recipe-composition-role="support"
           data-recipe-hierarchy-level="tertiary"

@@ -3,6 +3,7 @@ import { resolveAppLanguage, getTranslator } from '../../../../../lib/i18n';
 import type { RecipeProjection } from '../recipeProjectionModels';
 import { ProductEmptyState } from '../../../../common/ProductEmptyState';
 import { Star, ChefHat, Sparkles, Clock } from 'lucide-react';
+import { UI_INTERACTION } from '../../../../../lib/uiInteractionTokens';
 
 export interface RecipeHomeSectionProps {
   projection: RecipeProjection;
@@ -48,7 +49,7 @@ export function RecipeHomeSection({
   }
 
   return (
-    <div className="flex flex-col gap-3" data-k110-recipe-home>
+    <div className="abs-cosmos-recipe-support-home flex flex-col gap-3" data-k110-recipe-home>
       {/* Recently viewed */}
       <section data-k110-home-recent>
         <h2 className="font-heading text-sm font-bold mb-2">{t('k110HomeRecentlyViewed')}</h2>
@@ -65,7 +66,7 @@ export function RecipeHomeSection({
                   <li key={item.recipeId}>
                     <button
                       type="button"
-                      className={`w-full flex items-center justify-between gap-2 text-left text-xs py-2 px-1 min-h-[44px] rounded-lg hover:opacity-90 ${appSettings.darkMode ? 'hover:bg-white/5' : 'hover:bg-black/[0.03]'}`}
+                      className={`${UI_INTERACTION.focusRingClass} w-full flex items-center justify-between gap-2 text-left text-xs py-2 px-1 min-h-[44px] rounded-lg hover:opacity-90 ${appSettings.darkMode ? 'hover:bg-white/5' : 'hover:bg-black/[0.03]'}`}
                       onClick={() => onRecipeClick(item.recipeId)}
                       data-k110-home-row
                     >
@@ -91,7 +92,7 @@ export function RecipeHomeSection({
       {/* Favorites */}
       <section data-k110-home-favorites>
         <h2 className="font-heading text-sm font-bold mb-2 flex items-center gap-1.5">
-          <Star size={14} className="text-yellow-500" />
+          <Star size={14} className="abs-recipe-favorite-glyph" />
           {t('k110HomeFavorites')}
         </h2>
         {empty.noFavorites ? (
@@ -108,7 +109,7 @@ export function RecipeHomeSection({
               <li key={r.id}>
                 <button
                   type="button"
-                  className={`w-full text-left text-xs font-medium py-2 px-2 min-h-[44px] rounded-xl border ${theme.border} ${appSettings.darkMode ? 'bg-surface hover:bg-white/5' : 'bg-white hover:bg-gray-50'}`}
+                  className={`abs-recipe-support-row ${UI_INTERACTION.focusRingClass} w-full text-left text-xs font-medium py-2 px-2 min-h-[44px] rounded-xl border ${theme.border} ${appSettings.darkMode ? 'bg-surface hover:bg-white/5' : 'bg-white hover:bg-gray-50'}`}
                   onClick={() => onRecipeClick(r.id)}
                   data-k110-favorite-row={r.id}
                 >
@@ -139,7 +140,7 @@ export function RecipeHomeSection({
                   <li key={item.recipeId}>
                     <button
                       type="button"
-                      className={`w-full flex items-center justify-between gap-2 text-left text-xs py-2 px-1 min-h-[44px] rounded-lg ${appSettings.darkMode ? 'hover:bg-white/5' : 'hover:bg-black/[0.03]'}`}
+                      className={`${UI_INTERACTION.focusRingClass} w-full flex items-center justify-between gap-2 text-left text-xs py-2 px-1 min-h-[44px] rounded-lg ${appSettings.darkMode ? 'hover:bg-white/5' : 'hover:bg-black/[0.03]'}`}
                       onClick={() => onRecipeClick(item.recipeId)}
                       data-k110-cooked-row
                     >
@@ -171,7 +172,7 @@ export function RecipeHomeSection({
               <li key={r.id}>
                 <button
                   type="button"
-                  className={`w-full text-left text-xs font-medium py-2 px-2 min-h-[44px] rounded-xl border ${theme.border} ${appSettings.darkMode ? 'bg-surface' : 'bg-white'}`}
+                  className={`abs-recipe-support-row ${UI_INTERACTION.focusRingClass} w-full text-left text-xs font-medium py-2 px-2 min-h-[44px] rounded-xl border ${theme.border} ${appSettings.darkMode ? 'bg-surface' : 'bg-white'}`}
                   onClick={() => onRecipeClick(r.id)}
                   data-k110-suggestion-row={r.id}
                 >

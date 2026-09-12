@@ -115,7 +115,7 @@ export function RecipeStudioView({
 
   return (
     <div
-      className={`${WORKSPACE_PANE_ROOT_CLASS} flex flex-col h-full rounded-none ${WORKSPACE_CARD_RADIUS_CLASS} lg:ml-3 bg-background px-3 lg:px-5 pt-3 lg:pt-5 pb-3 lg:pb-5`}
+      className={`${WORKSPACE_PANE_ROOT_CLASS} abs-cosmos-recipe flex flex-col h-full rounded-none ${WORKSPACE_CARD_RADIUS_CLASS} lg:ml-3 bg-background px-3 lg:px-5 pt-3 lg:pt-5 pb-3 lg:pb-5`}
       data-k110-recipe-studio
       data-recipe-empty={activeReady && projection.empty.isEmpty ? 'true' : 'false'}
     >
@@ -135,8 +135,9 @@ export function RecipeStudioView({
                   <button
                     type="button"
                     onClick={() => setShowTrash(value => !value)}
-                    className={`inline-flex items-center gap-1.5 min-h-[40px] shrink-0 rounded-xl border px-3 text-xs font-bold transition-colors ${theme.border} ${dark ? 'hover:bg-white/10' : 'hover:bg-gray-100'}`}
+                    className={`abs-recipe-trash-toggle ${UI_INTERACTION.focusRingClass} inline-flex items-center gap-1.5 min-h-[40px] shrink-0 rounded-xl border px-3 text-xs font-bold transition-colors ${theme.border}`}
                     data-k110-recipe-trash-toggle
+                    data-active={showTrash ? 'true' : 'false'}
                     aria-expanded={showTrash}
                   >
                     <Trash2 size={14} />
@@ -157,7 +158,7 @@ export function RecipeStudioView({
         )}
         primary={(
           <div className={`flex flex-col ${WORKSPACE_GAP_CLASS} min-h-0 flex-1`} data-k110-recipe-primary>
-            <section className={`${WORKSPACE_CARD_SURFACE} flex flex-col min-h-0 shrink-0 xl:flex-1`} data-k110-recipe-section="recipes">
+            <section className={`${WORKSPACE_CARD_SURFACE} abs-cosmos-recipe-list-surface flex flex-col min-h-0 shrink-0 xl:flex-1`} data-k110-recipe-section="recipes">
               <h2 className={WORKSPACE_SECTION_TITLE_CLASS}>{t('k110SectionRecipes')}</h2>
 
               {activeUnavailable && (
@@ -172,21 +173,21 @@ export function RecipeStudioView({
               )}
 
               <div
-                className="space-y-2 shrink-0 mb-2"
+                className="abs-recipe-direct-controls space-y-2 shrink-0 mb-2"
                 data-recipe-composition-role="direct-controls"
                 data-recipe-hierarchy-level="secondary"
               >
-                <div className={`flex items-center gap-2 px-3 py-2 rounded-xl border ${theme.border} ${theme.input}`}>
+                <div className={`abs-recipe-search-control flex items-center gap-2 px-3 py-2 rounded-xl border ${theme.border} ${theme.input}`}>
                   <Search size={14} className={theme.textMuted} />
                   <input
                     value={searchQuery}
                     onChange={e => setSearchQuery(e.target.value)}
                     placeholder={t('searchRecipe')}
-                    className="flex-1 bg-transparent outline-none text-sm"
+                    className={`flex-1 bg-transparent outline-none text-sm ${UI_INTERACTION.focusRingClass}`}
                     data-k110-recipe-search
                   />
                   {searchQuery && (
-                    <button type="button" onClick={() => setSearchQuery('')}>
+                    <button type="button" onClick={() => setSearchQuery('')} className={UI_INTERACTION.focusRingClass}>
                       <X size={14} className={theme.textMuted} />
                     </button>
                   )}
@@ -198,11 +199,12 @@ export function RecipeStudioView({
                       key={cat}
                       type="button"
                       onClick={() => setActiveCategory(cat)}
-                      className={`shrink-0 px-2.5 py-1 ${UI_INTERACTION.sectionChipRadiusClass} text-[11px] font-bold transition-all min-h-[44px] ${
+                      className={`abs-recipe-filter ${UI_INTERACTION.focusRingClass} shrink-0 px-2.5 py-1 ${UI_INTERACTION.sectionChipRadiusClass} text-[11px] font-bold transition-all min-h-[44px] ${
                         activeCategory === cat
-                          ? 'bg-primary text-primary-foreground'
+                          ? 'abs-recipe-selected-control text-primary-foreground'
                           : `${dark ? 'bg-surface text-gray-400' : 'bg-white text-gray-500'}`
                       }`}
+                      data-selected={activeCategory === cat ? 'true' : 'false'}
                     >
                       {cat}
                     </button>
@@ -210,22 +212,22 @@ export function RecipeStudioView({
                   <button
                     type="button"
                     onClick={() => setShowStarredOnly(p => !p)}
-                    className={`shrink-0 flex items-center gap-1 px-2.5 py-1 ${UI_INTERACTION.sectionChipRadiusClass} text-[11px] font-bold min-h-[44px] ${
-                      showStarredOnly ? 'bg-yellow-400 text-primary-foreground' : `${dark ? 'bg-surface text-gray-400' : 'bg-white text-gray-500'}`
-                    }`}
+                    className={`abs-recipe-star-filter ${UI_INTERACTION.focusRingClass} shrink-0 flex items-center gap-1 px-2.5 py-1 ${UI_INTERACTION.sectionChipRadiusClass} text-[11px] font-bold min-h-[44px] ${dark ? 'bg-surface text-gray-400' : 'bg-white text-gray-500'}`}
+                    data-active={showStarredOnly ? 'true' : 'false'}
                   >
-                    <Star size={10} fill={showStarredOnly ? '#1C1C1E' : 'none'} />
+                    <Star size={10} fill={showStarredOnly ? 'currentColor' : 'none'} />
                     {t('recipeStarred')}
                   </button>
-                  <div className={`shrink-0 flex items-center gap-0.5 p-0.5 rounded-lg ${dark ? 'bg-surface' : 'bg-white'}`}>
+                  <div className={`abs-recipe-sort-control shrink-0 flex items-center gap-0.5 p-0.5 rounded-lg ${dark ? 'bg-surface' : 'bg-white'}`}>
                     {(['newest', 'oldest', 'title'] as const).map(s => (
                       <button
                         key={s}
                         type="button"
                         onClick={() => setSortOrder(s)}
-                        className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
-                          sortOrder === s ? 'bg-primary text-primary-foreground' : `${dark ? 'text-gray-500' : 'text-gray-400'}`
+                        className={`abs-recipe-sort-option ${UI_INTERACTION.focusRingClass} px-2 py-0.5 rounded-md text-[10px] font-bold ${
+                          sortOrder === s ? 'abs-recipe-selected-control text-primary-foreground' : `${dark ? 'text-gray-500' : 'text-gray-400'}`
                         }`}
+                        data-selected={sortOrder === s ? 'true' : 'false'}
                       >
                         {s === 'newest' ? '↓' : s === 'oldest' ? '↑' : 'A-Z'}
                       </button>
@@ -295,7 +297,7 @@ export function RecipeStudioView({
             )}
 
             {showTrash && (
-              <section className={WORKSPACE_CARD_SURFACE} data-k110-recipe-trash>
+              <section className={`${WORKSPACE_CARD_SURFACE} abs-cosmos-recipe-support-surface abs-recipe-trash-surface`} data-k110-recipe-trash>
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <h2 className={WORKSPACE_SECTION_TITLE_CLASS}>{t('trash')}</h2>
@@ -325,7 +327,7 @@ export function RecipeStudioView({
                     {deletedRecipes.map(recipe => (
                       <div
                         key={recipe.id}
-                        className={`flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5 ${theme.border} ${dark ? 'bg-surface' : 'bg-white'}`}
+                        className={`abs-recipe-trash-row flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5 ${theme.border} ${dark ? 'bg-surface' : 'bg-white'}`}
                         data-k110-recipe-trash-row={recipe.id}
                       >
                         <div className="min-w-0">
@@ -336,7 +338,7 @@ export function RecipeStudioView({
                           type="button"
                           onClick={() => onRestore(recipe.id)}
                           disabled={!activeReady || !trashReady}
-                          className="inline-flex min-h-[40px] shrink-0 items-center gap-1.5 rounded-xl px-3 text-xs font-bold text-primary hover:bg-primary/10"
+                          className={`abs-recipe-restore-action ${UI_INTERACTION.focusRingClass} inline-flex min-h-[40px] shrink-0 items-center gap-1.5 rounded-xl px-3 text-xs font-bold disabled:cursor-not-allowed`}
                           data-k110-recipe-restore={recipe.id}
                         >
                           <RotateCcw size={14} />
@@ -405,12 +407,12 @@ function RecipeAvailabilityNotice({
     : t(domain === 'active' ? 'failLoadRecipes' : 'failLoadDeletedRecipes');
   return (
     <div
-      className={`mt-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-400/40 bg-amber-400/10 px-4 py-3 text-sm ${theme.text}`}
+      className={`abs-recipe-warning-panel mt-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-sm ${theme.text}`}
       role="status"
       data-recipe-availability={domain}
       data-recipe-availability-stale={stale ? 'true' : 'false'}
     >
-      <span className="flex min-w-0 items-center gap-2 text-amber-600">
+      <span className="flex min-w-0 items-center gap-2">
         <AlertTriangle size={16} className="shrink-0" />
         {message}
       </span>
@@ -418,7 +420,7 @@ function RecipeAvailabilityNotice({
         type="button"
         onClick={onRetry}
         disabled={validating}
-        className="inline-flex min-h-[36px] items-center gap-1.5 rounded-xl border border-amber-500/30 px-3 text-xs font-bold text-amber-600 disabled:cursor-not-allowed disabled:opacity-60"
+        className={`abs-recipe-warning-action ${UI_INTERACTION.focusRingClass} inline-flex min-h-[36px] items-center gap-1.5 rounded-xl border px-3 text-xs font-bold disabled:cursor-not-allowed disabled:opacity-60`}
         data-recipe-availability-retry={domain}
       >
         <RefreshCw size={13} className={validating ? 'animate-spin' : ''} />

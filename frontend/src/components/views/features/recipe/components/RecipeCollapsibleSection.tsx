@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { ChevronDown } from 'lucide-react';
+import { UI_INTERACTION } from '../../../../../lib/uiInteractionTokens';
 
 export interface RecipeCollapsibleSectionProps {
   sectionId: string;
@@ -29,14 +30,14 @@ export function RecipeCollapsibleSection({
 }: RecipeCollapsibleSectionProps) {
   return (
     <section
-      className={`rounded-[16px] lg:rounded-[20px] shadow-sm p-3 lg:p-4 flex flex-col transition-colors ${theme.card}`}
+      className={`abs-cosmos-recipe-support-surface rounded-[16px] lg:rounded-[20px] shadow-sm p-3 lg:p-4 flex flex-col transition-colors ${theme.card}`}
       data-k110-recipe-section={sectionId}
       data-k110-collapsed={collapsed ? 'true' : 'false'}
       data-k110-lazy-section={lazy ? sectionId : undefined}
     >
       <button
         type="button"
-        className="flex items-center justify-between gap-2 w-full text-left min-h-[44px] lg:min-h-0"
+        className={`${UI_INTERACTION.focusRingClass} flex items-center justify-between gap-2 w-full text-left min-h-[44px] lg:min-h-0`}
         onClick={onToggle}
         aria-expanded={!collapsed}
         data-k110-section-toggle={sectionId}
