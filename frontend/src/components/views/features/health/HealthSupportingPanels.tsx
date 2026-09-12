@@ -58,8 +58,8 @@ export const HealthSupportingPanels = memo(function HealthSupportingPanels({
     <div
       ref={ref as React.RefObject<HTMLDivElement>}
       className={layout === 'stack'
-        ? 'flex flex-col gap-2.5 shrink-0'
-        : 'grid min-h-0 grid-cols-1 gap-2.5 lg:grid-cols-[minmax(0,1.08fr)_minmax(0,0.5fr)_minmax(0,1fr)] lg:items-start'}
+        ? 'abs-cosmos-health-support-grid flex flex-col gap-2.5 shrink-0'
+        : 'abs-cosmos-health-support-grid grid min-h-0 grid-cols-1 gap-2.5 lg:grid-cols-[minmax(0,1.08fr)_minmax(0,0.5fr)_minmax(0,1fr)] lg:items-start'}
       data-workspace-zone="supporting"
       data-k107-health-supporting-panels
     >

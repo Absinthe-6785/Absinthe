@@ -112,7 +112,7 @@ export const HealthBlockLibrary = memo(function HealthBlockLibrary({
 
   return (
     <div
-      className={`${WORKSPACE_CARD.sm} min-h-0 xl:h-full xl:min-h-0 ${WORKSPACE_CARD_SURFACE_COMPACT} flex flex-col overflow-visible xl:overflow-hidden transition-colors ${mobileVisible ? '' : 'hidden lg:flex'}`}
+      className={`${WORKSPACE_CARD.sm} min-h-0 xl:h-full xl:min-h-0 ${WORKSPACE_CARD_SURFACE_COMPACT} abs-cosmos-health-setup-surface flex flex-col overflow-visible xl:overflow-hidden transition-colors ${mobileVisible ? '' : 'hidden lg:flex'}`}
       data-k107-health-block-library
       data-k126-exercise-library
       data-health-composition-role="setup-library"

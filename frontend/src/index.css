@@ -384,3 +384,83 @@
   0%, 100% { opacity: 0.55; }
   50% { opacity: 0.9; }
 }
+
+/* VIS-07 — restrained physiological-observatory treatment scoped to Health. */
+.abs-cosmos-health {
+  position: relative;
+  background-color: var(--color-background);
+}
+
+.abs-cosmos-health-header {
+  position: relative;
+}
+
+.abs-cosmos-health-header::after {
+  content: '';
+  position: absolute;
+  top: 9px;
+  right: 24px;
+  width: 3px;
+  height: 3px;
+  background: var(--cosmos-pale-blue-dot);
+  box-shadow:
+    -7px 3px 0 -1px color-mix(in srgb, var(--cosmos-satellite) 58%, transparent),
+    6px -2px 0 -1px color-mix(in srgb, var(--cosmos-starlight) 68%, transparent);
+  pointer-events: none;
+}
+
+.abs-cosmos-health-today,
+.abs-cosmos-health-setup-surface,
+.abs-cosmos-health-support-grid :is(
+  [data-health-workout-calendar],
+  [data-inbody-panel],
+  [data-workspace="nutrition-compact"]
+) {
+  position: relative;
+  background-color: var(--color-surface-elevated);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--cosmos-orbit) 62%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--cosmos-starlight) 14%, transparent),
+    var(--shadow-sm);
+}
+
+.abs-cosmos-health-today {
+  box-shadow:
+    inset 2px 0 0 color-mix(in srgb, var(--color-selected) 32%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--cosmos-orbit) 74%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--cosmos-starlight) 18%, transparent),
+    var(--shadow-sm);
+}
+
+.abs-cosmos-health-setup-surface {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--cosmos-orbit) 58%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--cosmos-starlight) 12%, transparent),
+    var(--shadow-sm);
+}
+
+.abs-cosmos-health-support-grid :is(
+  [data-health-workout-calendar],
+  [data-inbody-panel],
+  [data-workspace="nutrition-compact"]
+) {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--cosmos-orbit) 52%, transparent),
+    var(--shadow-sm);
+}
+
+.abs-cosmos-health-today::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 18px;
+  width: 36px;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--cosmos-orbit) 80%, transparent),
+    color-mix(in srgb, var(--cosmos-starlight) 72%, transparent)
+  );
+  pointer-events: none;
+}
