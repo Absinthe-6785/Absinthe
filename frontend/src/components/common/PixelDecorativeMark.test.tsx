@@ -70,7 +70,7 @@ describe('PixelDecorativeMark authority', () => {
   it('replaces the existing Sidebar decoration without replacing icons', () => {
     const sidebar = readFileSync(sidebarPath, 'utf8');
 
-    expect(sidebar).toContain("<PixelDecorativeMark variant=\"identity\"");
+    expect(sidebar).toMatch(/<PixelDecorativeMark\s+variant="identity"/);
     expect(sidebar).toContain("from 'lucide-react'");
     expect(sidebar).toContain('<Icon size={20} strokeWidth={2.25} />');
   });
