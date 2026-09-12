@@ -4,6 +4,7 @@ import { AppSettings } from '../../types';
 import { resolveAppLanguage, getTranslator } from '../../lib/i18n';
 import { UI_INTERACTION } from '../../lib/uiInteractionTokens';
 import { MobileMoreSheet, type SettingsSectionId } from './MobileMoreSheet';
+import { PixelDecorativeMark } from './PixelDecorativeMark';
 
 // AppContent 순환 참조 방지: TabId를 여기서 직접 정의
 export type TabId = 'home' | 'planner' | 'health' | 'analytics' | 'settings' | 'note' | 'recipe';
@@ -41,7 +42,10 @@ export const Sidebar = ({
     className="abs-cosmos-sidebar w-full lg:w-[72px] rounded-none lg:rounded-absinthe-2xl flex flex-row lg:flex-col items-center justify-between gap-1 lg:gap-0 shadow-absinthe-xl mb-2 lg:mb-0 lg:mr-5 shrink-0 z-20 transition-colors duration-500 px-2 py-2 lg:py-5 bg-sidebar"
     data-k126-mobile-sidebar
   >
-    <span className="abs-cosmos-sidebar-marker" aria-hidden="true" data-cosmos-sidebar-marker />
+    <PixelDecorativeMark
+      variant="identity"
+      className="absolute right-[6px] top-[3px] lg:right-[5px] lg:top-2"
+    />
     {/* ── 주요 탭 ── */}
     <div className="flex min-w-0 flex-1 flex-row lg:flex-none lg:flex-col gap-1 lg:gap-1.5">
       {(['home', 'note', 'health', 'analytics', 'planner', 'recipe'] as const).map((tab) => {

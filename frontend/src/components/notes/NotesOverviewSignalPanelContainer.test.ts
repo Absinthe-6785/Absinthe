@@ -135,7 +135,9 @@ describe('NotesOverviewSignalPanelContainer', () => {
     expect(article?.dataset.notesThemeMode).toBe('dark');
     expect(article?.style.color.toLowerCase()).toBe('#c0ffee');
     expect(article?.style.fontFamily).toContain('Georgia');
-    expect(host.querySelector('[data-notes-pale-blue-dot]')?.getAttribute('aria-hidden')).toBe('true');
+    const decoration = host.querySelector('[data-pixel-cosmos-mark][data-pixel-cosmos-variant="trace"]');
+    expect(decoration?.getAttribute('aria-hidden')).toBe('true');
+    expect(decoration?.getAttribute('focusable')).toBe('false');
     expect(host.innerHTML.toLowerCase()).toContain('#ff00aa');
 
     await act(async () => root.unmount());

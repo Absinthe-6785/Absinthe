@@ -46,7 +46,9 @@ describe('Sidebar mobile navigation', () => {
       expect(selected.classList.contains(focusClass)).toBe(true);
     }
 
-    const marker = sidebar.querySelector<HTMLElement>('[data-cosmos-sidebar-marker]')!;
+    const marker = sidebar.querySelector<SVGElement>('[data-pixel-cosmos-mark][data-pixel-cosmos-variant="identity"]')!;
     expect(marker.getAttribute('aria-hidden')).toBe('true');
+    expect(marker.getAttribute('focusable')).toBe('false');
+    expect(marker.classList.contains('pointer-events-none')).toBe(true);
   });
 });
