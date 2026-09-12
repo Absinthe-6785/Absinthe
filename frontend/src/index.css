@@ -464,3 +464,192 @@
   );
   pointer-events: none;
 }
+
+/* VIS-08 — quiet field-guide treatment scoped to the Recipe workspace. */
+.abs-cosmos-recipe {
+  position: relative;
+  background-color: var(--color-background);
+}
+
+.abs-cosmos-recipe-header,
+.abs-cosmos-recipe-list-surface,
+.abs-cosmos-recipe-card,
+.abs-cosmos-recipe-support-surface,
+.abs-cosmos-recipe-support-home,
+.abs-cosmos-recipe-form {
+  position: relative;
+}
+
+.abs-cosmos-recipe-header::after {
+  content: '';
+  position: absolute;
+  top: 9px;
+  right: 24px;
+  width: 3px;
+  height: 3px;
+  background: var(--cosmos-pale-blue-dot);
+  box-shadow:
+    -7px 3px 0 -1px color-mix(in srgb, var(--cosmos-satellite) 56%, transparent),
+    6px -2px 0 -1px color-mix(in srgb, var(--cosmos-starlight) 66%, transparent);
+  pointer-events: none;
+}
+
+.abs-cosmos-recipe-list-surface {
+  background-color: var(--color-surface-elevated);
+  box-shadow:
+    inset 2px 0 0 color-mix(in srgb, var(--color-selected) 24%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--cosmos-orbit) 72%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--cosmos-starlight) 16%, transparent),
+    var(--shadow-sm);
+}
+
+.abs-cosmos-recipe-list-surface::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 18px;
+  width: 38px;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--cosmos-orbit) 82%, transparent),
+    color-mix(in srgb, var(--cosmos-starlight) 70%, transparent)
+  );
+  pointer-events: none;
+}
+
+.abs-cosmos-recipe-card {
+  background-color: var(--color-surface-elevated);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--cosmos-orbit) 48%, transparent),
+    var(--shadow-sm);
+}
+
+.abs-cosmos-recipe-card[data-expanded='true'] {
+  box-shadow:
+    inset 2px 0 0 color-mix(in srgb, var(--color-selected) 24%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--cosmos-orbit) 62%, transparent),
+    var(--shadow-sm);
+}
+
+.abs-cosmos-recipe-expanded {
+  background-color: color-mix(in srgb, var(--color-surface-muted) 44%, transparent);
+}
+
+.abs-cosmos-recipe-support-rail {
+  isolation: isolate;
+}
+
+.abs-cosmos-recipe-support-surface,
+.abs-cosmos-recipe-support-home {
+  background-color: color-mix(in srgb, var(--color-surface-muted) 58%, var(--color-surface-elevated));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cosmos-orbit) 42%, transparent);
+}
+
+.abs-cosmos-recipe-support-home {
+  border-radius: var(--radius-lg);
+}
+
+.abs-cosmos-recipe-form {
+  background-color: var(--color-surface-elevated);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--cosmos-orbit) 64%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--cosmos-starlight) 14%, transparent),
+    var(--shadow-xl);
+}
+
+.abs-recipe-search-control:focus-within {
+  border-color: var(--color-focus);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-focus) 24%, transparent);
+}
+
+.abs-recipe-selected-control {
+  background-color: color-mix(in srgb, var(--color-selected) 88%, var(--color-text));
+}
+
+[data-theme='dark'] .abs-recipe-selected-control {
+  background-color: color-mix(in srgb, var(--color-selected) 88%, var(--color-background));
+}
+
+.abs-recipe-star-filter[data-active='true'],
+.abs-recipe-favorite-toggle[data-starred='true'] {
+  color: var(--color-text);
+  background-color: color-mix(in srgb, var(--color-warning) 16%, var(--color-surface-elevated));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-warning) 34%, transparent);
+}
+
+.abs-recipe-star-filter[data-active='true'] svg,
+.abs-recipe-favorite-toggle[data-starred='true'] svg,
+.abs-recipe-favorite-glyph,
+.abs-recipe-favorite-action[data-starred='true'] {
+  color: var(--color-warning);
+}
+
+.abs-recipe-favorite-action:hover {
+  background-color: color-mix(in srgb, var(--color-warning) 14%, transparent);
+}
+
+.abs-recipe-sort-control,
+.abs-recipe-support-row,
+.abs-recipe-trash-row {
+  background-color: var(--color-surface-elevated);
+}
+
+.abs-recipe-trash-toggle[data-active='true'],
+.abs-recipe-danger-action {
+  color: var(--color-text);
+  background-color: color-mix(in srgb, var(--color-danger) 8%, var(--color-surface-elevated));
+}
+
+.abs-recipe-trash-toggle[data-active='true'] svg,
+.abs-recipe-danger-action svg {
+  color: var(--color-danger);
+}
+
+.abs-recipe-trash-toggle:hover,
+.abs-recipe-danger-action:hover {
+  background-color: color-mix(in srgb, var(--color-danger) 14%, var(--color-surface-elevated));
+}
+
+.abs-recipe-trash-surface {
+  box-shadow:
+    inset 2px 0 0 color-mix(in srgb, var(--color-danger) 28%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--color-danger) 16%, transparent),
+    var(--shadow-sm);
+}
+
+.abs-recipe-restore-action {
+  color: var(--color-text);
+  background-color: color-mix(in srgb, var(--color-success) 10%, var(--color-surface-elevated));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-success) 28%, transparent);
+}
+
+.abs-recipe-restore-action:hover {
+  background-color: color-mix(in srgb, var(--color-success) 16%, var(--color-surface-elevated));
+}
+
+.abs-recipe-warning-panel,
+.abs-recipe-warning-action {
+  color: var(--color-text);
+  border-color: color-mix(in srgb, var(--color-warning) 34%, transparent);
+  background-color: color-mix(in srgb, var(--color-warning) 10%, var(--color-surface-elevated));
+}
+
+.abs-recipe-warning-panel svg {
+  color: var(--color-warning);
+}
+
+.abs-recipe-warning-action:hover {
+  background-color: color-mix(in srgb, var(--color-warning) 18%, var(--color-surface-elevated));
+}
+
+.abs-recipe-field {
+  border: 1px solid var(--color-input-border);
+  background-color: var(--color-input);
+}
+
+.abs-recipe-step-index {
+  color: var(--color-text);
+  background-color: color-mix(in srgb, var(--color-selected) 16%, var(--color-surface-muted));
+}

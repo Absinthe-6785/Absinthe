@@ -3,6 +3,7 @@ import type { Theme } from '../../../../../types';
 import type { TranslationKey } from '../../../../../lib/i18n';
 import type { Recipe } from '../recipeTypes';
 import { RECIPE_CATEGORY_COLORS } from '../recipeTypes';
+import { UI_INTERACTION } from '../../../../../lib/uiInteractionTokens';
 
 export interface RecipeCardProps {
   recipe: Recipe;
@@ -44,8 +45,9 @@ export function RecipeCard({
 
   return (
     <div
-      className={`${radius} border shadow-sm overflow-hidden transition-all ${theme.border} ${dark ? 'bg-surface' : 'bg-white'}`}
+      className={`${radius} abs-cosmos-recipe-card border shadow-sm overflow-hidden transition-all ${theme.border} ${dark ? 'bg-surface' : 'bg-white'}`}
       data-k110-recipe-card={recipe.id}
+      data-expanded={expanded ? 'true' : 'false'}
     >
       <div className={`flex items-center gap-2.5 ${pad} cursor-pointer`} onClick={onToggleExpand}>
         <div className={`w-2 h-2 rounded-full shrink-0 ${RECIPE_CATEGORY_COLORS[recipe.category] ?? 'bg-gray-400'}`} />
@@ -62,17 +64,18 @@ export function RecipeCard({
             type="button"
             disabled={mutationsDisabled || starPending}
             onClick={e => { e.stopPropagation(); onToggleStar(); }}
-            className="p-1.5 rounded-lg hover:bg-yellow-400/20 transition-colors min-h-[44px] min-w-[44px] lg:min-h-0 lg:min-w-0 flex items-center justify-center"
+            className={`abs-recipe-favorite-action ${UI_INTERACTION.focusRingClass} p-1.5 rounded-lg transition-colors min-h-[44px] min-w-[44px] lg:min-h-0 lg:min-w-0 flex items-center justify-center disabled:cursor-not-allowed disabled:text-disabled`}
             aria-label={t('recipeStarred')}
             aria-busy={starPending}
+            data-starred={recipe.starred ? 'true' : 'false'}
           >
-            <Star size={13} fill={recipe.starred ? '#8B5CF6' : 'none'} color={recipe.starred ? '#8B5CF6' : undefined} className={recipe.starred ? '' : theme.textMuted} />
+            <Star size={13} fill={recipe.starred ? 'currentColor' : 'none'} className={recipe.starred ? '' : theme.textMuted} />
           </button>
           <button
             type="button"
             disabled={mutationsDisabled || starPending}
             onClick={e => { e.stopPropagation(); onEdit(); }}
-            className={`p-1.5 rounded-lg transition-colors min-h-[44px] min-w-[44px] lg:min-h-0 lg:min-w-0 flex items-center justify-center ${dark ? 'hover:bg-white/10' : 'hover:bg-gray-100'}`}
+            className={`${UI_INTERACTION.focusRingClass} p-1.5 rounded-lg transition-colors min-h-[44px] min-w-[44px] lg:min-h-0 lg:min-w-0 flex items-center justify-center disabled:cursor-not-allowed disabled:text-disabled ${dark ? 'hover:bg-white/10' : 'hover:bg-gray-100'}`}
           >
             <Pencil size={12} className={theme.textMuted} />
           </button>
@@ -80,16 +83,16 @@ export function RecipeCard({
             type="button"
             disabled={mutationsDisabled}
             onClick={e => { e.stopPropagation(); onDelete(); }}
-            className="p-1.5 rounded-lg hover:bg-red-500/20 transition-colors min-h-[44px] min-w-[44px] lg:min-h-0 lg:min-w-0 flex items-center justify-center"
+            className={`abs-recipe-danger-action ${UI_INTERACTION.focusRingClass} p-1.5 rounded-lg transition-colors min-h-[44px] min-w-[44px] lg:min-h-0 lg:min-w-0 flex items-center justify-center disabled:cursor-not-allowed disabled:text-disabled`}
           >
-            <Trash2 size={12} className={`${theme.textMuted} hover:text-red-500`} />
+            <Trash2 size={12} />
           </button>
           {expanded ? <ChevronUp size={14} className={theme.textMuted} /> : <ChevronDown size={14} className={theme.textMuted} />}
         </div>
       </div>
 
       {expanded && (
-        <div className={`px-3 pb-3 lg:px-3.5 lg:pb-3.5 border-t ${theme.border} space-y-3 pt-3`}>
+        <div className={`abs-cosmos-recipe-expanded px-3 pb-3 lg:px-3.5 lg:pb-3.5 border-t ${theme.border} space-y-3 pt-3`}>
           {ingredients.length > 0 && (
             <div>
               <p className={`text-[10px] font-bold uppercase tracking-wider mb-1.5 ${theme.textMuted}`}>{t('ingredients')}</p>
@@ -109,7 +112,7 @@ export function RecipeCard({
               <ol className="space-y-1.5">
                 {steps.map((step, i) => (
                   <li key={i} className="flex items-start gap-2.5 text-sm">
-                    <span className={`shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${dark ? 'bg-surface-alt text-primary' : 'bg-[#F0EDE5] text-primary-foreground'}`}>{i + 1}</span>
+                    <span className="abs-recipe-step-index shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold">{i + 1}</span>
                     <span className="leading-relaxed">{step}</span>
                   </li>
                 ))}

@@ -14,7 +14,7 @@ import {
 describe('UI-06 Health composition primitives', () => {
   it('binds VIS-07 decoration to Health surfaces without taking domain-state authority', () => {
     const css = readFileSync(join(process.cwd(), 'src', 'index.css'), 'utf8');
-    const healthCss = css.match(/\/\* VIS-07[^]*$/)?.[0] ?? '';
+    const healthCss = css.match(/\/\* VIS-07[^]*?(?=\/\* VIS-08|$)/)?.[0] ?? '';
     const healthView = readFileSync(join(process.cwd(), 'src', 'components', 'views', 'HealthView.tsx'), 'utf8');
     const library = readFileSync(join(process.cwd(), 'src', 'components', 'views', 'features', 'health', 'HealthBlockLibrary.tsx'), 'utf8');
     const support = readFileSync(join(process.cwd(), 'src', 'components', 'views', 'features', 'health', 'HealthSupportingPanels.tsx'), 'utf8');

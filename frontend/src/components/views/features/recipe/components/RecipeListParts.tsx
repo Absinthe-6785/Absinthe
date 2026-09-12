@@ -6,6 +6,7 @@ import type { TranslationKey } from '../../../../../lib/i18n';
 import type { Recipe } from '../recipeTypes';
 import { RECIPE_CATEGORIES, EMPTY_RECIPE_FORM } from '../recipeTypes';
 import { useViewportLayout } from '../../../../../hooks/useViewportLayout';
+import { UI_INTERACTION } from '../../../../../lib/uiInteractionTokens';
 import { RecipeCard } from './RecipeCard';
 
 const VIRTUALIZE_THRESHOLD = 40;
@@ -75,27 +76,27 @@ export function RecipeFormModal({
       onClick={onClose}
     >
       <div
-        className="w-full lg:max-w-lg rounded-t-[32px] lg:rounded-[32px] p-6 shadow-2xl max-h-[90vh] overflow-y-auto bg-surface"
+        className="abs-cosmos-recipe-form w-full lg:max-w-lg rounded-t-[32px] lg:rounded-[32px] p-6 shadow-2xl max-h-[90vh] overflow-y-auto bg-surface"
         onClick={e => e.stopPropagation()}
         data-k110-recipe-form
       >
         <div className="flex items-center justify-between mb-5">
           <h2 className="font-heading text-xl font-bold">{editingId ? t('editRecipe') : t('newRecipe')}</h2>
-          <button type="button" onClick={onClose} className={`p-2 rounded-full ${theme.textMuted} ${dark ? 'hover:bg-white/10' : 'hover:bg-gray-100'}`}>
+          <button type="button" onClick={onClose} className={`${UI_INTERACTION.focusRingClass} p-2 rounded-full ${theme.textMuted} ${dark ? 'hover:bg-white/10' : 'hover:bg-gray-100'}`}>
             <X size={18} />
           </button>
         </div>
 
         {storageWarning && (
-          <div className="mb-4 flex items-start gap-2 rounded-2xl border border-amber-400/40 bg-amber-400/10 px-4 py-3 text-sm text-amber-600" role="status" data-recipe-draft-storage-warning>
+          <div className="abs-recipe-warning-panel mb-4 flex items-start gap-2 rounded-2xl border px-4 py-3 text-sm" role="status" data-recipe-draft-storage-warning>
             <AlertTriangle size={16} className="mt-0.5 shrink-0" />
             <span>{t('recipeDraftStorageWarning')}</span>
           </div>
         )}
 
         {conflict && (
-          <div className="mb-4 rounded-2xl border border-amber-400/40 bg-amber-400/10 px-4 py-3" data-recipe-draft-conflict={conflict}>
-            <div className="flex items-start gap-2 text-sm text-amber-600">
+          <div className="abs-recipe-warning-panel mb-4 rounded-2xl border px-4 py-3" data-recipe-draft-conflict={conflict}>
+            <div className="flex items-start gap-2 text-sm">
               <AlertTriangle size={16} className="mt-0.5 shrink-0" />
               <span>{t(
                 conflict === 'remote-changed'
@@ -107,7 +108,7 @@ export function RecipeFormModal({
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
               {conflict === 'remote-changed' && onUseLocal && (
-                <button type="button" onClick={onUseLocal} className="rounded-xl bg-primary px-3 py-2 text-xs font-bold text-primary-foreground">
+                <button type="button" onClick={onUseLocal} className={`${UI_INTERACTION.focusRingClass} rounded-xl bg-primary px-3 py-2 text-xs font-bold text-primary-foreground`}>
                   {t('recipeDraftUseLocal')}
                 </button>
               )}
@@ -116,14 +117,14 @@ export function RecipeFormModal({
                   type="button"
                   onClick={onRetryAuthority}
                   disabled={authorityValidating}
-                  className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-3 py-2 text-xs font-bold text-primary-foreground disabled:opacity-60"
+                  className={`${UI_INTERACTION.focusRingClass} inline-flex items-center gap-1.5 rounded-xl bg-primary px-3 py-2 text-xs font-bold text-primary-foreground disabled:bg-surface-muted disabled:text-disabled disabled:opacity-60`}
                   data-recipe-draft-retry
                 >
                   <RefreshCw size={13} className={authorityValidating ? 'animate-spin' : ''} />
                   {t('startupRetry')}
                 </button>
               )}
-              <button type="button" onClick={onDiscard} className="rounded-xl border border-amber-500/30 px-3 py-2 text-xs font-bold text-amber-600">
+              <button type="button" onClick={onDiscard} className={`abs-recipe-warning-action ${UI_INTERACTION.focusRingClass} rounded-xl border px-3 py-2 text-xs font-bold`}>
                 {t('recipeDraftDiscard')}
               </button>
             </div>
@@ -131,12 +132,12 @@ export function RecipeFormModal({
         )}
 
         {!conflict && authorityUnavailable && (
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-400/40 bg-amber-400/10 px-4 py-3 text-sm text-amber-600" role="status" data-recipe-draft-authority-unavailable>
+          <div className="abs-recipe-warning-panel mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-sm" role="status" data-recipe-draft-authority-unavailable>
             <span className="flex items-center gap-2">
               <AlertTriangle size={16} className="shrink-0" />
               {t('recipeDraftRemoteUnavailable')}
             </span>
-            <button type="button" onClick={onRetryAuthority} disabled={authorityValidating} className="inline-flex items-center gap-1.5 rounded-xl border border-amber-500/30 px-3 py-2 text-xs font-bold disabled:opacity-60">
+            <button type="button" onClick={onRetryAuthority} disabled={authorityValidating} className={`abs-recipe-warning-action ${UI_INTERACTION.focusRingClass} inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-bold disabled:text-disabled disabled:opacity-60`}>
               <RefreshCw size={13} className={authorityValidating ? 'animate-spin' : ''} />
               {t('startupRetry')}
             </button>
@@ -152,7 +153,7 @@ export function RecipeFormModal({
               onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
               readOnly={Boolean(conflict) || (Boolean(editingId) && !authorityReady)}
               placeholder={t('recipeName')}
-              className={`w-full rounded-2xl px-4 py-3 text-sm font-semibold outline-none focus:ring-2 focus:ring-primary ${theme.input}`}
+              className={`abs-recipe-field w-full rounded-2xl px-4 py-3 text-sm font-semibold outline-none ${UI_INTERACTION.focusRingClass} ${theme.input}`}
             />
           </div>
 
@@ -165,11 +166,12 @@ export function RecipeFormModal({
                   type="button"
                   disabled={Boolean(conflict) || saving || (Boolean(editingId) && !authorityReady)}
                   onClick={() => setForm(f => ({ ...f, category: cat }))}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                  className={`abs-recipe-filter ${UI_INTERACTION.focusRingClass} px-3 py-1.5 rounded-xl text-xs font-bold transition-all disabled:text-disabled ${
                     form.category === cat
-                      ? 'bg-primary text-primary-foreground'
+                      ? 'abs-recipe-selected-control text-primary-foreground'
                       : `${dark ? 'bg-surface text-gray-400' : 'bg-gray-100 text-gray-500'}`
                   }`}
+                  data-selected={form.category === cat ? 'true' : 'false'}
                 >
                   {cat}
                 </button>
@@ -187,7 +189,7 @@ export function RecipeFormModal({
               readOnly={Boolean(conflict) || (Boolean(editingId) && !authorityReady)}
               placeholder={'200g chicken breast\n1 tbsp olive oil\n2 cloves garlic'}
               rows={4}
-              className={`w-full rounded-2xl px-4 py-3 text-sm outline-none resize-none focus:ring-2 focus:ring-primary ${theme.input}`}
+              className={`abs-recipe-field w-full rounded-2xl px-4 py-3 text-sm outline-none resize-none ${UI_INTERACTION.focusRingClass} ${theme.input}`}
             />
           </div>
 
@@ -201,7 +203,7 @@ export function RecipeFormModal({
               readOnly={Boolean(conflict) || (Boolean(editingId) && !authorityReady)}
               placeholder={'Preheat oven to 200°C\nSeason chicken with salt and pepper\nBake for 25 minutes'}
               rows={5}
-              className={`w-full rounded-2xl px-4 py-3 text-sm outline-none resize-none focus:ring-2 focus:ring-primary ${theme.input}`}
+              className={`abs-recipe-field w-full rounded-2xl px-4 py-3 text-sm outline-none resize-none ${UI_INTERACTION.focusRingClass} ${theme.input}`}
             />
           </div>
 
@@ -213,7 +215,7 @@ export function RecipeFormModal({
               readOnly={Boolean(conflict) || (Boolean(editingId) && !authorityReady)}
               placeholder={t('recipeTips')}
               rows={2}
-              className={`w-full rounded-2xl px-4 py-3 text-sm outline-none resize-none focus:ring-2 focus:ring-primary ${theme.input}`}
+              className={`abs-recipe-field w-full rounded-2xl px-4 py-3 text-sm outline-none resize-none ${UI_INTERACTION.focusRingClass} ${theme.input}`}
             />
           </div>
 
@@ -221,11 +223,10 @@ export function RecipeFormModal({
             type="button"
             disabled={Boolean(conflict) || saving || (Boolean(editingId) && !authorityReady)}
             onClick={() => setForm(f => ({ ...f, starred: !f.starred }))}
-            className={`flex items-center gap-2 px-4 py-2 rounded-2xl text-sm font-semibold transition-all ${
-              form.starred ? 'bg-yellow-400/20 text-yellow-500' : `${dark ? 'bg-surface' : 'bg-gray-100'} ${theme.textMuted}`
-            }`}
+            className={`abs-recipe-favorite-toggle ${UI_INTERACTION.focusRingClass} flex items-center gap-2 px-4 py-2 rounded-2xl text-sm font-semibold transition-all disabled:cursor-not-allowed disabled:text-disabled ${dark ? 'bg-surface' : 'bg-gray-100'} ${theme.textMuted}`}
+            data-starred={form.starred ? 'true' : 'false'}
           >
-            <Star size={14} fill={form.starred ? '#8B5CF6' : 'none'} color={form.starred ? '#8B5CF6' : undefined} />
+            <Star size={14} fill={form.starred ? 'currentColor' : 'none'} />
             {form.starred ? t('recipeStarred') : t('addStarred')}
           </button>
         </fieldset>
@@ -236,7 +237,7 @@ export function RecipeFormModal({
               type="button"
               onClick={onDiscard}
               disabled={saving || !authorityReady}
-              className={`flex items-center justify-center gap-2 rounded-2xl px-4 py-3.5 text-sm font-bold ${theme.textMuted} ${dark ? 'bg-white/5' : 'bg-gray-100'}`}
+              className={`abs-recipe-danger-action ${UI_INTERACTION.focusRingClass} flex items-center justify-center gap-2 rounded-2xl px-4 py-3.5 text-sm font-bold disabled:cursor-not-allowed disabled:text-disabled ${dark ? 'bg-white/5' : 'bg-gray-100'}`}
             >
               <Trash2 size={15} /> {t('recipeDraftDiscard')}
             </button>
@@ -244,7 +245,7 @@ export function RecipeFormModal({
               type="button"
               onClick={onSave}
               disabled={saving || !authorityReady}
-              className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-primary py-3.5 text-sm font-bold text-primary-foreground transition-transform enabled:hover:scale-[1.02] enabled:active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+              className={`${UI_INTERACTION.focusRingClass} flex flex-1 items-center justify-center gap-2 rounded-2xl bg-primary py-3.5 text-sm font-bold text-primary-foreground transition-transform enabled:hover:scale-[1.02] enabled:active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-surface-muted disabled:text-disabled disabled:opacity-60`}
               data-recipe-save
             >
               <Check size={16} /> {editingId ? t('updateRecipe') : t('saveRecipe')}
