@@ -127,6 +127,36 @@ def test_full_notes_and_workout_rows_accept():
     )
 
 
+def test_workout_restore_accepts_valid_assisted_reps_and_old_sets():
+    old = dict(VALID_MINIMAL_ROWS["workout_logs"], sets=[{
+        "set": 1, "done": True, "type": "strength", "kg": 80, "reps": 8,
+    }])
+    assisted = dict(VALID_MINIMAL_ROWS["workout_logs"], sets=[{
+        "set": 1, "done": True, "type": "bodyweight", "kg": "", "reps": "12", "assisted_reps": 4,
+    }])
+
+    rv._validate_restore_row("workout_logs", old)
+    rv._validate_restore_row("workout_logs", assisted)
+
+
+@pytest.mark.parametrize("assisted_reps", [0, -1, 1.5, 13, "4", None, True])
+def test_workout_restore_rejects_invalid_assisted_reps(assisted_reps):
+    row = dict(VALID_MINIMAL_ROWS["workout_logs"], sets=[{
+        "set": 1, "done": True, "type": "strength", "kg": 80, "reps": 12, "assisted_reps": assisted_reps,
+    }])
+    with pytest.raises(ValueError, match="invalid_restore_field:workout_logs:sets"):
+        rv._validate_restore_row("workout_logs", row)
+
+
+def test_workout_restore_rejects_cardio_assisted_reps():
+    row = dict(VALID_MINIMAL_ROWS["workout_logs"], sets=[{
+        "set": 1, "done": True, "type": "cardio", "time": "10:00", "distance": "2.5", "pace": "4:00",
+        "assisted_reps": 1,
+    }])
+    with pytest.raises(ValueError, match="invalid_restore_field:workout_logs:sets"):
+        rv._validate_restore_row("workout_logs", row)
+
+
 def test_weekly_schedule_restore_contract_accepts_safe_fields_and_server_owner():
     rv._validate_restore_row(
         "weekly_schedules",

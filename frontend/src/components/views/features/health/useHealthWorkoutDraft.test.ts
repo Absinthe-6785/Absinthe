@@ -85,6 +85,48 @@ describe('useHealthWorkoutDraft', () => {
     expect(JSON.parse(localStorage.getItem(localHealthDraftKey('account-a', '2026-08-24'))!)).toEqual([edited]);
   });
 
+  it('preserves assisted-reps disclosure and draft input across draft restoration', async () => {
+    await renderScope('account-a', '2026-08-24');
+    const edited = workout('assisted-draft');
+    edited.sets[0] = { ...edited.sets[0], reps: '8', assisted_reps: '3' };
+
+    await act(async () => {
+      latest.setLocalWorkouts([edited]);
+      latest.setIsDirty(true);
+    });
+    const stored = localStorage.getItem(localHealthDraftKey('account-a', '2026-08-24'));
+    expect(JSON.parse(stored!)[0].sets[0]).toMatchObject({ reps: '8', assisted_reps: '3' });
+
+    await renderScope('account-a', '2026-08-25');
+    await renderScope('account-a', '2026-08-24');
+
+    expect(latest.localWorkouts[0].sets[0]).toMatchObject({ reps: '8', assisted_reps: '3' });
+    expect(latest.isDirty).toBe(true);
+  });
+
+  it('keeps assisted reps removed from later draft snapshots', async () => {
+    await renderScope('account-a', '2026-08-24');
+    const edited = workout('assistance-removed');
+    edited.sets[0] = { ...edited.sets[0], reps: '8', assisted_reps: '3' };
+    await act(async () => {
+      latest.setLocalWorkouts([edited]);
+      latest.setIsDirty(true);
+    });
+    await act(async () => {
+      latest.setLocalWorkouts(previous => previous.map(item => ({
+        ...item,
+        sets: item.sets.map(set => {
+          if (set.type === 'cardio') return set;
+          const { assisted_reps: _removed, ...withoutAssistance } = set;
+          return withoutAssistance;
+        }),
+      })));
+    });
+
+    const stored = JSON.parse(localStorage.getItem(localHealthDraftKey('account-a', '2026-08-24'))!);
+    expect(stored[0].sets[0]).not.toHaveProperty('assisted_reps');
+  });
+
   it('restores only the valid account/date draft and reports the restoration', async () => {
     const stored = [workout('stored-a')];
     localStorage.setItem(localHealthDraftKey('account-a', '2026-08-24'), JSON.stringify(stored));

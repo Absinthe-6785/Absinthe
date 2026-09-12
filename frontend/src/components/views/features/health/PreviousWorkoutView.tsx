@@ -3,6 +3,7 @@ import { isCardioSet, isStrengthSet } from '../../../../types';
 import type { TranslationKey } from '../../../../lib/i18n';
 import type { PreviousWorkoutSession } from './previousWorkoutSession';
 import { formatSavedWeight } from './healthWeight';
+import { fillAssistedRepsTemplate, getAssistedRepsBreakdown } from '../../../../lib/healthAssistedReps';
 
 export interface PreviousWorkoutViewProps {
   session: PreviousWorkoutSession | null;
@@ -40,6 +41,17 @@ export function formatPreviousStrengthWeight(
   return valueOrDash(value) === '—' ? '—' : `${value} ${weightUnit}`;
 }
 
+export function formatPreviousStrengthReps(
+  set: StrengthSet,
+  repsLabel: string,
+  assistedTemplate: string,
+): string {
+  const breakdown = getAssistedRepsBreakdown(set);
+  return breakdown
+    ? fillAssistedRepsTemplate(assistedTemplate, breakdown)
+    : `${valueOrDash(set.reps)} ${repsLabel}`;
+}
+
 function StrengthSetRow({ set, blockId, blockType, formatWeight, weightUnit, t, theme }: {
   set: WorkoutSet;
   blockId: string;
@@ -62,7 +74,7 @@ function StrengthSetRow({ set, blockId, blockType, formatWeight, weightUnit, t, 
     <div className={`grid grid-cols-[auto_1fr_1fr] items-center gap-2 rounded-xl border px-3 py-2.5 text-sm ${theme.border} ${theme.input}`}>
       <span className={`text-xs font-bold ${theme.textMuted}`}>{t('previousSetLabel').replace('{set}', String(set.set))}</span>
       <span className="text-center font-bold tabular-nums">{weight}</span>
-      <span className="text-right font-semibold tabular-nums">{valueOrDash(set.reps)} {t('previousReps')}</span>
+      <span className="text-right font-semibold tabular-nums">{formatPreviousStrengthReps(set, t('previousReps'), t('healthAssistedBreakdown'))}</span>
     </div>
   );
 }

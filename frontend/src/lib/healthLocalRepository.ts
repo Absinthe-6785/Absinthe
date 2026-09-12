@@ -9,6 +9,7 @@ import {
   type HealthRecoveryExport,
 } from './healthRecoveryExport';
 import { stableRecoveryJson } from './recoveryExportPackage';
+import { hasAssistedRepsField, hasValidDurableAssistedReps } from './healthAssistedReps';
 
 export const HEALTH_LOCAL_DATABASE_NAME = 'absinthe.health.local';
 export const HEALTH_LOCAL_DATABASE_VERSION = 1;
@@ -316,6 +317,9 @@ function validateLocalWorkoutInput(input: LocalWorkoutWriteInput, accountId: str
       if (!isFiniteLocalNumber(set.kg, true) || !isFiniteLocalNumber(set.reps, true)) {
         throw new Error(`health_local_workout_set_measurement_invalid:${index}`);
       }
+      if (!hasValidDurableAssistedReps(set)) {
+        throw new Error(`health_local_workout_set_assisted_reps_invalid:${index}`);
+      }
       const hasSourceValue = Object.prototype.hasOwnProperty.call(set, 'weight_source_value');
       const hasSourceUnit = Object.prototype.hasOwnProperty.call(set, 'weight_source_unit');
       if (hasSourceValue !== hasSourceUnit
@@ -326,6 +330,7 @@ function validateLocalWorkoutInput(input: LocalWorkoutWriteInput, accountId: str
         throw new Error(`health_local_workout_set_source_invalid:${index}`);
       }
     } else if (set.type === 'cardio') {
+      if (hasAssistedRepsField(set)) throw new Error(`health_local_workout_set_assisted_reps_cardio:${index}`);
       if (typeof set.time !== 'string' || !isFiniteLocalNumber(set.distance, true) || typeof set.pace !== 'string') {
         throw new Error(`health_local_workout_set_cardio_invalid:${index}`);
       }

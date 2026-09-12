@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Workout, WorkoutSet } from '@/types';
-import { plannedSetCount, buildSetsFromPrevCount } from './workoutSetCount';
+import { plannedSetCount, buildSetsFromPlannedCount, buildSetsFromPrevCount } from './workoutSetCount';
 
 describe('workoutSetCount', () => {
   it('uses today workout set count when present', () => {
@@ -15,7 +15,7 @@ describe('workoutSetCount', () => {
 
   it('falls back to previous session count', () => {
     const prev: WorkoutSet[] = [
-      { type: 'strength', set: 1, kg: '100', reps: '5', done: true },
+      { type: 'strength', set: 1, kg: '100', reps: '5', assisted_reps: 2, done: true },
       { type: 'strength', set: 2, kg: '100', reps: '5', done: true },
       { type: 'strength', set: 3, kg: '100', reps: '5', done: true },
     ];
@@ -30,5 +30,11 @@ describe('workoutSetCount', () => {
     const sets = buildSetsFromPrevCount('strength', prev);
     expect(sets).toHaveLength(2);
     expect(sets[0]?.kg).toBe('');
+    expect(sets.every(set => !Object.prototype.hasOwnProperty.call(set, 'assisted_reps'))).toBe(true);
+  });
+
+  it('keeps planned strength and bodyweight sets assistance-free', () => {
+    expect(buildSetsFromPlannedCount('strength', 3).every(set => !('assisted_reps' in set))).toBe(true);
+    expect(buildSetsFromPlannedCount('bodyweight', 3).every(set => !('assisted_reps' in set))).toBe(true);
   });
 });

@@ -127,6 +127,33 @@ describe('complete Health recovery export', () => {
     expect(exported.datasets.workout_logs[0]?.sets).toEqual(input.workout_logs[0]?.sets);
   });
 
+  it('preserves valid assisted reps and rejects invalid or cardio-assisted recovery data', async () => {
+    const input = datasets();
+    input.workout_logs[0].sets = [{
+      type: 'bodyweight', set: 1, kg: '', reps: '12', assisted_reps: 4, done: true,
+    }];
+    const exported = await buildHealthRecoveryExport({
+      sourceAccount: { userId: USER_ID, email: 'a@b.test' }, exportedAt: '2026-08-12T00:00:00Z', datasets: input,
+    });
+    expect(exported.datasets.workout_logs[0]?.sets).toEqual(input.workout_logs[0]?.sets);
+
+    for (const assisted_reps of [0, -1, 1.5, 13, '4', null]) {
+      input.workout_logs[0].sets = [{
+        type: 'strength', set: 1, kg: 60, reps: 12, assisted_reps, done: true,
+      }];
+      expect(validateHealthRecoveryDatasets(input, USER_ID)).toContainEqual(expect.objectContaining({
+        field: 'sets[0].assisted_reps', code: 'positive_integer_subset_required',
+      }));
+    }
+
+    input.workout_logs[0].sets = [{
+      type: 'cardio', set: 1, time: '10:00', distance: '', pace: '', assisted_reps: 1, done: true,
+    }];
+    expect(validateHealthRecoveryDatasets(input, USER_ID)).toContainEqual(expect.objectContaining({
+      field: 'sets[0].assisted_reps', code: 'field_not_allowed_for_cardio',
+    }));
+  });
+
   it('rejects incomplete saved weight source metadata without weakening recovery validation', () => {
     const input = datasets();
     input.workout_logs[0].sets = [{

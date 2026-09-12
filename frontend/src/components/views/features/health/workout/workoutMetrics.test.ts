@@ -79,4 +79,22 @@ describe('workoutMetrics', () => {
     );
     expect(badge?.isPR).toBe(true);
   });
+
+  it('keeps the official kg PR path unchanged for assisted sets', () => {
+    const badge = computeWorkoutPrBadge(
+      {
+        id: 'today', block_id: 'pullup', exercise_blocks: { name: 'Weighted pull-up', type: 'strength' },
+        sets: [{ type: 'strength', set: 1, kg: 20, reps: 8, assisted_reps: 3, done: true }],
+      },
+      {
+        prev_sets: [{ type: 'strength', set: 1, kg: 15, reps: 10, done: true }],
+        prev_date: '2026-08-20',
+        pr_kg: 15,
+      },
+      kg => kg,
+      'kg',
+    );
+
+    expect(badge).toMatchObject({ isPR: true, diff: 5, prevMax: 15, unit: 'kg' });
+  });
 });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { StrengthSet } from '../../../../types';
-import { formatPreviousStrengthWeight } from './PreviousWorkoutView';
+import { formatPreviousStrengthReps, formatPreviousStrengthWeight } from './PreviousWorkoutView';
 
 const formatWeight = (value: number | string): string => {
   if (value === '') return '';
@@ -48,5 +48,12 @@ describe('Previous Workout strength/bodyweight display', () => {
   it('keeps a numeric zero strength weight numeric', () => {
     expect(formatPreviousStrengthWeight(strength({ kg: 0 }), 'press', 'strength', formatWeight, 'kg', 'Bodyweight'))
       .toBe('0 kg');
+  });
+
+  it('renders assisted reps as a compact derived split and keeps ordinary reps unchanged', () => {
+    expect(formatPreviousStrengthReps(strength({ reps: 12, assisted_reps: 4 }), 'reps', '{unassisted} + {assisted} assisted'))
+      .toBe('8 + 4 assisted');
+    expect(formatPreviousStrengthReps(strength({ reps: 8 }), 'reps', '{unassisted} + {assisted} assisted'))
+      .toBe('8 reps');
   });
 });

@@ -38,6 +38,8 @@ import { PreviousWorkoutSheet } from './features/health/PreviousWorkoutSheet';
 import { previousWorkoutSWRConfig } from './features/health/previousWorkoutSWR';
 import { HealthMobileSetupNav, type HealthMobileSurface, type HealthSetupSection } from './features/health/HealthMobileSetupNav';
 import { HealthMobileWorkoutActions } from './features/health/HealthMobileWorkoutActions';
+import { HealthAssistedRepsInput } from './features/health/HealthAssistedRepsInput';
+import { HealthSetActions } from './features/health/HealthSetActions';
 import {
   HealthExecutionColumn,
   HealthSetupColumn,
@@ -89,6 +91,12 @@ import {
   localHealthWriteFailureDisposition,
   type HealthAccountGenerationToken,
 } from '../../lib/healthBackfillUiSafety';
+import {
+  ASSISTED_REPS_VALIDATION_ERROR,
+  formatWorkoutSummaryStrengthSetLine,
+  hasAssistedRepsField,
+  supportsAssistedReps,
+} from '../../lib/healthAssistedReps';
 
 type PreviousWorkoutSWRKey =
   | readonly ['local', string, string, string]
@@ -203,6 +211,8 @@ export const HealthView = ({
   const pendingLatestWorkoutIndexRef = useRef<number | null>(null);
   const quickCaptureInputRef = useRef<HTMLInputElement | null>(null);
   const pendingFocusSetRef = useRef<{ wIdx: number; sIdx: number } | null>(null);
+  const assistedInputRef = useRef<HTMLInputElement | null>(null);
+  const pendingAssistedFocusRef = useRef<{ wIdx: number; sIdx: number } | null>(null);
   const handleConfirmCancel = () => {
     clearPresetConfirmationMarker();
     clearConfirm();
@@ -292,13 +302,16 @@ export const HealthView = ({
           if (s.distance) parts.push(`📍 ${s.distance}km`);
           if (s.pace)     parts.push(`🏃 ${s.pace}/km`);
           lines.push(`   ${parts.join('  ')}`);
-        } else {
+        } else if (isStrengthSet(s)) {
           const unit = weightUnits[w.block_id] === 'lbs' ? 'lbs' : 'kg';
-          const displayVal = isStrengthSet(s) ? formatSavedWeight(s, unit) : '';
+          const displayVal = formatSavedWeight(s, unit);
           const kgStr = displayVal !== '' ? `${displayVal}${unit}` : '-';
-          const reps = s.reps !== '' ? `${s.reps}reps` : '-';
-          const drop = s.is_dropset ? ' [DROP]' : '';
-          lines.push(`   Set ${s.set}${drop}  ${kgStr} × ${reps}`);
+          lines.push(formatWorkoutSummaryStrengthSetLine({
+            set: s,
+            weight: kgStr,
+            bodyweightLabel: t('previousBodyweight'),
+            assistedTemplate: t('healthAssistedCompact'),
+          }));
         }
       });
       lines.push('');
@@ -326,7 +339,7 @@ export const HealthView = ({
     }
     if (memo.trim()) { lines.push(''); lines.push(`📝 ${memo.trim()}`); }
     return lines.join('\n');
-  }, [weightUnits]);
+  }, [t, weightUnits]);
 
   // ── 드래그 정렬 상태 (워크아웃) ──────────────────────────────────
   const [dragIndex, setDragIndex] = useState<number | null>(null);
@@ -879,6 +892,29 @@ export const HealthView = ({
       return next;
     });
   };
+  const handleAddAssistedReps = (wIdx: number, sIdx: number) => {
+    if (isWorkoutLocked) return;
+    pendingAssistedFocusRef.current = { wIdx, sIdx };
+    handleUpdateSet(wIdx, sIdx, 'assisted_reps', '');
+  };
+  const handleRemoveAssistedReps = (wIdx: number, sIdx: number) => {
+    if (isWorkoutLocked) return;
+    setIsDirty(true);
+    setLocalWorkouts(prev => prev.map((workout, workoutIndex) => {
+      if (workoutIndex !== wIdx) return workout;
+      return {
+        ...workout,
+        sets: workout.sets.map((set, setIndex) => {
+          if (setIndex !== sIdx || !isStrengthSet(set)) return set;
+          const { assisted_reps: _removed, ...withoutAssistance } = set;
+          return withoutAssistance;
+        }),
+      };
+    }));
+  };
+  const handleAssistedRepsBlur = (wIdx: number, sIdx: number, value: string) => {
+    if (value.trim() === '' || Number(value) === 0) handleRemoveAssistedReps(wIdx, sIdx);
+  };
   const handleWeightInput = (wIdx: number, sIdx: number, raw: string) => {
     const workout = localWorkouts[wIdx];
     if (!workout) return;
@@ -924,15 +960,15 @@ export const HealthView = ({
       dateKey: selectedDateDraftKey,
     };
     setIsSaving(true);
-    const normalizedWorkouts = localWorkouts.map(workout => ({
-      ...workout,
-      sets: workout.sets.map(set => {
-        if (!isStrengthSet(set)) return set;
-        return normalizeStrengthSetForSave(set, getUnit(workout.block_id));
-      }),
-    }));
 
     try {
+      const normalizedWorkouts = localWorkouts.map(workout => ({
+        ...workout,
+        sets: workout.sets.map(set => {
+          if (!isStrengthSet(set)) return set;
+          return normalizeStrengthSetForSave(set, getUnit(workout.block_id));
+        }),
+      }));
       const persistence = await saveHealthWorkouts({
         mode: localMode ? 'local' : 'remote',
         accountId: operationScope.accountOperation.accountId,
@@ -992,7 +1028,12 @@ export const HealthView = ({
       if (!currentWorkoutOperation(operationScope)) return;
       const failure = localHealthWriteFailureDisposition(error);
       setIsSaving(false);
-      showToast(t(failure.kind === 'conflict' ? 'healthWriteConflict' : 'failedSave'), 'error');
+      showToast(
+        error instanceof Error && error.message === ASSISTED_REPS_VALIDATION_ERROR
+          ? t('healthAssistedRepsInvalid')
+          : t(failure.kind === 'conflict' ? 'healthWriteConflict' : 'failedSave'),
+        'error',
+      );
       return;
     }
   };
@@ -1169,6 +1210,15 @@ export const HealthView = ({
       0,
     );
     return { exerciseCount, setCount, doneCount };
+  }, [localWorkouts]);
+
+  useEffect(() => {
+    if (!pendingAssistedFocusRef.current) return;
+    requestAnimationFrame(() => {
+      assistedInputRef.current?.focus({ preventScroll: true });
+      assistedInputRef.current?.select();
+      pendingAssistedFocusRef.current = null;
+    });
   }, [localWorkouts]);
   const hasWorkoutRecords = workoutSessionSummary.exerciseCount > 0;
 
@@ -1519,18 +1569,25 @@ export const HealthView = ({
                 getUnit(w.block_id),
                 w.exercise_blocks?.type,
               );
-              const previousBestLabel = previousBestCue?.kind === 'bodyweight'
-                ? t('previousBestBodyweight').replace('{reps}', previousBestCue.reps)
-                : previousBestCue?.reps
-                  ? t('previousBestWeightReps')
-                    .replace('{weight}', previousBestCue.weight)
-                    .replace('{unit}', previousBestCue.unit)
-                    .replace('{reps}', previousBestCue.reps)
-                  : previousBestCue
-                    ? t('previousBestWeightOnly')
+              const previousBestReps = previousBestCue?.assistedReps
+                ? t('healthAssistedBreakdown')
+                  .replace('{unassisted}', previousBestCue.reps ?? '')
+                  .replace('{assisted}', previousBestCue.assistedReps)
+                : previousBestCue?.reps;
+              const previousBestLabel = !previousBestCue
+                ? null
+                : previousBestCue.kind === 'bodyweight'
+                  ? t(previousBestCue.assistedReps ? 'previousBestBodyweightAssisted' : 'previousBestBodyweight')
+                    .replace('{bodyweight}', t('previousBodyweight'))
+                    .replace('{reps}', previousBestReps ?? '')
+                  : previousBestReps
+                    ? t('previousBestWeightReps')
                       .replace('{weight}', previousBestCue.weight)
                       .replace('{unit}', previousBestCue.unit)
-                    : null;
+                      .replace('{reps}', previousBestReps)
+                    : t('previousBestWeightOnly')
+                      .replace('{weight}', previousBestCue.weight)
+                      .replace('{unit}', previousBestCue.unit);
               return (
                 <div
                 key={w.id}
@@ -1614,7 +1671,7 @@ export const HealthView = ({
                   const mode = w.exercise_blocks?.cardio_mode ?? 'both';
                   return (
                     <div className={`flex gap-1.5 px-2 mb-1 text-[11px] font-bold ${theme.textMuted}`}>
-                      <div className="w-7 text-center shrink-0 opacity-50">{t('tapDel')}</div>
+                      <div className="w-7 text-center shrink-0 opacity-50" title={t('healthSetActionsTitle')}>#</div>
                       {(mode === 'time' || mode === 'both') && <div className="flex-1 text-center">{t('colMmss')}</div>}
                       {(mode === 'distance' || mode === 'both') && <div className="flex-1 text-center">km</div>}
                       <div className="w-9 text-center shrink-0">✓</div>
@@ -1624,7 +1681,7 @@ export const HealthView = ({
                 {/* 컬럼 헤더 — strength/bodyweight만 */}
                 {isStrengthSet(w.sets?.[0] ?? makeDefaultSet(w.exercise_blocks?.type ?? 'strength')) && (
                   <div className={`flex gap-1.5 px-2 mb-1 text-[11px] font-bold ${theme.textMuted}`}>
-                    <div className="w-7 text-center shrink-0 opacity-50">{t('tapDel')}</div>
+                    <div className="w-7 text-center shrink-0 opacity-50" title={t('healthSetActionsTitle')}>#</div>
                     {w.exercise_blocks?.type !== 'bodyweight' && (
                       <div className="flex-1 flex items-center justify-center">
                         <button
@@ -1655,18 +1712,27 @@ export const HealthView = ({
                       getUnit(w.block_id),
                       w.exercise_blocks?.type,
                     );
-                    const previousSetLabel = previousSetCue?.kind === 'bodyweight'
-                      ? t('previousSetReferenceBodyweight').replace('{reps}', previousSetCue.reps)
-                      : previousSetCue?.reps
-                        ? t('previousSetReferenceWeightReps')
-                          .replace('{weight}', previousSetCue.weight)
-                          .replace('{unit}', previousSetCue.unit)
-                          .replace('{reps}', previousSetCue.reps)
-                        : previousSetCue
-                          ? t('previousSetReferenceWeightOnly')
+                    const previousSetReps = previousSetCue?.assistedReps
+                      ? t('healthAssistedBreakdown')
+                        .replace('{unassisted}', previousSetCue.reps ?? '')
+                        .replace('{assisted}', previousSetCue.assistedReps)
+                      : previousSetCue?.reps;
+                    const previousSetLabel = !previousSetCue
+                      ? null
+                      : previousSetCue.kind === 'bodyweight'
+                        ? t(previousSetCue.assistedReps ? 'previousSetReferenceBodyweightAssisted' : 'previousSetReferenceBodyweight')
+                          .replace('{bodyweight}', t('previousBodyweight'))
+                          .replace('{reps}', previousSetReps ?? '')
+                        : previousSetReps
+                          ? t('previousSetReferenceWeightReps')
                             .replace('{weight}', previousSetCue.weight)
                             .replace('{unit}', previousSetCue.unit)
-                          : null;
+                            .replace('{reps}', previousSetReps)
+                          : t('previousSetReferenceWeightOnly')
+                            .replace('{weight}', previousSetCue.weight)
+                            .replace('{unit}', previousSetCue.unit);
+                    const assistedEligible = supportsAssistedReps(s) && w.exercise_blocks?.type !== 'cardio';
+                    const assistedActive = assistedEligible && hasAssistedRepsField(s);
                     return (
                       <div key={sIdx} className={`rounded-xl overflow-hidden transition-opacity ${s.done ? 'opacity-55' : ''}`}>
                         {/* 드랍세트 구분선 */}
@@ -1683,18 +1749,25 @@ export const HealthView = ({
                           ${isDS ? 'bg-orange-400/10 border-orange-400/30' : `${theme.input} ${theme.border}`}`}
                         >
 
-                          {/* 세트 번호 — 탭하면 해당 세트 삭제 */}
-                          <button
-                            onClick={() => !isWorkoutLocked && w.sets.length > 1 && handleRemoveSet(wIdx, sIdx)}
-                            title={isWorkoutLocked ? '' : t('healthTapDeleteSet')}
-                            className={`w-8 h-8 text-xs font-bold flex items-center justify-center rounded-lg shrink-0 transition-colors
-                              ${isWorkoutLocked
-                                ? theme.textMuted
-                                : w.sets.length > 1
-                                  ? `active:bg-red-500 active:text-white ${theme.card}`
-                                  : theme.textMuted}`}>
-                            {sIdx + 1}
-                          </button>
+                          <HealthSetActions
+                            setNumber={sIdx + 1}
+                            eligible={assistedEligible}
+                            assistedActive={assistedActive}
+                            canDelete={w.sets.length > 1}
+                            locked={isWorkoutLocked}
+                            isMobile={isMobile}
+                            theme={theme}
+                            labels={{
+                              trigger: t('healthSetActions').replace('{set}', String(sIdx + 1)),
+                              title: t('healthSetActionsTitle'),
+                              addAssisted: t('healthAddAssistedReps'),
+                              removeAssisted: t('healthRemoveAssistedReps'),
+                              deleteSet: t('healthDeleteSet'),
+                            }}
+                            onAddAssisted={() => handleAddAssistedReps(wIdx, sIdx)}
+                            onRemoveAssisted={() => handleRemoveAssistedReps(wIdx, sIdx)}
+                            onDelete={() => handleRemoveSet(wIdx, sIdx)}
+                          />
 
                           {/* Strength 입력 (카드별 kg/lbs 단위 변환) */}
                           {isStrengthSet(s) && w.exercise_blocks?.type !== 'bodyweight' && (
@@ -1759,6 +1832,22 @@ export const HealthView = ({
                             </svg>
                           </button>
                         </div>
+                        {assistedActive && isStrengthSet(s) && (
+                          <HealthAssistedRepsInput
+                            set={s}
+                            inputId={`health-assisted-${wIdx}-${sIdx}`}
+                            inputRef={pendingAssistedFocusRef.current?.wIdx === wIdx && pendingAssistedFocusRef.current?.sIdx === sIdx
+                              ? assistedInputRef
+                              : undefined}
+                            locked={isWorkoutLocked}
+                            theme={theme}
+                            label={t('healthAssistedReps')}
+                            compactTemplate={t('healthAssistedCompact')}
+                            invalidMessage={t('healthAssistedRepsInvalid')}
+                            onChange={value => handleUpdateSet(wIdx, sIdx, 'assisted_reps', value)}
+                            onBlur={value => handleAssistedRepsBlur(wIdx, sIdx, value)}
+                          />
+                        )}
                         {previousSetLabel && (
                           <p
                             className={`px-3 pt-1 text-[11px] font-semibold ${theme.textMuted}`}

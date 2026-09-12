@@ -1,4 +1,5 @@
 import type { StrengthSet } from '../../../../types';
+import { normalizeAssistedRepsForSave } from '../../../../lib/healthAssistedReps';
 
 export type WeightUnit = 'kg' | 'lbs';
 
@@ -95,7 +96,7 @@ export function inputToCanonicalKg(value: string, unit: WeightUnit): string {
   return String(convertWeight(parsed, unit, 'kg'));
 }
 
-export function normalizeStrengthSetForSave(
+function normalizeStrengthWeightForSave(
   set: StrengthSet,
   activeUnit: WeightUnit,
 ): StrengthSet {
@@ -151,4 +152,11 @@ export function normalizeStrengthSetForSave(
     weight_source_value: sourceValue,
     weight_source_unit: sourceUnit,
   };
+}
+
+export function normalizeStrengthSetForSave(
+  set: StrengthSet,
+  activeUnit: WeightUnit,
+): StrengthSet {
+  return normalizeAssistedRepsForSave(normalizeStrengthWeightForSave(set, activeUnit));
 }

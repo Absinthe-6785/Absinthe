@@ -1,4 +1,5 @@
 import { stableRecoveryJson } from './recoveryExportPackage';
+import { hasAssistedRepsField, hasValidDurableAssistedReps } from './healthAssistedReps';
 
 export const HEALTH_RECOVERY_EXPORT_FORMAT = 'absinthe-health-recovery-export';
 export const HEALTH_RECOVERY_EXPORT_VERSION = 1;
@@ -193,6 +194,9 @@ function validateSet(dataset: HealthRecoveryDatasetName, rowIndex: number, value
   if (set.type === 'strength' || set.type === 'bodyweight') {
     if (!finitePersisted(set.kg, true)) out.push(issue(dataset, rowIndex, `${prefix}.kg`, 'finite_numeric_or_empty_required'));
     if (!finitePersisted(set.reps, true)) out.push(issue(dataset, rowIndex, `${prefix}.reps`, 'finite_numeric_or_empty_required'));
+    if (!hasValidDurableAssistedReps(set)) {
+      out.push(issue(dataset, rowIndex, `${prefix}.assisted_reps`, 'positive_integer_subset_required'));
+    }
     const hasSourceValue = Object.prototype.hasOwnProperty.call(set, 'weight_source_value');
     const hasSourceUnit = Object.prototype.hasOwnProperty.call(set, 'weight_source_unit');
     if (hasSourceValue !== hasSourceUnit) {
@@ -206,6 +210,9 @@ function validateSet(dataset: HealthRecoveryDatasetName, rowIndex: number, value
       out.push(issue(dataset, rowIndex, prefix, 'weight_source_metadata_invalid'));
     }
   } else if (set.type === 'cardio') {
+    if (hasAssistedRepsField(set)) {
+      out.push(issue(dataset, rowIndex, `${prefix}.assisted_reps`, 'field_not_allowed_for_cardio'));
+    }
     if (typeof set.time !== 'string') out.push(issue(dataset, rowIndex, `${prefix}.time`, 'string_required'));
     if (!finitePersisted(set.distance, true)) out.push(issue(dataset, rowIndex, `${prefix}.distance`, 'finite_numeric_or_empty_required'));
     if (typeof set.pace !== 'string') out.push(issue(dataset, rowIndex, `${prefix}.pace`, 'string_required'));

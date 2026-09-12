@@ -60,6 +60,18 @@ def _integer(value: object) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
 
 
+def _persisted_integer(value: object) -> int | None:
+    if _integer(value):
+        return value
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = float(value.strip())
+    except ValueError:
+        return None
+    return int(parsed) if math.isfinite(parsed) and parsed.is_integer() else None
+
+
 def _weekly_day(value: object) -> bool:
     return _integer(value) and 0 <= value <= 6
 
@@ -116,6 +128,16 @@ def _workout_sets(value: object) -> bool:
                 return False
             if not _finite_persisted(item.get("reps"), allow_empty=True):
                 return False
+            if "assisted_reps" in item:
+                assisted_reps = item["assisted_reps"]
+                total_reps = _persisted_integer(item.get("reps"))
+                if (
+                    not _integer(assisted_reps)
+                    or assisted_reps <= 0
+                    or total_reps is None
+                    or assisted_reps > total_reps
+                ):
+                    return False
             has_source_value = "weight_source_value" in item
             has_source_unit = "weight_source_unit" in item
             if has_source_value != has_source_unit:
@@ -127,6 +149,8 @@ def _workout_sets(value: object) -> bool:
             ):
                 return False
         elif item["type"] == "cardio":
+            if "assisted_reps" in item:
+                return False
             if not isinstance(item.get("time"), str) or not isinstance(item.get("pace"), str):
                 return False
             if not _finite_persisted(item.get("distance"), allow_empty=True):

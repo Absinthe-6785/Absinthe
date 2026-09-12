@@ -32,6 +32,16 @@ describe('Health previous set references', () => {
     expect(selectPreviousBestSet([lowerReps, higherReps])).toBe(higherReps);
   });
 
+  it('uses derived unassisted reps for equal-weight and bodyweight ordering', () => {
+    const fullyUnassisted = strength({ kg: 100, reps: 8 });
+    const assistedTotal = strength({ set: 2, kg: 100, reps: 10, assisted_reps: 4 });
+    expect(selectPreviousBestSet([fullyUnassisted, assistedTotal])).toBe(fullyUnassisted);
+
+    const bodyweightUnassisted = bodyweight({ reps: 8 });
+    const bodyweightAssisted = bodyweight({ set: 2, reps: 10, assisted_reps: 4 });
+    expect(selectPreviousBestSet([bodyweightUnassisted, bodyweightAssisted], 'bodyweight')).toBe(bodyweightUnassisted);
+  });
+
   it('preserves historical order when weight and reps tie', () => {
     const first = strength({ kg: 100, reps: 10 });
     const second = strength({ set: 2, kg: 100, reps: 10 });
@@ -127,5 +137,12 @@ describe('Health previous set references', () => {
     const before = structuredClone(historical);
     expect(formatPreviousSetReference(historical, 'kg')).toEqual({ kind: 'weighted', weight: '102.4', unit: 'kg', reps: '8' });
     expect(historical).toEqual(before);
+  });
+
+  it('formats assisted history as derived unassisted plus assisted', () => {
+    expect(formatPreviousSetReference(strength({ kg: 100, reps: 12, assisted_reps: 4 }), 'kg'))
+      .toEqual({ kind: 'weighted', weight: '100', unit: 'kg', reps: '8', assistedReps: '4' });
+    expect(formatPreviousBestCue([bodyweight({ reps: 12, assisted_reps: 4 })], 'kg', 'bodyweight'))
+      .toEqual({ kind: 'bodyweight', reps: '8', assistedReps: '4' });
   });
 });

@@ -86,6 +86,18 @@ def strength_set(**overrides: object) -> dict:
     }
 
 
+def cardio_set(**overrides: object) -> dict:
+    return {
+        "type": "cardio",
+        "set": 1,
+        "time": "10:00",
+        "distance": "2.5",
+        "pace": "4:00",
+        "done": True,
+        **overrides,
+    }
+
+
 def workout_payload(sets: list[dict]) -> dict:
     return {
         "date": "2026-08-24",
@@ -164,6 +176,42 @@ def test_remote_save_accepts_numeric_zero_source_values(workout_client, source_v
 
     assert response.status_code == 200
     assert supabase.operations[0][0] == "insert"
+
+
+@pytest.mark.parametrize("set_type", ["strength", "bodyweight"])
+def test_remote_save_round_trips_valid_assisted_reps(workout_client, set_type):
+    client, supabase = workout_client
+    assisted = strength_set(type=set_type, kg="" if set_type == "bodyweight" else 100, reps="12", assisted_reps=4)
+
+    response = client.post("/api/workouts", json=workout_payload([assisted]))
+    read_response = client.get("/api/workouts", params={"date": "2026-08-24"})
+
+    assert response.status_code == 200
+    assert read_response.status_code == 200
+    assert supabase.operations[0][1]["sets"][0]["reps"] == "12"
+    assert supabase.operations[0][1]["sets"][0]["assisted_reps"] == 4
+    assert read_response.json()[0]["sets"][0]["assisted_reps"] == 4
+
+
+@pytest.mark.parametrize(
+    "invalid_set",
+    [
+        strength_set(reps=12, assisted_reps=0),
+        strength_set(reps=12, assisted_reps=-1),
+        strength_set(reps=12, assisted_reps=1.5),
+        strength_set(reps=12, assisted_reps=13),
+        strength_set(reps="invalid", assisted_reps=1),
+        strength_set(reps=12, assisted_reps="4"),
+        cardio_set(assisted_reps=1),
+    ],
+)
+def test_remote_save_rejects_invalid_or_cardio_assisted_reps(workout_client, invalid_set):
+    client, supabase = workout_client
+
+    response = client.post("/api/workouts", json=workout_payload([invalid_set]))
+
+    assert response.status_code == 422
+    assert supabase.operations == []
 
 
 def test_invalid_remote_update_preserves_existing_row(workout_client):

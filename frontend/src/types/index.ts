@@ -48,7 +48,10 @@ export interface StrengthSet {
   type: 'strength' | 'bodyweight';
   set: number;
   kg: number | string;
+  /** Total performed repetitions, including any assisted subset. */
   reps: number | string;
+  /** Draft may be empty; durable saves normalize this assisted subset to a positive integer. */
+  assisted_reps?: number | string;
   done: boolean;
   is_dropset?: boolean;  // 드랍세트 여부 — 이전 세트와 무게만 변경
   /** Saved per-set source value used for stable kg/lbs display round trips. */
