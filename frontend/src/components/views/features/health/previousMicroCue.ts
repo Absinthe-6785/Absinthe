@@ -1,5 +1,10 @@
 import { isStrengthSet, type StrengthSet, type WorkoutSet } from '../../../../types';
 import {
+  getAssistedRepsBreakdown,
+  hasAssistedRepsField,
+  unassistedRepsForComparison,
+} from '../../../../lib/healthAssistedReps';
+import {
   canonicalWeightKg,
   formatSavedWeight,
   savedWeightSource,
@@ -7,8 +12,8 @@ import {
 } from './healthWeight';
 
 export type PreviousPerformanceCue =
-  | { kind: 'weighted'; weight: string; unit: WeightUnit; reps: string | null }
-  | { kind: 'bodyweight'; reps: string };
+  | { kind: 'weighted'; weight: string; unit: WeightUnit; reps: string | null; assistedReps?: string }
+  | { kind: 'bodyweight'; reps: string; assistedReps?: string };
 
 function validRepsNumber(value: StrengthSet['reps']): number | null {
   const parsed = typeof value === 'number' ? value : Number(String(value).trim());
@@ -18,6 +23,14 @@ function validRepsNumber(value: StrengthSet['reps']): number | null {
 function validReps(value: StrengthSet['reps']): string | null {
   const parsed = validRepsNumber(value);
   return parsed === null ? null : String(parsed);
+}
+
+function performanceReps(set: StrengthSet): { reps: string; assistedReps?: string } | null {
+  const breakdown = getAssistedRepsBreakdown(set);
+  if (breakdown) return { reps: String(breakdown.unassisted), assistedReps: String(breakdown.assisted) };
+  if (hasAssistedRepsField(set)) return null;
+  const reps = validReps(set.reps);
+  return reps ? { reps } : null;
 }
 
 function isBodyweightSet(set: StrengthSet, blockType: string): boolean {
@@ -41,7 +54,7 @@ function savedPositiveWeightKg(set: StrengthSet): number | null {
 
 function hasUsableReferenceValue(set: StrengthSet, blockType: string): boolean {
   return isBodyweightSet(set, blockType)
-    ? validRepsNumber(set.reps) !== null
+    ? unassistedRepsForComparison(set) !== null
     : savedPositiveWeightKg(set) !== null;
 }
 
@@ -87,7 +100,7 @@ export function selectPreviousBestSet(
     // a malformed mixed array must not let bodyweight reps outrank a weighted
     // strength set (or vice versa).
     if (blockType === 'bodyweight' ? !isBodyweightSet(set, blockType) : isBodyweightSet(set, blockType)) continue;
-    const reps = validRepsNumber(set.reps) ?? -Infinity;
+    const reps = unassistedRepsForComparison(set) ?? -Infinity;
 
     if (isBodyweightSet(set, blockType)) {
       if (reps > bestReps) {
@@ -116,14 +129,14 @@ function formatPreviousPerformance(
 ): PreviousPerformanceCue | null {
   if (!set || !set.done || !hasUsableReferenceValue(set, blockType)) return null;
   if (isBodyweightSet(set, blockType)) {
-    const reps = validReps(set.reps);
-    return reps ? { kind: 'bodyweight', reps } : null;
+    const performance = performanceReps(set);
+    return performance ? { kind: 'bodyweight', ...performance } : null;
   }
 
   const weight = formatSavedWeight(set, displayUnit);
-  return weight
-    ? { kind: 'weighted', weight, unit: displayUnit, reps: validReps(set.reps) }
-    : null;
+  if (!weight) return null;
+  const performance = performanceReps(set);
+  return { kind: 'weighted', weight, unit: displayUnit, reps: performance?.reps ?? null, assistedReps: performance?.assistedReps };
 }
 
 export function formatPreviousBestCue(

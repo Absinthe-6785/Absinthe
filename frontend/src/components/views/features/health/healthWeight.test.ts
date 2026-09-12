@@ -141,11 +141,20 @@ describe('Health weight source precision', () => {
   });
 
   it('does not carry explicit edit metadata into a copied drop set', () => {
-    const edited = strength({ kg: '102.365821', weight_input_raw: '225.678', weight_input_unit: 'lbs' });
+    const edited = strength({ kg: '102.365821', weight_input_raw: '225.678', weight_input_unit: 'lbs', assisted_reps: 3 });
     const copied = makeNextSet(edited, true) as StrengthSet;
     expect(copied).not.toHaveProperty('weight_input_raw');
     expect(copied).not.toHaveProperty('weight_input_unit');
+    expect(copied).not.toHaveProperty('assisted_reps');
     expect(hasWeightInputDraft(edited)).toBe(true);
     expect(hasWeightInputDraft(copied)).toBe(false);
+  });
+
+  it('canonicalizes assisted reps after preserving weight normalization', () => {
+    const saved = normalizeStrengthSetForSave(
+      strength({ reps: '12', assisted_reps: '4', kg: '100', weight_input_raw: '100', weight_input_unit: 'kg' }),
+      'kg',
+    );
+    expect(saved).toMatchObject({ reps: '12', assisted_reps: 4, kg: 100, weight_source_unit: 'kg' });
   });
 });

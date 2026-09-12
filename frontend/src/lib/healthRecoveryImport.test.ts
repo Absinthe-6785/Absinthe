@@ -949,6 +949,42 @@ describe('local Health backfill writes', () => {
     db.close();
   });
 
+  it('round-trips assisted strength/bodyweight sets and rejects cardio contamination locally', async () => {
+    const databaseName = `absinthe.health.assisted-reps.${crypto.randomUUID()}`;
+    const db = await createLocalHealthDriver({ databaseName });
+    const datasets = minimalDatasets(OWNER, 'ASSISTED BLOCK');
+    const cardioBlockId = crypto.randomUUID();
+    datasets.exercise_blocks.push({
+      ...datasets.exercise_blocks[0], id: cardioBlockId, name: 'CARDIO BLOCK', type: 'cardio', cardio_mode: 'both',
+    });
+    await seedVerifiedAccount(db, OWNER, datasets, 'assisted-reps');
+    const blockId = datasets.exercise_blocks[0].id as string;
+    const repository = new HealthRepository(db, OWNER);
+
+    await repository.saveWorkout({
+      ...localWorkoutInput(blockId, '2024-04-12'),
+      sets: [{ type: 'strength', set: 1, kg: 80, reps: 12, assisted_reps: 4, done: true }],
+    });
+    await repository.saveWorkout({
+      ...localWorkoutInput(blockId, '2024-04-13'),
+      sets: [{ type: 'bodyweight', set: 1, kg: '', reps: 8, assisted_reps: 2, done: true }],
+    });
+
+    const saved = (await repository.readAll()).workout_logs;
+    expect(saved.find(row => row.date === '2024-04-12')?.sets[0]).toMatchObject({ reps: 12, assisted_reps: 4 });
+    expect(saved.find(row => row.date === '2024-04-13')?.sets[0]).toMatchObject({ reps: 8, assisted_reps: 2 });
+
+    await expect(repository.saveWorkout({
+      ...localWorkoutInput(blockId, '2024-04-14'),
+      sets: [{ type: 'cardio', set: 1, time: '10:00', distance: '2.5', pace: '4:00', done: true, assisted_reps: 1 }],
+    })).rejects.toThrow('health_local_workout_set_assisted_reps_cardio');
+    await expect(repository.saveWorkout({
+      ...localWorkoutInput(cardioBlockId, '2024-04-15'),
+      sets: [{ type: 'strength', set: 1, kg: 80, reps: 12, assisted_reps: 4, done: true }],
+    })).rejects.toThrow('health_local_workout_set_assisted_reps_block_type');
+    db.close();
+  });
+
   it('replaces the same date/block logical workout without duplicating and preserves identity', async () => {
     const databaseName = `absinthe.health.backfill-workout-update.${crypto.randomUUID()}`;
     const db = await createLocalHealthDriver({ databaseName });

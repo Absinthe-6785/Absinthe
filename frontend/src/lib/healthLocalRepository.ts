@@ -9,6 +9,11 @@ import {
   type HealthRecoveryExport,
 } from './healthRecoveryExport';
 import { stableRecoveryJson } from './recoveryExportPackage';
+import {
+  assistedRepsMatchExerciseType,
+  hasAssistedRepsField,
+  hasValidDurableAssistedReps,
+} from './healthAssistedReps';
 
 export const HEALTH_LOCAL_DATABASE_NAME = 'absinthe.health.local';
 export const HEALTH_LOCAL_DATABASE_VERSION = 1;
@@ -316,6 +321,9 @@ function validateLocalWorkoutInput(input: LocalWorkoutWriteInput, accountId: str
       if (!isFiniteLocalNumber(set.kg, true) || !isFiniteLocalNumber(set.reps, true)) {
         throw new Error(`health_local_workout_set_measurement_invalid:${index}`);
       }
+      if (!hasValidDurableAssistedReps(set)) {
+        throw new Error(`health_local_workout_set_assisted_reps_invalid:${index}`);
+      }
       const hasSourceValue = Object.prototype.hasOwnProperty.call(set, 'weight_source_value');
       const hasSourceUnit = Object.prototype.hasOwnProperty.call(set, 'weight_source_unit');
       if (hasSourceValue !== hasSourceUnit
@@ -326,6 +334,7 @@ function validateLocalWorkoutInput(input: LocalWorkoutWriteInput, accountId: str
         throw new Error(`health_local_workout_set_source_invalid:${index}`);
       }
     } else if (set.type === 'cardio') {
+      if (hasAssistedRepsField(set)) throw new Error(`health_local_workout_set_assisted_reps_cardio:${index}`);
       if (typeof set.time !== 'string' || !isFiniteLocalNumber(set.distance, true) || typeof set.pace !== 'string') {
         throw new Error(`health_local_workout_set_cardio_invalid:${index}`);
       }
@@ -780,6 +789,9 @@ export class IndexedDbLocalHealthDriver implements LocalHealthDriver {
         ) as StoredHealthRecord | undefined;
         if (!block || block.accountId !== accountId || block.record.user_id !== accountId) {
           throw new Error('health_local_workout_block_not_found');
+        }
+        if (!assistedRepsMatchExerciseType(block.record.type, input.sets)) {
+          throw new Error('health_local_workout_set_assisted_reps_block_type');
         }
         const sameLogicalKey = existing.filter(item => item.record.date === input.date && item.record.block_id === input.blockId);
         if (computeLocalHealthLogicalVersion(sameLogicalKey.map(item => item.record)) !== input.expectedVersion) {

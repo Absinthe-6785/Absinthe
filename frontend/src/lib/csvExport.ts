@@ -1,6 +1,6 @@
 import { authFetch } from './supabase';
 import { API_URL } from './config';
-import { isCardioSet } from '../types';
+import { isCardioSet, type WorkoutSet } from '../types';
 
 // ── CSV 헬퍼 ──────────────────────────────────────────────────────────────────
 
@@ -72,29 +72,34 @@ const buildRoutinesCsv = async ({ startDate, endDate }: RangeParams): Promise<st
   return [header, ...rows];
 };
 
-const buildWorkoutsCsv = async ({ startDate, endDate }: RangeParams): Promise<string[]> => {
-  const data = await fetchJson<{
+export type WorkoutCsvRow = {
     date?: string;
     exercise_blocks: { name: string; type: string };
-    sets: unknown[];
-  }[]>(`/api/workouts/range?start_date=${startDate}&end_date=${endDate}`);
+    sets: WorkoutSet[];
+};
 
-  const header = toRow(['date', 'exercise', 'type', 'set', 'kg', 'reps', 'time', 'distance', 'done']);
+export function buildWorkoutCsvRows(data: readonly WorkoutCsvRow[]): string[] {
+  const header = toRow(['date', 'exercise', 'type', 'set', 'kg', 'reps', 'assisted_reps', 'time', 'distance', 'done']);
   const rows: string[] = [];
 
   for (const w of data) {
     const date = w.date ?? '';
     const name = w.exercise_blocks?.name ?? '';
     const type = w.exercise_blocks?.type ?? '';
-    for (const s of w.sets as Parameters<typeof isCardioSet>[0][]) {
+    for (const s of w.sets) {
       if (isCardioSet(s)) {
-        rows.push(toRow([date, name, type, s.set, '', '', s.time, s.distance, s.done]));
+        rows.push(toRow([date, name, type, s.set, '', '', '', s.time, s.distance, s.done]));
       } else {
-        rows.push(toRow([date, name, type, s.set, s.kg, s.reps, '', '', s.done]));
+        rows.push(toRow([date, name, type, s.set, s.kg, s.reps, s.assisted_reps ?? '', '', '', s.done]));
       }
     }
   }
   return [header, ...rows];
+}
+
+const buildWorkoutsCsv = async ({ startDate, endDate }: RangeParams): Promise<string[]> => {
+  const data = await fetchJson<WorkoutCsvRow[]>(`/api/workouts/range?start_date=${startDate}&end_date=${endDate}`);
+  return buildWorkoutCsvRows(data);
 };
 
 const buildInbodyCsv = async ({ startDate, endDate }: RangeParams): Promise<string[]> => {

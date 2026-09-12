@@ -23,7 +23,14 @@ from remote_mutation import (
     SupabaseRpcGateway,
     rejected_response,
 )
-from restore_validation import MAX_RESTORE_ROWS, RESTORE_TABLE_FIELDS, RestorePayload, _non_empty_text, _workout_sets
+from restore_validation import (
+    MAX_RESTORE_ROWS,
+    RESTORE_TABLE_FIELDS,
+    RestorePayload,
+    _non_empty_text,
+    _workout_sets,
+    _workout_sets_match_exercise_type,
+)
 from schema_readiness import verify_recipe_deleted_at_schema
 
 load_dotenv()
@@ -571,6 +578,18 @@ async def get_prev_workout(block_id: str, before_date: str, user_id: str = Depen
 async def save_workout(log: WorkoutLogCreate, user_id: str = Depends(get_current_user)):
     if not _workout_sets(log.sets):
         raise HTTPException(status_code=422, detail="Invalid workout sets")
+    if any("assisted_reps" in item for item in log.sets):
+        block = (
+            supabase.table("exercise_blocks")
+            .select("type")
+            .eq("id", log.block_id)
+            .eq("user_id", user_id)
+            .maybe_single()
+            .execute()
+            .data
+        )
+        if not isinstance(block, dict) or not _workout_sets_match_exercise_type(log.sets, block.get("type")):
+            raise HTTPException(status_code=422, detail="Assisted reps are not allowed for this exercise")
     existing = supabase.table("workout_logs").select("id").eq("user_id", user_id).eq("date", log.date).eq("block_id", log.block_id).execute().data
     if existing:
         # 중복 행이 여러 개일 수 있으므로 모두 삭제 후 재insert — sort_order 확실히 반영

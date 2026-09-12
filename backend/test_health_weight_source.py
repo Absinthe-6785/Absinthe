@@ -39,8 +39,17 @@ class FakeTable:
     def order(self, _column: str):
         return self
 
+    def maybe_single(self):
+        return self
+
     def execute(self):
         if self.operation == "select":
+            if self.table == "exercise_blocks":
+                block_id = next((value for column, value in self.filters if column == "id"), None)
+                user_id = next((value for column, value in self.filters if column == "user_id"), None)
+                if block_id != "block-1" or user_id != "test-user" or self.database.block_type is None:
+                    return SimpleNamespace(data=None)
+                return SimpleNamespace(data={"type": self.database.block_type})
             rows = [
                 row for row in self.database.rows
                 if all(row.get(column) == value for column, value in self.filters)
@@ -66,12 +75,13 @@ class FakeTable:
 
 
 class FakeSupabase:
-    def __init__(self, rows: list[dict] | None = None):
+    def __init__(self, rows: list[dict] | None = None, block_type: str | None = "strength"):
         self.rows = deepcopy(rows or [])
+        self.block_type = block_type
         self.operations: list[tuple[str, object]] = []
 
     def table(self, table: str) -> FakeTable:
-        assert table == "workout_logs"
+        assert table in {"exercise_blocks", "workout_logs"}
         return FakeTable(self, table)
 
 
@@ -81,6 +91,18 @@ def strength_set(**overrides: object) -> dict:
         "set": 1,
         "kg": 102.37,
         "reps": 8,
+        "done": True,
+        **overrides,
+    }
+
+
+def cardio_set(**overrides: object) -> dict:
+    return {
+        "type": "cardio",
+        "set": 1,
+        "time": "10:00",
+        "distance": "2.5",
+        "pace": "4:00",
         "done": True,
         **overrides,
     }
@@ -164,6 +186,56 @@ def test_remote_save_accepts_numeric_zero_source_values(workout_client, source_v
 
     assert response.status_code == 200
     assert supabase.operations[0][0] == "insert"
+
+
+@pytest.mark.parametrize("set_type", ["strength", "bodyweight"])
+def test_remote_save_round_trips_valid_assisted_reps(workout_client, set_type):
+    client, supabase = workout_client
+    supabase.block_type = set_type
+    assisted = strength_set(type=set_type, kg="" if set_type == "bodyweight" else 100, reps="12", assisted_reps=4)
+
+    response = client.post("/api/workouts", json=workout_payload([assisted]))
+    read_response = client.get("/api/workouts", params={"date": "2026-08-24"})
+
+    assert response.status_code == 200
+    assert read_response.status_code == 200
+    assert supabase.operations[0][1]["sets"][0]["reps"] == "12"
+    assert supabase.operations[0][1]["sets"][0]["assisted_reps"] == 4
+    assert read_response.json()[0]["sets"][0]["assisted_reps"] == 4
+
+
+def test_remote_save_rejects_assisted_strength_shape_for_cardio_block(workout_client):
+    client, supabase = workout_client
+    supabase.block_type = "cardio"
+
+    response = client.post(
+        "/api/workouts",
+        json=workout_payload([strength_set(reps=12, assisted_reps=4)]),
+    )
+
+    assert response.status_code == 422
+    assert supabase.operations == []
+
+
+@pytest.mark.parametrize(
+    "invalid_set",
+    [
+        strength_set(reps=12, assisted_reps=0),
+        strength_set(reps=12, assisted_reps=-1),
+        strength_set(reps=12, assisted_reps=1.5),
+        strength_set(reps=12, assisted_reps=13),
+        strength_set(reps="invalid", assisted_reps=1),
+        strength_set(reps=12, assisted_reps="4"),
+        cardio_set(assisted_reps=1),
+    ],
+)
+def test_remote_save_rejects_invalid_or_cardio_assisted_reps(workout_client, invalid_set):
+    client, supabase = workout_client
+
+    response = client.post("/api/workouts", json=workout_payload([invalid_set]))
+
+    assert response.status_code == 422
+    assert supabase.operations == []
 
 
 def test_invalid_remote_update_preserves_existing_row(workout_client):

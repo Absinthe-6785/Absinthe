@@ -1,4 +1,9 @@
 import { stableRecoveryJson } from './recoveryExportPackage';
+import {
+  assistedRepsMatchExerciseType,
+  hasAssistedRepsField,
+  hasValidDurableAssistedReps,
+} from './healthAssistedReps';
 
 export const HEALTH_RECOVERY_EXPORT_FORMAT = 'absinthe-health-recovery-export';
 export const HEALTH_RECOVERY_EXPORT_VERSION = 1;
@@ -193,6 +198,9 @@ function validateSet(dataset: HealthRecoveryDatasetName, rowIndex: number, value
   if (set.type === 'strength' || set.type === 'bodyweight') {
     if (!finitePersisted(set.kg, true)) out.push(issue(dataset, rowIndex, `${prefix}.kg`, 'finite_numeric_or_empty_required'));
     if (!finitePersisted(set.reps, true)) out.push(issue(dataset, rowIndex, `${prefix}.reps`, 'finite_numeric_or_empty_required'));
+    if (!hasValidDurableAssistedReps(set)) {
+      out.push(issue(dataset, rowIndex, `${prefix}.assisted_reps`, 'positive_integer_subset_required'));
+    }
     const hasSourceValue = Object.prototype.hasOwnProperty.call(set, 'weight_source_value');
     const hasSourceUnit = Object.prototype.hasOwnProperty.call(set, 'weight_source_unit');
     if (hasSourceValue !== hasSourceUnit) {
@@ -206,6 +214,9 @@ function validateSet(dataset: HealthRecoveryDatasetName, rowIndex: number, value
       out.push(issue(dataset, rowIndex, prefix, 'weight_source_metadata_invalid'));
     }
   } else if (set.type === 'cardio') {
+    if (hasAssistedRepsField(set)) {
+      out.push(issue(dataset, rowIndex, `${prefix}.assisted_reps`, 'field_not_allowed_for_cardio'));
+    }
     if (typeof set.time !== 'string') out.push(issue(dataset, rowIndex, `${prefix}.time`, 'string_required'));
     if (!finitePersisted(set.distance, true)) out.push(issue(dataset, rowIndex, `${prefix}.distance`, 'finite_numeric_or_empty_required'));
     if (typeof set.pace !== 'string') out.push(issue(dataset, rowIndex, `${prefix}.pace`, 'string_required'));
@@ -272,6 +283,26 @@ export function validateHealthRecoveryDatasets(datasets: HealthRecoveryDatasets,
       }
     });
   }
+  const exerciseBlocks = Array.isArray(datasets.exercise_blocks) ? datasets.exercise_blocks : [];
+  const workoutLogs = Array.isArray(datasets.workout_logs) ? datasets.workout_logs : [];
+  const exerciseTypes = new Map(
+    exerciseBlocks
+      .filter(row => row !== null && typeof row === 'object' && typeof row.id === 'string')
+      .map(row => [row.id as string, row.type]),
+  );
+  workoutLogs.forEach((row, rowIndex) => {
+    if (!row || typeof row !== 'object' || Array.isArray(row)) return;
+    const sets = Array.isArray(row.sets) ? row.sets : [];
+    const exerciseType = typeof row.block_id === 'string' ? exerciseTypes.get(row.block_id) : undefined;
+    if (!assistedRepsMatchExerciseType(exerciseType, sets)) {
+      out.push(issue(
+        'workout_logs',
+        rowIndex,
+        'sets',
+        'assisted_reps_not_allowed_for_exercise_type',
+      ));
+    }
+  });
   return out;
 }
 
