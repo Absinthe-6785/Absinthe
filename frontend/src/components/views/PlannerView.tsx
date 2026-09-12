@@ -281,8 +281,8 @@ export const PlannerView = ({
   }), [api, formatDate, mutateRoutines, selectedDate, showConfirm, t]);
 
   return (
-    <div className={`${WORKSPACE_PANE_ROOT_CLASS} flex flex-col animate-in fade-in duration-300 ${WORKSPACE_GAP_CLASS}`} data-workspace="planner" data-workspace-scroll-mode={WORKSPACE_SCROLL_MODE.pane} data-k134b-workspace-scroll>
-      <div className="shrink-0 px-0.5">
+    <div className={`${WORKSPACE_PANE_ROOT_CLASS} abs-cosmos-planner flex flex-col animate-in fade-in duration-300 ${WORKSPACE_GAP_CLASS}`} data-workspace="planner" data-workspace-scroll-mode={WORKSPACE_SCROLL_MODE.pane} data-k134b-workspace-scroll>
+      <div className="abs-cosmos-planner-header shrink-0 px-0.5">
         <WorkspacePageHeader
           workspace="schedule"
           title={t('planner')}

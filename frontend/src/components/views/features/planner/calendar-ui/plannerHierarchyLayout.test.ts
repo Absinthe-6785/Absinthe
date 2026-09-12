@@ -1,4 +1,6 @@
 // @vitest-environment happy-dom
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { DateTime } from 'luxon';
@@ -51,6 +53,36 @@ function renderPlannerHierarchy() {
 }
 
 describe('UI-05 Planner hierarchy allocation', () => {
+  it('binds VIS-06 treatment to rendered Planner surfaces without taking semantic state authority', () => {
+    const html = renderPlannerHierarchy();
+    const host = document.createElement('div');
+    host.innerHTML = html;
+    const css = readFileSync(join(process.cwd(), 'src', 'index.css'), 'utf8');
+    const plannerCss = css.match(/\/\* VIS-06[^]*?\/\* K-99/)?.[0] ?? '';
+    const plannerView = readFileSync(join(process.cwd(), 'src', 'components', 'views', 'PlannerView.tsx'), 'utf8');
+    const monthCell = readFileSync(join(process.cwd(), 'src', 'components', 'views', 'features', 'planner', 'calendar-ui', 'month', 'MonthCalendarCell.tsx'), 'utf8');
+
+    expect(plannerView).toContain('abs-cosmos-planner');
+    expect(plannerView).toContain('abs-cosmos-planner-header');
+    expect(host.querySelector('[data-planner-calendar-shell]')?.classList.contains('abs-cosmos-planner-shell')).toBe(true);
+    expect(host.querySelector('[data-planner-primary-surface="calendar"]')?.classList.contains('abs-cosmos-planner-calendar')).toBe(true);
+    expect(host.querySelector('[data-planner-support-role="today"] .abs-cosmos-planner-today-card')).not.toBeNull();
+    expect(host.querySelector('[data-planner-weekly-timetable]')?.classList.contains('abs-cosmos-planner-timetable')).toBe(true);
+    expect(host.querySelector('[data-planner-support-role="dday"]')?.classList.contains('abs-cosmos-planner-support')).toBe(true);
+    expect(host.querySelector('[data-planner-calendar-period-nav]')?.classList.contains('abs-cosmos-planner-toolbar')).toBe(true);
+
+    expect(plannerCss).toContain('background-color: var(--color-background)');
+    expect(plannerCss).toContain('background-color: var(--color-surface-elevated)');
+    expect(plannerCss).toContain('var(--color-selected) 30%');
+    expect(plannerCss.match(/var\(--cosmos-pale-blue-dot\)/g)).toHaveLength(1);
+    expect(plannerCss).not.toMatch(/data-planner-(?:month-event|month-block|day-event|day-block)/);
+    expect(plannerCss).not.toMatch(/animation|requestAnimationFrame|setInterval|setTimeout/);
+    expect(plannerCss.match(/pointer-events: none/g)?.length).toBeGreaterThanOrEqual(3);
+
+    expect(monthCell).toContain('data-planner-month-block-color={block.color}');
+    expect(monthCell).not.toContain('--cosmos-');
+  });
+
   it.each([
     [1023, 'tablet', 'natural-flow', 'calendar-shell'],
     [1024, 'desktop', 'planning-column-support-rail', 'bounded-panes'],

@@ -111,7 +111,7 @@ export function MonthCalendarView({
           data-planner-hierarchy-level="primary"
           data-planner-primary-surface="calendar"
           ref={monthRef as React.RefObject<HTMLElement>}
-          className={`w-full min-h-0 ${WORKSPACE_CARD_VISUAL_CLASS} p-2.5 lg:p-3 flex flex-col overflow-visible lg:col-start-1 lg:row-start-1 lg:h-full lg:overflow-hidden`}
+          className={`abs-cosmos-planner-calendar w-full min-h-0 ${WORKSPACE_CARD_VISUAL_CLASS} p-2.5 lg:p-3 flex flex-col overflow-visible lg:col-start-1 lg:row-start-1 lg:h-full lg:overflow-hidden`}
           data-k117-planner-calendar-adaptive
           data-k108-planner-month-lazy
         >
@@ -137,7 +137,7 @@ export function MonthCalendarView({
         </section>
 
         <section
-          className="min-h-0 lg:col-start-2 lg:row-start-1 lg:h-full lg:overflow-hidden"
+          className="abs-cosmos-planner-today-region min-h-0 lg:col-start-2 lg:row-start-1 lg:h-full lg:overflow-hidden"
           data-k117-schedule-section="today"
           data-planner-hierarchy-level="secondary"
           data-planner-support-role="today"
@@ -155,7 +155,7 @@ export function MonthCalendarView({
 
         {showTimetableSection ? (
           <section
-            className="min-h-0 lg:col-start-1 lg:row-start-2 lg:h-full lg:overflow-hidden"
+            className="abs-cosmos-planner-timetable-region min-h-0 lg:col-start-1 lg:row-start-2 lg:h-full lg:overflow-hidden"
             data-k117-schedule-section="timetable"
             data-k117-timetable-section
             data-planner-hierarchy-level="primary"
@@ -182,7 +182,7 @@ export function MonthCalendarView({
         )}
 
         <section
-          className={`min-h-0 ${WORKSPACE_CARD_VISUAL_CLASS} p-3 flex flex-col max-h-[300px] overflow-hidden lg:col-start-2 lg:row-start-2 lg:h-full lg:max-h-none`}
+          className={`abs-cosmos-planner-support min-h-0 ${WORKSPACE_CARD_VISUAL_CLASS} p-3 flex flex-col max-h-[300px] overflow-hidden lg:col-start-2 lg:row-start-2 lg:h-full lg:max-h-none`}
           data-k139-schedule-dday-list
           data-planner-hierarchy-level="tertiary"
           data-planner-support-role="dday"
