@@ -6,6 +6,10 @@ import {
 } from '../../../../lib/healthLocalRuntime';
 import type { HealthRepository, LocalHealthWriteResult } from '../../../../lib/healthLocalRepository';
 import type { HealthRecoveryRecord } from '../../../../lib/healthRecoveryExport';
+import {
+  ASSISTED_REPS_VALIDATION_ERROR,
+  assistedRepsMatchExerciseType,
+} from '../../../../lib/healthAssistedReps';
 
 type LocalWorkoutRepository = Pick<HealthRepository, 'saveWorkouts' | 'deleteWorkout'>;
 
@@ -59,6 +63,14 @@ function persistedWorkouts(workouts: readonly Workout[]): Workout[] {
   return workouts.filter(workout => workout.block_id !== '__session__');
 }
 
+function assertAssistedRepsMatchExerciseBlocks(workouts: readonly Workout[]): void {
+  for (const workout of workouts) {
+    if (!assistedRepsMatchExerciseType(workout.exercise_blocks?.type, workout.sets)) {
+      throw new Error(ASSISTED_REPS_VALIDATION_ERROR);
+    }
+  }
+}
+
 function classifyRemoteSave(total: number, failed: number): HealthWorkoutSaveResult {
   return {
     status: failed === 0 ? 'success' : failed === total ? 'failure' : 'partial',
@@ -84,6 +96,7 @@ export async function saveHealthWorkouts({
     ?? defaultCreateLocalHealthRepository;
   const authFetch = dependencies?.authFetch ?? defaultAuthFetch;
   const rows = persistedWorkouts(workouts);
+  assertAssistedRepsMatchExerciseBlocks(rows);
 
   if (mode === 'local') {
     const repository = await repositoryFactory(accountId);

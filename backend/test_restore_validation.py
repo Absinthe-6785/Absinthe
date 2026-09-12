@@ -157,6 +157,23 @@ def test_workout_restore_rejects_cardio_assisted_reps():
         rv._validate_restore_row("workout_logs", row)
 
 
+def test_restore_payload_rejects_assisted_strength_shape_linked_to_cardio_block():
+    block_id = "block-1"
+    workout = dict(VALID_MINIMAL_ROWS["workout_logs"], block_id=block_id, sets=[{
+        "set": 1, "done": True, "type": "strength", "kg": 80, "reps": 12, "assisted_reps": 4,
+    }])
+
+    rv.RestorePayload.model_validate({
+        "exercise_blocks": [{"id": block_id, "name": "Curl", "type": "strength"}],
+        "workout_logs": [workout],
+    })
+    with pytest.raises(ValidationError, match="invalid_restore_workout_block_set_type"):
+        rv.RestorePayload.model_validate({
+            "exercise_blocks": [{"id": block_id, "name": "Run", "type": "cardio"}],
+            "workout_logs": [workout],
+        })
+
+
 def test_weekly_schedule_restore_contract_accepts_safe_fields_and_server_owner():
     rv._validate_restore_row(
         "weekly_schedules",

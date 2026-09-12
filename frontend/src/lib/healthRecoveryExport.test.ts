@@ -152,6 +152,14 @@ describe('complete Health recovery export', () => {
     expect(validateHealthRecoveryDatasets(input, USER_ID)).toContainEqual(expect.objectContaining({
       field: 'sets[0].assisted_reps', code: 'field_not_allowed_for_cardio',
     }));
+
+    input.exercise_blocks[0].type = 'cardio';
+    input.workout_logs[0].sets = [{
+      type: 'strength', set: 1, kg: 60, reps: 12, assisted_reps: 4, done: true,
+    }];
+    expect(validateHealthRecoveryDatasets(input, USER_ID)).toContainEqual(expect.objectContaining({
+      dataset: 'workout_logs', field: 'sets', code: 'assisted_reps_not_allowed_for_exercise_type',
+    }));
   });
 
   it('rejects incomplete saved weight source metadata without weakening recovery validation', () => {

@@ -10,6 +10,7 @@ const labels = {
   trigger: 'Set 1 actions', title: 'Set actions', addAssisted: 'Add assisted reps',
   removeAssisted: 'Remove assisted reps', deleteSet: 'Delete set',
 };
+const nextFrame = () => new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
 
 describe('Health set actions', () => {
   let host: HTMLDivElement;
@@ -66,5 +67,27 @@ describe('Health set actions', () => {
     expect(trigger.disabled).toBe(true);
     await act(async () => trigger.click());
     expect(document.querySelector('[data-health-set-actions-menu]')).toBeNull();
+  });
+
+  it('focuses and traps the mobile menu with standard menu-key navigation', async () => {
+    await render({ isMobile: true });
+    const trigger = document.querySelector<HTMLButtonElement>('[data-health-set-actions-trigger]')!;
+    await act(async () => trigger.click());
+    await act(nextFrame);
+    const add = document.querySelector<HTMLButtonElement>('[data-health-set-assisted-action="add"]')!;
+    const remove = document.querySelector<HTMLButtonElement>('[data-health-set-delete-action]')!;
+    expect(document.activeElement).toBe(add);
+
+    add.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    expect(document.activeElement).toBe(remove);
+    remove.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+    expect(document.activeElement).toBe(add);
+    add.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true }));
+    expect(document.activeElement).toBe(remove);
+
+    await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+    await act(nextFrame);
+    expect(document.querySelector('[data-health-set-actions-menu]')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
   });
 });

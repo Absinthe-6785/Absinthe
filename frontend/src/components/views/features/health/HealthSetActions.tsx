@@ -1,5 +1,6 @@
 import { Plus, Trash2, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import type { Theme } from '../../../../types';
 import {
   PopoverDismiss,
@@ -43,11 +44,20 @@ export function HealthSetActions({
 }: HealthSetActionsProps) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuItemsRef = useRef<HTMLDivElement>(null);
   const hasActions = eligible || canDelete;
 
   useEffect(() => {
     if (locked) setOpen(false);
   }, [locked]);
+
+  useEffect(() => {
+    if (!open) return;
+    const frame = requestAnimationFrame(() => {
+      menuItemsRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [open]);
 
   const handleOpenChange = (next: boolean) => {
     setOpen(next);
@@ -60,8 +70,32 @@ export function HealthSetActions({
     if (returnFocus) requestAnimationFrame(() => triggerRef.current?.focus());
   };
 
+  const handleMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const buttons = Array.from(menuItemsRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? []);
+    if (buttons.length === 0) return;
+    const currentIndex = Math.max(0, buttons.indexOf(document.activeElement as HTMLButtonElement));
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Home' || event.key === 'End') {
+      event.preventDefault();
+      const targetIndex = event.key === 'Home'
+        ? 0
+        : event.key === 'End'
+          ? buttons.length - 1
+          : (currentIndex + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length;
+      buttons[targetIndex]?.focus();
+      return;
+    }
+    if (event.key === 'Tab') {
+      const atStart = document.activeElement === buttons[0];
+      const atEnd = document.activeElement === buttons[buttons.length - 1];
+      if ((event.shiftKey && atStart) || (!event.shiftKey && atEnd)) {
+        event.preventDefault();
+        buttons[event.shiftKey ? buttons.length - 1 : 0]?.focus();
+      }
+    }
+  };
+
   const items = (
-    <div className="space-y-1" role="none">
+    <div ref={menuItemsRef} className="space-y-1" role="none" onKeyDown={handleMenuKeyDown}>
       {eligible && (
         <button
           type="button"

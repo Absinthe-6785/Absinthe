@@ -14,6 +14,24 @@ export function supportsAssistedReps(set: WorkoutSet): set is StrengthSet {
   return isStrengthSet(set);
 }
 
+export function exerciseTypeSupportsAssistedReps(
+  exerciseType: unknown,
+): exerciseType is 'strength' | 'bodyweight' {
+  return exerciseType === 'strength' || exerciseType === 'bodyweight';
+}
+
+export function setsContainAssistedReps(sets: readonly unknown[]): boolean {
+  return sets.some(set => set !== null && typeof set === 'object' && hasAssistedRepsField(set));
+}
+
+/** A nested assisted field is valid only when its referenced exercise is eligible. */
+export function assistedRepsMatchExerciseType(
+  exerciseType: unknown,
+  sets: readonly unknown[],
+): boolean {
+  return !setsContainAssistedReps(sets) || exerciseTypeSupportsAssistedReps(exerciseType);
+}
+
 function ownsAssistedReps(value: object): boolean {
   return Object.prototype.hasOwnProperty.call(value, 'assisted_reps');
 }

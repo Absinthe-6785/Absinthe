@@ -1,5 +1,9 @@
 import { stableRecoveryJson } from './recoveryExportPackage';
-import { hasAssistedRepsField, hasValidDurableAssistedReps } from './healthAssistedReps';
+import {
+  assistedRepsMatchExerciseType,
+  hasAssistedRepsField,
+  hasValidDurableAssistedReps,
+} from './healthAssistedReps';
 
 export const HEALTH_RECOVERY_EXPORT_FORMAT = 'absinthe-health-recovery-export';
 export const HEALTH_RECOVERY_EXPORT_VERSION = 1;
@@ -279,6 +283,26 @@ export function validateHealthRecoveryDatasets(datasets: HealthRecoveryDatasets,
       }
     });
   }
+  const exerciseBlocks = Array.isArray(datasets.exercise_blocks) ? datasets.exercise_blocks : [];
+  const workoutLogs = Array.isArray(datasets.workout_logs) ? datasets.workout_logs : [];
+  const exerciseTypes = new Map(
+    exerciseBlocks
+      .filter(row => row !== null && typeof row === 'object' && typeof row.id === 'string')
+      .map(row => [row.id as string, row.type]),
+  );
+  workoutLogs.forEach((row, rowIndex) => {
+    if (!row || typeof row !== 'object' || Array.isArray(row)) return;
+    const sets = Array.isArray(row.sets) ? row.sets : [];
+    const exerciseType = typeof row.block_id === 'string' ? exerciseTypes.get(row.block_id) : undefined;
+    if (!assistedRepsMatchExerciseType(exerciseType, sets)) {
+      out.push(issue(
+        'workout_logs',
+        rowIndex,
+        'sets',
+        'assisted_reps_not_allowed_for_exercise_type',
+      ));
+    }
+  });
   return out;
 }
 

@@ -160,6 +160,13 @@ def _workout_sets(value: object) -> bool:
     return True
 
 
+def _workout_sets_match_exercise_type(value: object, exercise_type: object) -> bool:
+    if not _workout_sets(value):
+        return False
+    contains_assistance = any("assisted_reps" in item for item in value)
+    return not contains_assistance or exercise_type in {"strength", "bodyweight"}
+
+
 RestoreFieldValidator = Callable[[object], bool]
 
 
@@ -294,4 +301,15 @@ class RestorePayload(BaseModel):
                 total_rows += 1
         if total_rows > MAX_RESTORE_ROWS:
             raise ValueError("restore_row_limit_exceeded")
+        exercise_types = {
+            row.get("id"): row.get("type")
+            for row in self.exercise_blocks
+            if isinstance(row.get("id"), str)
+        }
+        for workout in self.workout_logs:
+            if not _workout_sets_match_exercise_type(
+                workout.get("sets"),
+                exercise_types.get(workout.get("block_id")),
+            ):
+                raise ValueError("invalid_restore_workout_block_set_type")
         return self

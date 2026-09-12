@@ -93,6 +93,7 @@ import {
 } from '../../lib/healthBackfillUiSafety';
 import {
   ASSISTED_REPS_VALIDATION_ERROR,
+  exerciseTypeSupportsAssistedReps,
   formatWorkoutSummaryStrengthSetLine,
   hasAssistedRepsField,
   supportsAssistedReps,
@@ -874,6 +875,8 @@ export const HealthView = ({
 
   const handleRemoveSet = (wIdx: number, sIdx: number) => {
     if (isWorkoutLocked) return;
+    const setCount = localWorkouts[wIdx]?.sets.length ?? 0;
+    pendingFocusSetRef.current = { wIdx, sIdx: Math.max(0, Math.min(sIdx, setCount - 2)) };
     setIsDirty(true);
     setLocalWorkouts(prev => {
       const next = [...prev];
@@ -1731,7 +1734,8 @@ export const HealthView = ({
                           : t('previousSetReferenceWeightOnly')
                             .replace('{weight}', previousSetCue.weight)
                             .replace('{unit}', previousSetCue.unit);
-                    const assistedEligible = supportsAssistedReps(s) && w.exercise_blocks?.type !== 'cardio';
+                    const assistedEligible = supportsAssistedReps(s)
+                      && exerciseTypeSupportsAssistedReps(w.exercise_blocks?.type);
                     const assistedActive = assistedEligible && hasAssistedRepsField(s);
                     return (
                       <div key={sIdx} className={`rounded-xl overflow-hidden transition-opacity ${s.done ? 'opacity-55' : ''}`}>

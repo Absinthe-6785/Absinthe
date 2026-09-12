@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { StrengthSet } from '../types';
 import {
   ASSISTED_REPS_VALIDATION_ERROR,
+  assistedRepsMatchExerciseType,
   fillAssistedRepsTemplate,
   formatWorkoutSummaryStrengthSetLine,
   getAssistedRepsBreakdown,
@@ -21,6 +22,15 @@ describe('Health assisted repetitions', () => {
     expect(normalizeAssistedRepsForSave(strength())).not.toHaveProperty('assisted_reps');
     expect(supportsAssistedReps(strength())).toBe(true);
     expect(supportsAssistedReps({ type: 'cardio', set: 1, time: '', distance: '', pace: '', done: false })).toBe(false);
+  });
+
+  it('requires the referenced exercise type to be strength or bodyweight', () => {
+    const assisted = [strength({ assisted_reps: 4 })];
+    expect(assistedRepsMatchExerciseType('strength', assisted)).toBe(true);
+    expect(assistedRepsMatchExerciseType('bodyweight', assisted)).toBe(true);
+    expect(assistedRepsMatchExerciseType('cardio', assisted)).toBe(false);
+    expect(assistedRepsMatchExerciseType(undefined, assisted)).toBe(false);
+    expect(assistedRepsMatchExerciseType('cardio', [strength()])).toBe(true);
   });
 
   it('derives valid and all-assisted breakdowns without changing total reps', () => {

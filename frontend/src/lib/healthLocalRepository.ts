@@ -9,7 +9,11 @@ import {
   type HealthRecoveryExport,
 } from './healthRecoveryExport';
 import { stableRecoveryJson } from './recoveryExportPackage';
-import { hasAssistedRepsField, hasValidDurableAssistedReps } from './healthAssistedReps';
+import {
+  assistedRepsMatchExerciseType,
+  hasAssistedRepsField,
+  hasValidDurableAssistedReps,
+} from './healthAssistedReps';
 
 export const HEALTH_LOCAL_DATABASE_NAME = 'absinthe.health.local';
 export const HEALTH_LOCAL_DATABASE_VERSION = 1;
@@ -785,6 +789,9 @@ export class IndexedDbLocalHealthDriver implements LocalHealthDriver {
         ) as StoredHealthRecord | undefined;
         if (!block || block.accountId !== accountId || block.record.user_id !== accountId) {
           throw new Error('health_local_workout_block_not_found');
+        }
+        if (!assistedRepsMatchExerciseType(block.record.type, input.sets)) {
+          throw new Error('health_local_workout_set_assisted_reps_block_type');
         }
         const sameLogicalKey = existing.filter(item => item.record.date === input.date && item.record.block_id === input.blockId);
         if (computeLocalHealthLogicalVersion(sameLogicalKey.map(item => item.record)) !== input.expectedVersion) {

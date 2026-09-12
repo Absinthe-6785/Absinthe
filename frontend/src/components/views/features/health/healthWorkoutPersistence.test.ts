@@ -120,6 +120,25 @@ describe('healthWorkoutPersistence', () => {
     expect(result).toMatchObject({ status: 'success', total: 2, succeeded: 2, failed: 0 });
   });
 
+  it('rejects assisted sets linked to a cardio exercise before either persistence mode writes', async () => {
+    const mismatched = workout('one', 'run');
+    mismatched.exercise_blocks = { id: 'run', name: 'Run', type: 'cardio', tags: [] };
+    mismatched.sets[0] = { ...mismatched.sets[0], reps: 8, assisted_reps: 3 };
+    const authFetch = vi.fn();
+    const local = localDependencies();
+
+    await expect(saveHealthWorkouts({
+      mode: 'remote', accountId: 'account-a', date: '2026-08-25', workouts: [mismatched],
+      dependencies: { authFetch },
+    })).rejects.toThrow('health_assisted_reps_invalid');
+    await expect(saveHealthWorkouts({
+      mode: 'local', accountId: 'account-a', date: '2026-08-25', workouts: [mismatched],
+      dependencies: local.dependencies,
+    })).rejects.toThrow('health_assisted_reps_invalid');
+    expect(authFetch).not.toHaveBeenCalled();
+    expect(local.createLocalHealthRepository).not.toHaveBeenCalled();
+  });
+
   it('represents partial remote saves without deciding UI consequences', async () => {
     const authFetch = vi.fn()
       .mockResolvedValueOnce(new Response(null, { status: 201 }))
