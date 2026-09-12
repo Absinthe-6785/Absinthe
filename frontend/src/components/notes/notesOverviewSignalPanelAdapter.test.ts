@@ -2,6 +2,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { NotesOverviewSignalPanel } from './NotesOverviewSignalPanel';
+import { buildNoteChrome } from '../views/noteEditorTheme';
 import {
   createNotesOverviewSignalPanelProps,
   SIGNAL_PANEL_RECENT_NOTE_LIMIT,
@@ -9,10 +10,18 @@ import {
 } from './notesOverviewSignalPanelAdapter';
 
 const formatDateLabel = (value: string | number): string => `label:${value}`;
+const theme = buildNoteChrome(false, {
+  darkMode: false,
+  notesFontFamily: 'system',
+  notesFontSize: 16,
+});
 
 function renderAdapterOutput(input: NotesOverviewSignalPanelAdapterInput): string {
   return renderToStaticMarkup(
-    createElement(NotesOverviewSignalPanel, createNotesOverviewSignalPanelProps(input)),
+    createElement(NotesOverviewSignalPanel, {
+      ...createNotesOverviewSignalPanelProps(input),
+      theme,
+    }),
   );
 }
 

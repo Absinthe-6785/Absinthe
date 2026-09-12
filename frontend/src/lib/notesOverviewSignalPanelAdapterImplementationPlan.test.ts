@@ -310,7 +310,9 @@ describe('K-304 notes overview signal panel adapter implementation plan', () => 
     expect(signalPanel).toContain('export function NotesOverviewSignalPanel');
     expect(signalPanel).toContain("readonly generatedFrom: 'local-note-metadata';");
     expect(signalPanelTest).toContain('caps recent notes to five without sorting the input array');
-    expect(signalPanelTest).toContain('remains unmounted from runtime Notes and Static Preview surfaces');
+    expect(signalPanelTest).toContain(
+      'is production-mounted only through the Notes dashboard signal-panel slot',
+    );
     expect(appContent).toContain("import { NotesRouteBoundary } from './NotesRouteBoundary';");
     expect(appContent).toContain('<NotesRouteBoundary');
     expect(noteView).toContain('const notes = useNotesStore');
