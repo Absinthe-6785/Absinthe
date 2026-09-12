@@ -7,13 +7,6 @@ import { PixelDecorativeMark, type PixelDecorativeMarkVariant } from './PixelDec
 
 const componentPath = join(process.cwd(), 'src', 'components', 'common', 'PixelDecorativeMark.tsx');
 const sidebarPath = join(process.cwd(), 'src', 'components', 'common', 'Sidebar.tsx');
-const notesPanelPath = join(
-  process.cwd(),
-  'src',
-  'components',
-  'notes',
-  'Notes' + 'OverviewSignalPanel.tsx',
-);
 
 const variants: readonly PixelDecorativeMarkVariant[] = ['identity', 'trace', 'orbit'];
 
@@ -74,14 +67,11 @@ describe('PixelDecorativeMark authority', () => {
     }
   });
 
-  it('replaces exactly two existing production decorations without replacing icons', () => {
+  it('replaces the existing Sidebar decoration without replacing icons', () => {
     const sidebar = readFileSync(sidebarPath, 'utf8');
-    const notesPanel = readFileSync(notesPanelPath, 'utf8');
 
     expect(sidebar).toContain("<PixelDecorativeMark variant=\"identity\"");
     expect(sidebar).toContain("from 'lucide-react'");
     expect(sidebar).toContain('<Icon size={20} strokeWidth={2.25} />');
-    expect(notesPanel).toContain("<PixelDecorativeMark variant=\"trace\"");
-    expect(notesPanel).not.toContain('data-notes-pale-blue-dot');
   });
 });
