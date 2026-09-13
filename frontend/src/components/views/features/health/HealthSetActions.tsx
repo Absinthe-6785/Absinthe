@@ -139,7 +139,7 @@ export function HealthSetActions({
       >
         {setNumber}
       </button>
-      <PopoverRoot open={open && !locked} onOpenChange={handleOpenChange} isMobile={isMobile} anchorRef={triggerRef}>
+      <PopoverRoot open={open && !locked} onOpenChange={handleOpenChange} isMobile={isMobile} modal={isMobile} anchorRef={triggerRef}>
         <PopoverPortal>
           {isMobile ? (
             <PopoverDismiss variant="sheet" data-hook="data-health-set-actions-backdrop">

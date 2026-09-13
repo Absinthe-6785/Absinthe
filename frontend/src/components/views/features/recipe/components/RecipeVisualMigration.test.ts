@@ -10,6 +10,8 @@ import { UI_INTERACTION } from '../../../../../lib/uiInteractionTokens';
 import { DARK_TOKENS, LIGHT_TOKENS } from '../../../../../theme/tokens';
 import { RecipeCard } from './RecipeCard';
 import { RecipeCompositionLayout } from './RecipeCompositionLayout';
+import { RecipeStudioView, type RecipeStudioViewProps } from './RecipeStudioView';
+import type { RecipeProjection } from '../recipeProjectionModels';
 
 const theme: Theme = {
   card: 'bg-surface',
@@ -18,6 +20,26 @@ const theme: Theme = {
   text: 'text-foreground',
   textMuted: 'text-muted-foreground',
   hoverBg: 'hover:bg-surface-alt',
+};
+
+const emptyProjection: RecipeProjection = {
+  recentRecipes: { today: [], thisWeek: [], earlier: [] },
+  favoriteRecipes: [],
+  recentlyCooked: { today: [], yesterday: [], earlier: [] },
+  ingredientGroups: [],
+  historyItems: [],
+  collectionGroups: [],
+  suggestions: [],
+  allRecipes: [],
+  empty: {
+    noRecipes: true,
+    noFavorites: true,
+    noHistory: true,
+    noIngredients: true,
+    noCollections: true,
+    isEmpty: true,
+  },
+  generatedAt: '2026-09-13T00:00:00.000Z',
 };
 
 type Rgb = readonly [number, number, number];
@@ -151,6 +173,67 @@ describe('VIS-08 Recipe visual migration', () => {
       ] as const) {
         expect(contrastRatio(hexToRgb(tokens.colors.text), background), `${mode}:${name}`).toBeGreaterThanOrEqual(4.5);
       }
+    }
+  });
+
+  it('gives compact Recipe sort actions localized names, selected state, 24px targets, and focus authority', () => {
+    const props: RecipeStudioViewProps = {
+      projection: emptyProjection,
+      recipes: [],
+      theme,
+      appSettings: {
+        darkMode: false,
+        defaultCategory: 'Other',
+        defaultColor: 'blue',
+        language: 'en',
+        notesFontFamily: 'system',
+        notesFontSize: 16,
+        notesTextColor: '',
+        notesAccentColor: '',
+      },
+      activeAvailability: 'READY_EMPTY',
+      activeValidating: false,
+      onRetryActive: () => undefined,
+      expandedId: null,
+      onToggleExpand: () => undefined,
+      onToggleStar: () => undefined,
+      onEdit: () => undefined,
+      onDelete: () => undefined,
+      deletedRecipes: [],
+      trashAvailability: 'READY_EMPTY',
+      trashValidating: false,
+      onRetryTrash: () => undefined,
+      onRestore: () => undefined,
+      onMarkCooked: () => undefined,
+      onNewRecipe: () => undefined,
+      onScrollToRecipe: () => undefined,
+    };
+    const host = document.createElement('div');
+    host.innerHTML = renderToStaticMarkup(createElement(RecipeStudioView, props));
+    const controls = [...host.querySelectorAll<HTMLButtonElement>('.abs-recipe-sort-option')];
+
+    expect(controls.map(control => control.getAttribute('aria-label'))).toEqual([
+      'Recently created: Descending',
+      'Recently created: Ascending',
+      'Title A–Z',
+    ]);
+    expect(controls.map(control => control.getAttribute('aria-pressed'))).toEqual(['true', 'false', 'false']);
+    expect(controls[0]?.classList.contains('abs-recipe-selected-control')).toBe(true);
+    for (const control of controls) {
+      expect(control.classList.contains('min-h-[24px]')).toBe(true);
+      expect(control.classList.contains('min-w-[24px]')).toBe(true);
+      expect(control.classList.contains('focus-visible:outline-focus')).toBe(true);
+    }
+    expect(controls[1]?.classList.contains('text-muted-foreground')).toBe(true);
+    expect(controls[2]?.classList.contains('text-muted-foreground')).toBe(true);
+  });
+
+  it('keeps inactive Recipe sort foreground contrast above 4.5 in both themes', () => {
+    for (const [mode, tokens] of [['light', LIGHT_TOKENS], ['dark', DARK_TOKENS]] as const) {
+      expect(
+        contrastRatio(hexToRgb(tokens.colors.mutedForeground), hexToRgb(tokens.colors.surfaceElevated)),
+        mode,
+      ).toBeGreaterThanOrEqual(4.5);
     }
   });
 });

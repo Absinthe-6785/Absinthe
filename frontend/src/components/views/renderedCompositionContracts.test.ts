@@ -353,6 +353,18 @@ describe('UI-09 rendered composition contract matrix', () => {
     expect(recipeRoot.querySelectorAll('[data-workspace-scroll-owner="page"]')).toHaveLength(0);
   });
 
+  it('names the Health workout memo textarea from its visible localized label', () => {
+    const health = renderProductionWorkspace('health');
+    const memo = health.querySelector<HTMLTextAreaElement>('[data-health-workout-memo]')!;
+    const label = health.querySelector<HTMLLabelElement>(`label[for="${memo.id}"]`)!;
+
+    expect(memo).not.toBeNull();
+    expect(label).not.toBeNull();
+    expect(label.textContent?.trim()).toBeTruthy();
+    expect(label.htmlFor).toBe(memo.id);
+    expect(memo.getAttribute('placeholder')).not.toBe(label.textContent?.trim());
+  });
+
   it('binds the 768 and 1279/1280 seams to shared authority without hierarchy drift', () => {
     expect([767, 768, 1279, 1280].map(classifyViewportWidth)).toEqual([
       'mobile',

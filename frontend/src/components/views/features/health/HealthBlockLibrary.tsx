@@ -4,6 +4,7 @@ import type { ExerciseBlock, Theme } from '../../../../types';
 import { ProductEmptyState } from '../../../common/ProductEmptyState';
 import { WORKSPACE_CARD, WORKSPACE_CARD_SURFACE_COMPACT } from '../../../common/workspaceCardSizes';
 import { useTranslation } from '../../../../lib/i18n';
+import { UI_INTERACTION } from '../../../../lib/uiInteractionTokens';
 import { WorkoutBlockCard } from './WorkoutBlockCard';
 
 export type CatalogExerciseBlock = ExerciseBlock & { recentRank?: number };
@@ -119,8 +120,14 @@ export const HealthBlockLibrary = memo(function HealthBlockLibrary({
     >
       <div className="flex justify-between items-center gap-3 mb-2 shrink-0">
         <h2 className="font-heading text-lg font-bold">{t('workoutLibrary')}</h2>
-        <button type="button" onClick={onNewBlock} className="bg-primary text-primary-foreground px-2.5 py-2 rounded-xl shadow-sm min-h-[36px] min-w-[36px] inline-flex items-center justify-center">
-          <Plus size={16} />
+        <button
+          type="button"
+          onClick={onNewBlock}
+          aria-label={t('newBlockLabel')}
+          className={`bg-primary text-primary-foreground px-2.5 py-2 rounded-xl shadow-sm min-h-[36px] min-w-[36px] inline-flex items-center justify-center ${UI_INTERACTION.focusRingClass}`}
+          data-health-new-block
+        >
+          <Plus size={16} aria-hidden />
         </button>
       </div>
 
@@ -128,6 +135,7 @@ export const HealthBlockLibrary = memo(function HealthBlockLibrary({
         <Search size={14} className={theme.textMuted} />
         <input
           type="search"
+          aria-label={t('healthExerciseSearchPlaceholder')}
           value={query}
           onChange={e => setQuery(e.target.value)}
           placeholder={t('healthExerciseSearchPlaceholder')}

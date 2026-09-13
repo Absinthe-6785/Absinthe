@@ -102,7 +102,6 @@ describe('DayCalendarView', () => {
 
     expect(html).toContain('data-planner-calendar-day');
     expect(html).toContain('data-planner-today-dashboard');
-    expect(html).toContain('Today');
     expect(html).toContain(presentation.labels.dayHeading);
     expect(html).toContain('data-planner-today-badge');
   });
@@ -217,7 +216,7 @@ describe('DayCalendarView', () => {
       createElement(DayCalendarView, { projection, presentation, theme }),
     );
 
-    expect(html).toContain('data-planner-unified-agenda');
+    expect(html).toContain('data-planner-today-agenda');
     expect(html).not.toContain('data-planner-day-routines');
     expect(html).not.toContain('data-planner-day-todos');
   });

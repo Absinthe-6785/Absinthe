@@ -1893,8 +1893,10 @@ export const HealthView = ({
             })}
             {/* The memo/note tail belongs to the scrollable workout workflow. */}
             <div className="mt-2 rounded-xl p-2 bg-surface-alt" data-k104-health-workout-footer data-health-workout-scroll-tail>
-              <p className={`text-[10px] font-bold mb-1 ${theme.textMuted}`}>{t('memo')}</p>
+              <label htmlFor="health-workout-memo" className={`block text-[10px] font-bold mb-1 ${theme.textMuted}`}>{t('memo')}</label>
               <textarea
+                id="health-workout-memo"
+                data-health-workout-memo
                 value={workoutMemo}
                 onChange={e => {
                   setWorkoutMemo(e.target.value);

@@ -422,7 +422,7 @@ export function AppContent({ authUser }: { authUser: User }) {
         <div
           className={`fixed bottom-6 left-1/2 -translate-x-1/2 px-6 py-3 rounded-full shadow-2xl z-[999] animate-in slide-in-from-bottom-5 font-semibold text-sm flex items-center gap-2 ${
             toast.type === 'error'
-              ? 'bg-danger text-white'
+              ? 'abs-danger-filled-control'
               : toast.type === 'warning'
                 ? 'bg-amber-500 text-white'
                 : toast.type === 'info'
