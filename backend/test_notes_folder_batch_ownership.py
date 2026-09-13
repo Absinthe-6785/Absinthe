@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
+from fastapi.testclient import TestClient
 
 import main
 
@@ -379,123 +380,88 @@ async def test_folder_zero_malformed_wrong_owner_and_multi_results_fail_closed(
     assert error.value.detail == expected_detail
 
 
-@pytest.mark.asyncio
-async def test_batch_new_and_same_owner_rows_use_single_note_authority(monkeypatch):
-    existing = note_row("existing", title="Old")
-    client = OwnershipSupabase(notes=[existing])
-    monkeypatch.setattr(main, "supabase", client)
-    batch = main.NoteBatchCreate(
-        notes=[
-            main.NoteCreate(**note_payload("new")),
-            main.NoteCreate(**note_payload("existing", title="Updated")),
-        ]
-    )
-
-    result = await main.upsert_notes_batch(batch, OWNER, chunk_size=1)
-
-    assert [row["id"] for row in result] == ["new", "existing"]
-    assert all(row["user_id"] == OWNER for row in result)
-    update = next(operation for operation in client.operations if operation[1] == "update")
-    assert update[3] == [("id", "existing"), ("user_id", OWNER)]
-    assert "user_id" not in update[2]
-
-
-@pytest.mark.asyncio
-async def test_batch_foreign_collision_does_not_mutate_or_disclose(monkeypatch):
-    foreign = note_row(user_id=FOREIGN_OWNER, title="Private title", body="Private body")
-    client = OwnershipSupabase(notes=[foreign])
-    monkeypatch.setattr(main, "supabase", client)
-    batch = main.NoteBatchCreate(notes=[main.NoteCreate(**note_payload())])
-
-    with pytest.raises(HTTPException) as error:
-        await main.upsert_notes_batch(batch, OWNER, chunk_size=main.DEFAULT_BATCH_CHUNK_SIZE)
-
-    assert error.value.status_code == 409
-    assert error.value.detail == "NOTE_ID_UNAVAILABLE"
-    assert "Private" not in str(error.value.detail)
-    assert client.rows["notes"] == [foreign]
-
-
-@pytest.mark.asyncio
-async def test_batch_client_owner_spoof_is_ignored(monkeypatch):
-    client = OwnershipSupabase()
-    monkeypatch.setattr(main, "supabase", client)
-    spoofed = main.NoteCreate(**note_payload(), user_id=FOREIGN_OWNER)
-
-    result = await main.upsert_notes_batch(
-        main.NoteBatchCreate(notes=[spoofed]), OWNER, chunk_size=main.DEFAULT_BATCH_CHUNK_SIZE
-    )
-
-    assert result == [note_row()]
-    assert client.rows["notes"] == [note_row()]
-
-
-@pytest.mark.asyncio
-async def test_batch_partial_failure_never_returns_full_success(monkeypatch):
-    foreign = note_row("foreign", user_id=FOREIGN_OWNER, title="Private")
-    client = OwnershipSupabase(notes=[foreign])
-    monkeypatch.setattr(main, "supabase", client)
-    batch = main.NoteBatchCreate(
-        notes=[
-            main.NoteCreate(**note_payload("created")),
-            main.NoteCreate(**note_payload("foreign")),
-        ]
-    )
-
-    with pytest.raises(HTTPException) as error:
-        await main.upsert_notes_batch(batch, OWNER, chunk_size=1)
-
-    assert error.value.detail == "NOTE_ID_UNAVAILABLE"
-    assert any(row["id"] == "created" and row["user_id"] == OWNER for row in client.rows["notes"])
-    assert next(row for row in client.rows["notes"] if row["id"] == "foreign") == foreign
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "override",
-    [
-        [],
-        {},
-        [note_row(user_id=FOREIGN_OWNER)],
-        [note_row(), note_row()],
-    ],
-)
-async def test_batch_zero_malformed_wrong_owner_and_multi_results_fail_closed(
-    monkeypatch, override
-):
-    client = OwnershipSupabase()
-    client.mutation_overrides[("notes", "insert")] = override
-    monkeypatch.setattr(main, "supabase", client)
-
-    with pytest.raises(HTTPException) as error:
-        await main.upsert_notes_batch(
-            main.NoteBatchCreate(notes=[main.NoteCreate(**note_payload())]),
-            OWNER,
-            chunk_size=main.DEFAULT_BATCH_CHUNK_SIZE,
+def post_batch_as_owner(payload: dict, *, chunk_size: int = 1):
+    previous = main.app.dependency_overrides.get(main.get_current_user)
+    main.app.dependency_overrides[main.get_current_user] = lambda: OWNER
+    try:
+        return TestClient(main.app).post(
+            f"/api/notes/batch?chunk_size={chunk_size}",
+            json=payload,
         )
+    finally:
+        if previous is None:
+            main.app.dependency_overrides.pop(main.get_current_user, None)
+        else:
+            main.app.dependency_overrides[main.get_current_user] = previous
 
-    assert error.value.status_code == 409
-    assert error.value.detail == "NOTE_WRITE_UNCONFIRMED"
 
-
-@pytest.mark.asyncio
-async def test_batch_stale_preflight_cannot_update_new_owner(monkeypatch):
-    client = OwnershipSupabase(notes=[note_row(title="Original")])
+def test_authenticated_batch_route_is_disabled_before_all_database_work(monkeypatch):
+    original = note_row(title="Original")
+    client = OwnershipSupabase(notes=[original])
+    upsert_calls = []
     monkeypatch.setattr(main, "supabase", client)
 
-    def transfer_before_update(query, db):
-        if query.table_name == "notes" and query.operation == "update":
-            db.rows["notes"][0]["user_id"] = FOREIGN_OWNER
+    async def tracked_upsert(*args, **kwargs):
+        upsert_calls.append((args, kwargs))
+        raise AssertionError("disabled batch route must not call upsert_note")
 
-    client.before_mutation = transfer_before_update
-    batch = main.NoteBatchCreate(
-        notes=[main.NoteCreate(**note_payload(title="Attacker change"))]
+    monkeypatch.setattr(main, "upsert_note", tracked_upsert)
+
+    response = post_batch_as_owner(
+        {
+            "notes": [
+                note_payload("new", user_id=FOREIGN_OWNER),
+                note_payload("note-1", title="Changed"),
+            ]
+        }
     )
 
-    with pytest.raises(HTTPException) as error:
-        await main.upsert_notes_batch(batch, OWNER, chunk_size=main.DEFAULT_BATCH_CHUNK_SIZE)
+    assert response.status_code == 410
+    assert response.json() == {"detail": "NOTES_BATCH_MUTATION_DISABLED"}
+    assert client.operations == []
+    assert upsert_calls == []
+    assert client.rows["notes"] == [original]
 
-    assert error.value.status_code == 409
-    assert error.value.detail == "NOTE_WRITE_CONFLICT"
-    assert client.rows["notes"][0]["title"] == "Original"
-    assert client.operations[-1][3] == [("id", "note-1"), ("user_id", OWNER)]
+
+def test_large_batch_route_has_constant_zero_database_work(monkeypatch):
+    original = note_row(title="Original")
+    client = OwnershipSupabase(notes=[original])
+    upsert_calls = []
+    monkeypatch.setattr(main, "supabase", client)
+
+    async def tracked_upsert(*args, **kwargs):
+        upsert_calls.append((args, kwargs))
+        raise AssertionError("disabled batch route must not call upsert_note")
+
+    monkeypatch.setattr(main, "upsert_note", tracked_upsert)
+    payload = {"notes": [note_payload(f"large-{index}") for index in range(500)]}
+
+    response = post_batch_as_owner(payload, chunk_size=100)
+
+    assert response.status_code == 410
+    assert response.json() == {"detail": "NOTES_BATCH_MUTATION_DISABLED"}
+    assert client.operations == []
+    assert upsert_calls == []
+    assert client.rows["notes"] == [original]
+
+
+def test_unauthenticated_batch_route_preserves_auth_failure_before_handler(monkeypatch):
+    client = OwnershipSupabase()
+    upsert_calls = []
+    monkeypatch.setattr(main, "supabase", client)
+
+    async def tracked_upsert(*args, **kwargs):
+        upsert_calls.append((args, kwargs))
+        raise AssertionError("unauthenticated request must not call upsert_note")
+
+    monkeypatch.setattr(main, "upsert_note", tracked_upsert)
+
+    response = TestClient(main.app).post(
+        "/api/notes/batch",
+        json={"notes": [note_payload()]},
+    )
+
+    assert response.status_code in {401, 403}
+    assert response.status_code != 410
+    assert client.operations == []
+    assert upsert_calls == []

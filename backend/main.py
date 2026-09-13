@@ -14,7 +14,7 @@ from auth import AuthConfigurationError, SupabaseJWTVerifier
 from backup_stream import fetch_backup_tables_sequential, iter_backup_zip_chunks
 from memory_watchdog import MemoryWatchdog
 from request_memory_watchdog import RequestMemoryWatchdog, should_profile_path
-from notes_sync import DEFAULT_BATCH_CHUNK_SIZE, build_notes_delta_or_filter, chunk_note_payloads
+from notes_sync import DEFAULT_BATCH_CHUNK_SIZE, build_notes_delta_or_filter
 from memory_profile import MemoryProfiler
 from remote_mutation import (
     MAX_REQUEST_BYTES,
@@ -1400,20 +1400,8 @@ async def upsert_notes_batch(
     user_id: str = Depends(get_current_user),
     chunk_size: int = Query(default=DEFAULT_BATCH_CHUNK_SIZE, ge=1, le=100),
 ):
-    """Owner-check every row while preserving the bounded K-97G request contract.
-
-    Earlier rows may be durable when a later row fails. The route returns no
-    success response in that case, and a retry is safe through the same
-    collision-safe insert or owner-scoped update authority as single-note POST.
-    """
-    if not batch.notes:
-        return []
-    results: list = []
-    payloads = [note.model_dump() for note in batch.notes]
-    for chunk in chunk_note_payloads(payloads, chunk_size):
-        for payload in chunk:
-            results.append(await upsert_note(NoteCreate(**payload), user_id))
-    return results
+    """Keep the dormant legacy route explicit while preventing all mutation work."""
+    raise HTTPException(status_code=410, detail="NOTES_BATCH_MUTATION_DISABLED")
 
 
 @app.get("/api/notes/{note_id}")
