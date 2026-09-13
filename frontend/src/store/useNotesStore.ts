@@ -62,8 +62,14 @@ import {
   reconcileNotesSingleDeletesForBootstrap,
   completeNotesSingleDeleteBootstrapReconciliation,
   validateNotesSingleDeleteTarget,
+  listNotesFolderRemoteMutations,
+  persistNotesFolderRemoteMutation,
+  isNotesFolderRemoteMutationCurrent,
+  clearNotesFolderRemoteMutation,
+  clearNotesFolderRemoteMutationsForReplacement,
   type NotesSingleDeleteAuthorization,
   type NotesAuthorityRequest,
+  type NotesFolderRemoteMutationMarker,
 } from '../lib/notesAccountAuthority';
 import { deleteSingleRemoteNote } from '../lib/notesSingleDeleteRemote';
 import {
@@ -205,7 +211,7 @@ export type FolderDeletionUndoResult =
     readonly preservedNewerAssignmentNoteIds: readonly string[];
   }
   | {
-    readonly status: 'not_found' | 'expired' | 'stale_context' | 'folder_id_conflict' | 'persistence_failed';
+    readonly status: 'not_found' | 'expired' | 'stale_context' | 'folder_id_conflict' | 'in_progress' | 'persistence_failed';
     readonly message: string;
   };
 
@@ -258,6 +264,8 @@ interface NotesState {
   savedAt: Date | null;
   syncError: string | null;
   syncIssue: SyncIssueState | null;
+  /** Changes only when the complete Notes/Folders authority is replaced. */
+  folderDeletionUndoEpoch: number;
 
   setActiveNoteId: (id: string | null) => void;
   setActiveFolderId: (id: string | null | 'trash') => void;
@@ -314,6 +322,12 @@ let notesLocalMutationGeneration = 0;
 let nextNoteSyncAttempt = 0;
 let nextFolderDeletionToken = 0;
 const folderDeletionInProgress = new Set<string>();
+const folderUndoInProgress = new Set<string>();
+const folderRemoteMutationInProgress = new Map<string, {
+  operationId: string;
+  promise: Promise<boolean>;
+}>();
+let folderStoreReplacementGeneration = 0;
 
 interface PendingFolderDeletion {
   readonly token: string;
@@ -322,11 +336,18 @@ interface PendingFolderDeletion {
   readonly affectedNoteIds: readonly string[];
   readonly accountId: string | null;
   readonly expiresAt: number;
+  readonly storeReplacementGeneration: number;
   readonly remoteDeleteSettled: Promise<unknown>;
 }
 
 let pendingFolderDeletion: PendingFolderDeletion | null = null;
 const BODY_SYNC_MS = 600;
+
+function invalidateFolderDeletionUndoForStoreReplacement(): number {
+  pendingFolderDeletion = null;
+  folderStoreReplacementGeneration += 1;
+  return folderStoreReplacementGeneration;
+}
 
 export const VAULT_RESTORE_DURABILITY_FAILURE_MESSAGE =
   'Restore was not completed because durable Notes/Folders readback could not be verified.';
@@ -1247,7 +1268,34 @@ export const useNotesStore = create<NotesState>((set, get) => {
     }
   };
 
-  const syncFolderToDB = async (folder: NoteFolder): Promise<boolean> => {
+  const rollbackFolderLifecyclePersistence = async (
+    state: { notes: Note[]; folders: NoteFolder[] },
+    operation: 'delete' | 'undo',
+  ): Promise<boolean> => {
+    let verified = false;
+    try {
+      const notesWrite = await persistNotes(state.notes);
+      const foldersWrite = persistFolders(state.folders);
+      const durableNotes = await loadNotesAsync() as Note[];
+      const durableFolders = loadFolders() as NoteFolder[];
+      verified = notesWrite.status === 'persisted'
+        && foldersWrite
+        && sameDurablePayload(state.notes, durableNotes)
+        && sameDurablePayload(state.folders, durableFolders);
+    } catch {
+      verified = false;
+    }
+    const message = operation === 'delete'
+      ? (verified ? FOLDER_DELETE_DURABILITY_FAILURE_MESSAGE : FOLDER_DELETE_RECOVERY_REQUIRED_MESSAGE)
+      : (verified ? FOLDER_UNDO_DURABILITY_FAILURE_MESSAGE : FOLDER_UNDO_RECOVERY_REQUIRED_MESSAGE);
+    setSyncIssue(message, 'local_folders_persistence', {
+      retryable: verified,
+      classification: 'LOCAL_PERSISTENCE_FAILURE',
+    });
+    return verified;
+  };
+
+  const syncFolderToDB = async (folder: NoteFolder, retryable = false): Promise<boolean> => {
     if (!mayUploadRemote()) {
       recordRecoveryBlock('upload_remote');
       setSyncIssue(RECOVERY_MODE_MESSAGE, 'recovery');
@@ -1265,19 +1313,19 @@ export const useNotesStore = create<NotesState>((set, get) => {
       });
       assertCurrentOperationEpoch(operationEpoch, 'upload_remote');
       if (!res.ok) {
-        setSyncIssue(`Cloud folder sync failed (${res.status})`, 'folder_remote', { targetId: folder.id });
+        setSyncIssue(`Cloud folder sync failed (${res.status})`, 'folder_remote', { targetId: folder.id, retryable });
         return false;
       }
       clearSyncIssue('folder_remote', folder.id);
       return true;
     } catch (err) {
       if (err instanceof RecoveryModeBlockedError) setSyncIssue(RECOVERY_MODE_MESSAGE, 'recovery');
-      else setSyncIssue(err instanceof Error ? err.message : 'Cloud folder sync failed', 'folder_remote', { targetId: folder.id });
+      else setSyncIssue(err instanceof Error ? err.message : 'Cloud folder sync failed', 'folder_remote', { targetId: folder.id, retryable });
       return false;
     }
   };
 
-  const removeFolderFromDB = async (id: string): Promise<boolean> => {
+  const removeFolderFromDB = async (id: string, retryable = false): Promise<boolean> => {
     if (!mayUploadRemote()) {
       recordRecoveryBlock('upload_remote');
       setSyncIssue(RECOVERY_MODE_MESSAGE, 'recovery');
@@ -1292,16 +1340,130 @@ export const useNotesStore = create<NotesState>((set, get) => {
       const res = await authFetch(`${API_URL}/api/note_folders/${id}`, { method: 'DELETE' });
       assertCurrentOperationEpoch(operationEpoch, 'upload_remote');
       if (!res.ok) {
-        setSyncIssue(`Cloud folder delete failed (${res.status})`, 'folder_remote', { targetId: id });
+        // The owner-scoped endpoint returns 404 only when the folder is
+        // authoritatively absent. This closes an ambiguous prior commit
+        // without requiring a non-idempotent second deletion.
+        if (res.status === 404) {
+          clearSyncIssue('folder_remote', id);
+          return true;
+        }
+        setSyncIssue(`Cloud folder delete failed (${res.status})`, 'folder_remote', { targetId: id, retryable });
         return false;
       }
       clearSyncIssue('folder_remote', id);
       return true;
     } catch (err) {
       if (err instanceof RecoveryModeBlockedError) setSyncIssue(RECOVERY_MODE_MESSAGE, 'recovery');
-      else setSyncIssue(err instanceof Error ? err.message : 'Cloud folder delete failed', 'folder_remote', { targetId: id });
+      else setSyncIssue(err instanceof Error ? err.message : 'Cloud folder delete failed', 'folder_remote', { targetId: id, retryable });
       return false;
     }
+  };
+
+  const processFolderRemoteMutation = (
+    marker: NotesFolderRemoteMutationMarker,
+  ): Promise<boolean> => {
+    const key = `${marker.accountId}\u0000${marker.folder.id}`;
+    const existing = folderRemoteMutationInProgress.get(key);
+    if (existing) {
+      if (existing.operationId === marker.operationId) return existing.promise;
+      return existing.promise.then(() => (
+        isNotesFolderRemoteMutationCurrent(marker)
+          ? processFolderRemoteMutation(marker)
+          : false
+      ));
+    }
+
+    const attempt = (async (): Promise<boolean> => {
+      try {
+        const request = getActiveNotesAuthorityRequest();
+        if (!request || request.accountId !== marker.accountId
+          || get().activeAccountId !== marker.accountId
+          || !isNotesAuthorityRequestActive(request)
+          || !isNotesCloudSyncEnabled()
+          || !isNotesFolderRemoteMutationCurrent(marker)) return false;
+
+        const folderExists = get().folders.some(folder => folder.id === marker.folder.id);
+        if ((marker.operation === 'FOLDER_DELETE' && folderExists)
+          || (marker.operation === 'FOLDER_RESTORE' && !folderExists)) return false;
+
+        const folderSucceeded = marker.operation === 'FOLDER_DELETE'
+          ? await removeFolderFromDB(marker.folder.id, true)
+          : await syncFolderToDB(marker.folder, true);
+        if (!folderSucceeded
+          || !isNotesAuthorityRequestActive(request)
+          || get().activeAccountId !== marker.accountId
+          || !isNotesFolderRemoteMutationCurrent(marker)) return false;
+
+        if (marker.operation === 'FOLDER_RESTORE') {
+          const affectedIds = new Set(marker.affectedNoteIds);
+          const eligibleNotes = get().notes.filter(note => (
+            affectedIds.has(note.id) && note.folderId === marker.folder.id
+          ));
+          const committedPersistence = Promise.resolve<NotesPersistenceWriteResult>({ status: 'persisted' });
+          const memberships = await Promise.all(eligibleNotes.map(note => (
+            syncPreparedNoteToDB(prepareNoteSyncAttempt(note, committedPersistence))
+          )));
+          if (memberships.some(succeeded => !succeeded)
+            || !isNotesAuthorityRequestActive(request)
+            || get().activeAccountId !== marker.accountId
+            || !isNotesFolderRemoteMutationCurrent(marker)) {
+            if (isNotesFolderRemoteMutationCurrent(marker)) {
+              setSyncIssue('Cloud folder membership restore remains pending.', 'folder_remote', {
+                targetId: marker.folder.id,
+                retryable: true,
+              });
+            }
+            return false;
+          }
+        }
+
+        if (clearNotesFolderRemoteMutation(marker)) {
+          clearSyncIssue('folder_remote', marker.folder.id);
+          return true;
+        }
+        if (isNotesFolderRemoteMutationCurrent(marker)) {
+          setSyncIssue('Cloud folder mutation remains pending.', 'folder_remote', {
+            targetId: marker.folder.id,
+            retryable: true,
+          });
+        }
+        return false;
+      } catch (error) {
+        if (isNotesFolderRemoteMutationCurrent(marker)) {
+          setSyncIssue(
+            error instanceof Error ? error.message : 'Cloud folder mutation remains pending.',
+            'folder_remote',
+            { targetId: marker.folder.id, retryable: true },
+          );
+        }
+        return false;
+      }
+    })();
+    folderRemoteMutationInProgress.set(key, { operationId: marker.operationId, promise: attempt });
+    void attempt.finally(() => {
+      if (folderRemoteMutationInProgress.get(key)?.promise === attempt) {
+        folderRemoteMutationInProgress.delete(key);
+      }
+    });
+    return attempt;
+  };
+
+  const retryPendingFolderRemoteMutations = async (): Promise<boolean> => {
+    const accountId = get().activeAccountId;
+    if (!accountId) return true;
+    let markers: readonly NotesFolderRemoteMutationMarker[];
+    try {
+      markers = listNotesFolderRemoteMutations(accountId);
+    } catch (error) {
+      setSyncIssue(
+        error instanceof Error ? error.message : 'Cloud folder mutation authority could not be read.',
+        'folder_remote',
+        { retryable: true },
+      );
+      return false;
+    }
+    const results = await Promise.all(markers.map(marker => processFolderRemoteMutation(marker)));
+    return results.every(Boolean);
   };
 
   const flushPendingSync = () => {
@@ -1344,6 +1506,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
     savedAt: null,
     syncError: null,
     syncIssue: null,
+    folderDeletionUndoEpoch: folderStoreReplacementGeneration,
     vaultRestoreCanUndo: isVaultRestoreUndoAvailable(),
 
     setActiveNoteId: (id) => {
@@ -1485,13 +1648,20 @@ export const useNotesStore = create<NotesState>((set, get) => {
         }
         const existingIssue = currentSyncIssue();
         const keepExistingIssue = existingIssue && existingIssue.source !== 'recovery';
+        const activeAccountId = get().activeAccountId;
+        const remoteMutationsSuperseded = !activeAccountId
+          || clearNotesFolderRemoteMutationsForReplacement(activeAccountId);
         set({
           notes: persisted.notes,
           folders: persisted.folders,
           syncError: keepExistingIssue ? get().syncError : null,
           syncIssue: keepExistingIssue ? existingIssue : null,
           vaultRestoreCanUndo: isVaultRestoreUndoAvailable(),
+          folderDeletionUndoEpoch: invalidateFolderDeletionUndoForStoreReplacement(),
         });
+        if (!remoteMutationsSuperseded) {
+          setSyncIssue('Folder remote mutation authority could not be superseded by Restore.', 'recovery');
+        }
         rebuildKnowledgeIndex(persisted.notes);
         bumpVaultStructure(set, get);
         const manifestIds = new Set(canonicalManifest.notes.map(n => n.id));
@@ -1537,7 +1707,14 @@ export const useNotesStore = create<NotesState>((set, get) => {
         set({ vaultRestoreCanUndo: false });
         return false;
       }
-      set({ notes: snapshot.notes, folders: snapshot.folders });
+      const activeAccountId = get().activeAccountId;
+      const remoteMutationsSuperseded = !activeAccountId
+        || clearNotesFolderRemoteMutationsForReplacement(activeAccountId);
+      set({
+        notes: snapshot.notes,
+        folders: snapshot.folders,
+        folderDeletionUndoEpoch: invalidateFolderDeletionUndoForStoreReplacement(),
+      });
       const persistence = persistNotes(snapshot.notes);
       persistFolders(snapshot.folders);
       for (const note of snapshot.notes) {
@@ -1549,6 +1726,9 @@ export const useNotesStore = create<NotesState>((set, get) => {
       clearVaultRestoreSnapshot();
       set({ vaultRestoreCanUndo: false });
       clearSyncIssue('recovery');
+      if (!remoteMutationsSuperseded) {
+        setSyncIssue('Folder remote mutation authority could not be superseded by Restore Undo.', 'recovery');
+      }
       flushPendingSync();
       return true;
     },
@@ -1854,6 +2034,24 @@ export const useNotesStore = create<NotesState>((set, get) => {
           };
         }
 
+        const accountId = get().activeAccountId;
+        let folderRemoteMutation: NotesFolderRemoteMutationMarker | null = null;
+        if (isNotesCloudSyncEnabled() && accountId) {
+          folderRemoteMutation = persistNotesFolderRemoteMutation(
+            accountId,
+            'FOLDER_DELETE',
+            folder,
+            affectedNoteIds,
+          );
+          if (!folderRemoteMutation) {
+            await rollbackFolderLifecyclePersistence(previous, 'delete');
+            return {
+              status: 'persistence_failed',
+              message: currentSyncIssue()?.message ?? FOLDER_DELETE_DURABILITY_FAILURE_MESSAGE,
+            };
+          }
+        }
+
         const activeFolderId = get().activeFolderId === id ? null : get().activeFolderId;
         set({ folders, notes, activeFolderId, vaultStructureVersion: get().vaultStructureVersion + 1 });
         scheduleAutoSnapshot(notes, folders);
@@ -1866,7 +2064,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
             knowledgeIndexService.updateNote(note);
             return syncPreparedNoteToDB(prepareNoteSyncAttempt(note, committedPersistence));
           });
-        remoteOperations.push(removeFolderFromDB(id));
+        if (folderRemoteMutation) remoteOperations.push(processFolderRemoteMutation(folderRemoteMutation));
         const remoteDeleteSettled = Promise.allSettled(remoteOperations);
 
         const expiresAt = Date.now() + FOLDER_DELETE_UNDO_WINDOW_MS;
@@ -1878,6 +2076,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
           affectedNoteIds,
           accountId: get().activeAccountId,
           expiresAt,
+          storeReplacementGeneration: folderStoreReplacementGeneration,
           remoteDeleteSettled,
         };
         return {
@@ -1907,55 +2106,84 @@ export const useNotesStore = create<NotesState>((set, get) => {
       if (get().activeAccountId !== pending.accountId) {
         return { status: 'stale_context', message: 'Folder recovery was blocked because the account context changed.' };
       }
+      if (pending.storeReplacementGeneration !== folderStoreReplacementGeneration
+        || get().folderDeletionUndoEpoch !== folderStoreReplacementGeneration) {
+        return { status: 'stale_context', message: 'Folder recovery was blocked because the Notes authority was replaced.' };
+      }
       if (get().folders.some(folder => folder.id === pending.folder.id)) {
         return { status: 'folder_id_conflict', message: 'Folder recovery was blocked because that folder identity already exists.' };
       }
+      if (folderUndoInProgress.has(token)) {
+        return { status: 'in_progress', message: 'Folder recovery is already in progress.' };
+      }
+      folderUndoInProgress.add(token);
 
-      const previous = { notes: get().notes, folders: get().folders };
-      const affectedIds = new Set(pending.affectedNoteIds);
-      const restoredNoteIds: string[] = [];
-      const preservedNewerAssignmentNoteIds: string[] = [];
-      const now = Date.now();
-      const notes = previous.notes.map(note => {
-        if (!affectedIds.has(note.id)) return note;
-        if (note.folderId !== null) {
-          preservedNewerAssignmentNoteIds.push(note.id);
-          return note;
+      try {
+        const previous = { notes: get().notes, folders: get().folders };
+        const affectedIds = new Set(pending.affectedNoteIds);
+        const restoredNoteIds: string[] = [];
+        const preservedNewerAssignmentNoteIds: string[] = [];
+        const now = Date.now();
+        const notes = previous.notes.map(note => {
+          if (!affectedIds.has(note.id)) return note;
+          if (note.folderId !== null) {
+            preservedNewerAssignmentNoteIds.push(note.id);
+            return note;
+          }
+          restoredNoteIds.push(note.id);
+          return { ...note, folderId: pending.folder.id, updatedAt: now };
+        });
+        const folders = [...previous.folders];
+        folders.splice(Math.min(pending.folderIndex, folders.length), 0, { ...pending.folder });
+
+        const persisted = await persistFolderLifecycleState({ notes, folders }, previous, 'undo');
+        if (!persisted) {
+          if (pending.storeReplacementGeneration !== folderStoreReplacementGeneration) {
+            return { status: 'stale_context', message: 'Folder recovery was blocked because the Notes authority was replaced.' };
+          }
+          return {
+            status: 'persistence_failed',
+            message: currentSyncIssue()?.message ?? FOLDER_UNDO_DURABILITY_FAILURE_MESSAGE,
+          };
         }
-        restoredNoteIds.push(note.id);
-        return { ...note, folderId: pending.folder.id, updatedAt: now };
-      });
-      const folders = [...previous.folders];
-      folders.splice(Math.min(pending.folderIndex, folders.length), 0, { ...pending.folder });
+        if (pending.storeReplacementGeneration !== folderStoreReplacementGeneration
+          || pendingFolderDeletion?.token !== token) {
+          return { status: 'stale_context', message: 'Folder recovery was blocked because the Notes authority was replaced.' };
+        }
 
-      const persisted = await persistFolderLifecycleState({ notes, folders }, previous, 'undo');
-      if (!persisted) {
-        return {
-          status: 'persistence_failed',
-          message: currentSyncIssue()?.message ?? FOLDER_UNDO_DURABILITY_FAILURE_MESSAGE,
-        };
+        let folderRemoteMutation: NotesFolderRemoteMutationMarker | null = null;
+        if (isNotesCloudSyncEnabled() && pending.accountId) {
+          folderRemoteMutation = persistNotesFolderRemoteMutation(
+            pending.accountId,
+            'FOLDER_RESTORE',
+            pending.folder,
+            pending.affectedNoteIds,
+          );
+          if (!folderRemoteMutation) {
+            await rollbackFolderLifecyclePersistence(previous, 'undo');
+            return {
+              status: 'persistence_failed',
+              message: currentSyncIssue()?.message ?? FOLDER_UNDO_DURABILITY_FAILURE_MESSAGE,
+            };
+          }
+        }
+
+        set({ folders, notes, vaultStructureVersion: get().vaultStructureVersion + 1 });
+        scheduleAutoSnapshot(notes, folders);
+        invalidateNoteGalaxyMapCache();
+        for (const note of notes.filter(note => restoredNoteIds.includes(note.id))) {
+          knowledgeIndexService.updateNote(note);
+        }
+        pendingFolderDeletion = null;
+
+        if (folderRemoteMutation) {
+          void pending.remoteDeleteSettled.then(() => processFolderRemoteMutation(folderRemoteMutation));
+        }
+
+        return { status: 'restored', restoredNoteIds, preservedNewerAssignmentNoteIds };
+      } finally {
+        folderUndoInProgress.delete(token);
       }
-
-      set({ folders, notes, vaultStructureVersion: get().vaultStructureVersion + 1 });
-      scheduleAutoSnapshot(notes, folders);
-      invalidateNoteGalaxyMapCache();
-      for (const note of notes.filter(note => restoredNoteIds.includes(note.id))) {
-        knowledgeIndexService.updateNote(note);
-      }
-      pendingFolderDeletion = null;
-
-      void pending.remoteDeleteSettled.then(async () => {
-        if (get().activeAccountId !== pending.accountId) return;
-        await syncFolderToDB(pending.folder);
-        if (get().activeAccountId !== pending.accountId) return;
-        const latestAffectedNotes = get().notes.filter(note => affectedIds.has(note.id));
-        const committedPersistence = Promise.resolve<NotesPersistenceWriteResult>({ status: 'persisted' });
-        await Promise.all(latestAffectedNotes.map(note => (
-          syncPreparedNoteToDB(prepareNoteSyncAttempt(note, committedPersistence))
-        )));
-      });
-
-      return { status: 'restored', restoredNoteIds, preservedNewerAssignmentNoteIds };
     },
 
     bootstrapFromSupabase: async () => {
@@ -1966,6 +2194,12 @@ export const useNotesStore = create<NotesState>((set, get) => {
       try {
         const accountId = getActiveNotesAuthorityAccountId();
         if (!accountId) throw new Error('notes_bootstrap_account_missing');
+        const folderRemoteMutations = listNotesFolderRemoteMutations(accountId);
+        const pendingFolderDeleteIds = new Set(
+          folderRemoteMutations
+            .filter(marker => marker.operation === 'FOLDER_DELETE')
+            .map(marker => marker.folder.id),
+        );
         const previousNotes = await loadNotesForRecoveryContext(context);
         if (!isNotesAccountRecoveryContextActive(context)) throw new Error('notes_bootstrap_stale');
         if (notesLocalMutationGeneration !== localMutationGeneration) {
@@ -2033,14 +2267,21 @@ export const useNotesStore = create<NotesState>((set, get) => {
           notes.push(note);
           noteIds.add(note.id);
         }
-        const folders = remote.folders.map(mapDbFolder);
+        const folders = remote.folders
+          .map(mapDbFolder)
+          .filter(folder => !pendingFolderDeleteIds.has(folder.id));
         const folderIds = new Set(folders.map(folder => folder.id));
         for (const folder of previousFolders) {
-          if (folderIds.has(folder.id)) continue;
-          // Folders use the same local-first absence rule; there is no folder
-          // deletion authority that would permit removing this local row here.
+          if (folderIds.has(folder.id) || pendingFolderDeleteIds.has(folder.id)) continue;
+          // Remote absence is not deletion evidence. A durable pending DELETE
+          // is the narrow exception and suppresses the still-remote row above.
           folders.push(folder);
           folderIds.add(folder.id);
+        }
+        for (const marker of folderRemoteMutations) {
+          if (marker.operation !== 'FOLDER_RESTORE' || folderIds.has(marker.folder.id)) continue;
+          folders.push({ ...marker.folder });
+          folderIds.add(marker.folder.id);
         }
         if (notesLocalMutationGeneration !== localMutationGeneration) {
           throw new Error('notes_bootstrap_local_mutation_pending');
@@ -2136,7 +2377,18 @@ export const useNotesStore = create<NotesState>((set, get) => {
               message: displayedConflictMessage,
             }
             : (keepExistingIssue ? existingIssue : null),
+          folderDeletionUndoEpoch: invalidateFolderDeletionUndoForStoreReplacement(),
         });
+        if (folderRemoteMutations.length > 0 && !displayedConflictMessage) {
+          const marker = folderRemoteMutations[0];
+          setSyncIssue(
+            marker.operation === 'FOLDER_DELETE'
+              ? 'Cloud folder deletion remains pending.'
+              : 'Cloud folder restoration remains pending.',
+            'folder_remote',
+            { targetId: marker.folder.id, retryable: true },
+          );
+        }
         clearResolvedPermanentDeleteIssue(accountId, committedNotes);
         saveActiveNoteId(nextActive);
         rebuildKnowledgeIndex(committedNotes);
@@ -2152,12 +2404,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
     syncNoteToDB,
     flushPendingSync,
     retrySync: () => {
-      const afterNotesSaved = () => {
-        if (!saveFolders(get().folders)) {
-          setSyncIssue(LOCAL_FOLDERS_SAVE_ERROR, 'local_folders_persistence', { retryable: true });
-          return;
-        }
-        clearSyncIssue('local_folders_persistence');
+      const retryNoteFailures = () => {
         if (lastFailedDeleteId) {
           void removeNoteFromDB(lastFailedDeleteId);
           return;
@@ -2167,6 +2414,16 @@ export const useNotesStore = create<NotesState>((set, get) => {
           return;
         }
         dismissNoTargetStaleSyncIssue();
+      };
+      const afterNotesSaved = () => {
+        if (!saveFolders(get().folders)) {
+          setSyncIssue(LOCAL_FOLDERS_SAVE_ERROR, 'local_folders_persistence', { retryable: true });
+          return;
+        }
+        clearSyncIssue('local_folders_persistence');
+        void retryPendingFolderRemoteMutations().then(succeeded => {
+          if (succeeded) retryNoteFailures();
+        });
       };
 
       if (getNotesPersistenceMode() === 'localStorage') {
@@ -2208,6 +2465,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
           activeAccountId: accountId?.trim() || null,
           notesAuthorityState: 'RECOVERY_REQUIRED',
           foldersAuthorityState: 'RECOVERY_REQUIRED',
+          folderDeletionUndoEpoch: invalidateFolderDeletionUndoForStoreReplacement(),
         });
         setSyncIssue(error instanceof Error ? error.message : LOCAL_NOTES_SAVE_ERROR, 'initialization');
         rebuildKnowledgeIndex([]);
@@ -2236,6 +2494,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
         notesAuthorityState: result.notesAuthorityState?.state ?? 'NOT_LOADED',
         foldersAuthorityState: result.foldersAuthorityState?.state ?? 'NOT_LOADED',
         vaultStructureVersion: get().vaultStructureVersion + 1,
+        folderDeletionUndoEpoch: invalidateFolderDeletionUndoForStoreReplacement(),
       });
       if (fallbackError) {
         // Initialization fallback is distinct from a failed local write. A
@@ -2274,6 +2533,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
         savedAt: null,
         vaultStructureVersion: get().vaultStructureVersion + 1,
         indexContentVersion: 0,
+        folderDeletionUndoEpoch: invalidateFolderDeletionUndoForStoreReplacement(),
       });
       rebuildKnowledgeIndex([]);
     },
@@ -2289,7 +2549,9 @@ export const useNotesStore = create<NotesState>((set, get) => {
       latestNoteSyncAttempts.clear();
       lastFailedNote = null;
       lastFailedDeleteId = null;
-      pendingFolderDeletion = null;
+      const activeAccountId = get().activeAccountId;
+      const remoteMutationsSuperseded = !activeAccountId
+        || clearNotesFolderRemoteMutationsForReplacement(activeAccountId);
       clearKnowledgeHistory();
       clearNotesStorage();
       void clearNotesPersistence();
@@ -2305,7 +2567,11 @@ export const useNotesStore = create<NotesState>((set, get) => {
         isSyncing: false,
         vaultStructureVersion: get().vaultStructureVersion + 1,
         indexContentVersion: 0,
+        folderDeletionUndoEpoch: invalidateFolderDeletionUndoForStoreReplacement(),
       });
+      if (!remoteMutationsSuperseded) {
+        setSyncIssue('Folder remote mutation authority could not be superseded by Notes reset.', 'recovery');
+      }
       rebuildKnowledgeIndex(notes);
     },
   };

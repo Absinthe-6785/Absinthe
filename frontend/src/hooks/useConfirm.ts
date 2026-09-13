@@ -8,6 +8,8 @@ interface ConfirmOptions {
 }
 
 interface ConfirmState extends Required<ConfirmOptions> {
+  /** Immutable authority identity for this exact confirmation request. */
+  requestId: number;
   message: string;
   // 개선 전: () => void — async 콜백이 전달되면 Promise가 무시됨
   // 개선 후: () => void | Promise<void> — handleConfirm이 await로 완료 보장
@@ -23,6 +25,8 @@ interface ConfirmState extends Required<ConfirmOptions> {
 export const useConfirm = () => {
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
   const confirmRef = useRef<ConfirmState | null>(null);
+  const nextRequestIdRef = useRef(0);
+  const inFlightRequestIdsRef = useRef(new Set<number>());
 
   const showConfirm = useCallback(
     (
@@ -31,6 +35,7 @@ export const useConfirm = () => {
       options: ConfirmOptions = {},
     ) => {
       const next = {
+        requestId: ++nextRequestIdRef.current,
         message,
         onConfirm,
         confirmLabel: options.confirmLabel ?? 'Confirm',
@@ -42,19 +47,31 @@ export const useConfirm = () => {
     [],
   );
 
-  const clearConfirm = useCallback(() => {
+  const clearConfirm = useCallback((requestId?: number) => {
+    const current = confirmRef.current;
+    if (!current || (requestId !== undefined && current.requestId !== requestId)) return false;
     confirmRef.current = null;
-    setConfirm(null);
+    setConfirm(value => value?.requestId === current.requestId ? null : value);
+    return true;
   }, []);
 
-  const handleConfirm = useCallback(async () => {
+  const handleConfirm = useCallback(async (requestId: number) => {
     const current = confirmRef.current;
-    if (!current) return;
+    if (
+      !current
+      || current.requestId !== requestId
+      || inFlightRequestIdsRef.current.has(requestId)
+    ) return;
+    inFlightRequestIdsRef.current.add(requestId);
     // Consume before awaiting so repeated click/Enter/callback delivery cannot
     // invoke a destructive authority twice.
     confirmRef.current = null;
-    setConfirm(null);
-    await current.onConfirm();
+    setConfirm(value => value?.requestId === requestId ? null : value);
+    try {
+      await current.onConfirm();
+    } finally {
+      inFlightRequestIdsRef.current.delete(requestId);
+    }
   }, []);
 
   return { confirm, showConfirm, clearConfirm, handleConfirm };

@@ -265,6 +265,7 @@ export const NoteView = ({ showToast = () => {}, accountId }: NoteViewProps) => 
   const storeRenameFolder = useNotesStore(s => s.renameFolder);
   const storeDeleteFolder = useNotesStore(s => s.deleteFolder);
   const undoFolderDeletion = useNotesStore(s => s.undoFolderDeletion);
+  const folderDeletionUndoEpoch = useNotesStore(s => s.folderDeletionUndoEpoch);
   const importNote = useNotesStore(s => s.importNote);
   const flushPendingSync = useNotesStore(s => s.flushPendingSync);
   const syncNoteToDB = useNotesStore(s => s.syncNoteToDB);
@@ -1341,6 +1342,7 @@ export const NoteView = ({ showToast = () => {}, accountId }: NoteViewProps) => 
     getCurrentState: useNotesStore.getState,
     deleteFolder,
     undoFolderDeletion,
+    folderDeletionUndoEpoch,
     setActiveFolderId,
     showConfirm,
     showToast,
@@ -1645,9 +1647,10 @@ export const NoteView = ({ showToast = () => {}, accountId }: NoteViewProps) => 
       )}
       {confirm && (
         <ConfirmModal
+          key={confirm.requestId}
           message={confirm.message}
-          onConfirm={handleConfirm}
-          onCancel={clearConfirm}
+          onConfirm={() => handleConfirm(confirm.requestId)}
+          onCancel={() => { clearConfirm(confirm.requestId); }}
           darkMode={dark}
           confirmLabel={confirm.confirmLabel}
           variant={confirm.variant}

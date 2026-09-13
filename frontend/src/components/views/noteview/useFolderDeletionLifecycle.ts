@@ -24,6 +24,7 @@ interface UseFolderDeletionLifecycleParams {
   getCurrentState: () => FolderDeletionLocalState;
   deleteFolder: (folderId: string) => Promise<FolderDeletionResult>;
   undoFolderDeletion: (token: string) => Promise<FolderDeletionUndoResult>;
+  folderDeletionUndoEpoch: number;
   setActiveFolderId: Dispatch<SetStateAction<FolderFilter>>;
   showConfirm: (
     message: string,
@@ -38,6 +39,7 @@ export function useFolderDeletionLifecycle({
   getCurrentState,
   deleteFolder,
   undoFolderDeletion,
+  folderDeletionUndoEpoch,
   setActiveFolderId,
   showConfirm,
   showToast,
@@ -46,12 +48,25 @@ export function useFolderDeletionLifecycle({
   const [undoReceipt, setUndoReceipt] = useState<FolderDeletionReceipt | null>(null);
   const [undoBusy, setUndoBusy] = useState(false);
   const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const undoBusyRef = useRef(false);
+  const observedUndoEpochRef = useRef(folderDeletionUndoEpoch);
+  const currentUndoEpochRef = useRef(folderDeletionUndoEpoch);
+  currentUndoEpochRef.current = folderDeletionUndoEpoch;
 
   useEffect(() => () => {
     if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
   }, []);
 
-  const exposeUndo = useCallback((receipt: FolderDeletionReceipt) => {
+  useEffect(() => {
+    if (observedUndoEpochRef.current === folderDeletionUndoEpoch) return;
+    observedUndoEpochRef.current = folderDeletionUndoEpoch;
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+    undoTimerRef.current = null;
+    setUndoReceipt(null);
+  }, [folderDeletionUndoEpoch]);
+
+  const exposeUndo = useCallback((receipt: FolderDeletionReceipt, expectedEpoch: number) => {
+    if (currentUndoEpochRef.current !== expectedEpoch) return;
     if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
     setUndoReceipt(receipt);
     const remaining = Math.max(
@@ -65,6 +80,7 @@ export function useFolderDeletionLifecycle({
   }, []);
 
   const requestDeleteFolder = useCallback((folderId: string) => {
+    const requestUndoEpoch = currentUndoEpochRef.current;
     const armConfirmation = (expectedName: string, expectedCount: number) => {
       let consumed = false;
       showConfirm(
@@ -94,7 +110,7 @@ export function useFolderDeletionLifecycle({
             return;
           }
           setActiveFolderId(active => active === folderId ? null : active);
-          exposeUndo(result.receipt);
+          exposeUndo(result.receipt, requestUndoEpoch);
         },
         { confirmLabel: t('deleteLabel'), variant: 'destructive' },
       );
@@ -107,7 +123,8 @@ export function useFolderDeletionLifecycle({
 
   const handleUndo = useCallback(async () => {
     const pending = undoReceipt;
-    if (!pending || undoBusy) return;
+    if (!pending || undoBusyRef.current) return;
+    undoBusyRef.current = true;
     setUndoBusy(true);
     try {
       const result = await undoFolderDeletion(pending.token);
@@ -122,9 +139,10 @@ export function useFolderDeletionLifecycle({
     } catch {
       showToast(t('nvFolderUndoFailed'), 'error');
     } finally {
+      undoBusyRef.current = false;
       setUndoBusy(false);
     }
-  }, [undoFolderDeletion, undoReceipt, undoBusy, showToast, t]);
+  }, [undoFolderDeletion, undoReceipt, showToast, t]);
 
   return {
     folderDeletionUndo: undoReceipt,

@@ -1,3 +1,4 @@
+import 'fake-indexeddb/auto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   FOLDERS_KEY,
@@ -9,9 +10,13 @@ import {
 
 const storage = new Map<string, string>();
 let rejectFolderWrites = false;
+let folderAuthorityWriteAttempts = 0;
 const localStorageMock = {
   getItem: (key: string) => storage.get(key) ?? null,
   setItem: (key: string, value: string) => {
+    if (key === FOLDERS_KEY || key.includes('account-authority.folders.v1')) {
+      folderAuthorityWriteAttempts += 1;
+    }
     if (rejectFolderWrites && (key === FOLDERS_KEY || key.includes('folders'))) {
       throw new Error('folder storage rejected');
     }
@@ -32,7 +37,11 @@ vi.mock('../lib/supabase', () => ({
 }));
 
 import { resetNotesPersistenceForTests } from '../lib/notePersistence';
-import { activateNotesAccountAuthority } from '../lib/notesAccountAuthority';
+import {
+  activateNotesAccountAuthority,
+  listNotesFolderRemoteMutations,
+  saveAccountScopedNotes,
+} from '../lib/notesAccountAuthority';
 import { setRecoveryModeActiveForTest } from '../lib/recoverySafetyPolicy';
 import { NOTES_RUNTIME_SYNC_MODE_KEY } from '../lib/notesSyncClient';
 import { resetAutoSnapshotStateForTests } from '../lib/vaultSnapshotAuto';
@@ -59,6 +68,7 @@ function resetStore() {
   storage.clear();
   storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'local');
   rejectFolderWrites = false;
+  folderAuthorityWriteAttempts = 0;
   authFetchMock.mockReset();
   authReadFetchMock.mockReset();
   authFetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({}) });
@@ -86,6 +96,86 @@ function bindRemoteAccount() {
   activateNotesAccountAuthority('account-a');
   useNotesStore.setState({ activeAccountId: 'account-a' });
   storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'remote');
+}
+
+async function seedInitializedAccount(
+  accountId: string,
+  notes: NoteBase[],
+  folders: NoteFolderBase[],
+): Promise<void> {
+  await useNotesStore.getState().initNotesStorage(accountId);
+  expect(await saveAccountScopedNotes(accountId, notes)).toBe(true);
+  expect(saveFolders(folders)).toBe(true);
+  useNotesStore.setState({
+    notes,
+    folders,
+    activeNoteId: notes[0]?.id ?? null,
+    activeFolderId: null,
+    activeAccountId: accountId,
+    syncError: null,
+    syncIssue: null,
+  });
+}
+
+function completeSnapshot(accountId: string, rows: readonly unknown[]) {
+  return {
+    ok: true,
+    status: 200,
+    json: async () => ({
+      account_id: accountId,
+      rows,
+      total_count: rows.length,
+      offset: 0,
+      limit: 500,
+      complete: true,
+    }),
+  };
+}
+
+function installRemoteSnapshot(
+  accountId: string,
+  notes: readonly NoteBase[],
+  folders: readonly NoteFolderBase[],
+): void {
+  authReadFetchMock.mockImplementation((url: string) => Promise.resolve(
+    url.includes('/api/notes?')
+      ? completeSnapshot(accountId, notes.map(item => ({
+        id: item.id,
+        user_id: accountId,
+        title: item.title,
+        body: item.body,
+        updated_at: item.updatedAt,
+        folder_id: item.folderId,
+        deleted_at: item.deletedAt,
+        starred: item.starred,
+        properties: item.properties ?? null,
+        relations: item.relations ?? null,
+      })))
+      : completeSnapshot(accountId, folders.map(item => ({
+        id: item.id,
+        user_id: accountId,
+        name: item.name,
+        created_at: item.createdAt,
+      }))),
+  ));
+}
+
+function successfulRemoteResponse(accountId: string, url: unknown, options?: RequestInit) {
+  if (String(url).endsWith('/api/notes') && options?.method === 'POST') {
+    const payload = JSON.parse(String(options.body)) as Record<string, unknown>;
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ properties: null, relations: null, user_id: accountId, ...payload }),
+    };
+  }
+  return { ok: true, status: 200, json: async () => ({}) };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(done => { resolve = done; });
+  return { promise, resolve };
 }
 
 describe('Notes folder destructive lifecycle', () => {
@@ -238,7 +328,7 @@ describe('Notes folder destructive lifecycle', () => {
         return {
           ok: true,
           status: 200,
-          json: async () => ({ user_id: 'account-a', ...payload }),
+          json: async () => ({ properties: null, relations: null, user_id: 'account-a', ...payload }),
         };
       }
       return { ok: true, status: 200, json: async () => ({}) };
@@ -276,5 +366,349 @@ describe('Notes folder destructive lifecycle', () => {
     expect(remoteFolderRestoreIndex).toBeGreaterThan(remoteDeleteIndex);
     expect(remoteMembershipRestoreIndex).toBeGreaterThan(remoteFolderRestoreIndex);
     expect(useNotesStore.getState().notes[0]).toMatchObject({ body: 'remote-safe body', folderId: 'research' });
+  });
+
+  it('durably suppresses a failed remote delete across restart/bootstrap and clears it after retry', async () => {
+    const accountId = 'folder-delete-restart';
+    const originalFolder = folder('research', 'Research', 1);
+    await seedInitializedAccount(accountId, [note('member', 'research')], [originalFolder]);
+    storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'remote');
+    let remoteFolderExists = true;
+    let deleteAttempts = 0;
+    let successfulDeletes = 0;
+    authFetchMock.mockImplementation(async (url: unknown, options?: RequestInit) => {
+      if (String(url).endsWith('/api/note_folders/research') && options?.method === 'DELETE') {
+        deleteAttempts += 1;
+        if (deleteAttempts === 1) return { ok: false, status: 503, json: async () => ({}) };
+        successfulDeletes += 1;
+        remoteFolderExists = false;
+        return { ok: true, status: 200, json: async () => ({}) };
+      }
+      return successfulRemoteResponse(accountId, url, options);
+    });
+
+    const deleted = await useNotesStore.getState().deleteFolder('research');
+    expect(deleted.status).toBe('deleted');
+    await vi.waitFor(() => {
+      expect(deleteAttempts).toBe(1);
+      expect(listNotesFolderRemoteMutations(accountId)).toHaveLength(1);
+    });
+
+    const remoteNote = { ...useNotesStore.getState().notes[0]!, folderId: null };
+    useNotesStore.getState().detachNotesStorage();
+    await useNotesStore.getState().initNotesStorage(accountId);
+    installRemoteSnapshot(accountId, [remoteNote], remoteFolderExists ? [originalFolder] : []);
+    await useNotesStore.getState().bootstrapFromSupabase();
+
+    expect(useNotesStore.getState().folders).toEqual([]);
+    expect(useNotesStore.getState().notes[0]?.folderId).toBeNull();
+    expect(listNotesFolderRemoteMutations(accountId)[0]?.operation).toBe('FOLDER_DELETE');
+
+    useNotesStore.getState().retrySync();
+    await vi.waitFor(() => {
+      expect(deleteAttempts).toBe(2);
+      expect(successfulDeletes).toBe(1);
+      expect(listNotesFolderRemoteMutations(accountId)).toHaveLength(0);
+    });
+
+    installRemoteSnapshot(accountId, [remoteNote], remoteFolderExists ? [originalFolder] : []);
+    await useNotesStore.getState().bootstrapFromSupabase();
+    expect(useNotesStore.getState().folders).toEqual([]);
+  });
+
+  it('treats an owner-scoped 404 on remote delete retry as authoritative convergence', async () => {
+    const accountId = 'folder-delete-retry-404';
+    await seedInitializedAccount(accountId, [note('member', 'research')], [folder('research', 'Research', 1)]);
+    storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'remote');
+    let deleteAttempts = 0;
+    authFetchMock.mockImplementation(async (url: unknown, options?: RequestInit) => {
+      if (String(url).endsWith('/api/note_folders/research') && options?.method === 'DELETE') {
+        deleteAttempts += 1;
+        return deleteAttempts === 1
+          ? { ok: false, status: 503, json: async () => ({}) }
+          : { ok: false, status: 404, json: async () => ({ detail: 'not found' }) };
+      }
+      return successfulRemoteResponse(accountId, url, options);
+    });
+
+    expect((await useNotesStore.getState().deleteFolder('research')).status).toBe('deleted');
+    await vi.waitFor(() => {
+      expect(deleteAttempts).toBe(1);
+      expect(listNotesFolderRemoteMutations(accountId)[0]?.operation).toBe('FOLDER_DELETE');
+    });
+
+    useNotesStore.getState().retrySync();
+    await vi.waitFor(() => {
+      expect(deleteAttempts).toBe(2);
+      expect(listNotesFolderRemoteMutations(accountId)).toHaveLength(0);
+      expect(useNotesStore.getState().syncIssue).toBeNull();
+    });
+  });
+
+  it('keeps failed remote restore durable and blocks memberships until folder recreation succeeds', async () => {
+    const accountId = 'folder-restore-retry';
+    const originalFolder = folder('research', 'Research', 1);
+    await seedInitializedAccount(accountId, [note('member', 'research')], [originalFolder]);
+    storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'remote');
+    let failFolderRestore = true;
+    authFetchMock.mockImplementation(async (url: unknown, options?: RequestInit) => {
+      if (String(url).endsWith('/api/note_folders') && options?.method === 'POST' && failFolderRestore) {
+        return { ok: false, status: 503, json: async () => ({}) };
+      }
+      return successfulRemoteResponse(accountId, url, options);
+    });
+
+    const deleted = await useNotesStore.getState().deleteFolder('research');
+    if (deleted.status !== 'deleted') throw new Error('expected deletion receipt');
+    const restored = await useNotesStore.getState().undoFolderDeletion(deleted.receipt.token);
+    expect(restored.status).toBe('restored');
+
+    await vi.waitFor(() => {
+      expect(listNotesFolderRemoteMutations(accountId)[0]?.operation).toBe('FOLDER_RESTORE');
+      const restoreAttempts = authFetchMock.mock.calls.filter(([url, options]) => (
+        String(url).endsWith('/api/note_folders')
+        && (options as RequestInit | undefined)?.method === 'POST'
+      ));
+      expect(restoreAttempts).toHaveLength(1);
+      expect(useNotesStore.getState().syncIssue).toMatchObject({
+        source: 'folder_remote',
+        targetId: 'research',
+        retryable: true,
+      });
+    });
+    const membershipsBeforeRetry = authFetchMock.mock.calls.filter(([url, options]) => {
+      if (!String(url).endsWith('/api/notes') || (options as RequestInit | undefined)?.method !== 'POST') return false;
+      const payload = JSON.parse(String((options as RequestInit).body)) as { folder_id?: string | null };
+      return payload.folder_id === 'research';
+    });
+    expect(membershipsBeforeRetry).toHaveLength(0);
+
+    failFolderRestore = false;
+    useNotesStore.getState().retrySync();
+    await vi.waitFor(() => {
+      const restoreAttempts = authFetchMock.mock.calls.filter(([url, options]) => (
+        String(url).endsWith('/api/note_folders')
+        && (options as RequestInit | undefined)?.method === 'POST'
+      ));
+      expect(restoreAttempts).toHaveLength(2);
+      const memberships = authFetchMock.mock.calls.filter(([url, options]) => {
+        if (!String(url).endsWith('/api/notes') || (options as RequestInit | undefined)?.method !== 'POST') return false;
+        const payload = JSON.parse(String((options as RequestInit).body)) as { folder_id?: string | null };
+        return payload.folder_id === 'research';
+      });
+      expect(memberships).toHaveLength(1);
+      expect(
+        listNotesFolderRemoteMutations(accountId),
+        JSON.stringify(useNotesStore.getState().syncIssue),
+      ).toHaveLength(0);
+    });
+  });
+
+  it('supersedes a pending DELETE with RESTORE so retry cannot run the stale destructive intent', async () => {
+    const accountId = 'folder-delete-restore-supersession';
+    const originalFolder = folder('research', 'Research', 1);
+    await seedInitializedAccount(accountId, [note('member', 'research')], [originalFolder]);
+    storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'remote');
+    let deleteAttempts = 0;
+    let failFolderRestore = true;
+    authFetchMock.mockImplementation(async (url: unknown, options?: RequestInit) => {
+      if (String(url).endsWith('/api/note_folders/research') && options?.method === 'DELETE') {
+        deleteAttempts += 1;
+        return { ok: false, status: 503, json: async () => ({}) };
+      }
+      if (String(url).endsWith('/api/note_folders') && options?.method === 'POST' && failFolderRestore) {
+        return { ok: false, status: 503, json: async () => ({}) };
+      }
+      return successfulRemoteResponse(accountId, url, options);
+    });
+
+    const deleted = await useNotesStore.getState().deleteFolder('research');
+    if (deleted.status !== 'deleted') throw new Error('expected deletion receipt');
+    await vi.waitFor(() => expect(listNotesFolderRemoteMutations(accountId)[0]?.operation).toBe('FOLDER_DELETE'));
+    const restored = await useNotesStore.getState().undoFolderDeletion(deleted.receipt.token);
+    expect(restored.status).toBe('restored');
+    await vi.waitFor(() => {
+      expect(listNotesFolderRemoteMutations(accountId)[0]?.operation).toBe('FOLDER_RESTORE');
+      expect(useNotesStore.getState().syncIssue).toMatchObject({ source: 'folder_remote', retryable: true });
+    });
+
+    failFolderRestore = false;
+    useNotesStore.getState().retrySync();
+    await vi.waitFor(() => {
+      const restoreAttempts = authFetchMock.mock.calls.filter(([url, options]) => (
+        String(url).endsWith('/api/note_folders')
+        && (options as RequestInit | undefined)?.method === 'POST'
+      ));
+      expect(restoreAttempts).toHaveLength(2);
+      const memberships = authFetchMock.mock.calls.filter(([url, options]) => {
+        if (!String(url).endsWith('/api/notes') || (options as RequestInit | undefined)?.method !== 'POST') return false;
+        const payload = JSON.parse(String((options as RequestInit).body)) as { folder_id?: string | null };
+        return payload.folder_id === 'research';
+      });
+      expect(memberships).toHaveLength(1);
+      expect(
+        listNotesFolderRemoteMutations(accountId),
+        JSON.stringify(useNotesStore.getState().syncIssue),
+      ).toHaveLength(0);
+    });
+    expect(deleteAttempts).toBe(1);
+    expect(useNotesStore.getState().folders).toEqual([originalFolder]);
+  });
+
+  it('queues a newer DELETE behind an in-flight RESTORE without sending stale memberships', async () => {
+    const accountId = 'folder-restore-delete-supersession';
+    const originalFolder = folder('research', 'Research', 1);
+    await seedInitializedAccount(accountId, [note('member', 'research')], [originalFolder]);
+    storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'remote');
+    const restoreResponse = deferred<{ ok: boolean; status: number; json: () => Promise<object> }>();
+    let folderDeleteAttempts = 0;
+    authFetchMock.mockImplementation((url: unknown, options?: RequestInit) => {
+      if (String(url).endsWith('/api/note_folders/research') && options?.method === 'DELETE') {
+        folderDeleteAttempts += 1;
+        return Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
+      }
+      if (String(url).endsWith('/api/note_folders') && options?.method === 'POST') {
+        return restoreResponse.promise;
+      }
+      return Promise.resolve(successfulRemoteResponse(accountId, url, options));
+    });
+
+    const firstDelete = await useNotesStore.getState().deleteFolder('research');
+    if (firstDelete.status !== 'deleted') throw new Error('expected deletion receipt');
+    await vi.waitFor(() => expect(listNotesFolderRemoteMutations(accountId)).toHaveLength(0));
+    expect((await useNotesStore.getState().undoFolderDeletion(firstDelete.receipt.token)).status).toBe('restored');
+    await vi.waitFor(() => {
+      const folderRestores = authFetchMock.mock.calls.filter(([url, options]) => (
+        String(url).endsWith('/api/note_folders')
+        && (options as RequestInit | undefined)?.method === 'POST'
+      ));
+      expect(folderRestores).toHaveLength(1);
+    });
+
+    expect((await useNotesStore.getState().deleteFolder('research')).status).toBe('deleted');
+    expect(listNotesFolderRemoteMutations(accountId)[0]?.operation).toBe('FOLDER_DELETE');
+    restoreResponse.resolve({ ok: true, status: 200, json: async () => ({}) });
+
+    await vi.waitFor(() => {
+      expect(folderDeleteAttempts).toBe(2);
+      expect(listNotesFolderRemoteMutations(accountId)).toHaveLength(0);
+    });
+    const staleMemberships = authFetchMock.mock.calls.filter(([url, options]) => {
+      if (!String(url).endsWith('/api/notes') || (options as RequestInit | undefined)?.method !== 'POST') return false;
+      const payload = JSON.parse(String((options as RequestInit).body)) as { folder_id?: string | null };
+      return payload.folder_id === 'research';
+    });
+    expect(staleMemberships).toHaveLength(0);
+    expect(useNotesStore.getState().folders).toEqual([]);
+    expect(useNotesStore.getState().notes[0]?.folderId).toBeNull();
+  });
+
+  it('does not expose account A delete suppression or retry authority to account B', async () => {
+    const folderA = folder('shared-id', 'Account A folder', 1);
+    await seedInitializedAccount('folder-account-a', [note('a-note', 'shared-id')], [folderA]);
+    storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'remote');
+    let accountADeleteAttempts = 0;
+    authFetchMock.mockImplementation(async (url: unknown, options?: RequestInit) => {
+      if (String(url).endsWith('/api/note_folders/shared-id') && options?.method === 'DELETE') {
+        accountADeleteAttempts += 1;
+        return { ok: false, status: 503, json: async () => ({}) };
+      }
+      return successfulRemoteResponse('folder-account-a', url, options);
+    });
+    expect((await useNotesStore.getState().deleteFolder('shared-id')).status).toBe('deleted');
+    await vi.waitFor(() => expect(accountADeleteAttempts).toBe(1));
+
+    useNotesStore.getState().detachNotesStorage();
+    await seedInitializedAccount('folder-account-b', [], []);
+    storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'remote');
+    const folderB = folder('shared-id', 'Account B folder', 2);
+    installRemoteSnapshot('folder-account-b', [], [folderB]);
+    authFetchMock.mockClear();
+    await useNotesStore.getState().bootstrapFromSupabase();
+    expect(useNotesStore.getState().folders).toEqual([folderB]);
+
+    useNotesStore.getState().retrySync();
+    await Promise.resolve();
+    expect(authFetchMock).not.toHaveBeenCalledWith(
+      expect.stringContaining('/api/note_folders/shared-id'),
+      expect.objectContaining({ method: 'DELETE' }),
+    );
+  });
+
+  it('invalidates an old Undo token on same-account store replacement without stale writes', async () => {
+    const accountId = 'folder-replacement-epoch';
+    const originalFolder = folder('research', 'Research', 1);
+    await seedInitializedAccount(accountId, [note('reused-note', 'research', 'old body')], [originalFolder]);
+    const deleted = await useNotesStore.getState().deleteFolder('research');
+    if (deleted.status !== 'deleted') throw new Error('expected deletion receipt');
+
+    const replacementNote = note('reused-note', null, 'replacement body');
+    expect(await saveAccountScopedNotes(accountId, [replacementNote])).toBe(true);
+    expect(saveFolders([])).toBe(true);
+    const previousEpoch = useNotesStore.getState().folderDeletionUndoEpoch;
+    await useNotesStore.getState().initNotesStorage(accountId);
+    expect(useNotesStore.getState().folderDeletionUndoEpoch).toBeGreaterThan(previousEpoch);
+    expect(useNotesStore.getState().notes).toEqual([replacementNote]);
+
+    const storageWrite = vi.spyOn(localStorageMock, 'setItem');
+    authFetchMock.mockClear();
+    const staleUndo = await useNotesStore.getState().undoFolderDeletion(deleted.receipt.token);
+    expect(staleUndo.status).toBe('not_found');
+    expect(useNotesStore.getState().folders).toEqual([]);
+    expect(useNotesStore.getState().notes[0]).toMatchObject({ id: 'reused-note', body: 'replacement body', folderId: null });
+    expect(storageWrite).not.toHaveBeenCalled();
+    expect(authFetchMock).not.toHaveBeenCalled();
+    storageWrite.mockRestore();
+  });
+
+  it('claims one Undo token synchronously and starts only one remote recovery sequence', async () => {
+    const accountId = 'folder-undo-single-flight';
+    const originalFolder = folder('research', 'Research', 1);
+    await seedInitializedAccount(accountId, [note('member', 'research')], [originalFolder]);
+    storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'remote');
+    authFetchMock.mockImplementation((url: unknown, options?: RequestInit) => (
+      Promise.resolve(successfulRemoteResponse(accountId, url, options))
+    ));
+    const deleted = await useNotesStore.getState().deleteFolder('research');
+    if (deleted.status !== 'deleted') throw new Error('expected deletion receipt');
+
+    folderAuthorityWriteAttempts = 0;
+    const undoA = useNotesStore.getState().undoFolderDeletion(deleted.receipt.token);
+    const undoB = useNotesStore.getState().undoFolderDeletion(deleted.receipt.token);
+    const duplicate = await undoB;
+    const owner = await undoA;
+    expect(duplicate.status).toBe('in_progress');
+    expect(owner.status).toBe('restored');
+    expect(folderAuthorityWriteAttempts).toBe(1);
+
+    await vi.waitFor(() => {
+      const folderRestores = authFetchMock.mock.calls.filter(([url, options]) => (
+        String(url).endsWith('/api/note_folders')
+        && (options as RequestInit | undefined)?.method === 'POST'
+      ));
+      const membershipRestores = authFetchMock.mock.calls.filter(([url, options]) => {
+        if (!String(url).endsWith('/api/notes') || (options as RequestInit | undefined)?.method !== 'POST') return false;
+        const payload = JSON.parse(String((options as RequestInit).body)) as { folder_id?: string | null };
+        return payload.folder_id === 'research';
+      });
+      expect(folderRestores).toHaveLength(1);
+      expect(membershipRestores).toHaveLength(1);
+    });
+    expect(useNotesStore.getState().folders).toEqual([originalFolder]);
+  });
+
+  it('releases a failed Undo claim so a later retry can succeed once', async () => {
+    const originalFolder = folder('research', 'Research', 1);
+    seed([note('member', 'research')], [originalFolder]);
+    const deleted = await useNotesStore.getState().deleteFolder('research');
+    if (deleted.status !== 'deleted') throw new Error('expected deletion receipt');
+
+    rejectFolderWrites = true;
+    const failed = await useNotesStore.getState().undoFolderDeletion(deleted.receipt.token);
+    expect(failed.status).toBe('persistence_failed');
+    rejectFolderWrites = false;
+    const retried = await useNotesStore.getState().undoFolderDeletion(deleted.receipt.token);
+    expect(retried.status).toBe('restored');
+    expect(useNotesStore.getState().folders).toEqual([originalFolder]);
   });
 });

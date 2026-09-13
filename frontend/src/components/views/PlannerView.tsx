@@ -414,7 +414,7 @@ export const PlannerView = ({
         </div>
       )}
 
-      {confirm && <ConfirmModal message={confirm.message} onConfirm={handleConfirm} onCancel={clearConfirm} darkMode={appSettings.darkMode} confirmLabel={confirm.confirmLabel} variant={confirm.variant}/>}
+      {confirm && <ConfirmModal key={confirm.requestId} message={confirm.message} onConfirm={() => handleConfirm(confirm.requestId)} onCancel={() => { clearConfirm(confirm.requestId); }} darkMode={appSettings.darkMode} confirmLabel={confirm.confirmLabel} variant={confirm.variant}/>}
 
       {scheduleDetailBlock ? (
         <ScheduleEventDetailPanel

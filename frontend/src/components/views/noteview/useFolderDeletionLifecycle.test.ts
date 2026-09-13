@@ -22,6 +22,7 @@ describe('useFolderDeletionLifecycle', () => {
   let undoFolderDeletion: ReturnType<typeof vi.fn<(token: string) => Promise<FolderDeletionUndoResult>>>;
   let confirmCalls: ConfirmCall[];
   let showToast: ReturnType<typeof vi.fn>;
+  let folderDeletionUndoEpoch: number;
 
   const t = (key: string) => ({
     nvDeleteFolderConfirm: 'Delete folder “{name}”? The folder will be deleted. Affected notes: {count}. Note contents will remain, but those notes will become unassigned.',
@@ -36,6 +37,7 @@ describe('useFolderDeletionLifecycle', () => {
       getCurrentState: () => localState,
       deleteFolder,
       undoFolderDeletion,
+      folderDeletionUndoEpoch,
       setActiveFolderId: next => {
         activeFolderId = typeof next === 'function' ? next(activeFolderId) : next;
       },
@@ -76,6 +78,7 @@ describe('useFolderDeletionLifecycle', () => {
     }));
     confirmCalls = [];
     showToast = vi.fn();
+    folderDeletionUndoEpoch = 0;
     act(() => root.render(createElement(Harness)));
   });
 
@@ -130,5 +133,20 @@ describe('useFolderDeletionLifecycle', () => {
     expect(showToast).toHaveBeenCalledWith('Folder deletion failed', 'error');
     expect(activeFolderId).toBe('research');
     expect(latest?.folderDeletionUndo).toBeNull();
+  });
+
+  it('dismisses the visible Undo authority when the whole-store replacement epoch changes', async () => {
+    act(() => latest!.requestDeleteFolder('research'));
+    await act(async () => { await confirmCalls[0]![1](); });
+    expect(latest?.folderDeletionUndo?.token).toBe('delete-token');
+
+    folderDeletionUndoEpoch += 1;
+    await act(async () => {
+      root.render(createElement(Harness));
+      await Promise.resolve();
+    });
+
+    expect(latest?.folderDeletionUndo).toBeNull();
+    expect(undoFolderDeletion).not.toHaveBeenCalled();
   });
 });

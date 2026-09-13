@@ -357,9 +357,10 @@ export const SettingsView = ({
       {/* ConfirmModal - single useConfirm pattern */}
       {confirm && (
         <ConfirmModal
+          key={confirm.requestId}
           message={confirm.message}
-          onConfirm={handleConfirm}
-          onCancel={clearConfirm}
+          onConfirm={() => handleConfirm(confirm.requestId)}
+          onCancel={() => { clearConfirm(confirm.requestId); }}
           darkMode={appSettings.darkMode}
         />
       )}
