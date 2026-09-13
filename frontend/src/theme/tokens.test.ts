@@ -36,16 +36,82 @@ function toKebabCase(value: string): string {
   return value.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`);
 }
 
+type Rgb = readonly [number, number, number];
+
+function hexToRgb(hex: string): Rgb {
+  return [1, 3, 5].map(offset => Number.parseInt(hex.slice(offset, offset + 2), 16)) as unknown as Rgb;
+}
+
+function mixSrgb(foreground: Rgb, background: Rgb, foregroundWeight: number): Rgb {
+  return foreground.map((channel, index) => (
+    channel * foregroundWeight + background[index]! * (1 - foregroundWeight)
+  )) as unknown as Rgb;
+}
+
+function relativeLuminance(rgb: Rgb): number {
+  const channels = rgb.map(channel => {
+    const value = channel / 255;
+    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * channels[0]! + 0.7152 * channels[1]! + 0.0722 * channels[2]!;
+}
+
+function contrastRatio(foreground: Rgb, background: Rgb): number {
+  const foregroundLuminance = relativeLuminance(foreground);
+  const backgroundLuminance = relativeLuminance(background);
+  return (Math.max(foregroundLuminance, backgroundLuminance) + 0.05)
+    / (Math.min(foregroundLuminance, backgroundLuminance) + 0.05);
+}
+
 describe('Absinthe design tokens', () => {
   it('light theme uses Ivory Paper + Purple', () => {
     expect(LIGHT_TOKENS.colors.background).toBe('#F5F0E8');
-    expect(LIGHT_TOKENS.colors.primary).toBe('#8B5CF6');
+    expect(LIGHT_TOKENS.colors.primary).toBe('#7C3AED');
   });
 
   it('dark theme uses Midnight Purple + Charcoal', () => {
     expect(DARK_TOKENS.colors.background).toBe('#0E0E10');
     expect(DARK_TOKENS.colors.surface).toBe('#1B1B1F');
-    expect(DARK_TOKENS.colors.primary).toBe('#8B5CF6');
+    expect(DARK_TOKENS.colors.primary).toBe('#7C3AED');
+  });
+
+  it('keeps meaningful semantic foreground/fill pairs above measured WCAG thresholds', () => {
+    for (const [mode, tokens] of [['light', LIGHT_TOKENS], ['dark', DARK_TOKENS]] as const) {
+      const foreground = hexToRgb(tokens.colors.primaryForeground);
+      for (const [role, fill] of [
+        ['primary', tokens.colors.primary],
+        ['primaryHover', tokens.colors.primaryHover],
+        ['selected', tokens.colors.selected],
+      ] as const) {
+        expect(contrastRatio(foreground, hexToRgb(fill)), `${mode}:${role}`).toBeGreaterThanOrEqual(4.5);
+      }
+
+      for (const [surfaceRole, surface] of [
+        ['background', tokens.colors.background],
+        ['surface', tokens.colors.surface],
+        ['surfaceAlt', tokens.colors.surfaceAlt],
+      ] as const) {
+        expect(
+          contrastRatio(hexToRgb(tokens.colors.mutedForeground), hexToRgb(surface)),
+          `${mode}:muted/${surfaceRole}`,
+        ).toBeGreaterThanOrEqual(4.5);
+        expect(
+          contrastRatio(hexToRgb(tokens.colors.warning), hexToRgb(surface)),
+          `${mode}:warning/${surfaceRole}`,
+        ).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+
+    const lightDangerFill = hexToRgb(LIGHT_TOKENS.colors.danger);
+    const darkDangerFill = mixSrgb(
+      hexToRgb(DARK_TOKENS.colors.danger),
+      hexToRgb(DARK_TOKENS.colors.background),
+      0.7,
+    );
+    expect(contrastRatio(hexToRgb(LIGHT_TOKENS.colors.primaryForeground), lightDangerFill), 'light:danger-filled')
+      .toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(hexToRgb(DARK_TOKENS.colors.primaryForeground), darkDangerFill), 'dark:danger-filled')
+      .toBeGreaterThanOrEqual(4.5);
   });
 
   it('keeps light and dark token groups complete against the production CSS mapping', () => {

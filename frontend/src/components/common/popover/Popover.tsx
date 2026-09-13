@@ -14,6 +14,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { UI_INTERACTION } from '@/lib/uiInteractionTokens';
+import { useModalA11y } from '@/hooks/useModalA11y';
 
 export const POPOVER_MAX_WIDTH_PX = UI_INTERACTION.popoverMaxWidthPx;
 
@@ -21,6 +22,7 @@ export interface PopoverContextValue {
   open: boolean;
   onClose: () => void;
   isMobile: boolean;
+  modal: boolean;
   anchorRef?: RefObject<HTMLElement | null>;
   menuRef: RefObject<HTMLDivElement | null>;
   position: { top: number; left: number };
@@ -39,6 +41,8 @@ export interface PopoverRootProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   isMobile?: boolean;
+  /** Enables modal focus containment/restoration for sheet-style consumers. */
+  modal?: boolean;
   anchorRef?: RefObject<HTMLElement | null>;
   children: ReactNode;
 }
@@ -48,12 +52,20 @@ export function PopoverRoot({
   open,
   onOpenChange,
   isMobile = false,
+  modal = false,
   anchorRef,
   children,
 }: PopoverRootProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ top: 0, left: 0 });
   const onClose = useCallback(() => onOpenChange(false), [onOpenChange]);
+
+  useModalA11y({
+    open: open && modal,
+    onClose,
+    closeOnEscape: false,
+    containerRef: menuRef,
+  });
 
   useLayoutEffect(() => {
     if (!open || isMobile || !anchorRef?.current) return;
@@ -71,7 +83,7 @@ export function PopoverRoot({
   }, [open, isMobile, anchorRef]);
 
   useEffect(() => {
-    if (!open || isMobile) return;
+    if (!open || isMobile || modal) return;
     const handlePointerDown = (e: globalThis.MouseEvent) => {
       const target = e.target as Node | null;
       if (!target) return;
@@ -119,19 +131,20 @@ export function PopoverRoot({
     };
     menu.addEventListener('keydown', onKeyDown);
     return () => menu.removeEventListener('keydown', onKeyDown);
-  }, [open, isMobile]);
+  }, [open, isMobile, modal]);
 
   const value = useMemo(
     () => ({
       open,
       onClose,
       isMobile,
+      modal,
       anchorRef,
       menuRef,
       position,
       setPosition,
     }),
-    [open, onClose, isMobile, anchorRef, position],
+    [open, onClose, isMobile, modal, anchorRef, position],
   );
 
   if (!open) return null;
@@ -222,18 +235,19 @@ export function PopoverPanel({
   style,
   role = 'dialog',
   'aria-label': ariaLabel,
-  'aria-modal': ariaModal = true,
+  'aria-modal': ariaModal,
   onClick,
   dataHooks,
 }: PopoverPanelProps) {
-  const { menuRef, position, isMobile } = usePopoverContext();
+  const { menuRef, position, isMobile, modal } = usePopoverContext();
+  const resolvedAriaModal = ariaModal ?? (modal || undefined);
 
   if (isMobile) {
     return (
       <div
         ref={menuRef}
         role={role}
-        aria-modal={ariaModal}
+        aria-modal={resolvedAriaModal}
         aria-label={ariaLabel}
         className={`rounded-t-2xl p-4 pb-8 shadow-2xl ${className}`}
         style={style}
@@ -255,7 +269,7 @@ export function PopoverPanel({
     <div
       ref={menuRef}
       role={role}
-      aria-modal={ariaModal}
+      aria-modal={resolvedAriaModal}
       aria-label={ariaLabel}
       className={`bsort-menu ${className}`}
       style={{

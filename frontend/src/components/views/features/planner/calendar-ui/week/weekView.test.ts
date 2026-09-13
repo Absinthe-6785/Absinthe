@@ -171,7 +171,8 @@ describe('WeekCalendarView', () => {
     );
 
     expect(html).toContain('data-planner-week-block="b1"');
-    expect(html).toContain('18:00–20:00 English Study');
+    expect(html).toContain('18:00–20:00');
+    expect(html).toContain('English Study');
   });
 
   it('renders weekly template hints from week columns', () => {
@@ -226,8 +227,8 @@ describe('WeekCalendarView', () => {
       createElement(WeekCalendarView, { projection, presentation, theme }),
     );
 
-    expect(html).toContain('data-planner-week-columns-layout="stacked-mobile-grid-desktop"');
-    expect(html).toContain('grid-cols-1 lg:grid-cols-7');
+    expect(html).toContain('data-planner-week-columns-layout="stacked-mobile-two-col-tablet-grid-desktop"');
+    expect(html).toContain('grid-cols-1 md:grid-cols-2 lg:grid-cols-7');
   });
 
   it('uses presentation labels without localizing inside components', () => {

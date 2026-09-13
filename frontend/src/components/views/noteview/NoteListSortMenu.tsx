@@ -79,7 +79,7 @@ export function NoteListSortMenu({
       };
 
   return (
-    <PopoverRoot open={open} onOpenChange={v => { if (!v) onClose(); }} isMobile={isMobile} anchorRef={anchorRef}>
+    <PopoverRoot open={open} onOpenChange={v => { if (!v) onClose(); }} isMobile={isMobile} modal={isMobile} anchorRef={anchorRef}>
       <PopoverPortal>
         {isMobile ? (
           <PopoverDismiss variant="sheet">

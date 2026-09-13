@@ -133,6 +133,52 @@ describe('UI-02 semantic visual contract', () => {
     expect(skipLinkRule).toContain('var(--color-focus)');
   });
 
+  it('keeps danger-filled controls on a measured semantic fill authority', () => {
+    const css = readFileSync(join(process.cwd(), 'src', 'index.css'), 'utf8');
+    const baseRule = css.match(/\.abs-danger-filled-control\s*\{([^}]*)\}/s)?.[1];
+    const darkRule = css.match(/\[data-theme='dark'\] \.abs-danger-filled-control\s*\{([^}]*)\}/s)?.[1];
+    const confirmModal = readFileSync(join(process.cwd(), 'src', 'components', 'common', 'ConfirmModal.tsx'), 'utf8');
+    const appContent = readFileSync(join(process.cwd(), 'src', 'components', 'AppContent.tsx'), 'utf8');
+
+    expect(baseRule).toContain('var(--color-primary-fg)');
+    expect(baseRule).toContain('var(--color-danger)');
+    expect(darkRule).toContain('var(--color-danger) 70%');
+    expect(darkRule).toContain('var(--color-background)');
+    expect(confirmModal).toContain('abs-danger-filled-control');
+    expect(appContent).toContain('abs-danger-filled-control');
+  });
+
+  it('stops every identified continuous animation authority under reduced motion', () => {
+    const css = readFileSync(join(process.cwd(), 'src', 'index.css'), 'utf8');
+    const reducedMotion = css.slice(css.indexOf('@media (prefers-reduced-motion: reduce)'));
+    const app = readFileSync(join(process.cwd(), 'src', 'App.tsx'), 'utf8');
+    const skeleton = readFileSync(join(process.cwd(), 'src', 'components', 'common', 'WorkspaceCardSkeleton.tsx'), 'utf8');
+    const interactionTokens = readFileSync(join(process.cwd(), 'src', 'theme', 'k99InteractionTokens.ts'), 'utf8');
+    const noteEditor = readFileSync(join(process.cwd(), 'src', 'components', 'views', 'noteview', 'NoteViewEditorArea.tsx'), 'utf8');
+    const noteGraph = readFileSync(join(process.cwd(), 'src', 'components', 'views', 'NoteGraphView.tsx'), 'utf8');
+    const pixelMark = readFileSync(join(process.cwd(), 'src', 'components', 'common', 'PixelDecorativeMark.tsx'), 'utf8');
+
+    expect(app).toContain('animate-spin');
+    expect(skeleton).toContain('animate-pulse');
+    expect(css).toContain('.k100-skeleton-pulse');
+    expect(interactionTokens).toContain('.k101-skeleton-pulse');
+    expect(noteEditor).toContain('abs-continuous-status-pulse');
+
+    for (const authority of [
+      '.animate-spin',
+      '.animate-pulse',
+      '.k100-skeleton-pulse',
+      '.k101-skeleton-pulse',
+      '.abs-continuous-status-pulse',
+    ]) {
+      expect(reducedMotion, authority).toContain(authority);
+    }
+    expect(reducedMotion).toContain('animation: none !important');
+    expect(reducedMotion).not.toContain('display: none');
+    expect(noteGraph).toMatch(/@media \(prefers-reduced-motion: reduce\)[^]*\.ku-star-pulse, \.ku-active-pulse \{ animation: none; \}/);
+    expect(pixelMark).not.toMatch(/animation|animate-/);
+  });
+
   it('keeps the production Cosmos layer decorative and independent from semantic state', () => {
     const css = readFileSync(join(process.cwd(), 'src', 'index.css'), 'utf8');
     const sidebarSource = readFileSync(join(process.cwd(), 'src', 'components', 'common', 'Sidebar.tsx'), 'utf8');

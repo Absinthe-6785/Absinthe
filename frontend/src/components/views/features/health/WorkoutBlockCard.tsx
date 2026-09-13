@@ -46,7 +46,7 @@ export const WorkoutBlockCard = memo(function WorkoutBlockCard({
         <div className="absolute top-1 right-1 z-10" ref={menuRef}>
           <button
             type="button"
-            aria-label={t('k126BlockActions')}
+            aria-label={`${t('k126BlockActions')}: ${b.name}`}
             onClick={e => { e.stopPropagation(); setMenuOpen(v => !v); }}
             className={`inline-flex items-center justify-center rounded-lg ${theme.textMuted} hover:bg-muted/60`}
             style={{ minWidth: UI_INTERACTION.touchTargetMinPx, minHeight: UI_INTERACTION.touchTargetMinPx }}
@@ -62,6 +62,7 @@ export const WorkoutBlockCard = memo(function WorkoutBlockCard({
             >
               <button
                 type="button"
+                aria-label={`${t('editBtn')}: ${b.name}`}
                 className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold hover:bg-muted/50 min-h-[44px]"
                 onClick={e => { setMenuOpen(false); onEdit(e); }}
               >
@@ -69,6 +70,7 @@ export const WorkoutBlockCard = memo(function WorkoutBlockCard({
               </button>
               <button
                 type="button"
+                aria-label={`${t('delete')}: ${b.name}`}
                 className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold text-red-500 hover:bg-red-500/10 min-h-[44px]"
                 onClick={e => { setMenuOpen(false); onDelete(e); }}
               >
@@ -81,17 +83,21 @@ export const WorkoutBlockCard = memo(function WorkoutBlockCard({
         <>
           <button
             type="button"
+            aria-label={`${t('editBtn')}: ${b.name}`}
             onClick={onEdit}
-            className="absolute top-1.5 left-1.5 inline-flex h-5 w-5 items-center justify-center bg-blue-500 text-white rounded-full opacity-0 lg:group-hover:opacity-100 active:scale-90 transition-all z-10"
+            className={`absolute top-1.5 left-1.5 inline-flex h-6 w-6 items-center justify-center bg-blue-500 text-white rounded-full opacity-0 lg:group-hover:opacity-100 focus-visible:opacity-100 active:scale-90 transition-all z-10 ${UI_INTERACTION.focusRingClass}`}
+            data-health-block-edit={b.id}
           >
-            <Pencil size={10} />
+            <Pencil size={10} aria-hidden />
           </button>
           <button
             type="button"
+            aria-label={`${t('delete')}: ${b.name}`}
             onClick={onDelete}
-            className="absolute top-1.5 right-1.5 inline-flex h-5 w-5 items-center justify-center bg-red-500 text-white rounded-full opacity-0 lg:group-hover:opacity-100 active:scale-90 transition-all z-10"
+            className={`absolute top-1.5 right-1.5 inline-flex h-6 w-6 items-center justify-center bg-red-500 text-white rounded-full opacity-0 lg:group-hover:opacity-100 focus-visible:opacity-100 active:scale-90 transition-all z-10 ${UI_INTERACTION.focusRingClass}`}
+            data-health-block-delete={b.id}
           >
-            <X size={10} />
+            <X size={10} aria-hidden />
           </button>
         </>
       )}

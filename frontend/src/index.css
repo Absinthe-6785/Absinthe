@@ -10,14 +10,14 @@
   --color-surface-elevated: #FAF7F2;
   --color-surface-muted: #EDE8DF;
   --color-text: #1C1917;
-  --color-muted: #78716C;
-  --color-muted-foreground: #78716C;
+  --color-muted: #6B625C;
+  --color-muted-foreground: #6B625C;
   --color-border: #E7E0D5;
-  --color-primary: #8B5CF6;
-  --color-primary-hover: #7C3AED;
+  --color-primary: #7C3AED;
+  --color-primary-hover: #6D28D9;
   --color-primary-fg: #FFFFFF;
-  --color-selected: #8B5CF6;
-  --color-warning: #F59E0B;
+  --color-selected: #7C3AED;
+  --color-warning: #A64B00;
   --color-danger: #DC2626;
   --color-success: #15803D;
   --color-focus: #8B5CF6;
@@ -112,6 +112,16 @@
 .abs-focus-ring:focus-visible {
   outline: 2px solid var(--color-focus);
   outline-offset: 2px;
+}
+
+/* VIS-11 — semantic danger fill keeps readable text without weakening danger text. */
+.abs-danger-filled-control {
+  color: var(--color-primary-fg);
+  background-color: var(--color-danger);
+}
+
+[data-theme='dark'] .abs-danger-filled-control {
+  background-color: color-mix(in srgb, var(--color-danger) 70%, var(--color-background));
 }
 
 /* VIS-04 — static Pixel/Cosmos framing for the app shell and navigation rail. */
@@ -634,4 +644,15 @@
 .abs-recipe-step-index {
   color: var(--color-text);
   background-color: color-mix(in srgb, var(--color-selected) 16%, var(--color-surface-muted));
+}
+
+/* VIS-11 — stop continuous loading/status loops while retaining static identity. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-spin,
+  .animate-pulse,
+  .k100-skeleton-pulse,
+  .k101-skeleton-pulse,
+  .abs-continuous-status-pulse {
+    animation: none !important;
+  }
 }
