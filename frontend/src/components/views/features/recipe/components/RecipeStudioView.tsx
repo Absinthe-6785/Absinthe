@@ -219,19 +219,29 @@ export function RecipeStudioView({
                     {t('recipeStarred')}
                   </button>
                   <div className={`abs-recipe-sort-control shrink-0 flex items-center gap-0.5 p-0.5 rounded-lg ${dark ? 'bg-surface' : 'bg-white'}`}>
-                    {(['newest', 'oldest', 'title'] as const).map(s => (
-                      <button
-                        key={s}
-                        type="button"
-                        onClick={() => setSortOrder(s)}
-                        className={`abs-recipe-sort-option ${UI_INTERACTION.focusRingClass} px-2 py-0.5 rounded-md text-[10px] font-bold ${
-                          sortOrder === s ? 'abs-recipe-selected-control text-primary-foreground' : `${dark ? 'text-gray-500' : 'text-gray-400'}`
-                        }`}
-                        data-selected={sortOrder === s ? 'true' : 'false'}
-                      >
-                        {s === 'newest' ? '↓' : s === 'oldest' ? '↑' : 'A-Z'}
-                      </button>
-                    ))}
+                    {(['newest', 'oldest', 'title'] as const).map(s => {
+                      const sortLabel = s === 'newest'
+                        ? `${t('nvSortCreated')}: ${t('nvSortDesc')}`
+                        : s === 'oldest'
+                          ? `${t('nvSortCreated')}: ${t('nvSortAsc')}`
+                          : t('nvSortTitle');
+                      return (
+                        <button
+                          key={s}
+                          type="button"
+                          aria-label={sortLabel}
+                          title={sortLabel}
+                          aria-pressed={sortOrder === s}
+                          onClick={() => setSortOrder(s)}
+                          className={`abs-recipe-sort-option ${UI_INTERACTION.focusRingClass} min-h-[24px] min-w-[24px] px-2 py-0.5 rounded-md text-[10px] font-bold ${
+                            sortOrder === s ? 'abs-recipe-selected-control text-primary-foreground' : 'text-muted-foreground'
+                          }`}
+                          data-selected={sortOrder === s ? 'true' : 'false'}
+                        >
+                          {s === 'newest' ? '↓' : s === 'oldest' ? '↑' : 'A-Z'}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               </div>

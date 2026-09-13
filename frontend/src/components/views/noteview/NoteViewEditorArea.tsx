@@ -647,7 +647,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
                 </span>
               ) : isSyncing ? (
                 <span style={{ fontSize: 9, color: c.textMuted, display: 'flex', alignItems: 'center', gap: 3 }}>
-                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: c.textMuted, opacity: 0.6, animation: 'pulse 1s infinite' }}/>
+                  <span className="abs-continuous-status-pulse" style={{ width: 6, height: 6, borderRadius: '50%', background: c.textMuted, opacity: 0.6, animation: 'pulse 1s infinite' }}/>
                   {t('nvSyncing')}
                 </span>
               ) : null

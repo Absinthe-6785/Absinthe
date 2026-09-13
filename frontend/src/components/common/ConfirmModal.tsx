@@ -73,10 +73,10 @@ export const ConfirmModal = ({
           <button
             type="button"
             onClick={onConfirm}
-            className={`flex-1 py-3 rounded-absinthe-lg font-bold text-sm text-primary-foreground transition-colors abs-focus-ring ${
+            className={`flex-1 py-3 rounded-absinthe-lg font-bold text-sm transition-colors abs-focus-ring ${
               variant === 'destructive'
-                ? 'bg-danger hover:opacity-90'
-                : 'bg-primary hover:bg-primary-hover'
+                ? 'abs-danger-filled-control hover:opacity-90'
+                : 'bg-primary text-primary-foreground hover:bg-primary-hover'
             }`}
           >
             {resolvedConfirmLabel}

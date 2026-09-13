@@ -65,7 +65,7 @@ export function MobileMoreSheet({
   const goDataSafety = () => { close(); onOpenSettingsSection('data-safety'); };
 
   return (
-    <PopoverRoot open={open} onOpenChange={onOpenChange} isMobile>
+    <PopoverRoot open={open} onOpenChange={onOpenChange} isMobile modal>
       <PopoverPortal>
         <PopoverDismiss variant="sheet" data-hook="data-k126-mobile-more-backdrop">
           <PopoverPanel
