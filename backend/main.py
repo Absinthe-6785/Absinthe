@@ -14,7 +14,7 @@ from auth import AuthConfigurationError, SupabaseJWTVerifier
 from backup_stream import fetch_backup_tables_sequential, iter_backup_zip_chunks
 from memory_watchdog import MemoryWatchdog
 from request_memory_watchdog import RequestMemoryWatchdog, should_profile_path
-from notes_sync import DEFAULT_BATCH_CHUNK_SIZE, build_notes_delta_or_filter, chunk_note_payloads
+from notes_sync import DEFAULT_BATCH_CHUNK_SIZE, build_notes_delta_or_filter
 from memory_profile import MemoryProfiler
 from remote_mutation import (
     MAX_REQUEST_BYTES,
@@ -766,6 +766,93 @@ async def save_inbody(log: InbodyLogCreate, user_id: str = Depends(get_current_u
 # ==========================================
 class NoteFolderCreate(BaseModel): id: str; name: str; created_at: int
 
+FOLDER_AUTHORITATIVE_COLUMNS = "id,user_id,name,created_at"
+
+
+def _read_note_folder_authority(folder_id: str) -> dict | None:
+    row = (
+        supabase.table("note_folders")
+        .select("id,user_id")
+        .eq("id", folder_id)
+        .maybe_single()
+        .execute()
+        .data
+    )
+    if row is None:
+        return None
+    if (
+        not isinstance(row, dict)
+        or row.get("id") != folder_id
+        or not isinstance(row.get("user_id"), str)
+    ):
+        raise HTTPException(status_code=409, detail="FOLDER_AUTHORITY_UNCONFIRMED")
+    return row
+
+
+def _normalized_authoritative_folder(
+    value: object,
+    *,
+    folder_id: str,
+    user_id: str,
+    expected: dict | None = None,
+    error_code: str = "FOLDER_WRITE_UNCONFIRMED",
+) -> dict:
+    if not isinstance(value, dict):
+        raise HTTPException(status_code=409, detail=error_code)
+    row = dict(value)
+    if (
+        row.get("id") != folder_id
+        or row.get("user_id") != user_id
+        or not isinstance(row.get("name"), str)
+        or not isinstance(row.get("created_at"), int)
+        or isinstance(row.get("created_at"), bool)
+    ):
+        raise HTTPException(status_code=409, detail=error_code)
+    for key, expected_value in (expected or {}).items():
+        if row.get(key) != expected_value:
+            raise HTTPException(status_code=409, detail=error_code)
+    return {column: row.get(column) for column in FOLDER_AUTHORITATIVE_COLUMNS.split(",")}
+
+
+def _validated_folder_mutation_rows(
+    data: object,
+    *,
+    folder_id: str,
+    user_id: str,
+    expected: dict | None = None,
+    empty_error_code: str = "FOLDER_WRITE_CONFLICT",
+    error_code: str = "FOLDER_WRITE_UNCONFIRMED",
+) -> list[dict]:
+    if data == []:
+        raise HTTPException(status_code=409, detail=empty_error_code)
+    if not isinstance(data, list) or len(data) != 1:
+        raise HTTPException(status_code=409, detail=error_code)
+    return [
+        _normalized_authoritative_folder(
+            data[0],
+            folder_id=folder_id,
+            user_id=user_id,
+            expected=expected,
+            error_code=error_code,
+        )
+    ]
+
+
+def _validate_folder_relationship_clear(data: object, *, user_id: str) -> None:
+    if not isinstance(data, list):
+        raise HTTPException(status_code=409, detail="FOLDER_RELATIONSHIP_CLEAR_UNCONFIRMED")
+    note_ids: set[str] = set()
+    for value in data:
+        if (
+            not isinstance(value, dict)
+            or not isinstance(value.get("id"), str)
+            or value.get("user_id") != user_id
+            or value.get("folder_id") is not None
+            or value["id"] in note_ids
+        ):
+            raise HTTPException(status_code=409, detail="FOLDER_RELATIONSHIP_CLEAR_UNCONFIRMED")
+        note_ids.add(value["id"])
+
 def _bootstrap_page(result, user_id: str, offset: int, limit: int):
     rows = result.data or []
     total_count = result.count
@@ -802,16 +889,61 @@ async def get_note_folders(
 
 @app.post("/api/note_folders")
 async def upsert_note_folder(folder: NoteFolderCreate, user_id: str = Depends(get_current_user)):
-    return supabase.table("note_folders").upsert({"user_id": user_id, **folder.model_dump()}, on_conflict="id").execute().data
+    existing = _read_note_folder_authority(folder.id)
+    expected = {"name": folder.name, "created_at": folder.created_at}
+    if existing is None:
+        payload = {"user_id": user_id, **folder.model_dump()}
+        try:
+            result = supabase.table("note_folders").insert(payload).execute()
+        except Exception as error:
+            if _is_note_id_collision(error):
+                raise HTTPException(status_code=409, detail="FOLDER_ID_UNAVAILABLE") from None
+            raise
+    else:
+        if existing["user_id"] != user_id:
+            raise HTTPException(status_code=409, detail="FOLDER_ID_UNAVAILABLE")
+        result = (
+            supabase.table("note_folders")
+            .update(expected)
+            .eq("id", folder.id)
+            .eq("user_id", user_id)
+            .execute()
+        )
+    return _validated_folder_mutation_rows(
+        getattr(result, "data", None),
+        folder_id=folder.id,
+        user_id=user_id,
+        expected=expected,
+    )
 
 @app.delete("/api/note_folders/{folder_id}")
 async def delete_note_folder(folder_id: str, user_id: str = Depends(get_current_user)):
-    row = supabase.table("note_folders").select("user_id").eq("id", folder_id).maybe_single().execute().data
+    row = _read_note_folder_authority(folder_id)
     if not row: raise HTTPException(status_code=404, detail="Not found")
     verify_owner(row["user_id"], user_id)
     # 소속 노트 folder_id를 null로 초기화
-    supabase.table("notes").update({"folder_id": None}).eq("folder_id", folder_id).execute()
-    return supabase.table("note_folders").delete().eq("id", folder_id).execute().data
+    cleared = (
+        supabase.table("notes")
+        .update({"folder_id": None})
+        .eq("folder_id", folder_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    _validate_folder_relationship_clear(getattr(cleared, "data", None), user_id=user_id)
+    deleted = (
+        supabase.table("note_folders")
+        .delete()
+        .eq("id", folder_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    return _validated_folder_mutation_rows(
+        getattr(deleted, "data", None),
+        folder_id=folder_id,
+        user_id=user_id,
+        empty_error_code="FOLDER_DELETE_CONFLICT",
+        error_code="FOLDER_DELETE_UNCONFIRMED",
+    )
 
 # ==========================================
 # Weekly Schedules
@@ -1268,25 +1400,8 @@ async def upsert_notes_batch(
     user_id: str = Depends(get_current_user),
     chunk_size: int = Query(default=DEFAULT_BATCH_CHUNK_SIZE, ge=1, le=100),
 ):
-    """Batch upsert with configurable chunk size — preserves single-note POST compatibility (K-97G)."""
-    if not batch.notes:
-        return []
-    results: list = []
-    payloads = [{"user_id": user_id, **note.model_dump()} for note in batch.notes]
-    for chunk in chunk_note_payloads(payloads, chunk_size):
-        try:
-            data = supabase.table("notes").upsert(chunk, on_conflict="id").execute().data or []
-        except Exception:
-            slim = []
-            for row in chunk:
-                slim_row = dict(row)
-                slim_row.pop("starred", None)
-                slim_row.pop("properties", None)
-                slim_row.pop("relations", None)
-                slim.append(slim_row)
-            data = supabase.table("notes").upsert(slim, on_conflict="id").execute().data or []
-        results.extend(data)
-    return results
+    """Keep the dormant legacy route explicit while preventing all mutation work."""
+    raise HTTPException(status_code=410, detail="NOTES_BATCH_MUTATION_DISABLED")
 
 
 @app.get("/api/notes/{note_id}")
