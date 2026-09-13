@@ -191,7 +191,8 @@ describe('useNotesStore local-only sync mode', () => {
     const folderId = useNotesStore.getState().createFolder('Local Folder');
     useNotesStore.getState().updateNote(id, { body: 'local edit' });
     useNotesStore.getState().flushPendingSync();
-    useNotesStore.getState().deleteFolder(folderId);
+    const deletion = await useNotesStore.getState().deleteFolder(folderId);
+    expect(deletion.status).toBe('deleted');
     await useNotesStore.getState().permanentDeleteNote(id as never);
 
     vi.advanceTimersByTime(600);
@@ -355,19 +356,24 @@ describe('useNotesStore — metadata updatedAt & hydrate merge', () => {
     expect(useNotesStore.getState().notes.find(n => n.id === note.id)?.deletedAt).not.toBeNull();
   });
 
-  it('deleteFolder bumps updatedAt on affected notes', () => {
+  it('deleteFolder bumps updatedAt on affected notes', async () => {
     const folderId = 'folder-1';
     const note: NoteBase = {
       id: 'n-f', title: 'F', body: '', updatedAt: 50,
-      folderId, deletedAt: null,
+      folderId, deletedAt: null, starred: false,
     };
+    storage.set(NOTES_KEY, JSON.stringify([note]));
+    storage.set(FOLDERS_KEY, JSON.stringify([{ id: folderId, name: 'Work', createdAt: 1 }]));
     useNotesStore.setState({
       notes: [note],
       folders: [{ id: folderId, name: 'Work', createdAt: 1 }],
     });
 
     const before = Date.now();
-    useNotesStore.getState().deleteFolder(folderId);
+    const deletion = await useNotesStore.getState().deleteFolder(folderId);
+    if (deletion.status !== 'deleted') {
+      throw new Error(`${deletion.message} / ${useNotesStore.getState().syncError ?? 'no sync error'}`);
+    }
     const updated = useNotesStore.getState().notes.find(n => n.id === note.id)!;
     expect(updated.folderId).toBeNull();
     expect(updated.updatedAt).toBeGreaterThanOrEqual(before);

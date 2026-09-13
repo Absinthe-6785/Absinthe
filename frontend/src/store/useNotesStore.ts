@@ -176,6 +176,39 @@ export interface SyncIssueState {
   readonly classification?: NotesRemoteWriteClassification | 'LOCAL_PERSISTENCE_FAILURE' | 'RECOVERY_GUARD_REJECTION' | 'BOOTSTRAP_FAILURE';
 }
 
+export const FOLDER_DELETE_UNDO_WINDOW_MS = 3000;
+export const FOLDER_DELETE_DURABILITY_FAILURE_MESSAGE =
+  'Folder deletion was not completed because durable local persistence could not be verified.';
+export const FOLDER_DELETE_RECOVERY_REQUIRED_MESSAGE =
+  'Folder deletion stopped and local recovery is required because rollback could not be verified.';
+export const FOLDER_UNDO_DURABILITY_FAILURE_MESSAGE =
+  'Folder recovery was not completed because durable local persistence could not be verified.';
+export const FOLDER_UNDO_RECOVERY_REQUIRED_MESSAGE =
+  'Folder recovery stopped and local recovery is required because rollback could not be verified.';
+
+export interface FolderDeletionReceipt {
+  readonly token: string;
+  readonly folderId: string;
+  readonly folderName: string;
+  readonly affectedNoteCount: number;
+  readonly expiresAt: number;
+}
+
+export type FolderDeletionResult =
+  | { readonly status: 'deleted'; readonly receipt: FolderDeletionReceipt }
+  | { readonly status: 'not_found' | 'in_progress' | 'persistence_failed'; readonly message: string };
+
+export type FolderDeletionUndoResult =
+  | {
+    readonly status: 'restored';
+    readonly restoredNoteIds: readonly string[];
+    readonly preservedNewerAssignmentNoteIds: readonly string[];
+  }
+  | {
+    readonly status: 'not_found' | 'expired' | 'stale_context' | 'folder_id_conflict' | 'persistence_failed';
+    readonly message: string;
+  };
+
 const RESOLVABLE_RECOVERY_PERMANENT_DELETE_MESSAGES = new Set([
   'Permanent delete requires one trashed Note in the active account.',
   'Permanent delete authorization could not be established.',
@@ -240,7 +273,8 @@ interface NotesState {
   emptyTrash: () => void;
   createFolder: (name: string) => string;
   renameFolder: (id: string, name: string) => void;
-  deleteFolder: (id: string) => void;
+  deleteFolder: (id: string) => Promise<FolderDeletionResult>;
+  undoFolderDeletion: (token: string) => Promise<FolderDeletionUndoResult>;
   importNote: (note: Note) => void;
   importVaultRestore: (manifest: VaultBackupManifest, strategy: VaultRestoreConflictStrategy) => Promise<VaultRestoreResult>;
   undoLastVaultRestore: () => boolean;
@@ -278,6 +312,20 @@ let lastFailedNote: Note | null = null;
 let lastFailedDeleteId: string | null = null;
 let notesLocalMutationGeneration = 0;
 let nextNoteSyncAttempt = 0;
+let nextFolderDeletionToken = 0;
+const folderDeletionInProgress = new Set<string>();
+
+interface PendingFolderDeletion {
+  readonly token: string;
+  readonly folder: NoteFolder;
+  readonly folderIndex: number;
+  readonly affectedNoteIds: readonly string[];
+  readonly accountId: string | null;
+  readonly expiresAt: number;
+  readonly remoteDeleteSettled: Promise<unknown>;
+}
+
+let pendingFolderDeletion: PendingFolderDeletion | null = null;
 const BODY_SYNC_MS = 600;
 
 export const VAULT_RESTORE_DURABILITY_FAILURE_MESSAGE =
@@ -1100,12 +1148,102 @@ export const useNotesStore = create<NotesState>((set, get) => {
     return saveNotesAsync(notes).then(handleResult);
   };
 
-  const persistFolders = (folders: NoteFolder[]) => {
+  const persistFolders = (folders: NoteFolder[]): boolean => {
     if (!saveFolders(folders)) {
       setSyncIssue(LOCAL_FOLDERS_SAVE_ERROR, 'local_folders_persistence', { retryable: true });
+      return false;
     } else {
       clearSyncIssue('local_folders_persistence');
       scheduleAutoSnapshot(get().notes, folders);
+      return true;
+    }
+  };
+
+  const persistFolderLifecycleState = async (
+    expected: { notes: Note[]; folders: NoteFolder[] },
+    previous: { notes: Note[]; folders: NoteFolder[] },
+    operation: 'delete' | 'undo',
+  ): Promise<boolean> => {
+    const stateChanged = () => get().notes !== previous.notes || get().folders !== previous.folders;
+    const reconcileConcurrentState = async (): Promise<boolean> => {
+      const current = { notes: get().notes, folders: get().folders };
+      let reconciled = false;
+      try {
+        const notesWrite = await persistNotes(current.notes);
+        const foldersWrite = persistFolders(current.folders);
+        const durableNotes = await loadNotesAsync() as Note[];
+        const durableFolders = loadFolders() as NoteFolder[];
+        reconciled = notesWrite.status === 'persisted'
+          && foldersWrite
+          && get().notes === current.notes
+          && get().folders === current.folders
+          && sameDurablePayload(current.notes, durableNotes)
+          && sameDurablePayload(current.folders, durableFolders);
+      } catch {
+        reconciled = false;
+      }
+      const operationName = operation === 'delete' ? 'deletion' : 'recovery';
+      setSyncIssue(
+        reconciled
+          ? `Folder ${operationName} was canceled because Notes changed during local persistence.`
+          : `Folder ${operationName} stopped and local recovery is required after a concurrent Notes change.`,
+        'local_folders_persistence',
+        { retryable: reconciled, classification: 'LOCAL_PERSISTENCE_FAILURE' },
+      );
+      return false;
+    };
+
+    let notesCommitted = false;
+    let foldersCommitted = false;
+    try {
+      const notesWrite = await persistNotes(expected.notes);
+      if (notesWrite.status !== 'persisted') throw new Error('notes_write_rejected');
+      notesCommitted = true;
+      if (stateChanged()) return reconcileConcurrentState();
+
+      if (!persistFolders(expected.folders)) throw new Error('folders_write_rejected');
+      foldersCommitted = true;
+      if (stateChanged()) return reconcileConcurrentState();
+
+      const durableNotes = await loadNotesAsync() as Note[];
+      const durableFolders = loadFolders() as NoteFolder[];
+      if (stateChanged()) return reconcileConcurrentState();
+      if (!sameDurablePayload(expected.notes, durableNotes)
+        || !sameDurablePayload(expected.folders, durableFolders)) {
+        throw new Error('folder_lifecycle_readback_mismatch');
+      }
+      return true;
+    } catch {
+      let rollbackVerified = false;
+      try {
+        const notesRollback = notesCommitted
+          ? await persistNotes(previous.notes)
+          : { status: 'persisted' as const };
+        const foldersRollback = foldersCommitted
+          ? persistFolders(previous.folders)
+          : true;
+        const durableNotes = await loadNotesAsync() as Note[];
+        const durableFolders = loadFolders() as NoteFolder[];
+        rollbackVerified = notesRollback.status === 'persisted'
+          && foldersRollback
+          && sameDurablePayload(previous.notes, durableNotes)
+          && sameDurablePayload(previous.folders, durableFolders);
+      } catch {
+        rollbackVerified = false;
+      }
+
+      const message = operation === 'delete'
+        ? (rollbackVerified
+          ? FOLDER_DELETE_DURABILITY_FAILURE_MESSAGE
+          : FOLDER_DELETE_RECOVERY_REQUIRED_MESSAGE)
+        : (rollbackVerified
+          ? FOLDER_UNDO_DURABILITY_FAILURE_MESSAGE
+          : FOLDER_UNDO_RECOVERY_REQUIRED_MESSAGE);
+      setSyncIssue(message, 'local_folders_persistence', {
+        retryable: rollbackVerified,
+        classification: 'LOCAL_PERSISTENCE_FAILURE',
+      });
+      return false;
     }
   };
 
@@ -1685,23 +1823,139 @@ export const useNotesStore = create<NotesState>((set, get) => {
       if (folder) void syncFolderToDB(folder);
     },
 
-    deleteFolder: (id) => {
-      const movedIds = new Set(get().notes.filter(n => n.folderId === id).map(n => n.id));
-      const now = Date.now();
-      const notes = get().notes.map(n =>
-        movedIds.has(n.id) ? { ...n, folderId: null, updatedAt: now } : n
-      );
-      const folders = get().folders.filter(f => f.id !== id);
-      const activeFolderId = get().activeFolderId === id ? null : get().activeFolderId;
-      set({ folders, notes, activeFolderId, vaultStructureVersion: get().vaultStructureVersion + 1 });
-      const persistence = persistNotes(notes);
-      persistFolders(folders);
-      invalidateNoteGalaxyMapCache();
-      for (const n of notes.filter(n => movedIds.has(n.id))) {
-        knowledgeIndexService.updateNote(n);
-        void syncPreparedNoteToDB(prepareNoteSyncAttempt(n, persistence));
+    deleteFolder: async (id) => {
+      if (folderDeletionInProgress.has(id)) {
+        return { status: 'in_progress', message: 'Folder deletion is already in progress.' };
       }
-      void removeFolderFromDB(id);
+      folderDeletionInProgress.add(id);
+      try {
+        const previous = { notes: get().notes, folders: get().folders };
+        const folderIndex = previous.folders.findIndex(folder => folder.id === id);
+        if (folderIndex < 0) {
+          return { status: 'not_found', message: 'Folder deletion was not started because the folder no longer exists.' };
+        }
+
+        const folder = { ...previous.folders[folderIndex] };
+        const affectedNoteIds = previous.notes
+          .filter(note => note.folderId === id)
+          .map(note => note.id);
+        const movedIds = new Set(affectedNoteIds);
+        const now = Date.now();
+        const notes = previous.notes.map(note => (
+          movedIds.has(note.id) ? { ...note, folderId: null, updatedAt: now } : note
+        ));
+        const folders = previous.folders.filter(candidate => candidate.id !== id);
+
+        const persisted = await persistFolderLifecycleState({ notes, folders }, previous, 'delete');
+        if (!persisted) {
+          return {
+            status: 'persistence_failed',
+            message: currentSyncIssue()?.message ?? FOLDER_DELETE_DURABILITY_FAILURE_MESSAGE,
+          };
+        }
+
+        const activeFolderId = get().activeFolderId === id ? null : get().activeFolderId;
+        set({ folders, notes, activeFolderId, vaultStructureVersion: get().vaultStructureVersion + 1 });
+        scheduleAutoSnapshot(notes, folders);
+        invalidateNoteGalaxyMapCache();
+
+        const committedPersistence = Promise.resolve<NotesPersistenceWriteResult>({ status: 'persisted' });
+        const remoteOperations = notes
+          .filter(note => movedIds.has(note.id))
+          .map(note => {
+            knowledgeIndexService.updateNote(note);
+            return syncPreparedNoteToDB(prepareNoteSyncAttempt(note, committedPersistence));
+          });
+        remoteOperations.push(removeFolderFromDB(id));
+        const remoteDeleteSettled = Promise.allSettled(remoteOperations);
+
+        const expiresAt = Date.now() + FOLDER_DELETE_UNDO_WINDOW_MS;
+        const token = `folder-delete-${++nextFolderDeletionToken}-${expiresAt}`;
+        pendingFolderDeletion = {
+          token,
+          folder,
+          folderIndex,
+          affectedNoteIds,
+          accountId: get().activeAccountId,
+          expiresAt,
+          remoteDeleteSettled,
+        };
+        return {
+          status: 'deleted',
+          receipt: {
+            token,
+            folderId: folder.id,
+            folderName: folder.name,
+            affectedNoteCount: affectedNoteIds.length,
+            expiresAt,
+          },
+        };
+      } finally {
+        folderDeletionInProgress.delete(id);
+      }
+    },
+
+    undoFolderDeletion: async (token) => {
+      const pending = pendingFolderDeletion;
+      if (!pending || pending.token !== token) {
+        return { status: 'not_found', message: 'This folder recovery is no longer available.' };
+      }
+      if (Date.now() > pending.expiresAt) {
+        pendingFolderDeletion = null;
+        return { status: 'expired', message: 'The folder recovery window has expired.' };
+      }
+      if (get().activeAccountId !== pending.accountId) {
+        return { status: 'stale_context', message: 'Folder recovery was blocked because the account context changed.' };
+      }
+      if (get().folders.some(folder => folder.id === pending.folder.id)) {
+        return { status: 'folder_id_conflict', message: 'Folder recovery was blocked because that folder identity already exists.' };
+      }
+
+      const previous = { notes: get().notes, folders: get().folders };
+      const affectedIds = new Set(pending.affectedNoteIds);
+      const restoredNoteIds: string[] = [];
+      const preservedNewerAssignmentNoteIds: string[] = [];
+      const now = Date.now();
+      const notes = previous.notes.map(note => {
+        if (!affectedIds.has(note.id)) return note;
+        if (note.folderId !== null) {
+          preservedNewerAssignmentNoteIds.push(note.id);
+          return note;
+        }
+        restoredNoteIds.push(note.id);
+        return { ...note, folderId: pending.folder.id, updatedAt: now };
+      });
+      const folders = [...previous.folders];
+      folders.splice(Math.min(pending.folderIndex, folders.length), 0, { ...pending.folder });
+
+      const persisted = await persistFolderLifecycleState({ notes, folders }, previous, 'undo');
+      if (!persisted) {
+        return {
+          status: 'persistence_failed',
+          message: currentSyncIssue()?.message ?? FOLDER_UNDO_DURABILITY_FAILURE_MESSAGE,
+        };
+      }
+
+      set({ folders, notes, vaultStructureVersion: get().vaultStructureVersion + 1 });
+      scheduleAutoSnapshot(notes, folders);
+      invalidateNoteGalaxyMapCache();
+      for (const note of notes.filter(note => restoredNoteIds.includes(note.id))) {
+        knowledgeIndexService.updateNote(note);
+      }
+      pendingFolderDeletion = null;
+
+      void pending.remoteDeleteSettled.then(async () => {
+        if (get().activeAccountId !== pending.accountId) return;
+        await syncFolderToDB(pending.folder);
+        if (get().activeAccountId !== pending.accountId) return;
+        const latestAffectedNotes = get().notes.filter(note => affectedIds.has(note.id));
+        const committedPersistence = Promise.resolve<NotesPersistenceWriteResult>({ status: 'persisted' });
+        await Promise.all(latestAffectedNotes.map(note => (
+          syncPreparedNoteToDB(prepareNoteSyncAttempt(note, committedPersistence))
+        )));
+      });
+
+      return { status: 'restored', restoredNoteIds, preservedNewerAssignmentNoteIds };
     },
 
     bootstrapFromSupabase: async () => {
@@ -2004,6 +2258,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
       latestNoteSyncAttempts.clear();
       lastFailedNote = null;
       lastFailedDeleteId = null;
+      pendingFolderDeletion = null;
       detachNotesPersistenceAccount();
       set({
         notes: [],
@@ -2034,6 +2289,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
       latestNoteSyncAttempts.clear();
       lastFailedNote = null;
       lastFailedDeleteId = null;
+      pendingFolderDeletion = null;
       clearKnowledgeHistory();
       clearNotesStorage();
       void clearNotesPersistence();

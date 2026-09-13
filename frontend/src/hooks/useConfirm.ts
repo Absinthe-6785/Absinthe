@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 
 interface ConfirmOptions {
   /** 확인 버튼 텍스트 (기본값: 'Confirm') */
@@ -22,6 +22,7 @@ interface ConfirmState extends Required<ConfirmOptions> {
  */
 export const useConfirm = () => {
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
+  const confirmRef = useRef<ConfirmState | null>(null);
 
   const showConfirm = useCallback(
     (
@@ -29,24 +30,32 @@ export const useConfirm = () => {
       onConfirm: () => void | Promise<void>,
       options: ConfirmOptions = {},
     ) => {
-      setConfirm({
+      const next = {
         message,
         onConfirm,
         confirmLabel: options.confirmLabel ?? 'Confirm',
         variant: options.variant ?? 'destructive',
-      });
+      };
+      confirmRef.current = next;
+      setConfirm(next);
     },
     [],
   );
 
-  const clearConfirm = useCallback(() => setConfirm(null), []);
+  const clearConfirm = useCallback(() => {
+    confirmRef.current = null;
+    setConfirm(null);
+  }, []);
 
   const handleConfirm = useCallback(async () => {
-    if (!confirm) return;
-    // 모달을 먼저 닫고 콜백 실행 — UI 응답성 확보
+    const current = confirmRef.current;
+    if (!current) return;
+    // Consume before awaiting so repeated click/Enter/callback delivery cannot
+    // invoke a destructive authority twice.
+    confirmRef.current = null;
     setConfirm(null);
-    await confirm.onConfirm();
-  }, [confirm]);
+    await current.onConfirm();
+  }, []);
 
   return { confirm, showConfirm, clearConfirm, handleConfirm };
 };
