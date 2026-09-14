@@ -1,5 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, Query, Request
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
@@ -32,6 +31,11 @@ from restore_validation import (
     _workout_sets_match_exercise_type,
 )
 from schema_readiness import verify_recipe_deleted_at_schema
+from deployment_authority import (
+    add_cors_middleware,
+    deployment_health_payload,
+    resolve_cors_origins,
+)
 
 load_dotenv()
 
@@ -45,16 +49,11 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
-_raw_origins = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")
-ALLOWED_ORIGINS = [o.strip() for o in _raw_origins.split(",") if o.strip()]
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+ALLOWED_ORIGINS = resolve_cors_origins(
+    os.getenv("CORS_ORIGINS"),
+    is_render=os.getenv("RENDER", "").strip().lower() == "true",
 )
+add_cors_middleware(app, ALLOWED_ORIGINS)
 
 memory_watchdog = MemoryWatchdog()
 request_memory_watchdog = RequestMemoryWatchdog()
@@ -280,6 +279,12 @@ async def root():
 @app.get("/ping")
 async def ping():
     return {"pong": True}
+
+
+@app.get("/health")
+async def health(response: Response):
+    response.headers["Cache-Control"] = "no-store"
+    return deployment_health_payload(os.getenv("RENDER_GIT_COMMIT"))
 
 @app.delete("/api/reset", dependencies=[Depends(require_reset_recovery_intent)])
 async def reset_all_data(user_id: str = Depends(get_current_user)):
