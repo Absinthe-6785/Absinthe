@@ -6,6 +6,7 @@ import type { KnowledgeContextTab } from '../../features/knowledge/components/Kn
 import type { EventFormValues, TraceRangeLens } from '../../features/knowledge';
 import type { NoteBase as Note } from '../../noteUtils';
 import type { EventDialogState, MilestoneDialogState } from '../useNoteViewState';
+import type { FolderDeletionResult } from '../../../../store/useNotesStore';
 
 export interface UseNoteViewActionsParams {
   notes: Note[];
@@ -59,7 +60,7 @@ export interface UseNoteViewActionsParams {
   storeCreateNote: (initial?: Partial<Pick<Note, 'title' | 'body' | 'folderId'>> & { folderContext?: string | null }) => string;
   storeCreateFolder: (name: string) => string;
   storeDuplicateNote: (note: Note) => void;
-  storeDeleteFolder: (id: string) => void;
+  storeDeleteFolder: (id: string) => Promise<FolderDeletionResult>;
   importNote: (note: Note) => void;
   flushPendingSync: () => void;
   syncNoteToDB: (note: Note) => Promise<boolean | void>;

@@ -69,6 +69,7 @@ const FOLDERS_KEY_PREFIX = 'absinthe.notes.account-authority.folders.v1';
 const BOOTSTRAP_PENDING_KEY_PREFIX = 'absinthe.notes.account-authority.bootstrap-pending.v1';
 const ACTIVE_KEY_PREFIX = 'absinthe.notes.account-authority.active.v1';
 const SINGLE_DELETE_KEY_PREFIX = 'absinthe.notes.account-authority.single-delete.v1';
+const FOLDER_REMOTE_MUTATION_KEY_PREFIX = 'absinthe.notes.account-authority.folder-remote-mutation.v1';
 const LEGACY_NOTES_KEY = 'notes-v2';
 const LEGACY_FOLDERS_KEY = 'note-folders-v2';
 
@@ -138,6 +139,35 @@ interface NotesSingleDeleteMarker {
   readonly startedAt: number;
 }
 
+export type NotesFolderRemoteMutationOperation = 'FOLDER_DELETE' | 'FOLDER_RESTORE';
+export type NotesFolderRemoteMutationPhase = 'PREPARED' | 'LOCAL_COMMITTED';
+
+interface NotesFolderRemoteMutationSupersededOperation {
+  readonly operation: NotesFolderRemoteMutationOperation;
+  readonly operationId: string;
+  readonly phase: NotesFolderRemoteMutationPhase;
+  readonly affectedNoteIds: readonly string[];
+  readonly createdAt: number;
+}
+
+/**
+ * One bounded, account-scoped remote convergence intent per folder. A newer
+ * local intent replaces the older marker, making delete/restore supersession
+ * durable without persisting a Notes-store snapshot.
+ */
+export interface NotesFolderRemoteMutationMarker {
+  readonly accountId: string;
+  readonly schemaVersion: typeof NOTES_AUTHORITY_SCHEMA_VERSION;
+  readonly operation: NotesFolderRemoteMutationOperation;
+  readonly operationId: string;
+  readonly phase: NotesFolderRemoteMutationPhase;
+  readonly folder: NoteFolderBase;
+  readonly affectedNoteIds: readonly string[];
+  readonly createdAt: number;
+  /** Restored if this PREPARED supersession never commits locally. */
+  readonly supersededOperation: NotesFolderRemoteMutationSupersededOperation | null;
+}
+
 export interface NotesSingleDeleteBootstrapReconciliation {
   readonly authorizedMissingNoteIds: ReadonlySet<string>;
   readonly preservedConflictNoteIds: ReadonlySet<string>;
@@ -152,6 +182,7 @@ export type NotesSingleDeleteCommitResult =
 let activeRequest: NotesAuthorityRequest | null = null;
 let nextRequestGeneration = 0;
 let nextRecoveryOperation = 0;
+let nextFolderRemoteMutation = 0;
 type BootstrapApplyStage =
   | 'after-marker'
   | 'after-notes-write'
@@ -193,6 +224,14 @@ function singleDeleteKey(accountId: string, noteId: string): string {
 
 function singleDeletePrefix(accountId: string): string {
   return `${SINGLE_DELETE_KEY_PREFIX}:${accountToken(accountId)}:`;
+}
+
+function folderRemoteMutationKey(accountId: string, folderId: string): string {
+  return `${FOLDER_REMOTE_MUTATION_KEY_PREFIX}:${accountToken(accountId)}:${encodeURIComponent(folderId)}`;
+}
+
+function folderRemoteMutationPrefix(accountId: string): string {
+  return `${FOLDER_REMOTE_MUTATION_KEY_PREFIX}:${accountToken(accountId)}:`;
 }
 
 async function runAccountMutationExclusive<T>(accountId: string, action: () => Promise<T>): Promise<T> {
@@ -360,6 +399,328 @@ function validFolder(value: unknown): value is NoteFolderBase {
   return typeof folder.id === 'string' && Boolean(folder.id.trim())
     && typeof folder.name === 'string'
     && typeof folder.createdAt === 'number' && Number.isFinite(folder.createdAt);
+}
+
+function validFolderRemoteMutationOperationSnapshot(
+  value: unknown,
+): value is NotesFolderRemoteMutationSupersededOperation {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const snapshot = value as Partial<NotesFolderRemoteMutationSupersededOperation>;
+  if (Object.keys(value).sort().join(',') !== [
+    'affectedNoteIds', 'createdAt', 'operation', 'operationId', 'phase',
+  ].sort().join(',')) return false;
+  return (snapshot.operation === 'FOLDER_DELETE' || snapshot.operation === 'FOLDER_RESTORE')
+    && typeof snapshot.operationId === 'string' && snapshot.operationId.length > 0
+    && (snapshot.phase === 'PREPARED' || snapshot.phase === 'LOCAL_COMMITTED')
+    && Array.isArray(snapshot.affectedNoteIds)
+    && snapshot.affectedNoteIds.every(noteId => typeof noteId === 'string' && noteId.trim().length > 0)
+    && new Set(snapshot.affectedNoteIds).size === snapshot.affectedNoteIds.length
+    && typeof snapshot.createdAt === 'number' && Number.isFinite(snapshot.createdAt) && snapshot.createdAt > 0;
+}
+
+function parseFolderRemoteMutationMarker(
+  value: unknown,
+  accountId: string,
+  key: string,
+): NotesFolderRemoteMutationMarker | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const raw = value as Partial<NotesFolderRemoteMutationMarker>;
+  const keys = Object.keys(value).sort().join(',');
+  const legacyKeys = [
+    'accountId', 'affectedNoteIds', 'createdAt', 'folder', 'operation', 'operationId', 'schemaVersion',
+  ].sort().join(',');
+  const phasedKeys = [
+    'accountId', 'affectedNoteIds', 'createdAt', 'folder', 'operation', 'operationId', 'phase',
+    'schemaVersion', 'supersededOperation',
+  ].sort().join(',');
+  const legacy = keys === legacyKeys;
+  if (!legacy && keys !== phasedKeys) return null;
+  const phase = legacy ? 'LOCAL_COMMITTED' : raw.phase;
+  const supersededOperation = legacy ? null : raw.supersededOperation;
+  if (raw.accountId === normalizedAccountId(accountId)
+    && raw.schemaVersion === NOTES_AUTHORITY_SCHEMA_VERSION
+    && (raw.operation === 'FOLDER_DELETE' || raw.operation === 'FOLDER_RESTORE')
+    && typeof raw.operationId === 'string' && raw.operationId.length > 0
+    && (phase === 'PREPARED' || phase === 'LOCAL_COMMITTED')
+    && validFolder(raw.folder)
+    && key === folderRemoteMutationKey(accountId, raw.folder.id)
+    && Array.isArray(raw.affectedNoteIds)
+    && raw.affectedNoteIds.every(noteId => typeof noteId === 'string' && noteId.trim().length > 0)
+    && new Set(raw.affectedNoteIds).size === raw.affectedNoteIds.length
+    && typeof raw.createdAt === 'number' && Number.isFinite(raw.createdAt) && raw.createdAt > 0
+    && (supersededOperation === null || validFolderRemoteMutationOperationSnapshot(supersededOperation))) {
+    return Object.freeze({
+      accountId: raw.accountId,
+      schemaVersion: NOTES_AUTHORITY_SCHEMA_VERSION,
+      operation: raw.operation,
+      operationId: raw.operationId,
+      phase,
+      folder: Object.freeze({ ...raw.folder }),
+      affectedNoteIds: Object.freeze([...raw.affectedNoteIds]),
+      createdAt: raw.createdAt,
+      supersededOperation: supersededOperation === null
+        ? null
+        : Object.freeze({
+          ...supersededOperation,
+          affectedNoteIds: Object.freeze([...supersededOperation.affectedNoteIds]),
+        }),
+    });
+  }
+  return null;
+}
+
+function sameFolderRemoteMutationMarker(
+  left: NotesFolderRemoteMutationMarker,
+  right: NotesFolderRemoteMutationMarker,
+): boolean {
+  return left.accountId === right.accountId
+    && left.schemaVersion === right.schemaVersion
+    && left.operation === right.operation
+    && left.operationId === right.operationId
+    && left.phase === right.phase
+    && left.folder.id === right.folder.id
+    && left.folder.name === right.folder.name
+    && left.folder.createdAt === right.folder.createdAt
+    && left.createdAt === right.createdAt
+    && left.affectedNoteIds.length === right.affectedNoteIds.length
+    && left.affectedNoteIds.every((noteId, index) => noteId === right.affectedNoteIds[index])
+    && (left.supersededOperation === null) === (right.supersededOperation === null)
+    && (left.supersededOperation === null || right.supersededOperation === null || (
+      left.supersededOperation.operation === right.supersededOperation.operation
+      && left.supersededOperation.operationId === right.supersededOperation.operationId
+      && left.supersededOperation.phase === right.supersededOperation.phase
+      && left.supersededOperation.createdAt === right.supersededOperation.createdAt
+      && left.supersededOperation.affectedNoteIds.length === right.supersededOperation.affectedNoteIds.length
+      && left.supersededOperation.affectedNoteIds.every((noteId, index) => (
+        noteId === right.supersededOperation?.affectedNoteIds[index]
+      ))
+    ));
+}
+
+function readFolderRemoteMutationMarker(
+  accountId: string,
+  folderId: string,
+): NotesFolderRemoteMutationMarker | null | 'malformed' {
+  const key = folderRemoteMutationKey(accountId, folderId);
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw === null) return null;
+    const parsed = JSON.parse(raw) as unknown;
+    return parseFolderRemoteMutationMarker(parsed, accountId, key) ?? 'malformed';
+  } catch {
+    return 'malformed';
+  }
+}
+
+/** Enumerates only the active account's durable folder convergence intents. */
+export function listNotesFolderRemoteMutations(accountId: string): readonly NotesFolderRemoteMutationMarker[] {
+  const request = getActiveNotesAuthorityRequest();
+  const normalized = normalizedAccountId(accountId);
+  if (!request || request.accountId !== normalized) throw new Error('notes_account_scope_inactive');
+  const prefix = folderRemoteMutationPrefix(normalized);
+  const markers: NotesFolderRemoteMutationMarker[] = [];
+  const keys: string[] = [];
+  try {
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index);
+      if (key?.startsWith(prefix)) keys.push(key);
+    }
+    keys.sort();
+    for (const key of keys) {
+      const raw = localStorage.getItem(key);
+      if (raw === null) throw new Error('notes_folder_remote_mutation_changed');
+      const parsed = JSON.parse(raw) as unknown;
+      const marker = parseFolderRemoteMutationMarker(parsed, normalized, key);
+      if (!marker) {
+        throw new Error('notes_folder_remote_mutation_malformed');
+      }
+      markers.push(marker);
+    }
+    return markers;
+  } catch (error) {
+    throw error instanceof Error ? error : new Error('notes_folder_remote_mutation_malformed');
+  }
+}
+
+/** Establishes or supersedes one folder's durable remote convergence intent. */
+export function persistNotesFolderRemoteMutation(
+  accountId: string,
+  operation: NotesFolderRemoteMutationOperation,
+  folder: NoteFolderBase,
+  affectedNoteIds: readonly string[],
+): NotesFolderRemoteMutationMarker | null {
+  const request = getActiveNotesAuthorityRequest();
+  const normalized = normalizedAccountId(accountId);
+  if (!request || request.accountId !== normalized || !validFolder(folder)
+    || affectedNoteIds.some(noteId => typeof noteId !== 'string' || noteId.trim().length === 0)) return null;
+  const existing = readFolderRemoteMutationMarker(normalized, folder.id);
+  if (existing === 'malformed') return null;
+  const marker: NotesFolderRemoteMutationMarker = Object.freeze({
+    accountId: normalized,
+    schemaVersion: NOTES_AUTHORITY_SCHEMA_VERSION,
+    operation,
+    operationId: `folder-remote-${Date.now()}-${++nextFolderRemoteMutation}-${Math.random().toString(36).slice(2)}`,
+    phase: 'PREPARED',
+    folder: Object.freeze({ ...folder }),
+    affectedNoteIds: Object.freeze([...new Set(affectedNoteIds)].sort()),
+    createdAt: Date.now(),
+    supersededOperation: existing === null
+      ? null
+      : Object.freeze({
+        operation: existing.operation,
+        operationId: existing.operationId,
+        phase: existing.phase,
+        affectedNoteIds: Object.freeze([...existing.affectedNoteIds]),
+        createdAt: existing.createdAt,
+      }),
+  });
+  const key = folderRemoteMutationKey(normalized, folder.id);
+  try {
+    localStorage.setItem(key, JSON.stringify(marker));
+    const persisted = readFolderRemoteMutationMarker(normalized, folder.id);
+    return persisted && persisted !== 'malformed' && sameFolderRemoteMutationMarker(persisted, marker)
+      ? persisted
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Advances the exact PREPARED operation without changing its generation. */
+export function commitNotesFolderRemoteMutation(
+  marker: NotesFolderRemoteMutationMarker,
+): NotesFolderRemoteMutationMarker | null {
+  if (marker.phase === 'LOCAL_COMMITTED') {
+    return isNotesFolderRemoteMutationCurrent(marker) ? marker : null;
+  }
+  if (!isNotesFolderRemoteMutationCurrent(marker)) return null;
+  const committed: NotesFolderRemoteMutationMarker = Object.freeze({
+    ...marker,
+    phase: 'LOCAL_COMMITTED',
+    supersededOperation: null,
+  });
+  try {
+    localStorage.setItem(
+      folderRemoteMutationKey(marker.accountId, marker.folder.id),
+      JSON.stringify(committed),
+    );
+    const persisted = readFolderRemoteMutationMarker(marker.accountId, marker.folder.id);
+    return persisted && persisted !== 'malformed' && sameFolderRemoteMutationMarker(persisted, committed)
+      ? persisted
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function cancelPreparedNotesFolderRemoteMutation(
+  marker: NotesFolderRemoteMutationMarker,
+): NotesFolderRemoteMutationMarker | null | 'failed' {
+  if (marker.phase !== 'PREPARED' || !isNotesFolderRemoteMutationCurrent(marker)) return 'failed';
+  const key = folderRemoteMutationKey(marker.accountId, marker.folder.id);
+  try {
+    if (marker.supersededOperation === null) {
+      localStorage.removeItem(key);
+      return readFolderRemoteMutationMarker(marker.accountId, marker.folder.id) === null ? null : 'failed';
+    }
+    const restored: NotesFolderRemoteMutationMarker = Object.freeze({
+      accountId: marker.accountId,
+      schemaVersion: NOTES_AUTHORITY_SCHEMA_VERSION,
+      operation: marker.supersededOperation.operation,
+      operationId: marker.supersededOperation.operationId,
+      phase: marker.supersededOperation.phase,
+      folder: marker.folder,
+      affectedNoteIds: marker.supersededOperation.affectedNoteIds,
+      createdAt: marker.supersededOperation.createdAt,
+      supersededOperation: null,
+    });
+    localStorage.setItem(key, JSON.stringify(restored));
+    const persisted = readFolderRemoteMutationMarker(marker.accountId, marker.folder.id);
+    return persisted && persisted !== 'malformed' && sameFolderRemoteMutationMarker(persisted, restored)
+      ? persisted
+      : 'failed';
+  } catch {
+    return 'failed';
+  }
+}
+
+/**
+ * Resolves PREPARED intents against durable local folders before remote merge
+ * authority is considered. A committed transition is promoted; an unused
+ * preparation is canceled and any superseded committed intent is restored.
+ */
+export function reconcileNotesFolderRemoteMutations(
+  accountId: string,
+  durableFolders: readonly NoteFolderBase[],
+): readonly NotesFolderRemoteMutationMarker[] {
+  if (durableFolders.some(folder => !validFolder(folder))
+    || new Set(durableFolders.map(folder => folder.id)).size !== durableFolders.length) {
+    throw new Error('notes_folder_remote_mutation_local_folders_invalid');
+  }
+  const effective: NotesFolderRemoteMutationMarker[] = [];
+  for (const initial of listNotesFolderRemoteMutations(accountId)) {
+    let marker: NotesFolderRemoteMutationMarker | null = initial;
+    // One bounded predecessor may be restored when a newer PREPARED operation
+    // did not commit. It intentionally cannot form an unbounded history chain.
+    for (let depth = 0; marker && depth < 2; depth += 1) {
+      if (marker.phase === 'LOCAL_COMMITTED') {
+        effective.push(marker);
+        break;
+      }
+      const localFolder = durableFolders.find(folder => folder.id === marker?.folder.id);
+      const locallyCommitted = marker.operation === 'FOLDER_DELETE'
+        ? localFolder === undefined
+        : localFolder !== undefined
+          && localFolder.name === marker.folder.name
+          && localFolder.createdAt === marker.folder.createdAt;
+      if (locallyCommitted) {
+        const committed = commitNotesFolderRemoteMutation(marker);
+        if (!committed) throw new Error('notes_folder_remote_mutation_phase_advance_failed');
+        effective.push(committed);
+        break;
+      }
+      const canceled = cancelPreparedNotesFolderRemoteMutation(marker);
+      if (canceled === 'failed') throw new Error('notes_folder_remote_mutation_cancel_failed');
+      marker = canceled;
+    }
+  }
+  return effective;
+}
+
+export function isNotesFolderRemoteMutationCurrent(marker: NotesFolderRemoteMutationMarker): boolean {
+  const request = getActiveNotesAuthorityRequest();
+  if (!request || request.accountId !== marker.accountId) return false;
+  const current = readFolderRemoteMutationMarker(marker.accountId, marker.folder.id);
+  return Boolean(current && current !== 'malformed' && sameFolderRemoteMutationMarker(current, marker));
+}
+
+/** Clears only the exact operation that obtained authoritative remote success. */
+export function clearNotesFolderRemoteMutation(marker: NotesFolderRemoteMutationMarker): boolean {
+  if (!isNotesFolderRemoteMutationCurrent(marker)) return false;
+  try {
+    localStorage.removeItem(folderRemoteMutationKey(marker.accountId, marker.folder.id));
+    return readFolderRemoteMutationMarker(marker.accountId, marker.folder.id) === null;
+  } catch {
+    return false;
+  }
+}
+
+/** Explicit whole-store replacement supersedes all older folder intents. */
+export function clearNotesFolderRemoteMutationsForReplacement(accountId: string): boolean {
+  let markers: readonly NotesFolderRemoteMutationMarker[];
+  try {
+    markers = listNotesFolderRemoteMutations(accountId);
+  } catch {
+    return false;
+  }
+  for (const marker of markers) {
+    if (!clearNotesFolderRemoteMutation(marker)) return false;
+  }
+  try {
+    return listNotesFolderRemoteMutations(accountId).length === 0;
+  } catch {
+    return false;
+  }
 }
 
 function cloneNotes(notes: readonly NoteBase[]): NoteBase[] {
@@ -1590,6 +1951,7 @@ export function resetNotesAccountAuthorityForTests(): void {
   activeRequest = null;
   nextRequestGeneration = 0;
   nextRecoveryOperation = 0;
+  nextFolderRemoteMutation = 0;
   testReadNotesOverride = null;
   testBootstrapStageOverride = null;
 }

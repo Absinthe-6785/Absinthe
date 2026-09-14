@@ -86,9 +86,8 @@ export function useNoteCrudActions(params: UseNoteViewActionsParams) {
   }, [storeCreateFolder, setActiveFolderId]);
 
   const deleteFolder = useCallback((id: string) => {
-    storeDeleteFolder(id);
-    setActiveFolderId(prev => (prev === id ? null : prev));
-  }, [storeDeleteFolder, setActiveFolderId]);
+    return storeDeleteFolder(id);
+  }, [storeDeleteFolder]);
 
   const openCreatedNote = useCallback((id: string) => {
     handleLeaveDashboardForNote(id);

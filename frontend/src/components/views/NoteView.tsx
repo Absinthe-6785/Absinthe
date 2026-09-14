@@ -213,6 +213,10 @@ import {
   isTagsContextTabActive,
 } from './noteview/contextPanelTabGate';
 import { logMemAudit } from '../../lib/memAudit';
+import {
+  folderDeletedUndoMessage,
+} from './noteview/folderDeletionPresentation';
+import { useFolderDeletionLifecycle } from './noteview/useFolderDeletionLifecycle';
 
 const EMPTY_GROUPED_RELATED: GroupedRelatedNotes = { mostRelated: [], worthRevisiting: [] };
 const EMPTY_BACKLINK_CONTEXTS: ReturnType<typeof extractLinkContexts> = [];
@@ -260,6 +264,8 @@ export const NoteView = ({ showToast = () => {}, accountId }: NoteViewProps) => 
   const storeCreateFolder = useNotesStore(s => s.createFolder);
   const storeRenameFolder = useNotesStore(s => s.renameFolder);
   const storeDeleteFolder = useNotesStore(s => s.deleteFolder);
+  const undoFolderDeletion = useNotesStore(s => s.undoFolderDeletion);
+  const folderDeletionUndoEpoch = useNotesStore(s => s.folderDeletionUndoEpoch);
   const importNote = useNotesStore(s => s.importNote);
   const flushPendingSync = useNotesStore(s => s.flushPendingSync);
   const syncNoteToDB = useNotesStore(s => s.syncNoteToDB);
@@ -1327,6 +1333,22 @@ export const NoteView = ({ showToast = () => {}, accountId }: NoteViewProps) => 
     );
   }, [emptyTrash, notes, showConfirm, t]);
 
+  const {
+    folderDeletionUndo,
+    folderUndoBusy,
+    requestDeleteFolder,
+    handleUndoFolderDeletion,
+  } = useFolderDeletionLifecycle({
+    getCurrentState: useNotesStore.getState,
+    deleteFolder,
+    undoFolderDeletion,
+    folderDeletionUndoEpoch,
+    setActiveFolderId,
+    showConfirm,
+    showToast,
+    t,
+  });
+
   const sidebarTodayCount = useMemo(
     () => countTraceDay(activeNotes, todayTraceKey),
     [todayTraceKey, activeNotes],
@@ -1382,7 +1404,7 @@ export const NoteView = ({ showToast = () => {}, accountId }: NoteViewProps) => 
     sidebarHandlers: {
       searchInputRef, importInputRef, setSidebarCollapsed, setActiveFolderId, setActiveTag, setNoteListFilter, setSearchQuery, setSidebarSearchQuery,
       setShowShortcuts, openTraceDay, openTraceRange, openCreatedNote, openTraceArea,
-      openTraceDiscovery, storeRenameFolder, setRenamingFolderId, setRenameVal, deleteFolder, setShowFolderForm,
+      openTraceDiscovery, storeRenameFolder, setRenamingFolderId, setRenameVal, deleteFolder: requestDeleteFolder, setShowFolderForm,
       setNewFolderName, addFolder, setWorkspaceActivation, setTraceDate, setTraceRange, setTraceAreaId,
       setTraceAreaRange, setTraceDiscoveryMode, setWorkspaceExpanded, handleActivateDashboardWithTraceClear,
       handleActivateSmartCollection, handleClearSmartCollection, handleTogglePinWorkspace, isWorkspacePinned,
@@ -1481,7 +1503,7 @@ export const NoteView = ({ showToast = () => {}, accountId }: NoteViewProps) => 
     dashboardLatestMilestone, evolutionInsights, searchInputRef, importInputRef, setSidebarCollapsed, setActiveFolderId,
     setActiveTag, setSearchQuery, setSidebarSearchQuery, setShowShortcuts, openTraceDay, openTraceRange,
     openCreatedNote, openTraceArea, openTraceDiscovery, storeRenameFolder, setRenamingFolderId, setRenameVal,
-    deleteFolder, setShowFolderForm, setNewFolderName, addFolder, setWorkspaceActivation, setTraceDate, setTraceRange,
+    requestDeleteFolder, setShowFolderForm, setNewFolderName, addFolder, setWorkspaceActivation, setTraceDate, setTraceRange,
     setTraceAreaId, setTraceAreaRange, setTraceDiscoveryMode, setWorkspaceExpanded, handleActivateDashboardWithTraceClear,
     handleActivateSmartCollection, handleClearSmartCollection, handleTogglePinWorkspace, isWorkspacePinned,
     handleActivateWorkspaceRef, handleUnpinWorkspace, handleMovePinnedWorkspace, handleClearRecentWork,
@@ -1625,13 +1647,39 @@ export const NoteView = ({ showToast = () => {}, accountId }: NoteViewProps) => 
       )}
       {confirm && (
         <ConfirmModal
+          key={confirm.requestId}
           message={confirm.message}
-          onConfirm={handleConfirm}
-          onCancel={clearConfirm}
+          onConfirm={() => handleConfirm(confirm.requestId)}
+          onCancel={() => { clearConfirm(confirm.requestId); }}
           darkMode={dark}
           confirmLabel={confirm.confirmLabel}
           variant={confirm.variant}
         />
+      )}
+      {folderDeletionUndo && (
+        <div
+          role="status"
+          aria-live="polite"
+          data-folder-deletion-undo
+          className="fixed z-[198] bottom-6 left-4 right-4 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 sm:w-[min(560px,calc(100vw-32px))] rounded-absinthe-lg border border-border bg-surface-alt text-foreground shadow-absinthe-xl px-4 py-3 flex items-center gap-3"
+        >
+          <span className="min-w-0 flex-1 text-sm font-semibold leading-snug">
+            {folderDeletedUndoMessage(
+              t,
+              folderDeletionUndo.folderName,
+              folderDeletionUndo.affectedNoteCount,
+            )}
+          </span>
+          <button
+            type="button"
+            disabled={folderUndoBusy}
+            onClick={() => { void handleUndoFolderDeletion(); }}
+            className="min-w-[44px] min-h-[44px] px-3 rounded-absinthe-lg text-sm font-bold text-primary hover:bg-accent-bg disabled:opacity-50 abs-focus-ring inline-flex items-center justify-center gap-2"
+          >
+            <RotateCcw size={16} aria-hidden/>
+            {folderUndoBusy ? t('loading') : t('nvUndoFolderDelete')}
+          </button>
+        </div>
       )}
       <input
         ref={vaultRestore.fileInputRef}

@@ -86,6 +86,9 @@ export function buildNoteViewStyles(c: NoteChromeColors, dark: boolean): string 
     [data-list-density="compact"] .bni{padding:6px 9px;min-height:36px}
     [data-list-density="ultra"] .bni{padding:4px 8px;min-height:32px}
     .bfi:hover{background:${c.cardHov}}
+    .folder-del{width:24px;height:24px;min-width:24px;min-height:24px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;opacity:0;transition:opacity .12s,background .12s,color .12s}
+    .bfi:hover .folder-del,.folder-del:focus-visible{opacity:1}
+    .folder-del:hover{background:${c.cardHov};color:${c.danger}}
     .bfi.active{background:${c.accentBg};border-right:2px solid ${c.accent};color:${c.accent};font-weight:600}
     .bni{padding:8px 10px;cursor:pointer;border-bottom:1px solid ${c.sideBdr};transition:background .12s;min-height:44px}
     .bni:hover{background:${c.cardHov}}
@@ -123,6 +126,8 @@ export function buildNoteViewStyles(c: NoteChromeColors, dark: boolean): string 
     .mobile-sidebar-drawer{position:fixed;top:0;left:0;bottom:0;width:min(280px,88vw);z-index:150;box-shadow:4px 0 24px #00000025}
     .mobile-panel-drawer{position:fixed;top:0;right:0;bottom:0;width:min(320px,92vw);z-index:150;box-shadow:-4px 0 24px #00000025}
     .mobile-sidebar-drawer .bfi{min-height:44px;padding:10px 11px}
+    .mobile-sidebar-drawer .folder-del{width:44px;height:44px;min-width:44px;min-height:44px;opacity:1}
+    @media (pointer:coarse){.folder-del{opacity:1}}
     .btbtn-mobile{min-height:44px;min-width:44px}
     [data-compact-chrome] .bicon-btn{width:44px;height:44px}
     .bsort-menu{position:absolute;top:30px;right:0;background:${c.card};border:1px solid ${c.sideBdr};border-radius:8px;box-shadow:0 4px 16px #00000015;z-index:100;overflow:hidden;min-width:130px}

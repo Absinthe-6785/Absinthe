@@ -214,9 +214,13 @@ export const HealthView = ({
   const pendingFocusSetRef = useRef<{ wIdx: number; sIdx: number } | null>(null);
   const assistedInputRef = useRef<HTMLInputElement | null>(null);
   const pendingAssistedFocusRef = useRef<{ wIdx: number; sIdx: number } | null>(null);
-  const handleConfirmCancel = () => {
-    clearPresetConfirmationMarker();
-    clearConfirm();
+  const handleConfirmCancel = (requestId?: number) => {
+    if (requestId === undefined) {
+      clearPresetConfirmationMarker();
+      clearConfirm();
+      return;
+    }
+    if (clearConfirm(requestId)) clearPresetConfirmationMarker();
   };
 
   // Account changes reset only view-local transient state here. The canonical
@@ -2418,7 +2422,7 @@ export const HealthView = ({
 
       </div>
 
-      {confirm && (!presetConfirmAccountId || presetConfirmAccountId === user.id) && <ConfirmModal message={confirm.message} onConfirm={handleConfirm} onCancel={handleConfirmCancel} darkMode={appSettings.darkMode} confirmLabel={confirm.confirmLabel} variant={confirm.variant}/>}
+      {confirm && (!presetConfirmAccountId || presetConfirmAccountId === user.id) && <ConfirmModal key={confirm.requestId} message={confirm.message} onConfirm={() => handleConfirm(confirm.requestId)} onCancel={() => handleConfirmCancel(confirm.requestId)} darkMode={appSettings.darkMode} confirmLabel={confirm.confirmLabel} variant={confirm.variant}/>}
     </div>
     </WorkspaceErrorBoundary>
   );

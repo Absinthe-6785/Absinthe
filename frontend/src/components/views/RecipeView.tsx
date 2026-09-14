@@ -763,9 +763,10 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
 
       {confirm && (
         <ConfirmModal
+          key={confirm.requestId}
           message={confirm.message}
-          onConfirm={handleConfirm}
-          onCancel={clearConfirm}
+          onConfirm={() => handleConfirm(confirm.requestId)}
+          onCancel={() => { clearConfirm(confirm.requestId); }}
           darkMode={dark}
           confirmLabel={confirm.confirmLabel}
           variant={confirm.variant}

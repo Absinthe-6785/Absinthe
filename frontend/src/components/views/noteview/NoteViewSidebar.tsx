@@ -66,6 +66,7 @@ import { writeNoteListSectionPrefs, type NoteListSectionPrefs } from '../noteLis
 import { K103_NOTE_LIST_WIDTH_PX, K103_NOTE_LIST_MIN_WIDTH_PX } from '../k103LayoutConstants';
 import { NoteListSortMenu } from './NoteListSortMenu';
 import { NotesAdvancedOrganizationDisclosure } from './NotesAdvancedOrganizationDisclosure';
+import { FolderDeleteButton } from './FolderDeleteButton';
 
 export interface NoteViewSidebarLayout {
   hideLeftChrome: boolean;
@@ -193,7 +194,7 @@ export interface NoteViewSidebarHandlers {
   storeRenameFolder: (id: string, name: string) => void;
   setRenamingFolderId: React.Dispatch<React.SetStateAction<string | null>>;
   setRenameVal: React.Dispatch<React.SetStateAction<string>>;
-  deleteFolder: (id: string) => void;
+  deleteFolder: (id: string) => void | Promise<unknown>;
   setShowFolderForm: React.Dispatch<React.SetStateAction<boolean>>;
   setNewFolderName: React.Dispatch<React.SetStateAction<string>>;
   addFolder: () => void;
@@ -715,13 +716,11 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
                       </span>
                     )}
                     <span style={{ fontSize: 9, color: c.textMuted }}>{notes.filter(n => n.folderId === f.id && !n.deletedAt).length}</span>
-                    <button onClick={e => { e.stopPropagation(); deleteFolder(f.id); }}
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: c.textMuted, padding: '1px 2px', borderRadius: 3, opacity: 0 }}
-                      className="folder-del"
-                      onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
-                      onMouseLeave={e => (e.currentTarget.style.opacity = '0')}>
-                      <Trash2 size={9}/>
-                    </button>
+                    <FolderDeleteButton
+                      folderName={f.name}
+                      color={c.textMuted}
+                      onRequestDelete={() => { void deleteFolder(f.id); }}
+                    />
                   </div>
                 ))}
                 {showFolderForm ? (
