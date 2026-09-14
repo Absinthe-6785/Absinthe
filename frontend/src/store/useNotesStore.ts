@@ -62,8 +62,9 @@ import {
   reconcileNotesSingleDeletesForBootstrap,
   completeNotesSingleDeleteBootstrapReconciliation,
   validateNotesSingleDeleteTarget,
-  listNotesFolderRemoteMutations,
   persistNotesFolderRemoteMutation,
+  commitNotesFolderRemoteMutation,
+  reconcileNotesFolderRemoteMutations,
   isNotesFolderRemoteMutationCurrent,
   clearNotesFolderRemoteMutation,
   clearNotesFolderRemoteMutationsForReplacement,
@@ -1268,33 +1269,6 @@ export const useNotesStore = create<NotesState>((set, get) => {
     }
   };
 
-  const rollbackFolderLifecyclePersistence = async (
-    state: { notes: Note[]; folders: NoteFolder[] },
-    operation: 'delete' | 'undo',
-  ): Promise<boolean> => {
-    let verified = false;
-    try {
-      const notesWrite = await persistNotes(state.notes);
-      const foldersWrite = persistFolders(state.folders);
-      const durableNotes = await loadNotesAsync() as Note[];
-      const durableFolders = loadFolders() as NoteFolder[];
-      verified = notesWrite.status === 'persisted'
-        && foldersWrite
-        && sameDurablePayload(state.notes, durableNotes)
-        && sameDurablePayload(state.folders, durableFolders);
-    } catch {
-      verified = false;
-    }
-    const message = operation === 'delete'
-      ? (verified ? FOLDER_DELETE_DURABILITY_FAILURE_MESSAGE : FOLDER_DELETE_RECOVERY_REQUIRED_MESSAGE)
-      : (verified ? FOLDER_UNDO_DURABILITY_FAILURE_MESSAGE : FOLDER_UNDO_RECOVERY_REQUIRED_MESSAGE);
-    setSyncIssue(message, 'local_folders_persistence', {
-      retryable: verified,
-      classification: 'LOCAL_PERSISTENCE_FAILURE',
-    });
-    return verified;
-  };
-
   const syncFolderToDB = async (folder: NoteFolder, retryable = false): Promise<boolean> => {
     if (!mayUploadRemote()) {
       recordRecoveryBlock('upload_remote');
@@ -1362,6 +1336,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
   const processFolderRemoteMutation = (
     marker: NotesFolderRemoteMutationMarker,
   ): Promise<boolean> => {
+    if (marker.phase !== 'LOCAL_COMMITTED') return Promise.resolve(false);
     const key = `${marker.accountId}\u0000${marker.folder.id}`;
     const existing = folderRemoteMutationInProgress.get(key);
     if (existing) {
@@ -1453,7 +1428,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
     if (!accountId) return true;
     let markers: readonly NotesFolderRemoteMutationMarker[];
     try {
-      markers = listNotesFolderRemoteMutations(accountId);
+      markers = reconcileNotesFolderRemoteMutations(accountId, loadFolders());
     } catch (error) {
       setSyncIssue(
         error instanceof Error ? error.message : 'Cloud folder mutation authority could not be read.',
@@ -2026,29 +2001,66 @@ export const useNotesStore = create<NotesState>((set, get) => {
         ));
         const folders = previous.folders.filter(candidate => candidate.id !== id);
 
+        const accountId = get().activeAccountId;
+        let preparedFolderRemoteMutation: NotesFolderRemoteMutationMarker | null = null;
+        if (isNotesCloudSyncEnabled() && accountId) {
+          try {
+            reconcileNotesFolderRemoteMutations(accountId, loadFolders());
+          } catch (error) {
+            setSyncIssue(
+              error instanceof Error ? error.message : 'Folder deletion intent could not be reconciled.',
+              'folder_remote',
+              { targetId: folder.id, retryable: true },
+            );
+            return {
+              status: 'persistence_failed',
+              message: currentSyncIssue()?.message ?? FOLDER_DELETE_DURABILITY_FAILURE_MESSAGE,
+            };
+          }
+          preparedFolderRemoteMutation = persistNotesFolderRemoteMutation(
+            accountId,
+            'FOLDER_DELETE',
+            folder,
+            affectedNoteIds,
+          );
+          if (!preparedFolderRemoteMutation) {
+            setSyncIssue(
+              'Folder deletion was not started because its durable cloud intent could not be verified.',
+              'folder_remote',
+              { targetId: folder.id, retryable: true },
+            );
+            return {
+              status: 'persistence_failed',
+              message: currentSyncIssue()?.message ?? FOLDER_DELETE_DURABILITY_FAILURE_MESSAGE,
+            };
+          }
+        }
+
         const persisted = await persistFolderLifecycleState({ notes, folders }, previous, 'delete');
         if (!persisted) {
+          if (preparedFolderRemoteMutation && accountId) {
+            try {
+              reconcileNotesFolderRemoteMutations(accountId, loadFolders());
+            } catch {
+              // The PREPARED marker remains durable and will be reconciled on
+              // bootstrap/retry from the verified local folder state.
+            }
+          }
           return {
             status: 'persistence_failed',
             message: currentSyncIssue()?.message ?? FOLDER_DELETE_DURABILITY_FAILURE_MESSAGE,
           };
         }
 
-        const accountId = get().activeAccountId;
         let folderRemoteMutation: NotesFolderRemoteMutationMarker | null = null;
-        if (isNotesCloudSyncEnabled() && accountId) {
-          folderRemoteMutation = persistNotesFolderRemoteMutation(
-            accountId,
-            'FOLDER_DELETE',
-            folder,
-            affectedNoteIds,
-          );
+        if (preparedFolderRemoteMutation) {
+          folderRemoteMutation = commitNotesFolderRemoteMutation(preparedFolderRemoteMutation);
           if (!folderRemoteMutation) {
-            await rollbackFolderLifecyclePersistence(previous, 'delete');
-            return {
-              status: 'persistence_failed',
-              message: currentSyncIssue()?.message ?? FOLDER_DELETE_DURABILITY_FAILURE_MESSAGE,
-            };
+            setSyncIssue(
+              'Cloud folder deletion remains pending durable phase recovery.',
+              'folder_remote',
+              { targetId: folder.id, retryable: true },
+            );
           }
         }
 
@@ -2074,7 +2086,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
           folder,
           folderIndex,
           affectedNoteIds,
-          accountId: get().activeAccountId,
+          accountId,
           expiresAt,
           storeReplacementGeneration: folderStoreReplacementGeneration,
           remoteDeleteSettled,
@@ -2136,8 +2148,50 @@ export const useNotesStore = create<NotesState>((set, get) => {
         const folders = [...previous.folders];
         folders.splice(Math.min(pending.folderIndex, folders.length), 0, { ...pending.folder });
 
+        let preparedFolderRemoteMutation: NotesFolderRemoteMutationMarker | null = null;
+        if (isNotesCloudSyncEnabled() && pending.accountId) {
+          try {
+            reconcileNotesFolderRemoteMutations(pending.accountId, loadFolders());
+          } catch (error) {
+            setSyncIssue(
+              error instanceof Error ? error.message : 'Folder recovery intent could not be reconciled.',
+              'folder_remote',
+              { targetId: pending.folder.id, retryable: true },
+            );
+            return {
+              status: 'persistence_failed',
+              message: currentSyncIssue()?.message ?? FOLDER_UNDO_DURABILITY_FAILURE_MESSAGE,
+            };
+          }
+          preparedFolderRemoteMutation = persistNotesFolderRemoteMutation(
+            pending.accountId,
+            'FOLDER_RESTORE',
+            pending.folder,
+            pending.affectedNoteIds,
+          );
+          if (!preparedFolderRemoteMutation) {
+            setSyncIssue(
+              'Folder recovery was not started because its durable cloud intent could not be verified.',
+              'folder_remote',
+              { targetId: pending.folder.id, retryable: true },
+            );
+            return {
+              status: 'persistence_failed',
+              message: currentSyncIssue()?.message ?? FOLDER_UNDO_DURABILITY_FAILURE_MESSAGE,
+            };
+          }
+        }
+
         const persisted = await persistFolderLifecycleState({ notes, folders }, previous, 'undo');
         if (!persisted) {
+          if (preparedFolderRemoteMutation && pending.accountId) {
+            try {
+              reconcileNotesFolderRemoteMutations(pending.accountId, loadFolders());
+            } catch {
+              // The PREPARED marker remains durable and recoverable from the
+              // verified local folder state on bootstrap/retry.
+            }
+          }
           if (pending.storeReplacementGeneration !== folderStoreReplacementGeneration) {
             return { status: 'stale_context', message: 'Folder recovery was blocked because the Notes authority was replaced.' };
           }
@@ -2152,19 +2206,14 @@ export const useNotesStore = create<NotesState>((set, get) => {
         }
 
         let folderRemoteMutation: NotesFolderRemoteMutationMarker | null = null;
-        if (isNotesCloudSyncEnabled() && pending.accountId) {
-          folderRemoteMutation = persistNotesFolderRemoteMutation(
-            pending.accountId,
-            'FOLDER_RESTORE',
-            pending.folder,
-            pending.affectedNoteIds,
-          );
+        if (preparedFolderRemoteMutation) {
+          folderRemoteMutation = commitNotesFolderRemoteMutation(preparedFolderRemoteMutation);
           if (!folderRemoteMutation) {
-            await rollbackFolderLifecyclePersistence(previous, 'undo');
-            return {
-              status: 'persistence_failed',
-              message: currentSyncIssue()?.message ?? FOLDER_UNDO_DURABILITY_FAILURE_MESSAGE,
-            };
+            setSyncIssue(
+              'Cloud folder restoration remains pending durable phase recovery.',
+              'folder_remote',
+              { targetId: pending.folder.id, retryable: true },
+            );
           }
         }
 
@@ -2194,18 +2243,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
       try {
         const accountId = getActiveNotesAuthorityAccountId();
         if (!accountId) throw new Error('notes_bootstrap_account_missing');
-        const folderRemoteMutations = listNotesFolderRemoteMutations(accountId);
-        const pendingFolderDeleteIds = new Set(
-          folderRemoteMutations
-            .filter(marker => marker.operation === 'FOLDER_DELETE')
-            .map(marker => marker.folder.id),
-        );
         const previousNotes = await loadNotesForRecoveryContext(context);
-        if (!isNotesAccountRecoveryContextActive(context)) throw new Error('notes_bootstrap_stale');
-        if (notesLocalMutationGeneration !== localMutationGeneration) {
-          throw new Error('notes_bootstrap_local_mutation_pending');
-        }
-        const remote = await fetchCompleteNotesFoldersSnapshot(accountId);
         if (!isNotesAccountRecoveryContextActive(context)) throw new Error('notes_bootstrap_stale');
         if (notesLocalMutationGeneration !== localMutationGeneration) {
           throw new Error('notes_bootstrap_local_mutation_pending');
@@ -2218,11 +2256,23 @@ export const useNotesStore = create<NotesState>((set, get) => {
           || new Set(previousFolders.map(folder => folder.id)).size !== previousFolders.length) {
           throw new Error('notes_bootstrap_local_authority_duplicate_id');
         }
+        // PREPARED lifecycle intent is resolved from durable local folders
+        // before a conflicting remote snapshot can gain merge authority.
+        const folderRemoteMutations = reconcileNotesFolderRemoteMutations(accountId, previousFolders);
+        const pendingFolderDeleteIds = new Set(
+          folderRemoteMutations
+            .filter(marker => marker.operation === 'FOLDER_DELETE')
+            .map(marker => marker.folder.id),
+        );
+        const remote = await fetchCompleteNotesFoldersSnapshot(accountId);
+        if (!isNotesAccountRecoveryContextActive(context)) throw new Error('notes_bootstrap_stale');
+        if (notesLocalMutationGeneration !== localMutationGeneration) {
+          throw new Error('notes_bootstrap_local_mutation_pending');
+        }
         // Absence is not deletion evidence. Even a complete remote snapshot
         // must not remove a proven local row unless existing explicit deletion
         // authority permits its absence.
         const remoteNoteIds = new Set(remote.notes.map(note => note.id));
-        const remoteFolderIds = new Set(remote.folders.map(folder => folder.id));
         const previousById = new Map(previousNotes.map(note => [note.id, note]));
         const pendingLocalById = new Map<string, Note>();
         for (const [noteId, pendingAttempt] of pendingBodySync) {

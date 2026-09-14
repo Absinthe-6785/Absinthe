@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   FOLDERS_KEY,
   NOTES_KEY,
+  loadFolders,
   saveFolders,
   type NoteBase,
   type NoteFolderBase,
@@ -10,6 +11,7 @@ import {
 
 const storage = new Map<string, string>();
 let rejectFolderWrites = false;
+let rejectFolderRemoteMutationWrites = false;
 let folderAuthorityWriteAttempts = 0;
 const localStorageMock = {
   getItem: (key: string) => storage.get(key) ?? null,
@@ -19,6 +21,9 @@ const localStorageMock = {
     }
     if (rejectFolderWrites && (key === FOLDERS_KEY || key.includes('folders'))) {
       throw new Error('folder storage rejected');
+    }
+    if (rejectFolderRemoteMutationWrites && key.includes('folder-remote-mutation')) {
+      throw new Error('folder remote mutation storage rejected');
     }
     storage.set(key, value);
   },
@@ -40,6 +45,7 @@ import { resetNotesPersistenceForTests } from '../lib/notePersistence';
 import {
   activateNotesAccountAuthority,
   listNotesFolderRemoteMutations,
+  persistNotesFolderRemoteMutation,
   saveAccountScopedNotes,
 } from '../lib/notesAccountAuthority';
 import { setRecoveryModeActiveForTest } from '../lib/recoverySafetyPolicy';
@@ -68,6 +74,7 @@ function resetStore() {
   storage.clear();
   storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'local');
   rejectFolderWrites = false;
+  rejectFolderRemoteMutationWrites = false;
   folderAuthorityWriteAttempts = 0;
   authFetchMock.mockReset();
   authReadFetchMock.mockReset();
@@ -182,6 +189,7 @@ describe('Notes folder destructive lifecycle', () => {
   beforeEach(resetStore);
   afterEach(() => {
     rejectFolderWrites = false;
+    rejectFolderRemoteMutationWrites = false;
     vi.useRealTimers();
   });
 
@@ -366,6 +374,204 @@ describe('Notes folder destructive lifecycle', () => {
     expect(remoteFolderRestoreIndex).toBeGreaterThan(remoteDeleteIndex);
     expect(remoteMembershipRestoreIndex).toBeGreaterThan(remoteFolderRestoreIndex);
     expect(useNotesStore.getState().notes[0]).toMatchObject({ body: 'remote-safe body', folderId: 'research' });
+  });
+
+  it('recovers a PREPARED DELETE after durable local commit and suppresses remote resurrection', async () => {
+    const accountId = 'folder-delete-prepared-committed-crash';
+    const originalFolder = folder('research', 'Research', 1);
+    const originalNote = note('member', 'research');
+    const locallyDeletedNote = { ...originalNote, folderId: null, updatedAt: 20 };
+    await seedInitializedAccount(accountId, [originalNote], [originalFolder]);
+    storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'remote');
+
+    const prepared = persistNotesFolderRemoteMutation(
+      accountId,
+      'FOLDER_DELETE',
+      originalFolder,
+      [originalNote.id],
+    );
+    expect(prepared?.phase).toBe('PREPARED');
+    expect(await saveAccountScopedNotes(accountId, [locallyDeletedNote])).toBe(true);
+    expect(saveFolders([])).toBe(true);
+
+    useNotesStore.getState().detachNotesStorage();
+    await useNotesStore.getState().initNotesStorage(accountId);
+    storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'remote');
+    let remoteFolderExists = true;
+    let deleteAttempts = 0;
+    authFetchMock.mockImplementation(async (url: unknown, options?: RequestInit) => {
+      if (String(url).endsWith('/api/note_folders/research') && options?.method === 'DELETE') {
+        deleteAttempts += 1;
+        remoteFolderExists = false;
+        return { ok: true, status: 200, json: async () => ({}) };
+      }
+      return successfulRemoteResponse(accountId, url, options);
+    });
+    installRemoteSnapshot(accountId, [originalNote], [originalFolder]);
+
+    await useNotesStore.getState().bootstrapFromSupabase();
+
+    expect(useNotesStore.getState().folders).toEqual([]);
+    expect(useNotesStore.getState().notes[0]).toMatchObject({ id: 'member', folderId: null });
+    expect(listNotesFolderRemoteMutations(accountId)).toMatchObject([
+      { operation: 'FOLDER_DELETE', phase: 'LOCAL_COMMITTED' },
+    ]);
+    expect(deleteAttempts).toBe(0);
+
+    useNotesStore.getState().retrySync();
+    await vi.waitFor(() => {
+      expect(deleteAttempts).toBe(1);
+      expect(listNotesFolderRemoteMutations(accountId)).toHaveLength(0);
+    });
+
+    installRemoteSnapshot(accountId, [locallyDeletedNote], remoteFolderExists ? [originalFolder] : []);
+    await useNotesStore.getState().bootstrapFromSupabase();
+    expect(useNotesStore.getState().folders).toEqual([]);
+    expect(deleteAttempts).toBe(1);
+  });
+
+  it('cancels a PREPARED DELETE when durable local deletion never committed', async () => {
+    const accountId = 'folder-delete-prepared-not-committed';
+    const originalFolder = folder('research', 'Research', 1);
+    const originalNote = note('member', 'research');
+    await seedInitializedAccount(accountId, [originalNote], [originalFolder]);
+    storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'remote');
+    expect(persistNotesFolderRemoteMutation(
+      accountId,
+      'FOLDER_DELETE',
+      originalFolder,
+      [originalNote.id],
+    )?.phase).toBe('PREPARED');
+
+    useNotesStore.getState().detachNotesStorage();
+    await useNotesStore.getState().initNotesStorage(accountId);
+    storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'remote');
+    installRemoteSnapshot(accountId, [originalNote], [originalFolder]);
+    await useNotesStore.getState().bootstrapFromSupabase();
+
+    expect(useNotesStore.getState().folders).toEqual([originalFolder]);
+    expect(useNotesStore.getState().notes[0]?.folderId).toBe('research');
+    expect(listNotesFolderRemoteMutations(accountId)).toHaveLength(0);
+    useNotesStore.getState().retrySync();
+    await Promise.resolve();
+    expect(authFetchMock.mock.calls.filter(([url, options]) => (
+      String(url).endsWith('/api/note_folders/research')
+      && (options as RequestInit | undefined)?.method === 'DELETE'
+    ))).toHaveLength(0);
+  });
+
+  it('recovers a PREPARED RESTORE after durable local commit and converges folder before memberships', async () => {
+    const accountId = 'folder-restore-prepared-committed-crash';
+    const originalFolder = folder('research', 'Research', 1);
+    const deletedNote = note('member', null);
+    const locallyRestoredNote = { ...deletedNote, folderId: 'research', updatedAt: 20 };
+    await seedInitializedAccount(accountId, [deletedNote], []);
+    storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'remote');
+    expect(persistNotesFolderRemoteMutation(
+      accountId,
+      'FOLDER_RESTORE',
+      originalFolder,
+      [deletedNote.id],
+    )?.phase).toBe('PREPARED');
+    expect(await saveAccountScopedNotes(accountId, [locallyRestoredNote])).toBe(true);
+    expect(saveFolders([originalFolder])).toBe(true);
+
+    useNotesStore.getState().detachNotesStorage();
+    await useNotesStore.getState().initNotesStorage(accountId);
+    storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'remote');
+    installRemoteSnapshot(accountId, [deletedNote], []);
+    const convergenceOrder: string[] = [];
+    authFetchMock.mockImplementation(async (url: unknown, options?: RequestInit) => {
+      if (String(url).endsWith('/api/note_folders') && options?.method === 'POST') {
+        convergenceOrder.push('folder');
+      }
+      if (String(url).endsWith('/api/notes') && options?.method === 'POST') {
+        const payload = JSON.parse(String(options.body)) as { folder_id?: string | null };
+        if (payload.folder_id === 'research') convergenceOrder.push('membership');
+      }
+      return successfulRemoteResponse(accountId, url, options);
+    });
+
+    await useNotesStore.getState().bootstrapFromSupabase();
+
+    expect(useNotesStore.getState().folders).toEqual([originalFolder]);
+    expect(useNotesStore.getState().notes[0]?.folderId).toBe('research');
+    expect(listNotesFolderRemoteMutations(accountId)).toMatchObject([
+      { operation: 'FOLDER_RESTORE', phase: 'LOCAL_COMMITTED' },
+    ]);
+    useNotesStore.getState().retrySync();
+    await vi.waitFor(() => expect(listNotesFolderRemoteMutations(accountId)).toHaveLength(0));
+    expect(convergenceOrder).toEqual(['folder', 'membership']);
+  });
+
+  it('cancels a PREPARED RESTORE when durable local Undo never committed', async () => {
+    const accountId = 'folder-restore-prepared-not-committed';
+    const originalFolder = folder('research', 'Research', 1);
+    const deletedNote = note('member', null);
+    await seedInitializedAccount(accountId, [deletedNote], []);
+    storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'remote');
+    expect(persistNotesFolderRemoteMutation(
+      accountId,
+      'FOLDER_RESTORE',
+      originalFolder,
+      [deletedNote.id],
+    )?.phase).toBe('PREPARED');
+
+    useNotesStore.getState().detachNotesStorage();
+    await useNotesStore.getState().initNotesStorage(accountId);
+    storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'remote');
+    installRemoteSnapshot(accountId, [deletedNote], []);
+    await useNotesStore.getState().bootstrapFromSupabase();
+
+    expect(useNotesStore.getState().folders).toEqual([]);
+    expect(useNotesStore.getState().notes[0]?.folderId).toBeNull();
+    expect(listNotesFolderRemoteMutations(accountId)).toHaveLength(0);
+    useNotesStore.getState().retrySync();
+    await Promise.resolve();
+    const remoteRestoreCalls = authFetchMock.mock.calls.filter(([url, options]) => (
+      String(url).endsWith('/api/note_folders')
+      && (options as RequestInit | undefined)?.method === 'POST'
+    ));
+    const membershipCalls = authFetchMock.mock.calls.filter(([url, options]) => {
+      if (!String(url).endsWith('/api/notes') || (options as RequestInit | undefined)?.method !== 'POST') return false;
+      const payload = JSON.parse(String((options as RequestInit).body)) as { folder_id?: string | null };
+      return payload.folder_id === 'research';
+    });
+    expect(remoteRestoreCalls).toHaveLength(0);
+    expect(membershipCalls).toHaveLength(0);
+  });
+
+  it('does not begin local DELETE when PREPARED intent persistence fails', async () => {
+    const accountId = 'folder-delete-prepare-failure';
+    const originalFolder = folder('research', 'Research', 1);
+    const originalNote = note('member', 'research');
+    await seedInitializedAccount(accountId, [originalNote], [originalFolder]);
+    storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'remote');
+    rejectFolderRemoteMutationWrites = true;
+
+    const result = await useNotesStore.getState().deleteFolder('research');
+
+    expect(result.status).toBe('persistence_failed');
+    expect(useNotesStore.getState().folders).toEqual([originalFolder]);
+    expect(useNotesStore.getState().notes).toEqual([originalNote]);
+    expect(loadFolders()).toEqual([originalFolder]);
+  });
+
+  it('does not begin local RESTORE when PREPARED intent persistence fails', async () => {
+    const accountId = 'folder-restore-prepare-failure';
+    const originalFolder = folder('research', 'Research', 1);
+    await seedInitializedAccount(accountId, [note('member', 'research')], [originalFolder]);
+    const deleted = await useNotesStore.getState().deleteFolder('research');
+    if (deleted.status !== 'deleted') throw new Error('expected deletion receipt');
+    storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'remote');
+    rejectFolderRemoteMutationWrites = true;
+
+    const result = await useNotesStore.getState().undoFolderDeletion(deleted.receipt.token);
+
+    expect(result.status).toBe('persistence_failed');
+    expect(useNotesStore.getState().folders).toEqual([]);
+    expect(useNotesStore.getState().notes[0]?.folderId).toBeNull();
+    expect(loadFolders()).toEqual([]);
   });
 
   it('durably suppresses a failed remote delete across restart/bootstrap and clears it after retry', async () => {
