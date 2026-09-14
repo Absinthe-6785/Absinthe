@@ -117,6 +117,9 @@ def test_health_exposes_only_a_validated_exact_commit() -> None:
     }
     assert deployment_health_payload(None) == {"status": "ok", "gitCommit": None}
     assert deployment_health_payload("not-a-commit") == {"status": "ok", "gitCommit": None}
+    assert deployment_health_payload("a" * 7) == {"status": "ok", "gitCommit": None}
+    assert deployment_health_payload("a" * 39) == {"status": "ok", "gitCommit": None}
+    assert deployment_health_payload("a" * 41) == {"status": "ok", "gitCommit": None}
 
 
 def test_runtime_health_route_reads_render_commit_without_exposing_environment(
