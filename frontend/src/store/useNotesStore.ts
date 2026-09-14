@@ -51,6 +51,9 @@ import {
   loadNotesForRecoveryContext,
   loadFoldersForRecoveryContext,
   applyNotesFoldersForRecoveryContext,
+  getNotesAuthorityState,
+  NOTES_CORE_DOMAIN,
+  NOTES_FOLDERS_DOMAIN,
   USER_INITIATED_SINGLE_NOTE_DELETE,
   prepareNotesSingleDelete,
   beginNotesSingleDelete,
@@ -120,6 +123,16 @@ import {
   type ResolvedBootstrapNotesRevalidation,
 } from '../lib/notesBootstrapAuthority';
 import {
+  NOTES_BOOTSTRAP_FAILURE_MESSAGE,
+  NotesBootstrapDiagnosticError,
+  buildNotesBootstrapDiagnostic,
+  diagnoseNotesBootstrapFailure,
+  type NotesBootstrapDiagnostic,
+  type NotesBootstrapDiagnosticReason,
+  type NotesBootstrapDiagnosticStage,
+  type NotesBootstrapFailureSignal,
+} from '../lib/notesBootstrapDiagnostics';
+import {
   clearKnowledgeHistory,
   recordNoteCreated,
   recordNoteDeleted,
@@ -181,6 +194,9 @@ export interface SyncIssueState {
   /** Matches syncError so direct test/runtime state replacements cannot reuse stale ownership. */
   readonly message: string;
   readonly classification?: NotesRemoteWriteClassification | 'LOCAL_PERSISTENCE_FAILURE' | 'RECOVERY_GUARD_REJECTION' | 'BOOTSTRAP_FAILURE';
+  readonly stage?: NotesBootstrapDiagnosticStage;
+  readonly reasonCode?: NotesBootstrapDiagnosticReason;
+  readonly bootstrapDiagnostic?: NotesBootstrapDiagnostic;
 }
 
 export const FOLDER_DELETE_UNDO_WINDOW_MS = 3000;
@@ -921,6 +937,9 @@ export const useNotesStore = create<NotesState>((set, get) => {
       targetId?: string;
       retryable?: boolean;
       classification?: SyncIssueState['classification'];
+      stage?: NotesBootstrapDiagnosticStage;
+      reasonCode?: NotesBootstrapDiagnosticReason;
+      bootstrapDiagnostic?: NotesBootstrapDiagnostic;
     } = {},
   ): void => {
     if (shouldPreserveExistingSyncIssue(currentSyncIssue(), source)) return;
@@ -932,6 +951,9 @@ export const useNotesStore = create<NotesState>((set, get) => {
         retryable: options.retryable ?? false,
         message,
         classification: options.classification,
+        stage: options.stage,
+        reasonCode: options.reasonCode,
+        bootstrapDiagnostic: options.bootstrapDiagnostic,
       },
     });
   };
@@ -2239,16 +2261,49 @@ export const useNotesStore = create<NotesState>((set, get) => {
       const context = createNotesAccountRecoveryContext();
       if (!context) return;
       const localMutationGeneration = notesLocalMutationGeneration;
+      let diagnosticStage: NotesBootstrapDiagnosticStage = 'ACCOUNT_AUTHORITY';
+      let diagnosticAccountId: string | null = null;
+      let localNoteCount = 0;
+      let localFolderCount = 0;
+      let remoteNoteCount: number | null = null;
+      let remoteFolderCount: number | null = null;
+      let pendingFolderMarkerCount: number | null = null;
+      let pendingFolderOperations: NotesBootstrapDiagnostic['pendingFolderOperations'] = [];
+      let pendingFolderPhases: NotesBootstrapDiagnostic['pendingFolderPhases'] = [];
+      const diagnosticFor = (failure: NotesBootstrapFailureSignal): NotesBootstrapDiagnostic => {
+        const state = get();
+        const notesAuthorityState = diagnosticAccountId
+          ? getNotesAuthorityState(diagnosticAccountId, NOTES_CORE_DOMAIN).state
+          : state.notesAuthorityState;
+        const foldersAuthorityState = diagnosticAccountId
+          ? getNotesAuthorityState(diagnosticAccountId, NOTES_FOLDERS_DOMAIN).state
+          : state.foldersAuthorityState;
+        return buildNotesBootstrapDiagnostic(failure, {
+          localNoteCount,
+          localFolderCount,
+          remoteNoteCount,
+          remoteFolderCount,
+          pendingFolderMarkerCount,
+          pendingFolderOperations,
+          pendingFolderPhases,
+          notesAuthorityState,
+          foldersAuthorityState,
+        });
+      };
       set({ isSyncing: true });
       try {
         const accountId = getActiveNotesAuthorityAccountId();
         if (!accountId) throw new Error('notes_bootstrap_account_missing');
+        diagnosticAccountId = accountId;
+        diagnosticStage = 'LOAD_LOCAL_AUTHORITY';
         const previousNotes = await loadNotesForRecoveryContext(context);
+        localNoteCount = previousNotes.length;
         if (!isNotesAccountRecoveryContextActive(context)) throw new Error('notes_bootstrap_stale');
         if (notesLocalMutationGeneration !== localMutationGeneration) {
           throw new Error('notes_bootstrap_local_mutation_pending');
         }
         const previousFolders = loadFoldersForRecoveryContext(context);
+        localFolderCount = previousFolders.length;
         if (notesLocalMutationGeneration !== localMutationGeneration) {
           throw new Error('notes_bootstrap_local_mutation_pending');
         }
@@ -2258,13 +2313,20 @@ export const useNotesStore = create<NotesState>((set, get) => {
         }
         // PREPARED lifecycle intent is resolved from durable local folders
         // before a conflicting remote snapshot can gain merge authority.
+        diagnosticStage = 'RECONCILE_FOLDER_LIFECYCLE';
         const folderRemoteMutations = reconcileNotesFolderRemoteMutations(accountId, previousFolders);
+        pendingFolderMarkerCount = folderRemoteMutations.length;
+        pendingFolderOperations = folderRemoteMutations.map(marker => marker.operation);
+        pendingFolderPhases = folderRemoteMutations.map(marker => marker.phase);
         const pendingFolderDeleteIds = new Set(
           folderRemoteMutations
             .filter(marker => marker.operation === 'FOLDER_DELETE')
             .map(marker => marker.folder.id),
         );
+        diagnosticStage = 'FETCH_NOTES';
         const remote = await fetchCompleteNotesFoldersSnapshot(accountId);
+        remoteNoteCount = remote.notes.length;
+        remoteFolderCount = remote.folders.length;
         if (!isNotesAccountRecoveryContextActive(context)) throw new Error('notes_bootstrap_stale');
         if (notesLocalMutationGeneration !== localMutationGeneration) {
           throw new Error('notes_bootstrap_local_mutation_pending');
@@ -2284,12 +2346,15 @@ export const useNotesStore = create<NotesState>((set, get) => {
         const localById = new Map(previousById);
         for (const [noteId, pendingNote] of pendingLocalById) localById.set(noteId, pendingNote);
         const localAuthorityNotes = [...localById.values()];
+        diagnosticStage = 'RECONCILE_SINGLE_DELETE_LIFECYCLE';
         let deleteReconciliation = reconcileNotesSingleDeletesForBootstrap(
           accountId, remoteNoteIds, localAuthorityNotes,
         );
         let preservedConflictIds = deleteReconciliation.preservedConflictNoteIds;
         const authorityConflictIds = new Set<string>();
+        let authorityConflictReason: NotesBootstrapDiagnosticReason | null = null;
         const pendingRemoteNotes = new Map<string, Note>();
+        diagnosticStage = 'MERGE_NOTES';
         const notes = remote.notes.map(row => {
           const protectedDeleteConflict = preservedConflictIds.has(row.id);
           const local = localById.get(row.id);
@@ -2306,7 +2371,14 @@ export const useNotesStore = create<NotesState>((set, get) => {
             pendingLocalMutation: pendingLocalById.has(row.id),
           });
           if (resolution.pendingRemoteSync) pendingRemoteNotes.set(row.id, resolution.resolved);
-          if (resolution.conflict && !protectedDeleteConflict) authorityConflictIds.add(row.id);
+          if (resolution.conflict && !protectedDeleteConflict) {
+            authorityConflictIds.add(row.id);
+            if (resolution.outcome === 'EQUAL') {
+              authorityConflictReason = 'EQUAL_REVISION_PAYLOAD_MISMATCH';
+            } else if (authorityConflictReason === null) {
+              authorityConflictReason = 'NOTES_AUTHORITY_CONFLICT';
+            }
+          }
           return resolution.resolved;
         });
         const noteIds = new Set(remoteNoteIds);
@@ -2317,6 +2389,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
           notes.push(note);
           noteIds.add(note.id);
         }
+        diagnosticStage = 'MERGE_FOLDERS';
         const folders = remote.folders
           .map(mapDbFolder)
           .filter(folder => !pendingFolderDeleteIds.has(folder.id));
@@ -2337,6 +2410,8 @@ export const useNotesStore = create<NotesState>((set, get) => {
           throw new Error('notes_bootstrap_local_mutation_pending');
         }
         let atomicRevalidation: ResolvedBootstrapNotesRevalidation | null = null;
+        const applyFailureRef: { current: NotesBootstrapFailureSignal | null } = { current: null };
+        diagnosticStage = 'PERSIST_LOCAL';
         const applied = await applyNotesFoldersForRecoveryContext(
           context, previousNotes, previousFolders, notes, folders,
           (currentDurable, resolvedCandidate) => {
@@ -2349,12 +2424,19 @@ export const useNotesStore = create<NotesState>((set, get) => {
             });
             return atomicRevalidation.notes;
           },
+          failure => { applyFailureRef.current = failure; },
         );
         if (!applied.applied) {
-          throw new Error(applied.rollbackVerified
-            ? 'notes_bootstrap_apply_failed'
-            : 'notes_bootstrap_recovery_required');
+          const applyFailure = applyFailureRef.current;
+          throw applyFailure
+            ? new NotesBootstrapDiagnosticError(
+              applyFailure.stage, applyFailure.reasonCode, applyFailure.reasonCode, applyFailure.rollbackVerified,
+            )
+            : new Error(applied.rollbackVerified
+              ? 'notes_bootstrap_apply_failed'
+              : 'notes_bootstrap_recovery_required');
         }
+        diagnosticStage = 'REVALIDATE_LOCAL';
         if (!isNotesAccountRecoveryContextActive(context)) throw new Error('notes_bootstrap_stale');
         if (notesLocalMutationGeneration !== localMutationGeneration) {
           throw new Error('notes_bootstrap_local_mutation_pending');
@@ -2365,11 +2447,16 @@ export const useNotesStore = create<NotesState>((set, get) => {
         for (const pendingNote of committedRevalidation.pendingRemoteSyncNotes) {
           pendingRemoteNotes.set(pendingNote.id, pendingNote);
         }
-        for (const noteId of committedRevalidation.conflictNoteIds) authorityConflictIds.add(noteId);
+        for (const noteId of committedRevalidation.conflictNoteIds) {
+          authorityConflictIds.add(noteId);
+          authorityConflictReason ??= 'NOTES_AUTHORITY_CONFLICT';
+        }
+        diagnosticStage = 'RECONCILE_SINGLE_DELETE_LIFECYCLE';
         deleteReconciliation = reconcileNotesSingleDeletesForBootstrap(
           accountId, remoteNoteIds, committedNotes,
         );
         preservedConflictIds = deleteReconciliation.preservedConflictNoteIds;
+        diagnosticStage = 'FINALIZE_BOOTSTRAP';
         if (!completeNotesSingleDeleteBootstrapReconciliation(deleteReconciliation.markersToClear)) {
           throw new Error('notes_single_delete_marker_clear_failed');
         }
@@ -2388,7 +2475,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
           ? 'Permanent delete conflict was preserved locally and requires explicit resolution.'
           : null;
         const authorityConflictMessage = authorityConflictIds.size > 0
-          ? 'A Notes bootstrap authority conflict was preserved locally and requires explicit resolution.'
+          ? NOTES_BOOTSTRAP_FAILURE_MESSAGE
           : null;
         const conflictMessage = permanentDeleteConflictMessage ?? authorityConflictMessage;
         const conflictSource: SyncIssueSource = permanentDeleteConflictMessage
@@ -2425,6 +2512,20 @@ export const useNotesStore = create<NotesState>((set, get) => {
               targetId: conflictTargetId,
               retryable: false,
               message: displayedConflictMessage,
+              ...(conflictSource === 'bootstrap'
+                ? (() => {
+                  const failure: NotesBootstrapFailureSignal = {
+                    stage: 'MERGE_NOTES',
+                    reasonCode: authorityConflictReason ?? 'NOTES_AUTHORITY_CONFLICT',
+                  };
+                  return {
+                    classification: 'BOOTSTRAP_FAILURE' as const,
+                    stage: failure.stage,
+                    reasonCode: failure.reasonCode,
+                    bootstrapDiagnostic: diagnosticFor(failure),
+                  };
+                })()
+                : {}),
             }
             : (keepExistingIssue ? existingIssue : null),
           folderDeletionUndoEpoch: invalidateFolderDeletionUndoForStoreReplacement(),
@@ -2444,7 +2545,14 @@ export const useNotesStore = create<NotesState>((set, get) => {
         rebuildKnowledgeIndex(committedNotes);
       } catch (error) {
         if (isNotesAccountRecoveryContextActive(context)) {
-          setSyncIssue(error instanceof Error ? error.message : 'notes_bootstrap_failed', 'bootstrap');
+          const failure = diagnoseNotesBootstrapFailure(error, diagnosticStage);
+          const bootstrapDiagnostic = diagnosticFor(failure);
+          setSyncIssue(NOTES_BOOTSTRAP_FAILURE_MESSAGE, 'bootstrap', {
+            classification: 'BOOTSTRAP_FAILURE',
+            stage: failure.stage,
+            reasonCode: failure.reasonCode,
+            bootstrapDiagnostic,
+          });
         }
       } finally {
         if (isNotesAccountRecoveryContextActive(context)) set({ isSyncing: false });
@@ -2750,6 +2858,35 @@ function applyStorageMerge(key: string | null, newValue: string | null) {
   }
 }
 
+export const NOTES_BOOTSTRAP_DIAGNOSTIC_ACCESSOR = '__ABSINTHE_NOTES_BOOTSTRAP_DIAGNOSTIC__';
+
+/** Non-sensitive runtime projection for release diagnostics; never returns IDs or content. */
+export function getNotesBootstrapRuntimeDiagnostic() {
+  const state = useNotesStore.getState();
+  const issue = state.syncIssue;
+  const diagnostic = issue?.bootstrapDiagnostic;
+  if (!issue || issue.source !== 'bootstrap' || issue.message !== state.syncError
+    || !issue.stage || !issue.reasonCode || !diagnostic) return null;
+  return Object.freeze({
+    source: 'bootstrap' as const,
+    classification: issue.classification ?? 'BOOTSTRAP_FAILURE',
+    stage: issue.stage,
+    reasonCode: issue.reasonCode,
+    retryable: issue.retryable,
+    targetIdPresent: issue.targetId !== undefined,
+    localNoteCount: diagnostic.localNoteCount,
+    localFolderCount: diagnostic.localFolderCount,
+    remoteNoteCount: diagnostic.remoteNoteCount,
+    remoteFolderCount: diagnostic.remoteFolderCount,
+    pendingFolderMarkerCount: diagnostic.pendingFolderMarkerCount,
+    pendingFolderOperations: Object.freeze([...diagnostic.pendingFolderOperations]),
+    pendingFolderPhases: Object.freeze([...diagnostic.pendingFolderPhases]),
+    notesAuthorityState: diagnostic.notesAuthorityState,
+    foldersAuthorityState: diagnostic.foldersAuthorityState,
+    rollbackVerified: diagnostic.rollbackVerified ?? null,
+  });
+}
+
 // 페이지 이탈 · 탭 전환 시 body debounce flush
 if (typeof window !== 'undefined') {
   const flush = () => useNotesStore.getState().flushPendingSync();
@@ -2759,6 +2896,16 @@ if (typeof window !== 'undefined') {
     if (e.storageArea !== localStorage) return;
     applyStorageMerge(e.key, e.newValue);
   });
+  try {
+    Object.defineProperty(window, NOTES_BOOTSTRAP_DIAGNOSTIC_ACCESSOR, {
+      configurable: true,
+      enumerable: false,
+      value: getNotesBootstrapRuntimeDiagnostic,
+      writable: false,
+    });
+  } catch {
+    // Diagnostics are optional; bootstrap behavior must never depend on the accessor.
+  }
 }
 
 export { applyStorageMerge };
