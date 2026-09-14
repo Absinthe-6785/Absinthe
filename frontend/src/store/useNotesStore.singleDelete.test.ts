@@ -441,7 +441,7 @@ describe('POST_RTU_03 account-scoped trash and permanent deletion', () => {
     expect(await loadAccountScopedNotes('account-a')).toEqual([local]);
     expect(useNotesStore.getState().syncIssue).toEqual(expect.objectContaining({
       source: 'bootstrap', classification: 'BOOTSTRAP_FAILURE',
-      stage: 'VALIDATE_NOTES_SNAPSHOT', reasonCode: 'SNAPSHOT_CONTRACT_INVALID',
+      stage: 'MERGE_NOTES', reasonCode: 'REMOTE_NOTE_INCOMPLETE',
     }));
   });
 

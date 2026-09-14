@@ -10,6 +10,7 @@ export const NOTES_BOOTSTRAP_DIAGNOSTIC_STAGES = [
   'VALIDATE_NOTES_SNAPSHOT',
   'FETCH_FOLDERS',
   'VALIDATE_FOLDERS_SNAPSHOT',
+  'RECONCILE_SINGLE_DELETE_LIFECYCLE',
   'MERGE_NOTES',
   'MERGE_FOLDERS',
   'PERSIST_LOCAL',
@@ -44,6 +45,12 @@ export const NOTES_BOOTSTRAP_DIAGNOSTIC_REASONS = [
   'ATOMIC_APPLY_FAILED',
   'ROLLBACK_UNVERIFIED',
   'ATOMIC_REVALIDATION_MISSING',
+  'AUTHORITY_STATE_PERSIST_FAILED',
+  'SINGLE_DELETE_ACCOUNT_INACTIVE',
+  'SINGLE_DELETE_REMOTE_PENDING',
+  'SINGLE_DELETE_MARKER_CHANGED',
+  'SINGLE_DELETE_MARKER_MALFORMED',
+  'SINGLE_DELETE_MARKER_CONFLICT_PERSIST_FAILED',
   'SINGLE_DELETE_FINALIZATION_FAILED',
   'UNKNOWN_FAILURE',
 ] as const;
@@ -137,10 +144,40 @@ export function diagnoseNotesBootstrapFailure(
     return { stage: 'RECONCILE_FOLDER_LIFECYCLE', reasonCode: 'FOLDER_MARKER_CANCEL_FAILED' };
   }
   if (code === 'notes_bootstrap_remote_note_incomplete') {
-    return { stage: 'VALIDATE_NOTES_SNAPSHOT', reasonCode: 'REMOTE_NOTE_INCOMPLETE' };
+    return { stage: 'MERGE_NOTES', reasonCode: 'REMOTE_NOTE_INCOMPLETE' };
   }
   if (code === 'notes_bootstrap_atomic_revalidation_missing') {
     return { stage: 'REVALIDATE_LOCAL', reasonCode: 'ATOMIC_REVALIDATION_MISSING' };
+  }
+  if (code === 'notes_single_delete_account_inactive') {
+    return {
+      stage: 'RECONCILE_SINGLE_DELETE_LIFECYCLE',
+      reasonCode: 'SINGLE_DELETE_ACCOUNT_INACTIVE',
+    };
+  }
+  if (code === 'notes_single_delete_remote_pending') {
+    return {
+      stage: 'RECONCILE_SINGLE_DELETE_LIFECYCLE',
+      reasonCode: 'SINGLE_DELETE_REMOTE_PENDING',
+    };
+  }
+  if (code === 'notes_single_delete_marker_changed') {
+    return {
+      stage: 'RECONCILE_SINGLE_DELETE_LIFECYCLE',
+      reasonCode: 'SINGLE_DELETE_MARKER_CHANGED',
+    };
+  }
+  if (code === 'notes_single_delete_marker_malformed') {
+    return {
+      stage: 'RECONCILE_SINGLE_DELETE_LIFECYCLE',
+      reasonCode: 'SINGLE_DELETE_MARKER_MALFORMED',
+    };
+  }
+  if (code === 'notes_single_delete_marker_conflict_persist_failed') {
+    return {
+      stage: 'RECONCILE_SINGLE_DELETE_LIFECYCLE',
+      reasonCode: 'SINGLE_DELETE_MARKER_CONFLICT_PERSIST_FAILED',
+    };
   }
   if (code === 'notes_single_delete_marker_clear_failed') {
     return { stage: 'FINALIZE_BOOTSTRAP', reasonCode: 'SINGLE_DELETE_FINALIZATION_FAILED' };

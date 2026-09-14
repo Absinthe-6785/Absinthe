@@ -48,7 +48,7 @@ describe('RTU-03 read-only Supabase bootstrap boundaries', () => {
     expect(vi.mocked(authReadFetch).mock.calls.every(([, init]) => (init?.method ?? 'GET') === 'GET')).toBe(true);
   });
 
-  it('fails closed on duplicate remote identities before local writes can occur', async () => {
+  it('attributes duplicate Note identities without changing the base failure', async () => {
     vi.mocked(authReadFetch).mockReset();
     vi.mocked(authReadFetch)
       .mockResolvedValueOnce(new Response(JSON.stringify(notesPage([
@@ -56,7 +56,26 @@ describe('RTU-03 read-only Supabase bootstrap boundaries', () => {
         { id: 'same', user_id: ACCOUNT_ID, title: 'two', body: '', updated_at: 2, folder_id: null, deleted_at: null, starred: false, properties: null, relations: null },
       ])), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify(foldersPage([])), { status: 200 }));
-    await expect(fetchCompleteNotesFoldersSnapshot(ACCOUNT_ID)).rejects.toThrow('complete_notes_snapshot_invalid');
+    await expect(fetchCompleteNotesFoldersSnapshot(ACCOUNT_ID)).rejects.toMatchObject({
+      message: 'complete_notes_snapshot_invalid',
+      stage: 'VALIDATE_NOTES_SNAPSHOT',
+      reasonCode: 'SNAPSHOT_DUPLICATE_ID',
+    });
+  });
+
+  it('attributes duplicate Folder identities without changing the base failure', async () => {
+    vi.mocked(authReadFetch).mockReset();
+    vi.mocked(authReadFetch)
+      .mockResolvedValueOnce(new Response(JSON.stringify(notesPage([])), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(foldersPage([
+        { id: 'same', user_id: ACCOUNT_ID, name: 'One', created_at: 1 },
+        { id: 'same', user_id: ACCOUNT_ID, name: 'Two', created_at: 2 },
+      ])), { status: 200 }));
+    await expect(fetchCompleteNotesFoldersSnapshot(ACCOUNT_ID)).rejects.toMatchObject({
+      message: 'complete_folders_snapshot_invalid',
+      stage: 'VALIDATE_FOLDERS_SNAPSHOT',
+      reasonCode: 'SNAPSHOT_DUPLICATE_ID',
+    });
   });
 
   it('accepts exactly the proven Notes total and rejects a short successful page', async () => {
@@ -85,9 +104,6 @@ describe('RTU-03 read-only Supabase bootstrap boundaries', () => {
       { id: 'missing-owner', title: 'one', body: '', updated_at: 1, folder_id: null, deleted_at: null, starred: false, properties: null, relations: null },
       { id: 'missing-folder', user_id: ACCOUNT_ID, title: 'one', body: '', updated_at: 1, deleted_at: null, starred: false, properties: null, relations: null },
       { id: 'missing-deleted', user_id: ACCOUNT_ID, title: 'one', body: '', updated_at: 1, folder_id: null, starred: false, properties: null, relations: null },
-      { id: 'missing-starred', user_id: ACCOUNT_ID, title: 'one', body: '', updated_at: 1, folder_id: null, deleted_at: null, properties: null, relations: null },
-      { id: 'missing-properties', user_id: ACCOUNT_ID, title: 'one', body: '', updated_at: 1, folder_id: null, deleted_at: null, starred: false, relations: null },
-      { id: 'missing-relations', user_id: ACCOUNT_ID, title: 'one', body: '', updated_at: 1, folder_id: null, deleted_at: null, starred: false, properties: null },
     ]) {
       vi.mocked(authReadFetch).mockReset();
       vi.mocked(authReadFetch)
@@ -108,6 +124,37 @@ describe('RTU-03 read-only Supabase bootstrap boundaries', () => {
         account_id: ACCOUNT_ID, rows: [], total_count: 2, offset: 1, limit: 500, complete: false,
       }), { status: 200 }));
     await expect(fetchCompleteNotesFoldersSnapshot(ACCOUNT_ID)).rejects.toThrow('complete_notes_snapshot_incomplete');
+  });
+
+  it('preserves base acceptance for legacy-optional Note fields and finite revision values', async () => {
+    const rows = [
+      { id: 'missing-starred', user_id: ACCOUNT_ID, title: 'one', body: '', updated_at: 1, folder_id: null, deleted_at: null, properties: null, relations: null },
+      { id: 'missing-properties', user_id: ACCOUNT_ID, title: 'one', body: '', updated_at: 1, folder_id: null, deleted_at: null, starred: false, relations: null },
+      { id: 'missing-relations', user_id: ACCOUNT_ID, title: 'one', body: '', updated_at: 1, folder_id: null, deleted_at: null, starred: false, properties: null },
+      { id: 'fractional-revision', user_id: ACCOUNT_ID, title: 'one', body: '', updated_at: 1.5, folder_id: null, deleted_at: null },
+      { id: 'negative-revision', user_id: ACCOUNT_ID, title: 'one', body: '', updated_at: -1, folder_id: null, deleted_at: null },
+      { id: 'unsafe-revision', user_id: ACCOUNT_ID, title: 'one', body: '', updated_at: Number.MAX_SAFE_INTEGER + 1, folder_id: null, deleted_at: null },
+      { id: 'unordered-tombstone', user_id: ACCOUNT_ID, title: 'one', body: '', updated_at: 10, folder_id: null, deleted_at: 9 },
+    ];
+
+    for (const row of rows) {
+      vi.mocked(authReadFetch).mockReset();
+      vi.mocked(authReadFetch)
+        .mockResolvedValueOnce(new Response(JSON.stringify(notesPage([row])), { status: 200 }))
+        .mockResolvedValueOnce(new Response(JSON.stringify(foldersPage([])), { status: 200 }));
+      await expect(fetchCompleteNotesFoldersSnapshot(ACCOUNT_ID)).resolves.toEqual({ notes: [row], folders: [] });
+    }
+  });
+
+  it('preserves base acceptance for finite fractional and negative Folder timestamps', async () => {
+    for (const createdAt of [1.5, -1]) {
+      const row = { id: `folder-${createdAt}`, user_id: ACCOUNT_ID, name: 'Folder', created_at: createdAt };
+      vi.mocked(authReadFetch).mockReset();
+      vi.mocked(authReadFetch)
+        .mockResolvedValueOnce(new Response(JSON.stringify(notesPage([])), { status: 200 }))
+        .mockResolvedValueOnce(new Response(JSON.stringify(foldersPage([row])), { status: 200 }));
+      await expect(fetchCompleteNotesFoldersSnapshot(ACCOUNT_ID)).resolves.toEqual({ notes: [], folders: [row] });
+    }
   });
 
   it('collects every Health dataset with the authenticated bearer token and SELECT-only requests', async () => {

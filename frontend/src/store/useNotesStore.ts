@@ -2346,6 +2346,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
         const localById = new Map(previousById);
         for (const [noteId, pendingNote] of pendingLocalById) localById.set(noteId, pendingNote);
         const localAuthorityNotes = [...localById.values()];
+        diagnosticStage = 'RECONCILE_SINGLE_DELETE_LIFECYCLE';
         let deleteReconciliation = reconcileNotesSingleDeletesForBootstrap(
           accountId, remoteNoteIds, localAuthorityNotes,
         );
@@ -2450,6 +2451,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
           authorityConflictIds.add(noteId);
           authorityConflictReason ??= 'NOTES_AUTHORITY_CONFLICT';
         }
+        diagnosticStage = 'RECONCILE_SINGLE_DELETE_LIFECYCLE';
         deleteReconciliation = reconcileNotesSingleDeletesForBootstrap(
           accountId, remoteNoteIds, committedNotes,
         );

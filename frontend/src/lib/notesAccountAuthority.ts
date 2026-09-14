@@ -326,7 +326,11 @@ function listSingleDeleteMarkers(accountId: string): NotesSingleDeleteMarker[] {
     }
     return markers;
   } catch (error) {
-    throw error instanceof Error ? error : new Error('notes_single_delete_marker_malformed');
+    if (error instanceof Error && (
+      error.message === 'notes_single_delete_marker_changed'
+      || error.message === 'notes_single_delete_marker_malformed'
+    )) throw error;
+    throw new Error('notes_single_delete_marker_malformed');
   }
 }
 
@@ -1911,6 +1915,7 @@ async function applyNotesFoldersForRecoveryContextInternal(
         rollbackVerified,
       };
     }
+    activeFailure = { stage: 'FINALIZE_BOOTSTRAP', reasonCode: 'AUTHORITY_STATE_PERSIST_FAILED' };
     writeState(request.accountId, NOTES_CORE_DOMAIN, committedNotes.length === 0 ? 'LOADED_EMPTY' : 'LOADED_POPULATED', committedNotes.length);
     writeState(request.accountId, NOTES_FOLDERS_DOMAIN, nextFolders.length === 0 ? 'LOADED_EMPTY' : 'LOADED_POPULATED', nextFolders.length);
     activeFailure = { stage: 'FINALIZE_BOOTSTRAP', reasonCode: 'PENDING_MARKER_CLEAR_FAILED' };

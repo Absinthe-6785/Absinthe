@@ -283,22 +283,6 @@ function snapshotValidationStage(kind: 'notes' | 'folders') {
   return kind === 'notes' ? 'VALIDATE_NOTES_SNAPSHOT' as const : 'VALIDATE_FOLDERS_SNAPSHOT' as const;
 }
 
-function isSafeRevision(value: unknown): value is number {
-  return Number.isSafeInteger(value) && (value as number) >= 0;
-}
-
-function isStringRecord(value: unknown): value is Record<string, string> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-    && Object.entries(value).every(([key, item]) => key.trim().length > 0 && typeof item === 'string');
-}
-
-function isRelationsRecord(value: unknown): value is Record<string, string[]> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-    && Object.entries(value).every(([key, item]) => key.trim().length > 0
-      && Array.isArray(item)
-      && item.every(targetId => typeof targetId === 'string'));
-}
-
 function validateSnapshotPage<T>(value: unknown, accountId: string, kind: 'notes' | 'folders'): CompleteSnapshotPage<T> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new NotesBootstrapDiagnosticError(
@@ -357,17 +341,18 @@ function appendNotesPage(rows: DbNoteRow[], pageRows: DbNoteRow[], accountId: st
   for (const row of pageRows) {
     if (!row || typeof row !== 'object' || !hasOwn(row, 'user_id') || row.user_id !== accountId
       || !hasOwn(row, 'folder_id') || !hasOwn(row, 'deleted_at')
-      || !hasOwn(row, 'starred') || !hasOwn(row, 'properties') || !hasOwn(row, 'relations')
-      || typeof row.id !== 'string' || row.id.trim().length === 0 || ids.has(row.id)
+      || typeof row.id !== 'string'
       || typeof row.title !== 'string' || typeof row.body !== 'string'
-      || !isSafeRevision(row.updated_at)
+      || !Number.isFinite(row.updated_at)
       || (row.folder_id !== null && typeof row.folder_id !== 'string')
-      || (row.deleted_at !== null && (!isSafeRevision(row.deleted_at) || row.deleted_at < row.updated_at))
-      || typeof row.starred !== 'boolean'
-      || (row.properties !== null && !isStringRecord(row.properties))
-      || (row.relations !== null && !isRelationsRecord(row.relations))) {
+      || (row.deleted_at !== null && !Number.isFinite(row.deleted_at))) {
       throw new NotesBootstrapDiagnosticError(
         'VALIDATE_NOTES_SNAPSHOT', 'SNAPSHOT_CONTRACT_INVALID', 'complete_notes_snapshot_invalid',
+      );
+    }
+    if (ids.has(row.id)) {
+      throw new NotesBootstrapDiagnosticError(
+        'VALIDATE_NOTES_SNAPSHOT', 'SNAPSHOT_DUPLICATE_ID', 'complete_notes_snapshot_invalid',
       );
     }
     ids.add(row.id);
@@ -378,10 +363,15 @@ function appendNotesPage(rows: DbNoteRow[], pageRows: DbNoteRow[], accountId: st
 function appendFoldersPage(rows: FoldersFetchRows, pageRows: FoldersFetchRows, accountId: string, ids: Set<string>): void {
   for (const row of pageRows) {
     if (!row || typeof row !== 'object' || !hasOwn(row, 'user_id') || row.user_id !== accountId
-      || typeof row.id !== 'string' || row.id.trim().length === 0 || ids.has(row.id)
-      || typeof row.name !== 'string' || !isSafeRevision(row.created_at)) {
+      || typeof row.id !== 'string'
+      || typeof row.name !== 'string' || !Number.isFinite(row.created_at)) {
       throw new NotesBootstrapDiagnosticError(
         'VALIDATE_FOLDERS_SNAPSHOT', 'SNAPSHOT_CONTRACT_INVALID', 'complete_folders_snapshot_invalid',
+      );
+    }
+    if (ids.has(row.id)) {
+      throw new NotesBootstrapDiagnosticError(
+        'VALIDATE_FOLDERS_SNAPSHOT', 'SNAPSHOT_DUPLICATE_ID', 'complete_folders_snapshot_invalid',
       );
     }
     ids.add(row.id);
