@@ -4,6 +4,7 @@ import {
   isOperationEpochCurrent,
 } from '@/lib/recoverySafetyPolicy';
 import { withAccountNotesAttachmentMutationLock } from './notesAttachmentMutationLock';
+import type { NotesBootstrapFailureSignal } from './notesBootstrapDiagnostics';
 
 /**
  * Local authority boundary for the Notes core.  This deliberately does not
@@ -538,7 +539,11 @@ export function listNotesFolderRemoteMutations(accountId: string): readonly Note
     }
     return markers;
   } catch (error) {
-    throw error instanceof Error ? error : new Error('notes_folder_remote_mutation_malformed');
+    if (error instanceof Error && (
+      error.message === 'notes_folder_remote_mutation_changed'
+      || error.message === 'notes_folder_remote_mutation_malformed'
+    )) throw error;
+    throw new Error('notes_folder_remote_mutation_malformed');
   }
 }
 
@@ -1808,6 +1813,19 @@ export type NotesFoldersRecoveryApplyResult =
     rollbackVerified: boolean;
   };
 
+type NotesBootstrapApplyFailureReporter = (failure: NotesBootstrapFailureSignal) => void;
+
+function reportBootstrapApplyFailure(
+  reporter: NotesBootstrapApplyFailureReporter | undefined,
+  failure: NotesBootstrapFailureSignal,
+): void {
+  try {
+    reporter?.(Object.freeze({ ...failure }));
+  } catch {
+    // Diagnostics must never alter atomic apply or rollback behavior.
+  }
+}
+
 /** Applies both account-scoped domains and proves either the new or prior state. */
 async function applyNotesFoldersForRecoveryContextInternal(
   context: NotesAccountRecoveryContext,
@@ -1816,18 +1834,35 @@ async function applyNotesFoldersForRecoveryContextInternal(
   nextNotes: readonly NoteBase[],
   nextFolders: readonly NoteFolderBase[],
   resolveNotes: ResolveAtomicBootstrapNotes,
+  reportFailure?: NotesBootstrapApplyFailureReporter,
 ): Promise<NotesFoldersRecoveryApplyResult> {
   const operation = recoveryOperation(context);
-  if (!operation) return { applied: false, rollbackVerified: false };
+  if (!operation) {
+    reportBootstrapApplyFailure(reportFailure, {
+      stage: 'ACCOUNT_AUTHORITY', reasonCode: 'ACCOUNT_CONTEXT_STALE', rollbackVerified: false,
+    });
+    return { applied: false, rollbackVerified: false };
+  }
   const request = operation.request;
-  if (!isNotesAuthorityRequestActive(request)) return { applied: false, rollbackVerified: true };
+  if (!isNotesAuthorityRequestActive(request)) {
+    reportBootstrapApplyFailure(reportFailure, {
+      stage: 'ACCOUNT_AUTHORITY', reasonCode: 'ACCOUNT_CONTEXT_STALE', rollbackVerified: true,
+    });
+    return { applied: false, rollbackVerified: true };
+  }
   if (!persistPendingBootstrapMarker(operation)) {
     markNotesFoldersRecoveryRequired(request);
+    reportBootstrapApplyFailure(reportFailure, {
+      stage: 'PERSIST_LOCAL', reasonCode: 'PENDING_MARKER_PERSIST_FAILED', rollbackVerified: false,
+    });
     return { applied: false, rollbackVerified: false };
   }
   let notesCommitted = false;
   let durableNotesBeforeApply = cloneNotes(previousNotes);
   let durableNotesApplied = cloneNotes(nextNotes);
+  let activeFailure: NotesBootstrapFailureSignal = {
+    stage: 'PERSIST_LOCAL', reasonCode: 'NOTES_PERSIST_FAILED',
+  };
   try {
     await notifyBootstrapApplyStage('after-marker');
     if (!isNotesAuthorityRequestActive(request)) throw new Error('notes_bootstrap_stale');
@@ -1844,47 +1879,70 @@ async function applyNotesFoldersForRecoveryContextInternal(
     );
     await notifyBootstrapApplyStage('after-notes-write');
     if (!isNotesAuthorityRequestActive(request)) throw new Error('notes_bootstrap_stale');
+    activeFailure = { stage: 'PERSIST_LOCAL', reasonCode: 'FOLDERS_PERSIST_FAILED' };
     const foldersSaved = saveFoldersForRecoveryContext(context, nextFolders);
     if (!foldersSaved) {
+      const rollbackVerified = await rollbackPendingBootstrap(
+        operation, context, durableNotesBeforeApply, previousFolders, committedNotes,
+      );
+      reportBootstrapApplyFailure(reportFailure, {
+        stage: 'PERSIST_LOCAL', reasonCode: 'FOLDERS_PERSIST_FAILED', rollbackVerified,
+      });
       return {
         applied: false,
-        rollbackVerified: await rollbackPendingBootstrap(
-          operation, context, durableNotesBeforeApply, previousFolders, committedNotes,
-        ),
+        rollbackVerified,
       };
     }
     await notifyBootstrapApplyStage('after-folders-write');
     if (!isNotesAuthorityRequestActive(request)) throw new Error('notes_bootstrap_stale');
+    activeFailure = { stage: 'REVALIDATE_LOCAL', reasonCode: 'LOCAL_READBACK_MISMATCH' };
     await notifyBootstrapApplyStage('before-readback');
     const readbackNotes = await loadNotesForRecoveryContext(context);
     const readbackFolders = loadFoldersForRecoveryContext(context);
     if (!sameNotes(readbackNotes, committedNotes) || !sameFolders(readbackFolders, nextFolders)) {
+      const rollbackVerified = await rollbackPendingBootstrap(
+        operation, context, durableNotesBeforeApply, previousFolders, committedNotes,
+      );
+      reportBootstrapApplyFailure(reportFailure, {
+        stage: 'REVALIDATE_LOCAL', reasonCode: 'LOCAL_READBACK_MISMATCH', rollbackVerified,
+      });
       return {
         applied: false,
-        rollbackVerified: await rollbackPendingBootstrap(
-          operation, context, durableNotesBeforeApply, previousFolders, committedNotes,
-        ),
+        rollbackVerified,
       };
     }
     writeState(request.accountId, NOTES_CORE_DOMAIN, committedNotes.length === 0 ? 'LOADED_EMPTY' : 'LOADED_POPULATED', committedNotes.length);
     writeState(request.accountId, NOTES_FOLDERS_DOMAIN, nextFolders.length === 0 ? 'LOADED_EMPTY' : 'LOADED_POPULATED', nextFolders.length);
+    activeFailure = { stage: 'FINALIZE_BOOTSTRAP', reasonCode: 'PENDING_MARKER_CLEAR_FAILED' };
     await notifyBootstrapApplyStage('before-marker-clear');
     if (!clearPendingBootstrapMarker(operation)) {
       markNotesFoldersRecoveryRequired(request);
+      reportBootstrapApplyFailure(reportFailure, {
+        stage: 'FINALIZE_BOOTSTRAP', reasonCode: 'PENDING_MARKER_CLEAR_FAILED', rollbackVerified: false,
+      });
       return { applied: false, rollbackVerified: false };
     }
     return { applied: true, rollbackVerified: true, committedNotes: cloneNotes(committedNotes) };
-  } catch {
+  } catch (error) {
     if (!notesCommitted) {
       const cleared = clearPendingBootstrapMarker(operation);
       if (!cleared) markNotesFoldersRecoveryRequired(operation.request);
+      const stale = error instanceof Error && error.message === 'notes_bootstrap_stale';
+      reportBootstrapApplyFailure(reportFailure, stale
+        ? { stage: 'ACCOUNT_AUTHORITY', reasonCode: 'ACCOUNT_CONTEXT_STALE', rollbackVerified: cleared }
+        : { ...activeFailure, rollbackVerified: cleared });
       return { applied: false, rollbackVerified: cleared };
     }
+    const rollbackVerified = await rollbackPendingBootstrap(
+      operation, context, durableNotesBeforeApply, previousFolders, durableNotesApplied,
+    );
+    const stale = error instanceof Error && error.message === 'notes_bootstrap_stale';
+    reportBootstrapApplyFailure(reportFailure, stale
+      ? { stage: 'ACCOUNT_AUTHORITY', reasonCode: 'ACCOUNT_CONTEXT_STALE', rollbackVerified }
+      : { ...activeFailure, rollbackVerified });
     return {
       applied: false,
-      rollbackVerified: await rollbackPendingBootstrap(
-        operation, context, durableNotesBeforeApply, previousFolders, durableNotesApplied,
-      ),
+      rollbackVerified,
     };
   }
 }
@@ -1896,11 +1954,17 @@ export async function applyNotesFoldersForRecoveryContext(
   nextNotes: readonly NoteBase[],
   nextFolders: readonly NoteFolderBase[],
   resolveNotes: ResolveAtomicBootstrapNotes,
+  reportFailure?: NotesBootstrapApplyFailureReporter,
 ): Promise<NotesFoldersRecoveryApplyResult> {
   const operation = recoveryOperation(context);
-  if (!operation) return { applied: false, rollbackVerified: false };
+  if (!operation) {
+    reportBootstrapApplyFailure(reportFailure, {
+      stage: 'ACCOUNT_AUTHORITY', reasonCode: 'ACCOUNT_CONTEXT_STALE', rollbackVerified: false,
+    });
+    return { applied: false, rollbackVerified: false };
+  }
   return runAccountMutationExclusive(operation.request.accountId, () => applyNotesFoldersForRecoveryContextInternal(
-    context, previousNotes, previousFolders, nextNotes, nextFolders, resolveNotes,
+    context, previousNotes, previousFolders, nextNotes, nextFolders, resolveNotes, reportFailure,
   ));
 }
 

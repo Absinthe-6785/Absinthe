@@ -8,6 +8,7 @@ import { resetNotesPersistenceForTests } from '../lib/notePersistence';
 import { activateNotesAccountAuthority } from '../lib/notesAccountAuthority';
 import { setRecoveryModeActiveForTest } from '../lib/recoverySafetyPolicy';
 import { projectNoteSyncPresentation } from '../components/views/noteview/notesSyncPresentation';
+import { NOTES_BOOTSTRAP_FAILURE_MESSAGE } from '../lib/notesBootstrapDiagnostics';
 
 const { authFetchMock, authReadFetchMock, persistenceHarness } = vi.hoisted(() => ({
   authFetchMock: vi.fn(),
@@ -226,7 +227,14 @@ describe('Notes sync-issue ownership and clearing contract', () => {
 
     await useNotesStore.getState().bootstrapFromSupabase();
     expect(useNotesStore.getState().syncIssue?.source).toBe('bootstrap');
-    expect(useNotesStore.getState().syncError).toContain('bootstrap network failure');
+    expect(useNotesStore.getState().syncError).toBe(NOTES_BOOTSTRAP_FAILURE_MESSAGE);
+    expect(useNotesStore.getState().syncIssue).toMatchObject({
+      classification: 'BOOTSTRAP_FAILURE',
+      stage: 'FETCH_NOTES',
+      reasonCode: 'REMOTE_FETCH_REJECTED',
+      retryable: false,
+    });
+    expect(JSON.stringify(useNotesStore.getState().syncIssue)).not.toContain('bootstrap network failure');
     expect(currentSyncPresentation()).toEqual({
       kind: 'bootstrap-problem', messageKey: 'nvSyncBootstrapProblem', retryable: false,
     });

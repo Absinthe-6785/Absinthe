@@ -440,7 +440,8 @@ describe('POST_RTU_03 account-scoped trash and permanent deletion', () => {
     expect(useNotesStore.getState().notes).toEqual([local]);
     expect(await loadAccountScopedNotes('account-a')).toEqual([local]);
     expect(useNotesStore.getState().syncIssue).toEqual(expect.objectContaining({
-      source: 'bootstrap', message: 'notes_bootstrap_remote_note_incomplete',
+      source: 'bootstrap', classification: 'BOOTSTRAP_FAILURE',
+      stage: 'VALIDATE_NOTES_SNAPSHOT', reasonCode: 'SNAPSHOT_CONTRACT_INVALID',
     }));
   });
 
@@ -564,7 +565,8 @@ describe('POST_RTU_03 account-scoped trash and permanent deletion', () => {
       ]);
     });
     expect(useNotesStore.getState().syncIssue).toEqual(expect.objectContaining({
-      source: 'bootstrap', message: 'notes_bootstrap_local_mutation_pending',
+      source: 'bootstrap', classification: 'BOOTSTRAP_FAILURE',
+      stage: 'LOAD_LOCAL_AUTHORITY', reasonCode: 'LOCAL_MUTATION_PENDING',
     }));
     expect(authFetchMock).not.toHaveBeenCalled();
   });
@@ -598,7 +600,8 @@ describe('POST_RTU_03 account-scoped trash and permanent deletion', () => {
       ]);
     });
     expect(useNotesStore.getState().syncIssue).toEqual(expect.objectContaining({
-      source: 'bootstrap', message: 'notes_bootstrap_local_mutation_pending',
+      source: 'bootstrap', classification: 'BOOTSTRAP_FAILURE',
+      stage: 'REVALIDATE_LOCAL', reasonCode: 'LOCAL_MUTATION_PENDING',
     }));
     expect(authFetchMock).not.toHaveBeenCalled();
   });
@@ -643,7 +646,8 @@ describe('POST_RTU_03 account-scoped trash and permanent deletion', () => {
       ]);
     });
     expect(useNotesStore.getState().syncIssue).toEqual(expect.objectContaining({
-      source: 'bootstrap', message: 'notes_bootstrap_local_mutation_pending',
+      source: 'bootstrap', classification: 'BOOTSTRAP_FAILURE',
+      stage: 'REVALIDATE_LOCAL', reasonCode: 'LOCAL_MUTATION_PENDING',
     }));
     expect(authFetchMock).not.toHaveBeenCalled();
   });

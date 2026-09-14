@@ -3,6 +3,7 @@
  */
 import { API_URL } from './config';
 import { authFetch, authReadFetch } from './supabase';
+import { NotesBootstrapDiagnosticError } from './notesBootstrapDiagnostics';
 import type { NoteFolderBase as NoteFolder } from '../components/views/noteUtils';
 export {
   isNotesCloudSyncEnabled,
@@ -274,8 +275,36 @@ function hasOwn(value: object, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(value, key);
 }
 
+function snapshotFetchStage(kind: 'notes' | 'folders') {
+  return kind === 'notes' ? 'FETCH_NOTES' as const : 'FETCH_FOLDERS' as const;
+}
+
+function snapshotValidationStage(kind: 'notes' | 'folders') {
+  return kind === 'notes' ? 'VALIDATE_NOTES_SNAPSHOT' as const : 'VALIDATE_FOLDERS_SNAPSHOT' as const;
+}
+
+function isSafeRevision(value: unknown): value is number {
+  return Number.isSafeInteger(value) && (value as number) >= 0;
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    && Object.entries(value).every(([key, item]) => key.trim().length > 0 && typeof item === 'string');
+}
+
+function isRelationsRecord(value: unknown): value is Record<string, string[]> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    && Object.entries(value).every(([key, item]) => key.trim().length > 0
+      && Array.isArray(item)
+      && item.every(targetId => typeof targetId === 'string'));
+}
+
 function validateSnapshotPage<T>(value: unknown, accountId: string, kind: 'notes' | 'folders'): CompleteSnapshotPage<T> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`complete_${kind}_snapshot_malformed`);
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new NotesBootstrapDiagnosticError(
+      snapshotValidationStage(kind), 'SNAPSHOT_MALFORMED', `complete_${kind}_snapshot_malformed`,
+    );
+  }
   const page = value as Partial<CompleteSnapshotPage<T>>;
   const totalCount = page.total_count;
   const pageOffset = page.offset;
@@ -285,7 +314,9 @@ function validateSnapshotPage<T>(value: unknown, accountId: string, kind: 'notes
     || !Number.isSafeInteger(pageOffset) || (pageOffset as number) < 0
     || !Number.isSafeInteger(pageLimit) || (pageLimit as number) < 1
     || typeof page.complete !== 'boolean') {
-    throw new Error(`complete_${kind}_snapshot_invalid`);
+    throw new NotesBootstrapDiagnosticError(
+      snapshotValidationStage(kind), 'SNAPSHOT_CONTRACT_INVALID', `complete_${kind}_snapshot_invalid`,
+    );
   }
   return {
     account_id: page.account_id,
@@ -298,21 +329,46 @@ function validateSnapshotPage<T>(value: unknown, accountId: string, kind: 'notes
 }
 
 async function readSnapshotPage<T>(url: string, accountId: string, kind: 'notes' | 'folders'): Promise<CompleteSnapshotPage<T>> {
-  const response = await authReadFetch(url, { method: 'GET' });
-  if (!response.ok) throw new Error(`Failed to load complete ${kind} (${response.status})`);
-  return validateSnapshotPage<T>(await response.json(), accountId, kind);
+  let response;
+  try {
+    response = await authReadFetch(url, { method: 'GET' });
+  } catch {
+    throw new NotesBootstrapDiagnosticError(
+      snapshotFetchStage(kind), 'REMOTE_FETCH_REJECTED', `complete_${kind}_snapshot_fetch_failed`,
+    );
+  }
+  if (!response.ok) {
+    throw new NotesBootstrapDiagnosticError(
+      snapshotFetchStage(kind), 'REMOTE_FETCH_REJECTED', `Failed to load complete ${kind} (${response.status})`,
+    );
+  }
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch {
+    throw new NotesBootstrapDiagnosticError(
+      snapshotValidationStage(kind), 'SNAPSHOT_MALFORMED', `complete_${kind}_snapshot_malformed`,
+    );
+  }
+  return validateSnapshotPage<T>(payload, accountId, kind);
 }
 
 function appendNotesPage(rows: DbNoteRow[], pageRows: DbNoteRow[], accountId: string, ids: Set<string>): void {
   for (const row of pageRows) {
     if (!row || typeof row !== 'object' || !hasOwn(row, 'user_id') || row.user_id !== accountId
       || !hasOwn(row, 'folder_id') || !hasOwn(row, 'deleted_at')
-      || typeof row.id !== 'string' || ids.has(row.id)
+      || !hasOwn(row, 'starred') || !hasOwn(row, 'properties') || !hasOwn(row, 'relations')
+      || typeof row.id !== 'string' || row.id.trim().length === 0 || ids.has(row.id)
       || typeof row.title !== 'string' || typeof row.body !== 'string'
-      || !Number.isFinite(row.updated_at)
+      || !isSafeRevision(row.updated_at)
       || (row.folder_id !== null && typeof row.folder_id !== 'string')
-      || (row.deleted_at !== null && !Number.isFinite(row.deleted_at))) {
-      throw new Error('complete_notes_snapshot_invalid');
+      || (row.deleted_at !== null && (!isSafeRevision(row.deleted_at) || row.deleted_at < row.updated_at))
+      || typeof row.starred !== 'boolean'
+      || (row.properties !== null && !isStringRecord(row.properties))
+      || (row.relations !== null && !isRelationsRecord(row.relations))) {
+      throw new NotesBootstrapDiagnosticError(
+        'VALIDATE_NOTES_SNAPSHOT', 'SNAPSHOT_CONTRACT_INVALID', 'complete_notes_snapshot_invalid',
+      );
     }
     ids.add(row.id);
     rows.push(row);
@@ -322,9 +378,11 @@ function appendNotesPage(rows: DbNoteRow[], pageRows: DbNoteRow[], accountId: st
 function appendFoldersPage(rows: FoldersFetchRows, pageRows: FoldersFetchRows, accountId: string, ids: Set<string>): void {
   for (const row of pageRows) {
     if (!row || typeof row !== 'object' || !hasOwn(row, 'user_id') || row.user_id !== accountId
-      || typeof row.id !== 'string' || ids.has(row.id)
-      || typeof row.name !== 'string' || !Number.isFinite(row.created_at)) {
-      throw new Error('complete_folders_snapshot_invalid');
+      || typeof row.id !== 'string' || row.id.trim().length === 0 || ids.has(row.id)
+      || typeof row.name !== 'string' || !isSafeRevision(row.created_at)) {
+      throw new NotesBootstrapDiagnosticError(
+        'VALIDATE_FOLDERS_SNAPSHOT', 'SNAPSHOT_CONTRACT_INVALID', 'complete_folders_snapshot_invalid',
+      );
     }
     ids.add(row.id);
     rows.push(row);
@@ -348,22 +406,34 @@ async function readCompleteSnapshot<T>(
     if (page.offset !== offset || page.limit !== pageSize
       || (expectedTotal !== null && pageTotal !== expectedTotal)
       || page.rows.length > pageSize) {
-      throw new Error(`complete_${kind}_snapshot_incomplete`);
+      throw new NotesBootstrapDiagnosticError(
+        snapshotValidationStage(kind), 'SNAPSHOT_INCOMPLETE', `complete_${kind}_snapshot_incomplete`,
+      );
     }
     expectedTotal ??= pageTotal;
     append(rows, page.rows, ids);
     if (rows.length > pageTotal || page.complete !== (rows.length === pageTotal)) {
-      throw new Error(`complete_${kind}_snapshot_incomplete`);
+      throw new NotesBootstrapDiagnosticError(
+        snapshotValidationStage(kind), 'SNAPSHOT_INCOMPLETE', `complete_${kind}_snapshot_incomplete`,
+      );
     }
     if (page.complete) return rows;
-    if (page.rows.length === 0) throw new Error(`complete_${kind}_snapshot_incomplete`);
+    if (page.rows.length === 0) {
+      throw new NotesBootstrapDiagnosticError(
+        snapshotValidationStage(kind), 'SNAPSHOT_INCOMPLETE', `complete_${kind}_snapshot_incomplete`,
+      );
+    }
     offset += page.rows.length;
   }
 }
 
 /** Complete account snapshot for RTU bootstrap. This path never pushes local rows. */
 export async function fetchCompleteNotesFoldersSnapshot(accountId: string): Promise<CompleteNotesFoldersSnapshot> {
-  if (!accountId.trim()) throw new Error('complete_snapshot_account_required');
+  if (!accountId.trim()) {
+    throw new NotesBootstrapDiagnosticError(
+      'ACCOUNT_AUTHORITY', 'ACCOUNT_REQUIRED', 'complete_snapshot_account_required',
+    );
+  }
   const [notes, folders] = await Promise.all([
     readCompleteSnapshot(
       accountId,
@@ -383,7 +453,9 @@ export async function fetchCompleteNotesFoldersSnapshot(accountId: string): Prom
   const folderIds = new Set<string>();
   for (const row of folders as FoldersFetchRows) folderIds.add(row.id);
   if (noteIds.size !== notes.length || folderIds.size !== folders.length) {
-    throw new Error('complete_snapshot_duplicate_id');
+    throw new NotesBootstrapDiagnosticError(
+      'VALIDATE_NOTES_SNAPSHOT', 'SNAPSHOT_DUPLICATE_ID', 'complete_snapshot_duplicate_id',
+    );
   }
   return { notes: notes as DbNoteRow[], folders: folders as FoldersFetchRows };
 }

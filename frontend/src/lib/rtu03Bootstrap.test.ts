@@ -32,8 +32,8 @@ describe('RTU-03 read-only Supabase bootstrap boundaries', () => {
   it('fetches complete Notes/Folders with GET only and preserves tombstone metadata', async () => {
     vi.mocked(authReadFetch)
       .mockResolvedValueOnce(new Response(JSON.stringify(notesPage([
-        { id: 'deleted', user_id: ACCOUNT_ID, title: 'old', body: '', updated_at: 10, folder_id: null, deleted_at: 20 },
-        { id: 'active', user_id: ACCOUNT_ID, title: 'active', body: '', updated_at: 11, folder_id: null, deleted_at: null },
+        { id: 'deleted', user_id: ACCOUNT_ID, title: 'old', body: '', updated_at: 10, folder_id: null, deleted_at: 20, starred: false, properties: null, relations: null },
+        { id: 'active', user_id: ACCOUNT_ID, title: 'active', body: '', updated_at: 11, folder_id: null, deleted_at: null, starred: false, properties: null, relations: null },
       ])), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify(foldersPage([
         { id: 'folder-1', user_id: ACCOUNT_ID, name: 'Folder', created_at: 1 },
@@ -52,8 +52,8 @@ describe('RTU-03 read-only Supabase bootstrap boundaries', () => {
     vi.mocked(authReadFetch).mockReset();
     vi.mocked(authReadFetch)
       .mockResolvedValueOnce(new Response(JSON.stringify(notesPage([
-        { id: 'same', user_id: ACCOUNT_ID, title: 'one', body: '', updated_at: 1, folder_id: null, deleted_at: null },
-        { id: 'same', user_id: ACCOUNT_ID, title: 'two', body: '', updated_at: 2, folder_id: null, deleted_at: null },
+        { id: 'same', user_id: ACCOUNT_ID, title: 'one', body: '', updated_at: 1, folder_id: null, deleted_at: null, starred: false, properties: null, relations: null },
+        { id: 'same', user_id: ACCOUNT_ID, title: 'two', body: '', updated_at: 2, folder_id: null, deleted_at: null, starred: false, properties: null, relations: null },
       ])), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify(foldersPage([])), { status: 200 }));
     await expect(fetchCompleteNotesFoldersSnapshot(ACCOUNT_ID)).rejects.toThrow('complete_notes_snapshot_invalid');
@@ -62,7 +62,7 @@ describe('RTU-03 read-only Supabase bootstrap boundaries', () => {
   it('accepts exactly the proven Notes total and rejects a short successful page', async () => {
     const rows = Array.from({ length: 110 }, (_, index) => ({
       id: `note-${index}`, user_id: ACCOUNT_ID, title: `Note ${index}`, body: '', updated_at: index + 1,
-      folder_id: null, deleted_at: null,
+      folder_id: null, deleted_at: null, starred: false, properties: null, relations: null,
     }));
     vi.mocked(authReadFetch).mockReset();
     vi.mocked(authReadFetch)
@@ -82,9 +82,12 @@ describe('RTU-03 read-only Supabase bootstrap boundaries', () => {
 
   it('rejects missing ownership/deletion fields and incomplete equal-count pages', async () => {
     for (const row of [
-      { id: 'missing-owner', title: 'one', body: '', updated_at: 1, folder_id: null, deleted_at: null },
-      { id: 'missing-folder', user_id: ACCOUNT_ID, title: 'one', body: '', updated_at: 1, deleted_at: null },
-      { id: 'missing-deleted', user_id: ACCOUNT_ID, title: 'one', body: '', updated_at: 1, folder_id: null },
+      { id: 'missing-owner', title: 'one', body: '', updated_at: 1, folder_id: null, deleted_at: null, starred: false, properties: null, relations: null },
+      { id: 'missing-folder', user_id: ACCOUNT_ID, title: 'one', body: '', updated_at: 1, deleted_at: null, starred: false, properties: null, relations: null },
+      { id: 'missing-deleted', user_id: ACCOUNT_ID, title: 'one', body: '', updated_at: 1, folder_id: null, starred: false, properties: null, relations: null },
+      { id: 'missing-starred', user_id: ACCOUNT_ID, title: 'one', body: '', updated_at: 1, folder_id: null, deleted_at: null, properties: null, relations: null },
+      { id: 'missing-properties', user_id: ACCOUNT_ID, title: 'one', body: '', updated_at: 1, folder_id: null, deleted_at: null, starred: false, relations: null },
+      { id: 'missing-relations', user_id: ACCOUNT_ID, title: 'one', body: '', updated_at: 1, folder_id: null, deleted_at: null, starred: false, properties: null },
     ]) {
       vi.mocked(authReadFetch).mockReset();
       vi.mocked(authReadFetch)
@@ -97,7 +100,7 @@ describe('RTU-03 read-only Supabase bootstrap boundaries', () => {
     vi.mocked(authReadFetch)
       .mockResolvedValueOnce(new Response(JSON.stringify({
         account_id: ACCOUNT_ID,
-        rows: [{ id: 'one', user_id: ACCOUNT_ID, title: 'one', body: '', updated_at: 1, folder_id: null, deleted_at: null }],
+        rows: [{ id: 'one', user_id: ACCOUNT_ID, title: 'one', body: '', updated_at: 1, folder_id: null, deleted_at: null, starred: false, properties: null, relations: null }],
         total_count: 2, offset: 0, limit: 500, complete: false,
       }), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify(foldersPage([])), { status: 200 }))

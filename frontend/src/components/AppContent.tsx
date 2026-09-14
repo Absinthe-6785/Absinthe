@@ -32,6 +32,7 @@ import { bootstrapHealthFromSupabase, HEALTH_LOCAL_BOOTSTRAP_COMPLETE_EVENT } fr
 import { runHealthBootstrapSingleFlight } from '../lib/healthBootstrapSingleFlight';
 import { shouldUseRemoteData } from '../lib/remoteBoundary';
 import { revalidatePlannerAccountCache } from '../lib/plannerCacheRevalidation';
+import { notesStartupRequiresRecovery } from '../lib/notesStartupAuthority';
 import { WORKSPACE_SCROLL_MODE, WORKSPACE_VIEWPORT_CLASS } from './common/workspaceLayout';
 import {
   startIndependentStartup,
@@ -165,12 +166,13 @@ export function AppContent({ authUser }: { authUser: User }) {
         await bootstrapFromSupabase();
         if (cancelled) return;
         const notesState = useNotesStore.getState();
-        const authorityFailed = notesState.notesAuthorityState === 'RECOVERY_REQUIRED'
-          || notesState.foldersAuthorityState === 'RECOVERY_REQUIRED';
-        const emptyAfterFailure = Boolean(notesState.syncError)
-          && notesState.notes.length === 0
-          && notesState.folders.length === 0;
-        if (authorityFailed || emptyAfterFailure) {
+        if (notesStartupRequiresRecovery({
+          syncError: notesState.syncError,
+          noteCount: notesState.notes.length,
+          folderCount: notesState.folders.length,
+          notesAuthorityState: notesState.notesAuthorityState,
+          foldersAuthorityState: notesState.foldersAuthorityState,
+        })) {
           throw new Error('notes_startup_recovery_required');
         }
         const { notes, folders } = useNotesStore.getState();
