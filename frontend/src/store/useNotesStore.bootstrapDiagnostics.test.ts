@@ -76,6 +76,24 @@ function deleteAuthorityDatabase(): Promise<void> {
   });
 }
 
+function putRawScopedNote(accountId: string, note: NoteBase): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(NOTES_ACCOUNT_AUTHORITY_DATABASE_NAME, 1);
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const database = request.result;
+      const transaction = database.transaction('notes', 'readwrite');
+      transaction.onerror = () => reject(transaction.error);
+      transaction.oncomplete = () => { database.close(); resolve(); };
+      transaction.objectStore('notes').put({
+        key: `${encodeURIComponent(accountId)}\u0000${note.id}`,
+        accountId,
+        note,
+      });
+    };
+  });
+}
+
 function syntheticFolders(): NoteFolderBase[] {
   return Array.from({ length: FOLDER_COUNT }, (_, index) => ({
     id: `folder-${String(index + 1).padStart(3, '0')}`,
@@ -235,6 +253,174 @@ describe('production-shaped Notes bootstrap diagnostics', () => {
     expect(getNotesBootstrapRuntimeDiagnostic()).toBeNull();
   });
 
+  it('keeps a 108-local/106-remote count asymmetry non-conflicting by itself', async () => {
+    const { notes, folders } = await seedSyntheticAuthority();
+    installRemoteSnapshots(notes, folders, { noteRows: noteRows(notes.slice(0, 106)) });
+
+    await useNotesStore.getState().bootstrapFromSupabase();
+
+    expect(useNotesStore.getState().notes).toHaveLength(108);
+    expect(useNotesStore.getState().syncIssue).toBeNull();
+  });
+
+  it('aggregates a synthetic 108-local/106-remote initial merge without exposing records', async () => {
+    const { notes, folders } = await seedSyntheticAuthority();
+    const rows = noteRows(notes.slice(0, 106)).map((row, index) => {
+      if (index === 0) return { ...row, updated_at: 0 };
+      if (index === 1) return { ...row, updated_at: 202 };
+      if (index === 2) return { ...row, title: 'Synthetic equal-revision mismatch' };
+      if (index === 3) {
+        const { relations: _relations, ...withoutRelations } = row;
+        return withoutRelations;
+      }
+      return row;
+    });
+    installRemoteSnapshots(notes, folders, { noteRows: rows });
+
+    await useNotesStore.getState().bootstrapFromSupabase();
+
+    expectBootstrapFailure('MERGE_NOTES', 'EQUAL_REVISION_PAYLOAD_MISMATCH');
+    expect(useNotesStore.getState().notes).toHaveLength(108);
+    expect(useNotesStore.getState().folders).toHaveLength(8);
+    const diagnostic = getNotesBootstrapRuntimeDiagnostic();
+    expect(diagnostic).toMatchObject({
+      localNoteCount: 108,
+      remoteNoteCount: 106,
+      localOnlyCount: 2,
+      remoteOnlyCount: 0,
+      conflictPhaseCounts: { INITIAL_MERGE: 2, ATOMIC_REVALIDATION: 0 },
+      authorityOutcomeCounts: {
+        INITIAL_MERGE: { LOCAL_NEWER: 1, REMOTE_NEWER: 1, EQUAL: 103, INCOMPARABLE: 1 },
+        ATOMIC_REVALIDATION: { LOCAL_NEWER: 0, REMOTE_NEWER: 1, EQUAL: 107, INCOMPARABLE: 0 },
+      },
+      conflictSubtypeCounts: {
+        INITIAL_MERGE: { EQUAL_PAYLOAD_MISMATCH: 1, INCOMPARABLE: 1 },
+        ATOMIC_REVALIDATION: { EQUAL_PAYLOAD_MISMATCH: 0, INCOMPARABLE: 0 },
+      },
+      incomparableReasonCounts: {
+        INITIAL_MERGE: { REMOTE_LEGACY_FIELDS_ABSENT: 1 },
+      },
+      liveStatePairCounts: {
+        INITIAL_MERGE: { LIVE_LIVE: 106 },
+        ATOMIC_REVALIDATION: { LIVE_LIVE: 108 },
+      },
+    });
+    expect(Object.isFrozen(diagnostic)).toBe(true);
+    if (!diagnostic) throw new Error('synthetic diagnostic missing');
+    expect(Object.keys(diagnostic).sort()).toEqual([
+      'authorityOutcomeCounts',
+      'classification',
+      'conflictPhaseCounts',
+      'conflictSubtypeCounts',
+      'foldersAuthorityState',
+      'incomparableReasonCounts',
+      'liveStatePairCounts',
+      'localFolderCount',
+      'localNoteCount',
+      'localOnlyCount',
+      'notesAuthorityState',
+      'pendingFolderMarkerCount',
+      'pendingFolderOperations',
+      'pendingFolderPhases',
+      'reasonCode',
+      'remoteFolderCount',
+      'remoteNoteCount',
+      'remoteOnlyCount',
+      'retryable',
+      'rollbackVerified',
+      'source',
+      'stage',
+      'targetIdPresent',
+    ].sort());
+    expect(Object.keys(diagnostic.authorityOutcomeCounts.INITIAL_MERGE).sort()).toEqual([
+      'EQUAL', 'INCOMPARABLE', 'LOCAL_NEWER', 'REMOTE_NEWER',
+    ]);
+    expect(Object.keys(diagnostic.conflictSubtypeCounts.INITIAL_MERGE).sort()).toEqual([
+      'EQUAL_PAYLOAD_MISMATCH', 'INCOMPARABLE',
+    ]);
+    expect(Object.keys(diagnostic.liveStatePairCounts.INITIAL_MERGE).sort()).toEqual([
+      'LIVE_LIVE', 'LIVE_TOMBSTONE', 'TOMBSTONE_LIVE', 'TOMBSTONE_TOMBSTONE',
+    ]);
+    const allProjectionKeys: string[] = [];
+    const collectProjectionKeys = (value: unknown): void => {
+      if (!value || typeof value !== 'object') return;
+      for (const [key, nested] of Object.entries(value)) {
+        allProjectionKeys.push(key);
+        collectProjectionKeys(nested);
+      }
+    };
+    collectProjectionKeys(diagnostic);
+    const forbiddenKeys = new Set([
+      'id', 'noteId', 'folderId', 'accountId', 'title', 'body', 'properties', 'relations',
+      'error', 'rawError', 'syncError', 'timestamp', 'updatedAt', 'deletedAt',
+      'updated_at', 'deleted_at', 'conflictNoteIds',
+    ]);
+    expect(allProjectionKeys.filter(key => forbiddenKeys.has(key))).toEqual([]);
+    expect(Object.isFrozen(diagnostic?.conflictPhaseCounts)).toBe(true);
+    expect(Object.isFrozen(diagnostic?.authorityOutcomeCounts.INITIAL_MERGE)).toBe(true);
+    expect(Object.isFrozen(diagnostic?.conflictSubtypeCounts.ATOMIC_REVALIDATION)).toBe(true);
+    expect(Object.isFrozen(diagnostic?.incomparableReasonCounts.INITIAL_MERGE)).toBe(true);
+    expect(Object.isFrozen(diagnostic?.liveStatePairCounts.ATOMIC_REVALIDATION)).toBe(true);
+    const serialized = JSON.stringify(diagnostic);
+    expect(serialized).not.toContain(ACCOUNT_ID);
+    expect(serialized).not.toContain('note-001');
+    expect(serialized).not.toContain('Synthetic note');
+    expect(serialized).not.toContain('Synthetic placeholder content');
+  });
+
+  it('attributes a conflict created only by atomic revalidation to that phase', async () => {
+    const { notes, folders } = await seedSyntheticAuthority();
+    installRemoteSnapshots(notes, folders);
+    let injected = false;
+    __testOnlyNotesAccountAuthorityHooks?.setBootstrapStageOverride(async stage => {
+      if (stage !== 'after-marker' || injected) return;
+      injected = true;
+      await putRawScopedNote(ACCOUNT_ID, {
+        ...notes[0]!,
+        body: 'Synthetic concurrent durable body at the same revision.',
+      });
+    });
+
+    await useNotesStore.getState().bootstrapFromSupabase();
+
+    expect(injected).toBe(true);
+    expectBootstrapFailure('MERGE_NOTES', 'NOTES_AUTHORITY_CONFLICT');
+    expect(useNotesStore.getState().notes.find(note => note.id === notes[0]!.id)).toEqual(expect.objectContaining({
+      body: 'Synthetic concurrent durable body at the same revision.',
+    }));
+    expect(useNotesStore.getState().folders).toHaveLength(8);
+    expect(getNotesBootstrapRuntimeDiagnostic()).toMatchObject({
+      conflictPhaseCounts: { INITIAL_MERGE: 0, ATOMIC_REVALIDATION: 1 },
+      conflictSubtypeCounts: {
+        INITIAL_MERGE: { EQUAL_PAYLOAD_MISMATCH: 0, INCOMPARABLE: 0 },
+        ATOMIC_REVALIDATION: { EQUAL_PAYLOAD_MISMATCH: 1, INCOMPARABLE: 0 },
+      },
+    });
+    expect(authFetchMock).not.toHaveBeenCalled();
+  });
+
+  it('counts remote-only and local-only Notes independently of a same-ID conflict', async () => {
+    const { notes, folders } = await seedSyntheticAuthority();
+    const rows = noteRows(notes.slice(0, 107));
+    const { relations: _relations, ...incomparable } = rows[0]!;
+    rows[0] = incomparable;
+    rows.push({
+      ...noteRows([notes[0]!])[0]!,
+      id: 'synthetic-remote-only',
+      title: 'Synthetic remote-only Note',
+    });
+    installRemoteSnapshots(notes, folders, { noteRows: rows });
+
+    await useNotesStore.getState().bootstrapFromSupabase();
+
+    expectBootstrapFailure('MERGE_NOTES', 'NOTES_AUTHORITY_CONFLICT');
+    expect(getNotesBootstrapRuntimeDiagnostic()).toMatchObject({
+      localOnlyCount: 1,
+      remoteOnlyCount: 1,
+      conflictPhaseCounts: { INITIAL_MERGE: 1, ATOMIC_REVALIDATION: 0 },
+    });
+  });
+
   it('classifies a complete-page count mismatch at the Notes response-contract stage', async () => {
     const { notes, folders } = await seedSyntheticAuthority();
     installRemoteSnapshots(notes, folders, { noteTotal: NOTE_COUNT - 1, noteComplete: false });
@@ -305,43 +491,55 @@ describe('production-shaped Notes bootstrap diagnostics', () => {
     ['missing starred', (row: ReturnType<typeof noteRows>[number]) => {
       const { starred: _starred, ...next } = row;
       return next;
-    }],
+    }, 'REMOTE_LEGACY_FIELDS_ABSENT'],
     ['missing properties', (row: ReturnType<typeof noteRows>[number]) => {
       const { properties: _properties, ...next } = row;
       return next;
-    }],
+    }, 'REMOTE_LEGACY_FIELDS_ABSENT'],
     ['missing relations', (row: ReturnType<typeof noteRows>[number]) => {
       const { relations: _relations, ...next } = row;
       return next;
-    }],
-    ['fractional revision', (row: ReturnType<typeof noteRows>[number]) => ({ ...row, updated_at: 1.5 })],
-    ['negative revision', (row: ReturnType<typeof noteRows>[number]) => ({ ...row, updated_at: -1 })],
+    }, 'REMOTE_LEGACY_FIELDS_ABSENT'],
+    [
+      'fractional revision',
+      (row: ReturnType<typeof noteRows>[number]) => ({ ...row, updated_at: 1.5 }),
+      'REMOTE_REVISION_SHAPE_INVALID',
+    ],
+    [
+      'negative revision',
+      (row: ReturnType<typeof noteRows>[number]) => ({ ...row, updated_at: -1 }),
+      'REMOTE_REVISION_SHAPE_INVALID',
+    ],
     ['non-safe revision', (row: ReturnType<typeof noteRows>[number]) => ({
       ...row, updated_at: Number.MAX_SAFE_INTEGER + 1,
-    })],
+    }), 'REMOTE_REVISION_SHAPE_INVALID'],
     ['unordered tombstone', (row: ReturnType<typeof noteRows>[number]) => ({
       ...row, updated_at: 10, deleted_at: 9,
-    })],
-  ] as const)('preserves base acceptance and reaches merge authority for a %s', async (_name, mutate) => {
-    const { notes, folders } = await seedSyntheticAuthority();
-    const rows = noteRows(notes).map((row, index) => index === 0 ? mutate(row) : row);
-    installRemoteSnapshots(notes, folders, { noteRows: rows });
+    }), 'REMOTE_TOMBSTONE_CHRONOLOGY_INVALID'],
+  ] as const)(
+    'preserves base acceptance and reaches merge authority for a %s',
+    async (_name, mutate, expectedReason) => {
+      const { notes, folders } = await seedSyntheticAuthority();
+      const rows = noteRows(notes).map((row, index) => index === 0 ? mutate(row) : row);
+      installRemoteSnapshots(notes, folders, { noteRows: rows });
 
-    await useNotesStore.getState().bootstrapFromSupabase();
+      await useNotesStore.getState().bootstrapFromSupabase();
 
-    expectBootstrapFailure('MERGE_NOTES', 'NOTES_AUTHORITY_CONFLICT');
-    expect(useNotesStore.getState().notes.find(note => note.id === notes[0]!.id)).toEqual(notes[0]);
-    const diagnostic = getNotesBootstrapRuntimeDiagnostic();
-    expect(diagnostic).toMatchObject({
-      remoteNoteCount: NOTE_COUNT,
-      remoteFolderCount: FOLDER_COUNT,
-      targetIdPresent: true,
-    });
-    expect(JSON.stringify(diagnostic)).not.toContain(ACCOUNT_ID);
-    expect(JSON.stringify(diagnostic)).not.toContain('note-001');
-    const accessor = (window as unknown as Record<string, unknown>)[NOTES_BOOTSTRAP_DIAGNOSTIC_ACCESSOR];
-    expect(accessor).toBe(getNotesBootstrapRuntimeDiagnostic);
-  });
+      expectBootstrapFailure('MERGE_NOTES', 'NOTES_AUTHORITY_CONFLICT');
+      expect(useNotesStore.getState().notes.find(note => note.id === notes[0]!.id)).toEqual(notes[0]);
+      const diagnostic = getNotesBootstrapRuntimeDiagnostic();
+      expect(diagnostic).toMatchObject({
+        remoteNoteCount: NOTE_COUNT,
+        remoteFolderCount: FOLDER_COUNT,
+        targetIdPresent: true,
+        incomparableReasonCounts: { INITIAL_MERGE: { [expectedReason]: 1 } },
+      });
+      expect(JSON.stringify(diagnostic)).not.toContain(ACCOUNT_ID);
+      expect(JSON.stringify(diagnostic)).not.toContain('note-001');
+      const accessor = (window as unknown as Record<string, unknown>)[NOTES_BOOTSTRAP_DIAGNOSTIC_ACCESSOR];
+      expect(accessor).toBe(getNotesBootstrapRuntimeDiagnostic);
+    },
+  );
 
   it.each([1.5, -1])('preserves base acceptance and application for finite Folder timestamp %s', async (createdAt) => {
     const { notes, folders } = await seedSyntheticAuthority();

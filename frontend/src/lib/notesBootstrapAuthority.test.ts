@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { NoteBase } from '../components/views/noteUtils';
 import type { DbNoteRow } from './notesSyncClient';
-import { resolveSameIdNoteAuthority } from './notesBootstrapAuthority';
+import {
+  createNotesAuthorityPhaseAggregate,
+  recordNotesAuthorityObservation,
+  resolveSameIdNoteAuthority,
+  resolveSameIdNoteAuthorityWithObservation,
+  snapshotNotesAuthorityPhaseAggregate,
+} from './notesBootstrapAuthority';
 
 const ACCOUNT_ID = 'account-a';
 
@@ -47,6 +53,21 @@ function resolve(
     pendingLocalMutation: false,
     ...overrides,
   });
+}
+
+function observe(
+  local: NoteBase,
+  remote: DbNoteRow,
+  overrides: Partial<{ protectedDeleteConflict: boolean; pendingLocalMutation: boolean }> = {},
+) {
+  return resolveSameIdNoteAuthorityWithObservation({
+    accountId: ACCOUNT_ID,
+    local,
+    remote,
+    protectedDeleteConflict: false,
+    pendingLocalMutation: false,
+    ...overrides,
+  }).observation;
 }
 
 describe('Notes bootstrap same-ID revision authority', () => {
@@ -208,6 +229,104 @@ describe('Notes bootstrap same-ID revision authority', () => {
     const local = localNote({ updatedAt: 10 });
     expect(resolve(local, remoteNote({ updated_at: 30 }), { pendingLocalMutation: true })).toEqual({
       outcome: 'INCOMPARABLE', resolved: local, pendingRemoteSync: true, conflict: true,
+    });
+  });
+
+  it.each([
+    ['PERMANENT_DELETE_PROTECTED', null, localNote(), remoteNote(), { protectedDeleteConflict: true }],
+    ['PENDING_LOCAL_MUTATION', 'INCOMPARABLE', localNote(), remoteNote(), { pendingLocalMutation: true }],
+    ['NOTE_ID_MISMATCH', 'INCOMPARABLE', localNote(), remoteNote({ id: 'note-b' }), {}],
+    ['LOCAL_REVISION_SHAPE_INVALID', 'INCOMPARABLE', localNote({ updatedAt: 1.5 }), remoteNote(), {}],
+    ['REMOTE_REVISION_SHAPE_INVALID', 'INCOMPARABLE', localNote(), remoteNote({ updated_at: -1 }), {}],
+    [
+      'LOCAL_TOMBSTONE_CHRONOLOGY_INVALID',
+      'INCOMPARABLE',
+      localNote({ updatedAt: 30, deletedAt: 20 }),
+      remoteNote(),
+      {},
+    ],
+    [
+      'REMOTE_TOMBSTONE_CHRONOLOGY_INVALID',
+      'INCOMPARABLE',
+      localNote(),
+      remoteNote({ updated_at: 30, deleted_at: 20 }),
+      {},
+    ],
+    [
+      'LOCAL_AUTHORITY_SHAPE_INVALID',
+      'INCOMPARABLE',
+      localNote({ starred: 'invalid' as unknown as boolean }),
+      remoteNote(),
+      {},
+    ],
+    [
+      'REMOTE_LEGACY_FIELDS_ABSENT',
+      'INCOMPARABLE',
+      localNote(),
+      (() => {
+        const row = remoteNote();
+        delete (row as Partial<DbNoteRow>).relations;
+        return row;
+      })(),
+      {},
+    ],
+    [
+      'REMOTE_AUTHORITY_SHAPE_INVALID',
+      'INCOMPARABLE',
+      localNote(),
+      remoteNote({ starred: 'invalid' as unknown as boolean }),
+      {},
+    ],
+  ] as const)(
+    'classifies incomparable authority as %s',
+    (reason, conflictSubtype, local, remote, overrides) => {
+      const observation = observe(local, remote, overrides);
+      expect(observation).toMatchObject({
+        outcome: 'INCOMPARABLE',
+        conflictSubtype,
+        incomparableReason: reason,
+      });
+
+      const aggregate = createNotesAuthorityPhaseAggregate();
+      recordNotesAuthorityObservation(aggregate, observation);
+      expect(snapshotNotesAuthorityPhaseAggregate(aggregate).incomparableReasonCounts[reason]).toBe(1);
+    },
+  );
+
+  it('does not count a permanent-delete-protected comparison as an authority conflict', () => {
+    const aggregate = createNotesAuthorityPhaseAggregate();
+    recordNotesAuthorityObservation(
+      aggregate,
+      observe(localNote(), remoteNote(), { protectedDeleteConflict: true }),
+    );
+
+    expect(snapshotNotesAuthorityPhaseAggregate(aggregate)).toMatchObject({
+      conflictCount: 0,
+      authorityOutcomeCounts: { INCOMPARABLE: 1 },
+      conflictSubtypeCounts: { EQUAL_PAYLOAD_MISMATCH: 0, INCOMPARABLE: 0 },
+      incomparableReasonCounts: { PERMANENT_DELETE_PROTECTED: 1 },
+    });
+  });
+
+  it('aggregates all bounded live-state pairs without retaining Note identity', () => {
+    const aggregate = createNotesAuthorityPhaseAggregate();
+    for (const observation of [
+      observe(localNote(), remoteNote()),
+      observe(localNote(), remoteNote({ updated_at: 20, deleted_at: 30 })),
+      observe(localNote({ updatedAt: 10, deletedAt: 20 }), remoteNote({ updated_at: 30 })),
+      observe(
+        localNote({ updatedAt: 10, deletedAt: 20 }),
+        remoteNote({ updated_at: 10, deleted_at: 20 }),
+      ),
+    ]) {
+      recordNotesAuthorityObservation(aggregate, observation);
+    }
+
+    expect(snapshotNotesAuthorityPhaseAggregate(aggregate).liveStatePairCounts).toEqual({
+      LIVE_LIVE: 1,
+      LIVE_TOMBSTONE: 1,
+      TOMBSTONE_LIVE: 1,
+      TOMBSTONE_TOMBSTONE: 1,
     });
   });
 });

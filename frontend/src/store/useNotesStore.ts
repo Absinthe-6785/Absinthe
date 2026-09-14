@@ -117,9 +117,12 @@ import {
   type NotesRemoteWriteClassification,
 } from '../lib/notesSyncClient';
 import {
+  createNotesAuthorityPhaseAggregate,
   normalizeAuthoritativeRemoteBootstrapNote,
+  recordNotesAuthorityObservation,
   revalidateResolvedBootstrapNotes,
-  resolveSameIdNoteAuthority,
+  resolveSameIdNoteAuthorityWithObservation,
+  snapshotNotesAuthorityPhaseAggregate,
   type ResolvedBootstrapNotesRevalidation,
 } from '../lib/notesBootstrapAuthority';
 import {
@@ -128,6 +131,7 @@ import {
   buildNotesBootstrapDiagnostic,
   diagnoseNotesBootstrapFailure,
   type NotesBootstrapDiagnostic,
+  type NotesBootstrapAuthorityAggregate,
   type NotesBootstrapDiagnosticReason,
   type NotesBootstrapDiagnosticStage,
   type NotesBootstrapFailureSignal,
@@ -2270,6 +2274,40 @@ export const useNotesStore = create<NotesState>((set, get) => {
       let pendingFolderMarkerCount: number | null = null;
       let pendingFolderOperations: NotesBootstrapDiagnostic['pendingFolderOperations'] = [];
       let pendingFolderPhases: NotesBootstrapDiagnostic['pendingFolderPhases'] = [];
+      let localOnlyCount: number | null = null;
+      let remoteOnlyCount: number | null = null;
+      const initialAuthorityAggregate = createNotesAuthorityPhaseAggregate();
+      let atomicRevalidationAggregate = snapshotNotesAuthorityPhaseAggregate(
+        createNotesAuthorityPhaseAggregate(),
+      );
+      const authorityAggregate = (): NotesBootstrapAuthorityAggregate => {
+        const initialMerge = snapshotNotesAuthorityPhaseAggregate(initialAuthorityAggregate);
+        const atomicRevalidation = atomicRevalidationAggregate;
+        return {
+          conflictPhaseCounts: {
+            INITIAL_MERGE: initialMerge.conflictCount,
+            ATOMIC_REVALIDATION: atomicRevalidation.conflictCount,
+          },
+          authorityOutcomeCounts: {
+            INITIAL_MERGE: initialMerge.authorityOutcomeCounts,
+            ATOMIC_REVALIDATION: atomicRevalidation.authorityOutcomeCounts,
+          },
+          conflictSubtypeCounts: {
+            INITIAL_MERGE: initialMerge.conflictSubtypeCounts,
+            ATOMIC_REVALIDATION: atomicRevalidation.conflictSubtypeCounts,
+          },
+          incomparableReasonCounts: {
+            INITIAL_MERGE: initialMerge.incomparableReasonCounts,
+            ATOMIC_REVALIDATION: atomicRevalidation.incomparableReasonCounts,
+          },
+          liveStatePairCounts: {
+            INITIAL_MERGE: initialMerge.liveStatePairCounts,
+            ATOMIC_REVALIDATION: atomicRevalidation.liveStatePairCounts,
+          },
+          localOnlyCount,
+          remoteOnlyCount,
+        };
+      };
       const diagnosticFor = (failure: NotesBootstrapFailureSignal): NotesBootstrapDiagnostic => {
         const state = get();
         const notesAuthorityState = diagnosticAccountId
@@ -2288,6 +2326,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
           pendingFolderPhases,
           notesAuthorityState,
           foldersAuthorityState,
+          ...authorityAggregate(),
         });
       };
       set({ isSyncing: true });
@@ -2354,6 +2393,8 @@ export const useNotesStore = create<NotesState>((set, get) => {
         const authorityConflictIds = new Set<string>();
         let authorityConflictReason: NotesBootstrapDiagnosticReason | null = null;
         const pendingRemoteNotes = new Map<string, Note>();
+        localOnlyCount = localAuthorityNotes.filter(note => !remoteNoteIds.has(note.id)).length;
+        remoteOnlyCount = remote.notes.filter(row => !localById.has(row.id)).length;
         diagnosticStage = 'MERGE_NOTES';
         const notes = remote.notes.map(row => {
           const protectedDeleteConflict = preservedConflictIds.has(row.id);
@@ -2363,13 +2404,18 @@ export const useNotesStore = create<NotesState>((set, get) => {
             if (!remoteOnly) throw new Error('notes_bootstrap_remote_note_incomplete');
             return remoteOnly;
           }
-          const resolution = resolveSameIdNoteAuthority({
+          const observed = resolveSameIdNoteAuthorityWithObservation({
             accountId,
             local,
             remote: row,
             protectedDeleteConflict,
             pendingLocalMutation: pendingLocalById.has(row.id),
           });
+          const resolution = observed.resolution;
+          recordNotesAuthorityObservation(
+            initialAuthorityAggregate,
+            observed.observation,
+          );
           if (resolution.pendingRemoteSync) pendingRemoteNotes.set(row.id, resolution.resolved);
           if (resolution.conflict && !protectedDeleteConflict) {
             authorityConflictIds.add(row.id);
@@ -2422,6 +2468,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
               resolvedCandidate,
               authorizedMissingNoteIds: deleteReconciliation.authorizedMissingNoteIds,
             });
+            atomicRevalidationAggregate = atomicRevalidation.authorityAggregate;
             return atomicRevalidation.notes;
           },
           failure => { applyFailureRef.current = failure; },
@@ -2884,6 +2931,13 @@ export function getNotesBootstrapRuntimeDiagnostic() {
     notesAuthorityState: diagnostic.notesAuthorityState,
     foldersAuthorityState: diagnostic.foldersAuthorityState,
     rollbackVerified: diagnostic.rollbackVerified ?? null,
+    conflictPhaseCounts: diagnostic.conflictPhaseCounts,
+    authorityOutcomeCounts: diagnostic.authorityOutcomeCounts,
+    conflictSubtypeCounts: diagnostic.conflictSubtypeCounts,
+    incomparableReasonCounts: diagnostic.incomparableReasonCounts,
+    localOnlyCount: diagnostic.localOnlyCount,
+    remoteOnlyCount: diagnostic.remoteOnlyCount,
+    liveStatePairCounts: diagnostic.liveStatePairCounts,
   });
 }
 

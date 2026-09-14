@@ -60,13 +60,83 @@ export type NotesBootstrapDiagnosticReason = typeof NOTES_BOOTSTRAP_DIAGNOSTIC_R
 export type NotesBootstrapFolderOperation = 'FOLDER_DELETE' | 'FOLDER_RESTORE';
 export type NotesBootstrapFolderPhase = 'PREPARED' | 'LOCAL_COMMITTED';
 
+export const NOTES_AUTHORITY_DIAGNOSTIC_PHASES = [
+  'INITIAL_MERGE',
+  'ATOMIC_REVALIDATION',
+] as const;
+
+export type NotesAuthorityDiagnosticPhase = typeof NOTES_AUTHORITY_DIAGNOSTIC_PHASES[number];
+
+export const NOTES_AUTHORITY_DIAGNOSTIC_OUTCOMES = [
+  'LOCAL_NEWER',
+  'REMOTE_NEWER',
+  'EQUAL',
+  'INCOMPARABLE',
+] as const;
+
+export type NotesAuthorityDiagnosticOutcome = typeof NOTES_AUTHORITY_DIAGNOSTIC_OUTCOMES[number];
+
+export const NOTES_AUTHORITY_CONFLICT_SUBTYPES = [
+  'EQUAL_PAYLOAD_MISMATCH',
+  'INCOMPARABLE',
+] as const;
+
+export type NotesAuthorityConflictSubtype = typeof NOTES_AUTHORITY_CONFLICT_SUBTYPES[number];
+
+export const NOTES_AUTHORITY_INCOMPARABLE_REASONS = [
+  'PERMANENT_DELETE_PROTECTED',
+  'PENDING_LOCAL_MUTATION',
+  'NOTE_ID_MISMATCH',
+  'LOCAL_REVISION_SHAPE_INVALID',
+  'REMOTE_REVISION_SHAPE_INVALID',
+  'LOCAL_TOMBSTONE_CHRONOLOGY_INVALID',
+  'REMOTE_TOMBSTONE_CHRONOLOGY_INVALID',
+  'LOCAL_AUTHORITY_SHAPE_INVALID',
+  'REMOTE_LEGACY_FIELDS_ABSENT',
+  'REMOTE_AUTHORITY_SHAPE_INVALID',
+] as const;
+
+export type NotesAuthorityIncomparableReason = typeof NOTES_AUTHORITY_INCOMPARABLE_REASONS[number];
+
+export const NOTES_AUTHORITY_LIVE_STATE_PAIRS = [
+  'LIVE_LIVE',
+  'LIVE_TOMBSTONE',
+  'TOMBSTONE_LIVE',
+  'TOMBSTONE_TOMBSTONE',
+] as const;
+
+export type NotesAuthorityLiveStatePair = typeof NOTES_AUTHORITY_LIVE_STATE_PAIRS[number];
+
+export type NotesAuthorityOutcomeCounts = Readonly<Record<NotesAuthorityDiagnosticOutcome, number>>;
+export type NotesAuthorityConflictSubtypeCounts = Readonly<Record<NotesAuthorityConflictSubtype, number>>;
+export type NotesAuthorityIncomparableReasonCounts = Readonly<Record<NotesAuthorityIncomparableReason, number>>;
+export type NotesAuthorityLiveStatePairCounts = Readonly<Record<NotesAuthorityLiveStatePair, number>>;
+
+export interface NotesAuthorityPhaseAggregate {
+  readonly conflictCount: number;
+  readonly authorityOutcomeCounts: NotesAuthorityOutcomeCounts;
+  readonly conflictSubtypeCounts: NotesAuthorityConflictSubtypeCounts;
+  readonly incomparableReasonCounts: NotesAuthorityIncomparableReasonCounts;
+  readonly liveStatePairCounts: NotesAuthorityLiveStatePairCounts;
+}
+
+export interface NotesBootstrapAuthorityAggregate {
+  readonly conflictPhaseCounts: Readonly<Record<NotesAuthorityDiagnosticPhase, number>>;
+  readonly authorityOutcomeCounts: Readonly<Record<NotesAuthorityDiagnosticPhase, NotesAuthorityOutcomeCounts>>;
+  readonly conflictSubtypeCounts: Readonly<Record<NotesAuthorityDiagnosticPhase, NotesAuthorityConflictSubtypeCounts>>;
+  readonly incomparableReasonCounts: Readonly<Record<NotesAuthorityDiagnosticPhase, NotesAuthorityIncomparableReasonCounts>>;
+  readonly liveStatePairCounts: Readonly<Record<NotesAuthorityDiagnosticPhase, NotesAuthorityLiveStatePairCounts>>;
+  readonly localOnlyCount: number | null;
+  readonly remoteOnlyCount: number | null;
+}
+
 export interface NotesBootstrapFailureSignal {
   readonly stage: NotesBootstrapDiagnosticStage;
   readonly reasonCode: NotesBootstrapDiagnosticReason;
   readonly rollbackVerified?: boolean;
 }
 
-export interface NotesBootstrapDiagnostic extends NotesBootstrapFailureSignal {
+export interface NotesBootstrapDiagnostic extends NotesBootstrapFailureSignal, NotesBootstrapAuthorityAggregate {
   readonly localNoteCount: number;
   readonly localFolderCount: number;
   readonly remoteNoteCount: number | null;
@@ -195,10 +265,70 @@ export function buildNotesBootstrapDiagnostic(
   failure: NotesBootstrapFailureSignal,
   details: Omit<NotesBootstrapDiagnostic, keyof NotesBootstrapFailureSignal>,
 ): NotesBootstrapDiagnostic {
+  const aggregate = details;
+  const freezeOutcomeCounts = (counts: NotesAuthorityOutcomeCounts): NotesAuthorityOutcomeCounts => Object.freeze({
+    LOCAL_NEWER: counts.LOCAL_NEWER,
+    REMOTE_NEWER: counts.REMOTE_NEWER,
+    EQUAL: counts.EQUAL,
+    INCOMPARABLE: counts.INCOMPARABLE,
+  });
+  const freezeSubtypeCounts = (
+    counts: NotesAuthorityConflictSubtypeCounts,
+  ): NotesAuthorityConflictSubtypeCounts => Object.freeze({
+    EQUAL_PAYLOAD_MISMATCH: counts.EQUAL_PAYLOAD_MISMATCH,
+    INCOMPARABLE: counts.INCOMPARABLE,
+  });
+  const freezeReasonCounts = (
+    counts: NotesAuthorityIncomparableReasonCounts,
+  ): NotesAuthorityIncomparableReasonCounts => Object.freeze({
+    PERMANENT_DELETE_PROTECTED: counts.PERMANENT_DELETE_PROTECTED,
+    PENDING_LOCAL_MUTATION: counts.PENDING_LOCAL_MUTATION,
+    NOTE_ID_MISMATCH: counts.NOTE_ID_MISMATCH,
+    LOCAL_REVISION_SHAPE_INVALID: counts.LOCAL_REVISION_SHAPE_INVALID,
+    REMOTE_REVISION_SHAPE_INVALID: counts.REMOTE_REVISION_SHAPE_INVALID,
+    LOCAL_TOMBSTONE_CHRONOLOGY_INVALID: counts.LOCAL_TOMBSTONE_CHRONOLOGY_INVALID,
+    REMOTE_TOMBSTONE_CHRONOLOGY_INVALID: counts.REMOTE_TOMBSTONE_CHRONOLOGY_INVALID,
+    LOCAL_AUTHORITY_SHAPE_INVALID: counts.LOCAL_AUTHORITY_SHAPE_INVALID,
+    REMOTE_LEGACY_FIELDS_ABSENT: counts.REMOTE_LEGACY_FIELDS_ABSENT,
+    REMOTE_AUTHORITY_SHAPE_INVALID: counts.REMOTE_AUTHORITY_SHAPE_INVALID,
+  });
+  const freezeLiveStatePairCounts = (
+    counts: NotesAuthorityLiveStatePairCounts,
+  ): NotesAuthorityLiveStatePairCounts => Object.freeze({
+    LIVE_LIVE: counts.LIVE_LIVE,
+    LIVE_TOMBSTONE: counts.LIVE_TOMBSTONE,
+    TOMBSTONE_LIVE: counts.TOMBSTONE_LIVE,
+    TOMBSTONE_TOMBSTONE: counts.TOMBSTONE_TOMBSTONE,
+  });
+  const frozenAuthorityAggregate: NotesBootstrapAuthorityAggregate = Object.freeze({
+    conflictPhaseCounts: Object.freeze({
+      INITIAL_MERGE: aggregate.conflictPhaseCounts.INITIAL_MERGE,
+      ATOMIC_REVALIDATION: aggregate.conflictPhaseCounts.ATOMIC_REVALIDATION,
+    }),
+    authorityOutcomeCounts: Object.freeze({
+      INITIAL_MERGE: freezeOutcomeCounts(aggregate.authorityOutcomeCounts.INITIAL_MERGE),
+      ATOMIC_REVALIDATION: freezeOutcomeCounts(aggregate.authorityOutcomeCounts.ATOMIC_REVALIDATION),
+    }),
+    conflictSubtypeCounts: Object.freeze({
+      INITIAL_MERGE: freezeSubtypeCounts(aggregate.conflictSubtypeCounts.INITIAL_MERGE),
+      ATOMIC_REVALIDATION: freezeSubtypeCounts(aggregate.conflictSubtypeCounts.ATOMIC_REVALIDATION),
+    }),
+    incomparableReasonCounts: Object.freeze({
+      INITIAL_MERGE: freezeReasonCounts(aggregate.incomparableReasonCounts.INITIAL_MERGE),
+      ATOMIC_REVALIDATION: freezeReasonCounts(aggregate.incomparableReasonCounts.ATOMIC_REVALIDATION),
+    }),
+    liveStatePairCounts: Object.freeze({
+      INITIAL_MERGE: freezeLiveStatePairCounts(aggregate.liveStatePairCounts.INITIAL_MERGE),
+      ATOMIC_REVALIDATION: freezeLiveStatePairCounts(aggregate.liveStatePairCounts.ATOMIC_REVALIDATION),
+    }),
+    localOnlyCount: aggregate.localOnlyCount,
+    remoteOnlyCount: aggregate.remoteOnlyCount,
+  });
   return Object.freeze({
     ...details,
     ...failure,
     pendingFolderOperations: Object.freeze([...new Set(details.pendingFolderOperations)].sort()),
     pendingFolderPhases: Object.freeze([...new Set(details.pendingFolderPhases)].sort()),
+    ...frozenAuthorityAggregate,
   });
 }
