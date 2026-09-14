@@ -21,10 +21,31 @@ const { authReadFetchMock, authFetchMock } = vi.hoisted(() => ({
   authFetchMock: vi.fn(),
 }));
 
+const reconciliationTestControl = vi.hoisted(() => ({
+  callCount: 0,
+  failOnCall: null as number | null,
+}));
+
 vi.mock('../lib/supabase', () => ({
   authFetch: (...args: unknown[]) => authFetchMock(...args),
   authReadFetch: (...args: unknown[]) => authReadFetchMock(...args),
 }));
+
+vi.mock('../lib/notesAccountAuthority', async importOriginal => {
+  const actual = await importOriginal<typeof import('../lib/notesAccountAuthority')>();
+  return {
+    ...actual,
+    reconcileNotesSingleDeletesForBootstrap: (
+      ...args: Parameters<typeof actual.reconcileNotesSingleDeletesForBootstrap>
+    ) => {
+      reconciliationTestControl.callCount += 1;
+      if (reconciliationTestControl.failOnCall === reconciliationTestControl.callCount) {
+        throw new Error('synthetic_uncategorized_single_delete_failure');
+      }
+      return actual.reconcileNotesSingleDeletesForBootstrap(...args);
+    },
+  };
+});
 
 const storage = new Map<string, string>();
 vi.stubGlobal('localStorage', {
@@ -174,6 +195,8 @@ describe('production-shaped Notes bootstrap diagnostics', () => {
     storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'remote');
     authReadFetchMock.mockReset();
     authFetchMock.mockReset();
+    reconciliationTestControl.callCount = 0;
+    reconciliationTestControl.failOnCall = null;
     await deleteAuthorityDatabase();
   });
 
@@ -182,6 +205,8 @@ describe('production-shaped Notes bootstrap diagnostics', () => {
     useNotesStore.getState().detachNotesStorage();
     resetNotesAccountAuthorityForTests();
     __testOnlyNotesAccountAuthorityHooks?.setBootstrapStageOverride(null);
+    reconciliationTestControl.callCount = 0;
+    reconciliationTestControl.failOnCall = null;
     storage.clear();
     await deleteAuthorityDatabase();
   });
@@ -348,6 +373,18 @@ describe('production-shaped Notes bootstrap diagnostics', () => {
     );
   });
 
+  it('uses the active stage for an uncategorized first reconciliation failure', async () => {
+    const { notes, folders } = await seedSyntheticAuthority();
+    installRemoteSnapshots(notes, folders);
+    reconciliationTestControl.failOnCall = 1;
+
+    await useNotesStore.getState().bootstrapFromSupabase();
+
+    expect(reconciliationTestControl.callCount).toBe(1);
+    expectBootstrapFailure('RECONCILE_SINGLE_DELETE_LIFECYCLE', 'UNKNOWN_FAILURE');
+    expect(getNotesBootstrapRuntimeDiagnostic()?.stage).not.toBe('FETCH_NOTES');
+  });
+
   it('attributes malformed single-delete evidence to the second reconciliation boundary', async () => {
     const { notes, folders } = await seedSyntheticAuthority();
     installRemoteSnapshots(notes, folders);
@@ -368,6 +405,18 @@ describe('production-shaped Notes bootstrap diagnostics', () => {
       'RECONCILE_SINGLE_DELETE_LIFECYCLE',
       'SINGLE_DELETE_MARKER_MALFORMED',
     );
+  });
+
+  it('uses the active stage for an uncategorized second reconciliation failure', async () => {
+    const { notes, folders } = await seedSyntheticAuthority();
+    installRemoteSnapshots(notes, folders);
+    reconciliationTestControl.failOnCall = 2;
+
+    await useNotesStore.getState().bootstrapFromSupabase();
+
+    expect(reconciliationTestControl.callCount).toBe(2);
+    expectBootstrapFailure('RECONCILE_SINGLE_DELETE_LIFECYCLE', 'UNKNOWN_FAILURE');
+    expect(getNotesBootstrapRuntimeDiagnostic()?.stage).not.toBe('REVALIDATE_LOCAL');
   });
 
   it.each([
