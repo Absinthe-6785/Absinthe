@@ -5,6 +5,16 @@ import {
 } from '../components/views/noteUtils';
 import { normalizeNoteRelations } from '../components/views/features/knowledge/relations/relationNormalize';
 import type { DbNoteRow } from './notesSyncClient';
+import type {
+  NotesAuthorityConflictSubtype,
+  NotesAuthorityConflictSubtypeCounts,
+  NotesAuthorityIncomparableReason,
+  NotesAuthorityIncomparableReasonCounts,
+  NotesAuthorityLiveStatePair,
+  NotesAuthorityLiveStatePairCounts,
+  NotesAuthorityOutcomeCounts,
+  NotesAuthorityPhaseAggregate,
+} from './notesBootstrapDiagnostics';
 
 export type NotesBootstrapAuthorityOutcome =
   | 'LOCAL_NEWER'
@@ -19,10 +29,23 @@ export interface SameIdNoteAuthorityResolution {
   readonly conflict: boolean;
 }
 
+export interface SameIdNoteAuthorityObservation {
+  readonly outcome: NotesBootstrapAuthorityOutcome;
+  readonly conflictSubtype: NotesAuthorityConflictSubtype | null;
+  readonly incomparableReason: NotesAuthorityIncomparableReason | null;
+  readonly liveStatePair: NotesAuthorityLiveStatePair;
+}
+
+export interface SameIdNoteAuthorityResolutionWithObservation {
+  readonly resolution: SameIdNoteAuthorityResolution;
+  readonly observation: SameIdNoteAuthorityObservation;
+}
+
 export interface ResolvedBootstrapNotesRevalidation {
   readonly notes: NoteBase[];
   readonly pendingRemoteSyncNotes: NoteBase[];
   readonly conflictNoteIds: string[];
+  readonly authorityAggregate: NotesAuthorityPhaseAggregate;
 }
 
 interface RevalidateResolvedBootstrapNotesInput {
@@ -69,6 +92,22 @@ function hasValidRevisionShape(updatedAt: unknown, deletedAt: unknown): boolean 
   return isRevision(updatedAt)
     && (deletedAt === null || isRevision(deletedAt))
     && (deletedAt === null || deletedAt >= updatedAt);
+}
+
+function revisionShapeIssue(
+  updatedAt: unknown,
+  deletedAt: unknown,
+  side: 'LOCAL' | 'REMOTE',
+): NotesAuthorityIncomparableReason | null {
+  if (!isRevision(updatedAt) || (deletedAt !== null && !isRevision(deletedAt))) {
+    return side === 'LOCAL' ? 'LOCAL_REVISION_SHAPE_INVALID' : 'REMOTE_REVISION_SHAPE_INVALID';
+  }
+  if (deletedAt !== null && deletedAt < updatedAt) {
+    return side === 'LOCAL'
+      ? 'LOCAL_TOMBSTONE_CHRONOLOGY_INVALID'
+      : 'REMOTE_TOMBSTONE_CHRONOLOGY_INVALID';
+  }
+  return null;
 }
 
 function isCompleteLocalNote(note: NoteBase): boolean {
@@ -144,6 +183,92 @@ function effectiveRevision(note: { updatedAt: number; deletedAt: number | null }
   return note.deletedAt ?? note.updatedAt;
 }
 
+function liveStatePair(local: NoteBase, remote: DbNoteRow): NotesAuthorityLiveStatePair {
+  if (local.deletedAt === null) {
+    return remote.deleted_at === null ? 'LIVE_LIVE' : 'LIVE_TOMBSTONE';
+  }
+  return remote.deleted_at === null ? 'TOMBSTONE_LIVE' : 'TOMBSTONE_TOMBSTONE';
+}
+
+function incomparableReason(input: ResolveSameIdNoteAuthorityInput): NotesAuthorityIncomparableReason {
+  const { accountId, local, remote, protectedDeleteConflict, pendingLocalMutation } = input;
+  if (protectedDeleteConflict) return 'PERMANENT_DELETE_PROTECTED';
+  if (pendingLocalMutation) return 'PENDING_LOCAL_MUTATION';
+  if (local.id !== remote.id) return 'NOTE_ID_MISMATCH';
+
+  const localRevisionIssue = revisionShapeIssue(local.updatedAt, local.deletedAt, 'LOCAL');
+  if (localRevisionIssue) return localRevisionIssue;
+  if (!isCompleteLocalNote(local)) return 'LOCAL_AUTHORITY_SHAPE_INVALID';
+
+  if (!hasOwn(remote, 'starred') || !hasOwn(remote, 'properties') || !hasOwn(remote, 'relations')) {
+    return 'REMOTE_LEGACY_FIELDS_ABSENT';
+  }
+  const remoteRevisionIssue = revisionShapeIssue(remote.updated_at, remote.deleted_at, 'REMOTE');
+  if (remoteRevisionIssue) return remoteRevisionIssue;
+  return 'REMOTE_AUTHORITY_SHAPE_INVALID';
+}
+
+type MutableNotesAuthorityPhaseAggregate = {
+  conflictCount: number;
+  authorityOutcomeCounts: Record<NotesBootstrapAuthorityOutcome, number>;
+  conflictSubtypeCounts: Record<NotesAuthorityConflictSubtype, number>;
+  incomparableReasonCounts: Record<NotesAuthorityIncomparableReason, number>;
+  liveStatePairCounts: Record<NotesAuthorityLiveStatePair, number>;
+};
+
+export function createNotesAuthorityPhaseAggregate(): MutableNotesAuthorityPhaseAggregate {
+  return {
+    conflictCount: 0,
+    authorityOutcomeCounts: { LOCAL_NEWER: 0, REMOTE_NEWER: 0, EQUAL: 0, INCOMPARABLE: 0 },
+    conflictSubtypeCounts: { EQUAL_PAYLOAD_MISMATCH: 0, INCOMPARABLE: 0 },
+    incomparableReasonCounts: {
+      PERMANENT_DELETE_PROTECTED: 0,
+      PENDING_LOCAL_MUTATION: 0,
+      NOTE_ID_MISMATCH: 0,
+      LOCAL_REVISION_SHAPE_INVALID: 0,
+      REMOTE_REVISION_SHAPE_INVALID: 0,
+      LOCAL_TOMBSTONE_CHRONOLOGY_INVALID: 0,
+      REMOTE_TOMBSTONE_CHRONOLOGY_INVALID: 0,
+      LOCAL_AUTHORITY_SHAPE_INVALID: 0,
+      REMOTE_LEGACY_FIELDS_ABSENT: 0,
+      REMOTE_AUTHORITY_SHAPE_INVALID: 0,
+    },
+    liveStatePairCounts: {
+      LIVE_LIVE: 0,
+      LIVE_TOMBSTONE: 0,
+      TOMBSTONE_LIVE: 0,
+      TOMBSTONE_TOMBSTONE: 0,
+    },
+  };
+}
+
+export function recordNotesAuthorityObservation(
+  aggregate: MutableNotesAuthorityPhaseAggregate,
+  observation: SameIdNoteAuthorityObservation,
+): void {
+  aggregate.authorityOutcomeCounts[observation.outcome] += 1;
+  aggregate.liveStatePairCounts[observation.liveStatePair] += 1;
+  if (observation.incomparableReason) {
+    aggregate.incomparableReasonCounts[observation.incomparableReason] += 1;
+  }
+  if (observation.conflictSubtype) {
+    aggregate.conflictCount += 1;
+    aggregate.conflictSubtypeCounts[observation.conflictSubtype] += 1;
+  }
+}
+
+export function snapshotNotesAuthorityPhaseAggregate(
+  aggregate: MutableNotesAuthorityPhaseAggregate,
+): NotesAuthorityPhaseAggregate {
+  return Object.freeze({
+    conflictCount: aggregate.conflictCount,
+    authorityOutcomeCounts: Object.freeze({ ...aggregate.authorityOutcomeCounts }) as NotesAuthorityOutcomeCounts,
+    conflictSubtypeCounts: Object.freeze({ ...aggregate.conflictSubtypeCounts }) as NotesAuthorityConflictSubtypeCounts,
+    incomparableReasonCounts: Object.freeze({ ...aggregate.incomparableReasonCounts }) as NotesAuthorityIncomparableReasonCounts,
+    liveStatePairCounts: Object.freeze({ ...aggregate.liveStatePairCounts }) as NotesAuthorityLiveStatePairCounts,
+  });
+}
+
 /** Fully maps a remote row without allowing it to make same-ID authority decisions. */
 export function normalizeRemoteBootstrapNote(row: DbNoteRow): NoteBase {
   return {
@@ -172,51 +297,88 @@ export function normalizeAuthoritativeRemoteBootstrapNote(
  * Pure same-ID bootstrap authority decision. Permanent-delete reconciliation
  * remains the first layer and is represented by protectedDeleteConflict.
  */
-export function resolveSameIdNoteAuthority(
+export function resolveSameIdNoteAuthorityWithObservation(
   input: ResolveSameIdNoteAuthorityInput,
-): SameIdNoteAuthorityResolution {
+): SameIdNoteAuthorityResolutionWithObservation {
   const { accountId, local, remote, protectedDeleteConflict, pendingLocalMutation } = input;
   const normalizedRemote = normalizeAuthoritativeRemoteBootstrapNote(remote, accountId);
   const comparable = local.id === remote.id
     && isCompleteLocalNote(local)
     && normalizedRemote !== null;
+  const pair = liveStatePair(local, remote);
 
   if (!comparable || protectedDeleteConflict || pendingLocalMutation) {
-    return {
+    const resolution: SameIdNoteAuthorityResolution = {
       outcome: 'INCOMPARABLE',
       resolved: local,
       pendingRemoteSync: pendingLocalMutation,
       conflict: true,
+    };
+    return {
+      resolution,
+      observation: {
+        outcome: resolution.outcome,
+        conflictSubtype: protectedDeleteConflict ? null : 'INCOMPARABLE',
+        incomparableReason: incomparableReason(input),
+        liveStatePair: pair,
+      },
     };
   }
 
   const localRevision = effectiveRevision(local);
   const remoteRevision = effectiveRevision(normalizedRemote!);
   if (localRevision > remoteRevision) {
-    return {
+    const resolution: SameIdNoteAuthorityResolution = {
       outcome: 'LOCAL_NEWER',
       resolved: local,
       pendingRemoteSync: true,
       conflict: false,
     };
+    return {
+      resolution,
+      observation: {
+        outcome: resolution.outcome, conflictSubtype: null, incomparableReason: null, liveStatePair: pair,
+      },
+    };
   }
   if (remoteRevision > localRevision) {
-    return {
+    const resolution: SameIdNoteAuthorityResolution = {
       outcome: 'REMOTE_NEWER',
       resolved: normalizedRemote!,
       pendingRemoteSync: false,
       conflict: false,
     };
+    return {
+      resolution,
+      observation: {
+        outcome: resolution.outcome, conflictSubtype: null, incomparableReason: null, liveStatePair: pair,
+      },
+    };
   }
 
   const payloadsEqual = canonicalSyncablePayloadIdentity(local)
     === canonicalSyncablePayloadIdentity(normalizedRemote!);
-  return {
+  const resolution: SameIdNoteAuthorityResolution = {
     outcome: 'EQUAL',
     resolved: local,
     pendingRemoteSync: false,
     conflict: !payloadsEqual,
   };
+  return {
+    resolution,
+    observation: {
+      outcome: resolution.outcome,
+      conflictSubtype: resolution.conflict ? 'EQUAL_PAYLOAD_MISMATCH' : null,
+      incomparableReason: null,
+      liveStatePair: pair,
+    },
+  };
+}
+
+export function resolveSameIdNoteAuthority(
+  input: ResolveSameIdNoteAuthorityInput,
+): SameIdNoteAuthorityResolution {
+  return resolveSameIdNoteAuthorityWithObservation(input).resolution;
 }
 
 function noteAsAuthoritativeBootstrapRow(note: NoteBase, accountId: string): DbNoteRow {
@@ -248,6 +410,7 @@ export function revalidateResolvedBootstrapNotes(
   const notes: NoteBase[] = [];
   const pendingRemoteSyncNotes = new Map<string, NoteBase>();
   const conflictNoteIds = new Set<string>();
+  const authorityAggregate = createNotesAuthorityPhaseAggregate();
 
   for (const candidate of input.resolvedCandidate) {
     const current = currentById.get(candidate.id);
@@ -261,13 +424,15 @@ export function revalidateResolvedBootstrapNotes(
       notes.push(candidate);
       continue;
     }
-    const resolution = resolveSameIdNoteAuthority({
+    const observed = resolveSameIdNoteAuthorityWithObservation({
       accountId: input.accountId,
       local: current,
       remote: noteAsAuthoritativeBootstrapRow(candidate, input.accountId),
       protectedDeleteConflict: false,
       pendingLocalMutation: false,
     });
+    const resolution = observed.resolution;
+    recordNotesAuthorityObservation(authorityAggregate, observed.observation);
     const resolved = resolution.outcome === 'REMOTE_NEWER' ? candidate : current;
     notes.push(resolved);
     if (resolution.pendingRemoteSync) pendingRemoteSyncNotes.set(resolved.id, resolved);
@@ -278,13 +443,15 @@ export function revalidateResolvedBootstrapNotes(
     if (candidateById.has(current.id)) continue;
     const previous = previousById.get(current.id);
     if (input.authorizedMissingNoteIds.has(current.id) && previous) {
-      const resolution = resolveSameIdNoteAuthority({
+      const observed = resolveSameIdNoteAuthorityWithObservation({
         accountId: input.accountId,
         local: current,
         remote: noteAsAuthoritativeBootstrapRow(previous, input.accountId),
         protectedDeleteConflict: false,
         pendingLocalMutation: false,
       });
+      const resolution = observed.resolution;
+      recordNotesAuthorityObservation(authorityAggregate, observed.observation);
       const authorizedAbsenceStillApplies = resolution.outcome === 'REMOTE_NEWER'
         || resolution.outcome === 'EQUAL' && !resolution.conflict;
       if (authorizedAbsenceStillApplies) continue;
@@ -298,5 +465,6 @@ export function revalidateResolvedBootstrapNotes(
     notes,
     pendingRemoteSyncNotes: [...pendingRemoteSyncNotes.values()],
     conflictNoteIds: [...conflictNoteIds],
+    authorityAggregate: snapshotNotesAuthorityPhaseAggregate(authorityAggregate),
   };
 }
