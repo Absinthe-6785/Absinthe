@@ -161,6 +161,8 @@ export function NoteSidebarVirtualList({
           return (
             <div
               key={note.id}
+              ref={virtualizer.measureElement}
+              data-index={vRow.index}
               style={{
                 position: 'absolute',
                 top: 0,
