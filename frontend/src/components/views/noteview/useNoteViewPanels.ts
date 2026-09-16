@@ -30,7 +30,7 @@ export function useNoteViewPanels(params: {
   setRightPanel: (tab: KnowledgeContextTab) => void;
   setTimelineInitialArea: (area: string | null) => void;
   blockEditorRef: RefObject<BlockEditorHandle | null>;
-  insightsEnabled?: boolean;
+  intelligenceEnabled?: boolean;
 }) {
   const {
     notes,
@@ -44,7 +44,7 @@ export function useNoteViewPanels(params: {
     setRightPanel,
     setTimelineInitialArea,
     blockEditorRef,
-    insightsEnabled = true,
+    intelligenceEnabled = true,
   } = params;
 
   const openContextPanel = useCallback((tab: KnowledgeContextTab) => {
@@ -56,24 +56,24 @@ export function useNoteViewPanels(params: {
   const galaxyCacheKey = String(vaultStructureVersion);
 
   const noteIntelligenceSnapshot = useMemo(
-    () => (insightsEnabled && activeNote
+    () => (intelligenceEnabled && activeNote
       ? buildNoteIntelligenceSnapshot(activeNote, useNotesStore.getState().notes, knowledgeIndexService)
       : null),
-    [insightsEnabled, activeNote?.id, vaultStructureVersion],
+    [intelligenceEnabled, activeNote?.id, vaultStructureVersion],
   );
 
   const noteHistoryContext = useMemo(
-    () => (insightsEnabled && activeNote
+    () => (intelligenceEnabled && activeNote
       ? getNoteHistoryContext(activeNote.id, 30, Date.now(), historyEvents)
       : null),
-    [insightsEnabled, activeNote?.id, historyEvents],
+    [intelligenceEnabled, activeNote?.id, historyEvents],
   );
 
   const noteTierInput = useMemo(() => {
-    if (!insightsEnabled || !activeNote) return null;
+    if (!intelligenceEnabled || !activeNote) return null;
     const galaxyMap = getNoteGalaxyMap(useNotesStore.getState().notes, knowledgeIndexService, galaxyCacheKey);
     return buildImportanceInputForNote(activeNote, knowledgeIndexService, galaxyMap.get(activeNote.id));
-  }, [insightsEnabled, activeNote?.id, vaultStructureVersion]);
+  }, [intelligenceEnabled, activeNote?.id, vaultStructureVersion]);
 
   const handleLearnLinking = useCallback(() => {
     const target = activeNote ?? notes.find(n => !n.deletedAt);
