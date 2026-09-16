@@ -142,6 +142,18 @@ function isCompleteAuthoritativeRemoteRow(row: DbNoteRow, accountId: string): bo
     && (row.relations === null || isRelationRecord(row.relations));
 }
 
+/**
+ * Projects legacy-optional fields only for same-ID authority comparison.
+ * Present values, including malformed values, are preserved for strict validation.
+ */
+function projectLegacyOptionalRemoteFieldsForAuthorityComparison(row: DbNoteRow): DbNoteRow {
+  const projected = { ...row };
+  if (!hasOwn(row, 'starred')) projected.starred = false;
+  if (!hasOwn(row, 'properties')) projected.properties = null;
+  if (!hasOwn(row, 'relations')) projected.relations = null;
+  return projected;
+}
+
 function sortedStringRecord(record: Record<string, string> | undefined): Record<string, string> | null {
   if (!record) return null;
   return Object.fromEntries(Object.entries(record).sort(([left], [right]) => left.localeCompare(right)));
@@ -200,6 +212,8 @@ function incomparableReason(input: ResolveSameIdNoteAuthorityInput): NotesAuthor
   if (localRevisionIssue) return localRevisionIssue;
   if (!isCompleteLocalNote(local)) return 'LOCAL_AUTHORITY_SHAPE_INVALID';
 
+  // Retain the diagnostic vocabulary defensively. The same-ID resolver passes
+  // its missing-only comparison projection, so absence alone does not reach it.
   if (!hasOwn(remote, 'starred') || !hasOwn(remote, 'properties') || !hasOwn(remote, 'relations')) {
     return 'REMOTE_LEGACY_FIELDS_ABSENT';
   }
@@ -301,7 +315,9 @@ export function resolveSameIdNoteAuthorityWithObservation(
   input: ResolveSameIdNoteAuthorityInput,
 ): SameIdNoteAuthorityResolutionWithObservation {
   const { accountId, local, remote, protectedDeleteConflict, pendingLocalMutation } = input;
-  const normalizedRemote = normalizeAuthoritativeRemoteBootstrapNote(remote, accountId);
+  const comparisonRemote = projectLegacyOptionalRemoteFieldsForAuthorityComparison(remote);
+  const comparisonInput = { ...input, remote: comparisonRemote };
+  const normalizedRemote = normalizeAuthoritativeRemoteBootstrapNote(comparisonRemote, accountId);
   const comparable = local.id === remote.id
     && isCompleteLocalNote(local)
     && normalizedRemote !== null;
@@ -319,7 +335,7 @@ export function resolveSameIdNoteAuthorityWithObservation(
       observation: {
         outcome: resolution.outcome,
         conflictSubtype: protectedDeleteConflict ? null : 'INCOMPARABLE',
-        incomparableReason: incomparableReason(input),
+        incomparableReason: incomparableReason(comparisonInput),
         liveStatePair: pair,
       },
     };
