@@ -3,7 +3,7 @@ import { KNOWLEDGE_CONTEXT_PRIMARY_TABS } from './KnowledgeContextPanel';
 import type { KnowledgeContextTab } from './KnowledgeContextPanel';
 import {
   isDiscoverContextTabActive,
-  isInsightsContextTabActive,
+  isIntelligenceContextTabActive,
   resolveDashboardLoadScope,
 } from '../../../noteview/contextPanelTabGate';
 
@@ -47,7 +47,7 @@ describe('K-104 knowledge context IA', () => {
 
   it('activates discovery feed scope when Discover tab is open', () => {
     expect(isDiscoverContextTabActive(true, 'discover')).toBe(true);
-    expect(isInsightsContextTabActive(true, 'discover')).toBe(false);
+    expect(isIntelligenceContextTabActive(true, 'discover')).toBe(false);
     const scope = resolveDashboardLoadScope({
       isDashboardMode: false,
       showRightPanel: true,
@@ -57,9 +57,13 @@ describe('K-104 knowledge context IA', () => {
     expect(scope.discover).toBe(true);
   });
 
-  it('still gates insights data to the Insights tab', () => {
-    expect(isInsightsContextTabActive(true, 'insights')).toBe(true);
-    expect(isInsightsContextTabActive(true, 'discover')).toBe(false);
+  it('activates intelligence only for open Insights and Actions contexts', () => {
+    expect(isIntelligenceContextTabActive(true, 'insights')).toBe(true);
+    expect(isIntelligenceContextTabActive(true, 'actions')).toBe(true);
+    expect(isIntelligenceContextTabActive(true, 'toc')).toBe(false);
+    expect(isIntelligenceContextTabActive(true, 'graph')).toBe(false);
+    expect(isIntelligenceContextTabActive(false, 'insights')).toBe(false);
+    expect(isIntelligenceContextTabActive(false, 'actions')).toBe(false);
     const scope = resolveDashboardLoadScope({
       isDashboardMode: false,
       showRightPanel: true,

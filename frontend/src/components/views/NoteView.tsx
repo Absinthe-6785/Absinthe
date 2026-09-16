@@ -207,7 +207,7 @@ import {
   resolveDashboardLoadScope,
   isLinksContextTabActive,
   isGraphContextTabActive,
-  isInsightsContextTabActive,
+  isIntelligenceContextTabActive,
   isPropertiesContextTabActive,
   isRelationsContextTabActive,
   isTagsContextTabActive,
@@ -752,7 +752,7 @@ export const NoteView = ({ showToast = () => {}, accountId }: NoteViewProps) => 
   );
   const linksTabActive = isLinksContextTabActive(contextPanelOpen, rightPanel);
   const graphTabActive = isGraphContextTabActive(contextPanelOpen, rightPanel);
-  const insightsTabActive = isInsightsContextTabActive(contextPanelOpen, rightPanel);
+  const intelligenceContextTabActive = isIntelligenceContextTabActive(contextPanelOpen, rightPanel);
   const propertiesTabActive = isPropertiesContextTabActive(contextPanelOpen, rightPanel);
   const relationsTabActive = isRelationsContextTabActive(contextPanelOpen, rightPanel);
   const tagsTabActive = isTagsContextTabActive(contextPanelOpen, rightPanel);
@@ -1087,7 +1087,7 @@ export const NoteView = ({ showToast = () => {}, accountId }: NoteViewProps) => 
     setRightPanel,
     setTimelineInitialArea,
     blockEditorRef,
-    insightsEnabled: insightsTabActive,
+    intelligenceEnabled: intelligenceContextTabActive,
   });
 
   useEffect(() => {

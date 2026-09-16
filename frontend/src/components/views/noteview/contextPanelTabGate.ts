@@ -15,11 +15,12 @@ export function isGraphContextTabActive(
   return panelOpen && tab === 'graph';
 }
 
-export function isInsightsContextTabActive(
+/** Context tabs that require the shared note-intelligence snapshot. */
+export function isIntelligenceContextTabActive(
   panelOpen: boolean,
   tab: KnowledgeContextTab,
 ): boolean {
-  return panelOpen && tab === 'insights';
+  return panelOpen && (tab === 'insights' || tab === 'actions');
 }
 
 export function isPropertiesContextTabActive(
