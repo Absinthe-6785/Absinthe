@@ -102,8 +102,8 @@ function syntheticFolders(): NoteFolderBase[] {
   }));
 }
 
-function syntheticNotes(folders: readonly NoteFolderBase[]): NoteBase[] {
-  return Array.from({ length: NOTE_COUNT }, (_, index) => ({
+function syntheticNotes(folders: readonly NoteFolderBase[], noteCount = NOTE_COUNT): NoteBase[] {
+  return Array.from({ length: noteCount }, (_, index) => ({
     id: `note-${String(index + 1).padStart(3, '0')}`,
     title: `Synthetic note ${index + 1}`,
     body: 'Synthetic placeholder content.',
@@ -173,9 +173,9 @@ function installRemoteSnapshots(
     })));
 }
 
-async function seedSyntheticAuthority() {
+async function seedSyntheticAuthority(noteCount = NOTE_COUNT) {
   const folders = syntheticFolders();
-  const notes = syntheticNotes(folders);
+  const notes = syntheticNotes(folders, noteCount);
   await useNotesStore.getState().initNotesStorage(ACCOUNT_ID);
   expect(await saveAccountScopedNotes(ACCOUNT_ID, notes)).toBe(true);
   expect(saveAccountScopedFolders(folders)).toBe(true);
@@ -263,6 +263,46 @@ describe('production-shaped Notes bootstrap diagnostics', () => {
     expect(useNotesStore.getState().syncIssue).toBeNull();
   });
 
+  it('normalizes the production-shaped 124-local/106-remote legacy comparison aggregate', async () => {
+    const { notes, folders } = await seedSyntheticAuthority(124);
+    const rows = noteRows(notes.slice(0, 106)).map((row, index) => {
+      const {
+        starred: _starred,
+        properties: _properties,
+        relations: _relations,
+        ...legacyRow
+      } = row;
+      return index === 0
+        ? { ...legacyRow, title: 'Synthetic equal-revision mismatch' }
+        : legacyRow;
+    });
+    installRemoteSnapshots(notes, folders, { noteRows: rows });
+
+    await useNotesStore.getState().bootstrapFromSupabase();
+
+    expectBootstrapFailure('MERGE_NOTES', 'EQUAL_REVISION_PAYLOAD_MISMATCH');
+    expect(useNotesStore.getState().notes).toHaveLength(124);
+    expect(getNotesBootstrapRuntimeDiagnostic()).toMatchObject({
+      localNoteCount: 124,
+      remoteNoteCount: 106,
+      localOnlyCount: 18,
+      remoteOnlyCount: 0,
+      conflictPhaseCounts: { INITIAL_MERGE: 1, ATOMIC_REVALIDATION: 0 },
+      authorityOutcomeCounts: {
+        INITIAL_MERGE: { LOCAL_NEWER: 0, REMOTE_NEWER: 0, EQUAL: 106, INCOMPARABLE: 0 },
+        ATOMIC_REVALIDATION: { LOCAL_NEWER: 0, REMOTE_NEWER: 0, EQUAL: 124, INCOMPARABLE: 0 },
+      },
+      conflictSubtypeCounts: {
+        INITIAL_MERGE: { EQUAL_PAYLOAD_MISMATCH: 1, INCOMPARABLE: 0 },
+        ATOMIC_REVALIDATION: { EQUAL_PAYLOAD_MISMATCH: 0, INCOMPARABLE: 0 },
+      },
+      incomparableReasonCounts: {
+        INITIAL_MERGE: { REMOTE_LEGACY_FIELDS_ABSENT: 0 },
+        ATOMIC_REVALIDATION: { REMOTE_LEGACY_FIELDS_ABSENT: 0 },
+      },
+    });
+  });
+
   it('aggregates a synthetic 108-local/106-remote initial merge without exposing records', async () => {
     const { notes, folders } = await seedSyntheticAuthority();
     const rows = noteRows(notes.slice(0, 106)).map((row, index) => {
@@ -288,17 +328,17 @@ describe('production-shaped Notes bootstrap diagnostics', () => {
       remoteNoteCount: 106,
       localOnlyCount: 2,
       remoteOnlyCount: 0,
-      conflictPhaseCounts: { INITIAL_MERGE: 2, ATOMIC_REVALIDATION: 0 },
+      conflictPhaseCounts: { INITIAL_MERGE: 1, ATOMIC_REVALIDATION: 0 },
       authorityOutcomeCounts: {
-        INITIAL_MERGE: { LOCAL_NEWER: 1, REMOTE_NEWER: 1, EQUAL: 103, INCOMPARABLE: 1 },
+        INITIAL_MERGE: { LOCAL_NEWER: 1, REMOTE_NEWER: 1, EQUAL: 104, INCOMPARABLE: 0 },
         ATOMIC_REVALIDATION: { LOCAL_NEWER: 0, REMOTE_NEWER: 1, EQUAL: 107, INCOMPARABLE: 0 },
       },
       conflictSubtypeCounts: {
-        INITIAL_MERGE: { EQUAL_PAYLOAD_MISMATCH: 1, INCOMPARABLE: 1 },
+        INITIAL_MERGE: { EQUAL_PAYLOAD_MISMATCH: 1, INCOMPARABLE: 0 },
         ATOMIC_REVALIDATION: { EQUAL_PAYLOAD_MISMATCH: 0, INCOMPARABLE: 0 },
       },
       incomparableReasonCounts: {
-        INITIAL_MERGE: { REMOTE_LEGACY_FIELDS_ABSENT: 1 },
+        INITIAL_MERGE: { REMOTE_LEGACY_FIELDS_ABSENT: 0 },
       },
       liveStatePairCounts: {
         INITIAL_MERGE: { LIVE_LIVE: 106 },
@@ -402,8 +442,7 @@ describe('production-shaped Notes bootstrap diagnostics', () => {
   it('counts remote-only and local-only Notes independently of a same-ID conflict', async () => {
     const { notes, folders } = await seedSyntheticAuthority();
     const rows = noteRows(notes.slice(0, 107));
-    const { relations: _relations, ...incomparable } = rows[0]!;
-    rows[0] = incomparable;
+    rows[0] = { ...rows[0]!, relations: [] } as unknown as typeof rows[number];
     rows.push({
       ...noteRows([notes[0]!])[0]!,
       id: 'synthetic-remote-only',
@@ -488,18 +527,6 @@ describe('production-shaped Notes bootstrap diagnostics', () => {
   });
 
   it.each([
-    ['missing starred', (row: ReturnType<typeof noteRows>[number]) => {
-      const { starred: _starred, ...next } = row;
-      return next;
-    }, 'REMOTE_LEGACY_FIELDS_ABSENT'],
-    ['missing properties', (row: ReturnType<typeof noteRows>[number]) => {
-      const { properties: _properties, ...next } = row;
-      return next;
-    }, 'REMOTE_LEGACY_FIELDS_ABSENT'],
-    ['missing relations', (row: ReturnType<typeof noteRows>[number]) => {
-      const { relations: _relations, ...next } = row;
-      return next;
-    }, 'REMOTE_LEGACY_FIELDS_ABSENT'],
     [
       'fractional revision',
       (row: ReturnType<typeof noteRows>[number]) => ({ ...row, updated_at: 1.5 }),
