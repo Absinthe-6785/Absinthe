@@ -28,24 +28,92 @@ const catalog: CatalogExerciseBlock[] = [
 ];
 
 describe('Health exercise catalog ordering', () => {
-  it('is stable across date/month navigation and does not mutate static source data', () => {
+  it('uses deterministic name then ID order without mutating static source data', () => {
     const sourceBefore = structuredClone(catalog);
 
-    const currentMonth = sortExerciseBlocksForCatalog(catalog);
-    const historicalMonth = sortExerciseBlocksForCatalog(catalog);
+    const firstSort = sortExerciseBlocksForCatalog(catalog);
+    const repeatedSort = sortExerciseBlocksForCatalog(catalog);
 
-    expect(currentMonth.map(block => block.id)).toEqual(['block-b', 'block-z', 'block-c', 'block-a']);
-    expect(historicalMonth.map(block => block.id)).toEqual(currentMonth.map(block => block.id));
+    expect(firstSort.map(block => block.id)).toEqual(['block-c', 'block-b', 'block-z', 'block-a']);
+    expect(repeatedSort.map(block => block.id)).toEqual(firstSort.map(block => block.id));
     expect(catalog).toEqual(sourceBefore);
   });
 
-  it('falls back to deterministic name then ID ordering when recency is absent', () => {
-    const equalNames: ExerciseBlock[] = [
-      { id: 'block-z', name: 'Press', type: 'strength', tags: [] },
-      { id: 'block-a', name: 'Press', type: 'strength', tags: [] },
+  it('keeps Library order stable when workout-history ranks change', () => {
+    const beforeHistoryMutation: CatalogExerciseBlock[] = [
+      { id: 'beta', name: 'Beta', type: 'strength', tags: [], recentRank: 0 },
+      { id: 'alpha-z', name: 'Alpha', type: 'strength', tags: [], recentRank: 2 },
+      { id: 'alpha-a', name: 'Alpha', type: 'strength', tags: [], recentRank: 1 },
+    ];
+    const afterHistoryMutation = beforeHistoryMutation.map(block => ({
+      ...block,
+      recentRank: block.recentRank === undefined ? undefined : 2 - block.recentRank,
+    }));
+
+    expect(sortExerciseBlocksForCatalog(beforeHistoryMutation).map(block => block.id)).toEqual([
+      'alpha-a',
+      'alpha-z',
+      'beta',
+    ]);
+    expect(sortExerciseBlocksForCatalog(afterHistoryMutation).map(block => block.id)).toEqual([
+      'alpha-a',
+      'alpha-z',
+      'beta',
+    ]);
+  });
+
+  it('sorts query-filtered tagged groups by name then ID', async () => {
+    const { HealthBlockLibrary } = await import('./HealthBlockLibrary');
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const blocks: CatalogExerciseBlock[] = [
+      { id: 'beta', name: 'Beta', type: 'strength', tags: ['strength'], recentRank: 0 },
+      { id: 'alpha-z', name: 'Alpha', type: 'strength', tags: ['strength', 'shared'], recentRank: 2 },
+      { id: 'gamma', name: 'Gamma', type: 'strength', tags: ['shared'], recentRank: 1 },
+      { id: 'alpha-a', name: 'Alpha', type: 'strength', tags: ['strength'], recentRank: 3 },
     ];
 
-    expect(sortExerciseBlocksForCatalog(equalNames).map(block => block.id)).toEqual(['block-a', 'block-z']);
+    act(() => root.render(createElement(HealthBlockLibrary, {
+      blocks,
+      activeTagFilter: null,
+      setActiveTagFilter: vi.fn(),
+      theme: { card: 'card', input: 'input', border: 'border', text: 'text', textMuted: 'muted', hoverBg: 'hover' },
+      darkMode: false,
+      onAddToToday: vi.fn(),
+      onEditBlock: vi.fn(),
+      onDeleteBlock: vi.fn(),
+      onNewBlock: vi.fn(),
+      mobileVisible: true,
+    })));
+
+    const sections = [...host.querySelectorAll('[data-k136a-health-block-section]')];
+    expect(sections).toHaveLength(2);
+    expect([...sections[0]!.querySelectorAll('[data-health-block-edit]')].map(button => button.getAttribute('aria-label'))).toEqual([
+      'editBtn: Alpha',
+      'editBtn: Alpha',
+      'editBtn: Beta',
+    ]);
+    expect([...sections[1]!.querySelectorAll('[data-health-block-edit]')].map(button => button.getAttribute('aria-label'))).toEqual([
+      'editBtn: Alpha',
+      'editBtn: Gamma',
+    ]);
+
+    const search = host.querySelector<HTMLInputElement>('input[type="search"]')!;
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+      setter?.call(search, 'strength');
+      search.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect([...host.querySelectorAll('[data-health-block-edit]')].map(button => button.getAttribute('aria-label'))).toEqual([
+      'editBtn: Alpha',
+      'editBtn: Alpha',
+      'editBtn: Beta',
+      'editBtn: Alpha',
+    ]);
+
+    act(() => root.unmount());
+    host.remove();
   });
 
   it('keeps a populated catalog naturally sized below wide and bounded by its wide owner', async () => {

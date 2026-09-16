@@ -30,13 +30,10 @@ interface FlatBlockRow {
 
 /**
  * Exercise blocks are account-global reference data.  Keep their library
- * ordering independent from the selected month/date workout projection.
+ * ordering independent from workout-history mutations and API row order.
  */
 export function sortExerciseBlocksForCatalog(blocks: readonly CatalogExerciseBlock[]): CatalogExerciseBlock[] {
   return [...blocks].sort((left, right) => {
-    const leftRank = Number.isFinite(left.recentRank) ? left.recentRank! : Number.MAX_SAFE_INTEGER;
-    const rightRank = Number.isFinite(right.recentRank) ? right.recentRank! : Number.MAX_SAFE_INTEGER;
-    if (leftRank !== rightRank) return leftRank - rightRank;
     const byName = left.name.localeCompare(right.name);
     return byName !== 0 ? byName : left.id.localeCompare(right.id);
   });
