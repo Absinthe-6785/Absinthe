@@ -236,7 +236,8 @@ describe('K-321 atomic entity and outbox transaction', () => {
     expect(await repo.getEntity('notes', 'entity-1')).not.toBeNull();
     expect(await repo.getOutboxRecord(value.outbox.mutationId)).toMatchObject({
       domain: 'notes', entityId: 'entity-1', operation: 'upsert', baseRevision: null, localRevision: 1,
-      payloadMode: 'inline', payloadHash: null, payload: { kind: 'entity_snapshot', record: { body: 'synthetic' } },
+      payloadMode: 'inline', payloadHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      payload: { kind: 'entity_snapshot', record: { body: 'synthetic' } },
       attemptCount: 0, status: 'pending', lastErrorCode: null,
     });
   });
@@ -318,8 +319,9 @@ describe('K-321 reserved store foundations', () => {
   it('writes generation-scoped checkpoint and attachment metadata without network behavior', async () => {
     const repo = await repository();
     await repo.putSyncCheckpoint({
-      namespaceKey: repo.namespaceKey, generationId: 'generation-1', provider: 'supabase', stream: 'notes',
-      checkpointValue: 'cursor-1', serverEpoch: null, updatedAt: '2026-07-11T00:00:00.000Z',
+      namespaceKey: repo.namespaceKey, generationId: 'generation-1', accountId: 'user-a', provider: 'supabase', stream: 'notes',
+      checkpointValue: 'cursor-1', sequence: 1, serverEpoch: null, updatedAt: '2026-07-11T00:00:00.000Z',
+      invalidatedAt: null, invalidationReason: null,
     });
     await repo.putAttachmentState({
       namespaceKey: repo.namespaceKey, generationId: 'generation-1', attachmentId: 'att-1', referencedBy: ['note-1'],
@@ -327,8 +329,9 @@ describe('K-321 reserved store foundations', () => {
       storageLocatorReference: null, createdAt: '2026-07-11T00:00:00.000Z', updatedAt: '2026-07-11T00:00:00.000Z',
     });
     await expect(repo.putSyncCheckpoint({
-      namespaceKey: 'wrong', generationId: 'generation-1', provider: 'supabase', stream: 'notes',
-      checkpointValue: 'cursor-1', serverEpoch: null, updatedAt: '2026-07-11T00:00:00.000Z',
+      namespaceKey: 'wrong', generationId: 'generation-1', accountId: 'user-a', provider: 'supabase', stream: 'notes',
+      checkpointValue: 'cursor-1', sequence: 1, serverEpoch: null, updatedAt: '2026-07-11T00:00:00.000Z',
+      invalidatedAt: null, invalidationReason: null,
     })).rejects.toMatchObject({ code: 'NAMESPACE_MISMATCH' });
   });
 

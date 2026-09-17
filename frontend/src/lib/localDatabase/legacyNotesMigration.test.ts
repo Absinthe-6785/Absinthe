@@ -121,7 +121,11 @@ type StoreSnapshot = {
 async function snapshotVersion3Stores(): Promise<StoreSnapshot[]> {
   const db = await newDb();
   const names = Object.values(LOCAL_DATABASE_STORES)
-    .filter(name => name !== LOCAL_DATABASE_STORES.writerCoordinationState);
+    .filter(name => ![
+      LOCAL_DATABASE_STORES.writerCoordinationState,
+      LOCAL_DATABASE_STORES.conflicts,
+      LOCAL_DATABASE_STORES.workerLeases,
+    ].includes(name));
   const tx = db.transaction(names, 'readonly');
   const snapshots = await Promise.all(names.map(async name => {
     const store = tx.objectStore(name);
@@ -1059,7 +1063,7 @@ describe('K-325 legacy Notes migration and shadow verification', () => {
     return { repository, source, staged };
   }
 
-  it('preserves exact version-3 K-325 evidence through the additive version-4 upgrade', async () => {
+  it('preserves exact version-3 K-325 evidence through the additive version-5 upgrade', async () => {
     const fixture = await verifiedFixture();
     const sessionKey: IDBValidKey = [fixture.repository.namespaceKey, toLegacyNotesMigrationStorageId('verified')];
     await mutateRaw(LOCAL_DATABASE_STORES.migrationState, sessionKey, value => ({
@@ -1087,12 +1091,12 @@ describe('K-325 legacy Notes migration and shadow verification', () => {
     expect(await getAllRaw(LOCAL_DATABASE_STORES.entities)).toEqual(beforeEntities);
     expect((await reopened.readDatabaseMetadata()).databaseFormatVersion).toBe(LOCAL_DATABASE_VERSION);
     const upgraded = await newDb();
-    expect(upgraded.version).toBe(4);
+    expect(upgraded.version).toBe(LOCAL_DATABASE_VERSION);
     expect(upgraded.objectStoreNames.contains(LOCAL_DATABASE_STORES.writerCoordinationState)).toBe(true);
     upgraded.close();
   });
 
-  it.each([5, 2, 1.5, 0, -1, Number.MAX_SAFE_INTEGER])(
+  it.each([2, 1.5, 0, -1, Number.MAX_SAFE_INTEGER])(
     'rejects unsupported or malformed persisted K-325 target version %s', async databaseVersion => {
       const fixture = await verifiedFixture();
       await mutateRaw(LOCAL_DATABASE_STORES.migrationState,
@@ -1107,6 +1111,7 @@ describe('K-325 legacy Notes migration and shadow verification', () => {
   it.each([
     ['string 3', '3'],
     ['string 4', '4'],
+    ['string 5', '5'],
     ['null', null],
     ['boolean true', true],
     ['empty object', {}],
@@ -1136,11 +1141,11 @@ describe('K-325 legacy Notes migration and shadow verification', () => {
   it('accepts a legitimate current-version K-325 session without rewriting its target version', async () => {
     const fixture = await verifiedFixture();
     await expect(fixture.repository.getLegacyNotesMigrationSession('verified')).resolves.toMatchObject({
-      target: { databaseVersion: 4 }, status: 'verified',
+      target: { databaseVersion: LOCAL_DATABASE_VERSION }, status: 'verified',
     });
     const raw = (await getAllRaw(LOCAL_DATABASE_STORES.migrationState))
       .find(value => value.migrationSessionId === 'verified');
-    expect(raw.target.databaseVersion).toBe(4);
+    expect(raw.target.databaseVersion).toBe(LOCAL_DATABASE_VERSION);
   });
 
   it.each([

@@ -66,11 +66,23 @@ export function deriveOutboxIdempotencyKey(input: {
   return `${IDEMPOTENCY_PREFIX}${sha256Hex(encoded)}`;
 }
 
+export type OutboxIdentityInput = Parameters<typeof deriveOutboxIdempotencyKey>[0];
+
+/** A deterministic UUID-shaped mutation identity derived from the same immutable entity revision tuple. */
+export function deriveOutboxMutationId(input: OutboxIdentityInput): string {
+  const digest = sha256Hex(JSON.stringify([
+    'absinthe-mutation-v1', input.namespaceKey, input.generationId, input.domain,
+    input.entityId, input.localRevision, input.operation,
+  ]));
+  return `mut.${digest.slice(0, 8)}-${digest.slice(8, 12)}-5${digest.slice(13, 16)}-8${digest.slice(17, 20)}-${digest.slice(20, 32)}`;
+}
+
 export function validOutboxIdempotencyKey(value: unknown): value is string {
   return typeof value === 'string' && /^k322\.[a-f0-9]{64}$/.test(value);
 }
 
-export function generateOutboxMutationId(): string {
+export function generateOutboxMutationId(input?: OutboxIdentityInput): string {
+  if (input) return deriveOutboxMutationId(input);
   if (typeof crypto.randomUUID !== 'function') throw new LocalDatabaseError('INVALID_OUTBOX', 'generate_mutation_id');
   return `mut.${crypto.randomUUID()}`;
 }

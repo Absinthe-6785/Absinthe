@@ -1,5 +1,5 @@
 export const LOCAL_DATABASE_NAME = 'absinthe-local-v2';
-export const LOCAL_DATABASE_VERSION = 4;
+export const LOCAL_DATABASE_VERSION = 5;
 export const LOCAL_SCHEMA_VERSION = 1;
 
 export type LocalDatabaseNamespace = Readonly<{
@@ -48,10 +48,15 @@ export interface GenerationRecord {
 export interface LocalEntityEnvelope<T = unknown> {
   namespaceKey: string;
   generationId: string;
+  /** The authenticated account authority. Legacy v1-v4 rows may omit this during read-only upgrade. */
+  accountId?: string;
   domain: string;
   entityId: string;
   record: T;
   revision: number;
+  /** Durable sync-core name for revision. It is always equal to `revision` on v5 writes. */
+  localRevision?: number;
+  serverRevision?: number | null;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
@@ -59,6 +64,8 @@ export interface LocalEntityEnvelope<T = unknown> {
   deletionState: 'active' | 'deleted';
   ownerId: string | null;
   contentHash: string | null;
+  pendingMutationId?: string | null;
+  lastRemoteMutationRef?: string | null;
   source: SafeSourceReference | null;
   restoreProvenance?: RestoreProvenance | null;
   migrationProvenance?: LegacyMigrationProvenance | null;
@@ -97,8 +104,8 @@ export interface RestoreProvenance {
   resurrection: ResurrectionProvenance | null;
 }
 
-export type OutboxOperation = 'upsert' | 'tombstone';
-export type OutboxStatus = 'pending' | 'claimed' | 'retry_wait' | 'acknowledged' | 'permanent_failure' | 'superseded';
+export type OutboxOperation = 'upsert' | 'tombstone' | 'restore';
+export type OutboxStatus = 'pending' | 'claimed' | 'retry_wait' | 'acknowledged' | 'conflict' | 'permanent_failure' | 'superseded';
 
 export interface RestoreOutboxGenerationBoundary {
   kind: 'restore_generation_sequence_boundary';
@@ -119,6 +126,8 @@ export interface RestoreOutboxGenerationBoundary {
 export interface OutboxRecord {
   namespaceKey: string;
   generationId: string;
+  accountId?: string;
+  deviceId?: string;
   mutationId: string;
   domain: string;
   entityId: string;
@@ -144,6 +153,8 @@ export interface OutboxRecord {
   acknowledgedAt: string | null;
   acknowledgedBy: string | null;
   remoteMutationRef: string | null;
+  acknowledgedRevision?: number | null;
+  serverCommittedAt?: string | null;
   supersededByMutationId: string | null;
   resurrection?: ResurrectionProvenance | null;
   deliveryBlockCode?: 'REMOTE_RESURRECTION_UNSUPPORTED' | null;
@@ -153,11 +164,49 @@ export interface OutboxRecord {
 export interface SyncCheckpointRecord {
   namespaceKey: string;
   generationId: string;
+  accountId?: string;
   provider: string;
   stream: string;
   checkpointValue: string;
+  sequence?: number;
   serverEpoch: string | null;
   updatedAt: string;
+  invalidatedAt?: string | null;
+  invalidationReason?: string | null;
+}
+
+export type ConflictResolutionState = 'unresolved' | 'resolved_local' | 'resolved_remote' | 'resolved_merged' | 'dismissed';
+
+export interface SyncConflictRecord {
+  namespaceKey: string;
+  generationId: string;
+  accountId: string;
+  conflictId: string;
+  domain: string;
+  entityId: string;
+  mutationId: string | null;
+  localCandidate: unknown;
+  remoteCandidate: unknown;
+  remoteMetadata: Readonly<Record<string, unknown>> | null;
+  localRevision: number;
+  serverRevision: number | null;
+  localContentHash: string;
+  remoteContentHash: string | null;
+  conflictType: string;
+  createdAt: string;
+  resolutionState: ConflictResolutionState;
+  resolvedAt: string | null;
+}
+
+export interface SyncWorkerLeaseRecord {
+  namespaceKey: string;
+  generationId: string;
+  accountId: string;
+  leaseName: string;
+  ownerId: string;
+  acquiredAt: string;
+  renewedAt: string;
+  expiresAt: string;
 }
 
 export type RestoreSessionStatus = 'created' | 'validating' | 'staged' | 'committing' | 'committed' | 'failed' | 'cancelled';
@@ -280,7 +329,12 @@ export interface EntityTombstoneInput {
   timestamp?: string;
 }
 
-export type EntityMutationInput<T = unknown> = EntityCreateInput<T> | EntityUpdateInput<T> | EntityTombstoneInput;
+export interface EntityRestoreInput<T = unknown> extends EntityMutationCommon<T> {
+  mode: 'restore';
+  expectedRevision: number;
+}
+
+export type EntityMutationInput<T = unknown> = EntityCreateInput<T> | EntityUpdateInput<T> | EntityTombstoneInput | EntityRestoreInput<T>;
 
 export interface EntityListOptions {
   domain: string;
@@ -320,6 +374,8 @@ export interface AcknowledgeOutboxInput {
   workerId: string;
   now: string;
   remoteMutationRef?: string | null;
+  acknowledgedRevision?: number | null;
+  serverCommittedAt?: string | null;
 }
 
 export interface FailOutboxInput {
@@ -336,6 +392,50 @@ export interface OutboxListInput {
   domain?: string;
   entityId?: string;
   limit: number;
+}
+
+export interface AdvanceCheckpointInput {
+  provider: string;
+  stream: string;
+  checkpointValue: string;
+  sequence: number;
+  serverEpoch: string | null;
+  now: string;
+  testOnlyAbort?: boolean;
+}
+
+export interface InvalidateCheckpointInput {
+  provider: string;
+  stream: string;
+  reason: string;
+  now: string;
+}
+
+export interface RecordConflictInput {
+  conflictId: string;
+  mutationId?: string | null;
+  domain: string;
+  entityId: string;
+  localCandidate: unknown;
+  remoteCandidate: unknown;
+  remoteMetadata?: Readonly<Record<string, unknown>> | null;
+  localRevision: number;
+  serverRevision?: number | null;
+  conflictType: string;
+  now: string;
+}
+
+export interface ResolveConflictInput {
+  conflictId: string;
+  resolutionState: Exclude<ConflictResolutionState, 'unresolved'>;
+  now: string;
+}
+
+export interface WorkerLeaseInput {
+  leaseName: string;
+  ownerId: string;
+  now: string;
+  durationMs: number;
 }
 
 export type OutboxStatusCounts = Readonly<Record<OutboxStatus, number>>;
