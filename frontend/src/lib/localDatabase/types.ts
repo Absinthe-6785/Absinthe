@@ -204,9 +204,12 @@ export interface SyncWorkerLeaseRecord {
   accountId: string;
   leaseName: string;
   ownerId: string;
+  leaseToken: string;
+  leaseEpoch: number;
   acquiredAt: string;
   renewedAt: string;
   expiresAt: string;
+  releasedAt: string | null;
 }
 
 export type RestoreSessionStatus = 'created' | 'validating' | 'staged' | 'committing' | 'committed' | 'failed' | 'cancelled';
@@ -404,6 +407,30 @@ export interface AdvanceCheckpointInput {
   testOnlyAbort?: boolean;
 }
 
+export interface DurableRemoteEntityApply<T = unknown> {
+  expectedLocalRevision: number | null;
+  entity: LocalEntityEnvelope<T>;
+}
+
+export interface CommitRemoteEntityBatchInput<T = unknown> {
+  namespaceKey: string;
+  generationId: string;
+  accountId: string;
+  domain: string;
+  provider: string;
+  checkpointValue: string;
+  sequence: number;
+  serverEpoch: string | null;
+  now: string;
+  entities: ReadonlyArray<DurableRemoteEntityApply<T>>;
+  testOnlyAbortAt?: 'before_checkpoint' | 'after_checkpoint';
+}
+
+export interface CommittedRemoteEntityBatch<T = unknown> {
+  entities: LocalEntityEnvelope<T>[];
+  checkpoint: SyncCheckpointRecord;
+}
+
 export interface InvalidateCheckpointInput {
   provider: string;
   stream: string;
@@ -436,6 +463,15 @@ export interface WorkerLeaseInput {
   ownerId: string;
   now: string;
   durationMs: number;
+}
+
+export interface RenewWorkerLeaseInput extends WorkerLeaseInput { leaseToken: string }
+
+export interface ReleaseWorkerLeaseInput {
+  leaseName: string;
+  ownerId: string;
+  leaseToken: string;
+  now: string;
 }
 
 export type OutboxStatusCounts = Readonly<Record<OutboxStatus, number>>;

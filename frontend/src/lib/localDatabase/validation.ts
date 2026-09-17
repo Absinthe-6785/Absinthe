@@ -1,7 +1,7 @@
 import { LocalDatabaseError } from './errors';
 import { hashCanonicalPayload } from './canonicalPayload';
 import { validateSafeIdentifier } from './namespace';
-import { deriveOutboxIdempotencyKey, validOutboxIdempotencyKey } from './outboxIdentity';
+import { deriveOutboxIdempotencyKey, deriveOutboxMutationId, validOutboxIdempotencyKey } from './outboxIdentity';
 import { LOCAL_DATABASE_VERSION } from './types';
 import type {
   AttachmentStateRecord, DatabaseMetaRecord, GenerationRecord, LegacyMigrationProvenance, LocalEntityEnvelope, MigrationStateRecord, OutboxRecord,
@@ -218,6 +218,11 @@ export function validateOutboxRecord(value: OutboxRecord): void {
                 && value.remoteMutationRef === null && value.lastErrorCode === null
               : false;
   const expectedIdempotencyKey = deriveOutboxIdempotencyKey(value);
+  const expectedMutationId = v5 ? deriveOutboxMutationId({
+    namespaceKey: value.namespaceKey, generationId: value.generationId, domain: value.domain,
+    entityId: value.entityId, localRevision: value.localRevision, operation: value.operation,
+    payloadHash: value.payloadHash!,
+  }) : null;
   const deliveryBlockValid = value.deliveryBlockCode === undefined || value.deliveryBlockCode === null
     || value.deliveryBlockCode === 'REMOTE_RESURRECTION_UNSUPPORTED';
   const resurrection = value.resurrection ?? null;
@@ -257,7 +262,7 @@ export function validateOutboxRecord(value: OutboxRecord): void {
     || value.acknowledgedRevision === null && value.serverCommittedAt === null;
   if (!['upsert', 'tombstone', 'restore'].includes(value.operation)
     || !validOutboxIdempotencyKey(value.idempotencyKey) || value.idempotencyKey !== expectedIdempotencyKey
-    || !validMutationId(value.mutationId)
+    || !validMutationId(value.mutationId) || v5 && value.mutationId !== expectedMutationId
     || !Number.isSafeInteger(value.localRevision) || value.localRevision < 1
     || (value.baseRevision !== null && (!Number.isSafeInteger(value.baseRevision) || value.baseRevision < 0))
     || !validOutboxChronology(value)
@@ -310,9 +315,13 @@ export function validateWorkerLease(value: SyncWorkerLeaseRecord): void {
   for (const item of [value.accountId, value.leaseName, value.ownerId]) {
     if (typeof item !== 'string' || !SAFE_CODE.test(item)) throw new LocalDatabaseError('INVALID_RESERVED_RECORD', 'validate_worker_lease');
   }
-  if (!validTimestamp(value.acquiredAt) || !validTimestamp(value.renewedAt) || !validTimestamp(value.expiresAt)
+  if (!/^lease\.[a-f0-9]{64}$/.test(value.leaseToken)
+    || !Number.isSafeInteger(value.leaseEpoch) || value.leaseEpoch < 1
+    || !validTimestamp(value.acquiredAt) || !validTimestamp(value.renewedAt) || !validTimestamp(value.expiresAt)
+    || value.releasedAt !== null && !validTimestamp(value.releasedAt)
     || Date.parse(value.renewedAt) < Date.parse(value.acquiredAt)
-    || Date.parse(value.expiresAt) <= Date.parse(value.renewedAt)) {
+    || Date.parse(value.expiresAt) <= Date.parse(value.renewedAt)
+    || value.releasedAt !== null && Date.parse(value.releasedAt) < Date.parse(value.renewedAt)) {
     throw new LocalDatabaseError('INVALID_RESERVED_RECORD', 'validate_worker_lease');
   }
 }

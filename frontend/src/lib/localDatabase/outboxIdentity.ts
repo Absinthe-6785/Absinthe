@@ -51,29 +51,33 @@ export function sha256Hex(value: string): string {
   return [...hash].map(part => part.toString(16).padStart(8, '0')).join('');
 }
 
-export function deriveOutboxIdempotencyKey(input: {
+export interface OutboxIdentityTuple {
   namespaceKey: string;
   generationId: string;
   domain: string;
   entityId: string;
   localRevision: number;
   operation: OutboxOperation;
-}): string {
-  const encoded = JSON.stringify([
-    'absinthe-outbox-v1', input.namespaceKey, input.generationId, input.domain,
-    input.entityId, input.localRevision, input.operation,
-  ]);
+  payloadHash?: string | null;
+}
+
+export type OutboxIdentityInput = OutboxIdentityTuple & { payloadHash: string };
+
+function identityTuple(input: OutboxIdentityTuple, operation: string): readonly unknown[] {
+  const base = [input.namespaceKey, input.generationId, input.domain, input.entityId, input.localRevision, input.operation] as const;
+  if (input.payloadHash === undefined || input.payloadHash === null) return ['absinthe-outbox-v1', ...base];
+  if (!/^[a-f0-9]{64}$/.test(input.payloadHash)) throw new LocalDatabaseError('INVALID_OUTBOX', operation);
+  return ['absinthe-outbox-v2', ...base, input.payloadHash];
+}
+
+export function deriveOutboxIdempotencyKey(input: OutboxIdentityTuple): string {
+  const encoded = JSON.stringify(identityTuple(input, 'derive_idempotency_key'));
   return `${IDEMPOTENCY_PREFIX}${sha256Hex(encoded)}`;
 }
 
-export type OutboxIdentityInput = Parameters<typeof deriveOutboxIdempotencyKey>[0];
-
-/** A deterministic UUID-shaped mutation identity derived from the same immutable entity revision tuple. */
+/** A deterministic UUID-shaped mutation identity bound to the immutable revision tuple and payload hash. */
 export function deriveOutboxMutationId(input: OutboxIdentityInput): string {
-  const digest = sha256Hex(JSON.stringify([
-    'absinthe-mutation-v1', input.namespaceKey, input.generationId, input.domain,
-    input.entityId, input.localRevision, input.operation,
-  ]));
+  const digest = sha256Hex(JSON.stringify(['absinthe-mutation-v2', ...identityTuple(input, 'derive_mutation_id').slice(1)]));
   return `mut.${digest.slice(0, 8)}-${digest.slice(8, 12)}-5${digest.slice(13, 16)}-8${digest.slice(17, 20)}-${digest.slice(20, 32)}`;
 }
 

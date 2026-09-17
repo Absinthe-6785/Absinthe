@@ -5,9 +5,9 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   LOCAL_DATABASE_NAME, LOCAL_DATABASE_STORES, LOCAL_DATABASE_VERSION,
   acknowledgeOutboxRecord, calculateRetryAvailableAt, closeLocalDatabase,
-  createDormantLocalDatabaseCapability, deriveOutboxIdempotencyKey, deriveOutboxMutationId,
+  canonicalPayloadSnapshot, createDormantLocalDatabaseCapability, deriveOutboxIdempotencyKey, deriveOutboxMutationId,
   hashCanonicalPayload, openLocalDatabase,
-  type LocalDatabaseNamespace, type LocalDatabaseRepository,
+  type LocalDatabaseNamespace, type LocalDatabaseRepository, type LocalEntityEnvelope,
 } from './index';
 
 const capability = createDormantLocalDatabaseCapability('test');
@@ -35,6 +35,24 @@ function rawOpen(factory: IDBFactory): Promise<IDBDatabase> {
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
+}
+
+function remoteEntity<T>(
+  value: LocalDatabaseRepository,
+  domain: string,
+  entityId: string,
+  record: T,
+  revision = 1,
+  createdAt = T0,
+): LocalEntityEnvelope<T> {
+  return {
+    namespaceKey: value.namespaceKey, generationId: value.namespace.generationId, accountId: value.namespace.userId,
+    domain, entityId, record: canonicalPayloadSnapshot(record), revision, localRevision: revision,
+    serverRevision: revision + 10, createdAt, updatedAt: T1, deletedAt: null, isDeleted: false,
+    deletionState: 'active', ownerId: value.namespace.userId, contentHash: hashCanonicalPayload(record),
+    pendingMutationId: null, lastRemoteMutationRef: `remote-${entityId}-${revision}`,
+    source: { kind: 'remote', reference: 'supabase' }, restoreProvenance: null,
+  };
 }
 
 afterEach(() => {
@@ -107,6 +125,22 @@ describe('REL-05D database, account namespace, and atomic entity/outbox invarian
       mutation: { mode: 'create', domain: 'notes', entityId: 'secret', record: { access_token: 'not-durable' } }, now: T0,
     })).rejects.toMatchObject({ code: 'INVALID_ENTITY' });
     expect(await left.getEntity('notes', 'secret')).toBeNull();
+
+    const hostile = JSON.parse('{"__proto__":{"value":"alpha"},"constructor":"ctor","prototype":"proto"}') as Record<string, unknown>;
+    const hostileCommit = await left.commitLocalMutation({
+      mutation: { mode: 'create', domain: 'notes', entityId: 'hostile-keys', record: hostile }, now: T0,
+    });
+    const persisted = await left.getEntity<Record<string, unknown>>('notes', 'hostile-keys');
+    expect(Object.prototype.hasOwnProperty.call(persisted?.record, '__proto__')).toBe(true);
+    expect(persisted?.record.__proto__).toEqual({ value: 'alpha' });
+    expect(persisted?.record.constructor).toBe('ctor');
+    expect(persisted?.record.prototype).toBe('proto');
+    const changed = JSON.parse('{"__proto__":{"value":"beta"},"constructor":"ctor","prototype":"proto"}') as Record<string, unknown>;
+    const changedConstructor = JSON.parse('{"__proto__":{"value":"alpha"},"constructor":"ctor-2","prototype":"proto"}') as Record<string, unknown>;
+    const changedPrototype = JSON.parse('{"__proto__":{"value":"alpha"},"constructor":"ctor","prototype":"proto-2"}') as Record<string, unknown>;
+    expect(hashCanonicalPayload(hostile)).not.toBe(hashCanonicalPayload(changed));
+    expect(new Set([hostile, changed, changedConstructor, changedPrototype].map(hashCanonicalPayload))).toHaveProperty('size', 4);
+    expect(hostileCommit.entity.contentHash).toBe(hashCanonicalPayload(hostile));
   });
 
   it('fails closed when a v5 durable record loses or changes its account authority', async () => {
@@ -192,14 +226,41 @@ describe('REL-05D outbox state machine and ordering', () => {
     expect(recovered[0]).toMatchObject({ mutationId: second.outbox.mutationId, status: 'claimed', leaseOwner: 'worker-b', attemptCount: 2 });
   });
 
-  it('derives mutation and idempotency identities from the immutable entity revision tuple', () => {
+  it('binds deterministic mutation and idempotency identities to canonical payload content', () => {
+    const payloadHash = hashCanonicalPayload({ kind: 'entity_snapshot', record: { body: 'same' } });
     const identity = {
       namespaceKey: 'namespace', generationId: 'generation', domain: 'notes', entityId: 'note-1',
-      localRevision: 7, operation: 'restore' as const,
+      localRevision: 7, operation: 'restore' as const, payloadHash,
     };
     expect(deriveOutboxMutationId(identity)).toBe(deriveOutboxMutationId({ ...identity }));
     expect(deriveOutboxIdempotencyKey(identity)).toBe(deriveOutboxIdempotencyKey({ ...identity }));
     expect(deriveOutboxMutationId({ ...identity, localRevision: 8 })).not.toBe(deriveOutboxMutationId(identity));
+    const changed = { ...identity, payloadHash: hashCanonicalPayload({ kind: 'entity_snapshot', record: { body: 'different' } }) };
+    expect(deriveOutboxMutationId(changed)).not.toBe(deriveOutboxMutationId(identity));
+    expect(deriveOutboxIdempotencyKey(changed)).not.toBe(deriveOutboxIdempotencyKey(identity));
+  });
+
+  it('rejects a persisted v5 outbox whose payload hash no longer binds its identities', async () => {
+    const factory = new IDBFactory(); const value = await repository(factory);
+    const committed = await value.commitLocalMutation({
+      mutation: { mode: 'create', domain: 'notes', entityId: 'tampered', record: { body: 'before' } }, now: T0,
+    });
+    const db = await rawOpen(factory);
+    const transaction = db.transaction(LOCAL_DATABASE_STORES.outbox, 'readwrite');
+    const store = transaction.objectStore(LOCAL_DATABASE_STORES.outbox);
+    const request = store.get([value.namespaceKey, namespace.generationId, committed.outbox.mutationId]);
+    request.onsuccess = () => {
+      const record = request.result;
+      record.payload = { kind: 'entity_snapshot', record: { body: 'after' } };
+      record.payloadHash = hashCanonicalPayload(record.payload);
+      store.put(record);
+    };
+    await new Promise<void>((resolve, reject) => {
+      transaction.oncomplete = () => resolve(); transaction.onabort = () => reject(transaction.error);
+    });
+    db.close();
+    await expect(value.getOutboxRecord(committed.outbox.mutationId))
+      .rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
   });
 });
 
@@ -232,6 +293,64 @@ describe('REL-05D checkpoints, conflicts, and worker ownership', () => {
     expect(await other.getSyncCheckpoint('supabase', 'notes')).toBeNull();
   });
 
+  it('atomically commits a bounded remote entity batch with its domain checkpoint', async () => {
+    const factory = new IDBFactory(); const value = await repository(factory);
+    const entity = remoteEntity(value, 'notes', 'remote-1', { body: 'server' });
+    const committed = await value.commitRemoteEntityBatch({
+      namespaceKey: value.namespaceKey, generationId: namespace.generationId, accountId: namespace.userId,
+      domain: 'notes', provider: 'supabase', checkpointValue: 'cursor-1', sequence: 1,
+      serverEpoch: 'epoch-1', now: T1, entities: [{ expectedLocalRevision: null, entity }],
+    });
+    expect(committed).toEqual({ entities: [entity], checkpoint: expect.objectContaining({
+      provider: 'supabase', stream: 'notes', checkpointValue: 'cursor-1', sequence: 1,
+    }) });
+    expect(await value.getEntity('notes', 'remote-1')).toEqual(entity);
+    expect(await value.getSyncCheckpoint('supabase', 'notes')).toEqual(committed.checkpoint);
+  });
+
+  it('rolls back remote entity writes before and after checkpoint insertion', async () => {
+    const factory = new IDBFactory(); const value = await repository(factory);
+    for (const [entityId, testOnlyAbortAt] of [
+      ['before', 'before_checkpoint'], ['after', 'after_checkpoint'],
+    ] as const) {
+      await expect(value.commitRemoteEntityBatch({
+        namespaceKey: value.namespaceKey, generationId: namespace.generationId, accountId: namespace.userId,
+        domain: 'notes', provider: 'supabase', checkpointValue: `cursor-${entityId}`, sequence: 1,
+        serverEpoch: 'epoch-1', now: T1,
+        entities: [{ expectedLocalRevision: null, entity: remoteEntity(value, 'notes', entityId, { body: entityId }) }],
+        testOnlyAbortAt,
+      })).rejects.toMatchObject({ code: 'TRANSACTION_ABORTED' });
+      expect(await value.getEntity('notes', entityId)).toBeNull();
+      expect(await value.getSyncCheckpoint('supabase', 'notes')).toBeNull();
+    }
+  });
+
+  it('fences remote batches by namespace/generation and isolates account/domain checkpoints', async () => {
+    const factory = new IDBFactory(); const accountA = await repository(factory);
+    const base = {
+      namespaceKey: accountA.namespaceKey, generationId: namespace.generationId, accountId: namespace.userId,
+      domain: 'notes', provider: 'supabase', checkpointValue: 'cursor-1', sequence: 1,
+      serverEpoch: 'epoch-1', now: T1,
+      entities: [{ expectedLocalRevision: null, entity: remoteEntity(accountA, 'notes', 'scoped', { body: 'server' }) }],
+    };
+    await expect(accountA.commitRemoteEntityBatch({ ...base, namespaceKey: 'wrong-namespace' }))
+      .rejects.toMatchObject({ code: 'NAMESPACE_MISMATCH' });
+    await expect(accountA.commitRemoteEntityBatch({ ...base, generationId: 'generation-stale' }))
+      .rejects.toMatchObject({ code: 'STALE_GENERATION' });
+    expect(await accountA.getEntity('notes', 'scoped')).toBeNull();
+    expect(await accountA.getSyncCheckpoint('supabase', 'notes')).toBeNull();
+    await accountA.commitRemoteEntityBatch(base);
+    await accountA.commitRemoteEntityBatch({
+      ...base, domain: 'health', checkpointValue: 'health-cursor',
+      entities: [{ expectedLocalRevision: null, entity: remoteEntity(accountA, 'health', 'health-1', { value: 7 }) }],
+    });
+    expect(await accountA.getSyncCheckpoint('supabase', 'notes')).toMatchObject({ checkpointValue: 'cursor-1' });
+    expect(await accountA.getSyncCheckpoint('supabase', 'health')).toMatchObject({ checkpointValue: 'health-cursor' });
+    const accountB = await repository(factory, { ...namespace, userId: 'account-b' });
+    expect(await accountB.getSyncCheckpoint('supabase', 'notes')).toBeNull();
+    expect(await accountB.getEntity('notes', 'scoped')).toBeNull();
+  });
+
   it('preserves both conflict candidates as detached, account-scoped evidence', async () => {
     const factory = new IDBFactory(); const accountA = await repository(factory);
     const localCandidate = { body: 'local' }; const remoteCandidate = { body: 'remote' };
@@ -257,19 +376,36 @@ describe('REL-05D checkpoints, conflicts, and worker ownership', () => {
 
   it('acquires, renews, releases, and reclaims expired account-scoped worker leases', async () => {
     const factory = new IDBFactory(); const accountA = await repository(factory);
-    expect(await accountA.acquireWorkerLease({ leaseName: 'sync', ownerId: 'worker-a', now: T0, durationMs: 1_000 }))
-      .toMatchObject({ ownerId: 'worker-a', expiresAt: T1 });
+    const initial = await accountA.acquireWorkerLease({ leaseName: 'sync', ownerId: 'worker-a', now: T0, durationMs: 1_000 });
+    expect(initial).toMatchObject({ ownerId: 'worker-a', expiresAt: T1, leaseEpoch: 1, releasedAt: null });
     await expect(accountA.acquireWorkerLease({ leaseName: 'sync', ownerId: 'worker-b', now: T0, durationMs: 1_000 }))
       .rejects.toMatchObject({ code: 'WORKER_LEASE_HELD' });
-    await expect(accountA.renewWorkerLease({ leaseName: 'sync', ownerId: 'worker-b', now: T0, durationMs: 1_000 }))
+    await expect(accountA.renewWorkerLease({
+      leaseName: 'sync', ownerId: 'worker-b', leaseToken: initial.leaseToken, now: T0, durationMs: 1_000,
+    }))
       .rejects.toMatchObject({ code: 'LEASE_OWNER_MISMATCH' });
-    expect(await accountA.renewWorkerLease({ leaseName: 'sync', ownerId: 'worker-a', now: '2026-09-17T00:00:00.500Z', durationMs: 1_000 }))
+    expect(await accountA.renewWorkerLease({
+      leaseName: 'sync', ownerId: 'worker-a', leaseToken: initial.leaseToken,
+      now: '2026-09-17T00:00:00.500Z', durationMs: 1_000,
+    }))
       .toMatchObject({ ownerId: 'worker-a', expiresAt: '2026-09-17T00:00:01.500Z' });
-    expect(await accountA.acquireWorkerLease({ leaseName: 'sync', ownerId: 'worker-b', now: T2, durationMs: 1_000 }))
-      .toMatchObject({ ownerId: 'worker-b' });
-    await expect(accountA.releaseWorkerLease('sync', 'worker-a')).rejects.toMatchObject({ code: 'LEASE_OWNER_MISMATCH' });
-    await accountA.releaseWorkerLease('sync', 'worker-b');
+    const reclaimed = await accountA.acquireWorkerLease({ leaseName: 'sync', ownerId: 'worker-a', now: T2, durationMs: 1_000 });
+    expect(reclaimed).toMatchObject({ ownerId: 'worker-a', leaseEpoch: 2 });
+    expect(reclaimed.leaseToken).not.toBe(initial.leaseToken);
+    await expect(accountA.renewWorkerLease({
+      leaseName: 'sync', ownerId: 'worker-a', leaseToken: initial.leaseToken, now: T2, durationMs: 1_000,
+    })).rejects.toMatchObject({ code: 'LEASE_FENCE_MISMATCH' });
+    await expect(accountA.releaseWorkerLease({
+      leaseName: 'sync', ownerId: 'worker-a', leaseToken: initial.leaseToken, now: T2,
+    })).rejects.toMatchObject({ code: 'LEASE_FENCE_MISMATCH' });
+    await accountA.releaseWorkerLease({
+      leaseName: 'sync', ownerId: 'worker-a', leaseToken: reclaimed.leaseToken, now: T2,
+    });
     expect(await accountA.getWorkerLease('sync')).toBeNull();
+
+    const reacquired = await accountA.acquireWorkerLease({ leaseName: 'sync', ownerId: 'worker-a', now: T2, durationMs: 1_000 });
+    expect(reacquired).toMatchObject({ leaseEpoch: 3 });
+    expect(reacquired.leaseToken).not.toBe(reclaimed.leaseToken);
 
     const accountB = await repository(factory, { ...namespace, userId: 'account-b' });
     await expect(accountB.acquireWorkerLease({ leaseName: 'sync', ownerId: 'worker-c', now: T0, durationMs: 1_000 }))

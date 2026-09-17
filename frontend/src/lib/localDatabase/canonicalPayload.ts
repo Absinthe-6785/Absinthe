@@ -22,7 +22,7 @@ function canonicalValue(value: unknown, ancestors: Set<object>, depth: number): 
       throw new LocalDatabaseError('INVALID_ENTITY', 'canonical_payload_object');
     }
     const source = value as Record<string, unknown>;
-    const result: Record<string, unknown> = {};
+    const result = Object.create(null) as Record<string, unknown>;
     for (const key of Object.keys(source).sort()) {
       if (SECRET_KEY.test(key)) throw new LocalDatabaseError('INVALID_ENTITY', 'persisted_secret_key');
       const item = source[key];

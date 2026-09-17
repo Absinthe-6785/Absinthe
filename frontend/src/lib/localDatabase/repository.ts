@@ -8,7 +8,7 @@ import {
 } from './legacyNotesAuthority';
 import { namespaceFingerprint, validateNamespace, validateSafeIdentifier } from './namespace';
 import { canonicalPayloadSnapshot, hashCanonicalPayload } from './canonicalPayload';
-import { deriveOutboxIdempotencyKey, generateOutboxMutationId, type OutboxIdentityInput } from './outboxIdentity';
+import { deriveOutboxIdempotencyKey, deriveOutboxMutationId, generateOutboxMutationId, sha256Hex } from './outboxIdentity';
 import {
   acknowledgeOutboxRecord, claimOutboxRecord, conflictOutboxRecord, permanentlyFailOutboxRecord,
   scheduleOutboxRetry, supersedeOutboxRecord,
@@ -48,14 +48,16 @@ import {
 import {
   LOCAL_DATABASE_NAME, LOCAL_DATABASE_VERSION, LOCAL_SCHEMA_VERSION,
   type AcknowledgeOutboxInput, type AdvanceCheckpointInput, type AttachmentStateRecord, type ClaimOutboxInput,
+  type CommitRemoteEntityBatchInput, type CommittedRemoteEntityBatch,
   type CommitLocalMutationInput, type CommittedLocalMutation, type DatabaseMetaRecord, type EntityListOptions,
   type EntityCreateInput, type EntityRestoreInput, type EntityUpdateInput, type FailOutboxInput, type GenerationReason,
   type InvalidateCheckpointInput,
   type GenerationRecord, type GenerationStatus, type LocalDatabaseNamespace,
   type LocalEntityEnvelope, type MigrationStateRecord, type OutboxRecord,
-  type RecordConflictInput, type ResolveConflictInput,
+  type RecordConflictInput, type ResolveConflictInput, type OutboxOperation,
   type OutboxListInput, type OutboxStatus, type OutboxStatusCounts, type ResetOutboxInput,
   type RestoreSessionRecord, type RetryOutboxInput, type SafeSourceReference, type SyncCheckpointRecord,
+  type ReleaseWorkerLeaseInput, type RenewWorkerLeaseInput,
   type SyncConflictRecord, type SyncWorkerLeaseRecord, type WorkerLeaseInput,
 } from './types';
 import {
@@ -118,17 +120,18 @@ function workerLeaseKey(namespaceKey: string, generationId: string, leaseName: s
 
 interface ConnectionState { closed: boolean; stale: boolean }
 const MAX_OUTBOX_SCAN = 10_000;
+const MAX_REMOTE_ENTITY_BATCH = 1_000;
 
 export class LocalDatabaseRepository {
   readonly namespace: LocalDatabaseNamespace;
   readonly namespaceKey: string;
   private readonly db: IDBDatabase;
   private readonly state: ConnectionState;
-  private readonly mutationIdFactory: (identity?: OutboxIdentityInput) => string;
+  private readonly mutationIdFactory: () => string;
   private readonly clock: () => string;
 
   constructor(db: IDBDatabase, namespace: LocalDatabaseNamespace, namespaceKey: string, state: ConnectionState,
-    mutationIdFactory: (identity?: OutboxIdentityInput) => string, clock: () => string) {
+    mutationIdFactory: () => string, clock: () => string) {
     this.db = db; this.namespace = Object.freeze({ ...namespace }); this.namespaceKey = namespaceKey; this.state = state;
     this.mutationIdFactory = mutationIdFactory; this.clock = clock;
   }
@@ -313,7 +316,7 @@ export class LocalDatabaseRepository {
     }
     if (mutation.mode !== 'tombstone') validateSafeSource(mutation.source);
     const timestamp = now(input.now);
-    const operation = mutation.mode === 'tombstone' ? 'tombstone' : mutation.mode === 'restore' ? 'restore' : 'upsert';
+    const operation: OutboxOperation = mutation.mode === 'tombstone' ? 'tombstone' : mutation.mode === 'restore' ? 'restore' : 'upsert';
     if (mutation.mode !== 'create' && mutation.expectedRevision === undefined) {
       throw new LocalDatabaseError('EXPECTED_REVISION_REQUIRED', 'commit_local_mutation');
     }
@@ -321,15 +324,6 @@ export class LocalDatabaseRepository {
     if (!Number.isSafeInteger(proposedRevision) || proposedRevision < 1) {
       throw new LocalDatabaseError('INVALID_ENTITY', 'commit_local_mutation');
     }
-    const identity: OutboxIdentityInput = {
-      namespaceKey: this.namespaceKey, generationId: this.namespace.generationId,
-      domain: mutation.domain, entityId: mutation.entityId, localRevision: proposedRevision, operation,
-    };
-    const mutationId = this.mutationIdFactory(identity);
-    if (!/^mut\.[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(mutationId)) {
-      throw new LocalDatabaseError('INVALID_OUTBOX', 'commit_local_mutation');
-    }
-    const idempotencyKey = deriveOutboxIdempotencyKey(identity);
     const inputSnapshot = mutation.mode === 'tombstone' ? null : canonicalPayloadSnapshot(mutation.record);
     const stores: string[] = [LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations,
       LOCAL_DATABASE_STORES.entities, LOCAL_DATABASE_STORES.outbox];
@@ -370,31 +364,39 @@ export class LocalDatabaseRepository {
         deletionState: isTombstone ? 'deleted' : 'active',
         ownerId: mutation.mode === 'tombstone' || mutation.ownerId === undefined ? current?.ownerId ?? null : mutation.ownerId,
         contentHash: hashCanonicalPayload(isTombstone ? current!.record : inputSnapshot),
-        pendingMutationId: mutationId,
+        pendingMutationId: null,
         lastRemoteMutationRef: current?.lastRemoteMutationRef ?? null,
         source: mutation.mode === 'tombstone' || mutation.source === undefined ? current?.source ?? null : mutation.source,
         restoreProvenance: current?.restoreProvenance ?? null,
       };
       validateEntityEnvelope(envelope);
-      entityStore.put(envelope);
       if (envelope.revision !== proposedRevision) throw new LocalDatabaseError('STALE_REVISION', 'commit_local_mutation');
       if (input.testOnlyAbortAt === 'before_outbox') throw new LocalDatabaseError('INVALID_OUTBOX', 'commit_local_mutation');
+      const payload = isTombstone
+        ? { kind: 'tombstone' as const, entityId: mutation.entityId, deletedAt: envelope.deletedAt!, revision: envelope.revision }
+        : { kind: 'entity_snapshot' as const, record: canonicalPayloadSnapshot(envelope.record) };
+      const payloadHash = hashCanonicalPayload(payload);
+      const identity = {
+        namespaceKey: this.namespaceKey, generationId: this.namespace.generationId,
+        domain: mutation.domain, entityId: mutation.entityId, localRevision: proposedRevision, operation, payloadHash,
+      };
+      const mutationId = deriveOutboxMutationId(identity);
+      const idempotencyKey = deriveOutboxIdempotencyKey(identity);
+      envelope.pendingMutationId = mutationId;
+      validateEntityEnvelope(envelope);
+      entityStore.put(envelope);
       const outbox: OutboxRecord = {
         namespaceKey: this.namespaceKey, generationId: this.namespace.generationId,
         accountId: this.namespace.userId, deviceId: this.namespace.deviceId,
         domain: mutation.domain, entityId: mutation.entityId, mutationId, idempotencyKey, operation,
         baseRevision: actualRevision || null, localRevision: envelope.revision,
-        payloadMode: 'inline', payloadHash: '',
-        payload: isTombstone
-          ? { kind: 'tombstone', entityId: mutation.entityId, deletedAt: envelope.deletedAt!, revision: envelope.revision }
-          : { kind: 'entity_snapshot', record: canonicalPayloadSnapshot(envelope.record) },
+        payloadMode: 'inline', payloadHash, payload,
         createdAt: timestamp, updatedAt: timestamp, availableAt: timestamp,
         attemptCount: 0, status: 'pending', lastAttemptAt: null, lastErrorCode: null,
         leaseOwner: null, leaseExpiresAt: null, acknowledgedAt: null, acknowledgedBy: null, remoteMutationRef: null,
         acknowledgedRevision: null, serverCommittedAt: null,
         supersededByMutationId: null,
       };
-      outbox.payloadHash = hashCanonicalPayload(outbox.payload);
       validateOutboxRecord(outbox);
       transaction.objectStore(LOCAL_DATABASE_STORES.outbox).add(outbox);
       if (input.testOnlyAbortAt === 'after_writes') {
@@ -861,38 +863,119 @@ export class LocalDatabaseRepository {
     const done = transactionCompletion(transaction, 'advance_checkpoint');
     try {
       await this.ensureActive(transaction);
-      const store = transaction.objectStore(LOCAL_DATABASE_STORES.syncCheckpoints);
-      const key = checkpointKey(this.namespaceKey, this.namespace.generationId, input.provider, input.stream);
-      const current = await requestResult(store.get(key)) as SyncCheckpointRecord | undefined;
-      if (current) {
-        validateCheckpoint(current);
-        if (current.accountId !== undefined && current.accountId !== this.namespace.userId) {
-          throw new LocalDatabaseError('NAMESPACE_MISMATCH', 'advance_checkpoint');
-        }
-        const currentSequence = current.sequence ?? 0;
-        const invalidated = current.invalidatedAt != null;
-        if (!invalidated && current.serverEpoch !== input.serverEpoch) {
-          throw new LocalDatabaseError('SERVER_EPOCH_MISMATCH', 'advance_checkpoint');
-        }
-        if (!invalidated && input.sequence < currentSequence) {
-          throw new LocalDatabaseError('CHECKPOINT_REGRESSION', 'advance_checkpoint');
-        }
-        if (!invalidated && input.sequence === currentSequence) {
-          if (current.checkpointValue === input.checkpointValue) { await done; return current; }
-          throw new LocalDatabaseError('CHECKPOINT_REGRESSION', 'advance_checkpoint');
-        }
-      }
-      const record: SyncCheckpointRecord = {
-        namespaceKey: this.namespaceKey, generationId: this.namespace.generationId, accountId: this.namespace.userId,
-        provider: input.provider, stream: input.stream, checkpointValue: input.checkpointValue,
-        sequence: input.sequence, serverEpoch: input.serverEpoch, updatedAt: timestamp,
-        invalidatedAt: null, invalidationReason: null,
-      };
-      validateCheckpoint(record); store.put(record);
+      const record = await this.advanceCheckpointInTransaction(transaction, input, timestamp, true, 'advance_checkpoint');
       if (input.testOnlyAbort) { transaction.abort(); throw new LocalDatabaseError('TRANSACTION_ABORTED', 'advance_checkpoint'); }
       await done; return record;
     } catch (error) {
       abortQuietly(transaction); await done.catch(() => undefined); throw localDatabaseError(error, 'advance_checkpoint');
+    }
+  }
+
+  private async advanceCheckpointInTransaction(
+    transaction: IDBTransaction,
+    input: Omit<AdvanceCheckpointInput, 'testOnlyAbort'>,
+    timestamp: string,
+    allowIdempotent: boolean,
+    operation: string,
+  ): Promise<SyncCheckpointRecord> {
+    const store = transaction.objectStore(LOCAL_DATABASE_STORES.syncCheckpoints);
+    const key = checkpointKey(this.namespaceKey, this.namespace.generationId, input.provider, input.stream);
+    const current = await requestResult(store.get(key)) as SyncCheckpointRecord | undefined;
+    if (current) {
+      validateCheckpoint(current);
+      if (current.accountId !== undefined && current.accountId !== this.namespace.userId) {
+        throw new LocalDatabaseError('NAMESPACE_MISMATCH', operation);
+      }
+      const currentSequence = current.sequence ?? 0;
+      const invalidated = current.invalidatedAt != null;
+      if (!invalidated && current.serverEpoch !== input.serverEpoch) {
+        throw new LocalDatabaseError('SERVER_EPOCH_MISMATCH', operation);
+      }
+      if (!invalidated && input.sequence < currentSequence) {
+        throw new LocalDatabaseError('CHECKPOINT_REGRESSION', operation);
+      }
+      if (!invalidated && input.sequence === currentSequence) {
+        if (allowIdempotent && current.checkpointValue === input.checkpointValue) return current;
+        throw new LocalDatabaseError('CHECKPOINT_REGRESSION', operation);
+      }
+    }
+    const record: SyncCheckpointRecord = {
+      namespaceKey: this.namespaceKey, generationId: this.namespace.generationId, accountId: this.namespace.userId,
+      provider: input.provider, stream: input.stream, checkpointValue: input.checkpointValue,
+      sequence: input.sequence, serverEpoch: input.serverEpoch, updatedAt: timestamp,
+      invalidatedAt: null, invalidationReason: null,
+    };
+    validateCheckpoint(record); store.put(record); return record;
+  }
+
+  async commitRemoteEntityBatch<T>(input: CommitRemoteEntityBatchInput<T>): Promise<CommittedRemoteEntityBatch<T>> {
+    const operation = 'commit_remote_entity_batch';
+    this.assertOpen(operation);
+    if (input.namespaceKey !== this.namespaceKey || input.accountId !== this.namespace.userId) {
+      throw new LocalDatabaseError('NAMESPACE_MISMATCH', operation);
+    }
+    if (input.generationId !== this.namespace.generationId) throw new LocalDatabaseError('STALE_GENERATION', operation);
+    validateSafeIdentifier(input.domain, operation); validateSafeIdentifier(input.provider, operation);
+    validateSafeIdentifier(input.checkpointValue, operation);
+    if (input.serverEpoch !== null) validateSafeIdentifier(input.serverEpoch, operation);
+    if (!Number.isSafeInteger(input.sequence) || input.sequence < 0
+      || !Array.isArray(input.entities) || input.entities.length > MAX_REMOTE_ENTITY_BATCH) {
+      throw new LocalDatabaseError('INVALID_RESERVED_RECORD', operation);
+    }
+    const timestamp = now(input.now);
+    const seen = new Set<string>();
+    const entities = input.entities.map(item => {
+      const entity = { ...item.entity, record: canonicalPayloadSnapshot(item.entity.record) } as LocalEntityEnvelope<T>;
+      validateEntityEnvelope(entity);
+      if (entity.namespaceKey !== input.namespaceKey || entity.generationId !== input.generationId
+        || entity.accountId !== input.accountId || entity.domain !== input.domain) {
+        throw new LocalDatabaseError('NAMESPACE_MISMATCH', operation);
+      }
+      if (seen.has(entity.entityId)) throw new LocalDatabaseError('INVALID_ENTITY', operation);
+      seen.add(entity.entityId);
+      if (item.expectedLocalRevision !== null
+        && (!Number.isSafeInteger(item.expectedLocalRevision) || item.expectedLocalRevision < 1)) {
+        throw new LocalDatabaseError('STALE_REVISION', operation);
+      }
+      const expectedRevision = (item.expectedLocalRevision ?? 0) + 1;
+      if (entity.revision !== expectedRevision || entity.localRevision !== expectedRevision
+        || entity.serverRevision === null || entity.pendingMutationId !== null
+        || Date.parse(entity.updatedAt) < Date.parse(entity.createdAt)) {
+        throw new LocalDatabaseError('INVALID_ENTITY', operation);
+      }
+      return { expectedLocalRevision: item.expectedLocalRevision, entity };
+    });
+    const transaction = this.db.transaction([
+      LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations,
+      LOCAL_DATABASE_STORES.entities, LOCAL_DATABASE_STORES.syncCheckpoints,
+    ], 'readwrite');
+    const done = transactionCompletion(transaction, operation);
+    try {
+      await this.ensureActive(transaction);
+      const store = transaction.objectStore(LOCAL_DATABASE_STORES.entities);
+      for (const item of entities) {
+        const key = entityKey(this.namespaceKey, this.namespace.generationId, input.domain, item.entity.entityId);
+        const current = await requestResult(store.get(key)) as LocalEntityEnvelope<T> | undefined;
+        if (current) this.validatePersistedEntity(current, operation);
+        if ((current?.revision ?? null) !== item.expectedLocalRevision
+          || current && current.createdAt !== item.entity.createdAt) {
+          throw new LocalDatabaseError('STALE_REVISION', operation);
+        }
+        store.put(item.entity);
+      }
+      if (input.testOnlyAbortAt === 'before_checkpoint') {
+        transaction.abort(); throw new LocalDatabaseError('TRANSACTION_ABORTED', operation);
+      }
+      const checkpoint = await this.advanceCheckpointInTransaction(transaction, {
+        provider: input.provider, stream: input.domain, checkpointValue: input.checkpointValue,
+        sequence: input.sequence, serverEpoch: input.serverEpoch, now: input.now,
+      }, timestamp, entities.length === 0, operation);
+      if (input.testOnlyAbortAt === 'after_checkpoint') {
+        transaction.abort(); throw new LocalDatabaseError('TRANSACTION_ABORTED', operation);
+      }
+      await done; return { entities: entities.map(item => item.entity), checkpoint };
+    } catch (error) {
+      abortQuietly(transaction); await done.catch(() => undefined); throw localDatabaseError(error, operation);
     }
   }
 
@@ -1008,20 +1091,28 @@ export class LocalDatabaseRepository {
 
   async acquireWorkerLease(input: WorkerLeaseInput): Promise<SyncWorkerLeaseRecord> {
     return this.writeWorkerLease('acquire_worker_lease', input, (current, timestamp, expiresAt) => {
-      if (current && Date.parse(current.expiresAt) > Date.parse(timestamp)) {
+      if (current && current.releasedAt === null && Date.parse(current.expiresAt) > Date.parse(timestamp)) {
         throw new LocalDatabaseError('WORKER_LEASE_HELD', 'acquire_worker_lease');
       }
+      const leaseEpoch = (current?.leaseEpoch ?? 0) + 1;
+      if (!Number.isSafeInteger(leaseEpoch)) throw new LocalDatabaseError('INVALID_RESERVED_RECORD', 'acquire_worker_lease');
+      const leaseToken = `lease.${sha256Hex(JSON.stringify([
+        'absinthe-worker-lease-v1', this.namespaceKey, this.namespace.generationId,
+        input.leaseName, input.ownerId, leaseEpoch, timestamp,
+      ]))}`;
       return {
         namespaceKey: this.namespaceKey, generationId: this.namespace.generationId, accountId: this.namespace.userId,
-        leaseName: input.leaseName, ownerId: input.ownerId, acquiredAt: timestamp, renewedAt: timestamp, expiresAt,
+        leaseName: input.leaseName, ownerId: input.ownerId, leaseToken, leaseEpoch,
+        acquiredAt: timestamp, renewedAt: timestamp, expiresAt, releasedAt: null,
       };
     });
   }
 
-  async renewWorkerLease(input: WorkerLeaseInput): Promise<SyncWorkerLeaseRecord> {
+  async renewWorkerLease(input: RenewWorkerLeaseInput): Promise<SyncWorkerLeaseRecord> {
     return this.writeWorkerLease('renew_worker_lease', input, (current, timestamp, expiresAt) => {
-      if (!current) throw new LocalDatabaseError('WORKER_LEASE_NOT_FOUND', 'renew_worker_lease');
+      if (!current || current.releasedAt !== null) throw new LocalDatabaseError('WORKER_LEASE_NOT_FOUND', 'renew_worker_lease');
       if (current.ownerId !== input.ownerId) throw new LocalDatabaseError('LEASE_OWNER_MISMATCH', 'renew_worker_lease');
+      if (current.leaseToken !== input.leaseToken) throw new LocalDatabaseError('LEASE_FENCE_MISMATCH', 'renew_worker_lease');
       if (Date.parse(current.expiresAt) <= Date.parse(timestamp)) throw new LocalDatabaseError('WORKER_LEASE_HELD', 'renew_worker_lease');
       return { ...current, renewedAt: timestamp, expiresAt };
     });
@@ -1053,22 +1144,25 @@ export class LocalDatabaseRepository {
     }
   }
 
-  async releaseWorkerLease(leaseName: string, ownerId: string): Promise<void> {
-    this.assertOpen('release_worker_lease'); validateSafeIdentifier(leaseName, 'release_worker_lease');
-    validateSafeIdentifier(ownerId, 'release_worker_lease');
+  async releaseWorkerLease(input: ReleaseWorkerLeaseInput): Promise<void> {
+    this.assertOpen('release_worker_lease'); validateSafeIdentifier(input.leaseName, 'release_worker_lease');
+    validateSafeIdentifier(input.ownerId, 'release_worker_lease');
+    const timestamp = now(input.now);
     const transaction = this.db.transaction([
       LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations, LOCAL_DATABASE_STORES.workerLeases,
     ], 'readwrite');
     const done = transactionCompletion(transaction, 'release_worker_lease');
     try {
       await this.ensureActive(transaction); const store = transaction.objectStore(LOCAL_DATABASE_STORES.workerLeases);
-      const key = workerLeaseKey(this.namespaceKey, this.namespace.generationId, leaseName);
+      const key = workerLeaseKey(this.namespaceKey, this.namespace.generationId, input.leaseName);
       const current = await requestResult(store.get(key)) as SyncWorkerLeaseRecord | undefined;
-      if (!current) throw new LocalDatabaseError('WORKER_LEASE_NOT_FOUND', 'release_worker_lease');
+      if (!current || current.releasedAt !== null) throw new LocalDatabaseError('WORKER_LEASE_NOT_FOUND', 'release_worker_lease');
       validateWorkerLease(current);
       if (current.accountId !== this.namespace.userId) throw new LocalDatabaseError('NAMESPACE_MISMATCH', 'release_worker_lease');
-      if (current.ownerId !== ownerId) throw new LocalDatabaseError('LEASE_OWNER_MISMATCH', 'release_worker_lease');
-      store.delete(key); await done;
+      if (current.ownerId !== input.ownerId) throw new LocalDatabaseError('LEASE_OWNER_MISMATCH', 'release_worker_lease');
+      if (current.leaseToken !== input.leaseToken) throw new LocalDatabaseError('LEASE_FENCE_MISMATCH', 'release_worker_lease');
+      const released = { ...current, releasedAt: timestamp };
+      validateWorkerLease(released); store.put(released); await done;
     } catch (error) {
       abortQuietly(transaction); await done.catch(() => undefined); throw localDatabaseError(error, 'release_worker_lease');
     }
@@ -1083,7 +1177,7 @@ export class LocalDatabaseRepository {
     )) as SyncWorkerLeaseRecord | undefined;
     await done;
     if (record) { validateWorkerLease(record); if (record.accountId !== this.namespace.userId) throw new LocalDatabaseError('NAMESPACE_MISMATCH', 'get_worker_lease'); }
-    return record ?? null;
+    return record?.releasedAt === null ? record : null;
   }
 
   private async putStagedMetadata<T extends {
@@ -1272,7 +1366,7 @@ export async function openLocalDatabase(
   options: {
     capability: LocalDatabaseCapability;
     indexedDBFactory?: IDBFactory;
-    mutationIdFactory?: (identity?: OutboxIdentityInput) => string;
+    mutationIdFactory?: () => string;
     clock?: () => string;
   },
 ): Promise<LocalDatabaseRepository> {
