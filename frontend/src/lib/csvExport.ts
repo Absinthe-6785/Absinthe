@@ -1,6 +1,7 @@
 import { authFetch } from './supabase';
 import { API_URL } from './config';
 import { isCardioSet, type WorkoutSet } from '../types';
+import { shouldUseDomainRemotePersistence } from './remoteBoundary';
 
 // ── CSV 헬퍼 ──────────────────────────────────────────────────────────────────
 
@@ -134,6 +135,16 @@ export const exportAllToCsv = async ({
   endDate,
   onProgress,
 }: ExportOptions): Promise<void> => {
+  const requiredDomains = [
+    'planner_events',
+    'planner_todos',
+    'planner_routines',
+    'health_workouts',
+    'health_inbody',
+  ] as const;
+  if (requiredDomains.some(domain => !shouldUseDomainRemotePersistence(domain))) {
+    throw new Error('csv_export_remote_persistence_unavailable');
+  }
   const range = { startDate, endDate };
   const allRows: string[] = [
     `# Planner Export — ${startDate} ~ ${endDate}`,

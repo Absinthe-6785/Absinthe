@@ -60,6 +60,7 @@ export const SYNC_DOMAINS = [
   'health_unsaved_drafts',
   'recipe_drafts',
   'device_preferences',
+  'account_reset',
   'analytics',
   'attachments',
 ] as const;
@@ -99,6 +100,7 @@ export const DOMAIN_POLICY_REGISTRY = Object.freeze({
   health_unsaved_drafts: { policy: 'LOCAL_ONLY', remoteTransportEligible: false },
   recipe_drafts: { policy: 'LOCAL_ONLY', remoteTransportEligible: false },
   device_preferences: { policy: 'LOCAL_ONLY', remoteTransportEligible: false },
+  account_reset: { policy: 'LOCAL_ONLY', remoteTransportEligible: false },
   analytics: { policy: 'REMOTE_FIRST', remoteTransportEligible: true },
   attachments: { policy: 'DEFERRED', remoteTransportEligible: false },
 } satisfies Record<SyncDomain, DomainPolicyDefinition>);
@@ -117,6 +119,21 @@ export function canUseDomainRemoteTransport(
   availability: AccountSyncAvailability,
 ): boolean {
   return availability.transportAvailable && domainPolicy(domain).remoteTransportEligible;
+}
+
+/**
+ * Direct product reads/writes remain remote only for REMOTE_FIRST domains.
+ * LOCAL_FIRST transport eligibility is reserved for a later sync engine and
+ * must not silently redirect the current UI working copy to the backend.
+ */
+export function canUseDomainDirectRemotePersistence(
+  domain: SyncDomain,
+  availability: AccountSyncAvailability,
+): boolean {
+  const definition = domainPolicy(domain);
+  return availability.transportAvailable
+    && definition.policy === 'REMOTE_FIRST'
+    && definition.remoteTransportEligible;
 }
 
 export const SYNC_UI_STATES = [

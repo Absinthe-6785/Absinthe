@@ -42,10 +42,10 @@ describe('LEAN_04B Search source characterization', () => {
     expect(app).toContain('weeklySchedules={weeklySchedules}');
     expect(app.indexOf('<GlobalSearchHost')).toBeGreaterThan(app.indexOf('</Suspense>'));
     expect(host).not.toContain('inbody');
-    expect(host).toContain('accountBoundRemoteKey(`${API_URL}/api/recipes`, accountId, open)');
+    expect(host).toContain("accountBoundRemoteKey(`${API_URL}/api/recipes`, accountId, 'recipes', open)");
     expect(host).toContain('recipes: recipeData ?? [],');
     expect(host).toContain('recipeState,');
-    expect(source('components/views/RecipeView.tsx')).toContain('accountBoundRemoteKey(`${API_URL}/api/recipes`, accountId)');
+    expect(source('components/views/RecipeView.tsx')).toContain("accountBoundRemoteKey(`${API_URL}/api/recipes`, accountId, 'recipes')");
     expect(projection).toContain('const plannerResults = trimmed');
     expect(projection).toContain('const healthResults = trimmed');
     expect(projection).toContain('const recipeResults = trimmed');
@@ -56,7 +56,7 @@ describe('LEAN_04B Search source characterization', () => {
     const daily = source('hooks/useDaily.ts');
     const statics = source('hooks/useStatic.ts');
     const host = source('components/views/features/search/GlobalSearchHost.tsx');
-    expect(daily).toContain('remoteSWRKey(`${base}/todos?date=${dateStr}`)');
+    expect(daily).toContain("remoteSWRKey(`${base}/todos?date=${dateStr}`, 'planner_todos')");
     expect(daily).toContain("localMode && accountId && healthReady ? ['local-health-daily', accountId, dateStr]");
     expect(statics).toContain("['health-static', accountId, remoteKey]");
     expect(statics).toContain('const localHealthKey = localHealthCacheKey && healthReady && (healthBlocksEnabled || healthRoutinesEnabled)');

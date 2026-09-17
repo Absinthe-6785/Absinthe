@@ -79,9 +79,9 @@ export function useProteinData(
   const base = `${API_URL}/api`;
   const { mutate: globalMutate } = useSWRConfig();
   const localMode = domainUsesLocalWorkingCopy('health_nutrition');
-  const remoteProfileKey = localMode ? null : remoteSWRKey(`${base}/protein_profile`);
-  const remoteSourcesKey = localMode ? null : remoteSWRKey(`${base}/protein_sources`);
-  const remoteIntakeKey = localMode ? null : remoteSWRKey(`${base}/protein_intake?date=${dateStr}`);
+  const remoteProfileKey = localMode ? null : remoteSWRKey(`${base}/protein_profile`, 'health_nutrition');
+  const remoteSourcesKey = localMode ? null : remoteSWRKey(`${base}/protein_sources`, 'health_nutrition');
+  const remoteIntakeKey = localMode ? null : remoteSWRKey(`${base}/protein_intake?date=${dateStr}`, 'health_nutrition');
 
   const { data: profile = null, mutate: mutateProfile, isLoading: l1 } =
     useSWR<ProteinProfile | null>(remoteProfileKey, fetcher, { revalidateOnFocus: false });
@@ -94,7 +94,7 @@ export function useProteinData(
 
   const weekKey = `${base}/protein_weekly?anchor=${dateStr}`;
   const { data: remoteWeeklyData } = useSWR(
-    localMode ? null : remoteSWRKey(weekKey),
+    localMode ? null : remoteSWRKey(weekKey, 'health_nutrition'),
     () => fetchProteinRange(selectedDate, formatDate, 30),
     { revalidateOnFocus: false },
   );

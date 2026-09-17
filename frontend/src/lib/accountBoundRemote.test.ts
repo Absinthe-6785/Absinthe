@@ -18,8 +18,8 @@ import {
 describe('accountBoundRemote cache identity', () => {
   it('separates accounts without changing the request URL', () => {
     const url = 'https://example.invalid/api/schedules?date=2026-08-18';
-    const accountA = accountBoundRemoteKey(url, 'account/a');
-    const accountB = accountBoundRemoteKey(url, 'account-b');
+    const accountA = accountBoundRemoteKey(url, 'account/a', 'planner_events');
+    const accountB = accountBoundRemoteKey(url, 'account-b', 'planner_events');
 
     expect(accountA).not.toBe(accountB);
     expect(accountA).toContain('absinthe-account=account%2Fa');
@@ -30,14 +30,14 @@ describe('accountBoundRemote cache identity', () => {
   it('does not activate a remote key without an authenticated account', () => {
     const url = 'https://example.invalid/api/schedules/ddays';
 
-    expect(accountBoundRemoteKey(url)).toBeNull();
-    expect(accountBoundRemoteKey(url, '')).toBeNull();
-    expect(accountBoundRemoteKey(url, 'account-a', false)).toBeNull();
+    expect(accountBoundRemoteKey(url, undefined, 'planner_ddays')).toBeNull();
+    expect(accountBoundRemoteKey(url, '', 'planner_ddays')).toBeNull();
+    expect(accountBoundRemoteKey(url, 'account-a', 'planner_ddays', false)).toBeNull();
   });
 
   it('strips the cache-only marker before invoking the authenticated fetcher', async () => {
     const url = 'https://example.invalid/api/routines_with_logs?date=2026-08-18';
-    const key = accountBoundRemoteKey(url, 'account-a');
+    const key = accountBoundRemoteKey(url, 'account-a', 'planner_routines');
 
     await accountBoundRemoteFetcher(key!);
 

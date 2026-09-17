@@ -13,6 +13,7 @@ vi.mock('../store/useNotesStore', () => ({
 import { authFetch } from './supabase';
 import { useNotesStore } from '../store/useNotesStore';
 import { migrateLegacyDdays, resetDdayMigrationFlag } from './migrateLegacyDdays';
+import { setRuntimeAccountSyncAccount } from './remoteBoundary';
 import { NOTES_RUNTIME_SYNC_MODE_KEY } from './syncMode';
 
 const mockFetch = vi.mocked(authFetch);
@@ -22,6 +23,9 @@ const storage = new Map<string, string>();
 
 beforeEach(() => {
   storage.clear();
+  vi.stubEnv('VITE_ABSINTHE_ACCOUNT_SYNC_DISABLED', 'false');
+  vi.stubGlobal('navigator', { onLine: true });
+  setRuntimeAccountSyncAccount('account-a');
   vi.stubGlobal('localStorage', {
     getItem: (key: string) => storage.get(key) ?? null,
     setItem: (key: string, value: string) => { storage.set(key, value); },

@@ -302,7 +302,10 @@ describe('K-286 auth Supabase runtime access restoration boundary plan', () => {
     expect(supabase).toContain('createClient(');
     expect(supabase).toContain('import.meta.env.VITE_SUPABASE_URL');
     expect(supabase).toContain('import.meta.env.VITE_SUPABASE_ANON_KEY');
-    expect(supabase).toContain('if (!shouldUseRemoteData())');
+    expect(supabase).toContain('assertRemoteUrlAllowed(url);');
+    expect(supabase.indexOf('assertRemoteUrlAllowed(url);')).toBeLessThan(
+      supabase.indexOf('supabase.auth.getSession()'),
+    );
     expect(supabase).toContain('supabase.auth.getSession()');
   });
 

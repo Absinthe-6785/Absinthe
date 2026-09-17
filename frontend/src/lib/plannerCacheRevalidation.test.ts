@@ -15,7 +15,16 @@ const accountA = 'account-a';
 const accountB = 'account-b';
 
 function key(path: string, account = accountA): string {
-  return accountBoundRemoteKey(`${API}${path}`, account)!;
+  const domain = path.startsWith('/workouts')
+    ? 'health_workouts'
+    : path.startsWith('/schedules/ddays')
+      ? 'planner_ddays'
+      : path.startsWith('/routines')
+        ? 'planner_routines'
+        : path.startsWith('/todos')
+          ? 'planner_todos'
+          : 'planner_events';
+  return accountBoundRemoteKey(`${API}${path}`, account, domain)!;
 }
 
 describe('Planner account cache revalidation', () => {

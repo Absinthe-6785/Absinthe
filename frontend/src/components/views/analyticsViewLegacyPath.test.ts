@@ -4,6 +4,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { DateTime } from 'luxon';
 import type { AnalyticsProps } from '../../types';
+import { setRuntimeAccountSyncAccount } from '../../lib/remoteBoundary';
 import { NOTES_RUNTIME_SYNC_MODE_KEY } from '../../lib/syncMode';
 
 vi.mock('./features/archive/archiveShellConfig', () => ({
@@ -93,6 +94,8 @@ describe('AnalyticsView legacy rollback path', () => {
   beforeEach(() => {
     swrState.keys.length = 0;
     localStorage.clear();
+    Object.defineProperty(navigator, 'onLine', { value: true, configurable: true });
+    setRuntimeAccountSyncAccount('account-a');
   });
 
   it('renders legacy Analytics when ARCHIVE_SHELL_ENABLED is false', async () => {
@@ -117,7 +120,7 @@ describe('AnalyticsView legacy rollback path', () => {
 
     expect(legacyKeys.some(key => key.includes('/api/routine_exceptions'))).toBe(true);
     expect(legacyKeys.some(key => key.includes('/api/schedules/range'))).toBe(true);
-    expect(legacyKeys.some(key => key.includes('/api/workouts/range'))).toBe(true);
+    expect(legacyKeys.some(key => key.includes('/api/workouts/range'))).toBe(false);
     expect(legacyKeys.some(key => key.includes('/api/heatmap'))).toBe(true);
   });
 
@@ -130,7 +133,7 @@ describe('AnalyticsView legacy rollback path', () => {
     );
     expect(legacyKeys.some(key => key.includes('/api/routine_exceptions'))).toBe(true);
     expect(legacyKeys.some(key => key.includes('/api/schedules/range'))).toBe(true);
-    expect(legacyKeys.some(key => key.includes('/api/workouts/range'))).toBe(true);
+    expect(legacyKeys.some(key => key.includes('/api/workouts/range'))).toBe(false);
     expect(legacyKeys.some(key => key.includes('/api/heatmap'))).toBe(true);
   });
 

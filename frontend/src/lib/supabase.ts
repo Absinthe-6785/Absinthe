@@ -1,5 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
-import { LocalOnlyRemoteMutationPausedError, shouldUseRemoteData } from './remoteBoundary';
+import {
+  assertRemoteUrlAllowed,
+  remotePersistenceDomainForUrl,
+} from './remoteBoundary';
 
 export const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -21,9 +24,7 @@ export const authFetch = async (
   options: RequestInit = {},
   control: AuthenticatedFetchControl = {},
 ): Promise<Response> => {
-  if (!shouldUseRemoteData()) {
-    throw new LocalOnlyRemoteMutationPausedError();
-  }
+  assertRemoteUrlAllowed(url);
 
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.access_token) throw new Error('Not authenticated');
@@ -52,6 +53,10 @@ export const authReadFetch = async (
 ): Promise<Response> => {
   const method = (options.method ?? 'GET').toUpperCase();
   if (method !== 'GET' && method !== 'HEAD') throw new Error('read_only_bootstrap_method_rejected');
+  const domain = remotePersistenceDomainForUrl(url);
+  if (domain !== 'notes' && domain !== 'note_folders') {
+    throw new Error('read_only_bootstrap_domain_rejected');
+  }
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.access_token) throw new Error('Not authenticated');
   const request: RequestInit = {

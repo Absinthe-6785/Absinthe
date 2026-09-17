@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { RETURN_TO_USE_LOCAL_LOCK_ENV } from './notesSyncClient';
+import { LocalOnlyRemoteMutationPausedError } from './remoteBoundary';
 
 const getSessionMock = vi.fn();
 
@@ -31,17 +32,18 @@ beforeEach(() => {
 });
 
 describe('fetcher account sync availability', () => {
-  it('pauses remote fetches before Supabase auth is touched when account sync is disabled', async () => {
-    vi.stubEnv('VITE_ABSINTHE_ACCOUNT_SYNC_DISABLED', 'true');
+  it('preserves domain-boundary pause errors from the authenticated fetch boundary', async () => {
     const { fetcher, isLocalOnlyRemotePausedError } = await import('./fetcher');
+    const { authFetch } = await import('./supabase');
+    vi.mocked(authFetch).mockRejectedValueOnce(new LocalOnlyRemoteMutationPausedError());
 
     try {
-      await fetcher('/api/test');
+      await fetcher('/api/schedules');
       throw new Error('Expected local-only fetch to be paused');
     } catch (error) {
       expect(isLocalOnlyRemotePausedError(error)).toBe(true);
     }
-    expect(getSessionMock).not.toHaveBeenCalled();
+    expect(authFetch).toHaveBeenCalledWith('/api/schedules');
   });
 
   it('does not let the default Notes local mode pause unrelated remote fetches', async () => {
@@ -52,7 +54,7 @@ describe('fetcher account sync availability', () => {
       json: async () => ({ ok: true }),
     } as Response);
 
-    await expect(fetcher('/api/test')).resolves.toEqual({ ok: true });
-    expect(authFetch).toHaveBeenCalledWith('/api/test');
+    await expect(fetcher('/api/schedules')).resolves.toEqual({ ok: true });
+    expect(authFetch).toHaveBeenCalledWith('/api/schedules');
   });
 });

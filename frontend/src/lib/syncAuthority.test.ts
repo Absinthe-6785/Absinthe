@@ -3,6 +3,7 @@ import {
   DOMAIN_POLICY_REGISTRY,
   SYNC_DOMAINS,
   aggregateSyncUiState,
+  canUseDomainDirectRemotePersistence,
   canUseDomainRemoteTransport,
   deriveAccountSyncAvailability,
   domainPolicy,
@@ -59,6 +60,7 @@ describe('sync authority contracts', () => {
       'LOCAL_ONLY',
       'LOCAL_ONLY',
       'LOCAL_ONLY',
+      'LOCAL_ONLY',
       'REMOTE_FIRST',
       'DEFERRED',
     ]);
@@ -69,6 +71,15 @@ describe('sync authority contracts', () => {
     expect(canUseDomainRemoteTransport('recipe_drafts', available)).toBe(false);
     expect(canUseDomainRemoteTransport('device_preferences', available)).toBe(false);
     expect(canUseDomainRemoteTransport('attachments', available)).toBe(false);
+  });
+
+  it('allows direct persistence only for REMOTE_FIRST domains', () => {
+    expect(canUseDomainDirectRemotePersistence('planner_events', available)).toBe(true);
+    expect(canUseDomainDirectRemotePersistence('recipes', available)).toBe(true);
+    expect(canUseDomainDirectRemotePersistence('health_workouts', available)).toBe(false);
+    expect(canUseDomainDirectRemotePersistence('account_reset', available)).toBe(false);
+    expect(canUseDomainDirectRemotePersistence('recipe_drafts', available)).toBe(false);
+    expect(canUseDomainDirectRemotePersistence('attachments', available)).toBe(false);
   });
 
   it('aggregates shared UI sync state by deterministic severity', () => {

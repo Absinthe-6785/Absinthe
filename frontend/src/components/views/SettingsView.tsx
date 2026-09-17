@@ -43,7 +43,10 @@ import { useRecoveryCenter } from '../../hooks/useRecoveryCenter';
 import { VaultRestoreModal } from './features/knowledge/VaultRestoreModal';
 import { RecoveryCenterPanel } from './features/settings/RecoveryCenterPanel';
 import { getVaultStorageMetrics } from '../../lib/vaultStorageMetrics';
-import { shouldUseRemoteData } from '../../lib/remoteBoundary';
+import {
+  shouldUseDomainRemotePersistence,
+  shouldUseLegacyNotesRemoteData,
+} from '../../lib/remoteBoundary';
 import type { SettingsSectionId } from '../common/Sidebar';
 import { RECOVERY_MODE_MESSAGE, mayReset, recordRecoveryBlock } from '../../lib/recoverySafetyPolicy';
 import { revalidatePlannerAccountCache } from '../../lib/plannerCacheRevalidation';
@@ -74,7 +77,7 @@ export const SettingsView = ({
   const resetAllNotes = useNotesStore(s => s.resetAllNotes);
   const notes = useNotesStore(s => s.notes);
   const folders = useNotesStore(s => s.folders);
-  const cloudSyncEnabled = shouldUseRemoteData() && Boolean(user?.id);
+  const cloudSyncEnabled = shouldUseLegacyNotesRemoteData() && Boolean(user?.id);
   const backupAuthorityRef = useRef({ accountId: user?.id ?? null, cloudExpected: cloudSyncEnabled });
   backupAuthorityRef.current = { accountId: user?.id ?? null, cloudExpected: cloudSyncEnabled };
   const { mutate: globalMutate } = useSWRConfig();
@@ -198,7 +201,7 @@ export const SettingsView = ({
       showToast(RECOVERY_MODE_MESSAGE, 'error');
       return;
     }
-    if (!shouldUseRemoteData()) {
+    if (!shouldUseDomainRemotePersistence('account_reset')) {
       resetAllNotes();
       showToast(t('resetSuccess'));
       mutateDaily();

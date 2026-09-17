@@ -42,7 +42,7 @@ function MutatorCapture({ onReady }: { onReady: (mutate: ScopedMutator) => void 
 
 function RecipeSubscriber({ accountId }: { accountId: string }) {
   const { data } = useSWR<Row[]>(
-    accountBoundRemoteKey('https://api.example.test/api/recipes', accountId),
+    accountBoundRemoteKey('https://api.example.test/api/recipes', accountId, 'recipes'),
     accountBoundRemoteFetcher,
     { dedupingInterval: 0, revalidateOnFocus: false },
   );
@@ -106,9 +106,9 @@ describe('Recipe restore cache revalidation', () => {
       });
     });
 
-    const activeKey = accountBoundRemoteKey('https://api.example.test/api/recipes', 'account-a')!;
-    const trashKey = accountBoundRemoteKey('https://api.example.test/api/recipes/trash', 'account-a')!;
-    const otherKey = accountBoundRemoteKey('https://api.example.test/api/recipes', 'account-b')!;
+    const activeKey = accountBoundRemoteKey('https://api.example.test/api/recipes', 'account-a', 'recipes')!;
+    const trashKey = accountBoundRemoteKey('https://api.example.test/api/recipes/trash', 'account-a', 'recipes')!;
+    const otherKey = accountBoundRemoteKey('https://api.example.test/api/recipes', 'account-b', 'recipes')!;
     expect(result).toBe('refreshed');
     expect(harness.fetcher).toHaveBeenCalledOnce();
     expect(harness.fetcher).toHaveBeenCalledWith('https://api.example.test/api/recipes');
@@ -118,7 +118,7 @@ describe('Recipe restore cache revalidation', () => {
   });
 
   it('replaces READY_EMPTY with authoritative server rows without using backup content', async () => {
-    const activeKey = accountBoundRemoteKey('https://api.example.test/api/recipes', 'account-a')!;
+    const activeKey = accountBoundRemoteKey('https://api.example.test/api/recipes', 'account-a', 'recipes')!;
     cache.set(activeKey, { data: [], error: undefined, _k: activeKey });
     harness.fetcher.mockResolvedValue([{ id: 'remote', title: 'Remote truth' }]);
     await renderHarness(false);
@@ -146,7 +146,7 @@ describe('Recipe restore cache revalidation', () => {
       isCurrentAccount: () => true,
     });
 
-    const activeKey = accountBoundRemoteKey('https://api.example.test/api/recipes', 'account-a')!;
+    const activeKey = accountBoundRemoteKey('https://api.example.test/api/recipes', 'account-a', 'recipes')!;
     expect(result).toBe('refreshed');
     expect(harness.fetcher).toHaveBeenCalledTimes(2);
     expect(cache.get(activeKey)).toMatchObject({
@@ -158,7 +158,7 @@ describe('Recipe restore cache revalidation', () => {
     ['UNAVAILABLE_NO_DATA', undefined],
     ['STALE_WITH_DATA', [{ id: 'stale', title: 'Stale row' }]],
   ])('preserves %s cache evidence when the authoritative GET fails', async (_state, data) => {
-    const activeKey = accountBoundRemoteKey('https://api.example.test/api/recipes', 'account-a')!;
+    const activeKey = accountBoundRemoteKey('https://api.example.test/api/recipes', 'account-a', 'recipes')!;
     const existingError = new Error('existing fetch failure');
     cache.set(activeKey, { data, error: existingError, _k: activeKey });
     harness.fetcher.mockRejectedValue(new Error('refresh failed'));
@@ -197,7 +197,7 @@ describe('Recipe restore cache revalidation', () => {
     pending.resolve([{ id: 'account-b-row', title: 'Must be discarded' }]);
     await expect(refresh).resolves.toBe('stale-account');
 
-    const activeKey = accountBoundRemoteKey('https://api.example.test/api/recipes', 'account-a')!;
+    const activeKey = accountBoundRemoteKey('https://api.example.test/api/recipes', 'account-a', 'recipes')!;
     expect((cache.get(activeKey) as { data?: unknown } | undefined)?.data).toBeUndefined();
   });
 

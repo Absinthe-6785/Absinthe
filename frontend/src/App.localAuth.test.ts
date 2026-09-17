@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NOTES_RUNTIME_SYNC_MODE_KEY } from './lib/notesSyncClient';
+import { runtimeAccountSyncAvailability } from './lib/remoteBoundary';
 import { createMockSupabaseAuthResponse } from './test-utils/auth/mockSupabaseAuthSession';
 
 const getSessionMock = vi.fn();
@@ -119,5 +120,38 @@ describe('App local-only auth gate', () => {
 
     expect(container?.querySelector('[data-testid="app-shell"]')).toBeNull();
     expect(container?.querySelector('[data-testid="login-screen"]')).not.toBeNull();
+  });
+
+  it('does not let a stale initial session restore availability after a logout event', async () => {
+    const staleResponse = createMockSupabaseAuthResponse({
+      userId: 'stale-user',
+      email: 'stale@example.com',
+    });
+    let resolveSession!: (value: typeof staleResponse) => void;
+    let authStateCallback: ((event: string, session: null) => void) | null = null;
+    getSessionMock.mockReturnValueOnce(new Promise(resolve => {
+      resolveSession = resolve;
+    }));
+    onAuthStateChangeMock.mockImplementationOnce((callback: typeof authStateCallback) => {
+      authStateCallback = callback;
+      return { data: { subscription: { unsubscribe: vi.fn() } } };
+    });
+    const { default: App } = await import('./App');
+
+    await act(async () => {
+      root?.render(createElement(App));
+    });
+    await act(async () => {
+      authStateCallback?.('SIGNED_OUT', null);
+      resolveSession(staleResponse);
+      await Promise.resolve();
+    });
+
+    expect(container?.querySelector('[data-testid="app-shell"]')).toBeNull();
+    expect(container?.querySelector('[data-testid="login-screen"]')).not.toBeNull();
+    expect(runtimeAccountSyncAvailability()).toEqual({
+      state: 'UNAUTHENTICATED',
+      transportAvailable: false,
+    });
   });
 });

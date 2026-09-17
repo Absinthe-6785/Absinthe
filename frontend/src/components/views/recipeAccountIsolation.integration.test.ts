@@ -191,14 +191,14 @@ describe('Recipe account isolation production paths', () => {
 
   it('keeps account and query dimensions distinct and disables unknown-account fetches', () => {
     const url = 'https://api.example.test/api/recipes?category=Other';
-    const accountA = accountBoundRemoteKey(url, 'account-a');
-    const accountB = accountBoundRemoteKey(url, 'account-b');
-    const otherQuery = accountBoundRemoteKey('https://api.example.test/api/recipes?category=Korean', 'account-a');
+    const accountA = accountBoundRemoteKey(url, 'account-a', 'recipes');
+    const accountB = accountBoundRemoteKey(url, 'account-b', 'recipes');
+    const otherQuery = accountBoundRemoteKey('https://api.example.test/api/recipes?category=Korean', 'account-a', 'recipes');
 
     expect(accountA).not.toBe(accountB);
     expect(accountA).not.toBe(otherQuery);
     expect(accountA).toContain('absinthe-account=account-a');
-    expect(accountBoundRemoteKey(url)).toBeNull();
+    expect(accountBoundRemoteKey(url, undefined, 'recipes')).toBeNull();
   });
 
   it('keeps Recipe search identity metadata scoped to the mounted account', () => {

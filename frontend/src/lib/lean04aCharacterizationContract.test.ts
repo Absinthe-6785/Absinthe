@@ -144,12 +144,12 @@ describe('LEAN_04A characterization contract and protected boundaries', () => {
     });
     const daily = source('hooks/useDaily.ts');
     const statics = source('hooks/useStatic.ts');
-    expect(daily).toContain('accountBoundRemoteKey(`${base}/schedules?date=${dateStr}`, accountId)');
-    expect(daily).toContain('remoteSWRKey(`${base}/todos?date=${dateStr}`)');
+    expect(daily).toContain("accountBoundRemoteKey(`${base}/schedules?date=${dateStr}`, accountId, 'planner_events')");
+    expect(daily).toContain("remoteSWRKey(`${base}/todos?date=${dateStr}`, 'planner_todos')");
     expect(daily).toContain('accountBoundTodoKey(`${base}/todos?date=${dateStr}`, accountId)');
-    expect(daily).toContain('accountBoundRemoteKey(`${base}/routines_with_logs?date=${dateStr}`, accountId)');
-    expect(daily).toContain('accountBoundRemoteKey(`${base}/workouts?date=${dateStr}`, accountId)');
-    expect(daily).toContain('accountBoundInbodyKey(inbodyUrl, accountId)');
+    expect(daily).toContain("accountBoundRemoteKey(`${base}/routines_with_logs?date=${dateStr}`, accountId, 'planner_routines')");
+    expect(daily).toContain("accountBoundRemoteKey(`${base}/workouts?date=${dateStr}`, accountId, 'health_workouts', !localMode)");
+    expect(daily).toContain('accountBoundInbodyKey(inbodyUrl, accountId, !localMode)');
     expect(statics).toContain("['health-static', accountId, remoteKey]");
     expect(statics).toContain('accountBoundHealthStaticKey(');
     expect(FUTURE_ACTIVATION_CONTRACT.HOME.todos).toBe('inactive');
@@ -195,7 +195,7 @@ describe('LEAN_04A characterization contract and protected boundaries', () => {
     const doNotActivateForSearch = ['todos', 'healthBlocks'];
     expect(doNotActivateForSearch).toEqual(['todos', 'healthBlocks']);
     expect(source('components/AppContent.tsx')).toContain('<GlobalSearchHost');
-    expect(source('components/views/features/search/GlobalSearchHost.tsx')).toContain('accountBoundRemoteKey(`${API_URL}/api/recipes`, accountId, open)');
+    expect(source('components/views/features/search/GlobalSearchHost.tsx')).toContain("accountBoundRemoteKey(`${API_URL}/api/recipes`, accountId, 'recipes', open)");
     expect(source('components/views/features/search/hooks/useSearchProjection.ts')).toContain('buildSearchProjection({ ...input, now })');
     expect('LEAN_04B readiness dependency').toContain('LEAN_04B');
   });

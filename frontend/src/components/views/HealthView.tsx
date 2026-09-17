@@ -1141,7 +1141,7 @@ export const HealthView = ({
   const monthEnd = formatDate(new Date(year, month + 1, 0));
   const rangeKey = localMode
     ? ['local-health-workout-range', user.id, monthStart, monthEnd] as const
-    : remoteSWRKey(`${API_URL}/api/workouts/range?start_date=${monthStart}&end_date=${monthEnd}`);
+    : remoteSWRKey(`${API_URL}/api/workouts/range?start_date=${monthStart}&end_date=${monthEnd}`, 'health_workouts');
   const { data: monthWorkoutRows = [], mutate: mutateMonthWorkoutRows } = useSWR<RangeWorkoutRow[]>(
     rangeKey,
     localMode
@@ -1157,7 +1157,7 @@ export const HealthView = ({
     [selectedDateKey],
   );
   const previousWorkoutRemoteUrl = `${API_URL}/api/workouts/range?start_date=${previousWorkoutRangeDates.startDate}&end_date=${previousWorkoutRangeDates.endDate}`;
-  const previousWorkoutRemoteKey = remoteSWRKey(previousWorkoutRemoteUrl);
+  const previousWorkoutRemoteKey = remoteSWRKey(previousWorkoutRemoteUrl, 'health_workouts');
   const isDesktopPrevious = !isMobile && mobileHealthTab === 'previous';
   const isPreviousContextOpen = isDesktopPrevious || isPreviousSheetOpen;
   const previousWorkoutKey: PreviousWorkoutSWRKey | null = isPreviousContextOpen

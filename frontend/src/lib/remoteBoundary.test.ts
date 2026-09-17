@@ -3,8 +3,12 @@ import {
   assertRemoteMutationAllowed,
   isLocalOnlyRemoteMutationPausedError,
   remoteSWRKey,
-  shouldUseDomainRemoteData,
-  shouldUseRemoteData,
+  runtimeAccountSyncAvailability,
+  setRuntimeAccountSyncAccount,
+  shouldUseAccountSyncTransport,
+  shouldUseDomainSyncTransport,
+  shouldUseDomainRemotePersistence,
+  shouldUseLegacyNotesRemoteData,
 } from './remoteBoundary';
 import { NOTES_RUNTIME_SYNC_MODE_KEY, RETURN_TO_USE_LOCAL_LOCK_ENV } from './syncMode';
 import { deriveAccountSyncAvailability } from './syncAuthority';
@@ -19,21 +23,29 @@ vi.stubGlobal('localStorage', {
 
 beforeEach(() => {
   storage.clear();
+  vi.stubGlobal('navigator', { onLine: true });
   vi.stubEnv(RETURN_TO_USE_LOCAL_LOCK_ENV, 'false');
   vi.stubEnv('VITE_ABSINTHE_SYNC_MODE', '');
+  vi.stubEnv('VITE_ABSINTHE_ACCOUNT_SYNC_DISABLED', 'false');
+  setRuntimeAccountSyncAccount('account-a');
 });
 
 describe('remoteBoundary', () => {
-  it('keeps account remote transport available independently of default Notes local mode', () => {
-    expect(shouldUseRemoteData()).toBe(true);
-    expect(remoteSWRKey('/api/test')).toBe('/api/test');
+  it('keeps account transport independent while direct persistence obeys domain policy', () => {
+    expect(shouldUseAccountSyncTransport()).toBe(true);
+    expect(shouldUseDomainSyncTransport('health_workouts')).toBe(true);
+    expect(shouldUseDomainRemotePersistence('health_workouts')).toBe(false);
+    expect(shouldUseDomainRemotePersistence('planner_events')).toBe(true);
+    expect(remoteSWRKey('/api/schedules', 'planner_events')).toBe('/api/schedules');
+    expect(remoteSWRKey('/api/workouts', 'health_workouts')).toBeNull();
   });
 
   it('bounds the Notes return-to-use lock to the Notes adapter', () => {
     vi.stubEnv(RETURN_TO_USE_LOCAL_LOCK_ENV, 'true');
     storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'remote');
-    expect(shouldUseRemoteData()).toBe(true);
-    expect(remoteSWRKey('/api/planner')).toBe('/api/planner');
+    expect(shouldUseLegacyNotesRemoteData()).toBe(false);
+    expect(shouldUseDomainRemotePersistence('planner_events')).toBe(true);
+    expect(shouldUseDomainRemotePersistence('recipes')).toBe(true);
   });
 
   it('blocks account transport when availability is offline', () => {
@@ -42,27 +54,36 @@ describe('remoteBoundary', () => {
       capabilityEnabled: true,
       online: false,
     });
-    expect(shouldUseRemoteData(offline)).toBe(false);
-    expect(remoteSWRKey('/api/test', undefined, offline)).toBeNull();
+    expect(shouldUseAccountSyncTransport(offline)).toBe(false);
+    expect(remoteSWRKey('/api/schedules', 'planner_events', offline)).toBeNull();
+    expect(() => assertRemoteMutationAllowed('planner_events', offline)).toThrow();
+  });
+
+  it('prevents LOCAL_ONLY and DEFERRED direct persistence', () => {
+    expect(shouldUseDomainRemotePersistence('recipe_drafts')).toBe(false);
+    expect(shouldUseDomainRemotePersistence('account_reset')).toBe(false);
+    expect(shouldUseDomainRemotePersistence('attachments')).toBe(false);
+    expect(remoteSWRKey('/api/attachments', 'attachments')).toBeNull();
     try {
-      assertRemoteMutationAllowed(offline);
-      throw new Error('Expected unavailable transport guard to throw');
+      assertRemoteMutationAllowed('account_reset');
+      throw new Error('Expected local-only mutation guard to throw');
     } catch (error) {
       expect(isLocalOnlyRemoteMutationPausedError(error)).toBe(true);
     }
   });
 
-  it('allows unrelated Health, Planner, and Recipe transport in Notes local mode', () => {
-    storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'local');
-    expect(shouldUseDomainRemoteData('health_workouts')).toBe(true);
-    expect(shouldUseDomainRemoteData('planner_events')).toBe(true);
-    expect(shouldUseDomainRemoteData('recipes')).toBe(true);
-  });
-
-  it('uses domain policy without changing account availability', () => {
-    expect(shouldUseDomainRemoteData('recipe_drafts')).toBe(false);
-    expect(shouldUseDomainRemoteData('attachments')).toBe(false);
-    expect(remoteSWRKey('/api/recipes', 'recipes')).toBe('/api/recipes');
-    expect(remoteSWRKey('/api/attachments', 'attachments')).toBeNull();
+  it('uses real account and connectivity authority and clears stale logout state', () => {
+    expect(runtimeAccountSyncAvailability().state).toBe('AVAILABLE');
+    setRuntimeAccountSyncAccount(null);
+    expect(runtimeAccountSyncAvailability()).toEqual({
+      state: 'UNAUTHENTICATED',
+      transportAvailable: false,
+    });
+    setRuntimeAccountSyncAccount('account-b');
+    vi.stubGlobal('navigator', { onLine: false });
+    expect(runtimeAccountSyncAvailability()).toEqual({
+      state: 'OFFLINE',
+      transportAvailable: false,
+    });
   });
 });

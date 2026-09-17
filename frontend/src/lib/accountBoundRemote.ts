@@ -1,5 +1,6 @@
 import { fetcher } from './fetcher';
 import { remoteSWRKey } from './remoteBoundary';
+import type { SyncDomain } from './syncAuthority';
 
 /**
  * Cache-only separator. The marker is stripped before a request is sent, so
@@ -11,10 +12,11 @@ export type AccountBoundRemoteKey = string;
 
 export function accountBoundRemoteKey(
   url: string,
-  accountId?: string,
+  accountId: string | undefined,
+  domain: SyncDomain,
   enabled = true,
 ): AccountBoundRemoteKey | null {
-  const remoteKey = remoteSWRKey(url);
+  const remoteKey = remoteSWRKey(url, domain);
   return enabled && accountId && remoteKey
     ? `${remoteKey}${ACCOUNT_BOUND_REMOTE_SEPARATOR}absinthe-account=${encodeURIComponent(accountId)}`
     : null;

@@ -38,6 +38,7 @@ export async function revalidateRecipeAccountCacheAfterRestore(
   const activeKey = accountBoundRemoteKey(
     `${API_URL}/api/recipes`,
     authority.accountId,
+    'recipes',
   );
   if (!activeKey) return 'stale-account';
 
