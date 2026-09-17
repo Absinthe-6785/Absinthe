@@ -60,8 +60,8 @@ vi.mock('swr', () => ({
   useSWRConfig: () => ({ mutate: () => undefined }),
 }));
 
-vi.mock('../lib/localAuth', () => ({
-  isLocalOnlyRuntime: () => harness.localMode,
+vi.mock('../lib/syncAuthority', () => ({
+  domainUsesLocalWorkingCopy: () => harness.localMode,
 }));
 
 vi.mock('../lib/remoteBoundary', () => ({

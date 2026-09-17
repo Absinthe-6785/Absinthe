@@ -83,7 +83,7 @@ import { useRoutinePresetController } from './features/health/useRoutinePresetCo
 import useSWR from 'swr';
 import { fetcher } from '../../lib/fetcher';
 import { remoteSWRKey } from '../../lib/remoteBoundary';
-import { shouldUseRemoteData } from '../../lib/remoteBoundary';
+import { domainUsesLocalWorkingCopy } from '../../lib/syncAuthority';
 import { createLocalHealthRepository, readLocalHealthWorkoutRange, readLocalPreviousWorkoutRows } from '../../lib/healthLocalRuntime';
 import {
   isCurrentHealthAccountGeneration,
@@ -118,7 +118,7 @@ export const HealthView = ({
   const { mutate: api } = useApiMutation(mutateDaily, mutateStatic, showToast);
   const { weightUnits, toggleWeightUnit } = useAppStore();
   const { confirm, showConfirm, clearConfirm, handleConfirm } = useConfirm();
-  const localMode = !shouldUseRemoteData();
+  const localMode = domainUsesLocalWorkingCopy('health_workouts');
   const accountGenerationRef = useRef(0);
   const activeAccountIdRef = useRef(user.id);
   if (activeAccountIdRef.current !== user.id) {

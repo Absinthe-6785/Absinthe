@@ -92,9 +92,16 @@ describe('migrateLegacyDdays', () => {
     expect(localStorage.getItem('absinthe:dday-migration-v1')).toBe('done');
   });
 
-  it('does not call the remote migration endpoint in local mode', async () => {
+  it('does not let Notes local mode suppress the remote D-Day migration boundary', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => [],
+    } as Response);
+
     const result = await migrateLegacyDdays();
+
     expect(result).toBe(0);
-    expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockFetch).toHaveBeenCalledWith(expect.stringContaining('/api/schedules/ddays'));
+    expect(localStorage.getItem('absinthe:dday-migration-v1')).toBe('done');
   });
 });

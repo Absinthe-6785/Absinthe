@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { accountBoundHealthStaticKey } from './useStatic';
-import { NOTES_RUNTIME_SYNC_MODE_KEY, RETURN_TO_USE_LOCAL_LOCK_ENV } from '../lib/syncMode';
+import { RETURN_TO_USE_LOCAL_LOCK_ENV } from '../lib/syncMode';
 
 const storage = new Map<string, string>();
 vi.stubGlobal('localStorage', {
@@ -18,7 +18,6 @@ beforeEach(() => {
 
 describe('account-bound Health static cache keys', () => {
   it('never shares a remote Health static cache entry between accounts', () => {
-    storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'remote');
     const url = 'https://absinthe.example/api/health_routines';
     const accountA = accountBoundHealthStaticKey(url, 'account-a');
     const accountB = accountBoundHealthStaticKey(url, 'account-b');
@@ -28,15 +27,21 @@ describe('account-bound Health static cache keys', () => {
     expect(accountA).not.toEqual(accountB);
   });
 
-  it('does not create a remote cache key when the local runtime owns Health data', () => {
-    expect(accountBoundHealthStaticKey('/api/health_routines', 'account-a')).toBeNull();
-    storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'remote');
+  it('does not let Notes local mode or its lock suppress the Health remote boundary', () => {
+    expect(accountBoundHealthStaticKey('/api/health_routines', 'account-a')).toEqual([
+      'health-static',
+      'account-a',
+      '/api/health_routines',
+    ]);
     vi.stubEnv(RETURN_TO_USE_LOCAL_LOCK_ENV, 'true');
-    expect(accountBoundHealthStaticKey('/api/health_routines', 'account-a')).toBeNull();
+    expect(accountBoundHealthStaticKey('/api/health_routines', 'account-a')).toEqual([
+      'health-static',
+      'account-a',
+      '/api/health_routines',
+    ]);
   });
 
   it('does not create a cache key when explicitly disabled', () => {
-    storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'remote');
     vi.stubEnv(RETURN_TO_USE_LOCAL_LOCK_ENV, 'false');
     expect(accountBoundHealthStaticKey('/api/health_routines', 'account-a', false)).toBeNull();
   });

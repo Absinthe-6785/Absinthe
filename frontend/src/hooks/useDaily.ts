@@ -8,7 +8,7 @@ import {
   accountBoundRemoteKey,
   type AccountBoundRemoteKey,
 } from '../lib/accountBoundRemote';
-import { isLocalOnlyRuntime } from '../lib/localAuth';
+import { domainUsesLocalWorkingCopy } from '../lib/syncAuthority';
 import { readLocalHealthDaily } from '../lib/healthLocalRuntime';
 import { resolveSearchDatasetState, type SearchDatasetState } from '../lib/searchReadiness';
 import { Schedule, Todo, Routine, Workout, Inbody } from '../types';
@@ -84,7 +84,7 @@ export const useDailyData = (
   inbodyEnabled = true,
 ): UseDailyDataResult => {
   const base = `${API_URL}/api`;
-  const localMode = isLocalOnlyRuntime();
+  const localMode = domainUsesLocalWorkingCopy('health_workouts');
   const todoUrlKey = remoteSWRKey(`${base}/todos?date=${dateStr}`);
   const todoCacheKey = todosEnabled === undefined
     ? todoUrlKey
@@ -96,11 +96,11 @@ export const useDailyData = (
     ? todoUrlKey
     : todosEnabled ? todoCacheKey : null;
   const inbodyUrl = `${base}/inbody?date=${dateStr}`;
-  const inbodyCacheKey = accountBoundInbodyKey(inbodyUrl, accountId);
+  const inbodyCacheKey = accountBoundInbodyKey(inbodyUrl, accountId, !localMode);
   const inbodyKey = inbodyEnabled ? inbodyCacheKey : null;
   const schedulesKey = accountBoundRemoteKey(`${base}/schedules?date=${dateStr}`, accountId);
   const routinesKey = accountBoundRemoteKey(`${base}/routines_with_logs?date=${dateStr}`, accountId);
-  const workoutsKey = accountBoundRemoteKey(`${base}/workouts?date=${dateStr}`, accountId);
+  const workoutsKey = accountBoundRemoteKey(`${base}/workouts?date=${dateStr}`, accountId, !localMode);
 
   const { mutate: globalMutate } = useSWRConfig();
 

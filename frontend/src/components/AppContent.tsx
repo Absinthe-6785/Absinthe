@@ -30,7 +30,7 @@ import { GlobalSearchHost } from './views/features/search/GlobalSearchHost';
 import { useTranslation } from '../lib/i18n';
 import { bootstrapHealthFromSupabase, HEALTH_LOCAL_BOOTSTRAP_COMPLETE_EVENT } from '../lib/healthSupabaseBootstrap';
 import { runHealthBootstrapSingleFlight } from '../lib/healthBootstrapSingleFlight';
-import { shouldUseRemoteData } from '../lib/remoteBoundary';
+import { domainUsesLocalWorkingCopy } from '../lib/syncAuthority';
 import { revalidatePlannerAccountCache } from '../lib/plannerCacheRevalidation';
 import { notesStartupRequiresRecovery } from '../lib/notesStartupAuthority';
 import { WORKSPACE_SCROLL_MODE, WORKSPACE_VIEWPORT_CLASS } from './common/workspaceLayout';
@@ -133,7 +133,7 @@ export function AppContent({ authUser }: { authUser: User }) {
   const initNotesStorage = useNotesStore(s => s.initNotesStorage);
   const detachNotesStorage = useNotesStore(s => s.detachNotesStorage);
   const startupRunRef = useRef<IndependentStartupRun | null>(null);
-  const healthBootstrapRequired = !shouldUseRemoteData() && authUser.id !== 'local-user';
+  const healthBootstrapRequired = domainUsesLocalWorkingCopy('health_workouts') && authUser.id !== 'local-user';
   const shouldBootstrapHealth = authUser.id !== 'local-user';
   const [startupState, setStartupState] = useState<StartupState>(() => pendingStartupState(healthBootstrapRequired));
 

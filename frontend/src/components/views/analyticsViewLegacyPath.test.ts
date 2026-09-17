@@ -121,11 +121,17 @@ describe('AnalyticsView legacy rollback path', () => {
     expect(legacyKeys.some(key => key.includes('/api/heatmap'))).toBe(true);
   });
 
-  it('does not subscribe to legacy Analytics remote keys in local mode', async () => {
+  it('does not let the default Notes local mode suppress Analytics remote keys', async () => {
     const { AnalyticsView } = await import('./AnalyticsView');
     renderToStaticMarkup(createElement(AnalyticsView, analyticsProps()));
 
-    expect(swrState.keys.every(key => key === null)).toBe(true);
+    const legacyKeys = swrState.keys.filter(
+      (key): key is string => typeof key === 'string',
+    );
+    expect(legacyKeys.some(key => key.includes('/api/routine_exceptions'))).toBe(true);
+    expect(legacyKeys.some(key => key.includes('/api/schedules/range'))).toBe(true);
+    expect(legacyKeys.some(key => key.includes('/api/workouts/range'))).toBe(true);
+    expect(legacyKeys.some(key => key.includes('/api/heatmap'))).toBe(true);
   });
 
   it('does not render Weekly Timetable planning surface on legacy Analytics', async () => {

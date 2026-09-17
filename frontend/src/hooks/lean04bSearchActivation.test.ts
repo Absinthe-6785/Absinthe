@@ -12,7 +12,7 @@ const harness = vi.hoisted(() => ({
   latest: null as { daily: any; stat: any } | null,
 }));
 
-vi.mock('../lib/localAuth', () => ({ isLocalOnlyRuntime: () => false }));
+vi.mock('../lib/syncAuthority', () => ({ domainUsesLocalWorkingCopy: () => false }));
 vi.mock('../lib/remoteBoundary', () => ({
   remoteSWRKey: (key: string) => key,
 }));

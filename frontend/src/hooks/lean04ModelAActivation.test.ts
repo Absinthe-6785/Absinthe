@@ -35,8 +35,8 @@ const harness = vi.hoisted(() => ({
   localStaticReads: [] as string[],
 }));
 
-vi.mock('../lib/localAuth', () => ({
-  isLocalOnlyRuntime: () => harness.localMode,
+vi.mock('../lib/syncAuthority', () => ({
+  domainUsesLocalWorkingCopy: () => harness.localMode,
 }));
 vi.mock('../lib/remoteBoundary', () => ({
   remoteSWRKey: (key: string) => harness.localMode ? null : key,

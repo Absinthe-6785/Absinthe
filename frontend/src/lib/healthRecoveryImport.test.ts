@@ -1431,7 +1431,9 @@ describe('local Health backfill writes', () => {
       expectedVersion: inbody.version,
     })).rejects.toMatchObject({ code: 'health_local_write_conflict' });
 
-    expect(remoteSWRKey('/api/health')).toBeNull();
+    // Account transport remains available independently of Health's local-first
+    // working copy. The local repository operations below still perform no fetch.
+    expect(remoteSWRKey('/api/health')).toBe('/api/health');
     const localProjection = projectLocalHealthDaily(
       await db.readAuthoritativeDatasets(OWNER),
       '2024-04-12',

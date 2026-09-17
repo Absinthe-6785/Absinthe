@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NOTES_RUNTIME_SYNC_MODE_KEY } from './syncMode';
 
 const getSessionMock = vi.fn();
@@ -19,19 +19,18 @@ vi.stubGlobal('localStorage', {
   clear: () => { storage.clear(); },
 });
 
-describe('supabase authFetch remote boundary', () => {
-  it('does not request a Supabase session in local mode', async () => {
-    storage.clear();
-    const { authFetch } = await import('./supabase');
-    const { isLocalOnlyRemoteMutationPausedError } = await import('./remoteBoundary');
+beforeEach(() => {
+  storage.clear();
+  getSessionMock.mockReset();
+});
 
-    try {
-      await authFetch('/api/test');
-      throw new Error('Expected local authFetch to be paused');
-    } catch (error) {
-      expect(isLocalOnlyRemoteMutationPausedError(error)).toBe(true);
-    }
-    expect(getSessionMock).not.toHaveBeenCalled();
+describe('supabase authFetch remote boundary', () => {
+  it('does not let Notes local mode suppress unrelated account transport', async () => {
+    storage.clear();
+    getSessionMock.mockResolvedValueOnce({ data: { session: null } });
+    const { authFetch } = await import('./supabase');
+    await expect(authFetch('/api/test')).rejects.toThrow('Not authenticated');
+    expect(getSessionMock).toHaveBeenCalledTimes(1);
   });
 
   it('uses Supabase auth in explicit remote mode', async () => {

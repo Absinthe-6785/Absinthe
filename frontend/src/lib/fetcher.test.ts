@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { NOTES_RUNTIME_SYNC_MODE_KEY, RETURN_TO_USE_LOCAL_LOCK_ENV } from './notesSyncClient';
+import { RETURN_TO_USE_LOCAL_LOCK_ENV } from './notesSyncClient';
 
 const getSessionMock = vi.fn();
 
@@ -23,13 +23,16 @@ vi.stubGlobal('localStorage', {
 });
 
 beforeEach(() => {
+  vi.clearAllMocks();
   storage.clear();
   vi.stubEnv(RETURN_TO_USE_LOCAL_LOCK_ENV, 'false');
   vi.stubEnv('VITE_ABSINTHE_SYNC_MODE', '');
+  vi.stubEnv('VITE_ABSINTHE_ACCOUNT_SYNC_DISABLED', 'false');
 });
 
-describe('fetcher local-only mode', () => {
-  it('pauses remote fetches before Supabase auth is touched', async () => {
+describe('fetcher account sync availability', () => {
+  it('pauses remote fetches before Supabase auth is touched when account sync is disabled', async () => {
+    vi.stubEnv('VITE_ABSINTHE_ACCOUNT_SYNC_DISABLED', 'true');
     const { fetcher, isLocalOnlyRemotePausedError } = await import('./fetcher');
 
     try {
@@ -41,8 +44,7 @@ describe('fetcher local-only mode', () => {
     expect(getSessionMock).not.toHaveBeenCalled();
   });
 
-  it('does not pause fetches when remote mode is explicit', async () => {
-    storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'remote');
+  it('does not let the default Notes local mode pause unrelated remote fetches', async () => {
     const { fetcher } = await import('./fetcher');
     const { authFetch } = await import('./supabase');
     vi.mocked(authFetch).mockResolvedValueOnce({
