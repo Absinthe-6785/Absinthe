@@ -58,7 +58,7 @@ export function GlobalSearchHost({
     isLoading: recipeLoading,
     isValidating: recipeValidating,
   } = useSWR<Recipe[]>(
-    accountBoundRemoteKey(`${API_URL}/api/recipes`, accountId, open),
+    accountBoundRemoteKey(`${API_URL}/api/recipes`, accountId, 'recipes', open),
     accountBoundRemoteFetcher,
     { revalidateOnFocus: false },
   );

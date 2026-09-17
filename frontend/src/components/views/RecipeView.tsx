@@ -128,7 +128,7 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
     isValidating: activeRecipeValidating,
     mutate: mutateRecipes,
   } = useSWR<Recipe[]>(
-    accountBoundRemoteKey(`${API_URL}/api/recipes`, accountId),
+    accountBoundRemoteKey(`${API_URL}/api/recipes`, accountId, 'recipes'),
     accountBoundRemoteFetcher,
     { onError: () => showToast(t('failLoadRecipes'), 'error') },
   );
@@ -139,7 +139,7 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
     isValidating: deletedRecipeValidating,
     mutate: mutateDeletedRecipes,
   } = useSWR<Recipe[]>(
-    accountBoundRemoteKey(`${API_URL}/api/recipes/trash`, accountId),
+    accountBoundRemoteKey(`${API_URL}/api/recipes/trash`, accountId, 'recipes'),
     accountBoundRemoteFetcher,
     { onError: () => showToast(t('failLoadDeletedRecipes'), 'error') },
   );

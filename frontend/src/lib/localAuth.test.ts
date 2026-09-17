@@ -3,6 +3,7 @@ import {
   createLocalAuthUser,
   isLocalOnlyRuntime,
   LOCAL_AUTH_EMAIL,
+  LOCAL_AUTH_RUNTIME_ENV,
   LOCAL_AUTH_USER_ID,
 } from './localAuth';
 import { NOTES_RUNTIME_SYNC_MODE_KEY } from './notesSyncClient';
@@ -16,9 +17,10 @@ vi.stubGlobal('localStorage', {
 });
 
 describe('localAuth', () => {
-  it('defaults to local-only runtime', () => {
+  it('does not derive local authentication from default Notes local mode', () => {
     storage.clear();
-    expect(isLocalOnlyRuntime()).toBe(true);
+    vi.stubEnv(LOCAL_AUTH_RUNTIME_ENV, 'false');
+    expect(isLocalOnlyRuntime()).toBe(false);
   });
 
   it('creates a local fallback user only for local mode callers', () => {
@@ -28,8 +30,16 @@ describe('localAuth', () => {
     expect(user.user_metadata).toMatchObject({ mode: 'local' });
   });
 
-  it('does not treat explicit remote mode as local-only', () => {
+  it('keeps Notes mode independent from local authentication capability', () => {
+    vi.stubEnv(LOCAL_AUTH_RUNTIME_ENV, 'false');
     storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'remote');
     expect(isLocalOnlyRuntime()).toBe(false);
+    storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'local');
+    expect(isLocalOnlyRuntime()).toBe(false);
+  });
+
+  it('requires an explicit local-auth runtime capability', () => {
+    vi.stubEnv(LOCAL_AUTH_RUNTIME_ENV, 'true');
+    expect(isLocalOnlyRuntime()).toBe(true);
   });
 });

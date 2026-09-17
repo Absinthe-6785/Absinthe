@@ -10,6 +10,7 @@ import { Loader2 } from 'lucide-react';
 import { supabase } from './lib/supabase';
 import { LoginScreen } from './components/views/LoginScreen';
 import { AppContent } from './components/AppContent';
+import { setRuntimeAccountSyncAccount } from './lib/remoteBoundary';
 
 // ─── 폰트 글로벌 스타일 ────────────────────────────────────────────
 const GlobalStyle = () => (
@@ -24,20 +25,34 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(true);
 
   useEffect(() => {
+    let authRevision = 0;
+    let disposed = false;
+    setRuntimeAccountSyncAccount(null);
+
+    const applySession = (session: { user: User } | null) => {
+      setRuntimeAccountSyncAccount(session?.user.id ?? null);
+      setAuthUser(session?.user ?? null);
+    };
+
+    const initialRevision = authRevision;
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      authRevision += 1;
+      if (!disposed) applySession(session);
+    });
+
     supabase.auth.getSession()
       .then(({ data: { session } }) => {
-        setAuthUser(session?.user ?? null);
+        if (!disposed && authRevision === initialRevision) applySession(session);
       })
       .catch(() => {})
       .finally(() => {
-        setAuthLoading(false);
+        if (!disposed) setAuthLoading(false);
       });
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setAuthUser(session?.user ?? null);
-    });
-
-    return () => subscription.unsubscribe();
+    return () => {
+      disposed = true;
+      setRuntimeAccountSyncAccount(null);
+      subscription.unsubscribe();
+    };
   }, []);
 
   if (authLoading) {

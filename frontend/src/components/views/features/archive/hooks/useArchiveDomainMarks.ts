@@ -7,7 +7,7 @@ import type { ArchiveDomainMarkDay } from '../../knowledge/archive';
 /** Domain marks from existing heatmap API — no /api/archive_marks in K-30.11. */
 export function useArchiveDomainMarks() {
   return useSWR<ArchiveDomainMarkDay[]>(
-    remoteSWRKey(`${API_URL}/api/heatmap`),
+    remoteSWRKey(`${API_URL}/api/heatmap`, 'analytics'),
     fetcher,
     { revalidateOnFocus: false },
   );

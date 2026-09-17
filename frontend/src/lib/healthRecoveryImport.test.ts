@@ -37,7 +37,8 @@ import {
   projectLocalHealthDaily,
   resetLocalHealthRuntimeForTests,
 } from './healthLocalRuntime';
-import { remoteSWRKey } from './remoteBoundary';
+import { remoteSWRKey, shouldUseAccountSyncTransport } from './remoteBoundary';
+import { deriveAccountSyncAvailability } from './syncAuthority';
 import { FOLDERS_KEY, NOTES_KEY, type NoteBase } from '@/components/views/noteUtils';
 import {
   clearIndexedDbNotes,
@@ -1431,7 +1432,16 @@ describe('local Health backfill writes', () => {
       expectedVersion: inbody.version,
     })).rejects.toMatchObject({ code: 'health_local_write_conflict' });
 
-    expect(remoteSWRKey('/api/health')).toBeNull();
+    // Account transport remains available independently of Health's local-first
+    // working copy, while direct Health persistence stays closed. The local
+    // repository operations below still perform no fetch.
+    const available = deriveAccountSyncAvailability({
+      authenticated: true,
+      capabilityEnabled: true,
+      online: true,
+    });
+    expect(shouldUseAccountSyncTransport(available)).toBe(true);
+    expect(remoteSWRKey('/api/workouts', 'health_workouts', available)).toBeNull();
     const localProjection = projectLocalHealthDaily(
       await db.readAuthoritativeDatasets(OWNER),
       '2024-04-12',

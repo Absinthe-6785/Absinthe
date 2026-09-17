@@ -1,6 +1,6 @@
 import { authFetch } from './supabase';
 import { API_URL } from './config';
-import { shouldUseRemoteData } from './remoteBoundary';
+import { shouldUseDomainRemotePersistence } from './remoteBoundary';
 import { applyEventToNote, readEventFromNote } from '../components/views/features/knowledge/trace/eventNotes';
 import { useNotesStore } from '../store/useNotesStore';
 import type { NoteBase } from '../components/views/noteUtils';
@@ -33,7 +33,7 @@ function eventNoteExists(notes: readonly NoteBase[], date: string, title: string
 export async function migrateLegacyDdays(
   onMigrated?: (count: number) => void,
 ): Promise<number> {
-  if (!shouldUseRemoteData()) {
+  if (!shouldUseDomainRemotePersistence('planner_ddays')) {
     return 0;
   }
 

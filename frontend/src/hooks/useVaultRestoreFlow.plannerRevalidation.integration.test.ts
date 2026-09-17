@@ -152,7 +152,14 @@ function WarmPlannerKeys({ account }: { account: string }) {
     'https://example.invalid/api/workouts?date=2026-08-17',
   ] as const;
   for (const url of urls) {
-    useSWR(accountBoundRemoteKey(url, account), accountBoundRemoteFetcher, {
+    const domain = url.includes('/workouts')
+      ? 'health_workouts'
+      : url.includes('/ddays')
+        ? 'planner_ddays'
+        : url.includes('/routines')
+          ? 'planner_routines'
+          : 'planner_events';
+    useSWR(accountBoundRemoteKey(url, account, domain), accountBoundRemoteFetcher, {
       dedupingInterval: 0,
       revalidateOnFocus: false,
     });
@@ -168,8 +175,15 @@ function OtherAccountSentinels() {
     'https://example.invalid/api/workouts?date=2026-08-18',
   ] as const;
   for (const url of urls) {
+    const domain = url.includes('/workouts')
+      ? 'health_workouts'
+      : url.includes('/ddays')
+        ? 'planner_ddays'
+        : url.includes('/routines')
+          ? 'planner_routines'
+          : 'planner_events';
     useSWR(
-      accountBoundRemoteKey(url, 'account-b'),
+      accountBoundRemoteKey(url, 'account-b', domain),
       async () => {
         harness.otherAccountRevalidations += 1;
         return [];

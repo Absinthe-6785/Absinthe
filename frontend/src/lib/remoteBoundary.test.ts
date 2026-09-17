@@ -3,9 +3,15 @@ import {
   assertRemoteMutationAllowed,
   isLocalOnlyRemoteMutationPausedError,
   remoteSWRKey,
-  shouldUseRemoteData,
+  runtimeAccountSyncAvailability,
+  setRuntimeAccountSyncAccount,
+  shouldUseAccountSyncTransport,
+  shouldUseDomainSyncTransport,
+  shouldUseDomainRemotePersistence,
+  shouldUseLegacyNotesRemoteData,
 } from './remoteBoundary';
 import { NOTES_RUNTIME_SYNC_MODE_KEY, RETURN_TO_USE_LOCAL_LOCK_ENV } from './syncMode';
+import { deriveAccountSyncAvailability } from './syncAuthority';
 
 const storage = new Map<string, string>();
 vi.stubGlobal('localStorage', {
@@ -17,49 +23,67 @@ vi.stubGlobal('localStorage', {
 
 beforeEach(() => {
   storage.clear();
+  vi.stubGlobal('navigator', { onLine: true });
   vi.stubEnv(RETURN_TO_USE_LOCAL_LOCK_ENV, 'false');
   vi.stubEnv('VITE_ABSINTHE_SYNC_MODE', '');
+  vi.stubEnv('VITE_ABSINTHE_ACCOUNT_SYNC_DISABLED', 'false');
+  setRuntimeAccountSyncAccount('account-a');
 });
 
 describe('remoteBoundary', () => {
-  it('disables remote data by default in local mode', () => {
-    expect(shouldUseRemoteData()).toBe(false);
-    expect(remoteSWRKey('/api/test')).toBeNull();
+  it('keeps account transport independent while direct persistence obeys domain policy', () => {
+    expect(shouldUseAccountSyncTransport()).toBe(true);
+    expect(shouldUseDomainSyncTransport('health_workouts')).toBe(true);
+    expect(shouldUseDomainRemotePersistence('health_workouts')).toBe(false);
+    expect(shouldUseDomainRemotePersistence('planner_events')).toBe(true);
+    expect(remoteSWRKey('/api/schedules', 'planner_events')).toBe('/api/schedules');
+    expect(remoteSWRKey('/api/workouts', 'health_workouts')).toBeNull();
   });
 
-  it('keeps the application-data read boundary local under a stale remote override', () => {
+  it('bounds the Notes return-to-use lock to the Notes adapter', () => {
     vi.stubEnv(RETURN_TO_USE_LOCAL_LOCK_ENV, 'true');
     storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'remote');
-    expect(shouldUseRemoteData()).toBe(false);
-    expect(remoteSWRKey('/api/test')).toBeNull();
+    expect(shouldUseLegacyNotesRemoteData()).toBe(false);
+    expect(shouldUseDomainRemotePersistence('planner_events')).toBe(true);
+    expect(shouldUseDomainRemotePersistence('recipes')).toBe(true);
   });
 
-  it('keeps the application-data mutation boundary local under a stale hybrid override', () => {
-    vi.stubEnv(RETURN_TO_USE_LOCAL_LOCK_ENV, '1');
-    storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'hybrid');
-    expect(shouldUseRemoteData()).toBe(false);
+  it('blocks account transport when availability is offline', () => {
+    const offline = deriveAccountSyncAvailability({
+      authenticated: true,
+      capabilityEnabled: true,
+      online: false,
+    });
+    expect(shouldUseAccountSyncTransport(offline)).toBe(false);
+    expect(remoteSWRKey('/api/schedules', 'planner_events', offline)).toBeNull();
+    expect(() => assertRemoteMutationAllowed('planner_events', offline)).toThrow();
+  });
+
+  it('prevents LOCAL_ONLY and DEFERRED direct persistence', () => {
+    expect(shouldUseDomainRemotePersistence('recipe_drafts')).toBe(false);
+    expect(shouldUseDomainRemotePersistence('account_reset')).toBe(false);
+    expect(shouldUseDomainRemotePersistence('attachments')).toBe(false);
+    expect(remoteSWRKey('/api/attachments', 'attachments')).toBeNull();
     try {
-      assertRemoteMutationAllowed();
-      throw new Error('Expected local mutation guard to throw');
+      assertRemoteMutationAllowed('account_reset');
+      throw new Error('Expected local-only mutation guard to throw');
     } catch (error) {
       expect(isLocalOnlyRemoteMutationPausedError(error)).toBe(true);
     }
   });
 
-  it('preserves remote access when mode is explicit', () => {
-    storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'remote');
-    expect(shouldUseRemoteData()).toBe(true);
-    expect(remoteSWRKey('/api/test')).toBe('/api/test');
-    expect(() => assertRemoteMutationAllowed()).not.toThrow();
-  });
-
-  it('throws a typed pause error for local-mode remote mutations', () => {
-    storage.clear();
-    try {
-      assertRemoteMutationAllowed();
-      throw new Error('Expected local mutation guard to throw');
-    } catch (error) {
-      expect(isLocalOnlyRemoteMutationPausedError(error)).toBe(true);
-    }
+  it('uses real account and connectivity authority and clears stale logout state', () => {
+    expect(runtimeAccountSyncAvailability().state).toBe('AVAILABLE');
+    setRuntimeAccountSyncAccount(null);
+    expect(runtimeAccountSyncAvailability()).toEqual({
+      state: 'UNAUTHENTICATED',
+      transportAvailable: false,
+    });
+    setRuntimeAccountSyncAccount('account-b');
+    vi.stubGlobal('navigator', { onLine: false });
+    expect(runtimeAccountSyncAvailability()).toEqual({
+      state: 'OFFLINE',
+      transportAvailable: false,
+    });
   });
 });

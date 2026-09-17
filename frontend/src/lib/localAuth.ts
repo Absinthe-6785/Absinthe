@@ -1,11 +1,13 @@
 import type { User } from '@supabase/supabase-js';
-import { resolveNotesRuntimeSyncMode } from './syncMode';
 
 export const LOCAL_AUTH_USER_ID = 'local-user';
 export const LOCAL_AUTH_EMAIL = 'local@absinthe.dev';
+export const LOCAL_AUTH_RUNTIME_ENV = 'VITE_ABSINTHE_LOCAL_AUTH';
 
+/** Local authentication is an explicit runtime capability, not a Notes mode. */
 export function isLocalOnlyRuntime(): boolean {
-  return resolveNotesRuntimeSyncMode() === 'local';
+  const configured = import.meta.env.VITE_ABSINTHE_LOCAL_AUTH;
+  return configured === true || configured === 'true' || configured === '1';
 }
 
 export function createLocalAuthUser(): User {

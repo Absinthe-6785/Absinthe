@@ -150,7 +150,7 @@ describe('K-296 Supabase usage quota traffic risk source facts audit', () => {
     const prevWorkout = read(prevWorkoutFetchPath);
 
     expect(remoteBoundary).toContain('remoteSWRKey');
-    expect(remoteBoundary).toContain('shouldUseRemoteData() ? key : null');
+    expect(remoteBoundary).toContain('return shouldUseDomainRemotePersistence(domain, availability) ? key : null;');
 
     expect(daily).toContain('remoteSWRKey');
     expect(daily).toContain('revalidateOnFocus: false');

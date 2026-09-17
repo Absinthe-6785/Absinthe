@@ -13,6 +13,7 @@ vi.mock('../store/useNotesStore', () => ({
 import { authFetch } from './supabase';
 import { useNotesStore } from '../store/useNotesStore';
 import { migrateLegacyDdays, resetDdayMigrationFlag } from './migrateLegacyDdays';
+import { setRuntimeAccountSyncAccount } from './remoteBoundary';
 import { NOTES_RUNTIME_SYNC_MODE_KEY } from './syncMode';
 
 const mockFetch = vi.mocked(authFetch);
@@ -22,6 +23,9 @@ const storage = new Map<string, string>();
 
 beforeEach(() => {
   storage.clear();
+  vi.stubEnv('VITE_ABSINTHE_ACCOUNT_SYNC_DISABLED', 'false');
+  vi.stubGlobal('navigator', { onLine: true });
+  setRuntimeAccountSyncAccount('account-a');
   vi.stubGlobal('localStorage', {
     getItem: (key: string) => storage.get(key) ?? null,
     setItem: (key: string, value: string) => { storage.set(key, value); },
@@ -92,9 +96,16 @@ describe('migrateLegacyDdays', () => {
     expect(localStorage.getItem('absinthe:dday-migration-v1')).toBe('done');
   });
 
-  it('does not call the remote migration endpoint in local mode', async () => {
+  it('does not let Notes local mode suppress the remote D-Day migration boundary', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => [],
+    } as Response);
+
     const result = await migrateLegacyDdays();
+
     expect(result).toBe(0);
-    expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockFetch).toHaveBeenCalledWith(expect.stringContaining('/api/schedules/ddays'));
+    expect(localStorage.getItem('absinthe:dday-migration-v1')).toBe('done');
   });
 });

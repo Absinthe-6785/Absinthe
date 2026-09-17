@@ -83,7 +83,7 @@ import { useRoutinePresetController } from './features/health/useRoutinePresetCo
 import useSWR from 'swr';
 import { fetcher } from '../../lib/fetcher';
 import { remoteSWRKey } from '../../lib/remoteBoundary';
-import { shouldUseRemoteData } from '../../lib/remoteBoundary';
+import { domainUsesLocalWorkingCopy } from '../../lib/syncAuthority';
 import { createLocalHealthRepository, readLocalHealthWorkoutRange, readLocalPreviousWorkoutRows } from '../../lib/healthLocalRuntime';
 import {
   isCurrentHealthAccountGeneration,
@@ -118,7 +118,7 @@ export const HealthView = ({
   const { mutate: api } = useApiMutation(mutateDaily, mutateStatic, showToast);
   const { weightUnits, toggleWeightUnit } = useAppStore();
   const { confirm, showConfirm, clearConfirm, handleConfirm } = useConfirm();
-  const localMode = !shouldUseRemoteData();
+  const localMode = domainUsesLocalWorkingCopy('health_workouts');
   const accountGenerationRef = useRef(0);
   const activeAccountIdRef = useRef(user.id);
   if (activeAccountIdRef.current !== user.id) {
@@ -1141,7 +1141,7 @@ export const HealthView = ({
   const monthEnd = formatDate(new Date(year, month + 1, 0));
   const rangeKey = localMode
     ? ['local-health-workout-range', user.id, monthStart, monthEnd] as const
-    : remoteSWRKey(`${API_URL}/api/workouts/range?start_date=${monthStart}&end_date=${monthEnd}`);
+    : remoteSWRKey(`${API_URL}/api/workouts/range?start_date=${monthStart}&end_date=${monthEnd}`, 'health_workouts');
   const { data: monthWorkoutRows = [], mutate: mutateMonthWorkoutRows } = useSWR<RangeWorkoutRow[]>(
     rangeKey,
     localMode
@@ -1157,7 +1157,7 @@ export const HealthView = ({
     [selectedDateKey],
   );
   const previousWorkoutRemoteUrl = `${API_URL}/api/workouts/range?start_date=${previousWorkoutRangeDates.startDate}&end_date=${previousWorkoutRangeDates.endDate}`;
-  const previousWorkoutRemoteKey = remoteSWRKey(previousWorkoutRemoteUrl);
+  const previousWorkoutRemoteKey = remoteSWRKey(previousWorkoutRemoteUrl, 'health_workouts');
   const isDesktopPrevious = !isMobile && mobileHealthTab === 'previous';
   const isPreviousContextOpen = isDesktopPrevious || isPreviousSheetOpen;
   const previousWorkoutKey: PreviousWorkoutSWRKey | null = isPreviousContextOpen

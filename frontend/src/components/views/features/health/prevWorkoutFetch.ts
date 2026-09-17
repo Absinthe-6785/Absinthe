@@ -1,6 +1,6 @@
 import { authFetch } from '@/lib/supabase';
 import { API_URL } from '@/lib/config';
-import { shouldUseRemoteData } from '@/lib/remoteBoundary';
+import { domainUsesLocalWorkingCopy } from '@/lib/syncAuthority';
 import { readLocalPreviousWorkout } from '@/lib/healthLocalRuntime';
 import type { WorkoutSet } from '@/types';
 import {
@@ -49,7 +49,7 @@ export async function fetchPrevWorkoutForBlocks(
   source: string,
   accountId?: string,
 ): Promise<Record<string, PrevWorkoutPayload>> {
-  if (!shouldUseRemoteData()) {
+  if (domainUsesLocalWorkingCopy('health_workouts')) {
     return accountId ? readLocalPreviousWorkout(accountId, blockIds, beforeDate) : {};
   }
 

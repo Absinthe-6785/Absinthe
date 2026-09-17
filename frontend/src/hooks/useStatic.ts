@@ -3,7 +3,8 @@ import useSWR, { useSWRConfig } from 'swr';
 import { fetcher, isLocalOnlyRemotePausedError } from '../lib/fetcher';
 import { API_URL } from '../lib/config';
 import { remoteSWRKey } from '../lib/remoteBoundary';
-import { isLocalOnlyRuntime } from '../lib/localAuth';
+import { domainUsesLocalWorkingCopy } from '../lib/syncAuthority';
+import type { SyncDomain } from '../lib/syncAuthority';
 import { readLocalHealthStatic } from '../lib/healthLocalRuntime';
 import { ExerciseBlock, HealthRoutine, WeeklySchedule } from '../types';
 import { resolveSearchDatasetState, type SearchDatasetState } from '../lib/searchReadiness';
@@ -24,10 +25,11 @@ export type AccountBoundHealthStaticKey = readonly ['health-static', string, str
 
 export function accountBoundHealthStaticKey(
   url: string,
-  accountId?: string,
+  accountId: string | undefined,
+  domain: SyncDomain,
   enabled = true,
 ): AccountBoundHealthStaticKey | null {
-  const remoteKey = remoteSWRKey(url);
+  const remoteKey = remoteSWRKey(url, domain);
   return enabled && accountId && remoteKey ? ['health-static', accountId, remoteKey] : null;
 }
 
@@ -44,7 +46,7 @@ export const useStaticData = (
   healthRoutinesEnabled = true,
 ): UseStaticDataResult => {
   const base = `${API_URL}/api`;
-  const localMode = isLocalOnlyRuntime();
+  const localMode = domainUsesLocalWorkingCopy('health_exercise_library');
   const { mutate: globalMutate } = useSWRConfig();
 
   const swrOpts = useMemo(
@@ -62,7 +64,7 @@ export const useStaticData = (
   const markedDatesCacheKey = accountBoundHealthStaticKey(
     `${base}/schedules/dates?start_date=${monthStartStr}&end_date=${monthEndStr}`,
     accountId,
-    !localMode,
+    'planner_events',
   );
   const markedDatesKey = markedDatesEnabled ? markedDatesCacheKey : null;
   const { data: rawDates = [], mutate: mutateDates } = useSWR<(string | { date: string })[]>(
@@ -70,7 +72,7 @@ export const useStaticData = (
     fetchAccountBoundHealthStatic,
     swrOpts,
   );
-  const healthBlocksCacheKey = accountBoundHealthStaticKey(`${base}/blocks`, accountId, !localMode);
+  const healthBlocksCacheKey = accountBoundHealthStaticKey(`${base}/blocks`, accountId, 'health_exercise_library', !localMode);
   const healthBlocksKey = healthBlocksEnabled ? healthBlocksCacheKey : null;
   const {
     data: healthBlocksData,
@@ -83,7 +85,7 @@ export const useStaticData = (
     fetchAccountBoundHealthStatic,
     swrOpts,
   );
-  const healthRoutinesCacheKey = accountBoundHealthStaticKey(`${base}/health_routines`, accountId, !localMode);
+  const healthRoutinesCacheKey = accountBoundHealthStaticKey(`${base}/health_routines`, accountId, 'health_routine_presets', !localMode);
   const healthRoutinesKey = healthRoutinesEnabled ? healthRoutinesCacheKey : null;
   const { data: healthRoutines = [], mutate: mutateRoutines } = useSWR<HealthRoutine[]>(
     healthRoutinesKey,
@@ -91,7 +93,7 @@ export const useStaticData = (
     swrOpts,
   );
   const { data: weeklySchedules = [], mutate: mutateWeekly } = useSWR<WeeklySchedule[]>(
-    accountBoundHealthStaticKey(`${base}/weekly_schedules`, accountId, !localMode),
+    accountBoundHealthStaticKey(`${base}/weekly_schedules`, accountId, 'planner_weekly_schedules'),
     fetchAccountBoundHealthStatic,
     swrOpts,
   );

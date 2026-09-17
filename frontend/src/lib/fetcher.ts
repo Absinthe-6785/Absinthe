@@ -1,5 +1,5 @@
 import { authFetch, supabase } from './supabase';
-import { shouldUseRemoteData } from './remoteBoundary';
+import { isLocalOnlyRemoteMutationPausedError } from './remoteBoundary';
 
 /**
  * SWR용 공통 fetcher — 인증 헤더 포함, HTTP 오류 시 throw.
@@ -23,7 +23,8 @@ export class LocalOnlyRemotePausedError extends Error {
 }
 
 export function isLocalOnlyRemotePausedError(error: unknown): error is LocalOnlyRemotePausedError {
-  return error instanceof LocalOnlyRemotePausedError;
+  return error instanceof LocalOnlyRemotePausedError
+    || isLocalOnlyRemoteMutationPausedError(error);
 }
 
 let isRefreshing = false;
@@ -50,10 +51,6 @@ async function refreshToken(): Promise<boolean> {
 }
 
 export const fetcher = async <T = unknown>(url: string): Promise<T> => {
-  if (!shouldUseRemoteData()) {
-    throw new LocalOnlyRemotePausedError();
-  }
-
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {

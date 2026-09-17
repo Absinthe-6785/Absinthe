@@ -134,12 +134,12 @@ export const HomeView = ({
   }, [selectedDate]);
   const prevDateStr = formatDate(prevDate);
   const { data: prevSchedules = [] } = useSWR<Schedule[]>(
-    accountBoundRemoteKey(`${API_URL}/api/schedules?date=${prevDateStr}`, user.id),
+    accountBoundRemoteKey(`${API_URL}/api/schedules?date=${prevDateStr}`, user.id, 'planner_events'),
     accountBoundRemoteFetcher,
     { revalidateOnFocus: false },
   );
   const { data: ddaySchedules = [] } = useSWR<ScheduleDday[]>(
-    accountBoundRemoteKey(`${API_URL}/api/schedules/ddays`, user.id),
+    accountBoundRemoteKey(`${API_URL}/api/schedules/ddays`, user.id, 'planner_ddays'),
     accountBoundRemoteFetcher,
     { revalidateOnFocus: false },
   );

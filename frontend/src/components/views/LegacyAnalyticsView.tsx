@@ -83,7 +83,7 @@ export function LegacyAnalyticsView({
     : null;
 
   const { data: routineExceptions = [] } = useSWR<{id: string; start_date: string; end_date: string; reason: string}[]>(
-    remoteSWRKey(`${API_URL}/api/routine_exceptions`),
+    remoteSWRKey(`${API_URL}/api/routine_exceptions`, 'planner_routine_exceptions'),
     fetcher,
     { revalidateOnFocus: false },
   );
@@ -94,7 +94,7 @@ export function LegacyAnalyticsView({
   );
 
   const { data: rangeSchedules, isLoading: isRangeLoading } = useSWR<Schedule[]>(
-    analyticsUrl ? remoteSWRKey(analyticsUrl) : null,
+    analyticsUrl ? remoteSWRKey(analyticsUrl, 'planner_events') : null,
     fetcher,
     { onError: onRangeError },
   );
@@ -116,7 +116,7 @@ export function LegacyAnalyticsView({
     ? `${API_URL}/api/workouts/range?start_date=${thisWeekDates[0]}&end_date=${thisWeekDates[6]}`
     : null;
 
-  const { data: weekWorkouts } = useSWR(workoutDaysUrl ? remoteSWRKey(workoutDaysUrl) : null, fetcher, { refreshInterval: 60000 });
+  const { data: weekWorkouts } = useSWR(workoutDaysUrl ? remoteSWRKey(workoutDaysUrl, 'health_workouts') : null, fetcher, { refreshInterval: 60000 });
 
   const workoutDoneSet = useMemo(() => {
     const s = new Set<string>();
@@ -148,7 +148,7 @@ export function LegacyAnalyticsView({
   const { data: heatmapData = [] } = useSWR<{
     date: string; workout_count: number; routine_done: number;
     routine_total: number; study_mins: number; is_exception: boolean;
-  }[]>(remoteSWRKey(`${API_URL}/api/heatmap`), fetcher, { revalidateOnFocus: false });
+  }[]>(remoteSWRKey(`${API_URL}/api/heatmap`, 'analytics'), fetcher, { revalidateOnFocus: false });
 
   useEscapeKey(() => { clearConfirm(); });
 

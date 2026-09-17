@@ -279,7 +279,8 @@ describe('K-286 auth Supabase runtime access restoration boundary plan', () => {
 
     expect(localAuth).toContain("export const LOCAL_AUTH_USER_ID = 'local-user';");
     expect(localAuth).toContain("export const LOCAL_AUTH_EMAIL = 'local@absinthe.dev';");
-    expect(localAuth).toContain('resolveNotesRuntimeSyncMode() === \'local\'');
+    expect(localAuth).toContain('import.meta.env.VITE_ABSINTHE_LOCAL_AUTH');
+    expect(localAuth).not.toContain('resolveNotesRuntimeSyncMode');
 
     expect(syncMode).toContain("export const NOTES_RUNTIME_SYNC_MODE_KEY = 'absinthe-notes-sync-mode';");
     expect(syncMode).toContain("return 'local';");
@@ -293,14 +294,18 @@ describe('K-286 auth Supabase runtime access restoration boundary plan', () => {
     const remoteBoundary = read(remoteBoundaryPath);
     const supabase = read(supabasePath);
 
-    expect(remoteBoundary).toContain('return !isLocalOnlyRuntime();');
+    expect(remoteBoundary).toContain('return availability.transportAvailable;');
+    expect(remoteBoundary).not.toContain('isLocalOnlyRuntime');
     expect(remoteBoundary).toContain('remoteSWRKey');
     expect(remoteBoundary).toContain('assertRemoteMutationAllowed');
 
     expect(supabase).toContain('createClient(');
     expect(supabase).toContain('import.meta.env.VITE_SUPABASE_URL');
     expect(supabase).toContain('import.meta.env.VITE_SUPABASE_ANON_KEY');
-    expect(supabase).toContain('if (!shouldUseRemoteData())');
+    expect(supabase).toContain('assertRemoteUrlAllowed(url);');
+    expect(supabase.indexOf('assertRemoteUrlAllowed(url);')).toBeLessThan(
+      supabase.indexOf('supabase.auth.getSession()'),
+    );
     expect(supabase).toContain('supabase.auth.getSession()');
   });
 

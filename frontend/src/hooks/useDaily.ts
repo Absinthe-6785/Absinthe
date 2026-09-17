@@ -8,7 +8,7 @@ import {
   accountBoundRemoteKey,
   type AccountBoundRemoteKey,
 } from '../lib/accountBoundRemote';
-import { isLocalOnlyRuntime } from '../lib/localAuth';
+import { domainUsesLocalWorkingCopy } from '../lib/syncAuthority';
 import { readLocalHealthDaily } from '../lib/healthLocalRuntime';
 import { resolveSearchDatasetState, type SearchDatasetState } from '../lib/searchReadiness';
 import { Schedule, Todo, Routine, Workout, Inbody } from '../types';
@@ -44,7 +44,7 @@ export function accountBoundTodoKey(
   accountId?: string,
   enabled = true,
 ): AccountBoundTodoKey | null {
-  return accountBoundRemoteKey(url, accountId, enabled);
+  return accountBoundRemoteKey(url, accountId, 'planner_todos', enabled);
 }
 
 const fetchAccountBoundTodo = accountBoundRemoteFetcher;
@@ -59,7 +59,7 @@ export function accountBoundInbodyKey(
   accountId?: string,
   enabled = true,
 ): AccountBoundInbodyKey | null {
-  const remoteKey = remoteSWRKey(url);
+  const remoteKey = remoteSWRKey(url, 'health_inbody');
   return enabled && accountId && remoteKey
     ? `${remoteKey}\u0000absinthe-account=${encodeURIComponent(accountId)}\u0000inbody`
     : null;
@@ -84,8 +84,8 @@ export const useDailyData = (
   inbodyEnabled = true,
 ): UseDailyDataResult => {
   const base = `${API_URL}/api`;
-  const localMode = isLocalOnlyRuntime();
-  const todoUrlKey = remoteSWRKey(`${base}/todos?date=${dateStr}`);
+  const localMode = domainUsesLocalWorkingCopy('health_workouts');
+  const todoUrlKey = remoteSWRKey(`${base}/todos?date=${dateStr}`, 'planner_todos');
   const todoCacheKey = todosEnabled === undefined
     ? todoUrlKey
     : accountBoundTodoKey(`${base}/todos?date=${dateStr}`, accountId);
@@ -96,11 +96,11 @@ export const useDailyData = (
     ? todoUrlKey
     : todosEnabled ? todoCacheKey : null;
   const inbodyUrl = `${base}/inbody?date=${dateStr}`;
-  const inbodyCacheKey = accountBoundInbodyKey(inbodyUrl, accountId);
+  const inbodyCacheKey = accountBoundInbodyKey(inbodyUrl, accountId, !localMode);
   const inbodyKey = inbodyEnabled ? inbodyCacheKey : null;
-  const schedulesKey = accountBoundRemoteKey(`${base}/schedules?date=${dateStr}`, accountId);
-  const routinesKey = accountBoundRemoteKey(`${base}/routines_with_logs?date=${dateStr}`, accountId);
-  const workoutsKey = accountBoundRemoteKey(`${base}/workouts?date=${dateStr}`, accountId);
+  const schedulesKey = accountBoundRemoteKey(`${base}/schedules?date=${dateStr}`, accountId, 'planner_events');
+  const routinesKey = accountBoundRemoteKey(`${base}/routines_with_logs?date=${dateStr}`, accountId, 'planner_routines');
+  const workoutsKey = accountBoundRemoteKey(`${base}/workouts?date=${dateStr}`, accountId, 'health_workouts', !localMode);
 
   const { mutate: globalMutate } = useSWRConfig();
 

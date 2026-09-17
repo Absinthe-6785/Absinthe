@@ -175,9 +175,9 @@ function ProductionHomeProbe({ account, active }: ProbeProps) {
   harness.account = account ?? 'account-a';
   const date = '2026-08-18';
   const accountId = active ? account : undefined;
-  const scheduleKey = accountBoundRemoteKey(`https://example.invalid/api/schedules?date=${date}`, accountId);
-  const routineKey = accountBoundRemoteKey(`https://example.invalid/api/routines_with_logs?date=${date}`, accountId);
-  const workoutKey = accountBoundRemoteKey(`https://example.invalid/api/workouts?date=${date}`, accountId);
+  const scheduleKey = accountBoundRemoteKey(`https://example.invalid/api/schedules?date=${date}`, accountId, 'planner_events');
+  const routineKey = accountBoundRemoteKey(`https://example.invalid/api/routines_with_logs?date=${date}`, accountId, 'planner_routines');
+  const workoutKey = accountBoundRemoteKey(`https://example.invalid/api/workouts?date=${date}`, accountId, 'health_workouts');
   const { data: schedules = [] } = useSWR<any[]>(scheduleKey, accountBoundRemoteFetcher, { dedupingInterval: 0, revalidateOnFocus: false });
   const { data: routines = [] } = useSWR<any[]>(routineKey, accountBoundRemoteFetcher, { dedupingInterval: 0, revalidateOnFocus: false });
   const { data: workouts = [] } = useSWR<any[]>(workoutKey, accountBoundRemoteFetcher, { dedupingInterval: 0, revalidateOnFocus: false });

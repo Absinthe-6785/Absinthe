@@ -19,12 +19,12 @@ export interface SelectedDayHistoryExtrasProps {
 export function SelectedDayHistoryExtras({ dateKey, theme }: SelectedDayHistoryExtrasProps) {
   const { t } = useTranslation();
   const { data: workouts = [] } = useSWR<WorkoutRow[]>(
-    remoteSWRKey(`${API_URL}/api/workouts?date=${dateKey}`),
+    remoteSWRKey(`${API_URL}/api/workouts?date=${dateKey}`, 'health_workouts'),
     fetcher,
     { revalidateOnFocus: false },
   );
   const { data: intake = [] } = useSWR<ProteinIntakeLog[]>(
-    remoteSWRKey(`${API_URL}/api/protein_intake?date=${dateKey}`),
+    remoteSWRKey(`${API_URL}/api/protein_intake?date=${dateKey}`, 'health_nutrition'),
     fetcher,
     { revalidateOnFocus: false },
   );

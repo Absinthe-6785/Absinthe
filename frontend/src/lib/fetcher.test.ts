@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { NOTES_RUNTIME_SYNC_MODE_KEY, RETURN_TO_USE_LOCAL_LOCK_ENV } from './notesSyncClient';
+import { RETURN_TO_USE_LOCAL_LOCK_ENV } from './notesSyncClient';
+import { LocalOnlyRemoteMutationPausedError } from './remoteBoundary';
 
 const getSessionMock = vi.fn();
 
@@ -23,26 +24,29 @@ vi.stubGlobal('localStorage', {
 });
 
 beforeEach(() => {
+  vi.clearAllMocks();
   storage.clear();
   vi.stubEnv(RETURN_TO_USE_LOCAL_LOCK_ENV, 'false');
   vi.stubEnv('VITE_ABSINTHE_SYNC_MODE', '');
+  vi.stubEnv('VITE_ABSINTHE_ACCOUNT_SYNC_DISABLED', 'false');
 });
 
-describe('fetcher local-only mode', () => {
-  it('pauses remote fetches before Supabase auth is touched', async () => {
+describe('fetcher account sync availability', () => {
+  it('preserves domain-boundary pause errors from the authenticated fetch boundary', async () => {
     const { fetcher, isLocalOnlyRemotePausedError } = await import('./fetcher');
+    const { authFetch } = await import('./supabase');
+    vi.mocked(authFetch).mockRejectedValueOnce(new LocalOnlyRemoteMutationPausedError());
 
     try {
-      await fetcher('/api/test');
+      await fetcher('/api/schedules');
       throw new Error('Expected local-only fetch to be paused');
     } catch (error) {
       expect(isLocalOnlyRemotePausedError(error)).toBe(true);
     }
-    expect(getSessionMock).not.toHaveBeenCalled();
+    expect(authFetch).toHaveBeenCalledWith('/api/schedules');
   });
 
-  it('does not pause fetches when remote mode is explicit', async () => {
-    storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'remote');
+  it('does not let the default Notes local mode pause unrelated remote fetches', async () => {
     const { fetcher } = await import('./fetcher');
     const { authFetch } = await import('./supabase');
     vi.mocked(authFetch).mockResolvedValueOnce({
@@ -50,7 +54,7 @@ describe('fetcher local-only mode', () => {
       json: async () => ({ ok: true }),
     } as Response);
 
-    await expect(fetcher('/api/test')).resolves.toEqual({ ok: true });
-    expect(authFetch).toHaveBeenCalledWith('/api/test');
+    await expect(fetcher('/api/schedules')).resolves.toEqual({ ok: true });
+    expect(authFetch).toHaveBeenCalledWith('/api/schedules');
   });
 });

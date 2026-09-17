@@ -104,7 +104,7 @@ vi.mock('../lib/remoteBoundary', () => ({
   remoteSWRKey: (key: string) => key,
 }));
 
-vi.mock('../lib/localAuth', () => ({ isLocalOnlyRuntime: () => false }));
+vi.mock('../lib/syncAuthority', () => ({ domainUsesLocalWorkingCopy: () => false }));
 
 vi.mock('../lib/healthLocalRuntime', () => ({
   readLocalHealthDaily: async () => undefined,

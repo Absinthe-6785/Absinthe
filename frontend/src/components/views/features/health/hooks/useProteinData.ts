@@ -3,7 +3,7 @@ import useSWR, { useSWRConfig } from 'swr';
 import { fetcher } from '../../../../../lib/fetcher';
 import { API_URL } from '../../../../../lib/config';
 import { remoteSWRKey } from '../../../../../lib/remoteBoundary';
-import { shouldUseRemoteData } from '../../../../../lib/remoteBoundary';
+import { domainUsesLocalWorkingCopy } from '../../../../../lib/syncAuthority';
 import { readLocalHealthProtein } from '../../../../../lib/healthLocalRuntime';
 import { HEALTH_LOCAL_BOOTSTRAP_COMPLETE_EVENT } from '../../../../../lib/healthSupabaseBootstrap';
 import type { ProteinIntakeLog, ProteinProfile, ProteinSource } from '../../../../../types';
@@ -78,20 +78,23 @@ export function useProteinData(
 ): UseProteinDataResult {
   const base = `${API_URL}/api`;
   const { mutate: globalMutate } = useSWRConfig();
-  const localMode = !shouldUseRemoteData();
+  const localMode = domainUsesLocalWorkingCopy('health_nutrition');
+  const remoteProfileKey = localMode ? null : remoteSWRKey(`${base}/protein_profile`, 'health_nutrition');
+  const remoteSourcesKey = localMode ? null : remoteSWRKey(`${base}/protein_sources`, 'health_nutrition');
+  const remoteIntakeKey = localMode ? null : remoteSWRKey(`${base}/protein_intake?date=${dateStr}`, 'health_nutrition');
 
   const { data: profile = null, mutate: mutateProfile, isLoading: l1 } =
-    useSWR<ProteinProfile | null>(remoteSWRKey(`${base}/protein_profile`), fetcher, { revalidateOnFocus: false });
+    useSWR<ProteinProfile | null>(remoteProfileKey, fetcher, { revalidateOnFocus: false });
 
   const { data: sources = [], mutate: mutateSources, isLoading: l2 } =
-    useSWR<ProteinSource[]>(remoteSWRKey(`${base}/protein_sources`), fetcher, { revalidateOnFocus: false });
+    useSWR<ProteinSource[]>(remoteSourcesKey, fetcher, { revalidateOnFocus: false });
 
   const { data: intakeLogs = [], mutate: mutateIntake, isLoading: l3 } =
-    useSWR<ProteinIntakeLog[]>(remoteSWRKey(`${base}/protein_intake?date=${dateStr}`), fetcher, { revalidateOnFocus: false });
+    useSWR<ProteinIntakeLog[]>(remoteIntakeKey, fetcher, { revalidateOnFocus: false });
 
   const weekKey = `${base}/protein_weekly?anchor=${dateStr}`;
   const { data: remoteWeeklyData } = useSWR(
-    remoteSWRKey(weekKey),
+    localMode ? null : remoteSWRKey(weekKey, 'health_nutrition'),
     () => fetchProteinRange(selectedDate, formatDate, 30),
     { revalidateOnFocus: false },
   );

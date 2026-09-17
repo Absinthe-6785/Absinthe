@@ -70,12 +70,12 @@ export const PlannerView = ({
   }, [selectedDate]);
   const prevDateStr = useMemo(() => formatDate(prevDate), [prevDate, formatDate]);
   const { data: prevSchedules = [] } = useSWR<Schedule[]>(
-    accountBoundRemoteKey(`${API_URL}/api/schedules?date=${prevDateStr}`, accountId),
+    accountBoundRemoteKey(`${API_URL}/api/schedules?date=${prevDateStr}`, accountId, 'planner_events'),
     accountBoundRemoteFetcher,
     { revalidateOnFocus: false }
   );
   const { data: ddaySchedules = [], mutate: mutateDdaySchedules } = useSWR<ScheduleDday[]>(
-    accountBoundRemoteKey(`${API_URL}/api/schedules/ddays`, accountId),
+    accountBoundRemoteKey(`${API_URL}/api/schedules/ddays`, accountId, 'planner_ddays'),
     accountBoundRemoteFetcher,
     { revalidateOnFocus: false },
   );

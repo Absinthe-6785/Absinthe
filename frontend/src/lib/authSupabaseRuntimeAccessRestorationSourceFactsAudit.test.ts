@@ -311,7 +311,8 @@ describe('K-287 auth Supabase runtime access restoration source facts audit', ()
 
     expect(localAuth).toContain("export const LOCAL_AUTH_USER_ID = 'local-user';");
     expect(localAuth).toContain("export const LOCAL_AUTH_EMAIL = 'local@absinthe.dev';");
-    expect(localAuth).toContain("resolveNotesRuntimeSyncMode() === 'local'");
+    expect(localAuth).toContain('import.meta.env.VITE_ABSINTHE_LOCAL_AUTH');
+    expect(localAuth).not.toContain('resolveNotesRuntimeSyncMode');
     expect(localAuth).toContain('createLocalAuthUser');
 
     expect(syncMode).toContain("export const NOTES_RUNTIME_SYNC_MODE_KEY = 'absinthe-notes-sync-mode';");
@@ -325,7 +326,8 @@ describe('K-287 auth Supabase runtime access restoration source facts audit', ()
     expect(supabase).toContain('supabase.auth.getSession()');
     expect(supabase).toContain('Authorization: `Bearer ${session.access_token}`');
 
-    expect(remoteBoundary).toContain('return !isLocalOnlyRuntime();');
+    expect(remoteBoundary).toContain('return availability.transportAvailable;');
+    expect(remoteBoundary).not.toContain('isLocalOnlyRuntime');
     expect(remoteBoundary).toContain('remoteSWRKey');
 
     expect(appContent).not.toContain('if (isLocalOnlyRuntime()) return;');
