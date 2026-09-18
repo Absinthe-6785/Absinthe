@@ -7,7 +7,7 @@ import {
   acknowledgeOutboxRecord, calculateRetryAvailableAt, closeLocalDatabase,
   canonicalPayloadSnapshot, createDormantLocalDatabaseCapability, deriveOutboxIdempotencyKey, deriveOutboxMutationId,
   hashCanonicalPayload, openLocalDatabase,
-  type LocalDatabaseNamespace, type LocalDatabaseRepository, type LocalEntityEnvelope,
+  type CommitRemoteEntityBatchInput, type LocalDatabaseNamespace, type LocalDatabaseRepository, type LocalEntityEnvelope,
 } from './index';
 
 const capability = createDormantLocalDatabaseCapability('test');
@@ -306,6 +306,71 @@ describe('REL-05D checkpoints, conflicts, and worker ownership', () => {
     }) });
     expect(await value.getEntity('notes', 'remote-1')).toEqual(entity);
     expect(await value.getSyncCheckpoint('supabase', 'notes')).toEqual(committed.checkpoint);
+  });
+
+  it('snapshots caller-owned batch context and nested envelope metadata before the first async boundary', async () => {
+    const factory = new IDBFactory(); const value = await repository(factory);
+    const entity = remoteEntity(value, 'notes', 'snapshot-1', {
+      nested: { label: 'original' }, items: ['one'],
+    });
+    entity.migrationProvenance = {
+      conversionVersion: 1, sourceAdapter: 'source-original', sourceSchemaVersion: 1,
+      migrationSessionId: 'migration-1', sourceSnapshotDigest: 'a'.repeat(64),
+      migratedAt: T0, legacyKeyDigest: 'b'.repeat(64),
+    };
+    const request: CommitRemoteEntityBatchInput<typeof entity.record> = {
+      namespaceKey: value.namespaceKey, generationId: namespace.generationId, accountId: namespace.userId,
+      domain: 'notes', provider: 'supabase', checkpointValue: 'cursor-original', sequence: 1,
+      serverEpoch: 'epoch-original', now: T1, entities: [{ expectedLocalRevision: null, entity }],
+    };
+
+    const pending = value.commitRemoteEntityBatch(request);
+    request.domain = 'health'; request.provider = 'mutated-provider'; request.sequence = 999;
+    request.checkpointValue = 'cursor-mutated'; request.serverEpoch = 'epoch-mutated';
+    request.entities[0].entity.domain = 'health';
+    request.entities[0].entity.source!.reference = 'source-mutated';
+    request.entities[0].entity.migrationProvenance!.sourceAdapter = 'adapter-mutated';
+    request.entities[0].entity.record.nested.label = 'mutated';
+    request.entities[0].entity.record.items.push('two');
+
+    await expect(pending).resolves.toMatchObject({
+      entities: [{ domain: 'notes', source: { reference: 'supabase' },
+        migrationProvenance: { sourceAdapter: 'source-original' },
+        record: { nested: { label: 'original' }, items: ['one'] } }],
+      checkpoint: { provider: 'supabase', stream: 'notes', checkpointValue: 'cursor-original', sequence: 1,
+        serverEpoch: 'epoch-original' },
+    });
+    expect(await value.getEntity('notes', 'snapshot-1')).toMatchObject({
+      domain: 'notes', source: { reference: 'supabase' }, migrationProvenance: { sourceAdapter: 'source-original' },
+      record: { nested: { label: 'original' }, items: ['one'] },
+    });
+    expect(await value.getEntity('health', 'snapshot-1')).toBeNull();
+    expect(await value.getSyncCheckpoint('supabase', 'notes')).toMatchObject({ checkpointValue: 'cursor-original', sequence: 1 });
+    expect(await value.getSyncCheckpoint('mutated-provider', 'health')).toBeNull();
+  });
+
+  it('uses the snapshotted domain for CAS and cannot advance a mutated checkpoint scope', async () => {
+    const factory = new IDBFactory(); const value = await repository(factory);
+    const original = remoteEntity(value, 'notes', 'cas-snapshot', { body: 'original' });
+    await value.commitRemoteEntityBatch({
+      namespaceKey: value.namespaceKey, generationId: namespace.generationId, accountId: namespace.userId,
+      domain: 'notes', provider: 'supabase', checkpointValue: 'cursor-1', sequence: 1,
+      serverEpoch: 'epoch-1', now: T1, entities: [{ expectedLocalRevision: null, entity: original }],
+    });
+    const replacement = remoteEntity(value, 'notes', 'cas-snapshot', { body: 'replacement' });
+    const request: CommitRemoteEntityBatchInput<typeof replacement.record> = {
+      namespaceKey: value.namespaceKey, generationId: namespace.generationId, accountId: namespace.userId,
+      domain: 'notes', provider: 'supabase', checkpointValue: 'cursor-2', sequence: 2,
+      serverEpoch: 'epoch-1', now: T1, entities: [{ expectedLocalRevision: null, entity: replacement }],
+    };
+
+    const pending = value.commitRemoteEntityBatch(request);
+    request.domain = 'health'; request.checkpointValue = 'health-cursor'; request.sequence = 200;
+
+    await expect(pending).rejects.toMatchObject({ code: 'STALE_REVISION' });
+    expect(await value.getEntity('notes', 'cas-snapshot')).toEqual(original);
+    expect(await value.getSyncCheckpoint('supabase', 'notes')).toMatchObject({ checkpointValue: 'cursor-1', sequence: 1 });
+    expect(await value.getSyncCheckpoint('supabase', 'health')).toBeNull();
   });
 
   it('rolls back remote entity writes before and after checkpoint insertion', async () => {

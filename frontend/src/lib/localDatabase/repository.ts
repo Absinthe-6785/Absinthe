@@ -118,6 +118,79 @@ function workerLeaseKey(namespaceKey: string, generationId: string, leaseName: s
   return [namespaceKey, generationId, leaseName];
 }
 
+function snapshotRemoteEntityEnvelope<T>(source: LocalEntityEnvelope<T>): LocalEntityEnvelope<T> {
+  const restore = source.restoreProvenance;
+  const migration = source.migrationProvenance;
+  return {
+    namespaceKey: source.namespaceKey,
+    generationId: source.generationId,
+    accountId: source.accountId,
+    domain: source.domain,
+    entityId: source.entityId,
+    record: canonicalPayloadSnapshot(source.record),
+    revision: source.revision,
+    localRevision: source.localRevision,
+    serverRevision: source.serverRevision,
+    createdAt: source.createdAt,
+    updatedAt: source.updatedAt,
+    deletedAt: source.deletedAt,
+    isDeleted: source.isDeleted,
+    deletionState: source.deletionState,
+    ownerId: source.ownerId,
+    contentHash: source.contentHash,
+    pendingMutationId: source.pendingMutationId,
+    lastRemoteMutationRef: source.lastRemoteMutationRef,
+    source: source.source == null ? source.source : { kind: source.source.kind, reference: source.source.reference },
+    restoreProvenance: restore == null ? restore : {
+      packageId: restore.packageId,
+      restoreSessionId: restore.restoreSessionId,
+      classification: restore.classification,
+      sourceRevision: restore.sourceRevision,
+      sourceUpdatedAt: restore.sourceUpdatedAt,
+      sourceDeletedAt: restore.sourceDeletedAt,
+      expectedLocalRevision: restore.expectedLocalRevision,
+      restoredAt: restore.restoredAt,
+      mutationId: restore.mutationId,
+      resurrection: restore.resurrection == null ? restore.resurrection : {
+        restoresEntityId: restore.resurrection.restoresEntityId,
+        sourcePackageId: restore.resurrection.sourcePackageId,
+        sourceRestoreSessionId: restore.resurrection.sourceRestoreSessionId,
+        supersedesTombstoneRevision: restore.resurrection.supersedesTombstoneRevision,
+        restoredAt: restore.resurrection.restoredAt,
+      },
+    },
+    migrationProvenance: migration == null ? migration : {
+      conversionVersion: migration.conversionVersion,
+      sourceAdapter: migration.sourceAdapter,
+      sourceSchemaVersion: migration.sourceSchemaVersion,
+      migrationSessionId: migration.migrationSessionId,
+      sourceSnapshotDigest: migration.sourceSnapshotDigest,
+      migratedAt: migration.migratedAt,
+      legacyKeyDigest: migration.legacyKeyDigest,
+    },
+  };
+}
+
+function snapshotRemoteEntityBatchInput<T>(input: CommitRemoteEntityBatchInput<T>): CommitRemoteEntityBatchInput<T> {
+  if (!Array.isArray(input.entities)) throw new LocalDatabaseError('INVALID_RESERVED_RECORD', 'commit_remote_entity_batch');
+  return {
+    namespaceKey: input.namespaceKey,
+    generationId: input.generationId,
+    accountId: input.accountId,
+    domain: input.domain,
+    provider: input.provider,
+    checkpointValue: input.checkpointValue,
+    sequence: input.sequence,
+    serverEpoch: input.serverEpoch,
+    now: input.now,
+    entities: input.entities.map(item => ({
+      expectedLocalRevision: item.expectedLocalRevision,
+      entity: snapshotRemoteEntityEnvelope(item.entity),
+    })),
+    testOnlyAbortAt: input.testOnlyAbortAt,
+  };
+}
+
 interface ConnectionState { closed: boolean; stale: boolean }
 const MAX_OUTBOX_SCAN = 10_000;
 const MAX_REMOTE_ENTITY_BATCH = 1_000;
@@ -911,24 +984,24 @@ export class LocalDatabaseRepository {
   async commitRemoteEntityBatch<T>(input: CommitRemoteEntityBatchInput<T>): Promise<CommittedRemoteEntityBatch<T>> {
     const operation = 'commit_remote_entity_batch';
     this.assertOpen(operation);
-    if (input.namespaceKey !== this.namespaceKey || input.accountId !== this.namespace.userId) {
+    const batch = snapshotRemoteEntityBatchInput(input);
+    if (batch.namespaceKey !== this.namespaceKey || batch.accountId !== this.namespace.userId) {
       throw new LocalDatabaseError('NAMESPACE_MISMATCH', operation);
     }
-    if (input.generationId !== this.namespace.generationId) throw new LocalDatabaseError('STALE_GENERATION', operation);
-    validateSafeIdentifier(input.domain, operation); validateSafeIdentifier(input.provider, operation);
-    validateSafeIdentifier(input.checkpointValue, operation);
-    if (input.serverEpoch !== null) validateSafeIdentifier(input.serverEpoch, operation);
-    if (!Number.isSafeInteger(input.sequence) || input.sequence < 0
-      || !Array.isArray(input.entities) || input.entities.length > MAX_REMOTE_ENTITY_BATCH) {
+    if (batch.generationId !== this.namespace.generationId) throw new LocalDatabaseError('STALE_GENERATION', operation);
+    validateSafeIdentifier(batch.domain, operation); validateSafeIdentifier(batch.provider, operation);
+    validateSafeIdentifier(batch.checkpointValue, operation);
+    if (batch.serverEpoch !== null) validateSafeIdentifier(batch.serverEpoch, operation);
+    if (!Number.isSafeInteger(batch.sequence) || batch.sequence < 0 || batch.entities.length > MAX_REMOTE_ENTITY_BATCH) {
       throw new LocalDatabaseError('INVALID_RESERVED_RECORD', operation);
     }
-    const timestamp = now(input.now);
+    const timestamp = now(batch.now);
     const seen = new Set<string>();
-    const entities = input.entities.map(item => {
-      const entity = { ...item.entity, record: canonicalPayloadSnapshot(item.entity.record) } as LocalEntityEnvelope<T>;
+    const entities = batch.entities.map(item => {
+      const entity = item.entity;
       validateEntityEnvelope(entity);
-      if (entity.namespaceKey !== input.namespaceKey || entity.generationId !== input.generationId
-        || entity.accountId !== input.accountId || entity.domain !== input.domain) {
+      if (entity.namespaceKey !== batch.namespaceKey || entity.generationId !== batch.generationId
+        || entity.accountId !== batch.accountId || entity.domain !== batch.domain) {
         throw new LocalDatabaseError('NAMESPACE_MISMATCH', operation);
       }
       if (seen.has(entity.entityId)) throw new LocalDatabaseError('INVALID_ENTITY', operation);
@@ -954,7 +1027,7 @@ export class LocalDatabaseRepository {
       await this.ensureActive(transaction);
       const store = transaction.objectStore(LOCAL_DATABASE_STORES.entities);
       for (const item of entities) {
-        const key = entityKey(this.namespaceKey, this.namespace.generationId, input.domain, item.entity.entityId);
+        const key = entityKey(this.namespaceKey, this.namespace.generationId, batch.domain, item.entity.entityId);
         const current = await requestResult(store.get(key)) as LocalEntityEnvelope<T> | undefined;
         if (current) this.validatePersistedEntity(current, operation);
         if ((current?.revision ?? null) !== item.expectedLocalRevision
@@ -963,14 +1036,14 @@ export class LocalDatabaseRepository {
         }
         store.put(item.entity);
       }
-      if (input.testOnlyAbortAt === 'before_checkpoint') {
+      if (batch.testOnlyAbortAt === 'before_checkpoint') {
         transaction.abort(); throw new LocalDatabaseError('TRANSACTION_ABORTED', operation);
       }
       const checkpoint = await this.advanceCheckpointInTransaction(transaction, {
-        provider: input.provider, stream: input.domain, checkpointValue: input.checkpointValue,
-        sequence: input.sequence, serverEpoch: input.serverEpoch, now: input.now,
+        provider: batch.provider, stream: batch.domain, checkpointValue: batch.checkpointValue,
+        sequence: batch.sequence, serverEpoch: batch.serverEpoch, now: batch.now,
       }, timestamp, entities.length === 0, operation);
-      if (input.testOnlyAbortAt === 'after_checkpoint') {
+      if (batch.testOnlyAbortAt === 'after_checkpoint') {
         transaction.abort(); throw new LocalDatabaseError('TRANSACTION_ABORTED', operation);
       }
       await done; return { entities: entities.map(item => item.entity), checkpoint };
