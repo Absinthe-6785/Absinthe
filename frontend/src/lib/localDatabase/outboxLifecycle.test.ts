@@ -2,7 +2,8 @@ import 'fake-indexeddb/auto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   LOCAL_DATABASE_NAME, LOCAL_DATABASE_STORES, LOCAL_DATABASE_VERSION,
-  closeLocalDatabase, createDormantLocalDatabaseCapability, deriveOutboxIdempotencyKey,
+  closeLocalDatabase, createDormantLocalDatabaseCapability, deriveOutboxIdempotencyKey, deriveOutboxMutationId,
+  hashCanonicalPayload,
   namespaceFingerprint, openLocalDatabase, type LocalDatabaseNamespace, type LocalDatabaseRepository, type OutboxRecord,
 } from './index';
 
@@ -102,23 +103,17 @@ describe('K-322 atomic mutation identity and schema', () => {
     expect(await repository.listOutboxMutations({ limit: 10 })).toEqual([]);
   });
 
-  it('rolls back entity creation on duplicate mutation and deterministic idempotency conflicts', async () => {
-    const fixed = 'mut.00000000-0000-4000-8000-000000000009';
-    const first = await openLocalDatabase(namespace, { capability, mutationIdFactory: () => fixed, clock: () => T0 });
-    openRepositories.push(first); await first.initializeNamespace();
-    await first.commitLocalMutation({ mutation: { mode: 'create', domain: 'notes', entityId: 'n1', record: {} }, now: T0 });
-    await expect(first.commitLocalMutation({
-      mutation: { mode: 'create', domain: 'notes', entityId: 'n2', record: {} }, now: T0,
-    })).rejects.toHaveProperty('code');
-    expect(await first.getEntity('notes', 'n2')).toBeNull();
-
+  it('rolls back entity creation on a deterministic payload-bound idempotency conflict', async () => {
     const repository = await repo();
+    const payload = { kind: 'entity_snapshot' as const, record: {} };
+    const payloadHash = hashCanonicalPayload(payload);
     const idempotencyKey = deriveOutboxIdempotencyKey({
-      namespaceKey: repository.namespaceKey, generationId: 'generation-1', domain: 'recipes', entityId: 'r1', localRevision: 1, operation: 'upsert',
+      namespaceKey: repository.namespaceKey, generationId: 'generation-1', domain: 'recipes', entityId: 'r1',
+      localRevision: 1, operation: 'upsert', payloadHash,
     });
     await overwrite({
-      namespaceKey: repository.namespaceKey, generationId: 'generation-1', mutationId: mutationId(), domain: 'recipes', entityId: 'r1',
-      operation: 'upsert', baseRevision: null, localRevision: 1, payloadMode: 'inline', payload: { kind: 'entity_snapshot', record: {} },
+      namespaceKey: repository.namespaceKey, generationId: 'generation-1', mutationId: mutationId(), domain: 'recipes', entityId: 'collision-seed',
+      operation: 'upsert', baseRevision: null, localRevision: 1, payloadMode: 'inline', payload,
       payloadHash: null, idempotencyKey, status: 'pending', createdAt: T0, updatedAt: T0, availableAt: T0,
       attemptCount: 0, lastAttemptAt: null, lastErrorCode: null, leaseOwner: null, leaseExpiresAt: null,
       acknowledgedAt: null, acknowledgedBy: null, remoteMutationRef: null, supersededByMutationId: null,
@@ -450,7 +445,9 @@ describe('K-322 persisted validation and conservative scope', () => {
     await new Promise<void>((resolve, reject) => { transaction.oncomplete = () => resolve(); transaction.onerror = () => reject(transaction.error); });
     db.close();
     const revisionTwo: OutboxRecord = {
-      ...committed.outbox, mutationId: mutationId(), baseRevision: 1, localRevision: 2,
+      ...committed.outbox,
+      mutationId: deriveOutboxMutationId({ ...committed.outbox, localRevision: 2, payloadHash: committed.outbox.payloadHash! }),
+      baseRevision: 1, localRevision: 2,
       idempotencyKey: deriveOutboxIdempotencyKey({ ...committed.outbox, localRevision: 2 }),
     };
     await overwrite(revisionTwo);

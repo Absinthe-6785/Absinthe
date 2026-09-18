@@ -1,10 +1,12 @@
 import { LocalDatabaseError } from './errors';
+import { hashCanonicalPayload } from './canonicalPayload';
 import { validateSafeIdentifier } from './namespace';
-import { deriveOutboxIdempotencyKey, validOutboxIdempotencyKey } from './outboxIdentity';
+import { deriveOutboxIdempotencyKey, deriveOutboxMutationId, validOutboxIdempotencyKey } from './outboxIdentity';
 import { LOCAL_DATABASE_VERSION } from './types';
 import type {
   AttachmentStateRecord, DatabaseMetaRecord, GenerationRecord, LegacyMigrationProvenance, LocalEntityEnvelope, MigrationStateRecord, OutboxRecord,
-  ResurrectionProvenance, RestoreApplicationManifestV1, RestoreProvenance, RestoreSessionRecord, SafeSourceReference, SyncCheckpointRecord,
+  ResurrectionProvenance, RestoreApplicationManifestV1, RestoreProvenance, RestoreSessionRecord, SafeSourceReference,
+  SyncCheckpointRecord, SyncConflictRecord, SyncWorkerLeaseRecord,
 } from './types';
 
 const SAFE_CODE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
@@ -91,6 +93,21 @@ export function validateEntityEnvelope(value: LocalEntityEnvelope): void {
   if (value.contentHash !== null && !/^[a-f0-9]{64}$/i.test(value.contentHash)) {
     throw new LocalDatabaseError('INVALID_ENTITY', 'validate_entity');
   }
+  const hasV5Fields = ['accountId', 'localRevision', 'serverRevision', 'pendingMutationId', 'lastRemoteMutationRef']
+    .some(field => Object.prototype.hasOwnProperty.call(value, field));
+  if (hasV5Fields && value.accountId === undefined) throw new LocalDatabaseError('INVALID_ENTITY', 'validate_entity');
+  if (value.accountId !== undefined) {
+    if (!SAFE_CODE.test(value.accountId)
+      || value.localRevision !== value.revision
+      || value.serverRevision !== null && (!Number.isSafeInteger(value.serverRevision) || value.serverRevision! < 1)
+      || value.contentHash !== hashCanonicalPayload(value.record)
+      || value.pendingMutationId !== null && (typeof value.pendingMutationId !== 'string'
+        || !/^mut\.[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.pendingMutationId))
+      || value.lastRemoteMutationRef !== null && (typeof value.lastRemoteMutationRef !== 'string'
+        || !SAFE_CODE.test(value.lastRemoteMutationRef))) {
+      throw new LocalDatabaseError('INVALID_ENTITY', 'validate_entity');
+    }
+  }
   validateSafeSource(value.source);
   if (value.restoreProvenance !== undefined && value.restoreProvenance !== null) validateRestoreProvenance(value.restoreProvenance);
   if (value.migrationProvenance !== undefined && value.migrationProvenance !== null) {
@@ -151,7 +168,12 @@ export function validateOutboxRecord(value: OutboxRecord): void {
     && validTimestamp(payload.deletedAt)
     && payload.revision === value.localRevision
     && payloadKeys.join(',') === 'deletedAt,entityId,kind,revision';
-  const payloadValid = value.payloadMode === 'inline' && value.payloadHash === null
+  const hasV5Fields = ['accountId', 'deviceId', 'acknowledgedRevision', 'serverCommittedAt']
+    .some(field => Object.prototype.hasOwnProperty.call(value, field)) || value.payloadHash !== null;
+  if (hasV5Fields && value.accountId === undefined) throw new LocalDatabaseError('INVALID_OUTBOX', 'validate_outbox');
+  const v5 = value.accountId !== undefined;
+  const payloadValid = value.payloadMode === 'inline'
+    && (v5 ? value.payloadHash === hashCanonicalPayload(value.payload) : value.payloadHash === null)
     && (snapshotPayloadValid || tombstonePayloadValid);
   const revisionsValid = value.baseRevision === null
     ? value.operation === 'upsert' && value.localRevision === 1
@@ -176,12 +198,16 @@ export function validateOutboxRecord(value: OutboxRecord): void {
           && value.lastErrorCode !== null && SAFE_CODE.test(value.lastErrorCode)
           && value.acknowledgedAt === null && value.acknowledgedBy === null && value.supersededByMutationId === null && value.remoteMutationRef === null
           && Date.parse(value.availableAt) >= Date.parse(value.updatedAt)
-        : value.status === 'acknowledged'
+          : value.status === 'acknowledged'
           ? noLease && validTimestamp(value.acknowledgedAt) && value.acknowledgedBy !== null
             && SAFE_CODE.test(value.acknowledgedBy) && value.supersededByMutationId === null
             && value.lastErrorCode === null && safeOptional(value.remoteMutationRef)
             && validTimestamp(value.lastAttemptAt) && value.attemptCount >= 1
             && Date.parse(value.acknowledgedAt) >= Date.parse(value.lastAttemptAt)
+          : value.status === 'conflict'
+            ? noLease && value.attemptCount >= 1 && value.lastErrorCode !== null && SAFE_CODE.test(value.lastErrorCode)
+              && validTimestamp(value.lastAttemptAt) && value.acknowledgedAt === null && value.acknowledgedBy === null
+              && value.supersededByMutationId === null && value.remoteMutationRef === null
           : value.status === 'permanent_failure'
             ? noLease && value.attemptCount >= 1 && value.lastErrorCode !== null && SAFE_CODE.test(value.lastErrorCode)
               && validTimestamp(value.lastAttemptAt) && value.acknowledgedAt === null && value.acknowledgedBy === null
@@ -192,6 +218,11 @@ export function validateOutboxRecord(value: OutboxRecord): void {
                 && value.remoteMutationRef === null && value.lastErrorCode === null
               : false;
   const expectedIdempotencyKey = deriveOutboxIdempotencyKey(value);
+  const expectedMutationId = v5 ? deriveOutboxMutationId({
+    namespaceKey: value.namespaceKey, generationId: value.generationId, domain: value.domain,
+    entityId: value.entityId, localRevision: value.localRevision, operation: value.operation,
+    payloadHash: value.payloadHash!,
+  }) : null;
   const deliveryBlockValid = value.deliveryBlockCode === undefined || value.deliveryBlockCode === null
     || value.deliveryBlockCode === 'REMOTE_RESURRECTION_UNSUPPORTED';
   const resurrection = value.resurrection ?? null;
@@ -222,18 +253,26 @@ export function validateOutboxRecord(value: OutboxRecord): void {
     && value.operation === 'upsert' && value.baseRevision === boundary.sourceRevision
     && value.localRevision === boundary.sourceRevision + 1
     && (boundary.classification === 'resurrect') === (resurrection !== null);
-  if (!['upsert', 'tombstone'].includes(value.operation)
+  const accountFieldsValid = !v5 || SAFE_CODE.test(value.accountId!) && typeof value.deviceId === 'string' && SAFE_CODE.test(value.deviceId)
+    && Object.prototype.hasOwnProperty.call(value, 'acknowledgedRevision')
+    && Object.prototype.hasOwnProperty.call(value, 'serverCommittedAt')
+    && (value.acknowledgedRevision === null || Number.isSafeInteger(value.acknowledgedRevision) && value.acknowledgedRevision! > 0)
+    && (value.serverCommittedAt === null || validTimestamp(value.serverCommittedAt));
+  const acknowledgementMetadataValid = !v5 || value.status === 'acknowledged'
+    || value.acknowledgedRevision === null && value.serverCommittedAt === null;
+  if (!['upsert', 'tombstone', 'restore'].includes(value.operation)
     || !validOutboxIdempotencyKey(value.idempotencyKey) || value.idempotencyKey !== expectedIdempotencyKey
-    || !validMutationId(value.mutationId)
+    || !validMutationId(value.mutationId) || v5 && value.mutationId !== expectedMutationId
     || !Number.isSafeInteger(value.localRevision) || value.localRevision < 1
     || (value.baseRevision !== null && (!Number.isSafeInteger(value.baseRevision) || value.baseRevision < 0))
     || !validOutboxChronology(value)
     || !safeOptional(value.lastErrorCode) || !safeOptional(value.remoteMutationRef)
     || !payloadValid || !revisionsValid || !statusValid
-    || (value.operation === 'upsert') !== (payload.kind === 'entity_snapshot')
+    || ((value.operation === 'upsert' || value.operation === 'restore') !== (payload.kind === 'entity_snapshot'))
     || (value.operation === 'tombstone') !== (payload.kind === 'tombstone') || !deliveryBlockValid
     || (resurrection !== null) !== (value.deliveryBlockCode === 'REMOTE_RESURRECTION_UNSUPPORTED')
-    || (resurrection !== null && value.operation !== 'upsert') || !boundaryValid) {
+    || (resurrection !== null && value.operation !== 'upsert') || !boundaryValid
+    || !accountFieldsValid || !acknowledgementMetadataValid) {
     throw new LocalDatabaseError('INVALID_OUTBOX', 'validate_outbox');
   }
 }
@@ -242,6 +281,48 @@ export function validateCheckpoint(value: SyncCheckpointRecord): void {
   for (const item of [value.provider, value.stream, value.checkpointValue]) validateSafeIdentifier(item, 'validate_checkpoint');
   if ((value.serverEpoch !== null && !SAFE_CODE.test(value.serverEpoch)) || !validTimestamp(value.updatedAt)) {
     throw new LocalDatabaseError('INVALID_RESERVED_RECORD', 'validate_checkpoint');
+  }
+  const hasV5Fields = ['accountId', 'sequence', 'invalidatedAt', 'invalidationReason']
+    .some(field => Object.prototype.hasOwnProperty.call(value, field));
+  if (hasV5Fields && value.accountId === undefined) throw new LocalDatabaseError('INVALID_RESERVED_RECORD', 'validate_checkpoint');
+  if (value.accountId !== undefined && (!SAFE_CODE.test(value.accountId)
+    || !Number.isSafeInteger(value.sequence) || value.sequence! < 0
+    || value.invalidatedAt !== null && !validTimestamp(value.invalidatedAt)
+    || value.invalidationReason !== null && (typeof value.invalidationReason !== 'string' || !SAFE_CODE.test(value.invalidationReason))
+    || (value.invalidatedAt === null) !== (value.invalidationReason === null))) {
+    throw new LocalDatabaseError('INVALID_RESERVED_RECORD', 'validate_checkpoint');
+  }
+}
+
+export function validateConflictRecord(value: SyncConflictRecord): void {
+  for (const item of [value.accountId, value.conflictId, value.domain, value.entityId, value.conflictType]) {
+    if (typeof item !== 'string' || !SAFE_CODE.test(item)) throw new LocalDatabaseError('INVALID_RESERVED_RECORD', 'validate_conflict');
+  }
+  if (value.mutationId !== null && !/^mut\.[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.mutationId)
+    || !Number.isSafeInteger(value.localRevision) || value.localRevision < 1
+    || value.serverRevision !== null && (!Number.isSafeInteger(value.serverRevision) || value.serverRevision < 1)
+    || value.localContentHash !== hashCanonicalPayload(value.localCandidate)
+    || value.remoteContentHash !== hashCanonicalPayload(value.remoteCandidate)
+    || !validTimestamp(value.createdAt)
+    || !['unresolved', 'resolved_local', 'resolved_remote', 'resolved_merged', 'dismissed'].includes(value.resolutionState)
+    || (value.resolutionState === 'unresolved') !== (value.resolvedAt === null)
+    || value.resolvedAt !== null && !validTimestamp(value.resolvedAt)) {
+    throw new LocalDatabaseError('INVALID_RESERVED_RECORD', 'validate_conflict');
+  }
+}
+
+export function validateWorkerLease(value: SyncWorkerLeaseRecord): void {
+  for (const item of [value.accountId, value.leaseName, value.ownerId]) {
+    if (typeof item !== 'string' || !SAFE_CODE.test(item)) throw new LocalDatabaseError('INVALID_RESERVED_RECORD', 'validate_worker_lease');
+  }
+  if (!/^lease\.[a-f0-9]{64}$/.test(value.leaseToken)
+    || !Number.isSafeInteger(value.leaseEpoch) || value.leaseEpoch < 1
+    || !validTimestamp(value.acquiredAt) || !validTimestamp(value.renewedAt) || !validTimestamp(value.expiresAt)
+    || value.releasedAt !== null && !validTimestamp(value.releasedAt)
+    || Date.parse(value.renewedAt) < Date.parse(value.acquiredAt)
+    || Date.parse(value.expiresAt) <= Date.parse(value.renewedAt)
+    || value.releasedAt !== null && Date.parse(value.releasedAt) < Date.parse(value.renewedAt)) {
+    throw new LocalDatabaseError('INVALID_RESERVED_RECORD', 'validate_worker_lease');
   }
 }
 

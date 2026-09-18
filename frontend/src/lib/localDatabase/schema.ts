@@ -4,6 +4,7 @@ export const LOCAL_DATABASE_STORES = {
   databaseMeta: 'database_meta', generations: 'generations', entities: 'entities', outbox: 'outbox',
   syncCheckpoints: 'sync_checkpoints', restoreSessions: 'restore_sessions', migrationState: 'migration_state',
   attachmentState: 'attachment_state', writerCoordinationState: 'writer_coordination_state',
+  conflicts: 'sync_conflicts', workerLeases: 'sync_worker_leases',
 } as const;
 
 function index(store: IDBObjectStore, name: string, keyPath: string | string[], options?: IDBIndexParameters): void {
@@ -11,7 +12,7 @@ function index(store: IDBObjectStore, name: string, keyPath: string | string[], 
 }
 
 export function createLocalDatabaseSchema(db: IDBDatabase, oldVersion: number, transaction: IDBTransaction): void {
-  if (![0, 1, 2, 3].includes(oldVersion)) throw new DOMException('Unsupported schema upgrade', 'VersionError');
+  if (![0, 1, 2, 3, 4].includes(oldVersion)) throw new DOMException('Unsupported schema upgrade', 'VersionError');
 
   if (oldVersion === 0) {
   const meta = db.createObjectStore(LOCAL_DATABASE_STORES.databaseMeta, { keyPath: 'namespaceKey' });
@@ -65,7 +66,23 @@ export function createLocalDatabaseSchema(db: IDBDatabase, oldVersion: number, t
     db.createObjectStore(LOCAL_DATABASE_STORES.writerCoordinationState);
   }
 
-  if (oldVersion === 1 || oldVersion === 2 || oldVersion === 3) {
+  if (oldVersion < 5) {
+    const conflicts = db.createObjectStore(LOCAL_DATABASE_STORES.conflicts, {
+      keyPath: ['namespaceKey', 'generationId', 'conflictId'],
+    });
+    index(conflicts, 'by_namespace_generation_entity', ['namespaceKey', 'generationId', 'domain', 'entityId']);
+    index(conflicts, 'by_namespace_generation_resolution', ['namespaceKey', 'generationId', 'resolutionState']);
+    index(conflicts, 'by_account', 'accountId');
+
+    const leases = db.createObjectStore(LOCAL_DATABASE_STORES.workerLeases, {
+      keyPath: ['namespaceKey', 'generationId', 'leaseName'],
+    });
+    index(leases, 'by_namespace_generation_owner', ['namespaceKey', 'generationId', 'ownerId']);
+    index(leases, 'by_namespace_generation_expiry', ['namespaceKey', 'generationId', 'expiresAt']);
+    index(leases, 'by_account', 'accountId');
+  }
+
+  if (oldVersion === 1 || oldVersion === 2 || oldVersion === 3 || oldVersion === 4) {
     const metadata = transaction.objectStore(LOCAL_DATABASE_STORES.databaseMeta);
     const request = metadata.openCursor();
     request.onsuccess = () => {

@@ -306,7 +306,7 @@ describe('K-330 dormant schema and initialization', () => {
   it('keeps the store isolated as one key/value store with no indexes', async () => {
     const repository = await open(); await initialize(repository);
     const db = await rawOpen();
-    expect(db.version).toBe(4);
+    expect(db.version).toBe(LOCAL_DATABASE_VERSION);
     expect(db.objectStoreNames.contains(DORMANT_WRITER_COORDINATION_STORE)).toBe(true);
     const store = db.transaction(DORMANT_WRITER_COORDINATION_STORE).objectStore(DORMANT_WRITER_COORDINATION_STORE);
     expect(store.keyPath).toBeNull();
@@ -315,8 +315,12 @@ describe('K-330 dormant schema and initialization', () => {
     db.close();
   });
 
-  it('preserves a populated version-3 database during the additive version-4 upgrade', async () => {
-    const oldStores = Object.values(LOCAL_DATABASE_STORES).filter(name => name !== DORMANT_WRITER_COORDINATION_STORE);
+  it('preserves a populated version-3 database during the additive current-version upgrade', async () => {
+    const oldStores = Object.values(LOCAL_DATABASE_STORES).filter(name =>
+      name !== DORMANT_WRITER_COORDINATION_STORE
+      && name !== LOCAL_DATABASE_STORES.conflicts
+      && name !== LOCAL_DATABASE_STORES.workerLeases,
+    );
     const previous = await rawOpen(3, (db) => {
       for (const name of oldStores) db.createObjectStore(name);
     });
