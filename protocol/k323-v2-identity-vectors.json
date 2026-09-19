@@ -1,0 +1,43 @@
+{
+  "version": 2,
+  "namespaceKey": "1111111111111111111111111111111111111111111111111111111111111111",
+  "generationId": "generation-1",
+  "deviceId": "device-a",
+  "vectors": [
+    {
+      "domain": "reference_alpha",
+      "entityId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "operation": "upsert",
+      "localRevision": 1,
+      "payload": {
+        "kind": "entity_snapshot",
+        "record": {
+          "id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          "label": "alpha",
+          "ordinal": 7
+        }
+      },
+      "payloadHash": "c8932ce42a53e447e22b68081a8748fe7ccf5ee2a364a16f102252c0a15e69bf",
+      "idempotencyKey": "k322.1dd50d8cb3d4320c9b244338077caa9f05cfd877f628e34392b45339aa4e67cf",
+      "mutationId": "mut.aebbff05-afe7-563e-8078-48661787d4ba"
+    },
+    {
+      "domain": "reference_beta",
+      "entityId": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      "operation": "restore",
+      "localRevision": 9,
+      "payload": {
+        "kind": "entity_snapshot",
+        "record": {
+          "id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          "metric": "score",
+          "value": 7,
+          "observedAt": "2026-09-18T00:00:00Z"
+        }
+      },
+      "payloadHash": "032a46909e9110aebcf07f5e4aa39d5f24658b4c8a1476326544e36e0d16b5ca",
+      "idempotencyKey": "k322.5fc31c61c0696ffdd1fa7fa087aac18dc766a8abf11f2248e6a79b34e72f9e8c",
+      "mutationId": "mut.0fd17f6c-453e-569d-87bb-5c44d7a89828"
+    }
+  ]
+}

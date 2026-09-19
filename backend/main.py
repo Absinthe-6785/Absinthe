@@ -22,6 +22,12 @@ from remote_mutation import (
     SupabaseRpcGateway,
     rejected_response,
 )
+from remote_mutation_v2 import (
+    RemoteMutationV2Service,
+    RemoteMutationV2TransportError,
+    SupabaseV2RpcGateway,
+    rejected_v2_response,
+)
 from restore_validation import (
     MAX_RESTORE_ROWS,
     RESTORE_TABLE_FIELDS,
@@ -61,6 +67,7 @@ request_memory_watchdog = RequestMemoryWatchdog()
 _recovery_mode_raw = os.getenv("ABSINTHE_RECOVERY_MODE", "active").strip().lower()
 RECOVERY_MODE_ACTIVE = _recovery_mode_raw not in {"disabled"}
 K323_REMOTE_MUTATION_ENABLED = os.getenv("K323_REMOTE_MUTATION_ENABLED", "disabled").strip().lower() == "enabled"
+K323_V2_TRANSPORT_ENABLED = os.getenv("K323_V2_TRANSPORT_ENABLED", "disabled").strip().lower() == "enabled"
 K323_PROJECT_SCOPE = os.getenv("K323_PROJECT_SCOPE", "").strip()
 
 DESTRUCTIVE_RECOVERY_INTENT_HEADER = "x-absinthe-recovery-intent"
@@ -156,6 +163,18 @@ def _remote_mutation_validation_code(payload: object) -> str:
     return "INVALID_MUTATION"
 
 
+def _remote_mutation_v2_validation_code(payload: object) -> str:
+    if not isinstance(payload, dict):
+        return "INVALID_MUTATION"
+    if payload.get("protocolVersion") != 2:
+        return "INVALID_PROTOCOL_VERSION"
+    if payload.get("domain") not in {"reference_alpha", "reference_beta"}:
+        return "UNKNOWN_DOMAIN"
+    if payload.get("operation") not in {"upsert", "tombstone", "restore"}:
+        return "INVALID_OPERATION"
+    return "INVALID_MUTATION"
+
+
 def get_k323_supabase_client() -> Client:
     global K323_SUPABASE_CLIENT
     if K323_SUPABASE_CLIENT is not None:
@@ -168,10 +187,14 @@ def get_k323_supabase_client() -> Client:
 
 @app.middleware("http")
 async def k323_request_size_middleware(request: Request, call_next):
-    if request.method == "POST" and request.url.path == "/api/sync/v1/mutations":
+    if request.method == "POST" and request.url.path in {"/api/sync/v1/mutations", "/api/sync/v2/mutations"}:
         content_length = request.headers.get("content-length")
         if content_length is None or not content_length.isdigit() or int(content_length) > MAX_REQUEST_BYTES:
-            response = rejected_response("mut.invalid", "k322." + "0" * 64, "INVALID_MUTATION")
+            response = (
+                rejected_v2_response("mut.invalid", "k322." + "0" * 64, "INVALID_MUTATION")
+                if request.url.path == "/api/sync/v2/mutations"
+                else rejected_response("mut.invalid", "k322." + "0" * 64, "INVALID_MUTATION")
+            )
             return JSONResponse(status_code=413, content=response.model_dump(by_alias=True))
     return await call_next(request)
 
@@ -210,6 +233,82 @@ async def apply_remote_mutation(
     if response.error_code == "IDEMPOTENCY_KEY_MISMATCH":
         return JSONResponse(status_code=400, content=response.model_dump(by_alias=True))
     return response.model_dump(by_alias=True)
+
+
+@app.post("/api/sync/v2/mutations")
+async def apply_remote_mutation_v2(
+    request: Request,
+    payload: dict,
+    user_id: str = Depends(get_remote_mutation_user),
+):
+    """Apply one dormant K-323 v2 reference-domain mutation."""
+    if not K323_V2_TRANSPORT_ENABLED:
+        raise HTTPException(status_code=423, detail="K323_V2_TRANSPORT_DISABLED")
+    content_length = request.headers.get("content-length")
+    if content_length is None or not content_length.isdigit() or int(content_length) > MAX_REQUEST_BYTES:
+        response = rejected_v2_response("mut.invalid", "k322." + "0" * 64, "INVALID_MUTATION")
+        return JSONResponse(status_code=413, content=response.model_dump(by_alias=True))
+    try:
+        service = RemoteMutationV2Service(SupabaseV2RpcGateway(get_k323_supabase_client()), K323_PROJECT_SCOPE)
+    except Exception:
+        response = rejected_v2_response(
+            "mut.invalid", "k322." + "0" * 64, "TRANSIENT_SERVER_FAILURE", retryable=True,
+        )
+        return JSONResponse(status_code=503, content=response.model_dump(by_alias=True))
+    try:
+        mutation = service.parse_mutation(payload)
+    except ValueError:
+        response = rejected_v2_response(
+            "mut.invalid", "k322." + "0" * 64, _remote_mutation_v2_validation_code(payload),
+        )
+        return JSONResponse(status_code=400, content=response.model_dump(by_alias=True))
+    try:
+        response = service.apply(mutation, user_id)
+    except RemoteMutationV2TransportError as error:
+        return JSONResponse(status_code=503, content=error.response.model_dump(by_alias=True))
+    if response.outcome == "revision_conflict" or response.error_code in {
+        "IDEMPOTENCY_CONFLICT", "MUTATION_ID_CONFLICT", "REMOTE_ENTITY_ALREADY_EXISTS",
+        "REMOTE_ENTITY_NOT_FOUND", "REMOTE_ENTITY_TOMBSTONED", "REMOTE_ENTITY_NOT_TOMBSTONED",
+        "STALE_GENERATION",
+    }:
+        return JSONResponse(status_code=409, content=response.model_dump(by_alias=True))
+    if response.outcome == "rejected":
+        return JSONResponse(status_code=400, content=response.model_dump(by_alias=True))
+    return response.model_dump(by_alias=True)
+
+
+@app.get("/api/sync/v2/changes")
+async def pull_remote_changes_v2(
+    namespaceKey: str,
+    generationId: str,
+    domain: str,
+    cursor: int = 0,
+    serverEpoch: str | None = None,
+    limit: int = 100,
+    user_id: str = Depends(get_remote_mutation_user),
+):
+    """Read a bounded, account-scoped reference-domain change page."""
+    if not K323_V2_TRANSPORT_ENABLED:
+        raise HTTPException(status_code=423, detail="K323_V2_TRANSPORT_DISABLED")
+    try:
+        service = RemoteMutationV2Service(SupabaseV2RpcGateway(get_k323_supabase_client()), K323_PROJECT_SCOPE)
+        request_value = service.parse_pull({
+            "protocolVersion": 2,
+            "namespaceKey": namespaceKey,
+            "generationId": generationId,
+            "domain": domain,
+            "cursor": cursor,
+            "serverEpoch": serverEpoch,
+            "limit": limit,
+        })
+        response = service.pull(request_value, user_id)
+    except ValueError as error:
+        code = str(error) if str(error) in {"UNKNOWN_DOMAIN", "UNAUTHORIZED_SCOPE"} else "INVALID_PULL_REQUEST"
+        raise HTTPException(status_code=400, detail=code) from error
+    except Exception as error:
+        raise HTTPException(status_code=503, detail="TRANSIENT_SERVER_FAILURE") from error
+    status = 409 if response.status == "rejected" else 200
+    return JSONResponse(status_code=status, content=response.model_dump(by_alias=True))
 
 # ==========================================
 # Pydantic Models (user_id 제거 — 토큰에서 추출)
