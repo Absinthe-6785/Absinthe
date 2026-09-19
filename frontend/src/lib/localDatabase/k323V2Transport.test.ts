@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs';
+import { IDBFactory } from 'fake-indexeddb';
 import { describe, expect, it, vi } from 'vitest';
 import { canonicalPayloadSnapshot, hashCanonicalPayload } from './canonicalPayload';
+import { closeLocalDatabase, createDormantLocalDatabaseCapability, openLocalDatabase } from './index';
 import { deriveOutboxIdempotencyKey, deriveOutboxMutationId } from './outboxIdentity';
 import {
   createK323V2HttpClient, K323V2AmbiguousResponseError, outboxToK323V2Mutation,
@@ -273,6 +275,80 @@ describe('REL-05E K-323 v2 dormant transport adapters', () => {
     })).toThrowError(expect.objectContaining({ code: 'INVALID_RESERVED_RECORD' }));
   });
 
+  it.each(['upsert', 'tombstone', 'restore'] as const)(
+    'blocks the whole %s pull page when the target has pending local authority', operation => {
+      const pendingMutationId = outbox().mutationId;
+      const current = {
+        namespaceKey: NAMESPACE, generationId: 'generation-1', accountId: ACCOUNT,
+        domain: 'reference_alpha', entityId: ENTITY, record: recordFor('reference_alpha'),
+        revision: 3, localRevision: 3, serverRevision: 4, createdAt: T0, updatedAt: T0,
+        deletedAt: null, isDeleted: false, deletionState: 'active', ownerId: ACCOUNT,
+        contentHash: hashCanonicalPayload(recordFor('reference_alpha')), pendingMutationId,
+        lastRemoteMutationRef: null, source: { kind: 'local', reference: 'pending' },
+        restoreProvenance: null, migrationProvenance: null,
+      } satisfies LocalEntityEnvelope<Record<string, unknown>>;
+      const isDeleted = operation === 'tombstone';
+      const response: K323V2PullResponse<Record<string, unknown>> = {
+        protocolVersion: 2, status: 'changes', domain: 'reference_alpha', serverEpoch: EPOCH,
+        retentionFloor: 0, nextCursor: 12, errorCode: null,
+        changes: [{
+          sequence: 12, domain: 'reference_alpha', entityId: ENTITY, operation, serverRevision: 5,
+          record: recordFor('reference_alpha'), isDeleted, deletedAt: isDeleted ? T1 : null,
+          remoteMutationRef: '55555555-5555-4555-8555-555555555555', serverCommittedAt: T1,
+        }],
+      };
+
+      expect(() => pullResponseToRemoteBatch(response, {
+        context: pullContext(), activeScope: scope, currentEntities: new Map([[ENTITY, current]]), now: T1,
+      })).toThrowError(expect.objectContaining({ code: 'INVALID_RESERVED_RECORD' }));
+      expect(current).toMatchObject({ pendingMutationId, record: { label: 'alpha' }, revision: 3 });
+    },
+  );
+
+  it('does not commit any entity or checkpoint when one entity in a page has pending local authority', async () => {
+    const repository = await openLocalDatabase({
+      userId: ACCOUNT, projectRef: 'project-test', deviceId: 'device-a', generationId: 'generation-1', schemaVersion: 1,
+    }, {
+      capability: createDormantLocalDatabaseCapability('rel05e-test'),
+      indexedDBFactory: new IDBFactory(),
+      clock: () => T0,
+    });
+    await repository.initializeNamespace();
+    const pending = await repository.commitLocalMutation({
+      mutation: { mode: 'create', domain: 'reference_alpha', entityId: ENTITY, record: recordFor('reference_alpha') },
+      now: T0,
+    });
+    const original = await repository.getEntity<Record<string, unknown>>('reference_alpha', ENTITY);
+    const response: K323V2PullResponse<Record<string, unknown>> = {
+      protocolVersion: 2, status: 'changes', domain: 'reference_alpha', serverEpoch: EPOCH,
+      retentionFloor: 0, nextCursor: 13, errorCode: null,
+      changes: [
+        {
+          sequence: 12, domain: 'reference_alpha', entityId: ENTITY_2, operation: 'upsert', serverRevision: 1,
+          record: recordFor('reference_alpha', ENTITY_2), isDeleted: false, deletedAt: null,
+          remoteMutationRef: '55555555-5555-4555-8555-555555555555', serverCommittedAt: T1,
+        },
+        {
+          sequence: 13, domain: 'reference_alpha', entityId: ENTITY, operation: 'upsert', serverRevision: 2,
+          record: { id: ENTITY, label: 'remote', ordinal: 8 }, isDeleted: false, deletedAt: null,
+          remoteMutationRef: '66666666-6666-4666-8666-666666666666', serverCommittedAt: T1,
+        },
+      ],
+    };
+    try {
+      expect(() => pullResponseToRemoteBatch(response, {
+        context: pullContext(), activeScope: scope,
+        currentEntities: new Map([[ENTITY, original!]]), now: T1,
+      })).toThrowError(expect.objectContaining({ code: 'INVALID_RESERVED_RECORD' }));
+      expect(await repository.getEntity('reference_alpha', ENTITY)).toEqual(original);
+      expect((await repository.getEntity('reference_alpha', ENTITY))?.pendingMutationId).toBe(pending.outbox.mutationId);
+      expect(await repository.getEntity('reference_alpha', ENTITY_2)).toBeNull();
+      expect(await repository.getSyncCheckpoint('k323-v2', 'reference_alpha')).toBeNull();
+    } finally {
+      closeLocalDatabase(repository);
+    }
+  });
+
   it('treats a missing mutation response as ambiguous and requires exact replay', async () => {
     const value = outbox();
     const request = outboxToK323V2Mutation(value, { ...scope, baseServerRevision: null });
@@ -296,6 +372,42 @@ describe('REL-05E K-323 v2 dormant transport adapters', () => {
       baseUrl: 'https://example.test', getAccessToken: async () => 'jwt', fetchImpl,
     });
     await expect(client.push(request)).rejects.toBeInstanceOf(K323V2AmbiguousResponseError);
+  });
+
+  it('treats a bound retryable 503 as ambiguous and preserves the exact replay request', async () => {
+    const value = outbox();
+    const request = outboxToK323V2Mutation(value, { ...scope, baseServerRevision: null });
+    const uncertain: K323V2MutationReceipt = {
+      ...receipt(value), outcome: 'rejected', remoteMutationRef: null, serverRevision: null,
+      changeSequence: null, serverCommittedAt: null, errorCode: 'TRANSIENT_SERVER_FAILURE', retryable: true,
+    };
+    const client = createK323V2HttpClient({
+      baseUrl: 'https://example.test', getAccessToken: async () => 'jwt',
+      fetchImpl: vi.fn().mockResolvedValue(new Response(JSON.stringify(uncertain), { status: 503 })),
+    });
+
+    await expect(client.push(request)).rejects.toMatchObject({
+      code: 'AMBIGUOUS_NETWORK_RESPONSE', request,
+    });
+  });
+
+  it.each([
+    ['revision_conflict', 'REMOTE_REVISION_CONFLICT'],
+    ['rejected', 'IDEMPOTENCY_CONFLICT'],
+    ['rejected', 'MUTATION_ID_CONFLICT'],
+  ] as const)('keeps deterministic 409 %s/%s responses deterministic', async (outcome, errorCode) => {
+    const value = outbox();
+    const request = outboxToK323V2Mutation(value, { ...scope, baseServerRevision: null });
+    const deterministic: K323V2MutationReceipt = {
+      ...receipt(value), outcome, remoteMutationRef: null, serverRevision: null,
+      changeSequence: null, serverCommittedAt: null, errorCode, retryable: false,
+    };
+    const client = createK323V2HttpClient({
+      baseUrl: 'https://example.test', getAccessToken: async () => 'jwt',
+      fetchImpl: vi.fn().mockResolvedValue(new Response(JSON.stringify(deterministic), { status: 409 })),
+    });
+
+    await expect(client.push(request)).resolves.toEqual(deterministic);
   });
 
   it('has no production caller or automatic lifecycle activation', () => {

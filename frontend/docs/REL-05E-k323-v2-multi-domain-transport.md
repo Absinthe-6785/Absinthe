@@ -91,7 +91,12 @@ Owner/project/domain/entity and replay identities are advisory-locked. Tables
 use RLS, and an immutable trigger makes the change log append-only. Only the
 service role may execute the RPCs. The RPCs run as
 `SECURITY INVOKER`; explicit least-privilege grants cover only their required
-table and sequence operations. A per-owner/project stream lock serializes
+table and sequence operations. Receipt reads rely on the existing deterministic
+idempotency/mutation advisory locks and therefore do not require row-update
+privilege. Mutation and pull generation reads hold a shared advisory lock; a
+generation status-change/delete trigger takes the matching exclusive lock so a
+generation cannot become stale concurrently after an operation passes its
+fence. A per-owner/project stream lock serializes
 change-sequence allocation through commit so a pull cursor cannot skip a late
 commit with an earlier sequence.
 
@@ -117,8 +122,11 @@ a page collapse to the latest ordered server state so the REL-05D batch retains
 one CAS entry per entity while advancing the matching checkpoint.
 
 Network failure after sending a mutation is represented as an ambiguous
-response. The caller must replay the identical durable request; it must not
-infer that the server failed or mint a new identity.
+response. This includes a bound retryable HTTP 5xx returned when the backend
+cannot know whether its database RPC committed. The caller must replay the
+identical durable request; it must not infer that the server failed or mint a
+new identity. Bound deterministic 409 responses remain ordinary protocol
+receipts.
 
 ## Deferred production work
 

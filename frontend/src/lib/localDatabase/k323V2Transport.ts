@@ -308,6 +308,7 @@ export function pullResponseToRemoteBatch<T>(
       || current.namespaceKey !== state.activeScope.namespaceKey
       || current.generationId !== state.activeScope.generationId
       || current.domain !== response.domain || current.entityId !== change.entityId
+      || current.pendingMutationId !== null
       || current.serverRevision != null && change.serverRevision <= current.serverRevision)) fail(operation);
     const expectedLocalRevision = current?.revision ?? null;
     const localRevision = (expectedLocalRevision ?? 0) + 1;
@@ -393,8 +394,12 @@ export function createK323V2HttpClient(options: K323V2HttpClientOptions): K323V2
           || body.idempotencyKey !== mutation.idempotencyKey || body.domain !== mutation.domain
           || body.entityId !== mutation.entityId || body.operation !== mutation.operation
           || body.payloadHash !== mutation.payloadHash) throw new Error('untrusted_response');
+        if (response.status >= 500 || body.retryable) {
+          throw new K323V2AmbiguousResponseError(mutation, body);
+        }
         return body;
       } catch (error) {
+        if (error instanceof K323V2AmbiguousResponseError) throw error;
         throw new K323V2AmbiguousResponseError(mutation, error);
       }
     },

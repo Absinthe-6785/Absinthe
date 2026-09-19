@@ -35,6 +35,12 @@ class FakeSupabaseV2:
         return SimpleNamespace(execute=lambda: SimpleNamespace(data=data))
 
 
+class UncertainSupabaseV2:
+    def rpc(self, name: str, parameters: dict):
+        assert name == "apply_remote_reference_mutation_v2"
+        return SimpleNamespace(execute=lambda: (_ for _ in ()).throw(RuntimeError("response_lost_after_rpc")))
+
+
 @pytest.fixture
 def client(monkeypatch: pytest.MonkeyPatch):
     fake = FakeSupabaseV2()
@@ -75,6 +81,36 @@ def test_valid_mutation_uses_authenticated_owner_and_one_v2_rpc(client) -> None:
     assert len(fake.calls) == 1 and fake.calls[0][0] == "apply_remote_reference_mutation_v2"
     assert fake.calls[0][1]["p_authenticated_owner_id"] == OWNER_A
     assert "accountId" not in request_payload()
+
+
+def test_uncertain_rpc_result_is_a_bound_retryable_503(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(main, "K323_SUPABASE_CLIENT", UncertainSupabaseV2())
+    monkeypatch.setattr(main, "K323_V2_TRANSPORT_ENABLED", True)
+    monkeypatch.setattr(main, "K323_PROJECT_SCOPE", "project-test")
+    main.app.dependency_overrides[main.get_remote_mutation_user] = lambda: OWNER_A
+    payload = request_payload()
+    try:
+        response = TestClient(main.app).post("/api/sync/v2/mutations", json=payload)
+    finally:
+        main.app.dependency_overrides.clear()
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "protocolVersion": 2,
+        "outcome": "rejected",
+        "mutationId": payload["mutationId"],
+        "idempotencyKey": payload["idempotencyKey"],
+        "domain": payload["domain"],
+        "entityId": payload["entityId"],
+        "operation": payload["operation"],
+        "payloadHash": payload["payloadHash"],
+        "remoteMutationRef": None,
+        "serverRevision": None,
+        "changeSequence": None,
+        "serverCommittedAt": None,
+        "errorCode": "TRANSIENT_SERVER_FAILURE",
+        "retryable": True,
+    }
 
 
 @pytest.mark.parametrize(("change", "code"), [

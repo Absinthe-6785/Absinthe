@@ -94,6 +94,7 @@ class InMemoryV2Gateway:
         self.write_count = 0
         self.call_count = 0
         self.fail_before_receipt = False
+        self.lose_response_after_commit_once = False
         self.epochs = {OWNER_A: EPOCH_A, OWNER_B: EPOCH_B}
         self.retention_floor = 0
 
@@ -194,6 +195,9 @@ class InMemoryV2Gateway:
                 raise RuntimeError("synthetic_transaction_abort")
             response = self.response(p, outcome="applied", error=None, revision=revision, sequence=sequence, ref=remote_ref)
             self.record(p, response)
+            if self.lose_response_after_commit_once:
+                self.lose_response_after_commit_once = False
+                raise RuntimeError("synthetic_post_commit_response_loss")
             return response
 
     def pull(self, p: dict) -> dict:
@@ -289,11 +293,31 @@ def test_payload_hash_and_payload_bound_identities_are_recomputed(service: Remot
     assert gateway.write_count == 0
 
 
-def test_exact_and_lost_response_retry_return_immutable_receipt(service: RemoteMutationV2Service, gateway: InMemoryV2Gateway) -> None:
+def test_exact_replay_returns_immutable_receipt(service: RemoteMutationV2Service, gateway: InMemoryV2Gateway) -> None:
     request = parse(service)
-    committed_but_response_lost = service.apply(request, OWNER_A)
+    original = service.apply(request, OWNER_A)
     retry = service.apply(request, OWNER_A)
-    assert retry == committed_but_response_lost
+    assert retry == original
+    assert gateway.write_count == 1 and len(gateway.changes) == 1
+
+
+def test_post_commit_response_loss_is_ambiguous_and_exact_replay_is_single_write(
+    service: RemoteMutationV2Service, gateway: InMemoryV2Gateway,
+) -> None:
+    request = parse(service)
+    gateway.lose_response_after_commit_once = True
+
+    with pytest.raises(RemoteMutationV2TransportError) as error:
+        service.apply(request, OWNER_A)
+
+    assert error.value.response.error_code == "TRANSIENT_SERVER_FAILURE"
+    assert error.value.response.retryable is True
+    assert gateway.write_count == 1 and len(gateway.changes) == 1
+
+    retry = service.apply(request, OWNER_A)
+    assert retry.outcome == "applied"
+    assert retry.mutation_id == request.mutation_id
+    assert retry.idempotency_key == request.idempotency_key
     assert gateway.write_count == 1 and len(gateway.changes) == 1
 
 
@@ -452,6 +476,11 @@ def test_migration_is_additive_locked_immutable_and_service_role_only() -> None:
     assert "remote_reference_changes_v2" in lowered and "bigserial" in lowered
     assert "remote_reference_changes_v2_immutable" in lowered and "before update or delete" in lowered
     assert "enable row level security" in lowered and "security invoker" in lowered and "to service_role" in lowered
+    assert "pg_advisory_xact_lock_shared" in lowered
+    assert "remote_sync_generations_transition_lock_v2" in lowered
+    assert "revoke all on public.remote_sync_generations from service_role" in lowered
+    assert "grant update on public.remote_sync_generations" not in lowered
+    assert "grant update on public.remote_mutation_receipts" not in lowered
     assert "from public, anon, authenticated" in lowered
     assert "drop table" not in lowered and "truncate" not in lowered
     assert "delete from" not in lowered and "public.notes" not in lowered

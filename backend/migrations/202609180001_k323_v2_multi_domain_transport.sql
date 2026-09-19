@@ -121,6 +121,37 @@ alter table public.remote_reference_streams_v2 enable row level security;
 alter table public.remote_reference_entities_v2 enable row level security;
 alter table public.remote_reference_changes_v2 enable row level security;
 
+-- Mutations and pulls hold a shared transaction-scoped generation lock while
+-- validating and using an active generation. Any status transition or delete
+-- takes the matching exclusive lock, so it cannot commit concurrently with an
+-- operation that already passed the generation fence. This preserves the
+-- lifecycle invariant without granting service_role UPDATE solely for a row
+-- locking SELECT.
+create or replace function public.lock_remote_sync_generation_transition_v2()
+returns trigger
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+begin
+  perform pg_advisory_xact_lock(hashtextextended(
+    old.owner_id::text || '|' || old.project_scope || '|generation|' ||
+      old.namespace_fingerprint || '|' || old.generation_id,
+    0
+  ));
+  if tg_op = 'DELETE' then
+    return old;
+  end if;
+  return new;
+end
+$$;
+
+drop trigger if exists remote_sync_generations_transition_lock_v2
+  on public.remote_sync_generations;
+create trigger remote_sync_generations_transition_lock_v2
+before update of status or delete on public.remote_sync_generations
+for each row execute function public.lock_remote_sync_generation_transition_v2();
+
 create or replace function public.reject_remote_reference_change_v2()
 returns trigger
 language plpgsql
@@ -213,6 +244,13 @@ begin
     raise exception 'K323_V2_INVALID_MUTATION';
   end if;
 
+  -- Generation readers share this lock; a status transition/delete trigger
+  -- acquires the exclusive form before changing lifecycle authority.
+  perform pg_advisory_xact_lock_shared(hashtextextended(
+    p_authenticated_owner_id::text || '|' || p_project_scope || '|generation|' ||
+      p_namespace_fingerprint || '|' || p_generation_id,
+    0
+  ));
   perform pg_advisory_xact_lock(hashtextextended(
     p_authenticated_owner_id::text || '|' || p_project_scope || '|idem|' || p_idempotency_key, 0
   ));
@@ -232,8 +270,7 @@ begin
   from public.remote_mutation_receipts
   where authenticated_owner_id = p_authenticated_owner_id
     and project_scope = p_project_scope
-    and idempotency_key = p_idempotency_key
-  for update;
+    and idempotency_key = p_idempotency_key;
   if found then
     if v_existing_receipt.protocol_version = 2
       and v_existing_receipt.mutation_id = p_mutation_id
@@ -254,8 +291,7 @@ begin
   from public.remote_mutation_receipts
   where authenticated_owner_id = p_authenticated_owner_id
     and project_scope = p_project_scope
-    and mutation_id = p_mutation_id
-  for update;
+    and mutation_id = p_mutation_id;
   if found then
     return jsonb_build_object(
       'protocolVersion', 2, 'outcome', 'rejected',
@@ -272,8 +308,7 @@ begin
   where owner_id = p_authenticated_owner_id
     and project_scope = p_project_scope
     and namespace_fingerprint = p_namespace_fingerprint
-    and generation_id = p_generation_id
-  for update;
+    and generation_id = p_generation_id;
   if not found then
     v_error_code := 'UNKNOWN_GENERATION';
   elsif v_generation_status <> 'active' then
@@ -421,6 +456,12 @@ begin
     raise exception 'K323_V2_INVALID_PULL';
   end if;
 
+  perform pg_advisory_xact_lock_shared(hashtextextended(
+    p_authenticated_owner_id::text || '|' || p_project_scope || '|generation|' ||
+      p_namespace_fingerprint || '|' || p_generation_id,
+    0
+  ));
+
   insert into public.remote_reference_streams_v2 (authenticated_owner_id, project_scope)
   values (p_authenticated_owner_id, p_project_scope)
   on conflict (authenticated_owner_id, project_scope) do nothing;
@@ -503,6 +544,8 @@ revoke all on sequence public.remote_reference_changes_v2_sequence_seq
   from public, anon, authenticated, service_role;
 revoke all on function public.reject_remote_reference_change_v2()
   from public, anon, authenticated, service_role;
+revoke all on function public.lock_remote_sync_generation_transition_v2()
+  from public, anon, authenticated, service_role;
 revoke all on function public.apply_remote_reference_mutation_v2(
   uuid, text, text, text, text, text, text, text, text, text,
   bigint, bigint, jsonb, text, text, timestamptz
@@ -514,6 +557,8 @@ revoke all on function public.pull_remote_reference_changes_v2(
 -- The dormant backend is the only caller. SECURITY INVOKER keeps the RPCs from
 -- silently acquiring the migration owner's authority; service_role receives only
 -- the table operations exercised by these two functions.
+revoke all on public.remote_sync_generations from service_role;
+revoke all on public.remote_mutation_receipts from service_role;
 grant select on public.remote_sync_generations to service_role;
 grant select, insert on public.remote_mutation_receipts to service_role;
 grant select, insert on public.remote_reference_streams_v2 to service_role;
