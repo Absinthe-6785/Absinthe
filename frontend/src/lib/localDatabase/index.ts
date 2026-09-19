@@ -8,6 +8,7 @@ export * from './crossContextHandoff';
 export * from './outboxIdentity';
 export * from './canonicalPayload';
 export * from './outboxStateMachine';
+export * from './k323V2Transport';
 export * from './repository';
 export {
   MAX_RESTORE_APPLICATION_MANIFEST_BYTES, MAX_RESTORE_ENTITIES, MAX_RESTORE_ENTITY_BYTES,
