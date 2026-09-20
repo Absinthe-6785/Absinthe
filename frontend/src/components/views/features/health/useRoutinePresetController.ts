@@ -185,6 +185,16 @@ export function useRoutinePresetController({
     accountOperation,
   }), [accountOperation]);
 
+  const startBackgroundSync = useCallback(() => {
+    if (!persistence) return;
+    void persistence.sync(accountId).then(next => {
+      if (!next || !currentOperation()) return;
+      routinePresetStateRef.current = next;
+      writeRoutinePresetState(localStorage, accountId, next);
+      setRoutinePresetBinding({ accountId, state: next });
+    }).catch(() => undefined);
+  }, [accountId, currentOperation, persistence]);
+
   const commitState = useCallback(async (next: RoutinePresetState): Promise<RoutinePresetMutationResult> => {
     if (!currentOperation()) return mutationFailure();
     if (next === routinePresetStateRef.current) {
@@ -198,7 +208,7 @@ export function useRoutinePresetController({
     const previous = routinePresetStateRef.current;
     let committed = next;
     try {
-      if (persistence) committed = await persistence.replaceState(accountId, previous, next);
+      if (persistence) committed = await persistence.commitState(accountId, previous, next);
       else if (!writeRoutinePresetState(localStorage, accountId, next)) return mutationFailure();
     } catch {
       return mutationFailure();
@@ -207,13 +217,14 @@ export function useRoutinePresetController({
     if (persistence) writeRoutinePresetState(localStorage, accountId, committed);
     routinePresetStateRef.current = committed;
     setRoutinePresetBinding({ accountId, state: committed });
+    startBackgroundSync();
     return {
       ok: true,
       changed: true,
       state: committed,
       accountOperation,
     };
-  }, [accountId, accountOperation, currentOperation, mutationFailure, persistence]);
+  }, [accountId, accountOperation, currentOperation, mutationFailure, persistence, startBackgroundSync]);
 
   const runMutation = useCallback((
     buildNext: (current: RoutinePresetState) => RoutinePresetState,

@@ -70,6 +70,36 @@ describe('REL-05F Health routine aggregate contract', () => {
     expect(first.presets.every(preset => /^[0-9a-f-]{36}$/.test(preset.id))).toBe(true);
   });
 
+  it('keeps legacy identities stable across reorder, rename, and duplicate-ID collisions', () => {
+    const state = createRoutinePresetState({ routines: [], splitCount: 1 });
+    const alpha = createEmptyRoutinePreset('legacy-shared', 'Alpha', 1);
+    const beta = createEmptyRoutinePreset('legacy-shared', 'Beta', 2);
+    const distinct = createEmptyRoutinePreset('legacy-distinct', 'Alpha', 1);
+    state.presets.push(alpha, beta, distinct);
+    state.activePresetId = 'legacy-distinct';
+    const reordered = { ...state, presets: [state.presets[0], distinct, beta, alpha] };
+
+    const first = migrateRoutinePresetStateIdentity(ACCOUNT, state);
+    const second = migrateRoutinePresetStateIdentity(ACCOUNT, reordered);
+    expect(first.activePresetId).toBe(second.activePresetId);
+    expect(first.presets.filter(preset => preset.name === 'Alpha').map(preset => preset.id).sort())
+      .toEqual(second.presets.filter(preset => preset.name === 'Alpha').map(preset => preset.id).sort());
+    expect(first.presets.find(preset => preset.name === 'Beta')?.id)
+      .toBe(second.presets.find(preset => preset.name === 'Beta')?.id);
+    expect(new Set(first.presets.map(preset => preset.id)).size).toBe(first.presets.length);
+    expect(new Set(first.presets.filter(preset => preset.name === 'Alpha').map(preset => preset.id)).size).toBe(2);
+
+    const migratedDistinct = first.presets.find(preset => preset.id === first.activePresetId)!;
+    const renamed = migrateRoutinePresetStateIdentity(ACCOUNT, {
+      ...first,
+      presets: first.presets.map(preset => preset.id === migratedDistinct.id
+        ? { ...preset, name: 'Renamed' }
+        : preset),
+    });
+    expect(renamed.presets.find(preset => preset.name === 'Renamed')?.id).toBe(migratedDistinct.id);
+    expect(migrateRoutinePresetStateIdentity(ACCOUNT, state)).toEqual(first);
+  });
+
   it('rejects malformed closed shapes, duplicate exercises, invalid planned sets, and dangling profiles', () => {
     const valid = {
       id: DEFAULT_HEALTH_ROUTINE_PRESET_ID,

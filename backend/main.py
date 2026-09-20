@@ -175,6 +175,10 @@ def _remote_mutation_v2_validation_code(payload: object) -> str:
         return "UNKNOWN_DOMAIN"
     if payload.get("operation") not in {"upsert", "tombstone", "restore"}:
         return "INVALID_OPERATION"
+    if (payload.get("domain") == "health_routine_preset"
+            and payload.get("entityId") == "00000000-0000-5000-8000-000000000001"
+            and payload.get("operation") == "tombstone"):
+        return "DEFAULT_PRESET_REQUIRED"
     return "INVALID_MUTATION"
 
 
@@ -275,6 +279,7 @@ async def apply_remote_mutation_v2(
         "IDEMPOTENCY_CONFLICT", "MUTATION_ID_CONFLICT", "REMOTE_ENTITY_ALREADY_EXISTS",
         "REMOTE_ENTITY_NOT_FOUND", "REMOTE_ENTITY_TOMBSTONED", "REMOTE_ENTITY_NOT_TOMBSTONED",
         "STALE_GENERATION", "ACTIVE_PRESET_NOT_FOUND", "ACTIVE_PRESET_DELETE_REQUIRES_PROFILE_UPDATE",
+        "DEFAULT_PRESET_REQUIRED",
     }:
         return JSONResponse(status_code=409, content=response.model_dump(by_alias=True))
     if response.outcome == "rejected":
@@ -429,7 +434,6 @@ async def reset_all_data(user_id: str = Depends(get_current_user)):
     supabase.table("note_folders").delete().eq("user_id", user_id).execute()
     supabase.table("routines").delete().eq("user_id", user_id).execute()
     supabase.table("exercise_blocks").delete().eq("user_id", user_id).execute()
-    supabase.table("health_routines").delete().eq("user_id", user_id).execute()
     supabase.table("recipes").delete().eq("user_id", user_id).execute()
     return {"message": "All user data has been permanently deleted."}
 
@@ -652,11 +656,8 @@ async def get_health_routines(user_id: str = Depends(get_current_user)):
 
 @app.post("/api/health_routines")
 async def save_health_routine(routine: HealthRoutineCreate, user_id: str = Depends(get_current_user)):
-    existing = supabase.table("health_routines").select("*").eq("user_id", user_id).eq("day_name", routine.day_name).execute().data
-    if existing:
-        return supabase.table("health_routines").update({"blocks": routine.blocks}).eq("id", existing[0]["id"]).execute().data
-    else:
-        return supabase.table("health_routines").insert({"user_id": user_id, **routine.model_dump()}).execute().data
+    del routine, user_id
+    raise HTTPException(status_code=410, detail="LEGACY_HEALTH_ROUTINE_WRITE_DISABLED")
 
 # ==========================================
 # Workouts

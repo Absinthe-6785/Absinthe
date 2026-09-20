@@ -5,6 +5,7 @@ import {
 } from '../components/views/features/health/routinePresets';
 import { API_URL } from './config';
 import {
+  DEFAULT_HEALTH_ROUTINE_PRESET_ID,
   HEALTH_ROUTINE_DOMAINS,
   HEALTH_ROUTINE_PRESET_DOMAIN,
   HEALTH_ROUTINE_PROFILE_DOMAIN,
@@ -50,7 +51,6 @@ const CONFLICT_CODES = new Set([
   'IDEMPOTENCY_CONFLICT', 'MUTATION_ID_CONFLICT', 'REMOTE_ENTITY_ALREADY_EXISTS',
   'REMOTE_ENTITY_NOT_FOUND', 'REMOTE_ENTITY_TOMBSTONED', 'REMOTE_ENTITY_NOT_TOMBSTONED',
   'REMOTE_REVISION_CONFLICT', 'ACTIVE_PRESET_NOT_FOUND',
-  'ACTIVE_PRESET_DELETE_REQUIRES_PROFILE_UPDATE',
 ]);
 
 export interface HealthRoutinePersistence {
@@ -59,8 +59,9 @@ export interface HealthRoutinePersistence {
     legacyState: RoutinePresetState;
     hasAccountScopedState: boolean;
   }): Promise<RoutinePresetState>;
-  replaceState(accountId: string, previous: RoutinePresetState, next: RoutinePresetState): Promise<RoutinePresetState>;
+  commitState(accountId: string, previous: RoutinePresetState, next: RoutinePresetState): Promise<RoutinePresetState>;
   sync(accountId: string): Promise<RoutinePresetState | null>;
+  snapshot(accountId: string): Promise<RoutinePresetState | null>;
   reset(accountId: string): Promise<RoutinePresetState>;
   recover(accountId: string, recovered: RoutinePresetState): Promise<RoutinePresetState>;
 }
@@ -99,6 +100,7 @@ export class HealthRoutineSyncSession {
   private readonly now: () => string;
   private readonly online: () => boolean;
   private operation: Promise<unknown> = Promise.resolve();
+  private localCommitOperation: Promise<unknown> = Promise.resolve();
 
   constructor(options: HealthRoutineSyncSessionOptions) {
     this.repository = options.repository;
@@ -119,6 +121,12 @@ export class HealthRoutineSyncSession {
   private serialize<T>(operation: () => Promise<T>): Promise<T> {
     const result = this.operation.then(operation, operation);
     this.operation = result.then(() => undefined, () => undefined);
+    return result;
+  }
+
+  private serializeLocalCommit<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.localCommitOperation.then(operation, operation);
+    this.localCommitOperation = result.then(() => undefined, () => undefined);
     return result;
   }
 
@@ -155,6 +163,7 @@ export class HealthRoutineSyncSession {
   }
 
   private async tombstonePreset(id: string): Promise<void> {
+    if (id === DEFAULT_HEALTH_ROUTINE_PRESET_ID) throw new Error('DEFAULT_PRESET_REQUIRED');
     const current = await this.repository.getEntity<HealthRoutinePresetAggregate>(HEALTH_ROUTINE_PRESET_DOMAIN, id);
     if (!current || current.isDeleted) return;
     await this.repository.tombstoneEntity(
@@ -200,6 +209,18 @@ export class HealthRoutineSyncSession {
     return aggregatesToRoutinePresetState(presets, profile);
   }
 
+  private async reconcileAdoptionState(source: RoutinePresetState): Promise<RoutinePresetState> {
+    const migrated = migrateRoutinePresetStateIdentity(this.repository.namespace.userId, source);
+    const aggregate = routinePresetStateToAggregates(migrated);
+    for (const preset of aggregate.presets) {
+      const current = await this.repository.getEntity(HEALTH_ROUTINE_PRESET_DOMAIN, preset.id);
+      if (!current) await this.upsertRecord(HEALTH_ROUTINE_PRESET_DOMAIN, preset);
+    }
+    const profile = await this.repository.getEntity(HEALTH_ROUTINE_PROFILE_DOMAIN, aggregate.profile.id);
+    if (!profile) await this.upsertRecord(HEALTH_ROUTINE_PROFILE_DOMAIN, aggregate.profile);
+    return migrated;
+  }
+
   private async ensureRemoteGeneration(): Promise<void> {
     const scope = this.scope();
     await this.transport.ensureGeneration({
@@ -232,6 +253,8 @@ export class HealthRoutineSyncSession {
       while (true) {
         const claimed = await this.repository.claimNextMutations({
           workerId: owner, now: this.now(), leaseDurationMs: 30_000, limit: 100, recoverExpiredClaims: true,
+          priorityDomains: [HEALTH_ROUTINE_PROFILE_DOMAIN, HEALTH_ROUTINE_PRESET_DOMAIN],
+          priorityTriggerOperation: 'tombstone',
         });
         const healthClaims = this.orderedClaims(claimed.filter(item => isHealthDomain(item.domain)));
         if (healthClaims.length === 0) return;
@@ -247,6 +270,12 @@ export class HealthRoutineSyncSession {
               await this.repository.acknowledgeMutationAndEntity(receiptToOutboxAcknowledgement(
                 outbox, receipt, { ...scope, domain: outbox.domain as K323V2Domain }, scope, owner, this.now(),
               ));
+            } else if (receipt.errorCode === 'ACTIVE_PRESET_DELETE_REQUIRES_PROFILE_UPDATE') {
+              await this.repository.releaseClaimForRetry({
+                mutationId: outbox.mutationId, workerId: owner, now: this.now(),
+                errorCode: receipt.errorCode, baseDelayMs: 1_000, maxDelayMs: 60_000,
+              });
+              return;
             } else if (receipt.errorCode && CONFLICT_CODES.has(receipt.errorCode)) {
               await this.repository.preserveMutationConflict({
                 mutationId: outbox.mutationId,
@@ -384,6 +413,7 @@ export class HealthRoutineSyncSession {
 
   private async synchronize(): Promise<void> {
     if (!this.online()) return;
+    await this.localCommitOperation;
     await this.ensureRemoteGeneration();
     await this.pushPending();
     await this.pullDomain(HEALTH_ROUTINE_PRESET_DOMAIN);
@@ -394,7 +424,7 @@ export class HealthRoutineSyncSession {
     return this.serialize(async () => {
       await this.initialize();
       let current = await this.readState();
-      if (!current && !input.hasAccountScopedState && this.online()) {
+      if (!input.hasAccountScopedState && this.online()) {
         try {
           await this.ensureRemoteGeneration();
           await this.pullDomain(HEALTH_ROUTINE_PRESET_DOMAIN);
@@ -406,23 +436,19 @@ export class HealthRoutineSyncSession {
           // evidence instead of silently overriding this working copy.
         }
       }
-      if (!current) {
-        const migrated = migrateRoutinePresetStateIdentity(this.repository.namespace.userId, input.legacyState);
-        await this.writeState(null, migrated);
-        current = migrated;
-      }
+      const migrated = await this.reconcileAdoptionState(input.legacyState);
+      current = (await this.readState()) ?? migrated;
       try { await this.synchronize(); } catch { /* local authority remains usable */ }
       return (await this.readState()) ?? current;
     });
   }
 
-  replaceState(previous: RoutinePresetState, next: RoutinePresetState): Promise<RoutinePresetState> {
-    return this.serialize(async () => {
+  commitState(previous: RoutinePresetState, next: RoutinePresetState): Promise<RoutinePresetState> {
+    return this.serializeLocalCommit(async () => {
       await this.initialize();
       const migratedPrevious = migrateRoutinePresetStateIdentity(this.repository.namespace.userId, previous);
       const migratedNext = migrateRoutinePresetStateIdentity(this.repository.namespace.userId, next);
       await this.writeState(migratedPrevious, migratedNext);
-      try { await this.synchronize(); } catch { /* retry remains durable */ }
       return (await this.readState()) ?? migratedNext;
     });
   }
@@ -433,6 +459,12 @@ export class HealthRoutineSyncSession {
       await this.synchronize();
       return this.readState();
     });
+  }
+
+  async snapshot(): Promise<RoutinePresetState | null> {
+    await this.localCommitOperation;
+    await this.initialize();
+    return this.readState();
   }
 
   restorePreset(record: HealthRoutinePresetAggregate): Promise<void> {
@@ -446,11 +478,23 @@ export class HealthRoutineSyncSession {
   reset(): Promise<RoutinePresetState> {
     return this.serialize(async () => {
       await this.initialize();
+      if (!this.online()) throw new Error('HEALTH_ROUTINE_RESET_REQUIRES_ONLINE');
+      await this.synchronize();
       const previous = await this.readState();
       const empty = createRoutinePresetState({ routines: [], splitCount: 3 });
       await this.writeState(previous, empty);
-      try { await this.synchronize(); } catch { /* reset remains durable and retryable */ }
-      return (await this.readState()) ?? empty;
+      await this.synchronize();
+      const unsettled = await this.repository.countOutboxByStatus();
+      if (unsettled.pending || unsettled.claimed || unsettled.retry_wait
+        || unsettled.conflict || unsettled.permanent_failure) {
+        throw new Error(`HEALTH_ROUTINE_RESET_INCOMPLETE:${JSON.stringify(unsettled)}`);
+      }
+      const reset = (await this.readState()) ?? empty;
+      if (reset.presets.length !== 1 || reset.presets[0].id !== DEFAULT_HEALTH_ROUTINE_PRESET_ID
+        || reset.activePresetId !== DEFAULT_HEALTH_ROUTINE_PRESET_ID) {
+        throw new Error('HEALTH_ROUTINE_RESET_INCOMPLETE');
+      }
+      return reset;
     });
   }
 
@@ -515,13 +559,17 @@ export const productionHealthRoutinePersistence: HealthRoutinePersistence = {
       hasAccountScopedState: input.hasAccountScopedState,
     });
   },
-  async replaceState(accountId, previous, next) {
+  async commitState(accountId, previous, next) {
     const session = await productionSession(accountId);
-    return session.replaceState(previous, next);
+    return session.commitState(previous, next);
   },
   async sync(accountId) {
     const session = await productionSession(accountId);
     return session.sync();
+  },
+  async snapshot(accountId) {
+    const session = await productionSession(accountId);
+    return session.snapshot();
   },
   async reset(accountId) {
     const session = await productionSession(accountId);

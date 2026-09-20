@@ -101,6 +101,18 @@ def test_health_domain_is_bounded_active_when_generic_transport_is_disabled(clie
     assert fake.calls[0][1]["p_authenticated_owner_id"] == OWNER_A
 
 
+def test_fixed_default_tombstone_is_rejected_before_rpc(client) -> None:
+    http, fake = client
+    payload = request_payload(
+        domain="health_routine_preset", entity_id=DEFAULT_PRESET,
+        operation="tombstone", base_revision=1, local_revision=2,
+    )
+    response = http.post("/api/sync/v2/mutations", json=payload)
+    assert response.status_code == 400
+    assert response.json()["errorCode"] == "DEFAULT_PRESET_REQUIRED"
+    assert fake.calls == []
+
+
 def test_health_generation_registration_binds_body_account_to_jwt_owner(client) -> None:
     http, fake = client
     body = {

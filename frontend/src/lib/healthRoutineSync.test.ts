@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto';
 import { IDBFactory } from 'fake-indexeddb';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   DEFAULT_ROUTINE_PRESET_ID,
   createEmptyRoutinePreset,
@@ -122,6 +122,10 @@ class FakeHealthRoutineServer {
     if (request.domain === HEALTH_ROUTINE_PROFILE_DOMAIN && request.operation !== 'upsert') {
       error = 'INVALID_OPERATION';
     }
+    if (request.domain === HEALTH_ROUTINE_PRESET_DOMAIN
+      && request.entityId === DEFAULT_ROUTINE_PRESET_ID && request.operation === 'tombstone') {
+      error = 'DEFAULT_PRESET_REQUIRED';
+    }
     const payloadRecord = request.payload.kind === 'entity_snapshot'
       ? clone(request.payload.record as Record<string, unknown>)
       : current?.record;
@@ -241,6 +245,14 @@ class FakeHealthRoutineServer {
   domainChanges(accountId: string, domain: string): K323V2RemoteChange[] {
     return this.changes.filter(change => change.accountId === accountId && change.domain === domain);
   }
+
+  livePresetIds(accountId: string): string[] {
+    return [...this.entities.entries()]
+      .filter(([key, value]) => key.startsWith(`[\"${accountId}\",\"${HEALTH_ROUTINE_PRESET_DOMAIN}\"`)
+        && value.deletedAt === null)
+      .map(([, value]) => value.record.id as string)
+      .sort();
+  }
 }
 
 type Device = {
@@ -325,7 +337,8 @@ describe('REL-05F Health routine aggregate convergence', () => {
     });
     const beforeReplayChanges = server.domainChanges(ACCOUNT, HEALTH_ROUTINE_PRESET_DOMAIN).length;
     server.failAfterApplyOnce = true;
-    await a.session.replaceState(initialA, three);
+    await a.session.commitState(initialA, three);
+    await a.session.sync();
     expect((await a.repository.listOutboxMutations({ limit: 100, status: 'retry_wait' })).length).toBeGreaterThan(0);
     expect(server.domainChanges(ACCOUNT, HEALTH_ROUTINE_PRESET_DOMAIN)).toHaveLength(beforeReplayChanges + 1);
 
@@ -368,9 +381,10 @@ describe('REL-05F Health routine aggregate convergence', () => {
       type: 'set-day', presetId: PRESET_B, dayName: 'Day 1', blocks: [BLOCK_B, BLOCK_A],
       plannedSets: { [BLOCK_A]: 4, [BLOCK_B]: 6 },
     });
-    const afterCreate = await a.session.replaceState(
+    const afterCreate = await a.session.commitState(
       createRoutinePresetState({ routines: [], splitCount: 3 }), stateA,
     );
+    await a.session.sync();
     let stateB = await b.session.sync();
     expect(stateB?.presets.map(preset => preset.id).sort()).toEqual([
       DEFAULT_ROUTINE_PRESET_ID, PRESET_A, PRESET_B,
@@ -379,12 +393,14 @@ describe('REL-05F Health routine aggregate convergence', () => {
     expect(stateB?.presets.find(preset => preset.id === PRESET_B)?.days[0].blocks).toEqual([BLOCK_B, BLOCK_A]);
 
     const renamed = updateRoutinePresetState(afterCreate, { type: 'rename', presetId: PRESET_A, name: 'Renamed A' });
-    const afterRename = await a.session.replaceState(afterCreate, renamed);
+    const afterRename = await a.session.commitState(afterCreate, renamed);
+    await a.session.sync();
     stateB = await b.session.sync();
     expect(stateB?.presets.find(preset => preset.id === PRESET_A)?.name).toBe('Renamed A');
 
     const deleted = updateRoutinePresetState(afterRename, { type: 'delete', presetId: PRESET_A });
-    await a.session.replaceState(afterRename, deleted);
+    await a.session.commitState(afterRename, deleted);
+    await a.session.sync();
     stateB = await b.session.sync();
     expect(stateB?.presets.some(preset => preset.id === PRESET_A)).toBe(false);
 
@@ -411,11 +427,12 @@ describe('REL-05F Health routine aggregate convergence', () => {
     const localPending = updateRoutinePresetState(initialA, {
       type: 'rename', presetId: DEFAULT_ROUTINE_PRESET_ID, name: 'Local pending',
     });
-    await a.session.replaceState(initialA, localPending);
+    await a.session.commitState(initialA, localPending);
     const remoteWinner = updateRoutinePresetState(initialB, {
       type: 'rename', presetId: DEFAULT_ROUTINE_PRESET_ID, name: 'Remote winner',
     });
-    await b.session.replaceState(initialB, remoteWinner);
+    await b.session.commitState(initialB, remoteWinner);
+    await b.session.sync();
     expect((await b.repository.listOutboxMutations({ limit: 100 })).map(item => ({
       status: item.status, domain: item.domain, error: item.lastErrorCode, base: item.baseRevision,
     }))).toEqual(expect.arrayContaining([
@@ -487,5 +504,199 @@ describe('REL-05F Health routine aggregate convergence', () => {
       change.entityId === PRESET_A && change.operation === 'tombstone'
     ))).toBe(true);
     expect(server.domainChanges(ACCOUNT, HEALTH_ROUTINE_PRESET_DOMAIN).at(-1)?.operation).toBe('restore');
+  });
+
+  it.each([
+    ['before first preset', 'before', 0],
+    ['after first preset', 'after', 1],
+    ['after middle preset', 'after', 2],
+    ['after all presets before profile', 'before', 4],
+    ['after profile durable commit', 'after', 5],
+  ] as const)('reconciles complete adoption after crash %s', async (_label, phase, boundary) => {
+    const server = new FakeHealthRoutineServer();
+    const factory = new IDBFactory();
+    const source = createRoutinePresetState({ routines: [], splitCount: 3 });
+    source.presets.push(
+      createEmptyRoutinePreset(PRESET_A, 'A', 2),
+      createEmptyRoutinePreset(PRESET_B, 'B', 3),
+      createEmptyRoutinePreset('cccccccc-0000-4000-8000-000000000003', 'C', 4),
+    );
+    source.activePresetId = PRESET_B;
+    const first = await openDevice(server, factory, 'device-crash', ACCOUNT, false);
+    const originalCreate = first.repository.createEntity.bind(first.repository);
+    let committed = 0;
+    const createSpy = vi.spyOn(first.repository, 'createEntity').mockImplementation(async input => {
+      if (phase === 'before' && committed === boundary) throw new Error('synthetic_adoption_crash');
+      const result = await originalCreate(input);
+      committed += 1;
+      if (phase === 'after' && committed === boundary) throw new Error('synthetic_adoption_crash');
+      return result;
+    });
+    await expect(first.session.bootstrap({ legacyState: source, hasAccountScopedState: true }))
+      .rejects.toThrow('synthetic_adoption_crash');
+    createSpy.mockRestore();
+    closeLocalDatabase(first.repository);
+    openDevices.splice(openDevices.indexOf(first), 1);
+
+    const restarted = await openDevice(server, factory, 'device-crash', ACCOUNT, false);
+    const recovered = await restarted.session.bootstrap({ legacyState: source, hasAccountScopedState: true });
+    expect(recovered.presets.map(preset => preset.id).sort()).toEqual(source.presets.map(preset => preset.id).sort());
+    expect(recovered.activePresetId).toBe(PRESET_B);
+    const outbox = await restarted.repository.listOutboxMutations({ limit: 100 });
+    expect(new Set(outbox.map(item => item.mutationId)).size).toBe(outbox.length);
+  });
+
+  it('reruns complete durable adoption before compatibility-cache update without new mutations', async () => {
+    const server = new FakeHealthRoutineServer();
+    const factory = new IDBFactory();
+    const source = createRoutinePresetState({ routines: [], splitCount: 3 });
+    source.presets.push(createEmptyRoutinePreset(PRESET_A, 'Named', 2));
+    source.activePresetId = PRESET_A;
+    const first = await openDevice(server, factory, 'device-cache-crash', ACCOUNT, false);
+    await first.session.bootstrap({ legacyState: source, hasAccountScopedState: true });
+    const before = await first.repository.listOutboxMutations({ limit: 100 });
+    closeLocalDatabase(first.repository);
+    openDevices.splice(openDevices.indexOf(first), 1);
+
+    const restarted = await openDevice(server, factory, 'device-cache-crash', ACCOUNT, false);
+    const recovered = await restarted.session.bootstrap({ legacyState: source, hasAccountScopedState: true });
+    const after = await restarted.repository.listOutboxMutations({ limit: 100 });
+    expect(recovered.activePresetId).toBe(PRESET_A);
+    expect(after.map(item => item.mutationId)).toEqual(before.map(item => item.mutationId));
+  });
+
+  it('resets complete canonical authority from a fresh device and other devices converge', async () => {
+    const server = new FakeHealthRoutineServer();
+    const seed = await openDevice(server, new IDBFactory(), 'device-seed');
+    const initial = await seed.session.bootstrap({
+      legacyState: createRoutinePresetState({ routines: [], splitCount: 3 }), hasAccountScopedState: true,
+    });
+    let populated = updateRoutinePresetState(initial, {
+      type: 'create', preset: createEmptyRoutinePreset(PRESET_A, 'A', 2),
+    });
+    populated = updateRoutinePresetState(populated, {
+      type: 'create', preset: createEmptyRoutinePreset(PRESET_B, 'B', 4),
+    });
+    await seed.session.commitState(initial, populated);
+    await seed.session.sync();
+
+    const fresh = await openDevice(server, new IDBFactory(), 'device-fresh');
+    const reset = await fresh.session.reset();
+    expect(reset.presets).toHaveLength(1);
+    expect(reset.activePresetId).toBe(DEFAULT_ROUTINE_PRESET_ID);
+    expect(server.livePresetIds(ACCOUNT)).toEqual([DEFAULT_ROUTINE_PRESET_ID]);
+
+    const observer = await openDevice(server, new IDBFactory(), 'device-observer');
+    const observed = await observer.session.bootstrap({
+      legacyState: createRoutinePresetState({ routines: [], splitCount: 3 }), hasAccountScopedState: false,
+    });
+    expect(observed.presets.map(preset => preset.id)).toEqual([DEFAULT_ROUTINE_PRESET_ID]);
+    expect(observed.activePresetId).toBe(DEFAULT_ROUTINE_PRESET_ID);
+  });
+
+  it('keeps profile-before-delete ordering beyond the 100-mutation claim boundary', async () => {
+    const server = new FakeHealthRoutineServer();
+    const factory = new IDBFactory();
+    const device = await openDevice(server, factory, 'device-many');
+    const initial = await device.session.bootstrap({
+      legacyState: createRoutinePresetState({ routines: [], splitCount: 1 }), hasAccountScopedState: true,
+    });
+    let populated = initial;
+    for (let index = 0; index < 105; index += 1) {
+      const suffix = index.toString(16).padStart(12, '0');
+      populated = updateRoutinePresetState(populated, {
+        type: 'create',
+        preset: createEmptyRoutinePreset(`aaaaaaaa-aaaa-4aaa-8aaa-${suffix}`, `Preset ${index}`, 1),
+      });
+    }
+    await device.session.commitState(initial, populated);
+    await device.session.sync();
+    expect(server.livePresetIds(ACCOUNT)).toHaveLength(106);
+
+    const delegate = server.client(ACCOUNT);
+    let interruptFirstTombstone = true;
+    device.session = new HealthRoutineSyncSession({
+      repository: device.repository,
+      now: () => new Date(device.clock.value).toISOString(),
+      online: () => true,
+      transport: {
+        ...delegate,
+        push: async request => {
+          if (interruptFirstTombstone && request.operation === 'tombstone') {
+            interruptFirstTombstone = false;
+            throw new TypeError('synthetic_network_interruption_before_tombstone');
+          }
+          return delegate.push(request);
+        },
+      },
+    });
+    await expect(device.session.reset()).rejects.toThrow('HEALTH_ROUTINE_RESET_INCOMPLETE');
+    expect(server.domainChanges(ACCOUNT, HEALTH_ROUTINE_PROFILE_DOMAIN).at(-1)?.record.activePresetId)
+      .toBe(DEFAULT_ROUTINE_PRESET_ID);
+    expect(await device.repository.listOutboxMutations({ limit: 500, status: 'retry_wait' }))
+      .toHaveLength(1);
+
+    closeLocalDatabase(device.repository);
+    openDevices.splice(openDevices.indexOf(device), 1);
+    const restarted = await openDevice(server, factory, 'device-many');
+    restarted.clock.value += 120_000;
+    const reset = await restarted.session.reset();
+
+    expect(reset.presets).toHaveLength(1);
+    expect(server.livePresetIds(ACCOUNT)).toEqual([DEFAULT_ROUTINE_PRESET_ID]);
+    expect(await restarted.repository.listOutboxMutations({ limit: 500, status: 'conflict' })).toHaveLength(0);
+    expect(server.domainChanges(ACCOUNT, HEALTH_ROUTINE_PRESET_DOMAIN)
+      .filter(change => change.operation === 'tombstone')).toHaveLength(105);
+  });
+
+  it('keeps later durable commits independent from an in-flight network push', async () => {
+    const server = new FakeHealthRoutineServer();
+    const device = await openDevice(server, new IDBFactory(), 'device-local-first', ACCOUNT, false);
+    const initial = await device.session.bootstrap({
+      legacyState: createRoutinePresetState({ routines: [], splitCount: 3 }), hasAccountScopedState: true,
+    });
+    const first = updateRoutinePresetState(initial, {
+      type: 'rename', presetId: DEFAULT_ROUTINE_PRESET_ID, name: 'First local commit',
+    });
+    await device.session.commitState(initial, first);
+
+    const delegate = server.client(ACCOUNT);
+    let releasePush: (() => void) | undefined;
+    let blockNextPush = true;
+    const pushStarted = new Promise<void>(resolve => {
+      device.session = new HealthRoutineSyncSession({
+        repository: device.repository,
+        now: () => new Date(device.clock.value).toISOString(),
+        online: () => true,
+        transport: {
+          ...delegate,
+          push: async request => {
+            if (blockNextPush) {
+              blockNextPush = false;
+              resolve();
+              await new Promise<void>(release => { releasePush = release; });
+            }
+            return delegate.push(request);
+          },
+        },
+      });
+    });
+    const sync = device.session.sync();
+    await pushStarted;
+
+    const second = updateRoutinePresetState(first, {
+      type: 'rename', presetId: DEFAULT_ROUTINE_PRESET_ID, name: 'Second local commit',
+    });
+    const committed = await Promise.race([
+      device.session.commitState(first, second),
+      new Promise<never>((_resolve, reject) => {
+        setTimeout(() => reject(new Error('local_commit_waited_for_network')), 250);
+      }),
+    ]);
+    expect(committed.presets[0].name).toBe('Second local commit');
+
+    releasePush?.();
+    await sync;
+    expect((await device.session.snapshot())?.presets[0].name).toBe('Second local commit');
   });
 });

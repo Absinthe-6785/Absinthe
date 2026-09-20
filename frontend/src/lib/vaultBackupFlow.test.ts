@@ -9,6 +9,13 @@ import {
   type VaultBackupFlowDeps,
 } from './vaultBackupFlow';
 import { assertExportReady } from './vaultExportValidate';
+import {
+  DEFAULT_ROUTINE_PRESET_ID,
+  createEmptyRoutinePreset,
+  createRoutinePresetState,
+  updateRoutinePresetState,
+  writeRoutinePresetState,
+} from '@/components/views/features/health/routinePresets';
 
 function note(): NoteBase {
   return {
@@ -198,5 +205,62 @@ describe('vault backup production flow', () => {
     await expect(runVaultBackupAttempt(input(), deps)).rejects.toThrow('backup_account_changed');
     expect(deps.download).not.toHaveBeenCalled();
     expect(deps.recordSuccess).not.toHaveBeenCalled();
+  });
+
+  it('exports newer durable Health authority instead of stale localStorage', async () => {
+    const stale = createRoutinePresetState({ routines: [], splitCount: 4 });
+    const durable = updateRoutinePresetState(stale, {
+      type: 'set-split', presetId: DEFAULT_ROUTINE_PRESET_ID, splitCount: 3,
+    });
+    durable.presets.push(createEmptyRoutinePreset('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'Named', 2));
+    durable.activePresetId = durable.presets[1].id;
+    writeRoutinePresetState(localStorage, 'account-a', stale);
+    const deps: VaultBackupFlowDeps = {
+      fetchCloud: vi.fn(async () => cloud('full')),
+      download: vi.fn(async () => undefined),
+      recordSuccess: vi.fn(),
+      readHealthRoutineState: vi.fn(async accountId => accountId === 'account-a' ? durable : null),
+    };
+
+    const result = await runVaultBackupAttempt(input(), deps);
+
+    expect(result.kind).toBe('downloaded');
+    if (result.kind !== 'downloaded') return;
+    expect(result.manifest.extensions?.health.routinePresetState).toEqual(durable);
+    expect(result.manifest.extensions?.health.routinePresetState?.presets[0].splitCount).toBe(3);
+    expect(result.manifest.extensions?.health.routinePresetState?.presets).toHaveLength(2);
+  });
+
+  it('exports durable Health authority when compatibility cache is missing', async () => {
+    const durable = createRoutinePresetState({ routines: [], splitCount: 2 });
+    const deps: VaultBackupFlowDeps = {
+      fetchCloud: vi.fn(async () => cloud('full')),
+      download: vi.fn(async () => undefined),
+      recordSuccess: vi.fn(),
+      readHealthRoutineState: vi.fn(async () => durable),
+    };
+
+    const result = await runVaultBackupAttempt(input(), deps);
+
+    expect(result.kind === 'downloaded' && result.manifest.extensions?.health.routinePresetState).toEqual(durable);
+  });
+
+  it('keeps durable backup reads account scoped', async () => {
+    const accountA = createRoutinePresetState({ routines: [], splitCount: 3 });
+    const accountB = createRoutinePresetState({ routines: [], splitCount: 6 });
+    writeRoutinePresetState(localStorage, 'account-a', accountB);
+    const readHealthRoutineState = vi.fn(async (accountId: string) => accountId === 'account-a' ? accountA : accountB);
+    const deps: VaultBackupFlowDeps = {
+      fetchCloud: vi.fn(async () => cloud('full')),
+      download: vi.fn(async () => undefined),
+      recordSuccess: vi.fn(),
+      readHealthRoutineState,
+    };
+
+    const result = await runVaultBackupAttempt(input(), deps);
+
+    expect(readHealthRoutineState).toHaveBeenCalledWith('account-a');
+    expect(result.kind === 'downloaded'
+      && result.manifest.extensions?.health.routinePresetState?.presets[0].splitCount).toBe(3);
   });
 });

@@ -1,4 +1,5 @@
 import {
+  assignStableHealthRoutinePresetIds,
   DEFAULT_HEALTH_ROUTINE_PRESET_ID,
   HEALTH_ROUTINE_PROFILE_ID,
   isHealthRoutineUuid,
@@ -176,17 +177,16 @@ export function aggregatesToRoutinePresetState(
 }
 
 export function migrateRoutinePresetStateIdentity(accountId: string, state: RoutinePresetState): RoutinePresetState {
-  const seen = new Set<string>();
-  const idMap = new Map<string, string>();
+  const assignment = assignStableHealthRoutinePresetIds(accountId, state.presets.map(preset => ({
+    legacyId: preset.id,
+    logicalRecord: {
+      name: preset.name,
+      splitCount: preset.splitCount,
+      days: preset.days,
+    },
+  })));
   const presets = state.presets.map((preset, index) => {
-    let id = stableHealthRoutinePresetId(accountId, preset.id, index);
-    let collision = 1;
-    while (seen.has(id)) {
-      id = stableHealthRoutinePresetId(accountId, `${preset.id}:${collision}`, index);
-      collision += 1;
-    }
-    seen.add(id);
-    idMap.set(preset.id, id);
+    const id = assignment.ids[index];
     const splitCount = Math.min(HEALTH_ROUTINE_MAX_SPLIT, Math.max(HEALTH_ROUTINE_MIN_SPLIT, preset.splitCount));
     return {
       ...preset,
@@ -205,6 +205,6 @@ export function migrateRoutinePresetStateIdentity(accountId: string, state: Rout
   return {
     ...state,
     presets,
-    activePresetId: idMap.get(state.activePresetId) ?? fallback,
+    activePresetId: assignment.primaryByLegacyId.get(state.activePresetId) ?? fallback,
   };
 }

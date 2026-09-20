@@ -64,10 +64,15 @@ function collectPrefixedKeys(prefix: string): Record<string, string> {
   return out;
 }
 
-export function collectPortableHealthLocal(accountId?: string | null): VaultPortableHealthLocal {
+export function collectPortableHealthLocal(
+  accountId?: string | null,
+  authoritativeRoutinePresetState?: RoutinePresetState | null,
+): VaultPortableHealthLocal {
   const splitRaw = typeof localStorage !== 'undefined' ? localStorage.getItem('healthSplitCount') : null;
   return {
-    routinePresetState: accountId ? readRoutinePresetState(localStorage, accountId) : null,
+    routinePresetState: authoritativeRoutinePresetState !== undefined
+      ? authoritativeRoutinePresetState
+      : accountId ? readRoutinePresetState(localStorage, accountId) : null,
     splitCount: splitRaw != null ? Number(splitRaw) : null,
     routinePlannedSets: readJsonKey('healthRoutinePlannedSets') as Record<string, unknown> | null,
     recoveryLog: readJsonKey('absinthe:recovery-log') as Record<string, unknown> | null,
@@ -78,7 +83,10 @@ export function collectPortableHealthLocal(accountId?: string | null): VaultPort
   };
 }
 
-export function collectPortableVaultExtensions(accountId?: string | null): VaultPortableExtensions {
+export function collectPortableVaultExtensions(
+  accountId?: string | null,
+  authoritativeRoutinePresetState?: RoutinePresetState | null,
+): VaultPortableExtensions {
   return {
     schemaVersion: VAULT_EXTENSIONS_SCHEMA_VERSION,
     settings: readJsonKey('planner-storage'),
@@ -90,7 +98,7 @@ export function collectPortableVaultExtensions(accountId?: string | null): Vault
       workspacePreferences: loadWorkspacePreferences(),
       history: loadKnowledgeHistoryPayload(),
     },
-    health: collectPortableHealthLocal(accountId),
+    health: collectPortableHealthLocal(accountId, authoritativeRoutinePresetState),
   };
 }
 

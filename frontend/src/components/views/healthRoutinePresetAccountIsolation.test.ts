@@ -76,8 +76,9 @@ vi.mock('../../lib/healthLocalRuntime', () => ({
 vi.mock('../../lib/healthRoutineSync', () => ({
   productionHealthRoutinePersistence: {
     bootstrap: async ({ legacyState }: { legacyState: unknown }) => legacyState,
-    replaceState: async (_accountId: string, _previous: unknown, next: unknown) => next,
+    commitState: async (_accountId: string, _previous: unknown, next: unknown) => next,
     sync: async () => null,
+    snapshot: async () => null,
     reset: async () => createRoutinePresetState({ routines: [], splitCount: 3 }),
     recover: async (_accountId: string, recovered: unknown) => recovered,
   },

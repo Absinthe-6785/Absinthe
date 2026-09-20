@@ -185,11 +185,12 @@ describe('HEALTH_10D routine preset controller', () => {
   });
 
   it('commits the aggregate through durable persistence without a client legacy projection', async () => {
-    const replaceState = vi.fn<HealthRoutinePersistence['replaceState']>(async (_accountId, _previous, next) => next);
+    const commitState = vi.fn<HealthRoutinePersistence['commitState']>(async (_accountId, _previous, next) => next);
     const persistence: HealthRoutinePersistence = {
       bootstrap: async ({ legacyState }) => legacyState,
-      replaceState,
+      commitState,
       sync: async () => null,
+      snapshot: async () => null,
       reset: async () => createRoutinePresetState({ routines: [], splitCount: 3 }),
       recover: async (_accountId, recovered) => recovered,
     };
@@ -201,7 +202,7 @@ describe('HEALTH_10D routine preset controller', () => {
       plannedSets: { push: 5 },
     }));
     expect(result.ok).toBe(true);
-    expect(replaceState).toHaveBeenCalledOnce();
+    expect(commitState).toHaveBeenCalledOnce();
     expect((result as RoutinePresetMutationResult & { projection?: unknown }).projection).toBeUndefined();
 
     const canonicalAfterMutation = readRoutinePresetState(localStorage, 'account-a');
@@ -222,5 +223,46 @@ describe('HEALTH_10D routine preset controller', () => {
     expect(setItem).toHaveBeenCalled();
     expect(result.ok).toBe(false);
     expect(readRoutinePresetState(localStorage, 'account-a')?.presets[0].days[0].blocks).toEqual([]);
+  });
+
+  it('reports durable local success without waiting for a hung remote sync', async () => {
+    const never = new Promise<null>(() => undefined);
+    const commitState = vi.fn<HealthRoutinePersistence['commitState']>(async (_accountId, _previous, next) => next);
+    const persistence: HealthRoutinePersistence = {
+      bootstrap: async ({ legacyState }) => legacyState,
+      commitState,
+      sync: vi.fn(() => never),
+      snapshot: async () => null,
+      reset: async () => createRoutinePresetState({ routines: [], splitCount: 3 }),
+      recover: async (_accountId, recovered) => recovered,
+    };
+    await mount({ ...input('account-a', 0), persistence });
+
+    const result = await mutate(() => latest.setPresetSplit(DEFAULT_ROUTINE_PRESET_ID, 4));
+
+    expect(result.ok).toBe(true);
+    expect(latest.splitCount).toBe(4);
+    expect(commitState).toHaveBeenCalledOnce();
+    expect(persistence.sync).toHaveBeenCalledOnce();
+  });
+
+  it('does not claim success for a failed durable commit and continues after background sync failure', async () => {
+    const commitState = vi.fn<HealthRoutinePersistence['commitState']>()
+      .mockRejectedValueOnce(new Error('indexeddb_failed'))
+      .mockImplementation(async (_accountId, _previous, next) => next);
+    const persistence: HealthRoutinePersistence = {
+      bootstrap: async ({ legacyState }) => legacyState,
+      commitState,
+      sync: vi.fn(async () => { throw new Error('network_failed'); }),
+      snapshot: async () => null,
+      reset: async () => createRoutinePresetState({ routines: [], splitCount: 3 }),
+      recover: async (_accountId, recovered) => recovered,
+    };
+    await mount({ ...input('account-a', 0), persistence });
+
+    expect((await mutate(() => latest.setPresetSplit(DEFAULT_ROUTINE_PRESET_ID, 4))).ok).toBe(false);
+    expect(latest.splitCount).toBe(3);
+    expect((await mutate(() => latest.setPresetSplit(DEFAULT_ROUTINE_PRESET_ID, 5))).ok).toBe(true);
+    expect(latest.splitCount).toBe(5);
   });
 });

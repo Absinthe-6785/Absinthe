@@ -296,7 +296,10 @@ declare
   v_replay jsonb;
   v_three_day jsonb;
   v_profile jsonb;
+  v_profile_switch jsonb;
+  v_profile_restore jsonb;
   v_named jsonb;
+  v_default_tombstone jsonb;
   v_tombstone jsonb;
   v_restore jsonb;
   v_stale jsonb;
@@ -375,6 +378,50 @@ begin
     repeat('b', 64), repeat('c', 64), '2026-09-19T00:00:03Z'
   );
   if v_named #>> '{outcome}' <> 'applied' then raise exception 'REL05F_NAMED_FAILED: %', v_named; end if;
+
+  v_profile_switch := public.apply_health_routine_mutation_v2(
+    '11111111-1111-4111-8111-111111111111', 'project-test', repeat('1', 64),
+    'generation-1', 'device-a', 'health_routine_profile',
+    '00000000-0000-5000-8000-000000000002',
+    'mut.10000000-0000-4000-8000-000000000008', 'k322.' || repeat('5', 64),
+    'upsert', 1, 2,
+    '{"kind":"entity_snapshot","record":{"id":"00000000-0000-5000-8000-000000000002","activePresetId":"00000000-0000-5000-8000-000000000003"}}'::jsonb,
+    repeat('6', 64), repeat('7', 64), '2026-09-19T00:00:03.100Z'
+  );
+  if v_profile_switch #>> '{outcome}' <> 'applied' then
+    raise exception 'REL05F_PROFILE_SWITCH_FAILED: %', v_profile_switch;
+  end if;
+
+  v_default_tombstone := public.apply_health_routine_mutation_v2(
+    '11111111-1111-4111-8111-111111111111', 'project-test', repeat('1', 64),
+    'generation-1', 'device-a', 'health_routine_preset',
+    '00000000-0000-5000-8000-000000000001',
+    'mut.10000000-0000-4000-8000-000000000009', 'k322.' || repeat('8', 64),
+    'tombstone', 2, 3,
+    '{"kind":"tombstone","entityId":"00000000-0000-5000-8000-000000000001","deletedAt":"2026-09-19T00:00:03.200Z","revision":3}'::jsonb,
+    repeat('9', 64), repeat('a', 64), '2026-09-19T00:00:03.200Z'
+  );
+  if v_default_tombstone #>> '{errorCode}' <> 'DEFAULT_PRESET_REQUIRED' then
+    raise exception 'REL05F_DEFAULT_TOMBSTONE_ACCEPTED: %', v_default_tombstone;
+  end if;
+  if exists (
+    select 1 from public.health_routine_presets
+    where user_id = '11111111-1111-4111-8111-111111111111'
+      and id = '00000000-0000-5000-8000-000000000001' and deleted_at is not null
+  ) then raise exception 'REL05F_DEFAULT_WAS_DELETED'; end if;
+
+  v_profile_restore := public.apply_health_routine_mutation_v2(
+    '11111111-1111-4111-8111-111111111111', 'project-test', repeat('1', 64),
+    'generation-1', 'device-a', 'health_routine_profile',
+    '00000000-0000-5000-8000-000000000002',
+    'mut.10000000-0000-4000-8000-00000000000a', 'k322.' || repeat('b', 64),
+    'upsert', 2, 3,
+    '{"kind":"entity_snapshot","record":{"id":"00000000-0000-5000-8000-000000000002","activePresetId":"00000000-0000-5000-8000-000000000001"}}'::jsonb,
+    repeat('c', 64), repeat('d', 64), '2026-09-19T00:00:03.300Z'
+  );
+  if v_profile_restore #>> '{outcome}' <> 'applied' then
+    raise exception 'REL05F_PROFILE_RESTORE_FAILED: %', v_profile_restore;
+  end if;
 
   v_tombstone := public.apply_health_routine_mutation_v2(
     '11111111-1111-4111-8111-111111111111', 'project-test', repeat('1', 64),

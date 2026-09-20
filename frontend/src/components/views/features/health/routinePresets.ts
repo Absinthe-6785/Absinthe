@@ -1,8 +1,9 @@
 import type { HealthRoutine, WorkoutSet } from '@/types';
 import {
+  assignStableHealthRoutinePresetIds,
   DEFAULT_HEALTH_ROUTINE_PRESET_ID,
-  stableHealthRoutinePresetId,
 } from '../../../../lib/healthRoutineIdentity';
+import { hashCanonicalPayload } from '../../../../lib/localDatabase/canonicalPayload';
 
 export const ROUTINE_PRESET_STATE_VERSION = 1 as const;
 export const DEFAULT_ROUTINE_PRESET_ID = DEFAULT_HEALTH_ROUTINE_PRESET_ID;
@@ -142,13 +143,27 @@ function normalizePreset(value: unknown, index: number): RoutinePreset | null {
 }
 
 function ensureUniquePresetIds(presets: RoutinePreset[]): RoutinePreset[] {
-  const used = new Set<string>();
-  return presets.map((preset, index) => {
-    let id = preset.id || `preset-${index + 1}`;
-    while (used.has(id)) id = `${id}-${index + 1}`;
-    used.add(id);
-    return id === preset.id ? preset : { ...preset, id };
+  const groups = new Map<string, Array<{ preset: RoutinePreset; index: number; fingerprint: string }>>();
+  presets.forEach((preset, index) => {
+    const group = groups.get(preset.id) ?? [];
+    group.push({
+      preset,
+      index,
+      fingerprint: hashCanonicalPayload({ name: preset.name, splitCount: preset.splitCount, days: preset.days }),
+    });
+    groups.set(preset.id, group);
   });
+  const ids = Array<string>(presets.length);
+  for (const [legacyId, group] of groups) {
+    [...group]
+      .sort((left, right) => left.fingerprint.localeCompare(right.fingerprint) || left.index - right.index)
+      .forEach((entry, duplicateIndex) => {
+        ids[entry.index] = duplicateIndex === 0
+          ? legacyId
+          : `${legacyId}:duplicate:${entry.fingerprint.slice(0, 16)}:${duplicateIndex}`;
+      });
+  }
+  return presets.map((preset, index) => ids[index] === preset.id ? preset : { ...preset, id: ids[index] });
 }
 
 export function normalizeRoutinePresetState(value: unknown): RoutinePresetState | null {
@@ -181,23 +196,15 @@ export function readRoutinePresetState(storage: Storage, accountId: string): Rou
     const raw = storage.getItem(routinePresetStorageKey(accountId));
     const normalized = raw ? normalizeRoutinePresetState(JSON.parse(raw)) : null;
     if (!normalized) return null;
-    const seen = new Set<string>();
-    const idMap = new Map<string, string>();
-    const presets = normalized.presets.map((preset, index) => {
-      let id = stableHealthRoutinePresetId(accountId, preset.id, index);
-      let collision = 1;
-      while (seen.has(id)) {
-        id = stableHealthRoutinePresetId(accountId, `${preset.id}:${collision}`, index);
-        collision += 1;
-      }
-      seen.add(id);
-      idMap.set(preset.id, id);
-      return { ...preset, id };
-    });
+    const assignment = assignStableHealthRoutinePresetIds(accountId, normalized.presets.map(preset => ({
+      legacyId: preset.id,
+      logicalRecord: { name: preset.name, splitCount: preset.splitCount, days: preset.days },
+    })));
+    const presets = normalized.presets.map((preset, index) => ({ ...preset, id: assignment.ids[index] }));
     return {
       ...normalized,
       presets,
-      activePresetId: idMap.get(normalized.activePresetId) ?? presets[0].id,
+      activePresetId: assignment.primaryByLegacyId.get(normalized.activePresetId) ?? presets[0].id,
     };
   } catch {
     return null;

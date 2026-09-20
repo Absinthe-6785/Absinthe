@@ -767,9 +767,12 @@ export class LocalDatabaseRepository {
     this.assertOpen('claim_outbox'); validateSafeIdentifier(input.workerId, 'claim_outbox');
     const timestamp = now(input.now);
     if (!Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 100
-      || !Number.isSafeInteger(input.leaseDurationMs) || input.leaseDurationMs < 1 || input.leaseDurationMs > 86_400_000) {
+      || !Number.isSafeInteger(input.leaseDurationMs) || input.leaseDurationMs < 1 || input.leaseDurationMs > 86_400_000
+      || input.priorityDomains && (input.priorityDomains.length > 16
+        || new Set(input.priorityDomains).size !== input.priorityDomains.length)) {
       throw new LocalDatabaseError('INVALID_OUTBOX_QUERY', 'claim_outbox');
     }
+    input.priorityDomains?.forEach(domain => validateSafeIdentifier(domain, 'claim_outbox'));
     const transaction = this.db.transaction(
       [LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations, LOCAL_DATABASE_STORES.entities,
         LOCAL_DATABASE_STORES.outbox, LOCAL_DATABASE_STORES.restoreSessions], 'readwrite',
@@ -778,7 +781,16 @@ export class LocalDatabaseRepository {
     try {
       const values = await this.readScopedOutbox(transaction, 'claim_outbox');
       await this.ensureActive(transaction);
-      const candidates = this.nextDeliverable(values, timestamp, input.recoverExpiredClaims === true).slice(0, input.limit);
+      const deliverable = this.nextDeliverable(values, timestamp, input.recoverExpiredClaims === true);
+      const usePriority = !input.priorityTriggerOperation
+        || deliverable.some(item => item.operation === input.priorityTriggerOperation);
+      const priority = new Map((usePriority ? input.priorityDomains : [])?.map((domain, index) => [domain, index]) ?? []);
+      const candidates = deliverable
+        .sort((left, right) => (priority.get(left.domain) ?? Number.MAX_SAFE_INTEGER)
+          - (priority.get(right.domain) ?? Number.MAX_SAFE_INTEGER)
+          || left.domain.localeCompare(right.domain) || left.entityId.localeCompare(right.entityId)
+          || left.localRevision - right.localRevision)
+        .slice(0, input.limit);
       const store = transaction.objectStore(LOCAL_DATABASE_STORES.outbox);
       const claimed = candidates.map(value => {
         if (!Number.isSafeInteger(value.attemptCount + 1)) throw new LocalDatabaseError('INVALID_OUTBOX_TRANSITION', 'claim_outbox');

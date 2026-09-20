@@ -685,9 +685,14 @@ class RemoteMutationV2Service:
 
     def parse_mutation(self, raw: Any) -> ApplyRemoteMutationV2Request:
         try:
-            return ApplyRemoteMutationV2Request.model_validate(raw)
+            request = ApplyRemoteMutationV2Request.model_validate(raw)
         except (ValidationError, ValueError) as error:
             raise ValueError("INVALID_MUTATION") from error
+        if (request.domain == "health_routine_preset"
+                and request.entity_id == DEFAULT_HEALTH_ROUTINE_PRESET_ID
+                and request.operation == "tombstone"):
+            raise ValueError("DEFAULT_PRESET_REQUIRED")
+        return request
 
     def parse_pull(self, raw: Any) -> PullChangesV2Request:
         try:

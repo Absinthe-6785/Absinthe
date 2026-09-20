@@ -249,10 +249,18 @@ def test_reset_exact_intent_runs_only_authenticated_account_scope(destructive_cl
     assert response.status_code == 200
     expected_tables = [
         "routine_logs", "routine_exceptions", "workout_logs", "inbody_logs", "schedules", "todos",
-        "weekly_schedules", "notes", "note_folders", "routines", "exercise_blocks", "health_routines", "recipes",
+        "weekly_schedules", "notes", "note_folders", "routines", "exercise_blocks", "recipes",
     ]
     assert [write["table"] for write in supabase.writes] == expected_tables
     assert all(write["filters"] == [("user_id", "test-user")] for write in supabase.writes)
+
+
+def test_legacy_health_routine_post_is_rejected_without_writing(destructive_client):
+    client, supabase = destructive_client
+    response = client.post("/api/health_routines", json={"day_name": "Day 1", "blocks": []})
+    assert response.status_code == 410
+    assert response.json()["detail"] == "LEGACY_HEALTH_ROUTINE_WRITE_DISABLED"
+    assert supabase.writes == []
 
 
 def test_reset_ignores_request_account_target(destructive_client):

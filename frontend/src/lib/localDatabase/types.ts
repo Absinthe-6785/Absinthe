@@ -375,6 +375,10 @@ export interface ClaimOutboxInput {
   leaseDurationMs: number;
   limit: number;
   recoverExpiredClaims?: boolean;
+  /** Domains selected before the batch limit, in dependency priority order. */
+  priorityDomains?: readonly string[];
+  /** Apply domain priority only when this operation exists in the full eligible set. */
+  priorityTriggerOperation?: OutboxOperation;
 }
 
 export interface RetryOutboxInput {

@@ -99,6 +99,16 @@ def request_payload(
     return raw
 
 
+def test_fixed_default_tombstone_is_rejected_by_domain_service() -> None:
+    service = RemoteMutationV2Service(InMemoryV2Gateway(), PROJECT)
+    payload = request_payload(
+        domain="health_routine_preset", entity_id=DEFAULT_PRESET,
+        operation="tombstone", base_revision=1, local_revision=2,
+    )
+    with pytest.raises(ValueError, match="DEFAULT_PRESET_REQUIRED"):
+        service.parse_mutation(payload)
+
+
 class InMemoryV2Gateway:
     def __init__(self) -> None:
         self.lock = threading.Lock()
@@ -544,6 +554,8 @@ def test_health_routine_migration_is_additive_typed_private_and_one_way_projecte
     assert "pg_advisory_xact_lock" in lowered and "for update" in lowered
     assert "delete from public.health_routines where user_id = $1" in lowered
     assert "jsonb_array_length(days) = split_count" in lowered
+    assert "default_preset_required" in lowered
+    assert "v_entity_id = '00000000-0000-5000-8000-000000000001'::uuid" in lowered
     assert "grant execute" in lowered and "to service_role" in lowered
     assert "from public, anon, authenticated, service_role" in lowered
     assert "grant select, insert, update on public.health_routine_presets to service_role" in lowered

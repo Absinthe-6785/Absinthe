@@ -150,8 +150,8 @@ export const SettingsView = ({
         fetchCloud: fetchVaultCloudBlock,
         download: downloadVaultBackupZip,
         recordSuccess: recordLastVaultExport,
-        isAccountCurrent: accountId => backupAuthorityRef.current.cloudExpected
-          && backupAuthorityRef.current.accountId === accountId,
+        readHealthRoutineState: accountId => productionHealthRoutinePersistence.snapshot(accountId),
+        isAccountCurrent: accountId => backupAuthorityRef.current.accountId === accountId,
       });
       if (result.kind === 'pending') {
         setPendingReducedBackup(result.pending);
@@ -216,9 +216,9 @@ export const SettingsView = ({
     }
 
     try {
+      if (user?.id) await productionHealthRoutinePersistence.reset(user.id);
       const res = await authFetch(`${API_URL}/api/reset`, buildResetRequestInit());
       if (res.ok) {
-        if (user?.id) await productionHealthRoutinePersistence.reset(user.id);
         resetAllNotes();
         showToast(t('resetSuccess'));
         mutateDaily();
