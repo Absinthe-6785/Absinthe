@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { HealthRoutine, WorkoutSet } from '@/types';
 import type { HealthAccountGenerationToken } from '../../../../lib/healthBackfillUiSafety';
+import type { HealthRoutinePersistence } from '../../../../lib/healthRoutineSync';
 import {
-  DEFAULT_ROUTINE_PRESET_ID,
   createEmptyRoutinePreset,
   createRoutinePresetId,
   createRoutinePresetState,
@@ -17,20 +17,11 @@ import {
   type RoutinePresetState,
 } from './routinePresets';
 
-export type RoutinePresetProjectionIntent = {
-  accountId: string;
-  accountOperation: HealthAccountGenerationToken;
-  dayName: string;
-  blocks: string[];
-  existingRoutineId?: string;
-};
-
 export type RoutinePresetMutationResult = {
   ok: boolean;
   changed: boolean;
   state: RoutinePresetState;
   accountOperation: HealthAccountGenerationToken;
-  projection?: RoutinePresetProjectionIntent;
 };
 
 export type RoutinePresetConfirmation = {
@@ -44,6 +35,7 @@ export type RoutinePresetControllerInput = {
   accountOperation: HealthAccountGenerationToken;
   isCurrentAccountOperation: (token: HealthAccountGenerationToken) => boolean;
   onPresetConfirmationInvalidated?: () => void;
+  persistence?: HealthRoutinePersistence;
 };
 
 export type RoutinePresetController = {
@@ -53,18 +45,18 @@ export type RoutinePresetController = {
   accountReady: boolean;
   splitCount: number;
   presetConfirmAccountId: string | null;
-  createPreset: (name: string) => RoutinePresetMutationResult;
-  duplicatePreset: (name: string) => RoutinePresetMutationResult;
-  renamePreset: (presetId: string, name: string) => RoutinePresetMutationResult;
-  deletePreset: (presetId: string) => RoutinePresetMutationResult;
-  selectPreset: (presetId: string) => RoutinePresetMutationResult;
-  setPresetSplit: (presetId: string, splitCount: number) => RoutinePresetMutationResult;
+  createPreset: (name: string) => Promise<RoutinePresetMutationResult>;
+  duplicatePreset: (name: string) => Promise<RoutinePresetMutationResult>;
+  renamePreset: (presetId: string, name: string) => Promise<RoutinePresetMutationResult>;
+  deletePreset: (presetId: string) => Promise<RoutinePresetMutationResult>;
+  selectPreset: (presetId: string) => Promise<RoutinePresetMutationResult>;
+  setPresetSplit: (presetId: string, splitCount: number) => Promise<RoutinePresetMutationResult>;
   setPresetDay: (input: {
     presetId: string;
     dayName: string;
     blocks: string[];
     plannedSets: Record<string, number>;
-  }) => RoutinePresetMutationResult;
+  }) => Promise<RoutinePresetMutationResult>;
   getPlannedSetCount: (
     dayName: string,
     blockId: string,
@@ -73,7 +65,7 @@ export type RoutinePresetController = {
   ) => number;
   beginPresetConfirmation: () => RoutinePresetConfirmation | null;
   clearPresetConfirmationMarker: () => void;
-  rehydrateForAccount: () => RoutinePresetState | null;
+  rehydrateForAccount: () => Promise<RoutinePresetState | null>;
 };
 
 function initialRoutinePresetState(
@@ -90,12 +82,13 @@ export function useRoutinePresetController({
   accountOperation,
   isCurrentAccountOperation,
   onPresetConfirmationInvalidated,
+  persistence,
 }: RoutinePresetControllerInput): RoutinePresetController {
   const [routinePresetBinding, setRoutinePresetBinding] = useState<{
-    accountId: string;
+    accountId: string | null;
     state: RoutinePresetState;
   }>(() => ({
-    accountId,
+    accountId: persistence ? null : accountId,
     state: initialRoutinePresetState(accountId, healthRoutines),
   }));
   const routinePresetState = routinePresetBinding.accountId === accountId
@@ -104,6 +97,7 @@ export function useRoutinePresetController({
   const accountReady = routinePresetBinding.accountId === accountId;
   const routinePresetStateRef = useRef(routinePresetState);
   routinePresetStateRef.current = routinePresetState;
+  const mutationQueueRef = useRef<Promise<unknown>>(Promise.resolve());
 
   const [presetConfirmAccountId, setPresetConfirmAccountId] = useState<string | null>(null);
   const presetConfirmAccountIdRef = useRef<string | null>(null);
@@ -113,14 +107,30 @@ export function useRoutinePresetController({
     setPresetConfirmAccountId(null);
   }, []);
 
-  const rehydrateForAccount = useCallback((): RoutinePresetState | null => {
+  const rehydrateForAccount = useCallback(async (): Promise<RoutinePresetState | null> => {
     if (!isCurrentAccountOperation(accountOperation)) return null;
-    const next = initialRoutinePresetState(accountId, healthRoutines);
+    const existing = readRoutinePresetState(localStorage, accountId);
+    const legacyState = existing ?? createRoutinePresetState({ routines: healthRoutines, splitCount: 3 });
+    let next = legacyState;
+    try {
+      if (persistence) {
+        next = await persistence.bootstrap({
+          accountId,
+          legacyState,
+          hasAccountScopedState: existing !== null,
+        });
+      }
+    } catch {
+      return null;
+    }
+    if (!isCurrentAccountOperation(accountOperation)) return null;
     routinePresetStateRef.current = next;
     setRoutinePresetBinding({ accountId, state: next });
-    if (!readRoutinePresetState(localStorage, accountId)) writeRoutinePresetState(localStorage, accountId, next);
+    // This account-scoped key remains a compatibility/recovery cache. The
+    // durable local database is authoritative whenever persistence is active.
+    if (!existing || persistence) writeRoutinePresetState(localStorage, accountId, next);
     return next;
-  }, [accountId, accountOperation, healthRoutines, isCurrentAccountOperation]);
+  }, [accountId, accountOperation, healthRoutines, isCurrentAccountOperation, persistence]);
 
   // Account identity is the synchronous reset boundary. The render-time
   // accountReady gate above prevents the previous account's state from being
@@ -132,13 +142,13 @@ export function useRoutinePresetController({
       clearPresetConfirmationMarker();
       onPresetConfirmationInvalidated?.();
     }
-    rehydrateForAccount();
+    void rehydrateForAccount();
   // The account identity is the reset boundary; row reconciliation is below.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accountId]);
 
   useEffect(() => {
-    if (!accountReady) return;
+    if (!accountReady || persistence) return;
     const next = syncLegacyDefaultRoutinePreset(routinePresetState, {
       routines: healthRoutines,
       splitCount: routinePresetById(routinePresetState).splitCount,
@@ -148,7 +158,21 @@ export function useRoutinePresetController({
         setRoutinePresetBinding({ accountId, state: next });
       }
     }
-  }, [accountId, accountReady, healthRoutines, routinePresetState]);
+  }, [accountId, accountReady, healthRoutines, persistence, routinePresetState]);
+
+  useEffect(() => {
+    if (!persistence || !accountReady) return;
+    const handleOnline = () => {
+      void persistence.sync(accountId).then(next => {
+        if (!next || !isCurrentAccountOperation(accountOperation)) return;
+        routinePresetStateRef.current = next;
+        writeRoutinePresetState(localStorage, accountId, next);
+        setRoutinePresetBinding({ accountId, state: next });
+      }).catch(() => undefined);
+    };
+    window.addEventListener('online', handleOnline);
+    return () => window.removeEventListener('online', handleOnline);
+  }, [accountId, accountOperation, accountReady, isCurrentAccountOperation, persistence]);
 
   const currentOperation = useCallback(() => (
     accountReady && isCurrentAccountOperation(accountOperation)
@@ -161,7 +185,7 @@ export function useRoutinePresetController({
     accountOperation,
   }), [accountOperation]);
 
-  const commitState = useCallback((next: RoutinePresetState): RoutinePresetMutationResult => {
+  const commitState = useCallback(async (next: RoutinePresetState): Promise<RoutinePresetMutationResult> => {
     if (!currentOperation()) return mutationFailure();
     if (next === routinePresetStateRef.current) {
       return {
@@ -171,51 +195,71 @@ export function useRoutinePresetController({
         accountOperation,
       };
     }
-    if (!writeRoutinePresetState(localStorage, accountId, next)) return mutationFailure();
-    routinePresetStateRef.current = next;
-    setRoutinePresetBinding({ accountId, state: next });
+    const previous = routinePresetStateRef.current;
+    let committed = next;
+    try {
+      if (persistence) committed = await persistence.replaceState(accountId, previous, next);
+      else if (!writeRoutinePresetState(localStorage, accountId, next)) return mutationFailure();
+    } catch {
+      return mutationFailure();
+    }
+    if (!currentOperation()) return mutationFailure();
+    if (persistence) writeRoutinePresetState(localStorage, accountId, committed);
+    routinePresetStateRef.current = committed;
+    setRoutinePresetBinding({ accountId, state: committed });
     return {
       ok: true,
       changed: true,
-      state: next,
+      state: committed,
       accountOperation,
     };
-  }, [accountId, accountOperation, currentOperation, mutationFailure]);
+  }, [accountId, accountOperation, currentOperation, mutationFailure, persistence]);
+
+  const runMutation = useCallback((
+    buildNext: (current: RoutinePresetState) => RoutinePresetState,
+  ): Promise<RoutinePresetMutationResult> => {
+    const operation = mutationQueueRef.current.then(() => (
+      commitState(buildNext(routinePresetStateRef.current))
+    ));
+    mutationQueueRef.current = operation.then(() => undefined, () => undefined);
+    return operation;
+  }, [commitState]);
 
   const applyAction = useCallback((action: Parameters<typeof updateRoutinePresetState>[1]) => (
-    commitState(updateRoutinePresetState(routinePresetStateRef.current, action))
-  ), [commitState]);
+    runMutation(current => updateRoutinePresetState(current, action))
+  ), [runMutation]);
 
   const createPreset = useCallback((name: string) => applyAction({
     type: 'create',
     preset: createEmptyRoutinePreset(createRoutinePresetId(), sanitizeRoutinePresetName(name)),
   }), [applyAction]);
 
-  const duplicatePreset = useCallback((name: string) => {
-    const activePreset = routinePresetById(routinePresetStateRef.current);
-    const duplicate = {
-      ...activePreset,
-      id: createRoutinePresetId(),
-      name: sanitizeRoutinePresetName(name),
-      days: activePreset.days.map(day => ({
-        ...day,
-        blocks: [...day.blocks],
-        plannedSets: { ...day.plannedSets },
-        legacyRoutineId: undefined,
-      })),
-    };
-    return applyAction({
+  const duplicatePreset = useCallback((name: string) => runMutation(current => {
+    const activePreset = routinePresetById(current);
+    return updateRoutinePresetState(current, {
       type: 'duplicate',
       sourcePresetId: activePreset.id,
-      preset: duplicate,
+      preset: {
+        ...activePreset,
+        id: createRoutinePresetId(),
+        name: sanitizeRoutinePresetName(name),
+        days: activePreset.days.map(day => ({
+          ...day,
+          blocks: [...day.blocks],
+          plannedSets: { ...day.plannedSets },
+          legacyRoutineId: undefined,
+        })),
+      },
     });
-  }, [applyAction]);
+  }), [runMutation]);
 
-  const renamePreset = useCallback((presetId: string, name: string) => applyAction({
-    type: 'rename',
-    presetId,
-    name: sanitizeRoutinePresetName(name, routinePresetById(routinePresetStateRef.current, presetId).name),
-  }), [applyAction]);
+  const renamePreset = useCallback((presetId: string, name: string) => runMutation(current => (
+    updateRoutinePresetState(current, {
+      type: 'rename',
+      presetId,
+      name: sanitizeRoutinePresetName(name, routinePresetById(current, presetId).name),
+    })
+  )), [runMutation]);
 
   const deletePreset = useCallback((presetId: string) => applyAction({ type: 'delete', presetId }), [applyAction]);
   const selectPreset = useCallback((presetId: string) => applyAction({ type: 'switch', presetId }), [applyAction]);
@@ -225,36 +269,21 @@ export function useRoutinePresetController({
     splitCount,
   }), [applyAction]);
 
-  const setPresetDay = useCallback((input: {
+  const setPresetDay = useCallback(async (input: {
     presetId: string;
     dayName: string;
     blocks: string[];
     plannedSets: Record<string, number>;
-  }): RoutinePresetMutationResult => {
+  }): Promise<RoutinePresetMutationResult> => {
     if (!currentOperation()) return mutationFailure();
-    const current = routinePresetStateRef.current;
-    const target = routinePresetById(current, input.presetId);
-    const existingRoutineId = target.days.find(day => day.dayName === input.dayName)?.legacyRoutineId;
-    const next = updateRoutinePresetState(current, {
+    return runMutation(current => updateRoutinePresetState(current, {
       type: 'set-day',
       presetId: input.presetId,
       dayName: input.dayName,
       blocks: input.blocks,
       plannedSets: input.plannedSets,
-    });
-    const result = commitState(next);
-    if (!result.ok || target.id !== DEFAULT_ROUTINE_PRESET_ID) return result;
-    return {
-      ...result,
-      projection: {
-        accountId,
-        accountOperation,
-        dayName: input.dayName,
-        blocks: [...input.blocks],
-        ...(existingRoutineId ? { existingRoutineId } : {}),
-      },
-    };
-  }, [accountId, accountOperation, commitState, currentOperation, mutationFailure]);
+    }));
+  }, [currentOperation, mutationFailure, runMutation]);
 
   const activePreset = routinePresetById(routinePresetState);
   const selectedHealthRoutines = useMemo(

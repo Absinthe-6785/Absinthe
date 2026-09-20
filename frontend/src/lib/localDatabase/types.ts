@@ -123,6 +123,19 @@ export interface RestoreOutboxGenerationBoundary {
   createdAt: string;
 }
 
+export interface RemoteOutboxSequenceBoundary {
+  kind: 'remote_entity_sequence_boundary';
+  namespaceKey: string;
+  generationId: string;
+  domain: string;
+  entityId: string;
+  baselineLocalRevision: number;
+  baselineServerRevision: number;
+  remoteMutationRef: string;
+  baselineContentHash: string;
+  createdAt: string;
+}
+
 export interface OutboxRecord {
   namespaceKey: string;
   generationId: string;
@@ -159,6 +172,7 @@ export interface OutboxRecord {
   resurrection?: ResurrectionProvenance | null;
   deliveryBlockCode?: 'REMOTE_RESURRECTION_UNSUPPORTED' | null;
   generationBoundary?: RestoreOutboxGenerationBoundary | null;
+  remoteSequenceBoundary?: RemoteOutboxSequenceBoundary | null;
 }
 
 export interface SyncCheckpointRecord {

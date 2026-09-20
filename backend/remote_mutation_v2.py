@@ -1,10 +1,10 @@
-"""Dormant K-323 v2 authenticated multi-domain sync transport.
+"""K-323 v2 authenticated multi-domain sync transport.
 
 The service owns protocol validation, explicit domain dispatch, wire-level
-canonical hashing, and authenticated-owner binding.  PostgreSQL owns the
-atomic CAS/entity/change/receipt transaction.  Only bounded reference domains
-are registered here; production Notes and Health authority are deliberately
-not connected in REL-05E.
+canonical hashing, and authenticated-owner binding. PostgreSQL owns the
+atomic CAS/entity/change/receipt transaction. REL-05F activates only the
+explicit Health routine aggregate/profile handlers; reference handlers remain
+bounded transport sentinels rather than arbitrary JSON dispatch.
 """
 
 from __future__ import annotations
@@ -21,7 +21,12 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from remote_mutation import MAX_CANONICAL_PAYLOAD_BYTES, MAX_REQUEST_BYTES, MAX_SAFE_INTEGER
 
 V2_PROTOCOL_VERSION = 2
-V2_DOMAINS = ("reference_alpha", "reference_beta")
+V2_DOMAINS = (
+    "reference_alpha", "reference_beta", "health_routine_preset", "health_routine_profile",
+)
+HEALTH_ROUTINE_DOMAINS = ("health_routine_preset", "health_routine_profile")
+DEFAULT_HEALTH_ROUTINE_PRESET_ID = "00000000-0000-5000-8000-000000000001"
+HEALTH_ROUTINE_PROFILE_ID = "00000000-0000-5000-8000-000000000002"
 MAX_PULL_CHANGES = 500
 SAFE_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 UUID_PATTERN = re.compile(
@@ -113,6 +118,84 @@ class ReferenceBetaRecord(StrictModel):
         return _valid_timestamp(value)
 
 
+class HealthRoutineDay(StrictModel):
+    day_name: str = Field(alias="dayName", max_length=5)
+    blocks: list[str] = Field(max_length=100)
+    planned_sets: dict[str, int] = Field(alias="plannedSets")
+
+    @field_validator("blocks")
+    @classmethod
+    def validate_blocks(cls, value: list[str]) -> list[str]:
+        if len(set(value)) != len(value) or any(not UUID_PATTERN.fullmatch(item) for item in value):
+            raise ValueError("blocks")
+        return value
+
+    @field_validator("planned_sets")
+    @classmethod
+    def validate_planned_sets(cls, value: dict[str, int]) -> dict[str, int]:
+        for block_id, count in value.items():
+            if not UUID_PATTERN.fullmatch(block_id) or isinstance(count, bool) or not 1 <= count <= 12:
+                raise ValueError("planned_sets")
+        return value
+
+    @model_validator(mode="after")
+    def validate_relationships(self) -> "HealthRoutineDay":
+        if not set(self.planned_sets).issubset(set(self.blocks)):
+            raise ValueError("planned_sets_relationship")
+        return self
+
+
+class HealthRoutinePresetRecord(StrictModel):
+    id: str
+    name: str = Field(min_length=1, max_length=48)
+    split_count: int = Field(alias="splitCount", ge=1, le=7)
+    days: list[HealthRoutineDay] = Field(min_length=1, max_length=7)
+    is_default: bool = Field(alias="isDefault")
+
+    @field_validator("id")
+    @classmethod
+    def validate_id(cls, value: str) -> str:
+        if not UUID_PATTERN.fullmatch(value):
+            raise ValueError("id")
+        return value.lower()
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        if value.strip() != value:
+            raise ValueError("name")
+        return value
+
+    @model_validator(mode="after")
+    def validate_aggregate(self) -> "HealthRoutinePresetRecord":
+        if len(self.days) != self.split_count:
+            raise ValueError("days_length")
+        if [day.day_name for day in self.days] != [f"Day {index + 1}" for index in range(self.split_count)]:
+            raise ValueError("day_order")
+        if self.is_default != (self.id == DEFAULT_HEALTH_ROUTINE_PRESET_ID):
+            raise ValueError("default_identity")
+        return self
+
+
+class HealthRoutineProfileRecord(StrictModel):
+    id: str
+    active_preset_id: str | None = Field(alias="activePresetId")
+
+    @field_validator("id")
+    @classmethod
+    def validate_id(cls, value: str) -> str:
+        if value != HEALTH_ROUTINE_PROFILE_ID:
+            raise ValueError("profile_id")
+        return value
+
+    @field_validator("active_preset_id")
+    @classmethod
+    def validate_active_preset_id(cls, value: str | None) -> str | None:
+        if value is not None and not UUID_PATTERN.fullmatch(value):
+            raise ValueError("active_preset_id")
+        return value.lower() if value else value
+
+
 class DomainHandler(Protocol):
     domain: str
     supports_restore: bool
@@ -137,6 +220,12 @@ class ModelDomainHandler:
 V2_DOMAIN_HANDLERS: dict[str, DomainHandler] = {
     "reference_alpha": ModelDomainHandler("reference_alpha", ReferenceAlphaRecord, supports_restore=True),
     "reference_beta": ModelDomainHandler("reference_beta", ReferenceBetaRecord, supports_restore=True),
+    "health_routine_preset": ModelDomainHandler(
+        "health_routine_preset", HealthRoutinePresetRecord, supports_restore=True,
+    ),
+    "health_routine_profile": ModelDomainHandler(
+        "health_routine_profile", HealthRoutineProfileRecord, supports_restore=False,
+    ),
 }
 
 
@@ -365,6 +454,63 @@ class PullChangesV2Request(StrictModel):
         return value
 
 
+class EnsureGenerationV2Request(StrictModel):
+    protocol_version: Literal[2] = Field(alias="protocolVersion")
+    account_id: str = Field(alias="accountId")
+    namespace_key: str = Field(alias="namespaceKey", max_length=64)
+    generation_id: str = Field(alias="generationId", max_length=128)
+    device_id: str = Field(alias="deviceId", max_length=128)
+    domains: list[Literal["health_routine_preset", "health_routine_profile"]] = Field(
+        min_length=2, max_length=2,
+    )
+
+    @field_validator("account_id")
+    @classmethod
+    def validate_account_id(cls, value: str) -> str:
+        if not UUID_PATTERN.fullmatch(value):
+            raise ValueError("account_id")
+        return value
+
+    @field_validator("namespace_key")
+    @classmethod
+    def validate_namespace_key(cls, value: str) -> str:
+        if not DIGEST_PATTERN.fullmatch(value):
+            raise ValueError("namespace_key")
+        return value
+
+    @field_validator("generation_id", "device_id")
+    @classmethod
+    def validate_generation_identifier(cls, value: str) -> str:
+        if not SAFE_IDENTIFIER.fullmatch(value):
+            raise ValueError("identifier")
+        return value
+
+    @field_validator("domains")
+    @classmethod
+    def validate_domains(cls, value: list[str]) -> list[str]:
+        if value != ["health_routine_preset", "health_routine_profile"]:
+            raise ValueError("domains")
+        return value
+
+
+class EnsureGenerationV2Response(StrictModel):
+    protocol_version: Literal[2] = Field(alias="protocolVersion")
+    status: Literal["active"]
+    namespace_key: str = Field(alias="namespaceKey")
+    generation_id: str = Field(alias="generationId")
+    device_id: str = Field(alias="deviceId")
+    server_epoch: str = Field(alias="serverEpoch")
+
+    @model_validator(mode="after")
+    def validate_generation_response(self) -> "EnsureGenerationV2Response":
+        if (not DIGEST_PATTERN.fullmatch(self.namespace_key)
+                or not SAFE_IDENTIFIER.fullmatch(self.generation_id)
+                or not SAFE_IDENTIFIER.fullmatch(self.device_id)
+                or not UUID_PATTERN.fullmatch(self.server_epoch)):
+            raise ValueError("generation_response")
+        return self
+
+
 class RemoteChangeV2(StrictModel):
     sequence: int
     domain: str
@@ -459,6 +605,7 @@ def derive_v2_request_digest(request: ApplyRemoteMutationV2Request, owner_id: st
 
 
 class RemoteMutationV2Gateway(Protocol):
+    def ensure_generation(self, parameters: dict[str, Any]) -> dict[str, Any]: ...
     def apply(self, parameters: dict[str, Any]) -> dict[str, Any]: ...
     def pull(self, parameters: dict[str, Any]) -> dict[str, Any]: ...
 
@@ -467,14 +614,30 @@ class SupabaseV2RpcGateway:
     def __init__(self, client: Any) -> None:
         self._client = client
 
+    def ensure_generation(self, parameters: dict[str, Any]) -> dict[str, Any]:
+        result = self._client.rpc("ensure_remote_health_generation_v2", parameters).execute().data
+        if not isinstance(result, dict):
+            raise RuntimeError("invalid_rpc_response")
+        return result
+
     def apply(self, parameters: dict[str, Any]) -> dict[str, Any]:
-        result = self._client.rpc("apply_remote_reference_mutation_v2", parameters).execute().data
+        rpc = (
+            "apply_health_routine_mutation_v2"
+            if parameters.get("p_domain") in HEALTH_ROUTINE_DOMAINS
+            else "apply_remote_reference_mutation_v2"
+        )
+        result = self._client.rpc(rpc, parameters).execute().data
         if not isinstance(result, dict):
             raise RuntimeError("invalid_rpc_response")
         return result
 
     def pull(self, parameters: dict[str, Any]) -> dict[str, Any]:
-        result = self._client.rpc("pull_remote_reference_changes_v2", parameters).execute().data
+        rpc = (
+            "pull_health_routine_changes_v2"
+            if parameters.get("p_domain") in HEALTH_ROUTINE_DOMAINS
+            else "pull_remote_reference_changes_v2"
+        )
+        result = self._client.rpc(rpc, parameters).execute().data
         if not isinstance(result, dict):
             raise RuntimeError("invalid_rpc_response")
         return result
@@ -531,6 +694,30 @@ class RemoteMutationV2Service:
             return PullChangesV2Request.model_validate(raw)
         except (ValidationError, ValueError) as error:
             raise ValueError("INVALID_PULL_REQUEST") from error
+
+    def parse_generation(self, raw: Any) -> EnsureGenerationV2Request:
+        try:
+            return EnsureGenerationV2Request.model_validate(raw)
+        except (ValidationError, ValueError) as error:
+            raise ValueError("INVALID_GENERATION_REQUEST") from error
+
+    def ensure_generation(
+        self, request: EnsureGenerationV2Request, owner_id: str,
+    ) -> EnsureGenerationV2Response:
+        if owner_id != request.account_id or not UUID_PATTERN.fullmatch(owner_id):
+            raise ValueError("UNAUTHORIZED_SCOPE")
+        response = EnsureGenerationV2Response.model_validate(self._gateway.ensure_generation({
+            "p_authenticated_owner_id": owner_id,
+            "p_project_scope": self._project_scope,
+            "p_namespace_fingerprint": request.namespace_key,
+            "p_generation_id": request.generation_id,
+            "p_device_id": request.device_id,
+        }))
+        if (response.namespace_key != request.namespace_key
+                or response.generation_id != request.generation_id
+                or response.device_id != request.device_id):
+            raise ValueError("INVALID_SERVER_RESPONSE")
+        return response
 
     def apply(self, request: ApplyRemoteMutationV2Request, owner_id: str) -> ApplyRemoteMutationV2Response:
         if not UUID_PATTERN.fullmatch(owner_id):

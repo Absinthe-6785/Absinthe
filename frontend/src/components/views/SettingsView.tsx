@@ -51,6 +51,7 @@ import type { SettingsSectionId } from '../common/Sidebar';
 import { RECOVERY_MODE_MESSAGE, mayReset, recordRecoveryBlock } from '../../lib/recoverySafetyPolicy';
 import { revalidatePlannerAccountCache } from '../../lib/plannerCacheRevalidation';
 import { revalidateRecipeAccountCacheAfterRestore } from '../../lib/recipeCacheRevalidation';
+import { productionHealthRoutinePersistence } from '../../lib/healthRoutineSync';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
 const SETTINGS_SECTION_SCROLL_CLASS = 'scroll-mt-4';
@@ -202,16 +203,22 @@ export const SettingsView = ({
       return;
     }
     if (!shouldUseDomainRemotePersistence('account_reset')) {
-      resetAllNotes();
-      showToast(t('resetSuccess'));
-      mutateDaily();
-      mutateStatic();
+      try {
+        if (user?.id) await productionHealthRoutinePersistence.reset(user.id);
+        resetAllNotes();
+        showToast(t('resetSuccess'));
+        mutateDaily();
+        mutateStatic();
+      } catch {
+        showToast(t('resetFailed'), 'error');
+      }
       return;
     }
 
     try {
       const res = await authFetch(`${API_URL}/api/reset`, buildResetRequestInit());
       if (res.ok) {
+        if (user?.id) await productionHealthRoutinePersistence.reset(user.id);
         resetAllNotes();
         showToast(t('resetSuccess'));
         mutateDaily();

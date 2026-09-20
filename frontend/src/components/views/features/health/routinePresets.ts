@@ -1,7 +1,11 @@
 import type { HealthRoutine, WorkoutSet } from '@/types';
+import {
+  DEFAULT_HEALTH_ROUTINE_PRESET_ID,
+  stableHealthRoutinePresetId,
+} from '../../../../lib/healthRoutineIdentity';
 
 export const ROUTINE_PRESET_STATE_VERSION = 1 as const;
-export const DEFAULT_ROUTINE_PRESET_ID = 'health-default';
+export const DEFAULT_ROUTINE_PRESET_ID = DEFAULT_HEALTH_ROUTINE_PRESET_ID;
 export const ROUTINE_PRESET_MAX_NAME_LENGTH = 48;
 export const ROUTINE_PRESET_MIN_SPLIT = 1;
 export const ROUTINE_PRESET_MAX_SPLIT = 7;
@@ -116,7 +120,8 @@ export function observedRoutineSplitCount(routines: readonly HealthRoutine[]): n
 function normalizePreset(value: unknown, index: number): RoutinePreset | null {
   if (!value || typeof value !== 'object') return null;
   const raw = value as Record<string, unknown>;
-  const id = typeof raw.id === 'string' && raw.id.trim() ? raw.id.trim() : `preset-${index + 1}`;
+  const rawId = typeof raw.id === 'string' && raw.id.trim() ? raw.id.trim() : `preset-${index + 1}`;
+  const id = rawId === 'health-default' ? DEFAULT_ROUTINE_PRESET_ID : rawId;
   const splitCount = clampRoutineSplit(Number(raw.splitCount));
   const rawDays = Array.isArray(raw.days) ? raw.days : [];
   const dayCount = clampRoutineSplit(Math.max(splitCount, highestDayNumber(rawDays
@@ -174,7 +179,26 @@ export function routinePresetStorageKey(accountId: string): string {
 export function readRoutinePresetState(storage: Storage, accountId: string): RoutinePresetState | null {
   try {
     const raw = storage.getItem(routinePresetStorageKey(accountId));
-    return raw ? normalizeRoutinePresetState(JSON.parse(raw)) : null;
+    const normalized = raw ? normalizeRoutinePresetState(JSON.parse(raw)) : null;
+    if (!normalized) return null;
+    const seen = new Set<string>();
+    const idMap = new Map<string, string>();
+    const presets = normalized.presets.map((preset, index) => {
+      let id = stableHealthRoutinePresetId(accountId, preset.id, index);
+      let collision = 1;
+      while (seen.has(id)) {
+        id = stableHealthRoutinePresetId(accountId, `${preset.id}:${collision}`, index);
+        collision += 1;
+      }
+      seen.add(id);
+      idMap.set(preset.id, id);
+      return { ...preset, id };
+    });
+    return {
+      ...normalized,
+      presets,
+      activePresetId: idMap.get(normalized.activePresetId) ?? presets[0].id,
+    };
   } catch {
     return null;
   }
@@ -280,7 +304,13 @@ export function createEmptyRoutinePreset(id: string, name = 'New preset', splitC
 export function createRoutinePresetId(): string {
   const randomUuid = globalThis.crypto?.randomUUID;
   if (typeof randomUuid === 'function') return randomUuid.call(globalThis.crypto);
-  return `preset-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  const bytes = new Uint8Array(16);
+  if (typeof globalThis.crypto?.getRandomValues === 'function') globalThis.crypto.getRandomValues(bytes);
+  else for (let index = 0; index < bytes.length; index += 1) bytes[index] = Math.floor(Math.random() * 256);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 export function routinePresetById(state: RoutinePresetState, presetId = state.activePresetId): RoutinePreset {
@@ -344,8 +374,7 @@ export function updateRoutinePresetState(state: RoutinePresetState, action: Rout
   if (!target) return state;
   if (action.type === 'set-split') {
     const splitCount = clampRoutineSplit(action.splitCount);
-    const dayCount = Math.max(splitCount, highestDayNumber(target.days));
-    const days = Array.from({ length: dayCount }, (_, index) => (
+    const days = Array.from({ length: splitCount }, (_, index) => (
       target.days.find(day => day.dayName === dayNameFor(index)) ?? emptyDay(dayNameFor(index))
     ));
     return {

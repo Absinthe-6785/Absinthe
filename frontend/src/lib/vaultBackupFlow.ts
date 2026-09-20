@@ -4,6 +4,7 @@ import {
   buildVaultBackupManifestV3,
   type VaultBackupManifest,
 } from './exportVaultBackup';
+import { collectPortableVaultExtensions } from './vaultPortableExtensions';
 import { assertExportReady } from './vaultExportValidate';
 import type { VaultBackupCloudBlock } from './vaultCloudExport';
 import {
@@ -47,8 +48,14 @@ function buildValidatedManifest(
   notes: readonly NoteBase[],
   folders: readonly NoteFolder[],
   cloud: VaultBackupCloudBlock | null,
+  accountId: string | null,
 ): VaultBackupManifest {
-  const manifest = buildVaultBackupManifestV3(notes, folders, cloud);
+  const manifest = buildVaultBackupManifestV3(
+    notes,
+    folders,
+    cloud,
+    collectPortableVaultExtensions(accountId),
+  );
   const validation = assertExportReady(manifest);
   if (!validation.valid) {
     throw new Error(validation.errors[0] ?? 'export_validation_failed');
@@ -64,7 +71,7 @@ export async function runVaultBackupAttempt(
   if (input.cloudExpected && deps.isAccountCurrent && !deps.isAccountCurrent(input.accountId)) {
     throw new Error('backup_account_changed');
   }
-  const manifest = buildValidatedManifest(input.notes, input.folders, cloud);
+  const manifest = buildValidatedManifest(input.notes, input.folders, cloud, input.accountId);
   const impact = classifyVaultBackupCoverage(manifest);
 
   if (isReducedVaultBackupCoverage(impact.coverage)) {

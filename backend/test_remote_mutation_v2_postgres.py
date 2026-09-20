@@ -19,6 +19,7 @@ pytestmark = pytest.mark.skipif(
 ROOT = Path(__file__).parent
 V1_MIGRATION = ROOT / "migrations" / "202607120001_k323_idempotent_remote_mutation.sql"
 V2_MIGRATION = ROOT / "migrations" / "202609180001_k323_v2_multi_domain_transport.sql"
+HEALTH_MIGRATION = ROOT / "migrations" / "202609190001_rel05f_health_routine_aggregate.sql"
 
 
 SETUP_SQL = r"""
@@ -27,6 +28,10 @@ set client_min_messages = warning;
 create role anon nologin;
 create role authenticated nologin;
 create role service_role nologin bypassrls;
+
+create schema auth;
+create function auth.uid() returns uuid language sql stable
+as $$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
 
 create table public.notes (
   id uuid primary key,
@@ -37,6 +42,15 @@ create table public.notes (
   folder_id uuid,
   deleted_at bigint
 );
+
+create table public.health_routines (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null,
+  day_name text not null,
+  blocks uuid[] not null default '{}'
+);
+insert into public.health_routines (user_id, day_name, blocks) values
+  ('11111111-1111-4111-8111-111111111111', 'Day 4', array['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'::uuid]);
 """
 
 
@@ -261,11 +275,181 @@ select 'REL05E_POSTGRES_INTEGRATION_PASS' as result;
 """
 
 
+HEALTH_ASSERTIONS_SQL = r"""
+reset absinthe.rel05e_fail_receipt;
+
+do $$
+begin
+  if not exists (
+    select 1 from public.health_routines
+    where user_id = '11111111-1111-4111-8111-111111111111' and day_name = 'Day 4'
+  ) then raise exception 'REL05F_ADDITIVE_MIGRATION_LOST_LEGACY_ROW'; end if;
+end
+$$;
+
+set role service_role;
+
+do $$
+declare
+  v_generation jsonb;
+  v_first jsonb;
+  v_replay jsonb;
+  v_three_day jsonb;
+  v_profile jsonb;
+  v_named jsonb;
+  v_tombstone jsonb;
+  v_restore jsonb;
+  v_stale jsonb;
+  v_pull jsonb;
+  v_count bigint;
+begin
+  v_generation := public.ensure_remote_health_generation_v2(
+    '11111111-1111-4111-8111-111111111111', 'project-test', repeat('1', 64),
+    'generation-1', 'device-a'
+  );
+  if v_generation #>> '{status}' <> 'active' then
+    raise exception 'REL05F_GENERATION_FAILED: %', v_generation;
+  end if;
+
+  v_first := public.apply_health_routine_mutation_v2(
+    '11111111-1111-4111-8111-111111111111', 'project-test', repeat('1', 64),
+    'generation-1', 'device-a', 'health_routine_preset',
+    '00000000-0000-5000-8000-000000000001',
+    'mut.10000000-0000-4000-8000-000000000001', 'k322.' || repeat('1', 64),
+    'upsert', null, 1,
+    '{"kind":"entity_snapshot","record":{"id":"00000000-0000-5000-8000-000000000001","name":"Default","splitCount":4,"days":[{"dayName":"Day 1","blocks":["aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"],"plannedSets":{"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa":4}},{"dayName":"Day 2","blocks":[],"plannedSets":{}},{"dayName":"Day 3","blocks":[],"plannedSets":{}},{"dayName":"Day 4","blocks":["bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"],"plannedSets":{}}],"isDefault":true}}'::jsonb,
+    repeat('2', 64), repeat('3', 64), '2026-09-19T00:00:00Z'
+  );
+  if v_first #>> '{outcome}' <> 'applied' or (v_first #>> '{serverRevision}')::bigint <> 1 then
+    raise exception 'REL05F_FIRST_PRESET_FAILED: %', v_first;
+  end if;
+
+  v_replay := public.apply_health_routine_mutation_v2(
+    '11111111-1111-4111-8111-111111111111', 'project-test', repeat('1', 64),
+    'generation-1', 'device-a', 'health_routine_preset',
+    '00000000-0000-5000-8000-000000000001',
+    'mut.10000000-0000-4000-8000-000000000001', 'k322.' || repeat('1', 64),
+    'upsert', null, 1,
+    '{"kind":"entity_snapshot","record":{"id":"00000000-0000-5000-8000-000000000001","name":"Default","splitCount":4,"days":[{"dayName":"Day 1","blocks":["aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"],"plannedSets":{"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa":4}},{"dayName":"Day 2","blocks":[],"plannedSets":{}},{"dayName":"Day 3","blocks":[],"plannedSets":{}},{"dayName":"Day 4","blocks":["bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"],"plannedSets":{}}],"isDefault":true}}'::jsonb,
+    repeat('2', 64), repeat('3', 64), '2026-09-19T00:00:00Z'
+  );
+  if v_replay is distinct from v_first then raise exception 'REL05F_REPLAY_CHANGED'; end if;
+
+  v_three_day := public.apply_health_routine_mutation_v2(
+    '11111111-1111-4111-8111-111111111111', 'project-test', repeat('1', 64),
+    'generation-1', 'device-a', 'health_routine_preset',
+    '00000000-0000-5000-8000-000000000001',
+    'mut.10000000-0000-4000-8000-000000000002', 'k322.' || repeat('4', 64),
+    'upsert', 1, 2,
+    '{"kind":"entity_snapshot","record":{"id":"00000000-0000-5000-8000-000000000001","name":"Default","splitCount":3,"days":[{"dayName":"Day 1","blocks":["aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"],"plannedSets":{"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa":4}},{"dayName":"Day 2","blocks":[],"plannedSets":{}},{"dayName":"Day 3","blocks":[],"plannedSets":{}}],"isDefault":true}}'::jsonb,
+    repeat('5', 64), repeat('6', 64), '2026-09-19T00:00:01Z'
+  );
+  if (v_three_day #>> '{serverRevision}')::bigint <> 2 then
+    raise exception 'REL05F_THREE_DAY_REVISION_FAILED: %', v_three_day;
+  end if;
+  select count(*) into v_count from public.health_routines
+  where user_id = '11111111-1111-4111-8111-111111111111';
+  if v_count <> 3 then raise exception 'REL05F_LEGACY_PROJECTION_COUNT: %', v_count; end if;
+  if exists (select 1 from public.health_routines where user_id = '11111111-1111-4111-8111-111111111111' and day_name = 'Day 4') then
+    raise exception 'REL05F_STALE_DAY4_SURVIVED';
+  end if;
+
+  v_profile := public.apply_health_routine_mutation_v2(
+    '11111111-1111-4111-8111-111111111111', 'project-test', repeat('1', 64),
+    'generation-1', 'device-a', 'health_routine_profile',
+    '00000000-0000-5000-8000-000000000002',
+    'mut.10000000-0000-4000-8000-000000000003', 'k322.' || repeat('7', 64),
+    'upsert', null, 1,
+    '{"kind":"entity_snapshot","record":{"id":"00000000-0000-5000-8000-000000000002","activePresetId":"00000000-0000-5000-8000-000000000001"}}'::jsonb,
+    repeat('8', 64), repeat('9', 64), '2026-09-19T00:00:02Z'
+  );
+  if v_profile #>> '{outcome}' <> 'applied' then raise exception 'REL05F_PROFILE_FAILED: %', v_profile; end if;
+
+  v_named := public.apply_health_routine_mutation_v2(
+    '11111111-1111-4111-8111-111111111111', 'project-test', repeat('1', 64),
+    'generation-1', 'device-a', 'health_routine_preset',
+    '00000000-0000-5000-8000-000000000003',
+    'mut.10000000-0000-4000-8000-000000000004', 'k322.' || repeat('a', 64),
+    'upsert', null, 1,
+    '{"kind":"entity_snapshot","record":{"id":"00000000-0000-5000-8000-000000000003","name":"Named","splitCount":1,"days":[{"dayName":"Day 1","blocks":[],"plannedSets":{}}],"isDefault":false}}'::jsonb,
+    repeat('b', 64), repeat('c', 64), '2026-09-19T00:00:03Z'
+  );
+  if v_named #>> '{outcome}' <> 'applied' then raise exception 'REL05F_NAMED_FAILED: %', v_named; end if;
+
+  v_tombstone := public.apply_health_routine_mutation_v2(
+    '11111111-1111-4111-8111-111111111111', 'project-test', repeat('1', 64),
+    'generation-1', 'device-a', 'health_routine_preset',
+    '00000000-0000-5000-8000-000000000003',
+    'mut.10000000-0000-4000-8000-000000000005', 'k322.' || repeat('d', 64),
+    'tombstone', 1, 2,
+    '{"kind":"tombstone","entityId":"00000000-0000-5000-8000-000000000003","deletedAt":"2026-09-19T00:00:04Z","revision":2}'::jsonb,
+    repeat('e', 64), repeat('f', 64), '2026-09-19T00:00:04Z'
+  );
+  if v_tombstone #>> '{outcome}' <> 'applied' then raise exception 'REL05F_TOMBSTONE_FAILED: %', v_tombstone; end if;
+
+  v_restore := public.apply_health_routine_mutation_v2(
+    '11111111-1111-4111-8111-111111111111', 'project-test', repeat('1', 64),
+    'generation-1', 'device-a', 'health_routine_preset',
+    '00000000-0000-5000-8000-000000000003',
+    'mut.10000000-0000-4000-8000-000000000006', 'k322.' || repeat('0', 64),
+    'restore', 2, 3,
+    '{"kind":"entity_snapshot","record":{"id":"00000000-0000-5000-8000-000000000003","name":"Named restored","splitCount":1,"days":[{"dayName":"Day 1","blocks":[],"plannedSets":{}}],"isDefault":false}}'::jsonb,
+    repeat('0', 64), repeat('1', 64), '2026-09-19T00:00:05Z'
+  );
+  if v_restore #>> '{outcome}' <> 'applied' or (v_restore #>> '{serverRevision}')::bigint <> 3 then
+    raise exception 'REL05F_RESTORE_FAILED: %', v_restore;
+  end if;
+
+  v_stale := public.apply_health_routine_mutation_v2(
+    '11111111-1111-4111-8111-111111111111', 'project-test', repeat('1', 64),
+    'generation-1', 'device-a', 'health_routine_preset',
+    '00000000-0000-5000-8000-000000000001',
+    'mut.10000000-0000-4000-8000-000000000007', 'k322.' || repeat('2', 64),
+    'upsert', 99, 3,
+    '{"kind":"entity_snapshot","record":{"id":"00000000-0000-5000-8000-000000000001","name":"Stale","splitCount":1,"days":[{"dayName":"Day 1","blocks":[],"plannedSets":{}}],"isDefault":true}}'::jsonb,
+    repeat('3', 64), repeat('4', 64), '2026-09-19T00:00:06Z'
+  );
+  if v_stale #>> '{errorCode}' <> 'REMOTE_REVISION_CONFLICT' then
+    raise exception 'REL05F_STALE_REVISION_ACCEPTED: %', v_stale;
+  end if;
+
+  v_pull := public.pull_health_routine_changes_v2(
+    '11111111-1111-4111-8111-111111111111', 'project-test', repeat('1', 64),
+    'generation-1', 'health_routine_preset', 0, null, 100
+  );
+  if v_pull #>> '{status}' <> 'changes' or jsonb_array_length(v_pull #> '{changes}') <> 5 then
+    raise exception 'REL05F_PULL_FAILED: %', v_pull;
+  end if;
+end
+$$;
+
+reset role;
+
+do $$
+begin
+  if has_table_privilege('authenticated', 'public.health_routine_presets', 'SELECT')
+    or has_table_privilege('authenticated', 'public.health_routine_presets', 'INSERT')
+    or has_table_privilege('authenticated', 'public.health_routine_profile', 'SELECT')
+    or has_table_privilege('authenticated', 'public.health_routine_profile', 'UPDATE') then
+    raise exception 'REL05F_AUTHENTICATED_DIRECT_ACCESS';
+  end if;
+  if has_function_privilege(
+    'authenticated',
+    'public.apply_health_routine_mutation_v2(uuid,text,text,text,text,text,text,text,text,text,bigint,bigint,jsonb,text,text,timestamptz)',
+    'EXECUTE'
+  ) then raise exception 'REL05F_AUTHENTICATED_RPC_EXECUTE'; end if;
+end
+$$;
+
+select 'REL05F_POSTGRES_INTEGRATION_PASS' as result;
+"""
+
+
 def _run(command: list[str], **kwargs) -> subprocess.CompletedProcess[str]:
     return subprocess.run(command, text=True, capture_output=True, check=False, **kwargs)
 
 
-def test_v2_migration_service_role_rpc_replay_rollback_and_privileges() -> None:
+def test_v2_and_health_migrations_service_role_rpc_replay_rollback_and_privileges() -> None:
     docker = shutil.which("docker")
     if docker is None:
         pytest.fail("K323_POSTGRES_INTEGRATION=1 but docker is unavailable")
@@ -292,6 +476,8 @@ def test_v2_migration_service_role_rpc_replay_rollback_and_privileges() -> None:
             PRE_V2_SENTINEL_SQL,
             V2_MIGRATION.read_text(encoding="utf-8"),
             ASSERTIONS_SQL,
+            HEALTH_MIGRATION.read_text(encoding="utf-8"),
+            HEALTH_ASSERTIONS_SQL,
         ])
         result = _run(
             [docker, "exec", "-i", name, "psql", "-U", "postgres", "-d", "postgres", "-v", "ON_ERROR_STOP=1"],
@@ -299,6 +485,7 @@ def test_v2_migration_service_role_rpc_replay_rollback_and_privileges() -> None:
         )
         assert result.returncode == 0, f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
         assert "REL05E_POSTGRES_INTEGRATION_PASS" in result.stdout
+        assert "REL05F_POSTGRES_INTEGRATION_PASS" in result.stdout
 
         # A pull holds the shared generation fence until its transaction ends.
         # A direct status transition must wait in the trigger for the matching

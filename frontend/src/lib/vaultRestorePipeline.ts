@@ -12,6 +12,7 @@ import {
 } from './importVaultBackup';
 import { validateVaultExportManifest } from './vaultExportValidate';
 import { applyVaultExtensionsRestore } from './vaultExtensionApply';
+import { productionHealthRoutinePersistence } from './healthRoutineSync';
 import { applyCloudRestore } from './vaultCloudRestore';
 import { createLastSnapshot } from './vaultSnapshotAuto';
 import type { VaultSnapshot } from './vaultSnapshotBuild';
@@ -265,6 +266,14 @@ export async function executeVaultRestorePipeline(
   if (options.restoreExtensions && manifest.extensions) {
     assertCurrentOperationEpoch(operationEpoch, 'restore');
     extensions = applyVaultExtensionsRestore(manifest.extensions, options.healthAuthority);
+    if (extensions.routinePresetState && options.healthAuthority) {
+      if (!options.healthAuthority.isCurrentAccount()) throw new Error('health_routine_restore_stale_account');
+      await productionHealthRoutinePersistence.recover(
+        options.healthAuthority.accountId,
+        extensions.routinePresetState,
+      );
+      if (!options.healthAuthority.isCurrentAccount()) throw new Error('health_routine_restore_stale_account');
+    }
   }
 
   if (options.restoreCloud && manifest.cloud) {

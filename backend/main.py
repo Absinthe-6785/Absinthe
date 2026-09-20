@@ -68,7 +68,8 @@ _recovery_mode_raw = os.getenv("ABSINTHE_RECOVERY_MODE", "active").strip().lower
 RECOVERY_MODE_ACTIVE = _recovery_mode_raw not in {"disabled"}
 K323_REMOTE_MUTATION_ENABLED = os.getenv("K323_REMOTE_MUTATION_ENABLED", "disabled").strip().lower() == "enabled"
 K323_V2_TRANSPORT_ENABLED = os.getenv("K323_V2_TRANSPORT_ENABLED", "disabled").strip().lower() == "enabled"
-K323_PROJECT_SCOPE = os.getenv("K323_PROJECT_SCOPE", "").strip()
+HEALTH_ROUTINE_SYNC_ENABLED = os.getenv("HEALTH_ROUTINE_SYNC_ENABLED", "enabled").strip().lower() == "enabled"
+K323_PROJECT_SCOPE = os.getenv("K323_PROJECT_SCOPE", "").strip() or "absinthe-health-routines"
 
 DESTRUCTIVE_RECOVERY_INTENT_HEADER = "x-absinthe-recovery-intent"
 RESET_RECOVERY_INTENT = "reset-confirmed"
@@ -168,7 +169,9 @@ def _remote_mutation_v2_validation_code(payload: object) -> str:
         return "INVALID_MUTATION"
     if payload.get("protocolVersion") != 2:
         return "INVALID_PROTOCOL_VERSION"
-    if payload.get("domain") not in {"reference_alpha", "reference_beta"}:
+    if payload.get("domain") not in {
+        "reference_alpha", "reference_beta", "health_routine_preset", "health_routine_profile",
+    }:
         return "UNKNOWN_DOMAIN"
     if payload.get("operation") not in {"upsert", "tombstone", "restore"}:
         return "INVALID_OPERATION"
@@ -241,8 +244,10 @@ async def apply_remote_mutation_v2(
     payload: dict,
     user_id: str = Depends(get_remote_mutation_user),
 ):
-    """Apply one dormant K-323 v2 reference-domain mutation."""
-    if not K323_V2_TRANSPORT_ENABLED:
+    """Apply one authenticated K-323 v2 mutation for an explicitly enabled domain."""
+    domain = payload.get("domain") if isinstance(payload, dict) else None
+    health_domain = domain in {"health_routine_preset", "health_routine_profile"}
+    if not K323_V2_TRANSPORT_ENABLED and not (HEALTH_ROUTINE_SYNC_ENABLED and health_domain):
         raise HTTPException(status_code=423, detail="K323_V2_TRANSPORT_DISABLED")
     content_length = request.headers.get("content-length")
     if content_length is None or not content_length.isdigit() or int(content_length) > MAX_REQUEST_BYTES:
@@ -269,7 +274,7 @@ async def apply_remote_mutation_v2(
     if response.outcome == "revision_conflict" or response.error_code in {
         "IDEMPOTENCY_CONFLICT", "MUTATION_ID_CONFLICT", "REMOTE_ENTITY_ALREADY_EXISTS",
         "REMOTE_ENTITY_NOT_FOUND", "REMOTE_ENTITY_TOMBSTONED", "REMOTE_ENTITY_NOT_TOMBSTONED",
-        "STALE_GENERATION",
+        "STALE_GENERATION", "ACTIVE_PRESET_NOT_FOUND", "ACTIVE_PRESET_DELETE_REQUIRES_PROFILE_UPDATE",
     }:
         return JSONResponse(status_code=409, content=response.model_dump(by_alias=True))
     if response.outcome == "rejected":
@@ -287,8 +292,9 @@ async def pull_remote_changes_v2(
     limit: int = 100,
     user_id: str = Depends(get_remote_mutation_user),
 ):
-    """Read a bounded, account-scoped reference-domain change page."""
-    if not K323_V2_TRANSPORT_ENABLED:
+    """Read a bounded, account-scoped v2 change page."""
+    health_domain = domain in {"health_routine_preset", "health_routine_profile"}
+    if not K323_V2_TRANSPORT_ENABLED and not (HEALTH_ROUTINE_SYNC_ENABLED and health_domain):
         raise HTTPException(status_code=423, detail="K323_V2_TRANSPORT_DISABLED")
     try:
         service = RemoteMutationV2Service(SupabaseV2RpcGateway(get_k323_supabase_client()), K323_PROJECT_SCOPE)
@@ -309,6 +315,26 @@ async def pull_remote_changes_v2(
         raise HTTPException(status_code=503, detail="TRANSIENT_SERVER_FAILURE") from error
     status = 409 if response.status == "rejected" else 200
     return JSONResponse(status_code=status, content=response.model_dump(by_alias=True))
+
+
+@app.post("/api/sync/v2/generations")
+async def ensure_health_routine_generation_v2(
+    payload: dict,
+    user_id: str = Depends(get_remote_mutation_user),
+):
+    """Register/refresh only the bounded Health routine generation fence."""
+    if not HEALTH_ROUTINE_SYNC_ENABLED:
+        raise HTTPException(status_code=423, detail="HEALTH_ROUTINE_SYNC_DISABLED")
+    try:
+        service = RemoteMutationV2Service(SupabaseV2RpcGateway(get_k323_supabase_client()), K323_PROJECT_SCOPE)
+        request_value = service.parse_generation(payload)
+        response = service.ensure_generation(request_value, user_id)
+    except ValueError as error:
+        detail = str(error)
+        raise HTTPException(status_code=403 if detail == "UNAUTHORIZED_SCOPE" else 400, detail=detail) from error
+    except Exception as error:
+        raise HTTPException(status_code=503, detail="TRANSIENT_SERVER_FAILURE") from error
+    return response.model_dump(by_alias=True)
 
 # ==========================================
 # Pydantic Models (user_id 제거 — 토큰에서 추출)

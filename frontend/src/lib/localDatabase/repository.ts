@@ -67,10 +67,15 @@ import {
 } from './validation';
 
 const capabilityMarker = Symbol('absinthe-local-v2-capability');
-export interface LocalDatabaseCapability { readonly marker: symbol; readonly purpose: 'test' | 'developer' }
+export interface LocalDatabaseCapability { readonly marker: symbol; readonly purpose: 'test' | 'developer' | 'health_routine' }
 
 export function createDormantLocalDatabaseCapability(purpose: 'test' | 'developer'): LocalDatabaseCapability {
   return Object.freeze({ marker: capabilityMarker, purpose });
+}
+
+/** The only production activation capability introduced by REL-05F. */
+export function createHealthRoutineLocalDatabaseCapability(): LocalDatabaseCapability {
+  return Object.freeze({ marker: capabilityMarker, purpose: 'health_routine' });
 }
 
 function requestResult<T>(request: IDBRequest<T>): Promise<T> {
@@ -410,6 +415,13 @@ export class LocalDatabaseRepository {
       const current = await requestResult(entityStore.get(key)) as LocalEntityEnvelope<T> | undefined;
       if (current) this.validatePersistedEntity(current, 'commit_local_mutation');
       const actualRevision = current?.revision ?? 0;
+      const priorOutbox = current ? await requestResult(
+        transaction.objectStore(LOCAL_DATABASE_STORES.outbox)
+          .index('by_namespace_generation_entity')
+          .getAll(IDBKeyRange.only([
+            this.namespaceKey, this.namespace.generationId, mutation.domain, mutation.entityId,
+          ]), 1),
+      ) as OutboxRecord[] : [];
       if (mutation.mode === 'create') {
         if (current?.deletedAt) throw new LocalDatabaseError('TOMBSTONE_REACTIVATION_BLOCKED', 'commit_local_mutation');
         if (current) throw new LocalDatabaseError('ENTITY_ALREADY_EXISTS', 'commit_local_mutation');
@@ -469,6 +481,21 @@ export class LocalDatabaseRepository {
         leaseOwner: null, leaseExpiresAt: null, acknowledgedAt: null, acknowledgedBy: null, remoteMutationRef: null,
         acknowledgedRevision: null, serverCommittedAt: null,
         supersededByMutationId: null,
+        ...(priorOutbox.length === 0 && current?.serverRevision != null && current.lastRemoteMutationRef
+          && current.pendingMutationId == null && current.contentHash
+          ? { remoteSequenceBoundary: {
+            kind: 'remote_entity_sequence_boundary' as const,
+            namespaceKey: this.namespaceKey,
+            generationId: this.namespace.generationId,
+            domain: mutation.domain,
+            entityId: mutation.entityId,
+            baselineLocalRevision: actualRevision,
+            baselineServerRevision: current.serverRevision,
+            remoteMutationRef: current.lastRemoteMutationRef,
+            baselineContentHash: current.contentHash,
+            createdAt: timestamp,
+          } }
+          : {}),
       };
       validateOutboxRecord(outbox);
       transaction.objectStore(LOCAL_DATABASE_STORES.outbox).add(outbox);
@@ -634,13 +661,18 @@ export class LocalDatabaseRepository {
         && first?.generationBoundary?.kind === 'restore_generation_sequence_boundary'
         && first.generationBoundary.sourceRevision === first.baseRevision
         && first.localRevision === first.baseRevision + 1;
+      const validRemoteBoundary = first?.baseRevision !== null
+        && first?.remoteSequenceBoundary?.kind === 'remote_entity_sequence_boundary'
+        && first.remoteSequenceBoundary.baselineLocalRevision === first.baseRevision
+        && first.localRevision === first.baseRevision + 1;
       const validSequenceStart = first !== undefined
-        && (first.baseRevision === null ? first.localRevision === 1 : validRestoreBoundary);
+        && (first.baseRevision === null ? first.localRevision === 1 : validRestoreBoundary || validRemoteBoundary);
       if (!validSequenceStart) {
         throw new LocalDatabaseError('OUTBOX_SEQUENCE_GAP', operation);
       }
       for (let index = 1; index < group.length; index += 1) {
-        if (group[index].generationBoundary != null || group[index].baseRevision !== group[index - 1].localRevision) {
+        if (group[index].generationBoundary != null || group[index].remoteSequenceBoundary != null
+          || group[index].baseRevision !== group[index - 1].localRevision) {
           throw new LocalDatabaseError('OUTBOX_SEQUENCE_GAP', operation);
         }
       }
@@ -828,6 +860,149 @@ export class LocalDatabaseRepository {
         ownerId: input.workerId, now: timestamp, remoteMutationRef, acknowledgedRevision, serverCommittedAt,
       });
     });
+  }
+
+  /**
+   * Acknowledge a pushed mutation and advance the entity's server revision in
+   * the same transaction. Older queued local revisions may be acknowledged
+   * while a newer mutation remains the entity's pending authority.
+   */
+  async acknowledgeMutationAndEntity(input: AcknowledgeOutboxInput): Promise<{
+    outbox: OutboxRecord;
+    entity: LocalEntityEnvelope;
+  }> {
+    validateSafeIdentifier(input.workerId, 'acknowledge_outbox_entity');
+    const timestamp = now(input.now);
+    if (!input.remoteMutationRef || input.acknowledgedRevision === undefined
+      || input.acknowledgedRevision === null || !input.serverCommittedAt) {
+      throw new LocalDatabaseError('INVALID_OUTBOX_TRANSITION', 'acknowledge_outbox_entity');
+    }
+    validateSafeIdentifier(input.remoteMutationRef, 'acknowledge_outbox_entity');
+    if (!Number.isSafeInteger(input.acknowledgedRevision) || input.acknowledgedRevision < 1) {
+      throw new LocalDatabaseError('INVALID_OUTBOX_TRANSITION', 'acknowledge_outbox_entity');
+    }
+    now(input.serverCommittedAt);
+    const transaction = this.db.transaction([
+      LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations,
+      LOCAL_DATABASE_STORES.entities, LOCAL_DATABASE_STORES.outbox, LOCAL_DATABASE_STORES.restoreSessions,
+    ], 'readwrite');
+    const done = transactionCompletion(transaction, 'acknowledge_outbox_entity');
+    try {
+      await this.ensureActive(transaction);
+      const outboxStore = transaction.objectStore(LOCAL_DATABASE_STORES.outbox);
+      const outbox = await requestResult(outboxStore.get([
+        this.namespaceKey, this.namespace.generationId, input.mutationId,
+      ])) as OutboxRecord | undefined;
+      if (!outbox) throw new LocalDatabaseError('OUTBOX_NOT_FOUND', 'acknowledge_outbox_entity');
+      this.validatePersistedOutbox(outbox, 'acknowledge_outbox_entity');
+      await this.validateRestoreBoundaryGraphs(transaction, [outbox]);
+      if (outbox.status !== 'claimed' || outbox.leaseOwner !== input.workerId) {
+        throw new LocalDatabaseError('LEASE_OWNER_MISMATCH', 'acknowledge_outbox_entity');
+      }
+      const entityStore = transaction.objectStore(LOCAL_DATABASE_STORES.entities);
+      const entity = await requestResult(entityStore.get(entityKey(
+        this.namespaceKey, this.namespace.generationId, outbox.domain, outbox.entityId,
+      ))) as LocalEntityEnvelope | undefined;
+      if (!entity) throw new LocalDatabaseError('ENTITY_NOT_FOUND', 'acknowledge_outbox_entity');
+      this.validatePersistedEntity(entity, 'acknowledge_outbox_entity');
+      if (entity.serverRevision !== null && entity.serverRevision !== undefined
+        && input.acknowledgedRevision <= entity.serverRevision) {
+        throw new LocalDatabaseError('STALE_REVISION', 'acknowledge_outbox_entity');
+      }
+      const acknowledged = acknowledgeOutboxRecord(outbox, {
+        ownerId: input.workerId,
+        now: timestamp,
+        remoteMutationRef: input.remoteMutationRef,
+        acknowledgedRevision: input.acknowledgedRevision,
+        serverCommittedAt: input.serverCommittedAt,
+      });
+      const nextEntity: LocalEntityEnvelope = {
+        ...entity,
+        serverRevision: input.acknowledgedRevision,
+        lastRemoteMutationRef: input.remoteMutationRef,
+        pendingMutationId: entity.pendingMutationId === outbox.mutationId ? null : entity.pendingMutationId ?? null,
+      };
+      validateOutboxRecord(acknowledged);
+      validateEntityEnvelope(nextEntity);
+      outboxStore.put(acknowledged);
+      entityStore.put(nextEntity);
+      await done;
+      return { outbox: acknowledged, entity: nextEntity };
+    } catch (error) {
+      abortQuietly(transaction); await done.catch(() => undefined);
+      throw localDatabaseError(error, 'acknowledge_outbox_entity');
+    }
+  }
+
+  /** Persist transport conflict evidence and block the claimed mutation atomically. */
+  async preserveMutationConflict(input: {
+    mutationId: string;
+    workerId: string;
+    now: string;
+    errorCode: string;
+    conflictId: string;
+    remoteCandidate: unknown;
+    remoteMetadata?: Readonly<Record<string, unknown>>;
+    serverRevision?: number | null;
+  }): Promise<{ outbox: OutboxRecord; conflict: SyncConflictRecord }> {
+    for (const value of [input.mutationId, input.workerId, input.errorCode, input.conflictId]) {
+      validateSafeIdentifier(value, 'preserve_mutation_conflict');
+    }
+    const timestamp = now(input.now);
+    const transaction = this.db.transaction([
+      LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations,
+      LOCAL_DATABASE_STORES.entities, LOCAL_DATABASE_STORES.outbox,
+      LOCAL_DATABASE_STORES.restoreSessions, LOCAL_DATABASE_STORES.conflicts,
+    ], 'readwrite');
+    const done = transactionCompletion(transaction, 'preserve_mutation_conflict');
+    try {
+      await this.ensureActive(transaction);
+      const outboxStore = transaction.objectStore(LOCAL_DATABASE_STORES.outbox);
+      const outbox = await requestResult(outboxStore.get([
+        this.namespaceKey, this.namespace.generationId, input.mutationId,
+      ])) as OutboxRecord | undefined;
+      if (!outbox) throw new LocalDatabaseError('OUTBOX_NOT_FOUND', 'preserve_mutation_conflict');
+      this.validatePersistedOutbox(outbox, 'preserve_mutation_conflict');
+      await this.validateRestoreBoundaryGraphs(transaction, [outbox]);
+      if (outbox.status !== 'claimed' || outbox.leaseOwner !== input.workerId) {
+        throw new LocalDatabaseError('LEASE_OWNER_MISMATCH', 'preserve_mutation_conflict');
+      }
+      const localCandidate = canonicalPayloadSnapshot(outbox.payload);
+      const remoteCandidate = canonicalPayloadSnapshot(input.remoteCandidate);
+      const remoteMetadata = input.remoteMetadata == null ? null : canonicalPayloadSnapshot(input.remoteMetadata);
+      const conflict: SyncConflictRecord = {
+        namespaceKey: this.namespaceKey,
+        generationId: this.namespace.generationId,
+        accountId: this.namespace.userId,
+        conflictId: input.conflictId,
+        domain: outbox.domain,
+        entityId: outbox.entityId,
+        mutationId: outbox.mutationId,
+        localCandidate,
+        remoteCandidate,
+        remoteMetadata,
+        localRevision: outbox.localRevision,
+        serverRevision: input.serverRevision ?? null,
+        localContentHash: hashCanonicalPayload(localCandidate),
+        remoteContentHash: hashCanonicalPayload(remoteCandidate),
+        conflictType: input.errorCode,
+        createdAt: timestamp,
+        resolutionState: 'unresolved',
+        resolvedAt: null,
+      };
+      validateConflictRecord(conflict);
+      const blocked = conflictOutboxRecord(outbox, {
+        ownerId: input.workerId, now: timestamp, errorCode: input.errorCode,
+      });
+      validateOutboxRecord(blocked);
+      outboxStore.put(blocked);
+      transaction.objectStore(LOCAL_DATABASE_STORES.conflicts).add(conflict);
+      await done;
+      return { outbox: blocked, conflict };
+    } catch (error) {
+      abortQuietly(transaction); await done.catch(() => undefined);
+      throw localDatabaseError(error, 'preserve_mutation_conflict');
+    }
   }
 
   markPermanentFailure(input: FailOutboxInput): Promise<OutboxRecord> {

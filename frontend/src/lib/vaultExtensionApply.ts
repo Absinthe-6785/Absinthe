@@ -13,12 +13,19 @@ import { useAppStore } from '@/store/useAppStore';
 import type { AppSettings } from '@/types';
 import { mayRestore, recordRecoveryBlock } from './recoverySafetyPolicy';
 import { adoptLegacyRoutinePresetExtension } from '@/components/views/features/health/routinePresetAuthority';
+import {
+  normalizeRoutinePresetState,
+  writeRoutinePresetState,
+  type RoutinePresetState,
+} from '@/components/views/features/health/routinePresets';
+import { migrateRoutinePresetStateIdentity } from './healthRoutineAggregate';
 
 export interface VaultExtensionApplyResult {
   applied: boolean;
   sections: string[];
   errors: string[];
   blocked?: true;
+  routinePresetState?: RoutinePresetState;
 }
 
 export interface VaultHealthRestoreAuthority {
@@ -67,6 +74,7 @@ export function applyVaultExtensionsRestore(
 ): VaultExtensionApplyResult {
   const sections: string[] = [];
   const errors: string[] = [];
+  let routinePresetState: RoutinePresetState | undefined;
 
   if (!mayRestore()) {
     recordRecoveryBlock('restore');
@@ -114,7 +122,22 @@ export function applyVaultExtensionsRestore(
     if (extensions.health) {
       const h = extensions.health;
       const hasLegacyHealthMetadata = h.splitCount != null || h.routinePlannedSets != null;
-      if (hasLegacyHealthMetadata && healthAuthority) {
+      if (h.routinePresetState != null && healthAuthority) {
+        const normalized = normalizeRoutinePresetState(h.routinePresetState);
+        if (!normalized) {
+          errors.push('routine_preset_state_invalid');
+        } else if (!healthAuthority.isCurrentAccount()) {
+          errors.push('routine_preset_adoption_aborted');
+        } else {
+          const migrated = migrateRoutinePresetStateIdentity(healthAuthority.accountId, normalized);
+          if (writeRoutinePresetState(localStorage, healthAuthority.accountId, migrated)) {
+            routinePresetState = migrated;
+            sections.push('routinePresetState');
+          } else {
+            errors.push('routine_preset_adoption_write-failed');
+          }
+        }
+      } else if (hasLegacyHealthMetadata && healthAuthority) {
         const adoption = adoptLegacyRoutinePresetExtension({
           storage: localStorage,
           accountId: healthAuthority.accountId,
@@ -164,5 +187,6 @@ export function applyVaultExtensionsRestore(
     applied: sections.length > 0 && errors.length === 0,
     sections: [...new Set(sections)],
     errors,
+    ...(routinePresetState ? { routinePresetState } : {}),
   };
 }

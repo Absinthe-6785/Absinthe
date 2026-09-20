@@ -26,9 +26,18 @@ const scope: K323V2ActiveScope = {
 };
 
 function recordFor(domain: K323V2Domain, entityId = ENTITY): Record<string, unknown> {
-  return domain === 'reference_alpha'
-    ? { id: entityId, label: 'alpha', ordinal: 7 }
-    : { id: entityId, metric: 'score', value: 9, observedAt: T0 };
+  if (domain === 'reference_alpha') return { id: entityId, label: 'alpha', ordinal: 7 };
+  if (domain === 'reference_beta') return { id: entityId, metric: 'score', value: 9, observedAt: T0 };
+  if (domain === 'health_routine_profile') {
+    return { id: entityId, activePresetId: '00000000-0000-5000-8000-000000000001' };
+  }
+  return {
+    id: entityId,
+    name: 'Default',
+    splitCount: 1,
+    days: [{ dayName: 'Day 1', blocks: [], plannedSets: {} }],
+    isDefault: entityId === '00000000-0000-5000-8000-000000000001',
+  };
 }
 
 function outbox(
@@ -113,6 +122,28 @@ describe('REL-05E K-323 v2 dormant transport adapters', () => {
       payloadHash: value.payloadHash,
     });
     expect(request.baseRevision).not.toBe(value.baseRevision);
+  });
+
+  it.each([
+    ['health_routine_preset', '00000000-0000-5000-8000-000000000001'],
+    ['health_routine_profile', '00000000-0000-5000-8000-000000000002'],
+  ] as const)('maps only a closed %s production payload', (domain, entityId) => {
+    const value = outbox(domain, 'upsert', 1, entityId);
+    expect(outboxToK323V2Mutation(value, { ...scope, baseServerRevision: null })).toMatchObject({
+      domain, entityId, payload: { kind: 'entity_snapshot' },
+    });
+    const malformed = structuredClone(value);
+    (malformed.payload as { record: Record<string, unknown> }).record.unexpected = true;
+    malformed.payloadHash = hashCanonicalPayload(malformed.payload);
+    const identity = {
+      namespaceKey: malformed.namespaceKey, generationId: malformed.generationId,
+      domain: malformed.domain, entityId: malformed.entityId, localRevision: malformed.localRevision,
+      operation: malformed.operation, payloadHash: malformed.payloadHash,
+    };
+    malformed.idempotencyKey = deriveOutboxIdempotencyKey(identity);
+    malformed.mutationId = deriveOutboxMutationId(identity);
+    expect(() => outboxToK323V2Mutation(malformed, { ...scope, baseServerRevision: null }))
+      .toThrowError(expect.objectContaining({ code: 'INVALID_RESERVED_RECORD' }));
   });
 
   it('keeps restore explicit while preserving the payload-bound durable identity', () => {
@@ -242,7 +273,7 @@ describe('REL-05E K-323 v2 dormant transport adapters', () => {
     })).toThrowError(expect.objectContaining({ code: 'INVALID_RESERVED_RECORD' }));
   });
 
-  it('rejects pull application against a foreign scope or newer local server revision', () => {
+  it('rejects a foreign scope and skips an older remote server revision', () => {
     const response: K323V2PullResponse<Record<string, unknown>> = {
       protocolVersion: 2, status: 'changes', domain: 'reference_alpha', serverEpoch: EPOCH,
       retentionFloor: 0, nextCursor: 12, errorCode: null,
@@ -269,10 +300,14 @@ describe('REL-05E K-323 v2 dormant transport adapters', () => {
       currentEntities: new Map([[ENTITY, current]]), now: T1,
     })).toThrowError(expect.objectContaining({ code: 'INVALID_RESERVED_RECORD' }));
     const newerCurrent = { ...current, accountId: ACCOUNT, ownerId: ACCOUNT };
-    expect(() => pullResponseToRemoteBatch(response, {
+    const result = pullResponseToRemoteBatch(response, {
       context: pullContext(), activeScope: scope,
       currentEntities: new Map([[ENTITY, newerCurrent]]), now: T1,
-    })).toThrowError(expect.objectContaining({ code: 'INVALID_RESERVED_RECORD' }));
+    });
+    expect(result).toMatchObject({
+      kind: 'batch',
+      batch: { entities: [], sequence: 12 },
+    });
   });
 
   it.each(['upsert', 'tombstone', 'restore'] as const)(
