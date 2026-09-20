@@ -649,6 +649,55 @@ describe('REL-05F Health routine aggregate convergence', () => {
       .filter(change => change.operation === 'tombstone')).toHaveLength(105);
   });
 
+  it('does not send dependent tombstones when the prerequisite profile is not acknowledged', async () => {
+    const server = new FakeHealthRoutineServer();
+    const device = await openDevice(server, new IDBFactory(), 'device-profile-block');
+    const initial = await device.session.bootstrap({
+      legacyState: createRoutinePresetState({ routines: [], splitCount: 3 }), hasAccountScopedState: true,
+    });
+    const named = updateRoutinePresetState(initial, {
+      type: 'create', preset: createEmptyRoutinePreset(PRESET_A, 'Active named', 2),
+    });
+    const populated = await device.session.commitState(initial, named);
+    await device.session.sync();
+    const deleting = updateRoutinePresetState(populated, { type: 'delete', presetId: PRESET_A });
+    await device.session.commitState(populated, deleting);
+
+    const delegate = server.client(ACCOUNT);
+    device.session = new HealthRoutineSyncSession({
+      repository: device.repository,
+      now: () => new Date(device.clock.value).toISOString(),
+      online: () => true,
+      transport: {
+        ...delegate,
+        push: async request => request.domain === HEALTH_ROUTINE_PROFILE_DOMAIN ? {
+          protocolVersion: 2,
+          outcome: 'revision_conflict',
+          mutationId: request.mutationId,
+          idempotencyKey: request.idempotencyKey,
+          domain: request.domain,
+          entityId: request.entityId,
+          operation: request.operation,
+          payloadHash: request.payloadHash,
+          remoteMutationRef: null,
+          serverRevision: null,
+          changeSequence: null,
+          serverCommittedAt: null,
+          errorCode: 'REMOTE_REVISION_CONFLICT',
+          retryable: false,
+        } : delegate.push(request),
+      },
+    });
+    await device.session.sync();
+
+    expect(server.domainChanges(ACCOUNT, HEALTH_ROUTINE_PRESET_DOMAIN)
+      .filter(change => change.entityId === PRESET_A && change.operation === 'tombstone')).toHaveLength(0);
+    expect(await device.repository.listOutboxMutations({ limit: 100, status: 'permanent_failure' }))
+      .toHaveLength(0);
+    expect((await device.repository.listOutboxMutations({ limit: 100, status: 'claimed' }))
+      .some(item => item.entityId === PRESET_A && item.operation === 'tombstone')).toBe(true);
+  });
+
   it('keeps later durable commits independent from an in-flight network push', async () => {
     const server = new FakeHealthRoutineServer();
     const device = await openDevice(server, new IDBFactory(), 'device-local-first', ACCOUNT, false);

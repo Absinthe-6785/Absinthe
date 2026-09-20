@@ -51,6 +51,7 @@ const CONFLICT_CODES = new Set([
   'IDEMPOTENCY_CONFLICT', 'MUTATION_ID_CONFLICT', 'REMOTE_ENTITY_ALREADY_EXISTS',
   'REMOTE_ENTITY_NOT_FOUND', 'REMOTE_ENTITY_TOMBSTONED', 'REMOTE_ENTITY_NOT_TOMBSTONED',
   'REMOTE_REVISION_CONFLICT', 'ACTIVE_PRESET_NOT_FOUND',
+  'ACTIVE_PRESET_DELETE_REQUIRES_PROFILE_UPDATE',
 ]);
 
 export interface HealthRoutinePersistence {
@@ -258,6 +259,9 @@ export class HealthRoutineSyncSession {
         });
         const healthClaims = this.orderedClaims(claimed.filter(item => isHealthDomain(item.domain)));
         if (healthClaims.length === 0) return;
+        const batchHasPresetDelete = healthClaims.some(item => (
+          item.domain === HEALTH_ROUTINE_PRESET_DOMAIN && item.operation === 'tombstone'
+        ));
         for (const outbox of healthClaims) {
           try {
             const current = await this.repository.getEntity(outbox.domain, outbox.entityId);
@@ -270,12 +274,6 @@ export class HealthRoutineSyncSession {
               await this.repository.acknowledgeMutationAndEntity(receiptToOutboxAcknowledgement(
                 outbox, receipt, { ...scope, domain: outbox.domain as K323V2Domain }, scope, owner, this.now(),
               ));
-            } else if (receipt.errorCode === 'ACTIVE_PRESET_DELETE_REQUIRES_PROFILE_UPDATE') {
-              await this.repository.releaseClaimForRetry({
-                mutationId: outbox.mutationId, workerId: owner, now: this.now(),
-                errorCode: receipt.errorCode, baseDelayMs: 1_000, maxDelayMs: 60_000,
-              });
-              return;
             } else if (receipt.errorCode && CONFLICT_CODES.has(receipt.errorCode)) {
               await this.repository.preserveMutationConflict({
                 mutationId: outbox.mutationId,
@@ -297,6 +295,8 @@ export class HealthRoutineSyncSession {
                 errorCode: receipt.errorCode ?? 'INVALID_SERVER_RESPONSE',
               });
             }
+            if (batchHasPresetDelete && outbox.domain === HEALTH_ROUTINE_PROFILE_DOMAIN
+              && receipt.outcome !== 'applied') return;
           } catch (error) {
             if (error instanceof K323V2AmbiguousResponseError || error instanceof TypeError) {
               await this.repository.releaseClaimForRetry({
