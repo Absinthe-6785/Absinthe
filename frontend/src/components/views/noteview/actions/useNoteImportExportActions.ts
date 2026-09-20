@@ -2,9 +2,10 @@ import { useCallback } from 'react';
 import type { NoteBase as Note } from '../../noteUtils';
 import { normalizeNoteFolderId } from '../../noteUtils';
 import { serializeNoteMarkdown, parseNoteMarkdown } from '../../features/knowledge';
-import { buildValidatedVaultBackupManifest } from '../../../../lib/vaultBackupExport';
 import { downloadVaultBackup } from '../../../../lib/exportVaultBackup';
 import { downloadVaultBackupZip } from '../../../../lib/vaultBackupZip';
+import { runAccountScopedVaultExport } from '../../../../lib/vaultBackupFlow';
+import { productionHealthRoutinePersistence } from '../../../../lib/healthRoutineSync';
 import { useNotesStore } from '../../../../store/useNotesStore';
 import { createLocalAttachmentBlobAdapter } from '../../../../lib/attachmentBlobIndexedDb';
 import { createLocalAttachmentMetadataRepository } from '../../../../lib/attachmentMetadataIndexedDb';
@@ -61,17 +62,35 @@ export function useNoteImportExportActions(params: UseNoteViewActionsParams) {
   }, [notes]);
 
   const exportVaultBackup = useCallback(async () => {
-    const folders = useNotesStore.getState().folders;
+    const store = useNotesStore.getState();
+    const accountId = store.activeAccountId;
+    const folders = store.folders;
     const active = notes.filter(n => !n.deletedAt);
     if (active.length === 0) return;
-    await downloadVaultBackupZip(buildValidatedVaultBackupManifest(active, folders));
+    await runAccountScopedVaultExport({
+      notes: active, folders, cloud: null, accountId, format: 'zip',
+    }, {
+      readHealthRoutineState: id => productionHealthRoutinePersistence.snapshot(id),
+      isAccountCurrent: id => useNotesStore.getState().activeAccountId === id,
+      downloadZip: downloadVaultBackupZip,
+      downloadJson: downloadVaultBackup,
+    });
   }, [notes]);
 
-  const exportVaultBackupJson = useCallback(() => {
-    const folders = useNotesStore.getState().folders;
+  const exportVaultBackupJson = useCallback(async () => {
+    const store = useNotesStore.getState();
+    const accountId = store.activeAccountId;
+    const folders = store.folders;
     const active = notes.filter(n => !n.deletedAt);
     if (active.length === 0) return;
-    downloadVaultBackup(buildValidatedVaultBackupManifest(active, folders));
+    await runAccountScopedVaultExport({
+      notes: active, folders, cloud: null, accountId, format: 'json',
+    }, {
+      readHealthRoutineState: id => productionHealthRoutinePersistence.snapshot(id),
+      isAccountCurrent: id => useNotesStore.getState().activeAccountId === id,
+      downloadZip: downloadVaultBackupZip,
+      downloadJson: downloadVaultBackup,
+    });
   }, [notes]);
 
   const handleCopyDocument = useCallback(async () => {

@@ -393,6 +393,10 @@ export class LocalDatabaseRepository {
       throw new LocalDatabaseError('INVALID_ENTITY', 'commit_local_mutation');
     }
     if (mutation.mode !== 'tombstone') validateSafeSource(mutation.source);
+    if (input.dependsOnMutationId != null) {
+      validateSafeIdentifier(input.dependsOnMutationId, 'commit_local_mutation');
+      if (mutation.mode !== 'tombstone') throw new LocalDatabaseError('INVALID_OUTBOX', 'commit_local_mutation');
+    }
     const timestamp = now(input.now);
     const operation: OutboxOperation = mutation.mode === 'tombstone' ? 'tombstone' : mutation.mode === 'restore' ? 'restore' : 'upsert';
     if (mutation.mode !== 'create' && mutation.expectedRevision === undefined) {
@@ -415,8 +419,9 @@ export class LocalDatabaseRepository {
       const current = await requestResult(entityStore.get(key)) as LocalEntityEnvelope<T> | undefined;
       if (current) this.validatePersistedEntity(current, 'commit_local_mutation');
       const actualRevision = current?.revision ?? 0;
+      const outboxStore = transaction.objectStore(LOCAL_DATABASE_STORES.outbox);
       const priorOutbox = current ? await requestResult(
-        transaction.objectStore(LOCAL_DATABASE_STORES.outbox)
+        outboxStore
           .index('by_namespace_generation_entity')
           .getAll(IDBKeyRange.only([
             this.namespaceKey, this.namespace.generationId, mutation.domain, mutation.entityId,
@@ -467,6 +472,16 @@ export class LocalDatabaseRepository {
       };
       const mutationId = deriveOutboxMutationId(identity);
       const idempotencyKey = deriveOutboxIdempotencyKey(identity);
+      if (input.dependsOnMutationId != null) {
+        const prerequisite = await requestResult(outboxStore.get([
+          this.namespaceKey, this.namespace.generationId, input.dependsOnMutationId,
+        ])) as OutboxRecord | undefined;
+        if (!prerequisite) throw new LocalDatabaseError('OUTBOX_NOT_FOUND', 'commit_local_mutation');
+        this.validatePersistedOutbox(prerequisite, 'commit_local_mutation');
+        if (prerequisite.mutationId === mutationId) {
+          throw new LocalDatabaseError('INVALID_OUTBOX', 'commit_local_mutation');
+        }
+      }
       envelope.pendingMutationId = mutationId;
       validateEntityEnvelope(envelope);
       entityStore.put(envelope);
@@ -481,6 +496,7 @@ export class LocalDatabaseRepository {
         leaseOwner: null, leaseExpiresAt: null, acknowledgedAt: null, acknowledgedBy: null, remoteMutationRef: null,
         acknowledgedRevision: null, serverCommittedAt: null,
         supersededByMutationId: null,
+        ...(input.dependsOnMutationId == null ? {} : { dependsOnMutationId: input.dependsOnMutationId }),
         ...(priorOutbox.length === 0 && current?.serverRevision != null && current.lastRemoteMutationRef
           && current.pendingMutationId == null && current.contentHash
           ? { remoteSequenceBoundary: {
@@ -498,7 +514,7 @@ export class LocalDatabaseRepository {
           : {}),
       };
       validateOutboxRecord(outbox);
-      transaction.objectStore(LOCAL_DATABASE_STORES.outbox).add(outbox);
+      outboxStore.add(outbox);
       if (input.testOnlyAbortAt === 'after_writes') {
         transaction.abort(); throw new LocalDatabaseError('TRANSACTION_ABORTED', 'entity_mutation');
       }
@@ -645,6 +661,7 @@ export class LocalDatabaseRepository {
     values.forEach(value => this.validatePersistedOutbox(value, operation));
     await this.validateRestoreBoundaryGraphs(transaction, values);
     this.validateOutboxSequences(values, operation);
+    this.validateOutboxDependencies(values, operation);
     return values;
   }
 
@@ -679,8 +696,30 @@ export class LocalDatabaseRepository {
     }
   }
 
+  private validateOutboxDependencies(values: OutboxRecord[], operation: string): void {
+    const byId = new Map(values.map(value => [value.mutationId, value]));
+    for (const value of values) {
+      const dependencyId = value.dependsOnMutationId ?? null;
+      if (dependencyId === null) continue;
+      const dependency = byId.get(dependencyId);
+      if (!dependency || dependency.namespaceKey !== value.namespaceKey
+        || dependency.generationId !== value.generationId || dependency.mutationId === value.mutationId) {
+        throw new LocalDatabaseError('OUTBOX_SEQUENCE_GAP', operation);
+      }
+      const visited = new Set<string>([value.mutationId]);
+      let cursor: OutboxRecord | undefined = dependency;
+      while (cursor?.dependsOnMutationId) {
+        if (visited.has(cursor.mutationId)) throw new LocalDatabaseError('OUTBOX_SEQUENCE_GAP', operation);
+        visited.add(cursor.mutationId);
+        cursor = byId.get(cursor.dependsOnMutationId);
+        if (!cursor) throw new LocalDatabaseError('OUTBOX_SEQUENCE_GAP', operation);
+      }
+    }
+  }
+
   private nextDeliverable(values: OutboxRecord[], timestamp: string, recoverExpiredClaims: boolean): OutboxRecord[] {
     const at = Date.parse(now(timestamp));
+    const byId = new Map(values.map(value => [value.mutationId, value]));
     const groups = new Map<string, OutboxRecord[]>();
     for (const value of values) {
       const key = JSON.stringify([value.domain, value.entityId]);
@@ -692,6 +731,10 @@ export class LocalDatabaseRepository {
       const firstUnsettled = group.find(value => value.status !== 'acknowledged' && value.status !== 'superseded');
       if (!firstUnsettled) continue;
       if (firstUnsettled.deliveryBlockCode) continue;
+      const prerequisite = firstUnsettled.dependsOnMutationId
+        ? byId.get(firstUnsettled.dependsOnMutationId)
+        : null;
+      if (firstUnsettled.dependsOnMutationId && prerequisite?.status !== 'acknowledged') continue;
       if ((firstUnsettled.status === 'pending' || firstUnsettled.status === 'retry_wait')
         && Date.parse(firstUnsettled.availableAt) <= at) candidates.push(firstUnsettled);
       if (recoverExpiredClaims && firstUnsettled.status === 'claimed'
@@ -1066,7 +1109,27 @@ export class LocalDatabaseRepository {
       if (!older || !newer) throw new LocalDatabaseError('OUTBOX_NOT_FOUND', 'supersede_outbox');
       this.validatePersistedOutbox(older, 'supersede_outbox'); this.validatePersistedOutbox(newer, 'supersede_outbox');
       const updated = supersedeOutboxRecord(older, newer, timestamp);
-      validateOutboxRecord(updated); store.put(updated); await done; return updated;
+      validateOutboxRecord(updated);
+      store.put(updated);
+      const range = IDBKeyRange.bound(
+        [this.namespaceKey, this.namespace.generationId, ''],
+        [this.namespaceKey, this.namespace.generationId, '\uffff'],
+      );
+      const scoped = await requestResult(store.getAll(range, MAX_OUTBOX_SCAN + 1)) as OutboxRecord[];
+      if (scoped.length > MAX_OUTBOX_SCAN) throw new LocalDatabaseError('INVALID_OUTBOX_QUERY', 'supersede_outbox');
+      for (const value of scoped) {
+        if (value.dependsOnMutationId !== olderMutationId) continue;
+        if (value.status !== 'pending') throw new LocalDatabaseError('INVALID_OUTBOX_TRANSITION', 'supersede_outbox');
+        const rebound = {
+          ...value,
+          dependsOnMutationId: newerMutationId,
+          updatedAt: timestamp,
+          availableAt: timestamp,
+        };
+        validateOutboxRecord(rebound);
+        store.put(rebound);
+      }
+      await done; return updated;
     } catch (error) {
       abortQuietly(transaction); await done.catch(() => undefined); throw localDatabaseError(error, 'supersede_outbox');
     }

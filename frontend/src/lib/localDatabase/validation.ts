@@ -225,6 +225,8 @@ export function validateOutboxRecord(value: OutboxRecord): void {
   }) : null;
   const deliveryBlockValid = value.deliveryBlockCode === undefined || value.deliveryBlockCode === null
     || value.deliveryBlockCode === 'REMOTE_RESURRECTION_UNSUPPORTED';
+  const dependencyValid = value.dependsOnMutationId === undefined || value.dependsOnMutationId === null
+    || validMutationId(value.dependsOnMutationId) && value.dependsOnMutationId !== value.mutationId;
   const resurrection = value.resurrection ?? null;
   const boundary = value.generationBoundary ?? null;
   const remoteBoundary = value.remoteSequenceBoundary ?? null;
@@ -292,7 +294,7 @@ export function validateOutboxRecord(value: OutboxRecord): void {
     || !safeOptional(value.lastErrorCode) || !safeOptional(value.remoteMutationRef)
     || !payloadValid || !revisionsValid || !statusValid
     || ((value.operation === 'upsert' || value.operation === 'restore') !== (payload.kind === 'entity_snapshot'))
-    || (value.operation === 'tombstone') !== (payload.kind === 'tombstone') || !deliveryBlockValid
+    || (value.operation === 'tombstone') !== (payload.kind === 'tombstone') || !deliveryBlockValid || !dependencyValid
     || (resurrection !== null) !== (value.deliveryBlockCode === 'REMOTE_RESURRECTION_UNSUPPORTED')
     || (resurrection !== null && value.operation !== 'upsert') || !boundaryValid || !remoteBoundaryValid
     || !accountFieldsValid || !acknowledgementMetadataValid) {

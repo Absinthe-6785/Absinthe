@@ -169,6 +169,8 @@ export interface OutboxRecord {
   acknowledgedRevision?: number | null;
   serverCommittedAt?: string | null;
   supersededByMutationId: string | null;
+  /** A durable delivery prerequisite. The record is not claimable until this mutation is acknowledged. */
+  dependsOnMutationId?: string | null;
   resurrection?: ResurrectionProvenance | null;
   deliveryBlockCode?: 'REMOTE_RESURRECTION_UNSUPPORTED' | null;
   generationBoundary?: RestoreOutboxGenerationBoundary | null;
@@ -361,6 +363,7 @@ export interface EntityListOptions {
 export interface CommitLocalMutationInput<T = unknown> {
   mutation: EntityMutationInput<T>;
   now: string;
+  dependsOnMutationId?: string | null;
   testOnlyAbortAt?: 'before_entity' | 'before_outbox' | 'after_writes';
 }
 

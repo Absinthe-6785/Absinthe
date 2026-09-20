@@ -51,8 +51,22 @@ const CONFLICT_CODES = new Set([
   'IDEMPOTENCY_CONFLICT', 'MUTATION_ID_CONFLICT', 'REMOTE_ENTITY_ALREADY_EXISTS',
   'REMOTE_ENTITY_NOT_FOUND', 'REMOTE_ENTITY_TOMBSTONED', 'REMOTE_ENTITY_NOT_TOMBSTONED',
   'REMOTE_REVISION_CONFLICT', 'ACTIVE_PRESET_NOT_FOUND',
-  'ACTIVE_PRESET_DELETE_REQUIRES_PROFILE_UPDATE',
 ]);
+
+export type HealthRoutineDomainSyncResult =
+  | { kind: 'complete'; domain: K323V2Domain; pages: number; cursor: number }
+  | { kind: 'offline'; domain: K323V2Domain }
+  | { kind: 'conflict'; domain: K323V2Domain; reason: string }
+  | { kind: 'full_resync_required'; domain: K323V2Domain; reason: string }
+  | { kind: 'rejected'; domain: K323V2Domain; reason: string }
+  | { kind: 'incomplete'; domain: K323V2Domain; reason: string }
+  | { kind: 'ambiguous'; domain: K323V2Domain; reason: string }
+  | { kind: 'transient'; domain: K323V2Domain; reason: string };
+
+type HealthRoutineSynchronizationResult = Readonly<{
+  preset: HealthRoutineDomainSyncResult;
+  profile: HealthRoutineDomainSyncResult;
+}>;
 
 export interface HealthRoutinePersistence {
   bootstrap(input: {
@@ -138,38 +152,45 @@ export class HealthRoutineSyncSession {
   private async upsertRecord(
     domain: typeof HEALTH_ROUTINE_PRESET_DOMAIN | typeof HEALTH_ROUTINE_PROFILE_DOMAIN,
     record: HealthRoutineAggregateRecord,
-  ): Promise<void> {
+  ): Promise<string | null> {
     const current = await this.repository.getEntity<HealthRoutineAggregateRecord>(domain, record.id);
     if (!current) {
-      await this.repository.createEntity({
+      const created = await this.repository.createEntity({
         domain, entityId: record.id, record, ownerId: this.repository.namespace.userId,
         source: { kind: 'local', reference: 'health-routine-ui' }, timestamp: this.now(),
       });
-      return;
+      return created.pendingMutationId ?? null;
     }
-    if (!current.isDeleted && canonicalEqual(current.record, record)) return;
+    if (!current.isDeleted && canonicalEqual(current.record, record)) return current.pendingMutationId ?? null;
     if (current.isDeleted) {
-      await this.repository.restoreEntity({
+      const restored = await this.repository.restoreEntity({
         domain, entityId: record.id, record, expectedRevision: current.revision,
         ownerId: this.repository.namespace.userId,
         source: { kind: 'local', reference: 'health-routine-restore' }, timestamp: this.now(),
       });
-      return;
+      return restored.pendingMutationId ?? null;
     }
-    await this.repository.updateEntity({
+    const updated = await this.repository.updateEntity({
       domain, entityId: record.id, record, expectedRevision: current.revision,
       ownerId: this.repository.namespace.userId,
       source: { kind: 'local', reference: 'health-routine-ui' }, timestamp: this.now(),
     });
+    return updated.pendingMutationId ?? null;
   }
 
-  private async tombstonePreset(id: string): Promise<void> {
+  private async tombstonePreset(id: string, dependsOnMutationId: string | null): Promise<void> {
     if (id === DEFAULT_HEALTH_ROUTINE_PRESET_ID) throw new Error('DEFAULT_PRESET_REQUIRED');
     const current = await this.repository.getEntity<HealthRoutinePresetAggregate>(HEALTH_ROUTINE_PRESET_DOMAIN, id);
     if (!current || current.isDeleted) return;
-    await this.repository.tombstoneEntity(
-      HEALTH_ROUTINE_PRESET_DOMAIN, id, current.revision, this.now(),
-    );
+    const timestamp = this.now();
+    await this.repository.commitLocalMutation({
+      mutation: {
+        mode: 'tombstone', domain: HEALTH_ROUTINE_PRESET_DOMAIN, entityId: id,
+        record: null, expectedRevision: current.revision, timestamp,
+      },
+      now: timestamp,
+      dependsOnMutationId,
+    });
   }
 
   private async writeState(previous: RoutinePresetState | null, next: RoutinePresetState): Promise<void> {
@@ -183,15 +204,17 @@ export class HealthRoutineSyncSession {
     ) ?? [];
     const profileChanged = !previousDomain || !canonicalEqual(previousDomain.profile, nextDomain.profile);
 
-    // A profile fallback is durable before an active preset tombstone is queued.
-    if (profileChanged && removed.some(preset => preset.id === previousDomain?.profile.activePresetId)) {
-      await this.upsertRecord(HEALTH_ROUTINE_PROFILE_DOMAIN, nextDomain.profile);
-    }
+    // Every deletion planned with a profile change is durably tied to the exact
+    // profile mutation that makes the deletion safe.
+    const profileMustPrecedeDeletes = profileChanged && removed.length > 0;
+    const profileDependency = profileMustPrecedeDeletes
+      ? await this.upsertRecord(HEALTH_ROUTINE_PROFILE_DOMAIN, nextDomain.profile)
+      : null;
     for (const preset of nextDomain.presets) await this.upsertRecord(HEALTH_ROUTINE_PRESET_DOMAIN, preset);
-    if (profileChanged && !removed.some(preset => preset.id === previousDomain?.profile.activePresetId)) {
+    if (profileChanged && !profileMustPrecedeDeletes) {
       await this.upsertRecord(HEALTH_ROUTINE_PROFILE_DOMAIN, nextDomain.profile);
     }
-    for (const preset of removed) await this.tombstonePreset(preset.id);
+    for (const preset of removed) await this.tombstonePreset(preset.id, profileDependency);
   }
 
   private async readState(): Promise<RoutinePresetState | null> {
@@ -266,6 +289,27 @@ export class HealthRoutineSyncSession {
           try {
             const current = await this.repository.getEntity(outbox.domain, outbox.entityId);
             if (!current) throw new LocalDatabaseError('ENTITY_NOT_FOUND', 'health_routine_push');
+            if (outbox.domain === HEALTH_ROUTINE_PRESET_DOMAIN && outbox.operation === 'tombstone') {
+              const profileEntity = await this.repository.getEntity<HealthRoutineProfileAggregate>(
+                HEALTH_ROUTINE_PROFILE_DOMAIN,
+                '00000000-0000-5000-8000-000000000002',
+              );
+              const activePresetId = profileEntity && !profileEntity.isDeleted
+                ? validateHealthRoutineProfileAggregate(profileEntity.record).activePresetId
+                : null;
+              if (activePresetId === outbox.entityId) {
+                await this.repository.preserveMutationConflict({
+                  mutationId: outbox.mutationId,
+                  workerId: owner,
+                  now: this.now(),
+                  errorCode: 'ACTIVE_PRESET_DELETE_REQUIRES_PROFILE_UPDATE',
+                  conflictId: conflictId([outbox.mutationId, 'ACTIVE_PRESET_DELETE_REQUIRES_PROFILE_UPDATE']),
+                  remoteCandidate: profileEntity?.record ?? null,
+                  remoteMetadata: { domain: HEALTH_ROUTINE_PROFILE_DOMAIN, activePresetId },
+                });
+                return;
+              }
+            }
             const request = outboxToK323V2Mutation(outbox, {
               ...scope, baseServerRevision: current.serverRevision ?? null,
             });
@@ -274,6 +318,14 @@ export class HealthRoutineSyncSession {
               await this.repository.acknowledgeMutationAndEntity(receiptToOutboxAcknowledgement(
                 outbox, receipt, { ...scope, domain: outbox.domain as K323V2Domain }, scope, owner, this.now(),
               ));
+            } else if (receipt.errorCode === 'ACTIVE_PRESET_DELETE_REQUIRES_PROFILE_UPDATE') {
+              // A concurrent profile change can invalidate a previously
+              // acknowledged prerequisite. Pull/reconcile before trying again.
+              await this.repository.releaseClaimForRetry({
+                mutationId: outbox.mutationId, workerId: owner, now: this.now(),
+                errorCode: receipt.errorCode, baseDelayMs: 1_000, maxDelayMs: 60_000,
+              });
+              return;
             } else if (receipt.errorCode && CONFLICT_CODES.has(receipt.errorCode)) {
               await this.repository.preserveMutationConflict({
                 mutationId: outbox.mutationId,
@@ -348,76 +400,111 @@ export class HealthRoutineSyncSession {
     });
   }
 
-  private async pullDomain(domain: K323V2Domain): Promise<boolean> {
+  private async pullDomain(domain: K323V2Domain): Promise<HealthRoutineDomainSyncResult> {
     const scope = this.scope();
-    for (let page = 0; page < 100; page += 1) {
-      const checkpoint = await this.repository.getSyncCheckpoint(K323_V2_PROVIDER, domain);
-      const cursor = checkpoint?.sequence ?? 0;
-      const response = await this.transport.pull({
-        protocolVersion: 2,
-        namespaceKey: scope.namespaceKey,
-        generationId: scope.generationId,
-        domain,
-        cursor,
-        serverEpoch: checkpoint?.serverEpoch ?? null,
-        limit: 100,
-      });
-      if (response.status === 'rejected') return false;
-      if (response.status === 'full_resync_required') {
-        if (checkpoint) {
-          await this.repository.invalidateSyncCheckpoint({
-            provider: K323_V2_PROVIDER, stream: domain,
-            reason: response.errorCode ?? 'FULL_RESYNC_REQUIRED', now: this.now(),
-          });
+    try {
+      for (let page = 0; page < 100; page += 1) {
+        if (!this.online()) return { kind: 'offline', domain };
+        const checkpoint = await this.repository.getSyncCheckpoint(K323_V2_PROVIDER, domain);
+        const cursor = checkpoint?.sequence ?? 0;
+        const response = await this.transport.pull({
+          protocolVersion: 2,
+          namespaceKey: scope.namespaceKey,
+          generationId: scope.generationId,
+          domain,
+          cursor,
+          serverEpoch: checkpoint?.serverEpoch ?? null,
+          limit: 100,
+        });
+        if (response.status === 'rejected') {
+          return { kind: 'rejected', domain, reason: response.errorCode ?? 'PULL_REJECTED' };
         }
-        return false;
-      }
-      const currentEntities = new Map((await this.repository.listEntities({ domain, includeDeleted: true }))
-        .map(entity => [entity.entityId, entity]));
-      for (const change of response.changes) {
-        const current = currentEntities.get(change.entityId);
-        if (current?.pendingMutationId) {
-          await this.preservePullConflict(domain, current, change,
-            change.isDeleted ? 'REMOTE_TOMBSTONE_WITH_PENDING_LOCAL' : 'REMOTE_NEWER_WITH_PENDING_LOCAL');
-          return false;
+        if (response.status === 'full_resync_required') {
+          if (checkpoint) {
+            await this.repository.invalidateSyncCheckpoint({
+              provider: K323_V2_PROVIDER, stream: domain,
+              reason: response.errorCode ?? 'FULL_RESYNC_REQUIRED', now: this.now(),
+            });
+          }
+          return {
+            kind: 'full_resync_required', domain,
+            reason: response.errorCode ?? 'FULL_RESYNC_REQUIRED',
+          };
         }
-        if (current?.serverRevision === change.serverRevision
-          && (current.contentHash !== hashCanonicalPayload(canonicalPayloadSnapshot(change.record))
-            || current.isDeleted !== change.isDeleted || !sameTimestamp(current.deletedAt, change.deletedAt))) {
-          await this.preservePullConflict(domain, current, change, 'SAME_REVISION_CONTENT_MISMATCH');
-          return false;
-        }
-        if (domain === HEALTH_ROUTINE_PROFILE_DOMAIN && !change.isDeleted) {
-          const profile = validateHealthRoutineProfileAggregate(change.record);
-          if (profile.activePresetId) {
-            const preset = await this.repository.getEntity(HEALTH_ROUTINE_PRESET_DOMAIN, profile.activePresetId);
-            if (!preset || preset.isDeleted) {
-              if (current) await this.preservePullConflict(domain, current, change, 'PROFILE_PRESET_NOT_AVAILABLE');
-              return false;
+        const currentEntities = new Map((await this.repository.listEntities({ domain, includeDeleted: true }))
+          .map(entity => [entity.entityId, entity]));
+        for (const change of response.changes) {
+          const current = currentEntities.get(change.entityId);
+          if (current?.pendingMutationId) {
+            const reason = change.isDeleted ? 'REMOTE_TOMBSTONE_WITH_PENDING_LOCAL' : 'REMOTE_NEWER_WITH_PENDING_LOCAL';
+            await this.preservePullConflict(domain, current, change, reason);
+            return { kind: 'conflict', domain, reason };
+          }
+          if (current?.serverRevision === change.serverRevision
+            && (current.contentHash !== hashCanonicalPayload(canonicalPayloadSnapshot(change.record))
+              || current.isDeleted !== change.isDeleted || !sameTimestamp(current.deletedAt, change.deletedAt))) {
+            await this.preservePullConflict(domain, current, change, 'SAME_REVISION_CONTENT_MISMATCH');
+            return { kind: 'conflict', domain, reason: 'SAME_REVISION_CONTENT_MISMATCH' };
+          }
+          if (domain === HEALTH_ROUTINE_PROFILE_DOMAIN && !change.isDeleted) {
+            const profile = validateHealthRoutineProfileAggregate(change.record);
+            if (profile.activePresetId) {
+              const preset = await this.repository.getEntity(HEALTH_ROUTINE_PRESET_DOMAIN, profile.activePresetId);
+              if (!preset || preset.isDeleted) {
+                if (current) await this.preservePullConflict(domain, current, change, 'PROFILE_PRESET_NOT_AVAILABLE');
+                return { kind: 'conflict', domain, reason: 'PROFILE_PRESET_NOT_AVAILABLE' };
+              }
             }
           }
         }
+        const mapped = pullResponseToRemoteBatch(response, {
+          context: { ...scope, domain, cursor, serverEpoch: checkpoint?.serverEpoch ?? null },
+          activeScope: scope,
+          currentEntities,
+          now: this.now(),
+        });
+        if (mapped.kind === 'full_resync_required') {
+          return { kind: 'full_resync_required', domain, reason: mapped.reason };
+        }
+        await this.repository.commitRemoteEntityBatch(mapped.batch);
+        if (response.changes.length < 100) {
+          return { kind: 'complete', domain, pages: page + 1, cursor: response.nextCursor };
+        }
       }
-      const mapped = pullResponseToRemoteBatch(response, {
-        context: { ...scope, domain, cursor, serverEpoch: checkpoint?.serverEpoch ?? null },
-        activeScope: scope,
-        currentEntities,
-        now: this.now(),
-      });
-      if (mapped.kind === 'full_resync_required') return false;
-      await this.repository.commitRemoteEntityBatch(mapped.batch);
-      if (response.changes.length < 100) return true;
+      return { kind: 'incomplete', domain, reason: 'PAGE_LIMIT_EXCEEDED' };
+    } catch (error) {
+      if (error instanceof K323V2AmbiguousResponseError) {
+        return { kind: 'ambiguous', domain, reason: error.message };
+      }
+      if (error instanceof TypeError) {
+        return { kind: 'transient', domain, reason: error.message };
+      }
+      throw error;
     }
-    return false;
   }
 
-  private async synchronize(): Promise<void> {
-    if (!this.online()) return;
+  private async synchronize(): Promise<HealthRoutineSynchronizationResult> {
+    if (!this.online()) {
+      return {
+        preset: { kind: 'offline', domain: HEALTH_ROUTINE_PRESET_DOMAIN },
+        profile: { kind: 'offline', domain: HEALTH_ROUTINE_PROFILE_DOMAIN },
+      };
+    }
     await this.localCommitOperation;
     await this.ensureRemoteGeneration();
     await this.pushPending();
-    await this.pullDomain(HEALTH_ROUTINE_PRESET_DOMAIN);
-    await this.pullDomain(HEALTH_ROUTINE_PROFILE_DOMAIN);
+    const preset = await this.pullDomain(HEALTH_ROUTINE_PRESET_DOMAIN);
+    const profile = await this.pullDomain(HEALTH_ROUTINE_PROFILE_DOMAIN);
+    return { preset, profile };
+  }
+
+  private requireCompleteInventory(result: HealthRoutineSynchronizationResult, stage: string): void {
+    for (const domain of [result.preset, result.profile]) {
+      if (domain.kind !== 'complete') {
+        const reason = 'reason' in domain ? domain.reason : domain.kind;
+        throw new Error(`HEALTH_ROUTINE_RESET_INVENTORY_INCOMPLETE:${stage}:${domain.domain}:${domain.kind}:${reason}`);
+      }
+    }
   }
 
   bootstrap(input: { legacyState: RoutinePresetState; hasAccountScopedState: boolean }): Promise<RoutinePresetState> {
@@ -479,11 +566,13 @@ export class HealthRoutineSyncSession {
     return this.serialize(async () => {
       await this.initialize();
       if (!this.online()) throw new Error('HEALTH_ROUTINE_RESET_REQUIRES_ONLINE');
-      await this.synchronize();
+      const inventory = await this.synchronize();
+      this.requireCompleteInventory(inventory, 'before_mutation_planning');
       const previous = await this.readState();
       const empty = createRoutinePresetState({ routines: [], splitCount: 3 });
       await this.writeState(previous, empty);
-      await this.synchronize();
+      const completion = await this.synchronize();
+      this.requireCompleteInventory(completion, 'after_mutation_delivery');
       const unsettled = await this.repository.countOutboxByStatus();
       if (unsettled.pending || unsettled.claimed || unsettled.retry_wait
         || unsettled.conflict || unsettled.permanent_failure) {

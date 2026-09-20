@@ -3,7 +3,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NoteBase } from '@/components/views/noteUtils';
 import type { VaultBackupCloudBlock } from './vaultCloudExport';
 import {
+  buildAccountScopedVaultBackupManifest,
   downloadPendingReducedVaultBackup,
+  runAccountScopedVaultExport,
   runVaultBackupAttempt,
   type VaultBackupAttemptInput,
   type VaultBackupFlowDeps,
@@ -262,5 +264,74 @@ describe('vault backup production flow', () => {
     expect(readHealthRoutineState).toHaveBeenCalledWith('account-a');
     expect(result.kind === 'downloaded'
       && result.manifest.extensions?.health.routinePresetState?.presets[0].splitCount).toBe(3);
+  });
+
+  it.each(['zip', 'json'] as const)('awaits durable Health authority for the NoteView %s export path', async format => {
+    const stale = createRoutinePresetState({ routines: [], splitCount: 4 });
+    const durable = updateRoutinePresetState(stale, {
+      type: 'set-split', presetId: DEFAULT_ROUTINE_PRESET_ID, splitCount: 3,
+    });
+    durable.presets.push(createEmptyRoutinePreset('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'Durable named', 2));
+    durable.activePresetId = durable.presets[1].id;
+    writeRoutinePresetState(localStorage, 'account-a', stale);
+    const events: string[] = [];
+    const downloadZip = vi.fn(async () => { events.push('zip'); });
+    const downloadJson = vi.fn(async () => { events.push('json'); });
+
+    const manifest = await runAccountScopedVaultExport({
+      notes: [note()], folders: [], cloud: null, accountId: 'account-a', format,
+    }, {
+      readHealthRoutineState: vi.fn(async accountId => {
+        events.push(`read:${accountId}`);
+        await Promise.resolve();
+        return durable;
+      }),
+      isAccountCurrent: accountId => accountId === 'account-a',
+      downloadZip,
+      downloadJson,
+    });
+
+    expect(events).toEqual([`read:account-a`, format]);
+    expect(manifest.extensions?.health.routinePresetState).toEqual(durable);
+    expect(manifest.extensions?.health.routinePresetState?.presets[0].splitCount).toBe(3);
+    expect(downloadZip).toHaveBeenCalledTimes(format === 'zip' ? 1 : 0);
+    expect(downloadJson).toHaveBeenCalledTimes(format === 'json' ? 1 : 0);
+  });
+
+  it('fails an account-scoped full export when account context is missing or changes during durable collection', async () => {
+    const downloadZip = vi.fn();
+    const downloadJson = vi.fn();
+    await expect(runAccountScopedVaultExport({
+      notes: [note()], folders: [], cloud: null, accountId: null, format: 'zip',
+    }, { downloadZip, downloadJson })).rejects.toThrow('full_vault_backup_missing_account');
+
+    let currentAccount = 'account-a';
+    await expect(runAccountScopedVaultExport({
+      notes: [note()], folders: [], cloud: null, accountId: 'account-a', format: 'json',
+    }, {
+      readHealthRoutineState: async () => {
+        currentAccount = 'account-b';
+        return createRoutinePresetState({ routines: [], splitCount: 3 });
+      },
+      isAccountCurrent: accountId => accountId === currentAccount,
+      downloadZip,
+      downloadJson,
+    })).rejects.toThrow('backup_account_changed');
+    expect(downloadZip).not.toHaveBeenCalled();
+    expect(downloadJson).not.toHaveBeenCalled();
+  });
+
+  it('uses the explicit account-scoped compatibility cache only when durable Health storage is unavailable', async () => {
+    const fallback = createRoutinePresetState({ routines: [], splitCount: 2 });
+    writeRoutinePresetState(localStorage, 'account-a', fallback);
+
+    const manifest = await buildAccountScopedVaultBackupManifest({
+      notes: [note()], folders: [], cloud: null, accountId: 'account-a',
+    }, {
+      readHealthRoutineState: async () => { throw new Error('indexeddb_unavailable'); },
+      isAccountCurrent: accountId => accountId === 'account-a',
+    });
+
+    expect(manifest.extensions?.health.routinePresetState).toEqual(fallback);
   });
 });

@@ -30,6 +30,23 @@ export interface VaultBackupAttemptInput {
   accountId: string | null;
 }
 
+export interface AccountScopedVaultManifestInput {
+  notes: readonly NoteBase[];
+  folders: readonly NoteFolder[];
+  cloud: VaultBackupCloudBlock | null;
+  accountId: string | null;
+}
+
+export interface AccountScopedVaultManifestDeps {
+  isAccountCurrent?: (accountId: string | null) => boolean;
+  readHealthRoutineState?: (accountId: string) => Promise<RoutinePresetState | null>;
+}
+
+export interface AccountScopedVaultExportDeps extends AccountScopedVaultManifestDeps {
+  downloadZip: (manifest: VaultBackupManifest) => void | Promise<void>;
+  downloadJson: (manifest: VaultBackupManifest) => void | Promise<void>;
+}
+
 export interface PendingReducedVaultBackup extends VaultBackupCoverageImpact {
   manifest: VaultBackupManifest;
   accountId: string;
@@ -66,6 +83,38 @@ function buildValidatedManifest(
   return manifest;
 }
 
+export async function buildAccountScopedVaultBackupManifest(
+  input: AccountScopedVaultManifestInput,
+  deps: AccountScopedVaultManifestDeps,
+): Promise<VaultBackupManifest> {
+  let durableRoutineState: RoutinePresetState | undefined;
+  if (input.accountId && deps.readHealthRoutineState) {
+    try {
+      durableRoutineState = (await deps.readHealthRoutineState(input.accountId)) ?? undefined;
+    } catch {
+      // The account-scoped compatibility cache is used only when the durable
+      // repository cannot be read. It never overrides a successful durable read.
+    }
+  }
+  if (deps.isAccountCurrent && !deps.isAccountCurrent(input.accountId)) {
+    throw new Error('backup_account_changed');
+  }
+  return buildValidatedManifest(
+    input.notes, input.folders, input.cloud, input.accountId, durableRoutineState,
+  );
+}
+
+export async function runAccountScopedVaultExport(
+  input: AccountScopedVaultManifestInput & { format: 'zip' | 'json' },
+  deps: AccountScopedVaultExportDeps,
+): Promise<VaultBackupManifest> {
+  if (!input.accountId) throw new Error('full_vault_backup_missing_account');
+  const manifest = await buildAccountScopedVaultBackupManifest(input, deps);
+  if (input.format === 'zip') await deps.downloadZip(manifest);
+  else await deps.downloadJson(manifest);
+  return manifest;
+}
+
 export async function runVaultBackupAttempt(
   input: VaultBackupAttemptInput,
   deps: VaultBackupFlowDeps,
@@ -74,20 +123,9 @@ export async function runVaultBackupAttempt(
   if (input.cloudExpected && deps.isAccountCurrent && !deps.isAccountCurrent(input.accountId)) {
     throw new Error('backup_account_changed');
   }
-  let durableRoutineState: RoutinePresetState | undefined;
-  if (input.accountId && deps.readHealthRoutineState) {
-    try {
-      durableRoutineState = (await deps.readHealthRoutineState(input.accountId)) ?? undefined;
-    } catch {
-      // Compatibility cache is a bounded fallback only when IndexedDB cannot be read.
-    }
-  }
-  if (deps.isAccountCurrent && !deps.isAccountCurrent(input.accountId)) {
-    throw new Error('backup_account_changed');
-  }
-  const manifest = buildValidatedManifest(
-    input.notes, input.folders, cloud, input.accountId, durableRoutineState,
-  );
+  const manifest = await buildAccountScopedVaultBackupManifest({
+    notes: input.notes, folders: input.folders, cloud, accountId: input.accountId,
+  }, deps);
   const impact = classifyVaultBackupCoverage(manifest);
 
   if (isReducedVaultBackupCoverage(impact.coverage)) {
