@@ -167,6 +167,35 @@ export function replaceConflictedOutboxRecord(
   };
 }
 
+/**
+ * Adopt a later, already-durable mutation as the effective successor of a
+ * conflicted record. The repository must validate the complete intervening
+ * lineage and rebind live dependents atomically before committing this state.
+ */
+export function adoptConflictedOutboxSuccessor(
+  conflicted: OutboxRecord,
+  successor: OutboxRecord,
+  now: string,
+): OutboxRecord {
+  if (conflicted.namespaceKey !== successor.namespaceKey
+    || conflicted.generationId !== successor.generationId
+    || conflicted.domain !== successor.domain
+    || conflicted.entityId !== successor.entityId
+    || conflicted.status !== 'conflict'
+    || successor.status !== 'pending'
+    || successor.attemptCount !== 0
+    || successor.localRevision <= conflicted.localRevision) {
+    throw new LocalDatabaseError('INVALID_OUTBOX_TRANSITION', 'adopt_conflicted_outbox_successor');
+  }
+  return {
+    ...conflicted,
+    status: 'superseded',
+    updatedAt: now,
+    lastErrorCode: null,
+    supersededByMutationId: successor.mutationId,
+  };
+}
+
 export function replaceRejectedDependentOutboxRecord(
   rejected: OutboxRecord,
   replacement: OutboxRecord,

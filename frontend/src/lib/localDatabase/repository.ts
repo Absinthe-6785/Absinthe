@@ -10,7 +10,7 @@ import { namespaceFingerprint, validateNamespace, validateSafeIdentifier } from 
 import { canonicalPayloadSnapshot, hashCanonicalPayload } from './canonicalPayload';
 import { deriveOutboxIdempotencyKey, deriveOutboxMutationId, generateOutboxMutationId, sha256Hex } from './outboxIdentity';
 import {
-  acknowledgeOutboxRecord, claimOutboxRecord, conflictOutboxRecord, permanentlyFailOutboxRecord,
+  acknowledgeOutboxRecord, adoptConflictedOutboxSuccessor, claimOutboxRecord, conflictOutboxRecord, permanentlyFailOutboxRecord,
   replaceConflictedOutboxRecord, replaceRejectedDependentOutboxRecord,
   scheduleOutboxRetry, supersedeOutboxRecord,
 } from './outboxStateMachine';
@@ -800,6 +800,34 @@ export class LocalDatabaseRepository {
         || left.entityId.localeCompare(right.entityId) || left.localRevision - right.localRevision);
   }
 
+  /**
+   * Return the oldest conflicted Health profile mutation that still has a live
+   * dependent. Historical conflicts without queue impact are deliberately
+   * ignored. The reconciliation transaction revalidates this result.
+   */
+  async findHealthProfileReconciliationPrerequisite(): Promise<OutboxRecord | null> {
+    const operation = 'find_health_profile_reconciliation_prerequisite';
+    this.assertOpen(operation);
+    const transaction = this.db.transaction(
+      [LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations, LOCAL_DATABASE_STORES.entities,
+        LOCAL_DATABASE_STORES.outbox, LOCAL_DATABASE_STORES.restoreSessions], 'readonly',
+    );
+    const done = transactionCompletion(transaction, operation);
+    const values = await this.readScopedOutbox(transaction, operation);
+    await this.ensureActive(transaction);
+    await done;
+    const relevantPrerequisites = new Set(values
+      .filter(value => value.operation === 'tombstone'
+        && (value.status === 'pending' || value.status === 'retry_wait')
+        && value.dependsOnMutationId != null)
+      .map(value => value.dependsOnMutationId as string));
+    return values.filter(value => value.domain === HEALTH_PROFILE_RECONCILIATION_DOMAIN
+      && value.entityId === HEALTH_PROFILE_RECONCILIATION_ENTITY_ID
+      && value.status === 'conflict'
+      && relevantPrerequisites.has(value.mutationId))
+      .sort((left, right) => left.localRevision - right.localRevision)[0] ?? null;
+  }
+
   async countOutboxByStatus(): Promise<OutboxStatusCounts> {
     this.assertOpen('count_outbox');
     const transaction = this.db.transaction(
@@ -1230,7 +1258,6 @@ export class LocalDatabaseRepository {
       if (!entity) throw new LocalDatabaseError('ENTITY_NOT_FOUND', operation);
       this.validatePersistedEntity(entity, operation);
       if (entity.revision !== input.expectedEntityRevision || entity.isDeleted
-        || (input.prerequisiteStatus === 'conflict' && entity.pendingMutationId !== old.mutationId)
         || (input.prerequisiteStatus === 'acknowledged' && entity.pendingMutationId !== null)
         || entity.serverRevision == null
         || entity.serverRevision != null && input.remoteServerRevision < entity.serverRevision
@@ -1244,48 +1271,121 @@ export class LocalDatabaseRepository {
       const scoped = await this.readScopedOutbox(transaction, operation);
       const entityHistory = scoped.filter(value => value.domain === old.domain && value.entityId === old.entityId)
         .sort((left, right) => left.localRevision - right.localRevision);
-      if (entityHistory[entityHistory.length - 1]?.mutationId !== old.mutationId) {
+      const oldIndex = entityHistory.findIndex(value => value.mutationId === old.mutationId);
+      if (oldIndex < 0 || (input.prerequisiteStatus === 'acknowledged'
+        && entityHistory[entityHistory.length - 1]?.mutationId !== old.mutationId)) {
         throw new LocalDatabaseError('INVALID_OUTBOX_TRANSITION', operation);
       }
-      const dependents = scoped.filter(value => value.dependsOnMutationId === old.mutationId);
-      if (dependents.length === 0 || dependents.some(value => value.operation !== 'tombstone'
-        || value.status !== 'pending' && value.status !== 'retry_wait'
-        || value.status === 'pending' && value.attemptCount !== 0)) {
+      const byMutationId = new Map(scoped.map(value => [value.mutationId, value]));
+      const liveStatuses = new Set<OutboxStatus>(['pending', 'retry_wait']);
+      const oldDependents = scoped.filter(value => value.dependsOnMutationId === old.mutationId
+        && liveStatuses.has(value.status));
+      if (oldDependents.length === 0) {
         throw new LocalDatabaseError('INVALID_OUTBOX_TRANSITION', operation);
       }
 
-      const localRevision = entity.revision + 1;
-      if (!Number.isSafeInteger(localRevision)) throw new LocalDatabaseError('INVALID_ENTITY', operation);
       const payload = { kind: 'entity_snapshot' as const, record: correctedRecord };
       const payloadHash = hashCanonicalPayload(payload);
-      const identity = {
-        namespaceKey: this.namespaceKey, generationId: this.namespace.generationId,
-        domain: old.domain, entityId: old.entityId, localRevision, operation: 'upsert' as const, payloadHash,
-      };
-      const mutationId = deriveOutboxMutationId(identity);
-      const replacement: OutboxRecord = {
-        namespaceKey: this.namespaceKey, generationId: this.namespace.generationId,
-        accountId: this.namespace.userId, deviceId: this.namespace.deviceId,
-        mutationId, domain: old.domain, entityId: old.entityId, operation: 'upsert',
-        baseRevision: entity.revision, localRevision, payloadMode: 'inline', payload, payloadHash,
-        createdAt: timestamp, updatedAt: timestamp, availableAt: timestamp,
-        attemptCount: 0, status: 'pending', idempotencyKey: deriveOutboxIdempotencyKey(identity),
-        lastAttemptAt: null, lastErrorCode: null, leaseOwner: null, leaseExpiresAt: null,
-        acknowledgedAt: null, acknowledgedBy: null, remoteMutationRef: null,
-        acknowledgedRevision: null, serverCommittedAt: null, supersededByMutationId: null,
-        remoteSequenceBoundary: {
-          kind: 'remote_entity_sequence_boundary', namespaceKey: this.namespaceKey,
-          generationId: this.namespace.generationId, domain: old.domain, entityId: old.entityId,
-          baselineLocalRevision: entity.revision, baselineServerRevision: input.remoteServerRevision,
-          remoteMutationRef: input.remoteMutationRef,
-          baselineContentHash: hashCanonicalPayload(remoteRecord), createdAt: timestamp,
-        },
-      };
+      let existingSuccessor: OutboxRecord | null = null;
+      if (input.prerequisiteStatus === 'conflict' && entity.pendingMutationId !== old.mutationId) {
+        const pendingMutationId = entity.pendingMutationId;
+        if (!pendingMutationId) throw new LocalDatabaseError('STALE_REVISION', operation);
+        const visited = new Set<string>();
+        let candidate = byMutationId.get(pendingMutationId);
+        while (candidate?.status === 'superseded') {
+          if (visited.has(candidate.mutationId) || !candidate.supersededByMutationId) {
+            throw new LocalDatabaseError('OUTBOX_SEQUENCE_GAP', operation);
+          }
+          visited.add(candidate.mutationId);
+          const successor = byMutationId.get(candidate.supersededByMutationId);
+          if (!successor || successor.namespaceKey !== candidate.namespaceKey
+            || successor.generationId !== candidate.generationId
+            || successor.domain !== candidate.domain || successor.entityId !== candidate.entityId
+            || successor.localRevision <= candidate.localRevision) {
+            throw new LocalDatabaseError('OUTBOX_SEQUENCE_GAP', operation);
+          }
+          candidate = successor;
+        }
+        if (!candidate || candidate.domain !== old.domain || candidate.entityId !== old.entityId
+          || candidate.localRevision <= old.localRevision || candidate.localRevision !== entity.revision
+          || candidate.operation !== 'upsert' || candidate.payload.kind !== 'entity_snapshot') {
+          throw new LocalDatabaseError('INVALID_OUTBOX_TRANSITION', operation);
+        }
+        existingSuccessor = candidate;
+      }
+
+      // A successor blocked behind the conflicted head has never been sent.
+      // Its immutable request identity can therefore be retained while the
+      // entity's server boundary is advanced atomically below.
+      const canAdoptExisting = existingSuccessor?.status === 'pending'
+        && existingSuccessor.attemptCount === 0
+        && hashCanonicalPayload(existingSuccessor.payload) === payloadHash
+        && hashCanonicalPayload(entity.record) === hashCanonicalPayload(correctedRecord)
+        && entityHistory[entityHistory.length - 1]?.mutationId === existingSuccessor.mutationId;
+      let replacement: OutboxRecord;
+      let createdReplacement = false;
+      if (canAdoptExisting && existingSuccessor) {
+        replacement = existingSuccessor;
+      } else {
+        const localRevision = entity.revision + 1;
+        if (!Number.isSafeInteger(localRevision)) throw new LocalDatabaseError('INVALID_ENTITY', operation);
+        const identity = {
+          namespaceKey: this.namespaceKey, generationId: this.namespace.generationId,
+          domain: old.domain, entityId: old.entityId, localRevision, operation: 'upsert' as const, payloadHash,
+        };
+        replacement = {
+          namespaceKey: this.namespaceKey, generationId: this.namespace.generationId,
+          accountId: this.namespace.userId, deviceId: this.namespace.deviceId,
+          mutationId: deriveOutboxMutationId(identity), domain: old.domain, entityId: old.entityId, operation: 'upsert',
+          baseRevision: entity.revision, localRevision, payloadMode: 'inline', payload, payloadHash,
+          createdAt: timestamp, updatedAt: timestamp, availableAt: timestamp,
+          attemptCount: 0, status: 'pending', idempotencyKey: deriveOutboxIdempotencyKey(identity),
+          lastAttemptAt: null, lastErrorCode: null, leaseOwner: null, leaseExpiresAt: null,
+          acknowledgedAt: null, acknowledgedBy: null, remoteMutationRef: null,
+          acknowledgedRevision: null, serverCommittedAt: null, supersededByMutationId: null,
+          remoteSequenceBoundary: {
+            kind: 'remote_entity_sequence_boundary', namespaceKey: this.namespaceKey,
+            generationId: this.namespace.generationId, domain: old.domain, entityId: old.entityId,
+            baselineLocalRevision: entity.revision, baselineServerRevision: input.remoteServerRevision,
+            remoteMutationRef: input.remoteMutationRef,
+            baselineContentHash: hashCanonicalPayload(remoteRecord), createdAt: timestamp,
+          },
+        };
+        createdReplacement = true;
+      }
       validateOutboxRecord(replacement);
-      const prerequisite = input.prerequisiteStatus === 'conflict'
-        ? replaceConflictedOutboxRecord(old, replacement, timestamp)
-        : old;
-      validateOutboxRecord(prerequisite);
+
+      const obsoleteProfileRecords = input.prerequisiteStatus === 'conflict'
+        ? entityHistory.slice(oldIndex).filter(value => value.mutationId !== replacement.mutationId)
+        : [];
+      const profileUpdates = new Map<string, OutboxRecord>();
+      for (const value of obsoleteProfileRecords) {
+        let updated: OutboxRecord;
+        if (value.status === 'conflict') {
+          updated = replacement.baseRevision === value.localRevision
+            && replacement.localRevision === value.localRevision + 1
+            ? replaceConflictedOutboxRecord(value, replacement, timestamp)
+            : adoptConflictedOutboxSuccessor(value, replacement, timestamp);
+        } else if (value.status === 'pending' && value.attemptCount === 0) {
+          updated = supersedeOutboxRecord(value, replacement, timestamp);
+        } else if (value.status === 'superseded') {
+          updated = value;
+        } else {
+          throw new LocalDatabaseError('INVALID_OUTBOX_TRANSITION', operation);
+        }
+        validateOutboxRecord(updated);
+        profileUpdates.set(updated.mutationId, updated);
+      }
+      const prerequisite = profileUpdates.get(old.mutationId) ?? old;
+      const supersededProfileIds = new Set(obsoleteProfileRecords.map(value => value.mutationId));
+      if (input.prerequisiteStatus === 'acknowledged') supersededProfileIds.add(old.mutationId);
+      const dependents = scoped.filter(value => value.dependsOnMutationId != null
+        && supersededProfileIds.has(value.dependsOnMutationId)
+        && liveStatuses.has(value.status));
+      if (dependents.length === 0 || dependents.some(value => value.operation !== 'tombstone'
+        || value.status === 'pending' && value.attemptCount !== 0)) {
+        throw new LocalDatabaseError('INVALID_OUTBOX_TRANSITION', operation);
+      }
       const rebound: OutboxRecord[] = [];
       const replacedDependents: OutboxRecord[] = [];
       const dependentEntities: LocalEntityEnvelope[] = [];
@@ -1362,18 +1462,19 @@ export class LocalDatabaseRepository {
       }
       const reboundById = new Map(rebound.map(value => [value.mutationId, value]));
       const supersededDependentById = new Map(replacedDependents.map(value => [value.mutationId, value]));
-      const nextScoped = scoped.map(value => value.mutationId === old.mutationId
-        ? prerequisite
-        : supersededDependentById.get(value.mutationId) ?? reboundById.get(value.mutationId) ?? value);
-      nextScoped.push(replacement, ...rebound.filter(value => !scoped.some(oldValue => oldValue.mutationId === value.mutationId)));
+      const nextScoped = scoped.map(value => profileUpdates.get(value.mutationId)
+        ?? supersededDependentById.get(value.mutationId) ?? reboundById.get(value.mutationId) ?? value);
+      if (createdReplacement) nextScoped.push(replacement);
+      nextScoped.push(...rebound.filter(value => !scoped.some(oldValue => oldValue.mutationId === value.mutationId)));
       this.validateOutboxSequences(nextScoped, operation);
       this.validateOutboxDependencies(nextScoped, operation);
 
+      const nextRevision = createdReplacement ? replacement.localRevision : entity.revision;
       const nextEntity: LocalEntityEnvelope<T> = {
         ...entity,
         record: correctedRecord as T,
-        revision: localRevision,
-        localRevision,
+        revision: nextRevision,
+        localRevision: nextRevision,
         serverRevision: input.remoteServerRevision,
         updatedAt: timestamp,
         contentHash: hashCanonicalPayload(correctedRecord),
@@ -1382,8 +1483,8 @@ export class LocalDatabaseRepository {
         source: { kind: 'local', reference: 'conflict-reconciliation' },
       };
       validateEntityEnvelope(nextEntity);
-      if (prerequisite !== old) outboxStore.put(prerequisite);
-      outboxStore.add(replacement);
+      profileUpdates.forEach(value => outboxStore.put(value));
+      if (createdReplacement) outboxStore.add(replacement);
       replacedDependents.forEach(value => outboxStore.put(value));
       rebound.forEach(value => {
         if (scoped.some(oldValue => oldValue.mutationId === value.mutationId)) outboxStore.put(value);
@@ -1399,7 +1500,8 @@ export class LocalDatabaseRepository {
       for (const conflict of conflicts) {
         validateConflictRecord(conflict);
         if (conflict.accountId !== this.namespace.userId) throw new LocalDatabaseError('NAMESPACE_MISMATCH', operation);
-        if (conflict.mutationId === old.mutationId && conflict.resolutionState === 'unresolved') {
+        if (conflict.mutationId != null && supersededProfileIds.has(conflict.mutationId)
+          && conflict.resolutionState === 'unresolved') {
           const resolved: SyncConflictRecord = {
             ...conflict, resolutionState: 'resolved_merged', resolvedAt: timestamp,
           };

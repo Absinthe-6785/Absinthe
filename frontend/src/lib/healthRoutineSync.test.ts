@@ -263,6 +263,31 @@ class FakeHealthRoutineServer {
     return clone(publicChange);
   }
 
+  forcePresetDelete(accountId: string, entityId: string): K323V2RemoteChange<Record<string, unknown>> {
+    const key = this.key(accountId, HEALTH_ROUTINE_PRESET_DOMAIN, entityId);
+    const current = this.entities.get(key);
+    if (!current || current.deletedAt !== null) throw new Error('FORCED_PRESET_NOT_AVAILABLE');
+    const profile = this.entities.get(this.key(accountId, HEALTH_ROUTINE_PROFILE_DOMAIN, HEALTH_ROUTINE_PROFILE_ID));
+    if (profile?.record.activePresetId === entityId) throw new Error('FORCED_PRESET_IS_ACTIVE');
+    const remoteMutationRef = this.uuid();
+    this.clock = Math.max(this.clock, Date.parse('2026-09-20T03:00:00.000Z'));
+    const serverCommittedAt = this.now();
+    const revision = current.revision + 1;
+    this.entities.set(key, {
+      record: clone(current.record), revision, deletedAt: serverCommittedAt, remoteMutationRef,
+    });
+    this.sequence += 1;
+    const change: K323V2RemoteChange<Record<string, unknown>> & { accountId: string } = {
+      accountId, sequence: this.sequence, domain: HEALTH_ROUTINE_PRESET_DOMAIN,
+      entityId, operation: 'tombstone', serverRevision: revision,
+      record: clone(current.record), isDeleted: true, deletedAt: serverCommittedAt,
+      remoteMutationRef, serverCommittedAt,
+    };
+    this.changes.push(change);
+    const { accountId: _accountId, ...publicChange } = change;
+    return clone(publicChange);
+  }
+
   revision(accountId: string, domain: string, entityId: string): number | null {
     return this.entities.get(this.key(accountId, domain, entityId))?.revision ?? null;
   }
@@ -807,6 +832,186 @@ describe('REL-05F Health routine aggregate convergence', () => {
     expect((await restarted.session.snapshot())?.presets.some(preset => preset.id === PRESET_A)).toBe(false);
     expect(await restarted.repository.listOutboxMutations({ limit: 100, status: 'conflict' })).toHaveLength(0);
     expect(await restarted.repository.listOutboxMutations({ limit: 100, status: 'permanent_failure' })).toHaveLength(0);
+  });
+
+  it('discovers and adopts an existing newer local profile successor after restart, then converges the delete', async () => {
+    const server = new FakeHealthRoutineServer();
+    const factory = new IDBFactory();
+    const device = await openDevice(server, factory, 'device-existing-successor');
+    const initial = await device.session.bootstrap({
+      legacyState: createRoutinePresetState({ routines: [], splitCount: 3 }), hasAccountScopedState: true,
+    });
+    let populated = updateRoutinePresetState(initial, {
+      type: 'create', preset: createEmptyRoutinePreset(PRESET_A, 'Future local choice', 2),
+    });
+    populated = updateRoutinePresetState(populated, {
+      type: 'create', preset: createEmptyRoutinePreset(PRESET_B, 'Delete after successor', 2),
+    });
+    const stored = await device.session.commitState(initial, populated);
+    await device.session.sync();
+    const deleting = updateRoutinePresetState(stored, { type: 'delete', presetId: PRESET_B });
+    await device.session.commitState(stored, deleting);
+
+    server.forceProfile(ACCOUNT, PRESET_B);
+    const delegate = server.client(ACCOUNT);
+    let interruptProfilePull = true;
+    device.session = new HealthRoutineSyncSession({
+      repository: device.repository,
+      now: () => new Date(device.clock.value).toISOString(),
+      online: () => true,
+      transport: {
+        ...delegate,
+        pull: async request => {
+          if (interruptProfilePull && request.domain === HEALTH_ROUTINE_PROFILE_DOMAIN) {
+            interruptProfilePull = false;
+            throw new TypeError('synthetic_stop_before_profile_reconciliation');
+          }
+          return delegate.pull(request);
+        },
+      },
+    });
+    await device.session.sync();
+    const conflicted = (await device.repository.listOutboxMutations({ limit: 100, status: 'conflict' }))
+      .find(item => item.domain === HEALTH_ROUTINE_PROFILE_DOMAIN)!;
+    const dependent = (await device.repository.listOutboxMutations({ limit: 100, status: 'pending' }))
+      .find(item => item.domain === HEALTH_ROUTINE_PRESET_DOMAIN && item.entityId === PRESET_B)!;
+    expect(dependent.dependsOnMutationId).toBe(conflicted.mutationId);
+
+    const newerLocalState = updateRoutinePresetState(deleting, { type: 'switch', presetId: PRESET_A });
+    await device.session.commitState(deleting, newerLocalState);
+    const existingSuccessor = (await device.repository.listOutboxMutations({
+      domain: HEALTH_ROUTINE_PROFILE_DOMAIN, entityId: HEALTH_ROUTINE_PROFILE_ID, limit: 100,
+    })).find(item => item.status === 'pending')!;
+    expect(existingSuccessor.localRevision).toBeGreaterThan(conflicted.localRevision);
+    expect((await device.repository.getEntity(HEALTH_ROUTINE_PROFILE_DOMAIN, HEALTH_ROUTINE_PROFILE_ID))?.pendingMutationId)
+      .toBe(existingSuccessor.mutationId);
+    expect((await device.repository.getOutboxRecord(dependent.mutationId))?.dependsOnMutationId)
+      .toBe(conflicted.mutationId);
+
+    closeLocalDatabase(device.repository);
+    openDevices.splice(openDevices.indexOf(device), 1);
+    const reconciled = await openDevice(server, factory, 'device-existing-successor');
+    await reconciled.session.sync();
+    expect(await reconciled.repository.getOutboxRecord(conflicted.mutationId)).toMatchObject({
+      status: 'superseded', supersededByMutationId: existingSuccessor.mutationId,
+    });
+    expect(await reconciled.repository.getOutboxRecord(existingSuccessor.mutationId)).toMatchObject({
+      status: 'pending', mutationId: existingSuccessor.mutationId,
+    });
+    expect(await reconciled.repository.getOutboxRecord(dependent.mutationId)).toMatchObject({
+      mutationId: dependent.mutationId, dependsOnMutationId: existingSuccessor.mutationId,
+    });
+    expect(await reconciled.repository.getEntity(HEALTH_ROUTINE_PROFILE_DOMAIN, HEALTH_ROUTINE_PROFILE_ID))
+      .toMatchObject({ pendingMutationId: existingSuccessor.mutationId, record: { activePresetId: PRESET_A } });
+
+    closeLocalDatabase(reconciled.repository);
+    openDevices.splice(openDevices.indexOf(reconciled), 1);
+    const restarted = await openDevice(server, factory, 'device-existing-successor');
+    const profileChangeCount = server.domainChanges(ACCOUNT, HEALTH_ROUTINE_PROFILE_DOMAIN).length;
+    server.failAfterApplyOnce = true;
+    await restarted.session.sync();
+    expect(await restarted.repository.getOutboxRecord(existingSuccessor.mutationId)).toMatchObject({
+      status: 'retry_wait', lastErrorCode: 'AMBIGUOUS_NETWORK_RESPONSE',
+    });
+    expect(await restarted.repository.getOutboxRecord(dependent.mutationId)).toMatchObject({ status: 'pending' });
+    expect(server.domainChanges(ACCOUNT, HEALTH_ROUTINE_PROFILE_DOMAIN)).toHaveLength(profileChangeCount + 1);
+    expect(server.livePresetIds(ACCOUNT)).toContain(PRESET_B);
+
+    restarted.clock.value += 120_000;
+    await restarted.session.sync();
+    expect(server.domainChanges(ACCOUNT, HEALTH_ROUTINE_PROFILE_DOMAIN).at(-1)?.record.activePresetId).toBe(PRESET_A);
+    expect(server.domainChanges(ACCOUNT, HEALTH_ROUTINE_PROFILE_DOMAIN)).toHaveLength(profileChangeCount + 1);
+    expect(server.livePresetIds(ACCOUNT)).not.toContain(PRESET_B);
+    expect((await restarted.session.snapshot())?.activePresetId).toBe(PRESET_A);
+    expect(await restarted.repository.getOutboxRecord(existingSuccessor.mutationId)).toMatchObject({ status: 'acknowledged' });
+    expect(await restarted.repository.getOutboxRecord(dependent.mutationId)).toMatchObject({ status: 'acknowledged' });
+    expect((await restarted.repository.listOutboxDependents(conflicted.mutationId))
+      .filter(item => item.status === 'pending' || item.status === 'retry_wait')).toEqual([]);
+    expect((await restarted.repository.listConflicts(HEALTH_ROUTINE_PROFILE_DOMAIN, HEALTH_ROUTINE_PROFILE_ID))
+      .every(conflict => conflict.resolutionState !== 'unresolved')).toBe(true);
+    expect(await restarted.repository.listOutboxMutations({ limit: 100, status: 'permanent_failure' })).toHaveLength(0);
+  });
+
+  it('creates a corrected P3 when the existing local successor becomes stale against pulled preset authority', async () => {
+    const server = new FakeHealthRoutineServer();
+    const factory = new IDBFactory();
+    const device = await openDevice(server, factory, 'device-stale-successor');
+    const initial = await device.session.bootstrap({
+      legacyState: createRoutinePresetState({ routines: [], splitCount: 3 }), hasAccountScopedState: true,
+    });
+    let populated = updateRoutinePresetState(initial, {
+      type: 'create', preset: createEmptyRoutinePreset(PRESET_A, 'Stale local choice', 2),
+    });
+    populated = updateRoutinePresetState(populated, {
+      type: 'create', preset: createEmptyRoutinePreset(PRESET_B, 'Delete after correction', 2),
+    });
+    const stored = await device.session.commitState(initial, populated);
+    await device.session.sync();
+    const deleting = updateRoutinePresetState(stored, { type: 'delete', presetId: PRESET_B });
+    await device.session.commitState(stored, deleting);
+
+    server.forceProfile(ACCOUNT, PRESET_B);
+    const delegate = server.client(ACCOUNT);
+    let interruptProfilePull = true;
+    device.session = new HealthRoutineSyncSession({
+      repository: device.repository,
+      now: () => new Date(device.clock.value).toISOString(),
+      online: () => true,
+      transport: {
+        ...delegate,
+        pull: async request => {
+          if (interruptProfilePull && request.domain === HEALTH_ROUTINE_PROFILE_DOMAIN) {
+            interruptProfilePull = false;
+            throw new TypeError('synthetic_stop_before_stale_successor_reconciliation');
+          }
+          return delegate.pull(request);
+        },
+      },
+    });
+    await device.session.sync();
+    const conflicted = (await device.repository.listOutboxMutations({ limit: 100, status: 'conflict' }))
+      .find(item => item.domain === HEALTH_ROUTINE_PROFILE_DOMAIN)!;
+    const dependent = (await device.repository.listOutboxMutations({ limit: 100, status: 'pending' }))
+      .find(item => item.domain === HEALTH_ROUTINE_PRESET_DOMAIN && item.entityId === PRESET_B)!;
+    const newerLocalState = updateRoutinePresetState(deleting, { type: 'switch', presetId: PRESET_A });
+    await device.session.commitState(deleting, newerLocalState);
+    const staleSuccessor = (await device.repository.listOutboxMutations({
+      domain: HEALTH_ROUTINE_PROFILE_DOMAIN, entityId: HEALTH_ROUTINE_PROFILE_ID, limit: 100,
+    })).find(item => item.status === 'pending')!;
+    server.forcePresetDelete(ACCOUNT, PRESET_A);
+
+    closeLocalDatabase(device.repository);
+    openDevices.splice(openDevices.indexOf(device), 1);
+    const reconciled = await openDevice(server, factory, 'device-stale-successor');
+    await reconciled.session.sync();
+    const corrected = (await reconciled.repository.listOutboxMutations({
+      domain: HEALTH_ROUTINE_PROFILE_DOMAIN, entityId: HEALTH_ROUTINE_PROFILE_ID, limit: 100,
+    })).find(item => item.status === 'pending')!;
+    expect(corrected.mutationId).not.toBe(staleSuccessor.mutationId);
+    expect(corrected.localRevision).toBe(staleSuccessor.localRevision + 1);
+    expect(corrected.payload).toEqual({
+      kind: 'entity_snapshot', record: { id: HEALTH_ROUTINE_PROFILE_ID, activePresetId: DEFAULT_ROUTINE_PRESET_ID },
+    });
+    for (const obsolete of [conflicted, staleSuccessor]) {
+      expect(await reconciled.repository.getOutboxRecord(obsolete.mutationId)).toMatchObject({
+        status: 'superseded', supersededByMutationId: corrected.mutationId,
+      });
+    }
+    expect(await reconciled.repository.getOutboxRecord(dependent.mutationId)).toMatchObject({
+      mutationId: dependent.mutationId, dependsOnMutationId: corrected.mutationId,
+    });
+    expect(await reconciled.repository.getEntity(HEALTH_ROUTINE_PROFILE_DOMAIN, HEALTH_ROUTINE_PROFILE_ID))
+      .toMatchObject({ pendingMutationId: corrected.mutationId });
+
+    await reconciled.session.sync();
+    expect(server.domainChanges(ACCOUNT, HEALTH_ROUTINE_PROFILE_DOMAIN).at(-1)?.record.activePresetId)
+      .toBe(DEFAULT_ROUTINE_PRESET_ID);
+    expect(server.livePresetIds(ACCOUNT)).not.toContain(PRESET_B);
+    expect((await reconciled.session.snapshot())?.activePresetId).toBe(DEFAULT_ROUTINE_PRESET_ID);
+    expect(await reconciled.repository.getOutboxRecord(corrected.mutationId)).toMatchObject({ status: 'acknowledged' });
+    expect(await reconciled.repository.getOutboxRecord(dependent.mutationId)).toMatchObject({ status: 'acknowledged' });
+    expect(await reconciled.repository.listOutboxMutations({ limit: 100, status: 'conflict' })).toHaveLength(0);
+    expect(await reconciled.repository.listOutboxMutations({ limit: 100, status: 'permanent_failure' })).toHaveLength(0);
   });
 
   it('preserves a concurrent safe remote profile choice while deleting the former active preset', async () => {

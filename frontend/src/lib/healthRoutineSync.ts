@@ -271,6 +271,7 @@ export class HealthRoutineSyncSession {
   private async chooseReconciledProfile(
     prerequisite: OutboxRecord,
     remoteProfile: HealthRoutineProfileAggregate,
+    currentProfile: LocalEntityEnvelope<HealthRoutineProfileAggregate>,
   ): Promise<HealthRoutineProfileAggregate | null> {
     const dependents = await this.repository.listOutboxDependents(prerequisite.mutationId);
     const deletingPresetIds = new Set(dependents
@@ -284,6 +285,11 @@ export class HealthRoutineSyncSession {
       const preset = await this.repository.getEntity(HEALTH_ROUTINE_PRESET_DOMAIN, profile.activePresetId);
       return preset !== null && !preset.isDeleted;
     };
+    if (currentProfile.pendingMutationId !== null
+      && currentProfile.pendingMutationId !== prerequisite.mutationId) {
+      const currentIntent = validateHealthRoutineProfileAggregate(currentProfile.record);
+      if (await usable(currentIntent)) return currentIntent;
+    }
     if (await usable(remoteProfile)) return remoteProfile;
     if (prerequisite.payload.kind === 'entity_snapshot') {
       try {
@@ -311,7 +317,7 @@ export class HealthRoutineSyncSession {
       HEALTH_ROUTINE_PROFILE_DOMAIN, HEALTH_ROUTINE_PROFILE_ID,
     );
     if (!current || current.isDeleted) return false;
-    const corrected = await this.chooseReconciledProfile(input.prerequisite, input.remoteProfile);
+    const corrected = await this.chooseReconciledProfile(input.prerequisite, input.remoteProfile, current);
     if (!corrected) return false;
     await this.repository.reconcileOutboxPrerequisite({
       prerequisiteMutationId: input.prerequisite.mutationId,
@@ -530,20 +536,20 @@ export class HealthRoutineSyncSession {
         for (const change of response.changes) latestChanges.set(change.entityId, change);
         for (const change of latestChanges.values()) {
           const current = currentEntities.get(change.entityId);
-          if (current?.pendingMutationId) {
-            if (domain === HEALTH_ROUTINE_PROFILE_DOMAIN && !change.isDeleted
-              && change.remoteMutationRef && change.serverRevision > 0) {
-              const prerequisite = await this.repository.getOutboxRecord(current.pendingMutationId);
-              const remoteProfile = validateHealthRoutineProfileAggregate(change.record);
-              if (prerequisite?.status === 'conflict' && await this.reconcileProfilePrerequisite({
-                prerequisite,
-                remoteProfile,
-                remoteServerRevision: change.serverRevision,
-                remoteMutationRef: change.remoteMutationRef,
-              })) {
-                return { kind: 'conflict', domain, reason: 'PROFILE_CONFLICT_RECONCILED' };
-              }
+          if (domain === HEALTH_ROUTINE_PROFILE_DOMAIN && current && !change.isDeleted
+            && change.remoteMutationRef && change.serverRevision > 0) {
+            const prerequisite = await this.repository.findHealthProfileReconciliationPrerequisite();
+            const remoteProfile = validateHealthRoutineProfileAggregate(change.record);
+            if (prerequisite && await this.reconcileProfilePrerequisite({
+              prerequisite,
+              remoteProfile,
+              remoteServerRevision: change.serverRevision,
+              remoteMutationRef: change.remoteMutationRef,
+            })) {
+              return { kind: 'conflict', domain, reason: 'PROFILE_CONFLICT_RECONCILED' };
             }
+          }
+          if (current?.pendingMutationId) {
             const reason = change.isDeleted ? 'REMOTE_TOMBSTONE_WITH_PENDING_LOCAL' : 'REMOTE_NEWER_WITH_PENDING_LOCAL';
             await this.preservePullConflict(domain, current, change, reason);
             return { kind: 'conflict', domain, reason };
