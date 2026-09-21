@@ -10,6 +10,7 @@ import {
 } from '../components/views/features/health/routinePresets';
 import {
   HEALTH_ROUTINE_PRESET_DOMAIN,
+  HEALTH_ROUTINE_PROFILE_ID,
   HEALTH_ROUTINE_PROFILE_DOMAIN,
   routinePresetStateToAggregates,
   type HealthRoutinePresetAggregate,
@@ -236,6 +237,30 @@ class FakeHealthRoutineServer {
         };
       },
     };
+  }
+
+  forceProfile(accountId: string, activePresetId: string | null): K323V2RemoteChange<Record<string, unknown>> {
+    if (activePresetId !== null) {
+      const preset = this.entities.get(this.key(accountId, HEALTH_ROUTINE_PRESET_DOMAIN, activePresetId));
+      if (!preset || preset.deletedAt !== null) throw new Error('FORCED_PROFILE_PRESET_NOT_AVAILABLE');
+    }
+    const key = this.key(accountId, HEALTH_ROUTINE_PROFILE_DOMAIN, HEALTH_ROUTINE_PROFILE_ID);
+    const current = this.entities.get(key);
+    if (!current) throw new Error('FORCED_PROFILE_NOT_FOUND');
+    const remoteMutationRef = this.uuid();
+    const serverCommittedAt = this.now();
+    const record = { id: HEALTH_ROUTINE_PROFILE_ID, activePresetId };
+    const revision = current.revision + 1;
+    this.entities.set(key, { record, revision, deletedAt: null, remoteMutationRef });
+    this.sequence += 1;
+    const change: K323V2RemoteChange<Record<string, unknown>> & { accountId: string } = {
+      accountId, sequence: this.sequence, domain: HEALTH_ROUTINE_PROFILE_DOMAIN,
+      entityId: HEALTH_ROUTINE_PROFILE_ID, operation: 'upsert', serverRevision: revision,
+      record, isDeleted: false, deletedAt: null, remoteMutationRef, serverCommittedAt,
+    };
+    this.changes.push(change);
+    const { accountId: _accountId, ...publicChange } = change;
+    return clone(publicChange);
   }
 
   revision(accountId: string, domain: string, entityId: string): number | null {
@@ -729,7 +754,7 @@ describe('REL-05F Health routine aggregate convergence', () => {
       .filter(change => change.operation === 'tombstone')).toHaveLength(105);
   }, 15_000);
 
-  it('does not send dependent tombstones when the prerequisite profile is not acknowledged', async () => {
+  it('reconciles repeated profile conflicts, preserves the rebound graph across restart, and converges the delete', async () => {
     const server = new FakeHealthRoutineServer();
     const factory = new IDBFactory();
     const device = await openDevice(server, factory, 'device-profile-block');
@@ -744,43 +769,32 @@ describe('REL-05F Health routine aggregate convergence', () => {
     const deleting = updateRoutinePresetState(populated, { type: 'delete', presetId: PRESET_A });
     await device.session.commitState(populated, deleting);
 
-    const delegate = server.client(ACCOUNT);
-    device.session = new HealthRoutineSyncSession({
-      repository: device.repository,
-      now: () => new Date(device.clock.value).toISOString(),
-      online: () => true,
-      transport: {
-        ...delegate,
-        push: async request => request.domain === HEALTH_ROUTINE_PROFILE_DOMAIN ? {
-          protocolVersion: 2,
-          outcome: 'revision_conflict',
-          mutationId: request.mutationId,
-          idempotencyKey: request.idempotencyKey,
-          domain: request.domain,
-          entityId: request.entityId,
-          operation: request.operation,
-          payloadHash: request.payloadHash,
-          remoteMutationRef: null,
-          serverRevision: null,
-          changeSequence: null,
-          serverCommittedAt: null,
-          errorCode: 'REMOTE_REVISION_CONFLICT',
-          retryable: false,
-        } : delegate.push(request),
-      },
-    });
+    server.forceProfile(ACCOUNT, PRESET_A);
     await device.session.sync();
 
     expect(server.domainChanges(ACCOUNT, HEALTH_ROUTINE_PRESET_DOMAIN)
       .filter(change => change.entityId === PRESET_A && change.operation === 'tombstone')).toHaveLength(0);
     expect(await device.repository.listOutboxMutations({ limit: 100, status: 'permanent_failure' }))
       .toHaveLength(0);
-    const conflict = (await device.repository.listOutboxMutations({ limit: 100, status: 'conflict' }))
+    const firstSuperseded = (await device.repository.listOutboxMutations({ limit: 100, status: 'superseded' }))
+      .find(item => item.domain === HEALTH_ROUTINE_PROFILE_DOMAIN);
+    const firstReplacement = (await device.repository.listOutboxMutations({ limit: 100, status: 'pending' }))
       .find(item => item.domain === HEALTH_ROUTINE_PROFILE_DOMAIN);
     const dependent = (await device.repository.listOutboxMutations({ limit: 100, status: 'pending' }))
       .find(item => item.entityId === PRESET_A && item.operation === 'tombstone');
-    expect(conflict).toBeDefined();
-    expect(dependent?.dependsOnMutationId).toBe(conflict?.mutationId);
+    expect(firstSuperseded?.supersededByMutationId).toBe(firstReplacement?.mutationId);
+    expect(dependent?.dependsOnMutationId).toBe(firstReplacement?.mutationId);
+
+    server.forceProfile(ACCOUNT, PRESET_A);
+    await device.session.sync();
+    const profileHistory = (await device.repository.listOutboxMutations({
+      domain: HEALTH_ROUTINE_PROFILE_DOMAIN, entityId: HEALTH_ROUTINE_PROFILE_ID, limit: 100,
+    }));
+    const secondReplacement = profileHistory.find(item => item.status === 'pending');
+    expect(profileHistory.filter(item => item.status === 'superseded')).toHaveLength(2);
+    expect(secondReplacement?.mutationId).not.toBe(firstReplacement?.mutationId);
+    expect((await device.repository.getOutboxRecord(dependent!.mutationId))?.dependsOnMutationId)
+      .toBe(secondReplacement?.mutationId);
 
     closeLocalDatabase(device.repository);
     openDevices.splice(openDevices.indexOf(device), 1);
@@ -788,9 +802,148 @@ describe('REL-05F Health routine aggregate convergence', () => {
     restarted.clock.value += 120_000;
     await restarted.session.sync();
     expect(server.domainChanges(ACCOUNT, HEALTH_ROUTINE_PRESET_DOMAIN)
-      .filter(change => change.entityId === PRESET_A && change.operation === 'tombstone')).toHaveLength(0);
-    expect((await restarted.repository.listOutboxMutations({ limit: 100, status: 'pending' }))
-      .find(item => item.entityId === PRESET_A)?.dependsOnMutationId).toBe(conflict?.mutationId);
+      .filter(change => change.entityId === PRESET_A && change.operation === 'tombstone')).toHaveLength(1);
+    expect(server.livePresetIds(ACCOUNT)).not.toContain(PRESET_A);
+    expect((await restarted.session.snapshot())?.presets.some(preset => preset.id === PRESET_A)).toBe(false);
+    expect(await restarted.repository.listOutboxMutations({ limit: 100, status: 'conflict' })).toHaveLength(0);
+    expect(await restarted.repository.listOutboxMutations({ limit: 100, status: 'permanent_failure' })).toHaveLength(0);
+  });
+
+  it('preserves a concurrent safe remote profile choice while deleting the former active preset', async () => {
+    const server = new FakeHealthRoutineServer();
+    const device = await openDevice(server, new IDBFactory(), 'device-safe-remote-profile');
+    const initial = await device.session.bootstrap({
+      legacyState: createRoutinePresetState({ routines: [], splitCount: 3 }), hasAccountScopedState: true,
+    });
+    let populated = updateRoutinePresetState(initial, {
+      type: 'create', preset: createEmptyRoutinePreset(PRESET_A, 'Safe remote choice', 2),
+    });
+    populated = updateRoutinePresetState(populated, {
+      type: 'create', preset: createEmptyRoutinePreset(PRESET_B, 'Delete me', 2),
+    });
+    const stored = await device.session.commitState(initial, populated);
+    await device.session.sync();
+    await device.session.commitState(stored, updateRoutinePresetState(stored, {
+      type: 'delete', presetId: PRESET_B,
+    }));
+    server.forceProfile(ACCOUNT, PRESET_A);
+
+    await device.session.sync();
+
+    const replacement = (await device.repository.listOutboxMutations({ limit: 100, status: 'pending' }))
+      .find(item => item.domain === HEALTH_ROUTINE_PROFILE_DOMAIN);
+    expect(replacement?.payload).toEqual({
+      kind: 'entity_snapshot', record: { id: HEALTH_ROUTINE_PROFILE_ID, activePresetId: PRESET_A },
+    });
+    await device.session.sync();
+    expect((await device.session.snapshot())?.activePresetId).toBe(PRESET_A);
+    expect(server.livePresetIds(ACCOUNT)).toContain(PRESET_A);
+    expect(server.livePresetIds(ACCOUNT)).not.toContain(PRESET_B);
+  });
+
+  it('treats ACTIVE_PRESET_DELETE_REQUIRES_PROFILE_UPDATE as reconciliation and reissues its cached rejection', async () => {
+    const server = new FakeHealthRoutineServer();
+    const device = await openDevice(server, new IDBFactory(), 'device-active-reconcile');
+    const initial = await device.session.bootstrap({
+      legacyState: createRoutinePresetState({ routines: [], splitCount: 3 }), hasAccountScopedState: true,
+    });
+    const populated = await device.session.commitState(initial, updateRoutinePresetState(initial, {
+      type: 'create', preset: createEmptyRoutinePreset(PRESET_A, 'Concurrent active', 2),
+    }));
+    await device.session.sync();
+    await device.session.commitState(populated, updateRoutinePresetState(populated, {
+      type: 'delete', presetId: PRESET_A,
+    }));
+
+    const delegate = server.client(ACCOUNT);
+    let changedAfterProfileAck = false;
+    device.session = new HealthRoutineSyncSession({
+      repository: device.repository,
+      now: () => new Date(device.clock.value).toISOString(),
+      online: () => true,
+      transport: {
+        ...delegate,
+        push: async request => {
+          const receipt = await delegate.push(request);
+          if (!changedAfterProfileAck && request.domain === HEALTH_ROUTINE_PROFILE_DOMAIN
+            && receipt.outcome === 'applied') {
+            changedAfterProfileAck = true;
+            server.forceProfile(ACCOUNT, PRESET_A);
+          }
+          return receipt;
+        },
+      },
+    });
+    await device.session.sync();
+
+    const rejectedDelete = (await device.repository.listOutboxMutations({ limit: 100, status: 'superseded' }))
+      .find(item => item.domain === HEALTH_ROUTINE_PRESET_DOMAIN && item.entityId === PRESET_A);
+    expect(rejectedDelete).toMatchObject({
+      status: 'superseded', attemptCount: 1,
+    });
+    const replacementProfile = (await device.repository.listOutboxMutations({ limit: 100, status: 'pending' }))
+      .find(item => item.domain === HEALTH_ROUTINE_PROFILE_DOMAIN);
+    const replacementDelete = (await device.repository.listOutboxMutations({ limit: 100, status: 'pending' }))
+      .find(item => item.domain === HEALTH_ROUTINE_PRESET_DOMAIN && item.entityId === PRESET_A);
+    expect(replacementDelete?.dependsOnMutationId).toBe(replacementProfile?.mutationId);
+    expect(server.livePresetIds(ACCOUNT)).toContain(PRESET_A);
+
+    await device.session.sync();
+
+    expect(await device.repository.getOutboxRecord(rejectedDelete!.mutationId)).toMatchObject({
+      status: 'superseded',
+    });
+    const acknowledgedDeletes = (await device.repository.listOutboxMutations({ limit: 100, status: 'acknowledged' }))
+      .filter(item => item.domain === HEALTH_ROUTINE_PRESET_DOMAIN && item.entityId === PRESET_A
+        && item.operation === 'tombstone');
+    expect(acknowledgedDeletes).toHaveLength(1);
+    expect(acknowledgedDeletes[0].mutationId).not.toBe(rejectedDelete?.mutationId);
+    expect(server.livePresetIds(ACCOUNT)).not.toContain(PRESET_A);
+    expect(await device.repository.listOutboxMutations({ limit: 100, status: 'permanent_failure' })).toHaveLength(0);
+    expect(await device.repository.listOutboxMutations({ limit: 100, status: 'conflict' })).toHaveLength(0);
+  });
+
+  it('keeps a reconciled replacement ambiguous response blocked until exact replay acknowledgement', async () => {
+    const server = new FakeHealthRoutineServer();
+    const device = await openDevice(server, new IDBFactory(), 'device-replacement-ambiguous');
+    const initial = await device.session.bootstrap({
+      legacyState: createRoutinePresetState({ routines: [], splitCount: 3 }), hasAccountScopedState: true,
+    });
+    const populated = await device.session.commitState(initial, updateRoutinePresetState(initial, {
+      type: 'create', preset: createEmptyRoutinePreset(PRESET_A, 'Replacement ambiguous', 2),
+    }));
+    await device.session.sync();
+    await device.session.commitState(populated, updateRoutinePresetState(populated, {
+      type: 'delete', presetId: PRESET_A,
+    }));
+    server.forceProfile(ACCOUNT, PRESET_A);
+    await device.session.sync();
+
+    const replacement = (await device.repository.listOutboxMutations({ limit: 100, status: 'pending' }))
+      .find(item => item.domain === HEALTH_ROUTINE_PROFILE_DOMAIN);
+    const blockedDelete = (await device.repository.listOutboxMutations({ limit: 100, status: 'pending' }))
+      .find(item => item.domain === HEALTH_ROUTINE_PRESET_DOMAIN && item.entityId === PRESET_A);
+    expect(blockedDelete?.dependsOnMutationId).toBe(replacement?.mutationId);
+    const profileChangesBefore = server.domainChanges(ACCOUNT, HEALTH_ROUTINE_PROFILE_DOMAIN).length;
+    server.failAfterApplyOnce = true;
+    await device.session.sync();
+
+    expect(await device.repository.getOutboxRecord(replacement!.mutationId)).toMatchObject({
+      status: 'retry_wait', lastErrorCode: 'AMBIGUOUS_NETWORK_RESPONSE',
+    });
+    expect(server.domainChanges(ACCOUNT, HEALTH_ROUTINE_PROFILE_DOMAIN)).toHaveLength(profileChangesBefore + 1);
+    expect(server.livePresetIds(ACCOUNT)).toContain(PRESET_A);
+
+    device.clock.value += 120_000;
+    await device.session.sync();
+
+    expect(await device.repository.getOutboxRecord(replacement!.mutationId)).toMatchObject({ status: 'acknowledged' });
+    expect(server.domainChanges(ACCOUNT, HEALTH_ROUTINE_PROFILE_DOMAIN)).toHaveLength(profileChangesBefore + 1);
+    expect(server.domainChanges(ACCOUNT, HEALTH_ROUTINE_PRESET_DOMAIN)
+      .filter(change => change.entityId === PRESET_A && change.operation === 'tombstone')).toHaveLength(1);
+    expect(server.livePresetIds(ACCOUNT)).not.toContain(PRESET_A);
+    expect((await device.repository.listConflicts(HEALTH_ROUTINE_PROFILE_DOMAIN, HEALTH_ROUTINE_PROFILE_ID))
+      .every(conflict => conflict.resolutionState !== 'unresolved')).toBe(true);
   });
 
   it('keeps a dependent tombstone blocked across an ambiguous profile response and releases it after exact acknowledgement', async () => {

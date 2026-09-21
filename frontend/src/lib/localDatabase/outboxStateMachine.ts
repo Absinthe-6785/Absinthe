@@ -136,3 +136,61 @@ export function supersedeOutboxRecord(older: OutboxRecord, newer: OutboxRecord, 
   }
   return { ...older, status: 'superseded', updatedAt: now, supersededByMutationId: newer.mutationId };
 }
+
+/**
+ * The deliberately narrow conflict-reconciliation transition. Callers must
+ * create the replacement and rebind every live dependent in the same durable
+ * transaction; this function only validates the immutable record relationship.
+ */
+export function replaceConflictedOutboxRecord(
+  conflicted: OutboxRecord,
+  replacement: OutboxRecord,
+  now: string,
+): OutboxRecord {
+  if (conflicted.namespaceKey !== replacement.namespaceKey
+    || conflicted.generationId !== replacement.generationId
+    || conflicted.domain !== replacement.domain
+    || conflicted.entityId !== replacement.entityId
+    || conflicted.status !== 'conflict'
+    || replacement.status !== 'pending'
+    || replacement.attemptCount !== 0
+    || replacement.baseRevision !== conflicted.localRevision
+    || replacement.localRevision !== conflicted.localRevision + 1) {
+    throw new LocalDatabaseError('INVALID_OUTBOX_TRANSITION', 'replace_conflicted_outbox');
+  }
+  return {
+    ...conflicted,
+    status: 'superseded',
+    updatedAt: now,
+    lastErrorCode: null,
+    supersededByMutationId: replacement.mutationId,
+  };
+}
+
+export function replaceRejectedDependentOutboxRecord(
+  rejected: OutboxRecord,
+  replacement: OutboxRecord,
+  now: string,
+): OutboxRecord {
+  if (rejected.namespaceKey !== replacement.namespaceKey
+    || rejected.generationId !== replacement.generationId
+    || rejected.domain !== replacement.domain
+    || rejected.entityId !== replacement.entityId
+    || rejected.operation !== 'tombstone'
+    || replacement.operation !== 'tombstone'
+    || rejected.status !== 'retry_wait'
+    || rejected.lastErrorCode !== 'ACTIVE_PRESET_DELETE_REQUIRES_PROFILE_UPDATE'
+    || replacement.status !== 'pending'
+    || replacement.attemptCount !== 0
+    || replacement.baseRevision !== rejected.localRevision
+    || replacement.localRevision !== rejected.localRevision + 1) {
+    throw new LocalDatabaseError('INVALID_OUTBOX_TRANSITION', 'replace_rejected_dependent_outbox');
+  }
+  return {
+    ...rejected,
+    status: 'superseded',
+    updatedAt: now,
+    lastErrorCode: null,
+    supersededByMutationId: replacement.mutationId,
+  };
+}

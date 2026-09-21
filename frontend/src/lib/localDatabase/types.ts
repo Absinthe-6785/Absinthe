@@ -372,6 +372,24 @@ export interface CommittedLocalMutation<T = unknown> {
   outbox: OutboxRecord;
 }
 
+export interface ReconcileOutboxPrerequisiteInput<T = unknown> {
+  prerequisiteMutationId: string;
+  prerequisiteStatus: 'conflict' | 'acknowledged';
+  expectedEntityRevision: number;
+  correctedRecord: T;
+  remoteRecord: T;
+  remoteServerRevision: number;
+  remoteMutationRef: string;
+  now: string;
+}
+
+export interface ReconciledOutboxPrerequisite<T = unknown> {
+  prerequisite: OutboxRecord;
+  replacement: OutboxRecord;
+  entity: LocalEntityEnvelope<T>;
+  dependents: OutboxRecord[];
+}
+
 export interface ClaimOutboxInput {
   workerId: string;
   now: string;

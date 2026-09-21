@@ -459,6 +459,135 @@ describe('K-322 claim, retry, acknowledgement, and failure lifecycle', () => {
     expect(claimedDependent.mutationId).toBe(dependent.outbox.mutationId);
   });
 
+  it('atomically replaces a conflicted prerequisite, rebinds every dependent, and survives restart', async () => {
+    const repository = await repo();
+    const profileId = '00000000-0000-5000-8000-000000000002';
+    const profile = await repository.commitLocalMutation({
+      mutation: { mode: 'create', domain: 'health_routine_profile', entityId: profileId, record: { active: 'preset-a' } },
+      now: T0,
+    });
+    const presetA = await repository.commitLocalMutation({
+      mutation: { mode: 'create', domain: 'health_routine_preset', entityId: 'preset-a', record: { name: 'A' } },
+      now: T0,
+    });
+    const presetB = await repository.commitLocalMutation({
+      mutation: { mode: 'create', domain: 'health_routine_preset', entityId: 'preset-b', record: { name: 'B' } },
+      now: T0,
+    });
+    const seeds = await repository.claimNextMutations({
+      workerId: 'seed-worker', now: T0, leaseDurationMs: 1_000, limit: 10,
+    });
+    for (const [index, seed] of seeds.entries()) {
+      await repository.acknowledgeMutationAndEntity({
+        mutationId: seed.mutationId, workerId: 'seed-worker', now: T0,
+        remoteMutationRef: `00000000-0000-4000-8000-${String(index + 21).padStart(12, '0')}`,
+        acknowledgedRevision: 1, serverCommittedAt: T0,
+      });
+    }
+    expect(seeds.map(item => item.mutationId).sort()).toEqual([
+      profile.outbox.mutationId, presetA.outbox.mutationId, presetB.outbox.mutationId,
+    ].sort());
+
+    const prerequisite = await repository.commitLocalMutation({
+      mutation: {
+        mode: 'update', domain: 'health_routine_profile', entityId: profileId,
+        record: { active: 'default' }, expectedRevision: 1,
+      },
+      now: T1,
+    });
+    const dependentA = await repository.commitLocalMutation({
+      mutation: {
+        mode: 'tombstone', domain: 'health_routine_preset', entityId: 'preset-a',
+        record: null, expectedRevision: 1,
+      },
+      now: T1,
+      dependsOnMutationId: prerequisite.outbox.mutationId,
+    });
+    const dependentB = await repository.commitLocalMutation({
+      mutation: {
+        mode: 'tombstone', domain: 'health_routine_preset', entityId: 'preset-b',
+        record: null, expectedRevision: 1,
+      },
+      now: T1,
+      dependsOnMutationId: prerequisite.outbox.mutationId,
+    });
+    const [claimed] = await repository.claimNextMutations({
+      workerId: 'worker-a', now: T1, leaseDurationMs: 1_000, limit: 10,
+    });
+    expect(claimed.mutationId).toBe(prerequisite.outbox.mutationId);
+    await repository.markMutationConflict({
+      mutationId: prerequisite.outbox.mutationId, workerId: 'worker-a', now: T2,
+      errorCode: 'REMOTE_REVISION_CONFLICT',
+    });
+    await expect(repository.supersedePendingMutation(
+      prerequisite.outbox.mutationId, profile.outbox.mutationId, T2,
+    )).rejects.toMatchObject({ code: 'INVALID_OUTBOX_TRANSITION' });
+
+    const T3 = '2026-07-12T00:00:03.000Z';
+    const reconciled = await repository.reconcileOutboxPrerequisite({
+      prerequisiteMutationId: prerequisite.outbox.mutationId,
+      prerequisiteStatus: 'conflict',
+      expectedEntityRevision: 2,
+      correctedRecord: { active: 'default' },
+      remoteRecord: { active: 'preset-a' },
+      remoteServerRevision: 2,
+      remoteMutationRef: '00000000-0000-4000-8000-000000000101',
+      now: T3,
+    });
+    expect(reconciled.prerequisite).toMatchObject({
+      status: 'superseded', supersededByMutationId: reconciled.replacement.mutationId,
+    });
+    expect(reconciled.entity.pendingMutationId).toBe(reconciled.replacement.mutationId);
+    expect(reconciled.dependents.map(item => item.mutationId).sort()).toEqual([
+      dependentA.outbox.mutationId, dependentB.outbox.mutationId,
+    ].sort());
+    expect(reconciled.dependents.every(item => (
+      item.dependsOnMutationId === reconciled.replacement.mutationId
+    ))).toBe(true);
+    await expect(repository.reconcileOutboxPrerequisite({
+      prerequisiteMutationId: 'mut.99999999-9999-4999-8999-999999999999',
+      prerequisiteStatus: 'conflict', expectedEntityRevision: 3,
+      correctedRecord: { active: 'default' }, remoteRecord: { active: 'preset-a' },
+      remoteServerRevision: 2, remoteMutationRef: '00000000-0000-4000-8000-000000000101', now: T3,
+    })).rejects.toMatchObject({ code: 'OUTBOX_NOT_FOUND' });
+    const otherAccount = await repo({ ...namespace, userId: 'user-k322-other' });
+    await expect(otherAccount.reconcileOutboxPrerequisite({
+      prerequisiteMutationId: prerequisite.outbox.mutationId,
+      prerequisiteStatus: 'conflict', expectedEntityRevision: 2,
+      correctedRecord: { active: 'default' }, remoteRecord: { active: 'preset-a' },
+      remoteServerRevision: 2, remoteMutationRef: '00000000-0000-4000-8000-000000000101', now: T3,
+    })).rejects.toMatchObject({ code: 'OUTBOX_NOT_FOUND' });
+
+    closeLocalDatabase(repository);
+    openRepositories.splice(openRepositories.indexOf(repository), 1);
+    const restarted = await repo();
+    expect(await restarted.getOutboxRecord(prerequisite.outbox.mutationId)).toMatchObject({
+      status: 'superseded', supersededByMutationId: reconciled.replacement.mutationId,
+    });
+    expect((await restarted.listOutboxDependents(reconciled.replacement.mutationId)).map(item => item.mutationId).sort())
+      .toEqual([dependentA.outbox.mutationId, dependentB.outbox.mutationId].sort());
+    const [replacementClaim] = await restarted.claimNextMutations({
+      workerId: 'worker-restart', now: T3, leaseDurationMs: 1_000, limit: 10,
+    });
+    expect(replacementClaim.mutationId).toBe(reconciled.replacement.mutationId);
+    expect(await restarted.claimNextMutations({
+      workerId: 'other-worker', now: T3, leaseDurationMs: 1_000, limit: 10,
+    })).toEqual([]);
+    const T4 = '2026-07-12T00:00:04.000Z';
+    await restarted.acknowledgeMutationAndEntity({
+      mutationId: reconciled.replacement.mutationId,
+      workerId: 'worker-restart', now: T4,
+      remoteMutationRef: '00000000-0000-4000-8000-000000000102',
+      acknowledgedRevision: 3, serverCommittedAt: T4,
+    });
+    const released = await restarted.claimNextMutations({
+      workerId: 'worker-restart', now: T4, leaseDurationMs: 1_000, limit: 10,
+    });
+    expect(released.map(item => item.mutationId).sort()).toEqual([
+      dependentA.outbox.mutationId, dependentB.outbox.mutationId,
+    ].sort());
+  });
+
   it('rejects unbounded claim requests', async () => {
     const repository = await repo();
     await expect(repository.claimNextMutations({ workerId: 'worker-a', now: T0, leaseDurationMs: 1_000, limit: 101 }))
@@ -467,6 +596,25 @@ describe('K-322 claim, retry, acknowledgement, and failure lifecycle', () => {
 });
 
 describe('K-322 persisted validation and conservative scope', () => {
+  it('fails closed on self-dependency and dependency cycles', async () => {
+    const repository = await repo();
+    const first = await repository.commitLocalMutation({
+      mutation: { mode: 'create', domain: 'notes', entityId: 'n1', record: {} }, now: T0,
+    });
+    await overwrite({ ...first.outbox, dependsOnMutationId: first.outbox.mutationId });
+    await expect(repository.listOutboxMutations({ limit: 10 }))
+      .rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+
+    await overwrite(first.outbox);
+    const second = await repository.commitLocalMutation({
+      mutation: { mode: 'create', domain: 'notes', entityId: 'n2', record: {} }, now: T0,
+    });
+    await overwrite({ ...first.outbox, dependsOnMutationId: second.outbox.mutationId });
+    await overwrite({ ...second.outbox, dependsOnMutationId: first.outbox.mutationId });
+    await expect(repository.listOutboxMutations({ limit: 10 }))
+      .rejects.toMatchObject({ code: 'OUTBOX_SEQUENCE_GAP' });
+  });
+
   it.each([
     ['invalid status', { status: 'unknown' }],
     ['pending lease', { leaseOwner: 'worker-a', leaseExpiresAt: T2 }],
