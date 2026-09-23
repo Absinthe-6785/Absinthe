@@ -9,8 +9,13 @@ import { loadWorkspacePreferences } from '@/components/views/features/knowledge/
 import { loadKnowledgeHistoryPayload } from '@/components/views/features/knowledge/history/historyStorage';
 import { LOCAL_STORAGE_PREFIXES } from './storageInventory';
 import { VAULT_EXTENSIONS_SCHEMA_VERSION } from './vaultBackupConstants';
+import {
+  readRoutinePresetState,
+  type RoutinePresetState,
+} from '@/components/views/features/health/routinePresets';
 
 export interface VaultPortableHealthLocal {
+  routinePresetState?: RoutinePresetState | null;
   splitCount: number | null;
   routinePlannedSets: Record<string, unknown> | null;
   recoveryLog: Record<string, unknown> | null;
@@ -59,9 +64,15 @@ function collectPrefixedKeys(prefix: string): Record<string, string> {
   return out;
 }
 
-export function collectPortableHealthLocal(): VaultPortableHealthLocal {
+export function collectPortableHealthLocal(
+  accountId?: string | null,
+  authoritativeRoutinePresetState?: RoutinePresetState | null,
+): VaultPortableHealthLocal {
   const splitRaw = typeof localStorage !== 'undefined' ? localStorage.getItem('healthSplitCount') : null;
   return {
+    routinePresetState: authoritativeRoutinePresetState !== undefined
+      ? authoritativeRoutinePresetState
+      : accountId ? readRoutinePresetState(localStorage, accountId) : null,
     splitCount: splitRaw != null ? Number(splitRaw) : null,
     routinePlannedSets: readJsonKey('healthRoutinePlannedSets') as Record<string, unknown> | null,
     recoveryLog: readJsonKey('absinthe:recovery-log') as Record<string, unknown> | null,
@@ -72,7 +83,10 @@ export function collectPortableHealthLocal(): VaultPortableHealthLocal {
   };
 }
 
-export function collectPortableVaultExtensions(): VaultPortableExtensions {
+export function collectPortableVaultExtensions(
+  accountId?: string | null,
+  authoritativeRoutinePresetState?: RoutinePresetState | null,
+): VaultPortableExtensions {
   return {
     schemaVersion: VAULT_EXTENSIONS_SCHEMA_VERSION,
     settings: readJsonKey('planner-storage'),
@@ -84,7 +98,7 @@ export function collectPortableVaultExtensions(): VaultPortableExtensions {
       workspacePreferences: loadWorkspacePreferences(),
       history: loadKnowledgeHistoryPayload(),
     },
-    health: collectPortableHealthLocal(),
+    health: collectPortableHealthLocal(accountId, authoritativeRoutinePresetState),
   };
 }
 

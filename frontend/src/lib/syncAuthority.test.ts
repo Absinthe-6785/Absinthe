@@ -48,7 +48,7 @@ describe('sync authority contracts', () => {
       'LOCAL_FIRST',
       'LOCAL_FIRST',
       'LOCAL_FIRST',
-      'LOCAL_ONLY',
+      'LOCAL_FIRST',
       'REMOTE_FIRST',
       'REMOTE_FIRST',
       'REMOTE_FIRST',
@@ -64,7 +64,8 @@ describe('sync authority contracts', () => {
       'REMOTE_FIRST',
       'DEFERRED',
     ]);
-    expect(domainPolicy('health_routine_presets').transition).toBe('NEEDS_NEW_REMOTE_MODEL');
+    expect(canUseDomainRemoteTransport('health_routine_presets', available)).toBe(true);
+    expect(canUseDomainDirectRemotePersistence('health_routine_presets', available)).toBe(false);
   });
 
   it('prevents local-only and deferred domains from using account transport', () => {

@@ -74,7 +74,6 @@ import {
   normalizeStrengthSetForSave,
 } from './features/health/healthWeight';
 import {
-  saveRoutinePlannedSetsForDay,
   showsPlannedSetCount,
 } from './features/health/routinePlannedSets';
 import { DEFAULT_ROUTINE_PRESET_ID } from './features/health/routinePresets';
@@ -85,6 +84,7 @@ import { fetcher } from '../../lib/fetcher';
 import { remoteSWRKey } from '../../lib/remoteBoundary';
 import { domainUsesLocalWorkingCopy } from '../../lib/syncAuthority';
 import { createLocalHealthRepository, readLocalHealthWorkoutRange, readLocalPreviousWorkoutRows } from '../../lib/healthLocalRuntime';
+import { productionHealthRoutinePersistence } from '../../lib/healthRoutineSync';
 import {
   isCurrentHealthAccountGeneration,
   localHealthMemoKey,
@@ -141,6 +141,7 @@ export const HealthView = ({
     },
     isCurrentAccountOperation: currentAccountOperation,
     onPresetConfirmationInvalidated: clearConfirm,
+    persistence: productionHealthRoutinePersistence,
   });
   const {
     routinePresetState,
@@ -585,7 +586,7 @@ export const HealthView = ({
     });
   };
   const handleSaveRoutine = async () => {
-    const result = setPresetDay({
+    const result = await setPresetDay({
       presetId: activePreset.id,
       dayName: activeDayForm,
       blocks: tempRoutineBlocks,
@@ -595,40 +596,8 @@ export const HealthView = ({
       showToast(t('routineSaveFailed'), 'error');
       return;
     }
-    const projection = result.projection;
-    let ok = true;
-    if (projection) {
-      if (localMode) {
-        try {
-          const repository = await createLocalHealthRepository(projection.accountId);
-          await repository.saveRoutine({
-            id: projection.existingRoutineId,
-            dayName: projection.dayName,
-            blocks: [...projection.blocks],
-          });
-          if (!currentAccountOperation(projection.accountOperation)) return;
-          mutateStatic?.();
-          showToast(t('routineSaved'));
-        } catch {
-          ok = false;
-          showToast(t('routineSaveFailed'), 'error');
-        }
-      } else {
-        ok = await api(
-          'POST',
-          '/api/health_routines',
-          { day_name: projection.dayName, blocks: projection.blocks },
-          { revalidate: 'static', successMsg: t('routineSaved') },
-        );
-      }
-    }
-    if (!ok || !currentAccountOperation(result.accountOperation)) return;
-    if (projection) {
-      // Keep the existing legacy export keys in sync for old recovery packages.
-      saveRoutinePlannedSetsForDay(activeDayForm, tempRoutineBlocks, tempRoutineSetCounts);
-    } else {
-      showToast(t('routineSaved'));
-    }
+    if (!currentAccountOperation(result.accountOperation)) return;
+    showToast(t('routineSaved'));
     setShowAssembleModal(false);
   };
 
@@ -665,22 +634,22 @@ export const HealthView = ({
     showToast(t('loaded'));
   };
 
-  const commitPresetSplit = () => {
+  const commitPresetSplit = async () => {
     const nextSplit = Math.min(7, Math.max(1, Number(splitCountInput) || 1));
-    const result = setPresetSplit(activePreset.id, nextSplit);
+    const result = await setPresetSplit(activePreset.id, nextSplit);
     setSplitCountInput(String(result.ok ? nextSplit : activePreset.splitCount));
-    if (result.ok && activePreset.id === DEFAULT_ROUTINE_PRESET_ID) {
-      localStorage.setItem('healthSplitCount', String(nextSplit));
-    }
+    if (!result.ok) showToast(t('routineSaveFailed'), 'error');
   };
 
-  const handleCreatePreset = () => {
-    createPreset(t('healthPresetNew'));
+  const handleCreatePreset = async () => {
+    const result = await createPreset(t('healthPresetNew'));
+    if (!result.ok) showToast(t('routineSaveFailed'), 'error');
     setPresetMenuOpen(false);
   };
 
-  const handleDuplicatePreset = () => {
-    duplicatePreset(`${activePreset.name} ${t('healthPresetCopySuffix')}`);
+  const handleDuplicatePreset = async () => {
+    const result = await duplicatePreset(`${activePreset.name} ${t('healthPresetCopySuffix')}`);
+    if (!result.ok) showToast(t('routineSaveFailed'), 'error');
     setPresetMenuOpen(false);
   };
 
@@ -689,13 +658,17 @@ export const HealthView = ({
     setPresetMenuOpen(true);
   };
 
-  const commitPresetRename = () => {
+  const commitPresetRename = async () => {
     const nextName = presetRenameDraft.trim();
     if (!nextName) {
       showToast(t('healthPresetNameRequired'), 'error');
       return;
     }
-    renamePreset(activePreset.id, nextName);
+    const result = await renamePreset(activePreset.id, nextName);
+    if (!result.ok) {
+      showToast(t('routineSaveFailed'), 'error');
+      return;
+    }
     setPresetRenameDraft('');
     setPresetMenuOpen(false);
   };
@@ -719,7 +692,9 @@ export const HealthView = ({
           return;
         }
         clearPresetConfirmationMarker();
-        deletePreset(activePreset.id);
+        void deletePreset(activePreset.id).then(result => {
+          if (!result.ok) showToast(t('routineSaveFailed'), 'error');
+        });
       },
       { confirmLabel: t('deleteLabel') },
     );
@@ -739,9 +714,13 @@ export const HealthView = ({
     }]);
   };
 
-  const handleQuickPresetChange = (presetId: string) => {
-    selectPreset(presetId);
-    const nextPreset = routinePresetState.presets.find(preset => preset.id === presetId) ?? routinePresetState.presets[0];
+  const handleQuickPresetChange = async (presetId: string) => {
+    const result = await selectPreset(presetId);
+    if (!result.ok) {
+      showToast(t('routineSaveFailed'), 'error');
+      return;
+    }
+    const nextPreset = result.state.presets.find(preset => preset.id === presetId) ?? result.state.presets[0];
     const currentDayNumber = Number(activeDayForm.replace('Day ', ''));
     setActiveDayForm(currentDayNumber >= 1 && currentDayNumber <= nextPreset.splitCount ? activeDayForm : 'Day 1');
   };
@@ -1437,7 +1416,7 @@ export const HealthView = ({
                     <select
                       aria-label={t('healthPresetLabel')}
                       value={activePreset.id}
-                      onChange={e => handleQuickPresetChange(e.target.value)}
+                      onChange={e => { void handleQuickPresetChange(e.target.value); }}
                       className={`min-h-[40px] min-w-0 max-w-[120px] rounded-xl border px-2 py-2 text-xs font-bold outline-none ${theme.input} ${theme.border}`}
                     >
                       {routinePresetState.presets.map(preset => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
@@ -1999,7 +1978,7 @@ export const HealthView = ({
                 aria-label={t('healthPresetLabel')}
                 value={activePreset.id}
                 onChange={e => {
-                  selectPreset(e.target.value);
+                  void handleQuickPresetChange(e.target.value);
                   setPresetMenuOpen(false);
                 }}
                 className={`min-w-0 max-w-[150px] rounded-xl border px-2.5 py-1.5 text-xs font-bold outline-none ${theme.input}`}
@@ -2030,7 +2009,7 @@ export const HealthView = ({
                           value={presetRenameDraft}
                           maxLength={48}
                           onChange={e => setPresetRenameDraft(e.target.value)}
-                          onKeyDown={e => { if (e.key === 'Enter') commitPresetRename(); }}
+                          onKeyDown={e => { if (e.key === 'Enter') void commitPresetRename(); }}
                           className={`min-w-0 flex-1 rounded-lg px-2 py-1.5 text-xs font-semibold outline-none ${theme.input}`}
                         />
                         <button type="button" onClick={commitPresetRename} className="rounded-lg bg-primary px-2 text-primary-foreground"><Check size={13} /></button>
@@ -2048,8 +2027,8 @@ export const HealthView = ({
                 type="number" inputMode="numeric" min="1" max="7"
                 value={splitCountInput}
                 onChange={e => setSplitCountInput(e.target.value)}
-                onBlur={commitPresetSplit}
-                onKeyDown={e => { if (e.key === 'Enter') { commitPresetSplit(); (e.target as HTMLInputElement).blur(); } }}
+                onBlur={() => { void commitPresetSplit(); }}
+                onKeyDown={e => { if (e.key === 'Enter') { void commitPresetSplit(); (e.target as HTMLInputElement).blur(); } }}
                 className="w-8 bg-transparent text-lg font-bold outline-none text-center tabular-nums"/>
               <span className={`text-xs font-semibold ${theme.textMuted}`}>{t('splits')}</span>
             </div>

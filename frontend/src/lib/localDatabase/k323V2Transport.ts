@@ -8,7 +8,12 @@ import type {
 
 export const K323_V2_PROTOCOL_VERSION = 2 as const;
 export const K323_V2_PROVIDER = 'k323-v2';
-export const K323_V2_DOMAINS = ['reference_alpha', 'reference_beta'] as const;
+export const K323_V2_DOMAINS = [
+  'reference_alpha',
+  'reference_beta',
+  'health_routine_preset',
+  'health_routine_profile',
+] as const;
 export type K323V2Domain = typeof K323_V2_DOMAINS[number];
 export type K323V2Operation = Extract<OutboxOperation, 'upsert' | 'tombstone' | 'restore'>;
 
@@ -53,6 +58,7 @@ export type K323V2MutationErrorCode =
   | 'MUTATION_ID_CONFLICT' | 'UNKNOWN_GENERATION' | 'STALE_GENERATION'
   | 'REMOTE_ENTITY_ALREADY_EXISTS' | 'REMOTE_ENTITY_NOT_FOUND' | 'REMOTE_ENTITY_TOMBSTONED'
   | 'REMOTE_ENTITY_NOT_TOMBSTONED' | 'REMOTE_REVISION_CONFLICT'
+  | 'ACTIVE_PRESET_NOT_FOUND' | 'ACTIVE_PRESET_DELETE_REQUIRES_PROFILE_UPDATE' | 'DEFAULT_PRESET_REQUIRED'
   | 'TRANSIENT_SERVER_FAILURE' | 'INVALID_SERVER_RESPONSE';
 
 export interface K323V2MutationReceipt {
@@ -80,6 +86,20 @@ export interface K323V2PullRequest {
   cursor: number;
   serverEpoch: string | null;
   limit: number;
+}
+
+export interface K323V2GenerationRequest extends K323V2ActiveScope {
+  protocolVersion: 2;
+  domains: readonly ['health_routine_preset', 'health_routine_profile'];
+}
+
+export interface K323V2GenerationResponse {
+  protocolVersion: 2;
+  status: 'active';
+  namespaceKey: string;
+  generationId: string;
+  deviceId: string;
+  serverEpoch: string;
 }
 
 export interface K323V2RemoteChange<T = unknown> {
@@ -130,6 +150,11 @@ function fail(operation: string): never {
   throw new LocalDatabaseError('INVALID_RESERVED_RECORD', operation);
 }
 
+function sameTimestamp(left: string | null, right: string | null): boolean {
+  if (left === null || right === null) return left === right;
+  return Date.parse(left) === Date.parse(right);
+}
+
 function isV2Domain(value: unknown): value is K323V2Domain {
   return typeof value === 'string' && (K323_V2_DOMAINS as readonly string[]).includes(value);
 }
@@ -162,7 +187,35 @@ function assertScope(expected: K323V2ActiveScope, active: K323V2ActiveScope, ope
     || expected.generationId !== active.generationId || expected.deviceId !== active.deviceId) fail(operation);
 }
 
-function assertReferenceRecord(domain: K323V2Domain, entityId: string, payload: OutboxRecord['payload'], operation: string): void {
+function exactKeys(record: Record<string, unknown>, expected: readonly string[]): boolean {
+  return Object.keys(record).sort().join('\0') === [...expected].sort().join('\0');
+}
+
+function assertHealthPresetRecord(record: Record<string, unknown>, entityId: string, operation: string): void {
+  if (!exactKeys(record, ['id', 'name', 'splitCount', 'days', 'isDefault']) || record.id !== entityId
+    || typeof record.name !== 'string' || record.name.trim() !== record.name || record.name.length < 1 || record.name.length > 48
+    || !Number.isInteger(record.splitCount) || (record.splitCount as number) < 1 || (record.splitCount as number) > 7
+    || typeof record.isDefault !== 'boolean' || !Array.isArray(record.days)
+    || record.days.length !== record.splitCount) fail(operation);
+  const seenDays = new Set<string>();
+  record.days.forEach((value, index) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) fail(operation);
+    const day = value as Record<string, unknown>;
+    if (!exactKeys(day, ['dayName', 'blocks', 'plannedSets']) || day.dayName !== `Day ${index + 1}`
+      || seenDays.has(day.dayName as string) || !Array.isArray(day.blocks) || day.blocks.length > 100
+      || !day.blocks.every(item => typeof item === 'string' && UUID.test(item))
+      || new Set(day.blocks).size !== day.blocks.length
+      || !day.plannedSets || typeof day.plannedSets !== 'object' || Array.isArray(day.plannedSets)) fail(operation);
+    seenDays.add(day.dayName as string);
+    const blocks = new Set(day.blocks as string[]);
+    for (const [blockId, count] of Object.entries(day.plannedSets as Record<string, unknown>)) {
+      if (!UUID.test(blockId) || !blocks.has(blockId) || !Number.isInteger(count)
+        || (count as number) < 1 || (count as number) > 12) fail(operation);
+    }
+  });
+}
+
+function assertDomainRecord(domain: K323V2Domain, entityId: string, payload: OutboxRecord['payload'], operation: string): void {
   if (payload.kind !== 'entity_snapshot' || typeof payload.record !== 'object' || payload.record === null) fail(operation);
   const record = payload.record as Record<string, unknown>;
   if (record.id !== entityId) fail(operation);
@@ -170,10 +223,13 @@ function assertReferenceRecord(domain: K323V2Domain, entityId: string, payload: 
   if (domain === 'reference_alpha') {
     if (JSON.stringify(keys) !== JSON.stringify(['id', 'label', 'ordinal'])
       || typeof record.label !== 'string' || record.label.length > 1_024 || !Number.isSafeInteger(record.ordinal)) fail(operation);
-  } else if (JSON.stringify(keys) !== JSON.stringify(['id', 'metric', 'observedAt', 'value'])
+  } else if (domain === 'reference_beta' && (JSON.stringify(keys) !== JSON.stringify(['id', 'metric', 'observedAt', 'value'])
     || typeof record.metric !== 'string' || !SAFE_IDENTIFIER.test(record.metric)
     || typeof record.observedAt !== 'string' || Number.isNaN(Date.parse(record.observedAt))
-    || !Number.isSafeInteger(record.value)) fail(operation);
+    || !Number.isSafeInteger(record.value))) fail(operation);
+  else if (domain === 'health_routine_preset') assertHealthPresetRecord(record, entityId, operation);
+  else if (domain === 'health_routine_profile' && (!exactKeys(record, ['id', 'activePresetId'])
+    || record.activePresetId !== null && (typeof record.activePresetId !== 'string' || !UUID.test(record.activePresetId)))) fail(operation);
 }
 
 export function outboxToK323V2Mutation(
@@ -195,7 +251,7 @@ export function outboxToK323V2Mutation(
   if (outbox.operation === 'tombstone') {
     if (payload.kind !== 'tombstone' || payload.entityId !== outbox.entityId || payload.revision !== outbox.localRevision) fail(operation);
   } else {
-    assertReferenceRecord(outbox.domain, outbox.entityId, payload, operation);
+    assertDomainRecord(outbox.domain, outbox.entityId, payload, operation);
   }
   const identity = {
     namespaceKey: outbox.namespaceKey, generationId: outbox.generationId, domain: outbox.domain,
@@ -292,7 +348,7 @@ export function pullResponseToRemoteBatch<T>(
       || (change.operation === 'tombstone') !== change.isDeleted) fail(operation);
     previousSequence = change.sequence;
     assertWireValue(change.record, operation);
-    assertReferenceRecord(change.domain, change.entityId, {
+    assertDomainRecord(change.domain, change.entityId, {
       kind: 'entity_snapshot', record: change.record,
     } as OutboxRecord['payload'], operation);
     const priorChange = latest.get(change.entityId);
@@ -308,8 +364,14 @@ export function pullResponseToRemoteBatch<T>(
       || current.namespaceKey !== state.activeScope.namespaceKey
       || current.generationId !== state.activeScope.generationId
       || current.domain !== response.domain || current.entityId !== change.entityId
-      || current.pendingMutationId !== null
-      || current.serverRevision != null && change.serverRevision <= current.serverRevision)) fail(operation);
+      || current.pendingMutationId !== null)) fail(operation);
+    if (current?.serverRevision != null && change.serverRevision <= current.serverRevision) {
+      if (change.serverRevision < current.serverRevision) return null;
+      const incomingHash = hashCanonicalPayload(canonicalPayloadSnapshot(change.record));
+      if (incomingHash !== current.contentHash || change.isDeleted !== current.isDeleted
+        || !sameTimestamp(change.deletedAt, current.deletedAt)) fail(operation);
+      return null;
+    }
     const expectedLocalRevision = current?.revision ?? null;
     const localRevision = (expectedLocalRevision ?? 0) + 1;
     const record = canonicalPayloadSnapshot(change.record);
@@ -337,7 +399,7 @@ export function pullResponseToRemoteBatch<T>(
       migrationProvenance: null,
     };
     return { expectedLocalRevision, entity };
-  });
+  }).filter((item): item is NonNullable<typeof item> => item !== null);
   return {
     kind: 'batch',
     batch: {
@@ -363,6 +425,7 @@ export class K323V2AmbiguousResponseError extends Error {
 }
 
 export interface K323V2TransportClient {
+  ensureGeneration(request: K323V2GenerationRequest): Promise<K323V2GenerationResponse>;
   push(request: K323V2MutationRequest): Promise<K323V2MutationReceipt>;
   pull(request: K323V2PullRequest): Promise<K323V2PullResponse>;
 }
@@ -377,6 +440,18 @@ export function createK323V2HttpClient(options: K323V2HttpClientOptions): K323V2
   const request = options.fetchImpl ?? fetch;
   const baseUrl = options.baseUrl.replace(/\/$/, '');
   return {
+    async ensureGeneration(generation) {
+      const token = await options.getAccessToken();
+      const response = await request(`${baseUrl}/api/sync/v2/generations`, {
+        method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify(generation),
+      });
+      const body = await response.json() as K323V2GenerationResponse;
+      if (!response.ok || body.protocolVersion !== 2 || body.status !== 'active'
+        || body.namespaceKey !== generation.namespaceKey || body.generationId !== generation.generationId
+        || body.deviceId !== generation.deviceId || !UUID.test(body.serverEpoch)) fail('k323_v2_generation_response');
+      return body;
+    },
     async push(mutation) {
       const token = await options.getAccessToken();
       let response: Response;

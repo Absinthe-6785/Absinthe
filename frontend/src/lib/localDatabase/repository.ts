@@ -10,7 +10,8 @@ import { namespaceFingerprint, validateNamespace, validateSafeIdentifier } from 
 import { canonicalPayloadSnapshot, hashCanonicalPayload } from './canonicalPayload';
 import { deriveOutboxIdempotencyKey, deriveOutboxMutationId, generateOutboxMutationId, sha256Hex } from './outboxIdentity';
 import {
-  acknowledgeOutboxRecord, claimOutboxRecord, conflictOutboxRecord, permanentlyFailOutboxRecord,
+  acknowledgeOutboxRecord, adoptConflictedOutboxSuccessor, claimOutboxRecord, conflictOutboxRecord, permanentlyFailOutboxRecord,
+  replaceConflictedOutboxRecord, replaceRejectedDependentOutboxRecord,
   scheduleOutboxRetry, supersedeOutboxRecord,
 } from './outboxStateMachine';
 import { assertLocalDatabaseVersion, createLocalDatabaseSchema, LOCAL_DATABASE_STORES } from './schema';
@@ -54,6 +55,7 @@ import {
   type InvalidateCheckpointInput,
   type GenerationRecord, type GenerationStatus, type LocalDatabaseNamespace,
   type LocalEntityEnvelope, type MigrationStateRecord, type OutboxRecord,
+  type ReconcileOutboxPrerequisiteInput, type ReconciledOutboxPrerequisite,
   type RecordConflictInput, type ResolveConflictInput, type OutboxOperation,
   type OutboxListInput, type OutboxStatus, type OutboxStatusCounts, type ResetOutboxInput,
   type RestoreSessionRecord, type RetryOutboxInput, type SafeSourceReference, type SyncCheckpointRecord,
@@ -67,10 +69,17 @@ import {
 } from './validation';
 
 const capabilityMarker = Symbol('absinthe-local-v2-capability');
-export interface LocalDatabaseCapability { readonly marker: symbol; readonly purpose: 'test' | 'developer' }
+const HEALTH_PROFILE_RECONCILIATION_DOMAIN = 'health_routine_profile';
+const HEALTH_PROFILE_RECONCILIATION_ENTITY_ID = '00000000-0000-5000-8000-000000000002';
+export interface LocalDatabaseCapability { readonly marker: symbol; readonly purpose: 'test' | 'developer' | 'health_routine' }
 
 export function createDormantLocalDatabaseCapability(purpose: 'test' | 'developer'): LocalDatabaseCapability {
   return Object.freeze({ marker: capabilityMarker, purpose });
+}
+
+/** The only production activation capability introduced by REL-05F. */
+export function createHealthRoutineLocalDatabaseCapability(): LocalDatabaseCapability {
+  return Object.freeze({ marker: capabilityMarker, purpose: 'health_routine' });
 }
 
 function requestResult<T>(request: IDBRequest<T>): Promise<T> {
@@ -388,6 +397,10 @@ export class LocalDatabaseRepository {
       throw new LocalDatabaseError('INVALID_ENTITY', 'commit_local_mutation');
     }
     if (mutation.mode !== 'tombstone') validateSafeSource(mutation.source);
+    if (input.dependsOnMutationId != null) {
+      validateSafeIdentifier(input.dependsOnMutationId, 'commit_local_mutation');
+      if (mutation.mode !== 'tombstone') throw new LocalDatabaseError('INVALID_OUTBOX', 'commit_local_mutation');
+    }
     const timestamp = now(input.now);
     const operation: OutboxOperation = mutation.mode === 'tombstone' ? 'tombstone' : mutation.mode === 'restore' ? 'restore' : 'upsert';
     if (mutation.mode !== 'create' && mutation.expectedRevision === undefined) {
@@ -410,6 +423,14 @@ export class LocalDatabaseRepository {
       const current = await requestResult(entityStore.get(key)) as LocalEntityEnvelope<T> | undefined;
       if (current) this.validatePersistedEntity(current, 'commit_local_mutation');
       const actualRevision = current?.revision ?? 0;
+      const outboxStore = transaction.objectStore(LOCAL_DATABASE_STORES.outbox);
+      const priorOutbox = current ? await requestResult(
+        outboxStore
+          .index('by_namespace_generation_entity')
+          .getAll(IDBKeyRange.only([
+            this.namespaceKey, this.namespace.generationId, mutation.domain, mutation.entityId,
+          ]), 1),
+      ) as OutboxRecord[] : [];
       if (mutation.mode === 'create') {
         if (current?.deletedAt) throw new LocalDatabaseError('TOMBSTONE_REACTIVATION_BLOCKED', 'commit_local_mutation');
         if (current) throw new LocalDatabaseError('ENTITY_ALREADY_EXISTS', 'commit_local_mutation');
@@ -455,6 +476,16 @@ export class LocalDatabaseRepository {
       };
       const mutationId = deriveOutboxMutationId(identity);
       const idempotencyKey = deriveOutboxIdempotencyKey(identity);
+      if (input.dependsOnMutationId != null) {
+        const prerequisite = await requestResult(outboxStore.get([
+          this.namespaceKey, this.namespace.generationId, input.dependsOnMutationId,
+        ])) as OutboxRecord | undefined;
+        if (!prerequisite) throw new LocalDatabaseError('OUTBOX_NOT_FOUND', 'commit_local_mutation');
+        this.validatePersistedOutbox(prerequisite, 'commit_local_mutation');
+        if (prerequisite.mutationId === mutationId) {
+          throw new LocalDatabaseError('INVALID_OUTBOX', 'commit_local_mutation');
+        }
+      }
       envelope.pendingMutationId = mutationId;
       validateEntityEnvelope(envelope);
       entityStore.put(envelope);
@@ -469,9 +500,25 @@ export class LocalDatabaseRepository {
         leaseOwner: null, leaseExpiresAt: null, acknowledgedAt: null, acknowledgedBy: null, remoteMutationRef: null,
         acknowledgedRevision: null, serverCommittedAt: null,
         supersededByMutationId: null,
+        ...(input.dependsOnMutationId == null ? {} : { dependsOnMutationId: input.dependsOnMutationId }),
+        ...(priorOutbox.length === 0 && current?.serverRevision != null && current.lastRemoteMutationRef
+          && current.pendingMutationId == null && current.contentHash
+          ? { remoteSequenceBoundary: {
+            kind: 'remote_entity_sequence_boundary' as const,
+            namespaceKey: this.namespaceKey,
+            generationId: this.namespace.generationId,
+            domain: mutation.domain,
+            entityId: mutation.entityId,
+            baselineLocalRevision: actualRevision,
+            baselineServerRevision: current.serverRevision,
+            remoteMutationRef: current.lastRemoteMutationRef,
+            baselineContentHash: current.contentHash,
+            createdAt: timestamp,
+          } }
+          : {}),
       };
       validateOutboxRecord(outbox);
-      transaction.objectStore(LOCAL_DATABASE_STORES.outbox).add(outbox);
+      outboxStore.add(outbox);
       if (input.testOnlyAbortAt === 'after_writes') {
         transaction.abort(); throw new LocalDatabaseError('TRANSACTION_ABORTED', 'entity_mutation');
       }
@@ -618,6 +665,7 @@ export class LocalDatabaseRepository {
     values.forEach(value => this.validatePersistedOutbox(value, operation));
     await this.validateRestoreBoundaryGraphs(transaction, values);
     this.validateOutboxSequences(values, operation);
+    this.validateOutboxDependencies(values, operation);
     return values;
   }
 
@@ -634,21 +682,55 @@ export class LocalDatabaseRepository {
         && first?.generationBoundary?.kind === 'restore_generation_sequence_boundary'
         && first.generationBoundary.sourceRevision === first.baseRevision
         && first.localRevision === first.baseRevision + 1;
+      const validRemoteBoundary = first?.baseRevision !== null
+        && first?.remoteSequenceBoundary?.kind === 'remote_entity_sequence_boundary'
+        && first.remoteSequenceBoundary.baselineLocalRevision === first.baseRevision
+        && first.localRevision === first.baseRevision + 1;
       const validSequenceStart = first !== undefined
-        && (first.baseRevision === null ? first.localRevision === 1 : validRestoreBoundary);
+        && (first.baseRevision === null ? first.localRevision === 1 : validRestoreBoundary || validRemoteBoundary);
       if (!validSequenceStart) {
         throw new LocalDatabaseError('OUTBOX_SEQUENCE_GAP', operation);
       }
       for (let index = 1; index < group.length; index += 1) {
-        if (group[index].generationBoundary != null || group[index].baseRevision !== group[index - 1].localRevision) {
+        const previous = group[index - 1];
+        const current = group[index];
+        const validReconciliationBoundary = current.remoteSequenceBoundary?.kind === 'remote_entity_sequence_boundary'
+          && current.baseRevision === current.remoteSequenceBoundary.baselineLocalRevision
+          && (previous.status === 'acknowledged'
+            || previous.status === 'superseded' && previous.supersededByMutationId === current.mutationId);
+        if (current.generationBoundary != null
+          || !validReconciliationBoundary && current.remoteSequenceBoundary != null
+          || !validReconciliationBoundary && current.baseRevision !== previous.localRevision) {
           throw new LocalDatabaseError('OUTBOX_SEQUENCE_GAP', operation);
         }
       }
     }
   }
 
+  private validateOutboxDependencies(values: OutboxRecord[], operation: string): void {
+    const byId = new Map(values.map(value => [value.mutationId, value]));
+    for (const value of values) {
+      const dependencyId = value.dependsOnMutationId ?? null;
+      if (dependencyId === null) continue;
+      const dependency = byId.get(dependencyId);
+      if (!dependency || dependency.namespaceKey !== value.namespaceKey
+        || dependency.generationId !== value.generationId || dependency.mutationId === value.mutationId) {
+        throw new LocalDatabaseError('OUTBOX_SEQUENCE_GAP', operation);
+      }
+      const visited = new Set<string>([value.mutationId]);
+      let cursor: OutboxRecord | undefined = dependency;
+      while (cursor?.dependsOnMutationId) {
+        if (visited.has(cursor.mutationId)) throw new LocalDatabaseError('OUTBOX_SEQUENCE_GAP', operation);
+        visited.add(cursor.mutationId);
+        cursor = byId.get(cursor.dependsOnMutationId);
+        if (!cursor) throw new LocalDatabaseError('OUTBOX_SEQUENCE_GAP', operation);
+      }
+    }
+  }
+
   private nextDeliverable(values: OutboxRecord[], timestamp: string, recoverExpiredClaims: boolean): OutboxRecord[] {
     const at = Date.parse(now(timestamp));
+    const byId = new Map(values.map(value => [value.mutationId, value]));
     const groups = new Map<string, OutboxRecord[]>();
     for (const value of values) {
       const key = JSON.stringify([value.domain, value.entityId]);
@@ -660,6 +742,10 @@ export class LocalDatabaseRepository {
       const firstUnsettled = group.find(value => value.status !== 'acknowledged' && value.status !== 'superseded');
       if (!firstUnsettled) continue;
       if (firstUnsettled.deliveryBlockCode) continue;
+      const prerequisite = firstUnsettled.dependsOnMutationId
+        ? byId.get(firstUnsettled.dependsOnMutationId)
+        : null;
+      if (firstUnsettled.dependsOnMutationId && prerequisite?.status !== 'acknowledged') continue;
       if ((firstUnsettled.status === 'pending' || firstUnsettled.status === 'retry_wait')
         && Date.parse(firstUnsettled.availableAt) <= at) candidates.push(firstUnsettled);
       if (recoverExpiredClaims && firstUnsettled.status === 'claimed'
@@ -696,6 +782,50 @@ export class LocalDatabaseRepository {
       .sort((left, right) => left.domain.localeCompare(right.domain) || left.entityId.localeCompare(right.entityId)
         || left.localRevision - right.localRevision || left.mutationId.localeCompare(right.mutationId))
       .slice(0, input.limit);
+  }
+
+  async listOutboxDependents(prerequisiteMutationId: string): Promise<OutboxRecord[]> {
+    this.assertOpen('list_outbox_dependents');
+    validateSafeIdentifier(prerequisiteMutationId, 'list_outbox_dependents');
+    const transaction = this.db.transaction(
+      [LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations, LOCAL_DATABASE_STORES.entities,
+        LOCAL_DATABASE_STORES.outbox, LOCAL_DATABASE_STORES.restoreSessions], 'readonly',
+    );
+    const done = transactionCompletion(transaction, 'list_outbox_dependents');
+    const values = await this.readScopedOutbox(transaction, 'list_outbox_dependents');
+    await this.ensureActive(transaction);
+    await done;
+    return values.filter(value => value.dependsOnMutationId === prerequisiteMutationId)
+      .sort((left, right) => left.domain.localeCompare(right.domain)
+        || left.entityId.localeCompare(right.entityId) || left.localRevision - right.localRevision);
+  }
+
+  /**
+   * Return the oldest conflicted Health profile mutation that still has a live
+   * dependent. Historical conflicts without queue impact are deliberately
+   * ignored. The reconciliation transaction revalidates this result.
+   */
+  async findHealthProfileReconciliationPrerequisite(): Promise<OutboxRecord | null> {
+    const operation = 'find_health_profile_reconciliation_prerequisite';
+    this.assertOpen(operation);
+    const transaction = this.db.transaction(
+      [LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations, LOCAL_DATABASE_STORES.entities,
+        LOCAL_DATABASE_STORES.outbox, LOCAL_DATABASE_STORES.restoreSessions], 'readonly',
+    );
+    const done = transactionCompletion(transaction, operation);
+    const values = await this.readScopedOutbox(transaction, operation);
+    await this.ensureActive(transaction);
+    await done;
+    const relevantPrerequisites = new Set(values
+      .filter(value => value.operation === 'tombstone'
+        && (value.status === 'pending' || value.status === 'retry_wait')
+        && value.dependsOnMutationId != null)
+      .map(value => value.dependsOnMutationId as string));
+    return values.filter(value => value.domain === HEALTH_PROFILE_RECONCILIATION_DOMAIN
+      && value.entityId === HEALTH_PROFILE_RECONCILIATION_ENTITY_ID
+      && value.status === 'conflict'
+      && relevantPrerequisites.has(value.mutationId))
+      .sort((left, right) => left.localRevision - right.localRevision)[0] ?? null;
   }
 
   async countOutboxByStatus(): Promise<OutboxStatusCounts> {
@@ -735,9 +865,12 @@ export class LocalDatabaseRepository {
     this.assertOpen('claim_outbox'); validateSafeIdentifier(input.workerId, 'claim_outbox');
     const timestamp = now(input.now);
     if (!Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 100
-      || !Number.isSafeInteger(input.leaseDurationMs) || input.leaseDurationMs < 1 || input.leaseDurationMs > 86_400_000) {
+      || !Number.isSafeInteger(input.leaseDurationMs) || input.leaseDurationMs < 1 || input.leaseDurationMs > 86_400_000
+      || input.priorityDomains && (input.priorityDomains.length > 16
+        || new Set(input.priorityDomains).size !== input.priorityDomains.length)) {
       throw new LocalDatabaseError('INVALID_OUTBOX_QUERY', 'claim_outbox');
     }
+    input.priorityDomains?.forEach(domain => validateSafeIdentifier(domain, 'claim_outbox'));
     const transaction = this.db.transaction(
       [LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations, LOCAL_DATABASE_STORES.entities,
         LOCAL_DATABASE_STORES.outbox, LOCAL_DATABASE_STORES.restoreSessions], 'readwrite',
@@ -746,7 +879,16 @@ export class LocalDatabaseRepository {
     try {
       const values = await this.readScopedOutbox(transaction, 'claim_outbox');
       await this.ensureActive(transaction);
-      const candidates = this.nextDeliverable(values, timestamp, input.recoverExpiredClaims === true).slice(0, input.limit);
+      const deliverable = this.nextDeliverable(values, timestamp, input.recoverExpiredClaims === true);
+      const usePriority = !input.priorityTriggerOperation
+        || deliverable.some(item => item.operation === input.priorityTriggerOperation);
+      const priority = new Map((usePriority ? input.priorityDomains : [])?.map((domain, index) => [domain, index]) ?? []);
+      const candidates = deliverable
+        .sort((left, right) => (priority.get(left.domain) ?? Number.MAX_SAFE_INTEGER)
+          - (priority.get(right.domain) ?? Number.MAX_SAFE_INTEGER)
+          || left.domain.localeCompare(right.domain) || left.entityId.localeCompare(right.entityId)
+          || left.localRevision - right.localRevision)
+        .slice(0, input.limit);
       const store = transaction.objectStore(LOCAL_DATABASE_STORES.outbox);
       const claimed = candidates.map(value => {
         if (!Number.isSafeInteger(value.attemptCount + 1)) throw new LocalDatabaseError('INVALID_OUTBOX_TRANSITION', 'claim_outbox');
@@ -830,6 +972,170 @@ export class LocalDatabaseRepository {
     });
   }
 
+  /**
+   * Acknowledge a pushed mutation and advance the entity's server revision in
+   * the same transaction. Older queued local revisions may be acknowledged
+   * while a newer mutation remains the entity's pending authority.
+   */
+  async acknowledgeMutationAndEntity(input: AcknowledgeOutboxInput): Promise<{
+    outbox: OutboxRecord;
+    entity: LocalEntityEnvelope;
+  }> {
+    validateSafeIdentifier(input.workerId, 'acknowledge_outbox_entity');
+    const timestamp = now(input.now);
+    if (!input.remoteMutationRef || input.acknowledgedRevision === undefined
+      || input.acknowledgedRevision === null || !input.serverCommittedAt) {
+      throw new LocalDatabaseError('INVALID_OUTBOX_TRANSITION', 'acknowledge_outbox_entity');
+    }
+    validateSafeIdentifier(input.remoteMutationRef, 'acknowledge_outbox_entity');
+    if (!Number.isSafeInteger(input.acknowledgedRevision) || input.acknowledgedRevision < 1) {
+      throw new LocalDatabaseError('INVALID_OUTBOX_TRANSITION', 'acknowledge_outbox_entity');
+    }
+    now(input.serverCommittedAt);
+    const transaction = this.db.transaction([
+      LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations,
+      LOCAL_DATABASE_STORES.entities, LOCAL_DATABASE_STORES.outbox, LOCAL_DATABASE_STORES.restoreSessions,
+      LOCAL_DATABASE_STORES.conflicts,
+    ], 'readwrite');
+    const done = transactionCompletion(transaction, 'acknowledge_outbox_entity');
+    try {
+      await this.ensureActive(transaction);
+      const outboxStore = transaction.objectStore(LOCAL_DATABASE_STORES.outbox);
+      const outbox = await requestResult(outboxStore.get([
+        this.namespaceKey, this.namespace.generationId, input.mutationId,
+      ])) as OutboxRecord | undefined;
+      if (!outbox) throw new LocalDatabaseError('OUTBOX_NOT_FOUND', 'acknowledge_outbox_entity');
+      this.validatePersistedOutbox(outbox, 'acknowledge_outbox_entity');
+      await this.validateRestoreBoundaryGraphs(transaction, [outbox]);
+      if (outbox.status !== 'claimed' || outbox.leaseOwner !== input.workerId) {
+        throw new LocalDatabaseError('LEASE_OWNER_MISMATCH', 'acknowledge_outbox_entity');
+      }
+      const entityStore = transaction.objectStore(LOCAL_DATABASE_STORES.entities);
+      const entity = await requestResult(entityStore.get(entityKey(
+        this.namespaceKey, this.namespace.generationId, outbox.domain, outbox.entityId,
+      ))) as LocalEntityEnvelope | undefined;
+      if (!entity) throw new LocalDatabaseError('ENTITY_NOT_FOUND', 'acknowledge_outbox_entity');
+      this.validatePersistedEntity(entity, 'acknowledge_outbox_entity');
+      if (entity.serverRevision !== null && entity.serverRevision !== undefined
+        && input.acknowledgedRevision <= entity.serverRevision) {
+        throw new LocalDatabaseError('STALE_REVISION', 'acknowledge_outbox_entity');
+      }
+      const acknowledged = acknowledgeOutboxRecord(outbox, {
+        ownerId: input.workerId,
+        now: timestamp,
+        remoteMutationRef: input.remoteMutationRef,
+        acknowledgedRevision: input.acknowledgedRevision,
+        serverCommittedAt: input.serverCommittedAt,
+      });
+      const nextEntity: LocalEntityEnvelope = {
+        ...entity,
+        serverRevision: input.acknowledgedRevision,
+        lastRemoteMutationRef: input.remoteMutationRef,
+        pendingMutationId: entity.pendingMutationId === outbox.mutationId ? null : entity.pendingMutationId ?? null,
+      };
+      validateOutboxRecord(acknowledged);
+      validateEntityEnvelope(nextEntity);
+      outboxStore.put(acknowledged);
+      entityStore.put(nextEntity);
+      const conflictStore = transaction.objectStore(LOCAL_DATABASE_STORES.conflicts);
+      const conflicts = await requestResult(conflictStore.index('by_namespace_generation_entity').getAll(
+        IDBKeyRange.only([this.namespaceKey, this.namespace.generationId, outbox.domain, outbox.entityId]),
+      )) as SyncConflictRecord[];
+      for (const conflict of conflicts) {
+        validateConflictRecord(conflict);
+        if (conflict.accountId !== this.namespace.userId) {
+          throw new LocalDatabaseError('NAMESPACE_MISMATCH', 'acknowledge_outbox_entity');
+        }
+        if (conflict.resolutionState === 'unresolved'
+          && conflict.mutationId === outbox.mutationId
+          && conflict.serverRevision === input.acknowledgedRevision
+          && conflict.remoteMetadata?.remoteMutationRef === input.remoteMutationRef) {
+          const resolved: SyncConflictRecord = {
+            ...conflict, resolutionState: 'resolved_merged', resolvedAt: timestamp,
+          };
+          validateConflictRecord(resolved);
+          conflictStore.put(resolved);
+        }
+      }
+      await done;
+      return { outbox: acknowledged, entity: nextEntity };
+    } catch (error) {
+      abortQuietly(transaction); await done.catch(() => undefined);
+      throw localDatabaseError(error, 'acknowledge_outbox_entity');
+    }
+  }
+
+  /** Persist transport conflict evidence and block the claimed mutation atomically. */
+  async preserveMutationConflict(input: {
+    mutationId: string;
+    workerId: string;
+    now: string;
+    errorCode: string;
+    conflictId: string;
+    remoteCandidate: unknown;
+    remoteMetadata?: Readonly<Record<string, unknown>>;
+    serverRevision?: number | null;
+  }): Promise<{ outbox: OutboxRecord; conflict: SyncConflictRecord }> {
+    for (const value of [input.mutationId, input.workerId, input.errorCode, input.conflictId]) {
+      validateSafeIdentifier(value, 'preserve_mutation_conflict');
+    }
+    const timestamp = now(input.now);
+    const transaction = this.db.transaction([
+      LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations,
+      LOCAL_DATABASE_STORES.entities, LOCAL_DATABASE_STORES.outbox,
+      LOCAL_DATABASE_STORES.restoreSessions, LOCAL_DATABASE_STORES.conflicts,
+    ], 'readwrite');
+    const done = transactionCompletion(transaction, 'preserve_mutation_conflict');
+    try {
+      await this.ensureActive(transaction);
+      const outboxStore = transaction.objectStore(LOCAL_DATABASE_STORES.outbox);
+      const outbox = await requestResult(outboxStore.get([
+        this.namespaceKey, this.namespace.generationId, input.mutationId,
+      ])) as OutboxRecord | undefined;
+      if (!outbox) throw new LocalDatabaseError('OUTBOX_NOT_FOUND', 'preserve_mutation_conflict');
+      this.validatePersistedOutbox(outbox, 'preserve_mutation_conflict');
+      await this.validateRestoreBoundaryGraphs(transaction, [outbox]);
+      if (outbox.status !== 'claimed' || outbox.leaseOwner !== input.workerId) {
+        throw new LocalDatabaseError('LEASE_OWNER_MISMATCH', 'preserve_mutation_conflict');
+      }
+      const localCandidate = canonicalPayloadSnapshot(outbox.payload);
+      const remoteCandidate = canonicalPayloadSnapshot(input.remoteCandidate);
+      const remoteMetadata = input.remoteMetadata == null ? null : canonicalPayloadSnapshot(input.remoteMetadata);
+      const conflict: SyncConflictRecord = {
+        namespaceKey: this.namespaceKey,
+        generationId: this.namespace.generationId,
+        accountId: this.namespace.userId,
+        conflictId: input.conflictId,
+        domain: outbox.domain,
+        entityId: outbox.entityId,
+        mutationId: outbox.mutationId,
+        localCandidate,
+        remoteCandidate,
+        remoteMetadata,
+        localRevision: outbox.localRevision,
+        serverRevision: input.serverRevision ?? null,
+        localContentHash: hashCanonicalPayload(localCandidate),
+        remoteContentHash: hashCanonicalPayload(remoteCandidate),
+        conflictType: input.errorCode,
+        createdAt: timestamp,
+        resolutionState: 'unresolved',
+        resolvedAt: null,
+      };
+      validateConflictRecord(conflict);
+      const blocked = conflictOutboxRecord(outbox, {
+        ownerId: input.workerId, now: timestamp, errorCode: input.errorCode,
+      });
+      validateOutboxRecord(blocked);
+      outboxStore.put(blocked);
+      transaction.objectStore(LOCAL_DATABASE_STORES.conflicts).add(conflict);
+      await done;
+      return { outbox: blocked, conflict };
+    } catch (error) {
+      abortQuietly(transaction); await done.catch(() => undefined);
+      throw localDatabaseError(error, 'preserve_mutation_conflict');
+    }
+  }
+
   markPermanentFailure(input: FailOutboxInput): Promise<OutboxRecord> {
     validateSafeIdentifier(input.workerId, 'fail_outbox'); validateSafeIdentifier(input.errorCode, 'fail_outbox');
     const timestamp = now(input.now);
@@ -879,9 +1185,335 @@ export class LocalDatabaseRepository {
       if (!older || !newer) throw new LocalDatabaseError('OUTBOX_NOT_FOUND', 'supersede_outbox');
       this.validatePersistedOutbox(older, 'supersede_outbox'); this.validatePersistedOutbox(newer, 'supersede_outbox');
       const updated = supersedeOutboxRecord(older, newer, timestamp);
-      validateOutboxRecord(updated); store.put(updated); await done; return updated;
+      validateOutboxRecord(updated);
+      store.put(updated);
+      const range = IDBKeyRange.bound(
+        [this.namespaceKey, this.namespace.generationId, ''],
+        [this.namespaceKey, this.namespace.generationId, '\uffff'],
+      );
+      const scoped = await requestResult(store.getAll(range, MAX_OUTBOX_SCAN + 1)) as OutboxRecord[];
+      if (scoped.length > MAX_OUTBOX_SCAN) throw new LocalDatabaseError('INVALID_OUTBOX_QUERY', 'supersede_outbox');
+      for (const value of scoped) {
+        if (value.dependsOnMutationId !== olderMutationId) continue;
+        if (value.status !== 'pending') throw new LocalDatabaseError('INVALID_OUTBOX_TRANSITION', 'supersede_outbox');
+        const rebound = {
+          ...value,
+          dependsOnMutationId: newerMutationId,
+          updatedAt: timestamp,
+          availableAt: timestamp,
+        };
+        validateOutboxRecord(rebound);
+        store.put(rebound);
+      }
+      await done; return updated;
     } catch (error) {
       abortQuietly(transaction); await done.catch(() => undefined); throw localDatabaseError(error, 'supersede_outbox');
+    }
+  }
+
+  /**
+   * Replace a stale profile prerequisite and atomically move every live
+   * tombstone dependency to the corrected request. This is intentionally not
+   * part of normal supersede semantics.
+   */
+  async reconcileOutboxPrerequisite<T>(
+    input: ReconcileOutboxPrerequisiteInput<T>,
+  ): Promise<ReconciledOutboxPrerequisite<T>> {
+    const operation = 'reconcile_outbox_prerequisite';
+    this.assertOpen(operation);
+    validateSafeIdentifier(input.prerequisiteMutationId, operation);
+    validateSafeIdentifier(input.remoteMutationRef, operation);
+    const timestamp = now(input.now);
+    if (!Number.isSafeInteger(input.expectedEntityRevision) || input.expectedEntityRevision < 1
+      || !Number.isSafeInteger(input.remoteServerRevision) || input.remoteServerRevision < 1) {
+      throw new LocalDatabaseError('INVALID_OUTBOX_TRANSITION', operation);
+    }
+    const correctedRecord = canonicalPayloadSnapshot(input.correctedRecord);
+    const remoteRecord = canonicalPayloadSnapshot(input.remoteRecord);
+    const stores = [
+      LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations,
+      LOCAL_DATABASE_STORES.entities, LOCAL_DATABASE_STORES.outbox,
+      LOCAL_DATABASE_STORES.restoreSessions, LOCAL_DATABASE_STORES.conflicts,
+    ];
+    const transaction = this.db.transaction(stores, 'readwrite');
+    const done = transactionCompletion(transaction, operation);
+    try {
+      await this.ensureActive(transaction);
+      const outboxStore = transaction.objectStore(LOCAL_DATABASE_STORES.outbox);
+      const entityStore = transaction.objectStore(LOCAL_DATABASE_STORES.entities);
+      const old = await requestResult(outboxStore.get([
+        this.namespaceKey, this.namespace.generationId, input.prerequisiteMutationId,
+      ])) as OutboxRecord | undefined;
+      if (!old) throw new LocalDatabaseError('OUTBOX_NOT_FOUND', operation);
+      this.validatePersistedOutbox(old, operation);
+      if (old.domain !== HEALTH_PROFILE_RECONCILIATION_DOMAIN
+        || old.entityId !== HEALTH_PROFILE_RECONCILIATION_ENTITY_ID
+        || old.status !== input.prerequisiteStatus || old.operation !== 'upsert'
+        || old.dependsOnMutationId != null || old.payload.kind !== 'entity_snapshot') {
+        throw new LocalDatabaseError('INVALID_OUTBOX_TRANSITION', operation);
+      }
+      const entity = await requestResult(entityStore.get(entityKey(
+        this.namespaceKey, this.namespace.generationId, old.domain, old.entityId,
+      ))) as LocalEntityEnvelope<T> | undefined;
+      if (!entity) throw new LocalDatabaseError('ENTITY_NOT_FOUND', operation);
+      this.validatePersistedEntity(entity, operation);
+      if (entity.revision !== input.expectedEntityRevision || entity.isDeleted
+        || (input.prerequisiteStatus === 'acknowledged' && entity.pendingMutationId !== null)
+        || entity.serverRevision == null
+        || entity.serverRevision != null && input.remoteServerRevision < entity.serverRevision
+        || input.prerequisiteStatus === 'conflict' && entity.serverRevision === input.remoteServerRevision
+        || input.prerequisiteStatus === 'acknowledged'
+          && entity.serverRevision === input.remoteServerRevision
+          && entity.lastRemoteMutationRef !== input.remoteMutationRef) {
+        throw new LocalDatabaseError('STALE_REVISION', operation);
+      }
+
+      const scoped = await this.readScopedOutbox(transaction, operation);
+      const entityHistory = scoped.filter(value => value.domain === old.domain && value.entityId === old.entityId)
+        .sort((left, right) => left.localRevision - right.localRevision);
+      const oldIndex = entityHistory.findIndex(value => value.mutationId === old.mutationId);
+      if (oldIndex < 0 || (input.prerequisiteStatus === 'acknowledged'
+        && entityHistory[entityHistory.length - 1]?.mutationId !== old.mutationId)) {
+        throw new LocalDatabaseError('INVALID_OUTBOX_TRANSITION', operation);
+      }
+      const byMutationId = new Map(scoped.map(value => [value.mutationId, value]));
+      const liveStatuses = new Set<OutboxStatus>(['pending', 'retry_wait']);
+      const oldDependents = scoped.filter(value => value.dependsOnMutationId === old.mutationId
+        && liveStatuses.has(value.status));
+      if (oldDependents.length === 0) {
+        throw new LocalDatabaseError('INVALID_OUTBOX_TRANSITION', operation);
+      }
+
+      const payload = { kind: 'entity_snapshot' as const, record: correctedRecord };
+      const payloadHash = hashCanonicalPayload(payload);
+      let existingSuccessor: OutboxRecord | null = null;
+      if (input.prerequisiteStatus === 'conflict' && entity.pendingMutationId !== old.mutationId) {
+        const pendingMutationId = entity.pendingMutationId;
+        if (!pendingMutationId) throw new LocalDatabaseError('STALE_REVISION', operation);
+        const visited = new Set<string>();
+        let candidate = byMutationId.get(pendingMutationId);
+        while (candidate?.status === 'superseded') {
+          if (visited.has(candidate.mutationId) || !candidate.supersededByMutationId) {
+            throw new LocalDatabaseError('OUTBOX_SEQUENCE_GAP', operation);
+          }
+          visited.add(candidate.mutationId);
+          const successor = byMutationId.get(candidate.supersededByMutationId);
+          if (!successor || successor.namespaceKey !== candidate.namespaceKey
+            || successor.generationId !== candidate.generationId
+            || successor.domain !== candidate.domain || successor.entityId !== candidate.entityId
+            || successor.localRevision <= candidate.localRevision) {
+            throw new LocalDatabaseError('OUTBOX_SEQUENCE_GAP', operation);
+          }
+          candidate = successor;
+        }
+        if (!candidate || candidate.domain !== old.domain || candidate.entityId !== old.entityId
+          || candidate.localRevision <= old.localRevision || candidate.localRevision !== entity.revision
+          || candidate.operation !== 'upsert' || candidate.payload.kind !== 'entity_snapshot') {
+          throw new LocalDatabaseError('INVALID_OUTBOX_TRANSITION', operation);
+        }
+        existingSuccessor = candidate;
+      }
+
+      // A successor blocked behind the conflicted head has never been sent.
+      // Its immutable request identity can therefore be retained while the
+      // entity's server boundary is advanced atomically below.
+      const canAdoptExisting = existingSuccessor?.status === 'pending'
+        && existingSuccessor.attemptCount === 0
+        && hashCanonicalPayload(existingSuccessor.payload) === payloadHash
+        && hashCanonicalPayload(entity.record) === hashCanonicalPayload(correctedRecord)
+        && entityHistory[entityHistory.length - 1]?.mutationId === existingSuccessor.mutationId;
+      let replacement: OutboxRecord;
+      let createdReplacement = false;
+      if (canAdoptExisting && existingSuccessor) {
+        replacement = existingSuccessor;
+      } else {
+        const localRevision = entity.revision + 1;
+        if (!Number.isSafeInteger(localRevision)) throw new LocalDatabaseError('INVALID_ENTITY', operation);
+        const identity = {
+          namespaceKey: this.namespaceKey, generationId: this.namespace.generationId,
+          domain: old.domain, entityId: old.entityId, localRevision, operation: 'upsert' as const, payloadHash,
+        };
+        replacement = {
+          namespaceKey: this.namespaceKey, generationId: this.namespace.generationId,
+          accountId: this.namespace.userId, deviceId: this.namespace.deviceId,
+          mutationId: deriveOutboxMutationId(identity), domain: old.domain, entityId: old.entityId, operation: 'upsert',
+          baseRevision: entity.revision, localRevision, payloadMode: 'inline', payload, payloadHash,
+          createdAt: timestamp, updatedAt: timestamp, availableAt: timestamp,
+          attemptCount: 0, status: 'pending', idempotencyKey: deriveOutboxIdempotencyKey(identity),
+          lastAttemptAt: null, lastErrorCode: null, leaseOwner: null, leaseExpiresAt: null,
+          acknowledgedAt: null, acknowledgedBy: null, remoteMutationRef: null,
+          acknowledgedRevision: null, serverCommittedAt: null, supersededByMutationId: null,
+          remoteSequenceBoundary: {
+            kind: 'remote_entity_sequence_boundary', namespaceKey: this.namespaceKey,
+            generationId: this.namespace.generationId, domain: old.domain, entityId: old.entityId,
+            baselineLocalRevision: entity.revision, baselineServerRevision: input.remoteServerRevision,
+            remoteMutationRef: input.remoteMutationRef,
+            baselineContentHash: hashCanonicalPayload(remoteRecord), createdAt: timestamp,
+          },
+        };
+        createdReplacement = true;
+      }
+      validateOutboxRecord(replacement);
+
+      const obsoleteProfileRecords = input.prerequisiteStatus === 'conflict'
+        ? entityHistory.slice(oldIndex).filter(value => value.mutationId !== replacement.mutationId)
+        : [];
+      const profileUpdates = new Map<string, OutboxRecord>();
+      for (const value of obsoleteProfileRecords) {
+        let updated: OutboxRecord;
+        if (value.status === 'conflict') {
+          updated = replacement.baseRevision === value.localRevision
+            && replacement.localRevision === value.localRevision + 1
+            ? replaceConflictedOutboxRecord(value, replacement, timestamp)
+            : adoptConflictedOutboxSuccessor(value, replacement, timestamp);
+        } else if (value.status === 'pending' && value.attemptCount === 0) {
+          updated = supersedeOutboxRecord(value, replacement, timestamp);
+        } else if (value.status === 'superseded') {
+          updated = value;
+        } else {
+          throw new LocalDatabaseError('INVALID_OUTBOX_TRANSITION', operation);
+        }
+        validateOutboxRecord(updated);
+        profileUpdates.set(updated.mutationId, updated);
+      }
+      const prerequisite = profileUpdates.get(old.mutationId) ?? old;
+      const supersededProfileIds = new Set(obsoleteProfileRecords.map(value => value.mutationId));
+      if (input.prerequisiteStatus === 'acknowledged') supersededProfileIds.add(old.mutationId);
+      const dependents = scoped.filter(value => value.dependsOnMutationId != null
+        && supersededProfileIds.has(value.dependsOnMutationId)
+        && liveStatuses.has(value.status));
+      if (dependents.length === 0 || dependents.some(value => value.operation !== 'tombstone'
+        || value.status === 'pending' && value.attemptCount !== 0)) {
+        throw new LocalDatabaseError('INVALID_OUTBOX_TRANSITION', operation);
+      }
+      const rebound: OutboxRecord[] = [];
+      const replacedDependents: OutboxRecord[] = [];
+      const dependentEntities: LocalEntityEnvelope[] = [];
+      for (const value of dependents) {
+        if (value.status === 'retry_wait') {
+          if (value.lastErrorCode !== 'ACTIVE_PRESET_DELETE_REQUIRES_PROFILE_UPDATE'
+            || value.payload.kind !== 'tombstone') {
+            throw new LocalDatabaseError('INVALID_OUTBOX_TRANSITION', operation);
+          }
+          const dependentEntity = await requestResult(entityStore.get(entityKey(
+            this.namespaceKey, this.namespace.generationId, value.domain, value.entityId,
+          ))) as LocalEntityEnvelope | undefined;
+          if (!dependentEntity) throw new LocalDatabaseError('ENTITY_NOT_FOUND', operation);
+          this.validatePersistedEntity(dependentEntity, operation);
+          if (dependentEntity.pendingMutationId !== value.mutationId
+            || dependentEntity.revision !== value.localRevision || !dependentEntity.isDeleted) {
+            throw new LocalDatabaseError('STALE_REVISION', operation);
+          }
+          const dependentLocalRevision = value.localRevision + 1;
+          const dependentPayload = {
+            kind: 'tombstone' as const,
+            entityId: value.entityId,
+            deletedAt: value.payload.deletedAt,
+            revision: dependentLocalRevision,
+          };
+          const dependentPayloadHash = hashCanonicalPayload(dependentPayload);
+          const dependentIdentity = {
+            namespaceKey: this.namespaceKey, generationId: this.namespace.generationId,
+            domain: value.domain, entityId: value.entityId, localRevision: dependentLocalRevision,
+            operation: 'tombstone' as const, payloadHash: dependentPayloadHash,
+          };
+          const retried: OutboxRecord = {
+            namespaceKey: this.namespaceKey, generationId: this.namespace.generationId,
+            accountId: this.namespace.userId, deviceId: this.namespace.deviceId,
+            mutationId: deriveOutboxMutationId(dependentIdentity),
+            domain: value.domain, entityId: value.entityId, operation: 'tombstone',
+            baseRevision: value.localRevision, localRevision: dependentLocalRevision,
+            payloadMode: 'inline', payload: dependentPayload, payloadHash: dependentPayloadHash,
+            createdAt: timestamp, updatedAt: timestamp, availableAt: timestamp,
+            attemptCount: 0, status: 'pending', idempotencyKey: deriveOutboxIdempotencyKey(dependentIdentity),
+            lastAttemptAt: null, lastErrorCode: null, leaseOwner: null, leaseExpiresAt: null,
+            acknowledgedAt: null, acknowledgedBy: null, remoteMutationRef: null,
+            acknowledgedRevision: null, serverCommittedAt: null, supersededByMutationId: null,
+            dependsOnMutationId: replacement.mutationId,
+          };
+          validateOutboxRecord(retried);
+          const superseded = replaceRejectedDependentOutboxRecord(value, retried, timestamp);
+          validateOutboxRecord(superseded);
+          replacedDependents.push(superseded);
+          rebound.push(retried);
+          const nextDependentEntity: LocalEntityEnvelope = {
+            ...dependentEntity,
+            revision: dependentLocalRevision,
+            localRevision: dependentLocalRevision,
+            updatedAt: timestamp,
+            pendingMutationId: retried.mutationId,
+          };
+          validateEntityEnvelope(nextDependentEntity);
+          dependentEntities.push(nextDependentEntity);
+          continue;
+        }
+        const next: OutboxRecord = {
+          ...value,
+          status: 'pending',
+          dependsOnMutationId: replacement.mutationId,
+          updatedAt: timestamp,
+          availableAt: timestamp,
+          lastErrorCode: null,
+          leaseOwner: null,
+          leaseExpiresAt: null,
+        };
+        validateOutboxRecord(next);
+        rebound.push(next);
+      }
+      const reboundById = new Map(rebound.map(value => [value.mutationId, value]));
+      const supersededDependentById = new Map(replacedDependents.map(value => [value.mutationId, value]));
+      const nextScoped = scoped.map(value => profileUpdates.get(value.mutationId)
+        ?? supersededDependentById.get(value.mutationId) ?? reboundById.get(value.mutationId) ?? value);
+      if (createdReplacement) nextScoped.push(replacement);
+      nextScoped.push(...rebound.filter(value => !scoped.some(oldValue => oldValue.mutationId === value.mutationId)));
+      this.validateOutboxSequences(nextScoped, operation);
+      this.validateOutboxDependencies(nextScoped, operation);
+
+      const nextRevision = createdReplacement ? replacement.localRevision : entity.revision;
+      const nextEntity: LocalEntityEnvelope<T> = {
+        ...entity,
+        record: correctedRecord as T,
+        revision: nextRevision,
+        localRevision: nextRevision,
+        serverRevision: input.remoteServerRevision,
+        updatedAt: timestamp,
+        contentHash: hashCanonicalPayload(correctedRecord),
+        pendingMutationId: replacement.mutationId,
+        lastRemoteMutationRef: input.remoteMutationRef,
+        source: { kind: 'local', reference: 'conflict-reconciliation' },
+      };
+      validateEntityEnvelope(nextEntity);
+      profileUpdates.forEach(value => outboxStore.put(value));
+      if (createdReplacement) outboxStore.add(replacement);
+      replacedDependents.forEach(value => outboxStore.put(value));
+      rebound.forEach(value => {
+        if (scoped.some(oldValue => oldValue.mutationId === value.mutationId)) outboxStore.put(value);
+        else outboxStore.add(value);
+      });
+      entityStore.put(nextEntity);
+      dependentEntities.forEach(value => entityStore.put(value));
+
+      const conflictStore = transaction.objectStore(LOCAL_DATABASE_STORES.conflicts);
+      const conflicts = await requestResult(conflictStore.index('by_namespace_generation_entity').getAll(
+        IDBKeyRange.only([this.namespaceKey, this.namespace.generationId, old.domain, old.entityId]),
+      )) as SyncConflictRecord[];
+      for (const conflict of conflicts) {
+        validateConflictRecord(conflict);
+        if (conflict.accountId !== this.namespace.userId) throw new LocalDatabaseError('NAMESPACE_MISMATCH', operation);
+        if (conflict.mutationId != null && supersededProfileIds.has(conflict.mutationId)
+          && conflict.resolutionState === 'unresolved') {
+          const resolved: SyncConflictRecord = {
+            ...conflict, resolutionState: 'resolved_merged', resolvedAt: timestamp,
+          };
+          validateConflictRecord(resolved);
+          conflictStore.put(resolved);
+        }
+      }
+      await done;
+      return { prerequisite, replacement, entity: nextEntity, dependents: rebound };
+    } catch (error) {
+      abortQuietly(transaction); await done.catch(() => undefined);
+      throw localDatabaseError(error, operation);
     }
   }
 

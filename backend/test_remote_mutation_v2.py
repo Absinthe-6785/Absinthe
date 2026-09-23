@@ -30,6 +30,8 @@ PROJECT = "project-test"
 GENERATION = "generation-1"
 EPOCH_A = "33333333-3333-4333-8333-333333333333"
 EPOCH_B = "44444444-4444-4444-8444-444444444444"
+DEFAULT_PRESET = "00000000-0000-5000-8000-000000000001"
+PROFILE = "00000000-0000-5000-8000-000000000002"
 
 
 def request_payload(
@@ -49,6 +51,23 @@ def request_payload(
         payload = {
             "kind": "tombstone", "entityId": entity_id,
             "deletedAt": "2026-09-18T00:00:00Z", "revision": local_revision,
+        }
+    elif domain == "health_routine_preset":
+        payload = {
+            "kind": "entity_snapshot",
+            "record": {
+                "id": entity_id, "name": label, "splitCount": 3,
+                "days": [
+                    {"dayName": f"Day {index}", "blocks": [], "plannedSets": {}}
+                    for index in range(1, 4)
+                ],
+                "isDefault": entity_id == DEFAULT_PRESET,
+            },
+        }
+    elif domain == "health_routine_profile":
+        payload = {
+            "kind": "entity_snapshot",
+            "record": {"id": entity_id, "activePresetId": DEFAULT_PRESET},
         }
     elif domain == "reference_beta":
         payload = {
@@ -78,6 +97,16 @@ def request_payload(
     parsed = ApplyRemoteMutationV2Request.model_validate(raw)
     raw["mutationId"] = derive_v2_mutation_id(parsed)
     return raw
+
+
+def test_fixed_default_tombstone_is_rejected_by_domain_service() -> None:
+    service = RemoteMutationV2Service(InMemoryV2Gateway(), PROJECT)
+    payload = request_payload(
+        domain="health_routine_preset", entity_id=DEFAULT_PRESET,
+        operation="tombstone", base_revision=1, local_revision=2,
+    )
+    with pytest.raises(ValueError, match="DEFAULT_PRESET_REQUIRED"):
+        service.parse_mutation(payload)
 
 
 class InMemoryV2Gateway:
@@ -271,6 +300,31 @@ def test_unknown_domain_and_invalid_record_fail_before_gateway(service: RemoteMu
     malformed["mutationId"] = derive_v2_mutation_id(parsed)
     assert service.apply(service.parse_mutation(malformed), OWNER_A).error_code == "MALFORMED_PAYLOAD"
     assert gateway.call_count == 0
+
+
+def test_health_domains_are_explicit_closed_and_profile_restore_is_rejected(
+    service: RemoteMutationV2Service, gateway: InMemoryV2Gateway,
+) -> None:
+    preset = parse(service, domain="health_routine_preset", entity_id=DEFAULT_PRESET, label="Default")
+    profile = parse(service, domain="health_routine_profile", entity_id=PROFILE)
+    assert service.apply(preset, OWNER_A).outcome == "applied"
+    assert service.apply(profile, OWNER_A).outcome == "applied"
+
+    malformed = request_payload(domain="health_routine_preset", entity_id=DEFAULT_PRESET)
+    malformed["payload"]["record"]["days"][0]["unknown"] = True
+    malformed["payloadHash"] = payload_hash(malformed["payload"])
+    parsed = ApplyRemoteMutationV2Request.model_validate(malformed)
+    malformed["idempotencyKey"] = derive_v2_idempotency_key(parsed)
+    parsed = ApplyRemoteMutationV2Request.model_validate(malformed)
+    malformed["mutationId"] = derive_v2_mutation_id(parsed)
+    assert service.apply(service.parse_mutation(malformed), OWNER_A).error_code == "MALFORMED_PAYLOAD"
+
+    restore = parse(
+        service, domain="health_routine_profile", entity_id=PROFILE,
+        operation="restore", base_revision=1, local_revision=2,
+    )
+    assert service.apply(restore, OWNER_A).error_code == "INVALID_OPERATION"
+    assert gateway.call_count == 2
 
 
 @pytest.mark.parametrize("change", [
@@ -484,6 +538,30 @@ def test_migration_is_additive_locked_immutable_and_service_role_only() -> None:
     assert "from public, anon, authenticated" in lowered
     assert "drop table" not in lowered and "truncate" not in lowered
     assert "delete from" not in lowered and "public.notes" not in lowered
+
+
+def test_health_routine_migration_is_additive_typed_private_and_one_way_projected() -> None:
+    sql = (Path(__file__).parent / "migrations" / "202609190001_rel05f_health_routine_aggregate.sql").read_text(
+        encoding="utf-8"
+    )
+    lowered = sql.lower()
+    assert lowered.startswith("begin;") and lowered.rstrip().endswith("commit;")
+    assert "create table if not exists public.health_routine_presets" in lowered
+    assert "create table if not exists public.health_routine_profile" in lowered
+    assert "enable row level security" in lowered and "(select auth.uid()) = user_id" in lowered
+    assert "apply_health_routine_mutation_v2" in lowered and "pull_health_routine_changes_v2" in lowered
+    assert "remote_mutation_receipts" in lowered and "remote_reference_changes_v2" in lowered
+    assert "pg_advisory_xact_lock" in lowered and "for update" in lowered
+    assert "delete from public.health_routines where user_id = $1" in lowered
+    assert "jsonb_array_length(days) = split_count" in lowered
+    assert "default_preset_required" in lowered
+    assert "v_entity_id = '00000000-0000-5000-8000-000000000001'::uuid" in lowered
+    assert "grant execute" in lowered and "to service_role" in lowered
+    assert "from public, anon, authenticated, service_role" in lowered
+    assert "grant select, insert, update on public.health_routine_presets to service_role" in lowered
+    assert "grant select, insert, update on public.health_routine_profile to service_role" in lowered
+    assert "grant delete on public.health_routine" not in lowered
+    assert "drop table" not in lowered and "truncate" not in lowered
 
 
 def test_receipts_and_errors_do_not_contain_reference_content(service: RemoteMutationV2Service, gateway: InMemoryV2Gateway) -> None:

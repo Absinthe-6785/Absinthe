@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createEmptyRoutinePreset,
   createRoutinePresetState,
+  DEFAULT_ROUTINE_PRESET_ID,
   readRoutinePresetState,
   writeRoutinePresetState,
 } from './features/health/routinePresets';
@@ -71,6 +72,16 @@ vi.mock('../../lib/healthLocalRuntime', () => ({
   createLocalHealthRepository: vi.fn(async () => ({ saveRoutine: vi.fn() })),
   readLocalHealthWorkoutRange: vi.fn(async () => []),
   readLocalPreviousWorkoutRows: vi.fn(async () => []),
+}));
+vi.mock('../../lib/healthRoutineSync', () => ({
+  productionHealthRoutinePersistence: {
+    bootstrap: async ({ legacyState }: { legacyState: unknown }) => legacyState,
+    commitState: async (_accountId: string, _previous: unknown, next: unknown) => next,
+    sync: async () => null,
+    snapshot: async () => null,
+    reset: async () => createRoutinePresetState({ routines: [], splitCount: 3 }),
+    recover: async (_accountId: string, recovered: unknown) => recovered,
+  },
 }));
 vi.mock('../../lib/healthBackfillUiSafety', () => ({
   isCurrentHealthAccountGeneration: (
@@ -183,6 +194,8 @@ const blocks: ExerciseBlock[] = [
   { id: 'push', name: 'Push', type: 'strength', tags: ['UPPER'], cardio_mode: 'both' },
   { id: 'pull', name: 'Pull', type: 'strength', tags: ['UPPER'], cardio_mode: 'both' },
 ];
+const ACCOUNT_A_CUSTOM_ID = '00000000-0000-5000-8000-00000000000a';
+const ACCOUNT_B_CUSTOM_ID = '00000000-0000-5000-8000-00000000000b';
 const routine = (id: string, dayName: string, blockIds: string[]): HealthRoutine => ({ id, day_name: dayName, blocks: blockIds });
 
 function healthProps(overrides: Partial<HealthProps> = {}): HealthProps {
@@ -344,49 +357,49 @@ describe('UI-06 production Health composition hierarchy', () => {
 describe('HEALTH_10D account transition isolation', () => {
   it('does not expose A during the synchronous A -> B frame and immediately uses B state', async () => {
     const accountA = createRoutinePresetState({ routines: [routine('a-day-1', 'Day 1', ['push'])], splitCount: 1 });
-    accountA.presets.push(createEmptyRoutinePreset('account-a-custom', 'A Custom', 1));
-    accountA.activePresetId = 'account-a-custom';
+    accountA.presets.push(createEmptyRoutinePreset(ACCOUNT_A_CUSTOM_ID, 'A Custom', 1));
+    accountA.activePresetId = ACCOUNT_A_CUSTOM_ID;
     const accountB = createRoutinePresetState({ routines: [routine('b-day-1', 'Day 1', ['pull'])], splitCount: 1 });
-    accountB.presets.push(createEmptyRoutinePreset('account-b-custom', 'B Custom', 1));
-    accountB.activePresetId = 'account-b-custom';
+    accountB.presets.push(createEmptyRoutinePreset(ACCOUNT_B_CUSTOM_ID, 'B Custom', 1));
+    accountB.activePresetId = ACCOUNT_B_CUSTOM_ID;
     writeRoutinePresetState(localStorage, 'account-a', accountA);
     writeRoutinePresetState(localStorage, 'account-b', accountB);
 
     await mount(healthProps({ healthRoutines: [routine('a-day-1', 'Day 1', ['push'])] }));
-    expect(presetSelect().value).toBe('account-a-custom');
+    expect(presetSelect().value).toBe(ACCOUNT_A_CUSTOM_ID);
 
     flushSync(() => root?.render(createElement(HealthView, healthProps({
       user: { id: 'account-b', name: 'Account B' },
       healthRoutines: [routine('b-day-1', 'Day 1', ['pull'])],
     }))));
 
-    expect(presetSelect().value).toBe('account-b-custom');
-    expect(presetSelect().value).not.toBe('account-a-custom');
+    expect(presetSelect().value).toBe(ACCOUNT_B_CUSTOM_ID);
+    expect(presetSelect().value).not.toBe(ACCOUNT_A_CUSTOM_ID);
     await settle();
-    expect(readRoutinePresetState(localStorage, 'account-a')?.activePresetId).toBe('account-a-custom');
-    expect(readRoutinePresetState(localStorage, 'account-b')?.activePresetId).toBe('account-b-custom');
+    expect(readRoutinePresetState(localStorage, 'account-a')?.activePresetId).toBe(ACCOUNT_A_CUSTOM_ID);
+    expect(readRoutinePresetState(localStorage, 'account-b')?.activePresetId).toBe(ACCOUNT_B_CUSTOM_ID);
   });
 
   it('uses B initialization semantics without reusing A when B has no scoped state', async () => {
     const accountA = createRoutinePresetState({ routines: [routine('a-day-1', 'Day 1', ['push'])], splitCount: 1 });
-    accountA.presets.push(createEmptyRoutinePreset('account-a-custom', 'A Custom', 1));
-    accountA.activePresetId = 'account-a-custom';
+    accountA.presets.push(createEmptyRoutinePreset(ACCOUNT_A_CUSTOM_ID, 'A Custom', 1));
+    accountA.activePresetId = ACCOUNT_A_CUSTOM_ID;
     writeRoutinePresetState(localStorage, 'account-a', accountA);
     localStorage.setItem('healthSplitCount', '5');
     localStorage.setItem('healthRoutinePlannedSets', JSON.stringify({ 'Day 1': { push: 7 } }));
 
     await mount(healthProps({ healthRoutines: [routine('a-day-1', 'Day 1', ['push'])] }));
-    expect(presetSelect().value).toBe('account-a-custom');
+    expect(presetSelect().value).toBe(ACCOUNT_A_CUSTOM_ID);
     flushSync(() => root?.render(createElement(HealthView, healthProps({
       user: { id: 'account-b', name: 'Account B' },
       healthRoutines: [],
     }))));
 
-    expect(presetSelect().value).toBe('health-default');
-    expect(presetSelect().value).not.toBe('account-a-custom');
+    expect(presetSelect().value).toBe(DEFAULT_ROUTINE_PRESET_ID);
+    expect(presetSelect().value).not.toBe(ACCOUNT_A_CUSTOM_ID);
     expect((container!.querySelector('input[type="number"]') as HTMLInputElement).value).toBe('3');
     await settle();
-    expect(readRoutinePresetState(localStorage, 'account-a')?.activePresetId).toBe('account-a-custom');
+    expect(readRoutinePresetState(localStorage, 'account-a')?.activePresetId).toBe(ACCOUNT_A_CUSTOM_ID);
     expect(readRoutinePresetState(localStorage, 'account-b')?.presets[0].splitCount).toBe(3);
     expect(readRoutinePresetState(localStorage, 'account-b')?.presets[0].days[0].plannedSets).toEqual({});
     expect(localStorage.getItem('healthSplitCount')).toBe('5');
@@ -396,31 +409,31 @@ describe('HEALTH_10D account transition isolation', () => {
 
   it('restores each account on A -> B -> A without cross-account storage writes', async () => {
     const accountA = createRoutinePresetState({ routines: [], splitCount: 1 });
-    accountA.presets.push(createEmptyRoutinePreset('account-a-custom', 'A Custom', 1));
-    accountA.activePresetId = 'account-a-custom';
+    accountA.presets.push(createEmptyRoutinePreset(ACCOUNT_A_CUSTOM_ID, 'A Custom', 1));
+    accountA.activePresetId = ACCOUNT_A_CUSTOM_ID;
     const accountB = createRoutinePresetState({ routines: [], splitCount: 1 });
-    accountB.presets.push(createEmptyRoutinePreset('account-b-custom', 'B Custom', 1));
-    accountB.activePresetId = 'account-b-custom';
+    accountB.presets.push(createEmptyRoutinePreset(ACCOUNT_B_CUSTOM_ID, 'B Custom', 1));
+    accountB.activePresetId = ACCOUNT_B_CUSTOM_ID;
     writeRoutinePresetState(localStorage, 'account-a', accountA);
     writeRoutinePresetState(localStorage, 'account-b', accountB);
     const accountABefore = JSON.stringify(accountA);
 
     await mount(healthProps());
     flushSync(() => root?.render(createElement(HealthView, healthProps({ user: { id: 'account-b', name: 'Account B' } }))));
-    expect(presetSelect().value).toBe('account-b-custom');
+    expect(presetSelect().value).toBe(ACCOUNT_B_CUSTOM_ID);
     await settle();
     expect(JSON.stringify(readRoutinePresetState(localStorage, 'account-a'))).toBe(accountABefore);
 
     flushSync(() => root?.render(createElement(HealthView, healthProps())));
-    expect(presetSelect().value).toBe('account-a-custom');
+    expect(presetSelect().value).toBe(ACCOUNT_A_CUSTOM_ID);
     await settle();
-    expect(readRoutinePresetState(localStorage, 'account-a')?.activePresetId).toBe('account-a-custom');
-    expect(readRoutinePresetState(localStorage, 'account-b')?.activePresetId).toBe('account-b-custom');
+    expect(readRoutinePresetState(localStorage, 'account-a')?.activePresetId).toBe(ACCOUNT_A_CUSTOM_ID);
+    expect(readRoutinePresetState(localStorage, 'account-b')?.activePresetId).toBe(ACCOUNT_B_CUSTOM_ID);
   });
 
   it('hides an A preset deletion confirmation during the synchronous A -> B render', async () => {
-    writeCustomPreset('account-a', 'account-a-custom', 'A Custom');
-    writeCustomPreset('account-b', 'account-b-custom', 'B Custom');
+    writeCustomPreset('account-a', ACCOUNT_A_CUSTOM_ID, 'A Custom');
+    writeCustomPreset('account-b', ACCOUNT_B_CUSTOM_ID, 'B Custom');
 
     await mount(healthProps());
     const confirmation = await openPresetDeleteConfirmation();
@@ -431,12 +444,12 @@ describe('HEALTH_10D account transition isolation', () => {
     }))));
 
     expect(container!.querySelector('[role="dialog"]')).toBeNull();
-    expect(presetSelect().value).toBe('account-b-custom');
+    expect(presetSelect().value).toBe(ACCOUNT_B_CUSTOM_ID);
   });
 
   it('clears the stale confirmation after stabilization and keeps a new B confirmation', async () => {
-    writeCustomPreset('account-a', 'account-a-custom', 'A Custom');
-    writeCustomPreset('account-b', 'account-b-custom', 'B Custom');
+    writeCustomPreset('account-a', ACCOUNT_A_CUSTOM_ID, 'A Custom');
+    writeCustomPreset('account-b', ACCOUNT_B_CUSTOM_ID, 'B Custom');
 
     await mount(healthProps());
     await openPresetDeleteConfirmation();
@@ -453,8 +466,8 @@ describe('HEALTH_10D account transition isolation', () => {
   });
 
   it('makes a stale A confirmation callback a no-op while B is current', async () => {
-    const accountA = writeCustomPreset('account-a', 'account-a-custom', 'A Custom');
-    const accountB = writeCustomPreset('account-b', 'account-b-custom', 'B Custom');
+    const accountA = writeCustomPreset('account-a', ACCOUNT_A_CUSTOM_ID, 'A Custom');
+    const accountB = writeCustomPreset('account-b', ACCOUNT_B_CUSTOM_ID, 'B Custom');
     const accountABefore = JSON.stringify(accountA);
     const accountBBefore = JSON.stringify(accountB);
 
@@ -471,11 +484,11 @@ describe('HEALTH_10D account transition isolation', () => {
 
     expect(JSON.stringify(readRoutinePresetState(localStorage, 'account-a'))).toBe(accountABefore);
     expect(JSON.stringify(readRoutinePresetState(localStorage, 'account-b'))).toBe(accountBBefore);
-    expect(presetSelect().value).toBe('account-b-custom');
+    expect(presetSelect().value).toBe(ACCOUNT_B_CUSTOM_ID);
   });
 
   it('still deletes a custom preset when the initiating account remains current', async () => {
-    writeCustomPreset('account-a', 'account-a-custom', 'A Custom');
+    writeCustomPreset('account-a', ACCOUNT_A_CUSTOM_ID, 'A Custom');
 
     await mount(healthProps());
     const confirmation = await openPresetDeleteConfirmation();
@@ -485,8 +498,8 @@ describe('HEALTH_10D account transition isolation', () => {
     await settle();
 
     const state = readRoutinePresetState(localStorage, 'account-a');
-    expect(state?.presets.some(preset => preset.id === 'account-a-custom')).toBe(false);
-    expect(state?.activePresetId).toBe('health-default');
-    expect(presetSelect().value).toBe('health-default');
+    expect(state?.presets.some(preset => preset.id === ACCOUNT_A_CUSTOM_ID)).toBe(false);
+    expect(state?.activePresetId).toBe(DEFAULT_ROUTINE_PRESET_ID);
+    expect(presetSelect().value).toBe(DEFAULT_ROUTINE_PRESET_ID);
   });
 });

@@ -62,7 +62,7 @@ describe('HEALTH_11 routine preset authority', () => {
     expect(routinePresetById(adopted).splitCount).toBe(5);
     expect(routinePresetById(adopted).days[0].plannedSets).toEqual({ push: 7 });
     expect(routinePresetById(adopted).days[3].plannedSets).toEqual({ pull: 4 });
-    expect(adopted.presets.some(preset => preset.id === 'custom')).toBe(true);
+    expect(adopted.presets.some(preset => preset.name === 'Custom' && preset.id !== 'custom')).toBe(true);
     expect(readRoutinePresetState(localStorage, 'account-b')).toBeNull();
     expect(localStorage.getItem('healthSplitCount')).toBeNull();
   });
@@ -161,8 +161,11 @@ describe('HEALTH_11 routine preset authority', () => {
     });
     expect(result.status).toBe('adopted');
     const adopted = readRoutinePresetState(localStorage, 'account-a')!;
+    const adoptedCustom = adopted.presets.find(preset => preset.name === 'Custom');
     expect(adopted.presets).toHaveLength(2);
+    expect(adoptedCustom?.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+    expect(adoptedCustom?.id).not.toBe('custom');
     expect(routinePresetById(adopted, DEFAULT_ROUTINE_PRESET_ID).days[0].blocks).toEqual(['push']);
-    expect(routinePresetById(adopted, 'custom').days[0].blocks).toEqual([]);
+    expect(routinePresetById(adopted, adoptedCustom!.id).days[0].blocks).toEqual([]);
   });
 });

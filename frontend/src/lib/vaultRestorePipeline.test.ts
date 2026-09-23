@@ -46,6 +46,14 @@ import { simulateVaultRestore } from './vaultExtensionRestoreSim';
 import { setRecoveryModeActiveForTest } from './recoverySafetyPolicy';
 import { activateRecoveryMode } from './recoverySafetyPolicy';
 import { authFetch } from './supabase';
+import { buildAccountScopedVaultBackupManifest } from './vaultBackupFlow';
+import { productionHealthRoutinePersistence } from './healthRoutineSync';
+import {
+  DEFAULT_ROUTINE_PRESET_ID,
+  createEmptyRoutinePreset,
+  createRoutinePresetState,
+  updateRoutinePresetState,
+} from '@/components/views/features/health/routinePresets';
 
 function note(id: string, title = 'Note'): NoteBase {
   return {
@@ -331,6 +339,54 @@ describe('vaultRestorePipeline', () => {
     );
     expect(result.core?.importedNotes).toBe(1);
     expect(result.extensions?.sections).toContain('savedViews');
+  });
+
+  it('round-trips account-scoped durable Health authority through production export and restore orchestration', async () => {
+    let durable = updateRoutinePresetState(
+      createRoutinePresetState({ routines: [], splitCount: 4 }),
+      { type: 'set-split', presetId: DEFAULT_ROUTINE_PRESET_ID, splitCount: 3 },
+    );
+    durable = updateRoutinePresetState(durable, {
+      type: 'create',
+      preset: createEmptyRoutinePreset('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'Round trip', 2),
+    });
+    durable = updateRoutinePresetState(durable, {
+      type: 'set-day',
+      presetId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      dayName: 'Day 1',
+      blocks: ['bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'],
+      plannedSets: { 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb': 5 },
+    });
+    const manifest = await buildAccountScopedVaultBackupManifest({
+      notes: [note('n1', 'Round trip')], folders: [], cloud: null, accountId: 'account-a',
+    }, {
+      readHealthRoutineState: async accountId => accountId === 'account-a' ? durable : null,
+      isAccountCurrent: accountId => accountId === 'account-a',
+    });
+    const parsed = parseVaultBackupJson(JSON.stringify(manifest));
+    expect(parsed?.extensions?.health.routinePresetState).toEqual(durable);
+
+    const recover = vi.spyOn(productionHealthRoutinePersistence, 'recover').mockResolvedValue(durable);
+    const result = await executeVaultRestorePipeline(parsed!, {
+      strategy: 'replace',
+      selection: { noteIds: new Set(), folderIds: new Set() },
+      restoreCore: false,
+      restoreExtensions: true,
+      restoreCloud: false,
+      backupBeforeRestore: false,
+      healthAuthority: {
+        accountId: 'account-a',
+        isCurrentAccount: () => true,
+      },
+    }, {
+      importCore: (value, strategy) => applyVaultRestore(value, [], [], strategy).result,
+      getNotes: () => [],
+      getFolders: () => [],
+    });
+
+    expect(recover).toHaveBeenCalledWith('account-a', durable);
+    expect(result.extensions?.routinePresetState).toEqual(durable);
+    recover.mockRestore();
   });
 
   it('scenario B: snapshot restores to equivalent state', () => {

@@ -74,4 +74,29 @@ describe('HEALTH_11 explicit health restore bridge', () => {
     expect(localStorage.getItem('healthSplitCount')).toBe('4');
     expect(localStorage.getItem('healthRoutinePlannedSets')).toContain('push');
   });
+
+  it('restores the complete canonical routine snapshot with stable preset identity', () => {
+    const state = createRoutinePresetState({ routines: [], splitCount: 3 });
+    const namedId = '00000000-0000-5000-8000-00000000000a';
+    state.presets.push({
+      id: namedId,
+      name: 'Travel',
+      splitCount: 1,
+      days: [{ dayName: 'Day 1', blocks: [], plannedSets: {}, locallyAuthored: true }],
+    });
+    state.activePresetId = namedId;
+    state.legacySyncPending = false;
+    const backup = extensions(null, null);
+    backup.health.routinePresetState = state;
+
+    const result = applyVaultExtensionsRestore(backup, {
+      accountId: 'account-a',
+      isCurrentAccount: () => true,
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.routinePresetState?.activePresetId).toBe(namedId);
+    expect(readRoutinePresetState(localStorage, 'account-a')?.presets.find(preset => preset.id === namedId)?.name)
+      .toBe('Travel');
+  });
 });

@@ -4,6 +4,8 @@ import {
   buildVaultBackupManifestV3,
   type VaultBackupManifest,
 } from './exportVaultBackup';
+import { collectPortableVaultExtensions } from './vaultPortableExtensions';
+import type { RoutinePresetState } from '@/components/views/features/health/routinePresets';
 import { assertExportReady } from './vaultExportValidate';
 import type { VaultBackupCloudBlock } from './vaultCloudExport';
 import {
@@ -18,6 +20,7 @@ export interface VaultBackupFlowDeps {
   download: (manifest: VaultBackupManifest) => Promise<void>;
   recordSuccess: (timestamp: string, coverage: VaultBackupCoverage) => void;
   isAccountCurrent?: (accountId: string | null) => boolean;
+  readHealthRoutineState?: (accountId: string) => Promise<RoutinePresetState | null>;
 }
 
 export interface VaultBackupAttemptInput {
@@ -25,6 +28,23 @@ export interface VaultBackupAttemptInput {
   folders: readonly NoteFolder[];
   cloudExpected: boolean;
   accountId: string | null;
+}
+
+export interface AccountScopedVaultManifestInput {
+  notes: readonly NoteBase[];
+  folders: readonly NoteFolder[];
+  cloud: VaultBackupCloudBlock | null;
+  accountId: string | null;
+}
+
+export interface AccountScopedVaultManifestDeps {
+  isAccountCurrent?: (accountId: string | null) => boolean;
+  readHealthRoutineState?: (accountId: string) => Promise<RoutinePresetState | null>;
+}
+
+export interface AccountScopedVaultExportDeps extends AccountScopedVaultManifestDeps {
+  downloadZip: (manifest: VaultBackupManifest) => void | Promise<void>;
+  downloadJson: (manifest: VaultBackupManifest) => void | Promise<void>;
 }
 
 export interface PendingReducedVaultBackup extends VaultBackupCoverageImpact {
@@ -47,12 +67,51 @@ function buildValidatedManifest(
   notes: readonly NoteBase[],
   folders: readonly NoteFolder[],
   cloud: VaultBackupCloudBlock | null,
+  accountId: string | null,
+  routinePresetState?: RoutinePresetState | null,
 ): VaultBackupManifest {
-  const manifest = buildVaultBackupManifestV3(notes, folders, cloud);
+  const manifest = buildVaultBackupManifestV3(
+    notes,
+    folders,
+    cloud,
+    collectPortableVaultExtensions(accountId, routinePresetState),
+  );
   const validation = assertExportReady(manifest);
   if (!validation.valid) {
     throw new Error(validation.errors[0] ?? 'export_validation_failed');
   }
+  return manifest;
+}
+
+export async function buildAccountScopedVaultBackupManifest(
+  input: AccountScopedVaultManifestInput,
+  deps: AccountScopedVaultManifestDeps,
+): Promise<VaultBackupManifest> {
+  let durableRoutineState: RoutinePresetState | undefined;
+  if (input.accountId && deps.readHealthRoutineState) {
+    try {
+      durableRoutineState = (await deps.readHealthRoutineState(input.accountId)) ?? undefined;
+    } catch {
+      // The account-scoped compatibility cache is used only when the durable
+      // repository cannot be read. It never overrides a successful durable read.
+    }
+  }
+  if (deps.isAccountCurrent && !deps.isAccountCurrent(input.accountId)) {
+    throw new Error('backup_account_changed');
+  }
+  return buildValidatedManifest(
+    input.notes, input.folders, input.cloud, input.accountId, durableRoutineState,
+  );
+}
+
+export async function runAccountScopedVaultExport(
+  input: AccountScopedVaultManifestInput & { format: 'zip' | 'json' },
+  deps: AccountScopedVaultExportDeps,
+): Promise<VaultBackupManifest> {
+  if (!input.accountId) throw new Error('full_vault_backup_missing_account');
+  const manifest = await buildAccountScopedVaultBackupManifest(input, deps);
+  if (input.format === 'zip') await deps.downloadZip(manifest);
+  else await deps.downloadJson(manifest);
   return manifest;
 }
 
@@ -64,7 +123,9 @@ export async function runVaultBackupAttempt(
   if (input.cloudExpected && deps.isAccountCurrent && !deps.isAccountCurrent(input.accountId)) {
     throw new Error('backup_account_changed');
   }
-  const manifest = buildValidatedManifest(input.notes, input.folders, cloud);
+  const manifest = await buildAccountScopedVaultBackupManifest({
+    notes: input.notes, folders: input.folders, cloud, accountId: input.accountId,
+  }, deps);
   const impact = classifyVaultBackupCoverage(manifest);
 
   if (isReducedVaultBackupCoverage(impact.coverage)) {

@@ -131,7 +131,7 @@ describe('routine preset foundation', () => {
     expect(preset.days[3].blocks).toEqual(['deadlift']);
   });
 
-  it('recovers known Day 4 on a three-to-four expansion and preserves it across shrink/expand', () => {
+  it('removes Day 4 on shrink and does not resurrect it on expansion', () => {
     const initial = createRoutinePresetState({ routines, splitCount: 3 });
     const withDayFour = syncLegacyDefaultRoutinePreset(initial, {
       routines: [...routines, { id: 'legacy-day-4', day_name: 'Day 4', blocks: ['deadlift'] }],
@@ -144,16 +144,18 @@ describe('routine preset foundation', () => {
     const reduced = updateRoutinePresetState(expanded, {
       type: 'set-split', presetId: DEFAULT_ROUTINE_PRESET_ID, splitCount: 3,
     });
-    expect(routinePresetById(reduced).days[3].blocks).toEqual(['deadlift']);
+    expect(routinePresetById(reduced).days).toHaveLength(3);
+    expect(JSON.stringify(reduced)).not.toContain('deadlift');
     const reducedAndReconciled = syncLegacyDefaultRoutinePreset(reduced, {
       routines: [...routines, { id: 'legacy-day-4', day_name: 'Day 4', blocks: ['deadlift'] }],
       splitCount: 3,
     });
     expect(routinePresetById(reducedAndReconciled).splitCount).toBe(3);
+    expect(routinePresetById(reducedAndReconciled).days).toHaveLength(3);
     const restored = updateRoutinePresetState(reduced, {
       type: 'set-split', presetId: DEFAULT_ROUTINE_PRESET_ID, splitCount: 4,
     });
-    expect(routinePresetToHealthRoutines(routinePresetById(restored)).find(day => day.day_name === 'Day 4')?.blocks).toEqual(['deadlift']);
+    expect(routinePresetToHealthRoutines(routinePresetById(restored)).find(day => day.day_name === 'Day 4')?.blocks).toEqual([]);
   });
 
   it('does not replace an explicitly cleared local day with legacy content', () => {

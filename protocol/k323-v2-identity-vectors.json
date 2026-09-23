@@ -38,6 +38,45 @@
       "payloadHash": "032a46909e9110aebcf07f5e4aa39d5f24658b4c8a1476326544e36e0d16b5ca",
       "idempotencyKey": "k322.5fc31c61c0696ffdd1fa7fa087aac18dc766a8abf11f2248e6a79b34e72f9e8c",
       "mutationId": "mut.0fd17f6c-453e-569d-87bb-5c44d7a89828"
+    },
+    {
+      "domain": "health_routine_preset",
+      "entityId": "00000000-0000-5000-8000-000000000001",
+      "operation": "upsert",
+      "localRevision": 1,
+      "payload": {
+        "kind": "entity_snapshot",
+        "record": {
+          "id": "00000000-0000-5000-8000-000000000001",
+          "name": "Default",
+          "splitCount": 3,
+          "days": [
+            { "dayName": "Day 1", "blocks": [], "plannedSets": {} },
+            { "dayName": "Day 2", "blocks": [], "plannedSets": {} },
+            { "dayName": "Day 3", "blocks": [], "plannedSets": {} }
+          ],
+          "isDefault": true
+        }
+      },
+      "payloadHash": "bb5f8960e93e60667e151eb64c66251e0ebc0b559efdb3a20cc091fb0e6e3c1c",
+      "idempotencyKey": "k322.825dfc510245df4011d3a8792a4f5d202480b476520cfdf88ba284c2eab0e2bf",
+      "mutationId": "mut.678a589d-1feb-5f32-8038-21b97ee18419"
+    },
+    {
+      "domain": "health_routine_profile",
+      "entityId": "00000000-0000-5000-8000-000000000002",
+      "operation": "upsert",
+      "localRevision": 1,
+      "payload": {
+        "kind": "entity_snapshot",
+        "record": {
+          "id": "00000000-0000-5000-8000-000000000002",
+          "activePresetId": "00000000-0000-5000-8000-000000000001"
+        }
+      },
+      "payloadHash": "f6645078c8c9325680ef0a526a63ef4576c6691c64f8eb34d06ae860e226a068",
+      "idempotencyKey": "k322.c7891571fcb64609b2b39c64f7e11e55109037e1d31431cd8c54e7a63578dbe7",
+      "mutationId": "mut.6e6b465d-6b09-554b-8bc5-2d4510080a09"
     }
   ]
 }

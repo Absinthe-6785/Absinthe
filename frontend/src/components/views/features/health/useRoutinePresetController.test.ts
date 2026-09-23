@@ -13,9 +13,14 @@ import {
 } from './routinePresets';
 import {
   useRoutinePresetController,
+  type RoutinePresetMutationResult,
   type RoutinePresetController,
   type RoutinePresetControllerInput,
 } from './useRoutinePresetController';
+import type { HealthRoutinePersistence } from '../../../../lib/healthRoutineSync';
+
+const ACCOUNT_A_CUSTOM_ID = '00000000-0000-5000-8000-00000000000a';
+const ACCOUNT_B_CUSTOM_ID = '00000000-0000-5000-8000-00000000000b';
 
 const accountState = {
   accountId: 'account-a',
@@ -91,40 +96,40 @@ afterEach(() => {
 describe('HEALTH_10D routine preset controller', () => {
   it('keeps account A -> B -> A synchronously isolated and preserves B state', async () => {
     const accountA = createRoutinePresetState({ routines: [], splitCount: 1 });
-    accountA.presets.push(createEmptyRoutinePreset('account-a-custom', 'A Custom', 1));
-    accountA.activePresetId = 'account-a-custom';
+    accountA.presets.push(createEmptyRoutinePreset(ACCOUNT_A_CUSTOM_ID, 'A Custom', 1));
+    accountA.activePresetId = ACCOUNT_A_CUSTOM_ID;
     const accountB = createRoutinePresetState({ routines: [], splitCount: 1 });
-    accountB.presets.push(createEmptyRoutinePreset('account-b-custom', 'B Custom', 1));
-    accountB.activePresetId = 'account-b-custom';
+    accountB.presets.push(createEmptyRoutinePreset(ACCOUNT_B_CUSTOM_ID, 'B Custom', 1));
+    accountB.activePresetId = ACCOUNT_B_CUSTOM_ID;
     writeRoutinePresetState(localStorage, 'account-a', accountA);
     writeRoutinePresetState(localStorage, 'account-b', accountB);
 
     await mount(input('account-a', 0));
-    expect(latest.activePreset.id).toBe('account-a-custom');
+    expect(latest.activePreset.id).toBe(ACCOUNT_A_CUSTOM_ID);
 
     accountState.accountId = 'account-b';
     accountState.generation = 1;
     flushSync(() => root?.render(createElement(Harness, input('account-b', 1))));
-    expect(latest.activePreset.id).toBe('account-b-custom');
-    expect(latest.activePreset.id).not.toBe('account-a-custom');
+    expect(latest.activePreset.id).toBe(ACCOUNT_B_CUSTOM_ID);
+    expect(latest.activePreset.id).not.toBe(ACCOUNT_A_CUSTOM_ID);
     await settle();
     expect(latest.accountReady).toBe(true);
 
     accountState.accountId = 'account-a';
     accountState.generation = 2;
     await rerender(input('account-a', 2));
-    expect(latest.activePreset.id).toBe('account-a-custom');
-    expect(readRoutinePresetState(localStorage, 'account-a')?.activePresetId).toBe('account-a-custom');
-    expect(readRoutinePresetState(localStorage, 'account-b')?.activePresetId).toBe('account-b-custom');
+    expect(latest.activePreset.id).toBe(ACCOUNT_A_CUSTOM_ID);
+    expect(readRoutinePresetState(localStorage, 'account-a')?.activePresetId).toBe(ACCOUNT_A_CUSTOM_ID);
+    expect(readRoutinePresetState(localStorage, 'account-b')?.activePresetId).toBe(ACCOUNT_B_CUSTOM_ID);
   });
 
   it('guards stale preset confirmation cleanup and mutation after an account switch', async () => {
     const accountA = createRoutinePresetState({ routines: [], splitCount: 1 });
-    accountA.presets.push(createEmptyRoutinePreset('account-a-custom', 'A Custom', 1));
-    accountA.activePresetId = 'account-a-custom';
+    accountA.presets.push(createEmptyRoutinePreset(ACCOUNT_A_CUSTOM_ID, 'A Custom', 1));
+    accountA.activePresetId = ACCOUNT_A_CUSTOM_ID;
     const accountB = createRoutinePresetState({ routines: [], splitCount: 1 });
-    accountB.presets.push(createEmptyRoutinePreset('account-b-custom', 'B Custom', 1));
-    accountB.activePresetId = 'account-b-custom';
+    accountB.presets.push(createEmptyRoutinePreset(ACCOUNT_B_CUSTOM_ID, 'B Custom', 1));
+    accountB.activePresetId = ACCOUNT_B_CUSTOM_ID;
     writeRoutinePresetState(localStorage, 'account-a', accountA);
     writeRoutinePresetState(localStorage, 'account-b', accountB);
 
@@ -145,7 +150,7 @@ describe('HEALTH_10D routine preset controller', () => {
 
     const beforeA = JSON.stringify(readRoutinePresetState(localStorage, 'account-a'));
     const beforeB = JSON.stringify(readRoutinePresetState(localStorage, 'account-b'));
-    const staleResult = await mutate(() => staleDelete('account-a-custom'));
+    const staleResult = await mutate(() => staleDelete(ACCOUNT_A_CUSTOM_ID));
     expect(staleResult.ok).toBe(false);
     expect(JSON.stringify(readRoutinePresetState(localStorage, 'account-a'))).toBe(beforeA);
     expect(JSON.stringify(readRoutinePresetState(localStorage, 'account-b'))).toBe(beforeB);
@@ -179,8 +184,17 @@ describe('HEALTH_10D routine preset controller', () => {
     expect(persisted?.presets.some(preset => preset.id === DEFAULT_ROUTINE_PRESET_ID)).toBe(true);
   });
 
-  it('returns a typed Default projection intent only after canonical persistence', async () => {
-    await mount(input('account-a', 0));
+  it('commits the aggregate through durable persistence without a client legacy projection', async () => {
+    const commitState = vi.fn<HealthRoutinePersistence['commitState']>(async (_accountId, _previous, next) => next);
+    const persistence: HealthRoutinePersistence = {
+      bootstrap: async ({ legacyState }) => legacyState,
+      commitState,
+      sync: async () => null,
+      snapshot: async () => null,
+      reset: async () => createRoutinePresetState({ routines: [], splitCount: 3 }),
+      recover: async (_accountId, recovered) => recovered,
+    };
+    await mount({ ...input('account-a', 0), persistence });
     const result = await mutate(() => latest.setPresetDay({
       presetId: DEFAULT_ROUTINE_PRESET_ID,
       dayName: 'Day 1',
@@ -188,25 +202,11 @@ describe('HEALTH_10D routine preset controller', () => {
       plannedSets: { push: 5 },
     }));
     expect(result.ok).toBe(true);
-    expect(result.projection).toEqual(expect.objectContaining({
-      accountId: 'account-a',
-      dayName: 'Day 1',
-      blocks: ['push'],
-    }));
+    expect(commitState).toHaveBeenCalledOnce();
+    expect((result as RoutinePresetMutationResult & { projection?: unknown }).projection).toBeUndefined();
 
     const canonicalAfterMutation = readRoutinePresetState(localStorage, 'account-a');
     expect(canonicalAfterMutation?.presets[0].days[0].blocks).toEqual(['push']);
-
-    for (const mode of ['remote', 'local'] as const) {
-      const failProjection = async (intent: NonNullable<typeof result.projection>) => {
-        expect(intent.accountId).toBe('account-a');
-        expect(intent.dayName).toBe('Day 1');
-        expect(intent.blocks).toEqual(['push']);
-        throw new Error(`${mode}-projection-failed`);
-      };
-      await expect(failProjection(result.projection!)).rejects.toThrow(`${mode}-projection-failed`);
-      expect(readRoutinePresetState(localStorage, 'account-a')?.presets[0].days[0].blocks).toEqual(['push']);
-    }
   });
 
   it('does not emit a projection intent when canonical persistence fails', async () => {
@@ -222,7 +222,47 @@ describe('HEALTH_10D routine preset controller', () => {
     }));
     expect(setItem).toHaveBeenCalled();
     expect(result.ok).toBe(false);
-    expect(result.projection).toBeUndefined();
     expect(readRoutinePresetState(localStorage, 'account-a')?.presets[0].days[0].blocks).toEqual([]);
+  });
+
+  it('reports durable local success without waiting for a hung remote sync', async () => {
+    const never = new Promise<null>(() => undefined);
+    const commitState = vi.fn<HealthRoutinePersistence['commitState']>(async (_accountId, _previous, next) => next);
+    const persistence: HealthRoutinePersistence = {
+      bootstrap: async ({ legacyState }) => legacyState,
+      commitState,
+      sync: vi.fn(() => never),
+      snapshot: async () => null,
+      reset: async () => createRoutinePresetState({ routines: [], splitCount: 3 }),
+      recover: async (_accountId, recovered) => recovered,
+    };
+    await mount({ ...input('account-a', 0), persistence });
+
+    const result = await mutate(() => latest.setPresetSplit(DEFAULT_ROUTINE_PRESET_ID, 4));
+
+    expect(result.ok).toBe(true);
+    expect(latest.splitCount).toBe(4);
+    expect(commitState).toHaveBeenCalledOnce();
+    expect(persistence.sync).toHaveBeenCalledOnce();
+  });
+
+  it('does not claim success for a failed durable commit and continues after background sync failure', async () => {
+    const commitState = vi.fn<HealthRoutinePersistence['commitState']>()
+      .mockRejectedValueOnce(new Error('indexeddb_failed'))
+      .mockImplementation(async (_accountId, _previous, next) => next);
+    const persistence: HealthRoutinePersistence = {
+      bootstrap: async ({ legacyState }) => legacyState,
+      commitState,
+      sync: vi.fn(async () => { throw new Error('network_failed'); }),
+      snapshot: async () => null,
+      reset: async () => createRoutinePresetState({ routines: [], splitCount: 3 }),
+      recover: async (_accountId, recovered) => recovered,
+    };
+    await mount({ ...input('account-a', 0), persistence });
+
+    expect((await mutate(() => latest.setPresetSplit(DEFAULT_ROUTINE_PRESET_ID, 4))).ok).toBe(false);
+    expect(latest.splitCount).toBe(3);
+    expect((await mutate(() => latest.setPresetSplit(DEFAULT_ROUTINE_PRESET_ID, 5))).ok).toBe(true);
+    expect(latest.splitCount).toBe(5);
   });
 });

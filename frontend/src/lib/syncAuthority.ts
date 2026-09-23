@@ -85,9 +85,8 @@ export const DOMAIN_POLICY_REGISTRY = Object.freeze({
   health_exercise_library: { policy: 'LOCAL_FIRST', remoteTransportEligible: true },
   health_nutrition: { policy: 'LOCAL_FIRST', remoteTransportEligible: true },
   health_routine_presets: {
-    policy: 'LOCAL_ONLY',
-    remoteTransportEligible: false,
-    transition: 'NEEDS_NEW_REMOTE_MODEL',
+    policy: 'LOCAL_FIRST',
+    remoteTransportEligible: true,
   },
   planner_events: { policy: 'REMOTE_FIRST', remoteTransportEligible: true },
   planner_ddays: { policy: 'REMOTE_FIRST', remoteTransportEligible: true },

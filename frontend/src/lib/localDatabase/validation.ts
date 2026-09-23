@@ -225,8 +225,11 @@ export function validateOutboxRecord(value: OutboxRecord): void {
   }) : null;
   const deliveryBlockValid = value.deliveryBlockCode === undefined || value.deliveryBlockCode === null
     || value.deliveryBlockCode === 'REMOTE_RESURRECTION_UNSUPPORTED';
+  const dependencyValid = value.dependsOnMutationId === undefined || value.dependsOnMutationId === null
+    || validMutationId(value.dependsOnMutationId) && value.dependsOnMutationId !== value.mutationId;
   const resurrection = value.resurrection ?? null;
   const boundary = value.generationBoundary ?? null;
+  const remoteBoundary = value.remoteSequenceBoundary ?? null;
   if (resurrection !== null) validateResurrectionProvenance(resurrection);
   const boundaryKeys = boundary === null ? '' : Object.keys(boundary).sort().join(',');
   const expectedBoundaryKeys = [
@@ -253,6 +256,28 @@ export function validateOutboxRecord(value: OutboxRecord): void {
     && value.operation === 'upsert' && value.baseRevision === boundary.sourceRevision
     && value.localRevision === boundary.sourceRevision + 1
     && (boundary.classification === 'resurrect') === (resurrection !== null);
+  const remoteBoundaryKeys = remoteBoundary === null ? '' : Object.keys(remoteBoundary).sort().join(',');
+  const expectedRemoteBoundaryKeys = [
+    'baselineContentHash', 'baselineLocalRevision', 'baselineServerRevision', 'createdAt', 'domain', 'entityId',
+    'generationId', 'kind', 'namespaceKey', 'remoteMutationRef',
+  ].sort().join(',');
+  const remoteBoundaryValid = remoteBoundary === null || remoteBoundaryKeys === expectedRemoteBoundaryKeys
+    && remoteBoundary.kind === 'remote_entity_sequence_boundary'
+    && remoteBoundary.namespaceKey === value.namespaceKey
+    && remoteBoundary.generationId === value.generationId
+    && remoteBoundary.domain === value.domain
+    && remoteBoundary.entityId === value.entityId
+    && Number.isSafeInteger(remoteBoundary.baselineLocalRevision)
+    && remoteBoundary.baselineLocalRevision > 0
+    && remoteBoundary.baselineLocalRevision === value.baseRevision
+    && value.localRevision === remoteBoundary.baselineLocalRevision + 1
+    && Number.isSafeInteger(remoteBoundary.baselineServerRevision)
+    && remoteBoundary.baselineServerRevision > 0
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(remoteBoundary.remoteMutationRef)
+    && /^[a-f0-9]{64}$/.test(remoteBoundary.baselineContentHash)
+    && validTimestamp(remoteBoundary.createdAt)
+    && remoteBoundary.createdAt === value.createdAt
+    && boundary === null;
   const accountFieldsValid = !v5 || SAFE_CODE.test(value.accountId!) && typeof value.deviceId === 'string' && SAFE_CODE.test(value.deviceId)
     && Object.prototype.hasOwnProperty.call(value, 'acknowledgedRevision')
     && Object.prototype.hasOwnProperty.call(value, 'serverCommittedAt')
@@ -269,9 +294,9 @@ export function validateOutboxRecord(value: OutboxRecord): void {
     || !safeOptional(value.lastErrorCode) || !safeOptional(value.remoteMutationRef)
     || !payloadValid || !revisionsValid || !statusValid
     || ((value.operation === 'upsert' || value.operation === 'restore') !== (payload.kind === 'entity_snapshot'))
-    || (value.operation === 'tombstone') !== (payload.kind === 'tombstone') || !deliveryBlockValid
+    || (value.operation === 'tombstone') !== (payload.kind === 'tombstone') || !deliveryBlockValid || !dependencyValid
     || (resurrection !== null) !== (value.deliveryBlockCode === 'REMOTE_RESURRECTION_UNSUPPORTED')
-    || (resurrection !== null && value.operation !== 'upsert') || !boundaryValid
+    || (resurrection !== null && value.operation !== 'upsert') || !boundaryValid || !remoteBoundaryValid
     || !accountFieldsValid || !acknowledgementMetadataValid) {
     throw new LocalDatabaseError('INVALID_OUTBOX', 'validate_outbox');
   }

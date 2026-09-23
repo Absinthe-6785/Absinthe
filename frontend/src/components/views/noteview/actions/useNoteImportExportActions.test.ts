@@ -3,9 +3,34 @@ import { createElement, type MutableRefObject } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
+const { healthSnapshotMock, zipDownloadMock, jsonDownloadMock } = vi.hoisted(() => ({
+  healthSnapshotMock: vi.fn(),
+  zipDownloadMock: vi.fn(),
+  jsonDownloadMock: vi.fn(),
+}));
+
+vi.mock('../../../../lib/healthRoutineSync', () => ({
+  productionHealthRoutinePersistence: { snapshot: healthSnapshotMock },
+}));
+vi.mock('../../../../lib/vaultBackupZip', async importOriginal => ({
+  ...await importOriginal<typeof import('../../../../lib/vaultBackupZip')>(),
+  downloadVaultBackupZip: zipDownloadMock,
+}));
+vi.mock('../../../../lib/exportVaultBackup', async importOriginal => ({
+  ...await importOriginal<typeof import('../../../../lib/exportVaultBackup')>(),
+  downloadVaultBackup: jsonDownloadMock,
+}));
+
 import type { NoteBase as Note } from '../../noteUtils';
 import type { UseNoteViewActionsParams } from './types';
 import { useNoteImportExportActions } from './useNoteImportExportActions';
+import { useNotesStore } from '../../../../store/useNotesStore';
+import {
+  DEFAULT_ROUTINE_PRESET_ID,
+  createRoutinePresetState,
+  updateRoutinePresetState,
+} from '../../features/health/routinePresets';
 
 const note: Note = {
   id: 'note-1', title: 'Note', body: 'plain text', updatedAt: 1, folderId: null, deletedAt: null,
@@ -51,7 +76,10 @@ function params(overrides: Partial<UseNoteViewActionsParams> = {}) {
   return { params: { ...base, ...overrides } as UseNoteViewActionsParams, insertImage, insertEmptyImageBlock, updateNote, setIsDragOver };
 }
 
-afterEach(() => vi.unstubAllEnvs());
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.clearAllMocks();
+});
 
 describe('useNoteImportExportActions Return-to-Use attachment isolation', () => {
   it('blocks editor image insertion and drag/drop attachment persistence while isolation is active', async () => {
@@ -89,6 +117,30 @@ describe('useNoteImportExportActions Return-to-Use attachment isolation', () => 
 
     expect(configured.insertImage).toHaveBeenCalledWith('https://example.test/image.png', 'alt');
     expect(configured.insertEmptyImageBlock).toHaveBeenCalledTimes(1);
+    cleanup(mounted.root, mounted.host);
+  });
+
+  it('routes production ZIP and JSON actions through the awaited account-scoped durable Health snapshot', async () => {
+    const durable = updateRoutinePresetState(
+      createRoutinePresetState({ routines: [], splitCount: 4 }),
+      { type: 'set-split', presetId: DEFAULT_ROUTINE_PRESET_ID, splitCount: 3 },
+    );
+    healthSnapshotMock.mockResolvedValue(durable);
+    zipDownloadMock.mockResolvedValue(undefined);
+    useNotesStore.setState({
+      activeAccountId: 'account-a',
+      folders: [{ id: 'folder-a', name: 'Folder', createdAt: 1 }],
+    });
+    const configured = params();
+    const mounted = renderActions(configured.params);
+
+    await act(async () => mounted.actions.exportVaultBackup());
+    await act(async () => mounted.actions.exportVaultBackupJson());
+
+    expect(healthSnapshotMock).toHaveBeenNthCalledWith(1, 'account-a');
+    expect(healthSnapshotMock).toHaveBeenNthCalledWith(2, 'account-a');
+    expect(zipDownloadMock.mock.calls[0][0].extensions?.health.routinePresetState).toEqual(durable);
+    expect(jsonDownloadMock.mock.calls[0][0].extensions?.health.routinePresetState).toEqual(durable);
     cleanup(mounted.root, mounted.host);
   });
 });

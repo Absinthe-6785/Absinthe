@@ -123,6 +123,19 @@ export interface RestoreOutboxGenerationBoundary {
   createdAt: string;
 }
 
+export interface RemoteOutboxSequenceBoundary {
+  kind: 'remote_entity_sequence_boundary';
+  namespaceKey: string;
+  generationId: string;
+  domain: string;
+  entityId: string;
+  baselineLocalRevision: number;
+  baselineServerRevision: number;
+  remoteMutationRef: string;
+  baselineContentHash: string;
+  createdAt: string;
+}
+
 export interface OutboxRecord {
   namespaceKey: string;
   generationId: string;
@@ -156,9 +169,12 @@ export interface OutboxRecord {
   acknowledgedRevision?: number | null;
   serverCommittedAt?: string | null;
   supersededByMutationId: string | null;
+  /** A durable delivery prerequisite. The record is not claimable until this mutation is acknowledged. */
+  dependsOnMutationId?: string | null;
   resurrection?: ResurrectionProvenance | null;
   deliveryBlockCode?: 'REMOTE_RESURRECTION_UNSUPPORTED' | null;
   generationBoundary?: RestoreOutboxGenerationBoundary | null;
+  remoteSequenceBoundary?: RemoteOutboxSequenceBoundary | null;
 }
 
 export interface SyncCheckpointRecord {
@@ -347,6 +363,7 @@ export interface EntityListOptions {
 export interface CommitLocalMutationInput<T = unknown> {
   mutation: EntityMutationInput<T>;
   now: string;
+  dependsOnMutationId?: string | null;
   testOnlyAbortAt?: 'before_entity' | 'before_outbox' | 'after_writes';
 }
 
@@ -355,12 +372,34 @@ export interface CommittedLocalMutation<T = unknown> {
   outbox: OutboxRecord;
 }
 
+export interface ReconcileOutboxPrerequisiteInput<T = unknown> {
+  prerequisiteMutationId: string;
+  prerequisiteStatus: 'conflict' | 'acknowledged';
+  expectedEntityRevision: number;
+  correctedRecord: T;
+  remoteRecord: T;
+  remoteServerRevision: number;
+  remoteMutationRef: string;
+  now: string;
+}
+
+export interface ReconciledOutboxPrerequisite<T = unknown> {
+  prerequisite: OutboxRecord;
+  replacement: OutboxRecord;
+  entity: LocalEntityEnvelope<T>;
+  dependents: OutboxRecord[];
+}
+
 export interface ClaimOutboxInput {
   workerId: string;
   now: string;
   leaseDurationMs: number;
   limit: number;
   recoverExpiredClaims?: boolean;
+  /** Domains selected before the batch limit, in dependency priority order. */
+  priorityDomains?: readonly string[];
+  /** Apply domain priority only when this operation exists in the full eligible set. */
+  priorityTriggerOperation?: OutboxOperation;
 }
 
 export interface RetryOutboxInput {
