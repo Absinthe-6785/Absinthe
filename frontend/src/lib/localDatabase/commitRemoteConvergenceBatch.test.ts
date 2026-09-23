@@ -14,6 +14,7 @@ import {
 const T0 = '2026-09-23T00:00:00.000Z';
 const T1 = '2026-09-23T00:01:00.000Z';
 const T2 = '2026-09-23T00:02:00.000Z';
+const T3 = '2026-09-23T00:03:00.000Z';
 const scope: LocalDatabaseNamespace = {
   userId: 'account-convergence', projectRef: 'project-convergence',
   deviceId: 'device-convergence', generationId: 'generation-convergence', schemaVersion: 1,
@@ -85,12 +86,12 @@ describe('REL-05G2 generic remote convergence batch', () => {
     const deleted = await repository.commitRemoteConvergenceBatch(batch(repository, [
       { expectedLocalRevision: 1, candidate: candidate('remote-active', {
         record: { value: 'remote-deleted' }, serverRevision: 2, remoteMutationRef: 'remote-active-2',
-        updatedAt: T2, deletedAt: T2,
+        createdAt: T1, updatedAt: T2, deletedAt: T2,
       }) },
     ], { checkpointValue: 'cursor-2', sequence: 2, now: T2 }));
     expect(deleted.entities[0]).toMatchObject({
       revision: 2, localRevision: 2, serverRevision: 2, isDeleted: true,
-      deletionState: 'deleted', deletedAt: T2, record: { value: 'remote-deleted' },
+      deletionState: 'deleted', deletedAt: T2, createdAt: T0, record: { value: 'remote-deleted' },
     });
     expect(await repository.getSyncCheckpoint('supabase', 'notes')).toMatchObject({ sequence: 2, checkpointValue: 'cursor-2' });
   });
@@ -100,28 +101,35 @@ describe('REL-05G2 generic remote convergence batch', () => {
     const localActive = await repository.createEntity({ domain: 'notes', entityId: 'local-active', record: { value: 'keep-me' } });
     const localActiveOutbox = await repository.getOutboxRecord(localActive.pendingMutationId!);
     const result = await repository.commitRemoteConvergenceBatch(batch(repository, [
-      { expectedLocalRevision: 1, candidate: candidate('local-active', { serverRevision: 7 }) },
+      { expectedLocalRevision: 1, candidate: candidate('local-active', {
+        serverRevision: 7, createdAt: T1, updatedAt: T2,
+      }) },
     ]));
     expect(result.conflicts[0]).toMatchObject({
       entityId: 'local-active', mutationId: localActive.pendingMutationId, serverRevision: 7,
       conflictType: 'remote_change_with_pending_local', resolutionState: 'unresolved',
       remoteMetadata: { isDeleted: false, remoteMutationRef: 'remote-local-active-1' },
     });
-    expect(result.conflicts[0]!.remoteCandidate).toMatchObject({ isDeleted: false, contentHash: expect.any(String) });
+    expect(result.conflicts[0]!.remoteCandidate).toMatchObject({
+      isDeleted: false, createdAt: T1, contentHash: expect.any(String),
+    });
     expect(await repository.getEntity('notes', 'local-active')).toEqual(localActive);
     expect(await repository.getOutboxRecord(localActive.pendingMutationId!)).toEqual(localActiveOutbox);
+    expect(await repository.getSyncCheckpoint('supabase', 'notes')).toMatchObject({ sequence: 1 });
 
     const localForDelete = await repository.createEntity({ domain: 'notes', entityId: 'local-for-delete', record: { value: 'also keep' } });
     const deletedConflict = await repository.commitRemoteConvergenceBatch(batch(repository, [
       { expectedLocalRevision: 1, candidate: candidate('local-for-delete', {
-        serverRevision: 8, remoteMutationRef: 'delete-ref', updatedAt: T2, deletedAt: T2,
+        serverRevision: 8, remoteMutationRef: 'delete-ref', createdAt: T1, updatedAt: T2, deletedAt: T2,
       }) },
     ], { checkpointValue: 'cursor-2', sequence: 2, now: T2 }));
     expect(deletedConflict.conflicts[0]).toMatchObject({
       entityId: 'local-for-delete', conflictType: 'remote_delete_with_pending_local', serverRevision: 8,
       remoteMetadata: { isDeleted: true, deletedAt: T2, remoteMutationRef: 'delete-ref' },
+      remoteCandidate: { createdAt: T1 },
     });
     expect(await repository.getEntity('notes', 'local-for-delete')).toEqual(localForDelete);
+    expect(await repository.getSyncCheckpoint('supabase', 'notes')).toMatchObject({ sequence: 2 });
   });
 
   it('preserves a pending local tombstone against a remote active candidate', async () => {
@@ -132,14 +140,118 @@ describe('REL-05G2 generic remote convergence batch', () => {
     });
     const result = await repository.commitRemoteConvergenceBatch(batch(repository, [
       { expectedLocalRevision: 2, candidate: candidate('local-tombstone', {
-        serverRevision: 3, remoteMutationRef: 'remote-active-ref', updatedAt: T2,
+        serverRevision: 3, remoteMutationRef: 'remote-active-ref', createdAt: T1, updatedAt: T2,
       }) },
     ]));
     expect(result.conflicts[0]).toMatchObject({
       entityId: 'local-tombstone', mutationId: tombstone.outbox.mutationId,
       remoteMetadata: { isDeleted: false, deletedAt: null },
+      remoteCandidate: { createdAt: T1 },
     });
     expect(await repository.getEntity('notes', 'local-tombstone')).toEqual(tombstone.entity);
+    expect(await repository.getSyncCheckpoint('supabase', 'notes')).toMatchObject({ sequence: 1 });
+  });
+
+  it('keeps remote-to-local outbox continuity for UUID, opaque, and null remote refs', async () => {
+    for (const [entityId, remoteMutationRef] of [
+      ['uuid-ref', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'],
+      ['opaque-ref', 'remote-change-1'],
+      ['null-ref', null],
+    ] as const) {
+      const repository = await makeRepository();
+      await repository.commitRemoteConvergenceBatch(batch(repository, [
+        { expectedLocalRevision: null, candidate: candidate(entityId, { remoteMutationRef }) },
+      ]));
+      const updated = await repository.commitLocalMutation({
+        mutation: { mode: 'update', domain: 'notes', entityId, record: { value: 'local-edit' }, expectedRevision: 1 },
+        now: T2,
+      });
+      expect(updated.entity).toMatchObject({ revision: 2, localRevision: 2, serverRevision: 1 });
+      expect(updated.outbox).toMatchObject({
+        baseRevision: 1, localRevision: 2,
+        remoteSequenceBoundary: { baselineLocalRevision: 1, baselineServerRevision: 1, remoteMutationRef },
+      });
+      expect(await repository.getOutboxRecord(updated.outbox.mutationId)).toEqual(updated.outbox);
+      expect(await repository.listOutboxMutations({ domain: 'notes', entityId, limit: 10 })).toHaveLength(1);
+      expect(await repository.listNextDeliverableMutations({ now: T2, limit: 10 })).toHaveLength(1);
+      expect(await repository.claimNextMutations({
+        workerId: 'worker-convergence', now: T2, leaseDurationMs: 1_000, limit: 10,
+      })).toMatchObject([{ mutationId: updated.outbox.mutationId, status: 'claimed' }]);
+    }
+  });
+
+  it('bridges a remote-applied revision after acknowledged local outbox history', async () => {
+    const repository = await makeRepository();
+    const created = await repository.commitLocalMutation({
+      mutation: { mode: 'create', domain: 'notes', entityId: 'historical-local', record: { value: 'initial' } }, now: T0,
+    });
+    const [claimed] = await repository.claimNextMutations({
+      workerId: 'worker-history', now: T0, leaseDurationMs: 1_000, limit: 10,
+    });
+    expect(claimed?.mutationId).toBe(created.outbox.mutationId);
+    await repository.acknowledgeMutationAndEntity({
+      mutationId: created.outbox.mutationId, workerId: 'worker-history', now: T1,
+      remoteMutationRef: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', acknowledgedRevision: 1, serverCommittedAt: T1,
+    });
+    const applied = await repository.commitRemoteConvergenceBatch(batch(repository, [
+      { expectedLocalRevision: 1, candidate: candidate('historical-local', {
+        record: { value: 'remote-next' }, serverRevision: 2, remoteMutationRef: null,
+        createdAt: T1, updatedAt: T2,
+      }) },
+    ], { checkpointValue: 'cursor-history', now: T2 }));
+    expect(applied.entities[0]).toMatchObject({ revision: 2, serverRevision: 2, createdAt: T0 });
+    const updated = await repository.commitLocalMutation({
+      mutation: {
+        mode: 'update', domain: 'notes', entityId: 'historical-local',
+        record: { value: 'next-local' }, expectedRevision: 2,
+      }, now: T3,
+    });
+    expect(updated.outbox).toMatchObject({
+      baseRevision: 2, localRevision: 3,
+      remoteSequenceBoundary: { baselineLocalRevision: 2, baselineServerRevision: 2, remoteMutationRef: null },
+    });
+    expect(await repository.listOutboxMutations({ domain: 'notes', entityId: 'historical-local', limit: 10 }))
+      .toMatchObject([{ status: 'acknowledged', localRevision: 1 }, { status: 'pending', localRevision: 3 }]);
+    expect(await repository.listNextDeliverableMutations({ now: T3, limit: 10 }))
+      .toMatchObject([{ mutationId: updated.outbox.mutationId }]);
+    expect(await repository.claimNextMutations({
+      workerId: 'worker-history', now: T3, leaseDurationMs: 1_000, limit: 10,
+    })).toMatchObject([{ mutationId: updated.outbox.mutationId, status: 'claimed' }]);
+  });
+
+  it('keeps same-stream conflict identity deterministic while separating providers', async () => {
+    const repository = await makeRepository();
+    await repository.createEntity({ domain: 'notes', entityId: 'provider-conflict', record: { value: 'pending' } });
+    const change = { expectedLocalRevision: 1, candidate: candidate('provider-conflict') };
+    const first = await repository.commitRemoteConvergenceBatch(batch(repository, [change]));
+    const second = await repository.commitRemoteConvergenceBatch(batch(repository, [change], {
+      provider: 'other-provider', checkpointValue: 'other-cursor',
+    }));
+    expect(first.conflicts[0]?.conflictId).not.toBe(second.conflicts[0]?.conflictId);
+    expect(await repository.listConflicts('notes', 'provider-conflict')).toHaveLength(2);
+    expect(await repository.getSyncCheckpoint('supabase', 'notes')).toMatchObject({ sequence: 1 });
+    expect(await repository.getSyncCheckpoint('other-provider', 'notes')).toMatchObject({ sequence: 1 });
+    await expect(repository.commitRemoteConvergenceBatch(batch(repository, [change])))
+      .rejects.toHaveProperty('code');
+    expect(await repository.listConflicts('notes', 'provider-conflict')).toHaveLength(2);
+    expect(await repository.getSyncCheckpoint('supabase', 'notes')).toMatchObject({ sequence: 1 });
+  });
+
+  it('separates conflict identity across a checkpoint-invalidated server epoch', async () => {
+    const repository = await makeRepository();
+    await repository.createEntity({ domain: 'notes', entityId: 'epoch-conflict', record: { value: 'pending' } });
+    const change = { expectedLocalRevision: 1, candidate: candidate('epoch-conflict') };
+    const first = await repository.commitRemoteConvergenceBatch(batch(repository, [change]));
+    await repository.invalidateSyncCheckpoint({
+      provider: 'supabase', stream: 'notes', reason: 'epoch_reset', now: T2,
+    });
+    const second = await repository.commitRemoteConvergenceBatch(batch(repository, [change], {
+      serverEpoch: 'epoch-2', checkpointValue: 'epoch-2-cursor', now: T3,
+    }));
+    expect(first.conflicts[0]?.conflictId).not.toBe(second.conflicts[0]?.conflictId);
+    expect(await repository.listConflicts('notes', 'epoch-conflict')).toHaveLength(2);
+    expect(await repository.getSyncCheckpoint('supabase', 'notes'))
+      .toMatchObject({ sequence: 1, serverEpoch: 'epoch-2', checkpointValue: 'epoch-2-cursor' });
   });
 
   it('rejects empty, duplicate, malformed, out-of-scope, and stale members without writes', async () => {

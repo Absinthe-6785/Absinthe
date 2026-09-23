@@ -287,7 +287,10 @@ export function validateOutboxRecord(value: OutboxRecord): void {
     && value.localRevision === remoteBoundary.baselineLocalRevision + 1
     && Number.isSafeInteger(remoteBoundary.baselineServerRevision)
     && remoteBoundary.baselineServerRevision > 0
-    && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(remoteBoundary.remoteMutationRef)
+    && (remoteBoundary.remoteMutationRef === null
+      || typeof remoteBoundary.remoteMutationRef === 'string'
+        && SAFE_CODE.test(remoteBoundary.remoteMutationRef)
+        && !SENSITIVE.test(remoteBoundary.remoteMutationRef))
     && /^[a-f0-9]{64}$/.test(remoteBoundary.baselineContentHash)
     && validTimestamp(remoteBoundary.createdAt)
     && remoteBoundary.createdAt === value.createdAt

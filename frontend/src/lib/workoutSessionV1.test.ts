@@ -50,6 +50,13 @@ function session(overrides: Partial<WorkoutSessionV1> = {}): WorkoutSessionV1 {
 }
 
 describe('WorkoutSessionV1 canonical model', () => {
+  it('rejects sessions without entries and entries without sets', () => {
+    expect(() => validateWorkoutSessionV1(session({ entries: [] }))).toThrow('workout_session_invalid');
+    expect(() => validateWorkoutSessionV1(session({ entries: [{
+      ...session().entries[0]!, sets: [],
+    }] }))).toThrow('workout_session_invalid');
+  });
+
   it('accepts canonical decimals and validates decimal scale and spelling', () => {
     for (const value of ['0', '0.01', '0.05', '0.5', '1', '1.25', '10.5', '99999.99']) {
       validateWorkoutSessionV1(session({ entries: [{
@@ -180,7 +187,7 @@ describe('WorkoutSessionV1 canonical model', () => {
     const emptyName = session({ entries: [{
       id: ENTRY_ID,
       exercise: { id: null, name: '', type: 'strength', tags: [], cardioMode: null },
-      sets: [],
+      sets: [strengthSet() as WorkoutSessionV1['entries'][number]['sets'][number]],
     }] });
     const baseBytes = new TextEncoder().encode(canonicalPayloadJson(emptyName)).byteLength;
     const exact = {

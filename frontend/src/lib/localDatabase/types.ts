@@ -137,7 +137,7 @@ export interface RemoteOutboxSequenceBoundary {
   entityId: string;
   baselineLocalRevision: number;
   baselineServerRevision: number;
-  remoteMutationRef: string;
+  remoteMutationRef: string | null;
   baselineContentHash: string;
   createdAt: string;
 }

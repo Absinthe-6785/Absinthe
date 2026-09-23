@@ -471,7 +471,7 @@ export class LocalDatabaseRepository {
           .index('by_namespace_generation_entity')
           .getAll(IDBKeyRange.only([
             this.namespaceKey, this.namespace.generationId, mutation.domain, mutation.entityId,
-          ]), 1),
+          ])),
       ) as OutboxRecord[] : [];
       await this.validateRestoreBoundaryGraphs(transaction, priorOutbox);
       if (mutation.mode === 'create') {
@@ -545,8 +545,8 @@ export class LocalDatabaseRepository {
         supersededByMutationId: null,
         ...(input.dependsOnMutationId == null ? {} : { dependsOnMutationId: input.dependsOnMutationId }),
         ...(input.deliveryBinding === undefined ? {} : { deliveryBinding: { ...input.deliveryBinding } }),
-        ...(priorOutbox.length === 0 && current?.serverRevision != null && current.lastRemoteMutationRef
-          && current.pendingMutationId == null && current.contentHash
+        ...(current?.serverRevision != null && current.pendingMutationId == null && current.contentHash
+          && priorOutbox.every(value => value.localRevision < actualRevision)
           ? { remoteSequenceBoundary: {
             kind: 'remote_entity_sequence_boundary' as const,
             namespaceKey: this.namespaceKey,
@@ -555,7 +555,7 @@ export class LocalDatabaseRepository {
             entityId: mutation.entityId,
             baselineLocalRevision: actualRevision,
             baselineServerRevision: current.serverRevision,
-            remoteMutationRef: current.lastRemoteMutationRef,
+            remoteMutationRef: current.lastRemoteMutationRef ?? null,
             baselineContentHash: current.contentHash,
             createdAt: timestamp,
           } }
@@ -1822,9 +1822,6 @@ export class LocalDatabaseRepository {
         if ((current?.revision ?? null) !== change.expectedLocalRevision) {
           throw new LocalDatabaseError('STALE_REVISION', operation);
         }
-        if (current && current.createdAt !== candidate.createdAt) {
-          throw new LocalDatabaseError('INVALID_ENTITY', operation);
-        }
         if (candidate.serverRevision <= (current?.serverRevision ?? 0)) {
           throw new LocalDatabaseError('STALE_REVISION', operation);
         }
@@ -1860,6 +1857,8 @@ export class LocalDatabaseRepository {
             namespaceKey: this.namespaceKey,
             generationId: this.namespace.generationId,
             domain: batch.domain,
+            provider: batch.provider,
+            serverEpoch: batch.serverEpoch,
             entityId: candidate.entityId,
             sequence: batch.sequence,
             serverRevision: candidate.serverRevision,

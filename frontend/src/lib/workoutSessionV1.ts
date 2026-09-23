@@ -297,11 +297,13 @@ function validateSet(value: unknown, expectedKind: WorkoutExerciseTypeV1, ordina
 /** Strictly validate canonical WorkoutSessionV1 and enforce its UTF-8 byte budget. */
 export function validateWorkoutSessionV1(value: unknown): asserts value is WorkoutSessionV1 {
   if (!isRecord(value) || !hasExactKeys(value, ['version', 'id', 'localDate', 'entries'])
-    || value.version !== 1 || !validUuid(value.id) || !validLocalDate(value.localDate) || !Array.isArray(value.entries)) fail();
+    || value.version !== 1 || !validUuid(value.id) || !validLocalDate(value.localDate)
+    || !Array.isArray(value.entries) || value.entries.length === 0) fail();
   const identities = new Set<string>([value.id]);
   for (const entry of value.entries) {
     if (!isRecord(entry) || !hasExactKeys(entry, ['id', 'exercise', 'sets'])
-      || !validUuid(entry.id) || !validateExercise(entry.exercise) || !Array.isArray(entry.sets)) fail();
+      || !validUuid(entry.id) || !validateExercise(entry.exercise)
+      || !Array.isArray(entry.sets) || entry.sets.length === 0) fail();
     if (identities.has(entry.id)) fail();
     identities.add(entry.id);
     for (let index = 0; index < entry.sets.length; index += 1) {
