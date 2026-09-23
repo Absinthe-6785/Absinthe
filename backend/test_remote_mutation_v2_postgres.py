@@ -425,7 +425,8 @@ begin
     v_malformed := public.apply_health_routine_mutation_v2(
       '11111111-1111-4111-8111-111111111111', 'project-test', repeat('1', 64),
       'generation-1', 'device-a', 'health_routine_preset', v_invalid_case.entity_id,
-      'mut.10000000-0000-4000-8000-' || lpad(v_invalid_case.case_number::text, 12, '0'),
+      'mut.10000000-0000-4000-8000-' ||
+        lpad(to_hex(v_invalid_case.case_number + 16), 12, '0'),
       'k322.' || repeat(lpad(to_hex(v_invalid_case.case_number), 2, '0'), 32),
       'upsert', null, 1, v_invalid_case.payload,
       repeat('d', 64), repeat('e', 64), '2026-09-19T00:00:03.050Z'
