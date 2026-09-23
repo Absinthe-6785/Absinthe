@@ -378,7 +378,7 @@ begin
     '11111111-1111-4111-8111-111111111111', 'project-test', repeat('1', 64),
     'generation-1', 'device-a', 'health_routine_preset',
     '00000000-0000-5000-8000-000000000003',
-    'mut.10000000-0000-4000-8000-000000000004', 'k322.' || repeat('a', 64),
+    'mut.10000000-0000-4000-8000-000000000004', 'k322.' || repeat('c', 64),
     'upsert', null, 1,
     '{"kind":"entity_snapshot","record":{"id":"00000000-0000-5000-8000-000000000003","name":"Named","splitCount":1,"days":[{"dayName":"Day 1","blocks":[],"plannedSets":{}}],"isDefault":false}}'::jsonb,
     repeat('b', 64), repeat('c', 64), '2026-09-19T00:00:03Z'
@@ -426,7 +426,7 @@ begin
       '11111111-1111-4111-8111-111111111111', 'project-test', repeat('1', 64),
       'generation-1', 'device-a', 'health_routine_preset', v_invalid_case.entity_id,
       'mut.10000000-0000-4000-8000-' || lpad(v_invalid_case.case_number::text, 12, '0'),
-      'k322.' || repeat(substr('123456', v_invalid_case.case_number, 1), 64),
+      'k322.' || repeat(lpad(to_hex(v_invalid_case.case_number), 2, '0'), 32),
       'upsert', null, 1, v_invalid_case.payload,
       repeat('d', 64), repeat('e', 64), '2026-09-19T00:00:03.050Z'
     );
@@ -484,7 +484,7 @@ begin
     '11111111-1111-4111-8111-111111111111', 'project-test', repeat('1', 64),
     'generation-1', 'device-a', 'health_routine_preset',
     '00000000-0000-5000-8000-000000000003',
-    'mut.10000000-0000-4000-8000-000000000005', 'k322.' || repeat('d', 64),
+    'mut.10000000-0000-4000-8000-000000000005', 'k322.' || repeat('e', 64),
     'tombstone', 1, 2,
     '{"kind":"tombstone","entityId":"00000000-0000-5000-8000-000000000003","deletedAt":"2026-09-19T00:00:04Z","revision":2}'::jsonb,
     repeat('e', 64), repeat('f', 64), '2026-09-19T00:00:04Z'
