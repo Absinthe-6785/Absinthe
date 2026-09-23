@@ -325,12 +325,12 @@ begin
     v_error_code := 'DEFAULT_PRESET_REQUIRED';
   elsif v_error_code is null and p_domain = 'health_routine_preset'
     and p_operation in ('upsert', 'restore')
-    and case
+    and (case
       when jsonb_typeof(v_record -> 'isDefault') = 'boolean' then
         (v_record ->> 'isDefault')::boolean is distinct from
           (v_entity_id = '00000000-0000-5000-8000-000000000001'::uuid)
       else true
-    end then
+    end) then
     v_error_code := 'MALFORMED_PAYLOAD';
   end if;
 

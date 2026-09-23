@@ -311,8 +311,13 @@ declare
   v_tombstone jsonb;
   v_restore jsonb;
   v_stale jsonb;
+  v_malformed jsonb;
   v_pull jsonb;
   v_count bigint;
+  v_days jsonb;
+  v_default_payload jsonb;
+  v_named_payload jsonb;
+  v_invalid_case record;
 begin
   v_generation := public.ensure_remote_health_generation_v2(
     '11111111-1111-4111-8111-111111111111', 'project-test', repeat('1', 64),
@@ -386,6 +391,57 @@ begin
     repeat('b', 64), repeat('c', 64), '2026-09-19T00:00:03Z'
   );
   if v_named #>> '{outcome}' <> 'applied' then raise exception 'REL05F_NAMED_FAILED: %', v_named; end if;
+
+  v_days := '[
+    {"dayName":"Day 1","blocks":[],"plannedSets":{}},
+    {"dayName":"Day 2","blocks":[],"plannedSets":{}},
+    {"dayName":"Day 3","blocks":[],"plannedSets":{}},
+    {"dayName":"Day 4","blocks":[],"plannedSets":{}}
+  ]'::jsonb;
+  v_default_payload := jsonb_build_object(
+    'kind', 'entity_snapshot',
+    'record', jsonb_build_object(
+      'id', '00000000-0000-5000-8000-000000000001',
+      'name', 'Default candidate', 'splitCount', 4, 'days', v_days, 'isDefault', true
+    )
+  );
+  v_named_payload := jsonb_build_object(
+    'kind', 'entity_snapshot',
+    'record', jsonb_build_object(
+      'id', '00000000-0000-5000-8000-000000000010',
+      'name', 'Named candidate', 'splitCount', 4, 'days', v_days, 'isDefault', false
+    )
+  );
+
+  for v_invalid_case in
+    select * from (values
+      (1, '00000000-0000-5000-8000-000000000001',
+        jsonb_set(v_default_payload, '{record,isDefault}', 'false'::jsonb)),
+      (2, '00000000-0000-5000-8000-000000000010',
+        jsonb_set(v_named_payload, '{record,isDefault}', 'true'::jsonb)),
+      (3, '00000000-0000-5000-8000-000000000001',
+        v_default_payload #- '{record,isDefault}'),
+      (4, '00000000-0000-5000-8000-000000000001',
+        jsonb_set(v_default_payload, '{record,isDefault}', 'null'::jsonb)),
+      (5, '00000000-0000-5000-8000-000000000001',
+        jsonb_set(v_default_payload, '{record,isDefault}', '"true"'::jsonb)),
+      (6, '00000000-0000-5000-8000-000000000001',
+        jsonb_set(v_default_payload, '{record,isDefault}', '1'::jsonb))
+    ) as invalid_cases(case_number, entity_id, payload)
+  loop
+    v_malformed := public.apply_health_routine_mutation_v2(
+      '11111111-1111-4111-8111-111111111111', 'project-test', repeat('1', 64),
+      'generation-1', 'device-a', 'health_routine_preset', v_invalid_case.entity_id,
+      'mut.10000000-0000-4000-8000-' || lpad(v_invalid_case.case_number::text, 12, '0'),
+      'k322.' || repeat(substr('123456', v_invalid_case.case_number, 1), 64),
+      'upsert', null, 1, v_invalid_case.payload,
+      repeat('d', 64), repeat('e', 64), '2026-09-19T00:00:03.050Z'
+    );
+    if v_malformed #>> '{errorCode}' <> 'MALFORMED_PAYLOAD' then
+      raise exception 'REL05F_DEFAULT_FLAG_VALIDATION_FAILED (%): %',
+        v_invalid_case.case_number, v_malformed;
+    end if;
+  end loop;
 
   v_profile_switch := public.apply_health_routine_mutation_v2(
     '11111111-1111-4111-8111-111111111111', 'project-test', repeat('1', 64),
