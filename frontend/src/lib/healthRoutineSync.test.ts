@@ -932,6 +932,309 @@ describe('REL-05F Health routine aggregate convergence', () => {
     expect(await restarted.repository.listOutboxMutations({ limit: 100, status: 'permanent_failure' })).toHaveLength(0);
   });
 
+  it('waits for the second profile page before adopting P2 and eventually acknowledges the dependent delete', async () => {
+    const server = new FakeHealthRoutineServer();
+    const factory = new IDBFactory();
+    const device = await openDevice(server, factory, 'device-paginated-successor');
+    const initial = await device.session.bootstrap({
+      legacyState: createRoutinePresetState({ routines: [], splitCount: 3 }), hasAccountScopedState: true,
+    });
+    let populated = updateRoutinePresetState(initial, {
+      type: 'create', preset: createEmptyRoutinePreset(PRESET_A, 'New choice', 2),
+    });
+    populated = updateRoutinePresetState(populated, {
+      type: 'create', preset: createEmptyRoutinePreset(PRESET_B, 'Delete me', 2),
+    });
+    const stored = await device.session.commitState(initial, populated);
+    await device.session.sync();
+    const checkpointBefore = await device.repository.getSyncCheckpoint('k323-v2', HEALTH_ROUTINE_PROFILE_DOMAIN);
+    const deleting = updateRoutinePresetState(stored, { type: 'delete', presetId: PRESET_B });
+    await device.session.commitState(stored, deleting);
+    server.forceProfile(ACCOUNT, PRESET_B);
+    const delegate = server.client(ACCOUNT);
+    let stopBeforeReconciliation = true;
+    device.session = new HealthRoutineSyncSession({
+      repository: device.repository, now: () => new Date(device.clock.value).toISOString(), online: () => true,
+      transport: {
+        ...delegate,
+        pull: async request => {
+          if (stopBeforeReconciliation && request.domain === HEALTH_ROUTINE_PROFILE_DOMAIN) {
+            stopBeforeReconciliation = false;
+            throw new TypeError('stop_before_paginated_profile_reconciliation');
+          }
+          return delegate.pull(request);
+        },
+      },
+    });
+    await device.session.sync();
+    const conflicted = (await device.repository.listOutboxMutations({ limit: 100, status: 'conflict' }))
+      .find(item => item.domain === HEALTH_ROUTINE_PROFILE_DOMAIN)!;
+    const dependent = (await device.repository.listOutboxMutations({ limit: 100, status: 'pending' }))
+      .find(item => item.domain === HEALTH_ROUTINE_PRESET_DOMAIN && item.entityId === PRESET_B)!;
+    const newerLocalState = updateRoutinePresetState(deleting, { type: 'switch', presetId: PRESET_A });
+    await device.session.commitState(deleting, newerLocalState);
+    const successor = (await device.repository.listOutboxMutations({
+      domain: HEALTH_ROUTINE_PROFILE_DOMAIN, entityId: HEALTH_ROUTINE_PROFILE_ID, limit: 100,
+    })).find(item => item.status === 'pending')!;
+    expect((await device.repository.getEntity(HEALTH_ROUTINE_PROFILE_DOMAIN, HEALTH_ROUTINE_PROFILE_ID))?.pendingMutationId)
+      .toBe(successor.mutationId);
+    expect((await device.repository.getOutboxRecord(dependent.mutationId))?.dependsOnMutationId)
+      .toBe(conflicted.mutationId);
+
+    for (let index = 0; index < 101; index += 1) {
+      server.forceProfile(ACCOUNT, index % 2 === 0 ? DEFAULT_ROUTINE_PRESET_ID : PRESET_B);
+    }
+    const remoteTip = server.domainChanges(ACCOUNT, HEALTH_ROUTINE_PROFILE_DOMAIN).at(-1)!;
+    closeLocalDatabase(device.repository);
+    openDevices.splice(openDevices.indexOf(device), 1);
+
+    const interrupted = await openDevice(server, factory, 'device-paginated-successor');
+    const interruptionTransport = server.client(ACCOUNT);
+    let profilePagesSeen = 0;
+    interrupted.session = new HealthRoutineSyncSession({
+      repository: interrupted.repository,
+      now: () => new Date(interrupted.clock.value).toISOString(), online: () => true,
+      transport: {
+        ...interruptionTransport,
+        pull: async request => {
+          if (request.domain === HEALTH_ROUTINE_PROFILE_DOMAIN && profilePagesSeen++ === 1) {
+            throw new TypeError('stop_between_profile_pages');
+          }
+          return interruptionTransport.pull(request);
+        },
+      },
+    });
+    await interrupted.session.sync();
+    expect(profilePagesSeen).toBe(2);
+    expect(await interrupted.repository.getOutboxRecord(conflicted.mutationId)).toMatchObject({ status: 'conflict' });
+    expect(await interrupted.repository.getOutboxRecord(dependent.mutationId)).toMatchObject({
+      status: 'pending', dependsOnMutationId: conflicted.mutationId,
+    });
+    expect(await interrupted.repository.getSyncCheckpoint('k323-v2', HEALTH_ROUTINE_PROFILE_DOMAIN))
+      .toEqual(checkpointBefore);
+    closeLocalDatabase(interrupted.repository);
+    openDevices.splice(openDevices.indexOf(interrupted), 1);
+
+    const reconciling = await openDevice(server, factory, 'device-paginated-successor');
+    const events: string[] = [];
+    const paginatedTransport = server.client(ACCOUNT);
+    reconciling.session = new HealthRoutineSyncSession({
+      repository: reconciling.repository,
+      now: () => new Date(reconciling.clock.value).toISOString(), online: () => true,
+      transport: {
+        ...paginatedTransport,
+        push: async request => {
+          if (request.mutationId === successor.mutationId) events.push('successor-push');
+          return paginatedTransport.push(request);
+        },
+        pull: async request => {
+          const response = await paginatedTransport.pull(request);
+          if (request.domain === HEALTH_ROUTINE_PROFILE_DOMAIN) {
+            events.push(`profile-page:${response.changes.length}:${response.nextCursor}`);
+          }
+          return response;
+        },
+      },
+    });
+    await reconciling.session.sync();
+    expect(events.filter(event => event.startsWith('profile-page:')).map(event => Number(event.split(':')[1])))
+      .toEqual([100, 2]);
+    expect(events).not.toContain('successor-push');
+    expect(await reconciling.repository.getOutboxRecord(conflicted.mutationId)).toMatchObject({
+      status: 'superseded', supersededByMutationId: successor.mutationId,
+    });
+    expect(await reconciling.repository.getOutboxRecord(dependent.mutationId)).toMatchObject({
+      status: 'pending', dependsOnMutationId: successor.mutationId,
+    });
+    expect(await reconciling.repository.getEntity(HEALTH_ROUTINE_PROFILE_DOMAIN, HEALTH_ROUTINE_PROFILE_ID))
+      .toMatchObject({ serverRevision: remoteTip.serverRevision, pendingMutationId: successor.mutationId });
+    expect(await reconciling.repository.getSyncCheckpoint('k323-v2', HEALTH_ROUTINE_PROFILE_DOMAIN))
+      .toEqual(checkpointBefore);
+    closeLocalDatabase(reconciling.repository);
+    openDevices.splice(openDevices.indexOf(reconciling), 1);
+
+    const restarted = await openDevice(server, factory, 'device-paginated-successor');
+    const deliveryTransport = server.client(ACCOUNT);
+    const successorBases: Array<number | null> = [];
+    restarted.session = new HealthRoutineSyncSession({
+      repository: restarted.repository,
+      now: () => new Date(restarted.clock.value).toISOString(), online: () => true,
+      transport: {
+        ...deliveryTransport,
+        push: async request => {
+          if (request.mutationId === successor.mutationId) successorBases.push(request.baseRevision);
+          return deliveryTransport.push(request);
+        },
+      },
+    });
+    await restarted.session.sync();
+    expect(successorBases).toEqual([remoteTip.serverRevision]);
+    expect(server.livePresetIds(ACCOUNT)).not.toContain(PRESET_B);
+    expect((await restarted.session.snapshot())?.activePresetId).toBe(PRESET_A);
+    expect(await restarted.repository.getOutboxRecord(successor.mutationId)).toMatchObject({ status: 'acknowledged' });
+    expect(await restarted.repository.getOutboxRecord(dependent.mutationId)).toMatchObject({ status: 'acknowledged' });
+    expect((await restarted.repository.listOutboxDependents(conflicted.mutationId))
+      .filter(item => item.status === 'pending' || item.status === 'retry_wait')).toEqual([]);
+    expect((await restarted.repository.listConflicts(HEALTH_ROUTINE_PROFILE_DOMAIN, HEALTH_ROUTINE_PROFILE_ID))
+      .every(conflict => conflict.resolutionState !== 'unresolved')).toBe(true);
+    expect(await restarted.repository.listOutboxMutations({ limit: 100, status: 'permanent_failure' })).toHaveLength(0);
+    const finalCheckpoint = await restarted.repository.getSyncCheckpoint('k323-v2', HEALTH_ROUTINE_PROFILE_DOMAIN);
+    expect(finalCheckpoint?.sequence).toBe(server.domainChanges(ACCOUNT, HEALTH_ROUTINE_PROFILE_DOMAIN).at(-1)?.sequence);
+    const profileOutboxCount = (await restarted.repository.listOutboxMutations({
+      domain: HEALTH_ROUTINE_PROFILE_DOMAIN, entityId: HEALTH_ROUTINE_PROFILE_ID, limit: 100,
+    })).length;
+    const remoteProfileChangeCount = server.domainChanges(ACCOUNT, HEALTH_ROUTINE_PROFILE_DOMAIN).length;
+    await restarted.session.sync();
+    expect(await restarted.repository.getSyncCheckpoint('k323-v2', HEALTH_ROUTINE_PROFILE_DOMAIN))
+      .toEqual(finalCheckpoint);
+    expect((await restarted.repository.listOutboxMutations({
+      domain: HEALTH_ROUTINE_PROFILE_DOMAIN, entityId: HEALTH_ROUTINE_PROFILE_ID, limit: 100,
+    })).length).toBe(profileOutboxCount);
+    expect(server.domainChanges(ACCOUNT, HEALTH_ROUTINE_PROFILE_DOMAIN)).toHaveLength(remoteProfileChangeCount);
+  });
+
+  it('replays a same-revision first page and reaches the later tip after an attempted P2 conflicts', async () => {
+    const server = new FakeHealthRoutineServer();
+    const factory = new IDBFactory();
+    const device = await openDevice(server, factory, 'device-profile-page-replay');
+    const source = createRoutinePresetState({ routines: [], splitCount: 3 });
+    source.presets.push(
+      createEmptyRoutinePreset(PRESET_A, 'Current local choice', 2),
+      createEmptyRoutinePreset(PRESET_B, 'Old active choice', 2),
+    );
+    source.activePresetId = PRESET_B;
+    const initial = await device.session.bootstrap({ legacyState: source, hasAccountScopedState: true });
+    await device.session.sync();
+    const checkpoint = await device.repository.getSyncCheckpoint('k323-v2', HEALTH_ROUTINE_PROFILE_DOMAIN);
+    const deleting = updateRoutinePresetState(initial, { type: 'delete', presetId: PRESET_B });
+    await device.session.commitState(initial, deleting);
+    server.forceProfile(ACCOUNT, PRESET_B);
+    const delegate = server.client(ACCOUNT);
+    let stopBeforeReconciliation = true;
+    device.session = new HealthRoutineSyncSession({
+      repository: device.repository, now: () => new Date(device.clock.value).toISOString(), online: () => true,
+      transport: {
+        ...delegate,
+        pull: async request => {
+          if (stopBeforeReconciliation && request.domain === HEALTH_ROUTINE_PROFILE_DOMAIN) {
+            stopBeforeReconciliation = false;
+            throw new TypeError('stop_before_same_revision_replay');
+          }
+          return delegate.pull(request);
+        },
+      },
+    });
+    await device.session.sync();
+    const conflicted = (await device.repository.listOutboxMutations({ limit: 100, status: 'conflict' }))
+      .find(item => item.domain === HEALTH_ROUTINE_PROFILE_DOMAIN)!;
+    const dependent = (await device.repository.listOutboxMutations({ limit: 100, status: 'pending' }))
+      .find(item => item.domain === HEALTH_ROUTINE_PRESET_DOMAIN && item.entityId === PRESET_B)!;
+    const localA = updateRoutinePresetState(deleting, { type: 'switch', presetId: PRESET_A });
+    await device.session.commitState(deleting, localA);
+    const successor = (await device.repository.listOutboxMutations({
+      domain: HEALTH_ROUTINE_PROFILE_DOMAIN, entityId: HEALTH_ROUTINE_PROFILE_ID, limit: 100,
+    })).find(item => item.status === 'pending')!;
+    for (let index = 0; index < 101; index += 1) {
+      server.forceProfile(ACCOUNT, index % 2 === 0 ? DEFAULT_ROUTINE_PRESET_ID : PRESET_B);
+    }
+    const unseen = server.domainChanges(ACCOUNT, HEALTH_ROUTINE_PROFILE_DOMAIN)
+      .filter(change => change.sequence > (checkpoint?.sequence ?? 0));
+    expect(unseen).toHaveLength(102);
+    const pageOneTip = unseen[99];
+    const authoritativeTip = unseen.at(-1)!;
+    await device.repository.reconcileOutboxPrerequisite({
+      prerequisiteMutationId: conflicted.mutationId, prerequisiteStatus: 'conflict',
+      expectedEntityRevision: (await device.repository.getEntity(
+        HEALTH_ROUTINE_PROFILE_DOMAIN, HEALTH_ROUTINE_PROFILE_ID,
+      ))!.revision,
+      correctedRecord: { id: HEALTH_ROUTINE_PROFILE_ID, activePresetId: PRESET_A },
+      remoteRecord: pageOneTip.record, remoteServerRevision: pageOneTip.serverRevision,
+      remoteMutationRef: pageOneTip.remoteMutationRef,
+      now: new Date(device.clock.value).toISOString(),
+    });
+    expect(await device.repository.getEntity(HEALTH_ROUTINE_PROFILE_DOMAIN, HEALTH_ROUTINE_PROFILE_ID))
+      .toMatchObject({ serverRevision: pageOneTip.serverRevision, pendingMutationId: successor.mutationId });
+    expect(await device.repository.getSyncCheckpoint('k323-v2', HEALTH_ROUTINE_PROFILE_DOMAIN))
+      .toEqual(checkpoint);
+    closeLocalDatabase(device.repository);
+    openDevices.splice(openDevices.indexOf(device), 1);
+
+    const restarted = await openDevice(server, factory, 'device-profile-page-replay');
+    const replayTransport = server.client(ACCOUNT);
+    const pageSizes: number[] = [];
+    restarted.session = new HealthRoutineSyncSession({
+      repository: restarted.repository,
+      now: () => new Date(restarted.clock.value).toISOString(), online: () => true,
+      transport: {
+        ...replayTransport,
+        pull: async request => {
+          const response = await replayTransport.pull(request);
+          if (request.domain === HEALTH_ROUTINE_PROFILE_DOMAIN) pageSizes.push(response.changes.length);
+          return response;
+        },
+      },
+    });
+    await restarted.session.sync();
+    expect(pageSizes).toEqual([100, 2]);
+    const corrected = (await restarted.repository.listOutboxMutations({
+      domain: HEALTH_ROUTINE_PROFILE_DOMAIN, entityId: HEALTH_ROUTINE_PROFILE_ID, limit: 100,
+    })).find(item => item.status === 'pending')!;
+    expect(corrected.mutationId).not.toBe(successor.mutationId);
+    expect(await restarted.repository.getOutboxRecord(successor.mutationId)).toMatchObject({
+      status: 'superseded', supersededByMutationId: corrected.mutationId,
+    });
+    expect(await restarted.repository.getOutboxRecord(dependent.mutationId)).toMatchObject({
+      status: 'pending', dependsOnMutationId: corrected.mutationId,
+    });
+    expect(await restarted.repository.getEntity(HEALTH_ROUTINE_PROFILE_DOMAIN, HEALTH_ROUTINE_PROFILE_ID))
+      .toMatchObject({ serverRevision: authoritativeTip.serverRevision, pendingMutationId: corrected.mutationId });
+    restarted.clock.value += 120_000;
+    await restarted.session.sync();
+    expect(await restarted.repository.getOutboxRecord(corrected.mutationId)).toMatchObject({ status: 'acknowledged' });
+    expect(await restarted.repository.getOutboxRecord(dependent.mutationId)).toMatchObject({ status: 'acknowledged' });
+    expect(server.livePresetIds(ACCOUNT)).not.toContain(PRESET_B);
+    expect((await restarted.session.snapshot())?.activePresetId).toBe(DEFAULT_ROUTINE_PRESET_ID);
+    expect((await restarted.repository.getSyncCheckpoint('k323-v2', HEALTH_ROUTINE_PROFILE_DOMAIN))?.sequence)
+      .toBe(server.domainChanges(ACCOUNT, HEALTH_ROUTINE_PROFILE_DOMAIN).at(-1)?.sequence);
+  });
+
+  it('does not commit a partial profile page when the next page requires full resync', async () => {
+    const server = new FakeHealthRoutineServer();
+    const device = await openDevice(server, new IDBFactory(), 'device-profile-page-resync');
+    await device.session.bootstrap({
+      legacyState: createRoutinePresetState({ routines: [], splitCount: 3 }), hasAccountScopedState: true,
+    });
+    await device.session.sync();
+    const originalEntity = await device.repository.getEntity(HEALTH_ROUTINE_PROFILE_DOMAIN, HEALTH_ROUTINE_PROFILE_ID);
+    const originalCheckpoint = await device.repository.getSyncCheckpoint('k323-v2', HEALTH_ROUTINE_PROFILE_DOMAIN);
+    for (let index = 0; index < 101; index += 1) server.forceProfile(ACCOUNT, DEFAULT_ROUTINE_PRESET_ID);
+    const delegate = server.client(ACCOUNT);
+    let profilePages = 0;
+    device.session = new HealthRoutineSyncSession({
+      repository: device.repository, now: () => new Date(device.clock.value).toISOString(), online: () => true,
+      transport: {
+        ...delegate,
+        pull: async request => {
+          if (request.domain === HEALTH_ROUTINE_PROFILE_DOMAIN && ++profilePages === 2) {
+            const retentionFloor = request.cursor + 1;
+            return {
+              protocolVersion: 2, status: 'full_resync_required', domain: request.domain,
+              serverEpoch: SERVER_EPOCH, retentionFloor, nextCursor: retentionFloor,
+              changes: [], errorCode: 'CURSOR_INVALID',
+            };
+          }
+          return delegate.pull(request);
+        },
+      },
+    });
+    await device.session.sync();
+    expect(profilePages).toBe(2);
+    expect(await device.repository.getEntity(HEALTH_ROUTINE_PROFILE_DOMAIN, HEALTH_ROUTINE_PROFILE_ID))
+      .toEqual(originalEntity);
+    expect(await device.repository.getSyncCheckpoint('k323-v2', HEALTH_ROUTINE_PROFILE_DOMAIN))
+      .toMatchObject({ sequence: originalCheckpoint?.sequence, invalidationReason: 'CURSOR_INVALID' });
+  });
+
   it('creates a corrected P3 when the existing local successor becomes stale against pulled preset authority', async () => {
     const server = new FakeHealthRoutineServer();
     const factory = new IDBFactory();

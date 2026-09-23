@@ -32,6 +32,7 @@ import {
   type K323V2ActiveScope,
   type K323V2Domain,
   type K323V2RemoteChange,
+  type K323V2PullResponse,
   type K323V2TransportClient,
 } from './localDatabase/k323V2Transport';
 import {
@@ -495,9 +496,134 @@ export class HealthRoutineSyncSession {
     });
   }
 
+  private async pullProfileDomainToTip(scope: K323V2ActiveScope): Promise<HealthRoutineDomainSyncResult> {
+    const domain = HEALTH_ROUTINE_PROFILE_DOMAIN;
+    const checkpoint = await this.repository.getSyncCheckpoint(K323_V2_PROVIDER, domain);
+    const initialCursor = checkpoint?.sequence ?? 0;
+    let cursor = initialCursor;
+    let serverEpoch = checkpoint?.serverEpoch ?? null;
+    let latestProfileChange: K323V2RemoteChange | null = null;
+    let finalResponse: K323V2PullResponse | null = null;
+    let pages = 0;
+    for (; pages < 100; pages += 1) {
+      if (!this.online()) return { kind: 'offline', domain };
+      const response = await this.transport.pull({
+        protocolVersion: 2, namespaceKey: scope.namespaceKey, generationId: scope.generationId,
+        domain, cursor, serverEpoch, limit: 100,
+      });
+      if (response.status === 'rejected') {
+        return { kind: 'rejected', domain, reason: response.errorCode ?? 'PULL_REJECTED' };
+      }
+      if (response.status === 'full_resync_required') {
+        // Validate the terminal response before invalidating the old checkpoint.
+        pullResponseToRemoteBatch(response, {
+          context: { ...scope, domain, cursor, serverEpoch }, activeScope: scope,
+          currentEntities: new Map(), now: this.now(),
+        });
+        if (checkpoint) {
+          await this.repository.invalidateSyncCheckpoint({
+            provider: K323_V2_PROVIDER, stream: domain,
+            reason: response.errorCode ?? 'FULL_RESYNC_REQUIRED', now: this.now(),
+          });
+        }
+        return { kind: 'full_resync_required', domain, reason: response.errorCode ?? 'FULL_RESYNC_REQUIRED' };
+      }
+      // The mapper validates the wire page, epoch, cursor and record shape.
+      // Its provisional entity projection is deliberately not persisted.
+      pullResponseToRemoteBatch(response, {
+        context: { ...scope, domain, cursor, serverEpoch }, activeScope: scope,
+        currentEntities: new Map(), now: this.now(),
+      });
+      for (const change of response.changes) {
+        if (change.entityId !== HEALTH_ROUTINE_PROFILE_ID
+          || latestProfileChange && (change.sequence <= latestProfileChange.sequence
+            || change.serverRevision <= latestProfileChange.serverRevision)) {
+          throw new LocalDatabaseError('INVALID_RESERVED_RECORD', 'health_routine_profile_pull_tip');
+        }
+        latestProfileChange = change;
+      }
+      cursor = response.nextCursor;
+      serverEpoch = response.serverEpoch;
+      finalResponse = response;
+      if (response.changes.length < 100) break;
+    }
+    if (pages === 100 || !finalResponse || latestProfileChange && latestProfileChange.sequence !== cursor) {
+      return { kind: 'incomplete', domain, reason: 'PAGE_LIMIT_EXCEEDED' };
+    }
+
+    const currentEntities = new Map((await this.repository.listEntities({ domain, includeDeleted: true }))
+      .map(entity => [entity.entityId, entity]));
+    const current = currentEntities.get(HEALTH_ROUTINE_PROFILE_ID);
+    if (latestProfileChange) {
+      const change = latestProfileChange;
+      if (current && !change.isDeleted && change.remoteMutationRef && change.serverRevision > 0) {
+        const prerequisite = await this.repository.findHealthProfileReconciliationPrerequisite();
+        if (prerequisite && await this.reconcileProfilePrerequisite({
+          prerequisite,
+          remoteProfile: validateHealthRoutineProfileAggregate(change.record),
+          remoteServerRevision: change.serverRevision,
+          remoteMutationRef: change.remoteMutationRef,
+        })) {
+          return { kind: 'conflict', domain, reason: 'PROFILE_CONFLICT_RECONCILED' };
+        }
+      }
+      if (current?.pendingMutationId) {
+        const reason = change.isDeleted ? 'REMOTE_TOMBSTONE_WITH_PENDING_LOCAL' : 'REMOTE_NEWER_WITH_PENDING_LOCAL';
+        await this.preservePullConflict(domain, current, change, reason);
+        return { kind: 'conflict', domain, reason };
+      }
+      if (current?.serverRevision === change.serverRevision
+        && (current.contentHash !== hashCanonicalPayload(canonicalPayloadSnapshot(change.record))
+          || current.isDeleted !== change.isDeleted || !sameTimestamp(current.deletedAt, change.deletedAt))) {
+        await this.preservePullConflict(domain, current, change, 'SAME_REVISION_CONTENT_MISMATCH');
+        return { kind: 'conflict', domain, reason: 'SAME_REVISION_CONTENT_MISMATCH' };
+      }
+      if (!change.isDeleted) {
+        const profile = validateHealthRoutineProfileAggregate(change.record);
+        if (profile.activePresetId) {
+          const preset = await this.repository.getEntity(HEALTH_ROUTINE_PRESET_DOMAIN, profile.activePresetId);
+          if (!preset || preset.isDeleted) {
+            if (preset?.isDeleted && preset.pendingMutationId) {
+              const dependent = await this.repository.getOutboxRecord(preset.pendingMutationId);
+              const prerequisite = dependent?.dependsOnMutationId
+                ? await this.repository.getOutboxRecord(dependent.dependsOnMutationId)
+                : null;
+              if (dependent?.operation === 'tombstone'
+                && (dependent.status === 'pending' || dependent.status === 'retry_wait')
+                && prerequisite?.status === 'acknowledged'
+                && await this.reconcileProfilePrerequisite({
+                  prerequisite, remoteProfile: profile,
+                  remoteServerRevision: change.serverRevision,
+                  remoteMutationRef: change.remoteMutationRef,
+                })) {
+                return { kind: 'conflict', domain, reason: 'PROFILE_DELETE_PREREQUISITE_RECONCILED' };
+              }
+            }
+            if (current) await this.preservePullConflict(domain, current, change, 'PROFILE_PRESET_NOT_AVAILABLE');
+            return { kind: 'conflict', domain, reason: 'PROFILE_PRESET_NOT_AVAILABLE' };
+          }
+        }
+      }
+    }
+    const tipResponse: K323V2PullResponse = {
+      ...finalResponse, nextCursor: cursor,
+      changes: latestProfileChange ? [latestProfileChange] : [],
+    };
+    const mapped = pullResponseToRemoteBatch(tipResponse, {
+      context: { ...scope, domain, cursor: initialCursor, serverEpoch: checkpoint?.serverEpoch ?? null },
+      activeScope: scope, currentEntities, now: this.now(),
+    });
+    if (mapped.kind === 'full_resync_required') {
+      return { kind: 'full_resync_required', domain, reason: mapped.reason };
+    }
+    await this.repository.commitRemoteEntityBatch(mapped.batch);
+    return { kind: 'complete', domain, pages: pages + 1, cursor };
+  }
+
   private async pullDomain(domain: K323V2Domain): Promise<HealthRoutineDomainSyncResult> {
     const scope = this.scope();
     try {
+      if (domain === HEALTH_ROUTINE_PROFILE_DOMAIN) return await this.pullProfileDomainToTip(scope);
       for (let page = 0; page < 100; page += 1) {
         if (!this.online()) return { kind: 'offline', domain };
         const checkpoint = await this.repository.getSyncCheckpoint(K323_V2_PROVIDER, domain);
@@ -528,27 +654,11 @@ export class HealthRoutineSyncSession {
         }
         const currentEntities = new Map((await this.repository.listEntities({ domain, includeDeleted: true }))
           .map(entity => [entity.entityId, entity]));
-        // The transport mapper commits only the latest change per entity. Use
-        // that same authority for conflict reconciliation so a page containing
-        // multiple profile revisions cannot create a replacement from an
-        // already-stale intermediate revision.
+        // Preserve the existing page-by-page path for non-profile domains.
         const latestChanges = new Map<string, K323V2RemoteChange>();
         for (const change of response.changes) latestChanges.set(change.entityId, change);
         for (const change of latestChanges.values()) {
           const current = currentEntities.get(change.entityId);
-          if (domain === HEALTH_ROUTINE_PROFILE_DOMAIN && current && !change.isDeleted
-            && change.remoteMutationRef && change.serverRevision > 0) {
-            const prerequisite = await this.repository.findHealthProfileReconciliationPrerequisite();
-            const remoteProfile = validateHealthRoutineProfileAggregate(change.record);
-            if (prerequisite && await this.reconcileProfilePrerequisite({
-              prerequisite,
-              remoteProfile,
-              remoteServerRevision: change.serverRevision,
-              remoteMutationRef: change.remoteMutationRef,
-            })) {
-              return { kind: 'conflict', domain, reason: 'PROFILE_CONFLICT_RECONCILED' };
-            }
-          }
           if (current?.pendingMutationId) {
             const reason = change.isDeleted ? 'REMOTE_TOMBSTONE_WITH_PENDING_LOCAL' : 'REMOTE_NEWER_WITH_PENDING_LOCAL';
             await this.preservePullConflict(domain, current, change, reason);
@@ -559,33 +669,6 @@ export class HealthRoutineSyncSession {
               || current.isDeleted !== change.isDeleted || !sameTimestamp(current.deletedAt, change.deletedAt))) {
             await this.preservePullConflict(domain, current, change, 'SAME_REVISION_CONTENT_MISMATCH');
             return { kind: 'conflict', domain, reason: 'SAME_REVISION_CONTENT_MISMATCH' };
-          }
-          if (domain === HEALTH_ROUTINE_PROFILE_DOMAIN && !change.isDeleted) {
-            const profile = validateHealthRoutineProfileAggregate(change.record);
-            if (profile.activePresetId) {
-              const preset = await this.repository.getEntity(HEALTH_ROUTINE_PRESET_DOMAIN, profile.activePresetId);
-              if (!preset || preset.isDeleted) {
-                if (preset?.isDeleted && preset.pendingMutationId) {
-                  const dependent = await this.repository.getOutboxRecord(preset.pendingMutationId);
-                  const prerequisite = dependent?.dependsOnMutationId
-                    ? await this.repository.getOutboxRecord(dependent.dependsOnMutationId)
-                    : null;
-                  if (dependent?.operation === 'tombstone'
-                    && (dependent.status === 'pending' || dependent.status === 'retry_wait')
-                    && prerequisite?.status === 'acknowledged'
-                    && await this.reconcileProfilePrerequisite({
-                      prerequisite,
-                      remoteProfile: profile,
-                      remoteServerRevision: change.serverRevision,
-                      remoteMutationRef: change.remoteMutationRef,
-                    })) {
-                    return { kind: 'conflict', domain, reason: 'PROFILE_DELETE_PREREQUISITE_RECONCILED' };
-                  }
-                }
-                if (current) await this.preservePullConflict(domain, current, change, 'PROFILE_PRESET_NOT_AVAILABLE');
-                return { kind: 'conflict', domain, reason: 'PROFILE_PRESET_NOT_AVAILABLE' };
-              }
-            }
           }
         }
         const mapped = pullResponseToRemoteBatch(response, {
