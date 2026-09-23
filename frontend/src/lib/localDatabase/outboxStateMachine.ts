@@ -8,6 +8,9 @@ function timestamp(value: string, operation: string): number {
 }
 
 function requireClaimOwner(record: OutboxRecord, ownerId: string, operation: string): void {
+  if (record.deliveryBinding !== undefined) {
+    throw new LocalDatabaseError('INVALID_OUTBOX_TRANSITION', operation);
+  }
   if (record.status !== 'claimed') throw new LocalDatabaseError('INVALID_OUTBOX_TRANSITION', operation);
   if (record.leaseOwner !== ownerId) throw new LocalDatabaseError('LEASE_OWNER_MISMATCH', operation);
 }
@@ -35,6 +38,9 @@ export function claimOutboxRecord(record: OutboxRecord, input: {
   leaseDurationMs: number;
   allowExpiredClaim?: boolean;
 }): OutboxRecord {
+  if (record.deliveryBinding !== undefined) {
+    throw new LocalDatabaseError('INVALID_OUTBOX_TRANSITION', 'claim_outbox');
+  }
   const at = timestamp(input.now, 'claim_outbox');
   if (!Number.isSafeInteger(input.leaseDurationMs) || input.leaseDurationMs < 1 || input.leaseDurationMs > 86_400_000) {
     throw new LocalDatabaseError('INVALID_OUTBOX_TRANSITION', 'claim_outbox');
