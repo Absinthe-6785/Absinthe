@@ -250,6 +250,8 @@ async def apply_remote_mutation_v2(
 ):
     """Apply one authenticated K-323 v2 mutation for an explicitly enabled domain."""
     domain = payload.get("domain") if isinstance(payload, dict) else None
+    if domain == "health_workout_session":
+        raise HTTPException(status_code=423, detail="WORKOUT_DOMAIN_DISABLED")
     health_domain = domain in {"health_routine_preset", "health_routine_profile"}
     if not K323_V2_TRANSPORT_ENABLED and not (HEALTH_ROUTINE_SYNC_ENABLED and health_domain):
         raise HTTPException(status_code=423, detail="K323_V2_TRANSPORT_DISABLED")
@@ -298,6 +300,8 @@ async def pull_remote_changes_v2(
     user_id: str = Depends(get_remote_mutation_user),
 ):
     """Read a bounded, account-scoped v2 change page."""
+    if domain == "health_workout_session":
+        raise HTTPException(status_code=423, detail="WORKOUT_DOMAIN_DISABLED")
     health_domain = domain in {"health_routine_preset", "health_routine_profile"}
     if not K323_V2_TRANSPORT_ENABLED and not (HEALTH_ROUTINE_SYNC_ENABLED and health_domain):
         raise HTTPException(status_code=423, detail="K323_V2_TRANSPORT_DISABLED")

@@ -17,6 +17,7 @@ class FakeTable:
         self.columns: str | None = None
         self.filters: list[tuple[str, object]] = []
         self.inserted: dict | None = None
+        self.single = False
 
     def select(self, columns: str):
         self.operation = "select"
@@ -40,6 +41,7 @@ class FakeTable:
         return self
 
     def maybe_single(self):
+        self.single = True
         return self
 
     def execute(self):
@@ -54,6 +56,8 @@ class FakeTable:
                 row for row in self.database.rows
                 if all(row.get(column) == value for column, value in self.filters)
             ]
+            if self.single:
+                return SimpleNamespace(data=deepcopy(rows[0]) if rows else None)
             if self.columns == "id":
                 return SimpleNamespace(data=[{"id": row["id"]} for row in rows])
             return SimpleNamespace(data=deepcopy(rows))
@@ -148,6 +152,17 @@ def test_remote_save_accepts_source_aware_and_legacy_sets(workout_client):
     assert inserted[0]["sets"][0]["weight_source_unit"] == "lbs"
     assert "weight_source_value" not in inserted[1]["sets"][0]
     assert "weight_source_unit" not in inserted[1]["sets"][0]
+
+
+def test_legacy_workout_delete_remains_available(workout_client):
+    client, supabase = workout_client
+    supabase.rows = [{"id": "workout-1", "user_id": "test-user"}]
+
+    response = client.delete("/api/workouts/workout-1")
+
+    assert response.status_code == 200
+    assert supabase.operations == [("delete", [("id", "workout-1")])]
+    assert supabase.rows == []
 
 
 @pytest.mark.parametrize(
