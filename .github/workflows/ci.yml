@@ -75,3 +75,24 @@ jobs:
       - run: python -m pip install --upgrade pip
       - run: python -m pip install -r requirements.txt
       - run: python -m pytest test_deployment_authority.py test_recovery_mode.py test_recipe_schema_readiness.py test_recipes_endpoint_characterization.py -q
+
+  backend-rel05g1:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      SUPABASE_URL: https://example.supabase.co
+      SUPABASE_KEY: ci-placeholder-key
+      ABSINTHE_RECOVERY_MODE: active
+      K323_POSTGRES_INTEGRATION: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -r requirements.txt
+      - run: python -m pytest test_rel05g1_dormant_foundation.py test_remote_mutation_v2.py test_remote_mutation_v2_api.py test_remote_mutation_api.py test_recovery_mode.py test_restore_validation.py test_health_weight_source.py test_remote_mutation_v2_postgres.py -q

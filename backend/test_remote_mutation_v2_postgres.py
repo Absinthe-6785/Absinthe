@@ -20,6 +20,7 @@ ROOT = Path(__file__).parent
 V1_MIGRATION = ROOT / "migrations" / "202607120001_k323_idempotent_remote_mutation.sql"
 V2_MIGRATION = ROOT / "migrations" / "202609180001_k323_v2_multi_domain_transport.sql"
 HEALTH_MIGRATION = ROOT / "migrations" / "202609190001_rel05f_health_routine_aggregate.sql"
+WORKOUT_FOUNDATION_MIGRATION = ROOT / "migrations" / "202609230001_rel05g1_workout_dormant_foundation.sql"
 
 
 SETUP_SQL = r"""
@@ -42,6 +43,13 @@ create table public.notes (
   folder_id uuid,
   deleted_at bigint
 );
+
+create table public.workout_logs (
+  id uuid primary key,
+  user_id uuid not null
+);
+insert into public.workout_logs (id, user_id) values
+  ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', '11111111-1111-4111-8111-111111111111');
 
 create table public.health_routines (
   id uuid primary key default gen_random_uuid(),
@@ -303,8 +311,12 @@ declare
   v_tombstone jsonb;
   v_restore jsonb;
   v_stale jsonb;
+  v_malformed jsonb;
   v_pull jsonb;
-  v_count bigint;
+  v_days jsonb;
+  v_default_payload jsonb;
+  v_named_payload jsonb;
+  v_invalid_case record;
 begin
   v_generation := public.ensure_remote_health_generation_v2(
     '11111111-1111-4111-8111-111111111111', 'project-test', repeat('1', 64),
@@ -350,12 +362,6 @@ begin
   if (v_three_day #>> '{serverRevision}')::bigint <> 2 then
     raise exception 'REL05F_THREE_DAY_REVISION_FAILED: %', v_three_day;
   end if;
-  select count(*) into v_count from public.health_routines
-  where user_id = '11111111-1111-4111-8111-111111111111';
-  if v_count <> 3 then raise exception 'REL05F_LEGACY_PROJECTION_COUNT: %', v_count; end if;
-  if exists (select 1 from public.health_routines where user_id = '11111111-1111-4111-8111-111111111111' and day_name = 'Day 4') then
-    raise exception 'REL05F_STALE_DAY4_SURVIVED';
-  end if;
 
   v_profile := public.apply_health_routine_mutation_v2(
     '11111111-1111-4111-8111-111111111111', 'project-test', repeat('1', 64),
@@ -372,12 +378,64 @@ begin
     '11111111-1111-4111-8111-111111111111', 'project-test', repeat('1', 64),
     'generation-1', 'device-a', 'health_routine_preset',
     '00000000-0000-5000-8000-000000000003',
-    'mut.10000000-0000-4000-8000-000000000004', 'k322.' || repeat('a', 64),
+    'mut.10000000-0000-4000-8000-000000000004', 'k322.' || repeat('c', 64),
     'upsert', null, 1,
     '{"kind":"entity_snapshot","record":{"id":"00000000-0000-5000-8000-000000000003","name":"Named","splitCount":1,"days":[{"dayName":"Day 1","blocks":[],"plannedSets":{}}],"isDefault":false}}'::jsonb,
     repeat('b', 64), repeat('c', 64), '2026-09-19T00:00:03Z'
   );
   if v_named #>> '{outcome}' <> 'applied' then raise exception 'REL05F_NAMED_FAILED: %', v_named; end if;
+
+  v_days := '[
+    {"dayName":"Day 1","blocks":[],"plannedSets":{}},
+    {"dayName":"Day 2","blocks":[],"plannedSets":{}},
+    {"dayName":"Day 3","blocks":[],"plannedSets":{}},
+    {"dayName":"Day 4","blocks":[],"plannedSets":{}}
+  ]'::jsonb;
+  v_default_payload := jsonb_build_object(
+    'kind', 'entity_snapshot',
+    'record', jsonb_build_object(
+      'id', '00000000-0000-5000-8000-000000000001',
+      'name', 'Default candidate', 'splitCount', 4, 'days', v_days, 'isDefault', true
+    )
+  );
+  v_named_payload := jsonb_build_object(
+    'kind', 'entity_snapshot',
+    'record', jsonb_build_object(
+      'id', '00000000-0000-5000-8000-000000000010',
+      'name', 'Named candidate', 'splitCount', 4, 'days', v_days, 'isDefault', false
+    )
+  );
+
+  for v_invalid_case in
+    select * from (values
+      (1, '00000000-0000-5000-8000-000000000001',
+        jsonb_set(v_default_payload, '{record,isDefault}', 'false'::jsonb)),
+      (2, '00000000-0000-5000-8000-000000000010',
+        jsonb_set(v_named_payload, '{record,isDefault}', 'true'::jsonb)),
+      (3, '00000000-0000-5000-8000-000000000001',
+        v_default_payload #- '{record,isDefault}'),
+      (4, '00000000-0000-5000-8000-000000000001',
+        jsonb_set(v_default_payload, '{record,isDefault}', 'null'::jsonb)),
+      (5, '00000000-0000-5000-8000-000000000001',
+        jsonb_set(v_default_payload, '{record,isDefault}', '"true"'::jsonb)),
+      (6, '00000000-0000-5000-8000-000000000001',
+        jsonb_set(v_default_payload, '{record,isDefault}', '1'::jsonb))
+    ) as invalid_cases(case_number, entity_id, payload)
+  loop
+    v_malformed := public.apply_health_routine_mutation_v2(
+      '11111111-1111-4111-8111-111111111111', 'project-test', repeat('1', 64),
+      'generation-1', 'device-a', 'health_routine_preset', v_invalid_case.entity_id,
+      'mut.10000000-0000-4000-8000-' ||
+        lpad(to_hex(v_invalid_case.case_number + 16), 12, '0'),
+      'k322.' || repeat(lpad(to_hex(v_invalid_case.case_number), 2, '0'), 32),
+      'upsert', null, 1, v_invalid_case.payload,
+      repeat('d', 64), repeat('e', 64), '2026-09-19T00:00:03.050Z'
+    );
+    if v_malformed #>> '{errorCode}' <> 'MALFORMED_PAYLOAD' then
+      raise exception 'REL05F_DEFAULT_FLAG_VALIDATION_FAILED (%): %',
+        v_invalid_case.case_number, v_malformed;
+    end if;
+  end loop;
 
   v_profile_switch := public.apply_health_routine_mutation_v2(
     '11111111-1111-4111-8111-111111111111', 'project-test', repeat('1', 64),
@@ -427,7 +485,7 @@ begin
     '11111111-1111-4111-8111-111111111111', 'project-test', repeat('1', 64),
     'generation-1', 'device-a', 'health_routine_preset',
     '00000000-0000-5000-8000-000000000003',
-    'mut.10000000-0000-4000-8000-000000000005', 'k322.' || repeat('d', 64),
+    'mut.10000000-0000-4000-8000-000000000005', 'k322.' || repeat('e', 64),
     'tombstone', 1, 2,
     '{"kind":"tombstone","entityId":"00000000-0000-5000-8000-000000000003","deletedAt":"2026-09-19T00:00:04Z","revision":2}'::jsonb,
     repeat('e', 64), repeat('f', 64), '2026-09-19T00:00:04Z'
@@ -473,6 +531,22 @@ $$;
 reset role;
 
 do $$
+declare
+  v_count bigint;
+begin
+  select count(*) into v_count from public.health_routines
+  where user_id = '11111111-1111-4111-8111-111111111111';
+  if v_count <> 3 then raise exception 'REL05F_LEGACY_PROJECTION_COUNT: %', v_count; end if;
+  if exists (
+    select 1 from public.health_routines
+    where user_id = '11111111-1111-4111-8111-111111111111' and day_name = 'Day 4'
+  ) then
+    raise exception 'REL05F_STALE_DAY4_SURVIVED';
+  end if;
+end
+$$;
+
+do $$
 begin
   if has_table_privilege('authenticated', 'public.health_routine_presets', 'SELECT')
     or has_table_privilege('authenticated', 'public.health_routine_presets', 'INSERT')
@@ -489,6 +563,263 @@ end
 $$;
 
 select 'REL05F_POSTGRES_INTEGRATION_PASS' as result;
+"""
+
+
+WORKOUT_FOUNDATION_BASELINE_SQL = r"""
+create temporary table rel05g1_existing_row_counts as
+select
+  (select count(*) from public.remote_mutation_receipts) as receipt_count,
+  (select count(*) from public.remote_reference_changes_v2) as change_count,
+  (select count(*) from public.workout_logs) as legacy_workout_count;
+"""
+
+
+WORKOUT_FOUNDATION_ASSERTIONS_SQL = r"""
+do $$
+declare
+  v_primary_key name[];
+  v_column_types text[];
+  v_column_not_null boolean[];
+  v_state text;
+  v_count bigint;
+  v_before record;
+begin
+  if not (
+      select relrowsecurity from pg_catalog.pg_class
+      where oid = 'public.health_workout_sessions_v2'::regclass
+    ) or not (
+      select relrowsecurity from pg_catalog.pg_class
+      where oid = 'public.health_workout_capabilities'::regclass
+    ) then
+    raise exception 'REL05G1_RLS_DISABLED';
+  end if;
+
+  select array_agg(attribute.attname order by key_column.ordinality)
+    into v_primary_key
+  from pg_catalog.pg_constraint as constraint_row
+  cross join lateral unnest(constraint_row.conkey) with ordinality
+    as key_column(attnum, ordinality)
+  join pg_catalog.pg_attribute as attribute
+    on attribute.attrelid = constraint_row.conrelid
+   and attribute.attnum = key_column.attnum
+  where constraint_row.conrelid = 'public.health_workout_sessions_v2'::regclass
+    and constraint_row.contype = 'p';
+  if v_primary_key is distinct from array['user_id', 'project_scope', 'id']::name[] then
+    raise exception 'REL05G1_WRONG_CANONICAL_PRIMARY_KEY';
+  end if;
+
+  select array_agg(pg_catalog.format_type(attribute.atttypid, attribute.atttypmod)
+    order by attribute.attnum),
+    array_agg(attribute.attnotnull order by attribute.attnum)
+    into v_column_types, v_column_not_null
+  from pg_catalog.pg_attribute as attribute
+  where attribute.attrelid = 'public.health_workout_sessions_v2'::regclass
+    and attribute.attnum > 0 and not attribute.attisdropped;
+  if v_column_types is distinct from array[
+      'uuid', 'text', 'uuid', 'bigint', 'jsonb', 'boolean',
+      'timestamp with time zone', 'uuid', 'timestamp with time zone', 'timestamp with time zone'
+    ]::text[] then
+    raise exception 'REL05G1_WRONG_CANONICAL_COLUMN_TYPES';
+  end if;
+  if v_column_not_null is distinct from array[
+      true, true, true, true, true, true, false, false, true, true
+    ]::boolean[] then
+    raise exception 'REL05G1_WRONG_CANONICAL_NULLABILITY';
+  end if;
+
+  if exists (
+      select 1 from pg_catalog.pg_index
+      where indrelid = 'public.health_workout_sessions_v2'::regclass
+        and indisunique and not indisprimary
+    ) or exists (
+      select 1 from pg_catalog.pg_constraint
+      where conrelid = 'public.health_workout_sessions_v2'::regclass and contype = 'f'
+    ) then
+    raise exception 'REL05G1_UNPLANNED_UNIQUENESS_OR_FOREIGN_KEY';
+  end if;
+
+  if has_table_privilege('anon', 'public.health_workout_sessions_v2', 'SELECT')
+    or has_table_privilege('anon', 'public.health_workout_sessions_v2', 'INSERT')
+    or has_table_privilege('authenticated', 'public.health_workout_sessions_v2', 'SELECT')
+    or has_table_privilege('authenticated', 'public.health_workout_sessions_v2', 'INSERT')
+    or has_table_privilege('authenticated', 'public.health_workout_sessions_v2', 'UPDATE')
+    or has_table_privilege('authenticated', 'public.health_workout_sessions_v2', 'DELETE')
+    or has_table_privilege('service_role', 'public.health_workout_sessions_v2', 'INSERT')
+    or has_table_privilege('service_role', 'public.health_workout_sessions_v2', 'UPDATE')
+    or has_table_privilege('service_role', 'public.health_workout_sessions_v2', 'DELETE') then
+    raise exception 'REL05G1_CANONICAL_TABLE_PRIVILEGE_LEAK';
+  end if;
+
+  if has_table_privilege('anon', 'public.health_workout_capabilities', 'SELECT')
+    or has_table_privilege('anon', 'public.health_workout_capabilities', 'INSERT')
+    or has_table_privilege('authenticated', 'public.health_workout_capabilities', 'SELECT')
+    or has_table_privilege('authenticated', 'public.health_workout_capabilities', 'INSERT')
+    or has_table_privilege('authenticated', 'public.health_workout_capabilities', 'UPDATE')
+    or has_table_privilege('authenticated', 'public.health_workout_capabilities', 'DELETE')
+    or not has_table_privilege('service_role', 'public.health_workout_capabilities', 'SELECT')
+    or has_table_privilege('service_role', 'public.health_workout_capabilities', 'INSERT')
+    or has_table_privilege('service_role', 'public.health_workout_capabilities', 'UPDATE')
+    or has_table_privilege('service_role', 'public.health_workout_capabilities', 'DELETE') then
+    raise exception 'REL05G1_CAPABILITY_TABLE_PRIVILEGE_MISMATCH';
+  end if;
+
+  if has_function_privilege('anon', 'public.read_health_workout_capability_v1(uuid,text)', 'EXECUTE')
+    or has_function_privilege('authenticated', 'public.read_health_workout_capability_v1(uuid,text)', 'EXECUTE')
+    or not has_function_privilege('service_role', 'public.read_health_workout_capability_v1(uuid,text)', 'EXECUTE') then
+    raise exception 'REL05G1_CAPABILITY_FUNCTION_PRIVILEGE_MISMATCH';
+  end if;
+
+  if (select prosecdef from pg_catalog.pg_proc
+      where oid = 'public.read_health_workout_capability_v1(uuid,text)'::regprocedure)
+    or not exists (
+      select 1 from pg_catalog.pg_proc
+      where oid = 'public.read_health_workout_capability_v1(uuid,text)'::regprocedure
+        and proconfig @> array['search_path=""']::text[]
+    ) then
+    raise exception 'REL05G1_CAPABILITY_FUNCTION_SECURITY_MISMATCH';
+  end if;
+
+  begin
+    perform public.read_health_workout_capability_v1(
+      '11111111-1111-4111-8111-111111111111', null
+    );
+    raise exception 'REL05G1_NULL_PROJECT_SCOPE_ACCEPTED';
+  exception when sqlstate '22023' then null;
+  end;
+
+  select public.read_health_workout_capability_v1(
+    '11111111-1111-4111-8111-111111111111', 'project-test'
+  ) into v_state;
+  if v_state <> 'DISABLED' then
+    raise exception 'REL05G1_MISSING_CAPABILITY_NOT_DISABLED: %', v_state;
+  end if;
+
+  insert into public.health_workout_capabilities (user_id, project_scope)
+  values ('11111111-1111-4111-8111-111111111111', 'project-test');
+  select public.read_health_workout_capability_v1(
+    '11111111-1111-4111-8111-111111111111', 'project-test'
+  ) into v_state;
+  if v_state <> 'DISABLED' then
+    raise exception 'REL05G1_EXPLICIT_CAPABILITY_NOT_DISABLED: %', v_state;
+  end if;
+
+  begin
+    insert into public.health_workout_capabilities (user_id, project_scope, state)
+    values ('22222222-2222-4222-8222-222222222222', 'project-test', 'FOUNDATION_READY');
+    raise exception 'REL05G1_FOUNDATION_READY_WAS_PERSISTED';
+  exception when check_violation then null;
+  end;
+  begin
+    insert into public.health_workout_capabilities (user_id, project_scope, state)
+    values ('33333333-3333-4333-8333-333333333333', 'project-test', 'ADOPTION_READY');
+    raise exception 'REL05G1_ADOPTION_READY_WAS_PERSISTED';
+  exception when check_violation then null;
+  end;
+  begin
+    insert into public.health_workout_capabilities (user_id, project_scope, state)
+    values ('44444444-4444-4444-8444-444444444444', 'project-test', 'ACTIVE');
+    raise exception 'REL05G1_ACTIVE_WAS_PERSISTED';
+  exception when check_violation then null;
+  end;
+
+  begin
+    insert into public.health_workout_sessions_v2 (
+      user_id, project_scope, id, revision, record, is_deleted, deleted_at
+    ) values (
+      '11111111-1111-4111-8111-111111111111', 'project-test',
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 0,
+      '{"id":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"}'::jsonb, false, null
+    );
+    raise exception 'REL05G1_ZERO_REVISION_ACCEPTED';
+  exception when check_violation then null;
+  end;
+  begin
+    insert into public.health_workout_sessions_v2 (
+      user_id, project_scope, id, revision, record, is_deleted, deleted_at
+    ) values (
+      '11111111-1111-4111-8111-111111111111', 'project-test',
+      'eeeeeeee-eeee-1eee-8eee-eeeeeeeeeeee', 1,
+      '{"id":"eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"}'::jsonb, false, null
+    );
+    raise exception 'REL05G1_NON_V4_ID_ACCEPTED';
+  exception when check_violation then null;
+  end;
+  begin
+    insert into public.health_workout_sessions_v2 (
+      user_id, project_scope, id, revision, record, is_deleted, deleted_at
+    ) values (
+      '11111111-1111-4111-8111-111111111111', 'project-test',
+      'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 1,
+      '{"id":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"}'::jsonb, false, clock_timestamp()
+    );
+    raise exception 'REL05G1_INCONSISTENT_TOMBSTONE_ACCEPTED';
+  exception when check_violation then null;
+  end;
+  begin
+    insert into public.health_workout_sessions_v2 (
+      user_id, project_scope, id, revision, record, is_deleted, deleted_at
+    ) values (
+      '11111111-1111-4111-8111-111111111111', 'project-test',
+      'cccccccc-cccc-4ccc-8ccc-cccccccccccc', 1,
+      '{"id":"different"}'::jsonb, false, null
+    );
+    raise exception 'REL05G1_RECORD_ID_MISMATCH_ACCEPTED';
+  exception when check_violation then null;
+  end;
+  begin
+    insert into public.health_workout_sessions_v2 (
+      user_id, project_scope, id, revision, record, is_deleted, deleted_at
+    ) values (
+      '11111111-1111-4111-8111-111111111111', 'project-test',
+      'dddddddd-dddd-4ddd-8ddd-dddddddddddd', 1,
+      '{"id":"dddddddd-dddd-4ddd-8ddd-dddddddddddd"}'::jsonb, true, null
+    );
+    raise exception 'REL05G1_TOMBSTONE_WITHOUT_TIMESTAMP_ACCEPTED';
+  exception when check_violation then null;
+  end;
+
+  select count(*) into v_count from public.health_workout_sessions_v2;
+  if v_count <> 0 then raise exception 'REL05G1_CANONICAL_TABLE_NOT_EMPTY'; end if;
+  select * into v_before from rel05g1_existing_row_counts;
+  select count(*) into v_count from public.remote_mutation_receipts;
+  if v_count <> v_before.receipt_count then
+    raise exception 'REL05G1_RECEIPTS_CHANGED: % / %', v_count, v_before.receipt_count;
+  end if;
+  select count(*) into v_count from public.remote_reference_changes_v2;
+  if v_count <> v_before.change_count then
+    raise exception 'REL05G1_CHANGES_CHANGED: % / %', v_count, v_before.change_count;
+  end if;
+  select count(*) into v_count from public.workout_logs;
+  if v_count <> v_before.legacy_workout_count then
+    raise exception 'REL05G1_LEGACY_WORKOUTS_CHANGED: % / %', v_count, v_before.legacy_workout_count;
+  end if;
+end
+$$;
+
+set role service_role;
+do $$
+begin
+  if public.read_health_workout_capability_v1(
+      '11111111-1111-4111-8111-111111111111', 'project-test'
+    ) <> 'DISABLED' then
+    raise exception 'REL05G1_SERVICE_CAPABILITY_READ_FAILED';
+  end if;
+end
+$$;
+reset role;
+
+do $$
+begin
+  if exists (select 1 from public.health_workout_sessions_v2)
+    or exists (select 1 from public.health_workout_capabilities
+      where state <> 'DISABLED') then
+    raise exception 'REL05G1_DORMANT_POSTCONDITION_FAILED';
+  end if;
+end
+$$;
+
+select 'REL05G1_POSTGRES_INTEGRATION_PASS' as result;
 """
 
 
@@ -525,6 +856,9 @@ def test_v2_and_health_migrations_service_role_rpc_replay_rollback_and_privilege
             ASSERTIONS_SQL,
             HEALTH_MIGRATION.read_text(encoding="utf-8"),
             HEALTH_ASSERTIONS_SQL,
+            WORKOUT_FOUNDATION_BASELINE_SQL,
+            WORKOUT_FOUNDATION_MIGRATION.read_text(encoding="utf-8"),
+            WORKOUT_FOUNDATION_ASSERTIONS_SQL,
         ])
         result = _run(
             [docker, "exec", "-i", name, "psql", "-U", "postgres", "-d", "postgres", "-v", "ON_ERROR_STOP=1"],
@@ -533,6 +867,7 @@ def test_v2_and_health_migrations_service_role_rpc_replay_rollback_and_privilege
         assert result.returncode == 0, f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
         assert "REL05E_POSTGRES_INTEGRATION_PASS" in result.stdout
         assert "REL05F_POSTGRES_INTEGRATION_PASS" in result.stdout
+        assert "REL05G1_POSTGRES_INTEGRATION_PASS" in result.stdout
 
         # A pull holds the shared generation fence until its transaction ends.
         # A direct status transition must wait in the trigger for the matching
