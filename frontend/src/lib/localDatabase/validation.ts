@@ -223,8 +223,22 @@ export function validateOutboxRecord(value: OutboxRecord): void {
     entityId: value.entityId, localRevision: value.localRevision, operation: value.operation,
     payloadHash: value.payloadHash!,
   }) : null;
+  const deliveryBindingKeys = value.deliveryBinding == null
+    ? '' : Object.keys(value.deliveryBinding).sort().join(',');
+  const deliveryBindingValid = value.deliveryBinding === undefined
+    || deliveryBindingKeys === 'state,version'
+      && value.deliveryBinding.version === 1
+      && value.deliveryBinding.state === 'unbound'
+      && value.domain === 'health_workout_session';
+  // Permit only explicit-unbound attempt evidence through so the claim path can
+  // quarantine it without rewriting the original attempt metadata.
+  const unboundAttemptEvidence = value.deliveryBinding?.state === 'unbound'
+    && (value.attemptCount > 0 || value.lastAttemptAt !== null);
   const deliveryBlockValid = value.deliveryBlockCode === undefined || value.deliveryBlockCode === null
-    || value.deliveryBlockCode === 'REMOTE_RESURRECTION_UNSUPPORTED';
+    || value.deliveryBlockCode === 'REMOTE_RESURRECTION_UNSUPPORTED'
+    || value.deliveryBlockCode === 'UNBOUND_ATTEMPT_QUARANTINED' && unboundAttemptEvidence;
+  const unboundQuarantineValid = value.deliveryBlockCode !== 'UNBOUND_ATTEMPT_QUARANTINED'
+    || unboundAttemptEvidence;
   const dependencyValid = value.dependsOnMutationId === undefined || value.dependsOnMutationId === null
     || validMutationId(value.dependsOnMutationId) && value.dependsOnMutationId !== value.mutationId;
   const resurrection = value.resurrection ?? null;
@@ -273,7 +287,10 @@ export function validateOutboxRecord(value: OutboxRecord): void {
     && value.localRevision === remoteBoundary.baselineLocalRevision + 1
     && Number.isSafeInteger(remoteBoundary.baselineServerRevision)
     && remoteBoundary.baselineServerRevision > 0
-    && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(remoteBoundary.remoteMutationRef)
+    && (remoteBoundary.remoteMutationRef === null
+      || typeof remoteBoundary.remoteMutationRef === 'string'
+        && SAFE_CODE.test(remoteBoundary.remoteMutationRef)
+        && !SENSITIVE.test(remoteBoundary.remoteMutationRef))
     && /^[a-f0-9]{64}$/.test(remoteBoundary.baselineContentHash)
     && validTimestamp(remoteBoundary.createdAt)
     && remoteBoundary.createdAt === value.createdAt
@@ -290,13 +307,14 @@ export function validateOutboxRecord(value: OutboxRecord): void {
     || !validMutationId(value.mutationId) || v5 && value.mutationId !== expectedMutationId
     || !Number.isSafeInteger(value.localRevision) || value.localRevision < 1
     || (value.baseRevision !== null && (!Number.isSafeInteger(value.baseRevision) || value.baseRevision < 0))
-    || !validOutboxChronology(value)
+    || !validOutboxChronology(value) && !unboundAttemptEvidence
     || !safeOptional(value.lastErrorCode) || !safeOptional(value.remoteMutationRef)
-    || !payloadValid || !revisionsValid || !statusValid
+    || !payloadValid || !revisionsValid || !statusValid && !unboundAttemptEvidence
     || ((value.operation === 'upsert' || value.operation === 'restore') !== (payload.kind === 'entity_snapshot'))
     || (value.operation === 'tombstone') !== (payload.kind === 'tombstone') || !deliveryBlockValid || !dependencyValid
     || (resurrection !== null) !== (value.deliveryBlockCode === 'REMOTE_RESURRECTION_UNSUPPORTED')
     || (resurrection !== null && value.operation !== 'upsert') || !boundaryValid || !remoteBoundaryValid
+    || !deliveryBindingValid || !unboundQuarantineValid
     || !accountFieldsValid || !acknowledgementMetadataValid) {
     throw new LocalDatabaseError('INVALID_OUTBOX', 'validate_outbox');
   }

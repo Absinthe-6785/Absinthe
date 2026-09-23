@@ -7,7 +7,7 @@ import {
   type LegacyNotesSourceAuthorityRecordV1, type RegisterLegacyNotesSourceAuthorityInput,
 } from './legacyNotesAuthority';
 import { namespaceFingerprint, validateNamespace, validateSafeIdentifier } from './namespace';
-import { canonicalPayloadSnapshot, hashCanonicalPayload } from './canonicalPayload';
+import { canonicalPayloadJson, canonicalPayloadSnapshot, hashCanonicalPayload } from './canonicalPayload';
 import { deriveOutboxIdempotencyKey, deriveOutboxMutationId, generateOutboxMutationId, sha256Hex } from './outboxIdentity';
 import {
   acknowledgeOutboxRecord, adoptConflictedOutboxSuccessor, claimOutboxRecord, conflictOutboxRecord, permanentlyFailOutboxRecord,
@@ -49,6 +49,7 @@ import {
 import {
   LOCAL_DATABASE_NAME, LOCAL_DATABASE_VERSION, LOCAL_SCHEMA_VERSION,
   type AcknowledgeOutboxInput, type AdvanceCheckpointInput, type AttachmentStateRecord, type ClaimOutboxInput,
+  type CommitRemoteConvergenceBatchInput, type CommittedRemoteConvergenceBatch,
   type CommitRemoteEntityBatchInput, type CommittedRemoteEntityBatch,
   type CommitLocalMutationInput, type CommittedLocalMutation, type DatabaseMetaRecord, type EntityListOptions,
   type EntityCreateInput, type EntityRestoreInput, type EntityUpdateInput, type FailOutboxInput, type GenerationReason,
@@ -195,6 +196,42 @@ function snapshotRemoteEntityBatchInput<T>(input: CommitRemoteEntityBatchInput<T
     entities: input.entities.map(item => ({
       expectedLocalRevision: item.expectedLocalRevision,
       entity: snapshotRemoteEntityEnvelope(item.entity),
+    })),
+    testOnlyAbortAt: input.testOnlyAbortAt,
+  };
+}
+
+function snapshotRemoteConvergenceBatchInput<T>(
+  input: CommitRemoteConvergenceBatchInput<T>,
+): CommitRemoteConvergenceBatchInput<T> {
+  if (!Array.isArray(input.changes)) {
+    throw new LocalDatabaseError('INVALID_RESERVED_RECORD', 'commit_remote_convergence_batch');
+  }
+  return {
+    namespaceKey: input.namespaceKey,
+    generationId: input.generationId,
+    accountId: input.accountId,
+    domain: input.domain,
+    provider: input.provider,
+    checkpointValue: input.checkpointValue,
+    sequence: input.sequence,
+    serverEpoch: input.serverEpoch,
+    now: input.now,
+    changes: input.changes.map(item => ({
+      expectedLocalRevision: item.expectedLocalRevision,
+      candidate: {
+        entityId: item.candidate.entityId,
+        record: canonicalPayloadSnapshot(item.candidate.record),
+        serverRevision: item.candidate.serverRevision,
+        remoteMutationRef: item.candidate.remoteMutationRef,
+        createdAt: item.candidate.createdAt,
+        updatedAt: item.candidate.updatedAt,
+        deletedAt: item.candidate.deletedAt,
+        ...(item.candidate.ownerId === undefined ? {} : { ownerId: item.candidate.ownerId }),
+        ...(item.candidate.source === undefined ? {} : {
+          source: item.candidate.source === null ? null : { ...item.candidate.source },
+        }),
+      },
     })),
     testOnlyAbortAt: input.testOnlyAbortAt,
   };
@@ -393,6 +430,11 @@ export class LocalDatabaseRepository {
       throw new LocalDatabaseError('INVALID_ENTITY', 'commit_local_mutation');
     }
     validateSafeIdentifier(mutation.domain, 'commit_local_mutation');
+    if (mutation.domain === 'health_workout_session'
+      ? input.deliveryBinding?.version !== 1 || input.deliveryBinding.state !== 'unbound'
+      : input.deliveryBinding !== undefined) {
+      throw new LocalDatabaseError('INVALID_OUTBOX', 'commit_local_mutation');
+    }
     if (typeof mutation.entityId !== 'string' || mutation.entityId.length === 0 || mutation.entityId.length > 512) {
       throw new LocalDatabaseError('INVALID_ENTITY', 'commit_local_mutation');
     }
@@ -412,7 +454,7 @@ export class LocalDatabaseRepository {
     }
     const inputSnapshot = mutation.mode === 'tombstone' ? null : canonicalPayloadSnapshot(mutation.record);
     const stores: string[] = [LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations,
-      LOCAL_DATABASE_STORES.entities, LOCAL_DATABASE_STORES.outbox];
+      LOCAL_DATABASE_STORES.entities, LOCAL_DATABASE_STORES.outbox, LOCAL_DATABASE_STORES.restoreSessions];
     const transaction = this.db.transaction(stores, 'readwrite');
     const done = transactionCompletion(transaction, 'commit_local_mutation');
     try {
@@ -429,8 +471,9 @@ export class LocalDatabaseRepository {
           .index('by_namespace_generation_entity')
           .getAll(IDBKeyRange.only([
             this.namespaceKey, this.namespace.generationId, mutation.domain, mutation.entityId,
-          ]), 1),
+          ])),
       ) as OutboxRecord[] : [];
+      await this.validateRestoreBoundaryGraphs(transaction, priorOutbox);
       if (mutation.mode === 'create') {
         if (current?.deletedAt) throw new LocalDatabaseError('TOMBSTONE_REACTIVATION_BLOCKED', 'commit_local_mutation');
         if (current) throw new LocalDatabaseError('ENTITY_ALREADY_EXISTS', 'commit_local_mutation');
@@ -501,8 +544,9 @@ export class LocalDatabaseRepository {
         acknowledgedRevision: null, serverCommittedAt: null,
         supersededByMutationId: null,
         ...(input.dependsOnMutationId == null ? {} : { dependsOnMutationId: input.dependsOnMutationId }),
-        ...(priorOutbox.length === 0 && current?.serverRevision != null && current.lastRemoteMutationRef
-          && current.pendingMutationId == null && current.contentHash
+        ...(input.deliveryBinding === undefined ? {} : { deliveryBinding: { ...input.deliveryBinding } }),
+        ...(current?.serverRevision != null && current.pendingMutationId == null && current.contentHash
+          && priorOutbox.every(value => value.localRevision < actualRevision)
           ? { remoteSequenceBoundary: {
             kind: 'remote_entity_sequence_boundary' as const,
             namespaceKey: this.namespaceKey,
@@ -511,7 +555,7 @@ export class LocalDatabaseRepository {
             entityId: mutation.entityId,
             baselineLocalRevision: actualRevision,
             baselineServerRevision: current.serverRevision,
-            remoteMutationRef: current.lastRemoteMutationRef,
+            remoteMutationRef: current.lastRemoteMutationRef ?? null,
             baselineContentHash: current.contentHash,
             createdAt: timestamp,
           } }
@@ -741,7 +785,7 @@ export class LocalDatabaseRepository {
       group.sort((left, right) => left.localRevision - right.localRevision);
       const firstUnsettled = group.find(value => value.status !== 'acknowledged' && value.status !== 'superseded');
       if (!firstUnsettled) continue;
-      if (firstUnsettled.deliveryBlockCode) continue;
+      if (firstUnsettled.deliveryBlockCode || firstUnsettled.deliveryBinding !== undefined) continue;
       const prerequisite = firstUnsettled.dependsOnMutationId
         ? byId.get(firstUnsettled.dependsOnMutationId)
         : null;
@@ -852,13 +896,21 @@ export class LocalDatabaseRepository {
     }
     const transaction = this.db.transaction(
       [LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations, LOCAL_DATABASE_STORES.entities,
-        LOCAL_DATABASE_STORES.outbox, LOCAL_DATABASE_STORES.restoreSessions], 'readonly',
+        LOCAL_DATABASE_STORES.outbox, LOCAL_DATABASE_STORES.restoreSessions], 'readwrite',
     );
     const done = transactionCompletion(transaction, 'next_deliverable');
-    const values = await this.readScopedOutbox(transaction, 'next_deliverable');
-    await this.ensureActive(transaction);
-    await done;
-    return this.nextDeliverable(values, input.now, false).slice(0, input.limit);
+    try {
+      const values = await this.readScopedOutbox(transaction, 'next_deliverable');
+      await this.ensureActive(transaction);
+      const safeValues = this.quarantineAttemptedUnbound(transaction, values);
+      const result = this.nextDeliverable(safeValues, input.now, false).slice(0, input.limit);
+      await done;
+      return result;
+    } catch (error) {
+      abortQuietly(transaction);
+      await done.catch(() => undefined);
+      throw localDatabaseError(error, 'next_deliverable');
+    }
   }
 
   async claimNextMutations(input: ClaimOutboxInput): Promise<OutboxRecord[]> {
@@ -879,7 +931,9 @@ export class LocalDatabaseRepository {
     try {
       const values = await this.readScopedOutbox(transaction, 'claim_outbox');
       await this.ensureActive(transaction);
-      const deliverable = this.nextDeliverable(values, timestamp, input.recoverExpiredClaims === true);
+      const store = transaction.objectStore(LOCAL_DATABASE_STORES.outbox);
+      const quarantined = this.quarantineAttemptedUnbound(transaction, values);
+      const deliverable = this.nextDeliverable(quarantined, timestamp, input.recoverExpiredClaims === true);
       const usePriority = !input.priorityTriggerOperation
         || deliverable.some(item => item.operation === input.priorityTriggerOperation);
       const priority = new Map((usePriority ? input.priorityDomains : [])?.map((domain, index) => [domain, index]) ?? []);
@@ -889,7 +943,6 @@ export class LocalDatabaseRepository {
           || left.domain.localeCompare(right.domain) || left.entityId.localeCompare(right.entityId)
           || left.localRevision - right.localRevision)
         .slice(0, input.limit);
-      const store = transaction.objectStore(LOCAL_DATABASE_STORES.outbox);
       const claimed = candidates.map(value => {
         if (!Number.isSafeInteger(value.attemptCount + 1)) throw new LocalDatabaseError('INVALID_OUTBOX_TRANSITION', 'claim_outbox');
         const updated = claimOutboxRecord(value, {
@@ -1151,6 +1204,9 @@ export class LocalDatabaseRepository {
   resetPermanentFailure(input: ResetOutboxInput): Promise<OutboxRecord> {
     const timestamp = now(input.now);
     return this.transitionOutbox(input.mutationId, 'reset_outbox', value => {
+      if (value.deliveryBinding !== undefined) {
+        throw new LocalDatabaseError('INVALID_OUTBOX_TRANSITION', 'reset_outbox');
+      }
       if (value.status !== 'permanent_failure') throw new LocalDatabaseError('INVALID_OUTBOX_TRANSITION', 'reset_outbox');
       return { ...value, status: 'pending', updatedAt: timestamp, availableAt: timestamp, lastErrorCode: null };
     });
@@ -1681,6 +1737,225 @@ export class LocalDatabaseRepository {
       await done; return { entities: entities.map(item => item.entity), checkpoint };
     } catch (error) {
       abortQuietly(transaction); await done.catch(() => undefined); throw localDatabaseError(error, operation);
+    }
+  }
+
+  private quarantineAttemptedUnbound(transaction: IDBTransaction, values: OutboxRecord[]): OutboxRecord[] {
+    const store = transaction.objectStore(LOCAL_DATABASE_STORES.outbox);
+    return values.map(value => {
+      if (value.deliveryBinding?.state !== 'unbound'
+        || value.attemptCount === 0 && value.lastAttemptAt === null
+        || value.deliveryBlockCode === 'UNBOUND_ATTEMPT_QUARANTINED') return value;
+      const updated: OutboxRecord = { ...value, deliveryBlockCode: 'UNBOUND_ATTEMPT_QUARANTINED' };
+      validateOutboxRecord(updated);
+      store.put(updated);
+      return updated;
+    });
+  }
+
+  async commitRemoteConvergenceBatch<T>(
+    input: CommitRemoteConvergenceBatchInput<T>,
+  ): Promise<CommittedRemoteConvergenceBatch<T>> {
+    const operation = 'commit_remote_convergence_batch';
+    this.assertOpen(operation);
+    const batch = snapshotRemoteConvergenceBatchInput(input);
+    if (batch.namespaceKey !== this.namespaceKey || batch.accountId !== this.namespace.userId) {
+      throw new LocalDatabaseError('NAMESPACE_MISMATCH', operation);
+    }
+    if (batch.generationId !== this.namespace.generationId) throw new LocalDatabaseError('STALE_GENERATION', operation);
+    validateSafeIdentifier(batch.domain, operation);
+    validateSafeIdentifier(batch.provider, operation);
+    validateSafeIdentifier(batch.checkpointValue, operation);
+    if (batch.serverEpoch !== null) validateSafeIdentifier(batch.serverEpoch, operation);
+    if (!Number.isSafeInteger(batch.sequence) || batch.sequence < 0
+      || batch.changes.length === 0 || batch.changes.length > MAX_REMOTE_ENTITY_BATCH) {
+      throw new LocalDatabaseError('INVALID_RESERVED_RECORD', operation);
+    }
+    const timestamp = now(batch.now);
+    const seen = new Set<string>();
+    for (const change of batch.changes) {
+      const candidate = change.candidate;
+      if (typeof candidate.entityId !== 'string' || candidate.entityId.length === 0 || candidate.entityId.length > 512
+        || !Number.isSafeInteger(candidate.serverRevision) || candidate.serverRevision < 1
+        || candidate.remoteMutationRef !== null && typeof candidate.remoteMutationRef !== 'string'
+        || !validTimestamp(candidate.createdAt) || !validTimestamp(candidate.updatedAt)
+        || candidate.deletedAt !== null && !validTimestamp(candidate.deletedAt)
+        || Date.parse(candidate.updatedAt) < Date.parse(candidate.createdAt)
+        || candidate.deletedAt !== null && (Date.parse(candidate.deletedAt) < Date.parse(candidate.createdAt)
+          || Date.parse(candidate.updatedAt) < Date.parse(candidate.deletedAt))) {
+        throw new LocalDatabaseError('INVALID_ENTITY', operation);
+      }
+      if (candidate.remoteMutationRef !== null) validateSafeIdentifier(candidate.remoteMutationRef, operation);
+      if (candidate.ownerId != null) validateSafeIdentifier(candidate.ownerId, operation);
+      validateSafeSource(candidate.source);
+      if (change.expectedLocalRevision !== null
+        && (!Number.isSafeInteger(change.expectedLocalRevision) || change.expectedLocalRevision < 1)) {
+        throw new LocalDatabaseError('STALE_REVISION', operation);
+      }
+      if (seen.has(candidate.entityId)) throw new LocalDatabaseError('INVALID_ENTITY', operation);
+      seen.add(candidate.entityId);
+    }
+
+    const transaction = this.db.transaction([
+      LOCAL_DATABASE_STORES.databaseMeta,
+      LOCAL_DATABASE_STORES.generations,
+      LOCAL_DATABASE_STORES.entities,
+      LOCAL_DATABASE_STORES.outbox,
+      LOCAL_DATABASE_STORES.conflicts,
+      LOCAL_DATABASE_STORES.syncCheckpoints,
+      LOCAL_DATABASE_STORES.restoreSessions,
+    ], 'readwrite');
+    const done = transactionCompletion(transaction, operation);
+    try {
+      await this.ensureActive(transaction);
+      const outboxRecords = await this.readScopedOutbox(transaction, operation);
+      const entitiesStore = transaction.objectStore(LOCAL_DATABASE_STORES.entities);
+      const conflictsStore = transaction.objectStore(LOCAL_DATABASE_STORES.conflicts);
+      const appliedEntities: LocalEntityEnvelope<T>[] = [];
+      const conflicts: SyncConflictRecord[] = [];
+
+      for (const change of batch.changes) {
+        const candidate = change.candidate;
+        const key = entityKey(this.namespaceKey, this.namespace.generationId, batch.domain, candidate.entityId);
+        const current = await requestResult(entitiesStore.get(key)) as LocalEntityEnvelope<T> | undefined;
+        if (current) this.validatePersistedEntity(current, operation);
+        if ((current?.revision ?? null) !== change.expectedLocalRevision) {
+          throw new LocalDatabaseError('STALE_REVISION', operation);
+        }
+        if (candidate.serverRevision <= (current?.serverRevision ?? 0)) {
+          throw new LocalDatabaseError('STALE_REVISION', operation);
+        }
+
+        const unsettled = outboxRecords.filter(record => record.domain === batch.domain
+          && record.entityId === candidate.entityId
+          && record.status !== 'acknowledged' && record.status !== 'superseded')
+          .sort((left, right) => left.localRevision - right.localRevision);
+        if (current?.pendingMutationId !== null && current?.pendingMutationId !== undefined
+          && !unsettled.some(record => record.mutationId === current.pendingMutationId)) {
+          throw new LocalDatabaseError('CORRUPT_PERSISTED_RECORD', operation);
+        }
+
+        const hasPendingLocal = current?.pendingMutationId != null || unsettled.length > 0;
+        if (hasPendingLocal) {
+          if (!current) throw new LocalDatabaseError('CORRUPT_PERSISTED_RECORD', operation);
+          const localCandidate = canonicalPayloadSnapshot({ entity: current, outbox: unsettled });
+          const remoteCandidate = canonicalPayloadSnapshot({
+            kind: 'remote_entity_candidate',
+            entityId: candidate.entityId,
+            record: candidate.record,
+            serverRevision: candidate.serverRevision,
+            remoteMutationRef: candidate.remoteMutationRef,
+            createdAt: candidate.createdAt,
+            updatedAt: candidate.updatedAt,
+            deletedAt: candidate.deletedAt,
+            isDeleted: candidate.deletedAt !== null,
+            contentHash: hashCanonicalPayload(candidate.record),
+            ownerId: candidate.ownerId ?? null,
+            source: candidate.source ?? null,
+          });
+          const conflictId = `conflict.${sha256Hex(canonicalPayloadJson({
+            namespaceKey: this.namespaceKey,
+            generationId: this.namespace.generationId,
+            domain: batch.domain,
+            provider: batch.provider,
+            serverEpoch: batch.serverEpoch,
+            entityId: candidate.entityId,
+            sequence: batch.sequence,
+            serverRevision: candidate.serverRevision,
+            remoteMutationRef: candidate.remoteMutationRef,
+            remoteContentHash: hashCanonicalPayload(remoteCandidate),
+          }))}`;
+          const conflict: SyncConflictRecord = {
+            namespaceKey: this.namespaceKey,
+            generationId: this.namespace.generationId,
+            accountId: this.namespace.userId,
+            conflictId,
+            domain: batch.domain,
+            entityId: candidate.entityId,
+            mutationId: current.pendingMutationId ?? unsettled[unsettled.length - 1]?.mutationId ?? null,
+            localCandidate,
+            remoteCandidate,
+            remoteMetadata: canonicalPayloadSnapshot({
+              provider: batch.provider,
+              stream: batch.domain,
+              sequence: batch.sequence,
+              serverEpoch: batch.serverEpoch,
+              serverRevision: candidate.serverRevision,
+              remoteMutationRef: candidate.remoteMutationRef,
+              contentHash: hashCanonicalPayload(candidate.record),
+              isDeleted: candidate.deletedAt !== null,
+              deletedAt: candidate.deletedAt,
+              ownerId: candidate.ownerId ?? null,
+              source: candidate.source ?? null,
+            }),
+            localRevision: current.revision,
+            serverRevision: candidate.serverRevision,
+            localContentHash: hashCanonicalPayload(localCandidate),
+            remoteContentHash: hashCanonicalPayload(remoteCandidate),
+            conflictType: candidate.deletedAt === null ? 'remote_change_with_pending_local' : 'remote_delete_with_pending_local',
+            createdAt: timestamp,
+            resolutionState: 'unresolved',
+            resolvedAt: null,
+          };
+          validateConflictRecord(conflict);
+          conflictsStore.add(conflict);
+          conflicts.push(conflict);
+          continue;
+        }
+
+        const record = canonicalPayloadSnapshot(candidate.record);
+        const envelope: LocalEntityEnvelope<T> = {
+          namespaceKey: this.namespaceKey,
+          generationId: this.namespace.generationId,
+          accountId: this.namespace.userId,
+          domain: batch.domain,
+          entityId: candidate.entityId,
+          record,
+          revision: (current?.revision ?? 0) + 1,
+          localRevision: (current?.revision ?? 0) + 1,
+          serverRevision: candidate.serverRevision,
+          createdAt: current?.createdAt ?? candidate.createdAt,
+          updatedAt: candidate.updatedAt,
+          deletedAt: candidate.deletedAt,
+          isDeleted: candidate.deletedAt !== null,
+          deletionState: candidate.deletedAt === null ? 'active' : 'deleted',
+          ownerId: current ? current.ownerId : candidate.ownerId ?? null,
+          contentHash: hashCanonicalPayload(record),
+          pendingMutationId: null,
+          lastRemoteMutationRef: candidate.remoteMutationRef,
+          source: candidate.source === undefined
+            ? current?.source ?? { kind: 'remote', reference: batch.provider }
+            : candidate.source,
+          restoreProvenance: current?.restoreProvenance ?? null,
+          migrationProvenance: current?.migrationProvenance ?? null,
+        };
+        validateEntityEnvelope(envelope);
+        entitiesStore.put(envelope);
+        appliedEntities.push(envelope);
+      }
+
+      if (batch.testOnlyAbortAt === 'before_checkpoint') {
+        transaction.abort();
+        throw new LocalDatabaseError('TRANSACTION_ABORTED', operation);
+      }
+      const checkpoint = await this.advanceCheckpointInTransaction(transaction, {
+        provider: batch.provider,
+        stream: batch.domain,
+        checkpointValue: batch.checkpointValue,
+        sequence: batch.sequence,
+        serverEpoch: batch.serverEpoch,
+        now: batch.now,
+      }, timestamp, false, operation);
+      if (batch.testOnlyAbortAt === 'after_checkpoint') {
+        transaction.abort();
+        throw new LocalDatabaseError('TRANSACTION_ABORTED', operation);
+      }
+      await done;
+      return { entities: appliedEntities, conflicts, checkpoint };
+    } catch (error) {
+      abortQuietly(transaction);
+      await done.catch(() => undefined);
+      throw localDatabaseError(error, operation);
     }
   }
 

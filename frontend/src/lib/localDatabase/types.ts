@@ -107,6 +107,12 @@ export interface RestoreProvenance {
 export type OutboxOperation = 'upsert' | 'tombstone' | 'restore';
 export type OutboxStatus = 'pending' | 'claimed' | 'retry_wait' | 'acknowledged' | 'conflict' | 'permanent_failure' | 'superseded';
 
+/** G2's explicit dormant state. Missing deliveryBinding remains legacy behavior. */
+export interface UnboundDeliveryBindingV1 {
+  version: 1;
+  state: 'unbound';
+}
+
 export interface RestoreOutboxGenerationBoundary {
   kind: 'restore_generation_sequence_boundary';
   namespaceKey: string;
@@ -131,7 +137,7 @@ export interface RemoteOutboxSequenceBoundary {
   entityId: string;
   baselineLocalRevision: number;
   baselineServerRevision: number;
-  remoteMutationRef: string;
+  remoteMutationRef: string | null;
   baselineContentHash: string;
   createdAt: string;
 }
@@ -172,7 +178,9 @@ export interface OutboxRecord {
   /** A durable delivery prerequisite. The record is not claimable until this mutation is acknowledged. */
   dependsOnMutationId?: string | null;
   resurrection?: ResurrectionProvenance | null;
-  deliveryBlockCode?: 'REMOTE_RESURRECTION_UNSUPPORTED' | null;
+  deliveryBlockCode?: 'REMOTE_RESURRECTION_UNSUPPORTED' | 'UNBOUND_ATTEMPT_QUARANTINED' | null;
+  /** Absent on REL-05D/E/F rows; only new dormant G2 workout rows set this. */
+  deliveryBinding?: UnboundDeliveryBindingV1;
   generationBoundary?: RestoreOutboxGenerationBoundary | null;
   remoteSequenceBoundary?: RemoteOutboxSequenceBoundary | null;
 }
@@ -364,6 +372,7 @@ export interface CommitLocalMutationInput<T = unknown> {
   mutation: EntityMutationInput<T>;
   now: string;
   dependsOnMutationId?: string | null;
+  deliveryBinding?: UnboundDeliveryBindingV1;
   testOnlyAbortAt?: 'before_entity' | 'before_outbox' | 'after_writes';
 }
 
@@ -463,6 +472,43 @@ export interface CommitRemoteEntityBatchInput<T = unknown> {
   now: string;
   entities: ReadonlyArray<DurableRemoteEntityApply<T>>;
   testOnlyAbortAt?: 'before_checkpoint' | 'after_checkpoint';
+}
+
+export interface RemoteConvergenceCandidate<T = unknown> {
+  entityId: string;
+  record: T;
+  serverRevision: number;
+  remoteMutationRef: string | null;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+  ownerId?: string | null;
+  source?: SafeSourceReference | null;
+}
+
+export interface RemoteConvergenceApply<T = unknown> {
+  expectedLocalRevision: number | null;
+  candidate: RemoteConvergenceCandidate<T>;
+}
+
+export interface CommitRemoteConvergenceBatchInput<T = unknown> {
+  namespaceKey: string;
+  generationId: string;
+  accountId: string;
+  domain: string;
+  provider: string;
+  checkpointValue: string;
+  sequence: number;
+  serverEpoch: string | null;
+  now: string;
+  changes: ReadonlyArray<RemoteConvergenceApply<T>>;
+  testOnlyAbortAt?: 'before_checkpoint' | 'after_checkpoint';
+}
+
+export interface CommittedRemoteConvergenceBatch<T = unknown> {
+  entities: LocalEntityEnvelope<T>[];
+  conflicts: SyncConflictRecord[];
+  checkpoint: SyncCheckpointRecord;
 }
 
 export interface CommittedRemoteEntityBatch<T = unknown> {
