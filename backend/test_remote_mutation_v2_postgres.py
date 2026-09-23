@@ -313,7 +313,6 @@ declare
   v_stale jsonb;
   v_malformed jsonb;
   v_pull jsonb;
-  v_count bigint;
   v_days jsonb;
   v_default_payload jsonb;
   v_named_payload jsonb;
@@ -362,12 +361,6 @@ begin
   );
   if (v_three_day #>> '{serverRevision}')::bigint <> 2 then
     raise exception 'REL05F_THREE_DAY_REVISION_FAILED: %', v_three_day;
-  end if;
-  select count(*) into v_count from public.health_routines
-  where user_id = '11111111-1111-4111-8111-111111111111';
-  if v_count <> 3 then raise exception 'REL05F_LEGACY_PROJECTION_COUNT: %', v_count; end if;
-  if exists (select 1 from public.health_routines where user_id = '11111111-1111-4111-8111-111111111111' and day_name = 'Day 4') then
-    raise exception 'REL05F_STALE_DAY4_SURVIVED';
   end if;
 
   v_profile := public.apply_health_routine_mutation_v2(
@@ -535,6 +528,22 @@ end
 $$;
 
 reset role;
+
+do $$
+declare
+  v_count bigint;
+begin
+  select count(*) into v_count from public.health_routines
+  where user_id = '11111111-1111-4111-8111-111111111111';
+  if v_count <> 3 then raise exception 'REL05F_LEGACY_PROJECTION_COUNT: %', v_count; end if;
+  if exists (
+    select 1 from public.health_routines
+    where user_id = '11111111-1111-4111-8111-111111111111' and day_name = 'Day 4'
+  ) then
+    raise exception 'REL05F_STALE_DAY4_SURVIVED';
+  end if;
+end
+$$;
 
 do $$
 begin
