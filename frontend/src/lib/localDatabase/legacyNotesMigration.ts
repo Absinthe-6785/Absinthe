@@ -17,7 +17,7 @@ export const LEGACY_NOTES_MIGRATION_VERSION = 1 as const;
 export const LEGACY_NOTES_CONVERSION_VERSION = 1 as const;
 export const MAX_LEGACY_MIGRATION_ENTRIES = 5_000;
 export const MAX_LEGACY_MIGRATION_MANIFEST_BYTES = 4 * 1024 * 1024;
-export const SUPPORTED_LEGACY_MIGRATION_TARGET_DATABASE_VERSIONS = Object.freeze([3, 4, 5] as const);
+export const SUPPORTED_LEGACY_MIGRATION_TARGET_DATABASE_VERSIONS = Object.freeze([3, 4, 5, 6] as const);
 const MAX_LEGACY_NOTE_BYTES = 128 * 1024;
 const MAX_LEGACY_MIGRATION_SESSIONS_PER_NAMESPACE = 256;
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
@@ -27,7 +27,8 @@ const LEGACY_NOTES_MIGRATION_STORAGE_PREFIX = 'k325:legacy-notes:';
 
 /**
  * The persisted version binds the database format whose target evidence was verified. Version 4
- * added only the unrelated writer-coordination store, so version-3 K-325 evidence remains valid.
+ * added only the unrelated writer-coordination store, and version 6 adds only the unrelated
+ * workout-adoption stores, so older K-325 evidence remains valid.
  * Future formats must be reviewed and added explicitly rather than accepted by a range check.
  */
 export function isCompatibleLegacyMigrationTargetDatabaseVersion(value: unknown): value is number {

@@ -5,6 +5,7 @@ export const LOCAL_DATABASE_STORES = {
   syncCheckpoints: 'sync_checkpoints', restoreSessions: 'restore_sessions', migrationState: 'migration_state',
   attachmentState: 'attachment_state', writerCoordinationState: 'writer_coordination_state',
   conflicts: 'sync_conflicts', workerLeases: 'sync_worker_leases',
+  workoutAdoptionSessions: 'workout_adoption_sessions', workoutAdoptionItems: 'workout_adoption_items',
 } as const;
 
 function index(store: IDBObjectStore, name: string, keyPath: string | string[], options?: IDBIndexParameters): void {
@@ -12,7 +13,7 @@ function index(store: IDBObjectStore, name: string, keyPath: string | string[], 
 }
 
 export function createLocalDatabaseSchema(db: IDBDatabase, oldVersion: number, transaction: IDBTransaction): void {
-  if (![0, 1, 2, 3, 4].includes(oldVersion)) throw new DOMException('Unsupported schema upgrade', 'VersionError');
+  if (![0, 1, 2, 3, 4, 5].includes(oldVersion)) throw new DOMException('Unsupported schema upgrade', 'VersionError');
 
   if (oldVersion === 0) {
   const meta = db.createObjectStore(LOCAL_DATABASE_STORES.databaseMeta, { keyPath: 'namespaceKey' });
@@ -82,7 +83,19 @@ export function createLocalDatabaseSchema(db: IDBDatabase, oldVersion: number, t
     index(leases, 'by_account', 'accountId');
   }
 
-  if (oldVersion === 1 || oldVersion === 2 || oldVersion === 3 || oldVersion === 4) {
+  if (oldVersion < 6) {
+    const sessions = db.createObjectStore(LOCAL_DATABASE_STORES.workoutAdoptionSessions, {
+      keyPath: ['namespaceKey', 'generationId', 'manifestId'],
+    });
+    index(sessions, 'by_namespace_generation', ['namespaceKey', 'generationId']);
+    const items = db.createObjectStore(LOCAL_DATABASE_STORES.workoutAdoptionItems, {
+      keyPath: ['namespaceKey', 'generationId', 'manifestId', 'sourceKeyDigest'],
+    });
+    index(items, 'by_manifest', ['namespaceKey', 'generationId', 'manifestId']);
+    index(items, 'by_source_key', ['namespaceKey', 'sourceKeyDigest']);
+  }
+
+  if (oldVersion >= 1 && oldVersion < LOCAL_DATABASE_VERSION) {
     const metadata = transaction.objectStore(LOCAL_DATABASE_STORES.databaseMeta);
     const request = metadata.openCursor();
     request.onsuccess = () => {
