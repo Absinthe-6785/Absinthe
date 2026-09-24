@@ -319,7 +319,9 @@ describe('K-330 dormant schema and initialization', () => {
     const oldStores = Object.values(LOCAL_DATABASE_STORES).filter(name =>
       name !== DORMANT_WRITER_COORDINATION_STORE
       && name !== LOCAL_DATABASE_STORES.conflicts
-      && name !== LOCAL_DATABASE_STORES.workerLeases,
+      && name !== LOCAL_DATABASE_STORES.workerLeases
+      && name !== LOCAL_DATABASE_STORES.workoutAdoptionSessions
+      && name !== LOCAL_DATABASE_STORES.workoutAdoptionItems,
     );
     const previous = await rawOpen(3, (db) => {
       for (const name of oldStores) db.createObjectStore(name);
@@ -335,6 +337,8 @@ describe('K-330 dormant schema and initialization', () => {
     const result = await new Promise(resolve => { request.onsuccess = () => resolve(request.result); });
     expect(result).toBe('preserved');
     expect(upgraded.objectStoreNames.contains(DORMANT_WRITER_COORDINATION_STORE)).toBe(true);
+    expect(upgraded.objectStoreNames.contains(LOCAL_DATABASE_STORES.workoutAdoptionSessions)).toBe(true);
+    expect(upgraded.objectStoreNames.contains(LOCAL_DATABASE_STORES.workoutAdoptionItems)).toBe(true);
     upgraded.close();
   });
 });

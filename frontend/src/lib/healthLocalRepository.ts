@@ -14,6 +14,9 @@ import {
   hasAssistedRepsField,
   hasValidDurableAssistedReps,
 } from './healthAssistedReps';
+import {
+  MAX_WORKOUT_ADOPTION_BLOCKS, MAX_WORKOUT_ADOPTION_ROWS, MAX_WORKOUT_ADOPTION_SETS,
+} from './workoutAdoption/types';
 
 export const HEALTH_LOCAL_DATABASE_NAME = 'absinthe.health.local';
 export const HEALTH_LOCAL_DATABASE_VERSION = 1;
@@ -32,6 +35,15 @@ type StoredHealthRecord = {
   accountId: string;
   record: HealthRecoveryRecord;
 };
+
+/** A fixed, side-effect-free view of the completed-workout source. */
+export type HealthWorkoutAdoptionCapture = Readonly<{
+  accountId: string;
+  sourceSchemaVersion: number;
+  importState: VerifiedLocalHealthImportState;
+  workouts: StoredHealthRecord[];
+  exerciseBlocks: StoredHealthRecord[];
+}>;
 
 type LocalHealthImportStateBase = {
   accountId: string;
@@ -125,6 +137,7 @@ export type LocalHealthSnapshot = {
 };
 
 export interface LocalHealthDriver {
+  captureWorkoutAdoptionSource(accountId: string): Promise<HealthWorkoutAdoptionCapture>;
   readDatasets(accountId: string): Promise<HealthRecoveryDatasets>;
   readAccountSnapshot(accountId: string): Promise<LocalHealthAccountSnapshot>;
   readAuthoritativeDatasets(accountId: string): Promise<HealthRecoveryDatasets>;
@@ -452,6 +465,42 @@ export class IndexedDbLocalHealthDriver implements LocalHealthDriver {
       }
     }
     return new IndexedDbLocalHealthDriver(db, options.testHooks ?? {});
+  }
+
+  async captureWorkoutAdoptionSource(accountId: string): Promise<HealthWorkoutAdoptionCapture> {
+    if (!accountId) throw new Error('health_adoption_account_required');
+    const tx = this.db.transaction(['workout_logs', 'exercise_blocks', HEALTH_LOCAL_IMPORT_STATE_STORE], 'readonly');
+    const done = transactionDone(tx);
+    try {
+      const [workouts, exerciseBlocks, importState] = await Promise.all([
+        requestResult(tx.objectStore('workout_logs').index(ACCOUNT_INDEX).getAll(accountId)) as Promise<StoredHealthRecord[]>,
+        requestResult(tx.objectStore('exercise_blocks').index(ACCOUNT_INDEX).getAll(accountId)) as Promise<StoredHealthRecord[]>,
+        requestResult(tx.objectStore(HEALTH_LOCAL_IMPORT_STATE_STORE).get(accountId)) as Promise<LocalHealthImportState | undefined>,
+      ]);
+      await done;
+      if (workouts.length > MAX_WORKOUT_ADOPTION_ROWS) throw new Error('workout_adoption_row_limit');
+      if (exerciseBlocks.length > MAX_WORKOUT_ADOPTION_BLOCKS) throw new Error('workout_adoption_block_count_limit');
+      if (workouts.some(wrapper => Array.isArray(wrapper.record.sets)
+        && wrapper.record.sets.length > MAX_WORKOUT_ADOPTION_SETS)) throw new Error('workout_adoption_set_limit');
+      if (!isValidImportState(importState, accountId) || importState.status !== 'VERIFIED_IMPORT_COMPLETE') {
+        throw new Error('health_adoption_source_unstable');
+      }
+      if (importState.datasetCounts.workout_logs !== workouts.length
+        || importState.datasetCounts.exercise_blocks !== exerciseBlocks.length) {
+        throw new Error('health_adoption_source_count_mismatch');
+      }
+      return {
+        accountId,
+        sourceSchemaVersion: HEALTH_LOCAL_DATABASE_VERSION,
+        importState: cloneRecord(importState),
+        workouts: cloneRecord(workouts),
+        exerciseBlocks: cloneRecord(exerciseBlocks),
+      };
+    } catch (error) {
+      abortTransactionSafely(tx);
+      await done.catch(() => undefined);
+      throw error;
+    }
   }
 
   async readDatasets(accountId: string): Promise<HealthRecoveryDatasets> {

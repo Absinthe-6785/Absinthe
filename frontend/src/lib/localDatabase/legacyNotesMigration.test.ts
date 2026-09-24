@@ -125,6 +125,8 @@ async function snapshotVersion3Stores(): Promise<StoreSnapshot[]> {
       LOCAL_DATABASE_STORES.writerCoordinationState,
       LOCAL_DATABASE_STORES.conflicts,
       LOCAL_DATABASE_STORES.workerLeases,
+      LOCAL_DATABASE_STORES.workoutAdoptionSessions,
+      LOCAL_DATABASE_STORES.workoutAdoptionItems,
     ].includes(name));
   const tx = db.transaction(names, 'readonly');
   const snapshots = await Promise.all(names.map(async name => {
@@ -1063,7 +1065,7 @@ describe('K-325 legacy Notes migration and shadow verification', () => {
     return { repository, source, staged };
   }
 
-  it('preserves exact version-3 K-325 evidence through the additive version-5 upgrade', async () => {
+  it('preserves exact version-3 K-325 evidence through the additive version-6 upgrade', async () => {
     const fixture = await verifiedFixture();
     const sessionKey: IDBValidKey = [fixture.repository.namespaceKey, toLegacyNotesMigrationStorageId('verified')];
     await mutateRaw(LOCAL_DATABASE_STORES.migrationState, sessionKey, value => ({
@@ -1093,6 +1095,8 @@ describe('K-325 legacy Notes migration and shadow verification', () => {
     const upgraded = await newDb();
     expect(upgraded.version).toBe(LOCAL_DATABASE_VERSION);
     expect(upgraded.objectStoreNames.contains(LOCAL_DATABASE_STORES.writerCoordinationState)).toBe(true);
+    expect(upgraded.objectStoreNames.contains(LOCAL_DATABASE_STORES.workoutAdoptionSessions)).toBe(true);
+    expect(upgraded.objectStoreNames.contains(LOCAL_DATABASE_STORES.workoutAdoptionItems)).toBe(true);
     upgraded.close();
   });
 
