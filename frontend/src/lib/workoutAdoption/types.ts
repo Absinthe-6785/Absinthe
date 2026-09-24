@@ -2,6 +2,14 @@ import type { WorkoutSessionV1 } from '../workoutSessionV1';
 
 export const WORKOUT_ADOPTION_ADAPTER = 'health-local-workout-logs-v1';
 export const WORKOUT_ADOPTION_CONVERSION_VERSION = 1 as const;
+// Technical persistence limits, aligned with the Notes migration's 5,000 item / 4 MiB envelope.
+export const MAX_WORKOUT_ADOPTION_ROWS = 5_000;
+export const MAX_WORKOUT_ADOPTION_BLOCKS = 5_000;
+export const MAX_WORKOUT_ADOPTION_SETS = 256;
+export const MAX_WORKOUT_ADOPTION_ITEM_BYTES = 128 * 1024;
+export const MAX_WORKOUT_ADOPTION_BLOCK_BYTES = 32 * 1024;
+export const MAX_WORKOUT_ADOPTION_SNAPSHOT_BYTES = 4 * 1024 * 1024;
+export const MAX_WORKOUT_ADOPTION_MANIFEST_BYTES = 5 * 1024 * 1024;
 
 export type WorkoutAdoptionStatus =
   | 'SEALED' | 'APPLYING' | 'VERIFYING' | 'COMPLETED'
@@ -20,6 +28,8 @@ export interface WorkoutAdoptionSession {
   projectRef: string;
   deviceId: string;
   generationId: string;
+  /** Monotonic within one namespace/generation; assigned in the seal transaction. */
+  lineageOrdinal: number;
   sourceAdapter: typeof WORKOUT_ADOPTION_ADAPTER;
   sourceSchemaVersion: number;
   conversionVersion: typeof WORKOUT_ADOPTION_CONVERSION_VERSION;
@@ -53,6 +63,8 @@ export interface WorkoutAdoptionItem {
   classification: WorkoutAdoptionClassification;
   reason: string;
   priorManifestId: string | null;
+  /** Original ADOPTABLE manifest whose target is retained through carry-forward chains. */
+  targetProvenanceManifestId: string | null;
   state: WorkoutAdoptionItemState;
   sessionId: string | null;
   entryIds: string[];

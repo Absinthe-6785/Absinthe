@@ -14,6 +14,9 @@ import {
   hasAssistedRepsField,
   hasValidDurableAssistedReps,
 } from './healthAssistedReps';
+import {
+  MAX_WORKOUT_ADOPTION_BLOCKS, MAX_WORKOUT_ADOPTION_ROWS, MAX_WORKOUT_ADOPTION_SETS,
+} from './workoutAdoption/types';
 
 export const HEALTH_LOCAL_DATABASE_NAME = 'absinthe.health.local';
 export const HEALTH_LOCAL_DATABASE_VERSION = 1;
@@ -475,6 +478,10 @@ export class IndexedDbLocalHealthDriver implements LocalHealthDriver {
         requestResult(tx.objectStore(HEALTH_LOCAL_IMPORT_STATE_STORE).get(accountId)) as Promise<LocalHealthImportState | undefined>,
       ]);
       await done;
+      if (workouts.length > MAX_WORKOUT_ADOPTION_ROWS) throw new Error('workout_adoption_row_limit');
+      if (exerciseBlocks.length > MAX_WORKOUT_ADOPTION_BLOCKS) throw new Error('workout_adoption_block_count_limit');
+      if (workouts.some(wrapper => Array.isArray(wrapper.record.sets)
+        && wrapper.record.sets.length > MAX_WORKOUT_ADOPTION_SETS)) throw new Error('workout_adoption_set_limit');
       if (!isValidImportState(importState, accountId) || importState.status !== 'VERIFIED_IMPORT_COMPLETE') {
         throw new Error('health_adoption_source_unstable');
       }

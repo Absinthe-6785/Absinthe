@@ -42,9 +42,12 @@ import {
   type FailedPrecommitFenceRecoveryFailurePoint, type PlanLocalFirstCutoverOptions,
 } from './localFirstCutover';
 import type { RecoveryCutoverAuthorization } from '../recoverySafetyPolicy';
-import { assessWorkoutAdoptionItem, compareWorkoutAdoptionKeys, historicalExerciseEvidence } from '../workoutAdoption/source';
 import {
-  WORKOUT_ADOPTION_ADAPTER, WORKOUT_ADOPTION_CONVERSION_VERSION,
+  assessWorkoutAdoptionItem, compareWorkoutAdoptionKeys, historicalExerciseEvidence,
+  validateWorkoutAdoptionSnapshotBounds,
+} from '../workoutAdoption/source';
+import {
+  MAX_WORKOUT_ADOPTION_MANIFEST_BYTES, WORKOUT_ADOPTION_ADAPTER, WORKOUT_ADOPTION_CONVERSION_VERSION,
   type WorkoutAdoptionClassification, type WorkoutAdoptionItem, type WorkoutAdoptionSession,
   type WorkoutAdoptionSnapshot,
 } from '../workoutAdoption/types';
@@ -122,6 +125,18 @@ function generationKey(namespaceKey: string, generationId: string): [string, str
 function entityKey(namespaceKey: string, generationId: string, domain: string, entityId: string): [string, string, string, string] {
   return [namespaceKey, generationId, domain, entityId];
 }
+
+function workoutAdoptionItemManifestDigest(items: WorkoutAdoptionItem[], lineageOrdinal: number, capturedAt: string): string {
+  return hashCanonicalPayload([lineageOrdinal, capturedAt, items.map(item => [
+    item.sourceKeyDigest, item.sourceItemDigest, item.classification, item.reason,
+    item.priorManifestId, item.conversionResultDigest, item.historicalExerciseEvidence,
+    item.classification === 'CARRIED_FORWARD'
+      ? [item.targetProvenanceManifestId, item.sessionId, item.targetEntityHash, item.outboxMutationId]
+      : item.classification === 'ADOPTABLE' ? [item.sessionId, item.entryIds, item.setIds] : null,
+  ])]);
+}
+
+const WORKOUT_ADOPTION_UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function checkpointKey(namespaceKey: string, generationId: string, provider: string, stream: string): [string, string, string, string] {
   return [namespaceKey, generationId, provider, stream];
@@ -600,9 +615,150 @@ export class LocalDatabaseRepository {
       ])) throw new LocalDatabaseError('CORRUPT_PERSISTED_RECORD', 'validate_workout_adoption_evidence');
   }
 
+  private validateWorkoutAdoptionManifest(session: WorkoutAdoptionSession, items: WorkoutAdoptionItem[]): void {
+    const sourceInstance = hashCanonicalPayload([
+      'workout-health-source-instance-v1', this.namespaceKey, 'absinthe.health.local',
+    ]);
+    if (session.version !== 1 || session.namespaceKey !== this.namespaceKey
+      || session.accountId !== this.namespace.userId || session.projectRef !== this.namespace.projectRef
+      || session.deviceId !== this.namespace.deviceId || session.generationId !== this.namespace.generationId
+      || session.sourceAdapter !== WORKOUT_ADOPTION_ADAPTER || session.sourceSchemaVersion !== 1
+      || session.conversionVersion !== WORKOUT_ADOPTION_CONVERSION_VERSION
+      || !Number.isSafeInteger(session.lineageOrdinal) || session.lineageOrdinal < 1
+      || !validTimestamp(session.createdAt) || session.sourceCapturedAt !== session.createdAt
+      || !/^[a-f0-9]{64}$/.test(session.sourceImportStateDigest)
+      || items.length !== session.sourceRowCount
+      || new Set(items.map(item => item.sourceKeyDigest)).size !== items.length) {
+      throw new LocalDatabaseError('CORRUPT_PERSISTED_RECORD', 'validate_workout_adoption_manifest');
+    }
+    const orderedSource = [...items].sort((a, b) => compareWorkoutAdoptionKeys(a.sourceReference, b.sourceReference));
+    const sourceDigest = hashCanonicalPayload([
+      'workout-source-snapshot-v1', WORKOUT_ADOPTION_ADAPTER, session.sourceSchemaVersion,
+      session.accountId, sourceInstance, session.sourceImportStateDigest,
+      orderedSource.map(item => [item.sourceKeyDigest, item.sourceItemDigest]),
+    ]);
+    const orderedManifest = [...items].sort((a, b) => compareWorkoutAdoptionKeys(a.sourceKeyDigest, b.sourceKeyDigest));
+    const counts = {
+      ADOPTABLE: 0, AMBIGUOUS_REVIEW: 0, INVALID_ACCOUNTED: 0,
+      CARRIED_FORWARD: 0, CHANGED_SOURCE_REVIEW: 0,
+    } satisfies Record<WorkoutAdoptionClassification, number>;
+    for (const item of items) {
+      this.validateWorkoutAdoptionEvidence(session, item);
+      if (!(item.classification in counts)
+        || hashCanonicalPayload(item.historicalExerciseEvidence) !== hashCanonicalPayload(historicalExerciseEvidence(item))
+        || item.classification === 'CARRIED_FORWARD' && (!item.priorManifestId
+          || item.candidate !== null || item.entryIds.length !== 0 || item.setIds.length !== 0
+          || (item.targetProvenanceManifestId === null
+            ? item.sessionId !== null || item.targetEntityHash !== null || item.outboxMutationId !== null
+            : !item.sessionId || !item.targetEntityHash || !item.outboxMutationId))
+        || item.classification !== 'CARRIED_FORWARD' && item.targetProvenanceManifestId !== null
+        || item.classification === 'ADOPTABLE' && (!item.candidate || !item.sessionId
+          || !WORKOUT_ADOPTION_UUID_V4.test(item.sessionId)
+          || item.candidate.id !== item.sessionId || item.entryIds.length !== 1
+          || !item.entryIds.every(id => WORKOUT_ADOPTION_UUID_V4.test(id))
+          || !item.setIds.every(id => WORKOUT_ADOPTION_UUID_V4.test(id))
+          || item.setIds.length !== item.candidate.entries[0]?.sets.length
+          || item.entryIds[0] !== item.candidate.entries[0]?.id
+          || item.setIds.some((id, index) => id !== item.candidate?.entries[0]?.sets[index]?.id)
+          || item.conversionResultDigest !== hashCanonicalPayload(item.candidate))
+        || !['ADOPTABLE', 'CARRIED_FORWARD'].includes(item.classification)
+          && (item.candidate !== null || item.sessionId !== null || item.entryIds.length !== 0
+            || item.setIds.length !== 0 || item.targetEntityHash !== null || item.outboxMutationId !== null)) {
+        throw new LocalDatabaseError('CORRUPT_PERSISTED_RECORD', 'validate_workout_adoption_manifest');
+      }
+      counts[item.classification] += 1;
+    }
+    if (session.sourceSnapshotDigest !== sourceDigest
+      || workoutAdoptionItemManifestDigest(orderedManifest, session.lineageOrdinal, session.sourceCapturedAt) !== session.itemManifestDigest
+      || hashCanonicalPayload(counts) !== hashCanonicalPayload(session.counts)
+      || session.requiresReview !== (counts.AMBIGUOUS_REVIEW + counts.INVALID_ACCOUNTED + counts.CHANGED_SOURCE_REVIEW > 0
+        || items.some(item => item.classification === 'CARRIED_FORWARD' && item.targetProvenanceManifestId === null))) {
+      throw new LocalDatabaseError('CORRUPT_PERSISTED_RECORD', 'validate_workout_adoption_manifest');
+    }
+  }
+
+  private async validateCarriedWorkoutTarget(tx: IDBTransaction, item: WorkoutAdoptionItem): Promise<unknown[]> {
+    const sessions = tx.objectStore(LOCAL_DATABASE_STORES.workoutAdoptionSessions);
+    const items = tx.objectStore(LOCAL_DATABASE_STORES.workoutAdoptionItems);
+    const priorId = item.priorManifestId;
+    if (!priorId || priorId === item.manifestId) throw new LocalDatabaseError('CORRUPT_PERSISTED_RECORD', 'carried_workout_target');
+    const priorSession = await requestResult(sessions.get([this.namespaceKey, this.namespace.generationId, priorId])) as WorkoutAdoptionSession | undefined;
+    const priorItem = await requestResult(items.get([
+      this.namespaceKey, this.namespace.generationId, priorId, item.sourceKeyDigest,
+    ])) as WorkoutAdoptionItem | undefined;
+    if (!priorSession || priorSession.status !== 'COMPLETED' || !priorItem
+      || priorItem.sourceItemDigest !== item.sourceItemDigest
+      || !['VERIFIED', 'REVIEW_REQUIRED', 'INVALID_ACCOUNTED', 'CARRIED_FORWARD'].includes(priorItem.state)) {
+      throw new LocalDatabaseError('CORRUPT_PERSISTED_RECORD', 'carried_workout_target');
+    }
+    const priorItems = await requestResult(items.index('by_manifest').getAll(
+      IDBKeyRange.only([this.namespaceKey, this.namespace.generationId, priorId]),
+    )) as WorkoutAdoptionItem[];
+    this.validateWorkoutAdoptionManifest(priorSession, priorItems);
+    const provenanceId = item.targetProvenanceManifestId;
+    if (provenanceId === null) {
+      if (item.sessionId !== null || item.targetEntityHash !== null || item.outboxMutationId !== null
+        || !['AMBIGUOUS_REVIEW', 'INVALID_ACCOUNTED', 'CHANGED_SOURCE_REVIEW', 'CARRIED_FORWARD'].includes(priorItem.classification)
+        || priorItem.classification === 'CARRIED_FORWARD' && priorItem.targetProvenanceManifestId !== null) {
+        throw new LocalDatabaseError('CORRUPT_PERSISTED_RECORD', 'carried_workout_target');
+      }
+      return [item.sourceKeyDigest, priorId, 'review'];
+    }
+    if (!item.sessionId || !item.targetEntityHash || !item.outboxMutationId
+      || priorItem.sessionId !== item.sessionId || priorItem.targetEntityHash !== item.targetEntityHash
+      || priorItem.outboxMutationId !== item.outboxMutationId
+      || (priorItem.classification === 'ADOPTABLE' ? priorId : priorItem.targetProvenanceManifestId) !== provenanceId) {
+      throw new LocalDatabaseError('CORRUPT_PERSISTED_RECORD', 'carried_workout_target');
+    }
+    const originSession = await requestResult(sessions.get([
+      this.namespaceKey, this.namespace.generationId, provenanceId,
+    ])) as WorkoutAdoptionSession | undefined;
+    const origin = await requestResult(items.get([
+      this.namespaceKey, this.namespace.generationId, provenanceId, item.sourceKeyDigest,
+    ])) as WorkoutAdoptionItem | undefined;
+    if (!originSession || originSession.status !== 'COMPLETED' || !origin
+      || origin.classification !== 'ADOPTABLE' || origin.state !== 'VERIFIED'
+      || origin.sourceItemDigest !== item.sourceItemDigest || origin.sessionId !== item.sessionId
+      || origin.targetEntityHash !== item.targetEntityHash || origin.outboxMutationId !== item.outboxMutationId
+      || origin.targetEntityHash !== origin.conversionResultDigest) {
+      throw new LocalDatabaseError('CORRUPT_PERSISTED_RECORD', 'carried_workout_target');
+    }
+    if (provenanceId !== priorId) {
+      const originItems = await requestResult(items.index('by_manifest').getAll(
+        IDBKeyRange.only([this.namespaceKey, this.namespace.generationId, provenanceId]),
+      )) as WorkoutAdoptionItem[];
+      this.validateWorkoutAdoptionManifest(originSession, originItems);
+    }
+    const entity = await requestResult(tx.objectStore(LOCAL_DATABASE_STORES.entities).get(entityKey(
+      this.namespaceKey, this.namespace.generationId, 'health_workout_session', item.sessionId,
+    ))) as LocalEntityEnvelope<WorkoutSessionV1> | undefined;
+    const outbox = await requestResult(tx.objectStore(LOCAL_DATABASE_STORES.outbox).get([
+      this.namespaceKey, this.namespace.generationId, item.outboxMutationId,
+    ])) as OutboxRecord | undefined;
+    if (!entity || !outbox || entity.entityId !== item.sessionId || entity.revision !== 1 || entity.isDeleted
+      || entity.accountId !== this.namespace.userId || entity.generationId !== this.namespace.generationId
+      || entity.contentHash !== item.targetEntityHash || hashCanonicalPayload(entity.record) !== item.targetEntityHash
+      || entity.migrationProvenance?.migrationSessionId !== provenanceId
+      || entity.migrationProvenance.legacyKeyDigest !== item.sourceKeyDigest
+      || entity.migrationProvenance.sourceSnapshotDigest !== originSession.sourceSnapshotDigest
+      || entity.migrationProvenance.sourceAdapter !== WORKOUT_ADOPTION_ADAPTER
+      || entity.migrationProvenance.conversionVersion !== WORKOUT_ADOPTION_CONVERSION_VERSION
+      || entity.migrationProvenance.sourceSchemaVersion !== originSession.sourceSchemaVersion
+      || outbox.mutationId !== item.outboxMutationId || outbox.entityId !== item.sessionId
+      || outbox.accountId !== this.namespace.userId || outbox.deviceId !== this.namespace.deviceId
+      || outbox.domain !== 'health_workout_session' || outbox.operation !== 'upsert' || outbox.localRevision !== 1
+      || outbox.deliveryBinding?.state !== 'unbound' || outbox.payload.kind !== 'entity_snapshot'
+      || outbox.payloadHash !== hashCanonicalPayload(outbox.payload)
+      || hashCanonicalPayload(outbox.payload.record) !== item.targetEntityHash) {
+      throw new LocalDatabaseError('CORRUPT_PERSISTED_RECORD', 'carried_workout_target');
+    }
+    return [item.sourceKeyDigest, item.sessionId, item.targetEntityHash, item.outboxMutationId, provenanceId];
+  }
+
   /** Dormant G3 entry point: seal one copied Health source snapshot before any target write. */
   async sealWorkoutAdoptionSnapshot(snapshot: WorkoutAdoptionSnapshot, capturedAt: string): Promise<WorkoutAdoptionSession> {
     this.assertOpen('seal_workout_adoption');
+    validateWorkoutAdoptionSnapshotBounds(snapshot);
     const expectedInstance = hashCanonicalPayload([
       'workout-health-source-instance-v1', this.namespaceKey, 'absinthe.health.local',
     ]);
@@ -644,55 +800,92 @@ export class LocalDatabaseRepository {
       const key = [this.namespaceKey, this.namespace.generationId, manifestId];
       const existing = await requestResult(sessions.get(key)) as WorkoutAdoptionSession | undefined;
       if (existing) {
+        const storedItems = await requestResult(itemsStore.index('by_manifest').getAll(
+          IDBKeyRange.only(key),
+        )) as WorkoutAdoptionItem[];
+        this.validateWorkoutAdoptionManifest(existing, storedItems);
+        const incoming = new Map(snapshot.items.map(item => [item.sourceKeyDigest, item]));
         if (existing.sourceSnapshotDigest !== snapshot.sourceSnapshotDigest
+          || existing.sourceImportStateDigest !== snapshot.sourceImportStateDigest
           || existing.sourceRowCount !== snapshot.items.length
-          || existing.accountId !== this.namespace.userId) throw new LocalDatabaseError('CORRUPT_PERSISTED_RECORD', 'seal_workout_adoption');
+          || storedItems.some(item => {
+            const source = incoming.get(item.sourceKeyDigest);
+            return !source || item.sourceItemDigest !== source.sourceItemDigest
+              || item.sourceReference !== source.sourceReference
+              || hashCanonicalPayload([item.sourceRow, item.referenceBlock, item.ownership])
+                !== hashCanonicalPayload([source.sourceRow, source.referenceBlock, source.ownership]);
+          })) throw new LocalDatabaseError('CORRUPT_PERSISTED_RECORD', 'seal_workout_adoption');
         await done;
         return existing;
       }
+      const priorSessions = await requestResult(sessions.index('by_namespace_generation').getAll(
+        IDBKeyRange.only([this.namespaceKey, this.namespace.generationId]),
+      )) as WorkoutAdoptionSession[];
+      const ordinals = priorSessions.map(session => session.lineageOrdinal);
+      if (ordinals.some(value => !Number.isSafeInteger(value) || value < 1)
+        || new Set(ordinals).size !== ordinals.length) {
+        throw new LocalDatabaseError('CORRUPT_PERSISTED_RECORD', 'seal_workout_adoption');
+      }
+      const lineageOrdinal = ordinals.reduce((max, value) => Math.max(max, value), 0) + 1;
+      if (!Number.isSafeInteger(lineageOrdinal)) throw new LocalDatabaseError('CORRUPT_PERSISTED_RECORD', 'seal_workout_adoption');
       const items: WorkoutAdoptionItem[] = [];
       for (const captured of snapshot.items) {
         const prior = await requestResult(itemsStore.index('by_source_key').getAll(
           IDBKeyRange.only([this.namespaceKey, captured.sourceKeyDigest]),
         )) as WorkoutAdoptionItem[];
-        const same = prior.find(item => item.sourceItemDigest === captured.sourceItemDigest
-          && item.classification !== 'CARRIED_FORWARD');
-        const changed = prior.find(item => item.sourceItemDigest !== captured.sourceItemDigest);
+        // A readwrite seal serializes ordinal allocation. Index/manifest-hash order is not lineage.
+        const currentPrior = prior.filter(item => item.generationId === this.namespace.generationId)
+          .map(item => ({ item, session: priorSessions.find(session => session.manifestId === item.manifestId) }));
+        if (currentPrior.some(entry => !entry.session)) {
+          throw new LocalDatabaseError('CORRUPT_PERSISTED_RECORD', 'seal_workout_adoption');
+        }
+        currentPrior.sort((a, b) => b.session!.lineageOrdinal - a.session!.lineageOrdinal
+          || compareWorkoutAdoptionKeys(a.item.manifestId, b.item.manifestId));
+        const predecessor = currentPrior[0];
+        if (predecessor && currentPrior[1]?.session?.lineageOrdinal === predecessor.session?.lineageOrdinal) {
+          throw new LocalDatabaseError('CORRUPT_PERSISTED_RECORD', 'seal_workout_adoption');
+        }
+        const previousItem = predecessor?.item;
+        const previous = predecessor?.session;
         const assessment = assessWorkoutAdoptionItem(captured);
         let classification: WorkoutAdoptionClassification = assessment.classification;
         let reason = assessment.classification === 'ADOPTABLE' ? 'source_exact' : assessment.reason;
         let priorManifestId: string | null = null;
-        if (changed) {
+        let targetProvenanceManifestId: string | null = null;
+        let carriedSessionId: string | null = null;
+        let carriedTargetHash: string | null = null;
+        let carriedOutboxId: string | null = null;
+        if (previousItem && previousItem.sourceItemDigest !== captured.sourceItemDigest) {
           classification = 'CHANGED_SOURCE_REVIEW'; reason = 'source_key_content_changed';
-          priorManifestId = changed.manifestId;
-        } else if (same) {
-          const previous = same.generationId === this.namespace.generationId
-            ? await requestResult(sessions.get([this.namespaceKey, same.generationId, same.manifestId])) as WorkoutAdoptionSession | undefined
-            : undefined;
-          let priorTargetIntact = true;
-          if (same.classification === 'ADOPTABLE') {
-            const priorEntity = await requestResult(tx.objectStore(LOCAL_DATABASE_STORES.entities).get(entityKey(
-              this.namespaceKey, same.generationId, 'health_workout_session', same.sessionId!,
-            ))) as LocalEntityEnvelope<WorkoutSessionV1> | undefined;
-            const priorOutbox = await requestResult(tx.objectStore(LOCAL_DATABASE_STORES.outbox).get([
-              this.namespaceKey, same.generationId, same.outboxMutationId!,
-            ])) as OutboxRecord | undefined;
-            priorTargetIntact = !!priorEntity && !!priorOutbox
-              && priorEntity.contentHash === same.targetEntityHash && priorEntity.revision === 1
-              && hashCanonicalPayload(priorEntity.record) === same.targetEntityHash
-              && priorEntity.migrationProvenance?.migrationSessionId === same.manifestId
-              && priorEntity.migrationProvenance.legacyKeyDigest === same.sourceKeyDigest
-              && priorOutbox.entityId === same.sessionId && priorOutbox.deliveryBinding?.state === 'unbound'
-              && priorOutbox.payload.kind === 'entity_snapshot'
-              && hashCanonicalPayload(priorOutbox.payload.record) === same.targetEntityHash;
-          }
+          priorManifestId = previousItem.manifestId;
+        } else if (previousItem) {
           const completeAndFinal = previous?.status === 'COMPLETED'
-            && (same.state === 'VERIFIED' || same.state === 'REVIEW_REQUIRED' || same.state === 'INVALID_ACCOUNTED');
+            && ['VERIFIED', 'REVIEW_REQUIRED', 'INVALID_ACCOUNTED', 'CARRIED_FORWARD'].includes(previousItem.state);
+          const provenance = previousItem.classification === 'ADOPTABLE' ? previousItem.manifestId
+            : previousItem.classification === 'CARRIED_FORWARD' ? previousItem.targetProvenanceManifestId : null;
+          let priorTargetIntact = false;
+          if (completeAndFinal) {
+            try {
+              await this.validateCarriedWorkoutTarget(tx, {
+                ...previousItem, manifestId, priorManifestId: previousItem.manifestId,
+                targetProvenanceManifestId: provenance,
+              });
+              priorTargetIntact = true;
+            } catch { /* Preserve the source as review evidence, never carry a damaged predecessor. */ }
+          }
           classification = completeAndFinal && priorTargetIntact ? 'CARRIED_FORWARD' : 'CHANGED_SOURCE_REVIEW';
           reason = classification === 'CARRIED_FORWARD' ? 'same_source_evidence'
-            : same.generationId !== this.namespace.generationId ? 'prior_generation_adoption_review'
-              : priorTargetIntact ? 'prior_snapshot_unfinished' : 'prior_target_changed';
-          priorManifestId = same.manifestId;
+            : completeAndFinal ? 'prior_target_changed' : 'prior_snapshot_unfinished';
+          priorManifestId = previousItem.manifestId;
+          if (classification === 'CARRIED_FORWARD' && provenance) {
+            targetProvenanceManifestId = provenance;
+            carriedSessionId = previousItem.sessionId;
+            carriedTargetHash = previousItem.targetEntityHash;
+            carriedOutboxId = previousItem.outboxMutationId;
+          }
+        } else if (prior.length > 0) {
+          classification = 'CHANGED_SOURCE_REVIEW'; reason = 'prior_generation_adoption_review';
+          priorManifestId = [...prior].sort((a, b) => compareWorkoutAdoptionKeys(a.manifestId, b.manifestId))[0]!.manifestId;
         }
         let candidate: WorkoutSessionV1 | null = null;
         let sessionId: string | null = null;
@@ -714,13 +907,13 @@ export class LocalDatabaseRepository {
           sourceReference: captured.sourceReference, sourceRow: structuredClone(captured.sourceRow),
           referenceBlock: captured.referenceBlock === null ? null : structuredClone(captured.referenceBlock),
           historicalExerciseEvidence: historicalExerciseEvidence(captured),
-          ownership: captured.ownership, classification, reason, priorManifestId,
+          ownership: captured.ownership, classification, reason, priorManifestId, targetProvenanceManifestId,
           state: classification === 'ADOPTABLE' ? 'ALLOCATED'
             : classification === 'INVALID_ACCOUNTED' ? 'INVALID_ACCOUNTED'
               : classification === 'CARRIED_FORWARD' ? 'CARRIED_FORWARD' : 'REVIEW_REQUIRED',
-          sessionId, entryIds, setIds, candidate,
+          sessionId: carriedSessionId ?? sessionId, entryIds, setIds, candidate,
           conversionResultDigest: candidate === null ? null : hashCanonicalPayload(candidate),
-          targetEntityHash: null, outboxMutationId: null, verifiedAt: null,
+          targetEntityHash: carriedTargetHash, outboxMutationId: carriedOutboxId, verifiedAt: null,
         });
       }
       items.sort((a, b) => compareWorkoutAdoptionKeys(a.sourceKeyDigest, b.sourceKeyDigest));
@@ -731,21 +924,23 @@ export class LocalDatabaseRepository {
       for (const item of items) counts[item.classification] += 1;
       const session: WorkoutAdoptionSession = {
         version: 1, manifestId, namespaceKey: this.namespaceKey,
-        accountId: this.namespace.userId, projectRef: this.namespace.projectRef,
+        accountId: this.namespace.userId, projectRef: this.namespace.projectRef, lineageOrdinal,
         deviceId: this.namespace.deviceId, generationId: this.namespace.generationId,
         sourceAdapter: WORKOUT_ADOPTION_ADAPTER, sourceSchemaVersion: snapshot.sourceSchemaVersion,
         conversionVersion: WORKOUT_ADOPTION_CONVERSION_VERSION,
         sourceSnapshotDigest: snapshot.sourceSnapshotDigest, sourceRowCount: items.length,
         sourceCapturedAt: timestamp, sourceImportStateDigest: snapshot.sourceImportStateDigest,
         status: 'SEALED', counts,
-        itemManifestDigest: hashCanonicalPayload(items.map(item => [
-          item.sourceKeyDigest, item.sourceItemDigest, item.classification, item.reason,
-          item.priorManifestId, item.conversionResultDigest, item.historicalExerciseEvidence,
-        ])),
+        itemManifestDigest: workoutAdoptionItemManifestDigest(items, lineageOrdinal, timestamp),
         targetStateDigest: null, createdAt: timestamp, updatedAt: timestamp,
         verifiedAt: null, failureCode: null,
-        requiresReview: counts.AMBIGUOUS_REVIEW + counts.INVALID_ACCOUNTED + counts.CHANGED_SOURCE_REVIEW > 0,
+        requiresReview: counts.AMBIGUOUS_REVIEW + counts.INVALID_ACCOUNTED + counts.CHANGED_SOURCE_REVIEW > 0
+          || items.some(item => item.classification === 'CARRIED_FORWARD' && item.targetProvenanceManifestId === null),
       };
+      if (new TextEncoder().encode(canonicalPayloadJson([session, items])).byteLength
+        > MAX_WORKOUT_ADOPTION_MANIFEST_BYTES) {
+        throw new LocalDatabaseError('INVALID_ENTITY', 'workout_adoption_manifest_byte_limit');
+      }
       sessions.add(session);
       for (const item of items) itemsStore.add(item);
       await done;
@@ -923,19 +1118,7 @@ export class LocalDatabaseRepository {
         IDBKeyRange.only(key),
       )) as WorkoutAdoptionItem[];
       items.sort((a, b) => compareWorkoutAdoptionKeys(a.sourceKeyDigest, b.sourceKeyDigest));
-      if (items.length !== session.sourceRowCount || hashCanonicalPayload(items.map(item => [
-        item.sourceKeyDigest, item.sourceItemDigest, item.classification, item.reason,
-        item.priorManifestId, item.conversionResultDigest, item.historicalExerciseEvidence,
-      ])) !== session.itemManifestDigest) throw new LocalDatabaseError('CORRUPT_PERSISTED_RECORD', 'complete_workout_adoption');
-      const counts = {
-        ADOPTABLE: 0, AMBIGUOUS_REVIEW: 0, INVALID_ACCOUNTED: 0,
-        CARRIED_FORWARD: 0, CHANGED_SOURCE_REVIEW: 0,
-      } satisfies Record<WorkoutAdoptionClassification, number>;
-      for (const item of items) counts[item.classification] += 1;
-      if (hashCanonicalPayload(counts) !== hashCanonicalPayload(session.counts)
-        || session.requiresReview !== (counts.AMBIGUOUS_REVIEW + counts.INVALID_ACCOUNTED + counts.CHANGED_SOURCE_REVIEW > 0)) {
-        throw new LocalDatabaseError('CORRUPT_PERSISTED_RECORD', 'complete_workout_adoption');
-      }
+      this.validateWorkoutAdoptionManifest(session, items);
       const targetEvidence: unknown[] = [];
       const timestamp = now();
       for (const item of items) {
@@ -943,6 +1126,9 @@ export class LocalDatabaseRepository {
         if (item.classification !== 'ADOPTABLE') {
           if (!['REVIEW_REQUIRED', 'INVALID_ACCOUNTED', 'CARRIED_FORWARD'].includes(item.state)) {
             throw new LocalDatabaseError('INVALID_ENTITY', 'complete_workout_adoption');
+          }
+          if (item.classification === 'CARRIED_FORWARD') {
+            targetEvidence.push(await this.validateCarriedWorkoutTarget(tx, item));
           }
           continue;
         }
@@ -968,7 +1154,7 @@ export class LocalDatabaseRepository {
           || hashCanonicalPayload(outbox.payload.record) !== entity.contentHash) {
           throw new LocalDatabaseError('CORRUPT_PERSISTED_RECORD', 'complete_workout_adoption');
         }
-        targetEvidence.push([item.sourceKeyDigest, entity.contentHash, outbox.mutationId]);
+        targetEvidence.push([item.sourceKeyDigest, item.sessionId, entity.contentHash, outbox.mutationId, manifestId]);
         if (item.state !== 'VERIFIED' && !alreadyCompleted) itemStore.put({ ...item, state: 'VERIFIED', verifiedAt: timestamp });
       }
       if (alreadyCompleted) {

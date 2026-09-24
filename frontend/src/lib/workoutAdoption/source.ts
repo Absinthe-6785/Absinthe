@@ -1,11 +1,13 @@
 import type { HealthWorkoutAdoptionCapture } from '../healthLocalRepository';
-import { hashCanonicalPayload } from '../localDatabase/canonicalPayload';
+import { canonicalPayloadJson, hashCanonicalPayload } from '../localDatabase/canonicalPayload';
 import {
   normalizeAssistedRepetitionsInput, normalizeCardioDurationInput, normalizeDecimalInput,
   normalizeKilometersToMeters, normalizeRepetitionInput, normalizeWeightInput,
-  validateWorkoutSessionV1, type WorkoutExerciseSnapshotV1, type WorkoutSetV1, type WorkoutSessionV1,
+  type WorkoutExerciseSnapshotV1, type WorkoutSetV1, type WorkoutSessionV1,
 } from '../workoutSessionV1';
 import {
+  MAX_WORKOUT_ADOPTION_BLOCK_BYTES, MAX_WORKOUT_ADOPTION_BLOCKS, MAX_WORKOUT_ADOPTION_ITEM_BYTES,
+  MAX_WORKOUT_ADOPTION_ROWS, MAX_WORKOUT_ADOPTION_SETS, MAX_WORKOUT_ADOPTION_SNAPSHOT_BYTES,
   WORKOUT_ADOPTION_ADAPTER, type CapturedWorkoutAdoptionItem, type WorkoutAdoptionSnapshot,
 } from './types';
 
@@ -13,6 +15,27 @@ const SOURCE_FIELDS = ['id', 'user_id', 'date', 'block_id', 'sets', 'sort_order'
   'historical_exercise_snapshot', 'session_boundary'] as const;
 const BLOCK_FIELDS = ['id', 'user_id', 'name', 'type', 'tags', 'cardio_mode'] as const;
 const DUMMY_ID = '11111111-1111-4111-8111-111111111111';
+
+const encoder = new TextEncoder();
+
+function bytes(value: unknown): number { return encoder.encode(canonicalPayloadJson(value)).byteLength; }
+
+export function validateWorkoutAdoptionSnapshotBounds(snapshot: WorkoutAdoptionSnapshot): void {
+  if (snapshot.items.length > MAX_WORKOUT_ADOPTION_ROWS) throw new Error('workout_adoption_row_limit');
+  let total = bytes([snapshot.accountId, snapshot.sourceInstanceId, snapshot.sourceImportStateDigest]);
+  for (const item of snapshot.items) {
+    if (Array.isArray(item.sourceRow.sets) && item.sourceRow.sets.length > MAX_WORKOUT_ADOPTION_SETS) {
+      throw new Error('workout_adoption_set_limit');
+    }
+    if (item.referenceBlock !== null && bytes(item.referenceBlock) > MAX_WORKOUT_ADOPTION_BLOCK_BYTES) {
+      throw new Error('workout_adoption_block_byte_limit');
+    }
+    const itemBytes = bytes([item.sourceReference, item.sourceRow, item.referenceBlock, item.ownership]);
+    if (itemBytes > MAX_WORKOUT_ADOPTION_ITEM_BYTES) throw new Error('workout_adoption_item_byte_limit');
+    total += itemBytes;
+    if (total > MAX_WORKOUT_ADOPTION_SNAPSHOT_BYTES) throw new Error('workout_adoption_snapshot_byte_limit');
+  }
+}
 
 export function compareWorkoutAdoptionKeys(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
@@ -47,6 +70,8 @@ export function buildWorkoutAdoptionSnapshot(
 ): WorkoutAdoptionSnapshot {
   if (!sourceInstanceId || capture.importState.status !== 'VERIFIED_IMPORT_COMPLETE'
     || capture.importState.accountId !== capture.accountId) throw new Error('workout_adoption_source_unstable');
+  if (capture.workouts.length > MAX_WORKOUT_ADOPTION_ROWS) throw new Error('workout_adoption_row_limit');
+  if (capture.exerciseBlocks.length > MAX_WORKOUT_ADOPTION_BLOCKS) throw new Error('workout_adoption_block_count_limit');
   const blocks = new Map(capture.exerciseBlocks.map(wrapper => [wrapper.record.id, wrapper]));
   const items: CapturedWorkoutAdoptionItem[] = capture.workouts.map(wrapper => {
     const row = projectFields(wrapper.record, SOURCE_FIELDS);
@@ -69,7 +94,7 @@ export function buildWorkoutAdoptionSnapshot(
     throw new Error('workout_adoption_duplicate_source_key');
   }
   const sourceImportStateDigest = hashCanonicalPayload(capture.importState);
-  return {
+  const snapshot: WorkoutAdoptionSnapshot = {
     accountId: capture.accountId, sourceInstanceId,
     sourceSchemaVersion: capture.sourceSchemaVersion,
     sourceImportStateDigest, items,
@@ -79,6 +104,8 @@ export function buildWorkoutAdoptionSnapshot(
       items.map(item => [item.sourceKeyDigest, item.sourceItemDigest]),
     ]),
   };
+  validateWorkoutAdoptionSnapshotBounds(snapshot);
+  return snapshot;
 }
 
 export type ConversionAssessment =
@@ -94,13 +121,8 @@ export function historicalExerciseEvidence(item: CapturedWorkoutAdoptionItem):
   const fields = ['id', 'name', 'type', 'tags', 'cardioMode'] as const;
   return Object.fromEntries(fields.map(field => {
     if (snapshot && Object.prototype.hasOwnProperty.call(snapshot, field)) {
-      const value = snapshot[field];
-      const valid = field === 'id' ? typeof value === 'string' && value === item.sourceRow.block_id
-        : field === 'name' ? typeof value === 'string' && value.length > 0
-          : field === 'type' ? value === 'strength' || value === 'bodyweight' || value === 'cardio'
-            : field === 'tags' ? Array.isArray(value) && value.every(tag => typeof tag === 'string')
-              : value === null || value === 'time' || value === 'distance' || value === 'both';
-      return [field, valid ? 'SOURCE_EXACT' : 'AMBIGUOUS'];
+      // Generic Health recovery accepts arbitrary extra fields; shape alone has no producer provenance.
+      return [field, 'AMBIGUOUS'];
     }
     if (field === 'id' && typeof item.sourceRow.block_id === 'string') return [field, 'SOURCE_EXACT'];
     return [field, item.referenceBlock && Object.prototype.hasOwnProperty.call(item.referenceBlock,
@@ -191,17 +213,6 @@ export function assessWorkoutAdoptionItem(item: CapturedWorkoutAdoptionItem): Co
   if ((row.sets as Record<string, unknown>[]).some(set => set.type !== snapshot.type)) {
     return { classification: 'AMBIGUOUS_REVIEW', reason: 'historical_exercise_type_conflict' };
   }
-  return {
-    classification: 'ADOPTABLE',
-    build(sessionId, entryId, setIds) {
-      if (setIds.length !== (row.sets as unknown[]).length) throw new Error('workout_adoption_set_id_count');
-      const candidate: WorkoutSessionV1 = {
-        version: 1, id: sessionId, localDate: row.date as string,
-        entries: [{ id: entryId, exercise: structuredClone(snapshot),
-          sets: (row.sets as unknown[]).map((set, index) => convertSet(set, index + 1, setIds[index]!)) }],
-      };
-      validateWorkoutSessionV1(candidate);
-      return candidate;
-    },
-  };
+  // No current production writer attests either field. Retain the evidence without adopting it.
+  return { classification: 'AMBIGUOUS_REVIEW', reason: 'historical_source_provenance_unverified' };
 }
