@@ -14,20 +14,23 @@ import re
 from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP, localcontext
 from typing import Any, Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from remote_mutation_v2 import (
-    DIGEST_PATTERN, IDEMPOTENCY_PATTERN, MUTATION_ID_PATTERN, SAFE_IDENTIFIER,
-    UUID_PATTERN, canonical_payload_bytes, payload_hash,
+    DIGEST_PATTERN, IDEMPOTENCY_PATTERN, SAFE_IDENTIFIER,
+    canonical_payload_bytes, payload_hash,
 )
 
 DOMAIN = "health_workout_session"
 MAX_SAFE_INTEGER = 9_007_199_254_740_991
 MAX_WORKOUT_BYTES = 131_072
-UUID_V4 = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$", re.I)
+UUID_PATTERN = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
+UUID_V4 = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
+MUTATION_ID_PATTERN = re.compile(r"^mut\.[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 DECIMAL = re.compile(r"^(?:0|[1-9][0-9]*)(?:\.[0-9]*[1-9])?$")
-DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+DATE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
 
 
 def _exact(value: Any, keys: set[str]) -> bool:
@@ -152,8 +155,11 @@ def _canonical_json(value: Any) -> bytes:
 
 def workout_request_digest(request: "WorkoutMutationRequest", owner: str, project: str) -> str:
     """Immutable v1 tuple; createdAt and transmission metadata are excluded."""
+    # JWT subject is trusted, but PostgreSQL renders its uuid in lowercase.
+    # Match that single wire spelling before hashing the authority tuple.
+    canonical_owner = str(UUID(owner))
     fields = [
-        "absinthe-workout-remote-v1", 2, owner, project, DOMAIN,
+        "absinthe-workout-remote-v1", 2, canonical_owner, project, DOMAIN,
         request.namespace_key, request.generation_id, request.device_id,
         request.binding_id, request.authority_epoch, request.mutation_id,
         request.idempotency_key, request.entity_id, request.operation,

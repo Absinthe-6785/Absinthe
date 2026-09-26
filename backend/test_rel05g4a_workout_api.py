@@ -100,6 +100,56 @@ def test_forged_request_digest_and_invalid_record_never_reach_rpc(client) -> Non
     assert fake.calls == []
 
 
+@pytest.mark.parametrize("field,value", [
+    ("mutationId", "mut.AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA"),
+    ("mutationId", "mut.Aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
+    ("entityId", "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA"),
+    ("bindingId", "BBBBBBBB-BBBB-4BBB-8BBB-BBBBBBBBBBBB"),
+])
+def test_noncanonical_mutation_identity_is_http_400_before_rpc(client, field: str, value: str) -> None:
+    http, fake = client
+    request = deepcopy(wire(VECTORS["vectors"][0]))
+    request[field] = value
+    if field == "entityId":
+        request["payload"]["record"]["id"] = value
+    response = http.post("/api/sync/v2/workouts/mutations", json=request)
+    assert response.status_code == 400 and response.json()["detail"] == "INVALID_PAYLOAD"
+    assert fake.calls == []
+
+
+def test_unicode_date_and_noncanonical_query_uuid_are_rejected_before_rpc(client) -> None:
+    http, fake = client
+    request = deepcopy(wire(VECTORS["vectors"][0]))
+    request["payload"]["record"]["localDate"] = "٢٠٢٦-٠٩-٢٤"
+    response = http.post("/api/sync/v2/workouts/mutations", json=request)
+    assert response.status_code == 400 and response.json()["detail"] == "INVALID_PAYLOAD"
+    response = http.get("/api/sync/v2/workouts/changes", params={
+        "namespaceKey": VECTORS["namespaceKey"],
+        "generationId": VECTORS["generationId"],
+        "deviceId": VECTORS["deviceId"],
+        "bindingId": VECTORS["bindingId"].upper(),
+        "authorityEpoch": 1,
+    })
+    assert response.status_code == 400 and response.json()["detail"] == "INVALID_PULL"
+    response = http.get(
+        "/api/sync/v2/workouts/snapshots/" + VECTORS["bindingId"].upper(),
+        params={
+            "namespaceKey": VECTORS["namespaceKey"],
+            "generationId": VECTORS["generationId"],
+            "deviceId": VECTORS["deviceId"],
+            "bindingId": VECTORS["bindingId"],
+            "authorityEpoch": 1,
+        },
+    )
+    assert response.status_code == 400 and response.json()["detail"] == "INVALID_SNAPSHOT_PAGE"
+    assert fake.calls == []
+
+
+def test_dormant_row_conflict_has_stable_http_mapping() -> None:
+    response = main._workout_result({"outcome": "rejected", "errorCode": "AUTHORITY_EVIDENCE_MISSING"})
+    assert response.status_code == 409
+
+
 def test_binding_pull_and_snapshot_pass_only_jwt_scope(client) -> None:
     http, fake = client
     generation = {

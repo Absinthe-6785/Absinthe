@@ -117,7 +117,9 @@ def _register(docker: str, name: str, owner: str, generation: tuple[str, str, st
         f"{_quoted(generation[1])}, {_quoted(generation[2])})")
 
 
-def _hold_authority(docker: str, name: str, *, before_sleep: str = "") -> subprocess.Popen[str]:
+def _hold_authority(
+    docker: str, name: str, *, before_sleep: str = "", hold_seconds: int = 2,
+) -> subprocess.Popen[str]:
     holder = subprocess.Popen([
         docker, "exec", "-i", name, "psql", "-U", "postgres", "-d", "postgres",
         "-v", "ON_ERROR_STOP=1",
@@ -125,7 +127,7 @@ def _hold_authority(docker: str, name: str, *, before_sleep: str = "") -> subpro
     assert holder.stdin is not None
     holder.stdin.write(
         "begin; select public.lock_health_workout_authority_v1("
-        f"'{OWNER_A}'::uuid,'{PROJECT}'); {before_sleep} select pg_sleep(2); commit;\n"
+        f"'{OWNER_A}'::uuid,'{PROJECT}'); {before_sleep} select pg_sleep({hold_seconds}); commit;\n"
     )
     holder.stdin.close()
     for _ in range(20):
@@ -166,7 +168,13 @@ def postgres():
             (user_id, project_scope, id, revision, record, is_deleted)
             values ('11111111-1111-4111-8111-111111111111', 'project-test',
               'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', 1,
-              '{"id":"eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"}'::jsonb, false);""",
+              '{"id":"eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"}'::jsonb, false);
+            insert into public.health_workout_sessions_v2
+            (user_id, project_scope, id, revision, record, is_deleted, deleted_at)
+            values ('11111111-1111-4111-8111-111111111111', 'project-test',
+              'ffffffff-ffff-4fff-8fff-ffffffffffff', 3,
+              '{"id":"ffffffff-ffff-4fff-8fff-ffffffffffff"}'::jsonb,
+              true, '2026-09-24T10:00:00Z');""",
             MIGRATION.read_text(encoding="utf-8"),
             MIGRATION.read_text(encoding="utf-8"),
         ])
@@ -226,6 +234,38 @@ def test_capability_binding_scope_and_direct_dml_guards(postgres) -> None:
         "values ('health_workout_session');", expect_error=True)
     assert _psql(docker, name,
         "select count(*) from public.remote_mutation_receipts where domain='health_workout_session';") == "0"
+
+
+def test_dormant_g1_rows_never_become_remote_authority_by_matching_cas(postgres) -> None:
+    docker, name = postgres
+    binding = _ready(docker, name, OWNER_A, DESKTOP)
+    active_id = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
+    deleted_id = "ffffffff-ffff-4fff-8fff-ffffffffffff"
+
+    def row_evidence(entity_id: str) -> str:
+        return _psql(docker, name,
+            "select row_to_json(row_state)::text from (select revision, record, "
+            "is_deleted, deleted_at, last_remote_mutation_ref, content_hash, authority_epoch "
+            "from public.health_workout_sessions_v2 "
+            f"where user_id='{OWNER_A}'::uuid and project_scope='{PROJECT}' "
+            f"and id='{entity_id}'::uuid) row_state;")
+
+    for entity_id, operation, base, local, expected in (
+        (active_id, "upsert", None, 1, "ENTITY_ALREADY_EXISTS"),
+        (active_id, "upsert", 1, 2, "AUTHORITY_EVIDENCE_MISSING"),
+        (active_id, "tombstone", 1, 2, "AUTHORITY_EVIDENCE_MISSING"),
+        (deleted_id, "restore", 3, 4, "AUTHORITY_EVIDENCE_MISSING"),
+    ):
+        before = row_evidence(entity_id)
+        mutation_id, key = _identity()
+        result = _call(docker, name, _mutation_sql(OWNER_A, DESKTOP, binding,
+            entity_id, mutation_id, key, operation, base, local, _record(entity_id)))
+        assert result["outcome"] == "rejected" and result["errorCode"] == expected
+        assert row_evidence(entity_id) == before
+        assert _psql(docker, name, "select count(*) from public.remote_mutation_receipts "
+            f"where authenticated_owner_id='{OWNER_A}'::uuid and mutation_id='{mutation_id}';") == "0"
+        assert _psql(docker, name, "select count(*) from public.remote_reference_changes_v2 "
+            f"where authenticated_owner_id='{OWNER_A}'::uuid and entity_id='{entity_id}'::uuid;") == "0"
 
 
 def test_cas_replay_cross_device_pull_snapshot_and_account_isolation(postgres) -> None:
@@ -359,7 +399,8 @@ def test_cas_replay_cross_device_pull_snapshot_and_account_isolation(postgres) -
 
 def test_real_concurrent_replay_cas_digest_race_and_authority_lock(postgres) -> None:
     docker, name = postgres
-    binding = _register(docker, name, OWNER_A, DESKTOP)["bindingId"]
+    binding = _ready(docker, name, OWNER_A, DESKTOP)
+    b_binding = _ready(docker, name, OWNER_B, DESKTOP)
 
     def race(first: str, second: str) -> list[dict]:
         with ThreadPoolExecutor(max_workers=2) as pool:
@@ -432,6 +473,46 @@ def test_real_concurrent_replay_cas_digest_race_and_authority_lock(postgres) -> 
     hold.wait(timeout=10)
     assert hold.returncode == 0, hold.stderr.read() if hold.stderr else ""
     assert result["outcome"] == "success" and elapsed >= 1.0
+
+    # A real A mutation must wait on A's held authority lock, while a real
+    # B mutation traverses its own authority/binding/CAS/receipt/change path
+    # and commits before A's holder releases. Separate psql processes provide
+    # independent PostgreSQL connections; pg_locks synchronizes A's wait.
+    a_entity, b_entity = str(uuid.uuid4()), str(uuid.uuid4())
+    a_id, a_key = _identity()
+    b_id, b_key = _identity()
+    a_sql = _mutation_sql(OWNER_A, DESKTOP, binding, a_entity,
+        a_id, a_key, "upsert", None, 1, _record(a_entity))
+    b_sql = _mutation_sql(OWNER_B, DESKTOP, b_binding, b_entity,
+        b_id, b_key, "upsert", None, 1, _record(b_entity))
+    hold = _hold_authority(docker, name, hold_seconds=8)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        a_future = pool.submit(_call, docker, name, a_sql)
+        for _ in range(40):
+            if _psql(docker, name,
+                "select count(*) from pg_catalog.pg_locks "
+                "where locktype='advisory' and not granted;") != "0":
+                break
+            time.sleep(0.05)
+        else:
+            pytest.fail("A mutation never waited on the held authority lock")
+        b_future = pool.submit(_call, docker, name, b_sql)
+        b_result = b_future.result(timeout=5)
+        assert b_result["outcome"] == "success"
+        assert hold.poll() is None and not a_future.done()
+        a_result = a_future.result(timeout=12)
+    hold.wait(timeout=10)
+    assert hold.returncode == 0, hold.stderr.read() if hold.stderr else ""
+    assert a_result["outcome"] == "success"
+    for owner, entity_id, mutation_id in (
+        (OWNER_A, a_entity, a_id), (OWNER_B, b_entity, b_id),
+    ):
+        assert _psql(docker, name, "select count(*) from public.health_workout_sessions_v2 "
+            f"where user_id='{owner}'::uuid and id='{entity_id}'::uuid;") == "1"
+        assert _psql(docker, name, "select count(*) from public.remote_mutation_receipts "
+            f"where authenticated_owner_id='{owner}'::uuid and mutation_id='{mutation_id}';") == "1"
+        assert _psql(docker, name, "select count(*) from public.remote_reference_changes_v2 "
+            f"where authenticated_owner_id='{owner}'::uuid and entity_id='{entity_id}'::uuid;") == "1"
 
     # Initial binding of another active generation and a Desktop mutation
     # contend on the same authority lock, then both commit without a fork.

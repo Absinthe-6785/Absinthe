@@ -67,4 +67,11 @@ describe('REL-05G4A shared Python/JS workout vectors', () => {
     const metadata = { ...vector, createdAt: '2026-09-25T01:02:03Z' };
     expect(requestDigest(metadata, vector.expectedPayloadHash)).toBe(vector.expectedRequestDigest);
   });
+
+  it('rejects Unicode-digit localDate while retaining ASCII calendar dates', () => {
+    const record = fixture.vectors[0]!.record;
+    validateWorkoutSessionV1({ ...record, localDate: '2024-02-29' });
+    expect(() => validateWorkoutSessionV1({ ...record, localDate: '٢٠٢٦-٠٩-٢٤' }))
+      .toThrow('workout_session_invalid');
+  });
 });

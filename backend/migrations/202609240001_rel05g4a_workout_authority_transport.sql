@@ -477,6 +477,30 @@ begin
   select * into v_entity from public.health_workout_sessions_v2
   where user_id = p_owner and project_scope = p_project and id = p_entity_id
   for update;
+  -- A matching revision alone does not establish G4A provenance. In
+  -- particular, dormant G1 rows have no epoch/hash/committed receipt and
+  -- must never be silently adopted by an update, tombstone, or restore.
+  if found and p_base_revision is not null and (
+    v_entity.authority_epoch is distinct from p_authority_epoch
+    or v_entity.content_hash is null
+    or v_entity.content_hash !~ '^[a-f0-9]{64}$'
+    or v_entity.last_remote_mutation_ref is null
+    or not exists (
+      select 1 from public.remote_mutation_receipts as evidence
+      where evidence.authenticated_owner_id = p_owner
+        and evidence.project_scope = p_project
+        and evidence.domain = 'health_workout_session'
+        and evidence.entity_id = p_entity_id
+        and evidence.remote_mutation_ref = v_entity.last_remote_mutation_ref
+        and evidence.result_revision = v_entity.revision
+        and evidence.authority_epoch = p_authority_epoch
+        and evidence.content_hash = v_entity.content_hash
+        and evidence.result_code = 'APPLIED'
+    )
+  ) then
+    return jsonb_build_object('outcome', 'rejected',
+      'errorCode', 'AUTHORITY_EVIDENCE_MISSING');
+  end if;
   if p_base_revision is null then
     if found then
       v_error := 'ENTITY_ALREADY_EXISTS';

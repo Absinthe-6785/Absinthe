@@ -109,6 +109,43 @@ def test_server_rejects_duplicate_identity_unknown_key_and_unbounded_decimal() -
         validate_workout_session(record)
 
 
+@pytest.mark.parametrize("local_date", ["٢٠٢٦-٠٩-٢٤", "２０２６-０９-２４", "2025-02-29", "2026-13-01", "2026-02-30"])
+def test_non_ascii_or_invalid_calendar_date_is_not_canonical(local_date: str) -> None:
+    record = deepcopy(VECTORS["vectors"][0]["record"])
+    record["localDate"] = local_date
+    with pytest.raises(ValueError, match="INVALID_PAYLOAD"):
+        validate_workout_session(record)
+
+
+@pytest.mark.parametrize("local_date", ["2026-09-24", "2024-02-29"])
+def test_ascii_calendar_dates_remain_valid(local_date: str) -> None:
+    record = deepcopy(VECTORS["vectors"][0]["record"])
+    record["localDate"] = local_date
+    assert validate_workout_session(record) == payload_hash(record)
+
+
+@pytest.mark.parametrize("field,value", [
+    ("mutationId", "mut.AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA"),
+    ("mutationId", "mut.Aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
+    ("entityId", "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA"),
+    ("bindingId", "BBBBBBBB-BBBB-4BBB-8BBB-BBBBBBBBBBBB"),
+])
+def test_remote_wire_rejects_noncanonical_identifier_case(field: str, value: str) -> None:
+    request = deepcopy(wire(VECTORS["vectors"][0]))
+    request[field] = value
+    if field == "entityId":
+        request["payload"]["record"]["id"] = value
+    with pytest.raises(ValueError):
+        WorkoutMutationRequest.model_validate(request)
+
+
+def test_session_uuid_text_is_lowercase_on_remote_wire() -> None:
+    record = deepcopy(VECTORS["vectors"][3]["record"])
+    record["entries"][0]["id"] = record["entries"][0]["id"].upper()
+    with pytest.raises(ValueError, match="INVALID_PAYLOAD"):
+        validate_workout_session(record)
+
+
 def test_exact_canonical_utf8_boundary_and_one_multibyte_character_over() -> None:
     record = deepcopy(VECTORS["vectors"][1]["record"])
     exercise = record["entries"][0]["exercise"]

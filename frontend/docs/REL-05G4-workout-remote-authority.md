@@ -51,12 +51,25 @@ Restore is allowed only from a tombstone. The local G2/G3 `baseRevision` is
 not the server CAS base. `created_at`, `updated_at`, and client `createdAt`
 are not concurrency authority.
 
+An existing dormant G1 row is not implicitly adopted: matching its revision
+is insufficient without current authority epoch, content hash and committed
+receipt evidence. Create returns `ENTITY_ALREADY_EXISTS`; update, tombstone
+and restore return `AUTHORITY_EVIDENCE_MISSING` (HTTP 409), with no entity,
+receipt or change write. Explicit adoption remains outside G4A.
+
 ## Canonical wire contract
 
 `WorkoutSessionV1` validation is strict on the server: exact object keys,
 UUIDv4 IDs, nonempty ordered entries/sets, unique IDs, exercise/set kind
 coherence, contiguous 1-based set ordinals, safe integers, and canonical
-decimal strings. Canonical UTF-8 record bytes may not exceed 131072. The
+decimal strings. `localDate` uses ASCII digits and real calendar validity.
+The dormant G4A remote wire requires lowercase UUID text in its session and
+authority identifiers (including `entityId`, `bindingId`, mutation UUID
+component and snapshot token); mixed-case values are rejected with a
+deterministic HTTP 400 before the RPC. This remote boundary does not rewrite
+or narrow existing G1-G3 local records; future G4B must account for any
+legacy mixed-case local identifiers explicitly. Canonical UTF-8 record bytes
+may not exceed 131072. The
 decimal grammar is `^(?:0|[1-9][0-9]*)(?:\.[0-9]*[1-9])?$`; weight/source
 have at most two fractional digits and distance meters at most three.
 Pounds-to-kilograms verification uses exact decimal multiplication by
