@@ -28,6 +28,15 @@ from remote_mutation_v2 import (
     SupabaseV2RpcGateway,
     rejected_v2_response,
 )
+from workout_remote_authority import (
+    UUID_PATTERN,
+    WorkoutBindingRequest,
+    WorkoutGenerationRequest,
+    WorkoutMutationRequest,
+    WorkoutRemoteGateway,
+    binding_params,
+    workout_request_digest,
+)
 from restore_validation import (
     MAX_RESTORE_ROWS,
     RESTORE_TABLE_FIELDS,
@@ -69,6 +78,7 @@ RECOVERY_MODE_ACTIVE = _recovery_mode_raw not in {"disabled"}
 K323_REMOTE_MUTATION_ENABLED = os.getenv("K323_REMOTE_MUTATION_ENABLED", "disabled").strip().lower() == "enabled"
 K323_V2_TRANSPORT_ENABLED = os.getenv("K323_V2_TRANSPORT_ENABLED", "disabled").strip().lower() == "enabled"
 HEALTH_ROUTINE_SYNC_ENABLED = os.getenv("HEALTH_ROUTINE_SYNC_ENABLED", "enabled").strip().lower() == "enabled"
+WORKOUT_REMOTE_FOUNDATION_ENABLED = os.getenv("WORKOUT_REMOTE_FOUNDATION_ENABLED", "disabled").strip().lower() == "enabled"
 K323_PROJECT_SCOPE = os.getenv("K323_PROJECT_SCOPE", "").strip() or "absinthe-health-routines"
 
 DESTRUCTIVE_RECOVERY_INTENT_HEADER = "x-absinthe-recovery-intent"
@@ -203,6 +213,11 @@ async def k323_request_size_middleware(request: Request, call_next):
                 else rejected_response("mut.invalid", "k322." + "0" * 64, "INVALID_MUTATION")
             )
             return JSONResponse(status_code=413, content=response.model_dump(by_alias=True))
+    if request.method == "POST" and request.url.path.startswith("/api/sync/v2/workouts/"):
+        content_length = request.headers.get("content-length")
+        bound = 262_144 if request.url.path.endswith("/mutations") else 16_384
+        if content_length is None or not content_length.isdigit() or int(content_length) > bound:
+            return JSONResponse(status_code=413, content={"errorCode": "INVALID_PAYLOAD"})
     return await call_next(request)
 
 
@@ -344,6 +359,164 @@ async def ensure_health_routine_generation_v2(
     except Exception as error:
         raise HTTPException(status_code=503, detail="TRANSIENT_SERVER_FAILURE") from error
     return response.model_dump(by_alias=True)
+
+
+def _workout_gateway() -> WorkoutRemoteGateway:
+    if not WORKOUT_REMOTE_FOUNDATION_ENABLED:
+        raise HTTPException(status_code=423, detail="WORKOUT_REMOTE_FOUNDATION_DISABLED")
+    try:
+        return WorkoutRemoteGateway(get_k323_supabase_client())
+    except Exception as error:
+        raise HTTPException(status_code=503, detail="TRANSIENT_SERVER_FAILURE") from error
+
+
+def _workout_rpc(name: str, params: dict) -> dict:
+    try:
+        return _workout_gateway().call(name, params)
+    except HTTPException:
+        raise
+    except Exception as error:
+        raise HTTPException(status_code=503, detail="TRANSIENT_SERVER_FAILURE") from error
+
+
+def _workout_result(value: dict) -> JSONResponse:
+    code = value.get("errorCode")
+    if code in {"CAPABILITY_DISABLED", "AUTHORITY_RESET_FENCED"}:
+        status = 423
+    elif code in {
+        "CAS_CONFLICT", "STALE_AUTHORITY_EPOCH", "STALE_GENERATION_BINDING",
+        "ENTITY_ALREADY_EXISTS", "NOT_FOUND", "ENTITY_NOT_TOMBSTONED",
+        "ENTITY_TOMBSTONED", "MUTATION_ID_CONFLICT", "IDEMPOTENCY_CONFLICT",
+        "SNAPSHOT_TOKEN_INVALID", "FULL_RESYNC_REQUIRED",
+    }:
+        status = 409
+    else:
+        status = 200
+    return JSONResponse(status_code=status, content=value)
+
+
+@app.get("/api/sync/v2/workouts/authority")
+async def read_workout_authority_v1(
+    namespaceKey: str, generationId: str, deviceId: str,
+    user_id: str = Depends(get_remote_mutation_user),
+):
+    """Dormant read-only capability/epoch/binding evidence, never product fallback."""
+    try:
+        identity = WorkoutGenerationRequest.model_validate({
+            "protocolVersion": 2, "namespaceKey": namespaceKey,
+            "generationId": generationId, "deviceId": deviceId,
+        })
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail="INVALID_GENERATION") from error
+    return _workout_result(_workout_rpc("read_health_workout_authority_v1", {
+        "p_owner": user_id, "p_project": K323_PROJECT_SCOPE,
+        "p_namespace": identity.namespace_key, "p_generation": identity.generation_id,
+        "p_device": identity.device_id,
+    }))
+
+
+@app.post("/api/sync/v2/workouts/generations")
+async def register_workout_generation_v1(
+    payload: dict, user_id: str = Depends(get_remote_mutation_user),
+):
+    try:
+        identity = WorkoutGenerationRequest.model_validate(payload)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail="INVALID_GENERATION") from error
+    return _workout_result(_workout_rpc("register_health_workout_generation_v1", {
+        "p_owner": user_id, "p_project": K323_PROJECT_SCOPE,
+        "p_namespace": identity.namespace_key, "p_generation": identity.generation_id,
+        "p_device": identity.device_id,
+    }))
+
+
+@app.post("/api/sync/v2/workouts/mutations")
+async def apply_workout_mutation_v1(
+    payload: dict, user_id: str = Depends(get_remote_mutation_user),
+):
+    _workout_gateway()  # default-off even for malformed requests
+    try:
+        mutation = WorkoutMutationRequest.model_validate(payload)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail="INVALID_PAYLOAD") from error
+    expected = workout_request_digest(mutation, user_id, K323_PROJECT_SCOPE)
+    if mutation.request_digest != expected:
+        return JSONResponse(status_code=400, content={
+            "outcome": "rejected", "errorCode": "REQUEST_DIGEST_MISMATCH",
+        })
+    params = binding_params(mutation, user_id, K323_PROJECT_SCOPE)
+    params.update({
+        "p_entity_id": mutation.entity_id, "p_mutation_id": mutation.mutation_id,
+        "p_idempotency_key": mutation.idempotency_key,
+        "p_operation": mutation.operation,
+        "p_base_revision": mutation.remote_cas_base_revision,
+        "p_local_revision": mutation.local_revision,
+        "p_payload": mutation.payload, "p_payload_hash": mutation.payload_hash,
+        "p_content_hash": mutation.content_hash(),
+        "p_request_digest": expected,
+    })
+    return _workout_result(_workout_rpc("apply_health_workout_mutation_v1", params))
+
+
+@app.get("/api/sync/v2/workouts/changes")
+async def pull_workout_changes_v1(
+    namespaceKey: str, generationId: str, deviceId: str,
+    bindingId: str, authorityEpoch: int,
+    cursor: int = 0, serverEpoch: str | None = None, limit: int = 100,
+    user_id: str = Depends(get_remote_mutation_user),
+):
+    try:
+        identity = WorkoutBindingRequest.model_validate({
+            "protocolVersion": 2, "namespaceKey": namespaceKey,
+            "generationId": generationId, "deviceId": deviceId,
+            "bindingId": bindingId, "authorityEpoch": authorityEpoch,
+        })
+        if cursor < 0 or cursor > 9_007_199_254_740_991 or not 1 <= limit <= 500:
+            raise ValueError("INVALID_PULL")
+        if serverEpoch is not None and not UUID_PATTERN.fullmatch(serverEpoch):
+            raise ValueError("INVALID_PULL")
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail="INVALID_PULL") from error
+    params = binding_params(identity, user_id, K323_PROJECT_SCOPE)
+    params.update({"p_cursor": cursor, "p_server_epoch": serverEpoch, "p_limit": limit})
+    return _workout_result(_workout_rpc("pull_health_workout_changes_v1", params))
+
+
+@app.post("/api/sync/v2/workouts/snapshots")
+async def begin_workout_snapshot_v1(
+    payload: dict, user_id: str = Depends(get_remote_mutation_user),
+):
+    try:
+        identity = WorkoutBindingRequest.model_validate(payload)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail="INVALID_BINDING") from error
+    return _workout_result(_workout_rpc("begin_health_workout_snapshot_v1",
+        binding_params(identity, user_id, K323_PROJECT_SCOPE)))
+
+
+@app.get("/api/sync/v2/workouts/snapshots/{snapshot_token}")
+async def page_workout_snapshot_v1(
+    snapshot_token: str, namespaceKey: str, generationId: str, deviceId: str,
+    bindingId: str, authorityEpoch: int, afterEntityId: str | None = None,
+    limit: int = 16, user_id: str = Depends(get_remote_mutation_user),
+):
+    try:
+        identity = WorkoutBindingRequest.model_validate({
+            "protocolVersion": 2, "namespaceKey": namespaceKey,
+            "generationId": generationId, "deviceId": deviceId,
+            "bindingId": bindingId, "authorityEpoch": authorityEpoch,
+        })
+        if not UUID_PATTERN.fullmatch(snapshot_token) or not 1 <= limit <= 100 \
+                or (afterEntityId is not None and not UUID_PATTERN.fullmatch(afterEntityId)):
+            raise ValueError("INVALID_SNAPSHOT_PAGE")
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail="INVALID_SNAPSHOT_PAGE") from error
+    params = binding_params(identity, user_id, K323_PROJECT_SCOPE)
+    params.update({
+        "p_snapshot_token": snapshot_token,
+        "p_after_entity_id": afterEntityId, "p_limit": limit,
+    })
+    return _workout_result(_workout_rpc("page_health_workout_snapshot_v1", params))
 
 # ==========================================
 # Pydantic Models (user_id 제거 — 토큰에서 추출)
