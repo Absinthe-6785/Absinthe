@@ -32,6 +32,7 @@ OWNER_B = "22222222-2222-4222-8222-222222222222"
 PROJECT = "project-test"
 DESKTOP = ("a" * 64, "generation-desktop", "device-desktop")
 MOBILE = ("b" * 64, "generation-mobile", "device-mobile")
+TABLET = ("c" * 64, "generation-tablet", "device-tablet")
 
 
 def _run(command: list[str], *, input: str | None = None) -> subprocess.CompletedProcess[str]:
@@ -114,6 +115,26 @@ def _register(docker: str, name: str, owner: str, generation: tuple[str, str, st
         "select public.register_health_workout_generation_v1("
         f"{_quoted(owner)}::uuid, {_quoted(PROJECT)}, {_quoted(generation[0])}, "
         f"{_quoted(generation[1])}, {_quoted(generation[2])})")
+
+
+def _hold_authority(docker: str, name: str, *, before_sleep: str = "") -> subprocess.Popen[str]:
+    holder = subprocess.Popen([
+        docker, "exec", "-i", name, "psql", "-U", "postgres", "-d", "postgres",
+        "-v", "ON_ERROR_STOP=1",
+    ], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    assert holder.stdin is not None
+    holder.stdin.write(
+        "begin; select public.lock_health_workout_authority_v1("
+        f"'{OWNER_A}'::uuid,'{PROJECT}'); {before_sleep} select pg_sleep(2); commit;\n"
+    )
+    holder.stdin.close()
+    for _ in range(20):
+        if _psql(docker, name,
+            "select count(*) from pg_catalog.pg_locks "
+            "where locktype='advisory' and granted and pid<>pg_backend_pid();") != "0":
+            return holder
+        time.sleep(0.05)
+    pytest.fail("authority lock holder never acquired the advisory lock")
 
 
 @pytest.fixture(scope="module")
@@ -317,6 +338,16 @@ def test_cas_replay_cross_device_pull_snapshot_and_account_isolation(postgres) -
         f"'{OWNER_B}'::uuid,'{PROJECT}','{DESKTOP[0]}','{DESKTOP[1]}','{DESKTOP[2]}',"
         f"'{b_binding}'::uuid,1,'{snap['snapshotToken']}'::uuid,null,16)")
     assert stolen["errorCode"] == "SNAPSHOT_TOKEN_INVALID"
+    # Receipt identity is owner-scoped: the same mutation ID in another
+    # authenticated account creates its own entity/receipt, not A's replay.
+    b_create = _mutation_sql(OWNER_B, DESKTOP, b_binding, entity_id,
+        mutation_id, idempotency_key, "upsert", None, 1, record)
+    b_first = _call(docker, name, b_create)
+    assert b_first["outcome"] == "success"
+    assert b_first["remoteMutationRef"] != first["remoteMutationRef"]
+    assert _call(docker, name, b_create)["outcome"] == "exact_replay"
+    assert _psql(docker, name, "select count(*) from public.remote_mutation_receipts "
+        f"where mutation_id='{mutation_id}';") == "2"
     _psql(docker, name, "update public.remote_reference_streams_v2 "
         f"set server_epoch=gen_random_uuid() where authenticated_owner_id='{OWNER_A}'::uuid "
         f"and project_scope='{PROJECT}';")
@@ -346,6 +377,25 @@ def test_real_concurrent_replay_cas_digest_race_and_authority_lock(postgres) -> 
     assert _psql(docker, name, "select count(*) from public.remote_reference_changes_v2 "
         f"where entity_id='{entity}'::uuid;") == "1"
 
+    # One request exact-replays a committed create while another advances
+    # that same entity from revision 1. Both are serialized under authority;
+    # replay must still return the original receipt without an extra event.
+    replay_entity = str(uuid.uuid4())
+    replay_record = _record(replay_entity)
+    replay_id, replay_key = _identity()
+    committed_create = _mutation_sql(OWNER_A, DESKTOP, binding, replay_entity,
+        replay_id, replay_key, "upsert", None, 1, replay_record)
+    committed = _call(docker, name, committed_create)
+    other_id, other_key = _identity()
+    different_mutation = _mutation_sql(OWNER_A, DESKTOP, binding, replay_entity,
+        other_id, other_key, "upsert", 1, 2, replay_record)
+    replay_race = race(committed_create, different_mutation)
+    assert {item["outcome"] for item in replay_race} == {"exact_replay", "success"}
+    assert next(item for item in replay_race if item["outcome"] == "exact_replay")["remoteMutationRef"] \
+        == committed["remoteMutationRef"]
+    assert _psql(docker, name, "select count(*) from public.remote_reference_changes_v2 "
+        f"where entity_id='{replay_entity}'::uuid;") == "2"
+
     update_a, key_a = _identity()
     update_b, key_b = _identity()
     a = _mutation_sql(OWNER_A, DESKTOP, binding, entity, update_a, key_a, "upsert", 1, 2, record)
@@ -369,23 +419,7 @@ def test_real_concurrent_replay_cas_digest_race_and_authority_lock(postgres) -> 
 
     # Hold the exact frozen authority key in one backend and prove a mutation
     # waits, while a different account can acquire its own key concurrently.
-    hold = subprocess.Popen([
-        docker, "exec", "-i", name, "psql", "-U", "postgres", "-d", "postgres", "-v", "ON_ERROR_STOP=1",
-    ], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    assert hold.stdin is not None
-    hold.stdin.write(
-        "begin; select public.lock_health_workout_authority_v1("
-        f"'{OWNER_A}'::uuid,'{PROJECT}'); select pg_sleep(2); commit;\n"
-    )
-    hold.stdin.close()
-    for _ in range(20):
-        if _psql(docker, name,
-            "select count(*) from pg_catalog.pg_locks "
-            "where locktype='advisory' and granted and pid<>pg_backend_pid();") != "0":
-            break
-        time.sleep(0.05)
-    else:
-        pytest.fail("authority lock holder never acquired the advisory lock")
+    hold = _hold_authority(docker, name)
     assert _psql(docker, name,
         "select pg_try_advisory_xact_lock(hashtextextended("
         f"'{OWNER_B}|{PROJECT}|health_workout_session|authority',0));") == "t"
@@ -399,10 +433,48 @@ def test_real_concurrent_replay_cas_digest_race_and_authority_lock(postgres) -> 
     assert hold.returncode == 0, hold.stderr.read() if hold.stderr else ""
     assert result["outcome"] == "success" and elapsed >= 1.0
 
-    _psql(docker, name, "begin; select public.lock_health_workout_authority_v1("
-        f"'{OWNER_A}'::uuid,'{PROJECT}'); update public.health_workout_authorities "
+    # Initial binding of another active generation and a Desktop mutation
+    # contend on the same authority lock, then both commit without a fork.
+    _psql(docker, name, "insert into public.remote_sync_generations "
+        "(owner_id,project_scope,namespace_fingerprint,generation_id,status) "
+        f"values ('{OWNER_A}'::uuid,'{PROJECT}','{TABLET[0]}','{TABLET[1]}','active');")
+    bind_entity = str(uuid.uuid4())
+    bind_id, bind_key = _identity()
+    bind_mutation = _mutation_sql(OWNER_A, DESKTOP, binding, bind_entity,
+        bind_id, bind_key, "upsert", None, 1, _record(bind_entity))
+    hold = _hold_authority(docker, name)
+    started = time.monotonic()
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        bound_future = pool.submit(_register, docker, name, OWNER_A, TABLET)
+        mutation_future = pool.submit(_call, docker, name, bind_mutation)
+        bound = bound_future.result()
+        mutated = mutation_future.result()
+    elapsed = time.monotonic() - started
+    hold.wait(timeout=10)
+    assert hold.returncode == 0, hold.stderr.read() if hold.stderr else ""
+    assert elapsed >= 1.0
+    assert bound["status"] == "bound" and bound["authorityEpoch"] == 1
+    assert mutated["outcome"] == "success"
+    assert _register(docker, name, OWNER_A, TABLET)["bindingId"] == bound["bindingId"]
+
+    # A future reset transition holds this same lock while fencing. A
+    # concurrent mutation must wait and observe the committed fence.
+    hold = _hold_authority(docker, name, before_sleep=(
+        "update public.health_workout_authorities "
         "set state='RESET_FENCED', current_reset_job_id=gen_random_uuid() "
-        f"where user_id='{OWNER_A}'::uuid and project_scope='{PROJECT}'; commit;")
+        f"where user_id='{OWNER_A}'::uuid and project_scope='{PROJECT}';"
+    ))
+    fenced_entity = str(uuid.uuid4())
+    fenced_id, fenced_key = _identity()
+    started = time.monotonic()
+    fenced = _call(docker, name, _mutation_sql(OWNER_A, DESKTOP, binding, fenced_entity,
+        fenced_id, fenced_key, "upsert", None, 1, _record(fenced_entity)))
+    elapsed = time.monotonic() - started
+    hold.wait(timeout=10)
+    assert hold.returncode == 0, hold.stderr.read() if hold.stderr else ""
+    assert elapsed >= 1.0 and fenced["errorCode"] == "AUTHORITY_RESET_FENCED"
+    assert _psql(docker, name, "select count(*) from public.health_workout_sessions_v2 "
+        f"where id='{fenced_entity}'::uuid;") == "0"
     assert _call(docker, name, create)["errorCode"] == "AUTHORITY_RESET_FENCED"
     _psql(docker, name, "begin; select public.lock_health_workout_authority_v1("
         f"'{OWNER_A}'::uuid,'{PROJECT}'); update public.health_workout_authorities "
