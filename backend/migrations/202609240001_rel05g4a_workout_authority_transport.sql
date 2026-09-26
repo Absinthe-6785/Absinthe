@@ -437,13 +437,13 @@ begin
   -- JSON array has the same field order as Python/JS; json_build_array emits
   -- comma-space separators, so remove only those separators (no bound string
   -- can contain comma/space under the validated identifier grammar).
-  v_expected_digest := encode(digest(convert_to(replace(json_build_array(
+  v_expected_digest := pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(replace(json_build_array(
     'absinthe-workout-remote-v1', 2, p_owner::text, p_project,
     'health_workout_session', p_namespace, p_generation, p_device,
     p_binding::text, (v_context ->> 'authorityEpoch')::bigint,
     p_mutation_id, p_idempotency_key, p_entity_id::text, p_operation,
     p_base_revision, p_local_revision, p_payload_hash
-  )::text, ', ', ','), 'UTF8'), 'sha256'), 'hex');
+  )::text, ', ', ','), 'UTF8')), 'hex');
   if p_request_digest <> v_expected_digest then
     return jsonb_build_object('outcome', 'rejected',
       'errorCode', 'REQUEST_DIGEST_MISMATCH');
