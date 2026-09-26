@@ -57,6 +57,15 @@ create table if not exists public.health_workout_snapshot_tokens (
 alter table public.health_workout_sessions_v2
   add column if not exists content_hash text,
   add column if not exists authority_epoch bigint;
+-- G1 required exact lowercase record.id text. Frozen WorkoutSessionV1 allows
+-- mixed-case UUIDv4 payload text, while the UUID column renders lowercase.
+-- The old validated constraint already covers existing rows; NOT VALID avoids
+-- a table scan while enforcing UUID-value-equivalent spelling on new writes.
+alter table public.health_workout_sessions_v2
+  drop constraint if exists health_workout_sessions_v2_record_id,
+  add constraint health_workout_sessions_v2_record_id
+  check (record ->> 'id' is not null
+    and pg_catalog.lower(record ->> 'id') = id::text) not valid;
 alter table public.health_workout_sessions_v2
   drop constraint if exists health_workout_sessions_v2_g4a_evidence;
 alter table public.health_workout_sessions_v2
