@@ -157,6 +157,21 @@ describe('WorkoutSessionV1 canonical model', () => {
     expect(normalizeWorkoutCardioMode('strength', 'both')).toBeNull();
   });
 
+  it('accepts mixed-case UUIDv4 spelling but rejects case-only duplicate UUID values', () => {
+    const mixed = session({ id: SESSION_ID.toUpperCase(), entries: [{
+      ...session().entries[0]!, id: ENTRY_ID.toUpperCase(),
+      sets: [strengthSet({ id: SET_ID.toUpperCase() }) as WorkoutSessionV1['entries'][number]['sets'][number]],
+    }] });
+    validateWorkoutSessionV1(mixed);
+    expect(canonicalPayloadJson(mixed)).toContain(ENTRY_ID.toUpperCase());
+    expect(() => validateWorkoutSessionV1(session({ id: ENTRY_ID, entries: [{
+      ...session().entries[0]!, id: ENTRY_ID.toUpperCase(),
+    }] }))).toThrow('workout_session_invalid');
+    expect(() => validateWorkoutSessionV1(session({ entries: [{
+      ...session().entries[0]!, sets: [strengthSet({ id: ENTRY_ID.toUpperCase() }) as WorkoutSessionV1['entries'][number]['sets'][number]],
+    }] }))).toThrow('workout_session_invalid');
+  });
+
   it('allows IDs and order to remain stable while values and array order change', () => {
     const before = session();
     const firstSet = before.entries[0]!.sets[0]!;
