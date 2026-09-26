@@ -406,7 +406,12 @@ begin
   end if;
   if p_operation in ('upsert', 'restore') then
     if p_payload ->> 'kind' is distinct from 'entity_snapshot'
-      or p_payload #>> '{record,id}' is distinct from p_entity_id::text
+      -- Payload UUIDv4 spelling is frozen canonical content and may be mixed
+      -- case. Compare its value to the lowercase external UUID without
+      -- rewriting the JSON string or its content hash.
+      or p_payload #>> '{record,id}' !~
+        '^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-4[0-9A-Fa-f]{3}-[89ABab][0-9A-Fa-f]{3}-[0-9A-Fa-f]{12}$'
+      or pg_catalog.lower(p_payload #>> '{record,id}') is distinct from p_entity_id::text
       or p_content_hash is null or p_content_hash !~ '^[a-f0-9]{64}$' then
       raise exception 'REL05G4A_INVALID_PAYLOAD';
     end if;

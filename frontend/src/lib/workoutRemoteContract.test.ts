@@ -13,6 +13,7 @@ type Vector = {
   idempotencyKey: string;
   deletedAt?: string;
   record: Record<string, unknown> & { id: string };
+  entityId?: string;
   expectedContentHash: string;
   expectedPayloadHash: string;
   expectedRequestDigest: string;
@@ -37,7 +38,7 @@ function requestDigest(vector: Vector, payloadHash: string): string {
     'absinthe-workout-remote-v1', 2, fixture.ownerId, fixture.projectScope,
     'health_workout_session', fixture.namespaceKey, fixture.generationId,
     fixture.deviceId, fixture.bindingId, fixture.authorityEpoch,
-    vector.mutationId, vector.idempotencyKey, vector.record.id,
+    vector.mutationId, vector.idempotencyKey, vector.entityId ?? vector.record.id,
     vector.operation, vector.remoteCasBaseRevision, vector.localRevision, payloadHash,
   ];
   return sha256Hex(JSON.stringify(tuple));
@@ -73,5 +74,18 @@ describe('REL-05G4A shared Python/JS workout vectors', () => {
     validateWorkoutSessionV1({ ...record, localDate: '2024-02-29' });
     expect(() => validateWorkoutSessionV1({ ...record, localDate: '٢٠٢٦-٠٩-٢٤' }))
       .toThrow('workout_session_invalid');
+  });
+
+  it('keeps mixed-case payload UUID bytes while digesting lowercase external identity', () => {
+    const vector = fixture.vectors.find(value => value.name === 'mixed-case-internal-uuid-create')!;
+    validateWorkoutSessionV1(vector.record);
+    expect(vector.record.id).not.toBe(vector.entityId);
+    expect(vector.record.id.toLowerCase()).toBe(vector.entityId);
+    expect(vector.record).toMatchObject({ entries: [{ id: '1234ABCD-5678-4ABC-8DEF-123456789ABC' }] });
+    expect(hashCanonicalPayload(vector.record)).toBe(vector.expectedContentHash);
+    const payload = { kind: 'entity_snapshot', record: vector.record };
+    expect(hashCanonicalPayload(payload)).toBe(vector.expectedPayloadHash);
+    expect(requestDigest(vector, vector.expectedPayloadHash)).toBe(vector.expectedRequestDigest);
+    expect(canonicalPayloadJson(vector.record)).toContain(vector.record.id);
   });
 });

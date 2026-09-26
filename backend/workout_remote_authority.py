@@ -26,8 +26,11 @@ from remote_mutation_v2 import (
 DOMAIN = "health_workout_session"
 MAX_SAFE_INTEGER = 9_007_199_254_740_991
 MAX_WORKOUT_BYTES = 131_072
-UUID_PATTERN = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
-UUID_V4 = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
+UUID_WIRE_PATTERN = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
+UUID_V4_WIRE_PATTERN = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
+UUID_V4_PAYLOAD_PATTERN = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$", re.I)
+# main.py imports this for snapshot-token/server-epoch query validation.
+UUID_PATTERN = UUID_WIRE_PATTERN
 MUTATION_ID_PATTERN = re.compile(r"^mut\.[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 DECIMAL = re.compile(r"^(?:0|[1-9][0-9]*)(?:\.[0-9]*[1-9])?$")
 DATE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
@@ -37,8 +40,12 @@ def _exact(value: Any, keys: set[str]) -> bool:
     return type(value) is dict and set(value) == keys
 
 
-def _uuid4(value: Any) -> bool:
-    return type(value) is str and UUID_V4.fullmatch(value) is not None
+def _payload_uuid4(value: Any) -> bool:
+    return type(value) is str and UUID_V4_PAYLOAD_PATTERN.fullmatch(value) is not None
+
+
+def _wire_uuid4(value: Any) -> bool:
+    return type(value) is str and UUID_V4_WIRE_PATTERN.fullmatch(value) is not None
 
 
 def _safe_int(value: Any, *, positive: bool = False) -> bool:
@@ -75,7 +82,7 @@ def _valid_reps(reps: Any, assisted: Any) -> bool:
 
 
 def _valid_set(value: Any, kind: str, ordinal: int) -> bool:
-    if type(value) is not dict or not _uuid4(value.get("id")) or value.get("ordinal") != ordinal \
+    if type(value) is not dict or not _payload_uuid4(value.get("id")) or value.get("ordinal") != ordinal \
             or not _safe_int(value.get("ordinal"), positive=True) or type(value.get("done")) is not bool \
             or value.get("kind") != kind:
         return False
@@ -108,7 +115,7 @@ def validate_workout_session(record: Any) -> str:
     """Return the canonical content hash, or reject the entire record."""
     if not _exact(record, {"version", "id", "localDate", "entries"}) \
             or type(record["version"]) is not int or record["version"] != 1 \
-            or not _uuid4(record["id"]) or type(record["localDate"]) is not str \
+            or not _payload_uuid4(record["id"]) or type(record["localDate"]) is not str \
             or DATE.fullmatch(record["localDate"]) is None \
             or type(record["entries"]) is not list or not record["entries"]:
         raise ValueError("INVALID_PAYLOAD")
@@ -117,12 +124,13 @@ def validate_workout_session(record: Any) -> str:
     days_by_month = (31, 29 if leap else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
     if month < 1 or month > 12 or day < 1 or day > days_by_month[month - 1]:
         raise ValueError("INVALID_PAYLOAD")
-    identities = {record["id"]}
+    # UUID identity is value-based; original spelling remains untouched for hashes.
+    identities = {UUID(record["id"])}
     for entry in record["entries"]:
-        if not _exact(entry, {"id", "exercise", "sets"}) or not _uuid4(entry["id"]) \
-                or entry["id"] in identities or type(entry["sets"]) is not list or not entry["sets"]:
+        if not _exact(entry, {"id", "exercise", "sets"}) or not _payload_uuid4(entry["id"]) \
+                or UUID(entry["id"]) in identities or type(entry["sets"]) is not list or not entry["sets"]:
             raise ValueError("INVALID_PAYLOAD")
-        identities.add(entry["id"])
+        identities.add(UUID(entry["id"]))
         exercise = entry["exercise"]
         if not _exact(exercise, {"id", "name", "type", "tags", "cardioMode"}) \
                 or (exercise["id"] is not None and type(exercise["id"]) is not str) \
@@ -136,9 +144,9 @@ def validate_workout_session(record: Any) -> str:
                 or (exercise["type"] != "cardio" and exercise["cardioMode"] is not None):
             raise ValueError("INVALID_PAYLOAD")
         for ordinal, workout_set in enumerate(entry["sets"], 1):
-            if not _valid_set(workout_set, exercise["type"], ordinal) or workout_set["id"] in identities:
+            if not _valid_set(workout_set, exercise["type"], ordinal) or UUID(workout_set["id"]) in identities:
                 raise ValueError("INVALID_PAYLOAD")
-            identities.add(workout_set["id"])
+            identities.add(UUID(workout_set["id"]))
     try:
         canonical = canonical_payload_bytes(record)
     except ValueError as error:
@@ -193,7 +201,7 @@ class WorkoutBindingRequest(WorkoutGenerationRequest):
 
     @model_validator(mode="after")
     def validate_binding(self) -> "WorkoutBindingRequest":
-        if not UUID_PATTERN.fullmatch(self.binding_id) or not _safe_int(self.authority_epoch, positive=True):
+        if not UUID_WIRE_PATTERN.fullmatch(self.binding_id) or not _safe_int(self.authority_epoch, positive=True):
             raise ValueError("INVALID_BINDING")
         return self
 
@@ -213,7 +221,7 @@ class WorkoutMutationRequest(WorkoutBindingRequest):
 
     @model_validator(mode="after")
     def validate_mutation(self) -> "WorkoutMutationRequest":
-        if not _uuid4(self.entity_id) or MUTATION_ID_PATTERN.fullmatch(self.mutation_id) is None \
+        if not _wire_uuid4(self.entity_id) or MUTATION_ID_PATTERN.fullmatch(self.mutation_id) is None \
                 or IDEMPOTENCY_PATTERN.fullmatch(self.idempotency_key) is None \
                 or DIGEST_PATTERN.fullmatch(self.payload_hash) is None \
                 or DIGEST_PATTERN.fullmatch(self.request_digest) is None \
@@ -232,10 +240,11 @@ class WorkoutMutationRequest(WorkoutBindingRequest):
         if self.operation in {"upsert", "restore"}:
             if not _exact(self.payload, {"kind", "record"}) \
                     or self.payload["kind"] != "entity_snapshot" \
-                    or type(self.payload["record"]) is not dict \
-                    or self.payload["record"].get("id") != self.entity_id:
+                    or type(self.payload["record"]) is not dict:
                 raise ValueError("INVALID_PAYLOAD")
             validate_workout_session(self.payload["record"])
+            if UUID(self.payload["record"]["id"]) != UUID(self.entity_id):
+                raise ValueError("INVALID_PAYLOAD")
         else:
             if not _exact(self.payload, {"kind", "entityId", "revision", "deletedAt"}) \
                     or self.payload["kind"] != "tombstone" \

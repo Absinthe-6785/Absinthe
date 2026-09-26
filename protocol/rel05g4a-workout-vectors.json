@@ -75,6 +75,70 @@
       "expectedRequestDigest": "8283704343a1586f525faf36cfafaf28f1fe62b500521129d93581272399680f"
     },
     {
+      "name": "mixed-case-internal-uuid-create",
+      "operation": "upsert",
+      "remoteCasBaseRevision": null,
+      "localRevision": 1,
+      "mutationId": "mut.eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+      "idempotencyKey": "k322.eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "entityId": "abcdefab-cdef-4abc-8def-abcdefabcdef",
+      "record": {
+        "version": 1,
+        "id": "ABCDEFAB-CDEF-4ABC-8DEF-ABCDEFABCDEF",
+        "localDate": "2024-02-29",
+        "entries": [{
+          "id": "1234ABCD-5678-4ABC-8DEF-123456789ABC",
+          "exercise": {"id": "Catalog-Mixed", "name": "Push-up", "type": "bodyweight", "tags": ["MIXED"], "cardioMode": null},
+          "sets": [{"id": "FEDCBA98-7654-4FED-8CBA-FEDCBA987654", "ordinal": 1, "kind": "bodyweight", "loadKind": "bodyweight", "reps": 10, "assistedReps": null, "dropset": false, "done": true}]
+        }]
+      },
+      "expectedContentHash": "f4e45f7b2bf41af57bb78c3fe829b263b6c8796dfc1ad4fcee4b5b6df581b9fe",
+      "expectedPayloadHash": "2ac8017f9d34c60a4761d83c4de3a95bf3b48d43b08fd9c13294b6c84928d467",
+      "expectedRequestDigest": "16c496436d2770029f29c95e61d8404927b4da876a8e4278eacbd918588001ec"
+    },
+    {
+      "name": "mixed-case-entry-only-create",
+      "operation": "upsert",
+      "remoteCasBaseRevision": null,
+      "localRevision": 1,
+      "mutationId": "mut.99999999-9999-4999-8999-999999999999",
+      "idempotencyKey": "k322.ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "record": {
+        "version": 1,
+        "id": "abcdefab-cdef-4abc-8def-abcdefabcdef",
+        "localDate": "2024-02-29",
+        "entries": [{
+          "id": "1234ABCD-5678-4ABC-8DEF-123456789ABC",
+          "exercise": {"id": "Catalog-Mixed", "name": "Push-up", "type": "bodyweight", "tags": ["MIXED"], "cardioMode": null},
+          "sets": [{"id": "fedcba98-7654-4fed-8cba-fedcba987654", "ordinal": 1, "kind": "bodyweight", "loadKind": "bodyweight", "reps": 10, "assistedReps": null, "dropset": false, "done": true}]
+        }]
+      },
+      "expectedContentHash": "5bcfbdaa9138d695fa6e24cf1110e2b2ed0595eeeab97915b2543049b91b43a0",
+      "expectedPayloadHash": "a899f022e769797c940d36cc9e10f96c0d5690115df1324664d71cffb9a4ec30",
+      "expectedRequestDigest": "97b552ffac818774e02b31d58c7f3c4fe9b90ae1d11bde3cba8725b4dd4dfe25"
+    },
+    {
+      "name": "mixed-case-set-only-create",
+      "operation": "upsert",
+      "remoteCasBaseRevision": null,
+      "localRevision": 1,
+      "mutationId": "mut.88888888-8888-4888-8888-888888888888",
+      "idempotencyKey": "k322.1111111111111111111111111111111111111111111111111111111111111111",
+      "record": {
+        "version": 1,
+        "id": "abcdefab-cdef-4abc-8def-abcdefabcdef",
+        "localDate": "2024-02-29",
+        "entries": [{
+          "id": "1234abcd-5678-4abc-8def-123456789abc",
+          "exercise": {"id": "Catalog-Mixed", "name": "Push-up", "type": "bodyweight", "tags": ["MIXED"], "cardioMode": null},
+          "sets": [{"id": "FEDCBA98-7654-4FED-8CBA-FEDCBA987654", "ordinal": 1, "kind": "bodyweight", "loadKind": "bodyweight", "reps": 10, "assistedReps": null, "dropset": false, "done": true}]
+        }]
+      },
+      "expectedContentHash": "f3254fd0dac6553ab6ff4aba3858b502cb528886aab54ea2b5077d2a6cb988f0",
+      "expectedPayloadHash": "934f289e1a3b5bbb686184529ce745228463add2b479baca405afaea471db2b7",
+      "expectedRequestDigest": "4bc16c5f2da16f25c159920547b44ac5d00162f8146b5668060f8c19a902a6bb"
+    },
+    {
       "name": "mixed-restore",
       "operation": "restore",
       "remoteCasBaseRevision": 3,

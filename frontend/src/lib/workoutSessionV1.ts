@@ -299,18 +299,19 @@ export function validateWorkoutSessionV1(value: unknown): asserts value is Worko
   if (!isRecord(value) || !hasExactKeys(value, ['version', 'id', 'localDate', 'entries'])
     || value.version !== 1 || !validUuid(value.id) || !validLocalDate(value.localDate)
     || !Array.isArray(value.entries) || value.entries.length === 0) fail();
-  const identities = new Set<string>([value.id]);
+  // UUID equality is value-based; retain each original spelling in the payload.
+  const identities = new Set<string>([value.id.toLowerCase()]);
   for (const entry of value.entries) {
     if (!isRecord(entry) || !hasExactKeys(entry, ['id', 'exercise', 'sets'])
       || !validUuid(entry.id) || !validateExercise(entry.exercise)
       || !Array.isArray(entry.sets) || entry.sets.length === 0) fail();
-    if (identities.has(entry.id)) fail();
-    identities.add(entry.id);
+    if (identities.has(entry.id.toLowerCase())) fail();
+    identities.add(entry.id.toLowerCase());
     for (let index = 0; index < entry.sets.length; index += 1) {
       const set = entry.sets[index];
       if (!validateSet(set, entry.exercise.type, index + 1)) fail();
-      if (identities.has(set.id)) fail();
-      identities.add(set.id);
+      if (identities.has(set.id.toLowerCase())) fail();
+      identities.add(set.id.toLowerCase());
     }
   }
   const byteLength = new TextEncoder().encode(canonicalPayloadJson(value)).byteLength;

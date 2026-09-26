@@ -117,6 +117,28 @@ def test_noncanonical_mutation_identity_is_http_400_before_rpc(client, field: st
     assert fake.calls == []
 
 
+def test_mixed_case_payload_is_accepted_with_lowercase_external_entity_id(client) -> None:
+    http, fake = client
+    vector = next(value for value in VECTORS["vectors"] if value["name"] == "mixed-case-internal-uuid-create")
+    request = wire(vector)
+    response = http.post("/api/sync/v2/workouts/mutations", json=request)
+    assert response.status_code == 200
+    assert len(fake.calls) == 1
+    name, params = fake.calls[0]
+    assert name == "apply_health_workout_mutation_v1"
+    assert params["p_entity_id"] == vector["entityId"]
+    assert params["p_payload"]["record"] == vector["record"]
+    assert params["p_payload_hash"] == vector["expectedPayloadHash"]
+    assert params["p_content_hash"] == vector["expectedContentHash"]
+    assert params["p_request_digest"] == vector["expectedRequestDigest"]
+
+    mismatched = deepcopy(request)
+    mismatched["entityId"] = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    rejected = http.post("/api/sync/v2/workouts/mutations", json=mismatched)
+    assert rejected.status_code == 400 and rejected.json()["detail"] == "INVALID_PAYLOAD"
+    assert len(fake.calls) == 1
+
+
 def test_unicode_date_and_noncanonical_query_uuid_are_rejected_before_rpc(client) -> None:
     http, fake = client
     request = deepcopy(wire(VECTORS["vectors"][0]))

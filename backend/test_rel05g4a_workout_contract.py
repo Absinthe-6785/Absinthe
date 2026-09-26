@@ -29,7 +29,7 @@ def wire(vector: dict) -> dict:
         "protocolVersion": 2, "namespaceKey": VECTORS["namespaceKey"],
         "generationId": VECTORS["generationId"], "deviceId": VECTORS["deviceId"],
         "bindingId": VECTORS["bindingId"], "authorityEpoch": VECTORS["authorityEpoch"],
-        "domain": "health_workout_session", "entityId": vector["record"]["id"],
+        "domain": "health_workout_session", "entityId": vector.get("entityId", vector["record"]["id"]),
         "mutationId": vector["mutationId"], "idempotencyKey": vector["idempotencyKey"],
         "operation": vector["operation"],
         "remoteCasBaseRevision": vector["remoteCasBaseRevision"],
@@ -139,9 +139,37 @@ def test_remote_wire_rejects_noncanonical_identifier_case(field: str, value: str
         WorkoutMutationRequest.model_validate(request)
 
 
-def test_session_uuid_text_is_lowercase_on_remote_wire() -> None:
-    record = deepcopy(VECTORS["vectors"][3]["record"])
-    record["entries"][0]["id"] = record["entries"][0]["id"].upper()
+def test_mixed_case_payload_uuid_spelling_is_preserved_across_hash_boundaries() -> None:
+    vector = next(value for value in VECTORS["vectors"] if value["name"] == "mixed-case-internal-uuid-create")
+    request = WorkoutMutationRequest.model_validate(wire(vector))
+    record = request.payload["record"]
+    assert record["id"] == vector["record"]["id"]
+    assert record["entries"][0]["id"] == vector["record"]["entries"][0]["id"]
+    assert record["entries"][0]["sets"][0]["id"] == vector["record"]["entries"][0]["sets"][0]["id"]
+    assert request.entity_id == vector["entityId"]
+    assert validate_workout_session(record) == request.content_hash() == vector["expectedContentHash"]
+    assert payload_hash(request.payload) == vector["expectedPayloadHash"]
+    assert workout_request_digest(request, VECTORS["ownerId"], VECTORS["projectScope"]) \
+        == vector["expectedRequestDigest"]
+
+
+def test_payload_uuid_value_equality_and_case_only_duplicate_safety() -> None:
+    vector = next(value for value in VECTORS["vectors"] if value["name"] == "mixed-case-internal-uuid-create")
+    request = wire(vector)
+    assert WorkoutMutationRequest.model_validate(request).entity_id == vector["entityId"]
+    different = deepcopy(request)
+    different["entityId"] = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    with pytest.raises(ValueError, match="INVALID_PAYLOAD"):
+        WorkoutMutationRequest.model_validate(different)
+    for duplicate in ("id", "entry"):
+        record = deepcopy(vector["record"])
+        record["entries"][0]["sets"][0]["id"] = (
+            record["id"].lower() if duplicate == "id" else record["entries"][0]["id"].lower()
+        )
+        with pytest.raises(ValueError, match="INVALID_PAYLOAD"):
+            validate_workout_session(record)
+    record = deepcopy(vector["record"])
+    record["entries"][0]["id"] = "1234ABCD-5678-5ABC-8DEF-123456789ABC"
     with pytest.raises(ValueError, match="INVALID_PAYLOAD"):
         validate_workout_session(record)
 

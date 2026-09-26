@@ -63,12 +63,19 @@ receipt or change write. Explicit adoption remains outside G4A.
 UUIDv4 IDs, nonempty ordered entries/sets, unique IDs, exercise/set kind
 coherence, contiguous 1-based set ordinals, safe integers, and canonical
 decimal strings. `localDate` uses ASCII digits and real calendar validity.
-The dormant G4A remote wire requires lowercase UUID text in its session and
-authority identifiers (including `entityId`, `bindingId`, mutation UUID
-component and snapshot token); mixed-case values are rejected with a
-deterministic HTTP 400 before the RPC. This remote boundary does not rewrite
-or narrow existing G1-G3 local records; future G4B must account for any
-legacy mixed-case local identifiers explicitly. Canonical UTF-8 record bytes
+The dormant G4A external authority wire requires lowercase UUID text in
+`entityId`, `bindingId`, the mutation UUID component and snapshot token;
+mixed-case external values are rejected with a deterministic HTTP 400 before
+the RPC. Inside a `WorkoutSessionV1` payload, session/entry/set UUIDv4 text
+retains the frozen frontend's case-insensitive grammar. UUID-value equality
+checks that payload `record.id` matches external `entityId`, and case-only
+duplicate session/entry/set UUIDs are invalid. Neither validation nor SQL
+lowercases the stored payload strings: content/payload hashes commit their
+original spelling. For G4B, a mixed-case local session must retain its exact
+record and hashes, derive lowercase external `entityId` from the UUID value,
+then compute requestDigest using that external ID plus the original payload
+hash. G4B owns that binding/delivery step; G4A rewrites no G1-G3 local data.
+Canonical UTF-8 record bytes
 may not exceed 131072. The
 decimal grammar is `^(?:0|[1-9][0-9]*)(?:\.[0-9]*[1-9])?$`; weight/source
 have at most two fractional digits and distance meters at most three.
