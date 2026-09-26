@@ -385,6 +385,7 @@ declare
   v_sequence bigint;
   v_response jsonb;
   v_error text;
+  v_expected_digest text;
 begin
   if p_namespace is null or p_namespace !~ '^[a-f0-9]{64}$'
     or p_generation is null or p_generation !~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'
@@ -430,6 +431,22 @@ begin
     p_owner, p_project, p_namespace, p_generation, p_device, p_binding, p_authority_epoch);
   if v_binding_error is not null then
     return jsonb_build_object('outcome', 'rejected', 'errorCode', v_binding_error);
+  end if;
+
+  -- All digest tuple values are ASCII-safe identifiers/UUIDs/integers. The
+  -- JSON array has the same field order as Python/JS; json_build_array emits
+  -- comma-space separators, so remove only those separators (no bound string
+  -- can contain comma/space under the validated identifier grammar).
+  v_expected_digest := encode(digest(convert_to(replace(json_build_array(
+    'absinthe-workout-remote-v1', 2, p_owner::text, p_project,
+    'health_workout_session', p_namespace, p_generation, p_device,
+    p_binding::text, (v_context ->> 'authorityEpoch')::bigint,
+    p_mutation_id, p_idempotency_key, p_entity_id::text, p_operation,
+    p_base_revision, p_local_revision, p_payload_hash
+  )::text, ', ', ','), 'UTF8'), 'sha256'), 'hex');
+  if p_request_digest <> v_expected_digest then
+    return jsonb_build_object('outcome', 'rejected',
+      'errorCode', 'REQUEST_DIGEST_MISMATCH');
   end if;
 
   -- Shared receipt uniqueness also spans older K-323 domains. Match their

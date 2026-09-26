@@ -62,7 +62,9 @@ have at most two fractional digits and distance meters at most three.
 Pounds-to-kilograms verification uses exact decimal multiplication by
 `0.45359237` and HALF_UP to two places, never binary float. The server
 recomputes both the canonical payload hash and request digest before calling
-the SQL authority RPC. The shared JSON fixture
+the SQL authority RPC. After SQL establishes the current epoch and exact
+binding, it independently recomputes the same digest tuple and rejects a
+mismatch before receipt lookup. The shared JSON fixture
 `protocol/rel05g4a-workout-vectors.json` is consumed by Python and JS tests.
 
 The request digest is SHA-256 of compact JSON array encoding with this exact

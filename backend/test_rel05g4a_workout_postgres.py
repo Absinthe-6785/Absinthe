@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -76,7 +77,7 @@ def _mutation_sql(
     owner: str, generation: tuple[str, str, str], binding: str,
     entity_id: str, mutation_id: str, idempotency_key: str, operation: str,
     base: int | None, local: int, record: dict,
-    *, digest: str = "1" * 64, epoch: int = 1,
+    *, digest: str | None = None, epoch: int = 1,
 ) -> str:
     payload = ({"kind": "tombstone", "entityId": entity_id, "revision": local,
                 "deletedAt": "2026-09-24T10:00:00Z"}
@@ -84,13 +85,23 @@ def _mutation_sql(
     payload_json = _quoted(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
     base_sql = "null" if base is None else str(base)
     content_hash_sql = "null" if operation == "tombstone" else _quoted(payload_hash(record))
+    canonical_payload_hash = payload_hash(payload)
+    expected_tuple = [
+        "absinthe-workout-remote-v1", 2, owner, PROJECT, "health_workout_session",
+        generation[0], generation[1], generation[2], binding, epoch,
+        mutation_id, idempotency_key, entity_id, operation, base, local,
+        canonical_payload_hash,
+    ]
+    request_digest = digest or hashlib.sha256(json.dumps(
+        expected_tuple, ensure_ascii=False, separators=(",", ":"),
+    ).encode("utf-8")).hexdigest()
     return (
         "select public.apply_health_workout_mutation_v1("
         f"{_quoted(owner)}::uuid, {_quoted(PROJECT)}, {_quoted(generation[0])}, "
         f"{_quoted(generation[1])}, {_quoted(generation[2])}, {_quoted(binding)}::uuid, {epoch}, "
         f"{_quoted(entity_id)}::uuid, {_quoted(mutation_id)}, {_quoted(idempotency_key)}, "
         f"{_quoted(operation)}, {base_sql}, {local}, {payload_json}::jsonb, "
-        f"{_quoted(payload_hash(payload))}, {content_hash_sql}, {_quoted(digest)})"
+        f"{_quoted(canonical_payload_hash)}, {content_hash_sql}, {_quoted(request_digest)})"
     )
 
 
@@ -215,7 +226,10 @@ def test_cas_replay_cross_device_pull_snapshot_and_account_isolation(postgres) -
     changed_digest = _mutation_sql(OWNER_A, DESKTOP, desktop_binding, entity_id,
                                    mutation_id, idempotency_key, "upsert", None, 1, record,
                                    digest="2" * 64)
-    assert _call(docker, name, changed_digest)["errorCode"] == "MUTATION_ID_CONFLICT"
+    assert _call(docker, name, changed_digest)["errorCode"] == "REQUEST_DIGEST_MISMATCH"
+    valid_changed_tuple = _mutation_sql(OWNER_A, DESKTOP, desktop_binding, entity_id,
+        mutation_id, idempotency_key, "upsert", None, 2, record)
+    assert _call(docker, name, valid_changed_tuple)["errorCode"] == "MUTATION_ID_CONFLICT"
     stale_epoch = _mutation_sql(OWNER_A, DESKTOP, desktop_binding, entity_id,
                                 mutation_id, idempotency_key, "upsert", None, 1, record, epoch=2)
     assert _call(docker, name, stale_epoch)["errorCode"] == "STALE_AUTHORITY_EPOCH"
@@ -345,9 +359,9 @@ def test_real_concurrent_replay_cas_digest_race_and_authority_lock(postgres) -> 
     collision_record = _record(collision_entity)
     collision_id, collision_key = _identity()
     same_id_a = _mutation_sql(OWNER_A, DESKTOP, binding, collision_entity,
-        collision_id, collision_key, "upsert", None, 1, collision_record, digest="1" * 64)
+        collision_id, collision_key, "upsert", None, 1, collision_record)
     same_id_b = _mutation_sql(OWNER_A, DESKTOP, binding, collision_entity,
-        collision_id, collision_key, "upsert", None, 1, collision_record, digest="2" * 64)
+        collision_id, collision_key, "upsert", None, 2, collision_record)
     collision = race(same_id_a, same_id_b)
     assert {item.get("errorCode") for item in collision} == {None, "MUTATION_ID_CONFLICT"}
     assert _psql(docker, name, "select count(*) from public.remote_reference_changes_v2 "
