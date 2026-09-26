@@ -154,7 +154,10 @@ def postgres():
     assert started.returncode == 0, started.stderr
     try:
         for _ in range(60):
-            if _run([docker, "exec", name, "pg_isready", "-U", "postgres"]).returncode == 0:
+            # The image briefly starts an initialization-only Unix-socket
+            # server, shuts it down, then starts the final TCP server.
+            if _run([docker, "exec", name, "pg_isready", "-h", "127.0.0.1",
+                     "-U", "postgres"]).returncode == 0:
                 break
             time.sleep(0.5)
         else:
