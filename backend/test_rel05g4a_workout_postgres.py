@@ -271,7 +271,10 @@ def test_dormant_g1_rows_never_become_remote_authority_by_matching_cas(postgres)
 
 def test_mixed_case_payload_uuid_survives_mutation_replay_history_and_snapshot(postgres) -> None:
     docker, name = postgres
-    binding = _ready(docker, name, OWNER_A, DESKTOP)
+    # The PostgreSQL fixture is module-scoped. Isolate this lifecycle from the
+    # older account-wide snapshot assertions for OWNER_A and OWNER_B.
+    owner = "33333333-3333-4333-8333-333333333333"
+    binding = _ready(docker, name, owner, DESKTOP)
     entity_id = "abcdefab-cdef-4abc-8def-abcdefabcdef"
     record = _record(entity_id)
     record["id"] = entity_id.upper()
@@ -279,7 +282,7 @@ def test_mixed_case_payload_uuid_survives_mutation_replay_history_and_snapshot(p
     record["entries"][0]["sets"][0]["id"] = "FEDCBA98-7654-4FED-8CBA-FEDCBA987654"
     first_hash = payload_hash(record)
     mutation_id, key = _identity()
-    create_sql = _mutation_sql(OWNER_A, DESKTOP, binding, entity_id,
+    create_sql = _mutation_sql(owner, DESKTOP, binding, entity_id,
         mutation_id, key, "upsert", None, 1, record)
     created = _call(docker, name, create_sql)
     assert created["outcome"] == "success" and created["serverRevision"] == 1
@@ -288,23 +291,23 @@ def test_mixed_case_payload_uuid_survives_mutation_replay_history_and_snapshot(p
     assert replay["outcome"] == "exact_replay"
     assert replay["remoteMutationRef"] == created["remoteMutationRef"]
     assert _psql(docker, name, "select count(*) from public.remote_reference_changes_v2 "
-        f"where authenticated_owner_id='{OWNER_A}'::uuid and entity_id='{entity_id}'::uuid;") == "1"
+        f"where authenticated_owner_id='{owner}'::uuid and entity_id='{entity_id}'::uuid;") == "1"
 
     updated_record = deepcopy(record)
     updated_record["entries"][0]["sets"][0]["reps"] = 11
     updated_hash = payload_hash(updated_record)
     update_id, update_key = _identity()
-    updated = _call(docker, name, _mutation_sql(OWNER_A, DESKTOP, binding, entity_id,
+    updated = _call(docker, name, _mutation_sql(owner, DESKTOP, binding, entity_id,
         update_id, update_key, "upsert", 1, 2, updated_record))
     assert updated["outcome"] == "success" and updated["serverRevision"] == 2
     assert updated["contentHash"] == updated_hash
     tomb_id, tomb_key = _identity()
-    tombstoned = _call(docker, name, _mutation_sql(OWNER_A, DESKTOP, binding, entity_id,
+    tombstoned = _call(docker, name, _mutation_sql(owner, DESKTOP, binding, entity_id,
         tomb_id, tomb_key, "tombstone", 2, 3, updated_record))
     assert tombstoned["outcome"] == "success" and tombstoned["serverRevision"] == 3
     assert tombstoned["contentHash"] == updated_hash
     restore_id, restore_key = _identity()
-    restored = _call(docker, name, _mutation_sql(OWNER_A, DESKTOP, binding, entity_id,
+    restored = _call(docker, name, _mutation_sql(owner, DESKTOP, binding, entity_id,
         restore_id, restore_key, "restore", 3, 4, updated_record))
     assert restored["outcome"] == "success" and restored["serverRevision"] == 4
     assert restored["contentHash"] == updated_hash
@@ -313,25 +316,25 @@ def test_mixed_case_payload_uuid_survives_mutation_replay_history_and_snapshot(p
         "select jsonb_build_object('record', record, 'contentHash', content_hash, "
         "'lastMutationRef', last_remote_mutation_ref::text)::text "
         "from public.health_workout_sessions_v2 "
-        f"where user_id='{OWNER_A}'::uuid and project_scope='{PROJECT}' and id='{entity_id}'::uuid;"))
+        f"where user_id='{owner}'::uuid and project_scope='{PROJECT}' and id='{entity_id}'::uuid;"))
     assert entity["record"] == updated_record and entity["contentHash"] == updated_hash
     assert entity["lastMutationRef"] == restored["remoteMutationRef"]
     changes = json.loads(_psql(docker, name,
         "select jsonb_agg(jsonb_build_object('record', record, 'contentHash', content_hash) "
         "order by server_revision)::text from public.remote_reference_changes_v2 "
-        f"where authenticated_owner_id='{OWNER_A}'::uuid and project_scope='{PROJECT}' "
+        f"where authenticated_owner_id='{owner}'::uuid and project_scope='{PROJECT}' "
         f"and domain='health_workout_session' and entity_id='{entity_id}'::uuid;"))
     assert changes == [{"record": record, "contentHash": first_hash}] + [
         {"record": updated_record, "contentHash": updated_hash}
     ] * 3
     assert _psql(docker, name, "select count(*) from public.remote_mutation_receipts "
-        f"where authenticated_owner_id='{OWNER_A}'::uuid and entity_id='{entity_id}'::uuid "
+        f"where authenticated_owner_id='{owner}'::uuid and entity_id='{entity_id}'::uuid "
         f"and content_hash in ('{first_hash}','{updated_hash}');") == "4"
     snapshot = _call(docker, name, "select public.begin_health_workout_snapshot_v1("
-        f"'{OWNER_A}'::uuid,'{PROJECT}','{DESKTOP[0]}','{DESKTOP[1]}','{DESKTOP[2]}',"
+        f"'{owner}'::uuid,'{PROJECT}','{DESKTOP[0]}','{DESKTOP[1]}','{DESKTOP[2]}',"
         f"'{binding}'::uuid,1)")
     page = _call(docker, name, "select public.page_health_workout_snapshot_v1("
-        f"'{OWNER_A}'::uuid,'{PROJECT}','{DESKTOP[0]}','{DESKTOP[1]}','{DESKTOP[2]}',"
+        f"'{owner}'::uuid,'{PROJECT}','{DESKTOP[0]}','{DESKTOP[1]}','{DESKTOP[2]}',"
         f"'{binding}'::uuid,1,'{snapshot['snapshotToken']}'::uuid,null,100)")
     row = next(value for value in page["rows"] if value["entityId"] == entity_id)
     assert row["record"] == updated_record and row["contentHash"] == updated_hash
@@ -339,12 +342,12 @@ def test_mixed_case_payload_uuid_survives_mutation_replay_history_and_snapshot(p
     mismatch = deepcopy(record)
     mismatch["id"] = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
     bad_id, bad_key = _identity()
-    rejected = _mutation_sql(OWNER_A, DESKTOP, binding, entity_id,
+    rejected = _mutation_sql(owner, DESKTOP, binding, entity_id,
         bad_id, bad_key, "upsert", 4, 5, mismatch)
     assert "REL05G4A_INVALID_PAYLOAD" in _psql(
         docker, name, "set role service_role; " + rejected + ";", expect_error=True)
     assert _psql(docker, name, "select revision from public.health_workout_sessions_v2 "
-        f"where user_id='{OWNER_A}'::uuid and id='{entity_id}'::uuid;") == "4"
+        f"where user_id='{owner}'::uuid and id='{entity_id}'::uuid;") == "4"
 
 
 def test_cas_replay_cross_device_pull_snapshot_and_account_isolation(postgres) -> None:
