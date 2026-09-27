@@ -59,6 +59,33 @@ receipt or change write. Explicit adoption remains outside G4A.
 
 ## Canonical wire contract
 
+For every structurally valid authenticated authority read, including
+`CAPABILITY_DISABLED`, `registration_required`, `bound`, and the default-off
+`WORKOUT_REMOTE_FOUNDATION_DISABLED` HTTP 423, the response includes
+`projectScope`. The authenticated generation-registration HTTP
+response also includes it for success, exact repeated registration,
+deterministic RPC rejection, and the feature-disabled 423. This additive
+protocol-v2 field is the trusted
+server-selected `K323_PROJECT_SCOPE` used by those RPCs and the workout
+request digest; it is not a client-selected input or a secret. Authentication
+and request-validation errors do not disclose it. Its presence does not
+grant workout capability or authorize a binding. G4B must obtain it from
+authenticated authority/registration evidence and use that exact string in
+the digest, rather than assume the backend's default configuration. The
+server continues to derive the project from its own configuration on every
+RPC. If that configuration changes, the project namespace and digest change:
+old bindings, receipts, and digests are not silently reinterpreted in the
+new scope, and retries must not substitute a different scope for the original
+request. Before creating any immutable workout `deliveryBinding`, G4B must
+hold authenticated authority evidence with `projectScope`, `authorityEpoch`,
+the server's `bindingId` (G4B `generationBindingId`), and current
+namespace/generation/device identity. The bound request digest uses exactly
+that returned scope, never a frontend default, local `projectRef`, or guessed
+server configuration. Scope rotation and rebinding are not implemented here.
+This is a backward-compatible additive field under `protocolVersion: 2`;
+the digest tuple, protocol version, SQL authority state, and product runtime
+remain unchanged.
+
 `WorkoutSessionV1` validation is strict on the server: exact object keys,
 UUIDv4 IDs, nonempty ordered entries/sets, unique IDs, exercise/set kind
 coherence, contiguous 1-based set ordinals, safe integers, and canonical

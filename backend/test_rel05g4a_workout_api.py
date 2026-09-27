@@ -8,11 +8,13 @@ import pytest
 
 import main
 from test_rel05g4a_workout_contract import VECTORS, wire
+from workout_remote_authority import WorkoutMutationRequest, workout_request_digest
 
 
 class FakeWorkoutRpc:
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict]] = []
+        self.responses: dict[str, dict] = {}
 
     def rpc(self, name: str, params: dict):
         self.calls.append((name, params))
@@ -29,6 +31,7 @@ class FakeWorkoutRpc:
             data = {"status": "snapshot", "snapshotToken": VECTORS["bindingId"], "errorCode": None}
         else:
             data = {"status": "snapshot_page", "rows": [], "errorCode": None}
+        data = self.responses.get(name, data)
         return SimpleNamespace(execute=lambda: SimpleNamespace(data=data))
 
 
@@ -47,12 +50,28 @@ def client(monkeypatch: pytest.MonkeyPatch):
 
 def test_default_off_even_for_valid_workout_request(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(main, "WORKOUT_REMOTE_FOUNDATION_ENABLED", False)
+    monkeypatch.setattr(main, "K323_PROJECT_SCOPE", "nondefault-workout-project")
     main.app.dependency_overrides[main.get_remote_mutation_user] = lambda: VECTORS["ownerId"]
     try:
-        response = TestClient(main.app).post(
+        http = TestClient(main.app)
+        response = http.post(
             "/api/sync/v2/workouts/mutations", json=wire(VECTORS["vectors"][0]),
         )
         assert response.status_code == 423
+        authority = http.get("/api/sync/v2/workouts/authority", params={
+            "namespaceKey": VECTORS["namespaceKey"], "generationId": VECTORS["generationId"],
+            "deviceId": VECTORS["deviceId"],
+        })
+        generation = http.post("/api/sync/v2/workouts/generations", json={
+            "protocolVersion": 2, "namespaceKey": VECTORS["namespaceKey"],
+            "generationId": VECTORS["generationId"], "deviceId": VECTORS["deviceId"],
+        })
+        expected = {
+            "detail": "WORKOUT_REMOTE_FOUNDATION_DISABLED",
+            "projectScope": "nondefault-workout-project",
+        }
+        assert authority.status_code == 423 and authority.json() == expected
+        assert generation.status_code == 423 and generation.json() == expected
     finally:
         main.app.dependency_overrides.clear()
 
@@ -61,8 +80,108 @@ def test_workout_endpoints_require_authentication() -> None:
     http = TestClient(main.app)
     mutation = http.post("/api/sync/v2/workouts/mutations", json=wire(VECTORS["vectors"][0]))
     pull = http.get("/api/sync/v2/workouts/changes")
+    authority = http.get("/api/sync/v2/workouts/authority", params={
+        "namespaceKey": VECTORS["namespaceKey"], "generationId": VECTORS["generationId"],
+        "deviceId": VECTORS["deviceId"],
+    })
+    generation = http.post("/api/sync/v2/workouts/generations", json={
+        "protocolVersion": 2, "namespaceKey": VECTORS["namespaceKey"],
+        "generationId": VECTORS["generationId"], "deviceId": VECTORS["deviceId"],
+    })
     assert mutation.status_code in {401, 403}
     assert pull.status_code in {401, 403}
+    assert authority.status_code in {401, 403} and "projectScope" not in authority.json()
+    assert generation.status_code in {401, 403} and "projectScope" not in generation.json()
+
+
+@pytest.mark.parametrize("authority,status", [
+    ({"capability": "FOUNDATION_READY", "bindingState": "bound", "errorCode": None}, 200),
+    ({"capability": "FOUNDATION_READY", "bindingState": "registration_required", "errorCode": None}, 200),
+    ({"capability": "DISABLED", "authorityEpoch": None, "errorCode": "CAPABILITY_DISABLED"}, 423),
+])
+def test_authority_exposes_server_scope_in_all_authenticated_states(
+    client, monkeypatch: pytest.MonkeyPatch, authority: dict, status: int,
+) -> None:
+    http, fake = client
+    scope = "nondefault-workout-project"
+    monkeypatch.setattr(main, "K323_PROJECT_SCOPE", scope)
+    fake.responses["read_health_workout_authority_v1"] = authority
+    response = http.get("/api/sync/v2/workouts/authority", params={
+        "namespaceKey": VECTORS["namespaceKey"], "generationId": VECTORS["generationId"],
+        "deviceId": VECTORS["deviceId"], "projectScope": "untrusted-client-value",
+    })
+    assert response.status_code == status
+    assert response.json() == {**authority, "projectScope": scope}
+    assert fake.calls == [("read_health_workout_authority_v1", {
+        "p_owner": VECTORS["ownerId"], "p_project": scope,
+        "p_namespace": VECTORS["namespaceKey"], "p_generation": VECTORS["generationId"],
+        "p_device": VECTORS["deviceId"],
+    })]
+
+
+def test_generation_exposes_server_scope_for_bound_replay_and_rejection(
+    client, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    http, fake = client
+    scope = "nondefault-workout-project"
+    monkeypatch.setattr(main, "K323_PROJECT_SCOPE", scope)
+    generation = {
+        "protocolVersion": 2, "namespaceKey": VECTORS["namespaceKey"],
+        "generationId": VECTORS["generationId"], "deviceId": VECTORS["deviceId"],
+    }
+    for _ in range(2):
+        response = http.post("/api/sync/v2/workouts/generations", json=generation)
+        assert response.status_code == 200
+        assert response.json()["projectScope"] == scope
+        assert response.json()["bindingId"] == VECTORS["bindingId"]
+    fake.responses["register_health_workout_generation_v1"] = {
+        "errorCode": "CAPABILITY_DISABLED", "capability": "DISABLED",
+    }
+    rejected = http.post("/api/sync/v2/workouts/generations", json=generation)
+    assert rejected.status_code == 423
+    assert rejected.json()["projectScope"] == scope
+    assert all(params["p_project"] == scope for _, params in fake.calls)
+    forged = http.post("/api/sync/v2/workouts/generations", json={
+        **generation, "projectScope": "untrusted-client-value",
+    })
+    assert forged.status_code == 400
+    assert len(fake.calls) == 3
+
+
+def test_returned_scope_is_sufficient_for_digest_and_wrong_scope_is_rejected(
+    client, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    http, fake = client
+    monkeypatch.setattr(main, "K323_PROJECT_SCOPE", "nondefault-workout-project")
+    authority = http.get("/api/sync/v2/workouts/authority", params={
+        "namespaceKey": VECTORS["namespaceKey"], "generationId": VECTORS["generationId"],
+        "deviceId": VECTORS["deviceId"],
+    })
+    assert authority.status_code == 200
+    scope = authority.json()["projectScope"]
+    assert scope == "nondefault-workout-project"
+    generation = http.post("/api/sync/v2/workouts/generations", json={
+        "protocolVersion": 2, "namespaceKey": VECTORS["namespaceKey"],
+        "generationId": VECTORS["generationId"], "deviceId": VECTORS["deviceId"],
+    })
+    assert generation.status_code == 200
+    assert generation.json()["projectScope"] == scope
+    assert all(params["p_project"] == scope for _, params in fake.calls)
+    request = wire(VECTORS["vectors"][0])
+    mutation = WorkoutMutationRequest.model_validate(request)
+    request["requestDigest"] = workout_request_digest(mutation, VECTORS["ownerId"], scope)
+    accepted = http.post("/api/sync/v2/workouts/mutations", json=request)
+    assert accepted.status_code == 200
+    assert fake.calls[-1][1]["p_project"] == scope
+    assert fake.calls[-1][1]["p_request_digest"] == request["requestDigest"]
+    mutation_call_count = len(fake.calls)
+    request["requestDigest"] = workout_request_digest(
+        mutation, VECTORS["ownerId"], "absinthe-health-routines",
+    )
+    rejected = http.post("/api/sync/v2/workouts/mutations", json=request)
+    assert rejected.status_code == 400
+    assert rejected.json()["errorCode"] == "REQUEST_DIGEST_MISMATCH"
+    assert len(fake.calls) == mutation_call_count
 
 
 def test_server_derives_owner_and_project_and_recomputes_digest(client) -> None:

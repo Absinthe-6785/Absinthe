@@ -396,6 +396,19 @@ def _workout_result(value: dict) -> JSONResponse:
     return JSONResponse(status_code=status, content=value)
 
 
+def _workout_scope_result(value: dict) -> JSONResponse:
+    """Expose the same trusted project used for workout RPCs and request digests."""
+    return _workout_result({**value, "projectScope": K323_PROJECT_SCOPE})
+
+
+def _workout_control_rpc(name: str, params: dict) -> JSONResponse:
+    if not WORKOUT_REMOTE_FOUNDATION_ENABLED:
+        return JSONResponse(status_code=423, content={
+            "detail": "WORKOUT_REMOTE_FOUNDATION_DISABLED", "projectScope": K323_PROJECT_SCOPE,
+        })
+    return _workout_scope_result(_workout_rpc(name, params))
+
+
 @app.get("/api/sync/v2/workouts/authority")
 async def read_workout_authority_v1(
     namespaceKey: str, generationId: str, deviceId: str,
@@ -409,11 +422,11 @@ async def read_workout_authority_v1(
         })
     except ValueError as error:
         raise HTTPException(status_code=400, detail="INVALID_GENERATION") from error
-    return _workout_result(_workout_rpc("read_health_workout_authority_v1", {
+    return _workout_control_rpc("read_health_workout_authority_v1", {
         "p_owner": user_id, "p_project": K323_PROJECT_SCOPE,
         "p_namespace": identity.namespace_key, "p_generation": identity.generation_id,
         "p_device": identity.device_id,
-    }))
+    })
 
 
 @app.post("/api/sync/v2/workouts/generations")
@@ -424,11 +437,11 @@ async def register_workout_generation_v1(
         identity = WorkoutGenerationRequest.model_validate(payload)
     except ValueError as error:
         raise HTTPException(status_code=400, detail="INVALID_GENERATION") from error
-    return _workout_result(_workout_rpc("register_health_workout_generation_v1", {
+    return _workout_control_rpc("register_health_workout_generation_v1", {
         "p_owner": user_id, "p_project": K323_PROJECT_SCOPE,
         "p_namespace": identity.namespace_key, "p_generation": identity.generation_id,
         "p_device": identity.device_id,
-    }))
+    })
 
 
 @app.post("/api/sync/v2/workouts/mutations")
