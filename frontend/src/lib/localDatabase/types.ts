@@ -158,16 +158,27 @@ export interface WorkoutRemoteIdRecordV1 {
   mappedAt: string;
 }
 
-/** Reserved only. G4B3 owns population and interpretation. */
+/** G4B3's durable fixed-watermark download. An unfinished session is never authoritative. */
 export interface WorkoutFullResyncSessionRecordV1 {
   accountId: string;
   namespaceKey: string;
   generationId: string;
   sessionId: string;
   version: 1;
+  snapshotToken: string;
+  authorityEpoch: number;
+  generationBindingId: string;
+  serverEpoch: string;
+  watermark: number;
+  status: 'staging' | 'ready' | 'committed' | 'abandoned';
+  afterEntityId: string | null;
+  itemCount: number;
+  stagedBytes: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
-/** Reserved only. G4B3 owns population and interpretation. */
+/** One validated server row, keyed by its canonical wire UUID. */
 export interface WorkoutFullResyncItemRecordV1 {
   accountId: string;
   namespaceKey: string;
@@ -175,6 +186,22 @@ export interface WorkoutFullResyncItemRecordV1 {
   sessionId: string;
   wireEntityId: string;
   version: 1;
+  change: WorkoutRemoteChangeV1;
+}
+
+export interface WorkoutRemoteChangeV1 {
+  sequence: number;
+  entityId: string;
+  operation: OutboxOperation;
+  serverRevision: number;
+  record: unknown;
+  contentHash: string;
+  isDeleted: boolean;
+  deletedAt: string | null;
+  remoteMutationRef: string;
+  serverCommittedAt: string;
+  authorityEpoch: number;
+  serverEpoch: string;
 }
 
 export interface RestoreOutboxGenerationBoundary {

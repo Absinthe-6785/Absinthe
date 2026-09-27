@@ -57,6 +57,10 @@ import {
   WORKOUT_SAFE_SCOPE, WORKOUT_WIRE_UUID,
 } from '../workoutRemoteContract';
 import {
+  WORKOUT_PULL_LEASE, WORKOUT_PULL_PROVIDER, WORKOUT_SNAPSHOT_ITEM_LIMIT, WORKOUT_SNAPSHOT_BYTE_LIMIT,
+  validateWorkoutRemoteChange,
+} from '../workoutRemotePullProtocol';
+import {
   cancelRestoreSession as cancelRestore, getRestoreSession as readRestoreSession,
   restorePackageAtomically as executeRestore, type RestoreOptions, type RestoreResult,
 } from './restore';
@@ -71,6 +75,7 @@ import {
   type GenerationRecord, type GenerationStatus, type LocalDatabaseNamespace,
   type LocalEntityEnvelope, type MigrationStateRecord, type OutboxRecord,
   type WorkoutRemoteAuthorityRecordV1, type WorkoutRemoteIdRecordV1,
+  type WorkoutRemoteChangeV1, type WorkoutFullResyncSessionRecordV1, type WorkoutFullResyncItemRecordV1,
   type ReconcileOutboxPrerequisiteInput, type ReconciledOutboxPrerequisite,
   type RecordConflictInput, type ResolveConflictInput, type OutboxOperation,
   type OutboxListInput, type OutboxStatus, type OutboxStatusCounts, type ResetOutboxInput,
@@ -322,6 +327,40 @@ export interface WorkoutPushClaimFence {
   workerId: string;
   currentAccountId: () => string | null;
   currentDeviceId: () => string | null;
+}
+
+function validWorkoutResyncSession(value: WorkoutFullResyncSessionRecordV1): boolean {
+  return value?.version === 1 && WORKOUT_WIRE_UUID.test(value.accountId)
+    && WORKOUT_DIGEST.test(value.namespaceKey) && typeof value.generationId === 'string'
+    && WORKOUT_WIRE_UUID.test(value.sessionId) && value.snapshotToken === value.sessionId
+    && WORKOUT_WIRE_UUID.test(value.generationBindingId)
+    && Number.isSafeInteger(value.authorityEpoch) && value.authorityEpoch > 0
+    && WORKOUT_WIRE_UUID.test(value.serverEpoch)
+    && Number.isSafeInteger(value.watermark) && value.watermark >= 0
+    && ['staging', 'ready', 'committed', 'abandoned'].includes(value.status)
+    && (value.afterEntityId === null || WORKOUT_WIRE_UUID.test(value.afterEntityId))
+    && Number.isSafeInteger(value.itemCount) && value.itemCount >= 0
+    && Number.isSafeInteger(value.stagedBytes) && value.stagedBytes >= 0
+    && value.stagedBytes <= WORKOUT_SNAPSHOT_BYTE_LIMIT
+    && validTimestamp(value.createdAt) && validTimestamp(value.updatedAt);
+}
+
+export interface WorkoutPullFence {
+  lease: SyncWorkerLeaseRecord;
+  authority: WorkoutRemoteAuthorityRecordV1;
+  currentAccountId: () => string | null;
+  currentDeviceId: () => string | null;
+  now: string;
+  /** Test-only atomic rollback after canonical writes and before checkpoint. */
+  testOnlyAbortBeforeCheckpoint?: boolean;
+}
+
+export interface WorkoutPullCommitInput extends WorkoutPullFence {
+  expectedCursor: number;
+  expectedServerEpoch: string | null;
+  nextCursor: number;
+  serverEpoch: string;
+  changes: readonly WorkoutRemoteChangeV1[];
 }
 
 export class LocalDatabaseRepository {
@@ -2933,6 +2972,486 @@ export class LocalDatabaseRepository {
       }
     }
     return value ?? null;
+  }
+
+  private async assertWorkoutPullFence(tx: IDBTransaction, input: WorkoutPullFence, operation: string): Promise<void> {
+    await this.ensureActive(tx);
+    const accountId = this.namespace.userId.toLowerCase();
+    if (input.currentAccountId()?.toLowerCase() !== accountId || input.currentDeviceId() !== this.namespace.deviceId
+      || input.authority.accountId !== accountId || input.authority.namespaceKey !== this.namespaceKey
+      || input.authority.generationId !== this.namespace.generationId || input.authority.deviceId !== this.namespace.deviceId
+      || !validWorkoutAuthorityRecord(input.authority)) throw new LocalDatabaseError('NAMESPACE_MISMATCH', operation);
+    const lease = await requestResult(tx.objectStore(LOCAL_DATABASE_STORES.workerLeases).get(workerLeaseKey(
+      this.namespaceKey, this.namespace.generationId, WORKOUT_PULL_LEASE,
+    ))) as SyncWorkerLeaseRecord | undefined;
+    if (!lease || lease.accountId !== accountId || lease.leaseToken !== input.lease.leaseToken
+      || lease.leaseEpoch !== input.lease.leaseEpoch || lease.ownerId !== input.lease.ownerId
+      || lease.releasedAt !== null || Date.parse(lease.expiresAt) <= Date.parse(input.now)) {
+      throw new LocalDatabaseError('LEASE_FENCE_MISMATCH', operation);
+    }
+    validateWorkerLease(lease);
+    const authority = await requestResult(tx.objectStore(LOCAL_DATABASE_STORES.workoutRemoteAuthority).get([
+      accountId, this.namespaceKey, this.namespace.generationId, WORKOUT_REMOTE_DOMAIN,
+    ])) as WorkoutRemoteAuthorityRecordV1 | undefined;
+    if (!authority || !validWorkoutAuthorityRecord(authority)
+      || authority.verificationId !== input.authority.verificationId
+      || authority.generationBindingId !== input.authority.generationBindingId
+      || authority.authorityEpoch !== input.authority.authorityEpoch) {
+      throw new LocalDatabaseError('INVALID_RESERVED_RECORD', operation);
+    }
+  }
+
+  /** Internal G4B3 convergence primitive. Called only inside the page/checkpoint transaction. */
+  private async applyWorkoutRemoteChanges(tx: IDBTransaction, changes: readonly WorkoutRemoteChangeV1[],
+    timestamp: string, operation: string, replaceServerEpoch = false, snapshot = false): Promise<{
+      applied: number; conflicts: number; ownEchoes: number;
+    }> {
+    const entities = tx.objectStore(LOCAL_DATABASE_STORES.entities);
+    const ids = tx.objectStore(LOCAL_DATABASE_STORES.workoutRemoteIds);
+    const conflictsStore = tx.objectStore(LOCAL_DATABASE_STORES.conflicts);
+    const scoped = await requestResult(entities.index('by_namespace_generation_domain').getAll(IDBKeyRange.only([
+      this.namespaceKey, this.namespace.generationId, WORKOUT_REMOTE_DOMAIN,
+    ]), WORKOUT_SNAPSHOT_ITEM_LIMIT + 1)) as LocalEntityEnvelope<WorkoutSessionV1>[];
+    if (scoped.length > WORKOUT_SNAPSHOT_ITEM_LIMIT) throw new LocalDatabaseError('INVALID_ENTITY', operation);
+    const byWire = new Map<string, LocalEntityEnvelope<WorkoutSessionV1>[]>();
+    for (const entity of scoped) {
+      this.validatePersistedEntity(entity, operation);
+      const wire = canonicalWorkoutUuid(entity.entityId);
+      const group = byWire.get(wire) ?? [];
+      group.push(entity); byWire.set(wire, group);
+    }
+    const outbox = await requestResult(tx.objectStore(LOCAL_DATABASE_STORES.outbox)
+      .index('by_namespace_generation_entity').getAll(IDBKeyRange.bound(
+        [this.namespaceKey, this.namespace.generationId, WORKOUT_REMOTE_DOMAIN, ''],
+        [this.namespaceKey, this.namespace.generationId, WORKOUT_REMOTE_DOMAIN, '\uffff'],
+      ), MAX_OUTBOX_SCAN + 1)) as OutboxRecord[];
+    if (outbox.length > MAX_OUTBOX_SCAN) throw new LocalDatabaseError('INVALID_OUTBOX_QUERY', operation);
+    outbox.forEach(row => this.validatePersistedOutbox(row, operation));
+    const outboxByEntity = new Map<string, OutboxRecord[]>();
+    for (const row of outbox) {
+      const lineage = outboxByEntity.get(row.entityId) ?? [];
+      lineage.push(row); outboxByEntity.set(row.entityId, lineage);
+    }
+    let applied = 0; let conflictCount = 0; let ownEchoes = 0;
+    const pageRevision = new Map<string, number>();
+    for (const raw of changes) {
+      const change = validateWorkoutRemoteChange({ ...raw, domain: WORKOUT_REMOTE_DOMAIN },
+        raw.authorityEpoch, raw.serverEpoch);
+      const previous = pageRevision.get(change.entityId);
+      if (previous !== undefined && change.serverRevision <= previous) {
+        throw new LocalDatabaseError('STALE_REVISION', operation);
+      }
+      pageRevision.set(change.entityId, change.serverRevision);
+      const group = byWire.get(change.entityId) ?? [];
+      if (group.length > 1) throw new LocalDatabaseError('INVALID_ENTITY', operation);
+      const mappings = await requestResult(ids.index('by_wire_id').getAll(IDBKeyRange.only([
+        this.namespace.userId.toLowerCase(), this.namespaceKey, this.namespace.generationId,
+        WORKOUT_REMOTE_DOMAIN, change.entityId,
+      ]))) as WorkoutRemoteIdRecordV1[];
+      if (mappings.length > 1 || mappings.some(row => !validWorkoutRemoteIdRecord(row))
+        || mappings.length === 1 && group.length === 1 && mappings[0]!.localEntityId !== group[0]!.entityId) {
+        throw new LocalDatabaseError('INVALID_RESERVED_RECORD', operation);
+      }
+      const localId = mappings[0]?.localEntityId ?? group[0]?.entityId ?? change.entityId;
+      const current = await requestResult(entities.get(entityKey(
+        this.namespaceKey, this.namespace.generationId, WORKOUT_REMOTE_DOMAIN, localId,
+      ))) as LocalEntityEnvelope<WorkoutSessionV1> | undefined;
+      if (current) this.validatePersistedEntity(current, operation);
+      if (mappings.length === 1 && !current && group.length === 0) {
+        throw new LocalDatabaseError('CORRUPT_PERSISTED_RECORD', operation);
+      }
+      if (mappings.length === 0) ids.add({
+        accountId: this.namespace.userId.toLowerCase(), namespaceKey: this.namespaceKey,
+        generationId: this.namespace.generationId, domain: WORKOUT_REMOTE_DOMAIN,
+        localEntityId: localId, wireEntityId: change.entityId, mappedAt: timestamp,
+      } satisfies WorkoutRemoteIdRecordV1);
+      const lineage = outboxByEntity.get(localId) ?? [];
+      const acknowledged = lineage.find(row => row.status === 'acknowledged'
+        && row.remoteMutationRef === change.remoteMutationRef && row.acknowledgedRevision === change.serverRevision
+        && row.serverCommittedAt === change.serverCommittedAt
+        && (snapshot || row.operation === change.operation)
+        && (row.payload.kind === 'tombstone' || hashCanonicalPayload(row.payload.record) === change.contentHash));
+      const pending = lineage.filter(row => row.status !== 'acknowledged' && row.status !== 'superseded');
+      if (current?.pendingMutationId != null && !pending.some(row => row.mutationId === current.pendingMutationId)) {
+        throw new LocalDatabaseError('CORRUPT_PERSISTED_RECORD', operation);
+      }
+      if (acknowledged) ownEchoes += 1;
+      // Revisions from different epochs are incomparable. A complete snapshot may replace
+      // old remote evidence, but the pending-local branch below still preserves user data.
+      const currentRevision = replaceServerEpoch ? 0 : current?.serverRevision ?? 0;
+      if (change.serverRevision < currentRevision) continue;
+      if (change.serverRevision === currentRevision) {
+        if (acknowledged || current?.lastRemoteMutationRef === change.remoteMutationRef
+          && current.remoteState === (change.isDeleted ? 'deleted' : 'active')
+          && (pending.length > 0 || current.contentHash === change.contentHash && current.deletedAt === change.deletedAt)) continue;
+        throw new LocalDatabaseError('STALE_REVISION', operation);
+      }
+      if ((pending.length > 0 || current?.pendingMutationId != null) && acknowledged) continue;
+      if (pending.length > 0 || current?.pendingMutationId != null) {
+        if (!current) throw new LocalDatabaseError('CORRUPT_PERSISTED_RECORD', operation);
+        const localCandidate = canonicalPayloadSnapshot({ entity: current, outbox: pending });
+        const remoteCandidate = canonicalPayloadSnapshot(change);
+        const conflictId = `conflict.${sha256Hex(canonicalPayloadJson([
+          'workout-pull-v1', this.namespaceKey, this.namespace.generationId,
+          change.serverEpoch, change.sequence, change.entityId, change.remoteMutationRef,
+        ]))}`;
+        const existing = await requestResult(conflictsStore.get(conflictKey(
+          this.namespaceKey, this.namespace.generationId, conflictId,
+        ))) as SyncConflictRecord | undefined;
+        if (!existing) {
+          const conflict: SyncConflictRecord = {
+            namespaceKey: this.namespaceKey, generationId: this.namespace.generationId,
+            accountId: this.namespace.userId, conflictId, domain: WORKOUT_REMOTE_DOMAIN,
+            entityId: localId, mutationId: current.pendingMutationId ?? pending[pending.length - 1]?.mutationId ?? null,
+            localCandidate, remoteCandidate,
+            remoteMetadata: canonicalPayloadSnapshot({ sequence: change.sequence, serverEpoch: change.serverEpoch,
+              serverRevision: change.serverRevision, remoteMutationRef: change.remoteMutationRef,
+              contentHash: change.contentHash, isDeleted: change.isDeleted, deletedAt: change.deletedAt }),
+            localRevision: current.revision, serverRevision: change.serverRevision,
+            localContentHash: hashCanonicalPayload(localCandidate), remoteContentHash: hashCanonicalPayload(remoteCandidate),
+            conflictType: 'workout_remote_with_pending_local', createdAt: timestamp,
+            resolutionState: 'unresolved', resolvedAt: null,
+          };
+          validateConflictRecord(conflict); conflictsStore.add(conflict); conflictCount += 1;
+        }
+        continue;
+      }
+      const record = canonicalPayloadSnapshot(change.record) as WorkoutSessionV1;
+      const timestamps = [current?.createdAt, change.serverCommittedAt, change.deletedAt]
+        .filter((value): value is string => value != null)
+        .sort((left, right) => Date.parse(left) - Date.parse(right));
+      const updatedAt = timestamps[timestamps.length - 1]!;
+      const next: LocalEntityEnvelope<WorkoutSessionV1> = {
+        namespaceKey: this.namespaceKey, generationId: this.namespace.generationId,
+        accountId: this.namespace.userId, domain: WORKOUT_REMOTE_DOMAIN, entityId: localId,
+        record, revision: (current?.revision ?? 0) + 1, localRevision: (current?.revision ?? 0) + 1,
+        serverRevision: change.serverRevision, remoteState: change.isDeleted ? 'deleted' : 'active',
+        createdAt: current?.createdAt ?? change.serverCommittedAt, updatedAt,
+        deletedAt: change.deletedAt, isDeleted: change.isDeleted,
+        deletionState: change.isDeleted ? 'deleted' : 'active', ownerId: current?.ownerId ?? this.namespace.userId,
+        contentHash: change.contentHash, pendingMutationId: null, lastRemoteMutationRef: change.remoteMutationRef,
+        source: current?.source ?? { kind: 'remote', reference: WORKOUT_PULL_PROVIDER },
+        restoreProvenance: current?.restoreProvenance ?? null, migrationProvenance: current?.migrationProvenance ?? null,
+      };
+      validateEntityEnvelope(next); entities.put(next); applied += 1;
+      byWire.set(change.entityId, [next]);
+    }
+    return { applied, conflicts: conflictCount, ownEchoes };
+  }
+
+  /** One page, mappings, conflicts and checkpoint share an all-or-nothing IDB transaction. */
+  async commitWorkoutPullPage(input: WorkoutPullCommitInput): Promise<{
+    checkpoint: SyncCheckpointRecord; applied: number; conflicts: number; ownEchoes: number; idempotent: boolean;
+  }> {
+    const operation = 'commit_workout_pull_page';
+    this.assertOpen(operation);
+    if (!Number.isSafeInteger(input.expectedCursor) || input.expectedCursor < 0
+      || !Number.isSafeInteger(input.nextCursor) || input.nextCursor < input.expectedCursor
+      || input.changes.length > 100 || !WORKOUT_WIRE_UUID.test(input.serverEpoch)) {
+      throw new LocalDatabaseError('INVALID_RESERVED_RECORD', operation);
+    }
+    const timestamp = now(input.now);
+    const tx = this.db.transaction([
+      LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations, LOCAL_DATABASE_STORES.workerLeases,
+      LOCAL_DATABASE_STORES.workoutRemoteAuthority, LOCAL_DATABASE_STORES.workoutRemoteIds,
+      LOCAL_DATABASE_STORES.entities, LOCAL_DATABASE_STORES.outbox, LOCAL_DATABASE_STORES.conflicts,
+      LOCAL_DATABASE_STORES.syncCheckpoints,
+    ], 'readwrite');
+    const done = transactionCompletion(tx, operation);
+    try {
+      await this.assertWorkoutPullFence(tx, input, operation);
+      const store = tx.objectStore(LOCAL_DATABASE_STORES.syncCheckpoints);
+      const current = await requestResult(store.get(checkpointKey(
+        this.namespaceKey, this.namespace.generationId, WORKOUT_PULL_PROVIDER, WORKOUT_REMOTE_DOMAIN,
+      ))) as SyncCheckpointRecord | undefined;
+      if (current) {
+        validateCheckpoint(current);
+        if (current.accountId !== this.namespace.userId) throw new LocalDatabaseError('NAMESPACE_MISMATCH', operation);
+      }
+      if (current && current.sequence === input.nextCursor && current.serverEpoch === input.serverEpoch
+        && current.checkpointValue === String(input.nextCursor)) {
+        await done; return { checkpoint: current, applied: 0, conflicts: 0, ownEchoes: 0, idempotent: true };
+      }
+      if ((current?.sequence ?? 0) !== input.expectedCursor || (current?.serverEpoch ?? null) !== input.expectedServerEpoch
+        || current?.invalidatedAt != null || input.changes.length === 0 && input.nextCursor !== input.expectedCursor
+        || input.changes.length > 0 && input.changes[input.changes.length - 1]!.sequence !== input.nextCursor) {
+        throw new LocalDatabaseError('CHECKPOINT_REGRESSION', operation);
+      }
+      let previous = input.expectedCursor;
+      for (const change of input.changes) {
+        if (change.sequence <= previous || change.serverEpoch !== input.serverEpoch
+          || change.authorityEpoch !== input.authority.authorityEpoch) throw new LocalDatabaseError('INVALID_ENTITY', operation);
+        previous = change.sequence;
+      }
+      const result = await this.applyWorkoutRemoteChanges(tx, input.changes, timestamp, operation);
+      if (input.testOnlyAbortBeforeCheckpoint) throw new LocalDatabaseError('TRANSACTION_ABORTED', operation);
+      const checkpoint = await this.advanceCheckpointInTransaction(tx, {
+        provider: WORKOUT_PULL_PROVIDER, stream: WORKOUT_REMOTE_DOMAIN,
+        checkpointValue: String(input.nextCursor), sequence: input.nextCursor,
+        serverEpoch: input.serverEpoch, now: timestamp,
+      }, timestamp, true, operation);
+      if (input.currentAccountId()?.toLowerCase() !== this.namespace.userId.toLowerCase()
+        || input.currentDeviceId() !== this.namespace.deviceId) throw new LocalDatabaseError('NAMESPACE_MISMATCH', operation);
+      await done;
+      return { checkpoint, ...result, idempotent: false };
+    } catch (error) {
+      abortQuietly(tx); await done.catch(() => undefined); throw localDatabaseError(error, operation);
+    }
+  }
+
+  private workoutResyncRange(): IDBKeyRange {
+    return IDBKeyRange.bound(
+      [this.namespace.userId.toLowerCase(), this.namespaceKey, this.namespace.generationId, ''],
+      [this.namespace.userId.toLowerCase(), this.namespaceKey, this.namespace.generationId, '\uffff'],
+    );
+  }
+
+  async getWorkoutFullResyncSession(): Promise<WorkoutFullResyncSessionRecordV1 | null> {
+    this.assertOpen('get_workout_full_resync');
+    const tx = this.db.transaction(LOCAL_DATABASE_STORES.workoutFullResyncSessions, 'readonly');
+    const done = transactionCompletion(tx, 'get_workout_full_resync');
+    const sessions = await requestResult(tx.objectStore(LOCAL_DATABASE_STORES.workoutFullResyncSessions)
+      .getAll(this.workoutResyncRange())) as WorkoutFullResyncSessionRecordV1[];
+    await done;
+    if (sessions.some(item => !validWorkoutResyncSession(item))) {
+      throw new LocalDatabaseError('INVALID_RESERVED_RECORD', 'get_workout_full_resync');
+    }
+    const active = sessions.filter(item => item.status === 'staging' || item.status === 'ready');
+    if (active.length > 1) throw new LocalDatabaseError('INVALID_RESERVED_RECORD', 'get_workout_full_resync');
+    return active[0] ?? null;
+  }
+
+  async startWorkoutFullResync(input: WorkoutPullFence & {
+    snapshotToken: string; serverEpoch: string; watermark: number;
+  }): Promise<WorkoutFullResyncSessionRecordV1> {
+    const operation = 'start_workout_full_resync'; this.assertOpen(operation);
+    if (!WORKOUT_WIRE_UUID.test(input.snapshotToken) || !WORKOUT_WIRE_UUID.test(input.serverEpoch)
+      || !Number.isSafeInteger(input.watermark) || input.watermark < 0) {
+      throw new LocalDatabaseError('INVALID_RESERVED_RECORD', operation);
+    }
+    const timestamp = now(input.now);
+    const tx = this.db.transaction([
+      LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations, LOCAL_DATABASE_STORES.workerLeases,
+      LOCAL_DATABASE_STORES.workoutRemoteAuthority, LOCAL_DATABASE_STORES.workoutFullResyncSessions,
+    ], 'readwrite');
+    const done = transactionCompletion(tx, operation);
+    try {
+      await this.assertWorkoutPullFence(tx, input, operation);
+      const store = tx.objectStore(LOCAL_DATABASE_STORES.workoutFullResyncSessions);
+      const sessions = await requestResult(store.getAll(this.workoutResyncRange())) as WorkoutFullResyncSessionRecordV1[];
+      if (sessions.some(row => !validWorkoutResyncSession(row))) throw new LocalDatabaseError('INVALID_RESERVED_RECORD', operation);
+      const active = sessions.filter(row => row.status === 'staging' || row.status === 'ready');
+      if (active.length !== 0) throw new LocalDatabaseError('INVALID_RESERVED_RECORD', operation);
+      const session: WorkoutFullResyncSessionRecordV1 = {
+        accountId: this.namespace.userId.toLowerCase(), namespaceKey: this.namespaceKey,
+        generationId: this.namespace.generationId, sessionId: input.snapshotToken, version: 1,
+        snapshotToken: input.snapshotToken, authorityEpoch: input.authority.authorityEpoch,
+        generationBindingId: input.authority.generationBindingId, serverEpoch: input.serverEpoch,
+        watermark: input.watermark, status: 'staging', afterEntityId: null, itemCount: 0, stagedBytes: 0,
+        createdAt: timestamp, updatedAt: timestamp,
+      };
+      store.add(session); await done; return session;
+    } catch (error) {
+      abortQuietly(tx); await done.catch(() => undefined); throw localDatabaseError(error, operation);
+    }
+  }
+
+  async stageWorkoutFullResyncPage(input: WorkoutPullFence & {
+    sessionId: string; afterEntityId: string | null; rows: readonly WorkoutRemoteChangeV1[];
+    nextEntityId: string | null; hasMore: boolean;
+  }): Promise<WorkoutFullResyncSessionRecordV1> {
+    const operation = 'stage_workout_full_resync_page'; this.assertOpen(operation);
+    const timestamp = now(input.now);
+    const tx = this.db.transaction([
+      LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations, LOCAL_DATABASE_STORES.workerLeases,
+      LOCAL_DATABASE_STORES.workoutRemoteAuthority, LOCAL_DATABASE_STORES.workoutFullResyncSessions,
+      LOCAL_DATABASE_STORES.workoutFullResyncItems,
+    ], 'readwrite');
+    const done = transactionCompletion(tx, operation);
+    try {
+      await this.assertWorkoutPullFence(tx, input, operation);
+      const sessions = tx.objectStore(LOCAL_DATABASE_STORES.workoutFullResyncSessions);
+      const key = [this.namespace.userId.toLowerCase(), this.namespaceKey, this.namespace.generationId, input.sessionId];
+      const session = await requestResult(sessions.get(key)) as WorkoutFullResyncSessionRecordV1 | undefined;
+      if (!session || !validWorkoutResyncSession(session) || session.status !== 'staging'
+        || session.afterEntityId !== input.afterEntityId
+        || session.authorityEpoch !== input.authority.authorityEpoch
+        || session.generationBindingId !== input.authority.generationBindingId
+        || session.itemCount + input.rows.length > WORKOUT_SNAPSHOT_ITEM_LIMIT
+        || input.hasMore && (input.rows.length === 0 || input.nextEntityId !== input.rows[input.rows.length - 1]?.entityId)
+        || !input.hasMore && input.nextEntityId !== null) {
+        throw new LocalDatabaseError('INVALID_RESERVED_RECORD', operation);
+      }
+      const items = tx.objectStore(LOCAL_DATABASE_STORES.workoutFullResyncItems);
+      let previous = input.afterEntityId;
+      let pageBytes = 0;
+      for (const raw of input.rows) {
+        const change = validateWorkoutRemoteChange({ ...raw, domain: WORKOUT_REMOTE_DOMAIN },
+          session.authorityEpoch, session.serverEpoch);
+        if (change.sequence > session.watermark || previous !== null && change.entityId <= previous) {
+          throw new LocalDatabaseError('INVALID_RESERVED_RECORD', operation);
+        }
+        previous = change.entityId;
+        pageBytes += new TextEncoder().encode(canonicalPayloadJson(change)).byteLength;
+        if (session.stagedBytes + pageBytes > WORKOUT_SNAPSHOT_BYTE_LIMIT) {
+          throw new LocalDatabaseError('INVALID_RESERVED_RECORD', operation);
+        }
+        const item: WorkoutFullResyncItemRecordV1 = {
+          accountId: session.accountId, namespaceKey: session.namespaceKey, generationId: session.generationId,
+          sessionId: session.sessionId, wireEntityId: change.entityId, version: 1, change,
+        };
+        items.add(item);
+      }
+      const updated: WorkoutFullResyncSessionRecordV1 = {
+        ...session, itemCount: session.itemCount + input.rows.length,
+        stagedBytes: session.stagedBytes + pageBytes,
+        afterEntityId: input.hasMore ? input.nextEntityId : null,
+        status: input.hasMore ? 'staging' : 'ready', updatedAt: timestamp,
+      };
+      sessions.put(updated); await done; return updated;
+    } catch (error) {
+      abortQuietly(tx); await done.catch(() => undefined); throw localDatabaseError(error, operation);
+    }
+  }
+
+  /** One bounded canonical commit: partial downloads and aborted commits never move the checkpoint. */
+  async commitWorkoutFullResync(input: WorkoutPullFence & { sessionId: string }): Promise<{
+    checkpoint: SyncCheckpointRecord; applied: number; conflicts: number; ownEchoes: number;
+  }> {
+    const operation = 'commit_workout_full_resync'; this.assertOpen(operation);
+    const timestamp = now(input.now);
+    const tx = this.db.transaction([
+      LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations, LOCAL_DATABASE_STORES.workerLeases,
+      LOCAL_DATABASE_STORES.workoutRemoteAuthority, LOCAL_DATABASE_STORES.workoutRemoteIds,
+      LOCAL_DATABASE_STORES.workoutFullResyncSessions, LOCAL_DATABASE_STORES.workoutFullResyncItems,
+      LOCAL_DATABASE_STORES.entities, LOCAL_DATABASE_STORES.outbox, LOCAL_DATABASE_STORES.conflicts,
+      LOCAL_DATABASE_STORES.syncCheckpoints,
+    ], 'readwrite');
+    const done = transactionCompletion(tx, operation);
+    try {
+      await this.assertWorkoutPullFence(tx, input, operation);
+      const sessions = tx.objectStore(LOCAL_DATABASE_STORES.workoutFullResyncSessions);
+      const session = await requestResult(sessions.get([
+        this.namespace.userId.toLowerCase(), this.namespaceKey, this.namespace.generationId, input.sessionId,
+      ])) as WorkoutFullResyncSessionRecordV1 | undefined;
+      if (!session || !validWorkoutResyncSession(session) || session.status !== 'ready'
+        || session.authorityEpoch !== input.authority.authorityEpoch
+        || session.generationBindingId !== input.authority.generationBindingId) {
+        throw new LocalDatabaseError('INVALID_RESERVED_RECORD', operation);
+      }
+      const items = await requestResult(tx.objectStore(LOCAL_DATABASE_STORES.workoutFullResyncItems).getAll(
+        IDBKeyRange.bound(
+          [session.accountId, session.namespaceKey, session.generationId, session.sessionId, ''],
+          [session.accountId, session.namespaceKey, session.generationId, session.sessionId, '\uffff'],
+        ), WORKOUT_SNAPSHOT_ITEM_LIMIT + 1,
+      )) as WorkoutFullResyncItemRecordV1[];
+      if (items.length !== session.itemCount || items.length > WORKOUT_SNAPSHOT_ITEM_LIMIT) {
+        throw new LocalDatabaseError('INVALID_RESERVED_RECORD', operation);
+      }
+      const changes = items.map(item => {
+        if (item.version !== 1 || item.accountId !== session.accountId
+          || item.namespaceKey !== session.namespaceKey || item.generationId !== session.generationId
+          || item.sessionId !== session.sessionId || item.wireEntityId !== item.change.entityId
+          || item.change.serverEpoch !== session.serverEpoch
+          || item.change.authorityEpoch !== session.authorityEpoch || item.change.sequence > session.watermark) {
+          throw new LocalDatabaseError('INVALID_RESERVED_RECORD', operation);
+        }
+        return item.change;
+      });
+      if (changes.reduce((bytes, change) => bytes + new TextEncoder().encode(canonicalPayloadJson(change)).byteLength, 0)
+        !== session.stagedBytes) throw new LocalDatabaseError('INVALID_RESERVED_RECORD', operation);
+      const checkpointStore = tx.objectStore(LOCAL_DATABASE_STORES.syncCheckpoints);
+      const current = await requestResult(checkpointStore.get(checkpointKey(
+        this.namespaceKey, this.namespace.generationId, WORKOUT_PULL_PROVIDER, WORKOUT_REMOTE_DOMAIN,
+      ))) as SyncCheckpointRecord | undefined;
+      if (current) {
+        validateCheckpoint(current);
+        if (current.accountId !== this.namespace.userId) throw new LocalDatabaseError('NAMESPACE_MISMATCH', operation);
+      }
+      if (current?.serverEpoch === session.serverEpoch && (current.sequence ?? 0) > session.watermark) {
+        throw new LocalDatabaseError('CHECKPOINT_REGRESSION', operation);
+      }
+      const result = await this.applyWorkoutRemoteChanges(tx, changes, timestamp, operation,
+        current?.serverEpoch != null && current.serverEpoch !== session.serverEpoch, true);
+      // Omission is not a tombstone. Preserve remote-established canonical rows,
+      // but fence later CAS binding until the absence is explicitly resolved.
+      const present = new Set(changes.map(change => change.entityId));
+      const priorEntities = await requestResult(tx.objectStore(LOCAL_DATABASE_STORES.entities)
+        .index('by_namespace_generation_domain').getAll(IDBKeyRange.only([
+          this.namespaceKey, this.namespace.generationId, WORKOUT_REMOTE_DOMAIN,
+        ]), WORKOUT_SNAPSHOT_ITEM_LIMIT + 1)) as LocalEntityEnvelope<WorkoutSessionV1>[];
+      if (priorEntities.length > WORKOUT_SNAPSHOT_ITEM_LIMIT) throw new LocalDatabaseError('INVALID_ENTITY', operation);
+      const conflictsStore = tx.objectStore(LOCAL_DATABASE_STORES.conflicts);
+      for (const entity of priorEntities) {
+        this.validatePersistedEntity(entity, operation);
+        if (entity.serverRevision == null || entity.remoteState === undefined
+          || present.has(canonicalWorkoutUuid(entity.entityId))) continue;
+        const conflictId = `conflict.${sha256Hex(canonicalPayloadJson([
+          'workout-snapshot-absence-v1', this.namespaceKey, this.namespace.generationId,
+          session.snapshotToken, entity.entityId,
+        ]))}`;
+        const existing = await requestResult(conflictsStore.get(conflictKey(
+          this.namespaceKey, this.namespace.generationId, conflictId,
+        ))) as SyncConflictRecord | undefined;
+        if (existing) continue;
+        const localCandidate = canonicalPayloadSnapshot(entity);
+        const remoteCandidate = canonicalPayloadSnapshot({ kind: 'fixed_snapshot_absence',
+          snapshotToken: session.snapshotToken, serverEpoch: session.serverEpoch,
+          watermark: session.watermark, entityId: canonicalWorkoutUuid(entity.entityId) });
+        const conflict: SyncConflictRecord = {
+          namespaceKey: this.namespaceKey, generationId: this.namespace.generationId,
+          accountId: this.namespace.userId, conflictId, domain: WORKOUT_REMOTE_DOMAIN,
+          entityId: entity.entityId, mutationId: entity.pendingMutationId ?? null,
+          localCandidate, remoteCandidate,
+          remoteMetadata: canonicalPayloadSnapshot({ snapshotToken: session.snapshotToken,
+            serverEpoch: session.serverEpoch, watermark: session.watermark, omissionIsNotDeletion: true }),
+          localRevision: entity.revision, serverRevision: null,
+          localContentHash: hashCanonicalPayload(localCandidate),
+          remoteContentHash: hashCanonicalPayload(remoteCandidate),
+          conflictType: 'workout_snapshot_absent_remote_established', createdAt: timestamp,
+          resolutionState: 'unresolved', resolvedAt: null,
+        };
+        validateConflictRecord(conflict); conflictsStore.add(conflict); result.conflicts += 1;
+      }
+      if (input.testOnlyAbortBeforeCheckpoint) throw new LocalDatabaseError('TRANSACTION_ABORTED', operation);
+      const checkpoint: SyncCheckpointRecord = {
+        namespaceKey: this.namespaceKey, generationId: this.namespace.generationId,
+        accountId: this.namespace.userId, provider: WORKOUT_PULL_PROVIDER, stream: WORKOUT_REMOTE_DOMAIN,
+        checkpointValue: String(session.watermark), sequence: session.watermark,
+        serverEpoch: session.serverEpoch, updatedAt: timestamp, invalidatedAt: null, invalidationReason: null,
+      };
+      validateCheckpoint(checkpoint); checkpointStore.put(checkpoint);
+      sessions.put({ ...session, status: 'committed', updatedAt: timestamp } satisfies WorkoutFullResyncSessionRecordV1);
+      if (input.currentAccountId()?.toLowerCase() !== this.namespace.userId.toLowerCase()
+        || input.currentDeviceId() !== this.namespace.deviceId) throw new LocalDatabaseError('NAMESPACE_MISMATCH', operation);
+      await done; return { checkpoint, ...result };
+    } catch (error) {
+      abortQuietly(tx); await done.catch(() => undefined); throw localDatabaseError(error, operation);
+    }
+  }
+
+  async abandonWorkoutFullResync(input: WorkoutPullFence & { sessionId: string }): Promise<void> {
+    const operation = 'abandon_workout_full_resync'; this.assertOpen(operation);
+    const timestamp = now(input.now);
+    const tx = this.db.transaction([
+      LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations, LOCAL_DATABASE_STORES.workerLeases,
+      LOCAL_DATABASE_STORES.workoutRemoteAuthority, LOCAL_DATABASE_STORES.workoutFullResyncSessions,
+    ], 'readwrite');
+    const done = transactionCompletion(tx, operation);
+    try {
+      await this.assertWorkoutPullFence(tx, input, operation);
+      const store = tx.objectStore(LOCAL_DATABASE_STORES.workoutFullResyncSessions);
+      const session = await requestResult(store.get([
+        this.namespace.userId.toLowerCase(), this.namespaceKey, this.namespace.generationId, input.sessionId,
+      ])) as WorkoutFullResyncSessionRecordV1 | undefined;
+      if (!session || !validWorkoutResyncSession(session)) throw new LocalDatabaseError('INVALID_RESERVED_RECORD', operation);
+      if (session.status === 'staging' || session.status === 'ready') {
+        store.put({ ...session, status: 'abandoned', updatedAt: timestamp } satisfies WorkoutFullResyncSessionRecordV1);
+      }
+      await done;
+    } catch (error) {
+      abortQuietly(tx); await done.catch(() => undefined); throw localDatabaseError(error, operation);
+    }
   }
 
   async advanceSyncCheckpoint(input: AdvanceCheckpointInput): Promise<SyncCheckpointRecord> {
