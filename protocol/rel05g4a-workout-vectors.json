@@ -1,0 +1,162 @@
+{
+  "ownerId": "11111111-1111-4111-8111-111111111111",
+  "projectScope": "project-test",
+  "namespaceKey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "generationId": "generation-desktop",
+  "deviceId": "device-desktop",
+  "bindingId": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+  "authorityEpoch": 1,
+  "vectors": [
+    {
+      "name": "strength-create-unicode-decimal",
+      "operation": "upsert",
+      "remoteCasBaseRevision": null,
+      "localRevision": 1,
+      "mutationId": "mut.aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "idempotencyKey": "k322.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "record": {
+        "version": 1,
+        "id": "11111111-1111-4111-8111-111111111111",
+        "localDate": "2026-09-23",
+        "entries": [{
+          "id": "22222222-2222-4222-8222-222222222222",
+          "exercise": {"id": "catalog-1", "name": "스쿼트 🏋️", "type": "strength", "tags": ["LEGS", "한글"], "cardioMode": null},
+          "sets": [
+            {"id": "33333333-3333-4333-8333-333333333333", "ordinal": 1, "kind": "strength", "loadKind": "external_weight", "weightKg": "10.5", "sourceValue": "10.5", "sourceUnit": "kg", "reps": 8, "assistedReps": null, "dropset": false, "done": true},
+            {"id": "44444444-4444-4444-8444-444444444444", "ordinal": 2, "kind": "strength", "loadKind": "external_weight", "weightKg": "22.68", "sourceValue": "50", "sourceUnit": "lbs", "reps": 6, "assistedReps": 2, "dropset": true, "done": false}
+          ]
+        }]
+      },
+      "expectedContentHash": "ba3b74f8da2d44e53f77483dfdec7fd4f76c49f113c9df4ac6f313c627460069",
+      "expectedPayloadHash": "87c1434d56141b419347dccd77df9c073428706ba854b44baeb6ef6ee5272e55",
+      "expectedRequestDigest": "16995bea58e5ac47728510a53dbf1d4649b0953d09453c8e21e7a298293b83a0"
+    },
+    {
+      "name": "bodyweight-update-nulls",
+      "operation": "upsert",
+      "remoteCasBaseRevision": 1,
+      "localRevision": 2,
+      "mutationId": "mut.bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      "idempotencyKey": "k322.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "record": {
+        "version": 1,
+        "id": "55555555-5555-4555-8555-555555555555",
+        "localDate": "2026-09-24",
+        "entries": [{
+          "id": "66666666-6666-4666-8666-666666666666",
+          "exercise": {"id": null, "name": "Pull-up", "type": "bodyweight", "tags": [], "cardioMode": null},
+          "sets": [{"id": "77777777-7777-4777-8777-777777777777", "ordinal": 1, "kind": "bodyweight", "loadKind": "bodyweight", "reps": null, "assistedReps": null, "dropset": false, "done": false}]
+        }]
+      },
+      "expectedContentHash": "6fb9419e57423992a5610dad46ada250d68f98b06890a81f4f90aae0c5e196ad",
+      "expectedPayloadHash": "08f5972fd93f9ab3df44cb674a9f6686f5b5451322a6f17fbd3a92e16e00c348",
+      "expectedRequestDigest": "e381288c135c2256d6df5e2b6af6250d5da7a650f636c9c73a34969789f6b859"
+    },
+    {
+      "name": "cardio-tombstone",
+      "operation": "tombstone",
+      "remoteCasBaseRevision": 2,
+      "localRevision": 3,
+      "mutationId": "mut.cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      "idempotencyKey": "k322.cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "deletedAt": "2026-09-24T10:00:00Z",
+      "record": {
+        "version": 1,
+        "id": "88888888-8888-4888-8888-888888888888",
+        "localDate": "2026-09-24",
+        "entries": [{
+          "id": "99999999-9999-4999-8999-999999999999",
+          "exercise": {"id": "run-1", "name": "Run", "type": "cardio", "tags": ["OUTDOOR"], "cardioMode": "both"},
+          "sets": [{"id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "ordinal": 1, "kind": "cardio", "durationSeconds": 3723, "distanceMeters": "5000.125", "done": true}]
+        }]
+      },
+      "expectedContentHash": "87c285715d41a539765947990168fefc12feb1f82d23042076653006f46b23df",
+      "expectedPayloadHash": "40db91912f76af1124f55da087fe8d20075bbf58b5ffa6d3d084f0a71cda0639",
+      "expectedRequestDigest": "8283704343a1586f525faf36cfafaf28f1fe62b500521129d93581272399680f"
+    },
+    {
+      "name": "mixed-case-internal-uuid-create",
+      "operation": "upsert",
+      "remoteCasBaseRevision": null,
+      "localRevision": 1,
+      "mutationId": "mut.eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+      "idempotencyKey": "k322.eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "entityId": "abcdefab-cdef-4abc-8def-abcdefabcdef",
+      "record": {
+        "version": 1,
+        "id": "ABCDEFAB-CDEF-4ABC-8DEF-ABCDEFABCDEF",
+        "localDate": "2024-02-29",
+        "entries": [{
+          "id": "1234ABCD-5678-4ABC-8DEF-123456789ABC",
+          "exercise": {"id": "Catalog-Mixed", "name": "Push-up", "type": "bodyweight", "tags": ["MIXED"], "cardioMode": null},
+          "sets": [{"id": "FEDCBA98-7654-4FED-8CBA-FEDCBA987654", "ordinal": 1, "kind": "bodyweight", "loadKind": "bodyweight", "reps": 10, "assistedReps": null, "dropset": false, "done": true}]
+        }]
+      },
+      "expectedContentHash": "f4e45f7b2bf41af57bb78c3fe829b263b6c8796dfc1ad4fcee4b5b6df581b9fe",
+      "expectedPayloadHash": "2ac8017f9d34c60a4761d83c4de3a95bf3b48d43b08fd9c13294b6c84928d467",
+      "expectedRequestDigest": "16c496436d2770029f29c95e61d8404927b4da876a8e4278eacbd918588001ec"
+    },
+    {
+      "name": "mixed-case-entry-only-create",
+      "operation": "upsert",
+      "remoteCasBaseRevision": null,
+      "localRevision": 1,
+      "mutationId": "mut.99999999-9999-4999-8999-999999999999",
+      "idempotencyKey": "k322.ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "record": {
+        "version": 1,
+        "id": "abcdefab-cdef-4abc-8def-abcdefabcdef",
+        "localDate": "2024-02-29",
+        "entries": [{
+          "id": "1234ABCD-5678-4ABC-8DEF-123456789ABC",
+          "exercise": {"id": "Catalog-Mixed", "name": "Push-up", "type": "bodyweight", "tags": ["MIXED"], "cardioMode": null},
+          "sets": [{"id": "fedcba98-7654-4fed-8cba-fedcba987654", "ordinal": 1, "kind": "bodyweight", "loadKind": "bodyweight", "reps": 10, "assistedReps": null, "dropset": false, "done": true}]
+        }]
+      },
+      "expectedContentHash": "5bcfbdaa9138d695fa6e24cf1110e2b2ed0595eeeab97915b2543049b91b43a0",
+      "expectedPayloadHash": "a899f022e769797c940d36cc9e10f96c0d5690115df1324664d71cffb9a4ec30",
+      "expectedRequestDigest": "97b552ffac818774e02b31d58c7f3c4fe9b90ae1d11bde3cba8725b4dd4dfe25"
+    },
+    {
+      "name": "mixed-case-set-only-create",
+      "operation": "upsert",
+      "remoteCasBaseRevision": null,
+      "localRevision": 1,
+      "mutationId": "mut.88888888-8888-4888-8888-888888888888",
+      "idempotencyKey": "k322.1111111111111111111111111111111111111111111111111111111111111111",
+      "record": {
+        "version": 1,
+        "id": "abcdefab-cdef-4abc-8def-abcdefabcdef",
+        "localDate": "2024-02-29",
+        "entries": [{
+          "id": "1234abcd-5678-4abc-8def-123456789abc",
+          "exercise": {"id": "Catalog-Mixed", "name": "Push-up", "type": "bodyweight", "tags": ["MIXED"], "cardioMode": null},
+          "sets": [{"id": "FEDCBA98-7654-4FED-8CBA-FEDCBA987654", "ordinal": 1, "kind": "bodyweight", "loadKind": "bodyweight", "reps": 10, "assistedReps": null, "dropset": false, "done": true}]
+        }]
+      },
+      "expectedContentHash": "f3254fd0dac6553ab6ff4aba3858b502cb528886aab54ea2b5077d2a6cb988f0",
+      "expectedPayloadHash": "934f289e1a3b5bbb686184529ce745228463add2b479baca405afaea471db2b7",
+      "expectedRequestDigest": "4bc16c5f2da16f25c159920547b44ac5d00162f8146b5668060f8c19a902a6bb"
+    },
+    {
+      "name": "mixed-restore",
+      "operation": "restore",
+      "remoteCasBaseRevision": 3,
+      "localRevision": 4,
+      "mutationId": "mut.dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+      "idempotencyKey": "k322.dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "record": {
+        "version": 1,
+        "id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        "localDate": "2026-09-24",
+        "entries": [
+          {"id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc", "exercise": {"id": null, "name": "腕立て", "type": "bodyweight", "tags": ["胸"], "cardioMode": null}, "sets": [{"id": "dddddddd-dddd-4ddd-8ddd-dddddddddddd", "ordinal": 1, "kind": "bodyweight", "loadKind": "bodyweight", "reps": 10, "assistedReps": null, "dropset": false, "done": true}]},
+          {"id": "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee", "exercise": {"id": "cycle", "name": "자전거", "type": "cardio", "tags": [], "cardioMode": "distance"}, "sets": [{"id": "ffffffff-ffff-4fff-8fff-ffffffffffff", "ordinal": 1, "kind": "cardio", "durationSeconds": null, "distanceMeters": "1000.001", "done": false}]}
+        ]
+      },
+      "expectedContentHash": "6a62537230f7f37aa3cd9bb35b742543f2da4f8023e68bc14364df08bd457b9c",
+      "expectedPayloadHash": "fcc935a5005fd166e0476775c2d4749823fece186debaa2dedd37e9e80cfefe5",
+      "expectedRequestDigest": "adacb2c6183f21d23cd3c27b9223609b4417edbe0d288b576450ea25942e3f5c"
+    }
+  ]
+}
