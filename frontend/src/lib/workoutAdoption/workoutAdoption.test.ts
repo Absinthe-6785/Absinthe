@@ -2,7 +2,7 @@ import 'fake-indexeddb/auto';
 import { IDBFactory } from 'fake-indexeddb';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
-  createDormantLocalDatabaseCapability, openLocalDatabase, LOCAL_DATABASE_STORES,
+  createDormantLocalDatabaseCapability, openLocalDatabase, LOCAL_DATABASE_STORES, LOCAL_DATABASE_VERSION,
   type LocalDatabaseNamespace, type LocalDatabaseRepository,
 } from '../localDatabase';
 import { WorkoutSessionRepository } from '../workoutSessionRepository';
@@ -78,7 +78,7 @@ function driverFor(source: HealthWorkoutAdoptionCapture): IndexedDbLocalHealthDr
 
 async function rawDatabase(factory: IDBFactory): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const request = factory.open('absinthe-local-v2', 6);
+    const request = factory.open('absinthe-local-v2', LOCAL_DATABASE_VERSION);
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
@@ -608,14 +608,18 @@ describe('REL-05G3 dormant workout adoption', () => {
     expect(await rawCount(factory, LOCAL_DATABASE_STORES.workoutAdoptionItems)).toBe(0);
   });
 
-  it('upgrades v5 to v6 additively without clearing old stores', async () => {
+  it('upgrades v5 to current format additively without clearing old stores', async () => {
     const factory = new IDBFactory();
     const old = await new Promise<IDBDatabase>((resolve, reject) => {
       const request = factory.open('absinthe-local-v2', 5);
       request.onupgradeneeded = () => {
         for (const name of Object.values(LOCAL_DATABASE_STORES)) {
           if (name === LOCAL_DATABASE_STORES.workoutAdoptionSessions
-            || name === LOCAL_DATABASE_STORES.workoutAdoptionItems) continue;
+            || name === LOCAL_DATABASE_STORES.workoutAdoptionItems
+            || name === LOCAL_DATABASE_STORES.workoutRemoteAuthority
+            || name === LOCAL_DATABASE_STORES.workoutRemoteIds
+            || name === LOCAL_DATABASE_STORES.workoutFullResyncSessions
+            || name === LOCAL_DATABASE_STORES.workoutFullResyncItems) continue;
           request.result.createObjectStore(name, { keyPath: name === 'database_meta' ? 'namespaceKey' : 'id' });
         }
       };
@@ -625,7 +629,11 @@ describe('REL-05G3 dormant workout adoption', () => {
     const preservedStores = Object.values(LOCAL_DATABASE_STORES).filter(name =>
       name !== LOCAL_DATABASE_STORES.databaseMeta
       && name !== LOCAL_DATABASE_STORES.workoutAdoptionSessions
-      && name !== LOCAL_DATABASE_STORES.workoutAdoptionItems);
+      && name !== LOCAL_DATABASE_STORES.workoutAdoptionItems
+      && name !== LOCAL_DATABASE_STORES.workoutRemoteAuthority
+      && name !== LOCAL_DATABASE_STORES.workoutRemoteIds
+      && name !== LOCAL_DATABASE_STORES.workoutFullResyncSessions
+      && name !== LOCAL_DATABASE_STORES.workoutFullResyncItems);
     const oldTx = old.transaction(preservedStores, 'readwrite');
     for (const name of preservedStores) {
       oldTx.objectStore(name).put({ id: `preserve-${name}`, value: name });
@@ -635,7 +643,7 @@ describe('REL-05G3 dormant workout adoption', () => {
     const database = await openLocalDatabase(namespace, { capability, indexedDBFactory: factory });
     opened.push(database);
     const upgraded = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = factory.open('absinthe-local-v2', 6);
+      const request = factory.open('absinthe-local-v2', LOCAL_DATABASE_VERSION);
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
     });

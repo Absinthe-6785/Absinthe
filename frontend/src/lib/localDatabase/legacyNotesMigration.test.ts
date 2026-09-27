@@ -127,6 +127,10 @@ async function snapshotVersion3Stores(): Promise<StoreSnapshot[]> {
       LOCAL_DATABASE_STORES.workerLeases,
       LOCAL_DATABASE_STORES.workoutAdoptionSessions,
       LOCAL_DATABASE_STORES.workoutAdoptionItems,
+      LOCAL_DATABASE_STORES.workoutRemoteAuthority,
+      LOCAL_DATABASE_STORES.workoutRemoteIds,
+      LOCAL_DATABASE_STORES.workoutFullResyncSessions,
+      LOCAL_DATABASE_STORES.workoutFullResyncItems,
     ].includes(name));
   const tx = db.transaction(names, 'readonly');
   const snapshots = await Promise.all(names.map(async name => {

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { canonicalPayloadJson, hashCanonicalPayload } from './localDatabase/canonicalPayload';
 import { sha256Hex } from './localDatabase/outboxIdentity';
 import { validateWorkoutSessionV1 } from './workoutSessionV1';
+import { workoutRequestDigest } from './workoutRemoteContract';
 
 type Vector = {
   name: string;
@@ -56,6 +57,15 @@ describe('REL-05G4A shared Python/JS workout vectors', () => {
       const payloadHash = hashCanonicalPayload(payload);
       expect(payloadHash).toBe(vector.expectedPayloadHash);
       expect(requestDigest(vector, payloadHash)).toBe(vector.expectedRequestDigest);
+      expect(workoutRequestDigest({
+        authenticatedOwnerId: fixture.ownerId, projectScope: fixture.projectScope,
+        namespaceKey: fixture.namespaceKey, generationId: fixture.generationId, deviceId: fixture.deviceId,
+        generationBindingId: fixture.bindingId, authorityEpoch: fixture.authorityEpoch,
+        mutationId: vector.mutationId, idempotencyKey: vector.idempotencyKey,
+        wireEntityId: vector.entityId ?? vector.record.id.toLowerCase(), operation: vector.operation,
+        remoteCasBaseRevision: vector.remoteCasBaseRevision, localRevision: vector.localRevision,
+        payloadHash,
+      })).toBe(vector.expectedRequestDigest);
       expect(canonicalPayloadJson(vector.record)).not.toContain('undefined');
     });
   }
@@ -67,6 +77,32 @@ describe('REL-05G4A shared Python/JS workout vectors', () => {
     expect(requestDigest(vector, 'f'.repeat(64))).not.toBe(vector.expectedRequestDigest);
     const metadata = { ...vector, createdAt: '2026-09-25T01:02:03Z' };
     expect(requestDigest(metadata, vector.expectedPayloadHash)).toBe(vector.expectedRequestDigest);
+  });
+
+  it('makes every G4B1 authority and CAS input digest-sensitive while canonicalizing the owner', () => {
+    const vector = fixture.vectors[0]!;
+    const input = {
+      authenticatedOwnerId: fixture.ownerId, projectScope: fixture.projectScope,
+      namespaceKey: fixture.namespaceKey, generationId: fixture.generationId, deviceId: fixture.deviceId,
+      generationBindingId: fixture.bindingId, authorityEpoch: fixture.authorityEpoch,
+      mutationId: vector.mutationId, idempotencyKey: vector.idempotencyKey,
+      wireEntityId: vector.record.id, operation: vector.operation,
+      remoteCasBaseRevision: vector.remoteCasBaseRevision, localRevision: vector.localRevision,
+      payloadHash: vector.expectedPayloadHash,
+    };
+    const baseline = workoutRequestDigest(input);
+    expect(baseline).toBe(vector.expectedRequestDigest);
+    expect(workoutRequestDigest({ ...input, authenticatedOwnerId: fixture.ownerId.toUpperCase() })).toBe(baseline);
+    for (const changed of [
+      { ...input, projectScope: 'other-project' },
+      { ...input, authorityEpoch: 2 },
+      { ...input, generationBindingId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd' },
+      { ...input, wireEntityId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee' },
+      { ...input, remoteCasBaseRevision: 9 },
+      { ...input, localRevision: 2 },
+      { ...input, payloadHash: 'f'.repeat(64) },
+    ]) expect(workoutRequestDigest(changed)).not.toBe(baseline);
+    expect(workoutRequestDigest({ ...input, createdAt: '2030-01-01T00:00:00Z' })).toBe(baseline);
   });
 
   it('rejects Unicode-digit localDate while retaining ASCII calendar dates', () => {

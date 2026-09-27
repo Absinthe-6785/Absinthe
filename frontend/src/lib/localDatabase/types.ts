@@ -1,5 +1,5 @@
 export const LOCAL_DATABASE_NAME = 'absinthe-local-v2';
-export const LOCAL_DATABASE_VERSION = 6;
+export const LOCAL_DATABASE_VERSION = 7;
 export const LOCAL_SCHEMA_VERSION = 1;
 
 export type LocalDatabaseNamespace = Readonly<{
@@ -57,6 +57,8 @@ export interface LocalEntityEnvelope<T = unknown> {
   /** Durable sync-core name for revision. It is always equal to `revision` on v5 writes. */
   localRevision?: number;
   serverRevision?: number | null;
+  /** G4B1 reserve: remote state is unknown unless later transport persists explicit evidence. */
+  remoteState?: 'active' | 'deleted' | 'unknown';
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
@@ -111,6 +113,65 @@ export type OutboxStatus = 'pending' | 'claimed' | 'retry_wait' | 'acknowledged'
 export interface UnboundDeliveryBindingV1 {
   version: 1;
   state: 'unbound';
+}
+
+export interface BoundWorkoutDeliveryBindingV1 {
+  version: 1;
+  state: 'bound';
+  contractVersion: 'absinthe-workout-remote-v1';
+  projectScope: string;
+  authorityEpoch: number;
+  generationBindingId: string;
+  remoteCasBaseRevision: number | null;
+  wireEntityId: string;
+  requestDigest: string;
+  boundPayloadHash: string;
+}
+
+export interface WorkoutRemoteAuthorityRecordV1 {
+  accountId: string;
+  namespaceKey: string;
+  generationId: string;
+  domain: 'health_workout_session';
+  deviceId: string;
+  protocolVersion: 2;
+  projectScope: string;
+  capability: 'FOUNDATION_READY';
+  authorityState: 'OPEN';
+  authorityEpoch: number;
+  bindingState: 'bound';
+  generationBindingId: string;
+  serverEpoch: string;
+  verifiedAt: string;
+}
+
+export interface WorkoutRemoteIdRecordV1 {
+  accountId: string;
+  namespaceKey: string;
+  generationId: string;
+  domain: 'health_workout_session';
+  localEntityId: string;
+  wireEntityId: string;
+  mappedAt: string;
+}
+
+/** Reserved only. G4B3 owns population and interpretation. */
+export interface WorkoutFullResyncSessionRecordV1 {
+  accountId: string;
+  namespaceKey: string;
+  generationId: string;
+  sessionId: string;
+  version: 1;
+}
+
+/** Reserved only. G4B3 owns population and interpretation. */
+export interface WorkoutFullResyncItemRecordV1 {
+  accountId: string;
+  namespaceKey: string;
+  generationId: string;
+  sessionId: string;
+  wireEntityId: string;
+  version: 1;
 }
 
 export interface RestoreOutboxGenerationBoundary {
@@ -178,9 +239,10 @@ export interface OutboxRecord {
   /** A durable delivery prerequisite. The record is not claimable until this mutation is acknowledged. */
   dependsOnMutationId?: string | null;
   resurrection?: ResurrectionProvenance | null;
-  deliveryBlockCode?: 'REMOTE_RESURRECTION_UNSUPPORTED' | 'UNBOUND_ATTEMPT_QUARANTINED' | null;
+  deliveryBlockCode?: 'REMOTE_RESURRECTION_UNSUPPORTED' | 'UNBOUND_ATTEMPT_QUARANTINED'
+    | 'UUID_MAPPING_COLLISION' | null;
   /** Absent on REL-05D/E/F rows; only new dormant G2 workout rows set this. */
-  deliveryBinding?: UnboundDeliveryBindingV1;
+  deliveryBinding?: UnboundDeliveryBindingV1 | BoundWorkoutDeliveryBindingV1;
   generationBoundary?: RestoreOutboxGenerationBoundary | null;
   remoteSequenceBoundary?: RemoteOutboxSequenceBoundary | null;
 }
