@@ -60,10 +60,12 @@ receipt or change write. Explicit adoption remains outside G4A.
 ## Canonical wire contract
 
 For every structurally valid authenticated authority read, including
-`CAPABILITY_DISABLED`, `registration_required`, and `bound`, the HTTP response
-includes `projectScope`. The authenticated generation-registration HTTP
-response also includes it for success, exact repeated registration, and
-deterministic RPC rejection. This additive protocol-v2 field is the trusted
+`CAPABILITY_DISABLED`, `registration_required`, `bound`, and the default-off
+`WORKOUT_REMOTE_FOUNDATION_DISABLED` HTTP 423, the response includes
+`projectScope`. The authenticated generation-registration HTTP
+response also includes it for success, exact repeated registration,
+deterministic RPC rejection, and the feature-disabled 423. This additive
+protocol-v2 field is the trusted
 server-selected `K323_PROJECT_SCOPE` used by those RPCs and the workout
 request digest; it is not a client-selected input or a secret. Authentication
 and request-validation errors do not disclose it. Its presence does not

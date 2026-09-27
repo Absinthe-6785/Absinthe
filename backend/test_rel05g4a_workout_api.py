@@ -50,12 +50,28 @@ def client(monkeypatch: pytest.MonkeyPatch):
 
 def test_default_off_even_for_valid_workout_request(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(main, "WORKOUT_REMOTE_FOUNDATION_ENABLED", False)
+    monkeypatch.setattr(main, "K323_PROJECT_SCOPE", "nondefault-workout-project")
     main.app.dependency_overrides[main.get_remote_mutation_user] = lambda: VECTORS["ownerId"]
     try:
-        response = TestClient(main.app).post(
+        http = TestClient(main.app)
+        response = http.post(
             "/api/sync/v2/workouts/mutations", json=wire(VECTORS["vectors"][0]),
         )
         assert response.status_code == 423
+        authority = http.get("/api/sync/v2/workouts/authority", params={
+            "namespaceKey": VECTORS["namespaceKey"], "generationId": VECTORS["generationId"],
+            "deviceId": VECTORS["deviceId"],
+        })
+        generation = http.post("/api/sync/v2/workouts/generations", json={
+            "protocolVersion": 2, "namespaceKey": VECTORS["namespaceKey"],
+            "generationId": VECTORS["generationId"], "deviceId": VECTORS["deviceId"],
+        })
+        expected = {
+            "detail": "WORKOUT_REMOTE_FOUNDATION_DISABLED",
+            "projectScope": "nondefault-workout-project",
+        }
+        assert authority.status_code == 423 and authority.json() == expected
+        assert generation.status_code == 423 and generation.json() == expected
     finally:
         main.app.dependency_overrides.clear()
 
