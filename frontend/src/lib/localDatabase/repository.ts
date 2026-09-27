@@ -12,7 +12,7 @@ import { deriveOutboxIdempotencyKey, deriveOutboxMutationId, generateOutboxMutat
 import {
   acknowledgeOutboxRecord, adoptConflictedOutboxSuccessor, claimOutboxRecord, conflictOutboxRecord, permanentlyFailOutboxRecord,
   replaceConflictedOutboxRecord, replaceRejectedDependentOutboxRecord,
-  scheduleOutboxRetry, supersedeOutboxRecord,
+  calculateRetryAvailableAt, scheduleOutboxRetry, supersedeOutboxRecord,
 } from './outboxStateMachine';
 import { assertLocalDatabaseVersion, createLocalDatabaseSchema, LOCAL_DATABASE_STORES } from './schema';
 import {
@@ -310,6 +310,19 @@ function snapshotRemoteConvergenceBatchInput<T>(
 interface ConnectionState { closed: boolean; stale: boolean }
 const MAX_OUTBOX_SCAN = 10_000;
 const MAX_REMOTE_ENTITY_BATCH = 1_000;
+
+export type WorkoutPushSettlement =
+  | { kind: 'success'; serverRevision: number; remoteMutationRef: string; serverCommittedAt: string }
+  | { kind: 'retry'; errorCode: string; baseDelayMs: number; maxDelayMs: number }
+  | { kind: 'conflict'; errorCode: string; remoteEvidence: Readonly<Record<string, unknown>> }
+  | { kind: 'permanent'; errorCode: string };
+
+export interface WorkoutPushClaimFence {
+  claimed: OutboxRecord;
+  workerId: string;
+  currentAccountId: () => string | null;
+  currentDeviceId: () => string | null;
+}
 
 export class LocalDatabaseRepository {
   readonly namespace: LocalDatabaseNamespace;
@@ -1856,7 +1869,8 @@ export class LocalDatabaseRepository {
     }
   }
 
-  private nextDeliverable(values: OutboxRecord[], timestamp: string, recoverExpiredClaims: boolean): OutboxRecord[] {
+  private nextDeliverable(values: OutboxRecord[], timestamp: string, recoverExpiredClaims: boolean,
+    mode: 'generic' | 'bound_workout' = 'generic'): OutboxRecord[] {
     const at = Date.parse(now(timestamp));
     const byId = new Map(values.map(value => [value.mutationId, value]));
     const groups = new Map<string, OutboxRecord[]>();
@@ -1869,7 +1883,9 @@ export class LocalDatabaseRepository {
       group.sort((left, right) => left.localRevision - right.localRevision);
       const firstUnsettled = group.find(value => value.status !== 'acknowledged' && value.status !== 'superseded');
       if (!firstUnsettled) continue;
-      if (firstUnsettled.deliveryBlockCode || firstUnsettled.deliveryBinding !== undefined) continue;
+      if (firstUnsettled.deliveryBlockCode || (mode === 'generic'
+        ? firstUnsettled.deliveryBinding !== undefined
+        : firstUnsettled.domain !== WORKOUT_REMOTE_DOMAIN || firstUnsettled.deliveryBinding?.state !== 'bound')) continue;
       const prerequisite = firstUnsettled.dependsOnMutationId
         ? byId.get(firstUnsettled.dependsOnMutationId)
         : null;
@@ -2038,6 +2054,226 @@ export class LocalDatabaseRepository {
       await done; return claimed;
     } catch (error) {
       abortQuietly(transaction); await done.catch(() => undefined); throw localDatabaseError(error, 'claim_outbox');
+    }
+  }
+
+  private assertWorkoutPushIdentity(account: () => string | null, device: () => string | null,
+    operation: string): void {
+    if (account()?.toLowerCase() !== this.namespace.userId.toLowerCase()
+      || device() !== this.namespace.deviceId) throw new LocalDatabaseError('NAMESPACE_MISMATCH', operation);
+  }
+
+  private assertWorkoutPushClaim(row: OutboxRecord, input: WorkoutPushClaimFence, operation: string): void {
+    this.validatePersistedOutbox(row, operation);
+    const expected = input.claimed;
+    if (row.domain !== WORKOUT_REMOTE_DOMAIN || row.deliveryBinding?.state !== 'bound'
+      || row.deliveryBlockCode != null || row.accountId?.toLowerCase() !== this.namespace.userId.toLowerCase()
+      || row.deviceId !== this.namespace.deviceId || row.namespaceKey !== this.namespaceKey
+      || row.generationId !== this.namespace.generationId || row.mutationId !== expected.mutationId
+      || row.status !== 'claimed' || row.leaseOwner !== input.workerId
+      || row.attemptCount !== expected.attemptCount || row.lastAttemptAt !== expected.lastAttemptAt
+      || expected.deliveryBinding?.state !== 'bound'
+      || canonicalPayloadJson(row.deliveryBinding) !== canonicalPayloadJson(expected.deliveryBinding)
+      || row.payloadHash !== expected.payloadHash || canonicalPayloadJson(row.payload) !== canonicalPayloadJson(expected.payload)
+      || row.idempotencyKey !== expected.idempotencyKey || row.localRevision !== expected.localRevision) {
+      throw new LocalDatabaseError('LEASE_FENCE_MISMATCH', operation);
+    }
+  }
+
+  /** Dormant G4B2 path: never changes generic REL-05D claim eligibility. */
+  async claimNextBoundWorkoutMutations(input: ClaimOutboxInput & {
+    currentAccountId: () => string | null;
+    currentDeviceId: () => string | null;
+  }): Promise<OutboxRecord[]> {
+    const operation = 'claim_bound_workout';
+    this.assertOpen(operation); validateSafeIdentifier(input.workerId, operation);
+    const timestamp = now(input.now);
+    if (!Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 100
+      || !Number.isSafeInteger(input.leaseDurationMs) || input.leaseDurationMs < 1
+      || input.leaseDurationMs > 86_400_000) throw new LocalDatabaseError('INVALID_OUTBOX_QUERY', operation);
+    this.assertWorkoutPushIdentity(input.currentAccountId, input.currentDeviceId, operation);
+    const transaction = this.db.transaction([
+      LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations,
+      LOCAL_DATABASE_STORES.entities, LOCAL_DATABASE_STORES.outbox, LOCAL_DATABASE_STORES.restoreSessions,
+    ], 'readwrite');
+    const done = transactionCompletion(transaction, operation);
+    try {
+      const values = await this.readScopedOutbox(transaction, operation);
+      await this.ensureActive(transaction);
+      this.assertWorkoutPushIdentity(input.currentAccountId, input.currentDeviceId, operation);
+      const store = transaction.objectStore(LOCAL_DATABASE_STORES.outbox);
+      const safe = this.quarantineAttemptedUnbound(transaction, values);
+      const candidates = this.nextDeliverable(safe, timestamp, input.recoverExpiredClaims === true, 'bound_workout')
+        .slice(0, input.limit);
+      const claimed = candidates.map(value => {
+        if (!Number.isSafeInteger(value.attemptCount + 1)
+          || value.accountId?.toLowerCase() !== this.namespace.userId.toLowerCase()
+          || value.deviceId !== this.namespace.deviceId) throw new LocalDatabaseError('INVALID_OUTBOX', operation);
+        const updated: OutboxRecord = {
+          ...value, status: 'claimed', updatedAt: timestamp, attemptCount: value.attemptCount + 1,
+          lastAttemptAt: timestamp, lastErrorCode: null, leaseOwner: input.workerId,
+          leaseExpiresAt: new Date(Date.parse(timestamp) + input.leaseDurationMs).toISOString(),
+        };
+        validateOutboxRecord(updated); store.put(updated); return updated;
+      });
+      this.assertWorkoutPushIdentity(input.currentAccountId, input.currentDeviceId, operation);
+      await done;
+      return claimed;
+    } catch (error) {
+      abortQuietly(transaction); await done.catch(() => undefined); throw localDatabaseError(error, operation);
+    }
+  }
+
+  /** Re-read durable lease and immutable request immediately before HTTP I/O. */
+  async readClaimedBoundWorkoutMutation(input: WorkoutPushClaimFence, at: string): Promise<OutboxRecord> {
+    const operation = 'read_claimed_bound_workout';
+    this.assertOpen(operation); now(at);
+    this.assertWorkoutPushIdentity(input.currentAccountId, input.currentDeviceId, operation);
+    const transaction = this.db.transaction([
+      LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations,
+      LOCAL_DATABASE_STORES.entities, LOCAL_DATABASE_STORES.outbox, LOCAL_DATABASE_STORES.restoreSessions,
+    ], 'readonly');
+    const done = transactionCompletion(transaction, operation);
+    try {
+      const row = await requestResult(transaction.objectStore(LOCAL_DATABASE_STORES.outbox).get([
+        this.namespaceKey, this.namespace.generationId, input.claimed.mutationId,
+      ])) as OutboxRecord | undefined;
+      if (!row) throw new LocalDatabaseError('OUTBOX_NOT_FOUND', operation);
+      this.assertWorkoutPushClaim(row, input, operation);
+      if (row.leaseExpiresAt === null || Date.parse(row.leaseExpiresAt) <= Date.parse(at)) {
+        throw new LocalDatabaseError('LEASE_FENCE_MISMATCH', operation);
+      }
+      const entity = await requestResult(transaction.objectStore(LOCAL_DATABASE_STORES.entities).get(entityKey(
+        this.namespaceKey, this.namespace.generationId, WORKOUT_REMOTE_DOMAIN, row.entityId,
+      ))) as LocalEntityEnvelope<WorkoutSessionV1> | undefined;
+      if (!entity) throw new LocalDatabaseError('ENTITY_NOT_FOUND', operation);
+      this.validatePersistedEntity(entity, operation);
+      if (row.deliveryBinding?.state !== 'bound'
+        || entity.accountId?.toLowerCase() !== this.namespace.userId.toLowerCase()
+        || canonicalWorkoutUuid(entity.record?.id) !== row.deliveryBinding.wireEntityId) {
+        throw new LocalDatabaseError('INVALID_ENTITY', operation);
+      }
+      await this.ensureActive(transaction);
+      this.assertWorkoutPushIdentity(input.currentAccountId, input.currentDeviceId, operation);
+      await done;
+      return row;
+    } catch (error) {
+      abortQuietly(transaction); await done.catch(() => undefined); throw localDatabaseError(error, operation);
+    }
+  }
+
+  /** One fenced IDB transaction for receipt or rejection; never rewrites a successor's content. */
+  async settleBoundWorkoutMutation(input: WorkoutPushClaimFence & {
+    now: string; settlement: WorkoutPushSettlement;
+  }): Promise<{ outbox: OutboxRecord; idempotent: boolean }> {
+    const operation = 'settle_bound_workout';
+    this.assertOpen(operation);
+    const timestamp = now(input.now);
+    this.assertWorkoutPushIdentity(input.currentAccountId, input.currentDeviceId, operation);
+    const result = input.settlement;
+    if (result.kind === 'success' && (!Number.isSafeInteger(result.serverRevision) || result.serverRevision < 1
+      || !WORKOUT_WIRE_UUID.test(result.remoteMutationRef) || !validTimestamp(result.serverCommittedAt))) {
+      throw new LocalDatabaseError('INVALID_OUTBOX_TRANSITION', operation);
+    }
+    if (result.kind !== 'success') validateSafeIdentifier(result.errorCode, operation);
+    if (result.kind === 'retry' && (!Number.isSafeInteger(result.baseDelayMs) || result.baseDelayMs < 1
+      || !Number.isSafeInteger(result.maxDelayMs) || result.maxDelayMs < result.baseDelayMs
+      || result.maxDelayMs > 2_592_000_000)) throw new LocalDatabaseError('INVALID_OUTBOX_TRANSITION', operation);
+    const transaction = this.db.transaction([
+      LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations,
+      LOCAL_DATABASE_STORES.entities, LOCAL_DATABASE_STORES.outbox,
+      LOCAL_DATABASE_STORES.restoreSessions, LOCAL_DATABASE_STORES.conflicts,
+    ], 'readwrite');
+    const done = transactionCompletion(transaction, operation);
+    try {
+      await this.ensureActive(transaction);
+      this.assertWorkoutPushIdentity(input.currentAccountId, input.currentDeviceId, operation);
+      const outboxStore = transaction.objectStore(LOCAL_DATABASE_STORES.outbox);
+      const row = await requestResult(outboxStore.get([
+        this.namespaceKey, this.namespace.generationId, input.claimed.mutationId,
+      ])) as OutboxRecord | undefined;
+      if (!row) throw new LocalDatabaseError('OUTBOX_NOT_FOUND', operation);
+      this.validatePersistedOutbox(row, operation);
+      if (result.kind === 'success' && row.status === 'acknowledged') {
+        if (row.deliveryBinding?.state === 'bound'
+          && input.claimed.deliveryBinding?.state === 'bound'
+          && canonicalPayloadJson(row.deliveryBinding) === canonicalPayloadJson(input.claimed.deliveryBinding)
+          && row.remoteMutationRef === result.remoteMutationRef
+          && row.acknowledgedRevision === result.serverRevision
+          && row.serverCommittedAt === result.serverCommittedAt) {
+          await done; return { outbox: row, idempotent: true };
+        }
+        throw new LocalDatabaseError('INVALID_OUTBOX_TRANSITION', operation);
+      }
+      this.assertWorkoutPushClaim(row, input, operation);
+      const entityStore = transaction.objectStore(LOCAL_DATABASE_STORES.entities);
+      const entity = await requestResult(entityStore.get(entityKey(
+        this.namespaceKey, this.namespace.generationId, WORKOUT_REMOTE_DOMAIN, row.entityId,
+      ))) as LocalEntityEnvelope | undefined;
+      if (!entity) throw new LocalDatabaseError('ENTITY_NOT_FOUND', operation);
+      this.validatePersistedEntity(entity, operation);
+      const lineage = await requestResult(outboxStore.index('by_namespace_generation_entity').getAll(IDBKeyRange.only([
+        this.namespaceKey, this.namespace.generationId, WORKOUT_REMOTE_DOMAIN, row.entityId,
+      ]))) as OutboxRecord[];
+      lineage.forEach(item => this.validatePersistedOutbox(item, operation));
+      this.validateOutboxSequences(lineage, operation);
+      this.validateOutboxDependencies(lineage, operation);
+      let updated: OutboxRecord;
+      if (result.kind === 'success') {
+        updated = {
+          ...row, status: 'acknowledged', updatedAt: timestamp, acknowledgedAt: timestamp,
+          acknowledgedBy: input.workerId, acknowledgedRevision: result.serverRevision,
+          remoteMutationRef: result.remoteMutationRef, serverCommittedAt: result.serverCommittedAt,
+          lastErrorCode: null, leaseOwner: null, leaseExpiresAt: null,
+        };
+        // A successor owns the canonical entity now. M1's receipt remains on M1 only.
+        if (entity.localRevision === row.localRevision && entity.pendingMutationId === row.mutationId) {
+          if (entity.serverRevision != null && entity.serverRevision >= result.serverRevision) {
+            throw new LocalDatabaseError('STALE_REVISION', operation);
+          }
+          const nextEntity: LocalEntityEnvelope = {
+            ...entity, serverRevision: result.serverRevision,
+            remoteState: row.operation === 'tombstone' ? 'deleted' : 'active',
+            lastRemoteMutationRef: result.remoteMutationRef, pendingMutationId: null,
+          };
+          validateEntityEnvelope(nextEntity); entityStore.put(nextEntity);
+        }
+      } else if (result.kind === 'retry') {
+        updated = {
+          ...row, status: 'retry_wait', updatedAt: timestamp,
+          availableAt: calculateRetryAvailableAt({ now: timestamp, attemptCount: row.attemptCount,
+            baseDelayMs: result.baseDelayMs, maxDelayMs: result.maxDelayMs }),
+          lastErrorCode: result.errorCode, leaseOwner: null, leaseExpiresAt: null,
+        };
+      } else {
+        updated = { ...row, status: result.kind === 'conflict' ? 'conflict' : 'permanent_failure',
+          updatedAt: timestamp, lastErrorCode: result.errorCode, leaseOwner: null, leaseExpiresAt: null };
+        if (result.kind === 'conflict') {
+          const remoteCandidate = canonicalPayloadSnapshot({ kind: 'workout_remote_rejection',
+            errorCode: result.errorCode, ...result.remoteEvidence });
+          const localCandidate = canonicalPayloadSnapshot(row.payload);
+          const revision = result.remoteEvidence.currentServerRevision;
+          const conflict: SyncConflictRecord = {
+            namespaceKey: this.namespaceKey, generationId: this.namespace.generationId,
+            accountId: this.namespace.userId, conflictId: crypto.randomUUID(),
+            domain: WORKOUT_REMOTE_DOMAIN, entityId: row.entityId, mutationId: row.mutationId,
+            localCandidate, remoteCandidate, remoteMetadata: canonicalPayloadSnapshot(result.remoteEvidence),
+            localRevision: row.localRevision,
+            serverRevision: Number.isSafeInteger(revision) && (revision as number) > 0 ? revision as number : null,
+            localContentHash: hashCanonicalPayload(localCandidate),
+            remoteContentHash: hashCanonicalPayload(remoteCandidate), conflictType: result.errorCode,
+            createdAt: timestamp, resolutionState: 'unresolved', resolvedAt: null,
+          };
+          validateConflictRecord(conflict);
+          transaction.objectStore(LOCAL_DATABASE_STORES.conflicts).add(conflict);
+        }
+      }
+      validateOutboxRecord(updated); outboxStore.put(updated);
+      this.assertWorkoutPushIdentity(input.currentAccountId, input.currentDeviceId, operation);
+      await done;
+      return { outbox: updated, idempotent: false };
+    } catch (error) {
+      abortQuietly(transaction); await done.catch(() => undefined); throw localDatabaseError(error, operation);
     }
   }
 
