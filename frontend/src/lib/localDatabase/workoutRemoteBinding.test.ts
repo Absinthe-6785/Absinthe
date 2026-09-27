@@ -8,6 +8,9 @@ import {
 import { WorkoutSessionRepository } from '../workoutSessionRepository';
 import type { WorkoutSessionV1 } from '../workoutSessionV1';
 import { hashCanonicalPayload } from './canonicalPayload';
+import { deriveOutboxIdempotencyKey, deriveOutboxMutationId } from './outboxIdentity';
+import type { OutboxRecord } from './types';
+import { validateEntityEnvelope, validateOutboxRecord } from './validation';
 import { WORKOUT_ADOPTION_ADAPTER } from '../workoutAdoption/types';
 
 const OWNER = '11111111-1111-4111-8111-111111111111';
@@ -97,6 +100,38 @@ async function putRaw(factory: IDBFactory, storeName: string, value: unknown): P
     tx.oncomplete = () => resolve(); tx.onabort = () => reject(tx.error);
   });
   db.close();
+}
+
+/** Change only a locally generated operation; remote state still comes from real convergence. */
+async function seedWrongStateBindingOperation(factory: IDBFactory, repo: LocalDatabaseRepository,
+  source: OutboxRecord, operation: 'upsert' | 'tombstone' | 'restore'): Promise<OutboxRecord> {
+  const entity = await repo.getEntity<WorkoutSessionV1>('health_workout_session', source.entityId);
+  if (!entity) throw new Error('missing_remote_backed_entity');
+  const payload = operation === 'tombstone'
+    ? { kind: 'tombstone' as const, entityId: source.entityId, revision: source.localRevision, deletedAt: T1 }
+    : source.payload;
+  const payloadHash = hashCanonicalPayload(payload);
+  const identity = { namespaceKey: source.namespaceKey, generationId: source.generationId,
+    domain: source.domain, entityId: source.entityId, localRevision: source.localRevision,
+    operation, payloadHash };
+  const mutationId = deriveOutboxMutationId(identity);
+  const outbox: OutboxRecord = { ...source, operation, payload, payloadHash, mutationId,
+    idempotencyKey: deriveOutboxIdempotencyKey(identity) };
+  const nextEntity = { ...entity, pendingMutationId: mutationId,
+    ...(operation === 'tombstone'
+      ? { deletedAt: T1, isDeleted: true, deletionState: 'deleted' as const } : {}) };
+  validateOutboxRecord(outbox);
+  validateEntityEnvelope(nextEntity);
+  const db = await raw(factory);
+  const tx = db.transaction(['outbox', 'entities'], 'readwrite');
+  tx.objectStore('outbox').delete([repo.namespaceKey, namespace.generationId, source.mutationId]);
+  tx.objectStore('outbox').put(outbox);
+  tx.objectStore('entities').put(nextEntity);
+  await new Promise<void>((resolve, reject) => {
+    tx.oncomplete = () => resolve(); tx.onabort = () => reject(tx.error);
+  });
+  db.close();
+  return outbox;
 }
 
 /** Historical G3 ADOPTABLE output, following its exact seal/item/target digests. */
@@ -512,6 +547,41 @@ describe('REL-05G4B1 durable workout binding', () => {
       currentDeviceId: () => namespace.deviceId });
     expect(restoreBound.deliveryBinding).toMatchObject({ remoteCasBaseRevision: 12 });
   });
+
+  for (const scenario of [
+    { name: 'active -> restore', id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      remoteState: 'active', operation: 'restore' },
+    { name: 'deleted -> update', id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+      remoteState: 'deleted', operation: 'upsert' },
+    { name: 'deleted -> tombstone', id: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+      remoteState: 'deleted', operation: 'tombstone' },
+  ] as const) {
+    it(`rejects ${scenario.name} at the binding boundary without persisting a binding`, async () => {
+      const { repo, workouts, factory } = await setup();
+      await applyRemote(repo, scenario.id, 9, null, null);
+      if (scenario.remoteState === 'deleted') await applyRemote(repo, scenario.id, 12, 1, T1, 10);
+      const baselineRevision = scenario.remoteState === 'active' ? 9 : 12;
+      expect(await repo.getEntity('health_workout_session', scenario.id)).toMatchObject({
+        serverRevision: baselineRevision, remoteState: scenario.remoteState,
+      });
+      // The domain API correctly refuses the invalid operation. Generate a valid
+      // local successor first, then change only its operation/identity test fixture.
+      const generated = scenario.remoteState === 'active'
+        ? await workouts.updateWorkoutSession(scenario.id, 1, session(scenario.id, 9), { now: T1 })
+        : await workouts.restoreWorkoutSession(scenario.id, 2, session(scenario.id), { now: T1 });
+      const outbox = await seedWrongStateBindingOperation(factory, repo, generated.outbox, scenario.operation);
+      const beforeEntity = await repo.getEntity('health_workout_session', scenario.id);
+      expect(beforeEntity).toMatchObject({ serverRevision: baselineRevision, remoteState: scenario.remoteState });
+      await expect(repo.bindWorkoutMutation({ mutationId: outbox.mutationId,
+        expectedVerificationId: VERIFICATION, currentAuthenticatedAccount: () => OWNER,
+        currentDeviceId: () => namespace.deviceId }))
+        .rejects.toHaveProperty('code', 'INVALID_OUTBOX_TRANSITION');
+      expect(await repo.getOutboxRecord(outbox.mutationId)).toEqual(outbox);
+      expect(await repo.getEntity('health_workout_session', scenario.id)).toEqual(beforeEntity);
+      expect(await repo.getWorkoutRemoteIdByLocal(scenario.id)).toBeNull();
+      expect(await repo.getWorkoutRemoteIdsByWire(scenario.id)).toEqual([]);
+    });
+  }
 
   it('uses a newer real remote boundary over retained acknowledged M1 history', async () => {
     const { repo, workouts, created, factory } = await setup();
