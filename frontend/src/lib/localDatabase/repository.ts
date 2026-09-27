@@ -2206,6 +2206,9 @@ export class LocalDatabaseRepository {
         throw new LocalDatabaseError('INVALID_OUTBOX_TRANSITION', operation);
       }
       this.assertWorkoutPushClaim(row, input, operation);
+      if (row.leaseExpiresAt === null || Date.parse(row.leaseExpiresAt) <= Date.parse(timestamp)) {
+        throw new LocalDatabaseError('LEASE_FENCE_MISMATCH', operation);
+      }
       const entityStore = transaction.objectStore(LOCAL_DATABASE_STORES.entities);
       const entity = await requestResult(entityStore.get(entityKey(
         this.namespaceKey, this.namespace.generationId, WORKOUT_REMOTE_DOMAIN, row.entityId,

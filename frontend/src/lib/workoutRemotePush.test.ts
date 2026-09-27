@@ -9,6 +9,7 @@ import {
 import { WorkoutSessionRepository } from './workoutSessionRepository';
 import type { WorkoutSessionV1 } from './workoutSessionV1';
 import { runWorkoutPushIteration, type WorkoutPushOptions } from './workoutRemotePush';
+import type { WorkoutPushSettlement } from './localDatabase/repository';
 
 const OWNER = '11111111-1111-4111-8111-111111111111';
 const OTHER = '22222222-2222-4222-8222-222222222222';
@@ -369,8 +370,87 @@ describe('REL-05G4B2 dormant bound workout push', () => {
     await expect(repo.settleBoundWorkoutMutation({ claimed: a, workerId: 'worker-a', ...identity,
       now: T3, settlement: { kind: 'success', serverRevision: 2,
         remoteMutationRef: REF, serverCommittedAt: T1 } })).rejects.toHaveProperty('code', 'INVALID_OUTBOX_TRANSITION');
+    await expect(repo.settleBoundWorkoutMutation({ claimed: a, workerId: 'worker-a', ...identity,
+      now: T3, settlement: { kind: 'success', serverRevision: 1,
+        remoteMutationRef: REF, serverCommittedAt: T2 } })).rejects.toHaveProperty('code', 'INVALID_OUTBOX_TRANSITION');
     expect(await repo.getOutboxRecord(created.outbox.mutationId)).toMatchObject({
       status: 'acknowledged', acknowledgedRevision: 1,
+    });
+  });
+
+  it('settles a live lease one millisecond before expiry', async () => {
+    const { repo, created } = await setup();
+    const identity = { currentAccountId: () => OWNER, currentDeviceId: () => namespace.deviceId };
+    const [claimed] = await repo.claimNextBoundWorkoutMutations({ workerId: 'worker-live', now: T1,
+      leaseDurationMs: 30_000, limit: 1, ...identity });
+    const beforeExpiry = new Date(Date.parse(claimed.leaseExpiresAt!) - 1).toISOString();
+    expect(await repo.settleBoundWorkoutMutation({ claimed, workerId: 'worker-live', ...identity,
+      now: beforeExpiry, settlement: { kind: 'success', serverRevision: 1,
+        remoteMutationRef: REF, serverCommittedAt: T1 } })).toMatchObject({ idempotent: false });
+    expect(await repo.getOutboxRecord(created.outbox.mutationId)).toMatchObject({
+      status: 'acknowledged', acknowledgedRevision: 1,
+    });
+  });
+
+  const expiredSettlements: Array<[string, WorkoutPushSettlement]> = [
+    ['success', { kind: 'success', serverRevision: 1, remoteMutationRef: REF, serverCommittedAt: T1 }],
+    ['retry', { kind: 'retry', errorCode: 'NETWORK_RETRYABLE', baseDelayMs: 1_000, maxDelayMs: 8_000 }],
+    ['conflict', { kind: 'conflict', errorCode: 'CAS_CONFLICT', remoteEvidence: { currentServerRevision: 4 } }],
+    ['permanent', { kind: 'permanent', errorCode: 'STALE_AUTHORITY_EPOCH' }],
+  ];
+  it.each(expiredSettlements)('rejects %s at exact lease expiry without a reclaim', async (_kind, settlement) => {
+    const { repo, created } = await setup();
+    const identity = { currentAccountId: () => OWNER, currentDeviceId: () => namespace.deviceId };
+    const [claimed] = await repo.claimNextBoundWorkoutMutations({ workerId: 'worker-expired', now: T1,
+      leaseDurationMs: 30_000, limit: 1, ...identity });
+    await expect(repo.readClaimedBoundWorkoutMutation({ claimed, workerId: 'worker-expired', ...identity },
+      claimed.leaseExpiresAt!)).rejects.toHaveProperty('code', 'LEASE_FENCE_MISMATCH');
+    await expect(repo.settleBoundWorkoutMutation({ claimed, workerId: 'worker-expired', ...identity,
+      now: claimed.leaseExpiresAt!, settlement })).rejects.toHaveProperty('code', 'LEASE_FENCE_MISMATCH');
+    expect(await repo.getOutboxRecord(created.outbox.mutationId)).toEqual(claimed);
+    expect(await repo.listConflicts('health_workout_session', ID)).toEqual([]);
+  });
+
+  it('fences an old attempt even when the reclaim reuses the same worker ID', async () => {
+    const { repo, created } = await setup();
+    const identity = { currentAccountId: () => OWNER, currentDeviceId: () => namespace.deviceId };
+    const claim = (now: string, recoverExpiredClaims = false) => repo.claimNextBoundWorkoutMutations({
+      workerId: 'worker-reused', now, leaseDurationMs: 30_000, limit: 1, recoverExpiredClaims, ...identity,
+    });
+    const [first] = await claim(T1);
+    const [second] = await claim(first.leaseExpiresAt!, true);
+    expect(second).toMatchObject({ status: 'claimed', leaseOwner: 'worker-reused',
+      attemptCount: first.attemptCount + 1, lastAttemptAt: first.leaseExpiresAt });
+    await expect(repo.settleBoundWorkoutMutation({ claimed: first, workerId: 'worker-reused', ...identity,
+      now: first.leaseExpiresAt!, settlement: { kind: 'success', serverRevision: 1,
+        remoteMutationRef: REF, serverCommittedAt: T1 } })).rejects.toHaveProperty('code', 'LEASE_FENCE_MISMATCH');
+    expect(await repo.getOutboxRecord(created.outbox.mutationId)).toEqual(second);
+    expect(await repo.settleBoundWorkoutMutation({ claimed: second, workerId: 'worker-reused', ...identity,
+      now: first.leaseExpiresAt!, settlement: { kind: 'success', serverRevision: 1,
+        remoteMutationRef: REF, serverCommittedAt: T1 } })).toMatchObject({ idempotent: false });
+  });
+
+  it('reclaims an expired server commit and settles its exact immutable replay', async () => {
+    const { repo, created } = await setup();
+    let at = T1;
+    const sent: string[] = [];
+    const fetchImpl = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+      const body = String(init?.body);
+      sent.push(body);
+      if (sent.length === 1) at = new Date(Date.parse(T1) + 1_000).toISOString();
+      return Response.json(receipt(JSON.parse(body), sent.length === 1 ? 'success' : 'exact_replay'));
+    }) as typeof fetch;
+    const pushOptions = { ...options(fetchImpl, () => at), limit: 1, leaseDurationMs: 1_000 };
+    expect(await runWorkoutPushIteration(repo, pushOptions)).toMatchObject({ claimed: 1, success: 0, blocked: 1 });
+    expect(await repo.getOutboxRecord(created.outbox.mutationId)).toMatchObject({
+      status: 'claimed', acknowledgedRevision: null,
+    });
+    at = T2;
+    expect(await runWorkoutPushIteration(repo, pushOptions)).toMatchObject({ claimed: 1, exactReplay: 1 });
+    expect(sent).toHaveLength(2);
+    expect(sent[1]).toBe(sent[0]);
+    expect(await repo.getOutboxRecord(created.outbox.mutationId)).toMatchObject({
+      status: 'acknowledged', acknowledgedRevision: 1, remoteMutationRef: REF,
     });
   });
 
