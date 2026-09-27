@@ -58,7 +58,7 @@ export interface LocalEntityEnvelope<T = unknown> {
   localRevision?: number;
   serverRevision?: number | null;
   /** G4B1 reserve: remote state is unknown unless later transport persists explicit evidence. */
-  remoteState?: 'active' | 'deleted' | 'unknown';
+  remoteState?: 'active' | 'deleted';
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
@@ -143,6 +143,9 @@ export interface WorkoutRemoteAuthorityRecordV1 {
   generationBindingId: string;
   serverEpoch: string;
   verifiedAt: string;
+  /** Local, transaction-serialized discovery identity; never part of the server digest. */
+  discoverySequence: number;
+  verificationId: string;
 }
 
 export interface WorkoutRemoteIdRecordV1 {

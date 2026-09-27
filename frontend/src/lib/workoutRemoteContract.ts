@@ -61,7 +61,7 @@ export function workoutRequestDigest(input: WorkoutDigestInput): string {
     || !WORKOUT_DIGEST.test(input.namespaceKey) || !WORKOUT_SAFE_SCOPE.test(input.generationId)
     || !WORKOUT_SAFE_SCOPE.test(input.deviceId) || !WORKOUT_WIRE_UUID.test(input.generationBindingId)
     || !Number.isSafeInteger(input.authorityEpoch) || input.authorityEpoch < 1
-    || !/^mut\.[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(input.mutationId)
+    || !/^mut\.[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(input.mutationId)
     || !/^k322\.[a-f0-9]{64}$/.test(input.idempotencyKey)
     || !WORKOUT_WIRE_UUID_V4.test(input.wireEntityId)
     || !['upsert', 'tombstone', 'restore'].includes(input.operation)

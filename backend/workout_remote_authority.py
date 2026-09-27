@@ -248,7 +248,8 @@ class WorkoutMutationRequest(WorkoutBindingRequest):
         else:
             if not _exact(self.payload, {"kind", "entityId", "revision", "deletedAt"}) \
                     or self.payload["kind"] != "tombstone" \
-                    or self.payload["entityId"] != self.entity_id \
+                    or not _payload_uuid4(self.payload["entityId"]) \
+                    or UUID(self.payload["entityId"]) != UUID(self.entity_id) \
                     or self.payload["revision"] != self.local_revision \
                     or type(self.payload["deletedAt"]) is not str:
                 raise ValueError("INVALID_PAYLOAD")

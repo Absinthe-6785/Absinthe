@@ -110,7 +110,7 @@ export function validateEntityEnvelope(value: LocalEntityEnvelope): void {
     }
   }
   validateSafeSource(value.source);
-  if (value.remoteState !== undefined && !['active', 'deleted', 'unknown'].includes(value.remoteState)) {
+  if (value.remoteState !== undefined && !['active', 'deleted'].includes(value.remoteState)) {
     throw new LocalDatabaseError('INVALID_ENTITY', 'validate_entity');
   }
   if (value.restoreProvenance !== undefined && value.restoreProvenance !== null) validateRestoreProvenance(value.restoreProvenance);

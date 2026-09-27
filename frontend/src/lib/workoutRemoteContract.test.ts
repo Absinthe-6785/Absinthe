@@ -105,6 +105,20 @@ describe('REL-05G4A shared Python/JS workout vectors', () => {
     expect(workoutRequestDigest({ ...input, createdAt: '2030-01-01T00:00:00Z' })).toBe(baseline);
   });
 
+  it('matches G4A lowercase mutation ID and shared safe-scope grammar exactly', () => {
+    const vector = fixture.vectors[0]!;
+    const input = { authenticatedOwnerId: fixture.ownerId, projectScope: 'A._:-',
+      namespaceKey: fixture.namespaceKey, generationId: 'G._:-', deviceId: 'D._:-',
+      generationBindingId: fixture.bindingId, authorityEpoch: 1,
+      mutationId: vector.mutationId, idempotencyKey: vector.idempotencyKey,
+      wireEntityId: vector.record.id.toLowerCase(), operation: vector.operation,
+      remoteCasBaseRevision: vector.remoteCasBaseRevision, localRevision: vector.localRevision,
+      payloadHash: vector.expectedPayloadHash };
+    expect(workoutRequestDigest(input)).toMatch(/^[a-f0-9]{64}$/);
+    expect(() => workoutRequestDigest({ ...input, mutationId: vector.mutationId.toUpperCase()
+      .replace('MUT.', 'mut.') })).toThrow('workout_invalid_digest_input');
+  });
+
   it('rejects Unicode-digit localDate while retaining ASCII calendar dates', () => {
     const record = fixture.vectors[0]!.record;
     validateWorkoutSessionV1({ ...record, localDate: '2024-02-29' });

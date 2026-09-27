@@ -6,6 +6,7 @@ import {
   type LocalDatabaseRepository, type LocalDatabaseNamespace,
 } from './localDatabase';
 import { createWorkoutRemoteControlClient, WorkoutRemoteDiscoveryError } from './workoutRemoteClient';
+import { WorkoutSessionRepository } from './workoutSessionRepository';
 
 const OWNER = '11111111-1111-4111-8111-111111111111';
 const BINDING = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
@@ -16,13 +17,25 @@ const scope: LocalDatabaseNamespace = {
 };
 const opened: LocalDatabaseRepository[] = [];
 
-async function repository() {
+async function repository(factory = new IDBFactory()) {
   const repo = await openLocalDatabase(scope, {
-    capability: createDormantLocalDatabaseCapability('test'), indexedDBFactory: new IDBFactory(),
+    capability: createDormantLocalDatabaseCapability('test'), indexedDBFactory: factory,
   });
   opened.push(repo);
   await repo.initializeNamespace();
   return repo;
+}
+
+async function firstMutation(repo: LocalDatabaseRepository) {
+  const id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  return new WorkoutSessionRepository(repo).createWorkoutSession({
+    version: 1, id, localDate: '2026-09-27', entries: [{
+      id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      exercise: { id: null, name: 'Push-up', type: 'bodyweight', tags: [], cardioMode: null },
+      sets: [{ id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', ordinal: 1, kind: 'bodyweight',
+        loadKind: 'bodyweight', reps: 8, assistedReps: null, dropset: false, done: true }],
+    }],
+  });
 }
 
 function harness(repo: LocalDatabaseRepository, override: {
@@ -97,6 +110,16 @@ describe('REL-05G4B1 dormant authenticated authority discovery', () => {
     expect(diagnostics).toContain('authority_discovery_success');
   });
 
+  it('orchestrates a new binding through fresh authenticated discovery', async () => {
+    const repo = await repository();
+    const mutation = await firstMutation(repo);
+    const { client } = harness(repo);
+    const bound = await client.discoverAndBind(repo, mutation.outbox.mutationId);
+    expect(bound.deliveryBinding).toMatchObject({ state: 'bound',
+      projectScope: 'nondefault-workout-project', remoteCasBaseRevision: null });
+    expect((await repo.getWorkoutRemoteAuthority())?.verificationId).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
   it('fails closed on project-scope mismatch, disabled capability, feature flag, auth and network failure', async () => {
     for (const [options, expected] of [
       [{ generationProjectScope: 'different-project' }, 'PROJECT_SCOPE_MISMATCH'],
@@ -159,5 +182,44 @@ describe('REL-05G4B1 dormant authenticated authority discovery', () => {
       expect(error).toMatchObject({ code: 'PROJECT_SCOPE_MISMATCH' });
     }
     expect(await repo.getWorkoutRemoteAuthority()).toBeNull();
+  });
+
+  it('invalidates an older verification when a fresh discovery is capability-disabled', async () => {
+    const repo = await repository();
+    const mutation = await firstMutation(repo);
+    const valid = await harness(repo).client.discoverAndPersist(repo);
+    await expect(harness(repo, { capability: 'DISABLED' }).client.discoverAndPersist(repo))
+      .rejects.toMatchObject({ code: 'CAPABILITY_DISABLED' });
+    expect(await repo.getWorkoutRemoteAuthority()).toEqual(valid);
+    await expect(repo.bindWorkoutMutation({ mutationId: mutation.outbox.mutationId,
+      expectedVerificationId: valid.verificationId, currentAuthenticatedAccount: () => OWNER,
+      currentDeviceId: () => scope.deviceId })).rejects.toHaveProperty('code', 'INVALID_RESERVED_RECORD');
+  });
+
+  it('serializes overlapping discovery across two repository tabs without wall-clock ordering', async () => {
+    const factory = new IDBFactory();
+    const first = await repository(factory);
+    const second = await repository(factory);
+    const mutation = await firstMutation(first);
+    const old = await harness(first).client.discoverAndPersist(first);
+    let release!: () => void;
+    let started!: () => void;
+    const blocked = new Promise<void>(resolve => { release = resolve; });
+    const reached = new Promise<void>(resolve => { started = resolve; });
+    const a = harness(first, { onAuthority: async () => { started(); await blocked; } });
+    const aPending = a.client.discoverAndPersist(first);
+    await reached;
+    const current = await harness(second).client.discoverAndPersist(second);
+    release();
+    await expect(aPending).rejects.toHaveProperty('code', 'INVALID_RESERVED_RECORD');
+    expect(current.discoverySequence).toBeGreaterThan(old.discoverySequence);
+    expect(await first.getWorkoutRemoteAuthority()).toEqual(current);
+    await expect(first.bindWorkoutMutation({ mutationId: mutation.outbox.mutationId,
+      expectedVerificationId: old.verificationId, currentAuthenticatedAccount: () => OWNER,
+      currentDeviceId: () => scope.deviceId })).rejects.toHaveProperty('code', 'INVALID_RESERVED_RECORD');
+    const bound = await second.bindWorkoutMutation({ mutationId: mutation.outbox.mutationId,
+      expectedVerificationId: current.verificationId, currentAuthenticatedAccount: () => OWNER,
+      currentDeviceId: () => scope.deviceId });
+    expect(bound.deliveryBinding).toMatchObject({ state: 'bound' });
   });
 });

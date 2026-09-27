@@ -132,6 +132,7 @@ export function createWorkoutRemoteControlClient(options: WorkoutRemoteControlOp
       const accountId = namespace.userId.toLowerCase();
       const discoveryStartedAt = new Date().toISOString();
       try {
+        const discoverySequence = await repository.reserveWorkoutRemoteDiscovery();
         await session(accountId);
         if (options.currentDeviceId() !== namespace.deviceId) throw new WorkoutRemoteDiscoveryError('IDENTITY_CHANGED');
         const active = await repository.getActiveGeneration();
@@ -183,6 +184,7 @@ export function createWorkoutRemoteControlClient(options: WorkoutRemoteControlOp
           capability: 'FOUNDATION_READY', authorityState: 'OPEN', authorityEpoch: discovered.authorityEpoch,
           bindingState: 'bound', generationBindingId: bound.bindingId,
           serverEpoch: bound.serverEpoch, verifiedAt: discoveryStartedAt,
+          discoverySequence, verificationId: crypto.randomUUID(),
         };
         await repository.persistWorkoutRemoteAuthority(
           evidence, options.currentAccountId, options.currentDeviceId, testOnlyAbortBeforeCommit,
@@ -196,6 +198,12 @@ export function createWorkoutRemoteControlClient(options: WorkoutRemoteControlOp
         options.onDiagnostic?.('authority_discovery_fail_closed', code);
         throw error;
       }
+    },
+    /** Explicit dormant orchestration: never reuses a previously stored authority token. */
+    async discoverAndBind(repository: LocalDatabaseRepository, mutationId: string) {
+      const evidence = await this.discoverAndPersist(repository);
+      return repository.bindWorkoutMutation({ mutationId, expectedVerificationId: evidence.verificationId,
+        currentAuthenticatedAccount: options.currentAccountId, currentDeviceId: options.currentDeviceId });
     },
   };
 }
