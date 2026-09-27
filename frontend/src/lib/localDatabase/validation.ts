@@ -3,6 +3,7 @@ import { hashCanonicalPayload } from './canonicalPayload';
 import { validateSafeIdentifier } from './namespace';
 import { deriveOutboxIdempotencyKey, deriveOutboxMutationId, validOutboxIdempotencyKey } from './outboxIdentity';
 import { LOCAL_DATABASE_VERSION } from './types';
+import { canonicalWorkoutUuid, validateBoundWorkoutDeliveryBinding, workoutRequestDigest } from '../workoutRemoteContract';
 import type {
   AttachmentStateRecord, DatabaseMetaRecord, GenerationRecord, LegacyMigrationProvenance, LocalEntityEnvelope, MigrationStateRecord, OutboxRecord,
   ResurrectionProvenance, RestoreApplicationManifestV1, RestoreProvenance, RestoreSessionRecord, SafeSourceReference,
@@ -109,6 +110,9 @@ export function validateEntityEnvelope(value: LocalEntityEnvelope): void {
     }
   }
   validateSafeSource(value.source);
+  if (value.remoteState !== undefined && !['active', 'deleted'].includes(value.remoteState)) {
+    throw new LocalDatabaseError('INVALID_ENTITY', 'validate_entity');
+  }
   if (value.restoreProvenance !== undefined && value.restoreProvenance !== null) validateRestoreProvenance(value.restoreProvenance);
   if (value.migrationProvenance !== undefined && value.migrationProvenance !== null) {
     validateLegacyMigrationProvenance(value.migrationProvenance);
@@ -226,17 +230,38 @@ export function validateOutboxRecord(value: OutboxRecord): void {
   const deliveryBindingKeys = value.deliveryBinding == null
     ? '' : Object.keys(value.deliveryBinding).sort().join(',');
   const deliveryBindingValid = value.deliveryBinding === undefined
-    || deliveryBindingKeys === 'state,version'
-      && value.deliveryBinding.version === 1
-      && value.deliveryBinding.state === 'unbound'
-      && value.domain === 'health_workout_session';
+    || value.domain === 'health_workout_session' && (
+      deliveryBindingKeys === 'state,version'
+        && value.deliveryBinding.version === 1
+        && value.deliveryBinding.state === 'unbound'
+      || validateBoundWorkoutDeliveryBinding(value.deliveryBinding)
+        && value.deliveryBinding.boundPayloadHash === value.payloadHash
+    );
+  let boundDigestValid = true;
+  if (value.deliveryBinding?.state === 'bound') {
+    try {
+      const binding = value.deliveryBinding;
+      boundDigestValid = binding.wireEntityId === canonicalWorkoutUuid(value.entityId)
+        && binding.requestDigest === workoutRequestDigest({
+          authenticatedOwnerId: value.accountId!, projectScope: binding.projectScope,
+          namespaceKey: value.namespaceKey, generationId: value.generationId, deviceId: value.deviceId!,
+          generationBindingId: binding.generationBindingId, authorityEpoch: binding.authorityEpoch,
+          mutationId: value.mutationId, idempotencyKey: value.idempotencyKey,
+          wireEntityId: binding.wireEntityId, operation: value.operation,
+          remoteCasBaseRevision: binding.remoteCasBaseRevision,
+          localRevision: value.localRevision, payloadHash: value.payloadHash!,
+        });
+    } catch { boundDigestValid = false; }
+  }
   // Permit only explicit-unbound attempt evidence through so the claim path can
   // quarantine it without rewriting the original attempt metadata.
   const unboundAttemptEvidence = value.deliveryBinding?.state === 'unbound'
     && (value.attemptCount > 0 || value.lastAttemptAt !== null);
   const deliveryBlockValid = value.deliveryBlockCode === undefined || value.deliveryBlockCode === null
     || value.deliveryBlockCode === 'REMOTE_RESURRECTION_UNSUPPORTED'
-    || value.deliveryBlockCode === 'UNBOUND_ATTEMPT_QUARANTINED' && unboundAttemptEvidence;
+    || value.deliveryBlockCode === 'UNBOUND_ATTEMPT_QUARANTINED' && unboundAttemptEvidence
+    || value.deliveryBlockCode === 'UUID_MAPPING_COLLISION' && value.deliveryBinding?.state === 'unbound'
+      && value.domain === 'health_workout_session';
   const unboundQuarantineValid = value.deliveryBlockCode !== 'UNBOUND_ATTEMPT_QUARANTINED'
     || unboundAttemptEvidence;
   const dependencyValid = value.dependsOnMutationId === undefined || value.dependsOnMutationId === null
@@ -314,7 +339,7 @@ export function validateOutboxRecord(value: OutboxRecord): void {
     || (value.operation === 'tombstone') !== (payload.kind === 'tombstone') || !deliveryBlockValid || !dependencyValid
     || (resurrection !== null) !== (value.deliveryBlockCode === 'REMOTE_RESURRECTION_UNSUPPORTED')
     || (resurrection !== null && value.operation !== 'upsert') || !boundaryValid || !remoteBoundaryValid
-    || !deliveryBindingValid || !unboundQuarantineValid
+    || !deliveryBindingValid || !boundDigestValid || !unboundQuarantineValid
     || !accountFieldsValid || !acknowledgementMetadataValid) {
     throw new LocalDatabaseError('INVALID_OUTBOX', 'validate_outbox');
   }

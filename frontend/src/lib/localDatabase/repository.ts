@@ -53,6 +53,10 @@ import {
 } from '../workoutAdoption/types';
 import { validateWorkoutSessionV1, type WorkoutSessionV1 } from '../workoutSessionV1';
 import {
+  canonicalWorkoutUuid, workoutRequestDigest, WORKOUT_DIGEST, WORKOUT_REMOTE_DOMAIN,
+  WORKOUT_SAFE_SCOPE, WORKOUT_WIRE_UUID,
+} from '../workoutRemoteContract';
+import {
   cancelRestoreSession as cancelRestore, getRestoreSession as readRestoreSession,
   restorePackageAtomically as executeRestore, type RestoreOptions, type RestoreResult,
 } from './restore';
@@ -66,6 +70,7 @@ import {
   type InvalidateCheckpointInput,
   type GenerationRecord, type GenerationStatus, type LocalDatabaseNamespace,
   type LocalEntityEnvelope, type MigrationStateRecord, type OutboxRecord,
+  type WorkoutRemoteAuthorityRecordV1, type WorkoutRemoteIdRecordV1,
   type ReconcileOutboxPrerequisiteInput, type ReconciledOutboxPrerequisite,
   type RecordConflictInput, type ResolveConflictInput, type OutboxOperation,
   type OutboxListInput, type OutboxStatus, type OutboxStatusCounts, type ResetOutboxInput,
@@ -118,6 +123,48 @@ function now(value?: string): string {
   return timestamp;
 }
 
+function validWorkoutAuthorityRecord(value: WorkoutRemoteAuthorityRecordV1): boolean {
+  return value !== null && typeof value === 'object' && Object.keys(value).sort().join(',') === [
+    'accountId', 'namespaceKey', 'generationId', 'domain', 'deviceId', 'protocolVersion',
+    'projectScope', 'capability', 'authorityState', 'authorityEpoch', 'bindingState',
+    'generationBindingId', 'serverEpoch', 'verifiedAt', 'discoverySequence', 'verificationId',
+  ].sort().join(',')
+    && WORKOUT_WIRE_UUID.test(value.accountId) && WORKOUT_DIGEST.test(value.namespaceKey)
+    && typeof value.generationId === 'string' && typeof value.deviceId === 'string'
+    && value.domain === WORKOUT_REMOTE_DOMAIN && value.protocolVersion === 2
+    && WORKOUT_SAFE_SCOPE.test(value.projectScope) && value.capability === 'FOUNDATION_READY'
+    && value.authorityState === 'OPEN' && value.bindingState === 'bound'
+    && Number.isSafeInteger(value.authorityEpoch) && value.authorityEpoch > 0
+    && WORKOUT_WIRE_UUID.test(value.generationBindingId)
+    && WORKOUT_WIRE_UUID.test(value.serverEpoch) && validTimestamp(value.verifiedAt)
+    && Number.isSafeInteger(value.discoverySequence) && value.discoverySequence > 0
+    && WORKOUT_WIRE_UUID.test(value.verificationId);
+}
+
+const WORKOUT_DISCOVERY_DOMAIN = `${WORKOUT_REMOTE_DOMAIN}.discovery`;
+type WorkoutDiscoveryReservation = {
+  accountId: string; namespaceKey: string; generationId: string;
+  domain: typeof WORKOUT_DISCOVERY_DOMAIN; sequence: number;
+};
+
+function validLegacyWorkoutAuthority(value: WorkoutRemoteAuthorityRecordV1): boolean {
+  if (value.discoverySequence !== undefined || value.verificationId !== undefined) return false;
+  return validWorkoutAuthorityRecord({ ...value, discoverySequence: 1,
+    verificationId: '00000000-0000-4000-8000-000000000000' });
+}
+
+function validWorkoutRemoteIdRecord(value: WorkoutRemoteIdRecordV1): boolean {
+  try {
+    return value !== null && typeof value === 'object' && Object.keys(value).sort().join(',') === [
+      'accountId', 'namespaceKey', 'generationId', 'domain', 'localEntityId', 'wireEntityId', 'mappedAt',
+    ].sort().join(',')
+      && WORKOUT_WIRE_UUID.test(value.accountId) && WORKOUT_DIGEST.test(value.namespaceKey)
+      && typeof value.generationId === 'string' && value.domain === WORKOUT_REMOTE_DOMAIN
+      && canonicalWorkoutUuid(value.localEntityId) === value.wireEntityId
+      && validTimestamp(value.mappedAt);
+  } catch { return false; }
+}
+
 function generationKey(namespaceKey: string, generationId: string): [string, string] {
   return [namespaceKey, generationId];
 }
@@ -163,6 +210,7 @@ function snapshotRemoteEntityEnvelope<T>(source: LocalEntityEnvelope<T>): LocalE
     revision: source.revision,
     localRevision: source.localRevision,
     serverRevision: source.serverRevision,
+    ...(source.remoteState === undefined ? {} : { remoteState: source.remoteState }),
     createdAt: source.createdAt,
     updatedAt: source.updatedAt,
     deletedAt: source.deletedAt,
@@ -424,6 +472,377 @@ export class LocalDatabaseRepository {
     return { meta, generation };
   }
 
+  /** Reserve before network I/O. A later tab invalidates this discovery even if its request fails. */
+  async reserveWorkoutRemoteDiscovery(): Promise<number> {
+    const operation = 'reserve_workout_remote_discovery';
+    this.assertOpen(operation);
+    const transaction = this.db.transaction([
+      LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations,
+      LOCAL_DATABASE_STORES.workoutRemoteAuthority,
+    ], 'readwrite');
+    const done = transactionCompletion(transaction, operation);
+    try {
+      await this.ensureActive(transaction);
+      const store = transaction.objectStore(LOCAL_DATABASE_STORES.workoutRemoteAuthority);
+      const key = [this.namespace.userId.toLowerCase(), this.namespaceKey,
+        this.namespace.generationId, WORKOUT_DISCOVERY_DOMAIN];
+      const prior = await requestResult(store.get(key)) as WorkoutDiscoveryReservation | undefined;
+      if (prior && (prior.accountId !== key[0] || prior.namespaceKey !== key[1]
+        || prior.generationId !== key[2] || prior.domain !== WORKOUT_DISCOVERY_DOMAIN
+        || !Number.isSafeInteger(prior.sequence) || prior.sequence < 1)) {
+        throw new LocalDatabaseError('INVALID_RESERVED_RECORD', operation);
+      }
+      const sequence = (prior?.sequence ?? 0) + 1;
+      if (!Number.isSafeInteger(sequence)) throw new LocalDatabaseError('INVALID_RESERVED_RECORD', operation);
+      store.put({ accountId: key[0], namespaceKey: key[1], generationId: key[2],
+        domain: WORKOUT_DISCOVERY_DOMAIN, sequence } satisfies WorkoutDiscoveryReservation);
+      await done;
+      return sequence;
+    } catch (error) {
+      abortQuietly(transaction); await done.catch(() => undefined); throw localDatabaseError(error, operation);
+    }
+  }
+
+  /** G4B1 control-plane write: caller supplies the exact authenticated discovery reservation. */
+  async persistWorkoutRemoteAuthority(
+    evidence: WorkoutRemoteAuthorityRecordV1,
+    currentAuthenticatedAccount: () => string | null,
+    currentDeviceId: () => string | null,
+    testOnlyAbortBeforeCommit = false,
+  ): Promise<void> {
+    const operation = 'persist_workout_remote_authority';
+    this.assertOpen(operation);
+    if (currentAuthenticatedAccount()?.toLowerCase() !== this.namespace.userId.toLowerCase()
+      || currentDeviceId() !== this.namespace.deviceId
+      || evidence.accountId !== this.namespace.userId.toLowerCase()
+      || evidence.namespaceKey !== this.namespaceKey || evidence.generationId !== this.namespace.generationId
+      || evidence.deviceId !== this.namespace.deviceId || evidence.domain !== WORKOUT_REMOTE_DOMAIN
+      || !validWorkoutAuthorityRecord(evidence)) {
+      throw new LocalDatabaseError('INVALID_RESERVED_RECORD', operation);
+    }
+    const transaction = this.db.transaction([
+      LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations,
+      LOCAL_DATABASE_STORES.workoutRemoteAuthority,
+    ], 'readwrite');
+    const done = transactionCompletion(transaction, operation);
+    try {
+      await this.ensureActive(transaction);
+      if (currentAuthenticatedAccount()?.toLowerCase() !== evidence.accountId || currentDeviceId() !== evidence.deviceId) {
+        throw new LocalDatabaseError('NAMESPACE_MISMATCH', operation);
+      }
+      const store = transaction.objectStore(LOCAL_DATABASE_STORES.workoutRemoteAuthority);
+      const key = [evidence.accountId, this.namespaceKey, this.namespace.generationId, WORKOUT_REMOTE_DOMAIN];
+      const previous = await requestResult(store.get(key)) as WorkoutRemoteAuthorityRecordV1 | undefined;
+      if (previous && !validWorkoutAuthorityRecord(previous) && !validLegacyWorkoutAuthority(previous)) {
+        throw new LocalDatabaseError('INVALID_RESERVED_RECORD', operation);
+      }
+      const reservation = await requestResult(store.get([
+        evidence.accountId, this.namespaceKey, this.namespace.generationId, WORKOUT_DISCOVERY_DOMAIN,
+      ])) as WorkoutDiscoveryReservation | undefined;
+      if (!reservation || reservation.sequence !== evidence.discoverySequence) {
+        throw new LocalDatabaseError('INVALID_RESERVED_RECORD', operation);
+      }
+      if (previous && (previous.authorityEpoch > evidence.authorityEpoch
+        || previous.authorityEpoch === evidence.authorityEpoch
+          && (previous.projectScope !== evidence.projectScope
+            || previous.generationBindingId !== evidence.generationBindingId
+            || previous.serverEpoch !== evidence.serverEpoch))) {
+        throw new LocalDatabaseError('INVALID_RESERVED_RECORD', operation);
+      }
+      if (currentAuthenticatedAccount()?.toLowerCase() !== evidence.accountId || currentDeviceId() !== evidence.deviceId) {
+        throw new LocalDatabaseError('NAMESPACE_MISMATCH', operation);
+      }
+      store.put(evidence);
+      if (testOnlyAbortBeforeCommit) throw new LocalDatabaseError('TRANSACTION_ABORTED', operation);
+      await done;
+    } catch (error) {
+      abortQuietly(transaction); await done.catch(() => undefined); throw localDatabaseError(error, operation);
+    }
+  }
+
+  async getWorkoutRemoteAuthority(): Promise<WorkoutRemoteAuthorityRecordV1 | null> {
+    this.assertOpen('get_workout_remote_authority');
+    const transaction = this.db.transaction(LOCAL_DATABASE_STORES.workoutRemoteAuthority, 'readonly');
+    const done = transactionCompletion(transaction, 'get_workout_remote_authority');
+    const value = await requestResult(transaction.objectStore(LOCAL_DATABASE_STORES.workoutRemoteAuthority).get([
+      this.namespace.userId.toLowerCase(), this.namespaceKey, this.namespace.generationId, WORKOUT_REMOTE_DOMAIN,
+    ])) as WorkoutRemoteAuthorityRecordV1 | undefined;
+    await done;
+    if (value && (!validWorkoutAuthorityRecord(value)
+      || value.accountId !== this.namespace.userId.toLowerCase()
+      || value.namespaceKey !== this.namespaceKey || value.generationId !== this.namespace.generationId
+      || value.deviceId !== this.namespace.deviceId)) {
+      throw new LocalDatabaseError('INVALID_RESERVED_RECORD', 'get_workout_remote_authority');
+    }
+    return value ?? null;
+  }
+
+  async getWorkoutRemoteIdByLocal(localEntityId: string): Promise<WorkoutRemoteIdRecordV1 | null> {
+    this.assertOpen('get_workout_remote_id');
+    const transaction = this.db.transaction(LOCAL_DATABASE_STORES.workoutRemoteIds, 'readonly');
+    const done = transactionCompletion(transaction, 'get_workout_remote_id');
+    const value = await requestResult(transaction.objectStore(LOCAL_DATABASE_STORES.workoutRemoteIds).get([
+      this.namespace.userId.toLowerCase(), this.namespaceKey, this.namespace.generationId,
+      WORKOUT_REMOTE_DOMAIN, localEntityId,
+    ])) as WorkoutRemoteIdRecordV1 | undefined;
+    await done;
+    if (value && (!validWorkoutRemoteIdRecord(value)
+      || value.accountId !== this.namespace.userId.toLowerCase()
+      || value.namespaceKey !== this.namespaceKey || value.generationId !== this.namespace.generationId
+      || value.localEntityId !== localEntityId)) {
+      throw new LocalDatabaseError('INVALID_RESERVED_RECORD', 'get_workout_remote_id');
+    }
+    return value ?? null;
+  }
+
+  async getWorkoutRemoteIdsByWire(wireEntityId: string): Promise<WorkoutRemoteIdRecordV1[]> {
+    this.assertOpen('get_workout_remote_ids_by_wire');
+    const canonical = canonicalWorkoutUuid(wireEntityId);
+    const transaction = this.db.transaction(LOCAL_DATABASE_STORES.workoutRemoteIds, 'readonly');
+    const done = transactionCompletion(transaction, 'get_workout_remote_ids_by_wire');
+    const values = await requestResult(transaction.objectStore(LOCAL_DATABASE_STORES.workoutRemoteIds)
+      .index('by_wire_id').getAll(IDBKeyRange.only([
+        this.namespace.userId.toLowerCase(), this.namespaceKey, this.namespace.generationId,
+        WORKOUT_REMOTE_DOMAIN, canonical,
+      ]))) as WorkoutRemoteIdRecordV1[];
+    await done;
+    if (values.length > 1 || values.some(value => !validWorkoutRemoteIdRecord(value)
+      || value.accountId !== this.namespace.userId.toLowerCase()
+      || value.namespaceKey !== this.namespaceKey || value.generationId !== this.namespace.generationId
+      || value.wireEntityId !== canonical)) {
+      throw new LocalDatabaseError('INVALID_RESERVED_RECORD', 'get_workout_remote_ids_by_wire');
+    }
+    return values;
+  }
+
+  /** G4B1 only: atomic dormant unbound-to-bound transition, without network delivery. */
+  async bindWorkoutMutation(input: {
+    mutationId: string;
+    expectedVerificationId?: string;
+    currentAuthenticatedAccount: () => string | null;
+    currentDeviceId: () => string | null;
+    testOnlyAbortAt?: 'after_mapping' | 'before_commit';
+    onDiagnostic?: (event: string) => void;
+  }): Promise<OutboxRecord> {
+    const operation = 'bind_workout_mutation';
+    this.assertOpen(operation);
+    if (input.currentAuthenticatedAccount()?.toLowerCase() !== this.namespace.userId.toLowerCase()
+      || input.currentDeviceId() !== this.namespace.deviceId) {
+      throw new LocalDatabaseError('NAMESPACE_MISMATCH', operation);
+    }
+    const transaction = this.db.transaction([
+      LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations,
+      LOCAL_DATABASE_STORES.workoutRemoteAuthority, LOCAL_DATABASE_STORES.workoutRemoteIds,
+      LOCAL_DATABASE_STORES.outbox, LOCAL_DATABASE_STORES.entities, LOCAL_DATABASE_STORES.conflicts,
+      LOCAL_DATABASE_STORES.workoutAdoptionSessions, LOCAL_DATABASE_STORES.workoutAdoptionItems,
+    ], 'readwrite');
+    const done = transactionCompletion(transaction, operation);
+    try {
+      await this.ensureActive(transaction);
+      const accountId = this.namespace.userId.toLowerCase();
+      if (input.currentAuthenticatedAccount()?.toLowerCase() !== accountId || input.currentDeviceId() !== this.namespace.deviceId) {
+        throw new LocalDatabaseError('NAMESPACE_MISMATCH', operation);
+      }
+      const authority = await requestResult(transaction.objectStore(LOCAL_DATABASE_STORES.workoutRemoteAuthority).get([
+        accountId, this.namespaceKey, this.namespace.generationId, WORKOUT_REMOTE_DOMAIN,
+      ])) as WorkoutRemoteAuthorityRecordV1 | undefined;
+      const outboxStore = transaction.objectStore(LOCAL_DATABASE_STORES.outbox);
+      const outbox = await requestResult(outboxStore.get([
+        this.namespaceKey, this.namespace.generationId, input.mutationId,
+      ])) as OutboxRecord | undefined;
+      if (!outbox) throw new LocalDatabaseError('OUTBOX_NOT_FOUND', operation);
+      this.validatePersistedOutbox(outbox, operation);
+      if (outbox.domain !== WORKOUT_REMOTE_DOMAIN || outbox.accountId?.toLowerCase() !== accountId
+        || outbox.deviceId !== this.namespace.deviceId || !outbox.payloadHash
+        || !WORKOUT_DIGEST.test(outbox.payloadHash)
+        || hashCanonicalPayload(outbox.payload) !== outbox.payloadHash) {
+        throw new LocalDatabaseError('INVALID_OUTBOX', operation);
+      }
+      if (outbox.deliveryBinding?.state === 'bound') {
+        await done;
+        return outbox;
+      }
+      if (outbox.deliveryBinding?.state !== 'unbound') throw new LocalDatabaseError('INVALID_OUTBOX', operation);
+      if (outbox.attemptCount > 0 || outbox.lastAttemptAt !== null) {
+        const quarantined: OutboxRecord = { ...outbox, deliveryBlockCode: 'UNBOUND_ATTEMPT_QUARANTINED' };
+        validateOutboxRecord(quarantined);
+        outboxStore.put(quarantined);
+        await done;
+        input.onDiagnostic?.('unbound_quarantined');
+        throw new LocalDatabaseError('INVALID_OUTBOX_TRANSITION', operation);
+      }
+      const reservation = await requestResult(transaction.objectStore(LOCAL_DATABASE_STORES.workoutRemoteAuthority).get([
+        accountId, this.namespaceKey, this.namespace.generationId, WORKOUT_DISCOVERY_DOMAIN,
+      ])) as WorkoutDiscoveryReservation | undefined;
+      if (!authority || !validWorkoutAuthorityRecord(authority)
+        || authority.accountId !== accountId || authority.namespaceKey !== this.namespaceKey
+        || authority.generationId !== this.namespace.generationId || authority.deviceId !== this.namespace.deviceId
+        || authority.domain !== WORKOUT_REMOTE_DOMAIN
+        || !reservation || reservation.sequence !== authority.discoverySequence
+        || input.expectedVerificationId !== authority.verificationId) {
+        throw new LocalDatabaseError('INVALID_RESERVED_RECORD', operation);
+      }
+      if (outbox.status !== 'pending' || outbox.deliveryBlockCode != null) {
+        throw new LocalDatabaseError('INVALID_OUTBOX_TRANSITION', operation);
+      }
+      const wireEntityId = canonicalWorkoutUuid(outbox.entityId);
+      const entityStore = transaction.objectStore(LOCAL_DATABASE_STORES.entities);
+      const entity = await requestResult(entityStore.get(entityKey(
+        this.namespaceKey, this.namespace.generationId, WORKOUT_REMOTE_DOMAIN, outbox.entityId,
+      ))) as LocalEntityEnvelope<WorkoutSessionV1> | undefined;
+      if (entity) this.validatePersistedEntity(entity, operation);
+      if (!entity || entity.accountId?.toLowerCase() !== accountId
+        || canonicalWorkoutUuid(entity.record?.id) !== wireEntityId) {
+        throw new LocalDatabaseError('INVALID_ENTITY', operation);
+      }
+      validateWorkoutSessionV1(entity.record);
+      // A legacy case-only twin may predate v7's sidecar index. A bounded domain scan is
+      // required for collision detection; ordinary wire/local lookups use the sidecar index.
+      const sameDomain = await requestResult(entityStore.index('by_namespace_generation_domain').getAll(
+        IDBKeyRange.only([this.namespaceKey, this.namespace.generationId, WORKOUT_REMOTE_DOMAIN]),
+        MAX_OUTBOX_SCAN + 1,
+      )) as LocalEntityEnvelope[];
+      if (sameDomain.length > MAX_OUTBOX_SCAN) throw new LocalDatabaseError('INVALID_ENTITY', operation);
+      if (sameDomain.some(candidate => candidate.entityId !== outbox.entityId
+        && typeof candidate.entityId === 'string' && candidate.entityId.toLowerCase() === wireEntityId)) {
+        const blocked: OutboxRecord = { ...outbox, deliveryBlockCode: 'UUID_MAPPING_COLLISION' };
+        validateOutboxRecord(blocked);
+        outboxStore.put(blocked);
+        await done;
+        input.onDiagnostic?.('uuid_mapping_collision');
+        throw new LocalDatabaseError('INVALID_ENTITY', operation);
+      }
+      if (outbox.payload.kind === 'entity_snapshot') {
+        validateWorkoutSessionV1(outbox.payload.record);
+        if (canonicalWorkoutUuid(outbox.payload.record.id) !== wireEntityId) {
+          throw new LocalDatabaseError('INVALID_OUTBOX', operation);
+        }
+      } else if (canonicalWorkoutUuid(outbox.payload.entityId) !== wireEntityId) {
+        // Preserve the immutable tombstone spelling/hash; only wire identity is canonical.
+        throw new LocalDatabaseError('INVALID_OUTBOX', operation);
+      }
+      const conflicts = await requestResult(transaction.objectStore(LOCAL_DATABASE_STORES.conflicts)
+        .index('by_namespace_generation_entity').getAll(IDBKeyRange.only([
+          this.namespaceKey, this.namespace.generationId, WORKOUT_REMOTE_DOMAIN, outbox.entityId,
+        ]))) as SyncConflictRecord[];
+      if (conflicts.length > 0) throw new LocalDatabaseError('INVALID_OUTBOX_TRANSITION', operation);
+      const lineage = await requestResult(outboxStore.index('by_namespace_generation_entity').getAll(IDBKeyRange.only([
+        this.namespaceKey, this.namespace.generationId, WORKOUT_REMOTE_DOMAIN, outbox.entityId,
+      ]))) as OutboxRecord[];
+      lineage.forEach(row => this.validatePersistedOutbox(row, operation));
+      lineage.sort((a, b) => a.localRevision - b.localRevision);
+      const predecessors = lineage.filter(row => row.localRevision < outbox.localRevision);
+      const previous = predecessors[predecessors.length - 1];
+      if (lineage.some(row => row.localRevision === outbox.localRevision && row.mutationId !== outbox.mutationId)
+        || outbox.dependsOnMutationId && !lineage.some(row => row.mutationId === outbox.dependsOnMutationId
+          && row.status === 'acknowledged')) {
+        input.onDiagnostic?.('binding_blocked_predecessor');
+        throw new LocalDatabaseError('OUTBOX_SEQUENCE_GAP', operation);
+      }
+      let remoteCasBaseRevision: number | null;
+      let remoteState: 'active' | 'deleted' | 'unknown';
+      const boundary = outbox.remoteSequenceBoundary;
+      const allPredecessorsSettled = predecessors.every(row => row.status === 'acknowledged');
+      const validBoundary = boundary?.kind === 'remote_entity_sequence_boundary'
+        && boundary.namespaceKey === this.namespaceKey
+        && boundary.generationId === this.namespace.generationId
+        && boundary.domain === WORKOUT_REMOTE_DOMAIN && boundary.entityId === outbox.entityId
+        && boundary.baselineLocalRevision === outbox.baseRevision
+        && entity.serverRevision === boundary.baselineServerRevision
+        && entity.lastRemoteMutationRef === boundary.remoteMutationRef
+        && (entity.remoteState === 'active' || entity.remoteState === 'deleted')
+        && allPredecessorsSettled;
+      const validAck = previous?.localRevision === outbox.baseRevision
+        && previous.status === 'acknowledged'
+        && previous.acknowledgedRevision != null && previous.acknowledgedRevision > 0
+        && previous.deliveryBinding?.state === 'bound'
+        && previous.deliveryBinding.projectScope === authority.projectScope
+        && previous.deliveryBinding.authorityEpoch === authority.authorityEpoch
+        && previous.deliveryBinding.generationBindingId === authority.generationBindingId
+        && allPredecessorsSettled;
+      // The boundary's base local revision is the state from which this mutation was made.
+      // A retained older ACK is history, not that state. Equal-local-revision evidence must agree.
+      if (validBoundary && (!previous || previous.localRevision < outbox.baseRevision!)) {
+        remoteCasBaseRevision = boundary.baselineServerRevision;
+        remoteState = entity.remoteState as 'active' | 'deleted';
+      } else if (validAck && (!boundary || validBoundary
+        && previous!.acknowledgedRevision === boundary.baselineServerRevision
+        && (previous!.operation === 'tombstone' ? 'deleted' : 'active') === entity.remoteState)) {
+        remoteCasBaseRevision = previous!.acknowledgedRevision!;
+        remoteState = previous!.operation === 'tombstone' ? 'deleted' : 'active';
+      } else if (!previous && outbox.baseRevision === null && outbox.localRevision === 1
+        && outbox.operation === 'upsert' && entity.serverRevision == null
+        && entity.lastRemoteMutationRef == null && entity.restoreProvenance == null
+        && entity.remoteState === undefined
+        && outbox.remoteSequenceBoundary == null && outbox.generationBoundary == null
+        && (entity.migrationProvenance == null
+          ? entity.source == null || entity.source.kind === 'local'
+            && entity.source.reference === 'workout_session_v1'
+          : await this.isSealedWorkoutAdoptionFirstCreate(transaction, entity, outbox))) {
+        remoteCasBaseRevision = null;
+        remoteState = 'unknown';
+      } else {
+        input.onDiagnostic?.('binding_blocked_remote_unknown');
+        throw new LocalDatabaseError('INVALID_OUTBOX_TRANSITION', operation);
+      }
+      if (remoteCasBaseRevision !== null && (outbox.operation === 'restore'
+        ? remoteState !== 'deleted' : remoteState !== 'active')) {
+        input.onDiagnostic?.('binding_blocked_remote_unknown');
+        throw new LocalDatabaseError('INVALID_OUTBOX_TRANSITION', operation);
+      }
+      if (input.currentAuthenticatedAccount()?.toLowerCase() !== accountId || input.currentDeviceId() !== this.namespace.deviceId) {
+        throw new LocalDatabaseError('NAMESPACE_MISMATCH', operation);
+      }
+      const ids = transaction.objectStore(LOCAL_DATABASE_STORES.workoutRemoteIds);
+      const idKey = [accountId, this.namespaceKey, this.namespace.generationId, WORKOUT_REMOTE_DOMAIN, outbox.entityId];
+      const existing = await requestResult(ids.get(idKey)) as WorkoutRemoteIdRecordV1 | undefined;
+      const mappedWire = await requestResult(ids.index('by_wire_id').getAll(IDBKeyRange.only([
+        accountId, this.namespaceKey, this.namespace.generationId, WORKOUT_REMOTE_DOMAIN, wireEntityId,
+      ]))) as WorkoutRemoteIdRecordV1[];
+      if (existing && (!validWorkoutRemoteIdRecord(existing) || existing.wireEntityId !== wireEntityId)
+        || mappedWire.some(mapping => !validWorkoutRemoteIdRecord(mapping)
+          || mapping.localEntityId !== outbox.entityId)) {
+        const blocked: OutboxRecord = { ...outbox, deliveryBlockCode: 'UUID_MAPPING_COLLISION' };
+        validateOutboxRecord(blocked);
+        outboxStore.put(blocked);
+        await done;
+        input.onDiagnostic?.('uuid_mapping_collision');
+        throw new LocalDatabaseError('INVALID_RESERVED_RECORD', operation);
+      }
+      const binding = {
+        version: 1 as const, state: 'bound' as const, contractVersion: 'absinthe-workout-remote-v1' as const,
+        projectScope: authority.projectScope, authorityEpoch: authority.authorityEpoch,
+        generationBindingId: authority.generationBindingId, remoteCasBaseRevision, wireEntityId,
+        boundPayloadHash: outbox.payloadHash,
+        requestDigest: workoutRequestDigest({
+          authenticatedOwnerId: accountId, projectScope: authority.projectScope,
+          namespaceKey: this.namespaceKey, generationId: this.namespace.generationId, deviceId: this.namespace.deviceId,
+          generationBindingId: authority.generationBindingId, authorityEpoch: authority.authorityEpoch,
+          mutationId: outbox.mutationId, idempotencyKey: outbox.idempotencyKey, wireEntityId,
+          operation: outbox.operation, remoteCasBaseRevision, localRevision: outbox.localRevision,
+          payloadHash: outbox.payloadHash,
+        }),
+      };
+      const updated: OutboxRecord = { ...outbox, deliveryBinding: binding };
+      validateOutboxRecord(updated);
+      if (!existing) ids.add({
+        accountId, namespaceKey: this.namespaceKey, generationId: this.namespace.generationId,
+        domain: WORKOUT_REMOTE_DOMAIN, localEntityId: outbox.entityId, wireEntityId, mappedAt: now(),
+      } satisfies WorkoutRemoteIdRecordV1);
+      if (input.testOnlyAbortAt === 'after_mapping') throw new LocalDatabaseError('TRANSACTION_ABORTED', operation);
+      if (input.currentAuthenticatedAccount()?.toLowerCase() !== accountId || input.currentDeviceId() !== this.namespace.deviceId) {
+        throw new LocalDatabaseError('NAMESPACE_MISMATCH', operation);
+      }
+      outboxStore.put(updated);
+      if (input.testOnlyAbortAt === 'before_commit') throw new LocalDatabaseError('TRANSACTION_ABORTED', operation);
+      await done;
+      input.onDiagnostic?.('workout_mutation_bound');
+      return updated;
+    } catch (error) {
+      abortQuietly(transaction); await done.catch(() => undefined); throw localDatabaseError(error, operation);
+    }
+  }
+
   private validatePersistedEntity<T>(value: LocalEntityEnvelope<T>, operation: string): void {
     try {
       validateEntityEnvelope(value);
@@ -518,6 +937,7 @@ export class LocalDatabaseRepository {
         record: isTombstone ? current!.record : inputSnapshot as T,
         revision: actualRevision + 1, localRevision: actualRevision + 1,
         serverRevision: current?.serverRevision ?? null,
+        ...(current?.remoteState === undefined ? {} : { remoteState: current.remoteState }),
         createdAt: current?.createdAt ?? timestamp, updatedAt: timestamp,
         deletedAt: isTombstone ? timestamp : null, isDeleted: isTombstone,
         deletionState: isTombstone ? 'deleted' : 'active',
@@ -675,6 +1095,65 @@ export class LocalDatabaseRepository {
         || items.some(item => item.classification === 'CARRIED_FORWARD' && item.targetProvenanceManifestId === null))) {
       throw new LocalDatabaseError('CORRUPT_PERSISTED_RECORD', 'validate_workout_adoption_manifest');
     }
+  }
+
+  /** Only G3's completed, sealed target may use the otherwise local-only null CAS base. */
+  private async isSealedWorkoutAdoptionFirstCreate(
+    tx: IDBTransaction, entity: LocalEntityEnvelope<WorkoutSessionV1>, outbox: OutboxRecord,
+  ): Promise<boolean> {
+    const provenance = entity.migrationProvenance;
+    if (!provenance || entity.source?.kind !== 'legacy_migration'
+      || entity.source.reference !== provenance.migrationSessionId
+      || provenance.sourceAdapter !== WORKOUT_ADOPTION_ADAPTER
+      || provenance.conversionVersion !== WORKOUT_ADOPTION_CONVERSION_VERSION
+      || entity.revision !== 1 || entity.localRevision !== 1 || entity.isDeleted
+      || entity.pendingMutationId !== outbox.mutationId || entity.restoreProvenance != null
+      || entity.serverRevision != null || entity.lastRemoteMutationRef != null
+      || entity.remoteState !== undefined
+      || outbox.baseRevision !== null || outbox.localRevision !== 1
+      || outbox.operation !== 'upsert' || outbox.remoteSequenceBoundary != null
+      || outbox.generationBoundary != null) return false;
+    const key = [this.namespaceKey, this.namespace.generationId, provenance.migrationSessionId];
+    const session = await requestResult(tx.objectStore(LOCAL_DATABASE_STORES.workoutAdoptionSessions)
+      .get(key)) as WorkoutAdoptionSession | undefined;
+    const item = await requestResult(tx.objectStore(LOCAL_DATABASE_STORES.workoutAdoptionItems)
+      .get([...key, provenance.legacyKeyDigest])) as WorkoutAdoptionItem | undefined;
+    if (!session || !item || session.status !== 'COMPLETED'
+      || !WORKOUT_DIGEST.test(session.targetStateDigest ?? '')
+      || item.classification !== 'ADOPTABLE' || item.state !== 'VERIFIED'
+      || item.ownership !== 'BOUND' || item.priorManifestId !== null
+      || item.targetProvenanceManifestId !== null || item.sessionId !== entity.entityId
+      || !Object.keys(item.sourceRow).every(field => [
+        'id', 'user_id', 'date', 'block_id', 'sets', 'sort_order',
+        'historical_exercise_snapshot', 'session_boundary',
+      ].includes(field))
+      || item.outboxMutationId !== outbox.mutationId
+      || item.targetEntityHash !== entity.contentHash
+      || item.conversionResultDigest !== entity.contentHash
+      || hashCanonicalPayload(item.candidate) !== entity.contentHash
+      || hashCanonicalPayload(entity.record) !== entity.contentHash
+      || outbox.payload.kind !== 'entity_snapshot'
+      || hashCanonicalPayload(outbox.payload.record) !== entity.contentHash
+      || provenance.sourceSchemaVersion !== session.sourceSchemaVersion
+      || provenance.sourceSnapshotDigest !== session.sourceSnapshotDigest
+      || entity.accountId !== session.accountId || outbox.accountId !== session.accountId
+      || outbox.deviceId !== session.deviceId) return false;
+    const allItems = await requestResult(tx.objectStore(LOCAL_DATABASE_STORES.workoutAdoptionItems)
+      .index('by_manifest').getAll(IDBKeyRange.only(key))) as WorkoutAdoptionItem[];
+    try { this.validateWorkoutAdoptionManifest(session, allItems); }
+    catch { return false; }
+    const targetEvidence = [...allItems]
+      .sort((left, right) => compareWorkoutAdoptionKeys(left.sourceKeyDigest, right.sourceKeyDigest))
+      .flatMap(candidate => {
+        if (candidate.classification === 'ADOPTABLE') return [[candidate.sourceKeyDigest,
+          candidate.sessionId, candidate.targetEntityHash, candidate.outboxMutationId, session.manifestId]];
+        if (candidate.classification === 'CARRIED_FORWARD') return [candidate.targetProvenanceManifestId === null
+          ? [candidate.sourceKeyDigest, candidate.priorManifestId, 'review']
+          : [candidate.sourceKeyDigest, candidate.sessionId, candidate.targetEntityHash,
+            candidate.outboxMutationId, candidate.targetProvenanceManifestId]];
+        return [];
+      });
+    return session.targetStateDigest === hashCanonicalPayload(targetEvidence);
   }
 
   private async validateCarriedWorkoutTarget(tx: IDBTransaction, item: WorkoutAdoptionItem): Promise<unknown[]> {
@@ -1688,6 +2167,8 @@ export class LocalDatabaseRepository {
       const nextEntity: LocalEntityEnvelope = {
         ...entity,
         serverRevision: input.acknowledgedRevision,
+        ...(outbox.domain === WORKOUT_REMOTE_DOMAIN
+          ? { remoteState: outbox.operation === 'tombstone' ? 'deleted' as const : 'active' as const } : {}),
         lastRemoteMutationRef: input.remoteMutationRef,
         pendingMutationId: entity.pendingMutationId === outbox.mutationId ? null : entity.pendingMutationId ?? null,
       };
@@ -2291,7 +2772,9 @@ export class LocalDatabaseRepository {
     const timestamp = now(batch.now);
     const seen = new Set<string>();
     const entities = batch.entities.map(item => {
-      const entity = item.entity;
+      const entity = batch.domain === WORKOUT_REMOTE_DOMAIN
+        ? { ...item.entity, remoteState: item.entity.deletedAt === null ? 'active' as const : 'deleted' as const }
+        : item.entity;
       validateEntityEnvelope(entity);
       if (entity.namespaceKey !== batch.namespaceKey || entity.generationId !== batch.generationId
         || entity.accountId !== batch.accountId || entity.domain !== batch.domain) {
@@ -2519,6 +3002,8 @@ export class LocalDatabaseRepository {
           revision: (current?.revision ?? 0) + 1,
           localRevision: (current?.revision ?? 0) + 1,
           serverRevision: candidate.serverRevision,
+          ...(batch.domain === WORKOUT_REMOTE_DOMAIN
+            ? { remoteState: candidate.deletedAt === null ? 'active' as const : 'deleted' as const } : {}),
           createdAt: current?.createdAt ?? candidate.createdAt,
           updatedAt: candidate.updatedAt,
           deletedAt: candidate.deletedAt,

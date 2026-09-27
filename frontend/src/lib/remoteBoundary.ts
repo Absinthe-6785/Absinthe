@@ -30,6 +30,11 @@ export function setRuntimeAccountSyncAccount(accountId: string | null | undefine
   runtimeAccountId = accountId?.trim() || null;
 }
 
+/** Synchronous auth-event fence for dormant control-plane IDB transactions. */
+export function runtimeAccountSyncAccountId(): string | null {
+  return runtimeAccountId;
+}
+
 /**
  * Session ownership remains enforced again by authFetch immediately before a
  * request. This synchronous snapshot prevents render-time callers from

@@ -6,6 +6,8 @@ export const LOCAL_DATABASE_STORES = {
   attachmentState: 'attachment_state', writerCoordinationState: 'writer_coordination_state',
   conflicts: 'sync_conflicts', workerLeases: 'sync_worker_leases',
   workoutAdoptionSessions: 'workout_adoption_sessions', workoutAdoptionItems: 'workout_adoption_items',
+  workoutRemoteAuthority: 'workout_remote_authority', workoutRemoteIds: 'workout_remote_ids',
+  workoutFullResyncSessions: 'workout_full_resync_sessions', workoutFullResyncItems: 'workout_full_resync_items',
 } as const;
 
 function index(store: IDBObjectStore, name: string, keyPath: string | string[], options?: IDBIndexParameters): void {
@@ -13,7 +15,7 @@ function index(store: IDBObjectStore, name: string, keyPath: string | string[], 
 }
 
 export function createLocalDatabaseSchema(db: IDBDatabase, oldVersion: number, transaction: IDBTransaction): void {
-  if (![0, 1, 2, 3, 4, 5].includes(oldVersion)) throw new DOMException('Unsupported schema upgrade', 'VersionError');
+  if (![0, 1, 2, 3, 4, 5, 6].includes(oldVersion)) throw new DOMException('Unsupported schema upgrade', 'VersionError');
 
   if (oldVersion === 0) {
   const meta = db.createObjectStore(LOCAL_DATABASE_STORES.databaseMeta, { keyPath: 'namespaceKey' });
@@ -93,6 +95,22 @@ export function createLocalDatabaseSchema(db: IDBDatabase, oldVersion: number, t
     });
     index(items, 'by_manifest', ['namespaceKey', 'generationId', 'manifestId']);
     index(items, 'by_source_key', ['namespaceKey', 'sourceKeyDigest']);
+  }
+
+  if (oldVersion < 7) {
+    db.createObjectStore(LOCAL_DATABASE_STORES.workoutRemoteAuthority, {
+      keyPath: ['accountId', 'namespaceKey', 'generationId', 'domain'],
+    });
+    const ids = db.createObjectStore(LOCAL_DATABASE_STORES.workoutRemoteIds, {
+      keyPath: ['accountId', 'namespaceKey', 'generationId', 'domain', 'localEntityId'],
+    });
+    index(ids, 'by_wire_id', ['accountId', 'namespaceKey', 'generationId', 'domain', 'wireEntityId']);
+    db.createObjectStore(LOCAL_DATABASE_STORES.workoutFullResyncSessions, {
+      keyPath: ['accountId', 'namespaceKey', 'generationId', 'sessionId'],
+    });
+    db.createObjectStore(LOCAL_DATABASE_STORES.workoutFullResyncItems, {
+      keyPath: ['accountId', 'namespaceKey', 'generationId', 'sessionId', 'wireEntityId'],
+    });
   }
 
   if (oldVersion >= 1 && oldVersion < LOCAL_DATABASE_VERSION) {

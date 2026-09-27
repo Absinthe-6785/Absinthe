@@ -321,7 +321,11 @@ describe('K-330 dormant schema and initialization', () => {
       && name !== LOCAL_DATABASE_STORES.conflicts
       && name !== LOCAL_DATABASE_STORES.workerLeases
       && name !== LOCAL_DATABASE_STORES.workoutAdoptionSessions
-      && name !== LOCAL_DATABASE_STORES.workoutAdoptionItems,
+      && name !== LOCAL_DATABASE_STORES.workoutAdoptionItems
+      && name !== LOCAL_DATABASE_STORES.workoutRemoteAuthority
+      && name !== LOCAL_DATABASE_STORES.workoutRemoteIds
+      && name !== LOCAL_DATABASE_STORES.workoutFullResyncSessions
+      && name !== LOCAL_DATABASE_STORES.workoutFullResyncItems,
     );
     const previous = await rawOpen(3, (db) => {
       for (const name of oldStores) db.createObjectStore(name);

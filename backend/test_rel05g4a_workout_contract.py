@@ -153,6 +153,36 @@ def test_mixed_case_payload_uuid_spelling_is_preserved_across_hash_boundaries() 
         == vector["expectedRequestDigest"]
 
 
+def test_mixed_case_tombstone_identity_is_value_based_without_rehashing_payload() -> None:
+    vector = next(value for value in VECTORS["vectors"] if value["operation"] == "tombstone")
+    data = wire(vector)
+    original = "abcdefab-cdef-4abc-8def-abcdefabcdef"
+    mixed = original.upper()
+    assert mixed != original
+    data["payload"]["entityId"] = mixed
+    data["entityId"] = original
+    data["payloadHash"] = payload_hash(data["payload"])
+    request = WorkoutMutationRequest.model_validate(data)
+    assert request.payload["entityId"] == mixed
+    assert payload_hash(request.payload) == data["payloadHash"]
+    assert data["payloadHash"] != payload_hash({**data["payload"], "entityId": original})
+    assert workout_request_digest(request, VECTORS["ownerId"], VECTORS["projectScope"]) != vector["expectedRequestDigest"]
+    different = deepcopy(data)
+    different["entityId"] = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    with pytest.raises(ValueError, match="INVALID_PAYLOAD"):
+        WorkoutMutationRequest.model_validate(different)
+    uppercase_wire = deepcopy(data)
+    uppercase_wire["entityId"] = mixed
+    with pytest.raises(ValueError):
+        WorkoutMutationRequest.model_validate(uppercase_wire)
+    for invalid_payload_id in ("not-a-uuid", "abcdefab-cdef-1abc-8def-abcdefabcdef"):
+        invalid = deepcopy(data)
+        invalid["payload"]["entityId"] = invalid_payload_id
+        invalid["payloadHash"] = payload_hash(invalid["payload"])
+        with pytest.raises(ValueError, match="INVALID_PAYLOAD"):
+            WorkoutMutationRequest.model_validate(invalid)
+
+
 def test_payload_uuid_value_equality_and_case_only_duplicate_safety() -> None:
     vector = next(value for value in VECTORS["vectors"] if value["name"] == "mixed-case-internal-uuid-create")
     request = wire(vector)

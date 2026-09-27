@@ -28,6 +28,8 @@ pytestmark = pytest.mark.skipif(
 )
 
 MIGRATION = Path(__file__).parent / "migrations" / "202609240001_rel05g4a_workout_authority_transport.sql"
+TOMBSTONE_UUID_MIGRATION = (Path(__file__).parent / "migrations" /
+    "202609270001_rel05g4b1_workout_tombstone_uuid_value.sql")
 OWNER_A = "11111111-1111-4111-8111-111111111111"
 OWNER_B = "22222222-2222-4222-8222-222222222222"
 PROJECT = "project-test"
@@ -80,8 +82,10 @@ def _mutation_sql(
     entity_id: str, mutation_id: str, idempotency_key: str, operation: str,
     base: int | None, local: int, record: dict,
     *, digest: str | None = None, epoch: int = 1,
+    payload_entity_id: str | None = None,
 ) -> str:
-    payload = ({"kind": "tombstone", "entityId": entity_id, "revision": local,
+    payload = ({"kind": "tombstone", "entityId": entity_id if payload_entity_id is None else payload_entity_id,
+                "revision": local,
                 "deletedAt": "2026-09-24T10:00:00Z"}
                if operation == "tombstone" else {"kind": "entity_snapshot", "record": record})
     payload_json = _quoted(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
@@ -181,6 +185,7 @@ def postgres():
               true, '2026-09-24T10:00:00Z');""",
             MIGRATION.read_text(encoding="utf-8"),
             MIGRATION.read_text(encoding="utf-8"),
+            TOMBSTONE_UUID_MIGRATION.read_text(encoding="utf-8"),
         ])
         _psql(docker, name, setup)
         assert _psql(docker, name,
@@ -206,6 +211,78 @@ def _ready(docker: str, name: str, owner: str, generation: tuple[str, str, str])
     result = _register(docker, name, owner, generation)
     assert result["status"] == "bound" and result["authorityEpoch"] == 1, result
     return result["bindingId"]
+
+
+def test_forward_upgrade_preserves_rpc_identity_grants_and_existing_data() -> None:
+    docker = shutil.which("docker")
+    assert docker is not None
+    name = "absinthe-rel05g4b1-upgrade-" + uuid.uuid4().hex[:10]
+    started = _run([
+        docker, "run", "--detach", "--rm", "--name", name,
+        "--tmpfs", "/var/lib/postgresql/data", "-e", "POSTGRES_PASSWORD=rel05g4b1-test",
+        "postgres:15-alpine",
+    ])
+    assert started.returncode == 0, started.stderr
+    try:
+        for _ in range(60):
+            if _run([docker, "exec", name, "pg_isready", "-h", "127.0.0.1",
+                     "-U", "postgres"]).returncode == 0:
+                break
+            time.sleep(0.5)
+        else:
+            pytest.fail("isolated PostgreSQL did not start")
+        _psql(docker, name, "\n".join([
+            SETUP_SQL, V1_MIGRATION.read_text(encoding="utf-8"),
+            V2_MIGRATION.read_text(encoding="utf-8"),
+            HEALTH_MIGRATION.read_text(encoding="utf-8"),
+            WORKOUT_FOUNDATION_MIGRATION.read_text(encoding="utf-8"),
+            MIGRATION.read_text(encoding="utf-8"),
+        ]))
+        owner = "44444444-4444-4444-8444-444444444444"
+        binding = _ready(docker, name, owner, DESKTOP)
+        entity_id = "abcdefab-cdef-4abc-8def-abcdefabcdef"
+        record = _record(entity_id)
+        record["id"] = entity_id.upper()
+        create_id, create_key = _identity()
+        created = _call(docker, name, _mutation_sql(owner, DESKTOP, binding, entity_id,
+            create_id, create_key, "upsert", None, 1, record))
+        assert created["outcome"] == "success" and created["serverRevision"] == 1
+        function_state_sql = ("select jsonb_build_object("
+            "'oid', oid, 'owner', pg_get_userbyid(proowner), 'acl', proacl::text, "
+            "'securityDefiner', prosecdef, 'args', pg_get_function_identity_arguments(oid))::text "
+            "from pg_catalog.pg_proc where pronamespace='public'::regnamespace "
+            "and proname='apply_health_workout_mutation_v1';")
+        before_function = json.loads(_psql(docker, name, function_state_sql))
+        assert before_function["securityDefiner"] is True
+        tomb_id, tomb_key = _identity()
+        tomb_sql = _mutation_sql(owner, DESKTOP, binding, entity_id,
+            tomb_id, tomb_key, "tombstone", 1, 2, record,
+            payload_entity_id=record["id"])
+        assert "REL05G4A_INVALID_PAYLOAD" in _psql(docker, name,
+            "set role service_role; " + tomb_sql + ";", expect_error=True)
+        assert _psql(docker, name, "select revision from public.health_workout_sessions_v2 "
+            f"where user_id='{owner}'::uuid and id='{entity_id}'::uuid;") == "1"
+        _psql(docker, name, TOMBSTONE_UUID_MIGRATION.read_text(encoding="utf-8"))
+        assert json.loads(_psql(docker, name, function_state_sql)) == before_function
+        tombstoned = _call(docker, name, tomb_sql)
+        original_tombstone = {"kind": "tombstone", "entityId": record["id"],
+            "revision": 2, "deletedAt": "2026-09-24T10:00:00Z"}
+        assert tombstoned["outcome"] == "success" and tombstoned["serverRevision"] == 2
+        assert tombstoned["payloadHash"] == payload_hash(original_tombstone)
+        assert _call(docker, name, tomb_sql)["outcome"] == "exact_replay"
+        assert _psql(docker, name, "select payload_digest from public.remote_mutation_receipts "
+            f"where authenticated_owner_id='{owner}'::uuid and mutation_id='{tomb_id}';") \
+            == payload_hash(original_tombstone)
+        restore_id, restore_key = _identity()
+        restored = _call(docker, name, _mutation_sql(owner, DESKTOP, binding, entity_id,
+            restore_id, restore_key, "restore", 2, 3, record))
+        assert restored["outcome"] == "success" and restored["serverRevision"] == 3
+        assert _psql(docker, name, "select count(*) from public.remote_mutation_receipts "
+            f"where authenticated_owner_id='{owner}'::uuid and entity_id='{entity_id}'::uuid;") == "3"
+        assert _psql(docker, name, "select count(*) from public.remote_reference_changes_v2 "
+            f"where authenticated_owner_id='{owner}'::uuid and entity_id='{entity_id}'::uuid;") == "3"
+    finally:
+        _run([docker, "rm", "--force", name])
 
 
 def test_capability_binding_scope_and_direct_dml_guards(postgres) -> None:
@@ -305,10 +382,45 @@ def test_mixed_case_payload_uuid_survives_mutation_replay_history_and_snapshot(p
     assert updated["outcome"] == "success" and updated["serverRevision"] == 2
     assert updated["contentHash"] == updated_hash
     tomb_id, tomb_key = _identity()
-    tombstoned = _call(docker, name, _mutation_sql(owner, DESKTOP, binding, entity_id,
-        tomb_id, tomb_key, "tombstone", 2, 3, updated_record))
+    tomb_sql = _mutation_sql(owner, DESKTOP, binding, entity_id,
+        tomb_id, tomb_key, "tombstone", 2, 3, updated_record,
+        payload_entity_id=record["id"])
+    tombstoned = _call(docker, name, tomb_sql)
     assert tombstoned["outcome"] == "success" and tombstoned["serverRevision"] == 3
     assert tombstoned["contentHash"] == updated_hash
+    mixed_tombstone = {"kind": "tombstone", "entityId": record["id"],
+        "revision": 3, "deletedAt": "2026-09-24T10:00:00Z"}
+    original_tombstone_hash = payload_hash(mixed_tombstone)
+    assert tombstoned["payloadHash"] == original_tombstone_hash
+    assert original_tombstone_hash != payload_hash({**mixed_tombstone, "entityId": entity_id})
+    assert _psql(docker, name, "select payload_digest from public.remote_mutation_receipts "
+        f"where authenticated_owner_id='{owner}'::uuid and mutation_id='{tomb_id}';") \
+        == original_tombstone_hash
+    replay_tombstone = _call(docker, name, tomb_sql)
+    assert replay_tombstone["outcome"] == "exact_replay"
+    assert replay_tombstone["serverRevision"] == 3
+    assert replay_tombstone["remoteMutationRef"] == tombstoned["remoteMutationRef"]
+    assert _psql(docker, name, "select count(*) from public.remote_mutation_receipts "
+        f"where authenticated_owner_id='{owner}'::uuid and mutation_id='{tomb_id}';") == "1"
+    assert _psql(docker, name, "select count(*) from public.remote_reference_changes_v2 "
+        f"where authenticated_owner_id='{owner}'::uuid and entity_id='{entity_id}'::uuid;") == "3"
+
+    for invalid_payload_id in (
+        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "not-a-uuid",
+        "abcdefab-cdef-1abc-8def-abcdefabcdef",
+    ):
+        bad_id, bad_key = _identity()
+        bad_sql = _mutation_sql(owner, DESKTOP, binding, entity_id,
+            bad_id, bad_key, "tombstone", 3, 4, updated_record,
+            payload_entity_id=invalid_payload_id)
+        assert "REL05G4A_INVALID_PAYLOAD" in _psql(docker, name,
+            "set role service_role; " + bad_sql + ";", expect_error=True)
+        assert _psql(docker, name, "select count(*) from public.remote_mutation_receipts "
+            f"where authenticated_owner_id='{owner}'::uuid and mutation_id='{bad_id}';") == "0"
+        assert _psql(docker, name, "select count(*) from public.remote_reference_changes_v2 "
+            f"where authenticated_owner_id='{owner}'::uuid and entity_id='{entity_id}'::uuid;") == "3"
+        assert _psql(docker, name, "select revision from public.health_workout_sessions_v2 "
+            f"where user_id='{owner}'::uuid and id='{entity_id}'::uuid;") == "3"
     restore_id, restore_key = _identity()
     restored = _call(docker, name, _mutation_sql(owner, DESKTOP, binding, entity_id,
         restore_id, restore_key, "restore", 3, 4, updated_record))
