@@ -230,6 +230,9 @@ export interface RemoteOutboxSequenceBoundary {
   baselineServerRevision: number;
   remoteMutationRef: string | null;
   baselineContentHash: string;
+  /** Present together on new boundaries; absent together on legacy v7 records. */
+  baselineRemoteState?: 'active' | 'deleted';
+  baselineDeletedAt?: string | null;
   createdAt: string;
 }
 

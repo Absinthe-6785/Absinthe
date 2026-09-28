@@ -1078,6 +1078,15 @@ export class LocalDatabaseRepository {
             baselineServerRevision: current.serverRevision,
             remoteMutationRef: current.lastRemoteMutationRef ?? null,
             baselineContentHash: current.contentHash,
+            // Unknown legacy remote state remains incomplete and is handled by
+            // conflict evidence on pull; only a known base can freeze proof.
+            ...(mutation.domain === WORKOUT_REMOTE_DOMAIN
+              && current.remoteState === 'active' && current.deletedAt === null
+              ? { baselineRemoteState: 'active' as const, baselineDeletedAt: null }
+              : mutation.domain === WORKOUT_REMOTE_DOMAIN
+                && current.remoteState === 'deleted' && current.deletedAt !== null
+                ? { baselineRemoteState: 'deleted' as const, baselineDeletedAt: current.deletedAt }
+                : {}),
             createdAt: timestamp,
           } }
           : {}),
@@ -3127,12 +3136,48 @@ export class LocalDatabaseRepository {
       const currentRevision = replaceServerEpoch ? 0 : current?.serverRevision ?? 0;
       if (change.serverRevision < currentRevision) continue;
       if (change.serverRevision === currentRevision) {
+        const hasPending = pending.length > 0 || current?.pendingMutationId != null;
+        const completeBaseline = baseline?.baselineRemoteState !== undefined
+          && Object.prototype.hasOwnProperty.call(baseline, 'baselineDeletedAt');
         if (acknowledged || current?.lastRemoteMutationRef === change.remoteMutationRef
           && current.remoteState === (change.isDeleted ? 'deleted' : 'active')
           && durableRemoteHash === change.contentHash
-          && (pending.length > 0 || current.pendingMutationId != null
-            ? !change.isDeleted && change.deletedAt === null
+          && (hasPending
+            ? completeBaseline
+              && baseline.baselineRemoteState === (change.isDeleted ? 'deleted' : 'active')
+              && baseline.baselineDeletedAt === change.deletedAt
             : current.deletedAt === change.deletedAt)) continue;
+        if (hasPending && !completeBaseline && current) {
+          // A legacy/incomplete boundary cannot prove deletion equivalence. Preserve the
+          // candidate atomically with the checkpoint instead of retrying forever.
+          const localCandidate = canonicalPayloadSnapshot({ entity: current, outbox: pending });
+          const remoteCandidate = canonicalPayloadSnapshot(change);
+          const conflictId = `conflict.${sha256Hex(canonicalPayloadJson([
+            'workout-pull-unproven-baseline-v1', this.namespaceKey, this.namespace.generationId,
+            localId, pending.map(row => row.mutationId).sort(), change.serverEpoch, change.serverRevision,
+            change.remoteMutationRef, change.contentHash, change.isDeleted, change.deletedAt,
+          ]))}`;
+          const existing = await requestResult(conflictsStore.get(conflictKey(
+            this.namespaceKey, this.namespace.generationId, conflictId,
+          ))) as SyncConflictRecord | undefined;
+          if (!existing) {
+            const conflict: SyncConflictRecord = {
+              namespaceKey: this.namespaceKey, generationId: this.namespace.generationId,
+              accountId: this.namespace.userId, conflictId, domain: WORKOUT_REMOTE_DOMAIN,
+              entityId: localId, mutationId: current.pendingMutationId ?? pending[pending.length - 1]?.mutationId ?? null,
+              localCandidate, remoteCandidate,
+              remoteMetadata: canonicalPayloadSnapshot({ sequence: change.sequence, serverEpoch: change.serverEpoch,
+                serverRevision: change.serverRevision, remoteMutationRef: change.remoteMutationRef,
+                contentHash: change.contentHash, isDeleted: change.isDeleted, deletedAt: change.deletedAt }),
+              localRevision: current.revision, serverRevision: change.serverRevision,
+              localContentHash: hashCanonicalPayload(localCandidate), remoteContentHash: hashCanonicalPayload(remoteCandidate),
+              conflictType: 'workout_remote_with_pending_local', createdAt: timestamp,
+              resolutionState: 'unresolved', resolvedAt: null,
+            };
+            validateConflictRecord(conflict); conflictsStore.add(conflict); conflictCount += 1;
+          }
+          continue;
+        }
         throw new LocalDatabaseError('STALE_REVISION', operation);
       }
       if ((pending.length > 0 || current?.pendingMutationId != null) && acknowledged) continue;

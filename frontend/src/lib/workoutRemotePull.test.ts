@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { hashCanonicalPayload } from './localDatabase/canonicalPayload';
 import {
   closeLocalDatabase, createDormantLocalDatabaseCapability, openLocalDatabase,
+  LOCAL_DATABASE_NAME, LOCAL_DATABASE_VERSION,
   type LocalDatabaseRepository, type LocalDatabaseNamespace,
 } from './localDatabase';
 import { WorkoutSessionRepository } from './workoutSessionRepository';
@@ -82,6 +83,38 @@ function snapshotRow(row: ReturnType<typeof change>) {
   const { operation: _operation, domain: _domain, authorityEpoch: _authorityEpoch,
     serverEpoch: _serverEpoch, ...rest } = row;
   return rest;
+}
+
+function fixedSnapshotWith(row: ReturnType<typeof change>, watermark = 2) {
+  return (url: URL) => url.pathname.endsWith('/snapshots')
+    ? Response.json({ protocolVersion: 2, status: 'snapshot', domain: 'health_workout_session',
+      snapshotToken: TOKEN, authorityEpoch: 1, serverEpoch: EPOCH, watermark, errorCode: null })
+    : Response.json({ protocolVersion: 2, status: 'snapshot_page', domain: 'health_workout_session',
+      snapshotToken: TOKEN, authorityEpoch: 1, serverEpoch: EPOCH, watermark,
+      rows: [snapshotRow(row)], nextEntityId: null, hasMore: false, errorCode: null });
+}
+
+async function seedLegacyRemoteBoundary(factory: IDBFactory, repo: LocalDatabaseRepository,
+  mutationId: string, omitState = true): Promise<void> {
+  const row = await repo.getOutboxRecord(mutationId);
+  if (!row?.remoteSequenceBoundary) throw new Error('REMOTE_BOUNDARY_REQUIRED');
+  const legacy = { ...row.remoteSequenceBoundary };
+  if (omitState) delete legacy.baselineRemoteState;
+  delete legacy.baselineDeletedAt;
+  const request = factory.open(LOCAL_DATABASE_NAME, LOCAL_DATABASE_VERSION);
+  const db = await new Promise<IDBDatabase>((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('outbox', 'readwrite');
+      tx.objectStore('outbox').put({ ...row, remoteSequenceBoundary: legacy });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
+  } finally { db.close(); }
 }
 
 afterEach(() => { for (const repo of opened.splice(0)) closeLocalDatabase(repo); });
@@ -293,11 +326,108 @@ describe('REL-05G4B3 dormant workout pull and fixed-watermark resync', () => {
     expect((await repo.getSyncCheckpoint(WORKOUT_PULL_PROVIDER, 'health_workout_session'))?.sequence).toBe(1);
   });
 
+  it('consumes an exact repeated tombstone behind a pending local restore', async () => {
+    const { repo, workouts } = await setup();
+    const tombstone = change(1, ID, 8, 1, 'tombstone', REF1);
+    await runWorkoutPullIteration(repo, options('desktop', () =>
+      Response.json(pullPage(0, [tombstone]))));
+    const restore = await workouts.restoreWorkoutSession(ID, 1, session(ID, 9), { now: T2 });
+    expect(restore.outbox.remoteSequenceBoundary).toMatchObject({
+      baselineServerRevision: 1, remoteMutationRef: REF1,
+      baselineContentHash: tombstone.contentHash,
+      baselineRemoteState: 'deleted', baselineDeletedAt: tombstone.deletedAt,
+    });
+    expect(await runWorkoutPullIteration(repo, options('desktop', () =>
+      Response.json(pullPage(1, [{ ...tombstone, sequence: 2 }])))))
+      .toMatchObject({ kind: 'applied', applied: 0, conflicts: 0, nextCursor: 2 });
+    expect((await repo.getEntity<WorkoutSessionV1>('health_workout_session', ID))?.record.entries[0].sets[0])
+      .toMatchObject({ reps: 9 });
+    expect((await repo.getEntity('health_workout_session', ID))?.revision).toBe(2);
+    expect(await repo.listConflicts('health_workout_session', ID)).toEqual([]);
+    expect(await repo.getOutboxRecord(restore.outbox.mutationId)).toEqual(restore.outbox);
+    expect((await repo.getSyncCheckpoint(WORKOUT_PULL_PROVIDER, 'health_workout_session'))?.sequence).toBe(2);
+  });
+
+  it.each([
+    { name: 'active/deleted state', incoming: { operation: 'upsert' as const, isDeleted: false, deletedAt: null } },
+    { name: 'remote mutation ref', incoming: { remoteMutationRef: REF2 } },
+    { name: 'content hash', incoming: { record: session(ID, 10), contentHash: hashCanonicalPayload(session(ID, 10)) } },
+  ])('rejects same-revision tombstone $name divergence behind pending restore', async ({ incoming }) => {
+    const { repo, workouts } = await setup();
+    const tombstone = change(1, ID, 8, 1, 'tombstone', REF1);
+    await runWorkoutPullIteration(repo, options('desktop', () => Response.json(pullPage(0, [tombstone]))));
+    const restore = await workouts.restoreWorkoutSession(ID, 1, session(ID, 9), { now: T2 });
+    await expect(runWorkoutPullIteration(repo, options('desktop', () =>
+      Response.json(pullPage(1, [{ ...tombstone, sequence: 2, ...incoming }])))))
+      .rejects.toThrow('STALE_REVISION');
+    expect((await repo.getSyncCheckpoint(WORKOUT_PULL_PROVIDER, 'health_workout_session'))?.sequence).toBe(1);
+    expect(await repo.getOutboxRecord(restore.outbox.mutationId)).toEqual(restore.outbox);
+  });
+
+  it('records a legacy tombstone replay once and advances only with durable evidence', async () => {
+    const { repo, workouts, factory } = await setup();
+    const tombstone = change(1, ID, 8, 1, 'tombstone', REF1);
+    await runWorkoutPullIteration(repo, options('desktop', () => Response.json(pullPage(0, [tombstone]))));
+    const restore = await workouts.restoreWorkoutSession(ID, 1, session(ID, 9), { now: T2 });
+    await seedLegacyRemoteBoundary(factory, repo, restore.outbox.mutationId);
+    const legacy = await repo.getOutboxRecord(restore.outbox.mutationId);
+    expect(legacy?.remoteSequenceBoundary?.baselineRemoteState).toBeUndefined();
+    await expect(runWorkoutPullIteration(repo, options('desktop', () =>
+      Response.json(pullPage(1, [{ ...tombstone, sequence: 2 }])),
+    { testOnlyAbortBeforeCheckpoint: true }))).rejects.toThrow('TRANSACTION_ABORTED');
+    expect(await repo.listConflicts('health_workout_session', ID)).toEqual([]);
+    expect((await repo.getSyncCheckpoint(WORKOUT_PULL_PROVIDER, 'health_workout_session'))?.sequence).toBe(1);
+    expect(await runWorkoutPullIteration(repo, options('desktop', () =>
+      Response.json(pullPage(1, [{ ...tombstone, sequence: 2 }])))))
+      .toMatchObject({ kind: 'applied', applied: 0, conflicts: 1, nextCursor: 2 });
+    const conflicts = await repo.listConflicts('health_workout_session', ID);
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0]).toMatchObject({ mutationId: restore.outbox.mutationId,
+      remoteMetadata: { sequence: 2, serverEpoch: EPOCH, serverRevision: 1,
+        remoteMutationRef: REF1, contentHash: tombstone.contentHash,
+        isDeleted: true, deletedAt: tombstone.deletedAt } });
+    expect(await runWorkoutPullIteration(repo, options('desktop', () =>
+      Response.json(pullPage(2, [{ ...tombstone, sequence: 3 }])))))
+      .toMatchObject({ kind: 'applied', conflicts: 0, nextCursor: 3 });
+    expect(await repo.listConflicts('health_workout_session', ID)).toHaveLength(1);
+    expect((await repo.getSyncCheckpoint(WORKOUT_PULL_PROVIDER, 'health_workout_session'))?.sequence).toBe(3);
+    expect((await repo.getEntity<WorkoutSessionV1>('health_workout_session', ID))?.record.entries[0].sets[0])
+      .toMatchObject({ reps: 9 });
+    expect(await repo.getOutboxRecord(restore.outbox.mutationId)).toEqual(legacy);
+  });
+
+  it('uses the same evidence-preserving fallback for a legacy active baseline', async () => {
+    const { repo, workouts, factory } = await setup();
+    const active = change(1, ID, 8, 1, 'upsert', REF1);
+    await runWorkoutPullIteration(repo, options('desktop', () => Response.json(pullPage(0, [active]))));
+    const update = await workouts.updateWorkoutSession(ID, 1, session(ID, 9), { now: T2 });
+    await seedLegacyRemoteBoundary(factory, repo, update.outbox.mutationId);
+    expect(await runWorkoutPullIteration(repo, options('desktop', () =>
+      Response.json(pullPage(1, [{ ...active, sequence: 2 }])))))
+      .toMatchObject({ kind: 'applied', applied: 0, conflicts: 1, nextCursor: 2 });
+    expect((await repo.getEntity<WorkoutSessionV1>('health_workout_session', ID))?.record.entries[0].sets[0])
+      .toMatchObject({ reps: 9 });
+    expect((await repo.getOutboxRecord(update.outbox.mutationId))?.status).toBe('pending');
+  });
+
+  it('rejects a partially populated remote deletion baseline instead of guessing its meaning', async () => {
+    const { repo, workouts, factory } = await setup();
+    const tombstone = change(1, ID, 8, 1, 'tombstone', REF1);
+    await runWorkoutPullIteration(repo, options('desktop', () => Response.json(pullPage(0, [tombstone]))));
+    const restore = await workouts.restoreWorkoutSession(ID, 1, session(ID, 9), { now: T2 });
+    await seedLegacyRemoteBoundary(factory, repo, restore.outbox.mutationId, false);
+    await expect(repo.getOutboxRecord(restore.outbox.mutationId))
+      .rejects.toThrow('CORRUPT_PERSISTED_RECORD');
+  });
+
   it('accepts a provably identical pending remote baseline without changing M2', async () => {
     const { repo, workouts } = await setup();
     await runWorkoutPullIteration(repo, options('desktop', () =>
       Response.json(pullPage(0, [change(1, ID, 8, 1, 'upsert', REF1)]))));
     const m2 = await workouts.updateWorkoutSession(ID, 1, session(ID, 9), { now: T2 });
+    expect(m2.outbox.remoteSequenceBoundary).toMatchObject({
+      baselineRemoteState: 'active', baselineDeletedAt: null,
+    });
     expect(await runWorkoutPullIteration(repo, options('desktop', () =>
       Response.json(pullPage(1, [change(2, ID, 8, 1, 'upsert', REF1)])))))
       .toMatchObject({ kind: 'applied', applied: 0, conflicts: 0, nextCursor: 2 });
@@ -321,6 +451,42 @@ describe('REL-05G4B3 dormant workout pull and fixed-watermark resync', () => {
     await expect(runWorkoutFullResync(repo, options('desktop', handler))).rejects.toThrow('STALE_REVISION');
     expect((await repo.getWorkoutFullResyncSession())?.status).toBe('ready');
     expect((await repo.getSyncCheckpoint(WORKOUT_PULL_PROVIDER, 'health_workout_session'))?.sequence).toBe(1);
+  });
+
+  it('commits an exact tombstone snapshot over pending restore and then receives W+1', async () => {
+    const { repo, workouts } = await setup();
+    const tombstone = change(1, ID, 8, 1, 'tombstone', REF1);
+    await runWorkoutPullIteration(repo, options('desktop', () => Response.json(pullPage(0, [tombstone]))));
+    const restore = await workouts.restoreWorkoutSession(ID, 1, session(ID, 9), { now: T2 });
+    expect(await runWorkoutFullResync(repo, options('desktop', fixedSnapshotWith(tombstone))))
+      .toMatchObject({ kind: 'committed', applied: 0, conflicts: 0, watermark: 2 });
+    expect(await repo.getWorkoutFullResyncSession()).toBeNull();
+    expect((await repo.getSyncCheckpoint(WORKOUT_PULL_PROVIDER, 'health_workout_session'))?.sequence).toBe(2);
+    expect(await repo.getOutboxRecord(restore.outbox.mutationId)).toEqual(restore.outbox);
+    expect((await repo.getEntity('health_workout_session', ID))?.revision).toBe(2);
+    expect((await repo.getEntity<WorkoutSessionV1>('health_workout_session', ID))?.record.entries[0].sets[0])
+      .toMatchObject({ reps: 9 });
+    expect(await runWorkoutPullIteration(repo, options('desktop', () =>
+      Response.json(pullPage(2, [change(3, ID, 10, 2, 'restore', REF2)])))))
+      .toMatchObject({ kind: 'applied', conflicts: 1, nextCursor: 3 });
+    expect(await repo.getOutboxRecord(restore.outbox.mutationId)).toEqual(restore.outbox);
+  });
+
+  it('commits a legacy tombstone snapshot with deterministic evidence instead of a ready-session loop', async () => {
+    const { repo, workouts, factory } = await setup();
+    const tombstone = change(1, ID, 8, 1, 'tombstone', REF1);
+    await runWorkoutPullIteration(repo, options('desktop', () => Response.json(pullPage(0, [tombstone]))));
+    const restore = await workouts.restoreWorkoutSession(ID, 1, session(ID, 9), { now: T2 });
+    await seedLegacyRemoteBoundary(factory, repo, restore.outbox.mutationId);
+    const legacy = await repo.getOutboxRecord(restore.outbox.mutationId);
+    expect(await runWorkoutFullResync(repo, options('desktop', fixedSnapshotWith(tombstone))))
+      .toMatchObject({ kind: 'committed', applied: 0, conflicts: 1, watermark: 2 });
+    expect(await repo.getWorkoutFullResyncSession()).toBeNull();
+    expect((await repo.getSyncCheckpoint(WORKOUT_PULL_PROVIDER, 'health_workout_session'))?.sequence).toBe(2);
+    expect(await repo.listConflicts('health_workout_session', ID)).toHaveLength(1);
+    expect(await repo.getOutboxRecord(restore.outbox.mutationId)).toEqual(legacy);
+    expect((await repo.getEntity<WorkoutSessionV1>('health_workout_session', ID))?.record.entries[0].sets[0])
+      .toMatchObject({ reps: 9 });
   });
 
   it('never moves checkpoint or canonical state on transaction abort', async () => {
