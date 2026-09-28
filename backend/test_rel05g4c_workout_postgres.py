@@ -153,6 +153,12 @@ def test_reset_freezes_inventory_fences_writes_and_emits_recoverable_tombstones(
     old_replay = _call(docker, name, _mutation_sql(OWNER_A, DESKTOP, binding,
         active, old_id, old_key, "restore", 2, 3, record))
     assert old_replay["errorCode"] == "STALE_AUTHORITY_EPOCH"
+    lost_response_replay = _call(docker, name, _mutation_sql(OWNER_A, DESKTOP, binding,
+        active, created["mutationId"], created["idempotencyKey"],
+        "upsert", None, 1, record))
+    assert lost_response_replay["errorCode"] == "STALE_AUTHORITY_EPOCH"
+    assert _psql(docker, name, f"select count(*) from public.remote_mutation_receipts "
+        f"where authenticated_owner_id='{OWNER_A}'::uuid and entity_id='{active}'::uuid;") == "2"
     assert _register(docker, name, OWNER_A, DESKTOP)["errorCode"] == "STALE_GENERATION_BINDING"
     old_page = _call(docker, name, "select public.page_health_workout_snapshot_v1("
         f"'{OWNER_A}'::uuid,'{PROJECT}','{DESKTOP[0]}','{DESKTOP[1]}',"

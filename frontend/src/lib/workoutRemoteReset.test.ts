@@ -7,6 +7,7 @@ import {
 } from './localDatabase';
 import { createWorkoutRemoteResetClient } from './workoutRemoteReset';
 import { workoutResetRequestDigest } from './workoutRemoteContract';
+import { WorkoutSessionRepository } from './workoutSessionRepository';
 
 const OWNER = '11111111-1111-4111-8111-111111111111';
 const BINDING = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
@@ -111,5 +112,25 @@ describe('REL-05G4C dormant local reset continuation', () => {
     expect(first.resetId).toBe(second.resetId);
     expect(requests.every(row => row.body.resetId === first.resetId)).toBe(true);
     expect((await repo.getWorkoutRemoteResetIntent())?.status).toBe('completed');
+  });
+
+  it('never clears or rewrites pending local Workout content during remote reset', async () => {
+    const repo = await repository();
+    const workouts = new WorkoutSessionRepository(repo, () => T0);
+    const created = await workouts.createWorkoutSession({
+      version: 1, id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', localDate: '2026-09-28',
+      entries: [{ id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        exercise: { id: null, name: 'Push-up', type: 'bodyweight', tags: [], cardioMode: null },
+        sets: [{ id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', ordinal: 1,
+          kind: 'bodyweight', loadKind: 'bodyweight', reps: 8, assistedReps: null,
+          dropset: false, done: true }],
+      }],
+    }, { now: T0 });
+    const before = await repo.getOutboxRecord(created.outbox.mutationId);
+    const { client } = harness();
+    expect((await client.runStep(repo)).status).toBe('completed');
+    expect(await repo.getOutboxRecord(created.outbox.mutationId)).toEqual(before);
+    expect((await workouts.getWorkoutSession(created.entity.entityId))?.record.entries[0].sets[0])
+      .toMatchObject({ reps: 8 });
   });
 });
