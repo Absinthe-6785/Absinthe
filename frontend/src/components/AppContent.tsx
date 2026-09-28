@@ -136,6 +136,7 @@ export function AppContent({ authUser }: { authUser: User }) {
   const healthBootstrapRequired = domainUsesLocalWorkingCopy('health_workouts') && authUser.id !== 'local-user';
   const shouldBootstrapHealth = authUser.id !== 'local-user';
   const [startupState, setStartupState] = useState<StartupState>(() => pendingStartupState(healthBootstrapRequired));
+  const [healthStartupAccountId, setHealthStartupAccountId] = useState(authUser.id);
 
   // ── 1. now / formatDate / isToday ────────────────────────────────
   const { now, formatDate, isToday } = useNow();
@@ -159,6 +160,7 @@ export function AppContent({ authUser }: { authUser: User }) {
   useEffect(() => {
     let cancelled = false;
     setStartupState(pendingStartupState(healthBootstrapRequired));
+    setHealthStartupAccountId(authUser.id);
     const run = startIndependentStartup({
       startNotes: async () => {
         await initNotesStorage(authUser.id);
@@ -249,7 +251,11 @@ export function AppContent({ authUser }: { authUser: User }) {
 
   // ── 4. SWR ────────────────────────────────────────────────────────
   const dateStr = formatDate(selectedDate);
-  const healthRuntimeReady = !healthBootstrapRequired || startupState.health.status === 'ready';
+  // The previous account's ready state must not render Health while this
+  // account's bootstrap is still waiting for its first effect.
+  const healthStartupCurrent = healthStartupAccountId === authUser.id;
+  const healthRuntimeReady = healthStartupCurrent
+    && (!healthBootstrapRequired || startupState.health.status === 'ready');
   const todosSearchActive = searchHasQuery || activeTab === 'planner';
   const inbodyActive = activeTab === 'health' && healthRuntimeReady;
   const {
@@ -370,16 +376,16 @@ export function AppContent({ authUser }: { authUser: User }) {
         <Suspense fallback={<ViewLoadingFallback />}>
           {activeTab === 'home'      && <HomeView       key={authUser.id} {...globalProps} />}
           {activeTab === 'planner'   && <PlannerView   key={authUser.id} {...globalProps} />}
-          {activeTab === 'health' && healthBootstrapRequired && startupState.health.status === 'pending' && (
+          {activeTab === 'health' && (!healthStartupCurrent || (healthBootstrapRequired && startupState.health.status === 'pending')) && (
             <ViewLoadingFallback label={t('startupHealthLoading')} />
           )}
-          {activeTab === 'health' && healthBootstrapRequired && startupState.health.status === 'failed' && (
+          {activeTab === 'health' && healthStartupCurrent && healthBootstrapRequired && startupState.health.status === 'failed' && (
             <StartupFailureBoundary
               message={t('startupHealthFailed')}
               onRetry={() => startupRunRef.current?.retry('health')}
             />
           )}
-          {activeTab === 'health' && (!healthBootstrapRequired || startupState.health.status === 'ready') && (
+          {activeTab === 'health' && healthRuntimeReady && (
             <>
               {startupState.health.status === 'failed' && (
                 <StartupFailureNotice
@@ -387,7 +393,7 @@ export function AppContent({ authUser }: { authUser: User }) {
                   onRetry={() => startupRunRef.current?.retry('health')}
                 />
               )}
-              <HealthView {...globalProps} />
+              <HealthView key={authUser.id} {...globalProps} />
             </>
           )}
           {activeTab === 'analytics' && (

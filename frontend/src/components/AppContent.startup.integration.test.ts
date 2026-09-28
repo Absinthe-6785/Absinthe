@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
-import { createElement, StrictMode } from 'react';
+import { createElement, StrictMode, useState } from 'react';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { useHealthWorkoutDraft } from './views/features/health/useHealthWorkoutDraft';
 
 const mocks = vi.hoisted(() => {
   const notesState = {
@@ -21,6 +22,9 @@ const mocks = vi.hoisted(() => {
     healthReadiness: [] as boolean[],
     dailyLoading: false,
     showToast: vi.fn(),
+    healthRenders: [] as Array<{ accountId: string; transient: string; draftNames: string; workoutProps: string }>,
+    dailyWorkoutOwner: null as string | null,
+    healthAsync: null as Promise<string> | null,
   };
 });
 
@@ -70,7 +74,8 @@ vi.mock('../hooks/useDaily', () => ({
   useDailyData: (...args: unknown[]) => {
     mocks.healthReadiness.push(Boolean(args[3]));
     return {
-      schedules: [], todos: [], routines: [], workouts: [], inbody: {},
+      schedules: [], todos: [], routines: [],
+      workouts: mocks.dailyWorkoutOwner ? [{ id: `${mocks.dailyWorkoutOwner}-workout` }] : [], inbody: {},
       mutate: vi.fn(), mutateTodos: vi.fn(), mutateRoutines: vi.fn(), isLoading: mocks.dailyLoading,
     };
   },
@@ -105,7 +110,26 @@ vi.mock('./common/ViewLoadingFallback', () => ({
 vi.mock('./views/NoteView', () => ({ NoteView: () => null }));
 vi.mock('./views/HomeView', () => ({ HomeView: () => createElement('div', { 'data-testid': 'home-view' }) }));
 vi.mock('./views/PlannerView', () => ({ PlannerView: () => null }));
-vi.mock('./views/HealthView', () => ({ HealthView: () => createElement('div', { 'data-testid': 'health-view' }) }));
+vi.mock('./views/HealthView', () => ({ HealthView: ({ user, workouts }: { user: { id: string }; workouts: Array<{ id: string }> }) => {
+    const draft = useHealthWorkoutDraft({ accountId: user.id, dateKey: '2026-01-01' });
+    const [transient, setTransient] = useState('');
+    const draftNames = draft.localWorkouts.map(row => row.exercise_blocks?.name ?? '').join(',');
+    mocks.healthRenders.push({ accountId: user.id, transient, draftNames, workoutProps: workouts.map(row => row.id).join(',') });
+    return createElement('div', { 'data-testid': 'health-view', 'data-account': user.id },
+      createElement('span', { 'data-testid': 'health-transient' }, transient),
+      createElement('span', { 'data-testid': 'health-draft' }, draftNames),
+      createElement('button', { type: 'button', 'data-testid': 'edit-health', onClick: () => {
+        draft.setLocalWorkouts([{ id: 'draft-a', block_id: 'block-a', exercise_blocks: {
+          id: 'block-a', name: 'A-private-workout', type: 'strength',
+        }, sets: [{ type: 'strength', set: 1, kg: '', reps: '8', done: false }] }]);
+        draft.setIsDirty(true);
+        setTransient('A-private-memo|A-private-input|A-private-modal');
+      } }, 'Edit'),
+      createElement('button', { type: 'button', 'data-testid': 'load-health-async', onClick: () => {
+        if (mocks.healthAsync) void mocks.healthAsync.then(value => setTransient(value));
+      } }, 'Load'),
+    );
+  } }));
 vi.mock('./views/AnalyticsView', () => ({ AnalyticsView: () => null }));
 vi.mock('./views/SettingsView', () => ({ SettingsView: () => null }));
 vi.mock('./views/RecipeView', () => ({ RecipeView: () => null }));
@@ -146,6 +170,7 @@ describe('AppContent startup lifecycle integration', () => {
   let container: HTMLDivElement | null = null;
 
   beforeEach(() => {
+    localStorage.clear();
     mocks.initNotesStorage.mockReset().mockResolvedValue(undefined);
     mocks.bootstrapFromSupabase.mockReset().mockResolvedValue(undefined);
     mocks.detachNotesStorage.mockReset();
@@ -153,6 +178,9 @@ describe('AppContent startup lifecycle integration', () => {
     mocks.healthReadiness.length = 0;
     mocks.dailyLoading = false;
     mocks.showToast.mockReset();
+    mocks.healthRenders.length = 0;
+    mocks.dailyWorkoutOwner = null;
+    mocks.healthAsync = null;
     container = document.createElement('div');
     document.body.appendChild(container);
   });
@@ -239,6 +267,147 @@ describe('AppContent startup lifecycle integration', () => {
     accountB.resolve();
     await flushStartup();
     expect(mocks.healthReadiness.at(-1)).toBe(true);
+  });
+
+  it('never renders A Health transient state in the first B Health render', async () => {
+    mocks.healthBootstrap.mockResolvedValue(undefined);
+    const { AppContent } = await import('./AppContent');
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(createElement(AppContent, { authUser: user('account-a') }));
+    });
+    await flushStartup();
+    await act(async () => {
+      (container?.querySelector('[data-testid="nav-health"]') as HTMLButtonElement)?.click();
+    });
+    await act(async () => {
+      (container?.querySelector('[data-testid="edit-health"]') as HTMLButtonElement)?.click();
+    });
+    expect(container?.querySelector('[data-testid="health-draft"]')?.textContent).toContain('A-private-workout');
+
+    mocks.healthRenders.length = 0;
+    await act(async () => {
+      root?.render(createElement(AppContent, { authUser: user('account-b') }));
+    });
+    await flushStartup();
+    const firstBRender = mocks.healthRenders.find(render => render.accountId === 'account-b');
+    expect(firstBRender).toBeDefined();
+    expect(firstBRender?.transient).toBe('');
+    expect(firstBRender?.draftNames).toBe('');
+    expect(container?.querySelector('[data-testid="health-transient"]')?.textContent).not.toContain('A-private');
+    expect(container?.querySelector('[data-testid="health-draft"]')?.textContent).not.toContain('A-private');
+  });
+
+  it('does not mount B Health from A-ready state or stale parent props before B bootstrap', async () => {
+    const accountB = deferred();
+    mocks.healthBootstrap.mockImplementation(({ accountId }: { accountId: string }) => (
+      accountId === 'account-b' ? accountB.promise : Promise.resolve()
+    ));
+    const { AppContent } = await import('./AppContent');
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(createElement(AppContent, { authUser: user('account-a') }));
+    });
+    await flushStartup();
+    await act(async () => {
+      (container?.querySelector('[data-testid="nav-health"]') as HTMLButtonElement)?.click();
+    });
+    mocks.dailyWorkoutOwner = 'account-a';
+    mocks.healthRenders.length = 0;
+    await act(async () => {
+      root?.render(createElement(AppContent, { authUser: user('account-b') }));
+    });
+    expect(mocks.healthRenders.some(render => render.accountId === 'account-b')).toBe(false);
+    expect(container?.querySelector('[data-testid="health-view"]')).toBeNull();
+    expect(container?.querySelector('[data-testid="view-loading"]')).not.toBeNull();
+
+    mocks.dailyWorkoutOwner = 'account-b';
+    accountB.resolve();
+    await flushStartup();
+    expect(mocks.healthRenders.find(render => render.accountId === 'account-b')?.workoutProps).toBe('account-b-workout');
+  });
+
+  it('keeps Health editing state on same-account rerender and isolates A-B-A switches', async () => {
+    mocks.healthBootstrap.mockResolvedValue(undefined);
+    const { AppContent } = await import('./AppContent');
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(createElement(AppContent, { authUser: user('account-a') }));
+    });
+    await flushStartup();
+    await act(async () => {
+      (container?.querySelector('[data-testid="nav-health"]') as HTMLButtonElement)?.click();
+    });
+    await act(async () => {
+      (container?.querySelector('[data-testid="edit-health"]') as HTMLButtonElement)?.click();
+    });
+    await act(async () => root?.render(createElement(AppContent, { authUser: user('account-a') })));
+    expect(container?.querySelector('[data-testid="health-draft"]')?.textContent).toContain('A-private-workout');
+
+    await act(async () => root?.render(createElement(AppContent, { authUser: user('account-b') })));
+    await flushStartup();
+    await act(async () => root?.render(createElement(AppContent, { authUser: user('account-a') })));
+    await flushStartup();
+    expect(mocks.healthRenders.filter(render => render.accountId === 'account-a').at(-1)?.transient).toBe('');
+    expect(container?.querySelector('[data-testid="health-draft"]')?.textContent).toContain('A-private-workout');
+  });
+
+  it('does not surface a previous instance async completion after A-B-A account transitions', async () => {
+    mocks.healthBootstrap.mockResolvedValue(undefined);
+    const oldACompletion = deferred<string>();
+    const oldBCompletion = deferred<string>();
+    const { AppContent } = await import('./AppContent');
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(createElement(AppContent, { authUser: user('account-a') }));
+    });
+    await flushStartup();
+    await act(async () => {
+      (container?.querySelector('[data-testid="nav-health"]') as HTMLButtonElement)?.click();
+    });
+    mocks.healthAsync = oldACompletion.promise;
+    await act(async () => {
+      (container?.querySelector('[data-testid="load-health-async"]') as HTMLButtonElement)?.click();
+    });
+    await act(async () => root?.render(createElement(AppContent, { authUser: user('account-b') })));
+    await flushStartup();
+    mocks.healthAsync = oldBCompletion.promise;
+    await act(async () => {
+      (container?.querySelector('[data-testid="load-health-async"]') as HTMLButtonElement)?.click();
+    });
+    await act(async () => root?.render(createElement(AppContent, { authUser: user('account-a') })));
+    await flushStartup();
+    await act(async () => {
+      oldACompletion.resolve('old-A-previous-workout');
+      oldBCompletion.resolve('old-B-previous-workout');
+      await Promise.resolve();
+    });
+    expect(container?.querySelector('[data-testid="health-transient"]')?.textContent).toBe('');
+    expect(mocks.healthRenders.filter(render => render.accountId === 'account-a').at(-1)?.transient).toBe('');
+  });
+
+  it('retains the existing Health tab unmount behavior without changing the account key', async () => {
+    mocks.healthBootstrap.mockResolvedValue(undefined);
+    const { AppContent } = await import('./AppContent');
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(createElement(AppContent, { authUser: user('account-a') }));
+    });
+    await flushStartup();
+    await act(async () => {
+      (container?.querySelector('[data-testid="nav-health"]') as HTMLButtonElement)?.click();
+    });
+    await act(async () => {
+      (container?.querySelector('[data-testid="edit-health"]') as HTMLButtonElement)?.click();
+    });
+    await act(async () => {
+      (container?.querySelector('[data-testid="nav-notes"]') as HTMLButtonElement)?.click();
+    });
+    await act(async () => {
+      (container?.querySelector('[data-testid="nav-health"]') as HTMLButtonElement)?.click();
+    });
+    expect(container?.querySelector('[data-testid="health-view"]')?.getAttribute('data-account')).toBe('account-a');
+    expect(container?.querySelector('[data-testid="health-transient"]')?.textContent).toBe('');
   });
 
   it('does not publish a pending Health completion after the account logs out', async () => {

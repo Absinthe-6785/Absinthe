@@ -159,7 +159,8 @@ describe('LEAN_04A characterization contract and protected boundaries', () => {
   it('pins Health readiness, event invalidation, spinner, and shell mutation ownership', () => {
     const app = source('components/AppContent.tsx');
     const bootstrap = source('lib/healthSupabaseBootstrap.ts');
-    expect(app).toContain("const healthRuntimeReady = !healthBootstrapRequired || startupState.health.status === 'ready';");
+    expect(app).toContain('const healthStartupCurrent = healthStartupAccountId === authUser.id;');
+    expect(app).toContain("&& (!healthBootstrapRequired || startupState.health.status === 'ready');");
     expect(app).toContain('HEALTH_LOCAL_BOOTSTRAP_COMPLETE_EVENT');
     expect(app).toContain('window.addEventListener(HEALTH_LOCAL_BOOTSTRAP_COMPLETE_EVENT, refreshLocalHealth)');
     expect(app).toContain('mutateDaily();');
@@ -168,7 +169,7 @@ describe('LEAN_04A characterization contract and protected boundaries', () => {
     expect(app).toContain('mutateDaily, mutateStatic');
     expect(app).toContain('mutateTodos, mutateRoutines');
     expect(app).toContain('<PlannerView   key={authUser.id} {...globalProps} />');
-    expect(app).toContain('<HealthView {...globalProps} />');
+    expect(app).toContain('<HealthView key={authUser.id} {...globalProps} />');
     expect(bootstrap).toContain('window.dispatchEvent(new Event(HEALTH_LOCAL_BOOTSTRAP_COMPLETE_EVENT))');
     expect(source('hooks/useDaily.ts')).toContain('revalidateOnFocus: false');
     expect(source('hooks/useStatic.ts')).toContain('revalidateOnFocus: false');
