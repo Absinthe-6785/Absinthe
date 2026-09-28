@@ -8,9 +8,21 @@ import pytest
 
 from remote_mutation_v2 import canonical_payload_bytes, payload_hash
 from workout_remote_authority import (
-    MAX_WORKOUT_BYTES, WorkoutMutationRequest, validate_workout_session,
-    workout_request_digest,
+    MAX_WORKOUT_BYTES, WorkoutMutationRequest, WorkoutResetRequest,
+    validate_workout_session, workout_request_digest, workout_reset_request_digest,
 )
+
+
+def test_reset_intent_digest_matches_frontend_golden_vector() -> None:
+    request = WorkoutResetRequest.model_validate({
+        "protocolVersion": 2, "namespaceKey": "a" * 64,
+        "generationId": "generation-desktop", "deviceId": "device-desktop",
+        "bindingId": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "authorityEpoch": 1,
+        "resetId": "99999999-9999-4999-8999-999999999999", "requestDigest": "0" * 64,
+    })
+    assert workout_reset_request_digest(request,
+        "11111111-1111-4111-8111-111111111111", "trusted-server-project") \
+        == "17fb7057b78fd40ed26d488d77f5caa537ec96c7a573fac99c5dda3c8da3868b"
 
 
 VECTORS = json.loads((Path(__file__).parents[1] / "protocol" / "rel05g4a-workout-vectors.json").read_text(

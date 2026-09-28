@@ -545,7 +545,7 @@ describe('REL-05G4B3 dormant workout pull and fixed-watermark resync', () => {
       .toMatchObject({ kind: 'applied', nextCursor: 3 });
     expect((await repo.getEntity<WorkoutSessionV1>('health_workout_session', ID))?.record.entries[0].sets[0])
       .toMatchObject({ reps: 10 });
-    expect(requests).toBe(4);
+    expect(requests).toBe(5); // final page plus separate pre-commit server validation
   });
 
   it('preserves local-only and pending records absent from a complete empty snapshot', async () => {
@@ -801,20 +801,115 @@ describe('REL-05G4B3 dormant workout pull and fixed-watermark resync', () => {
   });
 
   it('resumes ready staging after an aborted canonical commit without advancing checkpoint', async () => {
-    const { repo } = await setup();
-    const handler = (url: URL) => url.pathname.endsWith('/snapshots')
-      ? Response.json({ protocolVersion: 2, status: 'snapshot', domain: 'health_workout_session',
-        snapshotToken: TOKEN, authorityEpoch: 1, serverEpoch: EPOCH, watermark: 1, errorCode: null })
-      : Response.json({ protocolVersion: 2, status: 'snapshot_page', domain: 'health_workout_session',
+    const { repo, namespace, factory } = await setup();
+    let pageCalls = 0;
+    const handler = (url: URL) => {
+      if (url.pathname.endsWith('/snapshots')) return Response.json({
+        protocolVersion: 2, status: 'snapshot', domain: 'health_workout_session',
+        snapshotToken: TOKEN, authorityEpoch: 1, serverEpoch: EPOCH, watermark: 1, errorCode: null,
+      });
+      pageCalls += 1;
+      return Response.json({ protocolVersion: 2, status: 'snapshot_page', domain: 'health_workout_session',
         snapshotToken: TOKEN, authorityEpoch: 1, serverEpoch: EPOCH, watermark: 1,
         rows: [snapshotRow(change(1))], nextEntityId: null, hasMore: false, errorCode: null });
+    };
     await expect(runWorkoutFullResync(repo, options('desktop', handler,
       { testOnlyAbortBeforeCheckpoint: true }))).rejects.toThrow();
     expect((await repo.getWorkoutFullResyncSession())?.status).toBe('ready');
     expect(await repo.getEntity('health_workout_session', ID)).toBeNull();
     expect(await repo.getSyncCheckpoint(WORKOUT_PULL_PROVIDER, 'health_workout_session')).toBeNull();
-    expect(await runWorkoutFullResync(repo, options('desktop', handler)))
+    closeLocalDatabase(repo);
+    const restarted = await openLocalDatabase(namespace, {
+      capability: createDormantLocalDatabaseCapability('test'), indexedDBFactory: factory,
+      clock: () => T0,
+    });
+    opened.push(restarted);
+    await restarted.initializeNamespace();
+    expect(await runWorkoutFullResync(restarted, options('desktop', handler)))
       .toMatchObject({ kind: 'committed', itemCount: 1, watermark: 1 });
+    expect(pageCalls).toBe(3); // final page, pre-commit check, restart pre-commit check
+  });
+
+  it.each(['AUTHORITY_RESET_FENCED', 'STALE_AUTHORITY_EPOCH', 'SNAPSHOT_TOKEN_INVALID'] as const)(
+    'abandons restarted ready staging on server validation %s without touching pending local data', async code => {
+    const { repo, workouts, namespace, factory } = await setup();
+    const local = await workouts.createWorkoutSession(session(ID), { now: T0 });
+    const handler = fixedSnapshotWith(change(1, ID, 9), 1);
+    await expect(runWorkoutFullResync(repo, options('desktop', handler,
+      { testOnlyAbortBeforeCheckpoint: true }))).rejects.toThrow();
+    expect((await repo.getWorkoutFullResyncSession())?.status).toBe('ready');
+    const beforeEntity = await repo.getEntity('health_workout_session', ID);
+    const beforeOutbox = await repo.getOutboxRecord(local.outbox.mutationId);
+    closeLocalDatabase(repo);
+    const restarted = await openLocalDatabase(namespace, {
+      capability: createDormantLocalDatabaseCapability('test'), indexedDBFactory: factory,
+      clock: () => T0,
+    });
+    opened.push(restarted);
+    await restarted.initializeNamespace();
+    let validationCalls = 0;
+    const result = await runWorkoutFullResync(restarted, options('desktop', url => {
+      expect(url.pathname).toContain(`/snapshots/${TOKEN}`);
+      validationCalls += 1;
+      return new Response(JSON.stringify({ status: 'rejected', errorCode: code }),
+        { status: code === 'AUTHORITY_RESET_FENCED' ? 423 : 409 });
+    }));
+    expect(validationCalls).toBe(1);
+    expect(result).toEqual({ kind: 'abandoned', code });
+    expect(await restarted.getWorkoutFullResyncSession()).toBeNull();
+    expect(await restarted.getEntity('health_workout_session', ID)).toEqual(beforeEntity);
+    expect(await restarted.getOutboxRecord(local.outbox.mutationId)).toEqual(beforeOutbox);
+    expect(await restarted.getSyncCheckpoint(WORKOUT_PULL_PROVIDER, 'health_workout_session')).toBeNull();
+  });
+
+  it('validates a newly-ready snapshot again before its canonical commit', async () => {
+    const { repo } = await setup();
+    let pageCalls = 0;
+    const result = await runWorkoutFullResync(repo, options('desktop', url => {
+      if (url.pathname.endsWith('/snapshots')) return Response.json({
+        protocolVersion: 2, status: 'snapshot', domain: 'health_workout_session',
+        snapshotToken: TOKEN, authorityEpoch: 1, serverEpoch: EPOCH, watermark: 1, errorCode: null,
+      });
+      pageCalls += 1;
+      if (pageCalls === 1) return Response.json({
+        protocolVersion: 2, status: 'snapshot_page', domain: 'health_workout_session',
+        snapshotToken: TOKEN, authorityEpoch: 1, serverEpoch: EPOCH, watermark: 1,
+        rows: [snapshotRow(change(1))], nextEntityId: null, hasMore: false, errorCode: null,
+      });
+      return new Response(JSON.stringify({ status: 'rejected', errorCode: 'AUTHORITY_RESET_FENCED' }),
+        { status: 423 });
+    }));
+    expect(pageCalls).toBe(2);
+    expect(result).toEqual({ kind: 'abandoned', code: 'AUTHORITY_RESET_FENCED' });
+    expect(await repo.getWorkoutFullResyncSession()).toBeNull();
+    expect(await repo.getEntity('health_workout_session', ID)).toBeNull();
+    expect(await repo.getSyncCheckpoint(WORKOUT_PULL_PROVIDER, 'health_workout_session')).toBeNull();
+  });
+
+  it.each(['snapshotToken', 'authorityEpoch', 'serverEpoch', 'watermark'] as const)(
+    'fails closed when pre-commit validation changes %s', async field => {
+    const { repo } = await setup();
+    let pageCalls = 0;
+    await expect(runWorkoutFullResync(repo, options('desktop', url => {
+      if (url.pathname.endsWith('/snapshots')) return Response.json({
+        protocolVersion: 2, status: 'snapshot', domain: 'health_workout_session',
+        snapshotToken: TOKEN, authorityEpoch: 1, serverEpoch: EPOCH, watermark: 1, errorCode: null,
+      });
+      pageCalls += 1;
+      const validation = {
+        protocolVersion: 2, status: 'snapshot_page', domain: 'health_workout_session',
+        snapshotToken: TOKEN, authorityEpoch: 1, serverEpoch: EPOCH, watermark: 1,
+        rows: [snapshotRow(change(1))], nextEntityId: null, hasMore: false, errorCode: null,
+      };
+      return Response.json(pageCalls === 1 ? validation : {
+        ...validation, [field]: field === 'snapshotToken' ? REF2
+          : field === 'serverEpoch' ? BINDING : 2,
+      });
+    }))).rejects.toThrow('MALFORMED_RESPONSE');
+    expect(pageCalls).toBe(2);
+    expect((await repo.getWorkoutFullResyncSession())?.status).toBe('ready');
+    expect(await repo.getEntity('health_workout_session', ID)).toBeNull();
+    expect(await repo.getSyncCheckpoint(WORKOUT_PULL_PROVIDER, 'health_workout_session')).toBeNull();
   });
 
   it('refuses a page from a different snapshot watermark before staging or canonical writes', async () => {
@@ -830,14 +925,16 @@ describe('REL-05G4B3 dormant workout pull and fixed-watermark resync', () => {
     expect(await repo.getEntity('health_workout_session', ID)).toBeNull();
   });
 
-  it('abandons only staging when the backend invalidates a snapshot token', async () => {
+  it.each(['SNAPSHOT_TOKEN_INVALID', 'STALE_AUTHORITY_EPOCH', 'AUTHORITY_RESET_FENCED'] as const)(
+    'abandons only staging when the backend invalidates a snapshot with %s', async code => {
     const { repo, workouts } = await setup();
     const local = await workouts.createWorkoutSession(session(ID), { now: T0 });
     const result = await runWorkoutFullResync(repo, options('desktop', url => url.pathname.endsWith('/snapshots')
       ? Response.json({ protocolVersion: 2, status: 'snapshot', domain: 'health_workout_session',
         snapshotToken: TOKEN, authorityEpoch: 1, serverEpoch: EPOCH, watermark: 1, errorCode: null })
-      : new Response(JSON.stringify({ status: 'rejected', errorCode: 'SNAPSHOT_TOKEN_INVALID' }), { status: 409 })));
-    expect(result).toEqual({ kind: 'abandoned', code: 'SNAPSHOT_TOKEN_INVALID' });
+      : new Response(JSON.stringify({ status: 'rejected', errorCode: code }),
+        { status: code === 'AUTHORITY_RESET_FENCED' ? 423 : 409 })));
+    expect(result).toEqual({ kind: 'abandoned', code });
     expect(await repo.getWorkoutFullResyncSession()).toBeNull();
     expect(await repo.getEntity('health_workout_session', ID)).not.toBeNull();
     expect((await repo.getOutboxRecord(local.outbox.mutationId))?.status).toBe('pending');

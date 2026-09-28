@@ -1,7 +1,7 @@
 import { API_URL } from './config';
 import { HEALTH_ROUTINE_DEVICE_ID_KEY } from './healthRoutineSync';
 import type { LocalDatabaseRepository, WorkoutPullFence } from './localDatabase/repository';
-import type { WorkoutRemoteAuthorityRecordV1 } from './localDatabase/types';
+import type { WorkoutFullResyncSessionRecordV1, WorkoutRemoteAuthorityRecordV1 } from './localDatabase/types';
 import { runtimeAccountSyncAccountId } from './remoteBoundary';
 import { supabase } from './supabase';
 import { WORKOUT_REMOTE_DOMAIN } from './workoutRemoteContract';
@@ -37,7 +37,7 @@ export type WorkoutPullResult =
 export type WorkoutFullResyncResult =
   | { kind: 'staged'; itemCount: number; watermark: number }
   | { kind: 'committed'; itemCount: number; watermark: number; applied: number; conflicts: number }
-  | { kind: 'abandoned'; code: 'SNAPSHOT_TOKEN_INVALID' };
+  | { kind: 'abandoned'; code: 'SNAPSHOT_TOKEN_INVALID' | 'STALE_AUTHORITY_EPOCH' | 'AUTHORITY_RESET_FENCED' };
 
 function query(authority: WorkoutRemoteAuthorityRecordV1): URLSearchParams {
   return new URLSearchParams({ namespaceKey: authority.namespaceKey, generationId: authority.generationId,
@@ -156,6 +156,38 @@ export async function runWorkoutPullIteration(repository: LocalDatabaseRepositor
 export async function runWorkoutFullResync(repository: LocalDatabaseRepository,
   options: WorkoutPullOptions): Promise<WorkoutFullResyncResult> {
   return withWorkoutPullLease(repository, options, async (fence, request) => {
+    const commitValidatedReady = async (ready: WorkoutFullResyncSessionRecordV1): Promise<WorkoutFullResyncResult> => {
+      // A ready session can survive a process restart. Validate its exact token
+      // against live server authority before opening the canonical IDB write.
+      // This response is proof only; never stage its page a second time.
+      const validationParams = query(fence.authority);
+      validationParams.set('limit', '1');
+      let validation: unknown;
+      try {
+        validation = await request(`/api/sync/v2/workouts/snapshots/${ready.snapshotToken}?${validationParams}`);
+      } catch (error) {
+        if (error instanceof WorkoutPullProtocolError && (
+          error.code === 'SNAPSHOT_TOKEN_INVALID' || error.code === 'STALE_AUTHORITY_EPOCH'
+          || error.code === 'AUTHORITY_RESET_FENCED')) {
+          await repository.abandonWorkoutFullResync({ ...fence,
+            now: (options.now ?? (() => new Date().toISOString()))(), sessionId: ready.sessionId });
+          options.onDiagnostic?.('workout_full_resync_abandoned', error.code);
+          return { kind: 'abandoned', code: error.code };
+        }
+        throw error;
+      }
+      validateWorkoutSnapshotPage(validation, {
+        snapshotToken: ready.snapshotToken, authorityEpoch: ready.authorityEpoch,
+        serverEpoch: ready.serverEpoch, watermark: ready.watermark,
+      }, null);
+      // A reset after this successful server check is a later stream event;
+      // the ordinary incremental pull will deliver its tombstones.
+      const result = await repository.commitWorkoutFullResync({ ...fence,
+        now: (options.now ?? (() => new Date().toISOString()))(), sessionId: ready.sessionId });
+      options.onDiagnostic?.('workout_full_resync_committed');
+      return { kind: 'committed', itemCount: ready.itemCount, watermark: ready.watermark,
+        applied: result.applied, conflicts: result.conflicts };
+    };
     let session = await repository.getWorkoutFullResyncSession();
     if (session && (session.authorityEpoch !== fence.authority.authorityEpoch
       || session.generationBindingId !== fence.authority.generationBindingId)) {
@@ -173,11 +205,7 @@ export async function runWorkoutFullResync(repository: LocalDatabaseRepository,
       options.onDiagnostic?.('workout_full_resync_started');
     }
     if (session.status === 'ready') {
-      const result = await repository.commitWorkoutFullResync({ ...fence,
-        now: (options.now ?? (() => new Date().toISOString()))(), sessionId: session.sessionId });
-      options.onDiagnostic?.('workout_full_resync_committed');
-      return { kind: 'committed', itemCount: session.itemCount, watermark: session.watermark,
-        applied: result.applied, conflicts: result.conflicts };
+      return commitValidatedReady(session);
     }
     const params = query(fence.authority);
     params.set('limit', String(WORKOUT_SNAPSHOT_PAGE_LIMIT));
@@ -185,11 +213,13 @@ export async function runWorkoutFullResync(repository: LocalDatabaseRepository,
     let value: unknown;
     try { value = await request(`/api/sync/v2/workouts/snapshots/${session.snapshotToken}?${params}`); }
     catch (error) {
-      if (error instanceof WorkoutPullProtocolError && error.code === 'SNAPSHOT_TOKEN_INVALID') {
+      if (error instanceof WorkoutPullProtocolError && (
+        error.code === 'SNAPSHOT_TOKEN_INVALID' || error.code === 'STALE_AUTHORITY_EPOCH'
+        || error.code === 'AUTHORITY_RESET_FENCED')) {
         await repository.abandonWorkoutFullResync({ ...fence,
           now: (options.now ?? (() => new Date().toISOString()))(), sessionId: session.sessionId });
         options.onDiagnostic?.('workout_full_resync_abandoned', error.code);
-        return { kind: 'abandoned', code: 'SNAPSHOT_TOKEN_INVALID' };
+        return { kind: 'abandoned', code: error.code };
       }
       throw error;
     }
@@ -202,11 +232,7 @@ export async function runWorkoutFullResync(repository: LocalDatabaseRepository,
       afterEntityId: session.afterEntityId, ...page });
     options.onDiagnostic?.('workout_full_resync_page_staged');
     if (staged.status === 'ready') {
-      const result = await repository.commitWorkoutFullResync({ ...fence,
-        now: (options.now ?? (() => new Date().toISOString()))(), sessionId: staged.sessionId });
-      options.onDiagnostic?.('workout_full_resync_committed');
-      return { kind: 'committed', itemCount: staged.itemCount, watermark: staged.watermark,
-        applied: result.applied, conflicts: result.conflicts };
+      return commitValidatedReady(staged);
     }
     return { kind: 'staged', itemCount: staged.itemCount, watermark: staged.watermark };
   });

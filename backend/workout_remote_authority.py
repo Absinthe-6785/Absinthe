@@ -266,6 +266,29 @@ class WorkoutMutationRequest(WorkoutBindingRequest):
         return payload_hash(self.payload["record"]) if self.operation != "tombstone" else None
 
 
+class WorkoutResetRequest(WorkoutBindingRequest):
+    """One immutable, authenticated reset intent; retries carry the same tuple."""
+
+    reset_id: str = Field(alias="resetId")
+    request_digest: str = Field(alias="requestDigest")
+
+    @model_validator(mode="after")
+    def validate_reset(self) -> "WorkoutResetRequest":
+        if not _wire_uuid4(self.reset_id) or DIGEST_PATTERN.fullmatch(self.request_digest) is None:
+            raise ValueError("INVALID_RESET")
+        return self
+
+
+def workout_reset_request_digest(request: WorkoutResetRequest, owner: str, project: str) -> str:
+    """The server-authenticated owner/project are part of the reset identity."""
+    fields = [
+        "absinthe-workout-reset-v1", 2, str(UUID(owner)), project, DOMAIN,
+        request.namespace_key, request.generation_id, request.device_id,
+        request.binding_id, request.authority_epoch, request.reset_id,
+    ]
+    return hashlib.sha256(_canonical_json(fields)).hexdigest()
+
+
 class WorkoutRemoteGateway:
     def __init__(self, client: Any) -> None:
         self._client = client
