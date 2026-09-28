@@ -8,6 +8,12 @@ create table public.health_workout_reset_jobs (
   domain text not null default 'health_workout_session' check (domain = 'health_workout_session'),
   reset_id uuid not null check (reset_id::text ~ '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'),
   request_digest text not null check (request_digest ~ '^[a-f0-9]{64}$'),
+  -- Two independent server UUIDv4 values contribute 244 unpredictable bits.
+  -- This secret never leaves the service-function-only job table.
+  receipt_secret bytea not null default pg_catalog.decode(
+    replace(pg_catalog.gen_random_uuid()::text, '-', '') ||
+    replace(pg_catalog.gen_random_uuid()::text, '-', ''), 'hex')
+    check (pg_catalog.octet_length(receipt_secret) = 32),
   namespace_fingerprint text not null check (namespace_fingerprint ~ '^[a-f0-9]{64}$'),
   generation_id text not null check (generation_id ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'),
   device_id text not null check (device_id ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'),
@@ -173,12 +179,9 @@ begin
   )
   select p_owner, p_project, p_reset_id, e.id, e.revision, e.record,
     e.content_hash, e.is_deleted, e.deleted_at, e.last_remote_mutation_ref,
-    (substr(h.digest, 1, 8) || '-' || substr(h.digest, 9, 4) || '-5' ||
-      substr(h.digest, 14, 3) || '-8' || substr(h.digest, 18, 3) || '-' ||
-      substr(h.digest, 21, 12))::uuid,
+    pg_catalog.gen_random_uuid(),
     case when e.is_deleted then 'ALREADY_DELETED' else 'PENDING' end
   from public.health_workout_sessions_v2 e
-  cross join lateral (select md5(p_reset_id::text || '|' || e.id::text) as digest) h
   where e.user_id = p_owner and e.project_scope = p_project;
   select count(*), count(*) filter (where not source_is_deleted)
   into v_inventory_count, v_active_count
@@ -235,6 +238,7 @@ declare
   v_sequence bigint;
   v_committed_at timestamptz;
   v_mutation_id text;
+  v_mutation_digest text;
   v_idempotency_key text;
   v_payload_digest text;
   v_request_digest text;
@@ -314,16 +318,22 @@ begin
       v_sequence := nextval('public.remote_reference_changes_v2_sequence_seq'::regclass);
       if v_sequence > 9007199254740991 then raise exception 'REL05G4C_SEQUENCE_EXHAUSTED'; end if;
       v_committed_at := clock_timestamp();
-      -- Reset-owned, immutable receipt provides the exact new-epoch entity
-      -- provenance required for a later explicit G4A restore. Its old binding
-      -- can never be replayed as a current client mutation.
-      v_mutation_id := 'mut.' || v_item.reset_ref::text;
+      -- Server-private job entropy keeps these shared receipt uniqueness keys
+      -- unpredictable before insertion. Distinct labels separate their uses.
+      -- The old binding cannot replay them as a current client mutation.
+      v_mutation_digest := pg_catalog.encode(pg_catalog.sha256(v_job.receipt_secret ||
+        pg_catalog.convert_to('workout-reset-mutation-id|' || p_reset_id::text || '|' || v_id::text, 'UTF8')), 'hex');
+      v_mutation_id := 'mut.' || substr(v_mutation_digest, 1, 8) || '-' ||
+        substr(v_mutation_digest, 9, 4) || '-4' || substr(v_mutation_digest, 14, 3) ||
+        '-8' || substr(v_mutation_digest, 18, 3) || '-' || substr(v_mutation_digest, 21, 12);
       v_idempotency_key := 'k322.' || pg_catalog.encode(pg_catalog.sha256(
-        pg_catalog.convert_to('workout-reset-idem|' || p_reset_id::text || '|' || v_id::text, 'UTF8')), 'hex');
-      v_payload_digest := pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(
-        'workout-reset-payload|' || p_reset_id::text || '|' || v_id::text, 'UTF8')), 'hex');
-      v_request_digest := pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(
-        'workout-reset-receipt|' || v_job.request_digest || '|' || v_id::text, 'UTF8')), 'hex');
+        v_job.receipt_secret || pg_catalog.convert_to(
+          'workout-reset-idem|' || p_reset_id::text || '|' || v_id::text, 'UTF8')), 'hex');
+      v_payload_digest := pg_catalog.encode(pg_catalog.sha256(v_job.receipt_secret ||
+        pg_catalog.convert_to('workout-reset-payload|' || p_reset_id::text || '|' || v_id::text, 'UTF8')), 'hex');
+      v_request_digest := pg_catalog.encode(pg_catalog.sha256(v_job.receipt_secret ||
+        pg_catalog.convert_to('workout-reset-receipt|' || v_job.request_digest || '|' || v_id::text, 'UTF8')), 'hex');
+      begin
       insert into public.remote_mutation_receipts (
         authenticated_owner_id, project_scope, namespace_fingerprint, generation_id,
         domain, entity_id, mutation_id, idempotency_key, operation, base_revision,
@@ -344,6 +354,9 @@ begin
         2, v_job.device_id, v_sequence, v_job.target_epoch,
         v_job.generation_binding_id, v_item.source_content_hash
       );
+      exception when unique_violation then
+        raise exception 'REL05G4C_RESET_RECEIPT_IDENTITY_COLLISION';
+      end;
       insert into public.remote_reference_changes_v2 (
         sequence, authenticated_owner_id, project_scope, namespace_fingerprint,
         generation_id, domain, entity_id, operation, server_revision, record,

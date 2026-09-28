@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import hashlib
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import shutil
@@ -104,6 +105,99 @@ def _register_target(docker: str, name: str, owner: str, generation=MOBILE) -> s
     response = _register(docker, name, owner, generation)
     assert response["status"] == "bound" and response["authorityEpoch"] == 2
     return response["bindingId"]
+
+
+def _old_predictable_receipt_identity(reset_id: str, entity_id: str) -> tuple[str, str]:
+    digest = hashlib.md5(f"{reset_id}|{entity_id}".encode()).hexdigest()
+    ref = f"{digest[:8]}-{digest[8:12]}-5{digest[13:16]}-8{digest[17:20]}-{digest[20:32]}"
+    key = "k322." + hashlib.sha256(
+        f"workout-reset-idem|{reset_id}|{entity_id}".encode()).hexdigest()
+    return "mut." + ref, key
+
+
+@pytest.mark.parametrize("occupied_field", ["mutation_id", "idempotency_key"])
+def test_old_predictable_receipt_identity_cannot_strand_reset(postgres, occupied_field: str) -> None:
+    docker, name = postgres
+    binding = _ready(docker, name, OWNER_A, DESKTOP)
+    target, _, _ = _create(docker, name, OWNER_A, binding)
+    identity = _reset_identity(OWNER_A, binding)
+    old_mutation_id, old_key = _old_predictable_receipt_identity(identity["resetId"], target)
+    decoy = str(uuid.uuid4())
+    fresh_mutation_id, fresh_key = _identity()
+    mutation_id = old_mutation_id if occupied_field == "mutation_id" else fresh_mutation_id
+    key = old_key if occupied_field == "idempotency_key" else fresh_key
+    planted = _call(docker, name, _mutation_sql(OWNER_A, DESKTOP, binding, decoy,
+        mutation_id, key, "upsert", None, 1, _record(decoy)))
+    assert planted["outcome"] == "success"
+    assert _call(docker, name, _reset_sql(OWNER_A, identity))["activeCount"] == 2
+    completed = _call(docker, name, _reset_sql(OWNER_A, identity, continue_job=True))
+    assert completed["status"] == "completed" and completed["appliedCount"] == 2
+    assert _psql(docker, name, f"select state from public.health_workout_authorities "
+        f"where user_id='{OWNER_A}'::uuid and project_scope='{PROJECT}';") == "OPEN"
+
+
+def test_active_recovery_survives_old_predictable_receipt_preemption(postgres) -> None:
+    docker, name = postgres
+    binding = _ready(docker, name, OWNER_A, DESKTOP)
+    target, _, _ = _create(docker, name, OWNER_A, binding)
+    identity = _reset_identity(OWNER_A, binding)
+    old_mutation_id, old_key = _old_predictable_receipt_identity(identity["resetId"], target)
+    decoy = str(uuid.uuid4())
+    assert _call(docker, name, _mutation_sql(OWNER_A, DESKTOP, binding, decoy,
+        old_mutation_id, old_key, "upsert", None, 1, _record(decoy)))["outcome"] == "success"
+    assert _call(docker, name, _reset_sql(OWNER_A, identity))["status"] == "applying"
+    recovered = _call(docker, name, "select public.continue_active_health_workout_reset_v1("
+        f"'{OWNER_A}'::uuid,'{PROJECT}')")
+    assert recovered["status"] == "completed" and recovered["appliedCount"] == 2
+    assert _call(docker, name, _reset_sql(OWNER_A, identity, continue_job=True)) == recovered
+
+
+def test_private_receipt_identity_and_frozen_uuid4_ref_survive_replay_and_later_reset(postgres) -> None:
+    docker, name = postgres
+    binding = _ready(docker, name, OWNER_A, DESKTOP)
+    entity, record, _ = _create(docker, name, OWNER_A, binding)
+    first = _reset_identity(OWNER_A, binding)
+    started = _call(docker, name, _reset_sql(OWNER_A, first))
+    secret = _psql(docker, name, "select encode(receipt_secret,'hex') from "
+        f"public.health_workout_reset_jobs where user_id='{OWNER_A}'::uuid "
+        f"and reset_id='{first['resetId']}'::uuid;")
+    assert len(secret) == 64 and secret not in str(started)
+    first_ref = _psql(docker, name, "select reset_ref from public.health_workout_reset_items "
+        f"where user_id='{OWNER_A}'::uuid and reset_id='{first['resetId']}'::uuid "
+        f"and entity_id='{entity}'::uuid;")
+    assert uuid.UUID(first_ref).version == 4
+    completed = _call(docker, name, _reset_sql(OWNER_A, first, continue_job=True))
+    assert completed["status"] == "completed" and secret not in str(completed)
+    first_receipt = _psql(docker, name, "select mutation_id || '|' || idempotency_key "
+        "from public.remote_mutation_receipts "
+        f"where authenticated_owner_id='{OWNER_A}'::uuid and remote_mutation_ref='{first_ref}'::uuid;")
+    old_mutation_id, old_key = _old_predictable_receipt_identity(first["resetId"], entity)
+    assert first_receipt.split("|")[0] != old_mutation_id
+    assert first_receipt.split("|")[1] != old_key
+    assert _call(docker, name, _reset_sql(OWNER_A, first, continue_job=True)) == completed
+    assert _psql(docker, name, "select mutation_id || '|' || idempotency_key "
+        "from public.remote_mutation_receipts "
+        f"where authenticated_owner_id='{OWNER_A}'::uuid and remote_mutation_ref='{first_ref}'::uuid;") == first_receipt
+    reset_mutation_id, reset_key = first_receipt.split("|")
+    old_binding_replay = _call(docker, name, _mutation_sql(OWNER_A, DESKTOP, binding, entity,
+        reset_mutation_id, reset_key, "tombstone", 1, 2, record))
+    assert old_binding_replay["errorCode"] == "STALE_AUTHORITY_EPOCH"
+
+    binding2 = _register_target(docker, name, OWNER_A)
+    restore_id, restore_key = _identity()
+    assert _call(docker, name, _mutation_sql(OWNER_A, MOBILE, binding2, entity,
+        restore_id, restore_key, "restore", 2, 3, record, epoch=2))["outcome"] == "success"
+    second = _reset_identity(OWNER_A, binding2, MOBILE, epoch=2)
+    assert _call(docker, name, _reset_sql(OWNER_A, second))["targetEpoch"] == 3
+    second_ref = _psql(docker, name, "select reset_ref from public.health_workout_reset_items "
+        f"where user_id='{OWNER_A}'::uuid and reset_id='{second['resetId']}'::uuid "
+        f"and entity_id='{entity}'::uuid;")
+    assert uuid.UUID(second_ref).version == 4 and second_ref != first_ref
+    assert _call(docker, name, _reset_sql(OWNER_A, second, continue_job=True))["status"] == "completed"
+    second_receipt = _psql(docker, name, "select mutation_id || '|' || idempotency_key "
+        "from public.remote_mutation_receipts "
+        f"where authenticated_owner_id='{OWNER_A}'::uuid and remote_mutation_ref='{second_ref}'::uuid;")
+    assert second_receipt != first_receipt
 
 
 def test_reset_freezes_inventory_fences_writes_and_emits_recoverable_tombstones(postgres) -> None:
@@ -222,6 +316,26 @@ def test_empty_reset_and_later_distinct_reset_advance_one_epoch_each(postgres) -
     assert _call(docker, name, _reset_sql(OWNER_A, first)) == completed
     assert _psql(docker, name, f"select count(*) from public.health_workout_reset_jobs "
         f"where user_id='{OWNER_A}'::uuid and project_scope='{PROJECT}';") == "2"
+
+
+def test_all_deleted_inventory_completes_without_duplicate_tombstones(postgres) -> None:
+    docker, name = postgres
+    binding = _ready(docker, name, OWNER_A, DESKTOP)
+    entity, record, _ = _create(docker, name, OWNER_A, binding)
+    mutation_id, key = _identity()
+    assert _call(docker, name, _mutation_sql(OWNER_A, DESKTOP, binding, entity,
+        mutation_id, key, "tombstone", 1, 2, record))["outcome"] == "success"
+    before_changes = _psql(docker, name, "select count(*) from public.remote_reference_changes_v2 "
+        f"where authenticated_owner_id='{OWNER_A}'::uuid and entity_id='{entity}'::uuid;")
+    identity = _reset_identity(OWNER_A, binding)
+    started = _call(docker, name, _reset_sql(OWNER_A, identity))
+    assert started["inventoryCount"] == 1 and started["activeCount"] == 0
+    completed = _call(docker, name, _reset_sql(OWNER_A, identity, continue_job=True))
+    assert completed["status"] == "completed" and completed["appliedCount"] == 0
+    assert _psql(docker, name, "select count(*) from public.remote_reference_changes_v2 "
+        f"where authenticated_owner_id='{OWNER_A}'::uuid and entity_id='{entity}'::uuid;") == before_changes
+    assert _psql(docker, name, "select state from public.health_workout_reset_items "
+        f"where user_id='{OWNER_A}'::uuid and entity_id='{entity}'::uuid;") == "ALREADY_DELETED"
 
 
 def test_reset_tables_and_rpcs_are_service_function_only(postgres) -> None:

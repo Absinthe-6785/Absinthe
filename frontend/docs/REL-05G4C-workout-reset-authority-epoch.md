@@ -27,6 +27,15 @@ recomputes it, checks current capability and binding for **initiation**, and
 uses the same ID/digest for idempotent replay. A different tuple under the
 same reset ID is rejected. Continuation uses the historical source tuple only
 for the already-authorized job; it cannot initiate a second transition.
+The begin transaction also freezes a server-private 32-byte receipt secret
+(two PostgreSQL-generated UUIDv4 values) and a UUIDv4 reset ref per inventory
+item. Neither the secret nor its derivation appears in a response, stream, or
+log. Separate SHA-256 purpose labels derive receipt mutation ID, idempotency
+key, payload digest, and request digest from the stored secret and item context.
+This prevents an authenticated client from preoccupying the shared receipt
+uniqueness keys using its chosen reset ID and entity ID. The per-item ref and
+private receipt identities remain stable across retries because they are
+frozen or derived from frozen job evidence, never regenerated in continuation.
 
 ## Durable transition and recovery
 
@@ -83,6 +92,15 @@ remains immutable. The caller must discover a fresh generation/binding and
 start a new snapshot; the dormant G4B3 client abandons only its old staging
 session on either reset-specific rejection, preserving local entities and
 pending outbox. A post-reset snapshot contains the reset tombstones.
+Both a restarted `ready` snapshot and a final page that has just become ready
+make one additional authenticated read-only page request for their exact token
+before opening the canonical IndexedDB commit transaction. This response is
+validated against the stored authority epoch, server epoch, watermark, token,
+and binding; it is never staged again. A reset already fenced or completed
+before this server validation abandons staging only. Validation is the remote
+ordering point: a reset that starts afterward is a later ordinary stream
+event, delivered by subsequent pull. Local lease, identity, and staged-data
+fences still run inside the IndexedDB commit.
 
 An active dormant G1 row without a G4A content hash/ref/committed receipt is
 not safe to emit as a G4B3 change. Initiation returns
