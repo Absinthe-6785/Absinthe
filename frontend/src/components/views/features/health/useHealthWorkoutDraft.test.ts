@@ -184,6 +184,10 @@ describe('useHealthWorkoutDraft', () => {
     expect(latest.localWorkouts.map(item => item.id)).toEqual(['stored-b']);
     expect(latest.isDirty).toBe(true);
     expect(latest.rawKgInput).toEqual({});
+
+    await renderScope('account-a', '2026-08-24');
+    expect(latest.localWorkouts.map(item => item.id)).toEqual(['draft-a']);
+    expect(localStorage.getItem(localHealthDraftKey('account-b', '2026-08-24'))).not.toBeNull();
   });
 
   it('clears dirty state and the transient draft only after save acknowledgement', async () => {

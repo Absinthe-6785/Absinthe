@@ -119,6 +119,11 @@ export const HealthView = ({
   const { weightUnits, toggleWeightUnit } = useAppStore();
   const { confirm, showConfirm, clearConfirm, handleConfirm } = useConfirm();
   const localMode = domainUsesLocalWorkingCopy('health_workouts');
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
   const accountGenerationRef = useRef(0);
   const activeAccountIdRef = useRef(user.id);
   if (activeAccountIdRef.current !== user.id) {
@@ -126,7 +131,7 @@ export const HealthView = ({
     accountGenerationRef.current += 1;
   }
   const currentAccountOperation = (token: HealthAccountGenerationToken): boolean =>
-    isCurrentHealthAccountGeneration(
+    mountedRef.current && isCurrentHealthAccountGeneration(
       token,
       activeAccountIdRef.current,
       accountGenerationRef.current,
@@ -431,11 +436,12 @@ export const HealthView = ({
   }, [buildWorkoutSummary, formatDate, selectedDate, localWorkouts, workoutMemo]);
 
   const ensurePrevData = useCallback(async (blockIds: readonly string[], source: string) => {
+    const accountOperation = { accountId: user.id, generation: accountGenerationRef.current };
     const missing = [...new Set(blockIds.filter(id => id && id !== '__session__'))]
       .filter(id => prevDataRef.current[id] === undefined);
     if (missing.length === 0) return;
     const fetched = await fetchPrevWorkoutForBlocks(missing, formatDate(selectedDate), source, user.id);
-    if (Object.keys(fetched).length > 0) {
+    if (currentAccountOperation(accountOperation) && Object.keys(fetched).length > 0) {
       setPrevData(prev => ({ ...prev, ...fetched }));
     }
   }, [formatDate, selectedDate, user.id]);
@@ -450,6 +456,7 @@ export const HealthView = ({
   }, [localWorkouts, ensurePrevData]);
 
   const fetchPrevForBlock = useCallback(async (blockId: string) => {
+    const accountOperation = { accountId: user.id, generation: accountGenerationRef.current };
     if (prevData[blockId]?.prev_sets) return prevData[blockId].prev_sets;
     const result = await fetchPrevWorkoutForBlocks(
       [blockId],
@@ -457,6 +464,7 @@ export const HealthView = ({
       'HealthView.fetchPrevForBlock',
       user.id,
     );
+    if (!currentAccountOperation(accountOperation)) return undefined;
     const data = result[blockId];
     if (!data) return undefined;
     setPrevData(prev => ({ ...prev, [blockId]: data }));
@@ -592,17 +600,18 @@ export const HealthView = ({
       blocks: tempRoutineBlocks,
       plannedSets: tempRoutineSetCounts,
     });
+    if (!currentAccountOperation(result.accountOperation)) return;
     if (!result.ok) {
       showToast(t('routineSaveFailed'), 'error');
       return;
     }
-    if (!currentAccountOperation(result.accountOperation)) return;
     showToast(t('routineSaved'));
     setShowAssembleModal(false);
   };
 
   // ── 워크아웃 로컬 조작 ─────────────────────────────────────────────
   const handleLoadRoutine = async (e: ChangeEvent<HTMLSelectElement>) => {
+    const accountOperation = { accountId: user.id, generation: accountGenerationRef.current };
     const dayName = e.target.value;
     if (!dayName || dayName === '__load__') return;
     const routine = selectedHealthRoutines.find((r: HealthRoutine) => r.day_name === dayName);
@@ -618,6 +627,7 @@ export const HealthView = ({
       const b = healthBlocks.find((bk: ExerciseBlock) => bk.id === id);
       if (!b) continue;
       const prevSets = await fetchPrevForBlock(id);
+      if (!currentAccountOperation(accountOperation)) return;
       const count = getPlannedSetCount(dayName, id, b.type, prevSets);
       routineOrdered.push({
         id: `temp-${Date.now()}-${b.id}`,
@@ -627,6 +637,7 @@ export const HealthView = ({
       });
     }
 
+    if (!currentAccountOperation(accountOperation)) return;
     const unrelated = localWorkouts.filter(w => !routine.blocks.includes(w.block_id));
     setLocalWorkouts([...routineOrdered, ...unrelated]);
     setIsDirty(true);
@@ -637,18 +648,21 @@ export const HealthView = ({
   const commitPresetSplit = async () => {
     const nextSplit = Math.min(7, Math.max(1, Number(splitCountInput) || 1));
     const result = await setPresetSplit(activePreset.id, nextSplit);
+    if (!currentAccountOperation(result.accountOperation)) return;
     setSplitCountInput(String(result.ok ? nextSplit : activePreset.splitCount));
     if (!result.ok) showToast(t('routineSaveFailed'), 'error');
   };
 
   const handleCreatePreset = async () => {
     const result = await createPreset(t('healthPresetNew'));
+    if (!currentAccountOperation(result.accountOperation)) return;
     if (!result.ok) showToast(t('routineSaveFailed'), 'error');
     setPresetMenuOpen(false);
   };
 
   const handleDuplicatePreset = async () => {
     const result = await duplicatePreset(`${activePreset.name} ${t('healthPresetCopySuffix')}`);
+    if (!currentAccountOperation(result.accountOperation)) return;
     if (!result.ok) showToast(t('routineSaveFailed'), 'error');
     setPresetMenuOpen(false);
   };
@@ -665,6 +679,7 @@ export const HealthView = ({
       return;
     }
     const result = await renamePreset(activePreset.id, nextName);
+    if (!currentAccountOperation(result.accountOperation)) return;
     if (!result.ok) {
       showToast(t('routineSaveFailed'), 'error');
       return;
@@ -693,6 +708,7 @@ export const HealthView = ({
         }
         clearPresetConfirmationMarker();
         void deletePreset(activePreset.id).then(result => {
+          if (!currentAccountOperation(result.accountOperation)) return;
           if (!result.ok) showToast(t('routineSaveFailed'), 'error');
         });
       },
@@ -703,7 +719,9 @@ export const HealthView = ({
 
   const handleAddWorkoutToToday = async (block: ExerciseBlock) => {
     if (localWorkouts.find(w => w.block_id === block.id)) return showToast(t('alreadyAdded'), 'error');
+    const accountOperation = { accountId: user.id, generation: accountGenerationRef.current };
     const prevSets = await fetchPrevForBlock(block.id);
+    if (!currentAccountOperation(accountOperation)) return;
     setIsDirty(true);
     pendingLatestWorkoutIndexRef.current = localWorkouts.length;
     setLocalWorkouts([...localWorkouts, {
@@ -716,6 +734,7 @@ export const HealthView = ({
 
   const handleQuickPresetChange = async (presetId: string) => {
     const result = await selectPreset(presetId);
+    if (!currentAccountOperation(result.accountOperation)) return;
     if (!result.ok) {
       showToast(t('routineSaveFailed'), 'error');
       return;
