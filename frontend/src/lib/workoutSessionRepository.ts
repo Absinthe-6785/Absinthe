@@ -4,8 +4,14 @@ import {
   type LocalEntityEnvelope,
 } from './localDatabase';
 import { snapshotWorkoutSessionV1, validateWorkoutSessionV1, type WorkoutSessionV1 } from './workoutSessionV1';
+import { canonicalWorkoutUuid } from './workoutRemoteContract';
 
 export const WORKOUT_SESSION_DOMAIN = 'health_workout_session';
+
+function sameWorkoutId(left: string, right: string): boolean {
+  try { return canonicalWorkoutUuid(left) === canonicalWorkoutUuid(right); }
+  catch { return false; }
+}
 
 export interface WorkoutMutationOptions {
   now?: string;
@@ -19,6 +25,19 @@ export class WorkoutSessionRepository {
   constructor(database: LocalDatabaseRepository, clock: () => string = () => new Date().toISOString()) {
     this.database = database;
     this.clock = clock;
+  }
+
+  private async localEntityId(id: string): Promise<string> {
+    let wireId: string;
+    try { wireId = canonicalWorkoutUuid(id); }
+    catch { return id; }
+    const mappings = await this.database.getWorkoutRemoteIdsByWire(wireId);
+    const mapped = mappings[0]?.localEntityId;
+    if (!mapped) return id;
+    if (mapped !== id && await this.database.getEntity(WORKOUT_SESSION_DOMAIN, id)) {
+      throw new Error('workout_uuid_mapping_collision');
+    }
+    return mapped;
   }
 
   async createWorkoutSession(
@@ -48,12 +67,13 @@ export class WorkoutSessionRepository {
     options: WorkoutMutationOptions = {},
   ): Promise<CommittedLocalMutation<WorkoutSessionV1>> {
     const session = snapshotWorkoutSessionV1(sessionInput);
-    if (session.id !== id) throw new Error('workout_session_id_mismatch');
+    if (!sameWorkoutId(session.id, id)) throw new Error('workout_session_id_mismatch');
+    const entityId = await this.localEntityId(id);
     return this.database.commitLocalMutation({
       mutation: {
         mode: 'update',
         domain: WORKOUT_SESSION_DOMAIN,
-        entityId: id,
+        entityId,
         expectedRevision: expectedLocalRevision,
         record: session,
         source: { kind: 'local', reference: 'workout_session_v1' },
@@ -69,15 +89,16 @@ export class WorkoutSessionRepository {
     expectedLocalRevision: number,
     options: WorkoutMutationOptions = {},
   ): Promise<CommittedLocalMutation<WorkoutSessionV1>> {
-    const existing = await this.database.getEntity<WorkoutSessionV1>(WORKOUT_SESSION_DOMAIN, id);
+    const entityId = await this.localEntityId(id);
+    const existing = await this.database.getEntity<WorkoutSessionV1>(WORKOUT_SESSION_DOMAIN, entityId);
     if (!existing || existing.isDeleted) throw new Error('workout_session_not_active');
     validateWorkoutSessionV1(existing.record);
-    if (existing.record.id !== existing.entityId) throw new Error('workout_session_id_mismatch');
+    if (!sameWorkoutId(existing.record.id, existing.entityId)) throw new Error('workout_session_id_mismatch');
     const result = await this.database.commitLocalMutation<WorkoutSessionV1>({
       mutation: {
         mode: 'tombstone',
         domain: WORKOUT_SESSION_DOMAIN,
-        entityId: id,
+        entityId,
         expectedRevision: expectedLocalRevision,
         record: null,
       },
@@ -95,12 +116,13 @@ export class WorkoutSessionRepository {
     options: WorkoutMutationOptions = {},
   ): Promise<CommittedLocalMutation<WorkoutSessionV1>> {
     const session = snapshotWorkoutSessionV1(sessionInput);
-    if (session.id !== id) throw new Error('workout_session_id_mismatch');
+    if (!sameWorkoutId(session.id, id)) throw new Error('workout_session_id_mismatch');
+    const entityId = await this.localEntityId(id);
     return this.database.commitLocalMutation({
       mutation: {
         mode: 'restore',
         domain: WORKOUT_SESSION_DOMAIN,
-        entityId: id,
+        entityId,
         expectedRevision: expectedLocalRevision,
         record: session,
         source: { kind: 'local', reference: 'workout_session_v1' },
@@ -112,10 +134,10 @@ export class WorkoutSessionRepository {
   }
 
   async getWorkoutSession(id: string): Promise<LocalEntityEnvelope<WorkoutSessionV1> | null> {
-    const entity = await this.database.getEntity<WorkoutSessionV1>(WORKOUT_SESSION_DOMAIN, id);
+    const entity = await this.database.getEntity<WorkoutSessionV1>(WORKOUT_SESSION_DOMAIN, await this.localEntityId(id));
     if (entity) {
       validateWorkoutSessionV1(entity.record);
-      if (entity.record.id !== entity.entityId) throw new Error('workout_session_id_mismatch');
+      if (!sameWorkoutId(entity.record.id, entity.entityId)) throw new Error('workout_session_id_mismatch');
     }
     return entity;
   }
@@ -124,7 +146,7 @@ export class WorkoutSessionRepository {
     const entities = await this.database.listEntities<WorkoutSessionV1>({ domain: WORKOUT_SESSION_DOMAIN });
     for (const entity of entities) {
       validateWorkoutSessionV1(entity.record);
-      if (entity.record.id !== entity.entityId) throw new Error('workout_session_id_mismatch');
+      if (!sameWorkoutId(entity.record.id, entity.entityId)) throw new Error('workout_session_id_mismatch');
     }
     return entities;
   }

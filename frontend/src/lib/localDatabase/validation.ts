@@ -296,11 +296,20 @@ export function validateOutboxRecord(value: OutboxRecord): void {
     && value.localRevision === boundary.sourceRevision + 1
     && (boundary.classification === 'resurrect') === (resurrection !== null);
   const remoteBoundaryKeys = remoteBoundary === null ? '' : Object.keys(remoteBoundary).sort().join(',');
-  const expectedRemoteBoundaryKeys = [
+  const legacyRemoteBoundaryKeys = [
     'baselineContentHash', 'baselineLocalRevision', 'baselineServerRevision', 'createdAt', 'domain', 'entityId',
     'generationId', 'kind', 'namespaceKey', 'remoteMutationRef',
   ].sort().join(',');
-  const remoteBoundaryValid = remoteBoundary === null || remoteBoundaryKeys === expectedRemoteBoundaryKeys
+  const completeRemoteBoundaryKeys = [
+    'baselineContentHash', 'baselineDeletedAt', 'baselineLocalRevision', 'baselineRemoteState',
+    'baselineServerRevision', 'createdAt', 'domain', 'entityId', 'generationId', 'kind',
+    'namespaceKey', 'remoteMutationRef',
+  ].sort().join(',');
+  const completeRemoteBoundaryValid = remoteBoundaryKeys === completeRemoteBoundaryKeys
+    && (remoteBoundary?.baselineRemoteState === 'active' && remoteBoundary.baselineDeletedAt === null
+      || remoteBoundary?.baselineRemoteState === 'deleted' && validTimestamp(remoteBoundary.baselineDeletedAt));
+  const remoteBoundaryShapeValid = remoteBoundaryKeys === legacyRemoteBoundaryKeys || completeRemoteBoundaryValid;
+  const remoteBoundaryValid = remoteBoundary === null || remoteBoundaryShapeValid
     && remoteBoundary.kind === 'remote_entity_sequence_boundary'
     && remoteBoundary.namespaceKey === value.namespaceKey
     && remoteBoundary.generationId === value.generationId
