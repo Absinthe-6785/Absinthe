@@ -25,6 +25,8 @@ const mocks = vi.hoisted(() => {
     healthRenders: [] as Array<{ accountId: string; transient: string; draftNames: string; workoutProps: string }>,
     dailyWorkoutOwner: null as string | null,
     healthAsync: null as Promise<string> | null,
+    workoutAuthorityStart: vi.fn(),
+    workoutAuthorityCancel: vi.fn(),
   };
 });
 
@@ -144,6 +146,13 @@ vi.mock('../lib/healthSupabaseBootstrap', () => ({
   bootstrapHealthFromSupabase: (...args: unknown[]) => mocks.healthBootstrap(...args),
   HEALTH_LOCAL_BOOTSTRAP_COMPLETE_EVENT: 'health-bootstrap-complete',
 }));
+vi.mock('../lib/workoutRuntimeAuthority', () => ({
+  createProductionWorkoutRuntimeAuthorityController: () => ({
+    start: (accountId: string) => mocks.workoutAuthorityStart(accountId),
+    cancel: () => mocks.workoutAuthorityCancel(),
+    snapshot: () => ({ kind: 'idle', accountId: null }),
+  }),
+}));
 
 function deferred<T = void>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -181,6 +190,8 @@ describe('AppContent startup lifecycle integration', () => {
     mocks.healthRenders.length = 0;
     mocks.dailyWorkoutOwner = null;
     mocks.healthAsync = null;
+    mocks.workoutAuthorityStart.mockReset().mockResolvedValue({ kind: 'retry_later' });
+    mocks.workoutAuthorityCancel.mockReset();
     container = document.createElement('div');
     document.body.appendChild(container);
   });
@@ -224,8 +235,28 @@ describe('AppContent startup lifecycle integration', () => {
 
     expect(mocks.initNotesStorage).toHaveBeenCalledTimes(1);
     expect(mocks.healthBootstrap).toHaveBeenCalledTimes(1);
+    expect(mocks.workoutAuthorityStart).toHaveBeenCalledTimes(1);
     health.resolve();
     await flushStartup();
+  });
+
+  it('does not gate Health visibility on a never-settling Workout authority request', async () => {
+    const remote = deferred();
+    mocks.workoutAuthorityStart.mockReturnValue(remote.promise);
+    mocks.healthBootstrap.mockResolvedValue(undefined);
+    const { AppContent } = await import('./AppContent');
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(createElement(AppContent, { authUser: user('authority-independent-account') }));
+    });
+    await flushStartup();
+    await act(async () => {
+      (container!.querySelector('[data-testid="nav-health"]') as HTMLButtonElement).click();
+    });
+    await flushStartup();
+    expect(container?.querySelector('[data-testid="health-view"]')).not.toBeNull();
+    expect(mocks.workoutAuthorityStart).toHaveBeenCalledTimes(1);
+    remote.resolve();
   });
 
   it('shares one Health durable execution across StrictMode remounts', async () => {
@@ -239,6 +270,7 @@ describe('AppContent startup lifecycle integration', () => {
     await flushStartup();
 
     expect(mocks.healthBootstrap).toHaveBeenCalledTimes(1);
+    expect(mocks.workoutAuthorityStart).toHaveBeenCalledTimes(1);
     health.resolve();
     await flushStartup();
   });
@@ -343,11 +375,16 @@ describe('AppContent startup lifecycle integration', () => {
     });
     await act(async () => root?.render(createElement(AppContent, { authUser: user('account-a') })));
     expect(container?.querySelector('[data-testid="health-draft"]')?.textContent).toContain('A-private-workout');
+    expect(mocks.workoutAuthorityStart.mock.calls.map(([accountId]) => accountId)).toEqual(['account-a']);
 
     await act(async () => root?.render(createElement(AppContent, { authUser: user('account-b') })));
     await flushStartup();
     await act(async () => root?.render(createElement(AppContent, { authUser: user('account-a') })));
     await flushStartup();
+    expect(mocks.workoutAuthorityStart.mock.calls.map(([accountId]) => accountId)).toEqual([
+      'account-a', 'account-b', 'account-a',
+    ]);
+    expect(mocks.workoutAuthorityCancel).toHaveBeenCalledTimes(2);
     expect(mocks.healthRenders.filter(render => render.accountId === 'account-a').at(-1)?.transient).toBe('');
     expect(container?.querySelector('[data-testid="health-draft"]')?.textContent).toContain('A-private-workout');
   });

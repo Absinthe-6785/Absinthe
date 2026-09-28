@@ -209,15 +209,17 @@ export function createWorkoutRemoteControlClient(options: WorkoutRemoteControlOp
 }
 
 /** Production-authenticated, still dormant: callers must explicitly invoke discovery or binding. */
-export function createAuthenticatedWorkoutRemoteControlClient(baseUrl: string) {
+export function createAuthenticatedWorkoutRemoteControlClient(baseUrl: string, isCurrentAttempt: () => boolean = () => true) {
   return createWorkoutRemoteControlClient({
     baseUrl,
     getSession: async () => {
       const { data: { session } } = await supabase.auth.getSession();
       return session?.access_token ? { accountId: session.user.id, accessToken: session.access_token } : null;
     },
-    currentAccountId: runtimeAccountSyncAccountId,
-    currentDeviceId: () => typeof localStorage === 'undefined'
+    // A rapid A→B→A switch can restore the same account ID while an older A
+    // request is still in flight. The runtime token also fences IDB settlement.
+    currentAccountId: () => isCurrentAttempt() ? runtimeAccountSyncAccountId() : null,
+    currentDeviceId: () => !isCurrentAttempt() || typeof localStorage === 'undefined'
       ? null : localStorage.getItem(HEALTH_ROUTINE_DEVICE_ID_KEY),
   });
 }
