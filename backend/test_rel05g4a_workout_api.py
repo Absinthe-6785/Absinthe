@@ -8,7 +8,10 @@ import pytest
 
 import main
 from test_rel05g4a_workout_contract import VECTORS, wire
-from workout_remote_authority import WorkoutMutationRequest, workout_request_digest
+from workout_remote_authority import (
+    WorkoutMutationRequest, WorkoutResetRequest, workout_request_digest,
+    workout_reset_request_digest,
+)
 
 
 class FakeWorkoutRpc:
@@ -29,6 +32,10 @@ class FakeWorkoutRpc:
             data = {"status": "changes", "changes": [], "errorCode": None}
         elif name == "begin_health_workout_snapshot_v1":
             data = {"status": "snapshot", "snapshotToken": VECTORS["bindingId"], "errorCode": None}
+        elif name in {"begin_health_workout_reset_v1", "continue_health_workout_reset_v1",
+                      "continue_active_health_workout_reset_v1"}:
+            data = {"status": "applying", "resetId": "99999999-9999-4999-8999-999999999999",
+                    "errorCode": None}
         else:
             data = {"status": "snapshot_page", "rows": [], "errorCode": None}
         data = self.responses.get(name, data)
@@ -92,6 +99,61 @@ def test_workout_endpoints_require_authentication() -> None:
     assert pull.status_code in {401, 403}
     assert authority.status_code in {401, 403} and "projectScope" not in authority.json()
     assert generation.status_code in {401, 403} and "projectScope" not in generation.json()
+
+
+def _reset_wire(project: str) -> dict:
+    value = {
+        "protocolVersion": 2, "namespaceKey": VECTORS["namespaceKey"],
+        "generationId": VECTORS["generationId"], "deviceId": VECTORS["deviceId"],
+        "bindingId": VECTORS["bindingId"], "authorityEpoch": 1,
+        "resetId": "99999999-9999-4999-8999-999999999999", "requestDigest": "0" * 64,
+    }
+    value["requestDigest"] = workout_reset_request_digest(
+        WorkoutResetRequest.model_validate(value), VECTORS["ownerId"], project)
+    return value
+
+
+def test_workout_reset_is_default_off_and_requires_jwt(client, monkeypatch: pytest.MonkeyPatch) -> None:
+    http, fake = client
+    value = _reset_wire(VECTORS["projectScope"])
+    monkeypatch.setattr(main, "WORKOUT_REMOTE_FOUNDATION_ENABLED", False)
+    assert http.post("/api/sync/v2/workouts/resets", json=value).status_code == 423
+    assert fake.calls == []
+    monkeypatch.setattr(main, "WORKOUT_REMOTE_FOUNDATION_ENABLED", True)
+    main.app.dependency_overrides.clear()
+    assert http.post("/api/sync/v2/workouts/resets", json=value).status_code in {401, 403}
+
+
+def test_workout_reset_scope_digest_and_bounded_continuation(client, monkeypatch: pytest.MonkeyPatch) -> None:
+    http, fake = client
+    scope = "nondefault-workout-project"
+    monkeypatch.setattr(main, "K323_PROJECT_SCOPE", scope)
+    value = _reset_wire(scope)
+    started = http.post("/api/sync/v2/workouts/resets", json=value)
+    assert started.status_code == 200 and started.json()["projectScope"] == scope
+    assert fake.calls[-1] == ("begin_health_workout_reset_v1", {
+        "p_owner": VECTORS["ownerId"], "p_project": scope,
+        "p_namespace": value["namespaceKey"], "p_generation": value["generationId"],
+        "p_device": value["deviceId"], "p_binding": value["bindingId"],
+        "p_authority_epoch": 1, "p_reset_id": value["resetId"],
+        "p_request_digest": value["requestDigest"],
+    })
+    continued = http.post(f"/api/sync/v2/workouts/resets/{value['resetId']}/continue", json=value)
+    assert continued.status_code == 200
+    assert fake.calls[-1][0] == "continue_health_workout_reset_v1"
+    recovered = http.post("/api/sync/v2/workouts/resets/active/recover")
+    assert recovered.status_code == 200
+    assert fake.calls[-1] == ("continue_active_health_workout_reset_v1", {
+        "p_owner": VECTORS["ownerId"], "p_project": scope,
+    })
+    call_count = len(fake.calls)
+    assert http.post("/api/sync/v2/workouts/resets", json={**value,
+        "requestDigest": "a" * 64}).status_code == 400
+    assert http.post("/api/sync/v2/workouts/resets/11111111-1111-4111-8111-111111111111/continue",
+                     json=value).status_code == 400
+    assert http.post("/api/sync/v2/workouts/resets", json={**value,
+        "projectScope": "forged"}).status_code == 400
+    assert len(fake.calls) == call_count
 
 
 @pytest.mark.parametrize("authority,status", [

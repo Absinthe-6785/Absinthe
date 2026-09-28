@@ -37,7 +37,7 @@ export type WorkoutPullResult =
 export type WorkoutFullResyncResult =
   | { kind: 'staged'; itemCount: number; watermark: number }
   | { kind: 'committed'; itemCount: number; watermark: number; applied: number; conflicts: number }
-  | { kind: 'abandoned'; code: 'SNAPSHOT_TOKEN_INVALID' };
+  | { kind: 'abandoned'; code: 'SNAPSHOT_TOKEN_INVALID' | 'STALE_AUTHORITY_EPOCH' | 'AUTHORITY_RESET_FENCED' };
 
 function query(authority: WorkoutRemoteAuthorityRecordV1): URLSearchParams {
   return new URLSearchParams({ namespaceKey: authority.namespaceKey, generationId: authority.generationId,
@@ -185,11 +185,13 @@ export async function runWorkoutFullResync(repository: LocalDatabaseRepository,
     let value: unknown;
     try { value = await request(`/api/sync/v2/workouts/snapshots/${session.snapshotToken}?${params}`); }
     catch (error) {
-      if (error instanceof WorkoutPullProtocolError && error.code === 'SNAPSHOT_TOKEN_INVALID') {
+      if (error instanceof WorkoutPullProtocolError && (
+        error.code === 'SNAPSHOT_TOKEN_INVALID' || error.code === 'STALE_AUTHORITY_EPOCH'
+        || error.code === 'AUTHORITY_RESET_FENCED')) {
         await repository.abandonWorkoutFullResync({ ...fence,
           now: (options.now ?? (() => new Date().toISOString()))(), sessionId: session.sessionId });
         options.onDiagnostic?.('workout_full_resync_abandoned', error.code);
-        return { kind: 'abandoned', code: 'SNAPSHOT_TOKEN_INVALID' };
+        return { kind: 'abandoned', code: error.code };
       }
       throw error;
     }

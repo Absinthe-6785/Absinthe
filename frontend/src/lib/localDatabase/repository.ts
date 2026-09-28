@@ -54,7 +54,7 @@ import {
 import { validateWorkoutSessionV1, type WorkoutSessionV1 } from '../workoutSessionV1';
 import {
   canonicalWorkoutUuid, workoutRequestDigest, WORKOUT_DIGEST, WORKOUT_REMOTE_DOMAIN,
-  WORKOUT_SAFE_SCOPE, WORKOUT_WIRE_UUID,
+  WORKOUT_SAFE_SCOPE, WORKOUT_WIRE_UUID, WORKOUT_WIRE_UUID_V4,
 } from '../workoutRemoteContract';
 import {
   WORKOUT_PULL_LEASE, WORKOUT_PULL_PROVIDER, WORKOUT_SNAPSHOT_ITEM_LIMIT, WORKOUT_SNAPSHOT_BYTE_LIMIT,
@@ -75,6 +75,7 @@ import {
   type GenerationRecord, type GenerationStatus, type LocalDatabaseNamespace,
   type LocalEntityEnvelope, type MigrationStateRecord, type OutboxRecord,
   type WorkoutRemoteAuthorityRecordV1, type WorkoutRemoteIdRecordV1,
+  type WorkoutRemoteResetIntentV1,
   type WorkoutRemoteChangeV1, type WorkoutFullResyncSessionRecordV1, type WorkoutFullResyncItemRecordV1,
   type ReconcileOutboxPrerequisiteInput, type ReconciledOutboxPrerequisite,
   type RecordConflictInput, type ResolveConflictInput, type OutboxOperation,
@@ -147,6 +148,7 @@ function validWorkoutAuthorityRecord(value: WorkoutRemoteAuthorityRecordV1): boo
 }
 
 const WORKOUT_DISCOVERY_DOMAIN = `${WORKOUT_REMOTE_DOMAIN}.discovery`;
+const WORKOUT_RESET_DOMAIN = `${WORKOUT_REMOTE_DOMAIN}.reset` as const;
 type WorkoutDiscoveryReservation = {
   accountId: string; namespaceKey: string; generationId: string;
   domain: typeof WORKOUT_DISCOVERY_DOMAIN; sequence: number;
@@ -156,6 +158,39 @@ function validLegacyWorkoutAuthority(value: WorkoutRemoteAuthorityRecordV1): boo
   if (value.discoverySequence !== undefined || value.verificationId !== undefined) return false;
   return validWorkoutAuthorityRecord({ ...value, discoverySequence: 1,
     verificationId: '00000000-0000-4000-8000-000000000000' });
+}
+
+function validWorkoutResetIntent(value: WorkoutRemoteResetIntentV1): boolean {
+  return value !== null && typeof value === 'object' && Object.keys(value).sort().join(',') === [
+    'accountId', 'namespaceKey', 'generationId', 'domain', 'deviceId', 'projectScope',
+    'generationBindingId', 'sourceEpoch', 'resetId', 'requestDigest', 'status',
+    'targetEpoch', 'inventoryCount', 'activeCount', 'appliedCount',
+    'inventoryDigest', 'completionDigest', 'createdAt', 'updatedAt',
+  ].sort().join(',')
+    && WORKOUT_WIRE_UUID.test(value.accountId) && WORKOUT_DIGEST.test(value.namespaceKey)
+    && typeof value.generationId === 'string' && typeof value.deviceId === 'string'
+    && value.domain === WORKOUT_RESET_DOMAIN && WORKOUT_SAFE_SCOPE.test(value.projectScope)
+    && WORKOUT_WIRE_UUID.test(value.generationBindingId)
+    && Number.isSafeInteger(value.sourceEpoch) && value.sourceEpoch > 0
+    && WORKOUT_WIRE_UUID_V4.test(value.resetId) && WORKOUT_DIGEST.test(value.requestDigest)
+    && ['prepared', 'applying', 'completed'].includes(value.status)
+    && (value.targetEpoch === null || Number.isSafeInteger(value.targetEpoch)
+      && value.targetEpoch === value.sourceEpoch + 1)
+    && (value.inventoryCount === null || Number.isSafeInteger(value.inventoryCount) && value.inventoryCount >= 0)
+    && (value.activeCount === null || Number.isSafeInteger(value.activeCount) && value.activeCount >= 0)
+    && Number.isSafeInteger(value.appliedCount) && value.appliedCount >= 0
+    && (value.inventoryDigest === null || WORKOUT_DIGEST.test(value.inventoryDigest))
+    && (value.completionDigest === null || WORKOUT_DIGEST.test(value.completionDigest))
+    && validTimestamp(value.createdAt) && validTimestamp(value.updatedAt)
+    && (value.status !== 'prepared' || value.targetEpoch === null
+      && value.inventoryCount === null && value.activeCount === null
+      && value.appliedCount === 0 && value.inventoryDigest === null && value.completionDigest === null)
+    && (value.status === 'prepared' || value.targetEpoch !== null
+      && value.inventoryCount !== null && value.activeCount !== null
+      && value.activeCount <= value.inventoryCount && value.appliedCount <= value.activeCount
+      && value.inventoryDigest !== null)
+    && (value.status !== 'completed' || value.appliedCount === value.activeCount
+      && value.completionDigest !== null);
 }
 
 function validWorkoutRemoteIdRecord(value: WorkoutRemoteIdRecordV1): boolean {
@@ -629,6 +664,133 @@ export class LocalDatabaseRepository {
       throw new LocalDatabaseError('INVALID_RESERVED_RECORD', 'get_workout_remote_authority');
     }
     return value ?? null;
+  }
+
+  /** Persist before any reset network request. A second tab reuses this exact intent. */
+  async reserveWorkoutRemoteResetIntent(
+    candidate: WorkoutRemoteResetIntentV1,
+    currentAuthenticatedAccount: () => string | null,
+    currentDeviceId: () => string | null,
+  ): Promise<WorkoutRemoteResetIntentV1> {
+    const operation = 'reserve_workout_remote_reset';
+    this.assertOpen(operation);
+    if (!validWorkoutResetIntent(candidate) || candidate.status !== 'prepared'
+      || candidate.accountId !== this.namespace.userId.toLowerCase()
+      || candidate.namespaceKey !== this.namespaceKey
+      || candidate.generationId !== this.namespace.generationId
+      || candidate.deviceId !== this.namespace.deviceId
+      || currentAuthenticatedAccount()?.toLowerCase() !== candidate.accountId
+      || currentDeviceId() !== candidate.deviceId) {
+      throw new LocalDatabaseError('INVALID_RESERVED_RECORD', operation);
+    }
+    const transaction = this.db.transaction([
+      LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations,
+      LOCAL_DATABASE_STORES.workoutRemoteAuthority,
+    ], 'readwrite');
+    const done = transactionCompletion(transaction, operation);
+    try {
+      await this.ensureActive(transaction);
+      const store = transaction.objectStore(LOCAL_DATABASE_STORES.workoutRemoteAuthority);
+      const key = [candidate.accountId, candidate.namespaceKey, candidate.generationId, WORKOUT_RESET_DOMAIN];
+      const existing = await requestResult(store.get(key)) as WorkoutRemoteResetIntentV1 | undefined;
+      if (existing) {
+        if (!validWorkoutResetIntent(existing) || existing.accountId !== candidate.accountId
+          || existing.namespaceKey !== candidate.namespaceKey || existing.generationId !== candidate.generationId
+          || existing.deviceId !== candidate.deviceId) {
+          throw new LocalDatabaseError('INVALID_RESERVED_RECORD', operation);
+        }
+        await done;
+        return existing;
+      }
+      const authority = await requestResult(store.get([
+        candidate.accountId, candidate.namespaceKey, candidate.generationId, WORKOUT_REMOTE_DOMAIN,
+      ])) as WorkoutRemoteAuthorityRecordV1 | undefined;
+      if (!authority || !validWorkoutAuthorityRecord(authority)
+        || authority.projectScope !== candidate.projectScope
+        || authority.generationBindingId !== candidate.generationBindingId
+        || authority.authorityEpoch !== candidate.sourceEpoch
+        || currentAuthenticatedAccount()?.toLowerCase() !== candidate.accountId
+        || currentDeviceId() !== candidate.deviceId) {
+        throw new LocalDatabaseError('INVALID_RESERVED_RECORD', operation);
+      }
+      store.put(candidate);
+      await done;
+      return candidate;
+    } catch (error) {
+      abortQuietly(transaction); await done.catch(() => undefined); throw localDatabaseError(error, operation);
+    }
+  }
+
+  async getWorkoutRemoteResetIntent(): Promise<WorkoutRemoteResetIntentV1 | null> {
+    const operation = 'get_workout_remote_reset';
+    this.assertOpen(operation);
+    const transaction = this.db.transaction(LOCAL_DATABASE_STORES.workoutRemoteAuthority, 'readonly');
+    const done = transactionCompletion(transaction, operation);
+    const value = await requestResult(transaction.objectStore(LOCAL_DATABASE_STORES.workoutRemoteAuthority).get([
+      this.namespace.userId.toLowerCase(), this.namespaceKey, this.namespace.generationId,
+      WORKOUT_RESET_DOMAIN,
+    ])) as WorkoutRemoteResetIntentV1 | undefined;
+    await done;
+    if (value && (!validWorkoutResetIntent(value)
+      || value.accountId !== this.namespace.userId.toLowerCase()
+      || value.namespaceKey !== this.namespaceKey || value.generationId !== this.namespace.generationId
+      || value.deviceId !== this.namespace.deviceId)) {
+      throw new LocalDatabaseError('INVALID_RESERVED_RECORD', operation);
+    }
+    return value ?? null;
+  }
+
+  /** Monotonic server evidence; no entity, outbox, binding or checkpoint changes. */
+  async recordWorkoutRemoteResetProgress(
+    response: Pick<WorkoutRemoteResetIntentV1, 'resetId' | 'status' | 'sourceEpoch' | 'targetEpoch'
+      | 'inventoryCount' | 'activeCount' | 'appliedCount' | 'inventoryDigest' | 'completionDigest'>,
+    currentAuthenticatedAccount: () => string | null,
+    currentDeviceId: () => string | null,
+    now: string,
+  ): Promise<WorkoutRemoteResetIntentV1> {
+    const operation = 'record_workout_remote_reset_progress';
+    this.assertOpen(operation);
+    if (!validTimestamp(now) || response.status === 'prepared') {
+      throw new LocalDatabaseError('INVALID_RESERVED_RECORD', operation);
+    }
+    const transaction = this.db.transaction([
+      LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations,
+      LOCAL_DATABASE_STORES.workoutRemoteAuthority,
+    ], 'readwrite');
+    const done = transactionCompletion(transaction, operation);
+    try {
+      await this.ensureActive(transaction);
+      const store = transaction.objectStore(LOCAL_DATABASE_STORES.workoutRemoteAuthority);
+      const key = [this.namespace.userId.toLowerCase(), this.namespaceKey,
+        this.namespace.generationId, WORKOUT_RESET_DOMAIN];
+      const previous = await requestResult(store.get(key)) as WorkoutRemoteResetIntentV1 | undefined;
+      if (!previous || !validWorkoutResetIntent(previous)
+        || previous.resetId !== response.resetId || previous.sourceEpoch !== response.sourceEpoch
+        || currentAuthenticatedAccount()?.toLowerCase() !== previous.accountId
+        || currentDeviceId() !== previous.deviceId
+        || previous.targetEpoch !== null && previous.targetEpoch !== response.targetEpoch
+        || previous.inventoryDigest !== null && previous.inventoryDigest !== response.inventoryDigest
+        || previous.inventoryCount !== null && previous.inventoryCount !== response.inventoryCount
+        || previous.activeCount !== null && previous.activeCount !== response.activeCount) {
+        throw new LocalDatabaseError('INVALID_RESERVED_RECORD', operation);
+      }
+      if (previous.status === 'completed' || response.appliedCount < previous.appliedCount) {
+        await done;
+        return previous;
+      }
+      const next = {
+        ...previous, status: response.status, targetEpoch: response.targetEpoch,
+        inventoryCount: response.inventoryCount, activeCount: response.activeCount,
+        appliedCount: response.appliedCount, inventoryDigest: response.inventoryDigest,
+        completionDigest: response.completionDigest, updatedAt: now,
+      } satisfies WorkoutRemoteResetIntentV1;
+      if (!validWorkoutResetIntent(next)) throw new LocalDatabaseError('INVALID_RESERVED_RECORD', operation);
+      store.put(next);
+      await done;
+      return next;
+    } catch (error) {
+      abortQuietly(transaction); await done.catch(() => undefined); throw localDatabaseError(error, operation);
+    }
   }
 
   async getWorkoutRemoteIdByLocal(localEntityId: string): Promise<WorkoutRemoteIdRecordV1 | null> {

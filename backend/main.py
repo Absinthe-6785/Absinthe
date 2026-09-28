@@ -33,9 +33,11 @@ from workout_remote_authority import (
     WorkoutBindingRequest,
     WorkoutGenerationRequest,
     WorkoutMutationRequest,
+    WorkoutResetRequest,
     WorkoutRemoteGateway,
     binding_params,
     workout_request_digest,
+    workout_reset_request_digest,
 )
 from restore_validation import (
     MAX_RESTORE_ROWS,
@@ -389,6 +391,8 @@ def _workout_result(value: dict) -> JSONResponse:
         "NOT_FOUND", "ENTITY_NOT_TOMBSTONED",
         "ENTITY_TOMBSTONED", "MUTATION_ID_CONFLICT", "IDEMPOTENCY_CONFLICT",
         "SNAPSHOT_TOKEN_INVALID", "FULL_RESYNC_REQUIRED",
+        "RESET_ID_CONFLICT", "RESET_IN_PROGRESS", "RESET_INVENTORY_UNSUPPORTED",
+        "RESET_INVENTORY_DRIFT", "RESET_EPOCH_EXHAUSTED", "RESET_NOT_FOUND",
     }:
         status = 409
     else:
@@ -531,6 +535,51 @@ async def page_workout_snapshot_v1(
         "p_after_entity_id": afterEntityId, "p_limit": limit,
     })
     return _workout_result(_workout_rpc("page_health_workout_snapshot_v1", params))
+
+
+def _workout_reset_params(payload: dict, owner: str) -> dict:
+    try:
+        request = WorkoutResetRequest.model_validate(payload)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail="INVALID_RESET") from error
+    digest = workout_reset_request_digest(request, owner, K323_PROJECT_SCOPE)
+    if request.request_digest != digest:
+        raise HTTPException(status_code=400, detail="REQUEST_DIGEST_MISMATCH")
+    return {**binding_params(request, owner, K323_PROJECT_SCOPE),
+            "p_reset_id": request.reset_id, "p_request_digest": digest}
+
+
+@app.post("/api/sync/v2/workouts/resets")
+async def begin_workout_reset_v1(
+    payload: dict, user_id: str = Depends(get_remote_mutation_user),
+):
+    """Dormant, authenticated authority transition; does not clear local data."""
+    _workout_gateway()
+    return _workout_scope_result(_workout_rpc(
+        "begin_health_workout_reset_v1", _workout_reset_params(payload, user_id)))
+
+
+@app.post("/api/sync/v2/workouts/resets/{reset_id}/continue")
+async def continue_workout_reset_v1(
+    reset_id: str, payload: dict, user_id: str = Depends(get_remote_mutation_user),
+):
+    """Apply one bounded, retryable batch of the already-frozen reset job."""
+    _workout_gateway()
+    params = _workout_reset_params(payload, user_id)
+    if params["p_reset_id"] != reset_id:
+        raise HTTPException(status_code=400, detail="INVALID_RESET")
+    return _workout_scope_result(_workout_rpc(
+        "continue_health_workout_reset_v1", params))
+
+
+@app.post("/api/sync/v2/workouts/resets/active/recover")
+async def recover_active_workout_reset_v1(
+    user_id: str = Depends(get_remote_mutation_user),
+):
+    """Finish an already-fenced reset if the initiating client disappeared."""
+    return _workout_control_rpc("continue_active_health_workout_reset_v1", {
+        "p_owner": user_id, "p_project": K323_PROJECT_SCOPE,
+    })
 
 # ==========================================
 # Pydantic Models (user_id 제거 — 토큰에서 추출)

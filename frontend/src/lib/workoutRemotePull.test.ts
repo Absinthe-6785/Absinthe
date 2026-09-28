@@ -830,14 +830,16 @@ describe('REL-05G4B3 dormant workout pull and fixed-watermark resync', () => {
     expect(await repo.getEntity('health_workout_session', ID)).toBeNull();
   });
 
-  it('abandons only staging when the backend invalidates a snapshot token', async () => {
+  it.each(['SNAPSHOT_TOKEN_INVALID', 'STALE_AUTHORITY_EPOCH', 'AUTHORITY_RESET_FENCED'] as const)(
+    'abandons only staging when the backend invalidates a snapshot with %s', async code => {
     const { repo, workouts } = await setup();
     const local = await workouts.createWorkoutSession(session(ID), { now: T0 });
     const result = await runWorkoutFullResync(repo, options('desktop', url => url.pathname.endsWith('/snapshots')
       ? Response.json({ protocolVersion: 2, status: 'snapshot', domain: 'health_workout_session',
         snapshotToken: TOKEN, authorityEpoch: 1, serverEpoch: EPOCH, watermark: 1, errorCode: null })
-      : new Response(JSON.stringify({ status: 'rejected', errorCode: 'SNAPSHOT_TOKEN_INVALID' }), { status: 409 })));
-    expect(result).toEqual({ kind: 'abandoned', code: 'SNAPSHOT_TOKEN_INVALID' });
+      : new Response(JSON.stringify({ status: 'rejected', errorCode: code }),
+        { status: code === 'AUTHORITY_RESET_FENCED' ? 423 : 409 })));
+    expect(result).toEqual({ kind: 'abandoned', code });
     expect(await repo.getWorkoutFullResyncSession()).toBeNull();
     expect(await repo.getEntity('health_workout_session', ID)).not.toBeNull();
     expect((await repo.getOutboxRecord(local.outbox.mutationId))?.status).toBe('pending');

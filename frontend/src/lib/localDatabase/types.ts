@@ -148,6 +148,29 @@ export interface WorkoutRemoteAuthorityRecordV1 {
   verificationId: string;
 }
 
+/** Dormant G4C reset intent in the existing v7 authority store (no new store/index). */
+export interface WorkoutRemoteResetIntentV1 {
+  accountId: string;
+  namespaceKey: string;
+  generationId: string;
+  domain: 'health_workout_session.reset';
+  deviceId: string;
+  projectScope: string;
+  generationBindingId: string;
+  sourceEpoch: number;
+  resetId: string;
+  requestDigest: string;
+  status: 'prepared' | 'applying' | 'completed';
+  targetEpoch: number | null;
+  inventoryCount: number | null;
+  activeCount: number | null;
+  appliedCount: number;
+  inventoryDigest: string | null;
+  completionDigest: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface WorkoutRemoteIdRecordV1 {
   accountId: string;
   namespaceKey: string;

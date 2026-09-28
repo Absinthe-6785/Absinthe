@@ -75,3 +75,29 @@ export function workoutRequestDigest(input: WorkoutDigestInput): string {
     input.remoteCasBaseRevision, input.localRevision, input.payloadHash,
   ]);
 }
+
+export interface WorkoutResetDigestInput {
+  authenticatedOwnerId: string;
+  projectScope: string;
+  namespaceKey: string;
+  generationId: string;
+  deviceId: string;
+  generationBindingId: string;
+  authorityEpoch: number;
+  resetId: string;
+}
+
+/** Separate server-authenticated reset intent; never reused as a mutation digest. */
+export function workoutResetRequestDigest(input: WorkoutResetDigestInput): string {
+  const owner = typeof input.authenticatedOwnerId === 'string' ? input.authenticatedOwnerId.toLowerCase() : '';
+  if (!WORKOUT_WIRE_UUID.test(owner) || !WORKOUT_SAFE_SCOPE.test(input.projectScope)
+    || !WORKOUT_DIGEST.test(input.namespaceKey) || !WORKOUT_SAFE_SCOPE.test(input.generationId)
+    || !WORKOUT_SAFE_SCOPE.test(input.deviceId) || !WORKOUT_WIRE_UUID.test(input.generationBindingId)
+    || !Number.isSafeInteger(input.authorityEpoch) || input.authorityEpoch < 1
+    || !WORKOUT_WIRE_UUID_V4.test(input.resetId)) throw new Error('workout_invalid_reset_digest_input');
+  return hashCanonicalPayload([
+    'absinthe-workout-reset-v1', WORKOUT_REMOTE_PROTOCOL_VERSION, owner, input.projectScope,
+    WORKOUT_REMOTE_DOMAIN, input.namespaceKey, input.generationId, input.deviceId,
+    input.generationBindingId, input.authorityEpoch, input.resetId,
+  ]);
+}
