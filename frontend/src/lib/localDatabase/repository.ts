@@ -351,6 +351,8 @@ export interface WorkoutPullFence {
   currentAccountId: () => string | null;
   currentDeviceId: () => string | null;
   now: string;
+  /** Fresh synchronous authority clock; record metadata continues to use `now`. */
+  currentTime: () => string;
   /** Test-only atomic rollback after canonical writes and before checkpoint. */
   testOnlyAbortBeforeCheckpoint?: boolean;
 }
@@ -946,8 +948,10 @@ export class LocalDatabaseRepository {
       throw new LocalDatabaseError('INVALID_ENTITY', 'commit_local_mutation');
     }
     const inputSnapshot = mutation.mode === 'tombstone' ? null : canonicalPayloadSnapshot(mutation.record);
+    const workoutCreate = mutation.domain === WORKOUT_REMOTE_DOMAIN && mutation.mode === 'create';
     const stores: string[] = [LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations,
       LOCAL_DATABASE_STORES.entities, LOCAL_DATABASE_STORES.outbox, LOCAL_DATABASE_STORES.restoreSessions];
+    if (workoutCreate) stores.push(LOCAL_DATABASE_STORES.workoutRemoteIds);
     const transaction = this.db.transaction(stores, 'readwrite');
     const done = transactionCompletion(transaction, 'commit_local_mutation');
     try {
@@ -957,6 +961,29 @@ export class LocalDatabaseRepository {
       const key = entityKey(this.namespaceKey, this.namespace.generationId, mutation.domain, mutation.entityId);
       const current = await requestResult(entityStore.get(key)) as LocalEntityEnvelope<T> | undefined;
       if (current) this.validatePersistedEntity(current, 'commit_local_mutation');
+      if (workoutCreate) {
+        const wireId = canonicalWorkoutUuid(mutation.entityId);
+        const mapped = await requestResult(transaction.objectStore(LOCAL_DATABASE_STORES.workoutRemoteIds)
+          .index('by_wire_id').getAll(IDBKeyRange.only([
+            this.namespace.userId.toLowerCase(), this.namespaceKey, this.namespace.generationId,
+            WORKOUT_REMOTE_DOMAIN, wireId,
+          ]))) as WorkoutRemoteIdRecordV1[];
+        if (mapped.length > 1 || mapped.some(row => !validWorkoutRemoteIdRecord(row))) {
+          throw new LocalDatabaseError('INVALID_RESERVED_RECORD', 'commit_local_mutation');
+        }
+        if (mapped.length !== 0) throw new LocalDatabaseError('ENTITY_ALREADY_EXISTS', 'commit_local_mutation');
+        const scoped = await requestResult(entityStore.index('by_namespace_generation_domain').getAll(
+          IDBKeyRange.only([this.namespaceKey, this.namespace.generationId, WORKOUT_REMOTE_DOMAIN]),
+          MAX_OUTBOX_SCAN + 1,
+        )) as LocalEntityEnvelope[];
+        if (scoped.length > MAX_OUTBOX_SCAN) throw new LocalDatabaseError('INVALID_ENTITY', 'commit_local_mutation');
+        const twins = scoped.filter(entity => {
+          this.validatePersistedEntity(entity, 'commit_local_mutation');
+          return canonicalWorkoutUuid(entity.entityId) === wireId;
+        });
+        if (twins.length > 1) throw new LocalDatabaseError('CORRUPT_PERSISTED_RECORD', 'commit_local_mutation');
+        if (twins.length !== 0) throw new LocalDatabaseError('ENTITY_ALREADY_EXISTS', 'commit_local_mutation');
+      }
       const actualRevision = current?.revision ?? 0;
       const outboxStore = transaction.objectStore(LOCAL_DATABASE_STORES.outbox);
       const priorOutbox = current ? await requestResult(
@@ -2974,6 +3001,19 @@ export class LocalDatabaseRepository {
     return value ?? null;
   }
 
+  private async assertWorkoutPullLease(tx: IDBTransaction, input: WorkoutPullFence, operation: string): Promise<void> {
+    const accountId = this.namespace.userId.toLowerCase();
+    const lease = await requestResult(tx.objectStore(LOCAL_DATABASE_STORES.workerLeases).get(workerLeaseKey(
+      this.namespaceKey, this.namespace.generationId, WORKOUT_PULL_LEASE,
+    ))) as SyncWorkerLeaseRecord | undefined;
+    if (!lease || lease.accountId !== accountId || lease.leaseToken !== input.lease.leaseToken
+      || lease.leaseEpoch !== input.lease.leaseEpoch || lease.ownerId !== input.lease.ownerId
+      || lease.releasedAt !== null || Date.parse(lease.expiresAt) <= Date.parse(now(input.currentTime()))) {
+      throw new LocalDatabaseError('LEASE_FENCE_MISMATCH', operation);
+    }
+    validateWorkerLease(lease);
+  }
+
   private async assertWorkoutPullFence(tx: IDBTransaction, input: WorkoutPullFence, operation: string): Promise<void> {
     await this.ensureActive(tx);
     const accountId = this.namespace.userId.toLowerCase();
@@ -2981,15 +3021,6 @@ export class LocalDatabaseRepository {
       || input.authority.accountId !== accountId || input.authority.namespaceKey !== this.namespaceKey
       || input.authority.generationId !== this.namespace.generationId || input.authority.deviceId !== this.namespace.deviceId
       || !validWorkoutAuthorityRecord(input.authority)) throw new LocalDatabaseError('NAMESPACE_MISMATCH', operation);
-    const lease = await requestResult(tx.objectStore(LOCAL_DATABASE_STORES.workerLeases).get(workerLeaseKey(
-      this.namespaceKey, this.namespace.generationId, WORKOUT_PULL_LEASE,
-    ))) as SyncWorkerLeaseRecord | undefined;
-    if (!lease || lease.accountId !== accountId || lease.leaseToken !== input.lease.leaseToken
-      || lease.leaseEpoch !== input.lease.leaseEpoch || lease.ownerId !== input.lease.ownerId
-      || lease.releasedAt !== null || Date.parse(lease.expiresAt) <= Date.parse(input.now)) {
-      throw new LocalDatabaseError('LEASE_FENCE_MISMATCH', operation);
-    }
-    validateWorkerLease(lease);
     const authority = await requestResult(tx.objectStore(LOCAL_DATABASE_STORES.workoutRemoteAuthority).get([
       accountId, this.namespaceKey, this.namespace.generationId, WORKOUT_REMOTE_DOMAIN,
     ])) as WorkoutRemoteAuthorityRecordV1 | undefined;
@@ -2999,6 +3030,7 @@ export class LocalDatabaseRepository {
       || authority.authorityEpoch !== input.authority.authorityEpoch) {
       throw new LocalDatabaseError('INVALID_RESERVED_RECORD', operation);
     }
+    await this.assertWorkoutPullLease(tx, input, operation);
   }
 
   /** Internal G4B3 convergence primitive. Called only inside the page/checkpoint transaction. */
@@ -3066,12 +3098,26 @@ export class LocalDatabaseRepository {
         localEntityId: localId, wireEntityId: change.entityId, mappedAt: timestamp,
       } satisfies WorkoutRemoteIdRecordV1);
       const lineage = outboxByEntity.get(localId) ?? [];
+      const pending = lineage.filter(row => row.status !== 'acknowledged' && row.status !== 'superseded');
+      const baseline = pending.map(row => ({ row, boundary: row.remoteSequenceBoundary }))
+        .find(({ row, boundary }) => boundary
+        && boundary.kind === 'remote_entity_sequence_boundary'
+        && boundary.namespaceKey === this.namespaceKey && boundary.generationId === this.namespace.generationId
+        && boundary.domain === WORKOUT_REMOTE_DOMAIN && boundary.entityId === localId
+        && boundary.baselineLocalRevision === row.baseRevision
+        && boundary.baselineServerRevision === current?.serverRevision
+        && boundary.remoteMutationRef === current?.lastRemoteMutationRef)?.boundary;
+      const durableRemoteHash = pending.length > 0 || current?.pendingMutationId != null
+        ? baseline?.baselineContentHash : current?.contentHash;
       const acknowledged = lineage.find(row => row.status === 'acknowledged'
         && row.remoteMutationRef === change.remoteMutationRef && row.acknowledgedRevision === change.serverRevision
         && row.serverCommittedAt === change.serverCommittedAt
         && (snapshot || row.operation === change.operation)
-        && (row.payload.kind === 'tombstone' || hashCanonicalPayload(row.payload.record) === change.contentHash));
-      const pending = lineage.filter(row => row.status !== 'acknowledged' && row.status !== 'superseded');
+        && (row.payload.kind === 'tombstone'
+          ? change.isDeleted && row.payload.deletedAt === change.deletedAt
+            && durableRemoteHash === change.contentHash
+          : !change.isDeleted && change.deletedAt === null
+            && hashCanonicalPayload(row.payload.record) === change.contentHash));
       if (current?.pendingMutationId != null && !pending.some(row => row.mutationId === current.pendingMutationId)) {
         throw new LocalDatabaseError('CORRUPT_PERSISTED_RECORD', operation);
       }
@@ -3083,7 +3129,10 @@ export class LocalDatabaseRepository {
       if (change.serverRevision === currentRevision) {
         if (acknowledged || current?.lastRemoteMutationRef === change.remoteMutationRef
           && current.remoteState === (change.isDeleted ? 'deleted' : 'active')
-          && (pending.length > 0 || current.contentHash === change.contentHash && current.deletedAt === change.deletedAt)) continue;
+          && durableRemoteHash === change.contentHash
+          && (pending.length > 0 || current.pendingMutationId != null
+            ? !change.isDeleted && change.deletedAt === null
+            : current.deletedAt === change.deletedAt)) continue;
         throw new LocalDatabaseError('STALE_REVISION', operation);
       }
       if ((pending.length > 0 || current?.pendingMutationId != null) && acknowledged) continue;
@@ -3192,6 +3241,7 @@ export class LocalDatabaseRepository {
       }, timestamp, true, operation);
       if (input.currentAccountId()?.toLowerCase() !== this.namespace.userId.toLowerCase()
         || input.currentDeviceId() !== this.namespace.deviceId) throw new LocalDatabaseError('NAMESPACE_MISMATCH', operation);
+      await this.assertWorkoutPullFence(tx, input, operation);
       await done;
       return { checkpoint, ...result, idempotent: false };
     } catch (error) {
@@ -3250,7 +3300,9 @@ export class LocalDatabaseRepository {
         watermark: input.watermark, status: 'staging', afterEntityId: null, itemCount: 0, stagedBytes: 0,
         createdAt: timestamp, updatedAt: timestamp,
       };
-      store.add(session); await done; return session;
+      store.add(session);
+      await this.assertWorkoutPullFence(tx, input, operation);
+      await done; return session;
     } catch (error) {
       abortQuietly(tx); await done.catch(() => undefined); throw localDatabaseError(error, operation);
     }
@@ -3308,7 +3360,9 @@ export class LocalDatabaseRepository {
         afterEntityId: input.hasMore ? input.nextEntityId : null,
         status: input.hasMore ? 'staging' : 'ready', updatedAt: timestamp,
       };
-      sessions.put(updated); await done; return updated;
+      sessions.put(updated);
+      await this.assertWorkoutPullFence(tx, input, operation);
+      await done; return updated;
     } catch (error) {
       abortQuietly(tx); await done.catch(() => undefined); throw localDatabaseError(error, operation);
     }
@@ -3424,6 +3478,7 @@ export class LocalDatabaseRepository {
       sessions.put({ ...session, status: 'committed', updatedAt: timestamp } satisfies WorkoutFullResyncSessionRecordV1);
       if (input.currentAccountId()?.toLowerCase() !== this.namespace.userId.toLowerCase()
         || input.currentDeviceId() !== this.namespace.deviceId) throw new LocalDatabaseError('NAMESPACE_MISMATCH', operation);
+      await this.assertWorkoutPullFence(tx, input, operation);
       await done; return { checkpoint, ...result };
     } catch (error) {
       abortQuietly(tx); await done.catch(() => undefined); throw localDatabaseError(error, operation);
@@ -3448,6 +3503,7 @@ export class LocalDatabaseRepository {
       if (session.status === 'staging' || session.status === 'ready') {
         store.put({ ...session, status: 'abandoned', updatedAt: timestamp } satisfies WorkoutFullResyncSessionRecordV1);
       }
+      await this.assertWorkoutPullFence(tx, input, operation);
       await done;
     } catch (error) {
       abortQuietly(tx); await done.catch(() => undefined); throw localDatabaseError(error, operation);

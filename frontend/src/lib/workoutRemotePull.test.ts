@@ -184,6 +184,50 @@ describe('REL-05G4B3 dormant workout pull and fixed-watermark resync', () => {
     expect(updated.outbox.payload).toMatchObject({ record: { id: ID } });
   });
 
+  it('rejects exact and case-variant creates after a remote wire mapping exists', async () => {
+    const { repo, workouts } = await setup();
+    await runWorkoutPullIteration(repo, options('desktop', () =>
+      Response.json(pullPage(0, [change(1)]))));
+    for (const id of [ID, ID.toUpperCase()]) {
+      await expect(workouts.createWorkoutSession(session(id), { now: T2 }))
+        .rejects.toThrow('ENTITY_ALREADY_EXISTS');
+    }
+    expect(await workouts.listWorkoutSessions()).toHaveLength(1);
+    expect(await repo.listOutboxMutations({ limit: 10 })).toEqual([]);
+  });
+
+  it('rejects an unmapped case-only twin but still creates a genuinely new UUID', async () => {
+    const { repo, workouts } = await setup();
+    await workouts.createWorkoutSession(session(ID.toUpperCase()), { now: T0 });
+    await expect(workouts.createWorkoutSession(session(ID), { now: T1 }))
+      .rejects.toThrow('ENTITY_ALREADY_EXISTS');
+    const fresh = await workouts.createWorkoutSession(session(OTHER_ID), { now: T2 });
+    expect(fresh.outbox.deliveryBinding?.state).toBe('unbound');
+    expect(await workouts.listWorkoutSessions()).toHaveLength(2);
+    expect(await repo.listOutboxMutations({ limit: 10 })).toHaveLength(2);
+  });
+
+  it('rolls back a guarded create after writes without any entity or outbox', async () => {
+    const { repo, workouts } = await setup();
+    await expect(workouts.createWorkoutSession(session(ID),
+      { now: T0, testOnlyAbortAt: 'after_writes' })).rejects.toThrow();
+    expect(await repo.getEntity('health_workout_session', ID)).toBeNull();
+    expect(await repo.getWorkoutRemoteIdsByWire(ID)).toEqual([]);
+    expect(await repo.listOutboxMutations({ limit: 10 })).toEqual([]);
+  });
+
+  it('serializes concurrent case-variant creates to one UUID-value identity', async () => {
+    const { repo, workouts } = await setup();
+    const outcomes = await Promise.allSettled([
+      workouts.createWorkoutSession(session(ID), { now: T0 }),
+      workouts.createWorkoutSession(session(ID.toUpperCase()), { now: T0 }),
+    ]);
+    expect(outcomes.filter(result => result.status === 'fulfilled')).toHaveLength(1);
+    expect(outcomes.filter(result => result.status === 'rejected')).toHaveLength(1);
+    expect(await workouts.listWorkoutSessions()).toHaveLength(1);
+    expect(await repo.listOutboxMutations({ limit: 10 })).toHaveLength(1);
+  });
+
   it('rolls back a malformed last change, mapping, and checkpoint together', async () => {
     const { repo } = await setup();
     const rows = [change(1), { ...change(2, OTHER_ID), contentHash: '0'.repeat(64) }];
@@ -222,6 +266,61 @@ describe('REL-05G4B3 dormant workout pull and fixed-watermark resync', () => {
       .toMatchObject({ reps: 9 });
     expect((await repo.getOutboxRecord(m2.outbox.mutationId))?.remoteSequenceBoundary?.baselineServerRevision).toBe(1);
     expect(await repo.listConflicts('health_workout_session', ID)).toHaveLength(1);
+  });
+
+  it('rejects divergent same-revision content behind pending M2 without advancing checkpoint', async () => {
+    const { repo, workouts } = await setup();
+    await runWorkoutPullIteration(repo, options('desktop', () =>
+      Response.json(pullPage(0, [change(1, ID, 8, 1, 'upsert', REF1)]))));
+    const m2 = await workouts.updateWorkoutSession(ID, 1, session(ID, 9), { now: T2 });
+    await expect(runWorkoutPullIteration(repo, options('desktop', () =>
+      Response.json(pullPage(1, [change(2, ID, 10, 1, 'upsert', REF1)])))))
+      .rejects.toThrow('STALE_REVISION');
+    expect((await repo.getSyncCheckpoint(WORKOUT_PULL_PROVIDER, 'health_workout_session'))?.sequence).toBe(1);
+    expect((await repo.getEntity<WorkoutSessionV1>('health_workout_session', ID))?.record.entries[0].sets[0])
+      .toMatchObject({ reps: 9 });
+    expect((await repo.getOutboxRecord(m2.outbox.mutationId))?.remoteSequenceBoundary?.baselineServerRevision).toBe(1);
+  });
+
+  it('rejects divergent same-revision tombstone deletion evidence behind pending restore', async () => {
+    const { repo, workouts } = await setup();
+    await runWorkoutPullIteration(repo, options('desktop', () =>
+      Response.json(pullPage(0, [change(1, ID, 8, 1, 'tombstone', REF1)]))));
+    await workouts.restoreWorkoutSession(ID, 1, session(ID, 9), { now: T2 });
+    await expect(runWorkoutPullIteration(repo, options('desktop', () =>
+      Response.json(pullPage(1, [{ ...change(2, ID, 8, 1, 'tombstone', REF1), deletedAt: T1 }])))))
+      .rejects.toThrow('STALE_REVISION');
+    expect((await repo.getSyncCheckpoint(WORKOUT_PULL_PROVIDER, 'health_workout_session'))?.sequence).toBe(1);
+  });
+
+  it('accepts a provably identical pending remote baseline without changing M2', async () => {
+    const { repo, workouts } = await setup();
+    await runWorkoutPullIteration(repo, options('desktop', () =>
+      Response.json(pullPage(0, [change(1, ID, 8, 1, 'upsert', REF1)]))));
+    const m2 = await workouts.updateWorkoutSession(ID, 1, session(ID, 9), { now: T2 });
+    expect(await runWorkoutPullIteration(repo, options('desktop', () =>
+      Response.json(pullPage(1, [change(2, ID, 8, 1, 'upsert', REF1)])))))
+      .toMatchObject({ kind: 'applied', applied: 0, conflicts: 0, nextCursor: 2 });
+    expect((await repo.getEntity<WorkoutSessionV1>('health_workout_session', ID))?.record.entries[0].sets[0])
+      .toMatchObject({ reps: 9 });
+    expect((await repo.getOutboxRecord(m2.outbox.mutationId))?.status).toBe('pending');
+  });
+
+  it('uses the same pending-baseline divergence rule at full-resync commit', async () => {
+    const { repo, workouts } = await setup();
+    await runWorkoutPullIteration(repo, options('desktop', () =>
+      Response.json(pullPage(0, [change(1, ID, 8, 1, 'upsert', REF1)]))));
+    await workouts.updateWorkoutSession(ID, 1, session(ID, 9), { now: T2 });
+    const handler = (url: URL) => url.pathname.endsWith('/snapshots')
+      ? Response.json({ protocolVersion: 2, status: 'snapshot', domain: 'health_workout_session',
+        snapshotToken: TOKEN, authorityEpoch: 1, serverEpoch: EPOCH, watermark: 2, errorCode: null })
+      : Response.json({ protocolVersion: 2, status: 'snapshot_page', domain: 'health_workout_session',
+        snapshotToken: TOKEN, authorityEpoch: 1, serverEpoch: EPOCH, watermark: 2,
+        rows: [snapshotRow(change(2, ID, 10, 1, 'upsert', REF1))],
+        nextEntityId: null, hasMore: false, errorCode: null });
+    await expect(runWorkoutFullResync(repo, options('desktop', handler))).rejects.toThrow('STALE_REVISION');
+    expect((await repo.getWorkoutFullResyncSession())?.status).toBe('ready');
+    expect((await repo.getSyncCheckpoint(WORKOUT_PULL_PROVIDER, 'health_workout_session'))?.sequence).toBe(1);
   });
 
   it('never moves checkpoint or canonical state on transaction abort', async () => {
@@ -419,6 +518,112 @@ describe('REL-05G4B3 dormant workout pull and fixed-watermark resync', () => {
     }, { now: () => at, leaseDurationMs: 1_000 }))).rejects.toThrow('LEASE_FENCE_MISMATCH');
     expect(await repo.getEntity('health_workout_session', ID)).toBeNull();
     expect(await repo.getSyncCheckpoint(WORKOUT_PULL_PROVIDER, 'health_workout_session')).toBeNull();
+  });
+
+  it('rejects exact expiry at the incremental commit fence and rolls back writes', async () => {
+    const { repo } = await setup();
+    let reads = 0;
+    await expect(runWorkoutPullIteration(repo, options('desktop', () =>
+      Response.json(pullPage(0, [change(1)])), {
+      leaseDurationMs: 1_000, currentTime: () => ++reads === 1 ? T1 : '2026-09-27T00:01:01.000Z',
+    }))).rejects.toThrow('LEASE_FENCE_MISMATCH');
+    expect(reads).toBe(2);
+    expect(await repo.getEntity('health_workout_session', ID)).toBeNull();
+    expect(await repo.getWorkoutRemoteIdsByWire(ID)).toEqual([]);
+    expect(await repo.getSyncCheckpoint(WORKOUT_PULL_PROVIDER, 'health_workout_session')).toBeNull();
+    expect(await runWorkoutPullIteration(repo, options('desktop', () =>
+      Response.json(pullPage(0, [change(1)])), { now: () => T2 })))
+      .toMatchObject({ kind: 'applied', nextCursor: 1 });
+  });
+
+  it('commits when the fresh final lease check is one millisecond before expiry', async () => {
+    const { repo } = await setup();
+    let reads = 0;
+    expect(await runWorkoutPullIteration(repo, options('desktop', () =>
+      Response.json(pullPage(0, [change(1)])), {
+      leaseDurationMs: 1_000,
+      currentTime: () => ++reads === 1 ? T1 : '2026-09-27T00:01:00.999Z',
+    }))).toMatchObject({ kind: 'applied', nextCursor: 1 });
+    expect(reads).toBe(2);
+  });
+
+  it('rolls back pending-local conflict and checkpoint when lease expires mid-transaction', async () => {
+    const { repo, workouts } = await setup();
+    const local = await workouts.createWorkoutSession(session(ID, 9), { now: T0 });
+    let reads = 0;
+    await expect(runWorkoutPullIteration(repo, options('desktop', () =>
+      Response.json(pullPage(0, [change(1, ID, 8)])), {
+      leaseDurationMs: 1_000, currentTime: () => ++reads === 1 ? T1 : T2,
+    }))).rejects.toThrow('LEASE_FENCE_MISMATCH');
+    expect(await repo.getWorkoutRemoteIdsByWire(ID)).toEqual([]);
+    expect(await repo.listConflicts('health_workout_session', ID)).toEqual([]);
+    expect(await repo.getSyncCheckpoint(WORKOUT_PULL_PROVIDER, 'health_workout_session')).toBeNull();
+    expect((await repo.getOutboxRecord(local.outbox.mutationId))?.status).toBe('pending');
+  });
+
+  it('rolls back a staged page if lease expires before staging completion', async () => {
+    const { repo } = await setup();
+    let reads = 0;
+    const handler = (url: URL) => url.pathname.endsWith('/snapshots')
+      ? Response.json({ protocolVersion: 2, status: 'snapshot', domain: 'health_workout_session',
+        snapshotToken: TOKEN, authorityEpoch: 1, serverEpoch: EPOCH, watermark: 1, errorCode: null })
+      : Response.json({ protocolVersion: 2, status: 'snapshot_page', domain: 'health_workout_session',
+        snapshotToken: TOKEN, authorityEpoch: 1, serverEpoch: EPOCH, watermark: 1,
+        rows: [snapshotRow(change(1))], nextEntityId: null, hasMore: false, errorCode: null });
+    await expect(runWorkoutFullResync(repo, options('desktop', handler, {
+      leaseDurationMs: 1_000, currentTime: () => ++reads === 4 ? T2 : T1,
+    }))).rejects.toThrow('LEASE_FENCE_MISMATCH');
+    expect((await repo.getWorkoutFullResyncSession())?.status).toBe('staging');
+    expect((await repo.getWorkoutFullResyncSession())?.itemCount).toBe(0);
+    expect(await repo.getEntity('health_workout_session', ID)).toBeNull();
+    expect(await repo.getSyncCheckpoint(WORKOUT_PULL_PROVIDER, 'health_workout_session')).toBeNull();
+    expect(await runWorkoutFullResync(repo, options('desktop', handler, { now: () => T2 })))
+      .toMatchObject({ kind: 'committed', itemCount: 1 });
+  });
+
+  it('does not persist a snapshot-start session after commit-time lease expiry', async () => {
+    const { repo } = await setup();
+    let reads = 0;
+    await expect(runWorkoutFullResync(repo, options('desktop', () => Response.json({
+      protocolVersion: 2, status: 'snapshot', domain: 'health_workout_session',
+      snapshotToken: TOKEN, authorityEpoch: 1, serverEpoch: EPOCH, watermark: 0, errorCode: null,
+    }), { leaseDurationMs: 1_000, currentTime: () => ++reads === 1 ? T1 : T2 })))
+      .rejects.toThrow('LEASE_FENCE_MISMATCH');
+    expect(await repo.getWorkoutFullResyncSession()).toBeNull();
+  });
+
+  it('does not abandon staging after its lease expires mid-transaction', async () => {
+    const { repo } = await setup();
+    let reads = 0;
+    await expect(runWorkoutFullResync(repo, options('desktop', url => url.pathname.endsWith('/snapshots')
+      ? Response.json({ protocolVersion: 2, status: 'snapshot', domain: 'health_workout_session',
+        snapshotToken: TOKEN, authorityEpoch: 1, serverEpoch: EPOCH, watermark: 1, errorCode: null })
+      : new Response(JSON.stringify({ status: 'rejected', errorCode: 'SNAPSHOT_TOKEN_INVALID' }),
+        { status: 409 }), {
+      leaseDurationMs: 1_000, currentTime: () => ++reads === 4 ? T2 : T1,
+    }))).rejects.toThrow('LEASE_FENCE_MISMATCH');
+    expect((await repo.getWorkoutFullResyncSession())?.status).toBe('staging');
+  });
+
+  it('rolls back canonical resync commit if lease expires before completion', async () => {
+    const { repo } = await setup();
+    let reads = 0;
+    const handler = (url: URL) => url.pathname.endsWith('/snapshots')
+      ? Response.json({ protocolVersion: 2, status: 'snapshot', domain: 'health_workout_session',
+        snapshotToken: TOKEN, authorityEpoch: 1, serverEpoch: EPOCH, watermark: 1, errorCode: null })
+      : Response.json({ protocolVersion: 2, status: 'snapshot_page', domain: 'health_workout_session',
+        snapshotToken: TOKEN, authorityEpoch: 1, serverEpoch: EPOCH, watermark: 1,
+        rows: [snapshotRow(change(1))], nextEntityId: null, hasMore: false, errorCode: null });
+    await expect(runWorkoutFullResync(repo, options('desktop', handler, {
+      leaseDurationMs: 1_000, currentTime: () => ++reads === 6 ? T2 : T1,
+    }))).rejects.toThrow('LEASE_FENCE_MISMATCH');
+    expect((await repo.getWorkoutFullResyncSession())?.status).toBe('ready');
+    expect(await repo.getEntity('health_workout_session', ID)).toBeNull();
+    expect(await repo.getWorkoutRemoteIdsByWire(ID)).toEqual([]);
+    expect(await repo.listConflicts('health_workout_session', ID)).toEqual([]);
+    expect(await repo.getSyncCheckpoint(WORKOUT_PULL_PROVIDER, 'health_workout_session')).toBeNull();
+    expect(await runWorkoutFullResync(repo, options('desktop', handler, { now: () => T2 })))
+      .toMatchObject({ kind: 'committed', itemCount: 1 });
   });
 
   it('rejects a second tab while the durable Workout pull lease is held', async () => {

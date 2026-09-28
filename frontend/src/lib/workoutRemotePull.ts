@@ -20,6 +20,8 @@ export interface WorkoutPullOptions {
   currentDeviceId: () => string | null;
   fetchImpl?: typeof fetch;
   now?: () => string;
+  /** Fresh synchronous lease-authority time, independent of operation metadata timestamps. */
+  currentTime?: () => string;
   workerId?: string;
   leaseDurationMs?: number;
   onDiagnostic?: (event: string, code?: string) => void;
@@ -67,7 +69,7 @@ async function withWorkoutPullLease<T>(repository: LocalDatabaseRepository, opti
     if (!authority) throw new WorkoutPullProtocolError('AUTHORITY_REQUIRED');
     assertIdentity();
     const fence = (): WorkoutPullFence => ({ lease, authority, currentAccountId: options.currentAccountId,
-      currentDeviceId: options.currentDeviceId, now: timestamp(),
+      currentDeviceId: options.currentDeviceId, now: timestamp(), currentTime: options.currentTime ?? timestamp,
       testOnlyAbortBeforeCheckpoint: options.testOnlyAbortBeforeCheckpoint });
     const request = async (path: string, init?: RequestInit): Promise<unknown> => {
       assertIdentity();

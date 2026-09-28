@@ -393,8 +393,22 @@ describe('REL-05G4B1 durable workout binding', () => {
   });
 
   it('blocks case-only twin UUID entities without merging either', async () => {
-    const { repo, created } = await setup();
-    const twin = await new WorkoutSessionRepository(repo).createWorkoutSession(session(ID.toUpperCase()), { now: T1 });
+    const { repo, created, factory } = await setup();
+    // A legacy persisted twin may still exist even though new Workout creates reject it.
+    const twinId = ID.toUpperCase();
+    const twinRecord = session(twinId);
+    const payload = { kind: 'entity_snapshot' as const, record: twinRecord };
+    const payloadHash = hashCanonicalPayload(payload);
+    const identity = { namespaceKey: repo.namespaceKey, generationId: namespace.generationId,
+      domain: 'health_workout_session', entityId: twinId, localRevision: 1,
+      operation: 'upsert' as const, payloadHash };
+    const twin = { ...created.outbox, entityId: twinId, payload, payloadHash,
+      mutationId: deriveOutboxMutationId(identity), idempotencyKey: deriveOutboxIdempotencyKey(identity) };
+    const twinEntity = { ...created.entity, entityId: twinId, record: twinRecord,
+      contentHash: hashCanonicalPayload(twinRecord), pendingMutationId: twin.mutationId };
+    validateEntityEnvelope(twinEntity); validateOutboxRecord(twin);
+    await putRaw(factory, 'entities', twinEntity);
+    await putRaw(factory, 'outbox', twin);
     await expect(repo.bindWorkoutMutation({ mutationId: created.outbox.mutationId,
       expectedVerificationId: VERIFICATION, currentAuthenticatedAccount: () => OWNER, currentDeviceId: () => namespace.deviceId }))
       .rejects.toHaveProperty('code', 'INVALID_ENTITY');
@@ -402,7 +416,7 @@ describe('REL-05G4B1 durable workout binding', () => {
     expect(await repo.getEntity('health_workout_session', ID.toUpperCase())).not.toBeNull();
     expect(await repo.getWorkoutRemoteIdByLocal(ID)).toBeNull();
     expect((await repo.getOutboxRecord(created.outbox.mutationId))?.deliveryBlockCode).toBe('UUID_MAPPING_COLLISION');
-    expect((await repo.getOutboxRecord(twin.outbox.mutationId))?.deliveryBinding).toEqual({ version: 1, state: 'unbound' });
+    expect((await repo.getOutboxRecord(twin.mutationId))?.deliveryBinding).toEqual({ version: 1, state: 'unbound' });
   });
 
   it('durably quarantines an attempted explicit-unbound mutation', async () => {
