@@ -274,6 +274,10 @@ export function AppContent({ authUser }: { authUser: User }) {
   const selectedDayReaderEnabled = HEALTH_SELECTED_DAY_COMPOSITE_READER_ENABLED && activeTab === 'health';
   const selectedDayRead = useHealthSelectedDayComposite(selectedDayReaderEnabled, authUser.id, dateStr);
   const todosSearchActive = searchHasQuery || activeTab === 'planner';
+  // Search keeps its legacy-only daily source; the gated Health editor uses
+  // the independently verified, paired selected-day snapshot instead.
+  const legacyDailyActive = (healthRuntimeReady && !selectedDayReaderEnabled)
+    || (selectedDayReaderEnabled && searchHasQuery);
   const inbodyActive = activeTab === 'health' && healthRuntimeReady;
   const {
     schedules, todos, todosState, routines, workouts, inbody,
@@ -283,7 +287,7 @@ export function AppContent({ authUser }: { authUser: User }) {
   // AppContent owns the shell hook; only consumer-driven candidates are gated.
   // useDailyData(dateStr, showToast, authUser.id, healthRuntimeReady, todosSearchActive, inbodyActive)
   } = useDailyData(dateStr, showToast, authUser.id,
-    healthRuntimeReady && !selectedDayReaderEnabled, todosSearchActive, inbodyActive);
+    legacyDailyActive, todosSearchActive, inbodyActive);
 
   // useNow가 1분마다 now를 갱신 → AppContent 리렌더 → monthStart/monthEnd 매번 재계산.
   // currentDate가 바뀔 때만 실제로 값이 달라지므로 useMemo로 명시적 메모이제이션.
@@ -293,9 +297,10 @@ export function AppContent({ authUser }: { authUser: User }) {
   }), [currentDate, formatDate]);
   const healthBlocksSearchActive = searchHasQuery || activeTab === 'health';
   const markedDatesActive = false;
-  const healthRoutinesActive = activeTab === 'health' && healthRuntimeReady;
+  const healthRoutinesActive = activeTab === 'health'
+    && (healthRuntimeReady || (selectedDayReaderEnabled && domainUsesLocalWorkingCopy('health_routine_presets')));
   const {
-    markedDates, healthBlocks, healthBlocksState, healthRoutines, weeklySchedules,
+    markedDates, healthBlocks, healthBlocksState, healthRoutines, healthRoutinesState, weeklySchedules,
     mutate: mutateStatic,
   // AppContent owns static lifecycle; activation flags follow real consumers.
   // useStaticData(monthStart, monthEnd, showToast, authUser.id, healthRuntimeReady, healthBlocksSearchActive, markedDatesActive, healthRoutinesActive)
@@ -430,6 +435,7 @@ export function AppContent({ authUser }: { authUser: User }) {
                 workouts={selectedDayRead.legacyDaily?.workouts ?? []}
                 inbody={selectedDayRead.legacyDaily?.inbody ?? { weight: 0, smm: 0, pbf: 0 }}
                 isDailyLoading={selectedDayRead.phase === 'loading'}
+                healthRoutinesState={healthRoutinesState}
                 selectedDayComposite={selectedDayRead}
                 onLocalWorkoutCommitted={selectedDayRead.retry}
               />

@@ -110,6 +110,7 @@ export const HealthView = ({
   schedules, weeklySchedules,
   workouts, healthBlocks, healthRoutines, inbody, theme, appSettings,
   THEME_COLORS, isDailyLoading, user, selectedDayComposite, onLocalWorkoutCommitted,
+  healthRoutinesState,
 }: HealthProps) => {
   const { t, lang } = useTranslation();
   const isMobile = useIsMobile();
@@ -138,9 +139,13 @@ export const HealthView = ({
       accountGenerationRef.current,
     );
 
+  const routineSourceReady = !selectedDayComposite
+    || healthRoutinesState?.status === 'READY_EMPTY'
+    || healthRoutinesState?.status === 'READY_WITH_RESULTS';
   const routinePresetController = useRoutinePresetController({
     accountId: user.id,
     healthRoutines: healthRoutines ?? [],
+    sourceReady: routineSourceReady,
     accountOperation: {
       accountId: user.id,
       generation: accountGenerationRef.current,
@@ -616,6 +621,7 @@ export const HealthView = ({
 
   // ── 워크아웃 로컬 조작 ─────────────────────────────────────────────
   const handleLoadRoutine = async (e: ChangeEvent<HTMLSelectElement>) => {
+    if (selectedDayComposite && !routinePresetAccountReady) return;
     const accountOperation = { accountId: user.id, generation: accountGenerationRef.current };
     const dayName = e.target.value;
     if (!dayName || dayName === '__load__') return;
@@ -1449,6 +1455,7 @@ export const HealthView = ({
                   <div className="flex min-w-0 items-center gap-1.5" data-health-quick-setup>
                     <select
                       aria-label={t('healthPresetLabel')}
+                      disabled={!!selectedDayComposite && !routinePresetAccountReady}
                       value={activePreset.id}
                       onChange={e => { void handleQuickPresetChange(e.target.value); }}
                       className={`min-h-[40px] min-w-0 max-w-[120px] rounded-xl border px-2 py-2 text-xs font-bold outline-none ${theme.input} ${theme.border}`}
@@ -1478,7 +1485,7 @@ export const HealthView = ({
                     <option key={k} value={k}>{t(k)}</option>
                   ))}
                 </select>
-                <select onChange={handleLoadRoutine}
+                <select onChange={handleLoadRoutine} disabled={!!selectedDayComposite && !routinePresetAccountReady}
                   className="bg-primary text-primary-foreground font-bold text-sm lg:text-base px-4 lg:px-5 py-2 lg:py-3 rounded-xl outline-none cursor-pointer shadow-md">
                   <option value="__load__">{t('loadRoutine')}</option>
                   {Array.from({ length: splitCount }).map((_, i) => <option key={i} value={`Day ${i + 1}`}>{t('loadDay').replace('{n}', String(i + 1))}</option>)}
@@ -2013,11 +2020,19 @@ export const HealthView = ({
         />
 
         <div className={`xl:h-full xl:min-h-0 ${WORKSPACE_CARD.sm} ${WORKSPACE_CARD_SURFACE} abs-cosmos-health-setup-surface flex flex-col overflow-visible xl:overflow-hidden transition-colors ${mobileHealthTab === 'setup' && setupSection === 'routine' ? '' : 'hidden lg:flex'}`} data-k126-workout-routine data-health-09b-routine data-health-composition-role="setup-routine">
+          {!routinePresetAccountReady && selectedDayComposite && (
+            <p role="status" data-health-routine-source-pending className="text-xs text-muted-foreground">
+              {healthRoutinesState?.status === 'ERROR'
+                ? 'Verified local routine presets are unavailable.'
+                : 'Reading verified local routine presets…'}
+            </p>
+          )}
           <div className="flex flex-wrap justify-between items-center gap-2 mb-2.5 shrink-0">
             <div className="flex min-w-0 items-center gap-2">
               <h2 className="font-heading text-base font-bold shrink-0">{t('routineSetup')}</h2>
               <select
                 aria-label={t('healthPresetLabel')}
+                disabled={!!selectedDayComposite && !routinePresetAccountReady}
                 value={activePreset.id}
                 onChange={e => {
                   void handleQuickPresetChange(e.target.value);
@@ -2033,6 +2048,7 @@ export const HealthView = ({
                 <button
                   type="button"
                   aria-label={t('healthPresetActions')}
+                  disabled={!!selectedDayComposite && !routinePresetAccountReady}
                   aria-expanded={presetMenuOpen}
                   aria-controls="health-preset-actions-menu"
                   onClick={() => setPresetMenuOpen(open => !open)}
@@ -2067,6 +2083,7 @@ export const HealthView = ({
             <div className={`flex shrink-0 items-center gap-2 px-3 py-1.5 rounded-xl ${theme.input}`}>
               <input
                 type="number" inputMode="numeric" min="1" max="7"
+                disabled={!!selectedDayComposite && !routinePresetAccountReady}
                 value={splitCountInput}
                 onChange={e => setSplitCountInput(e.target.value)}
                 onBlur={() => { void commitPresetSplit(); }}
@@ -2086,7 +2103,7 @@ export const HealthView = ({
                 <div key={dayName} className={`rounded-xl p-3 border ${theme.border}`}>
                   <div className="flex justify-between items-center mb-2">
                     <h3 className="font-heading text-sm font-bold">{dayName}</h3>
-                    <button onClick={() => openAssembleModal(dayName)} className="text-[11px] text-blue-500 font-bold">{t('assembleBtn')}</button>
+                    <button onClick={() => openAssembleModal(dayName)} disabled={!!selectedDayComposite && !routinePresetAccountReady} className="text-[11px] text-blue-500 font-bold">{t('assembleBtn')}</button>
                   </div>
                   <div className="flex flex-col gap-1 min-h-[24px]">
                     {blocks.length === 0 ? (

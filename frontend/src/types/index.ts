@@ -183,6 +183,8 @@ export interface HealthProps extends BaseViewProps, DateProps, MutateProps {
   /** Gated selected-day reader data; never part of the legacy Workout[] writer. */
   selectedDayComposite?: import('../components/views/features/health/useHealthSelectedDayComposite').HealthSelectedDayReadModel;
   onLocalWorkoutCommitted?: () => void;
+  /** Gated local routine source readiness; [] alone is not verified empty. */
+  healthRoutinesState?: import('../lib/searchReadiness').SearchDatasetState;
 }
 
 export interface AnalyticsProps extends BaseViewProps {

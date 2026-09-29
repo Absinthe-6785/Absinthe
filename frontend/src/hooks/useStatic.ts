@@ -17,6 +17,8 @@ interface UseStaticDataResult {
   /** Readiness for the Search-deferred Health block source. */
   healthBlocksState: SearchDatasetState;
   healthRoutines: HealthRoutine[];
+  /** Verified routine-source readiness, distinct from an empty fallback array. */
+  healthRoutinesState: SearchDatasetState;
   weeklySchedules: WeeklySchedule[];
   mutate: () => void;
 }
@@ -87,7 +89,13 @@ export const useStaticData = (
   );
   const healthRoutinesCacheKey = accountBoundHealthStaticKey(`${base}/health_routines`, accountId, 'health_routine_presets', !localMode);
   const healthRoutinesKey = healthRoutinesEnabled ? healthRoutinesCacheKey : null;
-  const { data: healthRoutines = [], mutate: mutateRoutines } = useSWR<HealthRoutine[]>(
+  const {
+    data: remoteHealthRoutines,
+    mutate: mutateRoutines,
+    isLoading: remoteRoutinesIsLoading,
+    isValidating: remoteRoutinesIsValidating,
+    error: remoteRoutinesError,
+  } = useSWR<HealthRoutine[]>(
     healthRoutinesKey,
     fetchAccountBoundHealthStatic,
     swrOpts,
@@ -162,12 +170,22 @@ export const useStaticData = (
     isValidating: localMode ? localHealthIsValidating : healthBlocksIsValidating,
     error: localMode ? localHealthError : healthBlocksError,
   });
+  const healthRoutinesState = resolveSearchDatasetState({
+    enabled: localMode ? localHealthKey !== null && healthRoutinesEnabled : healthRoutinesKey !== null,
+    data: localMode ? localHealth?.healthRoutines : remoteHealthRoutines,
+    isLoading: localMode ? localHealthIsLoading : remoteRoutinesIsLoading,
+    isValidating: localMode ? localHealthIsValidating : remoteRoutinesIsValidating,
+    error: localMode ? localHealthError : remoteRoutinesError,
+  });
 
   return {
     markedDates,
     healthBlocks: healthBlocks ?? [],
     healthBlocksState,
-    healthRoutines: localMode && healthRoutinesEnabled ? localHealth?.healthRoutines ?? [] : healthRoutines,
+    healthRoutines: localMode
+      ? healthRoutinesEnabled ? localHealth?.healthRoutines ?? [] : []
+      : remoteHealthRoutines ?? [],
+    healthRoutinesState,
     weeklySchedules,
     mutate,
   };
