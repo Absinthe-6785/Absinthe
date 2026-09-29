@@ -1521,10 +1521,16 @@ export const HealthView = ({
               <div className={`rounded-2xl border border-dashed px-4 py-4 lg:px-5 lg:py-4 ${theme.border} ${appSettings.darkMode ? 'bg-surface/40' : 'bg-gray-50/70'}`} data-k121-empty-state="health-workouts" data-k129c-workout-empty data-k134a-workout-empty data-k134b-health-empty-compact>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div className="min-w-0">
-                    <p className="font-heading text-lg font-bold">{selectedDayComposite && (selectedDayComposite.result?.status !== 'complete'
+                    <p className="font-heading text-lg font-bold">{selectedDayComposite && (isDirty
+                      || selectedDayComposite.result?.status !== 'complete'
                       || selectedDayComposite.result?.records.some(record => record.source === 'canonical'))
-                      ? 'No legacy workout entries for this day' : t('noWorkoutsEmpty')}</p>
-                    <p className={`mt-1 max-w-xl text-sm leading-relaxed ${theme.textMuted}`}>{t('healthWorkoutEmptyPolishDesc')}</p>
+                      ? 'No legacy workout entries in this draft' : t('noWorkoutsEmpty')}</p>
+                    <p className={`mt-1 max-w-xl text-sm leading-relaxed ${theme.textMuted}`}>
+                      {selectedDayComposite && (isDirty || selectedDayComposite.result?.status !== 'complete'
+                        || selectedDayComposite.result?.records.some(record => record.source === 'canonical'))
+                        ? 'The legacy editor is separate from any read-only canonical sessions shown above.'
+                        : t('healthWorkoutEmptyPolishDesc')}
+                    </p>
                   </div>
                   <div className="flex shrink-0 flex-wrap gap-2">
                     <button
