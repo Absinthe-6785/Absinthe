@@ -1,0 +1,117 @@
+# REL-05G5B2 — composite Workout reader preparation
+
+Baseline: `2f0155bc6cbc58f44a0317ee26f1450594a5ad7f` on `main` (PR #728 merged). This is a design artifact only. The G5A authority control plane is active; the Workout product data plane and the G5B1 editor adapter remain dormant. The product still reads and writes `LEGACY_HEALTH_LOCAL`. No reader, writer, sync worker, backend, schema, or G6 activation is authorized by this document.
+
+## Source facts on this baseline
+
+| Concern | Current path and shape | Hidden assumption to remove before cutover |
+| --- | --- | --- |
+| Selected-day Health | `AppContent` → `useDailyData` → account/date-keyed `readLocalHealthDaily` → `Workout[]` prop → `HealthView`. `useHealthWorkoutDraft` owns account/date-scoped transient `Workout[]`; dirty draft blocks SWR replacement. | `Workout` is one exercise/block row, not a canonical session; lock is `workouts.length > 0` or successful legacy save. `HealthView` deduplicates additions by `block_id`. |
+| Save/delete | `HealthView` → `healthWorkoutPersistence` → `HealthRepository.saveWorkouts` / `deleteWorkout` in local mode; `mutateDaily`, month range, and static caches. A dormant remote branch calls `/api/workouts`. | Legacy writes replace `(date, block_id)` rows using `local_version` CAS and physically delete rows. None of these actions may target canonical or historical read-only records implicitly. |
+| Previous | `readLocalPreviousWorkoutRows` → `previousWorkoutSession` → `previousWorkoutProjection`; separate per-block `readLocalPreviousWorkout`/`prevWorkoutFetch`. The range is one year ending yesterday. | The browser calls each prior **date** one coherent `PreviousWorkoutSession`, prefers the latest matching weekday, and selects by date. Per-block lookup keys by current `block_id`. Neither is a multi-session canonical identity. |
+| Health range/calendar/metrics | `readLocalHealthWorkoutRange` → `RangeWorkoutRow[]` → `buildHealthProjection`/`workoutMetrics`. | `monthlySessionCount` increments per legacy row; weekly “sessions”, streak, calendar and recent “sessions” use distinct dates. A legacy row count is not a proven session count. |
+| Home | `AppContent.workouts` → `buildHomeFoundationProjection`; account/date localStorage draft overrides today's saved `Workout[]` for exercise/set/done summary. | One selected-day flat list; `hasSession` and `isLocked` depend on array length. Canonical records are invisible today. |
+| Search | `GlobalSearchHost` receives selected-day `Workout[]` and blocks; `buildHealthSearchResults` indexes each workout row with `workout-${w.id}` and the exercise name. | Results have no source/date/session/entry identity; raw IDs can collide across sources. Historical Workout is not currently indexed through this path. |
+| Archive/history | `AnalyticsView` mounts `ArchiveShell` because `ARCHIVE_SHELL_ENABLED=true`. Its projection is notes/vault/restore activity plus domain marks from `/api/heatmap`; `LegacyAnalyticsView` with remote Workout widgets is dormant. | The mounted Archive is **not** a canonical/legacy Workout history reader. A Workout domain mark is not a session record. Do not expand this first slice into dormant analytics. |
+| Export | `csvExport.buildWorkoutsCsv` fetches `/api/workouts/range` and emits legacy set columns. `exportAllToCsv` rejects when `health_workouts` is not remote-persisted. | Today export is not a complete local Workout export. A future export cannot silently omit canonical sessions. |
+| Startup | `AppContent` starts Notes and Health separately, but gates Health rendering and the local Health SWR key on successful Health Supabase bootstrap; failure shows startup recovery UI. G5A authority startup is separate/nonblocking. | Canonical local visibility must eventually be independent of network, G5A readiness, and legacy bootstrap success. Current Health gate does not provide that independence. |
+
+Evidence: `HealthView.tsx` (selected-day hydration, operations, range/previous SWR), `healthWorkoutPersistence.ts`, `useHealthWorkoutDraft.ts`, `previousWorkoutSession.ts`, `previousWorkoutProjection.ts`, `prevWorkoutFetch.ts`, `buildHealthProjection.ts`, `workoutMetrics.ts`, `buildHomeFoundationProjection.ts`, `buildSearchDomainResults.ts`, `AnalyticsView.tsx`, `ArchiveShell.tsx`, `useArchiveDomainMarks.ts`, `csvExport.ts`, `AppContent.tsx`, `useDaily.ts`, `useStatic.ts`, and `healthSupabaseBootstrap.ts`.
+
+### Native source shapes and historical honesty
+
+The legacy DB is `absinthe.health.local` v1. `workout_logs` are account-scoped by `storageKey = accountId:workout_logs:rowId` and an `accountId` index. A persisted row has `id`, `user_id`, `date`, `block_id`, legacy `sets`, and `sort_order`; `exercise_blocks` is a separate mutable dataset. The `Workout` UI shape adds an exercise block and optional `local_version` (a hash of the logical row). `readLocalHealthDaily` projects one row per exercise, ordered by `sort_order`; range projections omit the row ID, whereas previous-history rows retain optional `rowId`. A missing legacy block is rendered with an explicitly historical fallback name rather than a frozen canonical snapshot. `saveWorkouts` replaces same `(date, block_id)` rows under CAS; `deleteWorkout` physically removes the row. The `__session__` item is a **view-only** separator filtered before persistence: it may segment a legacy display but proves no durable human session. The date/account memo and dirty draft are external localStorage state, not workout-row or V1 session fields. See `types/index.ts`, `healthLocalRepository.ts`, `healthLocalRuntime.ts`, `HealthView.tsx`, and `healthWorkoutPersistence.ts`.
+
+Canonical `WorkoutSessionV1` is exactly `{version:1,id,localDate,entries}`. One entity is one session; several may share `localDate`. Each entry has its own UUIDv4, frozen exercise `{id,name,type,tags,cardioMode}`, and ordered UUIDv4 sets with strength/bodyweight/cardio-specific fields and one-based ordinals. The `LocalEntityEnvelope` supplies account/namespace/generation, `entityId`, `revision`, provenance, and `isDeleted`/`deletedAt`. The repository's default `listWorkoutSessions()` excludes tombstones and validates V1 records and entity/record UUID-value agreement. Tombstone bytes remain durable; normal product reads exclude them. The G5B1 editor adapter is a pure draft/input boundary, not a storage read source. See `workoutSessionV1.ts`, `localDatabase/types.ts`, `localDatabase/repository.ts`, `workoutSessionRepository.ts`, and `workoutSessionEditorAdapter.ts`.
+
+No durable cross-source adoption/equivalence mapping exists. Equal dates, block IDs, names, sets, weight, reps, duration, or distance **never** justify dedupe or suppression. Historical legacy rows remain legacy records; no automatic V1 session, UUID, timestamp, or exercise snapshot may be fabricated. Explicit future adoption would require its own durable provenance and review.
+
+## Proposed dormant read boundary
+
+Introduce a **new** source-discriminated product read DTO rather than passing `Workout[]` or raw V1 directly to all consumers. This is a proposed pure projection contract, not a product activation:
+
+```ts
+type SourceRead<T> =
+  | { status: 'success'; records: readonly T[] }
+  | { status: 'error' }; // no invented empty array
+
+type CompositeWorkoutRecord =
+  | {
+      source: 'legacy'; readId: string; localDate: string;
+      legacy: { accountId: string; rowId: string; blockId: string;
+        sortOrder: number; exerciseBlock: ExerciseBlock; sets: readonly WorkoutSet[] };
+      capability: 'read_only';
+    }
+  | {
+      source: 'canonical'; readId: string; localDate: string;
+      canonical: { namespaceKey: string; generationId: string;
+        entityId: string; session: WorkoutSessionV1; localRevision: number };
+      capability: 'read_only_in_G5B2';
+    };
+
+type CompositeRead = {
+  status: 'complete' | 'partial_data' | 'error';
+  legacyStatus: 'success' | 'error';
+  canonicalStatus: 'success' | 'error';
+  records: readonly CompositeWorkoutRecord[];
+};
+```
+
+The legacy input must carry a **real persisted row ID**, account ID and date; the current `Workout[]` alone lacks date/account and can contain temporary draft/separator IDs. Prefer a narrow readonly normalized row from the verified local dataset, with the legacy block resolved separately, over pretending a `Workout` draft is persisted history. Reject or mark invalid missing/duplicate row IDs; never mint a substitute identity. The canonical input is the validated `LocalEntityEnvelope<WorkoutSessionV1>` (not the editor model); preserve its actual V1 record/snapshot and local revision. Projection must copy or treat inputs as readonly and never write either store.
+
+`readId` is a stable, unambiguous encoding of a tuple, for example `JSON.stringify(['legacy', accountId, rowId])` versus `JSON.stringify(['canonical', namespaceKey, generationId, entityId.toLowerCase()])`. Require the legacy row's `user_id` and the canonical namespace's authenticated `userId` to match the requested account before publication; reject stale-generation results. Preserve the original `record.id` spelling in the V1 payload; case-fold only the identity key, in line with V1 UUID-value equality. An entry search key, if later needed, extends the canonical tuple with `'entry'` and `entry.id.toLowerCase()`; never use an unqualified `workout-${rawId}`. Within a selected account this identity is unique across sources, same-day sessions, and duplicate exercise entries.
+
+The projection takes already loaded, account-scoped source results. It excludes canonical tombstones, validates records, retains a separate `source` and capability flag, and does not infer editability from an ID prefix. Both variants are **read-only in G5B2**; a future canonical edit capability requires a separate writer gate. Legacy must never route through the canonical editor, v7 delete/tombstone, or save path. A later explicit `editable/deletable` capability can be added at product integration; do not expose `adoptable` until an adoption workflow exists. No localStorage memo is attached to a session; if shown, it remains a separate account/date annotation.
+
+### Day grouping and ordering
+
+Selected date outcomes: none → truthful empty only if both sources succeeded; legacy only → distinct read-only rows (optionally a **legacy date group**, not a session); canonical only → every session card separately; both → both visible; two canonical sessions on one date → two identities; legacy plus two canonical → all three or more records. Never flatten all records into one editable `Workout[]` or dedupe by content.
+
+For range results, sort by `localDate` descending. Within a date, use a documented stable *display fallback*, not false chronology: canonical sessions by case-folded `entityId` (then original ID), legacy rows by numeric `sort_order` (then persisted `rowId`), with a fixed source rank between groups. For selected-day projection, the same within-day ordering applies. The proposed dormant module can choose canonical-before-legacy as a deterministic technical rank; final mixed-source presentation/order is a `PRODUCT_DECISION_REQUIRED`. V1 has no `performedAt`, timezone, session label, or session sort, and legacy `sort_order` only orders its block rows. Do not call this a time order.
+
+### Failure, account, and cache boundary
+
+| Legacy read | Canonical read | Result |
+| --- | --- | --- |
+| success(empty) | success(empty) | `complete`, truthful empty |
+| success(rows/empty) | success(sessions/empty) | `complete`, all visible records |
+| success | error | `partial_data`, preserve legacy records and disclose missing canonical coverage |
+| error | success | `partial_data`, preserve canonical sessions and disclose missing legacy history |
+| error | error | `error`, **not** empty |
+
+A failed source cannot be silently converted to `[]`; a partial result cannot drive a “complete history”, zero-workout claim, destructive action, or total metric. During pre-cutover, a canonical read failure must not block the existing legacy product path. After future integration, legacy bootstrap failure must not hide verified local canonical sessions; legacy history completeness remains unknown. Invalid account/generation evidence is a fail-closed isolation error, not a partial cross-account merge.
+
+Future loader: establish authenticated account and current generation; independently obtain verified local legacy rows and account/project/device/generation-scoped v7 entities; compose locally without G5A readiness or network; publish only if account, date/range, generation, and request token are still current. A→B→A and date A→B must fence late A responses even when their cache keys differ. Preserve the G5P account transition invariants and Health's dirty-draft guard. The current `AppContent` Health gate waits for Supabase bootstrap; integration must split verified local legacy/canonical visibility from remote legacy bootstrap readiness. G5B2A does **not** change startup. `useDailyData`/`useStaticData` and Health range/previous SWR keys are account/date scoped today; a future composite cache must include account, generation, source, and date/range and invalidate each source after its own changes. Keep the pure projection over independently loaded source snapshots; do not feed a mixed DTO into the legacy `Workout[]` cache. Multi-tab canonical writes currently have no product-level subscription on `WorkoutSessionRepository`; future integration needs explicit focus/visibility or cross-tab invalidation and a scoped reread, not assumed real-time sync.
+
+### Repository query and performance facts
+
+`WorkoutSessionRepository.listWorkoutSessions()` calls `LocalDatabaseRepository.listEntities({domain})`, which uses `by_namespace_generation_domain`, `getAll`, filters tombstones, validates, and sorts by entity ID. `queryWorkoutSessionsByLocalDate()` filters **that entire list in memory**. There is no canonical date/range index or bounded range API. The local legacy runtime likewise calls `HealthRepository.readAll()`/`readAuthoritativeDatasets()` before filtering daily or range rows. Thus repeated full-store scans on every Health render are unacceptable as a final integration pattern. A later loader should read once per account/generation, memoize derived day/range indexes with explicit invalidation, or add a separately reviewed bounded/indexed query (which may require a schema gate). This is a **product-integration query gap**, not a prerequisite for the pure dormant projection. No schema change is proposed here.
+
+## Consumer handoff matrix
+
+| Consumer | Current authority | Future composite need / minimum fields | Identity and order | Mutability | G5B2A vs later |
+| --- | --- | --- | --- | --- | --- |
+| Health Today | `LEGACY_ONLY` `Workout[]` plus transient draft | selected `localDate`, source, row/session cards, exercise/set summary, partial status | source-qualified record; within-day stable fallback, not chronology | legacy read-only; canonical not yet editable | DTO/day projection only; later card UI, draft/lock/action routing |
+| Previous Workout | `LEGACY_ONLY` one date-grouped “session”, same-weekday default; separate per-block lookup | explicit previous **date**, **session**, or **matching exercise** primitive; canonical entry ID and frozen snapshot; legacy row group labelled legacy | canonical session ID versus legacy date+row IDs; date descending and stable tie-break | read-only | retain source records; later product semantics and query/UI rewrite |
+| Health metrics/calendar | `DERIVED` from legacy range rows | workout-day union; separate canonical session count and legacy row/day measures; source-specific set, volume, cardio units | source IDs for counting; dates for streak/calendar | read-only | DTO only; later reviewed metric adapters |
+| Home | `DERIVED` from selected-day legacy `Workout[]` and localStorage draft | all visible same-day sessions plus legacy rows, count summaries, partial status, draft precedence | no singleton-by-date | read-only summary | DTO only; later Home projection + draft integration |
+| Search | `LEGACY_ONLY` selected-day workout rows plus catalog blocks | source-aware result target; decide session, entry, or both and whether historical search is included | tuple-qualified row/session/entry key, no raw-ID collision; score then stable readId | navigation only | DTO identity only; later index/product decision |
+| Archive/history | Mounted Archive uses notes/vault/heatmap domain marks, not Workout entities; `LegacyAnalyticsView` dormant | no Workout entity integration required in first slice; future history surface may consume same DTO | do not treat heatmap mark as session | read-only | no Archive change; later scoped feature decision |
+| Export | Remote `/api/workouts/range` legacy CSV; currently guarded for local-first domain | future complete local export must include canonical with source/session/entry identity and reviewed unit columns | stable source-qualified rows, deterministic sort | read-only output | no export change; later bounded export slice/product policy |
+
+“Previous” is not one universal primitive today: the date-browser selects a prior date (weekday preferred), while PR/per-block lookup selects the latest earlier row for `block_id`. A future composite API should expose separate `previousDateRecords(referenceDate)`, `previousCanonicalSession(referenceDate, selection?)`, and `previousExerciseEvidence(exerciseKey, beforeDate)` rather than silently choosing a canonical session from a legacy date group. Exercise matching across mutable legacy blocks and frozen canonical snapshots is a product/identity decision, not name matching. A legacy date group may preserve legacy presentation, but must never be labelled or counted as a proven canonical session.
+
+Metric adapters need explicit meanings: `workoutDayCount = distinct dates with any visible record` only for a **complete** range; `canonicalSessionCount = distinct canonical session IDs`; `legacyRowCount` and, if desired, `legacyWorkoutDayCount` separately. Exercise/set counts can be source-specific sums, but volume and cardio require reviewed source-specific parsing/unit conversions (`WorkoutSet.kg/time/distance` versus V1 decimal kg/metres/seconds). Do not reuse `monthlySessionCount` as a composite session count or use name-only PR dedupe. Incomplete range data must mark metrics partial/unknown rather than undercounting silently.
+
+## Decisions, gaps, and next slice
+
+- **CODE_FACT:** V1 has no performed timestamp, time zone, session label/sort, or memo. The existing memo is account/date localStorage and cannot truthfully be assigned to one of several same-day sessions.
+- **ARCHITECTURE_REQUIREMENT:** source-qualified IDs; account/generation fencing; canonical snapshot display; tombstone filtering; no similarity dedupe, adoption, cross-source tombstone, or dual write; partial-read states; stable nonchronological ordering; no product use of `Workout[]` as a composite persistence format.
+- **PRODUCT_DECISION_REQUIRED:** exact mixed-source card presentation/order and badge wording; whether Previous includes legacy groups and what “previous” selects; whether Search indexes current day, history, sessions, entries, or both; whether/export how canonical records are included; whether memo and absent V1 session metadata become session-owned; how partial results and reset-fenced/offline status are worded. A source badge must at minimum convey legacy historical/read-only versus canonical session, regardless of styling.
+- **LATER INTEGRATION GAPS (not blockers to this docs-only prep or pure G5B2A):** `G5B2_REPOSITORY_QUERY_GAP` (full-domain/full-dataset reads), `G5B2_LEGACY_GROUPING_BLOCKER` (no durable legacy session ID), `G5B2_PREVIOUS_WORKOUT_SEMANTICS_BLOCKER`, `G5B2_METRIC_SEMANTICS_BLOCKER`, `G5B2_SEARCH_IDENTITY_BLOCKER`, and `G5B2_EXPORT_COVERAGE_BLOCKER`. Partial-failure policy is defined above for the read DTO; product presentation remains a decision.
+
+**Exactly one immediate implementation slice:** `REL_05G5B2A_DORMANT_COMPOSITE_PROJECTION`. Add only a pure source-qualified read DTO/projection module near `features/health` plus its focused tests. Input is normalized persisted legacy rows and validated canonical envelopes (or narrow readonly views), with explicit source success/error discriminants. Output is stable day/range records and completeness state. No DB opener, hook, SWR, HealthView/AppContent/Home/Search/Archive/export import, product invocation, writer, sync worker, backend, or schema change. A following independent review must precede any product reader integration.
+
+Direct tests for that slice: legacy-only; canonical-only; both same date; two canonical sessions on one date; legacy plus two canonical; same raw ID in both sources; no similarity dedupe; deterministic within-source/mixed ordering independent of input order; frozen canonical exercise snapshot despite current catalog change; distinct duplicate canonical exercise entries; real legacy row ID required; view-only `__session__` never creates a canonical session; canonical tombstone excluded; both empty; each one-source failure; both failure; partial result never reported complete/empty; input immutability; account/generation mismatch fail-closed. Later reader-integration tests must cover A→B→A, date race, dirty draft, offline startup, cache invalidation, multi-tab reread, and selected-day/Previous/metrics/Home/Search coverage.
+
+All seven live-writer blockers remain **OPEN**: unbound pre-reset create, rollback visibility, old/new client coexistence, product UI identity integration, canonical field ownership, projection integration, and reset-fenced local edit policy. This read design does not resolve any of them or `REL05G5A-001` (separate P3). No product writer may be activated as a consequence of G5B2 prep or its dormant pure projection.
