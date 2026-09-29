@@ -14,6 +14,7 @@ import {
 } from '../../../../lib/workoutSessionV1';
 
 export type WorkoutEditorIdFactory = () => string;
+const defaultWorkoutEditorIdFactory: WorkoutEditorIdFactory = () => crypto.randomUUID();
 type RepetitionInput = string | number | null;
 type EditorSet<T extends { id: string }> = Omit<T, 'id'> & { setId: string };
 
@@ -94,9 +95,6 @@ function allocateId(idFactory: WorkoutEditorIdFactory): string {
 function checkExerciseSnapshot(value: WorkoutExerciseSnapshotV1): WorkoutExerciseSnapshotV1 {
   const exercise = record(value, 'exerciseSnapshot');
   exactKeys(exercise, EXERCISE_KEYS, 'exerciseSnapshot');
-  if (exercise.id === '__session__' || exercise.name === '__session__') {
-    throw new WorkoutSessionEditorError('UNSUPPORTED_EDITOR_FIELD', '__session__ separator');
-  }
   if ((exercise.id !== null && typeof exercise.id !== 'string') || typeof exercise.name !== 'string'
     || !['strength', 'bodyweight', 'cardio'].includes(exercise.type as string)
     || !Array.isArray(exercise.tags) || exercise.tags.some(tag => typeof tag !== 'string')
@@ -114,14 +112,14 @@ function checkInput(value: unknown, allowed: readonly string[], path: string): R
 }
 
 /** A new draft is intentionally incomplete until it has entries and sets. */
-export function createWorkoutSessionEditor(localDate: string, idFactory: WorkoutEditorIdFactory = crypto.randomUUID): WorkoutSessionEditor {
+export function createWorkoutSessionEditor(localDate: string, idFactory: WorkoutEditorIdFactory = defaultWorkoutEditorIdFactory): WorkoutSessionEditor {
   return { sessionId: allocateId(idFactory), localDate, expectedLocalRevision: null, entries: [] };
 }
 
 /** Snapshot the catalog value at entry creation; no later catalog reference is retained. */
 export function createWorkoutEditorEntry(
   exerciseSnapshot: WorkoutExerciseSnapshotV1,
-  idFactory: WorkoutEditorIdFactory = crypto.randomUUID,
+  idFactory: WorkoutEditorIdFactory = defaultWorkoutEditorIdFactory,
 ): WorkoutEditorEntry {
   checkExerciseSnapshot(exerciseSnapshot);
   return {
@@ -198,17 +196,17 @@ function cardioValues(input: CardioSetInput): Omit<WorkoutEditorCardioSet, 'setI
   });
 }
 
-export function createWorkoutEditorStrengthSet(input: StrengthSetInput, ordinal: number, idFactory: WorkoutEditorIdFactory = crypto.randomUUID): WorkoutEditorStrengthSet {
+export function createWorkoutEditorStrengthSet(input: StrengthSetInput, ordinal: number, idFactory: WorkoutEditorIdFactory = defaultWorkoutEditorIdFactory): WorkoutEditorStrengthSet {
   const values = strengthValues(input);
   return { setId: allocateId(idFactory), ordinal, ...values };
 }
 
-export function createWorkoutEditorBodyweightSet(input: BodyweightSetInput, ordinal: number, idFactory: WorkoutEditorIdFactory = crypto.randomUUID): WorkoutEditorBodyweightSet {
+export function createWorkoutEditorBodyweightSet(input: BodyweightSetInput, ordinal: number, idFactory: WorkoutEditorIdFactory = defaultWorkoutEditorIdFactory): WorkoutEditorBodyweightSet {
   const values = bodyweightValues(input);
   return { setId: allocateId(idFactory), ordinal, ...values };
 }
 
-export function createWorkoutEditorCardioSet(input: CardioSetInput, ordinal: number, idFactory: WorkoutEditorIdFactory = crypto.randomUUID): WorkoutEditorCardioSet {
+export function createWorkoutEditorCardioSet(input: CardioSetInput, ordinal: number, idFactory: WorkoutEditorIdFactory = defaultWorkoutEditorIdFactory): WorkoutEditorCardioSet {
   const values = cardioValues(input);
   return { setId: allocateId(idFactory), ordinal, ...values };
 }
@@ -257,15 +255,13 @@ export function projectWorkoutSessionEditor(input: unknown): WorkoutSessionV1 {
     const path = `entries[${entryIndex}]`;
     if (unknownEntry === '__session__') throw new WorkoutSessionEditorError('UNSUPPORTED_EDITOR_FIELD', '__session__ separator');
     const entry = record(unknownEntry, path);
-    if (entry.block_id === '__session__' || entry.entryId === '__session__') {
+    // The view-only separator is a legacy block_id, not a canonical snapshot id or name.
+    if (entry.block_id === '__session__') {
       throw new WorkoutSessionEditorError('UNSUPPORTED_EDITOR_FIELD', '__session__ separator');
     }
     exactKeys(entry, ENTRY_KEYS, path);
     const exercise = record(entry.exerciseSnapshot, `${path}.exerciseSnapshot`);
     exactKeys(exercise, EXERCISE_KEYS, `${path}.exerciseSnapshot`);
-    if (exercise.id === '__session__' || exercise.name === '__session__') {
-      throw new WorkoutSessionEditorError('UNSUPPORTED_EDITOR_FIELD', '__session__ separator');
-    }
     if (!Array.isArray(exercise.tags)) invalid(`${path}.exerciseSnapshot.tags`);
     if (!Array.isArray(entry.sets)) invalid(`${path}.sets`);
     const sets = entry.sets.map((unknownSet, setIndex) => {

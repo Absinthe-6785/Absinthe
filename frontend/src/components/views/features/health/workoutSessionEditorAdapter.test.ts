@@ -54,6 +54,32 @@ function expectCode(operation: () => unknown, code: WorkoutSessionEditorError['c
 }
 
 describe('dormant WorkoutSessionV1 editor adapter', () => {
+  it('uses the actual default UUID factory with its Crypto receiver for every new object', () => {
+    const originalRandomUUID = crypto.randomUUID;
+    const generate = vi.spyOn(crypto, 'randomUUID').mockImplementation(function (this: Crypto) {
+      if (this !== crypto) throw new TypeError('Crypto receiver required');
+      return originalRandomUUID.call(crypto);
+    });
+    try {
+      const session = createWorkoutSessionEditor('2026-09-29');
+      const strength = createWorkoutEditorEntry(strengthExercise);
+      strength.sets.push(createWorkoutEditorStrengthSet(strengthInput, 1));
+      const bodyweight = createWorkoutEditorEntry(bodyweightExercise);
+      bodyweight.sets.push(createWorkoutEditorBodyweightSet(bodyweightInput, 1));
+      const cardio = createWorkoutEditorEntry(cardioExercise);
+      cardio.sets.push(createWorkoutEditorCardioSet(cardioInput, 1));
+      session.entries.push(strength, bodyweight, cardio);
+      const allIds = [session.sessionId, ...session.entries.flatMap(entry => [entry.entryId, ...entry.sets.map(set => set.setId)])];
+      expect(allIds).toHaveLength(7);
+      expect(new Set(allIds).size).toBe(7);
+      expect(allIds.every(id => /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id))).toBe(true);
+      expect(generate).toHaveBeenCalledTimes(7);
+      expect(canonical(session).entries).toHaveLength(3);
+    } finally {
+      generate.mockRestore();
+    }
+  });
+
   it('allocates session, entry and set IDs once in entry order; repeated projection allocates none', () => {
     const source = ids();
     const session = createWorkoutSessionEditor('2026-09-29', source.factory);
@@ -218,7 +244,33 @@ describe('dormant WorkoutSessionV1 editor adapter', () => {
     expectCode(() => createWorkoutEditorCardioSet({ ...cardioInput, distanceKilometersInput: '0.0000001' }, 1, next), 'INVALID_EDITOR_VALUE');
     expectCode(() => createWorkoutEditorStrengthSet({ ...strengthInput, weightInput: '', weightUnit: 'stone' } as never, 1, next), 'INVALID_EDITOR_VALUE');
     expectCode(() => createWorkoutEditorStrengthSet({ ...strengthInput, performedAt: 'unsupported' } as never, 1, next), 'UNSUPPORTED_EDITOR_FIELD');
-    expectCode(() => createWorkoutEditorEntry({ ...strengthExercise, name: '__session__' }, next), 'UNSUPPORTED_EDITOR_FIELD');
+  });
+
+  it('round-trips a V1-valid exercise named __session__ without treating its name as a separator', () => {
+    const saved = canonical(validEditor());
+    saved.entries[0]!.exercise.name = '__session__';
+    validateWorkoutSessionV1(saved);
+    const editor = hydrateWorkoutSessionEditor(saved, 4);
+    expect(canonical(editor)).toEqual(saved);
+
+    const newEditor = createWorkoutSessionEditor('2026-09-29', () => IDS[0]!);
+    const entry = createWorkoutEditorEntry({ ...strengthExercise, name: '__session__' }, () => IDS[1]!);
+    entry.sets.push(createWorkoutEditorStrengthSet(strengthInput, 1, () => IDS[2]!));
+    newEditor.entries.push(entry);
+    expect(canonical(newEditor).entries[0]!.exercise.name).toBe('__session__');
+  });
+
+  it('round-trips a V1-valid snapshot id __session__ while rejecting legacy block_id separators', () => {
+    const saved = canonical(validEditor());
+    saved.entries[0]!.exercise.id = '__session__';
+    validateWorkoutSessionV1(saved);
+    expect(canonical(hydrateWorkoutSessionEditor(saved, 4))).toEqual(saved);
+    const editor = createWorkoutSessionEditor('2026-09-29', () => IDS[0]!);
+    const entry = createWorkoutEditorEntry({ ...strengthExercise, id: '__session__' }, () => IDS[1]!);
+    entry.sets.push(createWorkoutEditorStrengthSet(strengthInput, 1, () => IDS[2]!));
+    editor.entries.push(entry);
+    expect(canonical(editor).entries[0]!.exercise.id).toBe('__session__');
+    expectCode(() => projectWorkoutSessionEditor({ ...editor, entries: [{ ...entry, block_id: '__session__' }] }), 'UNSUPPORTED_EDITOR_FIELD');
   });
 
   it.each(['performedAt', 'timeZone', 'sessionLabel', 'sessionSort', 'memo', 'unknown'])('rejects unsupported session-owned %s before projection', key => {
@@ -237,9 +289,9 @@ describe('dormant WorkoutSessionV1 editor adapter', () => {
   it('rejects the view-only session separator instead of filtering it', () => {
     const editor = validEditor();
     const entry = editor.entries[0]!;
-    expectCode(() => projectWorkoutSessionEditor({ ...editor, entries: [{ ...entry, exerciseSnapshot: { ...entry.exerciseSnapshot, id: '__session__' } }] }), 'UNSUPPORTED_EDITOR_FIELD');
     expectCode(() => projectWorkoutSessionEditor({ ...editor, entries: [{ ...entry, block_id: '__session__' }] }), 'UNSUPPORTED_EDITOR_FIELD');
     expectCode(() => projectWorkoutSessionEditor({ ...editor, entries: ['__session__'] }), 'UNSUPPORTED_EDITOR_FIELD');
+    expectCode(() => projectWorkoutSessionEditor({ ...editor, entries: [{ ...entry, entryId: '__session__' }] }), 'INVALID_EDITOR_VALUE');
   });
 
   it('rejects unknown entry and exercise snapshot fields', () => {
