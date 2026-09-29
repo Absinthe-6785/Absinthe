@@ -47,6 +47,7 @@ import {
   HealthWorkoutComposition,
 } from './features/health/HealthCompositionLayout';
 import { deleteHealthWorkout, saveHealthWorkouts } from './features/health/healthWorkoutPersistence';
+import { HealthSelectedDayCompositePanel } from './features/health/HealthSelectedDayCompositePanel';
 import {
   normalizePreviousWorkoutRows,
   previousWorkoutRange,
@@ -108,7 +109,7 @@ export const HealthView = ({
   formatDate, isToday, showToast, mutateDaily, mutateStatic,
   schedules, weeklySchedules,
   workouts, healthBlocks, healthRoutines, inbody, theme, appSettings,
-  THEME_COLORS, isDailyLoading, user,
+  THEME_COLORS, isDailyLoading, user, selectedDayComposite, onLocalWorkoutCommitted,
 }: HealthProps) => {
   const { t, lang } = useTranslation();
   const isMobile = useIsMobile();
@@ -488,17 +489,21 @@ export const HealthView = ({
   }, [selectedDate, user.id, selectedDateDraftKey]);
 
   // workouts(SWR)가 갱신될 때 isDirtyRef로 판단 → draft 복원 직후 덮어쓰기 방지
+  const lastHydratedWorkoutsRef = useRef<Workout[] | null>(null);
   useEffect(() => {
-    if (!isDirtyRef.current) {
+    if ((!selectedDayComposite || (selectedDayComposite.phase === 'settled'
+      && selectedDayComposite.result?.legacyStatus === 'success')) && !isDirtyRef.current
+      && lastHydratedWorkoutsRef.current !== workouts) {
       const sorted = [...(workouts || [])].sort((a, b) => {
         const ao = a.sort_order ?? 9999;
         const bo = b.sort_order ?? 9999;
         return ao - bo;
       });
       replaceFromHydration(sorted);
+      lastHydratedWorkoutsRef.current = workouts;
       setIsWorkoutLocked(sorted.length > 0);
     }
-  }, [replaceFromHydration, workouts]);
+  }, [replaceFromHydration, workouts, selectedDayComposite?.phase, selectedDayComposite?.result?.legacyStatus]);
 
   useEffect(() => {
     if (!isInbodyDirty)
@@ -783,6 +788,7 @@ export const HealthView = ({
           workoutId: dbId,
           expectedVersion: expectedVersion ?? '',
           shouldContinue: () => currentWorkoutOperation(operationScope),
+          onLocalCommit: onLocalWorkoutCommitted,
         });
         if (!currentWorkoutOperation(operationScope)) return;
         if (result.status === 'aborted') return;
@@ -980,6 +986,7 @@ export const HealthView = ({
         date: formatDate(selectedDate),
         workouts: normalizedWorkouts,
         shouldContinue: () => currentWorkoutOperation(operationScope),
+        onLocalCommit: onLocalWorkoutCommitted,
       });
       if (!currentWorkoutOperation(operationScope)) return;
       if (persistence.status === 'aborted') return;
@@ -1347,6 +1354,14 @@ export const HealthView = ({
 
       {healthSection === 'workout' && (
     <>
+    {selectedDayComposite && <HealthSelectedDayCompositePanel
+      model={selectedDayComposite}
+      draftDirty={isDirty}
+      onPreviousDay={() => setSelectedDate(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate() - 1))}
+      onNextDay={() => setSelectedDate(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate() + 1))}
+    />}
+    {(!selectedDayComposite || (selectedDayComposite.phase === 'settled'
+      && selectedDayComposite.result?.legacyStatus === 'success')) && (
     <HealthWorkoutComposition>
       <HealthMobileSetupNav
         activeSurface={mobileHealthTab === 'setup' ? 'setup' : 'workout'}
@@ -1506,7 +1521,9 @@ export const HealthView = ({
               <div className={`rounded-2xl border border-dashed px-4 py-4 lg:px-5 lg:py-4 ${theme.border} ${appSettings.darkMode ? 'bg-surface/40' : 'bg-gray-50/70'}`} data-k121-empty-state="health-workouts" data-k129c-workout-empty data-k134a-workout-empty data-k134b-health-empty-compact>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div className="min-w-0">
-                    <p className="font-heading text-lg font-bold">{t('noWorkoutsEmpty')}</p>
+                    <p className="font-heading text-lg font-bold">{selectedDayComposite && (selectedDayComposite.result?.status !== 'complete'
+                      || selectedDayComposite.result?.records.some(record => record.source === 'canonical'))
+                      ? 'No legacy workout entries for this day' : t('noWorkoutsEmpty')}</p>
                     <p className={`mt-1 max-w-xl text-sm leading-relaxed ${theme.textMuted}`}>{t('healthWorkoutEmptyPolishDesc')}</p>
                   </div>
                   <div className="flex shrink-0 flex-wrap gap-2">
@@ -2112,6 +2129,7 @@ export const HealthView = ({
         />
       </HealthSupportRegion>
     </HealthWorkoutComposition>
+    )}
     </>
       )}
 

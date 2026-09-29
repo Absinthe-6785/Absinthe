@@ -44,6 +44,8 @@ export type SaveHealthWorkoutsInput = Readonly<{
    * current-view completion effects remain in HealthView.
    */
   shouldContinue?: () => boolean;
+  /** Synchronous invalidation immediately after a durable local commit. */
+  onLocalCommit?: () => void;
 }>;
 
 export type DeleteHealthWorkoutInput = Readonly<{
@@ -53,6 +55,7 @@ export type DeleteHealthWorkoutInput = Readonly<{
   expectedVersion: string;
   dependencies?: HealthWorkoutPersistenceDependencies;
   shouldContinue?: () => boolean;
+  onLocalCommit?: () => void;
 }>;
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -91,6 +94,7 @@ export async function saveHealthWorkouts({
   workouts,
   dependencies,
   shouldContinue,
+  onLocalCommit,
 }: SaveHealthWorkoutsInput): Promise<HealthWorkoutSaveResult> {
   const repositoryFactory = dependencies?.createLocalHealthRepository
     ?? defaultCreateLocalHealthRepository;
@@ -109,6 +113,7 @@ export async function saveHealthWorkouts({
       sortOrder,
       expectedVersion: workout.local_version ?? null,
     })));
+    onLocalCommit?.();
     if (shouldContinue && !shouldContinue()) return abortedSave(rows.length, rows.length, 0);
     return {
       status: 'success',
@@ -153,6 +158,7 @@ export async function deleteHealthWorkout({
   expectedVersion,
   dependencies,
   shouldContinue,
+  onLocalCommit,
 }: DeleteHealthWorkoutInput): Promise<HealthWorkoutDeleteResult> {
   const repositoryFactory = dependencies?.createLocalHealthRepository
     ?? defaultCreateLocalHealthRepository;
@@ -162,6 +168,7 @@ export async function deleteHealthWorkout({
     const repository = await repositoryFactory(accountId);
     if (shouldContinue && !shouldContinue()) return { status: 'aborted' };
     await repository.deleteWorkout(workoutId, expectedVersion);
+    onLocalCommit?.();
     if (shouldContinue && !shouldContinue()) return { status: 'aborted' };
     return { status: 'success' };
   }

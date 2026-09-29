@@ -38,6 +38,26 @@ function localDependencies() {
 }
 
 describe('healthWorkoutPersistence', () => {
+  it('invalidates immediately after durable local save/delete, before a stale completion can return', async () => {
+    const local = localDependencies();
+    const onLocalCommit = vi.fn();
+    let current = true;
+    onLocalCommit.mockImplementation(() => { current = false; });
+    const saved = await saveHealthWorkouts({ mode: 'local', accountId: 'account-a', date: '2026-09-29',
+      workouts: [workout('temp', 'bench')], dependencies: local.dependencies,
+      shouldContinue: () => current, onLocalCommit });
+    expect(saved.status).toBe('aborted');
+    expect(local.saveWorkouts).toHaveBeenCalledTimes(1);
+    expect(onLocalCommit).toHaveBeenCalledTimes(1);
+    current = true;
+    const deleted = await deleteHealthWorkout({ mode: 'local', accountId: 'account-a',
+      workoutId: 'row', expectedVersion: 'v1', dependencies: local.dependencies,
+      shouldContinue: () => current, onLocalCommit });
+    expect(deleted.status).toBe('aborted');
+    expect(local.deleteWorkout).toHaveBeenCalledTimes(1);
+    expect(onLocalCommit).toHaveBeenCalledTimes(2);
+  });
+
   it('dispatches local saves with account, expected-version, UUID, and session filtering', async () => {
     const local = localDependencies();
 

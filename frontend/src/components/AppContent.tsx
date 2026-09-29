@@ -35,6 +35,8 @@ import { revalidatePlannerAccountCache } from '../lib/plannerCacheRevalidation';
 import { notesStartupRequiresRecovery } from '../lib/notesStartupAuthority';
 import { createProductionWorkoutRuntimeAuthorityController } from '../lib/workoutRuntimeAuthority';
 import { WORKSPACE_SCROLL_MODE, WORKSPACE_VIEWPORT_CLASS } from './common/workspaceLayout';
+import { HEALTH_SELECTED_DAY_COMPOSITE_READER_ENABLED } from './views/features/health/healthSelectedDayCompositeConfig';
+import { useHealthSelectedDayComposite } from './views/features/health/useHealthSelectedDayComposite';
 import {
   startIndependentStartup,
   type IndependentStartupRun,
@@ -269,6 +271,8 @@ export function AppContent({ authUser }: { authUser: User }) {
   const healthStartupCurrent = healthStartupAccountId === authUser.id;
   const healthRuntimeReady = healthStartupCurrent
     && (!healthBootstrapRequired || startupState.health.status === 'ready');
+  const selectedDayReaderEnabled = HEALTH_SELECTED_DAY_COMPOSITE_READER_ENABLED && activeTab === 'health';
+  const selectedDayRead = useHealthSelectedDayComposite(selectedDayReaderEnabled, authUser.id, dateStr);
   const todosSearchActive = searchHasQuery || activeTab === 'planner';
   const inbodyActive = activeTab === 'health' && healthRuntimeReady;
   const {
@@ -278,7 +282,8 @@ export function AppContent({ authUser }: { authUser: User }) {
     isLoading: isDailyLoading,
   // AppContent owns the shell hook; only consumer-driven candidates are gated.
   // useDailyData(dateStr, showToast, authUser.id, healthRuntimeReady, todosSearchActive, inbodyActive)
-  } = useDailyData(dateStr, showToast, authUser.id, healthRuntimeReady, todosSearchActive, inbodyActive);
+  } = useDailyData(dateStr, showToast, authUser.id,
+    healthRuntimeReady && !selectedDayReaderEnabled, todosSearchActive, inbodyActive);
 
   // useNow가 1분마다 now를 갱신 → AppContent 리렌더 → monthStart/monthEnd 매번 재계산.
   // currentDate가 바뀔 때만 실제로 값이 달라지므로 useMemo로 명시적 메모이제이션.
@@ -294,7 +299,8 @@ export function AppContent({ authUser }: { authUser: User }) {
     mutate: mutateStatic,
   // AppContent owns static lifecycle; activation flags follow real consumers.
   // useStaticData(monthStart, monthEnd, showToast, authUser.id, healthRuntimeReady, healthBlocksSearchActive, markedDatesActive, healthRoutinesActive)
-  } = useStaticData(monthStart, monthEnd, showToast, authUser.id, healthRuntimeReady, healthBlocksSearchActive, markedDatesActive, healthRoutinesActive);
+  } = useStaticData(monthStart, monthEnd, showToast, authUser.id,
+    healthRuntimeReady || selectedDayReaderEnabled, healthBlocksSearchActive, markedDatesActive, healthRoutinesActive);
 
   const { mutate: globalMutate } = useSWRConfig();
 
@@ -389,16 +395,16 @@ export function AppContent({ authUser }: { authUser: User }) {
         <Suspense fallback={<ViewLoadingFallback />}>
           {activeTab === 'home'      && <HomeView       key={authUser.id} {...globalProps} />}
           {activeTab === 'planner'   && <PlannerView   key={authUser.id} {...globalProps} />}
-          {activeTab === 'health' && (!healthStartupCurrent || (healthBootstrapRequired && startupState.health.status === 'pending')) && (
+          {activeTab === 'health' && !selectedDayReaderEnabled && (!healthStartupCurrent || (healthBootstrapRequired && startupState.health.status === 'pending')) && (
             <ViewLoadingFallback label={t('startupHealthLoading')} />
           )}
-          {activeTab === 'health' && healthStartupCurrent && healthBootstrapRequired && startupState.health.status === 'failed' && (
+          {activeTab === 'health' && !selectedDayReaderEnabled && healthStartupCurrent && healthBootstrapRequired && startupState.health.status === 'failed' && (
             <StartupFailureBoundary
               message={t('startupHealthFailed')}
               onRetry={() => startupRunRef.current?.retry('health')}
             />
           )}
-          {activeTab === 'health' && healthRuntimeReady && (
+          {activeTab === 'health' && !selectedDayReaderEnabled && healthRuntimeReady && (
             <>
               {startupState.health.status === 'failed' && (
                 <StartupFailureNotice
@@ -407,6 +413,26 @@ export function AppContent({ authUser }: { authUser: User }) {
                 />
               )}
               <HealthView key={authUser.id} {...globalProps} />
+            </>
+          )}
+          {selectedDayReaderEnabled && (
+            <>
+              {(!healthStartupCurrent || startupState.health.status === 'pending') && (
+                <div role="status" data-health-remote-bootstrap="pending" className="mb-3 rounded-xl border px-4 py-2 text-xs">
+                  Remote Health recovery is pending; verified local workout sources are read independently.
+                </div>
+              )}
+              {healthStartupCurrent && startupState.health.status === 'failed' && (
+                <StartupFailureNotice message={t('startupHealthFailed')}
+                  onRetry={() => startupRunRef.current?.retry('health')} />
+              )}
+              <HealthView key={authUser.id} {...globalProps}
+                workouts={selectedDayRead.legacyDaily?.workouts ?? []}
+                inbody={selectedDayRead.legacyDaily?.inbody ?? { weight: 0, smm: 0, pbf: 0 }}
+                isDailyLoading={selectedDayRead.phase === 'loading'}
+                selectedDayComposite={selectedDayRead}
+                onLocalWorkoutCommitted={selectedDayRead.retry}
+              />
             </>
           )}
           {activeTab === 'analytics' && (
