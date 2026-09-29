@@ -817,7 +817,8 @@ export class HealthRoutineSyncSession {
   }
 }
 
-function readOrCreateDeviceId(storage: Storage): string {
+/** Shared durable device identity for Health/K323 and Workout control-plane work. */
+export function readOrCreateDeviceId(storage: Storage): string {
   const existing = storage.getItem(HEALTH_ROUTINE_DEVICE_ID_KEY);
   if (existing && /^[0-9a-f-]{36}$/i.test(existing)) return existing;
   const created = crypto.randomUUID();

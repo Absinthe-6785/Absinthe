@@ -92,6 +92,11 @@ vi.mock('../lib/migrateLegacyDdays', () => ({ migrateLegacyDdays: async () => un
 vi.mock('../lib/vaultSnapshotAuto', () => ({ runPeriodicSnapshotSlots: vi.fn() }));
 vi.mock('../lib/i18n', () => ({ useTranslation: () => ({ t: (key: string) => key, lang: 'en' }) }));
 vi.mock('../lib/remoteBoundary', () => ({ shouldUseRemoteData: () => true }));
+vi.mock('../lib/workoutRuntimeAuthority', () => ({
+  createProductionWorkoutRuntimeAuthorityController: () => ({
+    start: async () => ({ kind: 'not_ready' }), cancel: () => undefined,
+  }),
+}));
 vi.mock('../lib/healthSupabaseBootstrap', () => ({
   bootstrapHealthFromSupabase: (...args: unknown[]) => mocks.healthBootstrap(...args),
   HEALTH_LOCAL_BOOTSTRAP_COMPLETE_EVENT: 'lean04a-health-bootstrap-complete',

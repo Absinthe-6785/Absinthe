@@ -33,6 +33,7 @@ import { runHealthBootstrapSingleFlight } from '../lib/healthBootstrapSingleFlig
 import { domainUsesLocalWorkingCopy } from '../lib/syncAuthority';
 import { revalidatePlannerAccountCache } from '../lib/plannerCacheRevalidation';
 import { notesStartupRequiresRecovery } from '../lib/notesStartupAuthority';
+import { createProductionWorkoutRuntimeAuthorityController } from '../lib/workoutRuntimeAuthority';
 import { WORKSPACE_SCROLL_MODE, WORKSPACE_VIEWPORT_CLASS } from './common/workspaceLayout';
 import {
   startIndependentStartup,
@@ -133,6 +134,7 @@ export function AppContent({ authUser }: { authUser: User }) {
   const initNotesStorage = useNotesStore(s => s.initNotesStorage);
   const detachNotesStorage = useNotesStore(s => s.detachNotesStorage);
   const startupRunRef = useRef<IndependentStartupRun | null>(null);
+  const workoutAuthorityRef = useRef<ReturnType<typeof createProductionWorkoutRuntimeAuthorityController> | null>(null);
   const healthBootstrapRequired = domainUsesLocalWorkingCopy('health_workouts') && authUser.id !== 'local-user';
   const shouldBootstrapHealth = authUser.id !== 'local-user';
   const [startupState, setStartupState] = useState<StartupState>(() => pendingStartupState(healthBootstrapRequired));
@@ -208,6 +210,17 @@ export function AppContent({ authUser }: { authUser: User }) {
       detachNotesStorage();
     };
   }, [authUser.email, authUser.id, bootstrapFromSupabase, detachNotesStorage, healthBootstrapRequired, initNotesStorage, showToast, shouldBootstrapHealth]);
+
+  // Independent, non-blocking G5A control-plane bootstrap. Health's existing
+  // readiness and Workout product reader/writer do not depend on this result.
+  useEffect(() => {
+    const controller = workoutAuthorityRef.current
+      ?? (workoutAuthorityRef.current = createProductionWorkoutRuntimeAuthorityController());
+    let active = true;
+    // A StrictMode setup/cleanup replay in one turn must not start two requests.
+    queueMicrotask(() => { if (active) void controller.start(authUser.id); });
+    return () => { active = false; controller.cancel(); };
+  }, [authUser.id]);
 
   useEffect(() => {
     const unregisterNotes = registerNotesTabSwitcher(() => setActiveTab('note'));

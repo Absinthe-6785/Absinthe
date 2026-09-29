@@ -104,6 +104,12 @@ vi.mock('../lib/remoteBoundary', () => ({
   remoteSWRKey: (key: string) => key,
 }));
 
+vi.mock('../lib/workoutRuntimeAuthority', () => ({
+  createProductionWorkoutRuntimeAuthorityController: () => ({
+    start: async () => ({ kind: 'not_ready' }), cancel: () => undefined,
+  }),
+}));
+
 vi.mock('../lib/syncAuthority', () => ({ domainUsesLocalWorkingCopy: () => false }));
 
 vi.mock('../lib/healthLocalRuntime', () => ({
