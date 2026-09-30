@@ -93,7 +93,7 @@ import {
 const capabilityMarker = Symbol('absinthe-local-v2-capability');
 const HEALTH_PROFILE_RECONCILIATION_DOMAIN = 'health_routine_profile';
 const HEALTH_PROFILE_RECONCILIATION_ENTITY_ID = '00000000-0000-5000-8000-000000000002';
-export interface LocalDatabaseCapability { readonly marker: symbol; readonly purpose: 'test' | 'developer' | 'health_routine' | 'workout_authority' }
+export interface LocalDatabaseCapability { readonly marker: symbol; readonly purpose: 'test' | 'developer' | 'health_routine' | 'workout_authority' | 'workout_reader' }
 
 export function createDormantLocalDatabaseCapability(purpose: 'test' | 'developer'): LocalDatabaseCapability {
   return Object.freeze({ marker: capabilityMarker, purpose });
@@ -107,6 +107,11 @@ export function createHealthRoutineLocalDatabaseCapability(): LocalDatabaseCapab
 /** G5A opens the shared v7 database for verified Workout control-plane evidence only. */
 export function createWorkoutAuthorityLocalDatabaseCapability(): LocalDatabaseCapability {
   return Object.freeze({ marker: capabilityMarker, purpose: 'workout_authority' });
+}
+
+/** Scoped local Workout reads only; the product integration never calls mutation APIs. */
+export function createWorkoutReaderLocalDatabaseCapability(): LocalDatabaseCapability {
+  return Object.freeze({ marker: capabilityMarker, purpose: 'workout_reader' });
 }
 
 function requestResult<T>(request: IDBRequest<T>): Promise<T> {

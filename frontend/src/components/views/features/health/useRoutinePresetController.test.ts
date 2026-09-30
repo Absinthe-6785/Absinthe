@@ -18,6 +18,7 @@ import {
   type RoutinePresetControllerInput,
 } from './useRoutinePresetController';
 import type { HealthRoutinePersistence } from '../../../../lib/healthRoutineSync';
+import type { HealthRoutine } from '../../../../types';
 
 const ACCOUNT_A_CUSTOM_ID = '00000000-0000-5000-8000-00000000000a';
 const ACCOUNT_B_CUSTOM_ID = '00000000-0000-5000-8000-00000000000b';
@@ -36,14 +37,26 @@ function Harness(input: RoutinePresetControllerInput) {
   return null;
 }
 
-function input(accountId: string, generation: number, healthRoutines = []): RoutinePresetControllerInput {
+function input(accountId: string, generation: number, healthRoutines: readonly HealthRoutine[] = [], sourceReady = true): RoutinePresetControllerInput {
   return {
     accountId,
     healthRoutines,
+    sourceReady,
     accountOperation: { accountId, generation },
     isCurrentAccountOperation: token => (
       token.accountId === accountState.accountId && token.generation === accountState.generation
     ),
+  };
+}
+
+function persistenceProbe(bootstrap: HealthRoutinePersistence['bootstrap']): HealthRoutinePersistence {
+  return {
+    bootstrap,
+    commitState: async (_accountId, _previous, next) => next,
+    sync: async () => null,
+    snapshot: async () => null,
+    reset: async () => createRoutinePresetState({ routines: [], splitCount: 3 }),
+    recover: async (_accountId, recovered) => recovered,
   };
 }
 
@@ -94,6 +107,74 @@ afterEach(() => {
 });
 
 describe('HEALTH_10D routine preset controller', () => {
+  it('does not adopt pending or errored empty routines, but accepts verified empty once ready', async () => {
+    const bootstrap = vi.fn<HealthRoutinePersistence['bootstrap']>(async ({ legacyState }) => legacyState);
+    const persistence = persistenceProbe(bootstrap);
+    await mount({ ...input('account-a', 0, [], false), persistence });
+    expect(latest.accountReady).toBe(false);
+    expect(bootstrap).not.toHaveBeenCalled();
+    expect(readRoutinePresetState(localStorage, 'account-a')).toBeNull();
+    expect((await mutate(() => latest.createPreset('not ready'))).ok).toBe(false);
+
+    // An unavailable source remains non-authoritative, unlike verified empty.
+    await rerender({ ...input('account-a', 0, [], false), persistence });
+    expect(bootstrap).not.toHaveBeenCalled();
+    await rerender({ ...input('account-a', 0, [], true), persistence });
+    expect(bootstrap).toHaveBeenCalledOnce();
+    expect(latest.accountReady).toBe(true);
+    expect(bootstrap.mock.calls[0]?.[0].legacyState.legacySyncPending).toBe(true);
+  });
+
+  it('adopts verified nonempty routines without a preceding empty bootstrap', async () => {
+    const bootstrap = vi.fn<HealthRoutinePersistence['bootstrap']>(async ({ legacyState }) => legacyState);
+    const persistence = persistenceProbe(bootstrap);
+    await mount({ ...input('account-a', 0, [], false), persistence });
+    const routines: HealthRoutine[] = [{ id: 'routine-a', day_name: 'Day 1', blocks: ['push'] }];
+    await rerender({ ...input('account-a', 0, routines, true), persistence });
+    expect(bootstrap).toHaveBeenCalledOnce();
+    expect(bootstrap.mock.calls[0]?.[0].legacyState.presets[0]?.days[0]?.blocks).toEqual(['push']);
+    expect(latest.accountReady).toBe(true);
+    expect(latest.selectedHealthRoutines[0]?.blocks).toEqual(['push']);
+  });
+
+  it('keeps a persisted account preset visible but defers its bootstrap while the source is pending', async () => {
+    const persisted = createRoutinePresetState({ routines: [
+      { id: 'saved-routine', day_name: 'Day 1', blocks: ['saved-block'] },
+    ], splitCount: 3 });
+    expect(writeRoutinePresetState(localStorage, 'account-a', persisted)).toBe(true);
+    const bootstrap = vi.fn<HealthRoutinePersistence['bootstrap']>(async ({ legacyState }) => legacyState);
+    const persistence = persistenceProbe(bootstrap);
+    await mount({ ...input('account-a', 0, [], false), persistence });
+    expect(latest.accountReady).toBe(false);
+    expect(latest.selectedHealthRoutines[0]?.blocks).toEqual(['saved-block']);
+    expect(bootstrap).not.toHaveBeenCalled();
+    expect(readRoutinePresetState(localStorage, 'account-a')?.presets[0]?.days[0]?.blocks).toEqual(['saved-block']);
+
+    await rerender({ ...input('account-a', 0, [], true), persistence });
+    expect(bootstrap).toHaveBeenCalledOnce();
+    expect(bootstrap.mock.calls[0]?.[0].hasAccountScopedState).toBe(true);
+    expect(latest.selectedHealthRoutines[0]?.blocks).toEqual(['saved-block']);
+  });
+
+  it('does not use account A routine truth while B is pending', async () => {
+    const bootstrap = vi.fn<HealthRoutinePersistence['bootstrap']>(async ({ legacyState }) => legacyState);
+    const persistence = persistenceProbe(bootstrap);
+    await mount({ ...input('account-a', 0,
+      [{ id: 'routine-a', day_name: 'Day 1', blocks: ['a-block'] }], true), persistence });
+    expect(latest.selectedHealthRoutines[0]?.blocks).toEqual(['a-block']);
+    accountState.accountId = 'account-b'; accountState.generation = 1;
+    await rerender({ ...input('account-b', 1, [], false), persistence });
+    expect(latest.accountReady).toBe(false);
+    expect(latest.selectedHealthRoutines[0]?.blocks).toEqual([]);
+    expect(bootstrap).toHaveBeenCalledTimes(1);
+    expect(readRoutinePresetState(localStorage, 'account-b')).toBeNull();
+    await rerender({ ...input('account-b', 1,
+      [{ id: 'routine-b', day_name: 'Day 1', blocks: ['b-block'] }], true), persistence });
+    expect(bootstrap).toHaveBeenCalledTimes(2);
+    expect(latest.accountReady).toBe(true);
+    expect(latest.selectedHealthRoutines[0]?.blocks).toEqual(['b-block']);
+  });
+
   it('keeps account A -> B -> A synchronously isolated and preserves B state', async () => {
     const accountA = createRoutinePresetState({ routines: [], splitCount: 1 });
     accountA.presets.push(createEmptyRoutinePreset(ACCOUNT_A_CUSTOM_ID, 'A Custom', 1));

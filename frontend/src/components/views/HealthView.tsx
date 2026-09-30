@@ -47,6 +47,7 @@ import {
   HealthWorkoutComposition,
 } from './features/health/HealthCompositionLayout';
 import { deleteHealthWorkout, saveHealthWorkouts } from './features/health/healthWorkoutPersistence';
+import { HealthSelectedDayCompositePanel } from './features/health/HealthSelectedDayCompositePanel';
 import {
   normalizePreviousWorkoutRows,
   previousWorkoutRange,
@@ -108,7 +109,8 @@ export const HealthView = ({
   formatDate, isToday, showToast, mutateDaily, mutateStatic,
   schedules, weeklySchedules,
   workouts, healthBlocks, healthRoutines, inbody, theme, appSettings,
-  THEME_COLORS, isDailyLoading, user,
+  THEME_COLORS, isDailyLoading, user, selectedDayComposite, onLocalWorkoutCommitted,
+  healthRoutinesState,
 }: HealthProps) => {
   const { t, lang } = useTranslation();
   const isMobile = useIsMobile();
@@ -137,9 +139,13 @@ export const HealthView = ({
       accountGenerationRef.current,
     );
 
+  const routineSourceReady = !selectedDayComposite
+    || healthRoutinesState?.status === 'READY_EMPTY'
+    || healthRoutinesState?.status === 'READY_WITH_RESULTS';
   const routinePresetController = useRoutinePresetController({
     accountId: user.id,
     healthRoutines: healthRoutines ?? [],
+    sourceReady: routineSourceReady,
     accountOperation: {
       accountId: user.id,
       generation: accountGenerationRef.current,
@@ -488,17 +494,21 @@ export const HealthView = ({
   }, [selectedDate, user.id, selectedDateDraftKey]);
 
   // workouts(SWR)가 갱신될 때 isDirtyRef로 판단 → draft 복원 직후 덮어쓰기 방지
+  const lastHydratedWorkoutsRef = useRef<Workout[] | null>(null);
   useEffect(() => {
-    if (!isDirtyRef.current) {
+    if ((!selectedDayComposite || (selectedDayComposite.phase === 'settled'
+      && selectedDayComposite.result?.legacyStatus === 'success')) && !isDirtyRef.current
+      && lastHydratedWorkoutsRef.current !== workouts) {
       const sorted = [...(workouts || [])].sort((a, b) => {
         const ao = a.sort_order ?? 9999;
         const bo = b.sort_order ?? 9999;
         return ao - bo;
       });
       replaceFromHydration(sorted);
+      lastHydratedWorkoutsRef.current = workouts;
       setIsWorkoutLocked(sorted.length > 0);
     }
-  }, [replaceFromHydration, workouts]);
+  }, [replaceFromHydration, workouts, selectedDayComposite?.phase, selectedDayComposite?.result?.legacyStatus]);
 
   useEffect(() => {
     if (!isInbodyDirty)
@@ -611,6 +621,7 @@ export const HealthView = ({
 
   // ── 워크아웃 로컬 조작 ─────────────────────────────────────────────
   const handleLoadRoutine = async (e: ChangeEvent<HTMLSelectElement>) => {
+    if (selectedDayComposite && !routinePresetAccountReady) return;
     const accountOperation = { accountId: user.id, generation: accountGenerationRef.current };
     const dayName = e.target.value;
     if (!dayName || dayName === '__load__') return;
@@ -783,6 +794,7 @@ export const HealthView = ({
           workoutId: dbId,
           expectedVersion: expectedVersion ?? '',
           shouldContinue: () => currentWorkoutOperation(operationScope),
+          onLocalCommit: onLocalWorkoutCommitted,
         });
         if (!currentWorkoutOperation(operationScope)) return;
         if (result.status === 'aborted') return;
@@ -980,6 +992,7 @@ export const HealthView = ({
         date: formatDate(selectedDate),
         workouts: normalizedWorkouts,
         shouldContinue: () => currentWorkoutOperation(operationScope),
+        onLocalCommit: onLocalWorkoutCommitted,
       });
       if (!currentWorkoutOperation(operationScope)) return;
       if (persistence.status === 'aborted') return;
@@ -1347,6 +1360,14 @@ export const HealthView = ({
 
       {healthSection === 'workout' && (
     <>
+    {selectedDayComposite && <HealthSelectedDayCompositePanel
+      model={selectedDayComposite}
+      draftDirty={isDirty}
+      onPreviousDay={() => setSelectedDate(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate() - 1))}
+      onNextDay={() => setSelectedDate(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate() + 1))}
+    />}
+    {(!selectedDayComposite || (selectedDayComposite.phase === 'settled'
+      && selectedDayComposite.result?.legacyStatus === 'success')) && (
     <HealthWorkoutComposition>
       <HealthMobileSetupNav
         activeSurface={mobileHealthTab === 'setup' ? 'setup' : 'workout'}
@@ -1434,6 +1455,7 @@ export const HealthView = ({
                   <div className="flex min-w-0 items-center gap-1.5" data-health-quick-setup>
                     <select
                       aria-label={t('healthPresetLabel')}
+                      disabled={!!selectedDayComposite && !routinePresetAccountReady}
                       value={activePreset.id}
                       onChange={e => { void handleQuickPresetChange(e.target.value); }}
                       className={`min-h-[40px] min-w-0 max-w-[120px] rounded-xl border px-2 py-2 text-xs font-bold outline-none ${theme.input} ${theme.border}`}
@@ -1463,7 +1485,7 @@ export const HealthView = ({
                     <option key={k} value={k}>{t(k)}</option>
                   ))}
                 </select>
-                <select onChange={handleLoadRoutine}
+                <select onChange={handleLoadRoutine} disabled={!!selectedDayComposite && !routinePresetAccountReady}
                   className="bg-primary text-primary-foreground font-bold text-sm lg:text-base px-4 lg:px-5 py-2 lg:py-3 rounded-xl outline-none cursor-pointer shadow-md">
                   <option value="__load__">{t('loadRoutine')}</option>
                   {Array.from({ length: splitCount }).map((_, i) => <option key={i} value={`Day ${i + 1}`}>{t('loadDay').replace('{n}', String(i + 1))}</option>)}
@@ -1506,8 +1528,16 @@ export const HealthView = ({
               <div className={`rounded-2xl border border-dashed px-4 py-4 lg:px-5 lg:py-4 ${theme.border} ${appSettings.darkMode ? 'bg-surface/40' : 'bg-gray-50/70'}`} data-k121-empty-state="health-workouts" data-k129c-workout-empty data-k134a-workout-empty data-k134b-health-empty-compact>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div className="min-w-0">
-                    <p className="font-heading text-lg font-bold">{t('noWorkoutsEmpty')}</p>
-                    <p className={`mt-1 max-w-xl text-sm leading-relaxed ${theme.textMuted}`}>{t('healthWorkoutEmptyPolishDesc')}</p>
+                    <p className="font-heading text-lg font-bold">{selectedDayComposite && (isDirty
+                      || selectedDayComposite.result?.status !== 'complete'
+                      || selectedDayComposite.result?.records.some(record => record.source === 'canonical'))
+                      ? 'No legacy workout entries in this draft' : t('noWorkoutsEmpty')}</p>
+                    <p className={`mt-1 max-w-xl text-sm leading-relaxed ${theme.textMuted}`}>
+                      {selectedDayComposite && (isDirty || selectedDayComposite.result?.status !== 'complete'
+                        || selectedDayComposite.result?.records.some(record => record.source === 'canonical'))
+                        ? 'The legacy editor is separate from any read-only canonical sessions shown above.'
+                        : t('healthWorkoutEmptyPolishDesc')}
+                    </p>
                   </div>
                   <div className="flex shrink-0 flex-wrap gap-2">
                     <button
@@ -1990,11 +2020,19 @@ export const HealthView = ({
         />
 
         <div className={`xl:h-full xl:min-h-0 ${WORKSPACE_CARD.sm} ${WORKSPACE_CARD_SURFACE} abs-cosmos-health-setup-surface flex flex-col overflow-visible xl:overflow-hidden transition-colors ${mobileHealthTab === 'setup' && setupSection === 'routine' ? '' : 'hidden lg:flex'}`} data-k126-workout-routine data-health-09b-routine data-health-composition-role="setup-routine">
+          {!routinePresetAccountReady && selectedDayComposite && (
+            <p role="status" data-health-routine-source-pending className="text-xs text-muted-foreground">
+              {healthRoutinesState?.status === 'ERROR'
+                ? 'Verified local routine presets are unavailable.'
+                : 'Reading verified local routine presets…'}
+            </p>
+          )}
           <div className="flex flex-wrap justify-between items-center gap-2 mb-2.5 shrink-0">
             <div className="flex min-w-0 items-center gap-2">
               <h2 className="font-heading text-base font-bold shrink-0">{t('routineSetup')}</h2>
               <select
                 aria-label={t('healthPresetLabel')}
+                disabled={!!selectedDayComposite && !routinePresetAccountReady}
                 value={activePreset.id}
                 onChange={e => {
                   void handleQuickPresetChange(e.target.value);
@@ -2010,6 +2048,7 @@ export const HealthView = ({
                 <button
                   type="button"
                   aria-label={t('healthPresetActions')}
+                  disabled={!!selectedDayComposite && !routinePresetAccountReady}
                   aria-expanded={presetMenuOpen}
                   aria-controls="health-preset-actions-menu"
                   onClick={() => setPresetMenuOpen(open => !open)}
@@ -2044,6 +2083,7 @@ export const HealthView = ({
             <div className={`flex shrink-0 items-center gap-2 px-3 py-1.5 rounded-xl ${theme.input}`}>
               <input
                 type="number" inputMode="numeric" min="1" max="7"
+                disabled={!!selectedDayComposite && !routinePresetAccountReady}
                 value={splitCountInput}
                 onChange={e => setSplitCountInput(e.target.value)}
                 onBlur={() => { void commitPresetSplit(); }}
@@ -2063,7 +2103,7 @@ export const HealthView = ({
                 <div key={dayName} className={`rounded-xl p-3 border ${theme.border}`}>
                   <div className="flex justify-between items-center mb-2">
                     <h3 className="font-heading text-sm font-bold">{dayName}</h3>
-                    <button onClick={() => openAssembleModal(dayName)} className="text-[11px] text-blue-500 font-bold">{t('assembleBtn')}</button>
+                    <button onClick={() => openAssembleModal(dayName)} disabled={!!selectedDayComposite && !routinePresetAccountReady} className="text-[11px] text-blue-500 font-bold">{t('assembleBtn')}</button>
                   </div>
                   <div className="flex flex-col gap-1 min-h-[24px]">
                     {blocks.length === 0 ? (
@@ -2112,6 +2152,7 @@ export const HealthView = ({
         />
       </HealthSupportRegion>
     </HealthWorkoutComposition>
+    )}
     </>
       )}
 

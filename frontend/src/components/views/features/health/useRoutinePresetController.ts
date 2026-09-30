@@ -6,7 +6,9 @@ import {
   createEmptyRoutinePreset,
   createRoutinePresetId,
   createRoutinePresetState,
+  DEFAULT_ROUTINE_PRESET_ID,
   readRoutinePresetState,
+  ROUTINE_PRESET_STATE_VERSION,
   routinePresetById,
   routinePresetPlannedSetCount,
   routinePresetToHealthRoutines,
@@ -32,6 +34,8 @@ export type RoutinePresetConfirmation = {
 export type RoutinePresetControllerInput = {
   accountId: string;
   healthRoutines: readonly HealthRoutine[];
+  /** False while the account's routine source is pending or unavailable. */
+  sourceReady?: boolean;
   accountOperation: HealthAccountGenerationToken;
   isCurrentAccountOperation: (token: HealthAccountGenerationToken) => boolean;
   onPresetConfirmationInvalidated?: () => void;
@@ -71,14 +75,26 @@ export type RoutinePresetController = {
 function initialRoutinePresetState(
   accountId: string,
   routines: readonly HealthRoutine[],
+  sourceReady: boolean,
 ): RoutinePresetState {
-  return readRoutinePresetState(localStorage, accountId)
-    ?? createRoutinePresetState({ routines, splitCount: 3 });
+  const existing = readRoutinePresetState(localStorage, accountId);
+  if (existing) return existing;
+  if (!sourceReady) {
+    // Presentation-only placeholder. Never persist or adopt it before a
+    // verified source (including verified empty) has arrived.
+    return {
+      version: ROUTINE_PRESET_STATE_VERSION,
+      activePresetId: DEFAULT_ROUTINE_PRESET_ID,
+      presets: [createEmptyRoutinePreset(DEFAULT_ROUTINE_PRESET_ID, 'Default', 3)],
+    };
+  }
+  return createRoutinePresetState({ routines, splitCount: 3 });
 }
 
 export function useRoutinePresetController({
   accountId,
   healthRoutines,
+  sourceReady = true,
   accountOperation,
   isCurrentAccountOperation,
   onPresetConfirmationInvalidated,
@@ -88,13 +104,13 @@ export function useRoutinePresetController({
     accountId: string | null;
     state: RoutinePresetState;
   }>(() => ({
-    accountId: persistence ? null : accountId,
-    state: initialRoutinePresetState(accountId, healthRoutines),
+    accountId: persistence || !sourceReady ? null : accountId,
+    state: initialRoutinePresetState(accountId, healthRoutines, sourceReady),
   }));
   const routinePresetState = routinePresetBinding.accountId === accountId
     ? routinePresetBinding.state
-    : initialRoutinePresetState(accountId, healthRoutines);
-  const accountReady = routinePresetBinding.accountId === accountId;
+    : initialRoutinePresetState(accountId, healthRoutines, sourceReady);
+  const accountReady = sourceReady && routinePresetBinding.accountId === accountId;
   const routinePresetStateRef = useRef(routinePresetState);
   routinePresetStateRef.current = routinePresetState;
   const mutationQueueRef = useRef<Promise<unknown>>(Promise.resolve());
@@ -108,7 +124,7 @@ export function useRoutinePresetController({
   }, []);
 
   const rehydrateForAccount = useCallback(async (): Promise<RoutinePresetState | null> => {
-    if (!isCurrentAccountOperation(accountOperation)) return null;
+    if (!sourceReady || !isCurrentAccountOperation(accountOperation)) return null;
     const existing = readRoutinePresetState(localStorage, accountId);
     const legacyState = existing ?? createRoutinePresetState({ routines: healthRoutines, splitCount: 3 });
     let next = legacyState;
@@ -130,7 +146,7 @@ export function useRoutinePresetController({
     // durable local database is authoritative whenever persistence is active.
     if (!existing || persistence) writeRoutinePresetState(localStorage, accountId, next);
     return next;
-  }, [accountId, accountOperation, healthRoutines, isCurrentAccountOperation, persistence]);
+  }, [accountId, accountOperation, healthRoutines, isCurrentAccountOperation, persistence, sourceReady]);
 
   // Account identity is the synchronous reset boundary. The render-time
   // accountReady gate above prevents the previous account's state from being
@@ -142,10 +158,10 @@ export function useRoutinePresetController({
       clearPresetConfirmationMarker();
       onPresetConfirmationInvalidated?.();
     }
-    void rehydrateForAccount();
-  // The account identity is the reset boundary; row reconciliation is below.
+    if (sourceReady) void rehydrateForAccount();
+  // Account and verified source readiness are the bootstrap boundaries.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accountId]);
+  }, [accountId, sourceReady]);
 
   useEffect(() => {
     if (!accountReady || persistence) return;
