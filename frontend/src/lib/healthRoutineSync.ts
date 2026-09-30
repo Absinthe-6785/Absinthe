@@ -43,10 +43,14 @@ import {
 } from './localDatabase';
 import { sha256Hex } from './localDatabase/outboxIdentity';
 import type { LocalEntityEnvelope, OutboxRecord } from './localDatabase/types';
+import {
+  HEALTH_ROUTINE_GENERATION_ID, HEALTH_ROUTINE_PROJECT_REF, readOrCreateDeviceId,
+} from './workoutLocalReaderAuthority';
 
-export const HEALTH_ROUTINE_DEVICE_ID_KEY = 'absinthe-health-routine-device-id:v1';
-export const HEALTH_ROUTINE_PROJECT_REF = 'absinthe-health-routines';
-export const HEALTH_ROUTINE_GENERATION_ID = 'health-routine-v1';
+export {
+  HEALTH_ROUTINE_DEVICE_ID_KEY, HEALTH_ROUTINE_PROJECT_REF,
+  HEALTH_ROUTINE_GENERATION_ID, readOrCreateDeviceId,
+} from './workoutLocalReaderAuthority';
 export const HEALTH_ROUTINE_WORKER_LEASE = 'health-routine-sync';
 
 const CONFLICT_CODES = new Set([
@@ -815,15 +819,6 @@ export class HealthRoutineSyncSession {
   close(): void {
     closeLocalDatabase(this.repository);
   }
-}
-
-/** Shared durable device identity for Health/K323 and Workout control-plane work. */
-export function readOrCreateDeviceId(storage: Storage): string {
-  const existing = storage.getItem(HEALTH_ROUTINE_DEVICE_ID_KEY);
-  if (existing && /^[0-9a-f-]{36}$/i.test(existing)) return existing;
-  const created = crypto.randomUUID();
-  storage.setItem(HEALTH_ROUTINE_DEVICE_ID_KEY, created);
-  return created;
 }
 
 const productionSessions = new Map<string, Promise<HealthRoutineSyncSession>>();
