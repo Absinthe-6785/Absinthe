@@ -3,7 +3,7 @@ import type { HealthRecoveryDatasets, HealthRecoveryRecord } from '../../../../l
 import { createLocalHealthRepository } from '../../../../lib/healthLocalRuntime';
 import { HEALTH_ROUTINE_DEVICE_ID_KEY } from '../../../../lib/healthRoutineSync';
 import { WorkoutRangeReader } from '../../../../lib/workoutRangeReader';
-import type { SelectedDayCanonicalScope } from '../../../../lib/workoutSelectedDayReader';
+import { readEstablishedWorkoutDeviceId, type SelectedDayCanonicalScope } from '../../../../lib/workoutSelectedDayReader';
 import { LocalDatabaseError } from '../../../../lib/localDatabase/errors';
 import {
   CompositeWorkoutReadIsolationError, projectCompositeWorkoutRead,
@@ -178,6 +178,9 @@ export class WorkoutReadSnapshotCoordinator {
     this.invalidate();
     const sequence = this.sequence;
     const accountId = this.accountId;
+    // A first local open creates the shared device ID. Capture the post-creation value.
+    // A malformed established ID is left untouched so the canonical source can fail closed.
+    try { readEstablishedWorkoutDeviceId(this.deviceStorage); } catch { /* canonical open reports the error */ }
     const deviceAtStart = this.deviceStorage.getItem(HEALTH_ROUTINE_DEVICE_ID_KEY);
     const current = () => !this.closed && this.sequence === sequence
       && this.accountId === accountId

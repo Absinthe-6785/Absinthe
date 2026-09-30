@@ -229,6 +229,16 @@ describe('verified Workout range source snapshot', () => {
     coordinator.close();
   });
 
+  it('loads on the first device-open when the shared device ID must be created', async () => {
+    storage.delete(HEALTH_ROUTINE_DEVICE_ID_KEY);
+    const coordinator = new WorkoutReadSnapshotCoordinator('a', storageAdapter);
+    const snapshot = await coordinator.load();
+    expect(snapshot?.result.status).toBe('complete');
+    expect(snapshot?.scope?.deviceId).toBe(storage.get(HEALTH_ROUTINE_DEVICE_ID_KEY));
+    expect(await coordinator.deriveRange('2026-09-01', '2026-09-30')).not.toBeNull();
+    coordinator.close();
+  });
+
   it('invalidates in-flight L1 before late publication and retries a failed source load', async () => {
     await seed();
     let release!: (value: HealthRecoveryDatasets) => void;
