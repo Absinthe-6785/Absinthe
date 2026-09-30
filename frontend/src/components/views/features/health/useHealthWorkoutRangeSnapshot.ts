@@ -68,14 +68,38 @@ export function useHealthWorkoutRangeSnapshot(
   const coordinatorRef = useRef<RangeCoordinator | null>(null);
   const ownerEpoch = useRef(0);
   const publicationSequence = useRef(0);
+  const automaticCurrentnessRetryUsed = useRef(false);
   const currentRef = useRef({ enabled, accountId, previousBounds, monthBounds });
   currentRef.current = { enabled, accountId, previousBounds, monthBounds };
 
   const invalidateAndReload = useCallback(() => {
     const current = currentRef.current;
     if (!current.enabled) return;
+    automaticCurrentnessRetryUsed.current = false;
     publicationSequence.current += 1;
     coordinatorRef.current?.invalidate();
+    setStored(initialState(true, current.accountId, current.previousBounds, current.monthBounds));
+    setRefresh(value => value + 1);
+  }, []);
+
+  const recoverCurrentnessOrSettle = useCallback(() => {
+    const current = currentRef.current;
+    if (!current.enabled) return;
+    publicationSequence.current += 1;
+    coordinatorRef.current?.invalidate();
+    if (automaticCurrentnessRetryUsed.current) {
+      setStored({
+        phase: 'settled',
+        accountId: current.accountId,
+        previousBounds: current.previousBounds,
+        monthBounds: current.monthBounds,
+        previousView: null,
+        monthView: null,
+        isolationError: false,
+      });
+      return;
+    }
+    automaticCurrentnessRetryUsed.current = true;
     setStored(initialState(true, current.accountId, current.previousBounds, current.monthBounds));
     setRefresh(value => value + 1);
   }, []);
@@ -85,6 +109,7 @@ export function useHealthWorkoutRangeSnapshot(
   useEffect(() => {
     ownerEpoch.current += 1;
     publicationSequence.current += 1;
+    automaticCurrentnessRetryUsed.current = false;
     coordinatorRef.current?.close();
     coordinatorRef.current = null;
     if (!enabled) {
@@ -120,7 +145,7 @@ export function useHealthWorkoutRangeSnapshot(
     void coordinator.load().then(snapshot => {
       if (!isCurrent()) return;
       if (!snapshot) {
-        setRefresh(value => value + 1);
+        recoverCurrentnessOrSettle();
         return;
       }
       setSourceRevision(value => value + 1);
@@ -134,7 +159,7 @@ export function useHealthWorkoutRangeSnapshot(
         isolationError: error instanceof CompositeWorkoutReadIsolationError,
       }));
     });
-  }, [enabled, accountId, refresh]);
+  }, [enabled, accountId, refresh, recoverCurrentnessOrSettle]);
 
   useEffect(() => {
     if (!enabled || !coordinatorRef.current?.currentSnapshot) return;
@@ -161,9 +186,10 @@ export function useHealthWorkoutRangeSnapshot(
     ]).then(([previousView, monthView]) => {
       if (!isCurrent()) return;
       if (!previousView || !monthView) {
-        invalidateAndReload();
+        recoverCurrentnessOrSettle();
         return;
       }
+      automaticCurrentnessRetryUsed.current = false;
       setStored({
         phase: 'settled',
         accountId,
@@ -186,9 +212,14 @@ export function useHealthWorkoutRangeSnapshot(
       });
     });
   }, [enabled, accountId, previousBounds.startDate, previousBounds.endDate,
-    monthBounds.startDate, monthBounds.endDate, sourceRevision, invalidateAndReload]);
+    monthBounds.startDate, monthBounds.endDate, sourceRevision, recoverCurrentnessOrSettle]);
 
-  const visible = enabled && stored.accountId === accountId
+  const visible = enabled
+    && stored.accountId === accountId
+    && stored.previousBounds.startDate === previousBounds.startDate
+    && stored.previousBounds.endDate === previousBounds.endDate
+    && stored.monthBounds.startDate === monthBounds.startDate
+    && stored.monthBounds.endDate === monthBounds.endDate
     ? stored
     : initialState(enabled, accountId, previousBounds, monthBounds);
   return { ...visible, retry, invalidateAndReload };

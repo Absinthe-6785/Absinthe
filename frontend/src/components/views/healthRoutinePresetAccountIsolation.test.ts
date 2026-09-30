@@ -98,7 +98,7 @@ vi.mock('../../lib/healthBackfillUiSafety', () => ({
 }));
 vi.mock('./features/health/recovery/recoveryNotes', () => ({ getRecoveryEntry: () => null }));
 vi.mock('./k102DateFormat', () => ({
-  formatAbsoluteDateKey: (value: Date) => value.toISOString().slice(0, 10),
+  formatAbsoluteDateKey: (value: Date | string) => value instanceof Date ? value.toISOString().slice(0, 10) : value,
   formatLongDate: (value: Date) => value.toISOString().slice(0, 10),
 }));
 vi.mock('./features/health/buildHealthProjection', () => ({ buildHealthProjection: () => ({ workoutDates: [] }) }));
@@ -107,6 +107,7 @@ vi.mock('./features/health/prevWorkoutFetch', () => ({ fetchPrevWorkoutForBlocks
 vi.mock('./features/health/previousWorkoutSession', () => ({
   normalizePreviousWorkoutRows: (rows: unknown[]) => rows,
   previousWorkoutRange: () => ({ startDate: '2026-01-01', endDate: '2026-01-10' }),
+  defaultPreviousWorkoutDateFromDates: (dates: string[]) => [...dates].sort().at(-1) ?? null,
 }));
 vi.mock('./features/health/previousWorkoutProjection', () => ({
   buildPreviousWorkoutHistoryProjection: () => ({ sessions: [], automaticDate: null, effectiveDate: null, session: null }),
@@ -636,4 +637,63 @@ describe('REL-05G5B2B2B HealthView durable Workout notification wiring', () => {
       }
     },
   );
+});
+
+describe('REL-05G5B2B2B composite Previous selection reconciliation', () => {
+  const legacyRecord = (localDate: string, rowId: string) => ({
+    source: 'legacy' as const,
+    readId: JSON.stringify(['legacy', 'account-a', rowId]),
+    localDate,
+    capability: 'read_only' as const,
+    legacy: {
+      accountId: 'account-a', rowId, localDate, blockId: 'push', sortOrder: 0,
+      exerciseDisplay: { kind: 'historical_fallback' as const, name: `Workout ${localDate}` },
+      sets: [{ type: 'strength' as const, set: 1, kg: 20, reps: 5, done: true }],
+    },
+  });
+  const rangeView = (dates: string[]) => ({
+    accountId: 'account-a', scope: null, startDate: '2025-01-10', endDate: '2026-01-09',
+    result: { status: 'complete' as const, legacyStatus: 'success' as const, canonicalStatus: 'success' as const,
+      records: dates.map((value, index) => legacyRecord(value, `row-${index}`)) },
+    dates: dates.map((value, index) => ({ localDate: value, legacyRows: [legacyRecord(value, `row-${index}`)], canonicalSessions: [] })),
+  });
+  const rangeModel = (phase: 'loading' | 'settled', dates: string[]) => ({
+    phase,
+    accountId: 'account-a',
+    previousBounds: { startDate: '2025-01-10', endDate: '2026-01-09' },
+    monthBounds: { startDate: '2026-01-01', endDate: '2026-01-31' },
+    previousView: phase === 'settled' ? rangeView(dates) : null,
+    monthView: phase === 'settled' ? rangeView([]) : null,
+    isolationError: false,
+    retry: vi.fn(),
+    invalidateAndReload: vi.fn(),
+  });
+
+  it('preserves an eligible selection through loading and reconciles only after settled evidence', async () => {
+    const settledBoth = healthProps({ workoutRangeComposite: rangeModel('settled', ['2026-01-02', '2026-01-03']) as never });
+    await mount(settledBoth);
+    await act(async () => buttonWithText('tabPrevious').click());
+    await settle();
+    await act(async () => buttonWithText('2026-01-02').click());
+    expect(buttonWithText('2026-01-02').getAttribute('aria-pressed')).toBe('true');
+
+    flushSync(() => root!.render(createElement(HealthView, healthProps({
+      workoutRangeComposite: rangeModel('loading', []) as never,
+    }))));
+    expect(container!.querySelector('[data-health-composite-previous-loading]')).not.toBeNull();
+
+    flushSync(() => root!.render(createElement(HealthView, settledBoth)));
+    await settle();
+    expect(buttonWithText('2026-01-02').getAttribute('aria-pressed')).toBe('true');
+
+    flushSync(() => root!.render(createElement(HealthView, healthProps({
+      workoutRangeComposite: rangeModel('loading', []) as never,
+    }))));
+    await settle();
+    flushSync(() => root!.render(createElement(HealthView, healthProps({
+      workoutRangeComposite: rangeModel('settled', ['2026-01-03']) as never,
+    }))));
+    await settle();
+    expect(buttonWithText('2026-01-03').getAttribute('aria-pressed')).toBe('true');
+  });
 });

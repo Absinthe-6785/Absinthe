@@ -1,5 +1,5 @@
 import type { TranslationKey } from '../../../../lib/i18n';
-import type { Theme } from '../../../../types';
+import type { Theme, WorkoutSet } from '../../../../types';
 import type {
   CompositePreviousWorkoutProjection,
 } from './compositePreviousWorkoutProjection';
@@ -16,6 +16,39 @@ export interface CompositePreviousWorkoutViewProps {
   scrollMode?: 'contained' | 'inherited';
 }
 
+function displayValue(value: string | number | null | undefined): string {
+  return value === null || value === undefined || value === '' ? '—' : String(value);
+}
+
+function booleanValue(value: boolean, t: (key: TranslationKey) => string): string {
+  return t(value ? 'workoutCompositeDone' : 'workoutCompositeNotDone');
+}
+
+function legacySetSummary(set: WorkoutSet, t: (key: TranslationKey) => string): string {
+  const values = [`${t('workoutCompositeType')}: ${set.type}`];
+  if (set.type === 'cardio') {
+    values.push(
+      `${t('workoutCompositeDuration')}: ${displayValue(set.time)}`,
+      `${t('workoutCompositeDistance')}: ${displayValue(set.distance)}`,
+      `${t('workoutCompositePace')}: ${displayValue(set.pace)}`,
+    );
+  } else {
+    if (set.type === 'strength') {
+      values.push(`${t('workoutCompositeWeightKg')}: ${displayValue(set.kg)}`);
+      values.push(`${t('workoutCompositeWeightSource')}: ${set.weight_source_value == null
+        ? '—'
+        : `${set.weight_source_value}${set.weight_source_unit ? ` ${set.weight_source_unit}` : ''}`}`);
+    }
+    values.push(
+      `${t('workoutCompositeReps')}: ${displayValue(set.reps)}`,
+      `${t('workoutCompositeAssisted')}: ${displayValue(set.assisted_reps)}`,
+      `${t('workoutCompositeDropset')}: ${String(Boolean(set.is_dropset))}`,
+    );
+  }
+  values.push(`${t('workoutCompositeDone')}: ${booleanValue(set.done, t)}`);
+  return values.join(' · ');
+}
+
 function canonicalSetSummary(set: {
   ordinal: number;
   kind: string;
@@ -29,16 +62,30 @@ function canonicalSetSummary(set: {
   dropset?: boolean;
   done: boolean;
 }, t: (key: TranslationKey) => string): string {
-  const values = [
-    set.sourceValue != null ? `${set.sourceValue}${set.sourceUnit ? ` ${set.sourceUnit}` : ''}` : null,
-    set.weightKg != null ? `${set.weightKg} kg` : null,
-    set.reps != null ? `${set.reps} ${t('workoutCompositeReps')}` : null,
-    set.assistedReps != null ? `${set.assistedReps} ${t('workoutCompositeAssisted')}` : null,
-    set.durationSeconds != null ? `${set.durationSeconds} ${t('workoutCompositeSeconds')}` : null,
-    set.distanceMeters != null ? `${set.distanceMeters} ${t('workoutCompositeMeters')}` : null,
-    set.dropset ? t('workoutCompositeDropset') : null,
-    set.done ? t('workoutCompositeDone') : t('workoutCompositeNotDone'),
-  ].filter((value): value is string => value !== null);
+  const values = [`${t('workoutCompositeType')}: ${set.kind}`];
+  if (set.kind === 'strength') {
+    values.push(
+      `${t('workoutCompositeWeightSource')}: ${set.sourceValue == null
+        ? '—'
+        : `${set.sourceValue}${set.sourceUnit ? ` ${set.sourceUnit}` : ''}`}`,
+      `${t('workoutCompositeWeightKg')}: ${displayValue(set.weightKg)}`,
+      `${t('workoutCompositeReps')}: ${displayValue(set.reps)}`,
+      `${t('workoutCompositeAssisted')}: ${displayValue(set.assistedReps)}`,
+      `${t('workoutCompositeDropset')}: ${String(Boolean(set.dropset))}`,
+    );
+  } else if (set.kind === 'bodyweight') {
+    values.push(
+      `${t('workoutCompositeReps')}: ${displayValue(set.reps)}`,
+      `${t('workoutCompositeAssisted')}: ${displayValue(set.assistedReps)}`,
+      `${t('workoutCompositeDropset')}: ${String(Boolean(set.dropset))}`,
+    );
+  } else {
+    values.push(
+      `${t('workoutCompositeDuration')}: ${displayValue(set.durationSeconds)} ${t('workoutCompositeSeconds')}`,
+      `${t('workoutCompositeDistance')}: ${displayValue(set.distanceMeters)} ${t('workoutCompositeMeters')}`,
+    );
+  }
+  values.push(`${t('workoutCompositeDone')}: ${booleanValue(set.done, t)}`);
   return values.join(' · ');
 }
 
@@ -75,12 +122,16 @@ export function CompositePreviousWorkoutView({
     </div>
   </section> : null;
 
-  const warning = projection.status === 'partial_data' ? <div role="status" className={`rounded-xl border px-3 py-2 text-xs ${theme.border}`} data-health-composite-previous-incomplete>
-    {projection.legacyStatus === 'error' ? t('workoutCompositeLegacyUnavailable') : t('workoutCompositeCanonicalUnavailable')}
+  const warning = projection.status === 'partial_data' ? <div role="status" className={`flex items-center justify-between gap-3 rounded-xl border px-3 py-2 text-xs ${theme.border}`} data-health-composite-previous-incomplete>
+    <span>{projection.legacyStatus === 'error' ? t('workoutCompositeLegacyUnavailable') : t('workoutCompositeCanonicalUnavailable')}</span>
+    <button type="button" onClick={onRetry} className={`min-h-[44px] shrink-0 rounded-xl border px-3 py-2 text-xs font-bold ${theme.border}`}>{t('previousWorkoutRetry')}</button>
   </div> : null;
 
   if (!projection.selectedBucket) {
-    return <div className="flex min-h-0 flex-1 flex-col gap-3" data-health-composite-previous-content>{browser}{warning}<div className={`flex flex-1 items-center justify-center rounded-2xl border border-dashed px-4 py-12 text-center text-sm ${theme.border} ${theme.textMuted}`}>{t('previousWorkoutEmpty')}</div></div>;
+    const emptyMessage = projection.status === 'partial_data'
+      ? t('workoutCompositePartialNoRecords')
+      : t('previousWorkoutEmpty');
+    return <div className="flex min-h-0 flex-1 flex-col gap-3" data-health-composite-previous-content>{browser}{warning}<div className={`flex flex-1 items-center justify-center rounded-2xl border border-dashed px-4 py-12 text-center text-sm ${theme.border} ${theme.textMuted}`}>{emptyMessage}</div></div>;
   }
   const bucket = projection.selectedBucket;
   return <div className={`min-h-0 flex-1 space-y-3 ${scrollMode === 'contained' ? 'overflow-y-auto pr-1' : ''}`} data-health-composite-previous>
@@ -95,6 +146,9 @@ export function CompositePreviousWorkoutView({
       {bucket.legacyGroup.rows.map(record => <article key={record.readId} className={`rounded-2xl border p-3 ${theme.border} ${theme.card}`} data-legacy-read-id={record.readId}>
         <div className="flex items-center justify-between gap-2"><p className="font-semibold">{record.legacy.exerciseDisplay.kind === 'current_catalog' ? record.legacy.exerciseDisplay.block.name : record.legacy.exerciseDisplay.name}</p><span className={`text-[11px] ${theme.textMuted}`}>{t('previousReadOnly')}</span></div>
         <p className={`mt-1 text-xs ${theme.textMuted}`}>{t('workoutCompositeSetCount').replace('{count}', String(record.legacy.sets.length))}</p>
+        <ul className="mt-2 space-y-1 text-xs">{record.legacy.sets.map((set, index) => <li key={`${record.readId}:${set.set}:${index}`}>
+          {t('workoutCompositeSetLabel').replace('{set}', String(set.set))}: {legacySetSummary(set, t)}
+        </li>)}</ul>
       </article>)}
     </section>}
     {bucket.canonicalSessions.map(record => <article key={record.readId} className={`rounded-2xl border p-3 ${theme.border} ${theme.card}`} data-canonical-read-id={record.readId}>
@@ -103,7 +157,12 @@ export function CompositePreviousWorkoutView({
         {record.canonical.session.entries.map(entry => <section key={entry.id} className={`rounded-xl border p-2 ${theme.border}`}>
           <p className="font-semibold">{entry.exercise.name}</p>
           <p className={`text-xs ${theme.textMuted}`}>{entry.exercise.type}{entry.exercise.tags.length ? ` · ${entry.exercise.tags.join(', ')}` : ''}</p>
-          <ul className="mt-2 space-y-1 text-xs">{entry.sets.map(set => <li key={set.id}>{t('workoutCompositeSetLabel').replace('{set}', String(set.ordinal))}: {canonicalSetSummary(set, t)}</li>)}</ul>
+          <p className={`text-[11px] break-all ${theme.textMuted}`}>{t('workoutCompositeEntryId')}: {entry.id}</p>
+          {entry.exercise.cardioMode != null && <p className={`text-[11px] ${theme.textMuted}`}>{t('workoutCompositeCardioMode')}: {entry.exercise.cardioMode}</p>}
+          <ul className="mt-2 space-y-1 text-xs">{entry.sets.map(set => <li key={set.id}>
+            <span>{t('workoutCompositeSetLabel').replace('{set}', String(set.ordinal))}: {canonicalSetSummary(set, t)}</span>
+            <span className={`ml-2 break-all text-[11px] ${theme.textMuted}`}>{t('workoutCompositeSetId')}: {set.id}</span>
+          </li>)}</ul>
         </section>)}
       </div>}
     </article>)}

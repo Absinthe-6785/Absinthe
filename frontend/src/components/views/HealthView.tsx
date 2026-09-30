@@ -1226,6 +1226,7 @@ export const HealthView = ({
   [selectedDateKey, selectedPreviousDate, workoutRangeComposite]);
   useEffect(() => {
     if (compositePreviousProjection) {
+      if (compositePreviousProjection.phase === 'loading') return;
       setSelectedPreviousDate(current => current
         && compositePreviousProjection.dateBuckets.some(bucket => bucket.localDate === current)
         ? current

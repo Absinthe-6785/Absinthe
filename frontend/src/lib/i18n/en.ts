@@ -2103,6 +2103,16 @@ const enTranslations = [
   "not done",
   "Exercise comparison and PR cues remain legacy-only.",
   "Preview: the selected day combines the legacy editor with canonical read-only sessions. The separately gated Previous/calendar preview may also be composite; Home, Search, and PR comparison remain legacy-only.",
+  "No workout is available from the sources currently accessible.",
+  "Type",
+  "Duration",
+  "Distance",
+  "Pace",
+  "Weight (kg)",
+  "Entered weight",
+  "Entry ID",
+  "Set ID",
+  "Cardio mode",
 ] as const;
 
 export default enTranslations;
