@@ -239,6 +239,83 @@ describe('verified Workout range source snapshot', () => {
     coordinator.close();
   });
 
+  it('rejects a device transition after a null-scope derive begins, without a later verification', async () => {
+    const source = datasets();
+    source.workout_logs.push(legacy());
+    mocks.readAll.mockResolvedValue(source);
+    vi.spyOn(WorkoutRangeReader, 'open').mockRejectedValue(new Error('canonical_unavailable'));
+    const coordinator = new WorkoutReadSnapshotCoordinator('a', storageAdapter);
+    expect(await coordinator.load()).toMatchObject({ scope: null, result: {
+      status: 'partial_data', records: [{ source: 'legacy' }],
+    } });
+
+    const pending = coordinator.deriveRange('2026-09-01', '2026-09-30');
+    storage.set(HEALTH_ROUTINE_DEVICE_ID_KEY, OTHER_DEVICE);
+    expect(await pending).toBeNull();
+    expect(coordinator.currentSnapshot).toBeNull();
+    coordinator.close();
+  });
+
+  it('still derives a null-scope partial snapshot when its device stays current', async () => {
+    const source = datasets();
+    source.workout_logs.push(legacy());
+    mocks.readAll.mockResolvedValue(source);
+    vi.spyOn(WorkoutRangeReader, 'open').mockRejectedValue(new Error('canonical_unavailable'));
+    const coordinator = new WorkoutReadSnapshotCoordinator('a', storageAdapter);
+    const snapshot = await coordinator.load();
+    expect(await coordinator.deriveRange('2026-09-01', '2026-09-30')).toMatchObject({
+      scope: null, result: { status: 'partial_data', records: [{ source: 'legacy' }] },
+    });
+    expect(coordinator.currentSnapshot).toBe(snapshot);
+    coordinator.close();
+  });
+
+  it('does not publish a full-scope range after a device transition during verification', async () => {
+    await seed('a', [session(A, '2026-09-29')]);
+    const coordinator = new WorkoutReadSnapshotCoordinator('a', storageAdapter);
+    expect((await coordinator.load())?.scope).not.toBeNull();
+    const pending = coordinator.deriveRange('2026-09-01', '2026-09-30');
+    storage.set(HEALTH_ROUTINE_DEVICE_ID_KEY, OTHER_DEVICE);
+    expect(await pending).toBeNull();
+    expect(coordinator.currentSnapshot).toBeNull();
+    coordinator.close();
+  });
+
+  it('does not publish a partial range when closed after derive begins', async () => {
+    const source = datasets();
+    source.workout_logs.push(legacy());
+    mocks.readAll.mockResolvedValue(source);
+    vi.spyOn(WorkoutRangeReader, 'open').mockRejectedValue(new Error('canonical_unavailable'));
+    const coordinator = new WorkoutReadSnapshotCoordinator('a', storageAdapter);
+    await coordinator.load();
+    const pending = coordinator.deriveRange('2026-09-01', '2026-09-30');
+    coordinator.close();
+    expect(await pending).toBeNull();
+    expect(coordinator.currentSnapshot).toBeNull();
+  });
+
+  it('does not return or invalidate S2 when an old derive verification succeeds late', async () => {
+    const source = datasets();
+    source.workout_logs.push(legacy());
+    mocks.readAll.mockResolvedValue(source);
+    vi.spyOn(WorkoutRangeReader, 'open').mockRejectedValue(new Error('canonical_unavailable'));
+    const coordinator = new WorkoutReadSnapshotCoordinator('a', storageAdapter);
+    const s1 = await coordinator.load();
+    let finishVerification!: (value: boolean) => void;
+    vi.spyOn(coordinator, 'verifyCurrentScope').mockImplementationOnce(
+      () => new Promise(resolve => { finishVerification = resolve; }),
+    );
+    const oldRange = coordinator.deriveRange('2026-09-01', '2026-09-30');
+    coordinator.invalidate();
+    const s2 = await coordinator.load();
+    expect(s2).not.toBe(s1);
+    finishVerification(true);
+    expect(await oldRange).toBeNull();
+    expect(coordinator.currentSnapshot).toBe(s2);
+    expect((await coordinator.deriveRange('2026-09-01', '2026-09-30'))?.result.records).toHaveLength(1);
+    coordinator.close();
+  });
+
   it('invalidates in-flight L1 before late publication and retries a failed source load', async () => {
     await seed();
     let release!: (value: HealthRecoveryDatasets) => void;

@@ -4,9 +4,11 @@ import {
 } from './localDatabase/repository';
 import { LocalDatabaseError } from './localDatabase/errors';
 import { LOCAL_SCHEMA_VERSION, type LocalDatabaseNamespace } from './localDatabase/types';
-import { HEALTH_ROUTINE_GENERATION_ID, HEALTH_ROUTINE_PROJECT_REF } from './healthRoutineSync';
+import {
+  HEALTH_ROUTINE_GENERATION_ID, HEALTH_ROUTINE_PROJECT_REF, readEstablishedWorkoutDeviceId,
+} from './workoutLocalReaderAuthority';
 import { WorkoutSessionRepository, WORKOUT_SESSION_DOMAIN } from './workoutSessionRepository';
-import { readEstablishedWorkoutDeviceId, type SelectedDayCanonicalScope } from './workoutSelectedDayReader';
+import type { SelectedDayCanonicalScope } from './workoutSelectedDayReader';
 import {
   CompositeWorkoutReadIsolationError, type ActiveCanonicalWorkoutReadInput,
 } from '../components/views/features/health/compositeWorkoutReadProjection';

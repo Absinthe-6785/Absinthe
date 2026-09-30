@@ -5,9 +5,8 @@ import {
 import { LocalDatabaseError } from './localDatabase/errors';
 import { LOCAL_SCHEMA_VERSION, type LocalDatabaseNamespace } from './localDatabase/types';
 import {
-  HEALTH_ROUTINE_DEVICE_ID_KEY, HEALTH_ROUTINE_GENERATION_ID,
-  HEALTH_ROUTINE_PROJECT_REF, readOrCreateDeviceId,
-} from './healthRoutineSync';
+  HEALTH_ROUTINE_GENERATION_ID, HEALTH_ROUTINE_PROJECT_REF, readEstablishedWorkoutDeviceId,
+} from './workoutLocalReaderAuthority';
 import { WorkoutSessionRepository, WORKOUT_SESSION_DOMAIN } from './workoutSessionRepository';
 import { CompositeWorkoutReadIsolationError,
   type ActiveCanonicalWorkoutReadInput } from '../components/views/features/health/compositeWorkoutReadProjection';
@@ -19,15 +18,7 @@ export type SelectedDayCanonicalScope = Readonly<{
   generationId: string;
 }>;
 
-/** Match the established key, but never repair an existing malformed identity. */
-export function readEstablishedWorkoutDeviceId(storage: Storage): string {
-  const existing = storage.getItem(HEALTH_ROUTINE_DEVICE_ID_KEY);
-  if (existing !== null) {
-    if (!/^[0-9a-f-]{36}$/i.test(existing)) throw new Error('workout_selected_day_device_id_invalid');
-    return existing;
-  }
-  return readOrCreateDeviceId(storage);
-}
+export { readEstablishedWorkoutDeviceId } from './workoutLocalReaderAuthority';
 
 export class WorkoutSelectedDayReader {
   private repository: LocalDatabaseRepository;

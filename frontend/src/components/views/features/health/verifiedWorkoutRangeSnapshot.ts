@@ -1,9 +1,11 @@
 import type { ExerciseBlock, WorkoutSet } from '../../../../types';
 import type { HealthRecoveryDatasets, HealthRecoveryRecord } from '../../../../lib/healthRecoveryExport';
 import { createLocalHealthRepository } from '../../../../lib/healthLocalRuntime';
-import { HEALTH_ROUTINE_DEVICE_ID_KEY } from '../../../../lib/healthRoutineSync';
+import {
+  HEALTH_ROUTINE_DEVICE_ID_KEY, readEstablishedWorkoutDeviceId,
+} from '../../../../lib/workoutLocalReaderAuthority';
 import { WorkoutRangeReader } from '../../../../lib/workoutRangeReader';
-import { readEstablishedWorkoutDeviceId, type SelectedDayCanonicalScope } from '../../../../lib/workoutSelectedDayReader';
+import type { SelectedDayCanonicalScope } from '../../../../lib/workoutSelectedDayReader';
 import { LocalDatabaseError } from '../../../../lib/localDatabase/errors';
 import {
   CompositeWorkoutReadIsolationError, projectCompositeWorkoutRead,
@@ -248,8 +250,22 @@ export class WorkoutReadSnapshotCoordinator {
   }
 
   async deriveRange(startDate: string, endDate: string): Promise<WorkoutRangeView | null> {
+    const snapshot = this.snapshot;
+    const sequence = this.sequence;
+    const accountId = this.accountId;
+    const deviceId = this.deviceAtPublication;
+    if (this.closed || !snapshot || snapshot.accountId !== accountId) return null;
     if (!await this.verifyCurrentScope()) return null;
-    return this.snapshot ? deriveWorkoutRange(this.snapshot, startDate, endDate) : null;
+    // This is the final publication fence, including the reader-less partial path.
+    if (this.closed || this.sequence !== sequence || this.snapshot !== snapshot
+      || this.accountId !== accountId || snapshot.accountId !== accountId
+      || this.deviceAtPublication !== deviceId
+      || this.deviceStorage.getItem(HEALTH_ROUTINE_DEVICE_ID_KEY) !== deviceId) {
+      // A stale continuation must never invalidate a newer snapshot.
+      if (this.sequence === sequence && this.snapshot === snapshot) this.invalidate();
+      return null;
+    }
+    return deriveWorkoutRange(snapshot, startDate, endDate);
   }
 
   /** A future owner can fence a loaded snapshot before publishing a derived view. */
