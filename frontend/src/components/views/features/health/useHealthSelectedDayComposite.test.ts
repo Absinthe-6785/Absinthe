@@ -58,10 +58,10 @@ function reader(accountId = 'account-a') {
 let root: Root | null = null;
 let host: HTMLDivElement | null = null;
 let latest: HealthSelectedDayReadModel;
-function Harness({ enabled = true, accountId = 'account-a', date = DATE }: {
-  enabled?: boolean; accountId?: string; date?: string;
+function Harness({ enabled = true, accountId = 'account-a', date = DATE, managedLifecycle = false }: {
+  enabled?: boolean; accountId?: string; date?: string; managedLifecycle?: boolean;
 }) {
-  latest = useHealthSelectedDayComposite(enabled, accountId, date);
+  latest = useHealthSelectedDayComposite(enabled, accountId, date, { managedLifecycle });
   return createElement('div', { 'data-phase': latest.phase });
 }
 async function render(props: Parameters<typeof Harness>[0]) {
@@ -210,5 +210,16 @@ describe('gated selected-day composite orchestration', () => {
     expect(mocks.legacy).toHaveBeenCalledTimes(2);
     expect(mocks.open).toHaveBeenCalledTimes(1);
     expect(latest.cacheKey).toEqual(key);
+  });
+
+  it('suppresses its bootstrap/focus/visibility listeners under AppContent-managed lifecycle', async () => {
+    const windowAdd = vi.spyOn(window, 'addEventListener');
+    const documentAdd = vi.spyOn(document, 'addEventListener');
+    await render({ managedLifecycle: true }); await flush();
+    expect(windowAdd.mock.calls.filter(([event]) => event === 'focus' || event === 'health-bootstrap-complete')).toHaveLength(0);
+    expect(documentAdd.mock.calls.filter(([event]) => event === 'visibilitychange')).toHaveLength(0);
+    const before = mocks.legacy.mock.calls.length;
+    await act(async () => window.dispatchEvent(new Event('focus'))); await flush();
+    expect(mocks.legacy).toHaveBeenCalledTimes(before);
   });
 });

@@ -143,7 +143,7 @@ describe('gated Health selected-day startup split', () => {
     expect(mocks.staticReadiness.at(-1)).toBe(true);
     expect(mocks.routineActivation.at(-1)).toBe(true);
     expect((mocks.healthRender.mock.lastCall?.[0] as { healthRoutinesState: { status: string } }).healthRoutinesState.status).toBe('LOADING');
-    expect(mocks.selectedRead).toHaveBeenCalledWith(true, 'account-a', '2026-09-29');
+    expect(mocks.selectedRead).toHaveBeenCalledWith(true, 'account-a', '2026-09-29', { managedLifecycle: false });
     mocks.routineStatus = 'READY_WITH_RESULTS';
     await act(async () => root?.render(createElement(AppContent, { authUser: { id: 'account-a', email: 'a@example.com' } as never })));
     expect((mocks.healthRender.mock.lastCall?.[0] as { healthRoutines: unknown[] }).healthRoutines).toHaveLength(1);

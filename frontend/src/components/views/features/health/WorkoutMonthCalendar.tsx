@@ -5,6 +5,7 @@ import type { Theme } from '@/types';
 import { WORKSPACE_CARD, WORKSPACE_CARD_SURFACE_COMPACT } from '@/components/common/workspaceCardSizes';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useEffect, useRef } from 'react';
+import type { CompositeWorkoutCalendarActivity, WorkoutCalendarCellState } from './workoutCalendarActivity';
 
 export interface WorkoutMonthCalendarProps {
   selectedDate: Date;
@@ -16,6 +17,7 @@ export interface WorkoutMonthCalendarProps {
   theme: Theme;
   lang: string;
   workoutDates?: ReadonlySet<string>;
+  compositeActivity?: CompositeWorkoutCalendarActivity;
 }
 
 const DESKTOP_DOW = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'] as const;
@@ -24,6 +26,7 @@ const MOBILE_DOW = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'] as const;
 export interface MonthCellDecoration {
   dateStr: string;
   hasWorkout: boolean;
+  activityState: WorkoutCalendarCellState;
 }
 
 /** Precompute calendar cell markers keyed by monthKey — K-107. */
@@ -33,6 +36,7 @@ export function buildMonthCellDecorations(
   calendarDays: readonly (number | null)[],
   mobileDays: readonly number[],
   workoutDates?: ReadonlySet<string>,
+  compositeActivity?: CompositeWorkoutCalendarActivity,
 ): { monthKey: string; desktop: Map<number, MonthCellDecoration>; mobile: Map<number, MonthCellDecoration> } {
   const pad = (n: number) => String(n).padStart(2, '0');
   const monthKey = `${year}-${pad(month + 1)}`;
@@ -42,11 +46,15 @@ export function buildMonthCellDecorations(
   for (const day of calendarDays) {
     if (!day) continue;
     const dateStr = `${monthKey}-${pad(day)}`;
-    desktop.set(day, { dateStr, hasWorkout: workoutDates?.has(dateStr) ?? false });
+    const activityState = compositeActivity?.stateForDate(dateStr)
+      ?? (workoutDates?.has(dateStr) ? 'present' : 'absent');
+    desktop.set(day, { dateStr, hasWorkout: activityState === 'present', activityState });
   }
   for (const day of mobileDays) {
     const dateStr = `${monthKey}-${pad(day)}`;
-    mobile.set(day, { dateStr, hasWorkout: workoutDates?.has(dateStr) ?? false });
+    const activityState = compositeActivity?.stateForDate(dateStr)
+      ?? (workoutDates?.has(dateStr) ? 'present' : 'absent');
+    mobile.set(day, { dateStr, hasWorkout: activityState === 'present', activityState });
   }
 
   return { monthKey, desktop, mobile };
@@ -61,6 +69,7 @@ function WorkoutMonthCalendarInner({
   theme,
   lang,
   workoutDates,
+  compositeActivity,
 }: WorkoutMonthCalendarProps) {
   const { t } = useTranslation();
   const bannerScrollRef = useRef<HTMLDivElement>(null);
@@ -78,8 +87,8 @@ function WorkoutMonthCalendarInner({
   );
 
   const { monthKey, desktop, mobile } = useMemo(
-    () => buildMonthCellDecorations(year, month, calendarDays, mobileDays, workoutDates),
-    [year, month, calendarDays, mobileDays, workoutDates],
+    () => buildMonthCellDecorations(year, month, calendarDays, mobileDays, workoutDates, compositeActivity),
+    [year, month, calendarDays, mobileDays, workoutDates, compositeActivity],
   );
 
   useEffect(() => {
@@ -133,6 +142,13 @@ function WorkoutMonthCalendarInner({
         </div>
       </div>
 
+      {compositeActivity && compositeActivity.status !== 'complete' && (
+        <div className={`mb-2 flex items-center justify-between gap-2 rounded-lg border px-2 py-1.5 text-[11px] ${theme.border}`} role="status" data-health-calendar-incomplete>
+          <span>{t('workoutActivityIncomplete')}</span>
+          <button type="button" onClick={compositeActivity.onRetry} className="font-bold underline">{t('previousWorkoutRetry')}</button>
+        </div>
+      )}
+
       <div ref={bannerScrollRef} className="hidden overflow-x-auto pb-1 -mx-1 px-1 scroll-smooth">
         <div className="flex gap-2 w-max">
           {mobileDays.map(day => {
@@ -143,6 +159,7 @@ function WorkoutMonthCalendarInner({
               && selectedDate.getFullYear() === year;
             const isTodayCell = isToday(dateStr);
             const hasWorkout = deco?.hasWorkout ?? false;
+            const activityState = deco?.activityState ?? 'absent';
             const dow = new Date(year, month, day).getDay();
             return (
               <button
@@ -162,6 +179,8 @@ function WorkoutMonthCalendarInner({
                 <span className="text-sm font-bold">{day}</span>
                 {hasWorkout ? (
                   <span className={`w-1 h-1 rounded-full ${isSelected ? 'bg-primary-foreground' : 'bg-primary'}`} />
+                ) : activityState === 'unknown' ? (
+                  <span className="text-[9px] font-black leading-none" aria-label={t('workoutActivityUnknown')}>?</span>
                 ) : (
                   <span className="w-1 h-1" />
                 )}
@@ -185,6 +204,7 @@ function WorkoutMonthCalendarInner({
               && selectedDate.getFullYear() === year;
             const isTodayCell = isToday(dateStr);
             const hasWorkout = deco?.hasWorkout ?? false;
+            const activityState = deco?.activityState ?? 'absent';
             return (
               <button
                 key={day}
@@ -199,7 +219,11 @@ function WorkoutMonthCalendarInner({
                 >
                   {day}
                 </div>
-                {hasWorkout ? <span className="w-1 h-1 rounded-full bg-primary" /> : <span className="w-1 h-1" />}
+                {hasWorkout
+                  ? <span className="w-1 h-1 rounded-full bg-primary" />
+                  : activityState === 'unknown'
+                    ? <span className="text-[9px] font-black leading-none" aria-label={t('workoutActivityUnknown')}>?</span>
+                    : <span className="w-1 h-1" />}
               </button>
             );
           })}

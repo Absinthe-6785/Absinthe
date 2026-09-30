@@ -107,9 +107,19 @@ export function defaultPreviousWorkoutDate(
   sessions: readonly PreviousWorkoutSession[],
   referenceDate: string,
 ): string | null {
+  return defaultPreviousWorkoutDateFromDates(sessions.map(session => session.date), referenceDate);
+}
+
+/** Date-only defaulting shared by legacy and source-qualified Previous views. */
+export function defaultPreviousWorkoutDateFromDates(
+  dates: readonly string[],
+  referenceDate: string,
+): string | null {
   if (!validDateKey(referenceDate)) return null;
-  return sessions.find(session => weekday(session.date) === weekday(referenceDate))?.date
-    ?? sessions[0]?.date
+  const eligible = [...new Set(dates.filter(date => validDateKey(date) && date < referenceDate))]
+    .sort((left, right) => right.localeCompare(left));
+  return eligible.find(date => weekday(date) === weekday(referenceDate))
+    ?? eligible[0]
     ?? null;
 }
 

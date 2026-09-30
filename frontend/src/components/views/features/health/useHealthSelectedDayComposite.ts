@@ -27,6 +27,11 @@ export type HealthSelectedDayReadModel = Readonly<{
   retry: () => void;
 }>;
 
+export type HealthSelectedDayCompositeOptions = Readonly<{
+  /** AppContent owns the shared bootstrap/focus/visibility lifecycle. */
+  managedLifecycle?: boolean;
+}>;
+
 type StoredRead = Omit<HealthSelectedDayReadModel, 'retry'>;
 
 function loading(accountId: string, localDate: string): StoredRead {
@@ -37,6 +42,7 @@ function loading(accountId: string, localDate: string): StoredRead {
 /** Activated only by the repository-local static gate. Never starts G5A or a writer. */
 export function useHealthSelectedDayComposite(
   enabled: boolean, accountId: string, localDate: string,
+  options?: HealthSelectedDayCompositeOptions,
 ): HealthSelectedDayReadModel {
   const [refresh, setRefresh] = useState(0);
   const [stored, setStored] = useState<StoredRead>(() => loading(accountId, localDate));
@@ -68,7 +74,7 @@ export function useHealthSelectedDayComposite(
   }, [enabled, accountId]);
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || options?.managedLifecycle) return;
     const onBootstrap = () => retry();
     let lastFocus = 0;
     const onFocus = () => {
@@ -86,7 +92,7 @@ export function useHealthSelectedDayComposite(
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onFocus);
     };
-  }, [enabled, accountId, retry]);
+  }, [enabled, accountId, options?.managedLifecycle, retry]);
 
   useEffect(() => {
     if (!enabled) return;

@@ -9,14 +9,17 @@ import {
 } from '../../../common/popover/Popover';
 import type { PreviousWorkoutViewProps } from './PreviousWorkoutView';
 import { PreviousWorkoutView } from './PreviousWorkoutView';
+import type { CompositePreviousWorkoutViewProps } from './CompositePreviousWorkoutView';
+import { CompositePreviousWorkoutView } from './CompositePreviousWorkoutView';
 
 export interface PreviousWorkoutSheetProps extends PreviousWorkoutViewProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  composite?: CompositePreviousWorkoutViewProps;
 }
 
 /** Mobile-only contextual presentation for the existing Previous authority. */
-export function PreviousWorkoutSheet({ open, onOpenChange, ...previousProps }: PreviousWorkoutSheetProps) {
+export function PreviousWorkoutSheet({ open, onOpenChange, composite, ...previousProps }: PreviousWorkoutSheetProps) {
   const { t } = useTranslation();
 
   useEffect(() => {
@@ -55,7 +58,9 @@ export function PreviousWorkoutSheet({ open, onOpenChange, ...previousProps }: P
               style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
               data-health-previous-sheet-scroll
             >
-              <PreviousWorkoutView {...previousProps} scrollMode="inherited" />
+              {composite
+                ? <CompositePreviousWorkoutView {...composite} scrollMode="inherited" />
+                : <PreviousWorkoutView {...previousProps} scrollMode="inherited" />}
             </div>
           </PopoverPanel>
         </PopoverDismiss>

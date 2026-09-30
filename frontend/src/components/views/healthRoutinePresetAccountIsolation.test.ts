@@ -20,6 +20,8 @@ const mocks = vi.hoisted(() => ({
   showToast: vi.fn(),
   mutateDaily: vi.fn(),
   mutateStatic: vi.fn(),
+  deleteHealthWorkout: vi.fn(),
+  saveHealthWorkouts: vi.fn(),
   showConfirm: vi.fn(),
   clearConfirm: vi.fn(),
   confirmModal: {
@@ -65,8 +67,8 @@ vi.mock('../../lib/noteNavigation', () => ({
 }));
 vi.mock('./features/search/searchDomainNavigation', () => ({ registerSearchDomainHandlers: vi.fn() }));
 vi.mock('./features/health/healthWorkoutPersistence', () => ({
-  deleteHealthWorkout: vi.fn(),
-  saveHealthWorkouts: vi.fn(),
+  deleteHealthWorkout: (...args: unknown[]) => mocks.deleteHealthWorkout(...args),
+  saveHealthWorkouts: (...args: unknown[]) => mocks.saveHealthWorkouts(...args),
 }));
 vi.mock('../../lib/healthLocalRuntime', () => ({
   createLocalHealthRepository: vi.fn(async () => ({ saveRoutine: vi.fn() })),
@@ -154,8 +156,17 @@ vi.mock('../common/WorkspaceErrorBoundary', () => ({
 }));
 vi.mock('../common/WorkspacePageHeader', () => ({ WorkspacePageHeader: () => null }));
 vi.mock('../common/WorkspaceToolbar', () => ({
-  WorkspaceToolbar: () => null,
-  WorkspaceToolbarPrimary: () => null,
+  WorkspaceToolbar: ({ children }: { children: unknown }) => createElement('div', {}, children),
+  WorkspaceToolbarPrimary: ({ label, onClick, disabled }: {
+    label: string;
+    onClick: () => void;
+    disabled?: boolean;
+  }) => createElement('button', {
+    type: 'button',
+    disabled,
+    onClick,
+    'data-testid': 'health-save-workout',
+  }, label),
 }));
 vi.mock('./features/health/HealthWorkspaceNav', () => ({
   HEALTH_WORKSPACE_SECTIONS: [{ id: 'workout' }],
@@ -163,10 +174,17 @@ vi.mock('./features/health/HealthWorkspaceNav', () => ({
 }));
 vi.mock('./features/health/nutrition', () => ({ ProteinTracker: () => null }));
 vi.mock('./features/health/HealthBlockLibrary', () => ({
-  HealthBlockLibrary: ({ blocks }: { blocks: Array<{ id: string; name: string }> }) => createElement(
+  HealthBlockLibrary: ({ blocks, onAddToToday }: {
+    blocks: Array<{ id: string; name: string }>;
+    onAddToToday: (block: { id: string; name: string }) => void;
+  }) => createElement(
     'section',
     { 'data-health-test-region': 'library' },
-    ...blocks.map(block => createElement('button', { key: block.id, type: 'button' }, block.name)),
+    ...blocks.map(block => createElement('button', {
+      key: block.id,
+      type: 'button',
+      onClick: () => onAddToToday(block),
+    }, block.name)),
   ),
 }));
 vi.mock('./features/health/HealthSupportingPanels', () => ({
@@ -194,6 +212,13 @@ const blocks: ExerciseBlock[] = [
   { id: 'push', name: 'Push', type: 'strength', tags: ['UPPER'], cardio_mode: 'both' },
   { id: 'pull', name: 'Pull', type: 'strength', tags: ['UPPER'], cardio_mode: 'both' },
 ];
+const persistedWorkout: Workout = {
+  id: 'persisted-workout',
+  block_id: 'push',
+  exercise_blocks: blocks[0]!,
+  local_version: 'version-1',
+  sets: [{ type: 'strength', set: 1, kg: '20', reps: '5', done: true }],
+};
 const ACCOUNT_A_CUSTOM_ID = '00000000-0000-5000-8000-00000000000a';
 const ACCOUNT_B_CUSTOM_ID = '00000000-0000-5000-8000-00000000000b';
 const routine = (id: string, dayName: string, blockIds: string[]): HealthRoutine => ({ id, day_name: dayName, blocks: blockIds });
@@ -272,6 +297,27 @@ function writeCustomPreset(accountId: string, presetId: string, name: string) {
   return state;
 }
 
+function buttonWithText(text: string): HTMLButtonElement {
+  const button = Array.from(container!.querySelectorAll('button'))
+    .find(candidate => candidate.textContent?.trim() === text);
+  if (!button) throw new Error(`Button not rendered: ${text}`);
+  return button;
+}
+
+function workoutDeleteButton(): HTMLButtonElement {
+  const button = container!.querySelector<HTMLButtonElement>(
+    '[data-k126-workout-exercise-card] button.absolute',
+  );
+  if (!button) throw new Error('Workout delete button not rendered');
+  return button;
+}
+
+function deferredCommit() {
+  let release!: () => void;
+  const promise = new Promise<void>(resolve => { release = resolve; });
+  return { promise, release };
+}
+
 beforeEach(() => {
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   localStorage.clear();
@@ -281,6 +327,8 @@ beforeEach(() => {
   mocks.showToast.mockReset();
   mocks.mutateDaily.mockReset();
   mocks.mutateStatic.mockReset();
+  mocks.deleteHealthWorkout.mockReset();
+  mocks.saveHealthWorkouts.mockReset();
   mocks.showConfirm.mockReset();
   mocks.clearConfirm.mockReset();
   mocks.confirmModal.current = null;
@@ -502,4 +550,90 @@ describe('HEALTH_10D account transition isolation', () => {
     expect(state?.activePresetId).toBe(DEFAULT_ROUTINE_PRESET_ID);
     expect(presetSelect().value).toBe(DEFAULT_ROUTINE_PRESET_ID);
   });
+});
+
+describe('REL-05G5B2B2B HealthView durable Workout notification wiring', () => {
+  it('emits payload-free original-account notifications from actual save and delete paths', async () => {
+    const onLocalWorkoutCommitted = vi.fn();
+    mocks.saveHealthWorkouts.mockImplementation(async (input: {
+      onLocalCommit?: () => void;
+    }) => {
+      input.onLocalCommit?.();
+      return { status: 'success', localResults: [{ id: persistedWorkout.id, version: 'version-2' }] };
+    });
+    mocks.deleteHealthWorkout.mockImplementation(async (input: {
+      onLocalCommit?: () => void;
+    }) => {
+      input.onLocalCommit?.();
+      return { status: 'success' };
+    });
+
+    await mount(healthProps({ workouts: [persistedWorkout], onLocalWorkoutCommitted }));
+    await act(async () => buttonWithText('editBtn').click());
+    await act(async () => container!.querySelector<HTMLButtonElement>('[data-testid="health-save-workout"]')!.click());
+    await settle();
+    await act(async () => buttonWithText('editBtn').click());
+    await act(async () => workoutDeleteButton().click());
+    await settle();
+
+    expect(onLocalWorkoutCommitted.mock.calls).toEqual([['account-a'], ['account-a']]);
+    expect(mocks.saveHealthWorkouts.mock.calls[0]?.[0]).toMatchObject({ accountId: 'account-a' });
+    expect(mocks.deleteHealthWorkout.mock.calls[0]?.[0]).toMatchObject({ accountId: 'account-a' });
+  });
+
+  it.each(['save', 'delete'] as const)(
+    'preserves an A1 %s durable notification after A -> B -> A2 while fencing old UI continuation',
+    async operation => {
+      const gate = deferredCommit();
+      const onLocalWorkoutCommitted = vi.fn();
+      const complete = async (input: {
+        onLocalCommit?: () => void;
+        shouldContinue?: () => boolean;
+      }) => {
+        await gate.promise;
+        input.onLocalCommit?.();
+        return input.shouldContinue?.() === false
+          ? { status: 'aborted' }
+          : { status: 'success', localResults: [{ id: persistedWorkout.id, version: 'version-2' }] };
+      };
+      if (operation === 'save') mocks.saveHealthWorkouts.mockImplementation(complete);
+      else mocks.deleteHealthWorkout.mockImplementation(complete);
+
+      const propsA = healthProps({ workouts: [persistedWorkout], onLocalWorkoutCommitted });
+      await mount(propsA);
+      await act(async () => buttonWithText('editBtn').click());
+      await act(async () => {
+        if (operation === 'save') {
+          container!.querySelector<HTMLButtonElement>('[data-testid="health-save-workout"]')!.click();
+        } else {
+          workoutDeleteButton().click();
+        }
+        await Promise.resolve();
+      });
+
+      flushSync(() => root?.render(createElement(HealthView, healthProps({
+        user: { id: 'account-b', name: 'Account B' },
+        workouts: [persistedWorkout],
+        onLocalWorkoutCommitted,
+      }))));
+      await settle();
+      flushSync(() => root?.render(createElement(HealthView, propsA)));
+      await settle();
+      mocks.showToast.mockClear();
+
+      await act(async () => {
+        gate.release();
+        await gate.promise;
+        await Promise.resolve();
+      });
+      await settle();
+
+      expect(onLocalWorkoutCommitted).toHaveBeenCalledTimes(1);
+      expect(onLocalWorkoutCommitted).toHaveBeenCalledWith('account-a');
+      expect(mocks.showToast.mock.calls.map(call => call[0])).not.toContain('workoutSaved');
+      if (operation === 'delete') {
+        expect(container!.querySelectorAll('[data-k126-workout-exercise-card]')).toHaveLength(1);
+      }
+    },
+  );
 });

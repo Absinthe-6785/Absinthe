@@ -37,6 +37,9 @@ import { createProductionWorkoutRuntimeAuthorityController } from '../lib/workou
 import { WORKSPACE_SCROLL_MODE, WORKSPACE_VIEWPORT_CLASS } from './common/workspaceLayout';
 import { HEALTH_SELECTED_DAY_COMPOSITE_READER_ENABLED } from './views/features/health/healthSelectedDayCompositeConfig';
 import { useHealthSelectedDayComposite } from './views/features/health/useHealthSelectedDayComposite';
+import { isHealthWorkoutRangeCompositeEnabled } from './views/features/health/healthWorkoutRangeCompositeConfig';
+import { useHealthWorkoutRangeSnapshot } from './views/features/health/useHealthWorkoutRangeSnapshot';
+import { previousWorkoutRange } from './views/features/health/previousWorkoutSession';
 import {
   startIndependentStartup,
   type IndependentStartupRun,
@@ -272,7 +275,16 @@ export function AppContent({ authUser }: { authUser: User }) {
   const healthRuntimeReady = healthStartupCurrent
     && (!healthBootstrapRequired || startupState.health.status === 'ready');
   const selectedDayReaderEnabled = HEALTH_SELECTED_DAY_COMPOSITE_READER_ENABLED && activeTab === 'health';
-  const selectedDayRead = useHealthSelectedDayComposite(selectedDayReaderEnabled, authUser.id, dateStr);
+  const workoutRangeReaderEnabled = isHealthWorkoutRangeCompositeEnabled({
+    healthActive: activeTab === 'health',
+    accountPresent: Boolean(authUser.id),
+  });
+  const selectedDayReadSource = useHealthSelectedDayComposite(
+    selectedDayReaderEnabled,
+    authUser.id,
+    dateStr,
+    { managedLifecycle: workoutRangeReaderEnabled },
+  );
   const todosSearchActive = searchHasQuery || activeTab === 'planner';
   // Search keeps its legacy-only daily source; the gated Health editor uses
   // the independently verified, paired selected-day snapshot instead.
@@ -295,6 +307,41 @@ export function AppContent({ authUser }: { authUser: User }) {
     monthStart: formatDate(new Date(currentDate.getFullYear(), currentDate.getMonth(), 1)),
     monthEnd:   formatDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0)),
   }), [currentDate, formatDate]);
+  const previousBounds = useMemo(() => previousWorkoutRange(dateStr), [dateStr]);
+  const workoutRangeReadSource = useHealthWorkoutRangeSnapshot(
+    workoutRangeReaderEnabled,
+    authUser.id,
+    previousBounds,
+    { startDate: monthStart, endDate: monthEnd },
+  );
+  const selectedDayRetryRef = useRef(selectedDayReadSource.retry);
+  const rangeInvalidateRef = useRef(workoutRangeReadSource.invalidateAndReload);
+  const rangeReaderEnabledRef = useRef(workoutRangeReaderEnabled);
+  const currentHealthReaderAccountRef = useRef<string | null>(null);
+  selectedDayRetryRef.current = selectedDayReadSource.retry;
+  rangeInvalidateRef.current = workoutRangeReadSource.invalidateAndReload;
+  rangeReaderEnabledRef.current = workoutRangeReaderEnabled;
+  currentHealthReaderAccountRef.current = selectedDayReaderEnabled && activeTab === 'health'
+    ? authUser.id
+    : null;
+  const refreshCompositeWorkoutReaders = useCallback(() => {
+    if (rangeReaderEnabledRef.current) rangeInvalidateRef.current();
+    selectedDayRetryRef.current();
+  }, []);
+  const onLocalWorkoutCommitted = useCallback((committedAccountId: string) => {
+    if (currentHealthReaderAccountRef.current !== committedAccountId) return;
+    // Fence the broad snapshot first, then the selected-day projection.
+    if (rangeReaderEnabledRef.current) rangeInvalidateRef.current();
+    selectedDayRetryRef.current();
+  }, []);
+  const selectedDayRead = useMemo(() => workoutRangeReaderEnabled
+    ? { ...selectedDayReadSource, retry: refreshCompositeWorkoutReaders }
+    : selectedDayReadSource,
+  [refreshCompositeWorkoutReaders, selectedDayReadSource, workoutRangeReaderEnabled]);
+  const workoutRangeRead = useMemo(() => ({
+    ...workoutRangeReadSource,
+    retry: refreshCompositeWorkoutReaders,
+  }), [refreshCompositeWorkoutReaders, workoutRangeReadSource]);
   const healthBlocksSearchActive = searchHasQuery || activeTab === 'health';
   const markedDatesActive = false;
   const healthRoutinesActive = activeTab === 'health'
@@ -320,12 +367,36 @@ export function AppContent({ authUser }: { authUser: User }) {
 
   useEffect(() => {
     const refreshLocalHealth = () => {
+      if (rangeReaderEnabledRef.current) refreshCompositeWorkoutReaders();
       mutateDaily();
       mutateStatic();
     };
     window.addEventListener(HEALTH_LOCAL_BOOTSTRAP_COMPLETE_EVENT, refreshLocalHealth);
     return () => window.removeEventListener(HEALTH_LOCAL_BOOTSTRAP_COMPLETE_EVENT, refreshLocalHealth);
-  }, [mutateDaily, mutateStatic]);
+  }, [mutateDaily, mutateStatic, refreshCompositeWorkoutReaders]);
+
+  useEffect(() => {
+    if (!workoutRangeReaderEnabled) return;
+    let lastRefresh = 0;
+    const refreshOnFocus = () => {
+      if (document.visibilityState === 'hidden') return;
+      const now = Date.now();
+      if (now - lastRefresh < 250) return;
+      lastRefresh = now;
+      refreshCompositeWorkoutReaders();
+    };
+    window.addEventListener('focus', refreshOnFocus);
+    document.addEventListener('visibilitychange', refreshOnFocus);
+    return () => {
+      window.removeEventListener('focus', refreshOnFocus);
+      document.removeEventListener('visibilitychange', refreshOnFocus);
+    };
+  }, [refreshCompositeWorkoutReaders, workoutRangeReaderEnabled]);
+
+  useEffect(() => () => {
+    currentHealthReaderAccountRef.current = null;
+    rangeReaderEnabledRef.current = false;
+  }, []);
 
   // ── 5. Theme — Absinthe Design System tokens via CSS variables ───
   const theme = useMemo(() => buildThemeClasses(), []);
@@ -437,7 +508,8 @@ export function AppContent({ authUser }: { authUser: User }) {
                 isDailyLoading={selectedDayRead.phase === 'loading'}
                 healthRoutinesState={healthRoutinesState}
                 selectedDayComposite={selectedDayRead}
-                onLocalWorkoutCommitted={selectedDayRead.retry}
+                workoutRangeComposite={workoutRangeReaderEnabled ? workoutRangeRead : undefined}
+                onLocalWorkoutCommitted={onLocalWorkoutCommitted}
               />
             </>
           )}
