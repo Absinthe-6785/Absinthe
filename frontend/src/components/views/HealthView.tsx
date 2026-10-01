@@ -48,6 +48,9 @@ import {
 } from './features/health/HealthCompositionLayout';
 import { deleteHealthWorkout, saveHealthWorkouts } from './features/health/healthWorkoutPersistence';
 import { HealthSelectedDayCompositePanel } from './features/health/HealthSelectedDayCompositePanel';
+import { CompositePreviousWorkoutView } from './features/health/CompositePreviousWorkoutView';
+import { buildCompositePreviousWorkoutProjection } from './features/health/compositePreviousWorkoutProjection';
+import { buildWorkoutCalendarActivity } from './features/health/workoutCalendarActivity';
 import {
   normalizePreviousWorkoutRows,
   previousWorkoutRange,
@@ -109,7 +112,8 @@ export const HealthView = ({
   formatDate, isToday, showToast, mutateDaily, mutateStatic,
   schedules, weeklySchedules,
   workouts, healthBlocks, healthRoutines, inbody, theme, appSettings,
-  THEME_COLORS, isDailyLoading, user, selectedDayComposite, onLocalWorkoutCommitted,
+  THEME_COLORS, isDailyLoading, user, selectedDayComposite, workoutRangeComposite,
+  onLocalWorkoutCommitted,
   healthRoutinesState,
 }: HealthProps) => {
   const { t, lang } = useTranslation();
@@ -794,7 +798,7 @@ export const HealthView = ({
           workoutId: dbId,
           expectedVersion: expectedVersion ?? '',
           shouldContinue: () => currentWorkoutOperation(operationScope),
-          onLocalCommit: onLocalWorkoutCommitted,
+          onLocalCommit: () => onLocalWorkoutCommitted?.(operationScope.accountOperation.accountId),
         });
         if (!currentWorkoutOperation(operationScope)) return;
         if (result.status === 'aborted') return;
@@ -992,7 +996,7 @@ export const HealthView = ({
         date: formatDate(selectedDate),
         workouts: normalizedWorkouts,
         shouldContinue: () => currentWorkoutOperation(operationScope),
-        onLocalCommit: onLocalWorkoutCommitted,
+        onLocalCommit: () => onLocalWorkoutCommitted?.(operationScope.accountOperation.accountId),
       });
       if (!currentWorkoutOperation(operationScope)) return;
       if (persistence.status === 'aborted') return;
@@ -1150,9 +1154,11 @@ export const HealthView = ({
   const month = currentDate.getMonth();
   const monthStart = formatDate(new Date(year, month, 1));
   const monthEnd = formatDate(new Date(year, month + 1, 0));
-  const rangeKey = localMode
-    ? ['local-health-workout-range', user.id, monthStart, monthEnd] as const
-    : remoteSWRKey(`${API_URL}/api/workouts/range?start_date=${monthStart}&end_date=${monthEnd}`, 'health_workouts');
+  const rangeKey = workoutRangeComposite
+    ? null
+    : localMode
+      ? ['local-health-workout-range', user.id, monthStart, monthEnd] as const
+      : remoteSWRKey(`${API_URL}/api/workouts/range?start_date=${monthStart}&end_date=${monthEnd}`, 'health_workouts');
   const { data: monthWorkoutRows = [], mutate: mutateMonthWorkoutRows } = useSWR<RangeWorkoutRow[]>(
     rangeKey,
     localMode
@@ -1171,7 +1177,9 @@ export const HealthView = ({
   const previousWorkoutRemoteKey = remoteSWRKey(previousWorkoutRemoteUrl, 'health_workouts');
   const isDesktopPrevious = !isMobile && mobileHealthTab === 'previous';
   const isPreviousContextOpen = isDesktopPrevious || isPreviousSheetOpen;
-  const previousWorkoutKey: PreviousWorkoutSWRKey | null = isPreviousContextOpen
+  const previousWorkoutKey: PreviousWorkoutSWRKey | null = workoutRangeComposite
+    ? null
+    : isPreviousContextOpen
     ? localMode
       ? ['local', user.id, previousWorkoutRangeDates.startDate, previousWorkoutRangeDates.endDate]
       : previousWorkoutRemoteKey
@@ -1206,11 +1214,30 @@ export const HealthView = ({
     effectiveDate: effectivePreviousDate,
     session: previousWorkoutSession,
   } = previousWorkoutProjection;
+  const compositePreviousProjection = useMemo(() => workoutRangeComposite
+    ? buildCompositePreviousWorkoutProjection({
+      phase: workoutRangeComposite.phase === 'settled' ? 'settled' : 'loading',
+      view: workoutRangeComposite.previousView,
+      referenceDate: selectedDateKey,
+      selectedDate: selectedPreviousDate,
+      isolationError: workoutRangeComposite.isolationError,
+    })
+    : null,
+  [selectedDateKey, selectedPreviousDate, workoutRangeComposite]);
   useEffect(() => {
-    setSelectedPreviousDate(current => current && previousWorkoutSessions.some(session => session.date === current)
+    if (compositePreviousProjection) {
+      if (compositePreviousProjection.phase === 'loading') return;
+      setSelectedPreviousDate(current => current
+        && compositePreviousProjection.dateBuckets.some(bucket => bucket.localDate === current)
+        ? current
+        : compositePreviousProjection.automaticDate);
+      return;
+    }
+    setSelectedPreviousDate(current => current
+      && previousWorkoutSessions.some(session => session.date === current)
       ? current
       : automaticPreviousDate);
-  }, [automaticPreviousDate, previousWorkoutSessions]);
+  }, [automaticPreviousDate, compositePreviousProjection, previousWorkoutSessions]);
 
   const healthProjection = useMemo(() => buildHealthProjection({
     rangeWorkouts: monthWorkoutRows,
@@ -1219,6 +1246,17 @@ export const HealthView = ({
   }), [monthWorkoutRows, selectedDateKey, weightUnits]);
 
   const workoutDates = healthProjection.workoutDates;
+  const workoutCalendarActivity = useMemo(() => workoutRangeComposite
+    ? buildWorkoutCalendarActivity({
+      phase: workoutRangeComposite.phase === 'settled' ? 'settled' : 'loading',
+      view: workoutRangeComposite.monthView,
+      monthStart,
+      monthEnd,
+      isolationError: workoutRangeComposite.isolationError,
+      onRetry: workoutRangeComposite.retry,
+    })
+    : undefined,
+  [monthEnd, monthStart, workoutRangeComposite]);
 
   const workoutSessionSummary = useMemo(() => {
     const exerciseCount = localWorkouts.filter(w => w.block_id !== '__session__').length;
@@ -1496,7 +1534,18 @@ export const HealthView = ({
           </div>
           </div>
 
-          {isDesktopPrevious && (
+          {isDesktopPrevious && (compositePreviousProjection ? (
+            <CompositePreviousWorkoutView
+              projection={compositePreviousProjection}
+              theme={theme}
+              darkMode={appSettings.darkMode}
+              t={t}
+              formatDate={date => formatLongDate(new Date(`${date}T12:00:00`), lang)}
+              formatCompactDate={date => formatAbsoluteDateKey(date, lang)}
+              onRetry={workoutRangeComposite!.retry}
+              onSelectDate={setSelectedPreviousDate}
+            />
+          ) : (
             <PreviousWorkoutView
               session={previousWorkoutSession}
               isLoading={isPreviousWorkoutLoading}
@@ -1513,7 +1562,7 @@ export const HealthView = ({
               selectedDate={effectivePreviousDate}
               onSelectDate={setSelectedPreviousDate}
             />
-          )}
+          ))}
           <div className={isDesktopPrevious ? 'hidden' : 'contents'}>
           <div
             className={`min-h-0 flex-1 overscroll-contain space-y-3 pr-1 scroll-smooth
@@ -2141,6 +2190,7 @@ export const HealthView = ({
           theme={theme}
           lang={lang}
           workoutDates={workoutDates}
+          workoutCalendarActivity={workoutCalendarActivity}
           localInbody={localInbody}
           setLocalInbody={setLocalInbody}
           setIsInbodyDirty={setIsInbodyDirty}
@@ -2173,6 +2223,16 @@ export const HealthView = ({
         sessions={previousWorkoutSessions}
         selectedDate={effectivePreviousDate}
         onSelectDate={setSelectedPreviousDate}
+        composite={compositePreviousProjection ? {
+          projection: compositePreviousProjection,
+          theme,
+          darkMode: appSettings.darkMode,
+          t,
+          formatDate: date => formatLongDate(new Date(`${date}T12:00:00`), lang),
+          formatCompactDate: date => formatAbsoluteDateKey(date, lang),
+          onRetry: workoutRangeComposite!.retry,
+          onSelectDate: setSelectedPreviousDate,
+        } : undefined}
       />
 
       {showQuickAddExercise && isMobile && (

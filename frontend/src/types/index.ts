@@ -182,7 +182,10 @@ export interface HealthProps extends BaseViewProps, DateProps, MutateProps {
   isDailyLoading?: boolean;
   /** Gated selected-day reader data; never part of the legacy Workout[] writer. */
   selectedDayComposite?: import('../components/views/features/health/useHealthSelectedDayComposite').HealthSelectedDayReadModel;
-  onLocalWorkoutCommitted?: () => void;
+  /** Gated Previous/calendar range evidence; never part of the legacy writer. */
+  workoutRangeComposite?: import('../components/views/features/health/useHealthWorkoutRangeSnapshot').HealthWorkoutRangeReadModel;
+  /** Payload-free durability notification tagged with the original mutation account. */
+  onLocalWorkoutCommitted?: (committedAccountId: string) => void;
   /** Gated local routine source readiness; [] alone is not verified empty. */
   healthRoutinesState?: import('../lib/searchReadiness').SearchDatasetState;
 }

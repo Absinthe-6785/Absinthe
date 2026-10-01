@@ -1,5 +1,6 @@
 import type { HealthSelectedDayReadModel } from './useHealthSelectedDayComposite';
 import type { CompositeWorkoutRecord } from './compositeWorkoutReadProjection';
+import { useTranslation } from '../../../../lib/i18n';
 
 /** A separate, read-only source surface. No canonical record enters Health's draft. */
 export function HealthSelectedDayCompositePanel({
@@ -10,6 +11,7 @@ export function HealthSelectedDayCompositePanel({
   onPreviousDay: () => void;
   onNextDay: () => void;
 }) {
+  const { t } = useTranslation();
   const result = model.result;
   const canonical: readonly Extract<CompositeWorkoutRecord, { source: 'canonical' }>[] =
     (result?.records ?? []).filter(record => record.source === 'canonical') as Extract<CompositeWorkoutRecord, { source: 'canonical' }>[];
@@ -21,7 +23,7 @@ export function HealthSelectedDayCompositePanel({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h2 className="font-heading text-base font-bold">Selected-day workout sources</h2>
-          <p className="text-xs text-muted-foreground">Preview: legacy editor and canonical read-only sessions. Other workout views remain legacy-only.</p>
+          <p className="text-xs text-muted-foreground">{t('workoutSelectedDayCompositeScope')}</p>
         </div>
         <div className="flex gap-2">
           <button type="button" onClick={onPreviousDay} aria-label="Previous workout day" className="rounded-lg border px-2 py-1">‹</button>

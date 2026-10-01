@@ -8,6 +8,7 @@ import { WorkoutMonthCalendar } from './WorkoutMonthCalendar';
 import { ProteinTracker } from './nutrition';
 import { K121_SKELETON_HEIGHT } from '../../../../lib/k121SkeletonHeights';
 import { useTranslation } from '../../../../lib/i18n';
+import type { CompositeWorkoutCalendarActivity } from './workoutCalendarActivity';
 
 export interface HealthSupportingPanelsProps {
   accountId: string;
@@ -20,6 +21,7 @@ export interface HealthSupportingPanelsProps {
   theme: Theme;
   lang: string;
   workoutDates?: ReadonlySet<string>;
+  workoutCalendarActivity?: CompositeWorkoutCalendarActivity;
   localInbody: Inbody;
   setLocalInbody: React.Dispatch<React.SetStateAction<Inbody>>;
   setIsInbodyDirty: (v: boolean) => void;
@@ -42,6 +44,7 @@ export const HealthSupportingPanels = memo(function HealthSupportingPanels({
   theme,
   lang,
   workoutDates,
+  workoutCalendarActivity,
   localInbody,
   setLocalInbody,
   setIsInbodyDirty,
@@ -82,6 +85,7 @@ export const HealthSupportingPanels = memo(function HealthSupportingPanels({
               theme={theme}
               lang={lang}
               workoutDates={workoutDates}
+              compositeActivity={workoutCalendarActivity}
             />
           </div>
           <div className={`${WORKSPACE_CARD.sm} ${WORKSPACE_CARD_SURFACE_COMPACT} order-1 flex min-w-0 flex-col px-3 py-2 transition-colors lg:order-2`} data-inbody-panel>
