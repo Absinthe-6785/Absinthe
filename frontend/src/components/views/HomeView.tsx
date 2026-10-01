@@ -33,6 +33,9 @@ import { useCountdownReviewed } from './features/planner/hooks/useCountdownRevie
 import { toDateKey } from './features/knowledge/databaseViews/parseDatabaseDate';
 import { useArchiveProjection } from './features/archive/hooks/useArchiveProjection';
 import { buildHomeFoundationProjection } from './features/home/buildHomeFoundationProjection';
+import { buildHomeWorkoutCompositeProjection, type HomeWorkoutCompositeProjection } from './features/home/homeWorkoutCompositeProjection';
+import { readHomeWorkoutDraft, type HomeWorkoutDraftRead } from './features/home/homeWorkoutDraftRead';
+import type { HealthSelectedDayReadModel } from './features/health/useHealthSelectedDayComposite';
 import {
   saveWorkspaceSession,
   workspaceSessionFromActivation,
@@ -44,6 +47,51 @@ import type { Schedule } from '../../types';
 import { formatLongDate } from './k102DateFormat';
 
 type ScheduleDday = Schedule & { date: string };
+
+export type HomeViewProps = ViewProps & Readonly<{
+  homeWorkoutComposite?: HealthSelectedDayReadModel;
+  onOpenTodayWorkout?: () => void;
+}>;
+
+function HomeCompositeWorkoutCard({ model, onOpen, onRetry }: Readonly<{
+  model: HomeWorkoutCompositeProjection; onOpen: () => void; onRetry: () => void;
+}>) {
+  const { t } = useTranslation();
+  const formatCounts = (counts: { exerciseCount: number; setCount: number; doneCount: number }) =>
+    t('homeWorkoutObservedCounts').replace('{entries}', String(counts.exerciseCount))
+      .replace('{sets}', String(counts.setCount)).replace('{done}', String(counts.doneCount));
+  const verifiedEmpty = model.persistedPresence === 'absent' && model.draft.status === 'absent';
+  return <div className="flex flex-col gap-2 text-sm" data-home-workout-composite={model.phase}
+    data-home-workout-presence={model.persistedPresence} data-home-workout-date={model.localDate}>
+    <p className="text-xs text-muted-foreground">{t('homeWorkoutCompositePreview')}</p>
+    <div role="status" aria-live="polite" aria-atomic="true" className="flex flex-col gap-2">
+      {model.phase === 'loading' && <p>{t('loading')}</p>}
+      {verifiedEmpty && <p data-home-workout-verified-empty>{t('homeWorkoutVerifiedEmpty')}</p>}
+      {model.draft.status === 'present' && <p data-home-workout-draft>
+        {t('homeWorkoutUnsavedDraft')} · {formatCounts(model.draft.counts)}
+      </p>}
+      {model.draft.status === 'unavailable' && <p>{t('homeWorkoutDraftUnavailable')}</p>}
+      {model.legacy && model.legacy.rowCount > 0 && <p data-home-workout-legacy>
+        {t('homeWorkoutLegacyObserved').replace('{count}', String(model.legacy.rowCount))}
+        {model.legacy.counts && <> · {formatCounts(model.legacy.counts)}</>}
+      </p>}
+      {model.canonical && model.canonical.sessionCount > 0 && <p data-home-workout-canonical>
+        {t('homeWorkoutCanonicalObserved').replace('{count}', String(model.canonical.sessionCount))}
+        {' · '}{formatCounts({ exerciseCount: model.canonical.entryCount,
+          setCount: model.canonical.setCount, doneCount: model.canonical.doneCount })}
+      </p>}
+      {model.phase === 'partial_data' && <p>{t('homeWorkoutCoverageIncomplete')}</p>}
+      {model.phase === 'error' && <p>{t('homeWorkoutEvidenceUnavailable')}</p>}
+    </div>
+    {(model.phase === 'partial_data' || model.phase === 'error' || model.draft.status === 'unavailable')
+      && <button type="button" className="self-start min-h-[44px] text-primary font-bold"
+        data-home-workout-retry onClick={onRetry}>{t('startupRetry')}</button>}
+    <button type="button" onClick={onOpen} data-k132a-home-open-health
+      className="self-start inline-flex items-center gap-1.5 min-h-[44px] text-xs font-bold text-primary hover:underline">
+      {t('homeOpenWorkout')} <ArrowRight size={14} />
+    </button>
+  </div>;
+}
 
 function HomeSection({
   title,
@@ -120,11 +168,13 @@ export const HomeView = ({
   theme,
   isDailyLoading,
   user,
-}: ViewProps) => {
+  homeWorkoutComposite,
+  onOpenTodayWorkout,
+}: HomeViewProps) => {
   const { t, lang } = useTranslation();
   const vaultStructureVersion = useNotesStore(s => s.vaultStructureVersion);
   const createNote = useNotesStore(s => s.createNote);
-  const todayKey = toDateKey(now.toJSDate()) ?? formatDate(selectedDate);
+  const todayKey = toDateKey(now.toJSDate()) ?? formatDate(homeWorkoutComposite ? now.toJSDate() : selectedDate);
   const todayDate = now.toJSDate();
 
   const prevDate = useMemo(() => {
@@ -185,6 +235,18 @@ export const HomeView = ({
 
   const { projection: archiveProjection } = useArchiveProjection(todayDate, lang);
 
+  const homeDraft = useMemo<HomeWorkoutDraftRead | null>(() => {
+    if (!homeWorkoutComposite) return null;
+    try { return readHomeWorkoutDraft(localStorage, user.id, todayKey); }
+    catch { return { accountId: user.id, localDate: todayKey, status: 'unavailable' }; }
+  }, [user.id, todayKey, homeWorkoutComposite?.phase, homeWorkoutComposite?.result,
+    homeWorkoutComposite?.cacheKey, homeWorkoutComposite?.retry, Boolean(homeWorkoutComposite)]);
+  const workoutComposite = useMemo(() => homeWorkoutComposite && homeDraft
+    ? buildHomeWorkoutCompositeProjection({ accountId: user.id, localDate: todayKey,
+      read: homeWorkoutComposite, draft: homeDraft }) : undefined,
+  [homeWorkoutComposite, homeDraft, user.id, todayKey]);
+  const openWorkout = onOpenTodayWorkout ?? (() => switchToTab('health'));
+
   const projection = useMemo(
     () => buildHomeFoundationProjection({
       notes: useNotesStore.getState().notes,
@@ -196,8 +258,9 @@ export const HomeView = ({
       accountId: user.id,
       todayKey,
       locale: lang,
+      workoutComposite,
     }),
-    [vaultStructureVersion, routines, workouts, plannerProjection, recentActivity, archiveProjection.historyItems, user.id, todayKey, lang],
+    [vaultStructureVersion, routines, workouts, plannerProjection, recentActivity, archiveProjection.historyItems, user.id, todayKey, lang, workoutComposite],
   );
 
   const handleContinue = useCallback(() => {
@@ -354,7 +417,10 @@ export const HomeView = ({
             ) : null}
 
             <HomeSection title={t('homeWorkout')} dataHook="workout">
-              {isDailyLoading ? (
+              {projection.workout.mode === 'composite' ? (
+                <HomeCompositeWorkoutCard model={projection.workout} onOpen={openWorkout}
+                  onRetry={homeWorkoutComposite!.retry} />
+              ) : isDailyLoading ? (
                 <p className={`text-sm ${theme.textMuted}`}>{t('loading')}</p>
               ) : projection.workout.hasSession ? (
                 <div className="flex flex-col gap-2">
@@ -443,7 +509,7 @@ export const HomeView = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => switchToTab('health')}
+                  onClick={openWorkout}
                   className={`inline-flex items-center justify-center gap-2 rounded-xl px-3 py-3 text-sm font-bold border min-h-[44px] ${theme.border}`}
                   data-k132a-home-open-health-action
                 >

@@ -13,6 +13,7 @@ import type { ArchiveHistoryProjection } from '../knowledge/archive/archiveProje
 import type { WorkspaceActivation } from '../knowledge/workspace/workspaceModels';
 import type { HomeContinueItem, HomeFoundationProjection, HomeWorkoutSummary } from './homeFoundationModels';
 import { readLocalHealthWorkoutDraft } from '../../../../lib/healthBackfillUiSafety';
+import type { HomeWorkoutCompositeProjection } from './homeWorkoutCompositeProjection';
 
 function summarizeWorkouts(workouts: readonly Workout[]): Omit<HomeWorkoutSummary, 'hasSession' | 'isDraft' | 'isLocked'> {
   const exerciseCount = workouts.filter(w => w.block_id !== '__session__').length;
@@ -112,6 +113,7 @@ export function buildHomeFoundationProjection(input: {
   todayKey: string;
   locale?: Language | null;
   traceLimit?: number;
+  workoutComposite?: HomeWorkoutCompositeProjection;
 }): HomeFoundationProjection {
   const activeRoutines = input.routines.filter(routine => routine.is_active);
   const completedRoutines = activeRoutines.filter(routine => routine.done).length;
@@ -124,7 +126,8 @@ export function buildHomeFoundationProjection(input: {
     timetableSlots: input.plannerProjection?.timetableToday ?? [],
     activeRoutines: activeRoutines.length,
     completedRoutines,
-    workout: buildWorkoutSummary(input.workouts, input.accountId, input.todayKey),
+    // The composite branch must never invoke the legacy draft helper (it can remove bytes).
+    workout: input.workoutComposite ?? buildWorkoutSummary(input.workouts, input.accountId, input.todayKey),
     traces,
     archiveTracesToday: flattenArchiveTracesToday(input.archiveHistory),
   };

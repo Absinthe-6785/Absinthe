@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   rangeInvalidations: [] as string[],
   events: [] as string[],
   repositoryEvents: [] as string[],
+  homeModels: [] as Array<{ phase: string; accountId: string; legacyDaily?: { workouts?: Array<{ local_version?: string }> } | null }>,
   showToast: vi.fn(),
   mutateDaily: vi.fn(),
   mutateStatic: vi.fn(),
@@ -32,6 +33,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('./views/features/health/healthSelectedDayCompositeConfig', () => ({
   HEALTH_SELECTED_DAY_COMPOSITE_READER_ENABLED: true,
+}));
+vi.mock('./views/features/home/homeWorkoutCompositeConfig', () => ({
+  HOME_WORKOUT_COMPOSITE_READER_ENABLED: false,
+  isHomeWorkoutCompositeEnabled: ({ homeActive, accountPresent }: { homeActive: boolean; accountPresent: boolean }) => homeActive && accountPresent,
 }));
 vi.mock('./views/features/health/healthWorkoutRangeCompositeConfig', () => ({
   HEALTH_WORKOUT_RANGE_COMPOSITE_READER_ENABLED: true,
@@ -62,7 +67,10 @@ vi.mock('./views/features/health/selectedDayLegacySnapshot', () => ({
     mocks.selectedReads.push({ accountId, version, count: workouts.length, held });
     mocks.events.push(`selected-read:${accountId}:v${version}:${held ? 'held' : 'live'}`);
     const value = {
-      persistedRows: [],
+      persistedRows: workouts.filter(workout => workout.block_id !== '__session__').map((workout, index) => ({
+        accountId, rowId: String(workout.id), localDate: '2026-09-29', blockId: String(workout.block_id), sortOrder: index,
+        exerciseDisplay: { kind: 'historical_fallback', name: 'Bench' }, sets: structuredClone(workout.sets ?? []),
+      })),
       daily: { workouts, inbody: { weight: null, smm: null, pbf: null }, routines: [] },
     };
     if (!held) return Promise.resolve(value);
@@ -186,7 +194,9 @@ vi.mock('../hooks/useApiMutation', () => ({ useApiMutation: () => ({ api: vi.fn(
 vi.mock('../hooks/useConfirm', () => ({ useConfirm: () => ({ confirm: null, showConfirm: vi.fn(), clearConfirm: vi.fn(), handleConfirm: vi.fn() }) }));
 vi.mock('../theme', () => ({ buildThemeClasses: () => ({ card: 'card', input: 'input', border: 'border', text: 'text', textMuted: 'muted', hoverBg: 'hover' }) }));
 vi.mock('./common/Sidebar', () => ({ Sidebar: ({ setActiveTab }: { setActiveTab: (tab: string) => void }) =>
-  createElement('button', { type: 'button', 'data-testid': 'nav-health', onClick: () => setActiveTab('health') }, 'Health') }));
+  createElement('div', null, ...['health', 'home', 'note'].map(tab => createElement('button', {
+    key: tab, type: 'button', 'data-testid': `nav-${tab}`, onClick: () => setActiveTab(tab),
+  }, tab))) }));
 vi.mock('./common/ViewLoadingFallback', () => ({ ViewLoadingFallback: () => null }));
 vi.mock('./common/ConfirmModal', () => ({ ConfirmModal: ({ onConfirm, onCancel }: { onConfirm: () => void | Promise<void>; onCancel: () => void }) => {
   mocks.confirmModal.current = { onConfirm, onCancel };
@@ -201,7 +211,17 @@ vi.mock('./common/WorkspaceToolbar', () => ({
   WorkspaceToolbarPrimary: ({ label, onClick, disabled }: { label: string; onClick: () => void; disabled?: boolean }) =>
     createElement('button', { type: 'button', 'data-testid': 'health-save-workout', onClick, disabled }, label),
 }));
-vi.mock('./views/HomeView', () => ({ HomeView: () => null }));
+vi.mock('./views/HomeView', async importOriginal => {
+  const actual = await importOriginal<typeof import('./views/HomeView')>();
+  return { ...actual, HomeView: (props: import('./views/HomeView').HomeViewProps) => {
+    if (props.homeWorkoutComposite) mocks.homeModels.push(props.homeWorkoutComposite);
+    return createElement(actual.HomeView, props);
+  } };
+});
+vi.mock('./views/features/planner/calendar-ui/usePlannerCalendarProjection', () => ({ usePlannerCalendarProjection: () => ({ projection: {}, presentation: {} }) }));
+vi.mock('./views/features/planner/calendar/buildPlannerProjection', () => ({ buildPlannerProjection: () => ({ todayItems: [], timetableToday: [] }) }));
+vi.mock('./views/features/planner/hooks/useCountdownReviewed', () => ({ useCountdownReviewed: () => ({ isReviewed: () => false }) }));
+vi.mock('./views/features/archive/hooks/useArchiveProjection', () => ({ useArchiveProjection: () => ({ projection: { historyItems: { groups: [] } } }) }));
 vi.mock('./views/PlannerView', () => ({ PlannerView: () => null }));
 vi.mock('./views/AnalyticsView', () => ({ AnalyticsView: () => null }));
 vi.mock('./views/SettingsView', () => ({ SettingsView: () => null }));
@@ -234,7 +254,10 @@ vi.mock('../lib/healthRoutineSync', () => ({ productionHealthRoutinePersistence:
 } }));
 vi.mock('../lib/migrateLegacyDdays', () => ({ migrateLegacyDdays: vi.fn(async () => undefined) }));
 vi.mock('../lib/vaultSnapshotAuto', () => ({ runPeriodicSnapshotSlots: vi.fn() }));
-vi.mock('../lib/i18n', () => ({ useTranslation: () => ({ t: (key: string) => key, lang: 'en' }) }));
+vi.mock('../lib/i18n', async importOriginal => {
+  const actual = await importOriginal<typeof import('../lib/i18n')>();
+  return { ...actual, useTranslation: () => ({ t: (key: string) => key, lang: 'en' }) };
+});
 vi.mock('../lib/healthSupabaseBootstrap', () => ({ bootstrapHealthFromSupabase: vi.fn(async () => undefined),
   HEALTH_LOCAL_BOOTSTRAP_COMPLETE_EVENT: 'health-bootstrap-complete' }));
 vi.mock('../lib/workoutRuntimeAuthority', () => ({ createProductionWorkoutRuntimeAuthorityController: () => ({
@@ -347,6 +370,7 @@ beforeEach(() => {
   mocks.rangeInvalidations.length = 0;
   mocks.events.length = 0;
   mocks.repositoryEvents.length = 0;
+  mocks.homeModels.length = 0;
   mocks.showToast.mockReset();
   mocks.mutateDaily.mockReset();
   mocks.mutateStatic.mockReset();
@@ -431,5 +455,65 @@ describe('REL-05G5B2B2B fully mounted save/delete ABA races', () => {
     });
     expect(host.querySelector('[data-testid="selected-state"]')?.textContent).toBe('settled:account-a:empty');
     expect(host.querySelector('[data-testid="range-state"]')?.textContent).toBe('settled:0');
+  });
+});
+
+describe('REL-05G5B2B2C real Health-origin commits into real Home', () => {
+  it.each(['save', 'delete'] as const)('routes late A1 %s to A2 Home and discards pre-commit pair/UI', async operation => {
+    const AppContent = await mountHealth();
+    await act(async () => buttonWithText('editBtn').click());
+    await act(async () => {
+      if (operation === 'save') host.querySelector<HTMLButtonElement>('[data-testid="health-save-workout"]')!.click();
+      else deleteButton().click();
+      await Promise.resolve();
+    });
+    expect(mocks.repositoryEvents).toContain(`${operation}-start:account-a`);
+    await act(async () => root!.render(createElement(AppContent, { authUser: user('account-b') })));
+    await waitFor(() => expect(host.querySelector('[data-testid="selected-state"]')?.textContent).toBe('settled:account-b:empty'));
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-testid="nav-home"]')!.click());
+    await act(async () => root!.render(createElement(AppContent, { authUser: user('account-a') })));
+    await waitFor(() => {
+      expect(host.querySelector('[data-home-workout-presence="present"]')).not.toBeNull();
+      expect(mocks.homeModels.at(-1)?.legacyDaily?.workouts?.[0]?.local_version).toBe('v1');
+    });
+    mocks.holdNextSelectedRead = true;
+    await act(async () => window.dispatchEvent(new Event('focus')));
+    await waitFor(() => expect(mocks.heldSelectedReads).toHaveLength(1));
+    expect(host.querySelector('[data-home-workout-composite="loading"]')).not.toBeNull();
+    expect(host.querySelector('[data-home-workout-legacy]')).toBeNull();
+    const rangeBefore = mocks.rangeInvalidations.length;
+    await act(async () => mocks.mutationGate!.resolve());
+    await waitFor(() => {
+      expect(mocks.selectedReads.at(-1)).toMatchObject({ accountId: 'account-a', version: 2, held: false });
+      expect(host.querySelector('[data-home-workout-presence]')?.getAttribute('data-home-workout-presence'))
+        .toBe(operation === 'save' ? 'present' : 'absent');
+      expect(mocks.homeModels.at(-1)?.phase).toBe('settled');
+    });
+    expect(mocks.rangeInvalidations).toHaveLength(rangeBefore); // Range is still Health-only.
+    const settled = mocks.homeModels.at(-1);
+    await act(async () => mocks.heldSelectedReads.splice(0).forEach(release => release()));
+    await settle();
+    expect(mocks.homeModels.at(-1)?.legacyDaily).toBe(settled?.legacyDaily);
+    expect(host.querySelector('[data-testid="selected-state"]')).toBeNull();
+    expect(mocks.showToast.mock.calls.map(call => call[0])).not.toContain('workoutSaved');
+  });
+
+  it.each(['save', 'delete'] as const)('late A %s cannot invalidate current B Home', async operation => {
+    const AppContent = await mountHealth();
+    await act(async () => buttonWithText('editBtn').click());
+    await act(async () => {
+      if (operation === 'save') host.querySelector<HTMLButtonElement>('[data-testid="health-save-workout"]')!.click();
+      else deleteButton().click();
+      await Promise.resolve();
+    });
+    await act(async () => root!.render(createElement(AppContent, { authUser: user('account-b') })));
+    await waitFor(() => expect(host.querySelector('[data-testid="selected-state"]')?.textContent).toBe('settled:account-b:empty'));
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-testid="nav-home"]')!.click());
+    await waitFor(() => expect(host.querySelector('[data-home-workout-presence="absent"]')).not.toBeNull());
+    const reads = mocks.selectedReads.length, invalidations = mocks.rangeInvalidations.length;
+    await act(async () => mocks.mutationGate!.resolve()); await settle();
+    expect(mocks.selectedReads).toHaveLength(reads); expect(mocks.rangeInvalidations).toHaveLength(invalidations);
+    expect(mocks.homeModels.at(-1)?.accountId).toBe('account-b');
+    expect(host.querySelector('[data-home-workout-legacy]')).toBeNull();
   });
 });

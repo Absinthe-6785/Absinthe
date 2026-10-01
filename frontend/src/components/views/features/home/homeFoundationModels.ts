@@ -2,6 +2,7 @@ import type { WorkspaceActivation } from '../knowledge/workspace/workspaceModels
 import type { UnifiedAgendaItem } from '../planner/calendar-ui/agenda/agendaItemModel';
 import type { PlannerWeeklySlotRow } from '../planner/calendar/calendarModels';
 import type { RecentActivityItem } from '../../buildRecentActivityProjection';
+import type { HomeWorkoutCompositeProjection } from './homeWorkoutCompositeProjection';
 
 export type HomeContinueKind = 'note' | 'workspace';
 
@@ -14,6 +15,7 @@ export interface HomeContinueItem {
 }
 
 export interface HomeWorkoutSummary {
+  mode?: 'legacy';
   hasSession: boolean;
   isDraft: boolean;
   isLocked: boolean;
@@ -28,7 +30,7 @@ export interface HomeFoundationProjection {
   timetableSlots: readonly PlannerWeeklySlotRow[];
   activeRoutines: number;
   completedRoutines: number;
-  workout: HomeWorkoutSummary;
+  workout: HomeWorkoutSummary | HomeWorkoutCompositeProjection;
   traces: readonly RecentActivityItem[];
   archiveTracesToday: number;
 }

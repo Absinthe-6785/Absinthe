@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildHomeFoundationProjection } from './buildHomeFoundationProjection';
 import type { NoteBase } from '../../noteUtils';
+import { buildHomeWorkoutCompositeProjection } from './homeWorkoutCompositeProjection';
 
 const storage = new Map<string, string>();
 
@@ -75,5 +76,19 @@ describe('buildHomeFoundationProjection', () => {
     expect(projection.workout.isLocked).toBe(true);
     expect(projection.workout.exerciseCount).toBe(1);
     expect(projection.completedRoutines).toBe(1);
+  });
+
+  it('bypasses the mutating legacy draft helper in the explicit composite branch', () => {
+    const accountId = 'account-a', todayKey = '2026-10-01';
+    localStorage.setItem(`healthDraft:${accountId}:${todayKey}`, '{broken');
+    const workoutComposite = buildHomeWorkoutCompositeProjection({ accountId, localDate: todayKey,
+      read: { phase: 'loading', accountId, localDate: todayKey, cacheKey: null, result: null,
+        legacyDaily: null, isolationError: false, retry: vi.fn() },
+      draft: { accountId, localDate: todayKey, status: 'unavailable' } });
+    const projection = buildHomeFoundationProjection({ notes: [], routines: [], workouts: [],
+      plannerProjection: null, recentActivity: { groups: [], isEmpty: true, generatedAt: '' },
+      accountId, todayKey, workoutComposite });
+    expect(projection.workout).toBe(workoutComposite);
+    expect(localStorage.getItem(`healthDraft:${accountId}:${todayKey}`)).toBe('{broken');
   });
 });

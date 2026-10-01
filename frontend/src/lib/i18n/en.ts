@@ -2113,6 +2113,15 @@ const enTranslations = [
   "Entry ID",
   "Set ID",
   "Cardio mode",
+  "Read-only preview · local persisted sources and unsaved draft are separate.",
+  "Today's persisted workout sources are verified empty; no draft is stored.",
+  "Unsaved legacy draft",
+  "Draft unavailable. Stored bytes are preserved.",
+  "Observed locally persisted legacy rows: {count}",
+  "Observed locally persisted canonical sessions (read-only): {count}",
+  "{entries} exercise entries · {sets} sets · {done} completed sets",
+  "Persisted coverage is incomplete. Only available source observations are shown.",
+  "Today's persisted workout evidence is unavailable. Empty is not verified.",
 ] as const;
 
 export default enTranslations;

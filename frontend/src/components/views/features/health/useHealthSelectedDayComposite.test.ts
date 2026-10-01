@@ -1,9 +1,10 @@
 // @vitest-environment happy-dom
-import { createElement } from 'react';
+import { createElement, StrictMode } from 'react';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WorkoutSessionV1 } from '../../../../lib/workoutSessionV1';
+import { validateWorkoutSessionV1 } from '../../../../lib/workoutSessionV1';
 import { LocalDatabaseError } from '../../../../lib/localDatabase/errors';
 import { CompositeWorkoutReadIsolationError } from './compositeWorkoutReadProjection';
 import type { HealthSelectedDayReadModel } from './useHealthSelectedDayComposite';
@@ -31,6 +32,7 @@ const session: WorkoutSessionV1 = { version: 1, id: ID, localDate: DATE, entries
     loadKind: 'external_weight', weightKg: '10', sourceValue: '10', sourceUnit: 'kg', reps: 8,
     assistedReps: null, dropset: false, done: true }],
 }] };
+validateWorkoutSessionV1(session);
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -58,10 +60,12 @@ function reader(accountId = 'account-a') {
 let root: Root | null = null;
 let host: HTMLDivElement | null = null;
 let latest: HealthSelectedDayReadModel;
+const publications: HealthSelectedDayReadModel[] = [];
 function Harness({ enabled = true, accountId = 'account-a', date = DATE, managedLifecycle = false }: {
   enabled?: boolean; accountId?: string; date?: string; managedLifecycle?: boolean;
 }) {
   latest = useHealthSelectedDayComposite(enabled, accountId, date, { managedLifecycle });
+  publications.push(latest);
   return createElement('div', { 'data-phase': latest.phase });
 }
 async function render(props: Parameters<typeof Harness>[0]) {
@@ -75,6 +79,7 @@ async function flush() {
 }
 
 beforeEach(() => {
+  publications.length = 0;
   host = document.createElement('div'); document.body.appendChild(host);
   mocks.legacy.mockReset().mockResolvedValue(paired());
   mocks.open.mockReset().mockResolvedValue(reader());
@@ -221,5 +226,137 @@ describe('gated selected-day composite orchestration', () => {
     const before = mocks.legacy.mock.calls.length;
     await act(async () => window.dispatchEvent(new Event('focus'))); await flush();
     expect(mocks.legacy).toHaveBeenCalledTimes(before);
+  });
+
+  it('hides settled evidence before effects on disable/re-enable, retry, and a new same-date lifetime', async () => {
+    await render({}); await flush();
+    expect(latest.phase).toBe('settled');
+    await render({ enabled: false });
+    const slow = deferred<ReturnType<typeof paired>>();
+    mocks.legacy.mockReturnValueOnce(slow.promise);
+    publications.length = 0;
+    await render({});
+    expect(publications[0]).toMatchObject({ phase: 'loading', result: null, legacyDaily: null });
+    expect(latest.phase).toBe('loading');
+    await act(async () => slow.resolve(paired('new-lifetime'))); await flush();
+    const retrySlow = deferred<ReturnType<typeof paired>>();
+    mocks.legacy.mockReturnValueOnce(retrySlow.promise);
+    publications.length = 0;
+    await act(async () => latest.retry());
+    expect(publications.every(model => model.phase === 'loading' && model.result === null)).toBe(true);
+    await act(async () => retrySlow.resolve(paired('retried'))); await flush();
+    expect(latest.legacyDaily?.workouts[0]?.id).toBe('retried');
+  });
+
+  it('does not reload solely on managed ownership changes, ordinary rerender or same-date reuse', async () => {
+    const current = reader(); mocks.open.mockResolvedValue(current);
+    await render({}); await flush();
+    const result = latest.result;
+    await render({ managedLifecycle: true }); await render({ managedLifecycle: false });
+    expect(latest.result).toBe(result);
+    expect(mocks.legacy).toHaveBeenCalledTimes(1); expect(current.read).toHaveBeenCalledTimes(1);
+  });
+
+  it('bounds repeated final-generation failures to two physical pairs; manual retry starts another episode', async () => {
+    const readers: ReturnType<typeof reader>[] = [];
+    mocks.open.mockImplementation(async () => {
+      const current = reader(); readers.push(current);
+      current.verifyCurrentScope.mockRejectedValue(new LocalDatabaseError('STALE_GENERATION', 'churn'));
+      return current;
+    });
+    await render({}); await flush();
+    expect(latest).toMatchObject({ phase: 'settled', result: null, legacyDaily: null });
+    expect(mocks.legacy).toHaveBeenCalledTimes(2);
+    expect(readers.reduce((count, current) => count + current.read.mock.calls.length, 0)).toBe(2);
+    await act(async () => latest.retry()); await flush();
+    expect(mocks.legacy).toHaveBeenCalledTimes(4);
+    expect(latest.phase).toBe('settled');
+  });
+
+  it('keeps the internal canonical stale-generation reopen separate from whole-pair recovery', async () => {
+    const g1 = reader(), g2 = reader();
+    g1.read.mockRejectedValueOnce(new LocalDatabaseError('STALE_GENERATION', 'in-read'));
+    mocks.open.mockResolvedValueOnce(g1).mockResolvedValueOnce(g2);
+    await render({}); await flush();
+    expect(latest.result?.status).toBe('complete');
+    expect(mocks.legacy).toHaveBeenCalledTimes(1);
+    expect(g1.read).toHaveBeenCalledTimes(1); expect(g2.read).toHaveBeenCalledTimes(1);
+  });
+
+  it('bounds persistent final-device churn and never repairs identity', async () => {
+    mocks.device.mockReturnValue('different-device');
+    mocks.open.mockImplementation(async () => reader());
+    const write = vi.spyOn(window.localStorage, 'setItem');
+    await render({}); await flush();
+    expect(latest).toMatchObject({ phase: 'settled', result: null });
+    expect(mocks.legacy).toHaveBeenCalledTimes(2); expect(mocks.open).toHaveBeenCalledTimes(2);
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it('fences slow verification and slow opener from superseded requests', async () => {
+    const old = reader(), verification = deferred<void>();
+    old.verifyCurrentScope.mockReturnValueOnce(verification.promise);
+    mocks.open.mockResolvedValue(old);
+    await render({});
+    await act(async () => latest.retry()); await flush();
+    expect(latest.result?.status).toBe('complete');
+    const result = latest.result;
+    await act(async () => verification.resolve()); await flush();
+    expect(latest.result).toBe(result);
+    const opener = deferred<ReturnType<typeof reader>>();
+    await render({ enabled: false });
+    mocks.open.mockReturnValueOnce(opener.promise).mockResolvedValue(reader('account-b'));
+    await render({}); await render({ accountId: 'account-b' }); await flush();
+    const lateReader = reader();
+    await act(async () => opener.resolve(lateReader)); await flush();
+    expect(lateReader.close).toHaveBeenCalled(); expect(lateReader.read).not.toHaveBeenCalled();
+    expect(latest.accountId).toBe('account-b');
+  });
+
+  it('fences StrictMode replay and unmount/remount old promises', async () => {
+    const slow = deferred<ReturnType<typeof paired>>();
+    mocks.legacy.mockReturnValueOnce(slow.promise).mockResolvedValue(paired('strict-current'));
+    await act(async () => {
+      root = createRoot(host!);
+      root.render(createElement(StrictMode, null, createElement(Harness, {})));
+    }); await flush();
+    expect(latest.legacyDaily?.workouts[0]?.id).toBe('strict-current');
+    await act(async () => slow.resolve(paired('strict-old'))); await flush();
+    expect(latest.legacyDaily?.workouts[0]?.id).toBe('strict-current');
+    const late = deferred<ReturnType<typeof paired>>(); mocks.legacy.mockReturnValueOnce(late.promise);
+    await act(async () => latest.retry());
+    act(() => root!.unmount()); root = null;
+    await render({}); await flush(); const result = latest.result;
+    await act(async () => late.resolve(paired('unmounted'))); await flush();
+    expect(latest.result).toBe(result);
+  });
+
+  it('an old stale-generation read rejection cannot close the reader used by the current retry', async () => {
+    let reject!: (error: unknown) => void;
+    const oldRead = new Promise<never>((_resolve, fail) => { reject = fail; });
+    const current = reader(); current.read.mockReturnValueOnce(oldRead); mocks.open.mockResolvedValue(current);
+    await render({});
+    await act(async () => latest.retry()); await flush();
+    const result = latest.result; expect(result?.status).toBe('complete');
+    await act(async () => reject(new LocalDatabaseError('STALE_GENERATION', 'old-read'))); await flush();
+    expect(current.close).not.toHaveBeenCalled(); expect(latest.result).toBe(result);
+    expect(current.read).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(['namespaceKey', 'generationId'] as const)('suppresses all persisted evidence on returned %s isolation failure', async key => {
+    const wrong = reader();
+    wrong.read.mockResolvedValueOnce([{ accountId: 'account-a', namespaceKey: 'namespace-account-a', generationId: 'g1',
+      entityId: ID, localRevision: 1, session, [key]: 'foreign' }]);
+    mocks.open.mockResolvedValue(wrong);
+    await render({}); await flush();
+    expect(latest).toMatchObject({ isolationError: true, result: null, legacyDaily: null });
+  });
+
+  it('leaves a malformed established device unavailable without repairing it or looping', async () => {
+    mocks.open.mockRejectedValue(new Error('malformed_device'));
+    const write = vi.spyOn(window.localStorage, 'setItem');
+    await render({}); await flush();
+    expect(latest.result).toMatchObject({ status: 'partial_data', canonicalStatus: 'error', legacyStatus: 'success' });
+    expect(mocks.legacy).toHaveBeenCalledTimes(1); expect(write).not.toHaveBeenCalled();
   });
 });
