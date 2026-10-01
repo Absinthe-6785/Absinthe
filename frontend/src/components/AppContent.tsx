@@ -426,15 +426,17 @@ export function AppContent({ authUser }: { authUser: User }) {
     setActiveTab('settings');
   }, []);
 
-  const homeNavigationRef = useRef({ accountId: authUser.id, enabled: homeCompositeEnabled, lifetime: 0, now });
+  const homeNavigationRef = useRef({ accountId: authUser.id, enabled: homeCompositeEnabled, lifetime: 0 });
   const homeNavigationPrevious = homeNavigationRef.current;
   const homeNavigationLifetime = homeNavigationPrevious.lifetime
     + Number(homeNavigationPrevious.accountId !== authUser.id || homeNavigationPrevious.enabled !== homeCompositeEnabled);
-  homeNavigationRef.current = { accountId: authUser.id, enabled: homeCompositeEnabled, lifetime: homeNavigationLifetime, now };
+  homeNavigationRef.current = { accountId: authUser.id, enabled: homeCompositeEnabled, lifetime: homeNavigationLifetime };
   const openTodayWorkout = useCallback(() => {
     const current = homeNavigationRef.current;
     if (!current.enabled || current.accountId !== authUser.id || current.lifetime !== homeNavigationLifetime) return;
-    const today = current.now.toJSDate();
+    // Capture the action-time instant; existing formatDate/local calendar semantics
+    // interpret it in the user timezone, without waiting for useNow's minute tick.
+    const today = new Date();
     setSelectedDate(today);
     setCurrentDate(today);
     setActiveTab('health');

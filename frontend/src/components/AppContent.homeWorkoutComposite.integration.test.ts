@@ -6,10 +6,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { validateWorkoutSessionV1 } from '../lib/workoutSessionV1';
 
 const mocks = vi.hoisted(() => ({
-  parent: true, child: true, range: false, now: '2026-10-01T12:00:00',
+  parent: true, child: true, range: false,
   legacy: vi.fn(), canonical: vi.fn(), open: vi.fn(), close: vi.fn(), rangeEligibility: [] as boolean[],
   commits: [] as Array<(accountId: string) => void>, rangeInvalidate: vi.fn(),
   mutate: vi.fn(), showToast: vi.fn(), updateSetting: vi.fn(), legacyDailyFlags: [] as boolean[],
+  legacyNavigate: vi.fn(), homeNavigation: [] as Array<() => void>,
 }));
 vi.mock('./views/features/health/healthSelectedDayCompositeConfig', () => ({
   get HEALTH_SELECTED_DAY_COMPOSITE_READER_ENABLED() { return mocks.parent; },
@@ -37,7 +38,7 @@ vi.mock('./views/features/health/useHealthWorkoutRangeSnapshot', () => ({
 vi.mock('../lib/supabase', () => ({ supabase: { auth: { signOut: vi.fn() } } }));
 vi.mock('../lib/accountBoundRemote', () => ({ accountBoundRemoteKey: () => null, accountBoundRemoteFetcher: vi.fn() }));
 vi.mock('../lib/noteNavigation', () => ({ registerNotesTabSwitcher: () => () => undefined,
-  registerAppTabSwitcher: () => () => undefined, openWorkspaceSearch: vi.fn(), openNote: vi.fn(), switchToTab: vi.fn() }));
+  registerAppTabSwitcher: () => () => undefined, openWorkspaceSearch: vi.fn(), openNote: vi.fn(), switchToTab: mocks.legacyNavigate }));
 vi.mock('../store/useAppStore', () => ({ useAppStore: () => ({ appSettings: { language: 'en', darkMode: false }, updateSetting: mocks.updateSetting }) }));
 vi.mock('../store/useNotesStore', () => {
   const state = { notes: [], folders: [], notesAuthorityState: 'LOADED_EMPTY', foldersAuthorityState: 'LOADED_EMPTY',
@@ -45,8 +46,14 @@ vi.mock('../store/useNotesStore', () => {
     bootstrapFromSupabase: vi.fn(async () => undefined), detachNotesStorage: vi.fn() };
   return { useNotesStore: Object.assign((select: (value: typeof state) => unknown) => select(state), { getState: () => state }) };
 });
-vi.mock('../hooks/useNow', () => ({ useNow: () => ({ now: DateTime.fromISO(mocks.now),
-  formatDate: (date: Date) => DateTime.fromJSDate(date).toISODate()!, isToday: () => true }) }));
+// Use the real useNow: the system clock can cross midnight before its 60s tick.
+vi.mock('./views/HomeView', async importOriginal => {
+  const actual = await importOriginal<typeof import('./views/HomeView')>();
+  return { ...actual, HomeView: (props: import('./views/HomeView').HomeViewProps) => {
+    if (props.onOpenTodayWorkout) mocks.homeNavigation.push(props.onOpenTodayWorkout);
+    return createElement(actual.HomeView, props);
+  } };
+});
 vi.mock('../hooks/useToast', () => ({ useToast: () => ({ toast: null, showToast: mocks.showToast }) }));
 vi.mock('../hooks/useDaily', () => ({ useDailyData: (...args: unknown[]) => {
   mocks.legacyDailyFlags.push(Boolean(args[3]));
@@ -67,11 +74,12 @@ vi.mock('./common/Sidebar', () => ({ Sidebar: ({ setActiveTab }: { setActiveTab:
 vi.mock('./NotesRouteBoundary', () => ({ NotesRouteBoundary: () => null }));
 vi.mock('./views/HealthView', () => ({ HealthView: (props: {
   user: { id: string }; selectedDate: Date; currentDate: Date; setSelectedDate: (date: Date) => void;
-  setCurrentDate: (date: Date) => void; onLocalWorkoutCommitted: (accountId: string) => void;
+  setCurrentDate: (date: Date) => void; formatDate: (date: Date) => string;
+  onLocalWorkoutCommitted: (accountId: string) => void;
 }) => {
   mocks.commits.push(props.onLocalWorkoutCommitted);
   return createElement('div', { 'data-health-account': props.user.id,
-    'data-health-date': DateTime.fromJSDate(props.selectedDate).toISODate(),
+    'data-health-date': props.formatDate(props.selectedDate),
     'data-health-month': props.currentDate.getMonth() },
     createElement('button', { 'data-historical': true, onClick: () => {
       props.setSelectedDate(new Date(2020, 0, 2)); props.setCurrentDate(new Date(2020, 0, 2));
@@ -115,22 +123,25 @@ async function click(selector: string) {
 }
 const todayCard = () => host.querySelector<HTMLElement>('[data-home-workout-composite]');
 beforeEach(async () => {
-  localStorage.clear(); mocks.parent = true; mocks.child = true; mocks.range = false; mocks.now = '2026-10-01T12:00:00';
+  (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  vi.useFakeTimers(); vi.setSystemTime(new Date(2026, 9, 1, 12));
+  localStorage.clear(); mocks.parent = true; mocks.child = true; mocks.range = false;
   mocks.legacy.mockReset().mockResolvedValue(legacySnapshot()); mocks.canonical.mockReset().mockImplementation(async (a, d) => canonical(a, d));
   mocks.open.mockReset().mockImplementation(async (accountId: string) => ({ accountId, deviceId: 'device-1',
     scope: { accountId, deviceId: 'device-1', namespaceKey: `ns-${accountId}`, generationId: 'g1' },
     read: (date: string) => mocks.canonical(accountId, date), verifyCurrentScope: async () => undefined, close: mocks.close }));
-  mocks.commits.length = 0; mocks.rangeEligibility.length = 0; mocks.legacyDailyFlags.length = 0; vi.clearAllMocks();
+  mocks.commits.length = 0; mocks.rangeEligibility.length = 0; mocks.legacyDailyFlags.length = 0;
+  mocks.homeNavigation.length = 0; vi.clearAllMocks();
   await import('./views/HomeView'); await import('./views/HealthView');
   host = document.createElement('div'); document.body.appendChild(host); root = createRoot(host);
 });
-afterEach(() => { act(() => root.unmount()); host.remove(); });
+afterEach(() => { act(() => root.unmount()); host.remove(); vi.useRealTimers(); });
 
 describe('real AppContent + Home + shared selected-day B1', () => {
   it('reads one pair, no canonical reads on rerender/minute tick; same-date Home to managed Health reuses it', async () => {
     await render(); expect(todayCard()?.getAttribute('data-home-workout-presence')).toBe('present');
     expect(mocks.legacy).toHaveBeenCalledTimes(1); expect(mocks.canonical).toHaveBeenCalledTimes(1);
-    await render(); mocks.now = '2026-10-01T12:01:00'; await render();
+    await render(); await act(async () => vi.advanceTimersByTime(60_000)); await flush();
     expect(mocks.canonical).toHaveBeenCalledTimes(1);
     mocks.range = true;
     await click('[data-nav="health"]');
@@ -151,15 +162,64 @@ describe('real AppContent + Home + shared selected-day B1', () => {
     expect(mocks.canonical).toHaveBeenCalledTimes(before);
   });
   it('midnight changes today once and hides yesterday while the new pair is pending', async () => {
+    vi.setSystemTime(new Date(2026, 9, 1, 23, 59, 30));
     await render(); const slow = deferred<ReturnType<typeof canonical>>();
-    mocks.canonical.mockReturnValueOnce(slow.promise); mocks.now = '2026-10-02T00:00:00';
-    await render();
+    mocks.canonical.mockReturnValueOnce(slow.promise);
+    await act(async () => vi.advanceTimersByTime(60_000)); await flush();
     expect(todayCard()?.getAttribute('data-home-workout-date')).toBe('2026-10-02');
     expect(todayCard()?.getAttribute('data-home-workout-presence')).toBe('unknown');
     expect(todayCard()?.querySelector('[data-home-workout-canonical]')).toBeNull();
     await act(async () => slow.resolve(canonical('a', '2026-10-02'))); await flush();
     expect(mocks.canonical).toHaveBeenCalledTimes(2);
-    mocks.now = '2026-10-02T00:01:00'; await render(); expect(mocks.canonical).toHaveBeenCalledTimes(2);
+    await act(async () => vi.advanceTimersByTime(60_000)); await flush();
+    expect(mocks.canonical).toHaveBeenCalledTimes(2);
+  });
+  it.each(['[data-k132a-home-open-health]', '[data-k132a-home-open-health-action]'])
+  ('%s uses click-time today/month after midnight before the real useNow tick', async selector => {
+    vi.setSystemTime(new Date(2026, 9, 31, 23, 59, 30));
+    await render();
+    expect(todayCard()?.getAttribute('data-home-workout-date')).toBe('2026-10-31');
+    expect(mocks.canonical).toHaveBeenCalledTimes(1);
+    // No root.render and only 30.001s elapsed: the real 60s interval has not fired.
+    await act(async () => vi.advanceTimersByTime(30_001));
+    expect(DateTime.now().toISODate()).toBe('2026-11-01');
+    expect(todayCard()?.getAttribute('data-home-workout-date')).toBe('2026-10-31');
+    expect(mocks.canonical).toHaveBeenCalledTimes(1);
+    await click(selector);
+    expect(host.querySelector('[data-health-date="2026-11-01"][data-health-month="10"]')).not.toBeNull();
+    expect(host.querySelector('[data-health-date="2026-10-31"]')).toBeNull();
+    // Only Health's normal date-change pair; no preliminary Home retry/scan.
+    expect(mocks.canonical).toHaveBeenCalledTimes(2);
+    expect(mocks.canonical.mock.lastCall).toEqual(['a', '2026-11-01']);
+    expect(mocks.legacyNavigate).not.toHaveBeenCalled();
+  });
+  it.each(['[data-k132a-home-open-health]', '[data-k132a-home-open-health-action]'])
+  ('%s preserves same-day navigation with no new canonical read', async selector => {
+    await render(); await click(selector);
+    expect(host.querySelector('[data-health-date="2026-10-01"][data-health-month="9"]')).not.toBeNull();
+    expect(mocks.canonical).toHaveBeenCalledTimes(1);
+  });
+  it('rejects a callback from a previous Home lifetime after leaving and re-entering', async () => {
+    await render(); const oldOpen = mocks.homeNavigation.at(-1)!;
+    await click('[data-nav="note"]');
+    await act(async () => oldOpen()); await flush();
+    expect(host.querySelector('[data-health-date]')).toBeNull();
+    await click('[data-nav="home"]'); const reads = mocks.canonical.mock.calls.length;
+    await act(async () => oldOpen()); await flush();
+    expect(todayCard()).not.toBeNull(); expect(mocks.canonical).toHaveBeenCalledTimes(reads);
+    await click('[data-k132a-home-open-health]');
+    expect(host.querySelector('[data-health-date="2026-10-01"]')).not.toBeNull();
+  });
+  it('rejects previous-account callbacks, including A-to-B-to-A Home reuse', async () => {
+    await render(); const oldAOpen = mocks.homeNavigation.at(-1)!;
+    await render('b');
+    await act(async () => oldAOpen()); await flush();
+    expect(todayCard()).not.toBeNull(); expect(host.querySelector('[data-health-date]')).toBeNull();
+    await render('a'); const reads = mocks.canonical.mock.calls.length;
+    await act(async () => oldAOpen()); await flush();
+    expect(todayCard()).not.toBeNull(); expect(mocks.canonical).toHaveBeenCalledTimes(reads);
+    await click('[data-k132a-home-open-health-action]');
+    expect(host.querySelector('[data-health-account="a"][data-health-date="2026-10-01"]')).not.toBeNull();
   });
   it('new enabled lifetime hides old evidence and rereads the same date', async () => {
     await render(); await click('[data-nav="note"]');
@@ -177,6 +237,9 @@ describe('real AppContent + Home + shared selected-day B1', () => {
     expect(todayCard()).toBeNull(); expect(add.mock.calls.filter(([event]) => event === 'focus')).toHaveLength(0);
     expect(docAdd.mock.calls.filter(([event]) => event === 'visibilitychange')).toHaveLength(0);
     expect(add.mock.calls.filter(([event]) => event === 'health-bootstrap-complete')).toHaveLength(1); // Existing daily/static owner only.
+    await click('[data-k132a-home-open-health-action]');
+    expect(mocks.legacyNavigate).toHaveBeenCalledWith('health');
+    expect(mocks.canonical).not.toHaveBeenCalled();
   });
   it('routes payload-free commits by current account with no owner replay; range-first order remains Health-only', async () => {
     await render(); await click('[data-nav="health"]'); const oldCommit = mocks.commits.at(-1)!;
