@@ -37,6 +37,7 @@ import { createProductionWorkoutRuntimeAuthorityController } from '../lib/workou
 import { WORKSPACE_SCROLL_MODE, WORKSPACE_VIEWPORT_CLASS } from './common/workspaceLayout';
 import { HEALTH_SELECTED_DAY_COMPOSITE_READER_ENABLED } from './views/features/health/healthSelectedDayCompositeConfig';
 import { useHealthSelectedDayComposite } from './views/features/health/useHealthSelectedDayComposite';
+import { isHomeWorkoutCompositeEnabled } from './views/features/home/homeWorkoutCompositeConfig';
 import { isHealthWorkoutRangeCompositeEnabled } from './views/features/health/healthWorkoutRangeCompositeConfig';
 import { useHealthWorkoutRangeSnapshot } from './views/features/health/useHealthWorkoutRangeSnapshot';
 import { previousWorkoutRange } from './views/features/health/previousWorkoutSession';
@@ -275,14 +276,18 @@ export function AppContent({ authUser }: { authUser: User }) {
   const healthRuntimeReady = healthStartupCurrent
     && (!healthBootstrapRequired || startupState.health.status === 'ready');
   const selectedDayReaderEnabled = HEALTH_SELECTED_DAY_COMPOSITE_READER_ENABLED && activeTab === 'health';
+  const homeCompositeEnabled = isHomeWorkoutCompositeEnabled({
+    homeActive: activeTab === 'home', accountPresent: Boolean(authUser.id),
+  });
+  const sharedSelectedDayReaderEnabled = selectedDayReaderEnabled || homeCompositeEnabled;
   const workoutRangeReaderEnabled = isHealthWorkoutRangeCompositeEnabled({
     healthActive: activeTab === 'health',
     accountPresent: Boolean(authUser.id),
   });
   const selectedDayReadSource = useHealthSelectedDayComposite(
-    selectedDayReaderEnabled,
+    sharedSelectedDayReaderEnabled,
     authUser.id,
-    dateStr,
+    homeCompositeEnabled ? formatDate(now.toJSDate()) : dateStr,
     { managedLifecycle: workoutRangeReaderEnabled },
   );
   const todosSearchActive = searchHasQuery || activeTab === 'planner';
@@ -317,11 +322,12 @@ export function AppContent({ authUser }: { authUser: User }) {
   const selectedDayRetryRef = useRef(selectedDayReadSource.retry);
   const rangeInvalidateRef = useRef(workoutRangeReadSource.invalidateAndReload);
   const rangeReaderEnabledRef = useRef(workoutRangeReaderEnabled);
-  const currentHealthReaderAccountRef = useRef<string | null>(null);
+  const currentSharedReaderAccountRef = useRef<string | null>(null);
+  const sharedOwnerMountedRef = useRef(false);
   selectedDayRetryRef.current = selectedDayReadSource.retry;
   rangeInvalidateRef.current = workoutRangeReadSource.invalidateAndReload;
   rangeReaderEnabledRef.current = workoutRangeReaderEnabled;
-  currentHealthReaderAccountRef.current = selectedDayReaderEnabled && activeTab === 'health'
+  currentSharedReaderAccountRef.current = sharedSelectedDayReaderEnabled
     ? authUser.id
     : null;
   const refreshCompositeWorkoutReaders = useCallback(() => {
@@ -329,7 +335,7 @@ export function AppContent({ authUser }: { authUser: User }) {
     selectedDayRetryRef.current();
   }, []);
   const onLocalWorkoutCommitted = useCallback((committedAccountId: string) => {
-    if (currentHealthReaderAccountRef.current !== committedAccountId) return;
+    if (!sharedOwnerMountedRef.current || currentSharedReaderAccountRef.current !== committedAccountId) return;
     // Fence the broad snapshot first, then the selected-day projection.
     if (rangeReaderEnabledRef.current) rangeInvalidateRef.current();
     selectedDayRetryRef.current();
@@ -393,9 +399,9 @@ export function AppContent({ authUser }: { authUser: User }) {
     };
   }, [refreshCompositeWorkoutReaders, workoutRangeReaderEnabled]);
 
-  useEffect(() => () => {
-    currentHealthReaderAccountRef.current = null;
-    rangeReaderEnabledRef.current = false;
+  useEffect(() => {
+    sharedOwnerMountedRef.current = true;
+    return () => { sharedOwnerMountedRef.current = false; };
   }, []);
 
   // ── 5. Theme — Absinthe Design System tokens via CSS variables ───
@@ -419,6 +425,22 @@ export function AppContent({ authUser }: { authUser: User }) {
     setSettingsScrollTarget(section);
     setActiveTab('settings');
   }, []);
+
+  const homeNavigationRef = useRef({ accountId: authUser.id, enabled: homeCompositeEnabled, lifetime: 0 });
+  const homeNavigationPrevious = homeNavigationRef.current;
+  const homeNavigationLifetime = homeNavigationPrevious.lifetime
+    + Number(homeNavigationPrevious.accountId !== authUser.id || homeNavigationPrevious.enabled !== homeCompositeEnabled);
+  homeNavigationRef.current = { accountId: authUser.id, enabled: homeCompositeEnabled, lifetime: homeNavigationLifetime };
+  const openTodayWorkout = useCallback(() => {
+    const current = homeNavigationRef.current;
+    if (!current.enabled || current.accountId !== authUser.id || current.lifetime !== homeNavigationLifetime) return;
+    // Capture the action-time instant; existing formatDate/local calendar semantics
+    // interpret it in the user timezone, without waiting for useNow's minute tick.
+    const today = new Date();
+    setSelectedDate(today);
+    setCurrentDate(today);
+    setActiveTab('health');
+  }, [authUser.id, homeNavigationLifetime]);
 
   // ── 8. globalProps ────────────────────────────────────────────────
   // 개선 전: eslint-disable로 deps 경고를 무시. user/formatDate/showToast 등 stable
@@ -469,7 +491,9 @@ export function AppContent({ authUser }: { authUser: User }) {
         data-workspace-scroll-mode={WORKSPACE_SCROLL_MODE.delegated}
       >
         <Suspense fallback={<ViewLoadingFallback />}>
-          {activeTab === 'home'      && <HomeView       key={authUser.id} {...globalProps} />}
+          {activeTab === 'home' && <HomeView key={authUser.id} {...globalProps}
+            homeWorkoutComposite={homeCompositeEnabled ? selectedDayRead : undefined}
+            onOpenTodayWorkout={homeCompositeEnabled ? openTodayWorkout : undefined} />}
           {activeTab === 'planner'   && <PlannerView   key={authUser.id} {...globalProps} />}
           {activeTab === 'health' && !selectedDayReaderEnabled && (!healthStartupCurrent || (healthBootstrapRequired && startupState.health.status === 'pending')) && (
             <ViewLoadingFallback label={t('startupHealthLoading')} />

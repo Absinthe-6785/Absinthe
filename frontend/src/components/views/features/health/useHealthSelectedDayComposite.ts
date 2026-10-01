@@ -33,6 +33,7 @@ export type HealthSelectedDayCompositeOptions = Readonly<{
 }>;
 
 type StoredRead = Omit<HealthSelectedDayReadModel, 'retry'>;
+type Publication = { scopeVersion: number; sequence: number; epoch: number };
 
 function loading(accountId: string, localDate: string): StoredRead {
   return { phase: 'loading', accountId, localDate, cacheKey: null,
@@ -45,13 +46,19 @@ export function useHealthSelectedDayComposite(
   options?: HealthSelectedDayCompositeOptions,
 ): HealthSelectedDayReadModel {
   const [refresh, setRefresh] = useState(0);
-  const [stored, setStored] = useState<StoredRead>(() => loading(accountId, localDate));
+  const [stored, setStored] = useState<StoredRead & Publication>(() => ({
+    ...loading(accountId, localDate), scopeVersion: -1, sequence: -1, epoch: -1,
+  }));
   const requestSequence = useRef(0);
   const mountEpoch = useRef(0);
   const readerRef = useRef<WorkoutSelectedDayReader | null>(null);
   const openingRef = useRef<Promise<WorkoutSelectedDayReader> | null>(null);
-  const currentRef = useRef({ enabled, accountId, localDate });
-  currentRef.current = { enabled, accountId, localDate };
+  const currentRef = useRef({ enabled, accountId, localDate, scopeVersion: 0 });
+  const previousScope = currentRef.current;
+  if (previousScope.enabled !== enabled || previousScope.accountId !== accountId || previousScope.localDate !== localDate) {
+    // Render-time fencing also covers the interval before effect cleanup/setup.
+    currentRef.current = { enabled, accountId, localDate, scopeVersion: previousScope.scopeVersion + 1 };
+  }
 
   const retry = useCallback(() => {
     if (!currentRef.current.enabled) return;
@@ -76,7 +83,7 @@ export function useHealthSelectedDayComposite(
   useEffect(() => {
     if (!enabled || options?.managedLifecycle) return;
     const onBootstrap = () => retry();
-    let lastFocus = 0;
+    let lastFocus = -Infinity;
     const onFocus = () => {
       if (document.visibilityState === 'hidden') return;
       const now = Date.now();
@@ -98,15 +105,32 @@ export function useHealthSelectedDayComposite(
     if (!enabled) return;
     const sequence = ++requestSequence.current;
     const epoch = mountEpoch.current;
+    const scopeVersion = currentRef.current.scopeVersion;
     const captured = { accountId, localDate };
     const isCurrent = () => requestSequence.current === sequence
       && mountEpoch.current === epoch
+      && currentRef.current.scopeVersion === scopeVersion
       && currentRef.current.enabled
       && currentRef.current.accountId === captured.accountId
       && currentRef.current.localDate === captured.localDate;
-    setStored(previous => previous.accountId === accountId && previous.localDate === localDate
-      ? { ...loading(accountId, localDate), legacyDaily: previous.legacyDaily }
-      : loading(accountId, localDate));
+    const publish = (value: StoredRead) => setStored(previous => isCurrent()
+      ? { ...value, scopeVersion, sequence, epoch } : previous);
+    // Retain only the previous verified daily object's identity internally.
+    // It is never exposed while loading and is reused only after a fresh pair agrees.
+    setStored(previous => isCurrent() ? {
+      ...loading(accountId, localDate), scopeVersion, sequence, epoch,
+      legacyDaily: previous.scopeVersion === scopeVersion ? previous.legacyDaily : null,
+    } : previous);
+    // Separate from readCanonical's single internal stale-generation reopen.
+    // Each manual/lifecycle request starts a new, finite whole-pair episode.
+    let automaticRecoveryRemaining = 1;
+    const recoverCurrentness = () => {
+      if (!isCurrent()) return;
+      readerRef.current?.close();
+      readerRef.current = null;
+      if (automaticRecoveryRemaining-- > 0) void loadPair();
+      else publish({ ...loading(accountId, localDate), phase: 'settled' });
+    };
 
     async function openReader(): Promise<WorkoutSelectedDayReader> {
       const existing = readerRef.current;
@@ -142,10 +166,12 @@ export function useHealthSelectedDayComposite(
           return { scope: reader.scope, source: { status: 'success', records: await reader.read(localDate) }, isolationError: false };
         } catch (error) {
           if (!(error instanceof LocalDatabaseError) || error.code !== 'STALE_GENERATION') throw error;
+          if (!isCurrent()) return { scope: null, source: { status: 'error' }, isolationError: false };
           reader.close();
           if (readerRef.current === reader) readerRef.current = null;
           if (!isCurrent()) return { scope: null, source: { status: 'error' }, isolationError: false };
           reader = await openReader();
+          if (!isCurrent()) return { scope: null, source: { status: 'error' }, isolationError: false };
           return { scope: reader.scope, source: { status: 'success', records: await reader.read(localDate) }, isolationError: false };
         }
       } catch (error) {
@@ -155,7 +181,7 @@ export function useHealthSelectedDayComposite(
       }
     }
 
-    void (async () => {
+    async function loadPair() {
       // One verified legacy read produces both editor and projection inputs.
       const [legacy, canonical] = await Promise.all([
         loadVerifiedSelectedDayLegacySnapshot(accountId, localDate)
@@ -166,7 +192,7 @@ export function useHealthSelectedDayComposite(
       ]);
       if (!isCurrent()) return;
       if (legacy.isolationError || canonical.isolationError) {
-        setStored({ phase: 'settled', accountId, localDate, cacheKey: null,
+        publish({ phase: 'settled', accountId, localDate, cacheKey: null,
           result: null, legacyDaily: null, isolationError: true });
         return;
       }
@@ -174,16 +200,15 @@ export function useHealthSelectedDayComposite(
         try {
           if (readerRef.current?.scope.namespaceKey !== canonical.scope.namespaceKey
             || readerRef.current?.scope.generationId !== canonical.scope.generationId) {
-            retry();
+            recoverCurrentness();
             return;
           }
           await readerRef.current.verifyCurrentScope();
+          if (!isCurrent()) return;
         } catch (error) {
           if (!isCurrent()) return;
           if (error instanceof LocalDatabaseError && error.code === 'STALE_GENERATION') {
-            readerRef.current?.close();
-            readerRef.current = null;
-            retry();
+            recoverCurrentness();
             return;
           }
           // A metadata failure is an unavailable canonical source, never a
@@ -195,13 +220,12 @@ export function useHealthSelectedDayComposite(
       if (canonical.scope) {
         try {
           if (readEstablishedWorkoutDeviceId(window.localStorage) !== canonical.scope.deviceId) {
-            retry();
+            recoverCurrentness();
             return;
           }
         } catch {
-          // Existing malformed identity is not repaired; surface canonical
-          // unavailability through the next scoped load.
-          retry();
+          // Never repair identity; one bounded new pair may observe its new scope.
+          recoverCurrentness();
           return;
         }
       }
@@ -230,23 +254,27 @@ export function useHealthSelectedDayComposite(
             cacheKey: canonical.scope ? selectedDayCompositeKey(canonical.scope, localDate) : null,
             result, legacyDaily: legacySource.status === 'success' && legacy.value
               ? sameLegacy ? previous.legacyDaily : legacy.value.daily : null,
-            isolationError: false };
+            isolationError: false, scopeVersion, sequence, epoch };
         });
       } catch (error) {
         if (!isCurrent()) return;
         if (error instanceof CompositeWorkoutReadIsolationError) {
-          setStored({ phase: 'settled', accountId, localDate, cacheKey: null,
+          publish({ phase: 'settled', accountId, localDate, cacheKey: null,
             result: null, legacyDaily: null, isolationError: true });
         } else {
-          setStored({ phase: 'settled', accountId, localDate, cacheKey: null,
+          publish({ phase: 'settled', accountId, localDate, cacheKey: null,
             result: null, legacyDaily: null, isolationError: false });
         }
       }
-    })();
+    }
+    void loadPair();
     return () => { requestSequence.current += 1; };
   }, [enabled, accountId, localDate, refresh]);
 
   const visible = enabled && stored.accountId === accountId && stored.localDate === localDate
-    ? stored : loading(accountId, localDate);
+    && stored.scopeVersion === currentRef.current.scopeVersion
+    && stored.sequence === requestSequence.current && stored.epoch === mountEpoch.current
+    ? stored.phase === 'loading' ? loading(accountId, localDate) : stored
+    : loading(accountId, localDate);
   return { ...visible, retry };
 }

@@ -2113,6 +2113,15 @@ const translationKeys = [
   "workoutCompositeEntryId",
   "workoutCompositeSetId",
   "workoutCompositeCardioMode",
+  "homeWorkoutCompositePreview",
+  "homeWorkoutVerifiedEmpty",
+  "homeWorkoutUnsavedDraft",
+  "homeWorkoutDraftUnavailable",
+  "homeWorkoutLegacyObserved",
+  "homeWorkoutCanonicalObserved",
+  "homeWorkoutObservedCounts",
+  "homeWorkoutCoverageIncomplete",
+  "homeWorkoutEvidenceUnavailable",
 ] as const;
 
 export type TranslationKey = (typeof translationKeys)[number];

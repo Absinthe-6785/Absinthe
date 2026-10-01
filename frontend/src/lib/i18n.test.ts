@@ -8,17 +8,17 @@ import translationKeys, { buildLocaleDictionary } from './i18n/keys';
 import type { TranslationKey } from './i18n';
 
 const PLANNER_STORAGE_KEY = 'planner-storage';
-const EXPECTED_KEY_COUNT = 2_113;
+const EXPECTED_KEY_COUNT = 2_122;
 type Locale = 'en' | 'ko' | 'ja';
 
-// Independent authority generated from the accepted pre-extraction base.
+// Authority updated only for the nine appended, source-separated Home preview strings.
 // The canonical serialization includes every key and exact locale value in
 // translationKeys order, so it detects insertion, omission, reordering, and
 // substitution without using buildLocaleDictionary.
 const EXPECTED_LOCALE_INTEGRITY_SHA256: Record<Locale, string> = {
-  en: '932166e70b6396611c9197ec4ef9b2c62fbc36466e34384f777a99b7a171b0b9',
-  ko: '405216c95b5381129bc654e8026b9c1adb3e23e8a27becbd9020a602d47d4257',
-  ja: 'db8529e9ec8a335d6c7daa9b323988dcd2aa1286c089083a78ac24d5c4f1c79b',
+  en: '71c014f37b1180bf096fd52d7b42c0c5feb8dfcd3984909071ce4396ea84a14b',
+  ko: '4bbf47b48432831cd8b69d327c64f429d2e1fce7d600d304e24fcee78d150b64',
+  ja: '0842a1f2701cad6a7cd3f54f2a21b64599d45204f842644892e3c774d87208af',
 };
 
 function localeIntegrityDigest(values: readonly string[]) {
@@ -99,10 +99,10 @@ describe('i18n locale dictionaries', () => {
     missing.splice(1_000, 1);
 
     expect(() => buildLocaleDictionary(missing)).toThrow(
-      'Locale dictionary length mismatch: expected 2113, received 2112',
+      'Locale dictionary length mismatch: expected 2122, received 2121',
     );
     expect(() => assertLocaleValuesIntegrity('en', missing)).toThrow(
-      'Locale integrity length mismatch: expected 2113, received 2112',
+      'Locale integrity length mismatch: expected 2122, received 2121',
     );
   });
 
@@ -111,10 +111,10 @@ describe('i18n locale dictionaries', () => {
     extra.splice(1_000, 0, '__unexpected__');
 
     expect(() => buildLocaleDictionary(extra)).toThrow(
-      'Locale dictionary length mismatch: expected 2113, received 2114',
+      'Locale dictionary length mismatch: expected 2122, received 2123',
     );
     expect(() => assertLocaleValuesIntegrity('en', extra)).toThrow(
-      'Locale integrity length mismatch: expected 2113, received 2114',
+      'Locale integrity length mismatch: expected 2122, received 2123',
     );
   });
 
