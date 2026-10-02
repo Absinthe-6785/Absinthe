@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   LOCAL_DATABASE_NAME, LOCAL_DATABASE_STORES, LOCAL_DATABASE_VERSION,
   attachmentEntityIdentity, closeLocalDatabase, createDormantLocalDatabaseCapability,
-  idEntityIdentity, openLocalDatabase, ownerDateEntityIdentity, singletonEntityIdentity,
+  idEntityIdentity, localDatabaseError, openLocalDatabase, ownerDateEntityIdentity, singletonEntityIdentity,
   type LocalDatabaseNamespace, type LocalDatabaseRepository,
 } from './index';
 
@@ -398,8 +398,12 @@ describe('K-321 lifecycle and static safety', () => {
       entityRequest.onerror = () => reject(entityRequest.error);
     });
     await new Promise<void>((resolve, reject) => { entityTx.oncomplete = () => resolve(); entityTx.onerror = () => reject(entityTx.error); });
-    await expect(repo.getEntity('notes', 'n1')).rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
-    await expect(repo.listEntities({ domain: 'notes' })).rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+    const error = await repo.getEntity('notes', 'n1').catch(error => error);
+    expect(error).toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD', persistedEntityFailure: 'INVALID_ENTITY' });
+    expect(localDatabaseError(error, 'outer_operation')).toBe(error);
+    await expect(repo.listEntities({ domain: 'notes' })).rejects.toMatchObject({
+      code: 'CORRUPT_PERSISTED_RECORD', persistedEntityFailure: 'INVALID_ENTITY',
+    });
     await expect(repo.updateEntity({ domain: 'notes', entityId: 'n1', record: {}, expectedRevision: 1 }))
       .rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
 
@@ -412,7 +416,9 @@ describe('K-321 lifecycle and static safety', () => {
     });
     await new Promise<void>((resolve, reject) => { outboxTx.oncomplete = () => resolve(); outboxTx.onerror = () => reject(outboxTx.error); });
     db.close();
-    await expect(repo.getOutboxRecord(committed.outbox.mutationId)).rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+    await expect(repo.getOutboxRecord(committed.outbox.mutationId)).rejects.toMatchObject({
+      code: 'CORRUPT_PERSISTED_RECORD', persistedEntityFailure: undefined,
+    });
   });
 
   it.each([
@@ -425,7 +431,11 @@ describe('K-321 lifecycle and static safety', () => {
     const tx = db.transaction(LOCAL_DATABASE_STORES.entities, 'readwrite');
     tx.objectStore(LOCAL_DATABASE_STORES.entities).put({ ...created, ...corruption });
     await new Promise<void>((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); }); db.close();
-    await expect(repo.getEntity('notes', 'n1')).rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
+    // These older envelopes have no V5 account fields; matching namespace/generation
+    // still proves their enclosing scope, without mistaking ordinary corruption for isolation.
+    await expect(repo.getEntity('notes', 'n1')).rejects.toMatchObject({
+      code: 'CORRUPT_PERSISTED_RECORD', persistedEntityFailure: 'INVALID_ENTITY',
+    });
     await expect(repo.listEntities({ domain: 'notes', includeDeleted: true }))
       .rejects.toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD' });
   });

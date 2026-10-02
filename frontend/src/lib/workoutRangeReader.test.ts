@@ -3,7 +3,7 @@ import { IDBFactory } from 'fake-indexeddb';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   closeLocalDatabase, createDormantLocalDatabaseCapability, openLocalDatabase,
-  type LocalDatabaseRepository,
+  LocalDatabaseError, type LocalDatabaseRepository,
 } from './localDatabase';
 import { HEALTH_ROUTINE_DEVICE_ID_KEY, HEALTH_ROUTINE_GENERATION_ID,
   HEALTH_ROUTINE_PROJECT_REF } from './healthRoutineSync';
@@ -114,6 +114,17 @@ describe('dormant Workout range reader', () => {
     await expect(reader.readAllActive()).rejects.toThrow(code);
     reader.close();
   });
+
+  it.each([undefined, 'INVALID_ENTITY'] as const)(
+    'does not blanket-promote generic corruption with detail %s to isolation', async detail => {
+      await seed();
+      const error = new LocalDatabaseError('CORRUPT_PERSISTED_RECORD', 'list_entities', detail);
+      vi.spyOn(WorkoutSessionRepository.prototype, 'listWorkoutSessions').mockRejectedValue(error);
+      const reader = await WorkoutRangeReader.open(accountId, storageAdapter);
+      await expect(reader.readAllActive()).rejects.toBe(error);
+      reader.close();
+    },
+  );
 
   it('fences a device transition while the domain list is in flight', async () => {
     await seed();

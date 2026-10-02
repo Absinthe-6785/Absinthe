@@ -85,7 +85,27 @@ export class WorkoutRangeReader {
   async readAllActive(): Promise<readonly ActiveCanonicalWorkoutReadInput[]> {
     await this.verifyCurrentScope();
     // This is the sole canonical domain scan for one source-snapshot load.
-    const entities = await new WorkoutSessionRepository(this.repository).listWorkoutSessions();
+    let entities: Awaited<ReturnType<WorkoutSessionRepository['listWorkoutSessions']>>;
+    try {
+      entities = await new WorkoutSessionRepository(this.repository).listWorkoutSessions();
+    } catch (error) {
+      if (error instanceof LocalDatabaseError && error.code === 'CORRUPT_PERSISTED_RECORD') {
+        switch (error.persistedEntityFailure) {
+          case 'ACCOUNT_MISMATCH':
+          case 'NAMESPACE_MISMATCH':
+          case 'GENERATION_MISMATCH':
+            throw new CompositeWorkoutReadIsolationError(error.persistedEntityFailure);
+          case 'UNTRUSTED_SCOPE':
+            // The persisted candidate was not an envelope, so ownership cannot be proven.
+            throw new CompositeWorkoutReadIsolationError('INVALID_CONTEXT');
+          default:
+            // Trusted-scope invalid content (or other generic corruption) is a source error,
+            // not evidence of account/namespace/generation contamination.
+            break;
+        }
+      }
+      throw error;
+    }
     await this.verifyCurrentScope();
     return freezeDeep(entities.map(entity => {
       const revision = entity.localRevision ?? entity.revision;

@@ -1,4 +1,4 @@
-import { LocalDatabaseError, localDatabaseError } from './errors';
+import { LocalDatabaseError, localDatabaseError, type PersistedEntityFailure } from './errors';
 import { transitionActiveGenerationInTransaction } from './activeGenerationTransition';
 import {
   getLegacyNotesSourceAuthority as readLegacySourceAuthority,
@@ -1070,12 +1070,24 @@ export class LocalDatabaseRepository {
   }
 
   private validatePersistedEntity<T>(value: LocalEntityEnvelope<T>, operation: string): void {
+    let failure: PersistedEntityFailure = 'UNTRUSTED_SCOPE';
     try {
+      // Classify enclosing scope before content validation can hide a mismatch.
+      // This retains the existing checks/rejection and never carries record data.
+      if (value && typeof value === 'object') {
+        if (value.namespaceKey !== this.namespaceKey) failure = 'NAMESPACE_MISMATCH';
+        else if (value.generationId !== this.namespace.generationId) failure = 'GENERATION_MISMATCH';
+        else if ((value.accountId !== undefined && value.accountId !== this.namespace.userId)
+          || value.accountId === undefined && ['accountId', 'localRevision', 'serverRevision', 'pendingMutationId', 'lastRemoteMutationRef']
+            .some(field => Object.prototype.hasOwnProperty.call(value, field))) failure = 'ACCOUNT_MISMATCH';
+        // Pre-V5 envelopes have no account fields; their matching namespace/generation
+        // proves enclosing scope. V5 account evidence may not be absent or mismatched.
+        else failure = 'INVALID_ENTITY';
+      }
+      if (failure !== 'INVALID_ENTITY') throw new Error('scope');
       validateEntityEnvelope(value);
-      if (value.namespaceKey !== this.namespaceKey || value.generationId !== this.namespace.generationId
-        || value.accountId !== undefined && value.accountId !== this.namespace.userId) throw new Error('scope');
     } catch {
-      throw new LocalDatabaseError('CORRUPT_PERSISTED_RECORD', operation);
+      throw new LocalDatabaseError('CORRUPT_PERSISTED_RECORD', operation, failure);
     }
   }
 
