@@ -1,5 +1,6 @@
 import type { WorkspaceSearchResultKind } from '../knowledge/workspace/buildWorkspaceSearch';
 import type { SearchDatasetState } from '../../../../lib/searchReadiness';
+import type { SearchWorkoutPreviewEvidence, SearchWorkoutPreviewProjection } from './searchWorkoutCompositeProjection';
 
 /** K-111 cross-domain search domains. */
 export type SearchDomain = 'notes' | 'planner' | 'health' | 'recipe' | 'archive';
@@ -18,10 +19,9 @@ export interface SearchHighlight {
   snippet?: string;
 }
 
-export interface SearchResultItem {
+interface SearchResultBase {
   id: string;
   domain: SearchDomain;
-  kind: WorkspaceSearchResultKind | PlannerSearchKind | HealthSearchKind | RecipeSearchKind | ArchiveSearchKind;
   title: string;
   subtitle?: string;
   categoryLabel?: string;
@@ -42,8 +42,15 @@ export interface SearchResultItem {
   weakConnectivity?: boolean;
 }
 
+/** A private observation cannot accidentally enter generic navigation/recent dispatch. */
+export type SearchResultItem = SearchResultBase & (
+  | { kind: 'workout-observation'; workoutPreview: SearchWorkoutPreviewEvidence }
+  | { kind: WorkspaceSearchResultKind | PlannerSearchKind | Exclude<HealthSearchKind, 'workout-observation'>
+    | RecipeSearchKind | ArchiveSearchKind; workoutPreview?: never }
+);
+
 export type PlannerSearchKind = 'schedule' | 'todo' | 'routine' | 'weekly-schedule';
-export type HealthSearchKind = 'workout' | 'exercise-block';
+export type HealthSearchKind = 'workout' | 'exercise-block' | 'workout-observation';
 export type RecipeSearchKind = 'recipe';
 export type ArchiveSearchKind = 'deleted-note' | 'archived-note';
 
@@ -95,6 +102,7 @@ export interface SearchProjection {
   groupStates: Partial<Record<SearchDomain, SearchDatasetState>>;
   empty: SearchEmptyFlags;
   generatedAt: string;
+  workoutPreview?: SearchWorkoutPreviewProjection;
 }
 
 export const SEARCH_PROJECTION_SLICES = [

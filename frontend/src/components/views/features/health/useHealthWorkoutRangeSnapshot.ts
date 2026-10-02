@@ -9,6 +9,21 @@ import {
 
 export type WorkoutRangeBounds = Readonly<{ startDate: string; endDate: string }>;
 
+/** One optional child view; never a repository, cache, or source owner. */
+export type WorkoutRangePreviewScope = Readonly<{
+  localDate: string;
+  lifetime: object;
+  isCurrent: () => boolean;
+}>;
+export type WorkoutRangePreviewRead = Readonly<{
+  scope: WorkoutRangePreviewScope;
+  phase: 'loading' | 'settled';
+  view: WorkoutRangeView | null;
+  isolationError: boolean;
+  publication: object | null;
+  isCurrent: () => boolean;
+}>;
+
 export type HealthWorkoutRangeReadModel = Readonly<{
   phase: 'disabled' | 'loading' | 'settled';
   accountId: string;
@@ -20,9 +35,11 @@ export type HealthWorkoutRangeReadModel = Readonly<{
   retry: () => void;
   /** Synchronously fences old publications before scheduling a fresh pair. */
   invalidateAndReload: () => void;
+  previewRead?: WorkoutRangePreviewRead;
+  isPreviewCurrent: (read: WorkoutRangePreviewRead) => boolean;
 }>;
 
-type StoredRangeRead = Omit<HealthWorkoutRangeReadModel, 'retry' | 'invalidateAndReload'>;
+type StoredRangeRead = Omit<HealthWorkoutRangeReadModel, 'retry' | 'invalidateAndReload' | 'isPreviewCurrent'>;
 
 type RangeCoordinator = Pick<WorkoutReadSnapshotCoordinator,
   'load' | 'deriveRange' | 'invalidate' | 'close' | 'currentSnapshot'>;
@@ -59,6 +76,7 @@ export function useHealthWorkoutRangeSnapshot(
   previousBounds: WorkoutRangeBounds,
   monthBounds: WorkoutRangeBounds,
   dependencies?: HealthWorkoutRangeDependencies,
+  previewScope?: WorkoutRangePreviewScope,
 ): HealthWorkoutRangeReadModel {
   const [refresh, setRefresh] = useState(0);
   const [sourceRevision, setSourceRevision] = useState(0);
@@ -69,13 +87,21 @@ export function useHealthWorkoutRangeSnapshot(
   const ownerEpoch = useRef(0);
   const publicationSequence = useRef(0);
   const automaticCurrentnessRetryUsed = useRef(false);
-  const currentRef = useRef({ enabled, accountId, previousBounds, monthBounds });
-  currentRef.current = { enabled, accountId, previousBounds, monthBounds };
+  const currentRef = useRef({ enabled, accountId, previousBounds, monthBounds, previewScope });
+  currentRef.current = { enabled, accountId, previousBounds, monthBounds, previewScope };
+  const previewPublicationRef = useRef<WorkoutRangePreviewRead | null>(null);
+  const isPreviewCurrent = useCallback((read: WorkoutRangePreviewRead) => {
+    const current = currentRef.current;
+    return current.enabled && current.previewScope === read.scope
+      && read.scope.isCurrent() && read.publication !== null
+      && previewPublicationRef.current === read;
+  }, []);
 
   const invalidateAndReload = useCallback(() => {
     const current = currentRef.current;
     if (!current.enabled) return;
     automaticCurrentnessRetryUsed.current = false;
+    previewPublicationRef.current = null;
     publicationSequence.current += 1;
     coordinatorRef.current?.invalidate();
     setStored(initialState(true, current.accountId, current.previousBounds, current.monthBounds));
@@ -85,6 +111,7 @@ export function useHealthWorkoutRangeSnapshot(
   const recoverCurrentnessOrSettle = useCallback(() => {
     const current = currentRef.current;
     if (!current.enabled) return;
+    previewPublicationRef.current = null;
     publicationSequence.current += 1;
     coordinatorRef.current?.invalidate();
     if (automaticCurrentnessRetryUsed.current) {
@@ -107,6 +134,7 @@ export function useHealthWorkoutRangeSnapshot(
   const retry = invalidateAndReload;
 
   useEffect(() => {
+    previewPublicationRef.current = null;
     ownerEpoch.current += 1;
     publicationSequence.current += 1;
     automaticCurrentnessRetryUsed.current = false;
@@ -122,6 +150,7 @@ export function useHealthWorkoutRangeSnapshot(
     coordinatorRef.current = createCoordinator(accountId, storage);
     setStored(initialState(true, accountId, previousBounds, monthBounds));
     return () => {
+      previewPublicationRef.current = null;
       ownerEpoch.current += 1;
       publicationSequence.current += 1;
       coordinatorRef.current?.close();
@@ -142,6 +171,7 @@ export function useHealthWorkoutRangeSnapshot(
       && ownerEpoch.current === epoch
       && publicationSequence.current === sequence;
     setStored(initialState(true, accountId, currentRef.current.previousBounds, currentRef.current.monthBounds));
+    previewPublicationRef.current = null;
     void coordinator.load().then(snapshot => {
       if (!isCurrent()) return;
       if (!snapshot) {
@@ -169,27 +199,39 @@ export function useHealthWorkoutRangeSnapshot(
     const capturedAccount = accountId;
     const capturedPrevious = { ...previousBounds };
     const capturedMonth = { ...monthBounds };
+    const capturedPreview = previewScope;
     const isCurrent = () => currentRef.current.enabled
       && currentRef.current.accountId === capturedAccount
       && currentRef.current.previousBounds.startDate === capturedPrevious.startDate
       && currentRef.current.previousBounds.endDate === capturedPrevious.endDate
       && currentRef.current.monthBounds.startDate === capturedMonth.startDate
       && currentRef.current.monthBounds.endDate === capturedMonth.endDate
+      && currentRef.current.previewScope === capturedPreview
+      && (!capturedPreview || capturedPreview.isCurrent())
       && coordinatorRef.current === coordinator
       && ownerEpoch.current === epoch
       && publicationSequence.current === sequence;
     setStored(previous => ({ ...previous, phase: 'loading', accountId,
       previousBounds: capturedPrevious, monthBounds: capturedMonth }));
+    previewPublicationRef.current = null;
     void Promise.all([
       coordinator.deriveRange(capturedPrevious.startDate, capturedPrevious.endDate),
       coordinator.deriveRange(capturedMonth.startDate, capturedMonth.endDate),
-    ]).then(([previousView, monthView]) => {
+      capturedPreview
+        ? coordinator.deriveRange(capturedPreview.localDate, capturedPreview.localDate)
+        : Promise.resolve(null),
+    ]).then(([previousView, monthView, previewView]) => {
       if (!isCurrent()) return;
-      if (!previousView || !monthView) {
+      if (!previousView || !monthView || (capturedPreview && !previewView)) {
         recoverCurrentnessOrSettle();
         return;
       }
       automaticCurrentnessRetryUsed.current = false;
+      const previewRead: WorkoutRangePreviewRead | undefined = capturedPreview ? {
+        scope: capturedPreview, phase: 'settled', view: previewView,
+        isolationError: false, publication: {}, isCurrent: () => isPreviewCurrent(previewRead!),
+      } : undefined;
+      previewPublicationRef.current = previewRead ?? null;
       setStored({
         phase: 'settled',
         accountId,
@@ -198,6 +240,7 @@ export function useHealthWorkoutRangeSnapshot(
         previousView,
         monthView,
         isolationError: false,
+        previewRead,
       });
     }).catch((error: unknown) => {
       if (!isCurrent()) return;
@@ -212,7 +255,7 @@ export function useHealthWorkoutRangeSnapshot(
       });
     });
   }, [enabled, accountId, previousBounds.startDate, previousBounds.endDate,
-    monthBounds.startDate, monthBounds.endDate, sourceRevision, recoverCurrentnessOrSettle]);
+    monthBounds.startDate, monthBounds.endDate, sourceRevision, recoverCurrentnessOrSettle, previewScope, isPreviewCurrent]);
 
   const visible = enabled
     && stored.accountId === accountId
@@ -222,5 +265,14 @@ export function useHealthWorkoutRangeSnapshot(
     && stored.monthBounds.endDate === monthBounds.endDate
     ? stored
     : initialState(enabled, accountId, previousBounds, monthBounds);
-  return { ...visible, retry, invalidateAndReload };
+  const previewRead = previewScope && previewScope.isCurrent()
+    ? (visible.previewRead && isPreviewCurrent(visible.previewRead) ? visible.previewRead : {
+      scope: previewScope,
+      phase: visible.phase === 'settled' ? 'settled' as const : 'loading' as const,
+      view: null,
+      isolationError: visible.isolationError,
+      publication: null,
+      isCurrent: () => false,
+    }) : undefined;
+  return { ...visible, previewRead, retry, invalidateAndReload, isPreviewCurrent };
 }

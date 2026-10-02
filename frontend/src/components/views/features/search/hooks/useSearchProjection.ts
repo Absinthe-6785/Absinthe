@@ -20,6 +20,7 @@ export function useSearchProjection(
       input.todosState,
       input.routines,
       input.workouts,
+      input.workoutPreviewRead,
       input.healthBlocks,
       input.healthBlocksState,
       input.weeklySchedules,

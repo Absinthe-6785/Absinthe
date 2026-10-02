@@ -28,6 +28,8 @@ import {
 import { buildHighlightsForResults } from './searchHighlight';
 import { buildSearchRecentGroups } from './searchRecentStorage';
 import type { SearchDatasetState } from '../../../../lib/searchReadiness';
+import type { WorkoutRangePreviewRead } from '../health/useHealthWorkoutRangeSnapshot';
+import { buildSearchWorkoutPreview } from './searchWorkoutCompositeProjection';
 
 export interface SearchProjectionInput {
   query: string;
@@ -49,6 +51,7 @@ export interface SearchProjectionInput {
   service?: KnowledgeIndexService;
   discoveryFeed?: DiscoveryFeed;
   language?: Language;
+  workoutPreviewRead?: WorkoutRangePreviewRead;
 }
 
 function mapWorkspaceResult(r: WorkspaceSearchResult): SearchResultItem {
@@ -142,8 +145,11 @@ export function buildSearchProjection(input: SearchProjectionInput): SearchProje
     ? buildPlannerSearchResults(trimmed, input.schedules, input.todos, input.routines, input.weeklySchedules, now)
     : [];
 
+  const workoutPreview = input.workoutPreviewRead
+    ? buildSearchWorkoutPreview(trimmed, input.workoutPreviewRead) : undefined;
   const healthResults = trimmed
-    ? buildHealthSearchResults(trimmed, input.workouts, input.healthBlocks, now)
+    ? [...buildHealthSearchResults(trimmed, workoutPreview ? [] : input.workouts, input.healthBlocks, now),
+      ...(workoutPreview?.results ?? [])]
     : [];
 
   const recipeResults = trimmed
@@ -169,7 +175,8 @@ export function buildSearchProjection(input: SearchProjectionInput): SearchProje
 
   const empty = {
     noQuery: !trimmed,
-    noResults: trimmed.length > 0 && results.length === 0,
+    noResults: trimmed.length > 0 && results.length === 0
+      && (!workoutPreview || workoutPreview.state === 'verified_no_match'),
     noRecent: recentSearchesGrouped.today.length + recentSearchesGrouped.earlier.length === 0,
   };
 
@@ -183,6 +190,7 @@ export function buildSearchProjection(input: SearchProjectionInput): SearchProje
     groupStates,
     empty,
     generatedAt: now.toISOString(),
+    ...(workoutPreview ? { workoutPreview } : {}),
   };
 }
 

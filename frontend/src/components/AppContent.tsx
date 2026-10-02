@@ -41,6 +41,8 @@ import { isHomeWorkoutCompositeEnabled } from './views/features/home/homeWorkout
 import { isHealthWorkoutRangeCompositeEnabled } from './views/features/health/healthWorkoutRangeCompositeConfig';
 import { useHealthWorkoutRangeSnapshot } from './views/features/health/useHealthWorkoutRangeSnapshot';
 import { previousWorkoutRange } from './views/features/health/previousWorkoutSession';
+import { isSearchWorkoutCompositeEnabled, type SearchActivation, type SearchHostLifetime } from './views/features/search/searchWorkoutCompositeConfig';
+import type { SearchWorkoutPreviewEvidence } from './views/features/search/searchWorkoutCompositeProjection';
 import {
   startIndependentStartup,
   type IndependentStartupRun,
@@ -160,6 +162,18 @@ export function AppContent({ authUser }: { authUser: User }) {
   // Search owns the live query; this small upward signal only controls the
   // deferred Search datasets in the shell-owned hooks.
   const [searchHasQuery, setSearchHasQuery] = useState(false);
+  const searchHostRef = useRef<SearchHostLifetime>({ accountId: authUser.id, mounted: false, current: null });
+  if (searchHostRef.current.accountId !== authUser.id) {
+    searchHostRef.current.mounted = false;
+    searchHostRef.current.current = null;
+    searchHostRef.current = { accountId: authUser.id, mounted: false, current: null };
+  }
+  const searchHost = searchHostRef.current;
+  const [searchActivation, setSearchActivation] = useState<SearchActivation | null>(null);
+  const onSearchActivationChange = useCallback((signal: SearchActivation) => {
+    if (signal.host !== searchHostRef.current || !signal.host.mounted || signal.host.current !== signal) return;
+    setSearchActivation(signal);
+  }, []);
   const [settingsScrollTarget, setSettingsScrollTarget] = useState<SettingsSectionId | null>(null);
 
   // Notes and Health have separate internal sequencing, but both begin after
@@ -284,11 +298,22 @@ export function AppContent({ authUser }: { authUser: User }) {
     healthActive: activeTab === 'health',
     accountPresent: Boolean(authUser.id),
   });
+  const searchCompositeEnabled = isSearchWorkoutCompositeEnabled(searchHost, searchActivation, authUser.id);
+  const rangeSourceEnabled = workoutRangeReaderEnabled || searchCompositeEnabled;
+  const searchCurrentRef = useRef({ accountId: authUser.id, dateStr, searchCompositeEnabled });
+  searchCurrentRef.current = { accountId: authUser.id, dateStr, searchCompositeEnabled };
+  const searchPreviewScope = useMemo(() => searchCompositeEnabled && searchActivation ? {
+    localDate: dateStr,
+    lifetime: searchActivation,
+    isCurrent: () => searchCurrentRef.current.dateStr === dateStr
+      && searchCurrentRef.current.searchCompositeEnabled
+      && isSearchWorkoutCompositeEnabled(searchHostRef.current, searchActivation, searchCurrentRef.current.accountId),
+  } : undefined, [dateStr, searchActivation, searchCompositeEnabled]);
   const selectedDayReadSource = useHealthSelectedDayComposite(
     sharedSelectedDayReaderEnabled,
     authUser.id,
     homeCompositeEnabled ? formatDate(now.toJSDate()) : dateStr,
-    { managedLifecycle: workoutRangeReaderEnabled },
+    { managedLifecycle: rangeSourceEnabled },
   );
   const todosSearchActive = searchHasQuery || activeTab === 'planner';
   // Search keeps its legacy-only daily source; the gated Health editor uses
@@ -314,19 +339,25 @@ export function AppContent({ authUser }: { authUser: User }) {
   }), [currentDate, formatDate]);
   const previousBounds = useMemo(() => previousWorkoutRange(dateStr), [dateStr]);
   const workoutRangeReadSource = useHealthWorkoutRangeSnapshot(
-    workoutRangeReaderEnabled,
+    rangeSourceEnabled,
     authUser.id,
     previousBounds,
     { startDate: monthStart, endDate: monthEnd },
+    undefined,
+    searchPreviewScope,
   );
   const selectedDayRetryRef = useRef(selectedDayReadSource.retry);
   const rangeInvalidateRef = useRef(workoutRangeReadSource.invalidateAndReload);
-  const rangeReaderEnabledRef = useRef(workoutRangeReaderEnabled);
+  const rangeReaderEnabledRef = useRef(rangeSourceEnabled);
+  const rangeAccountRef = useRef(authUser.id);
+  const healthRangeEnabledRef = useRef(workoutRangeReaderEnabled);
   const currentSharedReaderAccountRef = useRef<string | null>(null);
   const sharedOwnerMountedRef = useRef(false);
   selectedDayRetryRef.current = selectedDayReadSource.retry;
   rangeInvalidateRef.current = workoutRangeReadSource.invalidateAndReload;
-  rangeReaderEnabledRef.current = workoutRangeReaderEnabled;
+  rangeReaderEnabledRef.current = rangeSourceEnabled;
+  rangeAccountRef.current = authUser.id;
+  healthRangeEnabledRef.current = workoutRangeReaderEnabled;
   currentSharedReaderAccountRef.current = sharedSelectedDayReaderEnabled
     ? authUser.id
     : null;
@@ -335,10 +366,14 @@ export function AppContent({ authUser }: { authUser: User }) {
     selectedDayRetryRef.current();
   }, []);
   const onLocalWorkoutCommitted = useCallback((committedAccountId: string) => {
-    if (!sharedOwnerMountedRef.current || currentSharedReaderAccountRef.current !== committedAccountId) return;
+    if (!sharedOwnerMountedRef.current) return;
+    const qualifiedSearch = isSearchWorkoutCompositeEnabled(searchHostRef.current,
+      searchHostRef.current.current, rangeAccountRef.current);
+    const rangeEligible = rangeReaderEnabledRef.current && rangeAccountRef.current === committedAccountId
+      && (healthRangeEnabledRef.current || qualifiedSearch);
     // Fence the broad snapshot first, then the selected-day projection.
-    if (rangeReaderEnabledRef.current) rangeInvalidateRef.current();
-    selectedDayRetryRef.current();
+    if (rangeEligible) rangeInvalidateRef.current();
+    if (currentSharedReaderAccountRef.current === committedAccountId) selectedDayRetryRef.current();
   }, []);
   const selectedDayRead = useMemo(() => workoutRangeReaderEnabled
     ? { ...selectedDayReadSource, retry: refreshCompositeWorkoutReaders }
@@ -382,7 +417,7 @@ export function AppContent({ authUser }: { authUser: User }) {
   }, [mutateDaily, mutateStatic, refreshCompositeWorkoutReaders]);
 
   useEffect(() => {
-    if (!workoutRangeReaderEnabled) return;
+    if (!rangeSourceEnabled) return;
     let lastRefresh = 0;
     const refreshOnFocus = () => {
       if (document.visibilityState === 'hidden') return;
@@ -397,7 +432,7 @@ export function AppContent({ authUser }: { authUser: User }) {
       window.removeEventListener('focus', refreshOnFocus);
       document.removeEventListener('visibilitychange', refreshOnFocus);
     };
-  }, [refreshCompositeWorkoutReaders, workoutRangeReaderEnabled]);
+  }, [refreshCompositeWorkoutReaders, rangeSourceEnabled]);
 
   useEffect(() => {
     sharedOwnerMountedRef.current = true;
@@ -441,6 +476,26 @@ export function AppContent({ authUser }: { authUser: User }) {
     setCurrentDate(today);
     setActiveTab('health');
   }, [authUser.id, homeNavigationLifetime]);
+
+  const previewCurrentRef = useRef(workoutRangeReadSource.isPreviewCurrent);
+  previewCurrentRef.current = workoutRangeReadSource.isPreviewCurrent;
+  const openSearchWorkoutPreview = useCallback((evidence: SearchWorkoutPreviewEvidence): boolean => {
+    const current = searchCurrentRef.current;
+    if (!sharedOwnerMountedRef.current || !current.searchCompositeEnabled
+      || evidence.accountId !== current.accountId || evidence.localDate !== current.dateStr
+      || !previewCurrentRef.current(evidence.read)) return false;
+    const [year, month, day] = evidence.localDate.split('-').map(Number);
+    // Calendar-only navigation; no Notes helper, recent write, or repository query.
+    const date = new Date(year!, month! - 1, day!, 12);
+    setSelectedDate(date);
+    setCurrentDate(date);
+    setActiveTab('health');
+    return true;
+  }, []);
+  const retrySearchWorkoutPreview = useCallback(() => {
+    if (sharedOwnerMountedRef.current && isSearchWorkoutCompositeEnabled(searchHostRef.current,
+      searchHostRef.current.current, rangeAccountRef.current)) rangeInvalidateRef.current();
+  }, []);
 
   // ── 8. globalProps ────────────────────────────────────────────────
   // 개선 전: eslint-disable로 deps 경고를 무시. user/formatDate/showToast 등 stable
@@ -602,6 +657,11 @@ export function AppContent({ authUser }: { authUser: User }) {
         accountId={authUser.id}
         appSettings={appSettings}
         onSearchHasQueryChange={setSearchHasQuery}
+        searchHostLifetime={searchHost}
+        onSearchActivationChange={onSearchActivationChange}
+        workoutPreviewRead={searchCompositeEnabled ? workoutRangeReadSource.previewRead : undefined}
+        onOpenWorkoutPreview={openSearchWorkoutPreview}
+        onRetryWorkoutPreview={retrySearchWorkoutPreview}
         schedules={schedules}
         todos={todos}
         todosState={todosState}

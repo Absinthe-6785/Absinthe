@@ -15,7 +15,10 @@ describe('LEAN_04B Search source characterization', () => {
     expect(app).toContain('openWorkspaceSearch();');
     expect(app).toContain('<GlobalSearchHost');
     expect(host).toContain('const [open, setOpen] = useState(false);');
-    expect(host).toContain('registerWorkspaceSearchOpener(() => setOpen(true))');
+    // D1 keeps the same opener, but must establish current host authority before opening.
+    expect(host).toContain('registerWorkspaceSearchOpener(() => {');
+    expect(host).toContain('reportPresence(true, Boolean(saved.query.trim()));');
+    expect(host).toContain('setOpen(true);');
     expect(host).toContain('<SearchWorkspacePalette');
   });
 
