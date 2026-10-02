@@ -1069,8 +1069,8 @@ export class LocalDatabaseRepository {
     }
   }
 
-  private validatePersistedEntity<T>(value: LocalEntityEnvelope<T>, operation: string): void {
-    let failure: PersistedEntityFailure = 'UNTRUSTED_SCOPE';
+  private validatePersistedEntityScope<T>(value: LocalEntityEnvelope<T>, operation: string): void {
+    let failure: PersistedEntityFailure | null = 'UNTRUSTED_SCOPE';
     try {
       // Classify enclosing scope before content validation can hide a mismatch.
       // This retains the existing checks/rejection and never carries record data.
@@ -1082,13 +1082,30 @@ export class LocalDatabaseRepository {
             .some(field => Object.prototype.hasOwnProperty.call(value, field))) failure = 'ACCOUNT_MISMATCH';
         // Pre-V5 envelopes have no account fields; their matching namespace/generation
         // proves enclosing scope. V5 account evidence may not be absent or mismatched.
-        else failure = 'INVALID_ENTITY';
+        else failure = null;
       }
-      if (failure !== 'INVALID_ENTITY') throw new Error('scope');
+    } catch { /* Unprovable enclosing scope retains the payload-free failure classification. */ }
+    if (failure !== null) throw new LocalDatabaseError('CORRUPT_PERSISTED_RECORD', operation, failure);
+  }
+
+  private validatePersistedEntityContent<T>(value: LocalEntityEnvelope<T>, operation: string): void {
+    try {
       validateEntityEnvelope(value);
     } catch {
-      throw new LocalDatabaseError('CORRUPT_PERSISTED_RECORD', operation, failure);
+      throw new LocalDatabaseError('CORRUPT_PERSISTED_RECORD', operation, 'INVALID_ENTITY');
     }
+  }
+
+  private validatePersistedEntity<T>(value: LocalEntityEnvelope<T>, operation: string): void {
+    this.validatePersistedEntityScope(value, operation);
+    this.validatePersistedEntityContent(value, operation);
+  }
+
+  private validatePersistedEntityBatch<T>(values: readonly LocalEntityEnvelope<T>[], operation: string): void {
+    // Scope distrust anywhere in this already-read batch must precede ordinary content failure.
+    // If several scope failures exist, the first in stable request-result order determines the detail.
+    values.forEach(value => this.validatePersistedEntityScope(value, operation));
+    values.forEach(value => this.validatePersistedEntityContent(value, operation));
   }
 
   private validatePersistedOutbox(value: OutboxRecord, operation: string): void {
@@ -1161,10 +1178,8 @@ export class LocalDatabaseRepository {
           MAX_OUTBOX_SCAN + 1,
         )) as LocalEntityEnvelope[];
         if (scoped.length > MAX_OUTBOX_SCAN) throw new LocalDatabaseError('INVALID_ENTITY', 'commit_local_mutation');
-        const twins = scoped.filter(entity => {
-          this.validatePersistedEntity(entity, 'commit_local_mutation');
-          return canonicalWorkoutUuid(entity.entityId) === wireId;
-        });
+        this.validatePersistedEntityBatch(scoped, 'commit_local_mutation');
+        const twins = scoped.filter(entity => canonicalWorkoutUuid(entity.entityId) === wireId);
         if (twins.length > 1) throw new LocalDatabaseError('CORRUPT_PERSISTED_RECORD', 'commit_local_mutation');
         if (twins.length !== 0) throw new LocalDatabaseError('ENTITY_ALREADY_EXISTS', 'commit_local_mutation');
       }
@@ -1961,7 +1976,7 @@ export class LocalDatabaseRepository {
     const index = transaction.objectStore(LOCAL_DATABASE_STORES.entities).index('by_namespace_generation_domain');
     const values = await requestResult(index.getAll(IDBKeyRange.only([this.namespaceKey, this.namespace.generationId, options.domain]))) as LocalEntityEnvelope<T>[];
     await done;
-    values.forEach(value => this.validatePersistedEntity(value, 'list_entities'));
+    this.validatePersistedEntityBatch(values, 'list_entities');
     return values.filter(value => options.includeDeleted || !value.isDeleted)
       .sort((a, b) => a.entityId.localeCompare(b.entityId));
   }
@@ -1973,7 +1988,7 @@ export class LocalDatabaseRepository {
     const index = transaction.objectStore(LOCAL_DATABASE_STORES.entities).index('by_namespace_generation_owner');
     const values = await requestResult(index.getAll(IDBKeyRange.only([this.namespaceKey, this.namespace.generationId, ownerId]))) as LocalEntityEnvelope<T>[];
     await done;
-    values.forEach(value => this.validatePersistedEntity(value, 'list_entities_by_owner'));
+    this.validatePersistedEntityBatch(values, 'list_entities_by_owner');
     return values.sort((a, b) => `${a.domain}\0${a.entityId}`.localeCompare(`${b.domain}\0${b.entityId}`));
   }
 
@@ -3238,9 +3253,9 @@ export class LocalDatabaseRepository {
       this.namespaceKey, this.namespace.generationId, WORKOUT_REMOTE_DOMAIN,
     ]), WORKOUT_SNAPSHOT_ITEM_LIMIT + 1)) as LocalEntityEnvelope<WorkoutSessionV1>[];
     if (scoped.length > WORKOUT_SNAPSHOT_ITEM_LIMIT) throw new LocalDatabaseError('INVALID_ENTITY', operation);
+    this.validatePersistedEntityBatch(scoped, operation);
     const byWire = new Map<string, LocalEntityEnvelope<WorkoutSessionV1>[]>();
     for (const entity of scoped) {
-      this.validatePersistedEntity(entity, operation);
       const wire = canonicalWorkoutUuid(entity.entityId);
       const group = byWire.get(wire) ?? [];
       group.push(entity); byWire.set(wire, group);
@@ -3664,9 +3679,9 @@ export class LocalDatabaseRepository {
           this.namespaceKey, this.namespace.generationId, WORKOUT_REMOTE_DOMAIN,
         ]), WORKOUT_SNAPSHOT_ITEM_LIMIT + 1)) as LocalEntityEnvelope<WorkoutSessionV1>[];
       if (priorEntities.length > WORKOUT_SNAPSHOT_ITEM_LIMIT) throw new LocalDatabaseError('INVALID_ENTITY', operation);
+      this.validatePersistedEntityBatch(priorEntities, operation);
       const conflictsStore = tx.objectStore(LOCAL_DATABASE_STORES.conflicts);
       for (const entity of priorEntities) {
-        this.validatePersistedEntity(entity, operation);
         if (entity.serverRevision == null || entity.remoteState === undefined
           || present.has(canonicalWorkoutUuid(entity.entityId))) continue;
         const conflictId = `conflict.${sha256Hex(canonicalPayloadJson([

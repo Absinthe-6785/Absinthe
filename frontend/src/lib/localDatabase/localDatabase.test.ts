@@ -1,11 +1,12 @@
 import 'fake-indexeddb/auto';
+import { IDBIndex as FakeIDBIndex } from 'fake-indexeddb';
 import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   LOCAL_DATABASE_NAME, LOCAL_DATABASE_STORES, LOCAL_DATABASE_VERSION,
   attachmentEntityIdentity, closeLocalDatabase, createDormantLocalDatabaseCapability,
   idEntityIdentity, localDatabaseError, openLocalDatabase, ownerDateEntityIdentity, singletonEntityIdentity,
-  type LocalDatabaseNamespace, type LocalDatabaseRepository,
+  type LocalDatabaseNamespace, type LocalDatabaseRepository, type LocalEntityEnvelope,
 } from './index';
 
 const capability = createDormantLocalDatabaseCapability('test');
@@ -56,10 +57,99 @@ async function overwriteOutbox(
 const mutationNow = '2026-07-11T00:00:00.000Z';
 const fixedMutationId = 'mut.00000000-0000-4000-8000-000000000001';
 
+const entityBatchReads = [
+  { name: 'domain', index: 'by_namespace_generation_domain', operation: 'list_entities',
+    read: (repo: LocalDatabaseRepository) => repo.listEntities({ domain: 'notes' }) },
+  { name: 'owner', index: 'by_namespace_generation_owner', operation: 'list_entities_by_owner',
+    read: (repo: LocalDatabaseRepository) => repo.listEntitiesByOwner(baseNamespace.userId) },
+];
+
+function faultEntityBatch(indexName: string, transform: (values: LocalEntityEnvelope[]) => unknown[]) {
+  const getAll = FakeIDBIndex.prototype.getAll;
+  return vi.spyOn(FakeIDBIndex.prototype, 'getAll').mockImplementation(function (this: IDBIndex, ...args) {
+    const request = getAll.apply(this, args);
+    if (this.objectStore.name === LOCAL_DATABASE_STORES.entities && this.name === indexName) {
+      request.addEventListener('success', () => request.result.splice(0, request.result.length, ...transform(request.result)));
+    }
+    return request;
+  });
+}
+
 beforeEach(async () => { await deleteDatabase().catch(() => undefined); });
 afterEach(async () => {
   for (const value of repositories.splice(0)) closeLocalDatabase(value);
   await deleteDatabase().catch(() => undefined);
+});
+
+describe('D0 entity batch scope precedence', () => {
+  const scopeFaults = [
+    { detail: 'ACCOUNT_MISMATCH', patch: { accountId: 'foreign-account' } },
+    { detail: 'NAMESPACE_MISMATCH', patch: { namespaceKey: 'foreign-namespace' } },
+    { detail: 'GENERATION_MISMATCH', patch: { generationId: 'foreign-generation' } },
+    { detail: 'UNTRUSTED_SCOPE', patch: null },
+  ];
+
+  it.each(entityBatchReads.flatMap(reader => scopeFaults.flatMap(fault => [false, true]
+    .map(reverse => ({ ...reader, ...fault, reverse }))))) (
+    '$name batch selects $detail before content corruption with reverse=$reverse', async ({ index, operation, read, patch, detail, reverse }) => {
+      const repo = await repository();
+      await repo.createEntity({ domain: 'notes', entityId: 'n1', record: {}, ownerId: baseNamespace.userId });
+      await repo.createEntity({ domain: 'notes', entityId: 'n2', record: {}, ownerId: baseNamespace.userId });
+      let reached = 0;
+      const spy = faultEntityBatch(index, values => {
+        reached += 1;
+        expect(values.map(value => value.entityId)).toEqual(['n1', 'n2']);
+        const batch = [{ ...values[0], revision: 0 }, patch === null ? null : { ...values[1], ...patch }];
+        return reverse ? batch.reverse() : batch;
+      });
+      try {
+        const failure = await read(repo).catch(error => error);
+        expect(failure).toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD', operation, persistedEntityFailure: detail });
+        expect(failure.message).toBe(`CORRUPT_PERSISTED_RECORD:${operation}`);
+        expect(Object.keys(failure).sort()).toEqual(['code', 'name', 'operation', 'persistedEntityFailure']);
+        expect(reached).toBe(1);
+        expect(spy).toHaveBeenCalledTimes(1);
+      } finally {
+        spy.mockRestore();
+      }
+    },
+  );
+
+  it.each(entityBatchReads)('$name batch deterministically selects the first scope failure in returned order', async ({ index, operation, read }) => {
+    const repo = await repository();
+    await repo.createEntity({ domain: 'notes', entityId: 'n1', record: {}, ownerId: baseNamespace.userId });
+    await repo.createEntity({ domain: 'notes', entityId: 'n2', record: {}, ownerId: baseNamespace.userId });
+    let reverse = false;
+    const spy = faultEntityBatch(index, values => {
+      const batch = [{ ...values[0], accountId: 'foreign-account' }, { ...values[1], namespaceKey: 'foreign-namespace' }];
+      return reverse ? batch.reverse() : batch;
+    });
+    try {
+      await expect(read(repo)).rejects.toMatchObject({ operation, persistedEntityFailure: 'ACCOUNT_MISMATCH' });
+      reverse = true;
+      await expect(read(repo)).rejects.toMatchObject({ operation, persistedEntityFailure: 'NAMESPACE_MISMATCH' });
+      expect(spy).toHaveBeenCalledTimes(2);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it.each(entityBatchReads)('$name batch preserves valid and trusted-invalid-only behavior with one query', async ({ index, read }) => {
+    const repo = await repository();
+    await repo.createEntity({ domain: 'notes', entityId: 'n1', record: {}, ownerId: baseNamespace.userId });
+    await repo.createEntity({ domain: 'notes', entityId: 'n2', record: {}, ownerId: baseNamespace.userId });
+    let invalid = false;
+    const spy = faultEntityBatch(index, values => invalid ? values.map(value => ({ ...value, revision: 0 })) : values);
+    try {
+      expect((await read(repo)).map(value => value.entityId)).toEqual(['n1', 'n2']);
+      expect(spy).toHaveBeenCalledTimes(1);
+      invalid = true;
+      await expect(read(repo)).rejects.toMatchObject({ persistedEntityFailure: 'INVALID_ENTITY' });
+      expect(spy).toHaveBeenCalledTimes(2);
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });
 
 describe('K-321 isolated schema and dormant boundary', () => {
