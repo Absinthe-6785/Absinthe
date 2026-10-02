@@ -1,15 +1,16 @@
 import 'fake-indexeddb/auto';
-import { IDBFactory } from 'fake-indexeddb';
+import { IDBFactory, IDBIndex as FakeIDBIndex, IDBObjectStore as FakeIDBObjectStore } from 'fake-indexeddb';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { HEALTH_RECOVERY_DATASETS, type HealthRecoveryDatasets } from '../../../../lib/healthRecoveryExport';
 import {
   closeLocalDatabase, createDormantLocalDatabaseCapability, openLocalDatabase,
-  type LocalDatabaseRepository,
+  hashCanonicalPayload, LocalDatabaseError, LOCAL_DATABASE_NAME, LOCAL_DATABASE_STORES,
+  type LocalEntityEnvelope, type LocalDatabaseRepository,
 } from '../../../../lib/localDatabase';
 import { HEALTH_ROUTINE_DEVICE_ID_KEY, HEALTH_ROUTINE_GENERATION_ID,
   HEALTH_ROUTINE_PROJECT_REF } from '../../../../lib/healthRoutineSync';
 import { WorkoutRangeReader } from '../../../../lib/workoutRangeReader';
-import { WorkoutSessionRepository } from '../../../../lib/workoutSessionRepository';
+import { WorkoutSessionRepository, WORKOUT_SESSION_DOMAIN } from '../../../../lib/workoutSessionRepository';
 import type { WorkoutSessionV1 } from '../../../../lib/workoutSessionV1';
 import { previousWorkoutRange } from './previousWorkoutSession';
 import { CompositeWorkoutReadIsolationError } from './compositeWorkoutReadProjection';
@@ -67,6 +68,74 @@ async function seed(accountId = 'a', sessions: WorkoutSessionV1[] = []): Promise
   return db;
 }
 
+async function overwritePersistedWorkout(
+  repository: LocalDatabaseRepository,
+  patch: Partial<LocalEntityEnvelope<WorkoutSessionV1>>,
+  entityId = A,
+): Promise<void> {
+  const db = await new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open(LOCAL_DATABASE_NAME);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  try {
+    const tx = db.transaction(LOCAL_DATABASE_STORES.entities, 'readwrite');
+    const done = new Promise<void>((resolve, reject) => {
+      tx.oncomplete = () => resolve();
+      tx.onabort = tx.onerror = () => reject(tx.error);
+    });
+    const store = tx.objectStore(LOCAL_DATABASE_STORES.entities);
+    const request = store.get([
+      repository.namespaceKey, repository.namespace.generationId, WORKOUT_SESSION_DOMAIN, entityId,
+    ]);
+    request.onsuccess = () => store.put({ ...request.result, ...patch });
+    await done;
+  } finally {
+    db.close();
+  }
+}
+
+/** Namespace/generation are index dimensions. Fault only the real request's cloned result,
+ * after index selection but before the repository's normal validation (not the final error). */
+function faultEntityListResult(transform: (entity: LocalEntityEnvelope<WorkoutSessionV1>) => unknown) {
+  return faultEntityBatchResult(entities => [transform(entities[0]!), ...entities.slice(1)]);
+}
+
+function faultEntityBatchResult(transform: (entities: LocalEntityEnvelope<WorkoutSessionV1>[]) => unknown[]) {
+  const reached = vi.fn();
+  const getAll = FakeIDBIndex.prototype.getAll;
+  vi.spyOn(FakeIDBIndex.prototype, 'getAll').mockImplementation(function (this: IDBIndex, ...args) {
+    const request = getAll.apply(this, args);
+    if (this.objectStore.name === LOCAL_DATABASE_STORES.entities && this.name === 'by_namespace_generation_domain') {
+      request.addEventListener('success', () => {
+        reached();
+        request.result.splice(0, request.result.length, ...transform(request.result));
+      });
+    }
+    return request;
+  });
+  return reached;
+}
+
+async function durableStoreSnapshot(): Promise<unknown[]> {
+  const db = await new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open(LOCAL_DATABASE_NAME);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  try {
+    const names = Object.values(LOCAL_DATABASE_STORES);
+    const tx = db.transaction(names, 'readonly');
+    return await Promise.all(names.map(name => new Promise<unknown[]>((resolve, reject) => {
+      const request = tx.objectStore(name).getAll();
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    })));
+  } finally {
+    db.close();
+  }
+}
+
 beforeEach(() => {
   vi.stubGlobal('indexedDB', new IDBFactory());
   storage.clear();
@@ -122,6 +191,7 @@ describe('verified Workout range source snapshot', () => {
       legacy('2026-09-29', 'row-3'));
     mocks.readAll.mockResolvedValue(source);
     const list = vi.spyOn(WorkoutSessionRepository.prototype, 'listWorkoutSessions');
+    const getAll = vi.spyOn(FakeIDBIndex.prototype, 'getAll');
     const query = vi.spyOn(WorkoutSessionRepository.prototype, 'queryWorkoutSessionsByLocalDate');
     const coordinator = new WorkoutReadSnapshotCoordinator('a', storageAdapter);
     const snapshot = await coordinator.load();
@@ -141,6 +211,8 @@ describe('verified Workout range source snapshot', () => {
     ]));
     expect(mocks.readAll).toHaveBeenCalledTimes(1);
     expect(list).toHaveBeenCalledTimes(1);
+    expect(getAll.mock.contexts.filter(index => index.objectStore.name === LOCAL_DATABASE_STORES.entities
+      && index.name === 'by_namespace_generation_domain')).toHaveLength(1);
     expect(query).not.toHaveBeenCalled();
     expect(() => (day?.result.records as unknown as unknown[]).pop()).toThrow();
     expect((await coordinator.deriveRange('2026-09-29', '2026-09-29'))?.result.records).toHaveLength(4);
@@ -198,6 +270,255 @@ describe('verified Workout range source snapshot', () => {
     await expect(second.load()).rejects.toThrow('NAMESPACE_MISMATCH');
     expect(second.currentSnapshot).toBeNull();
     second.close();
+  });
+
+  it('D0 rejects a real persisted foreign account instead of publishing legacy partial data', async () => {
+    const db = await seed('a', [session(A, '2026-09-29')]);
+    const source = datasets();
+    source.workout_logs.push(legacy());
+    mocks.readAll.mockResolvedValue(source);
+    const coordinator = new WorkoutReadSnapshotCoordinator('a', storageAdapter);
+    expect((await coordinator.load())?.result.status).toBe('complete');
+    // accountId is not an index dimension: this otherwise-valid envelope is
+    // returned by the actual active-domain scan and rejected by the repository.
+    await overwritePersistedWorkout(db, { accountId: 'foreign-account' });
+    const error = await new WorkoutSessionRepository(db).listWorkoutSessions().catch(error => error);
+    expect(error).toBeInstanceOf(LocalDatabaseError);
+    expect(error).toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD', persistedEntityFailure: 'ACCOUNT_MISMATCH' });
+    expect(error.message).toBe('CORRUPT_PERSISTED_RECORD:list_entities');
+    expect(Object.keys(error).sort()).toEqual(['code', 'name', 'operation', 'persistedEntityFailure']);
+    expect(JSON.stringify(error)).not.toContain('foreign-account');
+    expect(JSON.stringify(error)).not.toContain('Frozen Squat');
+    const before = await durableStoreSnapshot();
+    const writes = [
+      vi.spyOn(FakeIDBObjectStore.prototype, 'add'), vi.spyOn(FakeIDBObjectStore.prototype, 'put'),
+      vi.spyOn(FakeIDBObjectStore.prototype, 'delete'), vi.spyOn(FakeIDBObjectStore.prototype, 'clear'),
+    ];
+    const scans = vi.spyOn(WorkoutSessionRepository.prototype, 'listWorkoutSessions');
+    mocks.readAll.mockClear();
+    await expect(coordinator.load()).rejects.toMatchObject({
+      name: 'CompositeWorkoutReadIsolationError', code: 'ACCOUNT_MISMATCH',
+    });
+    expect(coordinator.currentSnapshot).toBeNull();
+    expect(await coordinator.deriveRange('2026-09-01', '2026-09-30')).toBeNull();
+    expect(scans).toHaveBeenCalledTimes(1);
+    expect(mocks.readAll).toHaveBeenCalledTimes(1);
+    // Deterministic corruption settles, with only a caller-requested retry.
+    await expect(coordinator.retry()).rejects.toMatchObject({ code: 'ACCOUNT_MISMATCH' });
+    expect(scans).toHaveBeenCalledTimes(2);
+    expect(mocks.readAll).toHaveBeenCalledTimes(2);
+    for (const write of writes) expect(write).not.toHaveBeenCalled();
+    expect(await durableStoreSnapshot()).toEqual(before);
+    expect(coordinator.currentSnapshot).toBeNull();
+    coordinator.close();
+  });
+
+  it.each(['invalid-first', 'scope-first'])('D0 correction rejects the real mixed-account batch %s', async order => {
+    const db = await seed('a', [session(A, '2026-09-29'), session(B, '2026-09-29')]);
+    const source = datasets();
+    source.workout_logs.push(legacy());
+    mocks.readAll.mockResolvedValue(source);
+    const coordinator = new WorkoutReadSnapshotCoordinator('a', storageAdapter);
+    try {
+      expect((await coordinator.load())?.result.status).toBe('complete');
+      await overwritePersistedWorkout(db, { revision: 0 }, order === 'invalid-first' ? A : B);
+      await overwritePersistedWorkout(db, { accountId: 'foreign-account' }, order === 'invalid-first' ? B : A);
+      const orders: string[][] = [];
+      const getAll = FakeIDBIndex.prototype.getAll;
+      vi.spyOn(FakeIDBIndex.prototype, 'getAll').mockImplementation(function (this: IDBIndex, ...args) {
+        const request = getAll.apply(this, args);
+        if (this.objectStore.name === LOCAL_DATABASE_STORES.entities && this.name === 'by_namespace_generation_domain') {
+          request.addEventListener('success', () => orders.push(request.result.map(entity => entity.entityId)));
+        }
+        return request;
+      });
+      const before = await durableStoreSnapshot();
+      const writes = [
+        vi.spyOn(FakeIDBObjectStore.prototype, 'add'), vi.spyOn(FakeIDBObjectStore.prototype, 'put'),
+        vi.spyOn(FakeIDBObjectStore.prototype, 'delete'), vi.spyOn(FakeIDBObjectStore.prototype, 'clear'),
+      ];
+      const failure = await new WorkoutSessionRepository(db).listWorkoutSessions().catch(error => error);
+      const outcome = await coordinator.load().then(snapshot => ({ snapshot }), error => ({ error }));
+      const derived = await coordinator.deriveRange('2026-09-01', '2026-09-30');
+      // The pre-correction run logs the externally observable fail-open behavior before asserting closure.
+      if ('snapshot' in outcome) console.info('D0 mixed-batch pre-fix reproduction', {
+        failure: failure.persistedEntityFailure, status: outcome.snapshot?.result.status,
+        legacyStatus: outcome.snapshot?.result.legacyStatus, canonicalStatus: outcome.snapshot?.result.canonicalStatus,
+        records: outcome.snapshot?.result.records.length, usableSnapshot: coordinator.currentSnapshot !== null,
+        derivedRecords: derived?.result.records.length,
+      });
+      expect(orders).toEqual([[A, B], [A, B]]);
+      expect(failure).toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD', persistedEntityFailure: 'ACCOUNT_MISMATCH' });
+      expect(failure.message).toBe('CORRUPT_PERSISTED_RECORD:list_entities');
+      expect(Object.keys(failure).sort()).toEqual(['code', 'name', 'operation', 'persistedEntityFailure']);
+      expect(outcome).toMatchObject({ error: { name: 'CompositeWorkoutReadIsolationError', code: 'ACCOUNT_MISMATCH' } });
+      expect(coordinator.currentSnapshot).toBeNull();
+      expect(derived).toBeNull();
+      await expect(coordinator.retry()).rejects.toMatchObject({ code: 'ACCOUNT_MISMATCH' });
+      expect(orders).toEqual([[A, B], [A, B], [A, B]]); // No automatic retry or extra scan.
+      for (const write of writes) expect(write).not.toHaveBeenCalled();
+      expect(await durableStoreSnapshot()).toEqual(before);
+    } finally {
+      coordinator.close();
+    }
+  });
+
+  it.each([
+    ['namespace', { namespaceKey: 'foreign-namespace' }, 'NAMESPACE_MISMATCH'],
+    ['generation', { generationId: 'foreign-generation' }, 'GENERATION_MISMATCH'],
+    ['missing V5 account', { accountId: undefined }, 'ACCOUNT_MISMATCH'],
+    ['unprovable shape', null, 'INVALID_CONTEXT'],
+  ].flatMap(([label, patch, code]) => [false, true].map(reverse => ({ label, patch, code, reverse }))))(
+    'D0 correction rejects mixed $label scope with reverse=$reverse through the real request', async ({ patch, code, reverse }) => {
+      const db = await seed('a', [session(A, '2026-09-29'), session(B, '2026-09-29')]);
+      const source = datasets();
+      source.workout_logs.push(legacy());
+      mocks.readAll.mockResolvedValue(source);
+      const coordinator = new WorkoutReadSnapshotCoordinator('a', storageAdapter);
+      try {
+        expect((await coordinator.load())?.result.status).toBe('complete');
+        const reached = faultEntityBatchResult(entities => {
+          expect(entities.map(entity => entity.entityId)).toEqual([A, B]);
+          const batch = [{ ...entities[0], revision: 0 }, patch === null ? null : { ...entities[1], ...patch as object }];
+          return reverse ? batch.reverse() : batch;
+        });
+        const failure = await new WorkoutSessionRepository(db).listWorkoutSessions().catch(error => error);
+        expect(failure).toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD',
+          persistedEntityFailure: code === 'INVALID_CONTEXT' ? 'UNTRUSTED_SCOPE' : code });
+        await expect(coordinator.load()).rejects.toMatchObject({ name: 'CompositeWorkoutReadIsolationError', code });
+        expect(reached).toHaveBeenCalledTimes(2); // One actual scan per call, no automatic recovery.
+        expect(coordinator.currentSnapshot).toBeNull();
+        expect(await coordinator.deriveRange('2026-09-01', '2026-09-30')).toBeNull();
+      } finally {
+        coordinator.close();
+      }
+    },
+  );
+
+  it('D0 correction keeps two scope-trusted invalid entities an ordinary canonical source error', async () => {
+    const db = await seed('a', [session(A, '2026-09-29'), session(B, '2026-09-29')]);
+    await overwritePersistedWorkout(db, { revision: 0 }, A);
+    await overwritePersistedWorkout(db, { updatedAt: 'invalid' }, B);
+    const source = datasets();
+    source.workout_logs.push(legacy());
+    mocks.readAll.mockResolvedValue(source);
+    await expect(new WorkoutSessionRepository(db).listWorkoutSessions()).rejects.toMatchObject({
+      code: 'CORRUPT_PERSISTED_RECORD', persistedEntityFailure: 'INVALID_ENTITY',
+    });
+    const coordinator = new WorkoutReadSnapshotCoordinator('a', storageAdapter);
+    try {
+      const snapshot = await coordinator.load();
+      expect(snapshot?.result).toMatchObject({ status: 'partial_data', legacyStatus: 'success', canonicalStatus: 'error' });
+      expect(snapshot?.result.records).toHaveLength(1);
+      expect((await coordinator.deriveRange('2026-09-01', '2026-09-30'))?.result.records[0]?.source).toBe('legacy');
+    } finally {
+      coordinator.close();
+    }
+  });
+
+  it.each([
+    ['namespace', { namespaceKey: 'foreign-namespace' }, 'NAMESPACE_MISMATCH'],
+    ['generation', { generationId: 'foreign-generation' }, 'GENERATION_MISMATCH'],
+    ['missing V5 account', { accountId: undefined }, 'ACCOUNT_MISMATCH'],
+    ['foreign account plus malformed revision', { accountId: 'foreign-account', revision: 0 }, 'ACCOUNT_MISMATCH'],
+    ['foreign account plus malformed V1', { accountId: 'foreign-account', record: { version: 0 } }, 'ACCOUNT_MISMATCH'],
+    ['foreign namespace plus malformed revision', { namespaceKey: 'foreign-namespace', revision: 0 }, 'NAMESPACE_MISMATCH'],
+    ['foreign generation plus malformed revision', { generationId: 'foreign-generation', revision: 0 }, 'GENERATION_MISMATCH'],
+  ])('D0 preserves real persisted validation of %s through the paired coordinator', async (_label, patch, code) => {
+    const db = await seed('a', [session(A, '2026-09-29')]);
+    const source = datasets();
+    source.workout_logs.push(legacy());
+    mocks.readAll.mockResolvedValue(source);
+    const coordinator = new WorkoutReadSnapshotCoordinator('a', storageAdapter);
+    expect((await coordinator.load())?.result.status).toBe('complete');
+    const reached = faultEntityListResult(entity => ({ ...entity, ...patch }));
+    const error = await new WorkoutSessionRepository(db).listWorkoutSessions().catch(error => error);
+    expect(error).toBeInstanceOf(LocalDatabaseError);
+    expect(error).toMatchObject({ code: 'CORRUPT_PERSISTED_RECORD', operation: 'list_entities', persistedEntityFailure: code });
+    expect(reached).toHaveBeenCalledTimes(1); // Candidate reached the actual repository, not index-filtered away.
+    await expect(coordinator.load()).rejects.toMatchObject({ name: 'CompositeWorkoutReadIsolationError', code });
+    expect(reached).toHaveBeenCalledTimes(2);
+    expect(coordinator.currentSnapshot).toBeNull();
+    expect(await coordinator.deriveRange('2026-09-01', '2026-09-30')).toBeNull();
+    coordinator.close();
+  });
+
+  it('D0 suppresses a structurally absent persisted scope instead of claiming trusted content', async () => {
+    const db = await seed('a', [session(A, '2026-09-29')]);
+    const source = datasets();
+    source.workout_logs.push(legacy());
+    mocks.readAll.mockResolvedValue(source);
+    faultEntityListResult(() => null);
+    await expect(new WorkoutSessionRepository(db).listWorkoutSessions()).rejects.toMatchObject({
+      code: 'CORRUPT_PERSISTED_RECORD', persistedEntityFailure: 'UNTRUSTED_SCOPE',
+    });
+    const coordinator = new WorkoutReadSnapshotCoordinator('a', storageAdapter);
+    await expect(coordinator.load()).rejects.toMatchObject({ code: 'INVALID_CONTEXT' });
+    expect(coordinator.currentSnapshot).toBeNull();
+    coordinator.close();
+  });
+
+  it('D0 keeps a real IndexedDB scan failure distinct from persisted isolation', async () => {
+    await seed('a', [session(A, '2026-09-29')]);
+    const source = datasets();
+    source.workout_logs.push(legacy());
+    mocks.readAll.mockResolvedValue(source);
+    const getAll = FakeIDBIndex.prototype.getAll;
+    vi.spyOn(FakeIDBIndex.prototype, 'getAll').mockImplementation(function (this: IDBIndex, ...args) {
+      if (this.objectStore.name === LOCAL_DATABASE_STORES.entities) throw new DOMException('Read unavailable', 'UnknownError');
+      return getAll.apply(this, args);
+    });
+    const coordinator = new WorkoutReadSnapshotCoordinator('a', storageAdapter);
+    const snapshot = await coordinator.load();
+    expect(snapshot?.result).toMatchObject({ status: 'partial_data', legacyStatus: 'success', canonicalStatus: 'error' });
+    expect(snapshot?.result.records).toHaveLength(1);
+    expect(snapshot?.result.records[0]?.source).toBe('legacy');
+    coordinator.close();
+  });
+
+  it.each([
+    ['revision', { revision: 0 }],
+    ['timestamp', { updatedAt: 'invalid' }],
+    ['deletion metadata', { deletionState: 'deleted' }],
+    ['hash mismatch', { contentHash: 'a'.repeat(64) }],
+  ])('D0 keeps trusted-scope %s corruption an ordinary source failure', async (_label, patch) => {
+    const db = await seed('a', [session(A, '2026-09-29')]);
+    const source = datasets();
+    source.workout_logs.push(legacy());
+    mocks.readAll.mockResolvedValue(source);
+    faultEntityListResult(entity => ({ ...entity, ...patch }));
+    await expect(new WorkoutSessionRepository(db).listWorkoutSessions()).rejects.toMatchObject({
+      code: 'CORRUPT_PERSISTED_RECORD', persistedEntityFailure: 'INVALID_ENTITY',
+    });
+    const coordinator = new WorkoutReadSnapshotCoordinator('a', storageAdapter);
+    const snapshot = await coordinator.load();
+    expect(snapshot?.result).toMatchObject({ status: 'partial_data', legacyStatus: 'success', canonicalStatus: 'error' });
+    expect(snapshot?.result.records).toHaveLength(1);
+    expect(snapshot?.result.records[0]?.source).toBe('legacy');
+    coordinator.close();
+  });
+
+  it.each(['invalid V1', 'duplicate entry identity', 'entity/session identity'])('D0 rejects trusted persisted %s without suppressing verified legacy', async kind => {
+    const db = await seed('a', [session(A, '2026-09-29')]);
+    const record = session(A, '2026-09-29');
+    if (kind === 'invalid V1') record.localDate = '2026-02-30';
+    if (kind === 'duplicate entry identity') record.entries.push(structuredClone(record.entries[0]!));
+    if (kind === 'entity/session identity') record.id = B;
+    // Persist exact matching envelope hash so rejection occurs in V1/identity validation, not envelope hashing.
+    await overwritePersistedWorkout(db, { record, contentHash: hashCanonicalPayload(record) });
+    const source = datasets();
+    source.workout_logs.push(legacy());
+    mocks.readAll.mockResolvedValue(source);
+    const error = await new WorkoutSessionRepository(db).listWorkoutSessions().catch(error => error);
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(LocalDatabaseError);
+    expect(error).not.toBeInstanceOf(CompositeWorkoutReadIsolationError);
+    const coordinator = new WorkoutReadSnapshotCoordinator('a', storageAdapter);
+    const snapshot = await coordinator.load();
+    expect(snapshot?.result).toMatchObject({ status: 'partial_data', legacyStatus: 'success', canonicalStatus: 'error' });
+    expect(snapshot?.result.records).toHaveLength(1);
+    expect(snapshot?.result.records[0]?.source).toBe('legacy');
+    coordinator.close();
   });
 
   it('marks a malformed legacy source partial when canonical succeeds and permits explicit retry', async () => {

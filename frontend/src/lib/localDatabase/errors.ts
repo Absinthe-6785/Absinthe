@@ -42,15 +42,22 @@ export type LocalDatabaseErrorCode =
   | 'CUTOVER_SETTLEMENT_AUTHORITY_CONSUMED' | 'CUTOVER_SETTLEMENT_AUTHORITY_SCOPE_MISMATCH'
   | 'CUTOVER_SETTLEMENT_POST_ACTIVATION_FORBIDDEN' | 'CUTOVER_SETTLEMENT_GRAPH_CHANGED';
 
+/** Payload-free evidence from persisted entity validation; generic corruption has other meanings. */
+export type PersistedEntityFailure =
+  | 'ACCOUNT_MISMATCH' | 'NAMESPACE_MISMATCH' | 'GENERATION_MISMATCH'
+  | 'UNTRUSTED_SCOPE' | 'INVALID_ENTITY';
+
 export class LocalDatabaseError extends Error {
   readonly code: LocalDatabaseErrorCode;
   readonly operation: string;
+  readonly persistedEntityFailure?: PersistedEntityFailure;
 
-  constructor(code: LocalDatabaseErrorCode, operation: string) {
+  constructor(code: LocalDatabaseErrorCode, operation: string, persistedEntityFailure?: PersistedEntityFailure) {
     super(`${code}:${operation}`);
     this.name = 'LocalDatabaseError';
     this.code = code;
     this.operation = operation;
+    this.persistedEntityFailure = persistedEntityFailure;
   }
 }
 
