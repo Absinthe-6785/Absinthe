@@ -25,6 +25,7 @@ import { switchToTab } from '../../../../../lib/noteNavigation';
 import { getSearchNoteHandlers } from '../searchNavigation';
 import { getSearchDomainHandlers } from '../searchDomainNavigation';
 import type { WorkspaceSearchResultKind } from '../../knowledge/workspace/buildWorkspaceSearch';
+import type { SearchWorkoutPreviewEvidence } from '../searchWorkoutCompositeProjection';
 
 const DOMAIN_PREF_KEYS: Record<SearchDomain, SearchSectionPrefKey> = {
   notes: 'notesCollapsed',
@@ -44,6 +45,8 @@ export interface SearchWorkspacePaletteProps {
   onClose: () => void;
   onRecentRevision: () => void;
   isSearching?: boolean;
+  onOpenWorkoutPreview?: (evidence: SearchWorkoutPreviewEvidence) => boolean;
+  onRetryWorkoutPreview?: () => void;
 }
 
 function groupStateLabel(state: SearchDatasetState | undefined, t: (key: TranslationKey) => string): string | undefined {
@@ -131,6 +134,8 @@ export function SearchWorkspacePalette({
   onClose,
   onRecentRevision,
   isSearching = false,
+  onOpenWorkoutPreview,
+  onRetryWorkoutPreview,
 }: SearchWorkspacePaletteProps) {
   const { t, lang } = useTranslation();
   const [activeIndex, setActiveIndex] = useState(0);
@@ -169,10 +174,15 @@ export function SearchWorkspacePalette({
   }, [query, projection.generatedAt]);
 
   const handleSelect = useCallback((result: SearchResultItem) => {
+    if (result.kind === 'workout-observation') {
+      // No generic Health/Notes navigation, recent contract, or source query.
+      if (result.workoutPreview && onOpenWorkoutPreview?.(result.workoutPreview)) onClose();
+      return;
+    }
     navigateResult(result, accountId);
     onRecentRevision();
     onClose();
-  }, [accountId, onClose, onRecentRevision]);
+  }, [accountId, onClose, onRecentRevision, onOpenWorkoutPreview]);
 
   const handleClearRecent = useCallback(() => {
     clearSearchRecentHistory(accountId);
@@ -302,6 +312,22 @@ export function SearchWorkspacePalette({
           </kbd>
         </div>
 
+        {projection.workoutPreview && (
+          <div role="status" data-search-workout-preview-state={projection.workoutPreview.state}
+            style={{ padding: '8px 10px', fontSize: 11, color: c.textMuted }}>
+            Local-only selected-day Workout diagnostic · {projection.workoutPreview.localDate}
+            {' · '}{projection.workoutPreview.state}
+            {' · legacy rows: '}{projection.workoutPreview.legacyMatches}
+            {' · canonical entries: '}{projection.workoutPreview.canonicalMatches}
+            {' · sources: legacy='}{projection.workoutPreview.legacyStatus}
+            {', canonical='}{projection.workoutPreview.canonicalStatus}
+            {onRetryWorkoutPreview && ['unavailable', 'isolation_error', 'source_error', 'partial'].includes(projection.workoutPreview.state) && (
+              <button type="button" onClick={onRetryWorkoutPreview} className="ml-2 min-h-11 px-2 underline">
+                Retry diagnostic
+              </button>
+            )}
+          </div>
+        )}
         <div
           id="k111-search-listbox"
           role="listbox"

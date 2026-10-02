@@ -15,6 +15,9 @@ import { useSearchProjection } from './hooks/useSearchProjection';
 import { SearchWorkspacePalette } from './components/SearchWorkspacePalette';
 import { loadSearchRecent } from './searchRecentStorage';
 import { resolveSearchDatasetState, type SearchDatasetState } from '../../../../lib/searchReadiness';
+import type { SearchActivation, SearchHostLifetime } from './searchWorkoutCompositeConfig';
+import type { WorkoutRangePreviewRead } from '../health/useHealthWorkoutRangeSnapshot';
+import type { SearchWorkoutPreviewEvidence } from './searchWorkoutCompositeProjection';
 
 export interface GlobalSearchHostProps {
   accountId?: string;
@@ -28,6 +31,11 @@ export interface GlobalSearchHostProps {
   healthBlocksState?: SearchDatasetState;
   weeklySchedules: readonly WeeklySchedule[];
   onSearchHasQueryChange?: (hasQuery: boolean) => void;
+  searchHostLifetime?: SearchHostLifetime;
+  onSearchActivationChange?: (activation: SearchActivation) => void;
+  workoutPreviewRead?: WorkoutRangePreviewRead;
+  onOpenWorkoutPreview?: (evidence: SearchWorkoutPreviewEvidence) => boolean;
+  onRetryWorkoutPreview?: () => void;
 }
 
 /** K-111 — App-level cross-domain search host. */
@@ -43,6 +51,11 @@ export function GlobalSearchHost({
   healthBlocks,
   healthBlocksState,
   weeklySchedules,
+  searchHostLifetime,
+  onSearchActivationChange,
+  workoutPreviewRead,
+  onOpenWorkoutPreview,
+  onRetryWorkoutPreview,
 }: GlobalSearchHostProps) {
   const notes = useNotesStore(s => s.notes);
   const folders = useNotesStore(s => s.folders);
@@ -51,6 +64,18 @@ export function GlobalSearchHost({
   const [query, setQuery] = useState(persisted.query);
   const [recentRevision, setRecentRevision] = useState(0);
   const [isSearching, setIsSearching] = useState(false);
+  const [activation, setActivation] = useState<SearchActivation | null>(null);
+  const reportPresence = useCallback((nextOpen: boolean, hasQuery: boolean) => {
+    const host = searchHostLifetime;
+    if (!host?.mounted) return;
+    const previous = host.current;
+    if (previous?.open === nextOpen && previous.hasQuery === hasQuery) return;
+    const next = { host, generation: (previous?.generation ?? 0) + 1, open: nextOpen, hasQuery };
+    // Revocation is synchronous, before React renders or any source scheduling.
+    host.current = next;
+    setActivation(next);
+    onSearchActivationChange?.(next);
+  }, [searchHostLifetime, onSearchActivationChange]);
 
   const {
     data: recipeData,
@@ -71,8 +96,24 @@ export function GlobalSearchHost({
   });
 
   useEffect(() => {
-    return registerWorkspaceSearchOpener(() => setOpen(true));
-  }, []);
+    if (searchHostLifetime) searchHostLifetime.mounted = true;
+    reportPresence(false, false);
+    const unregister = registerWorkspaceSearchOpener(() => {
+      if (searchHostLifetime && !searchHostLifetime.mounted) return;
+      const saved = readWorkspaceSearchState();
+      reportPresence(true, Boolean(saved.query.trim()));
+      setQuery(saved.query);
+      setOpen(true);
+    });
+    return () => {
+      unregister();
+      if (searchHostLifetime) {
+        reportPresence(false, false);
+        searchHostLifetime.mounted = false;
+        searchHostLifetime.current = null;
+      }
+    };
+  }, [searchHostLifetime, reportPresence]);
 
   useEffect(() => {
     onSearchHasQueryChange?.(open && Boolean(query.trim()));
@@ -121,6 +162,9 @@ export function GlobalSearchHost({
     todosState,
     routines,
     workouts,
+    workoutPreviewRead: open && Boolean(query.trim()) && activation
+      && searchHostLifetime?.current === activation
+      && workoutPreviewRead?.scope.lifetime === activation ? workoutPreviewRead : undefined,
     healthBlocks,
     healthBlocksState,
     weeklySchedules,
@@ -138,9 +182,24 @@ export function GlobalSearchHost({
   const bumpRecent = useCallback(() => setRecentRevision(r => r + 1), []);
 
   const handleClose = useCallback(() => {
+    if (searchHostLifetime && (!searchHostLifetime.mounted || searchHostLifetime.current !== activation)) return;
+    reportPresence(false, false);
     setOpen(false);
     setQuery('');
-  }, []);
+  }, [activation, reportPresence, searchHostLifetime]);
+  const handleQueryChange = useCallback((nextQuery: string) => {
+    if (searchHostLifetime && (!searchHostLifetime.mounted || searchHostLifetime.current !== activation)) return;
+    reportPresence(open, Boolean(nextQuery.trim()));
+    setQuery(nextQuery);
+  }, [activation, open, reportPresence, searchHostLifetime]);
+  const handleOpenWorkoutPreview = useCallback((evidence: SearchWorkoutPreviewEvidence) => {
+    if (!open || !activation || !activation.hasQuery || searchHostLifetime?.current !== activation
+      || evidence.read.scope.lifetime !== activation) return false;
+    return onOpenWorkoutPreview?.(evidence) ?? false;
+  }, [activation, onOpenWorkoutPreview, open, searchHostLifetime]);
+  const handleRetryWorkoutPreview = useCallback(() => {
+    if (open && activation?.hasQuery && searchHostLifetime?.current === activation) onRetryWorkoutPreview?.();
+  }, [activation, onRetryWorkoutPreview, open, searchHostLifetime]);
 
   return (
     <SearchWorkspacePalette
@@ -149,10 +208,12 @@ export function GlobalSearchHost({
       projection={projection}
       open={open}
       query={query}
-      onQueryChange={setQuery}
+      onQueryChange={handleQueryChange}
       onClose={handleClose}
       onRecentRevision={bumpRecent}
       isSearching={isSearching}
+      onOpenWorkoutPreview={handleOpenWorkoutPreview}
+      onRetryWorkoutPreview={handleRetryWorkoutPreview}
     />
   );
 }
