@@ -7,11 +7,15 @@ export const WORKOUT_DEVICE_ADOPTION_KEY = 'absinthe-workout-device-adoption:v1'
 export const WORKOUT_DEVICE_AUTHORITY_LOCK = WORKOUT_DEVICE_AUTHORITY_KEY;
 export const WORKOUT_DEVICE_ADOPTION_VALUE = '{"format":1,"adoption":"started"}';
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 // Preserve the existing creator's recovery trigger, not a new namespace-repair trigger.
 const LEGACY_HELPER_FORMAT = /^[0-9a-f-]{36}$/i;
 const SHA256 = /^[0-9a-f]{64}$/;
+
+// All owners of this one fixed Workout lock share the module's same-realm guard.
+// It covers only synchronous final use, not acquisition/async preparation or other app locks.
+// Separate realms evaluate their own module binding; cross-realm coordination stays with Web Locks.
+let consumingAuthority = false;
 
 export type DeviceAuthorityUnavailableCode =
   | 'STORAGE_UNAVAILABLE' | 'INVALID_MARKER' | 'INVALID_AUTHORITY' | 'NOT_READY'
@@ -79,7 +83,8 @@ function json(raw: string): unknown {
   try { return JSON.parse(raw); } catch { return null; }
 }
 function validDevice(value: unknown): value is string {
-  if (typeof value !== 'string' || !UUID.test(value) || !LEGACY_HELPER_FORMAT.test(value)) return false;
+  // Established device compatibility is helper format AND namespace safety, not lifetime UUID rules.
+  if (typeof value !== 'string' || !LEGACY_HELPER_FORMAT.test(value)) return false;
   try { validateSafeIdentifier(value, 'workout_device_authority'); return true; } catch { return false; }
 }
 export function parseWorkoutDeviceAdoption(raw: string | null): Readonly<{ format: 1; adoption: 'started' }> {
@@ -140,7 +145,6 @@ function rejectAsyncFunction(callback: Function): void {
 /** Constructors/imports do no I/O. Metadata only; no IDB, writer, transport, React or events. */
 export function createWorkoutDeviceLifetimeAuthority(ports: DeviceAuthorityPorts) {
   const tokens = new WeakMap<DeviceAuthorityToken, { revoked: boolean }>();
-  let consuming = false;
 
   function storage(): DeviceAuthorityStorage {
     try { return ports.getStorage() ?? unavailable('STORAGE_UNAVAILABLE'); }
@@ -166,7 +170,7 @@ export function createWorkoutDeviceLifetimeAuthority(ports: DeviceAuthorityPorts
   }
   async function locked<T>(mode: 'shared' | 'exclusive', budget: DeviceAuthorityLockBudget,
     operation: (signal: AbortSignal) => T | Promise<T>): Promise<T> {
-    if (consuming) unavailable('NESTED_LOCK');
+    if (consumingAuthority) unavailable('NESTED_LOCK');
     if (!budget || !Number.isSafeInteger(budget.timeoutMs) || budget.timeoutMs <= 0
       || budget.timeoutMs > 2_147_483_647) unavailable('INVALID_LOCK_BUDGET');
     let locks: DeviceAuthorityLocks | null;
@@ -344,7 +348,7 @@ export function createWorkoutDeviceLifetimeAuthority(ports: DeviceAuthorityPorts
         rejectAsyncFunction(consume);
         rejectAsyncFunction(callerIsCurrent);
         requireCurrent(token);
-        consuming = true;
+        consumingAuthority = true;
         try {
           const current = callerIsCurrent();
           if (isThenable(current)) unavailable('ASYNC_CONSUMER');
@@ -358,7 +362,7 @@ export function createWorkoutDeviceLifetimeAuthority(ports: DeviceAuthorityPorts
             unavailable('ASYNC_CONSUMER');
           }
           return result;
-        } finally { consuming = false; }
+        } finally { consumingAuthority = false; }
       }),
   });
 }

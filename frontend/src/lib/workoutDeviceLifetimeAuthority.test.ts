@@ -8,14 +8,17 @@ import {
   type DeviceAuthorityAdmission, type DeviceAuthorityLocks, type DeviceAuthorityStorage,
   type DeviceAuthorityToken, type PreparedDeviceAuthority,
 } from './workoutDeviceLifetimeAuthority';
-import { namespaceFingerprint } from './localDatabase/namespace';
-import { HEALTH_ROUTINE_DEVICE_ID_KEY as MIRROR } from './workoutLocalReaderAuthority';
+import { namespaceFingerprint, validateNamespace, validateSafeIdentifier } from './localDatabase/namespace';
+import {
+  HEALTH_ROUTINE_DEVICE_ID_KEY as MIRROR, readEstablishedWorkoutDeviceId, readOrCreateDeviceId,
+} from './workoutLocalReaderAuthority';
 
 const A = 'AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA';
 const B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const L1 = '11111111-1111-4111-8111-111111111111';
 const L2 = '22222222-2222-4222-8222-222222222222';
 const L3 = '33333333-3333-4333-8333-333333333333';
+const LEGACY_COMPATIBLE_IDS = ['a'.repeat(36), 'aaaaaaaa-aaaa-7aaa-8aaa-aaaaaaaaaaaa'];
 const BUDGET = { timeoutMs: 1000 };
 const READER: DeviceAuthorityAdmission = { role: 'legacy-reader', compatibleCreatorsQuiesced: true };
 const CREATOR: DeviceAuthorityAdmission = { role: 'creator', compatibleCreatorsQuiesced: true };
@@ -191,10 +194,14 @@ describe('dormant Workout device lifetime foundation: admission and reuse', () =
     expect(adopted).toMatchObject({ deviceId: A, lifetimeId: L2 });
     // This indistinguishable pre-adoption state is an explicit unsupported destruction limit.
   });
-  it('never makes a helper-accepted but UUID-invalid value newly recovery-eligible', async () => {
+  it('never makes a helper-accepted but namespace-unsafe value newly recovery-eligible', async () => {
     const f = fixture('-'.repeat(36));
+    // The unchanged helper uses only the injected getItem/setItem Storage methods.
+    expect(readOrCreateDeviceId(f.store as unknown as Storage)).toBe('-'.repeat(36));
+    expect(() => validateSafeIdentifier('-'.repeat(36), 'test')).toThrow();
     await expect(f.owner.acquire(CREATOR, BUDGET)).rejects.toEqual(code('INVALID_DEVICE'));
     expect(f.store.writes).toEqual([]);
+    expect(f.randomUUID).not.toHaveBeenCalled();
   });
   it('admits existing format-invalid creator recovery only, preserving its exact prior fingerprint', async () => {
     const f = fixture('invalid', [B, L2]);
@@ -202,6 +209,59 @@ describe('dormant Workout device lifetime foundation: admission and reuse', () =
     const token = await f.owner.acquire(CREATOR, BUDGET);
     expect(token.deviceId).toBe(B);
     expect(JSON.parse(f.store.writes[1].value)).toMatchObject({ transitionKind: 'creator-recovery', previousLifetimeId: null });
+  });
+});
+
+describe('legacy helper plus namespace device compatibility, distinct from lifetime validity', () => {
+  it.each(LEGACY_COMPATIBLE_IDS)('adopts established %s exactly, never through creator recovery', async deviceId => {
+    const f = fixture(deviceId, [L1]);
+    expect(readOrCreateDeviceId(f.store as unknown as Storage)).toBe(deviceId);
+    expect(readEstablishedWorkoutDeviceId(f.store as unknown as Storage)).toBe(deviceId);
+    validateSafeIdentifier(deviceId, 'test');
+    const token = await f.owner.acquire(CREATOR, BUDGET);
+    expect(token).toMatchObject({ deviceId, lifetimeId: L1 });
+    expect(f.store.getItem(MIRROR)).toBe(deviceId);
+    expect(f.store.getItem(AUTHORITY)).toBe(ready(deviceId));
+    expect(f.store.writes.map(w => w.key)).toEqual([MARKER, AUTHORITY, AUTHORITY]);
+    expect(parseWorkoutDeviceAuthority(f.store.writes[1].value)).toMatchObject({
+      phase: 'transitioning', transitionKind: 'legacy-adoption', deviceId, lifetimeId: L1,
+      previousLifetimeId: null,
+    });
+    expect(f.randomUUID).toHaveBeenCalledTimes(1); // Only lifetime entropy, never a replacement device.
+  });
+  it.each(LEGACY_COMPATIBLE_IDS)('round-trips READY %s and keeps closed parser shapes', deviceId => {
+    expect(parseWorkoutDeviceAuthority(ready(deviceId))).toEqual({ format: 1, phase: 'ready', deviceId, lifetimeId: L1 });
+    expect(() => parseWorkoutDeviceAuthority(JSON.stringify({ ...JSON.parse(ready(deviceId)), extra: true })))
+      .toThrow();
+  });
+  it.each(LEGACY_COMPATIBLE_IDS)('reuses %s without writes/rotation or namespace change', async deviceId => {
+    const f = fixture(deviceId, [L1]);
+    const namespace = { userId: 'account', projectRef: 'project', deviceId, schemaVersion: 1, generationId: 'g1' };
+    validateNamespace(namespace);
+    const before = await namespaceFingerprint(namespace);
+    const adopted = await f.owner.acquire(READER, BUDGET);
+    f.store.writes = [];
+    const other = createWorkoutDeviceLifetimeAuthority(f.ports);
+    for (const token of [await f.owner.capture(BUDGET), await other.acquire(CREATOR, BUDGET), await other.capture(BUDGET)]) {
+      expect(token).toMatchObject({ deviceId, lifetimeId: adopted.lifetimeId });
+      expect(await namespaceFingerprint({ ...namespace, deviceId: token.deviceId })).toBe(before);
+    }
+    expect(f.store.getItem(MIRROR)).toBe(deviceId);
+    expect(f.store.writes).toEqual([]);
+    expect(f.randomUUID).toHaveBeenCalledTimes(1);
+  });
+  it.each(['11111111-1111-1111-8111-111111111111', '11111111-1111-7111-8111-111111111111'])
+  ('still rejects non-v4 lifetime %s with a compatible legacy device', lifetimeId => {
+    expect(() => parseWorkoutDeviceAuthority(ready(LEGACY_COMPATIBLE_IDS[0], lifetimeId))).toThrow();
+  });
+  it.each([null, 'invalid', ''])('keeps creator-only recovery trigger for mirror %s', async mirror => {
+    const f = fixture(mirror, [B, L2]);
+    await expect(f.owner.acquire(READER, BUDGET)).rejects.toEqual(code('ADMISSION_REQUIRED'));
+    expect(f.store.writes).toEqual([]);
+    expect(f.randomUUID).not.toHaveBeenCalled();
+    expect(await f.owner.acquire(CREATOR, BUDGET)).toMatchObject({ deviceId: B, lifetimeId: L2 });
+    expect(JSON.parse(f.store.writes[1].value).transitionKind).toBe(mirror === null ? 'fresh-create' : 'creator-recovery');
+    expect(f.randomUUID).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -438,15 +498,16 @@ describe('lock-protected synchronous final use, cancellation and revocation', ()
     const f = await initialized();
     const other = createWorkoutDeviceLifetimeAuthority(f.ports);
     const order: string[] = [];
-    let transition: Promise<DeviceAuthorityToken> | undefined;
-    await f.owner.withCurrentAuthority(f.token, BUDGET, () => {
-      // A compatible second context requests recovery; lock grant is after consumption.
-      transition = other.acquire(CREATOR, BUDGET).then(t => { order.push('transition'); return t; });
+    const finalUse = f.owner.withCurrentAuthority(f.token, BUDGET, () => {
       order.push('consume');
       expect(f.store.getItem(AUTHORITY)).toBe(ready());
       // Creator missing-ID trigger is introduced only after this synchronous consumer ends.
       queueMicrotask(() => f.store.values.delete(MIRROR));
     });
+    // Non-nested request after shared grant but before its synchronous callback runs.
+    const transition = other.acquire(CREATOR, BUDGET).then(t => { order.push('transition'); return t; });
+    expect(f.locks.active).toEqual(['shared']);
+    await finalUse;
     await transition;
     expect(order).toEqual(['consume', 'transition']);
     expect(parseWorkoutDeviceAuthority(f.store.getItem(AUTHORITY)).lifetimeId).toBe(L2);
@@ -508,11 +569,14 @@ describe('lock-protected synchronous final use, cancellation and revocation', ()
   it('nested authority acquisition fails instead of awaiting its own shared lock', async () => {
     const f = await initialized();
     let nested: Promise<DeviceAuthorityToken> | undefined;
+    const before = f.locks.requests.length;
     await f.owner.withCurrentAuthority(f.token, BUDGET, () => {
       nested = f.owner.capture(BUDGET);
       void nested.catch(() => undefined);
     });
     await expect(nested).rejects.toEqual(code('NESTED_LOCK'));
+    expect(f.locks.requests).toHaveLength(before + 1); // Outer final-use only.
+    expect(f.store.writes).toEqual([]);
   });
   it('missing Web Locks and insecure production context fail closed', async () => {
     const f = fixture();
@@ -581,8 +645,129 @@ describe('lock-protected synchronous final use, cancellation and revocation', ()
       "import { validateSafeIdentifier } from './localDatabase/namespace';",
       "import { HEALTH_ROUTINE_DEVICE_ID_KEY } from './workoutLocalReaderAuthority';",
     ]);
+    // One module-local binding for the fixed authority lock, not a per-factory/global cross-realm guard.
+    const constructorIndex = source.indexOf('export function createWorkoutDeviceLifetimeAuthority(');
+    expect(source.slice(0, constructorIndex)).toContain('let consumingAuthority = false;');
+    expect(source.slice(constructorIndex)).not.toContain('let consumingAuthority');
     for (const forbidden of ['react', 'fetch(', 'indexedDB', 'removeItem(', 'deliveryBinding', 'requestDigest', 'authorityEpoch']) {
       expect(source).not.toContain(forbidden);
     }
+  });
+});
+
+describe('same-realm cross-owner no-nested authority contract', () => {
+  it.each(['capture', 'acquire', 'resumePrepared', 'withCurrentAuthority'] as const)
+  ('rejects ownerB.%s before another lock request or metadata work', async entry => {
+    const f = await initialized();
+    const other = createWorkoutDeviceLifetimeAuthority(f.ports);
+    const otherToken = await other.capture(BUDGET);
+    const nestedConsumer = vi.fn(() => 'forbidden');
+    let nested: Promise<unknown> | undefined;
+    const before = f.locks.requests.length;
+    await f.owner.withCurrentAuthority(f.token, BUDGET, () => {
+      const beforeRead = vi.spyOn(f.store, 'getItem');
+      if (entry === 'capture') nested = other.capture(BUDGET);
+      else if (entry === 'acquire') nested = other.acquire(CREATOR, BUDGET);
+      // No fabricated prepared state: nesting must reject before resume's phase validation.
+      else if (entry === 'resumePrepared') nested = other.resumePrepared(BUDGET);
+      else nested = other.withCurrentAuthority(otherToken, BUDGET, nestedConsumer);
+      void nested.catch(() => undefined);
+      expect(f.locks.requests).toHaveLength(before + 1);
+      expect(beforeRead).not.toHaveBeenCalled();
+      beforeRead.mockRestore();
+      return 'outer-consumed';
+    });
+    await expect(nested).rejects.toEqual(code('NESTED_LOCK'));
+    expect(nestedConsumer).not.toHaveBeenCalled();
+    expect(f.store.writes).toEqual([]);
+    expect((await other.capture(BUDGET)).lifetimeId).toBe(L1); // Guard is released, not instance isolation.
+  });
+  it('also protects an owner constructed inside the synchronous consumer without constructor I/O', async () => {
+    const f = await initialized();
+    const before = f.locks.requests.length;
+    let nested: Promise<DeviceAuthorityToken> | undefined;
+    await f.owner.withCurrentAuthority(f.token, BUDGET, () => {
+      const getStorage = vi.fn(f.ports.getStorage);
+      const locks = vi.fn(f.ports.locks);
+      const other = createWorkoutDeviceLifetimeAuthority({ ...f.ports, getStorage, locks });
+      nested = other.capture(BUDGET);
+      void nested.catch(() => undefined);
+      expect(getStorage).not.toHaveBeenCalled();
+      expect(locks).not.toHaveBeenCalled();
+      expect(f.locks.requests).toHaveLength(before + 1);
+    });
+    await expect(nested).rejects.toEqual(code('NESTED_LOCK'));
+  });
+  it('rejects cross-owner acquisition inside the synchronous caller fence too', async () => {
+    const f = await initialized();
+    const other = createWorkoutDeviceLifetimeAuthority(f.ports);
+    const consume = vi.fn(() => 'consumed');
+    let nested: Promise<DeviceAuthorityToken> | undefined;
+    const before = f.locks.requests.length;
+    await f.owner.withCurrentAuthority(f.token, BUDGET, consume, () => {
+      nested = other.capture(BUDGET);
+      void nested.catch(() => undefined);
+      expect(f.locks.requests).toHaveLength(before + 1);
+      return true;
+    });
+    await expect(nested).rejects.toEqual(code('NESTED_LOCK'));
+    expect(consume).toHaveBeenCalledTimes(1);
+  });
+  it('does not queue nested shared capture behind an already waiting exclusive transition', async () => {
+    const f = await initialized();
+    const nestedOwner = createWorkoutDeviceLifetimeAuthority(f.ports);
+    const transitionOwner = createWorkoutDeviceLifetimeAuthority(f.ports);
+    const order: string[] = [];
+    let nested: Promise<DeviceAuthorityToken> | undefined;
+    const before = f.locks.requests.length;
+    const finalUse = f.owner.withCurrentAuthority(f.token, BUDGET, () => {
+      expect(f.locks.active).toEqual(['shared']);
+      expect(f.locks.requests.slice(before).map(r => r.options.mode)).toEqual(['shared', 'exclusive']);
+      nested = nestedOwner.capture(BUDGET);
+      void nested.catch(() => undefined);
+      expect(f.locks.requests).toHaveLength(before + 2); // No third, nested request.
+      order.push('consume');
+      queueMicrotask(() => f.store.values.delete(MIRROR));
+    });
+    // This request is non-nested: it queues before the synchronous consumer begins.
+    const transition = transitionOwner.acquire(CREATOR, BUDGET).then(t => { order.push('transition'); return t; });
+    await finalUse;
+    await expect(nested).rejects.toEqual(code('NESTED_LOCK'));
+    expect((await transition).lifetimeId).toBe(L2);
+    expect(order).toEqual(['consume', 'transition']);
+    expect(f.locks.requests).toHaveLength(before + 2);
+  });
+  it('keeps two non-nested shared captures coexisting across owners', async () => {
+    const f = await initialized();
+    const other = createWorkoutDeviceLifetimeAuthority(f.ports);
+    const before = f.locks.requests.length;
+    const first = f.owner.capture(BUDGET);
+    const second = other.capture(BUDGET);
+    expect(f.locks.active).toEqual(['shared', 'shared']);
+    expect((await Promise.all([first, second])).map(t => t.lifetimeId)).toEqual([L1, L1]);
+    expect(f.locks.requests).toHaveLength(before + 2);
+    expect(f.store.writes).toEqual([]);
+  });
+  it('other-owner supported transition rejects an unobserved old token at final use', async () => {
+    const f = await initialized();
+    const other = createWorkoutDeviceLifetimeAuthority(f.ports);
+    f.store.values.delete(MIRROR); // Existing approved creator missing-ID trigger.
+    expect(await other.acquire(CREATOR, BUDGET)).toMatchObject({ deviceId: B, lifetimeId: L2 });
+    const consume = vi.fn();
+    await expect(f.owner.withCurrentAuthority(f.token, BUDGET, consume)).rejects.toEqual(code('REVOKED'));
+    expect(consume).not.toHaveBeenCalled();
+    expect(f.token.isCurrent()).toBe(false);
+    expect((await f.owner.capture(BUDGET)).lifetimeId).toBe(L2);
+  });
+  it.each(['consumer', 'caller-fence'])('releases the realm guard after a throwing %s', async point => {
+    const f = await initialized();
+    const other = createWorkoutDeviceLifetimeAuthority(f.ports);
+    const fail = () => { throw new Error('callback_failure'); };
+    await expect(f.owner.withCurrentAuthority(f.token, BUDGET,
+      point === 'consumer' ? fail : () => 'unused', point === 'caller-fence' ? fail : () => true))
+      .rejects.toEqual(code('LOCK_FAILED'));
+    const token = await other.capture(BUDGET);
+    expect(await other.withCurrentAuthority(token, BUDGET, () => 'current')).toBe('current');
+    expect(f.store.writes).toEqual([]);
   });
 });
