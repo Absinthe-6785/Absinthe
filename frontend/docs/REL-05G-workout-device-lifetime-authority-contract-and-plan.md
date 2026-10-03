@@ -1,0 +1,361 @@
+# Workout device lifetime authority: contract, plan, and product-decision package
+
+## 1. Executive status
+
+- Task: `REL_05G_WORKOUT_DEVICE_LIFETIME_AUTHORITY_CONTRACT_AND_PLAN`.
+- Package status: `PROPOSED_FOR_PRODUCT_OWNER_APPROVAL`; preparation only, not approval or implementation authority.
+- Repository/workspace: `Absinthe-6785/Absinthe`, `C:\Users\이도현\GitRepos\Absinthe`; never `D:\Projects\Absinthe`.
+- Verified main/base: `ce12d8de15b823bb1febb9b7b4e572f26b717482`.
+- Blocked [PR #745](https://github.com/Absinthe-6785/Absinthe/pull/745): Draft/Open/Unmerged, head `2ad2ec573490b5c0a507b23bb06e98cba34c65be`; one original implementation commit, no correction commit.
+- Source authority: completed `REL_05G_WORKOUT_DEVICE_LIFETIME_AUTHORITY_CHARACTERIZATION = COMPLETE`, supplied in the preceding characterization report and the task instruction. That report is not represented as an already merged repository document.
+- Characterization disposition: `DEVICE_AUTHORITY_PREREQUISITE_REQUIRED`, `KEEP_PR_745_DRAFT_BLOCKED`; `REL05G-EXCOMP-OWNER-001 = NEEDS_PRODUCT_DECISION / UNRESOLVED`.
+- Recommended later workstream: `REL_05G_WORKOUT_DEVICE_LIFETIME_AUTHORITY_FOUNDATION`, only after explicit approval of this package's decision bundle and a separate implementation authorization.
+- Deliverable: this one Markdown file. No runtime, tests, configuration, Storage, IDB, writer, backend, or PR #745 changes.
+
+Recommendation: a shared, local-only device authority owner, one persistent logical authority record containing the exact existing device ID and a fresh opaque lifetime ID, and an origin/storage-context-wide transition boundary. Preserve the current plain-string device key as a compatibility mirror, not a second authority. Serialize supported transitions and final publications with one named Web Lock. Storage events are optional fast invalidation assistance, never the proof. This is recommended architecture D with C's authoritative transition boundary and E's optional signaling; it is ONE bundle, not several selectable implementations.
+
+Every decision in section 21 is `PROPOSED_FOR_PRODUCT_OWNER_APPROVAL`. Package publication, independent review, merge, CI, or silence does not approve it. PR #745 remains blocked; no C28 PASS, owner-integration closure, analytics closure, public activation, or writer activation follows.
+
+## 2. Source characterization summary
+
+The completed characterization is the factual starting point. Relevant baseline sources are:
+
+| Source | Established fact, not a new product policy |
+| --- | --- |
+| [workoutLocalReaderAuthority](../src/lib/workoutLocalReaderAuthority.ts) | `HEALTH_ROUTINE_DEVICE_ID_KEY = absinthe-health-routine-device-id:v1`; read/create is not lifetime authority. Production key writes are concentrated in `readOrCreateDeviceId`. Reader helper rejects malformed established identity instead of repairing it. |
+| [namespace](../src/lib/localDatabase/namespace.ts), [types](../src/lib/localDatabase/types.ts) | Namespace fingerprint uses userId/projectRef/deviceId/schemaVersion, not generationId; local DB v7/schema v1. |
+| [WorkoutRangeReader](../src/lib/workoutRangeReader.ts), [WorkoutSelectedDayReader](../src/lib/workoutSelectedDayReader.ts) | Readers capture device/account/namespace/generation; currentness is not device-transition history. Range verification compares device strings around durable metadata reads. |
+| [snapshot coordinator](../src/components/views/features/health/verifiedWorkoutRangeSnapshot.ts), [selected-day hook](../src/components/views/features/health/useHealthSelectedDayComposite.ts) | Current owners fence captured values and observed invalidation. They do not own a device lifetime. PR #745 additionally exposes borrowed snapshot publications. |
+| [runtime authority](../src/lib/workoutRuntimeAuthority.ts), [routine sync](../src/lib/healthRoutineSync.ts) | Existing creation/control-plane consumers also obtain the same device ID. Their outputs and remote authority semantics cannot silently change. |
+| [Settings](../src/components/views/SettingsView.tsx), [portable extensions](../src/lib/vaultPortableExtensions.ts), [extension apply](../src/lib/vaultExtensionApply.ts), [canonical restore](../src/lib/localDatabase/restore.ts), [adoption](../src/lib/workoutAdoption/index.ts) | Current product reset/restore/adoption do not intentionally replace the global device key. Data/provenance restoration is not identity restoration. |
+| [request contract](../src/lib/workoutRemoteContract.ts), [outbox identity](../src/lib/localDatabase/outboxIdentity.ts), [remote reset](../src/lib/workoutRemoteReset.ts) | Device/namespace participate in request/delivery identity. Server authority epoch is a separate reset contract. |
+| [approved exercise comparison package](REL-05G-workout-exercise-comparison-product-decision-package.md) | Existing exercise semantics, debt, partial-source limits, and writer/reader activation restrictions remain unchanged. Its approval is not approval of device lifetime policy. |
+
+Device ID is account-independent within a browser origin/storage container and is a repository client/sync-producer identifier, not hardware attestation. Same-origin tabs in the same storage context share it. No Workout device-lifetime storage-event/BroadcastChannel authority exists today. Observed mismatch already invalidates old evidence. Unobserved A -> B -> A passes equality-based guards, including a durable-generation async gap and the shared range derivation. The characterized defect is `WORKOUT_READ_OWNER_SHARED_DEFECT`, not comparison-only. The diagnostic used memory Storage/fake IDB and mocked legacy input; it was not physical multi-tab QA or a supported-transition implementation test.
+
+Browser contracts used in this plan: [Web Locks API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Locks_API) and [request modes/lifetime](https://developer.mozilla.org/en-US/docs/Web/API/LockManager/request) provide cooperating same-origin shared/exclusive locking in supported secure contexts. [Storage events](https://developer.mozilla.org/en-US/docs/Web/API/Window/storage_event) do not notify the writing window; the [HTML storage specification](https://html.spec.whatwg.org/multipage/webstorage.html) queues notifications in other contexts. These facts justify explicit locking/proof rather than an event-delivery assumption. Browser/API availability on the target installed applications remains a QA requirement, not a claim established by documentation.
+
+## 3. Current authority map
+
+| Concept | Current owner/location | Lifetime and relationship |
+| --- | --- | --- |
+| deviceId | Shared read/create helper; origin-local localStorage key | Persists through ordinary reload/logout/current data reset; shared by accounts; no transition history. |
+| accountId | Auth/runtime account context | Separate authorization/data owner. Logout/account change is not device replacement. |
+| namespaceKey | Derived fingerprint and scoped IDB records | Same account/project/device/schema inputs produce the same key; lifetime must not be added to this fingerprint. |
+| generationId | Repository generation records and active metadata | Durable data-generation authority in a namespace; normal old generation becomes sealed. Not a device epoch. |
+| authorityEpoch | Server Workout authority and discovered local metadata | Account/project/domain remote-reset epoch; not installation/device lifetime. |
+| coordinator sequence | One in-memory coordinator | Load/retry/account/invalidate/close revocation; not a shared device transition clock. |
+| reader scope | Reader's captured scope plus durable verification | Account/device/namespace/generation still required after lifetime adoption. |
+| proposed lifetimeId | Shared local device authority record | Additional read-side non-revival evidence; not a namespace, account, generation, request, or server epoch. |
+
+Returning to device A can return to A's existing namespace and unchanged active generation. Thus generation verification cannot distinguish A1 from A2. Hashing the device string cannot distinguish them either.
+
+## 4. Supported mutation threat model
+
+All policies below are RECOMMENDATIONS awaiting owner approval, not statements that arbitrary Storage edits were already supported. The supported runtime is cooperating upgraded application contexts sharing the origin's Storage and Web Lock scope. Separate browsers/profiles/origins and separately partitioned embedded contexts are distinct authority contexts.
+
+| Scenario | Recommended policy | Exact boundary |
+| --- | --- | --- |
+| Normal product helper creation | `SUPPORTED_AND_MUST_BE_FENCED` | Missing installation identity is created only by the shared authority boundary; concurrent creation is serialized. |
+| Malformed identity recovery | `SUPPORTED_AND_MUST_BE_FENCED` | Only the existing authorized creator/recovery role, not a read guard, may recover. It must revoke old evidence, rotate lifetime, and preserve prior namespace data without transfer. Malformed bootstrap/read state itself fails closed; no availability repair is authorized here. |
+| Explicit future identity replacement | `DEFERRED_REQUIRES_SEPARATE_PRODUCT_DECISION` | No replacement UI/API is introduced by the foundation. If later approved it must use this transition contract. |
+| Identity reset | `DEFERRED_REQUIRES_SEPARATE_PRODUCT_DECISION` | Current data reset is not identity reset. |
+| Migration-driven identity replacement | `DEFERRED_REQUIRES_SEPARATE_PRODUCT_DECISION` | Ordinary data/schema migration preserves identity; replacement needs its own approved migration. |
+| Restore-driven identity replacement | `DEFERRED_REQUIRES_SEPARATE_PRODUCT_DECISION` | Ordinary product restore remains data-only. Installation clone is separate. |
+| Second-tab supported product transition | `SUPPORTED_AND_MUST_BE_FENCED` | Accepted supported transition in one cooperating live tab must revoke old final-use authority in another. |
+| Same-origin raw localStorage rewrite | `OUTSIDE_SUPPORTED_CONTRACT` | Bypassing the boundary is not a guaranteed transition. Observable mismatch/malformed state still fails closed. |
+| DevTools rewrite | `OUTSIDE_SUPPORTED_CONTRACT` | No unconditional proof of arbitrary unobserved rollback. |
+| Extension/arbitrary-script rewrite | `OUTSIDE_SUPPORTED_CONTRACT` | Not an application transition API; no claim to defend a fully compromised origin. |
+| Browser/profile backup rollback | `OUTSIDE_SUPPORTED_CONTRACT` | Whole-authority rollback while a context remains live is not guaranteed; observed inconsistency fails closed. A supported clone/restore protocol is deferred. |
+| Partial site-data deletion | `FAIL_CLOSED_IF_OBSERVED` | Missing/inconsistent authority fails captured tokens. No silent re-association of remaining namespace data. |
+| Total site-data deletion | `FAIL_CLOSED_IF_OBSERVED` | Old captured evidence fails if observed; clean subsequent initialization creates a new device/lifetime. Destructive recovery and proof of an unobserved entire rollback are not promised. |
+| Profile/origin switch | `OUTSIDE_SUPPORTED_CONTRACT` | Another installation/storage context, not a transition of the old process owner. |
+| Tests directly mutating Storage | `OUTSIDE_SUPPORTED_CONTRACT` | Useful corruption/diagnostic injection, not proof that product transitions rotate lifetime. Supported ABA acceptance must use the real boundary. |
+
+Recommended baseline: all supported product identity changes use the authority boundary and rotate lifetime; live cooperating same-origin tabs are supported; raw edits are not guaranteed transitions; observed malformed/mismatched authority fails closed; future identity replacement is not implicitly authorized. This fits local-first operation: local coordination and evidence, no remote success requirement, and no invented cross-device identity synchronization.
+
+## 5. Device versus lifetime invariant
+
+`DEVICE_IDENTITY_IS_NOT_DEVICE_LIFETIME`: equal device IDs do not imply the same read authority lifetime.
+
+`SUPPORTED_DEVICE_TRANSITIONS_MUST_ROTATE_LIFETIME`: A1 -> B -> A2 has distinct opaque lifetime IDs, even when A1.deviceId equals A2.deviceId. A1 publications remain revoked without any guard observing B. An explicit accepted re-identification to the same logical ID also rotates lifetime. Ordinary repeated reads and ordinary data changes are not identity transitions.
+
+Retain `SURFACE_IS_NOT_AUTHORITY`, `MULTI_SURFACE_COMPATIBILITY`, and `FEATURE_REMOVAL_COMPATIBILITY`. Account/view/coordinator lifetimes remain independent fences. A guard that observes any invalid authority permanently revokes its captured token; restoring the previous serialized values must not revive that already-revoked token. An entirely unobserved arbitrary rewrite of both record and mirror is outside the proposed contract.
+
+## 6. Option comparison
+
+Model labels in this package follow this task's options, not the preceding characterization's labels. All persistent models require every supported mutation to update the proof; persistence alone does not supply write authority.
+
+| Model | Same-process / live cross-tab ABA | Reload, reset, restore, migration | Bootstrap / old-new coexistence / atomicity | Failure, cost, reuse, writer risk |
+| --- | --- | --- | --- | --- |
+| A: single API + memory epoch | Same-process only if all accepted transitions use API; independent tab epochs cannot prove remote history | Reload drops publications; another live tab remains a gap. Reset/restore/migration must invoke API | Simple local bootstrap; old client bypass persists; no coherent cross-tab authority | Low cost, reusable shared owner, but insufficient recommended tab guarantee; no automatic writer rewrite |
+| B: persistent token paired with existing ID, without one transition owner | Detects only changes that also update token; unsupported/missed writes remain ambiguous | Persists through reload; replayed old token cannot prove restore history | Two-key races and competing bootstrap unless another serialization contract exists; old client can bypass | Medium cost; fail closed on mismatch; metadata reusable but persistence-only is insufficient; mistaken repair may reidentify writers |
+| C: single API + persistent token | Can satisfy both with coherent capture and serialized transitions/final use | Reset/restore/migration must obey same protocol; reload itself does not demand a new token | Needs exact representation, locking, bootstrap, and old-client admission rules | Medium cost; reusable; selected transition mechanism, but too underspecified as storage design alone |
+| D: one persistent logical record with deviceId + lifetimeId | Coherent tuple can distinguish both, provided C's boundary and final-use serialization exist | Stable reload token; approved identity changes mint fresh token; data-only operations preserve it | One complete record per write; compatibility mirror still needs explicit two-key protocol; existing ID preserved | Medium cost with no canonical schema change; selected primary architecture; read proof must not enter request digests |
+| E: persistent token + storage-event/BroadcastChannel assistance | Fast revocation when delivered, not sufficient proof of an unobserved transition or final-use race | Reload reads record; missing events/rollback cannot be repaired by messages | Still needs C/D bootstrap and serialization; cannot teach an old client to rotate | Additional listener complexity; optional storage event only initially; no BroadcastChannel requirement or writer activation |
+| F: supported transitions only; raw rewrites excluded | Defines which transitions must be fenced; cannot itself revoke anything | Defines destruction/rollback limits, not persistence mechanics | Requires explicit policy and tests; old product code is not magically compliant | Selected threat-model boundary, not a substitute architecture; no waiver of C28 before implementation |
+
+Pure ID equality, before/after ID reads, ID hash, comparison-local epoch, previous observed value, observed-only sequence bumps, test-only APIs, generationId substitution, and canonical scope checks alone are insufficient. They cannot prove unobserved device history. Moving the proof to account/generation metadata creates the wrong owner; adding a canonical store/server epoch is unnecessary for the recommended bounded local contract.
+
+## 7. Recommended architecture
+
+Recommend D + the single authoritative transition boundary, under F's explicit supported-mutation policy. Persistent evidence is justified by LIVE cross-tab consumers, not by JavaScript reload alone. Use the existing device ID unchanged wherever namespace/request contracts currently require it. Introduce a proposed separate localStorage key `absinthe-workout-device-authority:v1`; it holds the entire logical authority record. The old `absinthe-health-routine-device-id:v1` remains a plain-string compatibility mirror.
+
+Use one fixed origin-wide Web Lock, proposed name `absinthe-workout-device-authority:v1`, independent of account, device string, namespace, generation, feature, or view. Transitions/bootstrap/recovery take exclusive mode. A final publication takes shared mode through its synchronous consumption. Multiple readers can coexist; device transitions cannot interleave that final-use critical section. A captured token's synchronous `isCurrent` is an advisory fail-fast check, not the lock-protected final publication operation.
+
+No silent fallback to process-local locking, an uncoordinated two-key write, or event-only fencing is allowed if Web Locks/Storage are unavailable. Return authority-unavailable, not verified-empty. Verify API support on the supported HTTPS installed applications; no browser compatibility or physical QA is claimed here. Do not add IDB/backend fallback in the bounded foundation; inability to meet the lock capability is a stop condition requiring a revised reviewed plan.
+
+This is the smallest recommended bundle that preserves the old device-key representation while truthfully addressing same-process, live cross-tab, bootstrap, and final-use races. A is too weak for tabs; B lacks write ownership; E alone lacks proof; replacing the old key with JSON breaks old readers; canonical/account metadata widens the wrong authority scope. Notifications are optional optimization rather than another mandatory subsystem.
+
+## 8. Authority ownership
+
+The owner is a shared local Workout identity-authority layer below repositories/read owners and above raw Storage access. Proposed placement is a separate module adjacent to `workoutLocalReaderAuthority`, not inside its callers' presentation code. Imports and constructors perform no I/O or listener installation. Capture/bootstrap/transition operations are explicit. The record is device-global within its storage context, not account-scoped.
+
+It is usable by RangeReader, SelectedDayReader, coordinator, Home, Search, Previous/Calendar, comparison borrowers, and relevant control-plane/recovery callers. Views neither create lifetime IDs nor own locks/listeners. Closing one view does not close the shared authority or another surface. Removing the comparison feature leaves authority safety intact.
+
+Future implementation must inventory and route ALL production device key creators/recovery writers, including helper aliases and routine/runtime bootstrap, through the accepted boundary before claiming its guarantee. Routing identity acquisition does not authorize request/outbox behavior changes. If preserving an existing caller's identity semantics requires a writer-affecting change, stop for a separate high-risk review. `REL05G5A-001` is not repaired by merely naming this owner.
+
+## 9. Storage and atomicity contract
+
+The recommended logical READY record has exactly `format: 1`, `phase: ready`, `deviceId`, and `lifetimeId`. `deviceId` preserves the exact valid established string, including case; no normalization, namespace rekey, or canonical rewrite. It must satisfy the existing applicable helper AND namespace safety contract. `lifetimeId` is a newly generated opaque cryptographic UUID, never a device-string hash, timestamp, server epoch, or account identifier. Supported operations never reuse a retired lifetime ID. Normal captures do not mint IDs.
+
+A TRANSITIONING record contains the same target tuple with `phase: transitioning`, plus narrowly validated prepared-transition evidence: transition kind, previous lifetime ID (or null for first initialization), and a fingerprint of the expected previous mirror bytes (or null for absent mirror). The mirror fingerprint only recognizes interrupted write progress; it is NOT the lifetime/ABA proof. Closed record formats reject unknown/invalid fields and unsupported versions. Transition kind must correspond to an authorized creation/recovery operation; future replacement/reset/clone kinds are not enabled by this foundation.
+
+There is no atomic localStorage transaction covering two keys. The normative protocol is:
+
+1. Acquire the exclusive authority lock; re-read and validate both representations. Do not use a pre-lock cached value as current authority.
+2. For an already coherent READY tuple, ordinary acquire/capture reuses it. A supported transition allocates a fresh target lifetime exactly once for its prepared intent.
+3. Write the complete TRANSITIONING record first. This is the revocation boundary for the previous lifetime. Never modify the legacy mirror first while the previous READY proof still appears current.
+4. Write the target plain-string device ID to the legacy mirror, if it changes.
+5. Write the complete target READY record as the commit boundary; re-read both before reporting success. No successful capture/publication is allowed on TRANSITIONING or mismatched records.
+6. Notify local subscribers explicitly. Other-context storage events may accelerate invalidation. Notifications do not establish commit or authorize capture.
+
+If any storage operation fails, reject the operation. If failure precedes step 3, the unchanged old coherent READY state may remain current; if failure follows revocation, never restore its old lifetime to hide the failure. Leave non-ready state fail-closed. A bounded retry under the lock may complete an exact validated durable prepared intent only when the mirror matches its recorded pre-write fingerprint or exact target ID and the pending record is still that intent. Resume the prepared target lifetime; do not mint competing lifetimes on every retry. Unexpected mirror bytes, invalid intent, unsupported version, or ambiguous destruction require explicit controlled recovery, not a guessed upgrade or overwrite. Bounded wait/cancellation yields unavailable; no busy retry loop.
+
+For valid existing-ID bootstrap with no authority record and no mirror change, section 10 permits one READY write under the exclusive lock. Synchronous advisory reads use record -> mirror -> record and require two identical valid READY tuples matching the captured token and mirror. This is not a claim that two independent keys are atomic. The lock-protected final fence remains mandatory for publication.
+
+## 10. Existing-install bootstrap
+
+- Valid established device ID + no authority: under the exclusive lock, re-read it, validate existing identity/namespace safety, mint one current lifetime, and write READY without changing the device ID. Other cooperating bootstrap callers re-read and reuse that record. Do not invent past transitions.
+- No ID + no authority: the authorized creator initializes a fresh device and lifetime using the prepared protocol; no read publication exists until coherent READY.
+- Coherent READY + same valid ID: reuse exactly; no rotation on read, reload, login, account switch, data reset, or normal retry.
+- Malformed established ID, invalid/future authority format, READY/mirror mismatch, or one missing representation after an authority has existed: fail closed. Never infer the remote/local ownership of residual IDB records from a missing key.
+- Read bootstrap is NOT a malformed-ID repair API. The existing creator-recovery role can be routed only with explicit recovery admission and independent review preserving its established role; do not broaden it to readers or close `REL05G5A-001` here.
+
+Recovery admission is an explicit trusted creator call, never an automatic retry of failed reader capture. Preserve the current helper's recovery trigger: missing identity or an identity rejected by its existing format check. An established value accepted by that helper but rejected by namespace safety is NOT newly eligible for recovery under this package; it still fails closed and leaves `REL05G5A-001` open. For an admitted recovery, validate any existing authority record under the exclusive lock, record the exact prior mirror fingerprint, prepare a fresh device/lifetime, and follow section 9. A malformed/future authority record or unexplained prepared intent is not eligible for this narrow automatic creator recovery; it requires separately reviewed controlled repair. Prior canonical/outbox data remains under its original namespace without reassignment.
+
+Successful concurrent bootstrap establishes exactly one current lifetime. A prepared first creation can resume its same intent after interruption. No WorkoutSessionV1 changes, entity migration, full-store clear, existing outbox rebind, or namespace change is part of valid-ID bootstrap. A running token that observes disappearance is permanently revoked; rebootstrap cannot revive it. Detecting arbitrary unobserved full-record deletion/restoration is outside the proposed threat model.
+
+## 11. Cross-tab contract
+
+Recommend YES: cooperating live same-origin contexts sharing the Storage/lock partition are supported. Tab 1's accepted device transition revokes tab 2's captured lifetime without requiring tab 2 to observe intermediate device B or receive an event. Tab 2 must obtain the shared authority lock and read the persisted READY tuple/mirror at final use.
+
+Linearization is explicit: transition revocation starts at the TRANSITIONING record write while holding exclusive mode; final publication holds shared mode until synchronous consumption returns. If a transition has revoked/committed before final-use acquisition, an older captured lifetime fails. If publication already holds shared mode, a transition request waits; publication is ordered before the accepted transition, not retroactively undone. Queueing a transition request is not itself a committed identity change. No claim is made to stop arbitrary scripts that ignore the lock.
+
+The browser lock is not a server authority lock and must not nest with outbox/worker/recovery locks. Final sections perform only bounded metadata verification and synchronous consumption, not domain scans, network calls, UI interaction waits, or nested authority acquisition. Use bounded acquisition/cancellation, never `steal`. Lock unavailability/cancellation fails closed. Different physical devices and separate profiles do not share this local lifetime.
+
+## 12. Reload contract
+
+Old JS publications disappear on actual reload. Reload alone does not require lifetime rotation. Reopen reads the coherent persisted READY record and preserves device/lifetime/namespace. Other still-live contexts retain tokens; persistence and final-use locking make their transitions visible without event dependence.
+
+Do not restore lifetime records from product backups. Persistence is not rollback resistance: a browser/profile tool that restores the entire old record and mirror without any observer can recreate the same bytes. That operation is outside the baseline. Observed deletion/rollback/mismatch permanently revokes the observing token. A supported future installation-clone/authority-recovery operation must mint a fresh lifetime through a separately reviewed protocol, not replay an exported one.
+
+## 13. Account, namespace, and generation contract
+
+Device lifetime remains global per storage context because current device identity is shared by accounts. Compose it with account-owner lifetime and the existing namespace/generation scope; do not replace those fences. Login/logout/account A -> B -> A does not rotate device authority by itself, but must invalidate account-owned reads and prevent an old A continuation borrowing the later A publication. Device metadata is not an auth credential and grants no access to any user's rows. No auth/session/RLS/service-key change is proposed; the Supabase skill is used only for this isolation boundary check, not as a completed service security audit.
+
+Same-ID lifetime rotation is orthogonal to namespace: preserve deviceId, namespaceKey, entities, pending payloads and delivery records. A genuinely different device ID implies a different namespace under the existing formula; retain old data without automatic reassignment, merging, binding or deletion. Explicit future replacement must decide how users can access those residual namespaces before being authorized. Do not add lifetimeId to namespace hashes.
+
+Generation transitions retain the same device lifetime unless device ownership also changes. Continue checking active-generation metadata. Remote authority reset epoch is also independent. Neither generation nor server epoch is incremented to manufacture device-history proof.
+
+## 14. Reset contract
+
+| Reset category | Recommended device/lifetime rule | Additional fence and limit |
+| --- | --- | --- |
+| Ordinary product data reset | Preserve deviceId and lifetimeId | Existing data/source/generation invalidation must revoke affected snapshots; device currentness is not data currentness. Current Settings behavior unchanged. |
+| Remote authority reset | Preserve deviceId and lifetimeId | Existing authorityEpoch/reset-intent contract remains; device foundation does not run or change G4C. |
+| Future identity reset | Deferred; if approved, mint a new deviceId and fresh lifetime through exclusive protocol | New namespace under current formula; old namespace retained, no automatic migration or outbox rebind. Same-ID re-identification still rotates lifetime. |
+| Partial site-data destruction | Fail closed if observed; no automatic mapping of residual records | Controlled repair requires separate admission. Missing metadata is not proof of a clean installation to an already-live token. |
+| Total clean site-data destruction followed by fresh start | Fresh device and lifetime, with no old JS publication reused | Destructive operation is not introduced here; unobserved arbitrary full rollback is not covered. |
+
+No product reset semantics are changed by this package. Identity reset and broad recovery remain separately reviewed decisions. Reset-related source invalidation remains necessary even where device lifetime is preserved.
+
+## 15. Restore contract
+
+Recommend data-only restore into CURRENT device authority. Do not export/import the authority key or legacy device key as portable identity. Existing Vault and canonical restore semantics remain: restore data/provenance into an already validated namespace/generation contract, not an installation identity. Data restoration may change generation/source lifetime without rotating device lifetime.
+
+No future restore may silently overwrite authority with an exported old lifetime. Installation clone/identity replacement is deferred for explicit product and high-risk namespace/writer review. External profile backup rollback remains unsupported as an unconditional transition guarantee; observed bad state fails closed. No portable format change is implemented or authorized here.
+
+## 16. Migration contract
+
+Ordinary schema/data migration preserves device/lifetime unless identity ownership actually changes. Initial authority migration is valid-ID bootstrap, preserving exact existing ID/namespace; it is not a retroactive history journal. Future format upgrade must validate its source version under the exclusive lock, preserve identity, and explicitly rotate lifetime if the authority interpretation/ownership changes. Old tokens cannot borrow an upgraded proof without an approved compatibility rule.
+
+Identity replacement/migration and recovering ambiguous missing/malformed authority require separate product approval. No entity backfill, device-case normalization, schema bump, keyPath/index change, canonical-store migration, or writer-record migration is required by the recommended representation.
+
+## 17. Old/new client coexistence
+
+Old clients understand only the plain-string key. They may create/recover it without taking the lock or rotating lifetime; a compatibility mirror does NOT make them compliant. An observed mismatch makes new readers fail closed, but cannot prove that an old client never performed an unobserved bypass. No event shim can repair an unobserved history.
+
+Recommend forward-only participation in the NEW authority guarantee: do not activate it for public readers while pre-authority creator contexts remain accepted. Existing old contexts must be quiesced/reloaded to a compatible build before public acceptance. A deployment or service-worker update is not by itself proof that old tabs have exited. The later rollout plan must explicitly document verified build/context admission and supported browser/installed-app restart procedure; inability to establish that admission is a STOP, not a waiver or force reload introduced here.
+
+During dormant development, old builds can still parse the preserved plain key, but no mixed-version device-lifetime guarantee is advertised. New readers do not auto-repair READY/mirror mismatch caused by an old writer. Both-missing initialization is supported only for a clean/quiesced context, not evidence that live old clients were never present. No time-limited heuristic or "old key looks valid" rule grants coexistence acceptance.
+
+This intersects the concerns of `G5B_OLD_NEW_WRITER_COEXISTENCE_BLOCKER` but does NOT resolve it. Reader authority admission is narrower than writer rollout; dormant read adoption does not authorize canonical writer, bind/push/pull/resync/reset, old-client writer retirement, or G6. A compatibility shim is acceptable only if every accepted identity writer actually routes through the shared protocol; changing only new-client readers is not such a shim.
+
+## 18. Reader and coordinator adoption contract
+
+Conceptual interface (names not yet frozen): capture a current device authority returning deviceId, lifetimeId, a permanently revocable token, advisory `isCurrent`, asynchronous preflight verification, and a lock-protected final-use operation. Plain `verifyCurrent() -> true` is not authority for later consumption after its lock has been released.
+
+Required reader behavior:
+
+- Capture a validated coherent READY tuple before opening the device-scoped repository; reverify after async open/read/metadata boundaries.
+- Preserve account/namespace/active-generation checks. Authority validation is metadata work, not another Workout domain scan.
+- A1 token compares lifetimeId as well as deviceId; B -> A2 cannot match A1. A captured revoked token never renews in place.
+- Reader-less ordinary-error partial snapshots still require valid device authority, account, source publication identity and final-use protection. No canonical-open fallback bypasses this rule. Authority-unavailable itself cannot be represented as verified-empty or current partial evidence.
+- Observed authority mismatch may revoke only the captured owner/snapshot still current by identity; an old continuation cannot invalidate a newer snapshot/lifetime.
+- Source load/retry captures fresh current authority. Coordinator sequence remains its independent load/account/invalidate/close lifetime; both sequence and device lifetime must be current.
+
+Final publication contract:
+
+1. Optional preflight work may happen before the shared lock and does not authorize publication.
+2. Acquire shared mode on the SAME authority lock used exclusively by transitions.
+3. Validate the persisted record and legacy mirror against the captured tuple; reject non-ready, malformed, missing or inconsistent state.
+4. Perform existing bounded durable generation verification where a canonical reader exists, still inside the final-use critical section. No scan/network operation is added.
+5. Re-read coherent authority and synchronously check account/coordinator/snapshot/view/request lifetimes immediately before consumption.
+6. Consume the frozen DTO synchronously while shared mode remains held; then release. No awaited callback, delayed click, promise use or retained DTO receives authority. Later use repeats final publication.
+
+Do not recursively acquire the authority lock from reader verification while it is already held. The shared source owner provides one final-use operation to borrowers, with an internal no-nested-lock metadata verification path. Views provide only their own synchronous currentness check/consumer. This avoids a comparison-specific authority implementation and protects multiple surfaces without closing sibling owners.
+
+## 19. PR #745 correction contract
+
+AFTER explicit owner approval and independently reviewed/merged foundation plus shared reader adoption, rebase/correct PR #745 against that merged authority. Keep comparison owner a borrower. It must use the shared lock-protected publication operation; a returned boolean from released verification is not enough. Remove string equality as the ABA proof; retain mismatch as optional fail-fast defense.
+
+Add supported-boundary A1 -> B -> A2 tests with no intermediate guard observation, and an async-gap test where supported transitions complete before final-use lock acquisition. Also test that a transition queued after shared final-use acquisition is ordered after synchronous consumption, not incorrectly reported as an already-accepted change. Preserve per-exercise request/date/enable/close invalidation, account/snapshot supersession, observed fail-closed behavior, multi-view independence, frozen DTOs, source-qualified partial limits and zero additional domain scans.
+
+`PR #745 = KEEP_DRAFT_BLOCKED` until all five conditions hold: explicit product approval; prerequisite implemented; independent review and merge; #745 corrected against merged authority; independent focused rereview closes `REL05G-EXCOMP-OWNER-001`. C28 remains not PASS until those tests and review genuinely establish the claimed contract. Do not alter #745 in this documentation task.
+
+## 20. Writer/data-plane firewall
+
+LifetimeId is read-proof metadata only. It must NOT enter namespace fingerprints, mutation/idempotency identity, delivery bindings, request digests, CAS bases, remote mutation refs/receipts, server authority locks, server epochs/authorityEpoch, reset intents, or transport payloads. No pending outbox record, payload/hash, binding, request, receipt, or writer state is rewritten/rebased/rebound by foundation/bootstrap/adoption.
+
+All existing production device creators must eventually cooperate to claim the reader guarantee, but changing the acquisition boundary must preserve the device output and existing role distinction. Malformed recovery or intentional identity change never transfers existing writer records to the new namespace. If routing requires changing request construction, delivery semantics, namespace ownership, cached writer context, recovery/reset protocol, or existing sync behavior, STOP for a separately authorized high-risk workstream. Do not hide that change in the reader prerequisite.
+
+Backend/SQL/API changes and product writer activation are outside the package. The local Web Lock is NOT a replacement for worker leases or remote authority locking. Existing G4A/B/C, G2/G3, K323 and REL-05D frozen contracts remain intact. No analytics or live-writer blocker closes from this firewall statement.
+
+## 21. Product decision table
+
+Every row has status `PROPOSED_FOR_PRODUCT_OWNER_APPROVAL`. Approval must name the complete bundle, including storage/locking, fail-closed availability, old-client admission and all deferred operations, not merely "add an epoch".
+
+| ID / decision | Recommended choice | Alternatives | Rationale | Implementation consequence | Deferred semantics |
+| --- | --- | --- | --- | --- | --- |
+| DEVLIFE-PD01 Supported mutation model | All current product creation and admitted creator recovery use one boundary | Observation-only guards; unrestricted raw writes | Product-owned writes must rotate proof | Inventory/route every production key writer | New replacement features |
+| DEVLIFE-PD02 Raw Storage policy | Outside supported transition contract; observed bad state fails closed | Guarantee arbitrary raw rewrites | Unobserved complete rollback has no local history proof | Tests distinguish protocol transitions from injection | Arbitrary-script/XSS defense |
+| DEVLIFE-PD03 Same-process ABA | A1/B/A2 distinct, A1 remains revoked without observing B | Require intermediate guard observation | Closes shared read-owner safety gap | Real-boundary synchronous/async-gap tests | None within supported scope |
+| DEVLIFE-PD04 Live cross-tab guarantee | YES for cooperating contexts sharing Storage/lock scope | Single-tab-only support | Shared identity and local-first multi-tab usage | Exclusive transitions/shared final-use lock | Separate storage partitions/devices |
+| DEVLIFE-PD05 Reload | Preserve coherent persisted device/lifetime; reopen new JS owners | Rotate on every reload | Old publications vanish; unnecessary namespace churn avoided | Reload/bootstrap tests | Whole-record external rollback |
+| DEVLIFE-PD06 Persistence | Required for approved live cross-tab contract, not merely reload | Memory-only | Other live contexts retain captures | Persistent logical authority proof | Rollback-resistant external authority |
+| DEVLIFE-PD07 Authority owner | Shared local Workout authority below surfaces | Comparison/UI/account owner | Reusable correct ownership | Explicit acquisition and final-use capability | Unrelated domain authority unification |
+| DEVLIFE-PD08 Representation | New single logical JSON authority record + old plain mirror | Replace old key; two independent proof fields; IDB metadata | Exact tuple plus compatibility; no canonical schema expansion | Prepared/ready protocol, mirror validation | IDB/backend fallback |
+| DEVLIFE-PD09 Bootstrap | Preserve exact valid existing ID; one current lifetime under lock | New device for every upgrade; guess historical epoch | No entity/namespace migration | Concurrent bootstrap and crash tests | Malformed availability repair |
+| DEVLIFE-PD10 Old/new coexistence | Forward-only authority participants; quiesce old creators before public guarantee | Assume old tabs obey new lock; event shim | Old code can bypass rotation | Version/context admission QA and activation STOP | General writer rollout/retirement |
+| DEVLIFE-PD11 Reset | Data/remote reset preserve device/lifetime; identity reset deferred | Rotate on every data reset | Separate data/remote/device authority | Existing source/generation invalidation retained | Identity-reset UI/data migration |
+| DEVLIFE-PD12 Restore | Data only into current authority; never import old lifetime | Import installation identity with data | Avoid rollback/revival and data-owner confusion | Export/restore exclusion tests | Installation clone |
+| DEVLIFE-PD13 Migration | Preserve identity on ordinary data migration; explicit protocol on authority migration | Implicit reidentification | Avoid silent namespace changes | Format validation and migration tests | Identity-replacement migration |
+| DEVLIFE-PD14 Namespace | Lifetime orthogonal; do not hash lifetime or normalize device case | New namespace on every lifetime | Keep persisted data/request contracts | Namespace/outbox invariance tests | Access to residual namespaces after replacement |
+| DEVLIFE-PD15 Writer firewall | No request/outbox/CAS/binding/epoch changes | Unified reader/writer rewrite | Device already participates in delivery identity | Exact vectors and immutable-pending regressions | High-risk writer integration |
+| DEVLIFE-PD16 External threat model | DevTools/extensions/profile rollback outside unconditional guarantee | Treat arbitrary rewrites as supported | Local proof cannot infer unobserved restored bytes | Explicit disclosure; fail closed when observed | Security hardening/new trusted authority |
+| DEVLIFE-PD17 Physical QA | Edge installed PWA and iPhone Safari Home Screen app required | Unit/CI-only acceptance | Storage/locking/process lifecycle must be observed | Real same-context tabs and lifecycle checks per platform | Cross-device sync claims |
+| DEVLIFE-PD18 Lock and availability | Web Locks required; unsupported/unavailable fails closed; no steal/fallback | Memory lock, event-only, lease workaround | Serialized bootstrap/final consumption | Bounded cancellation; no nested authority locks | Alternate mechanism if target fails QA |
+| DEVLIFE-PD19 Corruption/destruction | Read/bootstrap fail closed; admitted recovery alone rotates; no residual-data reassignment | Automatic reader repair | Preserve current role distinction and unknown ownership | Corruption/crash/partial-delete tests | Broad storage repair and REL05G5A-001 closure |
+| DEVLIFE-PD20 Rollout/approval | Approve complete bundle explicitly; separate reviewed default-OFF implementation and activation | Merge implies approval; foundation implies activation | Prevent acceptance and authority inflation | Approval record, independent reviews, separate activation gate | Public reader/writer activation and G6 |
+
+## 22. Future implementation slices
+
+These are proposed work, not implementation authorizations. All remain default-OFF/no new product reader activation. A slice passes only its own reviewed acceptance ceiling.
+
+| Slice | Scope | Frozen boundaries | Required tests | Independent review | STOP condition |
+| --- | --- | --- | --- | --- | --- |
+| 1: local device authority foundation | Explicit dormant acquisition/transition/final-use primitives; record parsing, locked bootstrap, prepared recovery and advisory token | Existing device string, namespaces, DB/schema/V1, server/request/outbox contracts; no new replacement/reset UI | Concurrent bootstrap, unchanged capture, real-boundary A1/B/A2, lock ordering, malformed/torn/crash/Storage failure, cancellation, no I/O on import | Architecture-to-code review of storage and transition coverage | No explicit bundle approval; unsupported lock; need schema/backend/writer change; ambiguous recovery |
+| 2: shared readers/coordinator and acquisition routing | Range/selected-day/coordinator adoption; source-owned final-use operation; route accepted identity creators with role/output preserved; Home/Search/Previous/Calendar inherit ownership | No extra scans, no partial trust upgrade, four gates false, no delivery changes, existing debt unchanged | Same/other-tab async fences, reader-less partial, generation/account ABA, stale continuation, retry/load, multi-surface, full creator inventory; existing K323/G2/G3/G4 vectors | Independent shared-owner and writer-firewall regression review | Any product creator bypass; caller routing changes frozen delivery/recovery behavior; legacy client admission falsely claimed |
+| 3: PR #745 correction | Rebase onto merged prerequisites; comparison remains borrower; guarded synchronous consumption | Exercise S/T/M/P semantics, date/request/enable/close lifetimes, zero new scan, no sibling close | Unobserved and async-gap supported ABA; queued transition order; observed mismatch; view/account/source supersession | Focused rereview of REL05G-EXCOMP-OWNER-001 | Foundation/adoption not merged; tests use only fake transition API; C28 proof missing |
+| 4: focused cross-tab and physical QA | Real target browser/installed-app lifecycle, compatible-context admission and exact contract evidence | No activation/Ready/merge/writer/G6 by QA itself | Tab events delayed/absent, concurrent first use, suspend/resume/reload, lock availability, corruption/reset/data-only restore/migration, old-client bypass fail-closed | Independent evidence/activation-prerequisite review | Old identity writers remain accepted; platform lacks lock/storage support; results differ from contract |
+
+If acquisition routing crosses writer semantics, split it into a separately authorized high-risk prerequisite rather than broadening slice 2. If target QA rejects Web Locks availability, return to this decision package; do not quietly substitute a weaker algorithm. No public guarantee is advertised before coexistence admission and physical QA.
+
+## 23. Acceptance matrix
+
+All rows are `REQUIRED / NOT EXECUTED`. They are FUTURE runtime/QA criteria, not documentary PASS results. Prior characterization diagnostics and existing CI do not execute the future authority implementation. `DEVLIFE-C28` below is distinct from existing EXCOMP C28.
+
+| Criterion | Required proof | Status |
+| --- | --- | --- |
+| DEVLIFE-C01 | Valid existing-ID bootstrap preserves exact case, namespace/entities/outbox, and establishes one lifetime under concurrent cooperating callers | REQUIRED / NOT EXECUTED |
+| DEVLIFE-C02 | Repeated read/capture/reload/login with unchanged READY authority does not rotate or mutate it | REQUIRED / NOT EXECUTED |
+| DEVLIFE-C03 | Every accepted supported creation/recovery/reidentification transition uses owner boundary and fresh non-reused lifetime | REQUIRED / NOT EXECUTED |
+| DEVLIFE-C04 | Real-boundary A1 -> B -> A2 without guard observing B permanently rejects A1 publication | REQUIRED / NOT EXECUTED |
+| DEVLIFE-C05 | ABA accepted during pre-final async gap fails final publication; transition queued behind shared final-use lock is correctly ordered after consumption | REQUIRED / NOT EXECUTED |
+| DEVLIFE-C06 | Same-tab transitions notify locally and fail token/final-use checks without depending on a storage event | REQUIRED / NOT EXECUTED |
+| DEVLIFE-C07 | Same-context cross-tab transition fails old final fence even with notifications delayed/disabled | REQUIRED / NOT EXECUTED |
+| DEVLIFE-C08 | Reload drops JS publications, preserves coherent persisted authority, and leaves other live tabs correctly fenced | REQUIRED / NOT EXECUTED |
+| DEVLIFE-C09 | Every torn-write/crash point is non-publishable; exact prepared intent can resume under lock without resurrecting old lifetime or generating competing commits | REQUIRED / NOT EXECUTED |
+| DEVLIFE-C10 | Malformed/missing/mismatched/future-version authority fails read/bootstrap closed; no automatic reader repair or fabricated absence | REQUIRED / NOT EXECUTED |
+| DEVLIFE-C11 | Account A -> B -> A and logout/login revoke old account owners independently of stable global device lifetime | REQUIRED / NOT EXECUTED |
+| DEVLIFE-C12 | Same-ID lifetime rotation preserves namespace hashes, entities, pending payloads and bound delivery records exactly | REQUIRED / NOT EXECUTED |
+| DEVLIFE-C13 | Generation change still fails durable scope; unchanged generation cannot revive a retired device lifetime | REQUIRED / NOT EXECUTED |
+| DEVLIFE-C14 | Reader-less partial path uses same authority and final-use fence; invalid authority is not current partial or verified-empty | REQUIRED / NOT EXECUTED |
+| DEVLIFE-C15 | Retry/load captures new current authority; old continuation cannot invalidate/borrow newer source publication | REQUIRED / NOT EXECUTED |
+| DEVLIFE-C16 | Ordinary data reset preserves authority while invalidating affected source; remote reset preserves device lifetime and existing epoch contract | REQUIRED / NOT EXECUTED |
+| DEVLIFE-C17 | Product data-only restore does not export/import/replay device authority; restored data remains current-namespace scoped | REQUIRED / NOT EXECUTED |
+| DEVLIFE-C18 | Data migration preserves authority; approved authority-format migration follows explicit protocol without V1/entity backfill | REQUIRED / NOT EXECUTED |
+| DEVLIFE-C19 | Old plain-key creator bypass is not claimed compliant; observed mismatch fails closed; public acceptance waits for verified compatible-context admission | REQUIRED / NOT EXECUTED |
+| DEVLIFE-C20 | Request vectors, mutation identity, immutable pending outbox/binding/CAS/digests/receipts, epochs and server locks remain unchanged | REQUIRED / NOT EXECUTED |
+| DEVLIFE-C21 | Domain scan counts unchanged; final use adds bounded authority/generation metadata work only | REQUIRED / NOT EXECUTED |
+| DEVLIFE-C22 | Physical Edge installed PWA and iPhone Safari Home Screen QA proves relevant storage/lock, suspend/resume, reload and live-context behavior separately | REQUIRED / NOT EXECUTED |
+| DEVLIFE-C23 | Multiple Home/Search/Health/Previous/Calendar/comparison consumers share authority; closing/removing one optional view does not close siblings | REQUIRED / NOT EXECUTED |
+| DEVLIFE-C24 | Observed invalid authority permanently revokes that token even if old bytes return; raw full rollback is clearly outside supported guarantee | REQUIRED / NOT EXECUTED |
+| DEVLIFE-C25 | Missing lock/Storage, write/read error, bounded cancellation or unsupported format yields unavailable without fallback, retry loop, steal or nested-lock deadlock | REQUIRED / NOT EXECUTED |
+| DEVLIFE-C26 | Final consumption is synchronous while shared lock held; naked verified boolean/retained DTO/delayed callback cannot authorize later use | REQUIRED / NOT EXECUTED |
+| DEVLIFE-C27 | Partial/total site-data destruction and residual IDB records do not silently reassign identity; clean reinitialization uses fresh authority with stated limits | REQUIRED / NOT EXECUTED |
+| DEVLIFE-C28 | Complete production creator/recovery inventory routes through boundary; imports do no I/O; all four reader gates and writer/data-plane activation remain unchanged | REQUIRED / NOT EXECUTED |
+
+Document validation is limited to baseline verification, one-file scope, reference/decision/criterion consistency and `git diff --check`. No new document-specific repository test was found; existing source scans target runtime files or named older documents. Automatic hosted CI is observed at publication, not presented as execution of DEVLIFE criteria.
+
+## 24. Open and deferred decisions
+
+TECHNICALLY_DETERMINED: current authority has no lifetime; observed mismatch is safe; unobserved ABA passes; generation/server epoch is not device lifetime; old plain-key code can bypass a new owner; notifications alone are not final authority; ID/namespace already affect writer semantics.
+
+PRODUCT_POLICY_DECISION: all DEVLIFE-PD01-PD20 recommended selections, including supported creator role, multi-tab guarantee, availability tradeoff, data-only restore, and forward-only authority participation, await explicit owner approval. If the owner chooses single-tab or unrestricted raw-write support instead, this recommendation must be revised/reviewed before implementation, not partially approved in place.
+
+MIGRATION_DECISION: approve exact-ID bootstrap and representation protocol. Future identity reset/replacement, malformed-availability repair, clone, residual-namespace access, format migration, and broad destructive recovery remain separately scoped; no guessed historic lifetime or automatic namespace transfer.
+
+SECURITY/THREAT_MODEL_DECISION: accept unsupported raw/DevTools/extension/profile rollback boundaries. Local metadata/locks are not tamper-resistant credentials. Expanding to adversarial complete rollback needs a separate trusted-authority design, not another hash or event handler.
+
+TEST/QA_DECISION: approve real cooperating-transition acceptance, capability/failure/crash testing, physical Edge/iOS evidence and compatible-context admission before public claims. Unit mocks and CI alone do not retire old clients or prove installed-app behavior.
+
+Implementation details still subject to independent code review: final module/API names; strict serialization/parser encoding; bounded lock-acquisition budget; test injection of Storage/lock ports; local subscriber disposal; verified version/context rollout evidence. The normative owner, record phases, ordering, final-use lock, firewall and fail-closed semantics are not left optional. Any change to them requires package revision/approval, not an implementation shortcut.
+
+## 25. Owner approval block
+
+Approval status: `PROPOSED_FOR_PRODUCT_OWNER_APPROVAL` for every `DEVLIFE-PD01` through `DEVLIFE-PD20`. Owner approval record: NONE. No decision is currently approved by this package.
+
+Requested future approval: explicitly approve the complete recommended bundle and its stated limits, including supported product transitions only; persistent logical record plus plain mirror; Web Lock serialized transition/final consumption; valid-ID bootstrap; forward-only authority participants; raw whole-record rollback exclusions; data-only restore; deferred identity replacement; unchanged namespace/writer contracts; physical QA and separate activation permission. If any selection differs, record the exact replacement and rereview dependencies before implementation.
+
+The later approval record must identify the reviewed document revision/head, approving human instruction, chosen decision IDs and deferred semantics. Merge, CI success, previous EXCOMP product approval, prior generic permission, or Draft publication does not substitute. Implementation requires a separate explicit bounded task after approval. Public reader activation, high-risk writer work, Ready/merge and G6 require their own authority.
+
+## 26. Frozen boundaries and non-goals
+
+All four gates remain false: `HEALTH_SELECTED_DAY_COMPOSITE_READER_ENABLED`, `HEALTH_WORKOUT_RANGE_COMPOSITE_READER_ENABLED`, `HOME_WORKOUT_COMPOSITE_READER_ENABLED`, `SEARCH_WORKOUT_COMPOSITE_READER_ENABLED`.
+
+DB v7, schema v1, stores, indexes, keyPaths, WorkoutSessionV1, canonical persistence, backend/SQL/API, writer, bind, push, pull, full resync, reset behavior and G6 are unchanged. No authority record, epoch, listener, lock, Storage behavior, migration, test or runtime implementation is added by this document. No full-store clear, new domain scan, public reader behavior, or legacy isolation repair is included.
+
+Existing debt remains unchanged:
+
+- Seven live-writer blockers = OPEN: unbound pre-reset create; rollback visibility; old/new writer coexistence; mounted UI identity integration; canonical field ownership; remaining analytics/projection/public claims; reset-fenced local-edit policy.
+- `REL05G5A-001 = ACTIVATION_PREREQUISITE`.
+- B1 cacheKey P3 = `OPEN_NON_BLOCKING`.
+- `LEGACY_VERIFIED_OWNER_CLASSIFICATION_GAP = UNRESOLVED`, not an automatic eighth writer blocker.
+- `REL05G-EXCOMP-IMPL-001 = CLOSED`; do not reopen its normal/dropset correction.
+- `REL05G-EXCOMP-OWNER-001 = NEEDS_PRODUCT_DECISION / UNRESOLVED / BLOCKED`.
+- PR #745 = `KEEP_DRAFT_BLOCKED`; no correction or metadata mutation here.
+- Search PD01-PD10 remain unchanged and outside scope. Existing source-qualified partial/error restrictions remain; no analytics closure or C28 PASS.
+
+Publish this document on its own dedicated branch as a Draft PR targeting exact verified main. Do not mark Ready, merge, enable auto-merge, or delete branches. Stop after Draft publication and initial exact-head CI observation. Next step is independent review of this contract-and-plan/product-decision package, not authority implementation.
