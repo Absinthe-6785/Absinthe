@@ -3,22 +3,23 @@
 ## 1. Executive status
 
 - Task: `REL_05G_WORKOUT_DEVICE_LIFETIME_AUTHORITY_CONTRACT_AND_PLAN`.
-- Package status: `PROPOSED_FOR_PRODUCT_OWNER_APPROVAL`; preparation only, not approval or implementation authority.
+- Package status: `PRODUCT_OWNER_APPROVED`; contract approval recorded in section 25, not runtime implementation or activation authority.
 - Repository/workspace: `Absinthe-6785/Absinthe`, `C:\Users\이도현\GitRepos\Absinthe`; never `D:\Projects\Absinthe`.
 - Verified main/base: `ce12d8de15b823bb1febb9b7b4e572f26b717482`.
 - Blocked [PR #745](https://github.com/Absinthe-6785/Absinthe/pull/745): Draft/Open/Unmerged, head `2ad2ec573490b5c0a507b23bb06e98cba34c65be`; one original implementation commit, no correction commit.
 - Source authority: completed `REL_05G_WORKOUT_DEVICE_LIFETIME_AUTHORITY_CHARACTERIZATION = COMPLETE`, supplied in the preceding characterization report and the task instruction. That report is not represented as an already merged repository document.
-- Characterization disposition: `DEVICE_AUTHORITY_PREREQUISITE_REQUIRED`, `KEEP_PR_745_DRAFT_BLOCKED`; `REL05G-EXCOMP-OWNER-001 = NEEDS_PRODUCT_DECISION / UNRESOLVED`.
-- Recommended later workstream: `REL_05G_WORKOUT_DEVICE_LIFETIME_AUTHORITY_FOUNDATION`, only after explicit approval of this package's decision bundle and a separate implementation authorization.
+- Characterization disposition: `DEVICE_AUTHORITY_PREREQUISITE_REQUIRED`, `KEEP_PR_745_DRAFT_BLOCKED`; current `REL05G-EXCOMP-OWNER-001 = BLOCKED_BY_DEVICE_AUTHORITY_PREREQUISITE`. Product policy is decided; the technical prerequisite remains unimplemented, not corrected or CLOSED.
+- Later workstream: `REL_05G_WORKOUT_DEVICE_LIFETIME_AUTHORITY_FOUNDATION = AUTHORIZED_FOR_SEPARATE_IMPLEMENTATION_TASK`; do not implement in this docs PR or before PR #746 is merged into main.
 - Deliverable: this one Markdown file. No runtime, tests, configuration, Storage, IDB, writer, backend, or PR #745 changes.
 - Correction task: `REL_05G_WORKOUT_DEVICE_LIFETIME_AUTHORITY_BOOTSTRAP_ADMISSION_CORRECTION`; previous reviewed head `ab6d6c04e94311ca9f073b0c897c69500c62a48e`.
-- `REL05G-DEVLIFE-CONTRACT-001 = CORRECTED_PENDING_FOCUSED_REREVIEW`; not CLOSED. This revision recommends separate durable adoption evidence (approach 2), still awaiting owner approval.
+- `REL05G-DEVLIFE-CONTRACT-001 = CLOSED` by focused independent rereview of head `77221d4eb9dc2946de3a5728892c29272957bd31`; verdict PASS, P0/P1/P2/P3 = 0. Approach 2 was then included in the explicit complete-bundle owner approval.
+- Finalization task: `REL_05G_WORKOUT_DEVICE_LIFETIME_AUTHORITY_OWNER_APPROVAL_RECORD`; documentation-only approval record.
 
 Recommendation: a shared, local-only device authority owner, one persistent logical authority record containing the exact existing device ID and a fresh opaque lifetime ID, and an origin/storage-context-wide transition boundary. Preserve the current plain-string device key as a compatibility mirror, not a second authority. Serialize supported transitions and final publications with one named Web Lock. Storage events are optional fast invalidation assistance, never the proof. This is recommended architecture D with C's authoritative transition boundary and E's optional signaling; it is ONE bundle, not several selectable implementations.
 
-Add only a proposed sticky adoption-start marker to distinguish first admission from later loss of the authority record. It carries no device/lifetime tuple and cannot authorize publication. No marker/key is implemented by this document. Its crash fail-closed and rollback limits are part of PD09/PD19 approval, not an approved product decision.
+The approved design includes only a sticky adoption-start marker to distinguish first admission from later loss of the authority record. It carries no device/lifetime tuple and cannot authorize publication. No marker/key is implemented by this document. Its crash fail-closed and rollback limits are included in the complete PD09/PD19 approval.
 
-Every decision in section 21 is `PROPOSED_FOR_PRODUCT_OWNER_APPROVAL`. Package publication, independent review, merge, CI, or silence does not approve it. PR #745 remains blocked; no C28 PASS, owner-integration closure, analytics closure, public activation, or writer activation follows.
+Every decision in section 21 is `PRODUCT_OWNER_APPROVED` by the explicit instruction recorded in section 25, not by publication, review, merge, CI or silence. PR #745 remains technically blocked; no C28 PASS, owner-integration closure, analytics closure, public activation, or writer activation follows.
 
 ## 2. Source characterization summary
 
@@ -56,7 +57,7 @@ Returning to device A can return to A's existing namespace and unchanged active 
 
 ## 4. Supported mutation threat model
 
-All policies below are RECOMMENDATIONS awaiting owner approval, not statements that arbitrary Storage edits were already supported. The supported runtime is cooperating upgraded application contexts sharing the origin's Storage and Web Lock scope. Separate browsers/profiles/origins and separately partitioned embedded contexts are distinct authority contexts.
+All policies below are approved contract choices, not statements that runtime support exists or arbitrary Storage edits were already supported. The supported runtime is cooperating upgraded application contexts sharing the origin's Storage and Web Lock scope. Separate browsers/profiles/origins and separately partitioned embedded contexts are distinct authority contexts.
 
 | Scenario | Recommended policy | Exact boundary |
 | --- | --- | --- |
@@ -138,13 +139,13 @@ There is no atomic localStorage transaction covering the authority, mirror and a
 
 If any storage operation fails, reject the operation. If failure precedes step 3, the unchanged old coherent READY state may remain current; if failure follows revocation, never restore its old lifetime to hide the failure. Leave non-ready state fail-closed. A bounded retry under the lock may complete an exact validated durable prepared intent only when the mirror matches its recorded pre-write fingerprint or exact target ID and the pending record is still that intent. Resume the prepared target lifetime; do not mint competing lifetimes on every retry. Unexpected mirror bytes, invalid intent, unsupported version, or ambiguous destruction require explicit controlled recovery, not a guessed upgrade or overwrite. Bounded wait/cancellation yields unavailable; no busy retry loop.
 
-For admitted valid existing-ID bootstrap, preserve the mirror exactly but still use marker -> TRANSITIONING -> unchanged mirror -> READY. There is no direct-READY admission bypass. A crash after marker write but BEFORE durable prepared intent leaves marker-present/authority-missing: unavailable, no automatic bootstrap/recovery, separately reviewed controlled repair required. This conservative loss of availability is explicitly proposed for owner approval. With an exact validated prepared intent, bounded recovery retains the SAME target lifetime under the lock; marker presence alone never reconstructs a lost target. A marker-write failure may itself have persisted the marker, so retry always re-reads and classifies state, never assumes the write failed atomically.
+For admitted valid existing-ID bootstrap, preserve the mirror exactly but still use marker -> TRANSITIONING -> unchanged mirror -> READY. There is no direct-READY admission bypass. A crash after marker write but BEFORE durable prepared intent leaves marker-present/authority-missing: unavailable, no automatic bootstrap/recovery, separately reviewed controlled repair required. This conservative loss of availability is explicitly included in owner approval. With an exact validated prepared intent, bounded recovery retains the SAME target lifetime under the lock; marker presence alone never reconstructs a lost target. A marker-write failure may itself have persisted the marker, so retry always re-reads and classifies state, never assumes the write failed atomically.
 
 Synchronous advisory reads use record -> mirror/marker -> record and require identical valid READY tuples matching captured token/mirror plus the exact marker. These are bounded metadata reads, not a multi-key atomicity claim. The lock-protected final fence remains mandatory for publication. A crash before the marker persisted can leave a still-never-admitted state; there was no authority to resurrect. Later supported transitions retain the marker and keep TRANSITIONING -> mirror -> READY ordering unchanged.
 
 ## 10. Existing-install bootstrap
 
-Selected recommendation: APPROACH 2, durable adoption-start evidence, `PROPOSED_FOR_PRODUCT_OWNER_APPROVAL`. Valid mirror A + missing authority alone cannot distinguish legitimate first upgrade from prior authority deletion after restart. No process-memory history survives restart. The additional marker supplies evidence of prior admission when retained; mirror validity NEVER proves first adoption.
+Approved selection: APPROACH 2, durable adoption-start evidence, `PRODUCT_OWNER_APPROVED`. Valid mirror A + missing authority alone cannot distinguish legitimate first upgrade from prior authority deletion after restart. No process-memory history survives restart. The additional marker supplies evidence of prior admission when retained; mirror validity NEVER proves first adoption.
 
 `BOOTSTRAP_ADMISSION = TRUE` requires: marker absent, authority absent, identity absent or valid under BOTH existing helper and namespace validation, and an explicit acquisition in a cooperating, creator-quiesced context meeting section 17. The shared owner evaluates this under exclusive lock. An allowed existing reader first-acquisition may delegate valid-ID admission to that owner; read guards/final fences never mutate or repair. Missing-ID initialization requires the existing trusted creator role. Marker present makes the context `MANDATORY_AUTHORITY` permanently for supported operations, even if first READY never completed. There is no calendar/build-phase exception allowing rebootstrap from a plain mirror in that mode.
 
@@ -166,7 +167,7 @@ For an admitted valid legacy installation, re-read exact ID/case under lock, wri
 
 Recovery admission is an explicit trusted creator call, never an automatic retry of failed reader capture. Preserve the current helper's recovery trigger: missing identity or an identity rejected by its existing format check. An established value accepted by that helper but rejected by namespace safety is NOT newly eligible for recovery under this package; it still fails closed and leaves `REL05G5A-001` open. The only recovery starting states are never-admitted marker/authority absent with that established creator trigger, OR an exact marker plus valid READY authority with that trigger. Marker-present/authority-missing is NOT eligible, nor authority-present/marker-missing. For admitted first creator recovery, persist the marker first; for later admitted recovery retain it. Validate the source under exclusive lock, record the exact prior mirror fingerprint, prepare a fresh device/lifetime, and follow section 9. Malformed/future authority or marker and unexplained prepared intent require separately reviewed controlled repair. Prior canonical/outbox data remains under its original namespace without reassignment; recovery does not expand reader roles or close `REL05G5A-001`.
 
-Running-token loss and restart admission are different: any already-captured token observing authority/marker disappearance is permanently revoked, regardless of later repair/initialization. After restart, retained marker + absent authority fails closed without needing process history. First upgrade has no marker; authority-record-only deletion after adoption retains one, so those states are distinguishable. However unobserved joint deletion of marker AND authority followed by restart with valid mirror recreates pre-admission bytes and may be admitted anew. No local contract can infer that erased history. This is an explicit unsupported destructive/rollback limitation, NOT a rollout availability exception or a promise to detect arbitrary deletion. Likewise a new process cannot detect unobserved restoration of the complete old metadata. Approval must accept these limits or require a separately reviewed stronger evidence design.
+Running-token loss and restart admission are different: any already-captured token observing authority/marker disappearance is permanently revoked, regardless of later repair/initialization. After restart, retained marker + absent authority fails closed without needing process history. First upgrade has no marker; authority-record-only deletion after adoption retains one, so those states are distinguishable. However unobserved joint deletion of marker AND authority followed by restart with valid mirror recreates pre-admission bytes and may be admitted anew. No local contract can infer that erased history. This is an explicit unsupported destructive/rollback limitation, NOT a rollout availability exception or a promise to detect arbitrary deletion. Likewise a new process cannot detect unobserved restoration of the complete old metadata. Owner approval includes these limits; a stronger evidence design would require separate review and approval.
 
 No WorkoutSessionV1 changes, entity migration, full-store clear, existing outbox rebind, or namespace change is part of valid-ID bootstrap. Marker evidence is local metadata only; no server dependency, remote admission query or DB/schema migration is proposed.
 
@@ -257,11 +258,11 @@ Do not recursively acquire the authority lock from reader verification while it 
 
 ## 19. PR #745 correction contract
 
-AFTER explicit owner approval and independently reviewed/merged foundation plus shared reader adoption, rebase/correct PR #745 against that merged authority. Keep comparison owner a borrower. It must use the shared lock-protected publication operation; a returned boolean from released verification is not enough. Remove string equality as the ABA proof; retain mismatch as optional fail-fast defense.
+Explicit owner approval is now recorded; AFTER independently reviewed/merged foundation plus shared reader adoption, rebase/correct PR #745 against that merged authority in its separate slice. Keep comparison owner a borrower. It must use the shared lock-protected publication operation; a returned boolean from released verification is not enough. Remove string equality as the ABA proof; retain mismatch as optional fail-fast defense.
 
 Add supported-boundary A1 -> B -> A2 tests with no intermediate guard observation, and an async-gap test where supported transitions complete before final-use lock acquisition. Also test that a transition queued after shared final-use acquisition is ordered after synchronous consumption, not incorrectly reported as an already-accepted change. Preserve per-exercise request/date/enable/close invalidation, account/snapshot supersession, observed fail-closed behavior, multi-view independence, frozen DTOs, source-qualified partial limits and zero additional domain scans.
 
-`PR #745 = KEEP_DRAFT_BLOCKED` until all five conditions hold: explicit product approval; prerequisite implemented; independent review and merge; #745 corrected against merged authority; independent focused rereview closes `REL05G-EXCOMP-OWNER-001`. C28 remains not PASS until those tests and review genuinely establish the claimed contract. Do not alter #745 in this documentation task.
+`PR #745 = KEEP_DRAFT_BLOCKED` until all five conditions hold: explicit product approval (now satisfied for this bundle); prerequisite implemented; independent review and merge; #745 corrected against merged authority; independent focused rereview closes `REL05G-EXCOMP-OWNER-001`. Its current status is `BLOCKED_BY_DEVICE_AUTHORITY_PREREQUISITE`, not corrected or CLOSED. C28 remains not PASS until those tests and review genuinely establish the claimed contract. Do not alter #745 in this documentation task.
 
 ## 20. Writer/data-plane firewall
 
@@ -275,7 +276,7 @@ Backend/SQL/API changes and product writer activation are outside the package. T
 
 ## 21. Product decision table
 
-Every row has status `PROPOSED_FOR_PRODUCT_OWNER_APPROVAL`. Approval must name the complete bundle, including storage/locking, fail-closed availability, old-client admission and all deferred operations, not merely "add an epoch".
+Every row has status `PRODUCT_OWNER_APPROVED` under the exact complete-bundle instruction in section 25. Approval includes storage/locking, fail-closed availability and old-client admission, and preserves the deferral of future operations; it does not authorize the deferred features.
 
 | ID / decision | Recommended choice | Alternatives | Rationale | Implementation consequence | Deferred semantics |
 | --- | --- | --- | --- | --- | --- |
@@ -302,7 +303,7 @@ Every row has status `PROPOSED_FOR_PRODUCT_OWNER_APPROVAL`. Approval must name t
 
 ## 22. Future implementation slices
 
-These are proposed work, not implementation authorizations. All remain default-OFF/no new product reader activation. A slice passes only its own reviewed acceptance ceiling.
+This approved bounded sequence is `AUTHORIZED_FOR_SEPARATE_IMPLEMENTATION_TASK`, not implementation inside PR #746. Start Slice 1 only after this approval-record update is independently reviewed, final-gated and PR #746 merged into main, under a separate bounded task. All remain default-OFF/no new product reader activation. Each slice requires independent review and its own merge gate; a slice passes only its own reviewed acceptance ceiling.
 
 | Slice | Scope | Frozen boundaries | Required tests | Independent review | STOP condition |
 | --- | --- | --- | --- | --- | --- |
@@ -354,23 +355,32 @@ Document validation is limited to baseline verification, one-file scope, referen
 
 TECHNICALLY_DETERMINED: current authority has no lifetime; observed mismatch is safe; unobserved ABA passes; generation/server epoch is not device lifetime; old plain-key code can bypass a new owner; notifications alone are not final authority; ID/namespace already affect writer semantics.
 
-PRODUCT_POLICY_DECISION: all DEVLIFE-PD01-PD20 recommended selections, including supported creator role, multi-tab guarantee, availability tradeoff, data-only restore, and forward-only authority participation, await explicit owner approval. If the owner chooses single-tab or unrestricted raw-write support instead, this recommendation must be revised/reviewed before implementation, not partially approved in place.
+PRODUCT_POLICY_DECISION: all DEVLIFE-PD01-PD20 recommended selections, including supported creator role, multi-tab guarantee, availability tradeoff, data-only restore, and forward-only authority participation, are `PRODUCT_OWNER_APPROVED` at the revision recorded in section 25. A later change to that bundle requires explicit revision/review and owner approval, not a partial implementation substitution.
 
-MIGRATION_DECISION: approve admission-evidenced exact-ID bootstrap, sticky marker and representation protocol, including marker-only crash unavailability and unobserved joint-erasure limits. There is no implicit rollout-phase permission. Future identity reset/replacement, malformed-availability repair, clone, residual-namespace access, format migration, and broad destructive recovery remain separately scoped; no guessed historic lifetime or automatic namespace transfer.
+MIGRATION_DECISION: admission-evidenced exact-ID bootstrap, sticky marker and representation protocol are approved, including marker-only crash unavailability and unobserved joint-erasure limits. There is no implicit rollout-phase permission. Future identity reset/replacement, malformed-availability repair, clone, residual-namespace access, format migration, and broad destructive recovery remain separately scoped; no guessed historic lifetime or automatic namespace transfer.
 
-SECURITY/THREAT_MODEL_DECISION: accept unsupported raw/DevTools/extension/profile rollback boundaries. Local metadata/locks are not tamper-resistant credentials. Expanding to adversarial complete rollback needs a separate trusted-authority design, not another hash or event handler.
+SECURITY/THREAT_MODEL_DECISION: unsupported raw/DevTools/extension/profile rollback boundaries are accepted in the approved contract. Local metadata/locks are not tamper-resistant credentials. Expanding to adversarial complete rollback needs a separate trusted-authority design, not another hash or event handler.
 
-TEST/QA_DECISION: approve real cooperating-transition acceptance, capability/failure/crash testing, physical Edge/iOS evidence and compatible-context admission before public claims. Unit mocks and CI alone do not retire old clients or prove installed-app behavior.
+TEST/QA_DECISION: requirements for real cooperating-transition acceptance, capability/failure/crash testing, physical Edge/iOS evidence and compatible-context admission before public claims are approved, not executed. Unit mocks and CI alone do not retire old clients or prove installed-app behavior.
 
 Implementation details still subject to independent code review: final module/API names; strict serialization/parser encoding; bounded lock-acquisition budget; test injection of Storage/lock ports; local subscriber disposal; verified version/context rollout evidence. The normative owner, record phases, ordering, final-use lock, firewall and fail-closed semantics are not left optional. Any change to them requires package revision/approval, not an implementation shortcut.
 
 ## 25. Owner approval block
 
-Approval status: `PROPOSED_FOR_PRODUCT_OWNER_APPROVAL` for every `DEVLIFE-PD01` through `DEVLIFE-PD20`. Owner approval record: NONE. No decision is currently approved by this package.
+Approval status: `PRODUCT_OWNER_APPROVED` for the COMPLETE recommended `DEVLIFE-PD01` through `DEVLIFE-PD20` bundle (20 decisions), including their stated limits and deferred semantics.
 
-Requested future approval: explicitly approve the complete recommended bundle and limits, including supported product transitions only; persistent logical record plus plain mirror and sticky admission-only marker; Web Lock serialized transition/final consumption; evidence-gated valid-ID bootstrap; fail-closed marker-only crash and mandatory-mode authority loss; inability to detect unobserved joint admission/authority erasure or full rollback; forward-only participants; data-only restore; deferred identity replacement; unchanged namespace/writer contracts; physical QA and separate activation permission. If the marker availability/rollback tradeoff is unacceptable, return to independent contract review rather than silently substituting a rollout oracle or broad recovery. No decision is approved here.
+- Approved reviewed revision/head: `77221d4eb9dc2946de3a5728892c29272957bd31`.
+- Exact product-owner instruction: “DEVLIFE-PD01–PD20 권고 bundle 전체 승인”.
+- Approval context/date: explicit human instruction in `REL_05G_WORKOUT_DEVICE_LIFETIME_AUTHORITY_OWNER_APPROVAL_RECORD`, 2026-10-03 (Asia/Seoul), after the focused independent rereview.
+- Focused rereview: `REL05G-DEVLIFE-CONTRACT-001 = CLOSED`; verdict PASS; P0/P1/P2/P3 = 0.
+- Approved-revision CI: Push `37102313174` and PR `37102316484`, each test/typecheck/build/backend-rel05g1/backend-recovery = SUCCESS. These runs are not evidence for the later approval-record commit.
+- Runtime criteria: every `DEVLIFE-C01` through `DEVLIFE-C28` remains `REQUIRED / NOT EXECUTED`; approval, documentary review and hosted CI establish no runtime PASS.
 
-The later approval record must identify the reviewed document revision/head, approving human instruction, chosen decision IDs and deferred semantics. Merge, CI success, previous EXCOMP product approval, prior generic permission, or Draft publication does not substitute. Implementation requires a separate explicit bounded task after approval. Public reader activation, high-risk writer work, Ready/merge and G6 require their own authority.
+Approved bundle and limits: supported product transitions only; persistent logical record plus plain mirror and sticky admission-only marker; Web Lock serialized transition/final consumption; evidence-gated valid-ID bootstrap; fail-closed marker-only crash and mandatory-mode authority loss; inability to detect unobserved joint admission/authority erasure or full rollback; forward-only participants; data-only restore; deferred identity replacement; unchanged namespace/writer contracts; physical QA and separate activation permission. No rollout oracle, broad recovery or weaker substitute is approved. Approval preserves the deferral of explicit future device replacement, identity-reset UI, installation clone, broad destructive recovery, arbitrary raw Storage/DevTools/extension rollback guarantees, writer integration, public reader activation and G6.
+
+This is contract approval only, recorded from the exact human instruction rather than inferred from merge, CI, prior EXCOMP approval or Draft publication. `REL_05G_WORKOUT_DEVICE_LIFETIME_AUTHORITY_FOUNDATION = AUTHORIZED_FOR_SEPARATE_IMPLEMENTATION_TASK` authorizes preparation of the previously defined bounded sequence, not work inside PR #746. Do not implement Slice 1 until PR #746 is merged into main. Subsequent slices retain their prerequisite ordering, independent reviews and individual merge gates.
+
+Approval does NOT mean runtime implementation exists, any DEVLIFE-C criterion passed, PR #746 is merged, reader activation is allowed, PR #745 is corrected, `REL05G-EXCOMP-OWNER-001` is CLOSED, writer/data-plane changes are allowed, or G6 is authorized. The product-decision blocker is resolved; the owner-integration finding remains `BLOCKED_BY_DEVICE_AUTHORITY_PREREQUISITE`. Public reader activation, high-risk writer work, Ready/merge and G6 require separate authority.
 
 ## 26. Frozen boundaries and non-goals
 
@@ -385,8 +395,8 @@ Existing debt remains unchanged:
 - B1 cacheKey P3 = `OPEN_NON_BLOCKING`.
 - `LEGACY_VERIFIED_OWNER_CLASSIFICATION_GAP = UNRESOLVED`, not an automatic eighth writer blocker.
 - `REL05G-EXCOMP-IMPL-001 = CLOSED`; do not reopen its normal/dropset correction.
-- `REL05G-EXCOMP-OWNER-001 = NEEDS_PRODUCT_DECISION / UNRESOLVED / BLOCKED`.
+- `REL05G-EXCOMP-OWNER-001 = BLOCKED_BY_DEVICE_AUTHORITY_PREREQUISITE`; product decision resolved, technical prerequisite unimplemented, finding not corrected or CLOSED.
 - PR #745 = `KEEP_DRAFT_BLOCKED`; no correction or metadata mutation here.
 - Search PD01-PD10 remain unchanged and outside scope. Existing source-qualified partial/error restrictions remain; no analytics closure or C28 PASS.
 
-Publish this docs-only correction on the existing branch/ Draft PR #746 targeting exact verified main; no new PR. Do not mark Ready, merge, enable auto-merge, delete branches, alter #745 or implement/activate authority. Stop after correction publication and initial corrected exact-head Push/PR CI observation. Next step is focused independent rereview of `REL05G-DEVLIFE-CONTRACT-001` only. Do not proceed to explicit product-owner approval until that rereview closes the finding.
+Publish this docs-only approval-record update on the existing branch/Draft PR #746 targeting exact verified main; no new PR. Do not mark Ready, merge, enable auto-merge, delete branches, alter #745 or implement/activate authority. Stop after approval-record publication and initial NEW exact-head Push/PR CI observation. Next step is independent focused review of the approval-record update, followed by Final Merge Gate for PR #746 if clean. Only after PR #746 is merged into main may the separate Slice 1 device authority foundation implementation task begin.
