@@ -143,6 +143,45 @@ describe('dormant Option C source-separated exercise facts', () => {
     expect(success(result, 'canonical').latestEligibleDate).toBe('2026-09-30');
   });
 
+  it.each([{}, { is_dropset: false }])('accepts proved normal legacy flag %j', patch => {
+    const result = project([legacy('2026-10-01', patch)]);
+    expect(success(result, 'legacy')).toMatchObject({
+      latestEligibleDate: '2026-10-01', observations: [{ origin: { rowId: 'legacy-1' } }],
+      withheldWeightClaims: 0, withheldRepetitionClaims: 0,
+    });
+  });
+
+  it.each([
+    ['boolean true', true], ['string true', 'true'], ['string false', 'false'],
+    ['numeric one', 1], ['numeric zero', 0], ['null', null],
+    ['explicit undefined', undefined], ['object', {}], ['array', []],
+    ['NaN', Number.NaN], ['infinity', Number.POSITIVE_INFINITY],
+  ] as const)('excludes present %s legacy flag before date selection', (_label, value) => {
+    // The legacy persisted validator admits these runtime shapes; do not weaken StrengthSet.
+    const patch = { is_dropset: value } as unknown as Partial<StrengthSet>;
+    const newest = legacy('2026-10-01', patch);
+    expect(Object.prototype.hasOwnProperty.call(newest.sets[0], 'is_dropset')).toBe(true);
+    const before = structuredClone(newest);
+    expect(success(project([newest]), 'legacy')).toMatchObject({
+      evidence: 'no_eligible_evidence', latestEligibleDate: null, observations: [],
+      withheldWeightClaims: 0, withheldRepetitionClaims: 0,
+    });
+    const result = project([newest, legacy('2026-09-30', {}, 'older')]);
+    expect(success(result, 'legacy')).toMatchObject({
+      latestEligibleDate: '2026-09-30', observations: [{ origin: { rowId: 'older' } }],
+      withheldWeightClaims: 0, withheldRepetitionClaims: 0,
+    });
+    expect(success(result, 'legacy').observations).toHaveLength(1);
+    expect(newest).toEqual(before);
+  });
+
+  it('does not count numeric exclusions on malformed-variant candidates as withheld claims', () => {
+    const patch = { is_dropset: 'true', kg: 99, weight_source_value: 100,
+      weight_source_unit: 'lbs', reps: 1.5 } as unknown as Partial<StrengthSet>;
+    expect(success(project([legacy('2026-10-01', patch), legacy('2026-09-30', {}, 'older')]), 'legacy'))
+      .toMatchObject({ latestEligibleDate: '2026-09-30', withheldWeightClaims: 0, withheldRepetitionClaims: 0 });
+  });
+
   it('does not use a one-year horizon or claim cloud/all-time coverage', () => {
     const result = project([legacy('2020-01-01')], [canonical('2019-01-01')]);
     expect(success(result, 'legacy').latestEligibleDate).toBe('2020-01-01');

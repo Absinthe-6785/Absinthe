@@ -155,6 +155,12 @@ function legacyRepetitions(set: Readonly<StrengthSet>): ExerciseComparisonRepeti
   return { status: 'trusted', total, assisted, unassisted: total - assisted };
 }
 
+function legacyNormalSetFlagIsTrusted(set: Readonly<StrengthSet>): boolean {
+  // Legacy absence means normal. Any present value must prove boolean false;
+  // persisted validation does not guarantee this optional flag's runtime type.
+  return !Object.prototype.hasOwnProperty.call(set, 'is_dropset') || set.is_dropset === false;
+}
+
 function sourceProjection(
   source: 'legacy' | 'canonical', status: 'success' | 'error',
   records: readonly CompositeWorkoutRecord[], selectedDate: string, key: ExerciseComparisonKey,
@@ -182,7 +188,7 @@ function sourceProjection(
       const row = record.legacy;
       if (row.blockId !== key.id) continue;
       row.sets.forEach((set, setIndex) => {
-        if (set.type !== 'strength' || set.done !== true || set.is_dropset === true) return;
+        if (set.type !== 'strength' || set.done !== true || !legacyNormalSetFlagIsTrusted(set)) return;
         consider({
           localDate: record.localDate, weight: legacyWeight(set), repetitions: legacyRepetitions(set),
           origin: { source: 'legacy', readId: record.readId, rowId: row.rowId, blockId: row.blockId,
