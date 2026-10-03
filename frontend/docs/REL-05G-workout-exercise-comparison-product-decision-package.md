@@ -66,8 +66,8 @@ The owner may approve all four recommended bundles together, modify a bundle exp
 | Bundle | Owner choice needed for the next slice | Recommended answer, subject to approval | EXCOMP coverage |
 | --- | --- | --- | --- |
 | S — scope, trust UX and disclosure | A/B/C/D; incomplete/unavailable behavior; source/copy and rollout limitation | C; keep sources separate, show surviving evidence with incomplete state, suppress typed-isolation pair, disclose legacy-only badge/count; default-OFF only | PD04, PD12–PD14 |
-| T — association, Previous and coverage | Matching key, rename/null/recreation omissions, prior-date/same-day rule, history horizon | Exact nonnull retained ID + exact name/type guard for canonical association; no fallback; source-separated latest prior dates with all observations on each date; all locally available prior active history | PD01–PD03, PD04 |
-| M — metrics and supported variants | PR change or deferral; completed versus stored sets; strength/bodyweight/assistance/drop/cardio; unit inconsistency | No new/global PR; retain legacy PR compatibility separately; new evidence is completed usable normal external-weight strength sets, factual kg/reps/assistance only; defer other new comparison variants; withhold inconsistent-unit derived comparisons | PD05–PD11 |
+| T — association, Previous and coverage | Matching key, rename/null/recreation omissions, prior-date/same-day rule, history horizon | All-local-prior active history, strict date < selectedDate and approved analytical association, then M's new-evidence eligibility BEFORE maximum eligible prior date selection independently per successful source; exact nonnull retained ID + exact name/type guard for canonical association, no fallback; retain every eligible observation on that source/date, no same-day chronology | PD01–PD03, PD04 |
+| M — metrics and supported variants | PR change or deferral; completed versus stored sets; strength/bodyweight/assistance/drop/cardio; unit inconsistency | No new/global PR; retain legacy PR compatibility separately; new strength evidence is completed + usable + normal/non-dropset + external-weight + trustworthy required numeric/unit evidence. This eligibility defines T's eligible dates, not merely a display filter after date selection; factual kg/reps/assistance only, other new variants deferred, inconsistent-unit derived comparisons withheld | PD05–PD11 |
 | P — planning compatibility | Whether evidence drives automated set counts/values | Existing legacy-only count/default/preset behavior unchanged; new canonical evidence never auto-plans | PD02, PD05, PD06, PD13–PD14 |
 
 Public activation, a canonical writer, a trust fix, new metrics and Search decisions are **not** approvals requested in these bundles. If a modification leaves matching/horizon/eligibility/error behavior unspecified, the next ceiling stays `COMPARISON_REQUIRES_MORE_PRODUCT_DECISION`.
@@ -92,14 +92,29 @@ If cross-source numerical aggregation is requested later, this same conservative
 
 | Previous meaning | Available truth | Required tradeoff |
 | --- | --- | --- |
-| Latest prior calendar date containing matching evidence | Maximum matching `localDate < selectedDate` can be computed | Show all retained observations on that date; cannot choose chronological last session |
+| Latest prior date containing any matching persisted record (date-first alternative, not recommended C) | Maximum matching `localDate < selectedDate` can be computed before set eligibility | Can yield no eligible evidence on that date; owner would need explicit fallback/no-match behavior; cannot choose chronological last session |
 | Latest prior persisted observation | Persistence IDs/revisions are not performance timestamps | May use a disclosed technical representative only after a separate policy; must not call it latest performed |
 | Source-separated latest dates/observations | Each successful source has its own maximum eligible prior date | Different dates can appear together; no source wins; multiple observations on a date remain separate |
 | One-year bounded history | Existing Previous logical view supplies that window | Cannot claim all-prior absence/PR or silently replace unlimited legacy threshold |
 | All locally available prior history | Shared full active-domain snapshot can support an approved pure owner-derived view | Local-only scope, not all-time/cross-device truth; full-history CPU/memory QA required |
 | Same-day inclusion | Date-only V1 cannot tell which session preceded the current workout | Exclude selected date now, or separately approve date-group evidence without 'previous chronological session' |
 
-**Recommended exact contract, approval required:** new source-separated evidence anchors to Health `selectedDate`, strictly excludes that date and later dates, finds the latest prior matching date *independently per successful source*, and retains every matching row/session/entry on that source's selected date. Dates label the evidence; IDs/order provide stable presentation only. No global latest observation, cross-source precedence, averaging, merging, tie winner, or performed chronology is implied. The existing legacy compatibility cue continues to use its current technically selected row and completed cue semantics; it is a separate lane, not a claim that the new evidence groups pick the same single observation.
+**Recommended exact contract — PRODUCT OWNER APPROVAL REQUIRED:** for the NEW Option C evidence projection, evaluate each successful source independently, only while its verified evidence is current and valid for publication:
+
+1. Start with records inside the declared all-locally-available-prior active-history horizon; this is not remote/all-time completeness.
+2. Apply the strict prior boundary: `localDate/date < selectedDate` using Health's selected date, not today or the Previous browser date.
+3. Apply the approved analytical exercise association policy from section 5. It grants no identity, adoption or dedupe authority.
+4. BEFORE selecting a Previous date, apply the approved new-evidence eligibility from M/sections 7–8: supported strength evidence, completed, usable, normal/non-dropset, external-weight, with required numeric evidence trustworthy under the unit policy. Eligibility is observation/claim-specific; withhold an untrustworthy numeric claim without discarding other eligible factual evidence merely because an unrelated field is not comparable.
+5. Remove records/dates with no surviving eligible observation from this projection's date candidates; do not delete or rewrite persisted records.
+6. Select the maximum prior calendar date among the remaining eligible evidence for that successful source. This is the **latest eligible Previous evidence date**, not the latest date containing any associated persisted record.
+7. On that source/date, retain every eligible matching observation and its existing row/session/entry/set identity as applicable; no equal-date collapse, chronological winner or fabricated identity.
+8. Keep each source's selected date separate. Do not derive a cross-source global latest date or infer that groups displayed together belong to the same workout/session.
+
+In short: **prior boundary + analytical association + supported evidence/unit eligibility BEFORE latest eligible Previous-date selection**. Dates label evidence; ID/order is presentation only, not performed chronology, source precedence, averaging, merging or a tie winner. A source that failed is not evaluated as an empty successful source; the section 9 partial/error/currentness rules remain authoritative.
+
+**Recommended example — PRODUCT OWNER APPROVAL REQUIRED, not runtime acceptance:** selectedDate is `2026-10-02`. A matching entry on `2026-10-01` has only unfinished sets or only dropsets; a matching entry on `2026-09-30` has completed usable normal external-weight evidence under the unit policy. The first date contributes no eligible evidence, so `2026-09-30` is that source's latest eligible Previous date for the NEW projection. Selecting `2026-10-01` first and then displaying zero eligible evidence is not the recommended contract.
+
+**Separate legacy compatibility lane:** do NOT apply this new eligibility-before-date rule to the existing mounted exact `block_id` lookup, technically selected latest prior legacy row, full `prev_sets`, historical `pr_kg`, completed micro-cues, or count/preset/default planning. The recommendation preserves those existing semantics. The new evidence group and legacy compatibility cue may legitimately show different prior dates, including within the legacy source. Label their distinct source/meaning/date; do not force agreement or call either the authoritative overall Previous workout.
 
 | Horizon choice | Migration and user-expectation consequence |
 | --- | --- |
@@ -132,7 +147,7 @@ Current legacy PR remains the exact characterized historical kg-threshold/draft 
 | Completed comparison, all-set planning | Keeps performed comparison separate from planning | Need explicit distinction between two consumers | May preserve count compatibility but not derive a canonical count without a selection policy |
 | Source-specific compatibility | Legacy badge/cues/count retain their existing different eligibility; new evidence has its own declared policy | Honest only with clear lane labels, not one unified metric | Lowest compatibility disruption; no new canonical planning behavior |
 
-**Recommendation, approval required:** source-specific compatibility. New evidence accepts `done=true`, usable external-weight strength observations; displays stored normalized kg and reps without a ranking formula. A missing/null field remains unknown, not zero; an explicit numeric zero may be displayed as a fact but never creates a PR. New evidence excludes dropsets and does not rank assisted versus unassisted work. Existing legacy badge threshold, completed cues and all-set count are not silently made identical.
+**Recommendation, approval required:** source-specific compatibility. New evidence accepts `done=true`, usable normal/non-dropset external-weight strength observations with required numeric evidence trustworthy under the unit policy; displays stored normalized kg and reps without a ranking formula. Apply this eligibility BEFORE date selection as section 6 defines: it determines which dates contain new evidence, not only which values to hide after choosing a matching date. A missing/null field remains unknown, not zero; an explicit numeric zero may be displayed as a fact but never creates a PR. New evidence excludes dropsets and does not rank assisted versus unassisted work. Existing legacy badge threshold, completed cues, technically selected prior row and all-set count are not silently made identical or changed to eligibility-first selection.
 
 ### Previous-set suggestion options
 
@@ -162,6 +177,8 @@ These are product options, not implemented features. 'Deferred' below applies to
 Cardio time/distance availability does not make longer/shorter/better universal; mode, equal distance/time and target event must precede metric ranking. Bodyweight V1 has no external-weight field. Assistance display and PR semantics are distinct; zero unassisted from a valid all-assisted set is evidence, not an inferred performance rank. Normal/drop differences cannot be decided from a historical implementation accident.
 
 **Precise units recommendation, approval required:** use V1 validated `weightKg` and valid saved source metadata for display, not display rounding as numeric input. Legacy kg-only records are kg under the current contract; if paired source metadata is present, verify consistency using existing conversion/rounding conventions before a new numeric comparison. Do not silently prefer source value or stored kg on disagreement. Withhold affected derived comparison and retain provenance/status without relabelling the whole source as verified empty. Missing/null is unknown and numeric zero is distinct. No normalization backfill is authorized. Existing legacy badge arithmetic is preserved and explicitly not promoted into the new normalized comparison contract; consistent data in other eligible observations may still be displayed.
+
+For the new projection, this required numeric/unit trust check participates in eligibility BEFORE latest-date selection. Withhold the affected claim, not an entire historical record just because an unrelated field is incomparable: other completed normal external-weight evidence may still be factually presented if it satisfies the approved claim's required-value policy. A date qualifies when at least one eligible observation remains; a date with none cannot mask an older eligible date. No unit rule here changes the existing legacy compatibility lane.
 
 ## 9. Partial/error UX versus technical trust (PD12–PD13)
 
@@ -230,7 +247,9 @@ Search PD01–PD10 remain outside this package: no ranking, matching-fields, his
 
 ```text
 Product-owner strategy and bundle approval (currently absent)
-  -> analytical association + Previous/horizon + metric/set/variant/unit policy
+  -> declared active-history horizon + strict prior selectedDate boundary + analytical association
+  -> approved new metric/set/variant/unit evidence eligibility
+  -> per successful source: maximum eligible prior date + all eligible observations on that date
   -> trust branch:
        B complete-source -> separate legacy typed-isolation/safe-boundary work + review
        A/C/D qualified   -> explicit reviewed source/error/partial limitation contract
@@ -251,11 +270,13 @@ Product approval alone is not an implementation instruction. Writer cutover and 
 Only these four bundles are needed to determine a next default-OFF ceiling; the owner can approve the recommended package as a whole rather than answer fourteen independent questions:
 
 1. **S:** choose A/B/C/D and accept its exact source/partial/unavailable/copy/default-OFF limitation (recommended C, no global PR).
-2. **T:** approve the exact matching guard and omission policy, source-separated latest prior dates/all observations, selected-date exclusion and all-local-prior coverage.
-3. **M:** approve no new composite PR, existing legacy compatibility exception, completed normal external-weight factual evidence with no new ranking, deferred variants and strict units/unknown handling.
+2. **T:** approve the exact matching guard and omission policy, strict selected-date exclusion and all-local-prior active coverage, then **eligibility-before-latest-date selection for the NEW source-separated evidence projection**: maximum eligible prior date independently per successful source, every eligible observation on that date, no same-day chronology/global winner/session equivalence.
+3. **M:** approve no new composite PR, existing legacy compatibility exception, completed usable normal/non-dropset external-weight factual evidence with trustworthy required numeric/unit values, no new ranking, deferred variants and strict unknown handling. M's eligibility defines T's date candidates, not just a post-date display filter; existing legacy selection/PR/cue/planning stays unchanged.
 4. **P:** retain legacy-only planning counts/presets/defaults; new comparison never auto-plans or copies historical values.
 
 Any rejected/modified bundle must leave an equally explicit contract, or readiness remains product-decision-blocked. No implicit source precedence, name fallback, same-day winner, count derivation or metric is filled in by engineering.
+
+If the owner rejects eligibility-before-date selection and prefers date-first semantics, the owner must explicitly specify what happens when the latest matching persisted date has no eligible evidence (fallback to an older date versus a date-scoped unavailable/no-match presentation). That alternative is not the current recommendation; missing fallback/no-match semantics keep `COMPARISON_REQUIRES_MORE_PRODUCT_DECISION`.
 
 ### SAFE_TO_DEFER
 
@@ -275,9 +296,9 @@ Every line is a recommendation, not a product decision or implementation authori
 - **RECOMMENDATION — PRODUCT OWNER APPROVAL REQUIRED:** top-level Option C, separate source-qualified read-only strength evidence and a labelled existing legacy compatibility lane; default-OFF.
 - **RECOMMENDATION — PRODUCT OWNER APPROVAL REQUIRED:** matching: retain legacy exact block ID; canonical association requires exact nonnull retained ID plus exact available catalog name/type, no fallback or identity/adoption/dedupe inference.
 - **RECOMMENDATION — PRODUCT OWNER APPROVAL REQUIRED:** history horizon: all currently verified locally available prior active evidence per successful source, no remote/all-time promise; existing one-year browser unchanged.
-- **RECOMMENDATION — PRODUCT OWNER APPROVAL REQUIRED:** Previous: latest eligible prior calendar date independently per source, strictly `< selectedDate`, all matching observations on that date kept separate; compatibility legacy single-row cue unchanged; no chronology/global winner.
+- **RECOMMENDATION — PRODUCT OWNER APPROVAL REQUIRED:** Previous: active-history horizon + strict `< selectedDate` + approved association + new set/variant/unit eligibility FIRST, then maximum eligible prior calendar date independently per successful source; every eligible observation on that date kept separate, no chronology/global winner/shared-session inference. Legacy compatibility single-row selection stays unchanged and may show a different date.
 - **RECOMMENDATION — PRODUCT OWNER APPROVAL REQUIRED:** PR: no new canonical/composite/global PR; current legacy historical kg-threshold/draft badge retained with explicit source/horizon/unfinished-history limitations.
-- **RECOMMENDATION — PRODUCT OWNER APPROVAL REQUIRED:** set eligibility: new evidence only completed usable normal external-weight strength observations; existing legacy threshold/cue/count eligibility stays source-specific, not silently unified.
+- **RECOMMENDATION — PRODUCT OWNER APPROVAL REQUIRED:** set eligibility: new evidence only completed usable normal/non-dropset external-weight strength observations with trustworthy required numeric/unit evidence; eligibility defines date candidates BEFORE latest-date selection, not just post-selection display. Existing legacy threshold/cue/count and prior-row selection stay source-specific, not silently unified.
 - **RECOMMENDATION — PRODUCT OWNER APPROVAL REQUIRED:** planning: keep legacy-only full-array count/preset/direct-add defaults; canonical evidence never changes counts or copies kg/reps/load.
 - **RECOMMENDATION — PRODUCT OWNER APPROVAL REQUIRED:** bodyweight: defer new comparison/PR, retain existing history/legacy cues; never apply kg PR to V1 bodyweight.
 - **RECOMMENDATION — PRODUCT OWNER APPROVAL REQUIRED:** assistance: display total and validated assisted/unassisted facts in new strength evidence, no assistance ranking/discount.
@@ -294,7 +315,7 @@ Every line is a recommendation, not a product decision or implementation authori
 | Approved choice and completeness of contract | Next technical ceiling |
 | --- | --- |
 | A with explicit legacy scope/copy/error/horizon/compatibility and planning policy | `LEGACY_ONLY_SCOPE_IMPLEMENTATION_READY` |
-| C with explicit association/horizon/eligibility/units/partial/copy/planning contract and no global PR | `SOURCE_SEPARATED_COMPARISON_IMPLEMENTATION_READY` |
+| C with explicit association/horizon/eligibility-before-latest-date selection/units/partial/copy/planning contract and no global PR | `SOURCE_SEPARATED_COMPARISON_IMPLEMENTATION_READY` |
 | B complete-source policy chosen while legacy trust prerequisite is unresolved | `COMPLETE_SOURCE_COMPARISON_BLOCKED_BY_LEGACY_ISOLATION_PREREQUISITE` |
 | Any strategy with missing material bundle choices | `COMPARISON_REQUIRES_MORE_PRODUCT_DECISION` |
 | D legacy-only limitation/withholding contract fully approved | `LEGACY_ONLY_SCOPE_IMPLEMENTATION_READY` (qualified legacy scope, not full-source readiness) |
@@ -305,7 +326,11 @@ There is no approved product choice today. B also needs all material product cho
 
 **IF_PRODUCT_OWNER_APPROVES_RECOMMENDED_PACKAGE:** `SOURCE_SEPARATED_COMPARISON_IMPLEMENTATION_READY`.
 
-This conditional ceiling describes readiness to request a separately authorized bounded default-OFF implementation plan/slice, including the owner-derived view and acceptance obligations. It is not approval to begin code or activation. **Current decision state:** `PRODUCT_OWNER_DECISION_REQUIRED`; absent approval, the next action is product-owner review, not implementation.
+This conditional recommendation includes all S/T/M/P answers AND the section 6 ordering: horizon/prior boundary/association, then approved evidence eligibility, then latest eligible source/date and all eligible observations. Review finding `REL05G-EXCOMP-PD-001` identified the earlier ambiguity and therefore required `COMPARISON_REQUIRES_MORE_PRODUCT_DECISION`; this docs-only correction makes the recommended answer explicit, not approved. Focused independent rereview must pass before seeking product-owner approval. A different date-first answer without explicit fallback/no-match semantics remains product-decision-blocked.
+
+This conditional ceiling describes readiness to request a separately authorized bounded default-OFF implementation plan/slice, including the owner-derived view and acceptance obligations. It is not approval to begin code or activation. **Current decision state:** `PRODUCT_OWNER_DECISION_REQUIRED`; after the correction's focused independent rereview passes, the next action is product-owner review, not implementation.
+
+The evaluation order is replaceable projection policy only: **feature surfaces are disposable; domain contracts are durable**. It must not change WorkoutSessionV1, rewrite canonical records, persist comparison-derived identity/policy in sessions, make Previous/PR UI an authority, or couple writer persistence to this feature. A future authorized read-only/default-OFF projection must remain removable/replacable without canonical Workout data migration.
 
 ## 16. Frozen runtime and debt boundaries
 
@@ -326,4 +351,4 @@ Baseline verification: live PR #742 is merged at `bbc892bfd0397767a7ea231d111a3e
 
 This task validates docs scope, decision coverage, recommendation-versus-authority separation, frozen tree/gate preservation and `git diff --check`. It does not run new product acceptance or repair tests to obtain green CI. Hosted exact-head CI initial state is reported with the publication result; it is not assumed successful in this artifact.
 
-Publication is one normal docs commit on a dedicated topic branch and one Draft PR targeting main. Stop after initial exact-head CI observation. Next action: **product-owner review/explicit approval of this decision package**, not Ready/merge, runtime implementation, legacy-isolation repair or activation by this task.
+Original publication was one normal docs commit on a dedicated topic branch and Draft PR #743 targeting main. This correction, `REL_05G_WORKOUT_EXERCISE_COMPARISON_PRODUCT_DECISION_PACKAGE_CORRECTION`, changes only this file for `REL05G-EXCOMP-PD-001` on the same branch/PR. It clarifies recommendation ordering and the separate legacy lane; no product/runtime acceptance is claimed. Stop after correction publication and initial corrected-head CI observation. Next action: **focused independent rereview of REL05G-EXCOMP-PD-001 only**. Product-owner review/explicit approval follows only if that rereview passes; no Ready/merge, implementation, legacy-isolation repair or activation is authorized here.
