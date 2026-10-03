@@ -26,6 +26,14 @@ export type WorkoutReadSourceSnapshot = Readonly<{
   result: CompositeWorkoutReadResult;
 }>;
 
+/** Borrowed read evidence, never a repository or an independently renewable lifetime. */
+export type WorkoutReadSnapshotPublication = Readonly<{
+  snapshot: WorkoutReadSourceSnapshot;
+  /** Synchronous owner/device fence only; scope verification is also required before use. */
+  isCurrent: () => boolean;
+  verifyCurrent: () => Promise<boolean>;
+}>;
+
 export type WorkoutRangeView = Readonly<{
   accountId: string;
   scope: SelectedDayCanonicalScope | null;
@@ -156,6 +164,38 @@ export class WorkoutReadSnapshotCoordinator {
 
   /** Loaded evidence; a future publisher must call verifyCurrentScope before exposing a derived view. */
   get currentSnapshot(): WorkoutReadSourceSnapshot | null { return this.snapshot; }
+
+  /**
+   * Capture THIS publication, not whichever snapshot happens to be current later.
+   * Existing save/delete invalidation, load/retry, account changes and close all revoke it.
+   * No domain scan is added; verifyCurrent reuses the reader's active-scope metadata fence.
+   */
+  captureCurrentSnapshot(): WorkoutReadSnapshotPublication | null {
+    const snapshot = this.snapshot;
+    const sequence = this.sequence;
+    const accountId = this.accountId;
+    const deviceId = this.deviceAtPublication;
+    const isCurrent = () => {
+      if (this.closed || !snapshot || this.sequence !== sequence || this.snapshot !== snapshot
+        || this.accountId !== accountId || snapshot.accountId !== accountId) return false;
+      if (this.deviceStorage.getItem(HEALTH_ROUTINE_DEVICE_ID_KEY) !== deviceId) {
+        // Observe a device transition synchronously; restoring its string must not revive this token.
+        this.invalidate();
+        return false;
+      }
+      return true;
+    };
+    if (!snapshot || !isCurrent()) return null;
+    return Object.freeze({
+      snapshot,
+      isCurrent,
+      verifyCurrent: async () => {
+        if (!isCurrent() || !await this.verifyCurrentScope()) return false;
+        // An older continuation cannot borrow a newer publication (including account ABA).
+        return isCurrent();
+      },
+    });
+  }
 
   setAccount(accountId: string): void {
     if (this.closed) throw new Error('workout_range_coordinator_closed');
