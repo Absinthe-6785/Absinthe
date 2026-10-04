@@ -10,13 +10,15 @@ import uuid
 import pytest
 
 
-pytestmark = pytest.mark.skipif(
+postgres_integration = pytest.mark.skipif(
     os.getenv("K323_POSTGRES_INTEGRATION") != "1",
     reason="set K323_POSTGRES_INTEGRATION=1 to run the isolated PostgreSQL transport test",
 )
 
 
 ROOT = Path(__file__).parent
+POSTGRES_TEST_HOST = "127.0.0.1"
+POSTGRES_TEST_PASSWORD = "rel05e-test"
 V1_MIGRATION = ROOT / "migrations" / "202607120001_k323_idempotent_remote_mutation.sql"
 V2_MIGRATION = ROOT / "migrations" / "202609180001_k323_v2_multi_domain_transport.sql"
 HEALTH_MIGRATION = ROOT / "migrations" / "202609190001_rel05f_health_routine_aggregate.sql"
@@ -827,26 +829,75 @@ def _run(command: list[str], **kwargs) -> subprocess.CompletedProcess[str]:
     return subprocess.run(command, text=True, capture_output=True, check=False, **kwargs)
 
 
+def _postgres_ready_command(docker: str, name: str) -> list[str]:
+    # The image's temporary initialization server is socket-only. Only the
+    # final server can satisfy this TCP probe; do not add a startup sleep.
+    return [docker, "exec", name, "pg_isready", "-h", POSTGRES_TEST_HOST,
+            "-U", "postgres"]
+
+
+def _postgres_psql_command(docker: str, name: str) -> list[str]:
+    return [docker, "exec", "-i", "-e", f"PGPASSWORD={POSTGRES_TEST_PASSWORD}",
+            name, "psql", "-h", POSTGRES_TEST_HOST, "-U", "postgres",
+            "-d", "postgres", "-v", "ON_ERROR_STOP=1"]
+
+
+def _postgres_diagnostics(docker: str, name: str) -> str:
+    evidence = []
+    for label, command in (
+        ("container state", [docker, "inspect", "--format", "{{json .State}}", name]),
+        ("postgres logs", [docker, "logs", "--tail", "80", name]),
+    ):
+        try:
+            result = _run(command, timeout=10)
+            evidence.append(f"{label} (exit {result.returncode}):\n"
+                            f"{result.stdout[-8192:]}\n{result.stderr[-8192:]}")
+        except (OSError, subprocess.TimeoutExpired) as error:
+            # Diagnostic collection must not replace the original failure.
+            evidence.append(f"{label}: {type(error).__name__}: {str(error)[-8192:]}")
+    return "\n".join(evidence)
+
+
+def _wait_for_postgres(docker: str, name: str) -> None:
+    for _ in range(60):
+        try:
+            ready = _run(_postgres_ready_command(docker, name), timeout=5)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            pytest.fail(f"final TCP PostgreSQL readiness probe failed: {error}\n"
+                        f"{_postgres_diagnostics(docker, name)}")
+        if ready.returncode == 0:
+            return
+        time.sleep(0.5)
+    pytest.fail("isolated PostgreSQL did not become ready on final TCP endpoint\n"
+                f"{_postgres_diagnostics(docker, name)}")
+
+
+def _assert_postgres_success(
+    result: subprocess.CompletedProcess[str], docker: str, name: str,
+) -> None:
+    if result.returncode != 0:
+        pytest.fail(f"PostgreSQL command exited {result.returncode}\n"
+                    f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}\n"
+                    f"{_postgres_diagnostics(docker, name)}")
+
+
+@postgres_integration
 def test_v2_and_health_migrations_service_role_rpc_replay_rollback_and_privileges() -> None:
     docker = shutil.which("docker")
     if docker is None:
         pytest.fail("K323_POSTGRES_INTEGRATION=1 but docker is unavailable")
 
     name = f"absinthe-rel05e-{uuid.uuid4().hex[:12]}"
-    started = _run([
-        docker, "run", "--detach", "--rm", "--name", name,
-        "--tmpfs", "/var/lib/postgresql/data", "-e", "POSTGRES_PASSWORD=rel05e-test",
-        "postgres:15-alpine",
-    ])
-    assert started.returncode == 0, started.stderr
     try:
-        for _ in range(60):
-            ready = _run([docker, "exec", name, "pg_isready", "-U", "postgres"])
-            if ready.returncode == 0:
-                break
-            time.sleep(0.5)
-        else:
-            pytest.fail("isolated PostgreSQL did not become ready")
+        # Retain an exited container long enough to inspect it before finally
+        # removes it. --rm would erase state/logs at unexpected server exit.
+        started = _run([
+            docker, "run", "--detach", "--name", name,
+            "--tmpfs", "/var/lib/postgresql/data", "-e",
+            f"POSTGRES_PASSWORD={POSTGRES_TEST_PASSWORD}", "postgres:15-alpine",
+        ])
+        _assert_postgres_success(started, docker, name)
+        _wait_for_postgres(docker, name)
 
         sql = "\n".join([
             SETUP_SQL,
@@ -861,10 +912,10 @@ def test_v2_and_health_migrations_service_role_rpc_replay_rollback_and_privilege
             WORKOUT_FOUNDATION_ASSERTIONS_SQL,
         ])
         result = _run(
-            [docker, "exec", "-i", name, "psql", "-U", "postgres", "-d", "postgres", "-v", "ON_ERROR_STOP=1"],
+            _postgres_psql_command(docker, name),
             input=sql,
         )
-        assert result.returncode == 0, f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+        _assert_postgres_success(result, docker, name)
         assert "REL05E_POSTGRES_INTEGRATION_PASS" in result.stdout
         assert "REL05F_POSTGRES_INTEGRATION_PASS" in result.stdout
         assert "REL05G1_POSTGRES_INTEGRATION_PASS" in result.stdout
@@ -883,7 +934,7 @@ select pg_sleep(2);
 commit;
 """
         locker = subprocess.Popen(
-            [docker, "exec", "-i", name, "psql", "-U", "postgres", "-d", "postgres", "-v", "ON_ERROR_STOP=1"],
+            _postgres_psql_command(docker, name),
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
         )
         assert locker.stdin is not None
@@ -891,8 +942,7 @@ commit;
         locker.stdin.close()
         time.sleep(0.5)
         transition_started = time.monotonic()
-        transition = _run([
-            docker, "exec", name, "psql", "-U", "postgres", "-d", "postgres", "-v", "ON_ERROR_STOP=1",
+        transition = _run(_postgres_psql_command(docker, name) + [
             "-c", "update public.remote_sync_generations set status='stale' where generation_id='generation-1'",
         ])
         transition_elapsed = time.monotonic() - transition_started
@@ -903,3 +953,110 @@ commit;
         assert transition_elapsed >= 1.0, "generation transition did not wait for the shared operation fence"
     finally:
         _run([docker, "rm", "--force", name])
+
+
+def test_postgres_commands_share_final_tcp_endpoint() -> None:
+    ready = _postgres_ready_command("docker", "isolated")
+    psql = _postgres_psql_command("docker", "isolated")
+    for command in (ready, psql):
+        assert command[command.index("-h") + 1] == "127.0.0.1"
+        assert command[command.index("-U") + 1] == "postgres"
+        assert "isolated" in command
+    assert f"PGPASSWORD={POSTGRES_TEST_PASSWORD}" in psql
+    assert "ON_ERROR_STOP=1" in psql
+
+
+def test_postgres_readiness_requires_success_and_stays_bounded(monkeypatch) -> None:
+    calls = []
+    sleeps = []
+
+    def not_ready(command, **kwargs):
+        calls.append((command, kwargs))
+        return subprocess.CompletedProcess(command, 1, "", "starting")
+
+    monkeypatch.setitem(globals(), "_run", not_ready)
+    monkeypatch.setitem(globals(), "_postgres_diagnostics", lambda *_: "retained state")
+    monkeypatch.setattr(time, "sleep", sleeps.append)
+    with pytest.raises(pytest.fail.Exception, match="final TCP endpoint.*\nretained state"):
+        _wait_for_postgres("docker", "isolated")
+    assert len(calls) == len(sleeps) == 60
+    assert all(command == _postgres_ready_command("docker", "isolated")
+               and kwargs == {"timeout": 5} for command, kwargs in calls)
+    assert sleeps == [0.5] * 60
+
+
+def test_postgres_readiness_success_needs_no_extra_sleep_or_diagnostics(monkeypatch) -> None:
+    monkeypatch.setitem(globals(), "_run", lambda command, **_: subprocess.CompletedProcess(
+        command, 0, "accepting connections", ""))
+
+    def unexpected(*_):
+        pytest.fail("successful readiness must not sleep or collect diagnostics")
+
+    monkeypatch.setitem(globals(), "_postgres_diagnostics", unexpected)
+    monkeypatch.setattr(time, "sleep", unexpected)
+    _wait_for_postgres("docker", "isolated")
+
+
+def test_postgres_diagnostics_capture_state_and_bounded_logs(monkeypatch) -> None:
+    calls = []
+
+    def evidence(command, **kwargs):
+        calls.append((command, kwargs))
+        if "inspect" in command:
+            return subprocess.CompletedProcess(command, 0,
+                '{"Status":"exited","OOMKilled":true,"ExitCode":137,"Error":""}', "")
+        return subprocess.CompletedProcess(command, 0, "x" * 9000, "server stopped")
+
+    monkeypatch.setitem(globals(), "_run", evidence)
+    report = _postgres_diagnostics("docker", "isolated")
+    assert '"OOMKilled":true' in report and '"ExitCode":137' in report
+    assert '"Status":"exited"' in report and '"Error":""' in report
+    assert "server stopped" in report
+    assert "x" * 8192 in report and "x" * 8193 not in report
+    assert calls == [
+        (["docker", "inspect", "--format", "{{json .State}}", "isolated"], {"timeout": 10}),
+        (["docker", "logs", "--tail", "80", "isolated"], {"timeout": 10}),
+    ]
+
+
+@pytest.mark.parametrize("error", [OSError("Docker unavailable"),
+    subprocess.TimeoutExpired("docker inspect", 10)])
+def test_postgres_diagnostic_errors_preserve_original_psql_failure(monkeypatch, error) -> None:
+    def unavailable(*_, **__):
+        raise error
+
+    monkeypatch.setitem(globals(), "_run", unavailable)
+    result = subprocess.CompletedProcess([], 2, "migration output", "administrator command")
+    with pytest.raises(pytest.fail.Exception) as failure:
+        _assert_postgres_success(result, "docker", "isolated")
+    message = str(failure.value)
+    assert "exited 2" in message and "migration output" in message
+    assert "administrator command" in message and type(error).__name__ in message
+    assert "container state" in message and "postgres logs" in message
+
+
+@pytest.mark.parametrize("stage", ["start", "readiness", "sql"])
+def test_postgres_failure_paths_collect_evidence_before_cleanup(monkeypatch, stage) -> None:
+    calls = []
+
+    def command_result(command, **kwargs):
+        calls.append(command)
+        failed = ((stage == "start" and "run" in command)
+                  or (stage == "sql" and "psql" in command))
+        return subprocess.CompletedProcess(command, 2 if failed else 0, "", "original failure")
+
+    def wait(*_):
+        if stage == "readiness":
+            pytest.fail("readiness failure\n" + _postgres_diagnostics("docker", "isolated"))
+
+    monkeypatch.setattr(shutil, "which", lambda _: "docker")
+    monkeypatch.setitem(globals(), "_run", command_result)
+    monkeypatch.setitem(globals(), "_wait_for_postgres", wait)
+    with pytest.raises(pytest.fail.Exception):
+        test_v2_and_health_migrations_service_role_rpc_replay_rollback_and_privileges()
+    assert "--rm" not in calls[0]
+    assert any("inspect" in command for command in calls[:-1])
+    assert any("logs" in command for command in calls[:-1])
+    assert calls[-1][:3] == ["docker", "rm", "--force"]
+    assert calls[-1][-1].startswith("absinthe-rel05e-")
+    assert calls[-1][-1] == calls[0][calls[0].index("--name") + 1]
