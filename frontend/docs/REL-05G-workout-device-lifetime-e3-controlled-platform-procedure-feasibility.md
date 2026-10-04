@@ -13,7 +13,8 @@ Primary result: `E3_FEASIBILITY_NOT_ESTABLISHED`. This is a completed **docs-onl
 | Bootstrap admission | `BOOTSTRAP_ADMISSION_REMAINS_BLOCKED_BY_EVIDENCE_QUALIFICATION` |
 | Writer-transition prerequisite | `CONDITIONAL`: any candidate changing writer semantics needs a separate prerequisite; no sufficient narrow candidate has been selected |
 | Physical qualification | `NOT_EXECUTED` |
-| Product/platform expansion | `ADDITIONAL_PRODUCT_PLATFORM_DECISION_REQUIRED` before privilege, migration, significant assisted support or new delivery architecture is selected |
+| Current bounded qualification decision | `CURRENT_BOUNDED_QUALIFICATION_DECISION = NO_NEW_PRODUCT_DECISION_REQUIRED`: separately scoped PATH A only after this PR #751 package is independently `CLOSED_IN_MAIN` |
+| New capability commitment | `NEW_CAPABILITY_COMMITMENT = ADDITIONAL_PRODUCT_PLATFORM_DECISION_REQUIRED`: PATH B requires a new explicit decision before commitment or implementation |
 
 No inspected current-web mechanism jointly establishes P1-P7 below. This is a conclusion about **Absinthe's current capabilities and the evaluated procedures**, not an impossibility theorem about every future web architecture. Physical observations could qualify particular platform premises; they cannot repair a protocol with no scope-complete evidence or entry fence. A future SW protocol remains an unproved prerequisite, not a sufficient current E3 candidate.
 
@@ -25,7 +26,7 @@ Normative contracts, re-read in full at this base:
 - [Bootstrap-admission prerequisite](REL-05G-workout-device-lifetime-bootstrap-admission-prerequisite.md): PD01-PD10, especially PD08 one-episode scope, truthful issuer, routing, writer preservation and 20 criteria.
 - [Admission-evidence / writer-safe routing characterization](REL-05G-workout-device-lifetime-admission-evidence-and-writer-safe-routing-characterization.md): approved DEVLIFE-ER-PD01-PD03, E1 retained, bounded E3 research first, R2-U ordering, unchanged writer semantics.
 
-DEVLIFE-ER-PD01 authorizes this bounded feasibility research. It supplies neither retirement evidence nor approval for E2/E4, production SW delivery, assisted-support commitment or writer change. No new product decision is being recorded here.
+DEVLIFE-ER-PD01 authorizes this bounded feasibility research and, after this PR #751 package is independently `CLOSED_IN_MAIN`, may support separately scoped non-destructive, non-production-changing observation/evidence acquisition under PATH A (section 12). It supplies neither retirement evidence nor approval for E2/E4, production SW delivery, assisted-support commitment or writer change under PATH B. No qualification is executed and no new product decision is recorded here.
 
 ## 2. Current production inventory and ownership
 
@@ -280,7 +281,7 @@ If C/G/H needs OS observation, extension, native bridge, trusted launcher or pri
 
 If D/I requires new profile/origin/container, clearing storage, regenerating identity, uninstall data loss or durable migration, label **`E3_COLLAPSES_INTO_E4_NEW_AUTHORITY_CONTAINER`**. Migration must preserve/explicitly reconcile all writer identities and durable records under separate reviewed authority; it is not approved by ER-PD01. No fresh-container source currently exists.
 
-If F needs new web delivery and pre-creator entry control, that architecture is a new prerequisite/product-platform decision, not an ordinary E3 procedure tweak. Nothing is selected silently. Additional non-mutating documentary research can remain within ER-PD01, but the next capability commitment cannot.
+If F needs new web delivery and pre-creator entry control, that architecture is a new prerequisite/product-platform decision, not an ordinary E3 procedure tweak. Nothing is selected silently. Additional non-mutating documentary research, and separately scoped PATH A physical observations after this package is independently `CLOSED_IN_MAIN`, can remain within ER-PD01. A PATH B capability commitment cannot; the distinction is defined in section 12.
 
 ## 10. Writer-safe envelope and data preservation
 
@@ -296,7 +297,9 @@ Failure/default is E1: authority-dependent feature remains unavailable/default-O
 
 ## 11. Future physical evidence protocol — NOT EXECUTED
 
-These plans are qualification requirements, not permission to execute physical tests or modify production. Review/closure and any required product decision precede fixture/protocol work. Tests use isolated sacrificial data, same-scope old fixtures intentionally bypassing coordination, and reviewed compatible fixtures instrumented **before every creation-capable entry**. Instrumentation is future work, not added here. Offline old-bundle scenarios are qualification threats even though current repo has no SW.
+These plans are qualification requirements, not blanket permission to execute physical tests or modify production. This PR #751 package must first complete review/correction/focused rereview, Final Merge Gate, human merge and independent `CLOSED_IN_MAIN` verification. A later task must explicitly scope observational/non-destructive PATH A subsets under existing ER-PD01; no new product decision is required merely for those subsets or purely test-only fixture instrumentation. Tests use isolated sacrificial data, same-scope old fixtures intentionally bypassing coordination, and reviewed compatible fixtures instrumented **before every creation-capable entry**. Instrumentation is future work, not added here. Offline old-bundle scenarios are qualification threats even though current repo has no SW.
+
+Capability-dependent subsets are PATH B, not silently included by the four plans: STOP before privileged/process-control tooling, production SW work, destructive uninstall/reinstall, fresh-container migration, storage/device-identity reset or a production support process. Writer drain/flush/eviction, repository reopen/rebind or any other writer semantic change also triggers STOP and the separate high-risk writer-transition prerequisite. Sacrificial fixtures do not waive those boundaries. A successful observation does not create an issuer or establish P1-P7; unresolved observations remain UNKNOWN / NOT QUALIFIED. Section 12 defines the decision split; physical qualification here remains `NOT_EXECUTED`.
 
 Common prerequisites and retained artifacts:
 
@@ -329,15 +332,50 @@ All four plans distinguish positive observations from a **complete machine proof
 
 Current classification per A/B/C/D is `E3_NOT_CURRENTLY_FEASIBLE`; aggregate/primary `E3_FEASIBILITY_NOT_ESTABLISHED`; evidence source `LIFECYCLE_EVIDENCE_SOURCE_REMAINS_UNAVAILABLE`; physical `NOT_EXECUTED`; writer prerequisite `CONDITIONAL`; bootstrap `BOOTSTRAP_ADMISSION_REMAINS_BLOCKED_BY_EVIDENCE_QUALIFICATION`. No candidate is promoted to pending-qualification evidence source merely because an inventory/physical plan exists.
 
-R2-U remains **NOT IMPLEMENTED**. Truthful E3 (or separately selected sufficient equivalent) evidence must precede R2-U becoming an admitted lane. Independently scoped R2-U preparation can remain useful as an UNADOPTED transparent seam, preserving synchronous helper timing and cached writer semantics. No discovered E3 candidate changes its approved frozen writer assumptions; selecting privileged/delivery/migration capability later requires revisiting only the relevant dependency under separate review, not silently rerouting now.
+R2-U remains **NOT IMPLEMENTED / `ARCHITECTURALLY_FEASIBLE_PENDING_DIFFERENTIAL_PROOF`**. Truthful E3 (or separately selected sufficient equivalent) evidence must precede R2-U becoming an admitted lane. Independently scoped R2-U preparation can remain useful as an UNADOPTED transparent seam, preserving synchronous helper timing and cached writer semantics. No discovered E3 candidate changes its approved frozen writer assumptions; selecting privileged/delivery/migration capability later requires revisiting only the relevant dependency under separate review, not silently rerouting now.
+
+### PATH A — existing PD01, bounded qualification without a new product decision
+
+`CURRENT_BOUNDED_QUALIFICATION_DECISION = NO_NEW_PRODUCT_DECISION_REQUIRED`. Only after this PR #751 package is independently `CLOSED_IN_MAIN`, existing approved ER-PD01 may support a **separately scoped** bounded non-destructive, non-production-changing observation/evidence task that makes no new capability commitment. Permitted subsets, where no PATH B dependency is required, may include:
+
+- Recording actual Edge/iOS/browser versions and existing lifecycle/background/restore/suspension behavior.
+- Measuring browser/PWA/Safari/Home Screen storage sharing or isolation, same-scope versus separate-container assumptions, and actual test Web Lock availability/contention.
+- Testing old/compatible fixture coexistence and documented behavior using isolated sacrificial data and purely test-only instrumentation, not a production control protocol.
+- Collecting machine-observable event ordering and exact data-preservation comparisons on sacrificial fixtures.
+
+The future task must select and review its actual observational steps rather than execute all four plans by implication. Observations may eliminate an assumption or expose a missing prerequisite; they do not by themselves establish P1-P7, qualify a lifecycle issuer or authorize admitted authority. No writer change, production SW architecture, privileged process control, destructive migration, R2-U implementation or bootstrap admission is authorized. This correction does not execute PATH A.
+
+### PATH B — new capability commitment requires a new product/platform decision
+
+`NEW_CAPABILITY_COMMITMENT = ADDITIONAL_PRODUCT_PLATFORM_DECISION_REQUIRED`. Return to the human product owner **before selecting, committing to or implementing** any materially new capability, including:
+
+- New web delivery/pre-creator entry-control architecture or production SW gating/control.
+- E2-like native executable, extension, privileged bridge, OS process observer or managed launcher with privileged enforcement.
+- E4-like authority/storage-container migration, destructive reinstall/storage reset or identity regeneration.
+- Significant assisted-support operational programs or production procedures requiring durable support commitments.
+- Writer semantic change, new persistent lifecycle issuer infrastructure or any trust-boundary expansion beyond the approved ordinary-web feasibility investigation.
+
+A new decision is necessary but not sufficient: the selected capability also needs separately scoped architecture/protocol and implementation reviews. `WRITER_SEMANTIC_CHANGE_REQUIRES_SEPARATE_HIGH_RISK_PREREQUISITE = TECHNICALLY_FIXED`; writer denial, flush/drain, eviction, changed retry/failure/readiness/recovery, repository reopen/rebind or outbox/digest/binding/CAS/receipt/transport/authorityEpoch change requires STOP and the separately authorized high-risk prerequisite. No PATH B capability is recommended, selected or approved by this correction. Continuing E1 or separately scoping PATH A does not require choosing PATH B first.
 
 Minimum justified next sequence:
 
-1. Independent review of this characterization exact head; bounded corrections/focused rereview as required.
-2. Final Merge Gate; human merge; independently verified `CLOSED_IN_MAIN`. No implementation or physical execution in this publication task.
-3. Retain E1 and stop **admitted-authority implementation** while evidence remains unavailable. If the owner wants to pursue progress, select an explicit new bounded capability decision: new web entry-control feasibility, E2-like privilege, E4 migration or assisted-platform scope. This document does not recommend a silently approved capability.
-4. Only after the chosen decision and separate architecture/protocol review: implement qualification fixtures/protocol, acquire actual target-platform evidence and assess P1-P7 plus writer firewall. Infeasible/unsafe outcome returns to E1. No issuer work before a sufficient mechanism is justified.
-5. A sufficient candidate may then lead to separately scoped issuer/routing, optional UNADOPTED R2-U preparation and cutover proof, prerequisite implementation review/correction/Final Merge Gate/human merge/`CLOSED_IN_MAIN`. Only the full prerequisite gate can resume Slice 2. Public physical/final-use/writer acceptance stays separate.
+1. Independent review of PR #751's characterization exact head.
+2. Bounded correction and focused rereview as required.
+3. Final Merge Gate.
+4. Human merge.
+5. Independent `CLOSED_IN_MAIN` verification of this package; no implementation or physical execution in this correction/publication task.
+6. Retain E1; bootstrap admission and admitted-authority implementation remain blocked while truthful evidence is unavailable.
+7. Separately scope a bounded non-destructive physical/evidence qualification task under existing ER-PD01.
+8. Execute only its reviewed PATH A observations/test-only fixtures requiring no new capability commitment; STOP any step crossing PATH B.
+9. Evaluate whether observations eliminate a platform assumption, identify a sufficiently concrete web-only prerequisite, show a new capability is needed, or leave E3 infeasible/unqualified. Unknown observations remain unqualified; no admission from observation alone.
+10. If progress requires new delivery/entry-control, E2-like privilege, E4 migration, significant assisted support or another PATH B commitment, obtain a new explicit human product/platform decision before implementing it, then its separate architecture/protocol review. If no justified path exists, retain E1 and STOP admission work.
+11. Only after a sufficient evidence mechanism is justified, separately scope issuer/routing work; qualification plans or fixture telemetry alone do not justify it.
+12. Optional R2-U preparation remains separately scoped, UNADOPTED / NO-GUARANTEE and subject to differential proof; it is not implemented here and is not admission.
+13. Obtain exact cutover proof for the selected narrow envelope.
+14. If any writer semantic change is required, STOP and complete the separately authorized high-risk writer-transition prerequisite before proceeding; no owner decision waives the firewall.
+15. Implement bootstrap admission only after truthful evidence and all required prerequisites exist.
+16. Bootstrap implementation receives its own independent review/correction/focused rereview, Final Merge Gate, human merge and independently verified `CLOSED_IN_MAIN`.
+17. Only then may a separate Slice 2 task resume. Public physical/final-use/writer acceptance remains separate.
 
 `FEATURE_REMOVAL_COMPATIBILITY`: preserved; removing/replacing an optional surface does not transfer authority or break the unaffected writer. `SURFACE_IS_NOT_AUTHORITY`: preserved; dialog, checkbox, install icon and Settings action never issue retirement authority. `MULTI_SURFACE_COMPATIBILITY`: preserved as a design requirement; one same-container source-owned authority must cover every relevant surface, while separately isolated containers must not share evidence. Actual cross-surface platform qualification is NOT EXECUTED.
 
@@ -395,6 +433,8 @@ Original **DEVLIFE-C01-C28: all REQUIRED / NOT EXECUTED**. In particular, neithe
 
 Publication scope is one new companion Markdown document. No production/runtime/test/config/backend/schema edit. No E3/issuer/SW/native helper/R2-U/creator routing/bootstrap/writer implementation, repository/session ownership change, #745 correction, Slice 2, reader activation, blocker closure, G6, Ready, merge or auto-merge. No platform shutdown/storage mutation was performed. Source proof and external documentation clarify dependencies; they do not satisfy live acceptance.
 
-Validate local references and `git diff --check`; publish a normal docs-only commit/new topic branch/new Draft PR. Required hosted evidence is **exact-head Push and PR**, each test/typecheck/build/backend-rel05g1/backend-recovery SUCCESS. Publication run IDs belong in the report/PR metadata, not a self-referential new commit merely to record its own SHA. CI cannot establish P1-P7 or physical qualification.
+Bounded correction record: `REL05G-DEVLIFE-E3-001 = CORRECTED_PENDING_FOCUSED_REREVIEW`. The semantic delta is the PATH A/PATH B decision and qualification boundary plus its next-work sequencing; accepted technical characterizations and acceptance states are unchanged. This is not finding closure, REVIEW_PASS, MERGE_GATE_PASS or `CLOSED_IN_MAIN`.
 
-Exact next step: **Independent review of this E3 feasibility/evidence-qualification characterization exact head.** Do not begin physical qualification, Service Worker work, privileged tooling, R2-U implementation or bootstrap admission before that review and the subsequent required closure pipeline.
+Validate local references and `git diff --check`; publish this normal docs-only correction commit on the existing topic branch and Draft PR #751, not a new PR. Required hosted evidence is **new exact-head Push and PR**, each test/typecheck/build/backend-rel05g1/backend-recovery SUCCESS; the prior-head runs do not qualify the correction. Publication run IDs belong in the report/PR metadata, not a self-referential new commit merely to record its own SHA. CI cannot establish P1-P7 or physical qualification.
+
+Exact next step: **Focused independent rereview of REL05G-DEVLIFE-E3-001 on the corrected exact head.** Do not run Final Merge Gate yet. Do not begin physical qualification, Service Worker work, privileged tooling, R2-U implementation or bootstrap admission before the required review and subsequent package-closure pipeline. Keep PR #751 Draft; no #745/Slice 2/activation/writer/G6 action.
