@@ -68,6 +68,8 @@ export async function build(output, sourceGitSha) {
       { key: 'Content-Security-Policy', value: "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'" },
     ] }],
   }) + '\n');
+  // CLI linking can create local credentials; these are NEVER static upload assets.
+  await writeFile(path.join(output, '.vercelignore'), '.env\n.env.*\n.vercel\n.git\n.gitignore\n.vercelignore\n');
   return generated;
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {

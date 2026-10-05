@@ -236,6 +236,8 @@ test('builder refuses overwriting changed immutable assets; server cannot serve 
   const temp = await mkdtemp(path.join(os.tmpdir(), 'rel05g-patha-build-'));
   const result = await build(temp, sourceGitSha); await build(temp, sourceGitSha);
   assert.equal(result.files.size, 15);
+  const ignore = await readFile(path.join(temp, '.vercelignore'), 'utf8');
+  for (const name of ['.env', '.env.*', '.vercel', '.git']) assert.equal(ignore.split('\n').includes(name), true);
   const asset = result.manifest.assets[0];
   await writeFile(path.join(temp, asset.path.slice(1)), 'tampered disposable test asset');
   await assert.rejects(build(temp, sourceGitSha), /IMMUTABLE_ASSET_ALREADY_EXISTS_DIFFERENT/);
