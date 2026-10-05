@@ -40,6 +40,8 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm test
+      - name: Isolated PATH A fixture invariant tests (not physical qualification)
+        run: node --test qualification/rel05g-patha/fixture.test.mjs
 
   build:
     runs-on: ubuntu-latest
