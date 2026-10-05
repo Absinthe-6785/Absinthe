@@ -48,9 +48,45 @@ export function assertOrigin(origin) {
   const url = new URL(origin);
   const local = url.origin === 'http://127.0.0.1:4189' || url.origin === 'http://localhost:4189';
   const hosted = url.protocol === 'https:' && url.port === ''
-    && /^rel05g-patha-qual(?:-[a-z0-9-]+)?\.vercel\.app$/.test(url.hostname);
+    && (url.hostname === 'rel05g-patha-qual.vercel.app'
+      || url.hostname === 'rel05g-patha-qual-dhlee6785-9668s-projects.vercel.app'
+      || /^rel05g-patha-qual-[a-z0-9]{9}-dhlee6785-9668s-projects\.vercel\.app$/.test(url.hostname));
   if (!local && !hosted) throw new Error('ORIGIN_NOT_ALLOWLISTED');
   return url.origin;
+}
+
+export function assertManifest(manifest, loadedArtifact) {
+  const closed = (value, fields) => value !== null && typeof value === 'object' && !Array.isArray(value)
+    && Object.keys(value).length === fields.length && fields.every((key) => Object.hasOwn(value, key));
+  const sha256 = (value) => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+  const { buildId, sourceGitSha, protocolVersion, role, manifestPath } = loadedArtifact;
+  if (!sha256(buildId) || typeof sourceGitSha !== 'string' || !/^[a-f0-9]{40}$/.test(sourceGitSha)
+    || protocolVersion !== PROTOCOL || !ROLES.includes(role)
+    || manifestPath !== `/${buildId}/artifact-manifest.json`
+    || !closed(manifest, ['schemaVersion', 'buildId', 'sourceGitSha', 'protocolVersion', 'qualificationOnly', 'roles', 'assets'])
+    || manifest.schemaVersion !== 'rel05g-patha-artifacts-v1' || manifest.qualificationOnly !== true
+    || manifest.buildId !== buildId || manifest.sourceGitSha !== sourceGitSha || manifest.protocolVersion !== PROTOCOL
+    || !Array.isArray(manifest.roles) || manifest.roles.length !== ROLES.length
+    || !ROLES.every((value, index) => manifest.roles[index] === value)) throw new Error('MANIFEST_MISMATCH');
+  // Independent closed inventory, not inferred from untrusted manifest.assets.
+  // Exact spelling rejects traversal, encoding, query and other path aliases.
+  const expected = new Map(['core.mjs', 'ui.mjs', 'style.css', 'icon.svg']
+    .map((name) => [`/${buildId}/${name}`, 'SHARED']));
+  for (const name of ['old', 'current', 'neutral']) {
+    for (const file of ['boot.mjs', 'index.html', 'manifest.webmanifest']) {
+      expected.set(`/${buildId}/${name}/${file}`, name.toUpperCase());
+    }
+  }
+  if (!Array.isArray(manifest.assets) || manifest.assets.length !== expected.size) throw new Error('INVALID_ASSET_INVENTORY');
+  const seen = new Set();
+  for (const asset of manifest.assets) {
+    if (!closed(asset, ['path', 'size', 'sha256', 'buildId', 'sourceGitSha', 'protocolVersion', 'role'])
+      || typeof asset.path !== 'string' || !expected.has(asset.path) || seen.has(asset.path)
+      || !Number.isSafeInteger(asset.size) || asset.size <= 0 || !sha256(asset.sha256)
+      || asset.buildId !== buildId || asset.sourceGitSha !== sourceGitSha || asset.protocolVersion !== PROTOCOL
+      || asset.role !== expected.get(asset.path)) throw new Error('INVALID_ASSET_INVENTORY');
+    seen.add(asset.path);
+  }
 }
 export function storageFor(raw, runId) {
   // No arbitrary full-key entry point, key enumeration, or clear API.

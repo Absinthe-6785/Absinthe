@@ -51,14 +51,34 @@ test('production denylist and all nonallowlisted keys rejected before raw access
 test('malformed and colon-injected run IDs rejected', () => {
   for (const run of ['', 'a:b', '../x', 'x'.repeat(65), null]) assert.throws(() => identifier(run));
 });
-test('production / app-localhost / LAN / arbitrary origins refused', () => {
-  for (const origin of ['https://absinthe-beryl.vercel.app', 'http://localhost:5173',
-    'http://127.0.0.1:5173', 'http://192.168.1.1:4189', 'https://other.vercel.app',
-    'https://rel05g-patha-qual.vercel.app.evil.example']) assert.throws(() => assertOrigin(origin));
+const deniedOrigins = [
+  'https://rel05g-patha-qual-attacker.vercel.app',
+  'https://rel05g-patha-qual-attacker-otherteam.vercel.app',
+  'https://rel05g-patha-qual-abc-other-projects.vercel.app',
+  'https://absinthe-beryl.vercel.app',
+  'https://absinthe-git-anything-dhlee6785-9668s-projects.vercel.app',
+  'http://localhost:5173', 'http://127.0.0.1:5173', 'http://192.168.1.1:4189',
+  'https://rel05g-patha-qual.vercel.app.evil.example', 'https://other.vercel.app',
+  'https://rel05g-patha-qual-1ct8gk4w7-other-projects.vercel.app',
+  'https://rel05g-patha-qual-dhlee6785-9668s-projects-otherteam.vercel.app',
+  'https://rel05g-patha-qual-extra-1ct8gk4w7-dhlee6785-9668s-projects.vercel.app',
+  'https://rel05g-patha-qual-abc-dhlee6785-9668s-projects.vercel.app',
+  'https://rel05g-patha-qual-1ct8gk4w77-dhlee6785-9668s-projects.vercel.app',
+  'https://rel05g-patha-qual-1ct8-k4w7-dhlee6785-9668s-projects.vercel.app',
+  'http://rel05g-patha-qual.vercel.app', 'https://rel05g-patha-qual.vercel.app:4189',
+];
+for (const origin of deniedOrigins) test(`origin firewall refuses ${origin} before Storage/locks`, () => {
+  const env = environment(); let lockCalls = 0; env.ports.origin = origin;
+  env.ports.locks = { request() { lockCalls++; } };
+  assert.throws(() => assertOrigin(origin), /ORIGIN_NOT_ALLOWLISTED/);
+  assert.throws(() => create('CURRENT_FIXTURE', env), /ORIGIN_NOT_ALLOWLISTED/);
+  assert.equal(env.touched.length, 0); assert.equal(lockCalls, 0);
 });
 test('reserved loopback and dedicated HTTPS project deployment accepted', () => {
   for (const origin of ['http://127.0.0.1:4189', 'http://localhost:4189',
-    'https://rel05g-patha-qual.vercel.app', 'https://rel05g-patha-qual-xyz-team.vercel.app']) assert.equal(assertOrigin(origin), origin);
+    'https://rel05g-patha-qual.vercel.app',
+    'https://rel05g-patha-qual-dhlee6785-9668s-projects.vercel.app',
+    'https://rel05g-patha-qual-1ct8gk4w7-dhlee6785-9668s-projects.vercel.app']) assert.equal(assertOrigin(origin), origin);
 });
 test('unsafe origin denied without even reading Storage', () => {
   const env = environment(); env.ports.origin = 'http://localhost:5173';
@@ -267,38 +287,139 @@ test('standalone server static delivery only: app/API/traversal/foreign Host ref
   } finally { await new Promise((resolve) => server.close(resolve)); }
 });
 
-test('ordinary UI renders all roles, controls/log viewer, verified artifact and start is explicit (DOM model only)', async () => {
-  const a = await artifacts(sourceGitSha);
+// A Storage-port getter marks the constructor expression boundary: new Fixture
+// cannot be evaluated without this port. No getter access proves it was not reached.
+async function withUI(a, role, inspect, { manifest = a.manifest,
+  origin = 'http://127.0.0.1:4189', corruptAsset = null } = {}) {
   const globals = ['window', 'document', 'location', 'navigator', 'localStorage', 'isSecureContext', 'matchMedia', 'fetch'];
   const descriptors = new Map(globals.map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+  const name = role.replace('_FIXTURE', '').toLowerCase();
+  const dom = new Window({ url: `${origin}/${a.buildId}/${name}/?run=ui001&test=A1` });
+  const env = environment(); const fetched = []; let storagePortAccesses = 0; let lockCalls = 0;
   try {
-    for (const role of ['OLD_FIXTURE', 'CURRENT_FIXTURE', 'NEUTRAL_FIXTURE']) {
-      const name = role.replace('_FIXTURE', '').toLowerCase();
-      const dom = new Window({ url: `http://127.0.0.1:4189/${a.buildId}/${name}/?run=ui001&test=A1` });
-      Object.defineProperty(dom.navigator, 'serviceWorker', { value: undefined, configurable: true });
-      const values = { window: dom, document: dom.document, location: dom.location, navigator: dom.navigator,
-        localStorage: dom.localStorage, isSecureContext: true, matchMedia: dom.matchMedia.bind(dom),
-        fetch: async (url) => new Response(a.files.get(url), { status: a.files.has(url) ? 200 : 404 }) };
-      for (const key of globals) Object.defineProperty(globalThis, key, { value: values[key], configurable: true });
-      const { boot } = await import(`./ui.mjs?dom=${randomUUID()}`);
-      await boot({ role, buildId: a.buildId, sourceGitSha, protocolVersion: PROTOCOL,
-        manifestPath: `/${a.buildId}/artifact-manifest.json` });
-      assert.equal(dom.document.body.textContent.includes('Preflight OK'), true);
-      assert.equal(dom.localStorage.length, 0, 'no synthetic run starts automatically');
-      const buttons = [...dom.document.querySelectorAll('button')];
-      const lock = buttons.find((b) => b.textContent.startsWith('Request exclusive'));
-      assert.equal(Boolean(lock), role === 'CURRENT_FIXTURE');
-      buttons.find((b) => b.textContent === 'Start synthetic run').click(); await turn(); await turn();
-      assert.equal(dom.document.body.textContent.includes('FLUSHED_THROUGH_2'), true);
-      buttons.find((b) => /raw token write|Write fresh token/.test(b.textContent)).click(); await turn();
-      assert.equal(dom.document.body.textContent.includes('qual-'), true);
-      assert.equal(dom.document.body.textContent.includes('STORAGE_WRITE'), true);
-      await dom.happyDOM.abort();
-    }
+    Object.defineProperty(dom.navigator, 'serviceWorker', { value: undefined, configurable: true });
+    Object.defineProperty(dom.navigator, 'locks', { value: { request() { lockCalls++; } }, configurable: true });
+    const manifestPath = `/${a.buildId}/artifact-manifest.json`;
+    const values = { window: dom, document: dom.document, location: dom.location, navigator: dom.navigator,
+      isSecureContext: true, matchMedia: dom.matchMedia.bind(dom),
+      fetch: async (url, options) => {
+        fetched.push(url); assert.equal(options.credentials, 'omit'); assert.equal(options.cache, 'no-store');
+        const bytes = url === manifestPath ? Buffer.from(stableJSON(manifest) + '\n')
+          : url === corruptAsset ? Buffer.from(a.files.get(url)).fill(0, 0, 1) : a.files.get(url);
+        return new Response(bytes, { status: bytes ? 200 : 404 });
+      } };
+    for (const key of globals) Object.defineProperty(globalThis, key, key === 'localStorage'
+      ? { get() { storagePortAccesses++; return env.ports.storage; }, configurable: true }
+      : { value: values[key], configurable: true });
+    const { boot } = await import(`./ui.mjs?dom=${randomUUID()}`);
+    await boot({ role, buildId: a.buildId, sourceGitSha, protocolVersion: PROTOCOL, manifestPath });
+    await inspect({ dom, env, fetched, storagePortAccesses: () => storagePortAccesses, lockCalls: () => lockCalls });
   } finally {
+    await dom.happyDOM.abort();
     for (const key of globals) {
       const descriptor = descriptors.get(key);
       if (descriptor) Object.defineProperty(globalThis, key, descriptor); else delete globalThis[key];
     }
+  }
+}
+
+const invalidManifests = [
+  ['empty assets', (m) => { m.assets = []; }],
+  ['missing assets', (m) => { delete m.assets; }],
+  ['non-array assets', (m) => { m.assets = {}; }],
+  ['missing required asset', (m) => { m.assets.pop(); }],
+  ['duplicate required path', (m) => { m.assets[1] = structuredClone(m.assets[0]); }],
+  ['extra inventory entry', (m) => { m.assets.push(structuredClone(m.assets[0])); }],
+  ['outside build path', (m) => { m.assets[0].path = '/another/core.mjs'; }],
+  ['traversal alias', (m) => { m.assets[0].path = `/${m.buildId}/old/../core.mjs`; }],
+  ['encoded alias', (m) => { m.assets[0].path = `/${m.buildId}/%63ore.mjs`; }],
+  ['query alias', (m) => { m.assets[0].path += '?alias=1'; }],
+  ['invalid SHA format', (m) => { m.assets[0].sha256 = 'not-a-hash'; }],
+  ['numeric SHA', (m) => { m.assets[0].sha256 = 1; }],
+  ['negative size', (m) => { m.assets[0].size = -1; }],
+  ['zero size', (m) => { m.assets[0].size = 0; }],
+  ['fractional size', (m) => { m.assets[0].size = 1.5; }],
+  ['string size', (m) => { m.assets[0].size = '12'; }],
+  ['unsafe integer size', (m) => { m.assets[0].size = Number.MAX_SAFE_INTEGER + 1; }],
+  ['asset source mismatch', (m) => { m.assets[0].sourceGitSha = 'd'.repeat(40); }],
+  ['asset build mismatch', (m) => { m.assets[0].buildId = 'd'.repeat(64); }],
+  ['asset protocol mismatch', (m) => { m.assets[0].protocolVersion = 'another-protocol'; }],
+  ['asset role mismatch', (m) => { m.assets[0].role = 'OLD_FIXTURE'; }],
+  ['valid role on wrong path', (m) => { m.assets.find((asset) => asset.role === 'OLD').role = 'CURRENT'; }],
+  ['missing asset field', (m) => { delete m.assets[0].role; }],
+  ['extra asset field', (m) => { m.assets[0].unexpected = true; }],
+  ['null asset', (m) => { m.assets[0] = null; }],
+  ['wrong manifest schema', (m) => { m.schemaVersion = 'another-schema'; }],
+  ['wrong manifest build', (m) => { m.buildId = 'd'.repeat(64); }],
+  ['wrong manifest source', (m) => { m.sourceGitSha = 'd'.repeat(40); }],
+  ['wrong manifest protocol', (m) => { m.protocolVersion = 'another-protocol'; }],
+  ['qualification false', (m) => { m.qualificationOnly = false; }],
+  ['roles duplicated', (m) => { m.roles[1] = m.roles[0]; }],
+  ['non-array roles', (m) => { m.roles = {}; }],
+  ['missing roles', (m) => { delete m.roles; }],
+  ['extra manifest field', (m) => { m.unexpected = true; }],
+  ['null manifest', () => null],
+];
+for (const [name, corrupt] of invalidManifests) test(`invalid manifest ${name} stops before Start/constructor/Storage/locks (DOM model)`, async () => {
+  const a = await artifacts(sourceGitSha); const copy = structuredClone(a.manifest);
+  const result = corrupt(copy); const manifest = result === null ? null : copy;
+  await withUI(a, 'CURRENT_FIXTURE', async ({ dom, env, fetched, storagePortAccesses, lockCalls }) => {
+    assert.equal(dom.document.body.textContent.includes('Preflight OK'), false);
+    assert.match(dom.document.body.textContent, /STOP:/);
+    const start = [...dom.document.querySelectorAll('button')].find((b) => b.textContent === 'Start synthetic run');
+    assert.equal(start, undefined, 'failed preflight exposes no constructor trigger');
+    assert.equal(fetched.length, 1, 'inventory rejected before asset fetch loop');
+    assert.equal(storagePortAccesses(), 0, 'constructor expression never reached');
+    assert.equal(env.touched.length, 0); assert.equal(lockCalls(), 0);
+  }, { manifest });
+});
+
+test('unauthorized attacker origin fails UI preflight before manifest GET or state access (DOM model)', async () => {
+  const a = await artifacts(sourceGitSha);
+  await withUI(a, 'CURRENT_FIXTURE', async ({ dom, env, fetched, storagePortAccesses, lockCalls }) => {
+    assert.match(dom.document.body.textContent, /STOP:/); assert.equal(dom.document.querySelector('button'), null);
+    assert.equal(fetched.length, 0); assert.equal(storagePortAccesses(), 0);
+    assert.equal(env.touched.length, 0); assert.equal(lockCalls(), 0);
+  }, { origin: deniedOrigins[0] });
+});
+
+test('same-size tampered asset cannot bypass delivered hash verification (DOM model)', async () => {
+  const a = await artifacts(sourceGitSha);
+  await withUI(a, 'CURRENT_FIXTURE', async ({ dom, env, storagePortAccesses, lockCalls }) => {
+    assert.match(dom.document.body.textContent, /STOP:/); assert.equal(dom.document.querySelector('button'), null);
+    assert.equal(storagePortAccesses(), 0); assert.equal(env.touched.length, 0); assert.equal(lockCalls(), 0);
+  }, { corruptAsset: a.manifest.assets[0].path });
+});
+
+for (const field of ['size', 'sha256']) test(`valid-format wrong ${field} still fails delivered-byte verification before state (DOM model)`, async () => {
+  const a = await artifacts(sourceGitSha); const manifest = structuredClone(a.manifest);
+  if (field === 'size') manifest.assets[0].size++;
+  else manifest.assets[0].sha256 = 'd'.repeat(64);
+  await withUI(a, 'CURRENT_FIXTURE', async ({ dom, env, fetched, storagePortAccesses, lockCalls }) => {
+    assert.match(dom.document.body.textContent, /STOP:/); assert.equal(dom.document.querySelector('button'), null);
+    assert.equal(fetched.length, 2, 'canonical inventory passed; actual bytes did not');
+    assert.equal(storagePortAccesses(), 0); assert.equal(env.touched.length, 0); assert.equal(lockCalls(), 0);
+  }, { manifest });
+});
+
+test('ordinary UI renders all roles, controls/log viewer, verified artifact and start is explicit (DOM model only)', async () => {
+  const a = await artifacts(sourceGitSha);
+  for (const role of ['OLD_FIXTURE', 'CURRENT_FIXTURE', 'NEUTRAL_FIXTURE']) {
+    await withUI(a, role, async ({ dom, env, fetched, storagePortAccesses, lockCalls }) => {
+      assert.equal(dom.document.body.textContent.includes('Preflight OK'), true);
+      assert.equal(fetched.length, 14, 'manifest + every one of the 13 required assets');
+      assert.deepEqual(fetched.slice(1).sort(), a.manifest.assets.map((asset) => asset.path).sort());
+      assert.equal(storagePortAccesses(), 0); assert.equal(env.touched.length, 0);
+      assert.equal(lockCalls(), 0, 'no synthetic run starts automatically');
+      const buttons = [...dom.document.querySelectorAll('button')];
+      const lock = buttons.find((b) => b.textContent.startsWith('Request exclusive'));
+      assert.equal(Boolean(lock), role === 'CURRENT_FIXTURE');
+      buttons.find((b) => b.textContent === 'Start synthetic run').click(); await turn(); await turn();
+      assert.equal(storagePortAccesses(), 1); assert.equal(env.touched.length > 0, true);
+      assert.equal(dom.document.body.textContent.includes('FLUSHED_THROUGH_2'), true);
+      buttons.find((b) => /raw token write|Write fresh token/.test(b.textContent)).click(); await turn();
+      assert.equal(dom.document.body.textContent.includes('qual-'), true);
+      assert.equal(dom.document.body.textContent.includes('STORAGE_WRITE'), true);
+    });
   }
 });

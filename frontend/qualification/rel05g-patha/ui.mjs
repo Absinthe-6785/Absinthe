@@ -1,4 +1,4 @@
-import { Fixture, PROTOCOL, assertOrigin, identifier, keyFor, lockFor } from './core.mjs';
+import { Fixture, PROTOCOL, assertOrigin, assertManifest, identifier, keyFor, lockFor } from './core.mjs';
 
 const element = (tag, text, parent = document.body) => {
   const node = document.createElement(tag); node.textContent = text; parent.append(node); return node;
@@ -36,11 +36,9 @@ export async function boot(loadedArtifact) {
     if (!response.ok) throw new Error('MANIFEST_UNAVAILABLE');
     const bytes = await response.arrayBuffer(); manifestSha256 = await sha256(bytes);
     const manifest = JSON.parse(new TextDecoder().decode(bytes));
-    if (manifest.buildId !== loadedArtifact.buildId || manifest.sourceGitSha !== loadedArtifact.sourceGitSha
-      || manifest.protocolVersion !== PROTOCOL) throw new Error('MANIFEST_MISMATCH');
+    assertManifest(manifest, loadedArtifact);
     // Check every delivered asset; current-realm provenance, NOT trusted execution attestation.
     for (const asset of manifest.assets) {
-      if (!asset.path.startsWith(`/${loadedArtifact.buildId}/`)) throw new Error('ASSET_OUTSIDE_BUILD');
       const fetched = await fetch(asset.path, { cache: 'no-store', credentials: 'omit' });
       const data = await fetched.arrayBuffer();
       if (!fetched.ok || data.byteLength !== asset.size || await sha256(data) !== asset.sha256) {
