@@ -96,7 +96,9 @@ export async function boot(loadedArtifact) {
         ? 'standalone-observed' : 'browser-or-other',
       wall: () => Date.now(), timeOrigin: performance.timeOrigin, now: () => performance.now(),
       visibility: () => document.visibilityState, navigationType: performance.getEntriesByType('navigation')[0]?.type,
-      setTimer: setTimeout, clearTimer: clearTimeout, changed: update,
+      // Core invokes ports as methods; native timers require the Window receiver.
+      setTimer: (fn, ms) => window.setTimeout(fn, ms),
+      clearTimer: (id) => window.clearTimeout(id), changed: update,
     });
     start.disabled = true; run.disabled = true; test.disabled = true;
     for (const node of actions.querySelectorAll('button')) node.disabled = false;
