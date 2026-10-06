@@ -290,18 +290,42 @@ test('standalone server static delivery only: app/API/traversal/foreign Host ref
 // A Storage-port getter marks the constructor expression boundary: new Fixture
 // cannot be evaluated without this port. No getter access proves it was not reached.
 async function withUI(a, role, inspect, { manifest = a.manifest,
-  origin = 'http://127.0.0.1:4189', corruptAsset = null } = {}) {
-  const globals = ['window', 'document', 'location', 'navigator', 'localStorage', 'isSecureContext', 'matchMedia', 'fetch'];
+  origin = 'http://127.0.0.1:4189', corruptAsset = null, receiverTimers = false, pendingLock = false } = {}) {
+  const globals = ['window', 'document', 'location', 'navigator', 'localStorage', 'isSecureContext', 'matchMedia', 'fetch',
+    ...(receiverTimers ? ['setTimeout', 'clearTimeout'] : [])];
   const descriptors = new Map(globals.map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
   const name = role.replace('_FIXTURE', '').toLowerCase();
-  const dom = new Window({ url: `${origin}/${a.buildId}/${name}/?run=ui001&test=A1` });
+  const dom = new Window({ url: `${origin}/${a.buildId}/${name}/?run=ui001&test=${receiverTimers ? 'QA_TIMER' : 'A1'}` });
   const env = environment(); const fetched = []; let storagePortAccesses = 0; let lockCalls = 0;
+  const timers = { scheduled: [], cleared: [] };
   try {
     Object.defineProperty(dom.navigator, 'serviceWorker', { value: undefined, configurable: true });
-    Object.defineProperty(dom.navigator, 'locks', { value: { request() { lockCalls++; } }, configurable: true });
+    Object.defineProperty(dom.navigator, 'locks', { value: { async request(_name, { signal }, callback) {
+      lockCalls++;
+      if (!receiverTimers) return;
+      if (!pendingLock) return callback();
+      return new Promise((_resolve, reject) => {
+        if (signal.aborted) reject(new Error('ABORTED'));
+        else signal.addEventListener('abort', () => reject(new Error('ABORTED')), { once: true });
+      });
+    } }, configurable: true });
+    if (receiverTimers) {
+      // Native-style receiver checks, not Happy DOM's permissive bound timers.
+      // Bare global calls are legal; ports-object method calls are not.
+      const validReceiver = (receiver) => receiver === dom || receiver === undefined || receiver === globalThis;
+      dom.setTimeout = function (fn, ms) {
+        if (!validReceiver(this)) throw new TypeError('Illegal invocation');
+        timers.scheduled.push({ fn, ms }); return 903;
+      };
+      dom.clearTimeout = function (id) {
+        if (!validReceiver(this)) throw new TypeError('Illegal invocation');
+        timers.cleared.push(id);
+      };
+    }
     const manifestPath = `/${a.buildId}/artifact-manifest.json`;
     const values = { window: dom, document: dom.document, location: dom.location, navigator: dom.navigator,
       isSecureContext: true, matchMedia: dom.matchMedia.bind(dom),
+      setTimeout: dom.setTimeout, clearTimeout: dom.clearTimeout,
       fetch: async (url, options) => {
         fetched.push(url); assert.equal(options.credentials, 'omit'); assert.equal(options.cache, 'no-store');
         const bytes = url === manifestPath ? Buffer.from(stableJSON(manifest) + '\n')
@@ -313,7 +337,7 @@ async function withUI(a, role, inspect, { manifest = a.manifest,
       : { value: values[key], configurable: true });
     const { boot } = await import(`./ui.mjs?dom=${randomUUID()}`);
     await boot({ role, buildId: a.buildId, sourceGitSha, protocolVersion: PROTOCOL, manifestPath });
-    await inspect({ dom, env, fetched, storagePortAccesses: () => storagePortAccesses, lockCalls: () => lockCalls });
+    await inspect({ dom, env, fetched, timers, storagePortAccesses: () => storagePortAccesses, lockCalls: () => lockCalls });
   } finally {
     await dom.happyDOM.abort();
     for (const key of globals) {
@@ -422,4 +446,32 @@ test('ordinary UI renders all roles, controls/log viewer, verified artifact and 
       assert.equal(dom.document.body.textContent.includes('STORAGE_WRITE'), true);
     });
   }
+});
+
+for (const pendingLock of [false, true]) test(`UI browser-native receiver regression: ${pendingLock ? 'pending cancel' : 'acquire and manual release'} (QA model, not physical qualification)`, async () => {
+  const a = await artifacts(sourceGitSha);
+  await withUI(a, 'CURRENT_FIXTURE', async ({ dom, env, timers, lockCalls }) => {
+    const rawPorts = { setTimer: dom.setTimeout, clearTimer: dom.clearTimeout };
+    assert.throws(() => rawPorts.setTimer(() => {}, 60000), /Illegal invocation/);
+    assert.throws(() => rawPorts.clearTimer(903), /Illegal invocation/);
+    assert.deepEqual(timers, { scheduled: [], cleared: [] }, 'negative controls reject the invalid receiver');
+    const button = (prefix) => [...dom.document.querySelectorAll('button')].find((node) => node.textContent.startsWith(prefix));
+    const events = () => JSON.parse([...env.raw.entries()].find(([key]) => key.includes(':event-log:'))[1]);
+    button('Start synthetic run').click(); await turn(); await turn();
+    button('Request exclusive').click(); await turn(); await turn();
+    assert.equal(lockCalls(), 1, 'native timer binding must not prevent locks.request');
+    assert.equal(timers.scheduled.length, 1); assert.equal(timers.scheduled[0].ms, 60000);
+    assert.deepEqual(events().map((event) => event.type), pendingLock
+      ? ['START', 'NAVIGATION', 'ACTION', 'LOCK_REQUEST']
+      : ['START', 'NAVIGATION', 'ACTION', 'LOCK_REQUEST', 'LOCK_ACQUIRED']);
+    assert.equal(events()[2].payload.operation, 'REQUEST_TEST_LOCK');
+    assert.equal(events()[3].payload.budgetMs, 60000);
+    button('Release / cancel').click(); await turn(); await turn();
+    assert.deepEqual(events().filter((event) => event.type.startsWith('LOCK')).map((event) => event.type),
+      pendingLock ? ['LOCK_REQUEST', 'LOCK_ABORTED'] : ['LOCK_REQUEST', 'LOCK_ACQUIRED', 'LOCK_RELEASED']);
+    assert.deepEqual(timers.cleared, [903], 'native clearTimeout receives the same timer ID');
+    assert.equal(events().some((event) => event.type === 'ERROR'), false);
+    assert.equal(dom.document.body.textContent.includes('"lockStatus": "IDLE"'), true);
+    assert.equal(/DIFFERENT_SCOPE|SAFE|RETIRED|QUIESCED|ADMITTED/.test(JSON.stringify(events())), false);
+  }, { receiverTimers: true, pendingLock });
 });
