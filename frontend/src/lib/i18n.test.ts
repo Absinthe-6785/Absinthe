@@ -8,21 +8,27 @@ import translationKeys, { buildLocaleDictionary } from './i18n/keys';
 import type { TranslationKey } from './i18n';
 
 const PLANNER_STORAGE_KEY = 'planner-storage';
-const EXPECTED_KEY_COUNT = 2_122;
+const EXPECTED_KEY_COUNT = 2_142;
 type Locale = 'en' | 'ko' | 'ja';
 
-// Authority updated only for the nine appended, source-separated Home preview strings.
+// Authority updated only for the twenty appended, source-separated comparison preview strings.
 // The canonical serialization includes every key and exact locale value in
 // translationKeys order, so it detects insertion, omission, reordering, and
 // substitution without using buildLocaleDictionary.
 const EXPECTED_LOCALE_INTEGRITY_SHA256: Record<Locale, string> = {
+  en: 'f5726ffc115c1a36c6914f06880afd039c161558e74936988dbc8afa99b4108e',
+  ko: '475b168f519b4f56521cf1b22c14c38258458185a095c70d3127fdc7d7005648',
+  ja: '760a088a8e880b29b6760dcf7b960ef3335329ba150ec73ac85b7f45a2090fdd',
+};
+
+const PRE_COMPARISON_LOCALE_SHA256: Record<Locale, string> = {
   en: '71c014f37b1180bf096fd52d7b42c0c5feb8dfcd3984909071ce4396ea84a14b',
   ko: '4bbf47b48432831cd8b69d327c64f429d2e1fce7d600d304e24fcee78d150b64',
   ja: '0842a1f2701cad6a7cd3f54f2a21b64599d45204f842644892e3c774d87208af',
 };
 
-function localeIntegrityDigest(values: readonly string[]) {
-  const canonical = translationKeys
+function localeIntegrityDigest(values: readonly string[], keys: readonly string[] = translationKeys) {
+  const canonical = keys
     .map((key, index) => `${JSON.stringify(key)}\u001f${JSON.stringify(values[index])}`)
     .join('\u001e');
   return createHash('sha256').update(canonical, 'utf8').digest('hex');
@@ -94,15 +100,22 @@ describe('i18n locale dictionaries', () => {
     expect(() => assertLocaleValuesIntegrity('ja', jaLocaleValues)).not.toThrow();
   });
 
+  it('preserves every pre-comparison key and exact locale value unchanged', () => {
+    for (const [locale, values] of [['en', enLocaleValues], ['ko', koLocaleValues], ['ja', jaLocaleValues]] as const) {
+      expect(localeIntegrityDigest(values.slice(0, 2_122), translationKeys.slice(0, 2_122)))
+        .toBe(PRE_COMPARISON_LOCALE_SHA256[locale]);
+    }
+  });
+
   it('rejects a missing value before positional assembly', () => {
     const missing = [...enLocaleValues];
     missing.splice(1_000, 1);
 
     expect(() => buildLocaleDictionary(missing)).toThrow(
-      'Locale dictionary length mismatch: expected 2122, received 2121',
+      'Locale dictionary length mismatch: expected 2142, received 2141',
     );
     expect(() => assertLocaleValuesIntegrity('en', missing)).toThrow(
-      'Locale integrity length mismatch: expected 2122, received 2121',
+      'Locale integrity length mismatch: expected 2142, received 2141',
     );
   });
 
@@ -111,10 +124,10 @@ describe('i18n locale dictionaries', () => {
     extra.splice(1_000, 0, '__unexpected__');
 
     expect(() => buildLocaleDictionary(extra)).toThrow(
-      'Locale dictionary length mismatch: expected 2122, received 2123',
+      'Locale dictionary length mismatch: expected 2142, received 2143',
     );
     expect(() => assertLocaleValuesIntegrity('en', extra)).toThrow(
-      'Locale integrity length mismatch: expected 2122, received 2123',
+      'Locale integrity length mismatch: expected 2142, received 2143',
     );
   });
 

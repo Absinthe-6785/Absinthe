@@ -33,6 +33,7 @@ import { computeWorkoutPrBadgeMap } from './features/health/computeWorkoutPrBadg
 import { HealthBlockLibrary } from './features/health/HealthBlockLibrary';
 import { HealthSupportingPanels } from './features/health/HealthSupportingPanels';
 import { WorkoutPrBadge } from './features/health/WorkoutPrBadge';
+import { HealthExerciseComparisonPreview } from './features/health/HealthExerciseComparisonPreview';
 import { PreviousWorkoutView } from './features/health/PreviousWorkoutView';
 import { PreviousWorkoutSheet } from './features/health/PreviousWorkoutSheet';
 import { previousWorkoutSWRConfig } from './features/health/previousWorkoutSWR';
@@ -1750,6 +1751,12 @@ export const HealthView = ({
                   </div>
                   <WorkoutPrBadge badge={prBadgeMap[w.block_id] ?? null} darkMode={appSettings.darkMode} />
                 </div>
+                {workoutRangeComposite?.exerciseComparison ? <HealthExerciseComparisonPreview
+                  read={workoutRangeComposite.exerciseComparison}
+                  exerciseId={w.block_id}
+                  exerciseName={w.exercise_blocks?.name ?? null}
+                  exerciseType={w.exercise_blocks?.type ?? null}
+                /> : null}
                 {/* 컬럼 헤더 — cardio */}
                 {isCardioSet(w.sets?.[0] ?? makeDefaultSet(w.exercise_blocks?.type ?? 'strength')) && (() => {
                   const mode = w.exercise_blocks?.cardio_mode ?? 'both';

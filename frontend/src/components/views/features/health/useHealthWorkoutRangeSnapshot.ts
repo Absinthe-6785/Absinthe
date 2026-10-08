@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { HealthExerciseComparisonBorrower, type HealthExerciseComparisonRead } from './healthExerciseComparisonBorrower';
+import type { WorkoutExerciseComparisonContext } from '../../../../lib/workoutExerciseComparisonOwner';
 import {
   CompositeWorkoutReadIsolationError,
 } from './compositeWorkoutReadProjection';
@@ -37,12 +39,14 @@ export type HealthWorkoutRangeReadModel = Readonly<{
   invalidateAndReload: () => void;
   previewRead?: WorkoutRangePreviewRead;
   isPreviewCurrent: (read: WorkoutRangePreviewRead) => boolean;
+  exerciseComparison?: HealthExerciseComparisonRead;
 }>;
 
-type StoredRangeRead = Omit<HealthWorkoutRangeReadModel, 'retry' | 'invalidateAndReload' | 'isPreviewCurrent'>;
+type StoredRangeRead = Omit<HealthWorkoutRangeReadModel, 'retry' | 'invalidateAndReload' | 'isPreviewCurrent' | 'exerciseComparison'>;
 
 type RangeCoordinator = Pick<WorkoutReadSnapshotCoordinator,
-  'load' | 'deriveRange' | 'invalidate' | 'close' | 'currentSnapshot'>;
+  'load' | 'deriveRange' | 'invalidate' | 'close' | 'currentSnapshot'>
+  & Partial<Pick<WorkoutReadSnapshotCoordinator, 'captureCurrentSnapshot'>>;
 
 export type HealthWorkoutRangeDependencies = Readonly<{
   createCoordinator?: (accountId: string, storage: Storage) => RangeCoordinator;
@@ -77,6 +81,7 @@ export function useHealthWorkoutRangeSnapshot(
   monthBounds: WorkoutRangeBounds,
   dependencies?: HealthWorkoutRangeDependencies,
   previewScope?: WorkoutRangePreviewScope,
+  comparisonContext?: WorkoutExerciseComparisonContext,
 ): HealthWorkoutRangeReadModel {
   const [refresh, setRefresh] = useState(0);
   const [sourceRevision, setSourceRevision] = useState(0);
@@ -84,11 +89,35 @@ export function useHealthWorkoutRangeSnapshot(
     initialState(enabled, accountId, previousBounds, monthBounds)
   ));
   const coordinatorRef = useRef<RangeCoordinator | null>(null);
+  const coordinatorAccountRef = useRef<string | null>(null);
+  const comparisonRef = useRef<HealthExerciseComparisonBorrower | null>(null);
+  const comparisonSourceRef = useRef<RangeCoordinator | null>(null);
   const ownerEpoch = useRef(0);
   const publicationSequence = useRef(0);
   const automaticCurrentnessRetryUsed = useRef(false);
-  const currentRef = useRef({ enabled, accountId, previousBounds, monthBounds, previewScope });
-  currentRef.current = { enabled, accountId, previousBounds, monthBounds, previewScope };
+  const currentRef = useRef({ enabled, accountId, previousBounds, monthBounds, previewScope, comparisonContext });
+  currentRef.current = { enabled, accountId, previousBounds, monthBounds, previewScope, comparisonContext };
+  const comparisonEnabled = enabled && !!comparisonContext?.enabled;
+  // Revoke before rendering children. Effects alone would leave account/date/enable
+  // ABA continuations authorized between render and effect cleanup.
+  if (!comparisonEnabled || coordinatorAccountRef.current !== accountId
+    || comparisonSourceRef.current !== coordinatorRef.current) {
+    comparisonRef.current?.close(false);
+    comparisonRef.current = null;
+    comparisonSourceRef.current = null;
+  }
+  const comparisonSource = coordinatorRef.current;
+  if (comparisonEnabled && coordinatorAccountRef.current === accountId
+    && comparisonSource?.captureCurrentSnapshot && !comparisonRef.current) {
+    comparisonSourceRef.current = comparisonSource;
+    comparisonRef.current = new HealthExerciseComparisonBorrower({
+      captureCurrentSnapshot: () => comparisonSource.captureCurrentSnapshot!(),
+    }, () => currentRef.current.enabled && !!currentRef.current.comparisonContext?.enabled
+      && currentRef.current.accountId === accountId && coordinatorRef.current === comparisonSource);
+  }
+  const comparisonPort = comparisonRef.current?.setContext({
+    enabled: comparisonEnabled, selectedDate: comparisonContext?.selectedDate ?? '',
+  });
   const previewPublicationRef = useRef<WorkoutRangePreviewRead | null>(null);
   const isPreviewCurrent = useCallback((read: WorkoutRangePreviewRead) => {
     const current = currentRef.current;
@@ -103,6 +132,7 @@ export function useHealthWorkoutRangeSnapshot(
     automaticCurrentnessRetryUsed.current = false;
     previewPublicationRef.current = null;
     publicationSequence.current += 1;
+    comparisonRef.current?.invalidate();
     coordinatorRef.current?.invalidate();
     setStored(initialState(true, current.accountId, current.previousBounds, current.monthBounds));
     setRefresh(value => value + 1);
@@ -113,6 +143,7 @@ export function useHealthWorkoutRangeSnapshot(
     if (!current.enabled) return;
     previewPublicationRef.current = null;
     publicationSequence.current += 1;
+    comparisonRef.current?.invalidate();
     coordinatorRef.current?.invalidate();
     if (automaticCurrentnessRetryUsed.current) {
       setStored({
@@ -138,8 +169,12 @@ export function useHealthWorkoutRangeSnapshot(
     ownerEpoch.current += 1;
     publicationSequence.current += 1;
     automaticCurrentnessRetryUsed.current = false;
+    comparisonRef.current?.close();
+    comparisonRef.current = null;
+    comparisonSourceRef.current = null;
     coordinatorRef.current?.close();
     coordinatorRef.current = null;
+    coordinatorAccountRef.current = null;
     if (!enabled) {
       setStored(initialState(false, accountId, previousBounds, monthBounds));
       return undefined;
@@ -148,13 +183,18 @@ export function useHealthWorkoutRangeSnapshot(
       ?? ((owner: string, storage: Storage) => new WorkoutReadSnapshotCoordinator(owner, storage));
     const storage = dependencies?.deviceStorage ?? window.localStorage;
     coordinatorRef.current = createCoordinator(accountId, storage);
+    coordinatorAccountRef.current = accountId;
     setStored(initialState(true, accountId, previousBounds, monthBounds));
     return () => {
       previewPublicationRef.current = null;
       ownerEpoch.current += 1;
       publicationSequence.current += 1;
+      comparisonRef.current?.close();
+      comparisonRef.current = null;
+      comparisonSourceRef.current = null;
       coordinatorRef.current?.close();
       coordinatorRef.current = null;
+      coordinatorAccountRef.current = null;
     };
   // Bounds deliberately do not create a new source lifecycle.
   }, [enabled, accountId, dependencies?.createCoordinator, dependencies?.deviceStorage]);
@@ -172,6 +212,7 @@ export function useHealthWorkoutRangeSnapshot(
       && publicationSequence.current === sequence;
     setStored(initialState(true, accountId, currentRef.current.previousBounds, currentRef.current.monthBounds));
     previewPublicationRef.current = null;
+    comparisonRef.current?.invalidate();
     void coordinator.load().then(snapshot => {
       if (!isCurrent()) return;
       if (!snapshot) {
@@ -274,5 +315,11 @@ export function useHealthWorkoutRangeSnapshot(
       publication: null,
       isCurrent: () => false,
     }) : undefined;
-  return { ...visible, previewRead, retry, invalidateAndReload, isPreviewCurrent };
+  const exerciseComparison: HealthExerciseComparisonRead | undefined = comparisonEnabled && comparisonPort
+    ? { port: comparisonPort, retry,
+      phase: visible.isolationError ? 'isolation_error'
+        : visible.phase !== 'settled' ? 'loading'
+          : coordinatorRef.current?.currentSnapshot ? 'ready' : 'unavailable' }
+    : undefined;
+  return { ...visible, previewRead, retry, invalidateAndReload, isPreviewCurrent, exerciseComparison };
 }
