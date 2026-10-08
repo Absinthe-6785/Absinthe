@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { HealthExerciseComparisonBorrower, type HealthExerciseComparisonRead } from './healthExerciseComparisonBorrower';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { HealthExerciseComparisonBorrower, type HealthExerciseComparisonPort, type HealthExerciseComparisonRead } from './healthExerciseComparisonBorrower';
 import type { WorkoutExerciseComparisonContext } from '../../../../lib/workoutExerciseComparisonOwner';
 import {
   CompositeWorkoutReadIsolationError,
@@ -53,6 +53,19 @@ export type HealthWorkoutRangeDependencies = Readonly<{
   deviceStorage?: Storage;
 }>;
 
+type CommittedRangeSource = Readonly<{
+  accountId: string;
+  coordinator: RangeCoordinator;
+  factory: HealthWorkoutRangeDependencies['createCoordinator'];
+  deviceStorage: HealthWorkoutRangeDependencies['deviceStorage'];
+}>;
+type CommittedComparison = Readonly<{
+  source: CommittedRangeSource;
+  selectedDate: string;
+  borrower: HealthExerciseComparisonBorrower;
+  port: HealthExerciseComparisonPort;
+}>;
+
 function initialState(
   enabled: boolean,
   accountId: string,
@@ -89,35 +102,57 @@ export function useHealthWorkoutRangeSnapshot(
     initialState(enabled, accountId, previousBounds, monthBounds)
   ));
   const coordinatorRef = useRef<RangeCoordinator | null>(null);
-  const coordinatorAccountRef = useRef<string | null>(null);
+  const sourceLifetimeRef = useRef<CommittedRangeSource | null>(null);
   const comparisonRef = useRef<HealthExerciseComparisonBorrower | null>(null);
-  const comparisonSourceRef = useRef<RangeCoordinator | null>(null);
+  const committedComparisonRef = useRef<CommittedComparison | null>(null);
+  const [committedComparison, setCommittedComparison] = useState<CommittedComparison | null>(null);
   const ownerEpoch = useRef(0);
   const publicationSequence = useRef(0);
   const automaticCurrentnessRetryUsed = useRef(false);
   const currentRef = useRef({ enabled, accountId, previousBounds, monthBounds, previewScope, comparisonContext });
-  currentRef.current = { enabled, accountId, previousBounds, monthBounds, previewScope, comparisonContext };
+  // Async source callbacks and durable commit handlers observe the LAST COMMIT,
+  // never props from a suspended/abandoned render.
+  useLayoutEffect(() => {
+    currentRef.current = { enabled, accountId, previousBounds, monthBounds, previewScope, comparisonContext };
+  });
   const comparisonEnabled = enabled && !!comparisonContext?.enabled;
-  // Revoke before rendering children. Effects alone would leave account/date/enable
-  // ABA continuations authorized between render and effect cleanup.
-  if (!comparisonEnabled || coordinatorAccountRef.current !== accountId
-    || comparisonSourceRef.current !== coordinatorRef.current) {
+  const comparisonDate = comparisonContext?.selectedDate ?? '';
+  useLayoutEffect(() => {
+    const source = sourceLifetimeRef.current;
+    const previous = committedComparisonRef.current;
+    const eligible = comparisonEnabled && source?.accountId === accountId
+      && source.factory === dependencies?.createCoordinator
+      && source.deviceStorage === dependencies?.deviceStorage
+      && source.coordinator === coordinatorRef.current && source.coordinator.captureCurrentSnapshot;
+    if (eligible && previous?.source === source && previous.selectedDate === comparisonDate) return;
+    // Reconcile only after a render commits. The render guard below hides an
+    // incompatible old port, including from descendant layout effects (which run
+    // before this parent effect). publish() always awaits durable verification;
+    // this synchronous layout fence runs before its continuation can consume.
     comparisonRef.current?.close(false);
     comparisonRef.current = null;
-    comparisonSourceRef.current = null;
-  }
-  const comparisonSource = coordinatorRef.current;
-  if (comparisonEnabled && coordinatorAccountRef.current === accountId
-    && comparisonSource?.captureCurrentSnapshot && !comparisonRef.current) {
-    comparisonSourceRef.current = comparisonSource;
-    comparisonRef.current = new HealthExerciseComparisonBorrower({
-      captureCurrentSnapshot: () => comparisonSource.captureCurrentSnapshot!(),
-    }, () => currentRef.current.enabled && !!currentRef.current.comparisonContext?.enabled
-      && currentRef.current.accountId === accountId && coordinatorRef.current === comparisonSource);
-  }
-  const comparisonPort = comparisonRef.current?.setContext({
-    enabled: comparisonEnabled, selectedDate: comparisonContext?.selectedDate ?? '',
+    committedComparisonRef.current = null;
+    if (!eligible) {
+      if (previous) setCommittedComparison(null);
+      return;
+    }
+    // Fresh object identity for every committed context/source/enable transition:
+    // A -> B -> A never reinstalls an earlier borrower or request token.
+    const borrower: HealthExerciseComparisonBorrower = new HealthExerciseComparisonBorrower({
+      captureCurrentSnapshot: () => source.coordinator.captureCurrentSnapshot!(),
+    }, () => committedComparisonRef.current?.borrower === borrower
+      && sourceLifetimeRef.current === source && coordinatorRef.current === source.coordinator);
+    const committed = { source, selectedDate: comparisonDate, borrower,
+      port: borrower.setContext({ enabled: true, selectedDate: comparisonDate }) };
+    comparisonRef.current = borrower;
+    committedComparisonRef.current = committed;
+    setCommittedComparison(committed);
   });
+  useLayoutEffect(() => () => {
+    comparisonRef.current?.close(false);
+    comparisonRef.current = null;
+    committedComparisonRef.current = null;
+  }, []);
   const previewPublicationRef = useRef<WorkoutRangePreviewRead | null>(null);
   const isPreviewCurrent = useCallback((read: WorkoutRangePreviewRead) => {
     const current = currentRef.current;
@@ -171,10 +206,10 @@ export function useHealthWorkoutRangeSnapshot(
     automaticCurrentnessRetryUsed.current = false;
     comparisonRef.current?.close();
     comparisonRef.current = null;
-    comparisonSourceRef.current = null;
+    committedComparisonRef.current = null;
     coordinatorRef.current?.close();
     coordinatorRef.current = null;
-    coordinatorAccountRef.current = null;
+    sourceLifetimeRef.current = null;
     if (!enabled) {
       setStored(initialState(false, accountId, previousBounds, monthBounds));
       return undefined;
@@ -183,7 +218,8 @@ export function useHealthWorkoutRangeSnapshot(
       ?? ((owner: string, storage: Storage) => new WorkoutReadSnapshotCoordinator(owner, storage));
     const storage = dependencies?.deviceStorage ?? window.localStorage;
     coordinatorRef.current = createCoordinator(accountId, storage);
-    coordinatorAccountRef.current = accountId;
+    sourceLifetimeRef.current = { accountId, coordinator: coordinatorRef.current,
+      factory: dependencies?.createCoordinator, deviceStorage: dependencies?.deviceStorage };
     setStored(initialState(true, accountId, previousBounds, monthBounds));
     return () => {
       previewPublicationRef.current = null;
@@ -191,10 +227,10 @@ export function useHealthWorkoutRangeSnapshot(
       publicationSequence.current += 1;
       comparisonRef.current?.close();
       comparisonRef.current = null;
-      comparisonSourceRef.current = null;
+      committedComparisonRef.current = null;
       coordinatorRef.current?.close();
       coordinatorRef.current = null;
-      coordinatorAccountRef.current = null;
+      sourceLifetimeRef.current = null;
     };
   // Bounds deliberately do not create a new source lifecycle.
   }, [enabled, accountId, dependencies?.createCoordinator, dependencies?.deviceStorage]);
@@ -230,7 +266,8 @@ export function useHealthWorkoutRangeSnapshot(
         isolationError: error instanceof CompositeWorkoutReadIsolationError,
       }));
     });
-  }, [enabled, accountId, refresh, recoverCurrentnessOrSettle]);
+  }, [enabled, accountId, refresh, recoverCurrentnessOrSettle,
+    dependencies?.createCoordinator, dependencies?.deviceStorage]);
 
   useEffect(() => {
     if (!enabled || !coordinatorRef.current?.currentSnapshot) return;
@@ -307,7 +344,7 @@ export function useHealthWorkoutRangeSnapshot(
     ? stored
     : initialState(enabled, accountId, previousBounds, monthBounds);
   const previewRead = previewScope && previewScope.isCurrent()
-    ? (visible.previewRead && isPreviewCurrent(visible.previewRead) ? visible.previewRead : {
+    ? (visible.previewRead?.scope === previewScope && isPreviewCurrent(visible.previewRead) ? visible.previewRead : {
       scope: previewScope,
       phase: visible.phase === 'settled' ? 'settled' as const : 'loading' as const,
       view: null,
@@ -315,8 +352,18 @@ export function useHealthWorkoutRangeSnapshot(
       publication: null,
       isCurrent: () => false,
     }) : undefined;
-  const exerciseComparison: HealthExerciseComparisonRead | undefined = comparisonEnabled && comparisonPort
-    ? { port: comparisonPort, retry,
+  // Pure render-scope guard: a speculative B render sees no A port, but cannot
+  // mutate A's still-committed lifetime. State + committed identity also prevent ABA.
+  const comparisonMatchesRender = comparisonEnabled && committedComparison
+    && committedComparisonRef.current === committedComparison
+    && sourceLifetimeRef.current === committedComparison.source
+    && committedComparison.source.accountId === accountId
+    && committedComparison.source.factory === dependencies?.createCoordinator
+    && committedComparison.source.deviceStorage === dependencies?.deviceStorage
+    && committedComparison.source.coordinator === coordinatorRef.current
+    && committedComparison.selectedDate === comparisonDate;
+  const exerciseComparison: HealthExerciseComparisonRead | undefined = comparisonMatchesRender
+    ? { port: committedComparison.port, retry,
       phase: visible.isolationError ? 'isolation_error'
         : visible.phase !== 'settled' ? 'loading'
           : coordinatorRef.current?.currentSnapshot ? 'ready' : 'unavailable' }
