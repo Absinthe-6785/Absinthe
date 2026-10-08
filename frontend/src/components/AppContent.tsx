@@ -40,6 +40,7 @@ import { useHealthSelectedDayComposite } from './views/features/health/useHealth
 import { isHomeWorkoutCompositeEnabled } from './views/features/home/homeWorkoutCompositeConfig';
 import { isHealthWorkoutRangeCompositeEnabled } from './views/features/health/healthWorkoutRangeCompositeConfig';
 import { useHealthWorkoutRangeSnapshot } from './views/features/health/useHealthWorkoutRangeSnapshot';
+import { isHealthExerciseComparisonPreviewEnabled } from './views/features/health/healthExerciseComparisonPreviewConfig';
 import { previousWorkoutRange } from './views/features/health/previousWorkoutSession';
 import { isSearchWorkoutCompositeEnabled, type SearchActivation, type SearchHostLifetime } from './views/features/search/searchWorkoutCompositeConfig';
 import type { SearchWorkoutPreviewEvidence } from './views/features/search/searchWorkoutCompositeProjection';
@@ -345,6 +346,7 @@ export function AppContent({ authUser }: { authUser: User }) {
     { startDate: monthStart, endDate: monthEnd },
     undefined,
     searchPreviewScope,
+    { enabled: isHealthExerciseComparisonPreviewEnabled(workoutRangeReaderEnabled), selectedDate: dateStr },
   );
   const selectedDayRetryRef = useRef(selectedDayReadSource.retry);
   const rangeInvalidateRef = useRef(workoutRangeReadSource.invalidateAndReload);
