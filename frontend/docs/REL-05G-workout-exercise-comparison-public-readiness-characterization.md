@@ -8,7 +8,7 @@ Repository: `Absinthe-6785/Absinthe`. Source baseline: `3ab3638e959184ef02985352
 
 **Primary readiness classification: `EXCOMP_PUBLIC_ACTIVATION_BLOCKED_BY_MULTIPLE_PREREQUISITES`.**
 
-The approved Option C implementation is proven within its bounded default-OFF contract. Public activation is not authorized. The remaining prerequisites are the coupled Health parent readers' public readiness, public copy/accessibility/localization and feature-level browser acceptance, and measured large-history qualification with an approved threshold/support policy. This is not a finding that the merged preview implementation must be redesigned.
+The approved Option C implementation is proven within its bounded default-OFF contract. Public activation is not authorized. The remaining prerequisites are the coupled Health parent readers' public readiness (including legacy compatibility cache freshness), public copy/accessibility/localization and feature-level browser acceptance, and measured large-history qualification with an approved threshold/support policy. This is not a finding that the merged preview implementation must be redesigned.
 
 | Current acceptance | Status | Meaning |
 | --- | --- | --- |
@@ -81,6 +81,7 @@ Comparison C itself adds a borrower of the existing range pair, not a second coo
 | Calendar | Composite active-day union; verified absent only with complete coverage, otherwise unknown/incomplete rather than false absence. Independent legacy month/Previous SWR keys are disabled in composite mode. | Parent incomplete-state/visual/accessibility QA |
 | Source lifecycle | One shared full-active legacy/canonical range pair, plus the separately scoped selected-day read. They are not one universal physical read for every Health surface. | Measure entire coupled rollout, not comparison CPU alone |
 | Retry/freshness | AppContent parent fanout refreshes the range pair and selected-day reader. The comparison panel's own `read.retry` comes from the hook and reloads the shared **range pair**; it does not independently call the parent selected-day wrapper. | Public retry labels must not promise unrelated readers refreshed by every button |
+| Adjacent legacy badge/cue cache | HealthView owns separate block-keyed `prevData`/`prevDataRef`. Range/borrower invalidation does not directly invalidate that cache. | Public freshness/fence/withholding policy and acceptance required; source-qualified comparison publication alone does not prove adjacent cache currentness |
 | Durable save/delete | Current same-account durable commit synchronously invalidates range/borrowed evidence and retries B1. UI success continuation has its own current-scope fence. | Merged race closure preserved; real-browser behavior still needs feature QA |
 | Bootstrap/focus/visibility | Managed B1 mode delegates source fanout to AppContent. Bootstrap event refreshes current scope conservatively; focus/visible events are coalesced (250 ms), hidden state ignored. No per-card listener or scanner. | Cold/warm/offline/focus/background behavior belongs in parent + feature QA |
 | Date/month/card changes | Derive from existing pair; no full pair per card/date/month. Card release invalidates all comparison requests, so surviving cards rederive in memory. | Read-budget correctness is proven; worst-case rederive responsiveness is not physically qualified |
@@ -88,6 +89,25 @@ Comparison C itself adds a borrower of the existing range pair, not a second coo
 | Home/Search outside Health | Their child gates remain false if only B1/R/C are changed. Dormant integration availability is not public activation. | Existing parent minimum coherent truth-set requirements still need current disposition |
 
 The [parent expansion preparation](REL-05G5B2B2-product-reader-expansion-prep.md) and [consumer preparation section 9](REL-05G5B2B2B-consumer-integration-prep.md) require coherent selected-day/Previous/calendar truth plus truthful Home and Search scope before broad public rollout. Home/Search default-OFF implementations have since been merged; that is not proof of their public activation readiness. A parent-readiness task must decide whether the proposed public scope activates the relevant child surfaces or uses separately approved truthful limitation/withholding. Leaving canonical-only Home false-empty or implying complete legacy-only Search cannot be waived by comparison acceptance. This characterization does not reopen their closed bounded implementations or flip their flags.
+
+### Legacy compatibility cache freshness: public-only prerequisite
+
+The approved product-decision package section 9 (PD12–PD13) explicitly requires public comparison publication/invalidation routing: a newer incomplete comparison pair must not coexist with an unqualified stale legacy badge/cue presented as current. This is a state/currentness requirement, not merely a copy issue or permission to change legacy PR arithmetic.
+
+Current HealthView source keeps positive legacy Previous/PR results in `prevData`, mirrored by `prevDataRef`. `ensurePrevData` fetches only block IDs whose `prevDataRef.current[id]` is undefined; `fetchPrevForBlock` also returns cached `prev_sets` on a hit. The selectedDate/account/memo-scope effect resets the cache, and account-generation checks guard fetch continuations. The previous micro-cue consumes `prevData[blockId].prev_sets`; `computeWorkoutPrBadgeMap` consumes that cache plus the legacy editor draft. Neither consumer is tied to the range/comparison publication revision. The range hook's `invalidateAndReload` revokes the comparison borrower and range coordinator/snapshot, but does not directly invalidate HealthView's `prevData`. AppContent's range/selected-day retry, focus/bootstrap and durable save/delete fanout therefore does not by itself prove this separate compatibility cache fresh.
+
+This does **not** establish a visible stale bug on every retry. It establishes independent lifecycles that require an explicit public coexistence policy and acceptance proof. Default-OFF mounted acceptance proves comparison publication currentness; it does not prove the adjacent cached legacy badge/cue current across every newer partial/incomplete comparison publication. C14 source-qualified partial acceptance, C26–C29 and `C30_DEFAULT_OFF_PREVIEW_ACCEPTANCE` remain PASS; `REL05G-EXCOMP-MOUNT-001` remains CLOSED.
+
+`LEGACY_COMPATIBILITY_CACHE_FRESHNESS_POLICY = UNRESOLVED / NOT_SELECTED`.
+`LEGACY_COMPATIBILITY_CACHE_FRESHNESS = REQUIRES_POLICY_AND_ACCEPTANCE`.
+
+| Future policy family | Bounded decision and proof required |
+| --- | --- |
+| A. `REFRESH` | Explicitly refetch the legacy compatibility `prevData`/badge/cue source when a relevant shared range/comparison change or retry affects the current exercise/date; prove current-scope publication and failure handling |
+| B. `FENCE` | Bind compatibility entries to sufficiently strong account/date/source-revision or equivalent lifetime evidence; refuse to present an older entry as current after a relevant transition |
+| C. `WITHHOLD` | When comparison has advanced but matching legacy cache freshness cannot be proven, temporarily hide the compatibility badge/cue or mark it unavailable instead of presenting it as current |
+
+These are policy families for future parent/public-readiness decision, not selected or implemented mechanisms. Acceptance must cover range-only retry, partial source transitions, invalidation/recovery while the selected-day editor stays mounted, and date/account/current-source transitions where cached entries could otherwise persist, including retry/focus/bootstrap/save/delete interactions. Preserve legacy compatibility formulas/counts, source-separated Option C, qualified ordinary-error partial evidence, failure-not-absence, no global/composite PR and no canonical planning input. This is a public reader/currentness prerequisite, not device-lifetime or writer authority, an eighth live-writer blocker or G6 work; current copy readiness remains separate and unchanged.
 
 ### Reader trust, metadata and bootstrap boundaries
 
@@ -245,7 +265,7 @@ Evidence abbreviations: [P](../src/lib/workoutExerciseComparisonProjection.test.
 | EXCOMP-C27 | `PASS_MOUNTED_DEFAULT_OFF` | M/A date ABA and out-of-order per-key requests; different visible keys independent |
 | EXCOMP-C28 | `PASS_MOUNTED_DEFAULT_OFF` | M device/generation/gate/source/unmount/StrictMode/aborted-render safety; committed tree owns lifetime |
 | EXCOMP-C29 | `PASS_MOUNTED_DEFAULT_OFF` | A actual durable save/delete commit invalidates before late publication and refreshes one shared pair |
-| EXCOMP-C30 | `REQUIRED_FOR_PUBLIC_ACTIVATION` | `C30_DEFAULT_OFF_PREVIEW_ACCEPTANCE = PASS`; `PUBLIC_C30 = NOT_EXECUTED`. Section 10 is the remaining public gate, not a downgrade of preview proof |
+| EXCOMP-C30 | `REQUIRED_FOR_PUBLIC_ACTIVATION` | `C30_DEFAULT_OFF_PREVIEW_ACCEPTANCE = PASS`; `PUBLIC_C30 = NOT_EXECUTED`. Section 10 includes legacy compatibility cache freshness policy/acceptance in the remaining public gate, not a downgrade of preview proof |
 | EXCOMP-C31 | `PASS_BOUNDED_DEFAULT_OFF` | P/M/A no new achievement/global PR, draft compatibility independent, incomplete never full-source truth. Final disclosure approval still C30; new achievement badges deferred |
 | EXCOMP-C32 | `PASS_MOUNTED_DEFAULT_OFF` | M/A literal OFF/invalid-parent tests, compatibility/no writer contamination and exact scoped source diff; authority stays frozen |
 
@@ -256,10 +276,11 @@ To set `PUBLIC_C30 = PASS` later, all of the following need evidence and a separ
 1. Approve the coupled public reader scope: B1/R/C dependencies, parent selected-day/Previous/calendar behavior, Home/Search truthful scope, and `REL05G5A-001` disposition/correction. No wider activation inferred from comparison review.
 2. Approve public EN/KO/JA wording/placement: remove or intentionally approve QA-preview labelling, understandable source terms, separate source dates/selected-day boundary/local-active horizon, exact matching omissions, legacy draft/PR/cue/planning limitations and no canonical writer input.
 3. Approve all visible states in section 5, including successful no eligible match versus verified storage empty, surviving partial versus complete, ordinary unavailable versus typed isolation, stale suppression, withheld numeric claims and unsupported variants. No failure-based absence or new metric.
-4. Qualify section 6 in real supported browsers/assistive technology: contextual repeated-card names, heading/status/alert behavior, keyboard/focus/recovery, contrast, touch/zoom and responsive localized density. Parent surfaces included.
-5. Execute section 7 feature-level real-browser/local/offline protocol including actual durable save/delete, multi-card/date/account/generation lifecycle and bootstrap/focus recovery. Keep global Track A/E3 qualification status distinct.
-6. Approve the performance/support threshold policy and execute persisted large-history/whole-parent qualification from section 8. TEMP CPU results cannot close it.
-7. Record human product-owner public-scope/copy acceptance and independent review of that evidence. A separately authorized dedicated activation PR must prove exact gate combinations, reversibility and frozen writer/data-plane boundaries. This document authorizes neither its creation nor a flag flip.
+4. Resolve **legacy compatibility cache freshness** from section 4: before PUBLIC_C30 passes, separately review and test a refresh/fence/withholding policy ensuring a newer comparison publication cannot coexist with an unqualified stale legacy badge/cue presented as current. Prove range-only retry, partial-source transition, source invalidation/recovery, the selected-day editor remaining mounted, and date/account/current-source transitions where cache entries may otherwise persist. Copy qualification alone cannot close this requirement; no formula change or runtime implementation is authorized here.
+5. Qualify section 6 in real supported browsers/assistive technology: contextual repeated-card names, heading/status/alert behavior, keyboard/focus/recovery, contrast, touch/zoom and responsive localized density. Parent surfaces included.
+6. Execute section 7 feature-level real-browser/local/offline protocol including actual durable save/delete, multi-card/date/account/generation lifecycle and bootstrap/focus recovery. Keep global Track A/E3 qualification status distinct.
+7. Approve the performance/support threshold policy and execute persisted large-history/whole-parent qualification from section 8. TEMP CPU results cannot close it.
+8. Record human product-owner public-scope/copy acceptance and independent review of that evidence. A separately authorized dedicated activation PR must prove exact gate combinations, reversibility and frozen writer/data-plane boundaries. This document authorizes neither its creation nor a flag flip.
 
 `PUBLIC_C30 = NOT_EXECUTED` throughout this characterization. Public activation is not authorized by merged #760, product approval of the earlier default-OFF ceiling, TEMP probes or this document.
 
@@ -290,7 +311,9 @@ No writer/G6 rollout or global authority adoption is a blanket prerequisite for 
 
 Exactly one recommended next task: **`REL_05G_HEALTH_SELECTED_DAY_AND_RANGE_PARENT_PUBLIC_READINESS_CHARACTERIZATION_01`**.
 
-Proposed bounded scope: docs-only/default-OFF current parent-readiness characterization, including selected-day/Previous/calendar and Home/Search public truth-set coupling, `REL05G5A-001` activation-prerequisite disposition, parent copy/accessibility and feature/offline/performance QA scope. Preserve all closed default-OFF implementations and seven OPEN writer blockers. Do not implement correction, flip gates or start physical execution merely from this recommendation. Sequencing is driven by the coupled product surface, not code-size convenience.
+Proposed bounded scope: docs-only/default-OFF current parent-readiness characterization, including selected-day/Previous/calendar and Home/Search public truth-set coupling, `REL05G5A-001` activation-prerequisite disposition, parent copy/accessibility and feature/offline/performance QA scope, and **legacy compatibility cache freshness**. Characterize `prevData` ownership and account/date lifetime, its relationship to range/comparison revisions, retry/focus/bootstrap/save/delete interactions, whether refresh, fence or withholding is required, and acceptance criteria for whichever policy is later approved. The legacy badge/cue and new comparison lane coexist in the Health editor; neither copy-only work nor comparison currentness alone settles their public freshness relationship. Preserve all closed default-OFF implementations and seven OPEN writer blockers. Do not implement correction, flip gates or start physical execution merely from this recommendation. Sequencing is driven by the coupled product surface, not code-size convenience.
+
+Correction trace: `REL05G-EXCOMP-PUBLIC-001 = CORRECTED_PENDING_FOCUSED_REREVIEW`. The correction records the omitted public prerequisite only; the freshness policy itself is neither approved nor implemented. Finding closure belongs to independent focused rereview. The primary readiness classification, exactly one recommended next task, EXCOMP-C01–C32 categories, current copy classification, measurements and global physical/authority state are unchanged.
 
 ## 13. Validation and frozen authority
 
