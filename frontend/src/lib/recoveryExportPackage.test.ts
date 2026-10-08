@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
+import { spawnSync, type SpawnSyncOptionsWithStringEncoding, type SpawnSyncReturns } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { validateZipBytes, validateZipEntryNames } from '../../scripts/recovery-zip-safety.mjs';
 import JSZip from 'jszip';
@@ -300,6 +300,113 @@ describe('K-320A read-only adapters and attachment semantics', () => {
   });
 });
 
+// Full-suite command maxima were ~10.1s / 11.3s / 8.5s at 95.5–100% CPU.
+// 25s per child gives >2x the slowest observed command; the outer guard contains
+// all three budgets plus 10s for setup/cleanup, rather than detecting child hangs.
+const recoveryCliTimeoutMs = 25_000;
+const recoveryCliTestTimeoutMs = 3 * recoveryCliTimeoutMs + 10_000;
+type RecoveryCliLabel = 'EXPORT' | 'VERIFY_DIRECTORY' | 'VERIFY_ZIP';
+type RecoveryCliSpawn = (
+  command: string, args: string[], options: SpawnSyncOptionsWithStringEncoding,
+) => SpawnSyncReturns<string>;
+
+function runRecoveryCli(
+  { label, args, timeoutMs }: { label: RecoveryCliLabel; args: string[]; timeoutMs: number },
+  // Injection is confined to these harness tests; the end-to-end test uses spawnSync.
+  spawn: RecoveryCliSpawn = spawnSync,
+): SpawnSyncReturns<string> {
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) throw new Error(`${label}: invalid child timeout`);
+  const result = spawn(process.execPath, [path.resolve('scripts/recovery-package-cli.mjs'), ...args], {
+    cwd: process.cwd(), encoding: 'utf8', timeout: timeoutMs,
+    // Do not wait indefinitely for a child that handles/ignores SIGTERM.
+    killSignal: 'SIGKILL',
+  });
+  if (result.error || result.signal || result.status !== 0) {
+    const snippet = (value: string | undefined | null) => {
+      let text = (value ?? '').replaceAll('\\', '/');
+      const privatePaths = [process.cwd(), tmpdir(), homedir(), process.execPath, ...args.filter(arg => path.isAbsolute(arg))]
+        .map(value => value.replaceAll('\\', '/')).sort((a, b) => b.length - a.length);
+      for (const privatePath of privatePaths) text = text.replaceAll(privatePath, '<path>');
+      return JSON.stringify(text.slice(0, 1_024) + (text.length > 1_024 ? '…[truncated]' : ''));
+    };
+    const code = (result.error as NodeJS.ErrnoException | undefined)?.code ?? 'none';
+    throw new Error([
+      `${label}: recovery CLI ${code === 'ETIMEDOUT' ? 'timed out' : 'failed'} (timeoutMs=${timeoutMs})`,
+      `status=${result.status}; signal=${result.signal ?? 'none'}; errorCode=${code}`,
+      `errorMessage=${snippet(result.error?.message)}`,
+      `stderr=${snippet(result.stderr)}`,
+      `stdout=${snippet(result.stdout)}`,
+    ].join('\n'));
+  }
+  return result;
+}
+
+describe('K-320A CLI harness boundaries', () => {
+  const success: SpawnSyncReturns<string> = {
+    pid: 1, status: 0, signal: null, stdout: '{"valid":true}\n', stderr: '', output: [null, '{"valid":true}\n', ''],
+  };
+
+  it('accepts success unchanged and passes bounded real-CLI invocation options', () => {
+    const spawn = vi.fn(() => success);
+    expect(runRecoveryCli({ label: 'EXPORT', args: ['export'], timeoutMs: recoveryCliTimeoutMs }, spawn)).toBe(success);
+    expect(spawn).toHaveBeenCalledExactlyOnceWith(process.execPath, [path.resolve('scripts/recovery-package-cli.mjs'), 'export'], {
+      cwd: process.cwd(), encoding: 'utf8', timeout: 25_000, killSignal: 'SIGKILL',
+    });
+    expect(recoveryCliTestTimeoutMs).toBeGreaterThan(3 * recoveryCliTimeoutMs);
+  });
+
+  it.each(['EXPORT', 'VERIFY_DIRECTORY', 'VERIFY_ZIP'] as const)('attributes nonzero exit to %s deterministically', label => {
+    const invoke = () => runRecoveryCli({ label, args: ['verify'], timeoutMs: recoveryCliTimeoutMs }, () => ({
+      ...success, status: 1, stdout: 'synthetic stdout', stderr: 'synthetic stderr',
+    }));
+    expect(invoke).toThrow(`${label}: recovery CLI failed (timeoutMs=25000)\nstatus=1; signal=none; errorCode=none\nerrorMessage=""\nstderr="synthetic stderr"\nstdout="synthetic stdout"`);
+  });
+
+  it.each(['EXPORT', 'VERIFY_DIRECTORY', 'VERIFY_ZIP'] as const)('attributes spawn timeout to %s even with status zero', label => {
+    expect(() => runRecoveryCli({ label, args: [], timeoutMs: recoveryCliTimeoutMs }, () => ({
+      ...success, error: Object.assign(new Error('synthetic timeout'), { code: 'ETIMEDOUT' }),
+    }))).toThrow(`${label}: recovery CLI timed out (timeoutMs=25000)\nstatus=0; signal=none; errorCode=ETIMEDOUT\nerrorMessage="synthetic timeout"`);
+  });
+
+  it('bounds failure output and redacts harness filesystem paths', () => {
+    const input = path.join(tmpdir(), 'synthetic-backup.json');
+    const invoke = () => runRecoveryCli({ label: 'VERIFY_ZIP', args: ['verify', '--package', input], timeoutMs: 25_000 }, () => ({
+      ...success, status: null, signal: 'SIGKILL', stdout: 'x'.repeat(2_000),
+      stderr: `cannot open ${input} from ${process.cwd()}`,
+      error: Object.assign(new Error(`spawn ${process.execPath}`), { code: 'ENOENT' }),
+    }));
+    expect(invoke).toThrow('status=null; signal=SIGKILL; errorCode=ENOENT');
+    expect(invoke).toThrow('stderr="cannot open <path> from <path>"');
+    expect(invoke).toThrow(`stdout="${'x'.repeat(1_024)}…[truncated]"`);
+  });
+
+  it('rejects unbounded child budgets before spawning', () => {
+    const spawn = vi.fn(() => success);
+    for (const timeoutMs of [0, -1, NaN, Infinity]) {
+      expect(() => runRecoveryCli({ label: 'EXPORT', args: [], timeoutMs }, spawn)).toThrow('invalid child timeout');
+    }
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it('kills a real hanging child at its short probe budget and cleans up after failure', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'absinthe-k320a-harness-'));
+    const marker = path.join(root, 'synthetic-marker');
+    const probe = async () => {
+      try {
+        await writeFile(marker, 'synthetic', 'utf8');
+        // A tiny Node fixture exercises the same options without a 25-second sleep
+        // or Vite startup; the actual export/verify test below still runs the CLI.
+        runRecoveryCli({ label: 'VERIFY_ZIP', args: [], timeoutMs: 200 }, (command, _args, options) =>
+          spawnSync(command, ['-e', 'setInterval(() => {}, 1000)'], options));
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    };
+    await expect(probe()).rejects.toThrow('VERIFY_ZIP: recovery CLI timed out (timeoutMs=200)');
+    await expect(readFile(marker)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+});
+
 describe('K-320A developer CLI', () => {
   it('exports and independently verifies a synthetic backup without changing the input', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'absinthe-k320a-'));
@@ -311,12 +418,11 @@ describe('K-320A developer CLI', () => {
         noteCount: 0, folderCount: 0, relationCount: 0, folders: [], notes: [],
       }, null, 2)}\n`;
       await writeFile(input, sourceText, 'utf8');
-      const cli = path.resolve('scripts/recovery-package-cli.mjs');
-      const exported = spawnSync(process.execPath, [cli, 'export', '--input', input, '--output', output], { cwd: process.cwd(), encoding: 'utf8' });
+      const exported = runRecoveryCli({ label: 'EXPORT', args: ['export', '--input', input, '--output', output], timeoutMs: recoveryCliTimeoutMs });
       expect(exported.status, exported.stderr).toBe(0);
       expect(await readFile(input, 'utf8')).toBe(sourceText);
-      const verifiedDirectory = spawnSync(process.execPath, [cli, 'verify', '--package', output], { cwd: process.cwd(), encoding: 'utf8' });
-      const verifiedZip = spawnSync(process.execPath, [cli, 'verify', '--package', path.join(output, 'absinthe-recovery-export.zip')], { cwd: process.cwd(), encoding: 'utf8' });
+      const verifiedDirectory = runRecoveryCli({ label: 'VERIFY_DIRECTORY', args: ['verify', '--package', output], timeoutMs: recoveryCliTimeoutMs });
+      const verifiedZip = runRecoveryCli({ label: 'VERIFY_ZIP', args: ['verify', '--package', path.join(output, 'absinthe-recovery-export.zip')], timeoutMs: recoveryCliTimeoutMs });
       expect(verifiedDirectory.status, verifiedDirectory.stderr).toBe(0);
       expect(verifiedZip.status, verifiedZip.stderr).toBe(0);
       expect(JSON.parse(verifiedDirectory.stdout).valid).toBe(true);
@@ -324,7 +430,7 @@ describe('K-320A developer CLI', () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
-  }, 30_000);
+  }, recoveryCliTestTimeoutMs);
 });
 
 describe('K-320B semantic closure', () => {
