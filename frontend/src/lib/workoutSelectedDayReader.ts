@@ -84,7 +84,26 @@ export class WorkoutSelectedDayReader {
   async read(localDate: string): Promise<readonly ActiveCanonicalWorkoutReadInput[]> {
     if (this.closed) throw new Error('workout_selected_day_reader_closed');
     await this.verifyCurrentScope();
-    const entities = await new WorkoutSessionRepository(this.repository).queryWorkoutSessionsByLocalDate(localDate);
+    let entities: Awaited<ReturnType<WorkoutSessionRepository['queryWorkoutSessionsByLocalDate']>>;
+    try {
+      entities = await new WorkoutSessionRepository(this.repository).queryWorkoutSessionsByLocalDate(localDate);
+    } catch (error) {
+      // Match the range reader's durable trust boundary, before any returned-row checks.
+      if (error instanceof LocalDatabaseError && error.code === 'CORRUPT_PERSISTED_RECORD') {
+        switch (error.persistedEntityFailure) {
+          case 'ACCOUNT_MISMATCH':
+          case 'NAMESPACE_MISMATCH':
+          case 'GENERATION_MISMATCH':
+            throw new CompositeWorkoutReadIsolationError(error.persistedEntityFailure);
+          case 'UNTRUSTED_SCOPE':
+            throw new CompositeWorkoutReadIsolationError('INVALID_CONTEXT');
+          default:
+            // Trusted-scope invalid content and unclassified corruption remain ordinary errors.
+            break;
+        }
+      }
+      throw error;
+    }
     await this.verifyCurrentScope();
     return entities.map(entity => {
       const revision = entity.localRevision ?? entity.revision;
