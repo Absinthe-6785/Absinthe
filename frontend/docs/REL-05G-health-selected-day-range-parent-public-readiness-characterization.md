@@ -100,7 +100,7 @@ Classification applies to each state's semantic/presentation content; a `PUBLIC_
 
 | Visible state/content | Classification | Current truth and public gap |
 | --- | --- | --- |
-| Header, ISO selected date, previous/next arrows and Refresh | `PUBLIC_SAFE_BUT_PRESENTATION_NOT_READY` | `Selected-day workout sources`, English aria labels and Refresh; selected date is not today by default; localized/date-announced controls needed |
+| Header, ISO selected date, previous/next arrows and Refresh | `PUBLIC_SAFE_BUT_PRESENTATION_NOT_READY` | `Selected-day workout sources`, English aria labels and Refresh; the selected date initializes to today, but may later differ from today after date navigation; localized/date-announced controls needed |
 | Localized preview scope paragraph | `PUBLIC_SAFE_BUT_PRESENTATION_NOT_READY` | EN/KO/JA describe editable legacy vs read-only canonical and separately gated range; Preview wording not final public approval. Home/Search/PR legacy-only clause only accurate while those child flags remain OFF |
 | Loading: `Reading local workout sources…` | `PUBLIC_SAFE_BUT_PRESENTATION_NOT_READY` | `role=status`, not empty; English-only |
 | Complete mixed, legacy-only or canonical-only evidence | `PUBLIC_SAFE_BUT_PRESENTATION_NOT_READY` | Projection/source separation is safe; record display technical; editor is not a merged representation of these sources |
@@ -399,5 +399,7 @@ Primary classification: `HEALTH_PARENT_PUBLIC_ACTIVATION_BLOCKED_BY_MULTIPLE_PRE
 Freshness disposition: `LEGACY_FRESHNESS_POLICY_RECOMMENDATION_READY_FOR_PRODUCT_DECISION`; bounded REFRESH is **NOT APPROVED**.
 
 Exactly one recommended next task: `REL_05G_HEALTH_PARENT_SELECTED_DAY_PERSISTED_ISOLATION_CORRECTION_01`. First repair the proven parent-specific durable scope-distrust classification inconsistency under default-OFF constraints; do not treat a later passing correction as public readiness or writer authority. Other matrix rows remain prerequisites, not parallel implementation authorization. Stop after Draft publication/initial CI observation; no Ready, auto-merge, merge or activation.
+
+P3 correction trace: `REL05G-HEALTH-PUBLIC-001 = CORRECTED_PENDING_FOCUSED_REREVIEW`. Only the selected-date initialization wording is corrected; the substantive independent review remains `INDEPENDENT_REVIEW = REVIEW_PASS`, with P0/P1/P2 = 0. All reviewed readiness conclusions and evidence remain unchanged. Finding closure belongs to focused independent rereview.
 
 HEALTH_PARENT_PUBLIC_READINESS_CHARACTERIZATION_READY_FOR_REVIEW
