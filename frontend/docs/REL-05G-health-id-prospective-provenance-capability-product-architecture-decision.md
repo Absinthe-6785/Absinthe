@@ -2,11 +2,11 @@
 
 Task: `REL_05G_HEALTH_ID_PROSPECTIVE_PROVENANCE_CAPABILITY_DECISION_01`.
 
-Status: `PROSPECTIVE_PROVENANCE_CAPABILITY_DECISION_PACKAGE_COMPLETE_PENDING_INDEPENDENT_REVIEW`.
+Status: `PROSPECTIVE_PROVENANCE_CAPABILITY_DECISION_PRODUCT_OWNER_APPROVED_PENDING_APPROVAL_DELTA_REVIEW`.
 
 `RECOMMENDED_PRODUCT_OPTION = NO_CAPABILITY_SELECTION_YET`; `RECOMMENDATION_CONFIDENCE = HIGH` for deferring commitment until a defensible issuer and support envelope are identified, **not** high confidence that any new capability will work.
 
-`PRODUCT_OWNER_DECISION_STATUS = REQUIRES_EXPLICIT_APPROVAL`. No option is selected or approved by this document, publication, CI, review, or eventual merge. This is a bounded product/architecture comparison, not an implementation plan, issuer specification, recovery procedure, data-collection authorization, or platform qualification.
+`PRODUCT_OWNER_DECISION_STATUS = PRODUCT_OWNER_APPROVED`; `PRODUCT_OWNER_DECISION = HOLD_NO_CAPABILITY_SELECTION_YET`, from the explicit human instruction recorded in section 16. Only the HOLD/deferral policy is approved: A-E remain unselected, with no permanent no-capability commitment. Publication, CI, review, recommendation, silence, and eventual merge are not approval sources. This remains a bounded product/architecture comparison and approval record, not an implementation plan, issuer specification, recovery procedure, data-collection authorization, or platform qualification.
 
 ## 1. Merged baseline and authoritative inputs
 
@@ -299,9 +299,9 @@ For prospective eligibility, trustworthy issuance before an incident is necessar
 
 Proof sufficiency therefore outweighs the attraction of prospective recovery value. Optional remote assistance could be compatible with local-first if its gaps are approved, but current unknown trust roots, privacy/retention choices, platform fragmentation, E3/writer/control blockers and substantial engineering cost do not justify self-committing to one. Confidence HIGH applies to this bounded deferral, not to infeasibility of every future mechanism. There is genuine potential value for future properly issued installations; that value warrants a human decision, not automatic implementation.
 
-## 16. Product-owner decision request
+## 16. Product-owner decision and explicit HOLD approval
 
-`PROSPECTIVE_PROVENANCE_PD01`: **Which capability/investment direction, if any, should Absinthe commit to pursuing for future incidents under the unchanged ten-property proof standard?** All choices below remain `REQUIRES_EXPLICIT_APPROVAL`. No row is marked approved.
+`PROSPECTIVE_PROVENANCE_PD01`: **Which capability/investment direction, if any, should Absinthe commit to pursuing for future incidents under the unchanged ten-property proof standard?** The table preserves the independently reviewed choices and their ceilings. Before the human instruction, all required explicit approval. The current selection is HOLD only, as recorded below; A-E remain `NOT_SELECTED`.
 
 | Explicit choice | Commitment requested / tradeoff | Authorization ceiling of a future recorded selection |
 | --- | --- | --- |
@@ -312,13 +312,55 @@ Proof sufficiency therefore outweighs the attraction of prospective recovery val
 | E_PRIVILEGED_PLATFORM_PROVENANCE | Pursue a new platform/privileged issuer and accept possible restricted coverage, setup/support and permissions | Explicit PATH B product/platform commitment first, then separately scoped architecture; no native/extension/keystore/managed deployment |
 | HOLD_NO_CAPABILITY_SELECTION_YET | Defer selection; retain current denial posture without accepting it as permanent, specify whether any narrowly scoped root-feasibility research is wanted | No automatic follow-up research, collection, architecture or implementation; requires a separate bounded request |
 
-The owner must state one exact choice or request a package revision, with scope constraints (core offline behavior, eligible users/platforms, permitted trust boundary and privacy/support commitment). No ambiguous “approve all recommendations” should silently select a capability: this package recommends HOLD, not an A-E bundle. If choosing B-E, retention, deletion, enrollment/defaults, account/container and unsupported-case policy remain **unresolved subsequent decisions**, not invented technical details or approved values. A conflict with inherited constraints must be revised/reviewed explicitly, not waived by approval.
+Any later capability choice requires a new explicit human decision stating one exact choice or requesting a package revision, with scope constraints (core offline behavior, eligible users/platforms, permitted trust boundary and privacy/support commitment). No ambiguous “approve all recommendations” should silently select a capability: this package recommends HOLD, not an A-E bundle. If later choosing B-E, retention, deletion, enrollment/defaults, account/container and unsupported-case policy remain **unresolved subsequent decisions**, not invented technical details or approved values. A conflict with inherited constraints must be revised/reviewed explicitly, not waived by approval.
 
 Approval must come from a separate explicit human instruction referencing the reviewed decision package/head; publication must record its exact choice/provenance and non-authorization ceiling. Review, CI, Draft publication, silence, or this recommendation are not approval. This task requests no actual user-data collection and implements no selected capability.
 
+### 16.1 Human decision provenance and approval-publication ceiling
+
+Publication task: `REL_05G_HEALTH_ID_PROSPECTIVE_PROVENANCE_PRODUCT_OWNER_DECISION_PUBLICATION_01`.
+
+- Exact human product-owner instruction: `PROSPECTIVE_PROVENANCE_PD01 = HOLD_NO_CAPABILITY_SELECTION_YET`.
+- `PRODUCT_OWNER_DECISION_DATE = 2026-10-10` (Asia/Seoul).
+- `HUMAN_APPROVAL_PROVENANCE = EXPLICIT_HUMAN_PRODUCT_OWNER_INSTRUCTION`. That instruction is the **only** source of the decision, not recommendation, review PASS, CI, Draft publication, PR body, silence, or merge.
+- Pre-approval reviewed head: `9840391950de56cfde462de5896c4b816c254ab9`; independent review `REVIEW_PASS`, P0/P1/P2/P3 = `0/0/0/0`, `FINDINGS = NONE`. A versus HOLD, verdict calibration, recommendation scope, choices, ambiguous-approval safety, no self-approval, follow-up ceilings, proof standard, retroactive ceiling, writer/E3/control separation, REL05G5A-001 and C01-C15 preservation all passed; authority remained unchanged. This review qualifies the pre-approval package, **not this approval delta**.
+- Pre-approval [Push CI 38057106981](https://github.com/Absinthe-6785/Absinthe/actions/runs/38057106981) and [PR CI 38057155635](https://github.com/Absinthe-6785/Absinthe/actions/runs/38057155635) were each completed/success at that exact reviewed head for test, typecheck, build, backend-rel05g1 and backend-recovery. Neither run qualifies the new approval-publication head.
+
+| Choice / selection status | Current human decision |
+| --- | --- |
+| A_NO_NEW_PROVENANCE_CAPABILITY / OPTION_A_SELECTION_STATUS | `NOT_SELECTED` |
+| B_TRUSTED_LOCAL_PROVENANCE / OPTION_B_SELECTION_STATUS | `NOT_SELECTED` |
+| C_REMOTE_PROVENANCE / OPTION_C_SELECTION_STATUS | `NOT_SELECTED` |
+| D_HYBRID_PROVENANCE / OPTION_D_SELECTION_STATUS | `NOT_SELECTED` |
+| E_PRIVILEGED_PLATFORM_PROVENANCE / OPTION_E_SELECTION_STATUS | `NOT_SELECTED` |
+| HOLD_NO_CAPABILITY_SELECTION_YET | `PRODUCT_OWNER_APPROVED` |
+
+`RECOMMENDATION = NO_CAPABILITY_SELECTION_YET`; `PRODUCT_OWNER_SELECTION = HOLD_NO_CAPABILITY_SELECTION_YET`; `RECOMMENDATION_CONFIDENCE = HIGH` still means confidence in bounded deferral, not that B-E are impossible, A is optimal forever, provenance is unnecessary, or a capability is feasible. Comparison verdicts remain A FEASIBLE and B/C/D/E CONDITIONAL; they are not capability approvals.
+
+HOLD retains current Policy F fail-closed / deny-escalate behavior and unsupported current unproven historical incidents. It defers the strategic choice, rejects no capability permanently, and approves no trust root, local issuer, remote registry, hybrid issuer, or privileged/PATH B capability. In particular, **HOLD is not A**: A positively accepts the no-new-capability support/investment ceiling; HOLD does not make that permanent commitment. All eight inherited Policy F selections remain unchanged. Independent historical-source exceptions remain possible only through separately authorized acquisition and source-specific proof/review; unknown archives remain unknown, and HOLD authorizes no archive inspection or provenance creation.
+
+| Traceability / authorization | Current value |
+| --- | --- |
+| PRODUCT_OWNER_DECISION / PRODUCT_OWNER_DECISION_STATUS | `HOLD_NO_CAPABILITY_SELECTION_YET / PRODUCT_OWNER_APPROVED` |
+| NEW_PRODUCT_DECISION_MADE / PRODUCT_DECISION_MADE | `YES / YES` — exactly the HOLD/deferral policy decision |
+| SELECTED_CAPABILITY / CAPABILITY_COMMITMENT | `NONE / NONE` |
+| PERMANENT_NO_CAPABILITY_COMMITMENT | `NO` |
+| NEW_CAPABILITY_SELECTED / CAPABILITY_SELECTED | `NO / NO` |
+| NEW_CAPABILITY_IMPLEMENTED / CAPABILITY_IMPLEMENTED | `NO / NO` |
+| ROOT_FEASIBILITY_RESEARCH_AUTHORIZATION / RESEARCH_AUTHORIZED | `NOT_AUTHORIZED / NO` |
+| TRUSTED_LOCAL_ROOT_INVESTIGATION / REMOTE_ISSUER_INVESTIGATION | `NOT_AUTHORIZED / NOT_AUTHORIZED` |
+| HYBRID_ISSUER_INVESTIGATION / PRIVILEGED_PLATFORM_INVESTIGATION | `NOT_AUTHORIZED / NOT_AUTHORIZED` |
+| PROVENANCE_COLLECTION / ARCHITECTURE / IMPLEMENTATION | `NOT_AUTHORIZED / NOT_AUTHORIZED / NOT_AUTHORIZED` |
+| RECOVERY_IMPLEMENTATION_AUTHORIZED / ACTIVATION_AUTHORIZED | `NO / NO` |
+| HOLD_WRITER_SEMANTIC_CHANGE | `NO` — retaining the posture does not prove writer continuity |
+
+No automatic feasibility research, collection, architecture or implementation follows. Any later root-feasibility investigation requires a separately scoped explicit authorization; any later capability choice requires a new explicit human decision. HOLD supplies no original-issuance proof, lifecycle evidence or exact-target control, and neither authorizes nor makes control design necessary now. Writer continuity stays NOT_YET_PROVEN, semantic-change necessity NOT_ESTABLISHED, executable recovery BLOCKED, E3 NOT_ESTABLISHED and control NOT_IMPLEMENTED. REL05G5A-001 remains ACTIVATION_PREREQUISITE / REQUIRES_CORRECTION, not ACCEPTED_AS_UNRECOVERABLE; HEALTH-ID-C01-C15 all remain REQUIRED / NOT EXECUTED, including C15 despite the recorded selection state. Every section 18 freeze remains intact.
+
+`APPROVAL_DELTA_INDEPENDENT_REVIEW = NOT_YET_PERFORMED`; `FINAL_MERGE_GATE / READY / MERGE / AUTO_MERGE = NOT_PERFORMED`. The next gate is independent review of this new approval delta on its exact head, not a direct Final Merge Gate or capability work.
+
 ## 17. Next-work branches and STOP gates
 
-The immediate next action is **`REL_05G_HEALTH_ID_PROSPECTIVE_PROVENANCE_CAPABILITY_DECISION_INDEPENDENT_REVIEW_01`** on this publication's exact head. Independent review must check options, trust-root/originalness distinctions, privacy/local-first tradeoffs, approved-policy preservation, writer/E3/control separation, unsupported historical scope and absence of self-approval. Then obtain the explicit human selection and separately review its approval publication before Final Merge Gate, human merge and exact-main/post-merge verification. None of those later steps is executed by this package.
+The pre-approval package passed `REL_05G_HEALTH_ID_PROSPECTIVE_PROVENANCE_CAPABILITY_DECISION_INDEPENDENT_REVIEW_01` at the exact head recorded in section 16.1; the human then explicitly selected HOLD. The immediate next action is **`INDEPENDENT_REVIEW_REL_05G_HEALTH_ID_PROSPECTIVE_PROVENANCE_HOLD_APPROVAL_DELTA_01`** on this approval-publication exact head, after new exact-head CI is available. That review must verify human provenance, HOLD rather than A, no B-E selection, no automatic research, no technical-proof promotion, no authority change and no implementation authorization. Only after the approval-delta review may a separate Final Merge Gate, human merge and exact-main/post-merge verification follow. None is executed by this publication, and HOLD starts no later research or capability branch.
 
 | Later owner branch | Required separately authorized work after reviewed canonical decision closure |
 | --- | --- |
@@ -368,11 +410,13 @@ Every branch preserves no new recovery target, no historical rekey/adoption/migr
 | LOCAL_DATABASE_VERSION / LOCAL_SCHEMA_VERSION | `7 / 1` |
 | WorkoutSessionV1 / stores / indexes / keyPaths | Unchanged |
 | Supabase/RLS/backend API/remote schema | Unchanged; no registry, endpoint, logging or telemetry |
-| NEW_PRODUCT_DECISION_MADE / NEW_CAPABILITY_IMPLEMENTED | `NO / NO` |
+| NEW_PRODUCT_DECISION_MADE / NEW_CAPABILITY_SELECTED / NEW_CAPABILITY_IMPLEMENTED | `YES / NO / NO`; only the HOLD/deferral policy decision was made |
 | PROVENANCE_COLLECTION / IMPLEMENTATION / ACTIVATION | `NOT_AUTHORIZED / NOT_AUTHORIZED / NOT_AUTHORIZED` |
 | REAL_USER_DATA_ACCESSED | `NO` |
-| Independent review / Final Merge Gate / Ready / merge / auto-merge | `NOT_PERFORMED` for this new package |
+| Pre-approval independent review | `REVIEW_PASS` at `9840391950de56cfde462de5896c4b816c254ab9` only |
+| Approval-delta independent review | `NOT_YET_PERFORMED` |
+| Final Merge Gate / Ready / merge / auto-merge | `NOT_PERFORMED` |
 
-Publication scope: this one new Markdown artifact on `codex/rel05g-health-id-prospective-provenance-decision`, normal commit/push and a new Draft PR. Validate relative links and unstaged/staged/committed `git diff --check`, exact one-file docs-only delta and clean repository after commit. No local full frontend suite is required solely for this document; hosted exact-head Push/PR CI is the regression signal, reported separately. CI cannot qualify original issuance, physical support, writer continuity, E3, recovery control or HEALTH-ID acceptance.
+Approval-publication scope: update only this Markdown artifact on existing branch `codex/rel05g-health-id-prospective-provenance-decision`, normal commit/push to existing Draft PR #768, and synchronize its body with the new exact head and current lifecycle. No new PR. Validate relative links and unstaged/staged/committed `git diff --check`, exact one-file docs-only delta and clean repository after commit. No local full frontend suite is required solely for this document; NEW exact-head Push/PR CI is the regression signal, reported separately. Prior-head CI cannot qualify the approval delta; CI cannot qualify original issuance, physical support, writer continuity, E3, recovery control or HEALTH-ID acceptance.
 
-Supabase guidance influenced the account-authentication-versus-issuance distinction and the future least-privilege/RLS/API-exposure prerequisites; it caused no backend or user-data action. Stop after Draft publication and exact-head CI observation. Do not mark Ready, merge, enable auto-merge, self-approve PD01, begin a follow-up branch, implement provenance/control or activate any path.
+Supabase guidance influenced the reviewed comparison's account-authentication-versus-issuance distinction and future least-privilege/RLS/API-exposure prerequisites; it caused no backend or user-data action. This approval publication records only the separate explicit human HOLD instruction. Stop after publication, PR-body synchronization and NEW exact-head CI evidence. Do not perform the approval-delta review or Final Merge Gate here, mark Ready, merge, enable auto-merge, select A-E, begin follow-up research/collection/architecture, implement provenance/control or activate any path.
