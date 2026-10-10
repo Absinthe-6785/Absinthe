@@ -2,7 +2,9 @@
 
 Task: `REL_05G_HEALTH_PARENT_ESTABLISHED_DEVICE_ID_CORRECTION_CHARACTERIZATION_01`.
 
-Status: `CHARACTERIZATION_CORRECTED_PENDING_FOCUSED_REREVIEW`. Independent review returned `CHANGES_REQUIRED` (P0/P1/P2/P3 = 0/0/1/0); `REL05G-HEALTH-ID-CHAR-001` is `CORRECTED_PENDING_FOCUSED_REREVIEW`, not CLOSED. This is characterization and product-policy preparation, NOT runtime correction implementation, approval, finding closure, identity repair, physical qualification or public activation.
+Status: `CHARACTERIZATION_CLOSED_IN_MAIN`. `CHARACTERIZATION_STATUS = CLOSED_IN_MAIN`: PR #764 is MERGED/CLOSED after focused rereview `REREVIEW_PASS` and Final Merge Gate PASS; `REL05G-HEALTH-ID-CHAR-001 = CLOSED`, with remaining P0/P1/P2/P3 = 0/0/0/0. This closes the documentation review finding and characterization publication only, NOT `REL05G5A-001`, runtime correction implementation, recovery approval, identity repair, physical qualification or public activation.
+
+Closure provenance (verified 2026-10-10): `PR_764_REVIEWED_HEAD = bac23ad46ec718e93fea81f2dfa468125757a1cb`; `PR_764_MERGE_COMMIT = 4177b276a2922984e28e917adb87e96474d8593a`. [Exact post-merge main-push CI 38010703230](https://github.com/Absinthe-6785/Absinthe/actions/runs/38010703230) completed/SUCCESS on that merge commit: `test`, `typecheck`, `build`, `backend-rel05g1`, `backend-recovery` each completed/SUCCESS. `POSTMERGE_MAIN_CI = PASS`; `POSTMERGE_MAIN_CI_RUN = 38010703230`. This run qualifies PR #764's merged state, not this later lifecycle-publication head.
 
 ## 1. Baseline and decisive result
 
@@ -217,7 +219,12 @@ Technical constraints are not selectable waivers: no fabricated ownership, no si
 
 ### Focused correction trace
 
-`REL05G-HEALTH-ID-CHAR-001` (P2): **`CORRECTED_PENDING_FOCUSED_REREVIEW`**. Original defect: all HEALTH-ID-PD01-PD10 were incorrectly classified as new approval requirements. Correction: mixed rows are split into NEW product decisions, ALREADY APPROVED inherited constraints and TECHNICALLY FIXED constraints, with current merged AUTH/ADMIT/ER provenance and exact disjoint sets. Independent review remains `CHANGES_REQUIRED` (P0/P1/P2/P3 = 0/0/1/0); only a focused independent rereview can close this finding. Substantive feasibility / Policy F conclusions changed: **NO**. No Final Merge Gate readiness is claimed.
+`REL05G-HEALTH-ID-CHAR-001` (P2): **CLOSED by focused independent rereview**. Historical chronology:
+
+- INITIAL: `INITIAL_INDEPENDENT_REVIEW = CHANGES_REQUIRED`, P0/P1/P2/P3 = 0/0/1/0, on reviewed head `f618e7472e6a91907b56cf0a48f0bea76124a50d`; `INITIAL_FINDING = REL05G-HEALTH-ID-CHAR-001 / P2`. All HEALTH-ID-PD01-PD10 were incorrectly classified as new approval requirements.
+- CORRECTION: head `bac23ad46ec718e93fea81f2dfa468125757a1cb` split mixed rows into NEW product decisions, ALREADY APPROVED inherited constraints and TECHNICALLY FIXED constraints, with current merged AUTH/ADMIT/ER provenance and exact disjoint sets. Its historical pre-rereview state was `CORRECTED_PENDING_FOCUSED_REREVIEW`.
+- FINAL REREVIEW: `FOCUSED_REREVIEW = REREVIEW_PASS`; `REL05G-HEALTH-ID-CHAR-001 = CLOSED`; new and remaining P0/P1/P2/P3 = 0/0/0/0. Substantive feasibility / Policy F conclusions changed: **NO**.
+- MAIN CLOSURE: `FINAL_MERGE_GATE = PASS`; PR #764 was manually merged into main as `4177b276a2922984e28e917adb87e96474d8593a`, then exact post-merge main-push CI `38010703230` passed all five required jobs. `PR_764 = MERGED / CLOSED`; characterization publication is `CLOSED_IN_MAIN`. No new product decision or runtime recovery acceptance follows.
 
 ## 11. Required future acceptance and closure condition
 
@@ -280,8 +287,8 @@ Publication validation: exactly this one Markdown artifact; no tracked runtime/s
 | Canonical writer/bind/push/pull/resync/reset/G6 | No activation or new implementation |
 | Physical qualification | `DEFERRED_UNCHANGED` |
 
-Characterization review: one P2 corrected, pending focused independent rereview; no finding closure or Final Merge Gate readiness claimed. **Correction implementation is NOT authorized/ready**: new product decisions, original-identity/reachability proof and creator/writer-transition/evidence dependencies remain. This is not closure of any seven-writer blocker, #745/Slice 2, Track A/E3/admission or Health public readiness.
+Characterization review/publication: `CLOSED_IN_MAIN`; the single documentation P2 is CLOSED, focused rereview and Final Merge Gate passed, PR #764 is merged, and its exact post-merge main CI passed. **Correction implementation is NOT authorized/ready**: all eight NEW product decisions remain `REQUIRES_PRODUCT_OWNER_APPROVAL`; original-identity/reachability proof and creator/writer-transition/evidence dependencies remain. HEALTH-ID-C01-C15 remain `REQUIRED / NOT EXECUTED`; `REL05G5A-001 = ACTIVATION_PREREQUISITE / REQUIRES_CORRECTION`. Characterization closure is not runtime blocker closure, nor closure of any seven-writer blocker, #745/Slice 2, Track A/E3/admission or Health public readiness.
 
-Exactly one recommended next task: **`REL_05G_HEALTH_PARENT_ESTABLISHED_IDENTITY_RECOVERY_CONTRACT_AND_PRODUCT_DECISION_01`**. Separately scope the high-risk identity/writer-transition contract and human decisions for F's exact-original/no-orphan recovery envelope; resolve provenance, supported ambiguous histories, creator coordination and cached/pending writer semantics before any correction code. Do not disguise this as a reader patch or automatically commission migration. Independent review of this characterization comes before that future task; no implementation, Ready, merge or auto-merge in this publication.
+Exactly one recommended next substantive task, now that PR #764 is final-gated, manually merged and independently verified `CLOSED_IN_MAIN`: **`REL_05G_HEALTH_PARENT_ESTABLISHED_IDENTITY_RECOVERY_CONTRACT_AND_PRODUCT_DECISION_01`**. This is a **CONTRACT + PRODUCT DECISION PACKAGE**, NOT runtime implementation. Separately scope the high-risk identity/writer-transition contract and human decisions for F's exact-original/no-orphan recovery envelope; resolve provenance, supported ambiguous histories, creator coordination and cached/pending writer semantics before any correction code. Ask for explicit human decisions only for the eight NEW items; do not request reapproval of PD04, PD05-B, PD09-B, technically fixed constraints, the writer firewall or review/merge/main sequencing. Do not disguise this as a reader patch or automatically commission migration. No implementation, Ready, merge or auto-merge is performed by this lifecycle publication.
 
-REL05G5A_001_CHARACTERIZATION_CORRECTED_PENDING_FOCUSED_REREVIEW
+REL05G5A_001_CHARACTERIZATION_CLOSED_IN_MAIN
