@@ -1,0 +1,444 @@
+# REL-05G Health parent established-identity recovery contract and product decisions
+
+## 1. Baseline and prerequisite closure
+
+Task: `REL_05G_HEALTH_PARENT_ESTABLISHED_IDENTITY_RECOVERY_CONTRACT_AND_PRODUCT_DECISION_01`.
+Status: `CONTRACT_AND_DECISION_PACKAGE_COMPLETE_PENDING_INDEPENDENT_REVIEW`.
+Evidence date: 2026-10-10. Repository: `Absinthe-6785/Absinthe`; canonical workspace: `C:\Users\이도현\GitRepos\Absinthe`.
+
+| Live prerequisite | Verified value |
+| --- | --- |
+| Base / current main | `59f69036c461ec649e2d6d1c9a5b2d78e9a2779b` |
+| [PR #765](https://github.com/Absinthe-6785/Absinthe/pull/765) | MERGED / CLOSED; reviewed head `aefa82f408eacca3f582e7052ef65386c881c804` |
+| PR #765 merge commit | `59f69036c461ec649e2d6d1c9a5b2d78e9a2779b` |
+| [Exact-main push CI 38018551230](https://github.com/Absinthe-6785/Absinthe/actions/runs/38018551230) | completed / success: test, typecheck, build, backend-rel05g1, backend-recovery |
+| CHARACTERIZATION_STATUS | `CLOSED_IN_MAIN` |
+| REL05G5A-001 | `ACTIVATION_PREREQUISITE / REQUIRES_CORRECTION` |
+| READER_ONLY_CORRECTION_FEASIBLE | `NO` |
+| NON_DESTRUCTIVE_RUNTIME_CORRECTION_FEASIBLE | `CONDITIONAL` |
+| RECOMMENDED_POLICY | `F` |
+| PRODUCTION_EXACT_ORIGINAL_PROVENANCE_AVAILABLE | `NO` |
+| HEALTH-ID-C01 through C15 | `REQUIRED / NOT EXECUTED` |
+
+The [merged characterization](REL-05G-health-parent-established-device-id-correction-characterization.md) is authoritative, including its final classification of eight NEW decisions, three inherited constraints and eight fixed constraints. Its publication closure does not close runtime acceptance. PR #765 synchronized that closed characterization; older pre-merge review/publication states are chronology, not current authority.
+
+This first contract is a proposal pending independent review and explicit product-owner selections. No recommendation, document completion, main CI success or future document merge establishes recovery execution, platform qualification or implementation authorization.
+
+## 2. Scope, non-goals and refreshed source facts
+
+Define controlled, evidence-backed restoration of the **proven exact original** established device identity and retained scope. Do not reinterpret repair as allocation of a plausible new identity. No recovery API, routing, support/admin tool, physical procedure, UI, storage access to real user data, migration, source/test/config/backend change or activation is included.
+
+The baseline source was inspected, not merely inferred from the earlier nine-site count. Excluding tests, there are nine direct production helper call sites across six groups; helper delegation, reexports, injected port invocation and raw-key guards are separately accounted for:
+
+| Group / source | Identity acquisition and late-use facts |
+| --- | --- |
+| [Local helper](../src/lib/workoutLocalReaderAuthority.ts) | Defines `absinthe-health-routine-device-id:v1`; creator writes a generated UUID when existing bytes fail its format check. Established-reader helper rejects established invalid bytes, delegating creation only for `null`. Neither helper grants recovery provenance. |
+| [Routine writer](../src/lib/healthRoutineSync.ts) | One direct creator at line 830; per-account `productionSession` caches a Promise, including success, rejection and in-flight creation. The device is captured before asynchronous repository open; snapshot, reset, recover and sync share this factory. No factory eviction policy proves recovery safe. |
+| [Runtime authority](../src/lib/workoutRuntimeAuthority.ts) | One direct creator in production ports at line 177; controller invokes the port, reads the raw mirror separately and fences its own attempts/account. Cancellation is not global writer retirement. |
+| [Selected-day reader](../src/lib/workoutSelectedDayReader.ts) | One established-helper call on open; captures device/namespace and checks active generation. Persisted mismatch mapping remains the #763 contract. |
+| [Range reader](../src/lib/workoutRangeReader.ts) | Three established-helper calls: open, pre-use and post-read. A final helper call can create on missing bytes; it cannot be repurposed as a non-creating recovery probe. |
+| [Selected-day owner](../src/components/views/features/health/useHealthSelectedDayComposite.ts) | Two established-helper calls for reuse and final publication; request/mount/account/date checks do not prove unseen device ABA or global lifetime retirement. |
+| [Range owner](../src/components/views/features/health/verifiedWorkoutRangeSnapshot.ts) | One established-helper call plus raw-key checks at start, reuse, verification and publication. Owner sequence invalidation is local, not proof that all old contexts are excluded. |
+| [Dormant lifetime foundation](../src/lib/workoutDeviceLifetimeAuthority.ts) | A second mirror-write implementation, distinct from the helper; authority/adoption/prepared/READY validation. No current product caller routes through it. Its creator-recovery generates a new target; it is not Policy F exact-original recovery. |
+| [Remote client](../src/lib/workoutRemoteClient.ts), [push](../src/lib/workoutRemotePush.ts), [pull](../src/lib/workoutRemotePull.ts) | Raw mirror reads fence captured request context. They are not original-ID issuers or acquisition writers; no pull-based push acknowledgement or rebase may be added. |
+
+The inventory also includes production writer fan-in from Health save/online paths, Settings snapshot/reset, note/export snapshot and vault recovery. An apparently read-only export/snapshot can create the cached writer session. Pure helper imports/reexports do not perform identity I/O; a future routing change must retain that property and cover factory and final-use calls below removable surfaces.
+
+[Namespace](../src/lib/localDatabase/namespace.ts) fingerprints exact `[userId, projectRef, deviceId, schemaVersion]`; case changes alter the fingerprint. Generation is separate, not part of that hash. Helper-format acceptance and namespace safety are both required for an existing compatible identity: a safe non-UUID value accepted today must remain exact; an all-hyphen helper-accepted value is namespace-unsafe and cannot become a recovery target. No trim, case fold, alias, hash-derived device ID or strict historical UUID migration.
+
+[Repository](../src/lib/localDatabase/repository.ts) initialization can create missing namespace metadata/generation; normal open can create/upgrade a database. A successful empty newly initialized scope is not historical reachability evidence. [Schema](../src/lib/localDatabase/schema.ts), [types](../src/lib/localDatabase/types.ts) and [outbox identity](../src/lib/localDatabase/outboxIdentity.ts) freeze DB 7/schema 1 and namespace/generation-dependent immutable identity. This contract requires a separately reviewed non-creating inspection capability; it does not claim that current open/initialize APIs already supply it.
+
+## 3. Authoritative inherited and fixed constraints
+
+The following current merged documents were read as authority, not as proof of new recovery execution:
+
+- **AUTH**: [device-lifetime authority contract and plan](REL-05G-workout-device-lifetime-authority-contract-and-plan.md), sections 9-10, 20-21 and 25: exact compatible established IDs/case, role-restricted acquisition, writer firewall and complete-bundle approval.
+- **ADMIT**: [bootstrap-admission prerequisite](REL-05G-workout-device-lifetime-bootstrap-admission-prerequisite.md), sections 10, 12-13: conditional admission, deferred assisted support, non-waivable constraints and review/merge/main gates.
+- **ER**: [admission evidence and writer-safe routing characterization](REL-05G-workout-device-lifetime-admission-evidence-and-writer-safe-routing-characterization.md), sections 8 and 10: current ownership/cached writer premises, ER-PD01-PD03 investigation ceiling and writer STOP. Investigation approval is not a production assisted procedure.
+- **PARENT**: [selected-day/range parent public readiness](REL-05G-health-selected-day-range-parent-public-readiness-characterization.md): public activation and established-ID recovery remain prerequisites, not closed by preview tests.
+- [Selected-day integration prep](REL-05G5B2B-product-reader-integration-prep.md), [reader expansion prep](REL-05G5B2B2-product-reader-expansion-prep.md) and [consumer integration prep](REL-05G5B2B2B-consumer-integration-prep.md): qualified local source truth, isolation, currentness, bounded scope and default-OFF ceilings.
+
+Sections 13 and 14 enumerate the disjoint inherited/fixed sets and trace them to acceptance. No DEVLIFE-PD14, admission evidence envelope or writer-firewall reapproval is requested. New product decisions may narrow support/investment, not waive these constraints.
+
+## 4. Policy F exact recovery contract
+
+Policy F remains the minimum defensible non-destructive recovery direction: only `PROVEN_EXACT_ORIGINAL_ID`, actual original scope and proven writer safety permit a recovery attempt. Otherwise preserve storage and deny/escalate. A typed unavailable result is truthful failure, not successful correction. Choosing Policy F does not create the currently missing proof source.
+
+### 4.1 Conceptual episode and common invariants
+
+A future reviewed recovery episode must bind the exact target bytes, authenticated provenance reference, original origin/storage partition, account/project and affected namespace/generation set, observed corrupt/missing mirror classification, source transition/currentness fence, admitted evidence scope if used, consent and immutable pre-recovery inventory. An audit reference must not expose raw personal histories or credentials. This is a conceptual contract, not a new API, record format, storage key, store or issuer implementation.
+
+All phases revalidate the current episode before and after asynchronous work and at the mutation/publication boundary. A newer account, device lifetime, generation, consent withdrawal or competing transition invalidates the old permit. Re-entry cannot silently widen a permit or infer it from mirror equality. Exact bytes returning in A -> B -> A do not restore an old lifetime. Failure preserves domain/pending bytes, withholds canonical success/empty claims and records which premises remain unproven; it never calls a creator fallback. Same episode + same authenticated target is idempotent; different target or unknown progress is not a retry.
+
+The phase list describes logical obligations, not permission to delay revocation until phase 9. **PREPARE must invalidate affected old publications before any mirror/authority mutation**. Phase 9 verifies that invalidation remained effective and rejects late completions; no old-to-new publication gap is allowed. Revocation must be owned below removable UI and cover both selected-day and range, not only one mounted component. New source publication remains withheld until final verification; revoked tokens are never reinstated, even on failure.
+
+### 4.2 Phase obligations
+
+Each row specifies inputs/trust, preconditions, mutation and writer limits, currentness/audit, and failure/idempotency. Section 7 is an additional gate, not an optional implementation detail.
+
+| Phase | Inputs / trusted source / preconditions | Permitted versus forbidden mutation; writer interaction | Currentness / audit / idempotency / failure |
+| --- | --- | --- | --- |
+| 1 DETECT | Authenticated read context; non-creating mirror read with errors distinguished from null; trusted reader error classification | Classification only; no creator invocation, mirror write, repository initialization or writer cancellation | Capture error category and observation fence without unnecessary raw bytes; stale observation discarded. Repeated unchanged read is the same failure, not repair. Storage error -> transient/durable classification, never guessed missing. |
+| 2 CLASSIFY | Established-invalid/namespace-unsafe versus missing versus compatible identity; helper AND namespace predicates; current source state | No normalization or replacement; leave current creator semantics unchanged in this task; route a future recovered candidate only through separately approved transition | Recheck account/origin and observation; audit classification/rule version. Existing compatible path is not recovery; ambiguous classification stops, repeated classification does not allocate. |
+| 3 ESTABLISH_PROVENANCE | Independently authenticated historical issuer evidence satisfying section 5; unique exact original candidate | Verify evidence only, not local candidate-as-issuer or user memory promotion; no writer authority or domain writes | Bind issuer/episode/expiry/scope/target, reject stale/corrupt/multiple candidates. Same valid evidence is reusable only within its exact permit. Missing source -> unsupported/evidence escalation. |
+| 4 ESTABLISH_SCOPE_REACHABILITY | Proven target plus non-creating original namespace/meta/generation/data inventory under authorized inspection | Read exact existing scope; no create/upgrade/init, scanning-to-choose, copy, historical generation activation or outbox edits | Compare exact fingerprint, active generation and ownership scope; audit manifest of expected reachability and immutable pending state. Failure/foreign payload stops, not empty. Repeat must agree or require a new episode. |
+| 5 ESTABLISH_WRITER_SAFETY | Complete relevant creator/factory/cache/in-flight/transport inventory, authenticated coordination/lifecycle premises and unsaved-work ownership | Demonstrate exact behavior continuity; no guessed quiescence, cache deletion, queue drain, forced logout or broad cancellation | Validate old/new ownership and suspended-context fences; audit admitted evidence and limits. If preservation cannot be proven, set writer semantic change YES and STOP for separate high-risk prerequisite. Rechecks do not mint authority. |
+| 6 PREPARE_RECOVERY | Sections 5-7 satisfied; explicit consent; separately reviewed crash intent/representation and approved transition | Durably bind one exact original target and allowed progress, invalidate old publications before writes; only approved control metadata changes, no domain/pending mutations | Recheck source fence and permit; audit intent, consent, revoked token/transition reference. Prepare is idempotent for that intent only. Failure before durable preparation makes no identity change; uncertain preparation fails closed. |
+| 7 COMMIT_EXACT_ORIGINAL | Current durable intent, exact original bytes, still-valid scope/writer/evidence permit | Restore mirror only to frozen exact original; authority/marker/lifetime changes solely under the separately reviewed inherited-compatible protocol in section 7.2; never new device allocation | Fence/read-back every allowed control write; audit actual progress. No localStorage/IDB cross-store atomicity claim. Partial failure remains incomplete; resume exact intent or stop, no new target/old lifetime revival. |
+| 8 VERIFY_REOPENED_SCOPE | Read-back exact target/control state plus original preflight inventory; non-creating reopen | Read/compare scope and pending records; no repair-by-init, domain copy, rebind, ACK, rebase, reset or generation switch | Verify section 6 fully, including selected-day/range equivalence and no orphaning. Audit results without granting public activation. Mismatch/failure is not recovered; rerun verification only on unchanged valid intent. |
+| 9 INVALIDATE_OLD_PUBLICATIONS | Evidence that phase 6 revoked all affected old tokens; source/current lifetime and reader request fences | Verify old async completions cannot publish; stale completions discarded. Do not newly invalidate too late or restore old READY/publications | Audit selected-day/range/account/date/generation/ABA negative checks. Any surviving old publication blocks completion. Verification repeats cannot authorize old token reuse. |
+| 10 COMPLETE / FAIL_CLOSED | All proofs, writer continuity, exact scope verification, revocation and consent still current | Complete control intent/audit only within reviewed protocol; no data-plane operation. Failure never fabricates success or automatically rolls back to old lifetime | Emit `RECOVERED_EXACT_ORIGINAL` only for verified declared scope; same completed intent returns same result without extra identity/lifetime. Otherwise typed failure, evidence and explicit escalation; new read requires fresh current token and existing activation authority. |
+
+## 5. Exact-original provenance contract
+
+`PRODUCTION_EXACT_ORIGINAL_PROVENANCE_AVAILABLE = NO`. No inspected helper, cached session, namespace metadata, outbox, authenticated Supabase account or dormant authority establishes an independently authenticated historical original device identity. Current malformed bytes can describe the problem, not certify their replacement. The characterization's TEMP fake-storage/IDB probes establish mechanism behavior only, not production provenance or a physical procedure.
+
+`PROVEN_EXACT_ORIGINAL_ID` requires all of the following from a **separately reviewed trustworthy source**, not a source invented here:
+
+1. Authenticated issuer and evidence integrity independent of the recovery candidate and currently corrupted mirror. Verification must establish issuer authority and anti-tamper/anti-replay properties, not merely a caller-supplied boolean or signature from an untrusted key.
+2. Historical binding of the exact original device bytes/case to the same origin, storage partition/profile, project and affected account/namespace history **before** corruption. Newly recording a guessed ID cannot establish that history retroactively.
+3. Uniqueness and consistency against retained namespace/generation evidence. A fingerprint match can corroborate a proven candidate but cannot select original ownership by itself. Multiple candidates, absent history, rollback, unauthenticated backup or inconsistent bindings fail closed.
+4. A current, narrowly scoped recovery permit with issuer/build/protocol/evidence references, episode freshness/expiry/invalidation, consent and an auditable verification chain. Exact original bytes may be historical; permission to act now must be current. No permanent universal platform certificate.
+5. Sufficient coverage of all device-sharing affected scopes. An authenticated single account is not proof of ownership of every account sharing an origin-wide device mirror. Do not expose or reassign another account's payload while investigating.
+6. Privacy/security review of collection, storage, retention and operator access. Never publish auth tokens, raw local histories or full recovery credentials in PRs/logs. Source issuance, keys and recovery record representation remain unimplemented design prerequisites.
+
+Rejected as **sole proof**: malformed mirror bytes; one populated namespace; matching account alone; matching generation alone; outbox deviceId alone; user memory alone; localStorage backup without authenticated provenance; timeout; no visible old tab; Web Lock possession; `compatibleCreatorsQuiesced=true`; deployment timestamp; app version alone. Authenticated account/session ownership does not imply exact original device provenance or creator retirement.
+
+The [Web Locks specification](https://w3c.github.io/web-locks/) describes coordinating cooperating execution contexts through a storage-bucket lock manager. It does not certify a historical device ID or that nonparticipating/restored old creators are absent. Lock acquisition is at most one coordination mechanism inside a separately proven admission episode, never the issuer or evidence substitute.
+
+No currently trustworthy authoritative proof of **absence of all retained old scope** is established either. A failed lookup, inaccessible IDB, empty current query, scan returning no visible rows or unique namespace is insufficient. Therefore the recommended new-target policy in section 11 is A, not the characterization's conditional generated-UUID option for an independently supported no-residual branch. This narrows proposed investment without changing Policy F, inherited historical syntax or runtime behavior.
+
+## 6. Reachability and no-orphaning contract
+
+Before preparation, establish a non-creating inventory of the proven exact original namespace(s) and the specific retained histories being claimed. Current repository open/initialize must not be mistaken for this capability: creating a fresh empty namespace would manufacture the apparent verification result. If non-creating inspection cannot establish existence, stop. No new store/keyPath/index/schema is authorized to implement this requirement here.
+
+After mirror/control commit and before reporting success, require:
+
+- Exact expected namespace fingerprint reopened, not a new fingerprint computed from replacement/normalized device bytes; expected metadata, current active generation and ownership agree with preflight.
+- Declared current canonical sessions, local-only sessions and tombstone evidence are reachable exactly as expected. Tombstones stay deleted, not restored as active sessions. Historical generation bytes are preserved; access to historical generations is a separately deferred support claim, never implicitly supplied by active-generation reads.
+- Expected pending/unbound/bound/claimed/retry/conflict/acknowledged outbox, dependencies, payload/hash, mutation/idempotency identities, delivery binding, request digest, CAS base, epoch, receipts and checkpoints remain identical **as a recovery action**. No duplicate send/drop, pull ACK, rebase or replay to a new scope.
+- Conflicts, checkpoints, metadata and other retained scopes are not cleared/copied/reassigned. Compare a stable preflight baseline under proven ownership/coordination. Normal writer progress may occur only under existing legitimate semantics with attributable evidence; an unexplained difference is not waved away as concurrent progress. If a stable/proven comparison would require new draining/freezing/cancellation, section 7 STOP applies.
+- Selected-day and range reads for the same applicable context agree on account/project/device/namespace/current generation and local completeness. Different date/range requests are not forced to report identical content. No old request, captured account/date/generation, observed identity transition or A -> B -> A lifetime can publish after revocation.
+- No foreign-account payload exposure, newly orphaned retained scope or hidden canonical history represented as verified empty. Revalidate current account/device/lifetime/generation and consent at completion; a mid-flight change invalidates the permit.
+
+If exact mirror restoration succeeds but IDB verification fails, recovery remains incomplete/failed, not successful because bytes were preserved. Do not automatically undo the mirror into an old READY lifetime, switch generation to make rows visible or initialize away a failure. Return a truthful failure with deterministic intent progress and escalation. Completion confirms only the selected supported local scope, never cloud completeness, universal history recovery or public activation.
+
+## 7. Writer-transition contract and mutation envelope
+
+### 7.1 Baseline assessment and per-path obligations
+
+`WRITER_SEMANTIC_CHANGE_REQUIRED = YES` and `SEPARATE_HIGH_RISK_WRITER_TRANSITION_PREREQUISITE_REQUIRED = YES` **for an executable recovery on the currently unproven production stack**. Relevant behavior preservation is not proven, and the current creator/factory path is not a reviewed exact-original recovery route. This is the required fail-closed assessment, not an assertion that every healthy cached session must be evicted. A later separately evidenced case may prove exact-same-ID continuity without cache mutation; it must demonstrate every applicable obligation, not assume this blanket exception. This package authorizes neither the transition nor a writer-firewall waiver.
+
+| Writer / owner state | Could preserve current behavior only if | Present assessment / STOP consequence |
+| --- | --- | --- |
+| `healthRoutineSync productionSession`, cached success | Captured repository/device/worker and namespace remain the proven exact original; all existing operations and availability remain valid | Conditional continuity, not yet proven. Retain matching session if proven; do not delete/recreate the factory or treat key repair as changing its captured device. Different cached scope -> high-risk STOP. |
+| Cached rejected Promise | Existing rejection semantics are preserved; any desired renewed acquisition is separately designed | Current factory retains rejection. Evicting/retrying changes availability/cache semantics -> high-risk prerequisite, not ordinary reader Retry. |
+| In-flight session creation | Captured-before-await identity and late repository completion remain owned by the current episode; no superseded session installs | Unproven; blanket cancellation/reload is not proof. Changing race behavior requires separately reviewed transition. |
+| Runtime authority controller | Its attempt/account cancellation and READY/open semantics remain exact, with no assumed control of routine factory | Local controller cancellation does not retire other writers. Any readiness denial/retry/identity routing change triggers STOP. |
+| Snapshot / export | Potential first session creation and late snapshot use stay exact and immutable | Health/Settings/note export fan-in participates; hiding an editor cannot exclude these creators. No forced snapshot drain or new denial here. |
+| Reset | Existing reset/generation/epoch fences and pending work are unaffected; no reset needed to repair mirror | Generation or reset transport changes are outside Policy F; STOP for separate reset/writer prerequisite. |
+| Recover / vault restore | Existing session acquisition, restore mutation ownership and late completions remain exact | No vault import/adoption/copy used as original proof or recovery fallback. Changed restore semantics -> separate authorization. |
+| Online sync | Current worker identity, claims/leases, retries and auth account fences remain valid | New blocking, draining, cancellation or worker/repository replacement is a semantic change; STOP. |
+| Remote push | Already bound requests retain exact bytes/digest/CAS/lease/context; no send under a new scope | Current raw mirror guard alone is not a complete recovery permit. Do not edit binding or digest to make the request pass. |
+| Remote pull / resync | Existing account/epoch/checkpoint/conflict and own-echo rules remain unchanged | No pull-based push ACK, auto-rebase or reset/full-resync as repair. Changed transport/recovery requires separate closure. |
+| Pending unbound outbox | Mutation identities/payloads/dependencies/status are unchanged, and future normal binding still targets exact original scope | Conditional only; namespace reassignment changes identity. No dropping/recreating/rebinding to new device. |
+| Claimed/bound request, retry/conflict | Exact claim/lease/request/receipt relationship remains valid through the approved episode | No guessed lease expiry or rewriting claimed work; any needed retry/release/queue transition -> high-risk prerequisite. |
+| Receipts / checkpoints | Immutable acknowledged evidence, epoch and sequence semantics remain valid under original scope | No checkpoint rewind/advance, fabricated receipt or own-echo weakening by recovery. |
+| A -> B -> A, sign-out/account changes, late async | Source-owned lifetime/transition and account/request fences reject old completion even if mirror bytes equal again | Unobserved ABA cannot be dismissed by byte comparison. Forced logout/app restart does not prove retirement; new lifetime rules need separate proof/authorization. |
+| Cross-tab, hidden/suspended/restored contexts | Complete relevant creator participation/exclusion and re-entry premises are truthfully qualified | No visible-tab inventory, timeout, Web Lock or checkbox suffices. Old bypass/new writer coexistence unproven -> STOP. |
+| Unsaved mounted work | Its current owner and disposition remain unchanged and disclosed | No silent discard/cancel-all. If transition needs a new save/discard/availability policy, it is a separate high-risk scope. |
+
+Do not silently solve any row with deleting `productionSession`, recreating repository, reloading the page, forcing logout, draining queues or cancelling all work. Read-side stale-publication invalidation required by this contract must not be conflated with changing writer readiness or cancelling writer work. If the needed fences cannot be added while preserving writer behavior, do not implement them under a reader-only label.
+
+### 7.2 Future mutation permissions, not permission in this task
+
+| State | Conservative future Policy F envelope |
+| --- | --- |
+| Legacy device mirror | May be restored **only** to the frozen proven exact original bytes/case, after approved safe transition and read-back. No generated replacement, alias or canonical hash as device target. |
+| Device-lifetime authority record | Only a separately reviewed transition conforming to inherited admission/currentness/record validation may change control state. No direct READY injection or ad hoc record kind. |
+| Adoption marker | Only inherited-compatible protocol, where genuinely admitted; never erase/reset to regain legacy adoption or claim fresh install. If exact-original recovery cannot be expressed safely, STOP for a separately reviewed control-contract prerequisite. |
+| `lifetimeId` | No old lifetime resurrection. A new lifetime for the same device is not a new device; it may be allocated once only under approved authority protocol and frozen recovery intent, never per retry. No lifetime change outside that protocol. |
+| Namespace metadata / active generation | Immutable as recovery action; no initialize, switch, owner/generation reassignment or fabricated fresh scope. |
+| WorkoutSessionV1 / tombstones | Immutable; no restore/adoption/copy, rewrite, canonical field ownership change or projection migration. |
+| Outbox / bindings | Immutable pending identity, payload/hash/dependency/digest/CAS/status/binding; NO MOVE / COPY / REBIND / REASSIGN. |
+| Checkpoints / conflicts / receipts | Preserve exact evidence; no clear, fabricated ACK, recovery-related replay/rebase or sequence change. |
+| Remote state | No backend/API/auth/RLS/schema/data mutation; no automatic bind/push/pull/resync/reset. |
+
+The dormant lifetime foundation has closed prepared kinds (`legacy-adoption`, `fresh-create`, `creator-recovery`); creator-recovery is role-restricted and allocates a new UUID for malformed/missing acquisition. It does **not** take an independently proven exact-original recovery target. Do not misuse this route, accept a namespace-unsafe target, invent a compatibleCreatorsQuiesced assertion, remove an adoption marker or bypass its parser to implement F. Any necessary exact-target intent/control representation requires separate inherited-compatible review and writer prerequisites; none is implemented or approved by these eight product recommendations. A DB/schema change would require a new scope and STOP.
+
+### 7.3 Relationship to the seven live-writer blockers
+
+| Existing blocker | Relationship to proposed recovery | Status / boundary |
+| --- | --- | --- |
+| Unbound pre-reset create | INDEPENDENT of exact mirror restoration; WOULD_REQUIRE_SEPARATE_CLOSURE if reset/binding semantics are touched | OPEN; no rebind or reset activation. |
+| Rollback visibility | OVERLAPS old/restored-context fencing | OPEN; recovery qualification must not claim global rollback safety. |
+| Old/new writer coexistence | BLOCKED_BY relevant creator/currentness evidence for an executable recovery | OPEN; scoped proof is required, not automatic global blocker closure. |
+| Mounted UI identity integration | OVERLAPS source identity/currentness and unsaved work | OPEN; no editor activation or cancel/discard policy. |
+| Canonical field ownership | INDEPENDENT | OPEN; no canonical fields changed. |
+| Remaining analytics/projection/public claims | OVERLAPS truthful bounded reader results | OPEN; local recovery success is not remaining projection/analytics closure. |
+| Reset-fenced local-edit policy | INDEPENDENT while reset/local-edit semantics remain untouched; WOULD_REQUIRE_SEPARATE_CLOSURE if relied upon or changed | OPEN; cannot use reset as a repair escape. |
+
+No eighth live-writer blocker is automatically created. This contract's STOP/prerequisite is a bounded dependency classification; document or future recovery closure closes none of these seven by implication.
+
+## 8. Crash and idempotency requirements
+
+The future durable intent must freeze exact target, verified provenance/permit, affected source fence, allowed control progress and audit identity. Its representation and resume mechanism need independent review. Existing localStorage authority writes and IndexedDB writes are not one atomic transaction. No new store/schema or pseudo-transaction is invented here.
+
+| Interruption / retry | Required deterministic behavior |
+| --- | --- |
+| Crash before prepared state | No identity mutation; detect/classify again without allocating. If preparation outcome is uncertain, inspect verified control progress, not assume no work. |
+| Crash after revocation, before mirror update | Old publications remain invalid. Resume exact durable intent only if permit/currentness still valid, otherwise fail closed. Never resurrect old lifetime to make UI available. |
+| Crash after mirror update, before authority READY | Preserve known exact-target partial progress; no public success. Resume same admissible control transition or stop. Mirror equality alone cannot recreate missing intent/permit. |
+| Storage write failure | Record actual completed/uncertain control steps and classify failure. No creator fallback, repeated new UUID, storage clearing or assumed all-or-nothing rollback. |
+| Storage read-back mismatch | Durable failure/competing transition; do not overwrite observed newer bytes or report recovery. Escalate evidence/storage integrity. |
+| IDB open/verification failure | No success/empty claim, create/upgrade/init/copy or generation switch. Known mirror commit remains incomplete and auditable; investigate non-destructively. |
+| Repeated operator action | Same authenticated intent yields same target/progress/result; no duplicate transition, new lifetime per click, domain mutation or send. Different/missing evidence is not the same action. |
+| Retry after partial progress | Revalidate original intent, provenance, consent and currentness; permit may expire. Exact deterministic resume or explicit fail closed; a fresh permit may require a separately reviewed continuation, never infer from bytes. |
+| Conflicting newer transition | Old episode is permanently invalid; never overwrite newer state or roll it back into old READY. New investigation must own a new explicitly verified episode. |
+| Second tab attempting recovery | Serialize participating actions under verified ownership and intent; lock alone is insufficient. Same intent may observe/resume under valid protocol; competing intent denied. Unqualified old contexts -> STOP. |
+| Restored old tab after recovery | Old lifetime/publications cannot regain ownership from equal bytes. Qualified re-entry must reacquire current authority; old bypass builds invalidate the support claim and require evidence/high-risk escalation. |
+
+Rollback means a separately reviewed safe control outcome, not restoration of an old revoked lifetime or rollback of domain data. Resume/fail-closed rules must preserve supported read reachability and demonstrate eventual completion for every claimed supported case. Perpetual failure with better copy is not HEALTH-ID-C10 acceptance.
+
+## 9. Conceptual public result taxonomy and source truth
+
+Names below are contract vocabulary only, not new TypeScript/UI implementation. Public outcomes must stay distinct from transport/bootstrap errors and legacy-cache freshness. Public activation remains unauthorized even after a future local recovery result.
+
+| Outcome | Truth and source/public behavior |
+| --- | --- |
+| RECOVERED_EXACT_ORIGINAL | All section 6 checks and writer/intent/currentness checks pass for the declared supported scope; new source read can use fresh tokens under existing authority. Local completeness only; empty is allowed only from a successfully verified, complete applicable query, not from recovery itself. |
+| RECOVERY_REQUIRED | Established identity cannot safely open retained canonical scope; preserve bytes and suppress canonical absence claims. Explain need for justified correction, not cloud/bootstrap Retry. |
+| RECOVERY_UNSUPPORTED | Outside selected support envelope or no currently qualified procedure; non-destructive escalation, not verified empty or a repair-success state. |
+| RECOVERY_PROVENANCE_AMBIGUOUS | Missing/multiple/inconsistent ownership proof; no target selection. Withhold canonical payload and disclose uncertainty. |
+| RECOVERY_WRITER_SAFETY_UNPROVEN | Safe current ownership/immutable work cannot be demonstrated; stop for high-risk prerequisite. No queue drain/cancel-all offered as routine guidance. |
+| RECOVERY_PHYSICAL_EVIDENCE_REQUIRED | Claimed operating mode/episode premise lacks qualification; procedure unavailable for that scope pending evidence, not universally certified by another platform. |
+| RECOVERY_FAILED_TRANSIENT | Storage/DB availability failure is plausibly transient under a valid read episode; one bounded manual read Retry may be offered under PD08-A, never automatic identity repair. |
+| RECOVERY_FAILED_DURABLE | Deterministic bytes, integrity/read-back/reachability or partial-transition failure; preserve known progress and deny unchanged retry-to-success. Escalate with audit reference. |
+
+Preserve #763 exactly: `ACCOUNT_MISMATCH`, `NAMESPACE_MISMATCH`, `GENERATION_MISMATCH` -> typed isolation; `UNTRUSTED_SCOPE` -> `INVALID_CONTEXT`; trusted-scope invalid content -> ordinary source failure. Ordinary failure may retain independently qualified legacy partial; persisted scope distrust withholds both, and a healthy legacy source cannot waive canonical distrust. Partial calendars remain unknown rather than absence/zero. Do not create a broad recovery error that erases these distinctions.
+
+No copy promises hidden canonical data is absent, synced elsewhere or recoverable from cloud. Warn against clear-site-data, database deletion, reinstall, profile/origin switching and console/localStorage edits; these can destroy access even when some bytes persist. Later EN/KO/JA wording, keyboard/screen-reader announcements, focus behavior and supported physical-mode QA are separate acceptance, not completed here.
+
+## 10. Proposed support-scope matrix
+
+Every recovery classification below is a **recommendation pending eight selections, review, implementation and proof**. It is not currently offered support. `SUPPORTED_IF_PROVEN_ORIGINAL_EXISTING_SCOPE_WRITER_CONTINUITY` means all sections 5-8 and applicable acceptance/evidence are satisfied, including a separately closed writer prerequisite if needed; no premise is assumed true today.
+
+| Retained history / identity | Proposed classification | Exact limit / reason |
+| --- | --- | --- |
+| 1 Proven original + existing original namespace + current active generation | SUPPORTED_IF_PROVEN_ORIGINAL_EXISTING_SCOPE_WRITER_CONTINUITY | Restore exact compatible target, reopen existing metadata/active generation, verify declared current canonical scope; no newly initialized scope. |
+| 2 Original namespace with historical generations | DEFERRED for historical read recovery | Preserve all bytes/metadata and verify no orphaning; current active-generation access does not promise historical generation selection/access. Broader access is a separate support/migration design. |
+| 3 Tombstones | SUPPORTED_IF_PROVEN_ORIGINAL_EXISTING_SCOPE_WRITER_CONTINUITY | Tombstone evidence remains reachable/identical and deleted; no resurrection or inference that deleted rows are active sessions. |
+| 4 Local-only unsynced sessions | SUPPORTED_IF_PROVEN_ORIGINAL_EXISTING_SCOPE_WRITER_CONTINUITY | Current-generation local history must actually be readable; no cloud or cross-device completeness promise. |
+| 5 Pending unbound outbox | SUPPORTED_IF_PROVEN_ORIGINAL_EXISTING_SCOPE_WRITER_CONTINUITY | Exact original namespace, mutation/payload/hash/dependencies/status unchanged; future normal binding unchanged, no recovery binding. |
+| 6 Bound/claimed/retry outbox | SUPPORTED_IF_PROVEN_ORIGINAL_EXISTING_SCOPE_WRITER_CONTINUITY | Exact request/digest/CAS/binding/lease/receipt continuity proven; otherwise UNSUPPORTED pending separate high-risk transition, not rewritten to fit. |
+| 7 Conflicts/checkpoints | SUPPORTED_IF_PROVEN_ORIGINAL_EXISTING_SCOPE_WRITER_CONTINUITY | Preserve exact epoch/sequence/candidate/ack evidence; no rewind/replay/clear as recovery. |
+| 8 Multiple candidate namespaces | UNSUPPORTED while original uniqueness is unproven | Independent authenticated proof, not population/recency heuristics, would be required to change classification. No chooser that grants ownership. |
+| 9 Ambiguous original provenance | UNSUPPORTED | Deny/escalate; no guessed reconstruction or self-issued backup proof. |
+| 10 Residual canonical bytes without trustworthy ownership | UNSUPPORTED | Physical presence is not supported reachability; no ownership reassignment. |
+| 11 No residual old namespace/data | UNSUPPORTED in this workstream | PD05-A recommends no new-target branch; no absence-by-scan proof and no allocation fallback. |
+| 12 Current safe existing non-UUID identity | SUPPORTED existing compatible acquisition/read behavior, not a recovery promise | Preserve exact accepted bytes under helper AND namespace checks; inherited PD04/PD05-B. |
+| 13 Mixed-case safe identity | SUPPORTED existing compatible acquisition/read behavior, not a recovery promise | Preserve exact case/fingerprint; no lowercasing or historical UUID normalization. |
+| 14 Namespace-unsafe helper-accepted value | UNSUPPORTED as recovery target | Never open/accept/normalize that target. If it is corrupt mirror evidence and a different compatible exact original is independently proven, only row 1's full premises can apply. Otherwise addressing such historical ownership requires a separately scoped migration program. |
+
+Rows may coexist. An unsupported historical generation does not permit losing its bytes; row 1 cannot be advertised as recovering that historical generation. Multiple retained accounts/namespaces require actual preservation of every affected scope without foreign payload exposure, not a promise of universal access. If the selected narrow history cannot satisfy these limits, it stays unresolved and the runtime prerequisite remains open.
+
+## 11. Eight NEW product decisions
+
+`NEW_PRODUCT_DECISION_COUNT = 8`; every row is `REQUIRES_PRODUCT_OWNER_APPROVAL`. The table's questions/choices/recommendations and detailed implications below are the exact proposed selections. Approval would select policy/investment only, subject to section 15; it would not independently authorize runtime code, issuer rollout, operator execution or public activation.
+
+| ID | Question | Choices | Recommended choice | Reason | Cost/risk | Dependency | What it authorizes if approved | What it does NOT authorize | Approval state |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| HEALTH-ID-PD01-A | What established-invalid recovery does the product support? | A typed unavailable only; B proven exact-original or deny/escalate; C broad reconstruction; D automatic repair | B_PROVEN_EXACT_ORIGINAL_OR_DENY_ESCALATE | F can regain actual original scope without guessing; A alone cannot close runtime liveness | Provenance/coordination cost; unresolved histories remain inaccessible | PD03/06/09 and fixed proof/writer constraints | Conditional Policy F support envelope | Replacement, alias, guessed ownership or current implementation | REQUIRES_PRODUCT_OWNER_APPROVAL |
+| HEALTH-ID-PD02-A | May established invalid identity be automatically replaced? | No; bounded automatic replacement under asserted premise | NO_AUTOMATIC_REPLACEMENT | New device -> new fingerprint -> potentially orphaned old history | Denied convenience; avoids silent loss of reachability | PD01/05; acquisition-role distinction | Explicit no-auto-replacement support policy | Changing today's missing-mirror creator behavior or approving fresh-install inference | REQUIRES_PRODUCT_OWNER_APPROVAL |
+| HEALTH-ID-PD03-A | Which retained histories are promised recovery? | Narrow current active scope with exact proof/continuity; historical expansion; universal reconstruction | NARROW_CURRENT_ACTIVE_GENERATION_WITH_PROVEN_EXACT_ID_AND_UNCHANGED_WRITERS | Existing readers address active generation; pending evidence must stay exact | Historical coverage deferred; bound requests may require high-risk prerequisite | Sections 6/7/10; PD01/06/09 | Conditional rows 1/3-7, compatible existing behavior rows 12-13 | Historical activation, universal support, writer rewrite or migration | REQUIRES_PRODUCT_OWNER_APPROVAL |
+| HEALTH-ID-PD05-A | Is a new recovery target supported where exact restoration is irrelevant? | A none; B generated UUID after positive no-residual proof; C absence-by-scan; D automatic replacement | A_NO_NEW_TARGET_RECOVERY_IN_THIS_WORKSTREAM | No trustworthy no-residual premise exists today | No recovery convenience for empty/no-history cases; future scope cost | PD02/03/09; inherited historical syntax | Exclusion/deferment of a new-target recovery branch | Ambiguous-data fallback, new-ID allocation or historical validator change | REQUIRES_PRODUCT_OWNER_APPROVAL |
+| HEALTH-ID-PD06-A | Does product commit to assisted recovery, and who operates it? | End-user service; conditional internal operator; development-only diagnostics; unsupported escalation only; future E3 investigation | CONDITIONAL_INTERNAL_OPERATOR_ONLY_NO_CURRENT_EXECUTION_END_USER_SELF_SERVICE_DEFERRED | Controlled authenticated evidence is required before a supported procedure | Security/privacy, training/audit, platform QA; no immediate service | PD01/03/07/09; separate writer and procedure qualification | Conditional future operator support commitment after all gates/proof | Console edits, clear-site-data, procedure/tool rollout or E3 production approval | REQUIRES_PRODUCT_OWNER_APPROVAL |
+| HEALTH-ID-PD07-A | What recovery state/flow is exposed to users? | Typed local recovery-required/unavailable/conditional-assisted; generic unavailable only; misleading empty/cloud-recovery claim (inadmissible) | TYPED_LOCAL_RECOVERY_REQUIRED_UNAVAILABLE_CONDITIONAL_ASSISTED | Distinguishes data-source limits without fabricated absence | Translation/accessibility/copy and physical UX QA | PD06/08; fixed source truth/#763 | Bounded vocabulary/disclosures and future flow requirements | UI implementation, activation, legacy Refresh or cloud/local-only recovery promise | REQUIRES_PRODUCT_OWNER_APPROVAL |
+| HEALTH-ID-PD08-A | What finite Retry/support behavior is offered? | One transient manual Retry; fresh read after authorized recovery; none for deterministic failure; automatic until-success (inadmissible) | ONE_MANUAL_RETRY_PER_TRANSIENT_EPISODE_NONE_FOR_UNCHANGED_DETERMINISTIC_FAILURE_FRESH_READ_AFTER_AUTHORIZED_CORRECTION | Retry cannot repair unchanged bytes; finite liveness remains truthful | Some failures require escalation instead of retry convenience | PD06/07; fixed retry and writer cache semantics | Finite read-episode UX, not identity repair | Busy loop, writer Promise eviction, queue retry changes or restart-as-repair | REQUIRES_PRODUCT_OWNER_APPROVAL |
+| HEALTH-ID-PD09-A | Which NEW evidence/operational investment is selected? | Unsupported until proof; controlled operator provenance source; future qualified E3; trusted local recovery record; broad migration | PROVENANCE_FEASIBILITY_FIRST_FOR_CONTROLLED_OPERATOR_PATH_REMAIN_UNSUPPORTED_UNTIL_QUALIFIED | Source availability and E3 feasibility are not established | Historical issuer feasibility, security/audit and physical qualification investment may fail | PD01/03/06; inherited PD09-B | Separately scoped feasibility/design investment priority | Issuer implementation, self-issued evidence, broad migration or reapproval of PD09-B | REQUIRES_PRODUCT_OWNER_APPROVAL |
+
+Inadmissible choices are shown to explain rejected alternatives, not offered as selectable technical waivers. If an owner wants a different admissible support/investment selection, revise/review the coherent contract before implementation; C/D do not become safe through approval alone.
+
+### PD01-A implications
+
+Question/choices/recommendation: table above, **B**. A is a truthful interim denial but not recovery completion; C lacks independent ownership proof; D changes scope and can orphan data. User/product benefit: narrowly recover retained local history under the original namespace. Data-loss/reachability risk: unsupported cases remain inaccessible; guessing can misassign/strand data. Writer-authority risk: original mirror repair still crosses acquisition/currentness and requires section 7. Support cost: issuer verification, retained-scope inventory and operator escalation. Physical dependency: claimed procedure mode/creator exclusion, not all Track A just to choose policy. Implementation consequence: one evidence-gated exact-target transition, separately authorized. Deferred: broad reconstruction/new target. Interactions: PD02 prohibits auto-replacement, PD03 bounds history, PD06/09 supply conditional support/evidence. STOP: no unique authenticated original, real reachability or writer proof.
+
+### PD02-A implications
+
+Question/choices/recommendation: table above, **NO**. A bounded automatic replacement premise is not currently established and cannot waive preservation. Benefit: no silent new fingerprint while old bytes survive out of reach. Data risk: continued unavailable scope is explicit rather than mislabeled successful empty scope. Writer risk: changing existing creator output/availability is independently high risk. Operational cost: more denied/escalated cases instead of unattended repair. Physical dependency: none to choose NO; future exact recovery still needs claimed-mode evidence. Implementation consequence: future reader/final-use failures cannot allocate; preserve today's missing-role behavior unless separately authorized. Deferred: automatic replacement/migration. Interactions: PD01 F and PD05 exclusion. STOP: any proposed recovery generates/normalizes a target or reinterprets established-invalid as missing.
+
+### PD03-A implications
+
+Question/choices/recommendation: table above, **narrow current active generation**; exact section 10 matrix is the promise ceiling. Benefit: evidence-backed current local sessions, including local-only history, without inventing historical reader coverage. Data risk: historical access remains deferred but bytes cannot be orphaned; all pending/tombstone/conflict/receipt scope must still be preserved. Writer risk: bound/claimed work has no rewrite exception. Operational cost: fine-grained scope inventory and immutable comparisons. Physical dependency: continuity/re-entry for relevant writer modes. Implementation consequence: explicit supported-case tests, never initializing a successful empty scope. Deferred: historical generation selection and universal/multiple-ambiguous recovery. Interactions: PD01 uniqueness, PD06 procedure, PD09 evidence. STOP: any promised row cannot prove access/immutability; narrower wording is not executed runtime closure.
+
+### PD05-A implications
+
+Question/choices/recommendation: table above, **A**. B would require independently authoritative historical absence coverage across all retained affected scopes, not a scan or current failure; no such source is available. C/D are unsafe. Benefit: prevents a new-target fallback from hiding unresolved data ownership. Data risk: true no-history cases also stay outside this recovery feature; that limitation is disclosed. Writer risk: no rotation or changed creator role is approved. Operational cost: future new-target premise/design requires a separate decision, not ad hoc support. Physical dependency: none to choose exclusion; any later B would need its own qualified absence/admission evidence. Implementation consequence: no new-target branch in F. Deferred: independently proven-no-residual feature and its new-target-only validation. Interactions: PD02 NO and PD03 row 11. STOP: treating missing rows, empty query or inaccessible DB as positive absence proof. Inherited compatible historical syntax is unchanged.
+
+### PD06-A implications and procedure ceiling
+
+Question/choices/recommendation: table above, **conditional internal operator only**, no current execution; end-user self-service deferred. Unsupported escalation is the present behavior until gates/premises are qualified. Development-only diagnostics do not become a supported service; future E3 investigation is distinct and still not feasible by assertion.
+
+Benefit: a controlled path could regain proven local history with explicit limitations. Data risk: failed/partial recovery can remain unavailable and must preserve retained bytes/pending work. Writer risk: operator privilege does not grant cache eviction, cancellation or creator retirement. Operational cost: authentication/authorization, privacy/security review, training, consent, incident audit, retention and platform-specific procedure qualification. Physical dependency: every claimed normal/browser/PWA/lifecycle episode premise; desktop tests cannot certify unexecuted platforms. Implementation consequence: a separate reviewed procedure/tool and writer prerequisites, not commands in this document. Deferred: public self-service, broad migration, direct console editing. Interactions: PD01/03 define eligible cases, PD07 disclosures, PD08 retry, PD09 issuer investment. STOP: unverified evidence, operator authority, user consent, reachability, writer safety or platform premises.
+
+A future authorized invoker must be authenticated, narrowly authorized for the affected user's exact case, possess verified issuer evidence and use a separately qualified tool. The user must give revocable informed consent for scope and risk, including pending/unsaved work and local-only history; consent is not ownership/lifecycle proof. Manual entry of the exact original ID could be a **data-entry mechanism only** if authenticated issuer evidence independently binds those exact bytes, the tool verifies them and freezes the target. User memory or copied storage text alone is never authority. No localStorage console editing or clear-site-data instruction is authorized. Audit operator/consent/issuer/episode/progress/result references without leaking credentials/content. Partial failure remains typed/incomplete; rollback cannot revive a revoked lifetime. No production procedure is promised available today.
+
+### PD07-A implications
+
+Question/choices/recommendation: table above, **typed local recovery-required / unavailable / conditional-assisted**. Proposed presentation categories: `CANONICAL_IDENTITY_RECOVERY_REQUIRED`, `CANONICAL_IDENTITY_RECOVERY_UNAVAILABLE`, and `CANONICAL_IDENTITY_RECOVERY_SUPPORTED_ASSISTED` only when that exact case/procedure is genuinely qualified. Do not display assisted availability based solely on selecting PD06.
+
+Benefit: understandable local-source limitations and non-destructive escalation. Data risk: avoid false empty/calendar absence/cloud recovery; independently qualified legacy partial can remain visible only under ordinary failure, never isolation. Writer risk: no action button implicitly rotates or cancels work. Operational cost: reviewed EN/KO/JA copy, accessible status/focus/keyboard flow and supported physical-mode QA. Physical dependency: actual procedure and UI mode, not an emulated test. Implementation consequence: preserve section 9 taxonomy and #763 exact distrust mapping; suppress canonical absence claims. Deferred: UI implementation/activation, legacy Refresh. Interactions: PD06 determines real support availability and PD08 finite action. STOP: wording hides canonical evidence, implies complete cloud recovery, offers destructive routine advice or uses legacy to waive distrust.
+
+### PD08-A implications and finite episode rules
+
+Question/choices/recommendation: table above, **one manual transient Retry; no unchanged deterministic Retry; fresh read after authorized correction**. Benefit: useful bounded availability recovery without fake identity repair. Data risk: repeated reads cannot become writes or clear hidden history. Writer risk: reader Retry must not evict rejected writer Promise, recreate sessions or alter transport/queue retries. Operational cost: episode tracking and escalation after exhausted budget. Physical dependency: later supported-mode/copy acceptance. Implementation consequence: a bounded read UX, separately reviewed, not a new identity transition. Deferred: writer retry redesign and legacy Refresh. Interactions: PD06 authorized procedure, PD07 truthful status. STOP: deterministic bytes keep receiving retries or automatic retry-to-success appears.
+
+`RETRY_ELIGIBILITY`: genuinely transient Storage/DB read availability, or a new read after an independently authorized completed recovery; not deterministic unchanged identity/integrity/provenance/writer-safety failure. `RETRY_BUDGET`: one user-triggered additional read for a transient episode; exhaustion -> typed unavailable/escalation. `RETRY_INVALIDATION`: account/origin/scope/request/observed error-class change or an authenticated authorized transition invalidates old results and may establish a distinct current episode. A click, timeout, reload or opening another tab is not proof of such a boundary and must not replenish the same persistent-failure budget. New read after recovery does not resume an old source token. Restart may remove in-memory transient state, but does not repair bytes, attest original identity or globally retire writers. Existing internal bounded reader generation handling is not changed by this recovery UX proposal.
+
+### PD09-A implications
+
+Question/choices/recommendation: table above, **provenance feasibility first for a controlled operator path, remain unsupported until qualified**. Unsupported-only is viable interim behavior but no recovery investment; E3, trusted-local-record and broad migration alternatives need proof that does not exist. Benefit: prioritize the missing historical proof instead of cosmetic retry or guessed recovery. Data risk: a future local record cannot retroactively prove previously lost history; evidence must authentically predate corruption or have an independently authoritative historical chain. Writer risk: issuer/procedure cannot self-assert quiescence or alter writers. Operational cost: feasibility may conclude impossible for historical cases; separate security/privacy, issuer/audit design and physical differential studies. Physical dependency: required lifecycle/creator premises for each claimed supported mode, not blanket Track A completion for conditional policy approval. Implementation consequence: a separately scoped feasibility/design investigation, followed only by explicitly authorized reviewed work. Deferred: actual issuer deployment, native/E3 execution, trusted record rollout and migration program. Interactions: PD01/03 promise ceiling and PD06 operator commitment. STOP: no authentic historical source or qualified ownership/lifecycle evidence; remain unsupported, do not lower threshold.
+
+This NEW investment is distinct from inherited PD09-B. `E3_FEASIBILITY = NOT_ESTABLISHED`, `LIFECYCLE_EVIDENCE_SOURCE = REMAINS_UNAVAILABLE`, and `R2-U = NOT_IMPLEMENTED / ARCHITECTURALLY_FEASIBLE_PENDING_DIFFERENTIAL_PROOF`. The current ER investigation approval is retained, not repurposed as this operator/provenance approval.
+
+## 12. One coherent recommended bundle
+
+Name: `POLICY_F_PROVEN_ORIGINAL_OPERATOR_CONDITIONAL_NO_NEW_TARGET`.
+Status: `RECOMMENDED_BUNDLE_PENDING_PRODUCT_OWNER_DECISION`.
+
+If all eight recommended selections were later explicitly approved and canonically closed, the product policy ceiling would be:
+
+| Dimension | Recommended combined envelope |
+| --- | --- |
+| SUPPORTED CASES | Conditional exact compatible original identity, independently authenticated origin/account/project/storage history, existing original namespace/current active generation, immutable domain/pending evidence, verified reachability and proven unchanged writer behavior or separately closed high-risk prerequisite. Sections 10 rows 1/3-7; no current execution claim. |
+| UNSUPPORTED CASES | Ambiguous/no original proof, multiple plausible ownership candidates, residual bytes alone, unsafe target, no-residual new target, unqualified writer/lifecycle/procedure. Historical read expansion and broad migration deferred. |
+| ASSISTED SUPPORT COMMITMENT | Conditional internal operator procedure after qualified issuer, consent, writer transition, platform procedure and separate authorization. No current service or end-user self-service promise. |
+| AUTO-REPLACEMENT POLICY | None for established-invalid recovery; missing creator role is separate, unchanged here. |
+| NEW-TARGET POLICY | None in this workstream; no absence-by-scan fallback. |
+| RETRY POLICY | One additional manual transient read per genuine episode; none for unchanged deterministic failure; fresh read after authorized correction, no writer-cache or transport retry change. |
+| USER-FACING STATE | Typed local recovery required/unavailable; conditional-assisted only when actually qualified. Qualified legacy partial subject to #763; no hidden-absence/cloud-complete claim. |
+| EVIDENCE PATH | First separately investigate authentic historical provenance for a controlled operator path; remain unsupported until qualified. No assumed E3/issuer feasibility. |
+| WRITER STOP CONDITIONS | Unproven exact continuity, changed cache/retry/readiness/creator/transport/unsaved-work behavior or pending rewrite -> separate high-risk prerequisite. No eviction/drain/logout workaround. |
+| PHYSICAL EVIDENCE DEPENDENCY | Scope-specific issuer/admission/lifecycle/procedure premises before trusted execution, not full Track A merely to approve conditional policy. |
+
+Policy approval, if later given, is not runtime implementation/activation authorization. If issuer feasibility fails, the policy's denial branch remains truthful but the runtime correction is not declared closed through unsupported copy alone.
+
+## 13. Inherited/fixed non-decisions: exact disjoint sets
+
+These three rows are `ALREADY_APPROVED_INHERITED_CONSTRAINT`, not NEW approval requests:
+
+| ID | Retained constraint / provenance |
+| --- | --- |
+| HEALTH-ID-PD04 | Exact compatible established device ID/case, including safe accepted non-UUID/mixed-case; AUTH sections 9-10, 21/25 (DEVLIFE-PD14); characterization section 10. |
+| HEALTH-ID-PD05-B | No retroactive rejection/normalization/rekey/migration of compatible historical identities; lifetime UUID validation does not rewrite historical device syntax; AUTH sections 9-10, 21/25. |
+| HEALTH-ID-PD09-B | Existing conditional admission/lifetime evidence envelope if that model is used; truthful qualified issuer/build/lifecycle episode and physical QA; AUTH 10/21, ADMIT 10/12-13, ER 8/10. |
+
+These eight rows are `TECHNICALLY_FIXED_CONSTRAINT`, mandatory and not owner-selectable waivers:
+
+| ID | Retained constraint / provenance |
+| --- | --- |
+| HEALTH-ID-PD01-B | No fabricated ownership, guessed repair or silent orphaning; characterization 4-9/C02/C04/C05/C09/C10, AUTH 10/20, ER 10. |
+| HEALTH-ID-PD02-B | Malformed != missing, no inferred fresh install/broadened reader recovery trigger; writer role/output/cache/retry/readiness change -> separate high-risk STOP; AUTH 10/20, ADMIT 12, ER 10. |
+| HEALTH-ID-PD03-B | Real claimed reachability and immutable pending work, not physical-byte retention/fresh empty scope; characterization C05/C06/C09/C10, AUTH 10/20, ER 10. |
+| HEALTH-ID-PD06-B | Authenticated provenance and verified procedure premises, no self-issued ownership/lifecycle or consent-as-proof; characterization C04/C08/C09/C13, ADMIT 12, ER 10. |
+| HEALTH-ID-PD07-B | Unavailable != empty; qualified partial stays partial; local-only/cloud limits; exact #763 source distrust; characterization C12/C13 and reader contracts. |
+| HEALTH-ID-PD08-B | No busy retry/automatic repair; unchanged deterministic bytes need justified correction, not infinite Retry; characterization C02/C09/C10/C13, ADMIT 9. |
+| HEALTH-ID-PD09-C | Complete relevant creator/current ownership evidence, immutable pending work; no guessed quiescence/timeout/checkbox/lock-only absence; writer semantic change separately authorized; characterization C06-C08/C14, AUTH 20, ADMIT 12, ER 10. |
+| HEALTH-ID-PD10 | Approved scope -> separately authorized implementation -> independent review/correction -> Final Merge Gate -> human merge -> verified exact main, with deterministic supported-case safety/reachability/liveness; ADMIT 12-13, ER 10, characterization C10/C14/C15. |
+
+`DEVLIFE_PD14_REOPENED = NO`; `WRITER_FIREWALL_REOPENED = NO`. The eight NEW IDs in section 11, three inherited IDs and eight fixed IDs are exhaustive, distinct sets. Selecting support investment cannot waive fixed proof or approve an inherited-incompatible authority transition.
+
+## 14. HEALTH-ID-C01-C15 traceability
+
+All rows remain `REQUIRED / NOT EXECUTED`. Classification labels allocate future work, not completed evidence. `CONTRACT_DEFINED` means the obligation is described, not independently accepted or executed. No criterion is marked PASS.
+
+| ID | Contract / decision coverage and exact future proof obligation | Classification | Execution state |
+| --- | --- | --- | --- |
+| HEALTH-ID-C01 | Sections 2/4/7: current complete helper/key/alias/factory/late-guard inventory; no import I/O; all relevant creators below removable surfaces, including exports/restore | CONTRACT_DEFINED; IMPLEMENTATION_PROOF_REQUIRED; SEPARATE_HIGH_RISK_PREREQUISITE_IF_TRIGGERED | REQUIRED / NOT EXECUTED |
+| HEALTH-ID-C02 | Sections 2/4/11 PD02/08: null != established empty/invalid; Storage/entropy/write errors not guessed missing; no reader/final-use replacement | CONTRACT_DEFINED; PRODUCT_DECISION_REQUIRED; IMPLEMENTATION_PROOF_REQUIRED | REQUIRED / NOT EXECUTED |
+| HEALTH-ID-C03 | Sections 2/7/10/13: exact safe non-UUID/mixed-case retained, unsafe denied, no alias/normalization/strict historical migration | CONTRACT_DEFINED; IMPLEMENTATION_PROOF_REQUIRED | REQUIRED / NOT EXECUTED |
+| HEALTH-ID-C04 | Sections 5/11 PD01/06/09: trusted exact original plus authenticated scope; absent/multiple/corrupt/stale denied, no unique-namespace guess | CONTRACT_DEFINED; PRODUCT_DECISION_REQUIRED; IMPLEMENTATION_PROOF_REQUIRED; PHYSICAL_EVIDENCE_REQUIRED | REQUIRED / NOT EXECUTED |
+| HEALTH-ID-C05 | Sections 6/10/11 PD03: characterization A-F scenarios with active/historical generations, sessions/tombstones/meta/conflicts/checkpoints/local-only; real supported access/no orphaning | CONTRACT_DEFINED; PRODUCT_DECISION_REQUIRED; IMPLEMENTATION_PROOF_REQUIRED; SEPARATE_HIGH_RISK_PREREQUISITE_IF_TRIGGERED | REQUIRED / NOT EXECUTED |
+| HEALTH-ID-C06 | Sections 6/7: pending/claimed/retry/conflict/ack and bound/unbound exact identity/payload/hash/dependency/digest/CAS/binding/receipt/epoch; no ACK/rebase/duplicate/drop/new-scope replay | CONTRACT_DEFINED; IMPLEMENTATION_PROOF_REQUIRED; SEPARATE_HIGH_RISK_PREREQUISITE_IF_TRIGGERED | REQUIRED / NOT EXECUTED |
+| HEALTH-ID-C07 | Section 7: cached success/rejection/in-flight, ABA/sign-out, late snapshot/export/reset/restore/online retry, newer/old scope and unsaved work; no blanket eviction | CONTRACT_DEFINED; IMPLEMENTATION_PROOF_REQUIRED; SEPARATE_HIGH_RISK_PREREQUISITE_IF_TRIGGERED | REQUIRED / NOT EXECUTED |
+| HEALTH-ID-C08 | Sections 4/5/7/8: complete relevant creator exclusion/coordination, bypass/suspended/restored/cross-surface entry, exact episode validity; no boolean/lock-only proof | CONTRACT_DEFINED; IMPLEMENTATION_PROOF_REQUIRED; PHYSICAL_EVIDENCE_REQUIRED; SEPARATE_HIGH_RISK_PREREQUISITE_IF_TRIGGERED | REQUIRED / NOT EXECUTED |
+| HEALTH-ID-C09 | Sections 4/7/8: reviewed durable exact-target intent, deterministic crash resume/partial rollback, Storage/IDB errors, repeated operator/retry, no new target/lost supported access | CONTRACT_DEFINED; IMPLEMENTATION_PROOF_REQUIRED; PHYSICAL_EVIDENCE_REQUIRED; SEPARATE_HIGH_RISK_PREREQUISITE_IF_TRIGGERED | REQUIRED / NOT EXECUTED |
+| HEALTH-ID-C10 | Sections 6/8/10/12: deterministic eventual completion for every promised malformed/unsafe case; original canonical evidence readable; unsupported copy is not execution | CONTRACT_DEFINED; PRODUCT_DECISION_REQUIRED; IMPLEMENTATION_PROOF_REQUIRED; PHYSICAL_EVIDENCE_REQUIRED | REQUIRED / NOT EXECUTED |
+| HEALTH-ID-C11 | Sections 4/6/9: selected-day/range agree; source-owned old token revocation including observed ABA; account/date/generation/late continuations cannot mix scopes | CONTRACT_DEFINED; IMPLEMENTATION_PROOF_REQUIRED; PHYSICAL_EVIDENCE_REQUIRED; SEPARATE_HIGH_RISK_PREREQUISITE_IF_TRIGGERED | REQUIRED / NOT EXECUTED |
+| HEALTH-ID-C12 | Section 9: exact persisted #763 isolation/INVALID_CONTEXT vs ordinary trusted-source failure; legacy partial never waives distrust | CONTRACT_DEFINED; IMPLEMENTATION_PROOF_REQUIRED | REQUIRED / NOT EXECUTED |
+| HEALTH-ID-C13 | Sections 9/11 PD06/07/08: local-only/unavailable != empty, calendar unknown, finite Retry, restart/manual/destructive warnings, physical-mode EN/KO/JA/accessibility QA | CONTRACT_DEFINED; PRODUCT_DECISION_REQUIRED; IMPLEMENTATION_PROOF_REQUIRED; PHYSICAL_EVIDENCE_REQUIRED | REQUIRED / NOT EXECUTED |
+| HEALTH-ID-C14 | Sections 7/16/17: no domain clear/copy/adoption/owner/generation/digest/schema/backend/gate change; writer regressions/exact-head CI; expansion STOP | CONTRACT_DEFINED; IMPLEMENTATION_PROOF_REQUIRED; SEPARATE_HIGH_RISK_PREREQUISITE_IF_TRIGGERED | REQUIRED / NOT EXECUTED |
+| HEALTH-ID-C15 | Sections 11/13/15/18: explicit human selections, reviewed/corrected implementation, Final Gate, manual merge/exact-main verification; no E3/writer/reader/G6 automatic closure | CONTRACT_DEFINED; PRODUCT_DECISION_REQUIRED; IMPLEMENTATION_PROOF_REQUIRED | REQUIRED / NOT EXECUTED |
+
+Future tests must include the characterization's A-F mechanism/control cases and supported-history matrix, real cached writer/late asynchronous paths, immutable requests and crash/liveness cases. Synthetic fixture tests cannot substitute for original production provenance, physical admission or creator retirement. Narrow support declarations must identify unresolved histories; runtime prerequisite closure still requires the characterization's full closure condition, not a policy-only publication.
+
+## 15. Implementation authorization gate
+
+`IMPLEMENTATION_AUTHORIZATION = BLOCKED_PENDING_PRODUCT_OWNER_DECISIONS_AND_REVIEWED_CONTRACT_CLOSURE`.
+
+Before any recovery runtime implementation task can start, require all applicable gates:
+
+1. Independent review of this contract/decision package passes; required corrections close on an exact reviewed head.
+2. Human product owner explicitly approves/rejects/modifies each of the eight NEW selections after that review. No inherited/fixed reapproval request or implicit approval from publication/merge.
+3. Final selected choices and provenance are published canonically; substantive approval-record/contract deltas are independently reviewed, with all contradictions/corrections closed.
+4. Final Merge Gate passes; human manually merges the reviewed contract. Exact main and post-merge required CI/authority-state verification complete. No auto-merge/Ready action in this task.
+5. Selected implementation scope requires no unapproved writer-semantic/control-contract change. Where continuity is unproven or a change is needed, **first** obtain separate explicit high-risk prerequisite authorization and its independent review/correction/Final Gate/human merge/exact-main closure. Eight policy approvals are not that authorization.
+6. Evidence-dependent scope has a truthful issuer/feasibility plan or is explicitly conditional. A separately authorized dormant implementation may remain fail-closed without proof; actual production recovery cannot execute or claim support until all needed historical provenance/lifecycle/procedure premises are qualified. No fabricated issuer, assumed E3 or forced full-Track-A condition merely for policy selection.
+7. A new separately bounded implementation request defines supported cases, non-goals, C01-C15 acceptance/regressions and exact starting main. Issuer/tool/procedure work and activation each need their own explicit scope; contract closure does not start them automatically.
+
+After implementation, require independent implementation review/corrections, exact-head regression/required physical acceptance, Final Merge Gate, human merge and verified exact main before claiming runtime closure. This first package has no implementation-readiness status. `REL05G5A-001` stays `ACTIVATION_PREREQUISITE / REQUIRES_CORRECTION`; no automatic public/Health parent/writer/data-plane/G6 activation follows even from later recovery acceptance.
+
+## 16. STOP and escalation matrix
+
+| STOP condition | Required next escalation; safe result |
+| --- | --- |
+| Exact original provenance unavailable for a claimed supported case | Evidence/issuer feasibility qualification; RECOVERY_UNSUPPORTED or PHYSICAL_EVIDENCE_REQUIRED as appropriate. No guess or threshold reduction. |
+| Multiple plausible original identities / corrupt or stale proof | Independent ownership/provenance investigation; PROVENANCE_AMBIGUOUS. No population/recency chooser or manual self-certification. |
+| Old canonical scope cannot be reopened non-creatively | Storage/reachability incident investigation; FAILED_TRANSIENT or FAILED_DURABLE. No init/empty success. |
+| Pending work needs rebind/rewrite/drop/new scope | Separately authorized high-risk writer/migration design; WRITER_SAFETY_UNPROVEN. Preserve original work. |
+| Cache/retry/readiness/creator/transport/unsaved-work semantics must change or cannot be proven preserved | SEPARATE_HIGH_RISK_WRITER_TRANSITION_PREREQUISITE_REQUIRED. No cache eviction, reload/logout or draining workaround. |
+| Old creator exclusion/current ownership unproven | Scoped lifecycle/creator evidence qualification and, if semantics change, high-risk prerequisite. No lock/timeout/checkbox proof. |
+| Required physical lifecycle/procedure premise not demonstrated | Supported-mode qualification or explicit unsupported mode; PHYSICAL_EVIDENCE_REQUIRED. No emulation-to-physical promotion. |
+| Data copy/migration needed | Separate migration program with data-loss/ownership/rollback acceptance; no Policy F fallback. |
+| Domain ownership reassignment needed | Separate ownership/security architecture/product review; never infer ownership from bytes. |
+| DB/store/index/keyPath/schema/backend/RLS/remote API change needed | New explicitly scoped architecture/implementation blocker; stop this envelope. |
+| Proposed choice conflicts with inherited or fixed constraint | Reject waiver, revise admissible product choice and independently review coherent package; no reopening DEVLIFE-PD14/firewall by implication. |
+| Newer transition, expired permit or unexplained inventory difference | Invalidate old episode; exact intent investigation/authorized continuation only. No overwrite/rebase or old lifetime revival. |
+| Reader/writer/data-plane/G6 activation requested implicitly | Separate explicit activation authority after relevant prerequisites; NOT_AUTHORIZED here. |
+
+## 17. Frozen authority state and validation ceiling
+
+| State | Retained value |
+| --- | --- |
+| HEALTH_SELECTED_DAY_COMPOSITE_READER_ENABLED | `false` |
+| HEALTH_WORKOUT_RANGE_COMPOSITE_READER_ENABLED | `false` |
+| HEALTH_EXERCISE_COMPARISON_PREVIEW_ENABLED | `false` |
+| HOME_WORKOUT_COMPOSITE_READER_ENABLED | `false` |
+| SEARCH_WORKOUT_COMPOSITE_READER_ENABLED | `false` |
+| PUBLIC_READER_ACTIVATION / HEALTH_PARENT_PUBLIC_READER_ACTIVATION | `NOT_AUTHORIZED` |
+| REL05G5A-001 | `ACTIVATION_PREREQUISITE / REQUIRES_CORRECTION` |
+| LEGACY_COMPATIBILITY_CACHE_FRESHNESS | `REQUIRES_POLICY_AND_ACCEPTANCE` |
+| REFRESH | `NOT APPROVED / NOT IMPLEMENTED`; no prevData refresh bundled |
+| TRACK_A_STATUS | `TRACK_PARTIAL / PATH_A_QUALIFICATION_PARTIAL` |
+| E3_FEASIBILITY | `NOT_ESTABLISHED` |
+| LIFECYCLE_EVIDENCE_SOURCE | `REMAINS_UNAVAILABLE` |
+| BOOTSTRAP_ADMISSION | `BLOCKED_BY_EVIDENCE_QUALIFICATION` |
+| R2-U | `NOT_IMPLEMENTED / ARCHITECTURALLY_FEASIBLE_PENDING_DIFFERENTIAL_PROOF` |
+| Tracks B/C/D | `NOT_EXECUTED` |
+| LEGACY_VERIFIED_OWNER_CLASSIFICATION_GAP | `UNRESOLVED` |
+| Seven live-writer blockers | `OPEN`, section 7.3; no automatic eighth blocker/closure |
+| Local database / schema / WorkoutSessionV1 | `7 / 1 / unchanged`; stores/indexes/keyPaths unchanged |
+| Supabase/RLS/backend/remote schemas/APIs | Unchanged |
+| Canonical writer / bind / push / pull / resync / reset / G6 | No activation or new implementation |
+| Physical qualification | `DEFERRED_UNCHANGED` |
+| New decisions / recovery acceptance | Eight `REQUIRES_PRODUCT_OWNER_APPROVAL`; C01-C15 `REQUIRED / NOT EXECUTED` |
+
+Validation for publication: only this new Markdown artifact, no production/tests/config/schema/backend/gate changes; relative links resolved and `git diff --check` required; normal topic-branch commit/push/Draft PR and clean repository after commit. No full frontend suite is required for this docs-only package. Hosted exact-head PR CI is the regression signal, observed separately rather than copied from prerequisite main CI. No production localStorage/IDB, Supabase mutation, real-user payload or physical procedure was accessed/executed for this contract.
+
+Supabase skill guidance informed inspection of account/session-dependent writer fan-in: authenticated account authority is explicitly separated from historical device provenance and lifecycle evidence. No Supabase/cloud/auth configuration change follows from that inspection.
+
+## 18. Exact next step
+
+`INDEPENDENT_REVIEW_REL_05G_HEALTH_ID_RECOVERY_CONTRACT_PRODUCT_DECISION_01`.
+
+Publish this proposal as Draft and stop. Independent review comes next, not owner approval inferred from a publication request, runtime implementation, Ready, merge or activation. After review/corrections, the human may explicitly approve/reject/modify the eight NEW choices; canonically publish/review those selections, Final Gate, human merge and verify exact main before considering a separately authorized future implementation under section 15. Characterization closure remains intact; runtime prerequisite and all unexecuted acceptance/evidence states remain open.
