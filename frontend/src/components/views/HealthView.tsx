@@ -81,7 +81,7 @@ import {
 import {
   showsPlannedSetCount,
 } from './features/health/routinePlannedSets';
-import { DEFAULT_ROUTINE_PRESET_ID } from './features/health/routinePresets';
+import { DEFAULT_ROUTINE_PRESET_ID, routinePresetPlannedSetCount } from './features/health/routinePresets';
 import { useLegacyPreviousCurrentness } from './features/health/useLegacyPreviousCurrentness';
 import { LegacyPreviousStatus } from './features/health/LegacyPreviousStatus';
 import type { PreviousEvidence } from './features/health/legacyPreviousCurrentness';
@@ -664,6 +664,53 @@ export const HealthView = ({
   const assemblyContext = useMemo(() => ({}), [assemblyIntent, activeDayForm, activePreset.id, showAssembleModal, user.id, selectedDateDraftKey]);
   const assemblyContextRef = useRef(assemblyContext);
   useLayoutEffect(() => { assemblyContextRef.current = assemblyContext; }, [assemblyContext]);
+  const assemblyConfigurationRef = useRef<{
+    context: object;
+    selected: Set<string>;
+    blocks: Map<string, { key: string; token: object; explicitCount: number | undefined;
+      plannedCount: (sets?: readonly WorkoutSet[]) => number }>;
+  } | null>(null);
+  const assemblyToggleIntents = useRef(new Map<string, object>());
+  const assemblyPresetDay = activePreset.days.find(day => day.dayName === activeDayForm);
+  // Notification only: an in-place semantic change must rerun initialization.
+  // Per-block committed tokens below, not this render value, grant authority.
+  const assemblyConfigurationKey = previousEnabled ? JSON.stringify(healthBlocks.map(block => [block.id, block.type,
+    !!assemblyPresetDay?.blocks.includes(block.id), assemblyPresetDay?.plannedSets[block.id] ?? null])
+    .sort((a, b) => String(a[0]).localeCompare(String(b[0])))) : '';
+  useLayoutEffect(() => {
+    if (!previousEnabled) { assemblyConfigurationRef.current = null; return; }
+    const previous = assemblyConfigurationRef.current;
+    if (previous?.context !== assemblyContext) assemblyToggleIntents.current.clear();
+    const day = activePreset.days.find(candidate => candidate.dayName === activeDayForm);
+    // Copy only committed semantic inputs. Raw array identity neither grants
+    // authority nor revives an absent → explicit → absent configuration ABA.
+    const preset = { ...activePreset, days: day ? [{ ...day, blocks: [...day.blocks], plannedSets: { ...day.plannedSets } }] : [] };
+    const blocks = new Map<string, { key: string; token: object; explicitCount: number | undefined;
+      plannedCount: (sets?: readonly WorkoutSet[]) => number }>();
+    for (const block of healthBlocks) {
+      const { id, type } = block;
+      const stored = preset.days[0]?.plannedSets[id];
+      // Existing formula/validation accepts counts >= 1; zero is not explicit.
+      const explicitCount = type === 'cardio' || (stored !== undefined && stored >= 1)
+        ? routinePresetPlannedSetCount(preset, activeDayForm, id, type) : undefined;
+      const key = JSON.stringify([type, !!day?.blocks.includes(id), explicitCount ?? null]);
+      const old = previous?.context === assemblyContext ? previous.blocks.get(id) : undefined;
+      blocks.set(id, { key, token: old?.key === key ? old.token : {}, explicitCount,
+        plannedCount: sets => routinePresetPlannedSetCount(preset, activeDayForm, id, type, sets) });
+    }
+    assemblyConfigurationRef.current = { context: assemblyContext, selected: new Set(tempRoutineBlocks), blocks };
+  });
+  useLayoutEffect(() => () => {
+    assemblyConfigurationRef.current = null; assemblyToggleIntents.current.clear();
+  }, []);
+  const currentAssemblyCount = (context: object, id: string, token: object, evidence?: PreviousEvidence): number | undefined => {
+    const latest = assemblyConfigurationRef.current;
+    const config = latest?.blocks.get(id);
+    if (latest?.context !== context || !config) return undefined;
+    if (config.explicitCount !== undefined) return config.explicitCount;
+    if (config.token !== token || !evidence || !previousOwner.qualified(evidence)) return undefined;
+    return config.plannedCount(evidence.payload?.prev_sets);
+  };
   const assemblyMatchesScope = !previousEnabled || (assemblyIntent?.accountId === user.id
     && assemblyIntent.presetId === activePreset.id
     && assemblyIntent.dayName === activeDayForm);
@@ -679,11 +726,11 @@ export const HealthView = ({
       if (tempRoutineSetCounts[id] !== undefined) return [];
       const block = healthBlocks.find(candidate => candidate.id === id);
       if (!block) return [];
-      const explicit = block.type === 'cardio' || !!activePreset.days
-        .find(day => day.dayName === activeDayForm)?.plannedSets[id];
+      const config = assemblyConfigurationRef.current?.blocks.get(id);
+      if (!config) return [];
       const evidence = previousOwner.evidence(id);
-      if (!explicit && (!previousCurrentness.current || !previousOwner.qualified(evidence))) return [];
-      return [{ id, explicit, evidence, count: getPlannedSetCount(activeDayForm, id, block.type, evidence.payload?.prev_sets) }];
+      if (config.explicitCount === undefined && (!previousCurrentness.current || !previousOwner.qualified(evidence))) return [];
+      return [{ id, token: config.token, evidence }];
     });
     if (!candidates.length) return;
     setTempRoutineSetCounts(current => {
@@ -691,35 +738,48 @@ export const HealthView = ({
       const next = { ...current };
       let changed = false;
       for (const candidate of candidates) if (next[candidate.id] === undefined
-        && (candidate.explicit || previousOwner.qualified(candidate.evidence))) {
-        next[candidate.id] = candidate.count; changed = true;
+        && assemblyConfigurationRef.current?.selected.has(candidate.id)) {
+        const count = currentAssemblyCount(context, candidate.id, candidate.token, candidate.evidence);
+        if (count !== undefined) { next[candidate.id] = count; changed = true; }
       }
       return changed ? next : current;
     });
   }, [previousEnabled, showAssembleModal, assemblyMatchesScope, assemblyContext, tempRoutineBlocks, tempRoutineSetCounts,
-    healthBlocks, activePreset, activeDayForm, getPlannedSetCount, previousOwner,
+    healthBlocks, activePreset, activeDayForm, getPlannedSetCount, previousOwner, assemblyConfigurationKey,
     previousCurrentness.current, previousCurrentness.revision]);
   const toggleBlockInRoutine = async (blockId: string) => {
     const capturedAssembly = assemblyContext;
     const b = healthBlocks.find((bk: ExerciseBlock) => bk.id === blockId);
+    const intent = {};
+    if (previousEnabled) assemblyToggleIntents.current.set(blockId, intent);
     if (previousEnabled && tempRoutineBlocks.includes(blockId)) {
+      assemblyConfigurationRef.current?.selected.delete(blockId);
       setTempRoutineBlocks(current => current.filter(id => id !== blockId));
       setTempRoutineSetCounts(current => { const next = { ...current }; delete next[blockId]; return next; });
       return;
     }
+    const config = assemblyConfigurationRef.current?.blocks.get(blockId);
     let previous: Awaited<ReturnType<typeof fetchPrevForBlock>> | undefined;
     if (previousEnabled && b && !tempRoutineBlocks.includes(blockId)
-      && !explicitRoutineCount(activeDayForm, blockId, b.type)) {
+      && config?.explicitCount === undefined) {
       previous = await fetchPrevForBlock(blockId);
-      if (assemblyContextRef.current !== capturedAssembly) return;
-      if (!planningAllowed(previous)) return showToast(t('healthPreviousSuppressed'), 'info');
     }
     if (previousEnabled && b) {
-      const count = routineCount(activeDayForm, blockId, b.type);
-      if (count === undefined) return;
-      const current = () => assemblyContextRef.current === capturedAssembly && (!previous || planningAllowed(previous));
-      setTempRoutineBlocks(ids => current() && !ids.includes(blockId) ? [...ids, blockId] : ids);
-      setTempRoutineSetCounts(counts => current() ? { ...counts, [blockId]: counts[blockId] ?? count } : counts);
+      if (!config) return;
+      const current = () => assemblyContextRef.current === capturedAssembly
+        && assemblyToggleIntents.current.get(blockId) === intent;
+      const count = () => currentAssemblyCount(capturedAssembly, blockId, config.token, previous?.evidence);
+      if (!current()) return;
+      if (count() === undefined) {
+        if (previous && !planningAllowed(previous)) showToast(t('healthPreviousSuppressed'), 'info');
+        return;
+      }
+      setTempRoutineBlocks(ids => current() && count() !== undefined && !ids.includes(blockId) ? [...ids, blockId] : ids);
+      setTempRoutineSetCounts(counts => {
+        if (!current() || counts[blockId] !== undefined) return counts;
+        const latestCount = count();
+        return latestCount === undefined ? counts : { ...counts, [blockId]: latestCount };
+      });
       return;
     }
     setTempRoutineBlocks(prev => {

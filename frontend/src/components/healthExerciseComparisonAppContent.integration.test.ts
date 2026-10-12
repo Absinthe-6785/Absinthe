@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import 'fake-indexeddb/auto';
 import { IDBFactory } from 'fake-indexeddb';
-import { createElement, useEffect } from 'react';
+import { createElement, StrictMode, useEffect } from 'react';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -12,6 +12,10 @@ const mocks = vi.hoisted(() => ({
   parentEnabled: true, childEnabled: true, rangeEnabled: true, healthProps: [] as Array<import('../types').HealthProps>,
   realPrevious: false, previousReads: vi.fn(), previousGate: null as DeferredVoid | null, previousFailure: false,
   previousSourceGate: null as DeferredVoid | null,
+  routineState: null as import('./views/features/health/routinePresets').RoutinePresetState | null,
+  routineSyncState: null as import('./views/features/health/routinePresets').RoutinePresetState | null,
+  routineCommitInputs: [] as Array<import('./views/features/health/routinePresets').RoutinePresetState>,
+  strictMode: false,
   extraBlocks: [] as Array<import('../types').ExerciseBlock>,
   selectedFailure: null as unknown, rangeFailure: null as unknown,
   rangeGate: null as DeferredVoid | null, alignedRangeIdentity: false,
@@ -198,9 +202,12 @@ vi.mock('./views/features/health/buildHealthProjection', () => ({ buildHealthPro
 vi.mock('./views/k102DateFormat', () => ({ formatAbsoluteDateKey: (value: Date | string) => value instanceof Date ? value.toISOString().slice(0, 10) : value,
   formatLongDate: (value: Date) => value.toISOString().slice(0, 10) }));
 vi.mock('../lib/healthRoutineSync', () => ({ productionHealthRoutinePersistence: {
-  bootstrap: async ({ legacyState }: { legacyState: unknown }) => legacyState,
-  commitState: async (_accountId: string, _previous: unknown, next: unknown) => next,
-  sync: async () => null, snapshot: async () => null, reset: async () => null, recover: async (_accountId: string, recovered: unknown) => recovered,
+  bootstrap: async ({ legacyState }: { legacyState: import('./views/features/health/routinePresets').RoutinePresetState }) => (mocks.routineState = legacyState),
+  commitState: async (_accountId: string, _previous: unknown, next: import('./views/features/health/routinePresets').RoutinePresetState) => {
+    mocks.routineCommitInputs.push(structuredClone(next)); return (mocks.routineState = next);
+  },
+  sync: async () => mocks.routineSyncState ? (mocks.routineState = mocks.routineSyncState) : null,
+  snapshot: async () => null, reset: async () => null, recover: async (_accountId: string, recovered: unknown) => recovered,
 } }));
 vi.mock('../lib/migrateLegacyDdays', () => ({ migrateLegacyDdays: vi.fn(async () => undefined) }));
 vi.mock('../lib/vaultSnapshotAuto', () => ({ runPeriodicSnapshotSlots: vi.fn() }));
@@ -330,7 +337,10 @@ const btn = (label: string) => Array.from(host.querySelectorAll('button')).find(
 async function mount() {
   await import('./views/HealthView');
   const { AppContent } = await import('./AppContent');
-  await act(async () => { root = createRoot(host); root.render(createElement(AppContent, { authUser: user(A) })); });
+  await act(async () => {
+    root = createRoot(host); const app = createElement(AppContent, { authUser: user(A) });
+    root.render(mocks.strictMode ? createElement(StrictMode, null, app) : app);
+  });
   await waitFor(() => expect(host.querySelector('[data-testid="nav-health"]')).not.toBeNull());
   await act(async () => host.querySelector<HTMLButtonElement>('[data-testid="nav-health"]')!.click());
   const expectedCards = mocks.accountWorkouts.get(A)?.length ?? 0;
@@ -344,6 +354,8 @@ beforeEach(async () => {
   localStorage.clear(); mocks.parentEnabled = true; mocks.childEnabled = true; mocks.rangeEnabled = true;
   mocks.realPrevious = false; mocks.previousReads.mockClear(); mocks.previousGate = null; mocks.previousFailure = false;
   mocks.previousSourceGate = null;
+  mocks.routineState = null; mocks.routineSyncState = null; mocks.routineCommitInputs.length = 0;
+  mocks.strictMode = false;
   mocks.extraBlocks = []; mocks.selectedFailure = null; mocks.rangeFailure = null;
   mocks.rangeGate = null; mocks.alignedRangeIdentity = false;
   mocks.accountWorkouts.clear(); mocks.accountWorkouts.set(B, []);
@@ -785,6 +797,110 @@ describe('PR770 bounded correction: mounted workflow and trust regressions', () 
     expect(input().value).toBe('4');
     await waitFor(() => expect(mocks.previousReads.mock.calls.some(args => args[1] === '2026-09-28')).toBe(true));
     await waitFor(() => expect(cue()?.textContent).toContain('30')); expect(input().value).toBe('4');
+  });
+
+  const assemblyBlock = () => [...btn('saveRoutine').closest('.fixed')!.querySelectorAll<HTMLElement>('.cursor-pointer')]
+    .find(item => item.textContent?.startsWith('Bench'))!;
+  async function holdAssemblyHistory() {
+    const { fetchPrevWorkoutForBlocks } = await import('./views/features/health/prevWorkoutFetch');
+    const loader = vi.mocked(fetchPrevWorkoutForBlocks), started = loader.mock.results.length;
+    const gate = deferredVoid(); mocks.previousGate = gate;
+    act(() => window.dispatchEvent(new Event('health-bootstrap-complete')));
+    await waitFor(() => {
+      expect(loader.mock.results.length).toBeGreaterThan(started);
+      expect(mocks.healthProps.at(-1)!.selectedDayComposite?.phase).toBe('settled');
+      expect(range().phase).toBe('settled');
+    });
+    const completion = Promise.all(loader.mock.results.slice(started).map(result => result.value));
+    return async () => { mocks.previousGate = null; await act(async () => { gate.resolve(); await completion; }); await settle(); };
+  }
+  async function pendingAssembly() {
+    const { createRoutinePresetState, writeRoutinePresetState } = await import('./views/features/health/routinePresets');
+    writeRoutinePresetState(localStorage, A, createRoutinePresetState({ splitCount: 1,
+      routines: [{ id: 'routine', day_name: 'Day 1', blocks: [] }] }));
+    if (mocks.strictMode) {
+      const { localHealthDraftKey } = await import('../lib/healthBackfillUiSafety');
+      // Start with an owned Today draft; qualification is still the real local
+      // previous adapter. This case targets StrictMode assembly, not hydration.
+      localStorage.setItem(localHealthDraftKey(A, '2026-09-29'), JSON.stringify([persistedWorkout]));
+    }
+    await history(2); mocks.realPrevious = true; await mount(); await settle();
+    await act(async () => btn('assembleBtn').click());
+    const release = await holdAssemblyHistory();
+    await act(async () => assemblyBlock().click());
+    expect(host.querySelector('[data-routine-idx]')).toBeNull();
+    return release;
+  }
+  async function syncAssemblyPreset(count?: number, inPlace = false, selected = count !== undefined) {
+    const state = inPlace ? mocks.routineState! : structuredClone(mocks.routineState!);
+    const day = state.presets.find(preset => preset.id === state.activePresetId)!.days[0];
+    day.blocks = selected ? [BLOCK] : [];
+    day.plannedSets = count === undefined ? {} : { [BLOCK]: count };
+    mocks.routineSyncState = state;
+    await act(async () => window.dispatchEvent(new Event('online'))); await settle();
+    expect(mocks.routineState!.presets.find(preset => preset.id === state.activePresetId)!.days[0].plannedSets[BLOCK]).toBe(count);
+  }
+  async function savedAssemblyCount() {
+    mocks.routineCommitInputs.length = 0;
+    await act(async () => btn('saveRoutine').click());
+    await waitFor(() => expect(mocks.routineCommitInputs).toHaveLength(1));
+    const saved = mocks.routineCommitInputs[0];
+    return saved.presets.find(preset => preset.id === saved.activePresetId)!.days[0].plannedSets[BLOCK];
+  }
+  it.each([false, true])('R04-A mounted pending first initialization uses latest explicit 7 (in-place=%s)', async inPlace => {
+    mocks.strictMode = inPlace;
+    const release = await pendingAssembly(); await syncAssemblyPreset(7, inPlace); await release();
+    expect(input().value).toBe('7'); expect(await savedAssemblyCount()).toBe(7);
+  });
+  it('R04-B latest explicit 8, not captured history 2 or intermediate 7, reaches persistence', async () => {
+    const release = await pendingAssembly(); await syncAssemblyPreset(7); await syncAssemblyPreset(8); await release();
+    expect(input().value).toBe('8'); expect(await savedAssemblyCount()).toBe(8);
+  });
+  it('R04-C owned manual 4 beats both pending history 2 and external explicit 7', async () => {
+    mocks.previousFailure = true; await assembly(); expect(input().value).toBe('');
+    await act(async () => change(input(), '4')); mocks.previousFailure = false;
+    const release = await holdAssemblyHistory(); await syncAssemblyPreset(7); await release();
+    expect(input().value).toBe('4'); expect(await savedAssemblyCount()).toBe(4);
+  });
+  it('R04-D removal of selected uninitialized block prevents a late count write', async () => {
+    mocks.previousFailure = true; await assembly(); mocks.previousFailure = false;
+    const release = await holdAssemblyHistory(); await act(async () => assemblyBlock().click());
+    await syncAssemblyPreset(7); await release();
+    expect(host.querySelector('[data-routine-idx]')).toBeNull(); expect(await savedAssemblyCount()).toBeUndefined();
+  });
+  it('R04-E close/reopen fences the old equal-valued assembly callback', async () => {
+    const release = await pendingAssembly();
+    await act(async () => btn('saveRoutine').closest('.fixed')!.querySelector<HTMLButtonElement>('button')!.click());
+    await act(async () => btn('assembleBtn').click()); await release();
+    expect(host.querySelector('[data-routine-idx]')).toBeNull();
+  });
+  it('R04-F/G initialized 2 survives refresh 5 and equivalent preset clones; a new lifetime may initialize 5', async () => {
+    await assembly(); expect(input().value).toBe('2');
+    const release = await refreshHistory(5); await release();
+    await syncAssemblyPreset(); expect(input().value).toBe('2');
+    await act(async () => btn('saveRoutine').closest('.fixed')!.querySelector<HTMLButtonElement>('button')!.click());
+    await syncAssemblyPreset(undefined, false, true);
+    await act(async () => btn('assembleBtn').click()); expect(input().value).toBe('5');
+  });
+  it('R04-H no-explicit → 7 → no-explicit cannot revive obsolete history; a fresh add may initialize', async () => {
+    const release = await pendingAssembly(); await syncAssemblyPreset(7); await syncAssemblyPreset(); await release();
+    expect(host.querySelector('[data-routine-idx]')).toBeNull();
+    await act(async () => assemblyBlock().click()); await waitFor(() => expect(input().value).toBe('2'));
+    expect(await savedAssemblyCount()).toBe(2);
+  });
+  it('R04 equivalent configuration objects do not cancel a still-valid first initialization', async () => {
+    const release = await pendingAssembly(); await syncAssemblyPreset(); await release();
+    expect(input().value).toBe('2'); expect(await savedAssemblyCount()).toBe(2);
+  });
+  it('R04 in-place explicit authority initializes a selected blank count without requiring history recovery', async () => {
+    mocks.previousFailure = true; await assembly(); expect(input().value).toBe('');
+    await syncAssemblyPreset(7, true);
+    expect(input().value).toBe('7'); expect(await savedAssemblyCount()).toBe(7);
+  });
+  it('R04 an already owned history count remains draft authority after an external preset change', async () => {
+    await assembly(); expect(input().value).toBe('2'); await syncAssemblyPreset(7);
+    const release = await refreshHistory(5); await release();
+    expect(input().value).toBe('2'); expect(await savedAssemblyCount()).toBe(2);
   });
 
   async function trust() {

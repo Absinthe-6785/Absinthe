@@ -1,6 +1,6 @@
 # REL-05G Health parent legacy previous-currentness D implementation
 
-Current workstream: `REL_05G_HEALTH_PARENT_PREVDATA_FRESHNESS_D_IMPLEMENTATION_CORRECTION_01`.
+Current workstream: `REL_05G_HEALTH_PARENT_PREVDATA_FRESHNESS_D_IMPLEMENTATION_CORRECTION_02`.
 
 Original implementation: `REL_05G_HEALTH_PARENT_LEGACY_PREVDATA_FRESHNESS_D_IMPLEMENTATION_01`.
 
@@ -18,13 +18,19 @@ Repository: `Absinthe-6785/Absinthe`. Workspace: `C:\Users\이도현\GitRepos\Ab
 
 PR #770's reviewed head was `c102bf71adf50bc5fda56000ba79904e18294ed6`. The independent result was `CHANGES_REQUIRED`, with P0/P1/P2/P3 = 0/1/2/0. Its C08/C10/C12 and evidence-accuracy classifications were FAIL. The original blanket acceptance claim is superseded, not independently approved.
 
-| Finding | Original defect | Current implementation-author status |
-| --- | --- | --- |
-| PR770-R01 / P1 | Held routine load restored a removed captured draft and lacked workflow/preset supersession. | CLOSED_PENDING_INDEPENDENT_REREVIEW |
-| PR770-R02 / P2 | Assembly displayed a live historical fallback, so refresh blanked/reseeded an initialized count. | CLOSED_PENDING_INDEPENDENT_REREVIEW |
-| PR770-R03 / P2 | Loading cleared typed parent rejection before trustworthy recovery. | CLOSED_PENDING_INDEPENDENT_REREVIEW |
+Correction-01 author publication preceded independent rereview: its intended state was `CORRECTED_PENDING_REREVIEW`, not independent closure. The former table's `CLOSED_PENDING_INDEPENDENT_REREVIEW` wording was the subsequently reviewed nonblocking R05 taxonomy defect; it did not claim approval and is corrected here without rewriting that chronology.
 
-The authorized correction changes HealthView, its existing previous-currentness hook, existing mounted/hook regression tests and this evidence document only. No new helper module, editor transaction framework, source owner, gate, writer or durable record is introduced. Closure labels above mean author-tested correction, not independent finding closure. The exact correction SHA and hosted run IDs are recorded in the publication report and PR body.
+Focused independent rereview at correction-01 head `4e78d8097ce7c308d1b3c562c57648ed6bacc44d` returned `CHANGES_REQUIRED`, P0/P1/P2/P3 = 0/0/1/1. It CLOSED R01/R02/R03, passed C08/C10, and found C12 FAIL because of the distinct pending-first-initialization race R04. R04/R05 below are correction-02 author evidence awaiting a new independent rereview, not independently closed findings.
+
+| Finding | Defect | Current state / basis |
+| --- | --- | --- |
+| PR770-R01 / P1 | Held routine load restored a removed captured draft and lacked workflow/preset supersession. | CLOSED — independent correction-01 rereview |
+| PR770-R02 / P2 | Assembly displayed a live historical fallback, so refresh blanked/reseeded an initialized count. | CLOSED — independent correction-01 rereview |
+| PR770-R03 / P2 | Loading cleared typed parent rejection before trustworthy recovery. | CLOSED — independent correction-01 rereview |
+| PR770-R04 / P2 | Pending first initialization used an old history count after the same preset acquired a newer explicit count. | CORRECTED_PENDING_REREVIEW — correction-02 author evidence |
+| PR770-R05 / P3 | Correction-01 finding-state wording did not match its intended pending-review taxonomy. | CORRECTED_PENDING_REREVIEW — corrected chronology/state table |
+
+Correction-01 changed HealthView, its existing currentness hook, mounted/hook tests and this evidence document. Correction-02 is limited to HealthView, the existing mounted integration test and this document. Owner/latch/persistence/mutation modules are unchanged by correction-02; no additional production file or helper module is introduced. The exact correction SHA and hosted run IDs are recorded in the publication report and PR body.
 
 ## One compatibility owner, two separate paths
 
@@ -80,7 +86,19 @@ Only invalidated dependency IDs are queued. Same account/cutoff/lifetime request
 - Routine assembly (R02): an absent count key is UNINITIALIZED, not no-history. Qualified history or verified NO_MATCH can materialize the unchanged count formula once into the current assembly draft. Explicit preset/manual counts take precedence and are never overwritten by the initialization effect. Later refresh success/failure can change source status, not an initialized count. An initially unavailable/stale/refreshing field remains blank; its first qualifying result may initialize only while its key remains absent and the committed assembly context/evidence is still valid. Opening creates a fresh intent even for equal identities. A changed account/preset/routine-day fences and closes the old gated modal; a newly opened legitimate lifetime initializes independently. A selected-date change fences old history callbacks but retains already owned routine draft counts: preset persistence is not date-keyed. Gate OFF retains the original live fallback and lifecycle. Separate functional state updates do not nest updates in the active path.
 - PR/diff map and best/per-set Previous cues: only qualified payloads are supplied to the existing helpers. Unqualified guidance is replaced with a legacy-specific state surface; hidden is not “no PR” or “no previous”.
 
-`buildSetsFromPrevCount`, `plannedSetCount`, `routinePresetPlannedSetCount`, cardio/non-cardio clamps, unit/rounding, assistance/drop behavior, and `computeWorkoutPrBadge*` are unchanged. The corrected no-reseed and workflow-preservation claims are implementation-author evidence pending independent rereview, supported by the regression matrix below. Historical values are not copied into new sets. Canonical/comparison evidence never substitutes for compatibility inputs.
+`buildSetsFromPrevCount`, `plannedSetCount`, `routinePresetPlannedSetCount`, cardio/non-cardio clamps, unit/rounding, assistance/drop behavior, and `computeWorkoutPrBadge*` are unchanged. R01/R02/R03 closure is independently established at correction-01; correction-02's latest-preset-authority claim remains author evidence pending rereview. Historical values are not copied into new sets. Canonical/comparison evidence never substitutes for compatibility inputs.
+
+### Correction-02: pending first initialization vs current preset authority
+
+The real preset controller can replace the same preset through its `online`/background synchronization callback. Assembly's modal intent remains independent: existing owned counts, including manual counts, must not be reset by an external preset change. Therefore configuration updates do NOT reopen or clear the assembly lifetime.
+
+HealthView maintains a layout-committed copied day/count snapshot. Each block has an identity token derived from semantic block type, preset-day membership and the effective explicit count, inside the existing account/preset/day/modal/date context. Equal semantic object clones retain the token; an observed semantic change replaces it even if later values return to equality. No raw `activePreset.days` reference is used as the R04 authority fence. A render-derived semantic key only triggers the initialization effect for in-place changes; it grants no authority.
+
+At BOTH async-toggle and functional count-updater boundaries, current committed explicit/cardio authority is consulted first. A latest 7/8 is materialized only while the draft count key is absent. Otherwise history requires the original per-block token, still-qualified owner evidence and the current assembly intent. The initialization effect also rechecks committed selected membership; explicit removal revokes it synchronously. Per-block toggle intentions prevent an older addition from undoing a newer removal. No nested setters, speculative authority-ref writes or currentness-owner changes are introduced. All count calculations delegate to the unchanged production `routinePresetPlannedSetCount` formula; valid stored counts start at 1, zero is not explicit, and cardio remains 1.
+
+Existing precedence is preserved: an already-owned temp count wins, whether initialized or manually edited. Thus manual 4 survives external explicit 7, and already-owned history 2 survives refresh 5/external preset changes. A still-uninitialized field uses the latest explicit count before history. This distinguishes R04's first-write race from closed R02's no-reseed rule.
+
+For no-explicit → 7 → no-explicit while an addition is still pending and owns no count, the old history token remains revoked: no block/count is inserted by that callback. A fresh explicit add may use currently qualified history. If an explicit count has already been committed into the draft, it is an owned count and follows R02 preservation instead of being retrospectively erased. New modal lifetimes may initialize afresh. This adds no product precedence or canonical input.
 
 `RANGE_INVALIDATION_ALWAYS_INVALIDATES_PREVDATA = CONDITIONAL`; `B1_REFRESH_INVALIDATES_PREVDATA = CONDITIONAL`; `COMPARISON_PUBLICATION_REVISION_QUALIFIES_PREVDATA = NO`. Ordinary child-only retries/projection changes do not invalidate or qualify previous history. No existing narrower Refresh button is silently redefined. The clear internal parent-currentness recovery API is `previousOwner.invalidate('unknown')`; a future separately accepted parent-currentness gesture must call it in addition to the appropriate existing readers. Public gesture/copy acceptance remains pending.
 
@@ -88,7 +106,7 @@ Only invalidated dependency IDs are queued. Same account/cutoff/lifetime request
 
 ## Automated acceptance matrix
 
-All results below are implementation-author regression evidence on the correction, pending independent exact-head rereview. They are not REVIEW_PASS or public acceptance. Original review passed C01-C07/C09/C11/C13-C15 source, but found C08/C10/C12 incomplete.
+The initial review passed C01-C07/C09/C11/C13-C15 source but found C08/C10/C12 incomplete. Correction-01 independent rereview passed C08/C10 and CLOSED R01/R02/R03, while C12 remained FAIL for R04. C12's correction-02 result below is author evidence pending rereview, not REVIEW_PASS or public acceptance. Other author regression labels are not a new independent approval.
 
 | Criterion | Author result | Evidence |
 | --- | --- | --- |
@@ -99,11 +117,11 @@ All results below are implementation-author regression evidence on the correctio
 | C05 | PASS_PENDING_INDEPENDENT_REREVIEW | Owner barriers; real IndexedDB save/delete cross captured previous reads; older maximum deletion; failed delete recovery; disjoint retention. |
 | C06 | PASS_PENDING_INDEPENDENT_REREVIEW | Coalesced 1/20/100 dependencies and held/synchronous retries; unchanged exact read budgets. |
 | C07 | PASS_PENDING_INDEPENDENT_REREVIEW | Close/re-entry tokens, StrictMode hook cleanup, mounted exit/re-entry regression. |
-| C08 | PASS_PENDING_INDEPENDENT_REREVIEW | Original identity/authority fences plus mounted R03 loading/null rejection, matching recovery, and newly admitted account; hook query/generation and foreign recovery-identity rejection. |
+| C08 | PASS | Independent correction-01 rereview: identity/authority fences, R03 loading/null rejection, matching recovery/new scope, query/generation and foreign recovery-identity rejection. Correction-02 preserves that boundary. |
 | C09 | PASS_PENDING_INDEPENDENT_REREVIEW | Failure→verified current/no-match; real local bootstrap recovery; first assembly qualification without manual overwrite. |
-| C10 | PASS_PENDING_INDEPENDENT_REREVIEW | Mounted typed B1/range rejection stays latched through held/failed retries; affirmative recovery only; simultaneous-boundary hook rejection. Synthetic legacy handling is not real-adapter typed proof. |
+| C10 | PASS | Independent correction-01 rereview: typed B1/range rejection stays latched through held/failed retries; affirmative recovery and simultaneous-boundary separation. Synthetic legacy handling is not real-adapter typed proof; correction-02 changes no latch module. |
 | C11 | PASS_PENDING_INDEPENDENT_REREVIEW | Ordinary child failure/retry retains independent legacy with zero additional previous reads; child revisions never qualify it. |
-| C12 | PASS_PENDING_INDEPENDENT_REREVIEW | Mounted R01 removal/edit/preset ABA/reverse load/valid addition; R02 2→refresh→5/failure retains 2, manual 4, explicit 7, unavailable vs NO_MATCH default 3, reopen/preset lifetime separation and retention of owned count across date-query changes. |
+| C12 | PASS_PENDING_REREVIEW | Closed R01/R02 regressions plus mounted R04 current explicit 7/latest 8 persistence-facing counts, manual 4, removal/reopen, semantic ABA, equivalent clones and in-place changes. Latest authority is revalidated at first-write time without reseeding owned counts. |
 | C13 | PASS_PENDING_INDEPENDENT_REREVIEW | Unchanged helpers/formulas; real historical max/latest-row behavior; canonical 900kg never enters planning/writer input. |
 | C14 | PASS_PENDING_INDEPENDENT_REREVIEW | Offline retention, visibility/focus/bootstrap bursts, real local adapter without remote success. |
 | C15_SOURCE_STATE_IMPLEMENTATION | PASS_PENDING_INDEPENDENT_REREVIEW | Mounted status, accessible role, EN/KO/JA parity and OFF DOM/read/listener tests. |
@@ -112,6 +130,8 @@ All results below are implementation-author regression evidence on the correctio
 Tests: [pure owner](../src/components/views/features/health/legacyPreviousCurrentness.test.ts), [hook/lifecycle](../src/components/views/features/health/useLegacyPreviousCurrentness.test.ts), and [real-adapter/mounted/durable integration](../src/components/healthExerciseComparisonAppContent.integration.test.ts). Existing AppContent comparison tests retain their original test-double cases; the added D cases explicitly delegate to the real previous adapter and real verified IndexedDB transactions. Paired canonical/B1 fixture readers remain test fixtures, not new physical/source qualification claims.
 
 Correction evidence: 18 mounted cases plus five hook trust-latch cases cover R01-A–E, R02-A–F and R03-A–G, including combined cases and extra preset/date/simultaneous/foreign-identity checks. Before production edits, the first 16 mounted cases yielded 10 expected semantic failures / 6 passes at the reviewed head; fixture UUID/verified-account setup was corrected before that final red baseline. After correction all mounted cases and existing integration cases pass. R01-C uses a later explicit-count routine B that completes before held history-dependent A; it does not claim two independent source batches when the owner legitimately coalesces requests. R02 uses the real previous adapter/IndexedDB history mutations; R03 uses real parent hook/coordinator lifecycles with injected fixture source errors. No assertions or existing timeouts are weakened.
+
+Correction-02 adds 11 mounted R04 regressions covering A–H plus equal-object/in-place/owned-count variants. Before production changes, nine new cases yielded three expected semantic failures (2 instead of 7; 2 instead of 8; obsolete ABA callback inserting 2) and six passes, after correcting an initial UI selector setup error. The in-place selected-blank case additionally exposed the need for semantic effect notification. Tests use actual AppContent/HealthView, the real routine controller's online state-replacement path, real assembly effect/functional updates and the real previous adapter/IndexedDB history. Routine persistence is a fixture: assertions inspect the production controller's actual save-facing count payload, not a new durable routine-writer qualification. B1/range readers remain fixtures. The StrictMode assembly case starts from an owned Today draft; it does not qualify unrelated StrictMode hydration or physical-browser behavior.
 
 ### First correction CI and completion-barrier follow-up
 
@@ -144,7 +164,7 @@ Historical original-head local validation on 2026-10-12 (not correction qualific
 
 Exact-head push/PR hosted CI is required and recorded in the publication report/PR body. At artifact authoring it is not yet available; this historical local validation table does not self-certify later CI. The known unrelated Windows K-333B fixture anchor is not changed; hosted exact-head CI supplies final full-suite qualification. No test assertion or timeout is weakened to obtain green CI. Read-budget assertions do not claim physical/performance acceptance.
 
-Correction validation on 2026-10-12 before publication:
+Historical correction-01 validation on 2026-10-12 before publication:
 
 | Check | Result |
 | --- | --- |
@@ -154,9 +174,22 @@ Correction validation on 2026-10-12 before publication:
 | Full `npm test -- --maxWorkers=4` after completion-barrier follow-up | 756 files: 754 PASS, 1 known K-333B FAIL, 1 SKIP; 7,815 tests: 7,807 PASS, 1 known K-333B FAIL, 7 SKIP; 395.45s |
 | `git diff --check` | PASS before publication |
 
-Hosted CI on the new exact correction head is required before handoff for focused rereview. Its result does not independently close R01/R02/R03.
+Correction-01 final [Push 38212546677](https://github.com/Absinthe-6785/Absinthe/actions/runs/38212546677) and [PR 38212551931](https://github.com/Absinthe-6785/Absinthe/actions/runs/38212551931) succeeded on `4e78d8097ce7c308d1b3c562c57648ed6bacc44d`, each with 7,808 frontend tests PASS / 7 SKIP / 0 FAIL and all five required jobs successful. Subsequent independent rereview closed R01/R02/R03, not CI itself. Correction-02 requires its own exact-head Push/PR qualification before handoff; results will be recorded below and in the PR body/report.
 
 The sole local failure has the unchanged K-333B `Mutation anchor missing` signature. Both related Git blobs are identical to main/reviewed head. The raw CRLF source lacks the test's LF anchor; in-memory LF normalization finds it. No on-disk normalization, fixture change, timeout change or assertion relaxation was performed. `K333B_FAILURE_CLASSIFICATION = UNRELATED_CONFIRMED`, subject to exact-head hosted full-suite qualification.
+
+### Correction-02 local validation
+
+| Check | Author result |
+| --- | --- |
+| Focused owner/hook/mounted/durable/preset/formula/locale suite | 23 files / 420 PASS / 0 FAIL / 0 SKIP |
+| R04 mounted matrix | 11 new cases; actual controller online transition, save-facing count payload, semantic ABA/equal-reference/in-place and owned-draft StrictMode coverage |
+| R04 fresh-process repeat | 5/5 processes PASS; each 11 selected cases PASS / 35 unrelated cases filtered out |
+| Full `npm test -- --maxWorkers=4` | 756 files: 754 PASS, 1 known K-333B FAIL, 1 SKIP; 7,826 tests: 7,818 PASS, 1 known K-333B FAIL, 7 SKIP; 291.30s |
+| `npm run typecheck` / `npm run build` | PASS; existing Browserslist/chunk warnings only |
+| `git diff --check` | PASS |
+
+The full suite's sole failure is the unchanged CRLF K-333B anchor at test line 707 / `replaceOnce` line 285. K-320A passed locally; its separately diagnosed directory timestamp risk remains `UNRELATED_CONFIRMED`, not fixed or closed. Source/test blobs for both areas remain identical to main. Correction-02's exact-head hosted CI must still succeed before rereview handoff and is recorded in the PR body/report rather than inferred from previous-head CI. R04/R05 remain `CORRECTED_PENDING_REREVIEW` after author validation.
 
 ## Frozen state and handoff
 
@@ -168,4 +201,4 @@ PERFORMANCE_ACCEPTANCE, PUBLIC_COPY_ACCEPTANCE, PHYSICAL_BROWSER_QA and C15_PUBL
 
 `PUBLIC_READER_CURRENTNESS_PREREQUISITE = IMPLEMENTATION_CORRECTED_PENDING_INDEPENDENT_REREVIEW_PUBLIC_ACCEPTANCE_PENDING`; not CLOSED. Passing author regressions/CI is not independent review approval or public acceptance.
 
-Next action after exact-head CI: `FOCUSED_REREVIEW_REL_05G_HEALTH_PARENT_PREVDATA_FRESHNESS_D_IMPLEMENTATION_CORRECTION_01`. Keep PR #770 Draft. No Ready, merge or auto-merge. Rereview the original failures before/after and regression-check owner/mutation/gate-OFF boundaries, trust recovery and read budget. Do not infer product/public/writer activation from passing automated tests.
+Next action after correction-02 exact-head CI: `FOCUSED_REREVIEW_REL_05G_HEALTH_PARENT_PREVDATA_FRESHNESS_D_IMPLEMENTATION_CORRECTION_02`. Keep PR #770 Draft. No Ready, merge or auto-merge. Focus on R04 latest semantic preset authority, updater-time revalidation/ABA, R05 chronology and preservation of independently closed R01/R02/R03. Do not infer product/public/writer activation from passing automated tests.
