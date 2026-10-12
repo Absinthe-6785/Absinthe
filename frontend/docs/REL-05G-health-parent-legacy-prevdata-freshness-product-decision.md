@@ -2,7 +2,9 @@
 
 ## 1. Merged baseline and decision boundary
 
-Workstream: `REL_05G_HEALTH_PARENT_LEGACY_PREVDATA_FRESHNESS_PRODUCT_DECISION_01`.
+Current workstream: `REL_05G_HEALTH_PARENT_LEGACY_PREVDATA_FRESHNESS_PRODUCT_OWNER_DECISION_PUBLICATION_01`.
+
+Original package: `REL_05G_HEALTH_PARENT_LEGACY_PREVDATA_FRESHNESS_PRODUCT_DECISION_01`.
 
 Repository: `Absinthe-6785/Absinthe`. Canonical workspace: `C:\Users\이도현\GitRepos\Absinthe`.
 
@@ -14,15 +16,17 @@ Repository: `Absinthe-6785/Absinthe`. Canonical workspace: `C:\Users\이도현\G
 | Merge commit | `22bb6b8f7a30297aa0da67912d53b129a307215a` |
 | [Post-merge main CI](https://github.com/Absinthe-6785/Absinthe/actions/runs/38151394080) | `PASS`: test, typecheck, build, backend-rel05g1, backend-recovery completed/success |
 
-`DECISION_PACKAGE_STATUS = HEALTH_PARENT_LEGACY_PREVDATA_FRESHNESS_DECISION_PACKAGE_COMPLETE_PENDING_INDEPENDENT_REVIEW`.
+`DECISION_PACKAGE_STATUS = HEALTH_PARENT_LEGACY_PREVDATA_FRESHNESS_PRODUCT_OWNER_APPROVED_PENDING_APPROVAL_DELTA_REVIEW`.
 
-`LEGACY_COMPATIBILITY_FRESHNESS_DECISION = PRODUCT_DECISION_REQUIRED`.
+`LEGACY_COMPATIBILITY_FRESHNESS_DECISION = PRODUCT_OWNER_APPROVED`.
 
-`PUBLIC_READER_CURRENTNESS_PREREQUISITE = OPEN`.
+`PUBLIC_READER_CURRENTNESS_PREREQUISITE = POLICY_SELECTED_IMPLEMENTATION_AND_ACCEPTANCE_PENDING`; not CLOSED.
 
-`PRODUCT_OWNER_DECISION_STATUS = REQUIRES_EXPLICIT_APPROVAL`; `PREVDATA_FRESHNESS_PD01 = NOT_SELECTED`.
+`PRODUCT_OWNER_DECISION_STATUS = PRODUCT_OWNER_APPROVED`; `PRODUCT_OWNER_DECISION = D_HYBRID_STATE_DEPENDENT`; `PREVDATA_FRESHNESS_PD01 = D_HYBRID_STATE_DEPENDENT`.
 
-This is a docs-only decision package, not an approved policy, implementation, activation, identity-recovery route, or writer transition. All future behavior below is conditional on explicit product selection, independent review, and a separately authorized implementation. Baseline CI proves regression checks at that head, not the proposed freshness guarantees.
+`NEW_PRODUCT_DECISION_MADE = YES`; `SELECTED_PREVDATA_FRESHNESS_POLICY = D_HYBRID_STATE_DEPENDENT`; `FRESHNESS_POLICY_IMPLEMENTED = NO`.
+
+This docs-only publication records the explicit human approval of the D product policy in section 18. It is not implementation or activation authorization, an identity-recovery route, or a writer transition. Approval-delta review and canonical review/merge must precede a separately authorized implementation task. Baseline CI proves regression checks at that head, not freshness implementation acceptance.
 
 ### Inputs reconciled against this baseline
 
@@ -59,9 +63,9 @@ The legacy previous query covers all local prior history, not the range reader's
 
 ## 3. Currentness problem statement
 
-`INDEPENDENT_CACHE_LIFETIMES_WITHOUT_APPROVED_PUBLIC_COHERENCE_POLICY`.
+The pre-approval characterization at `5a49c95d148ce3be5aa2e24f92380a41c8c52b7d` was `INDEPENDENT_CACHE_LIFETIMES_WITHOUT_APPROVED_PUBLIC_COHERENCE_POLICY`.
 
-The missing contract is how public legacy Previous/PR/planning consumers respond to freshness-relevant changes beside independently invalidated B1/range/comparison readers. Cached positive evidence can be reused without a new legacy read. A newer incomplete comparison cannot certify that the old compatibility badge remains current.
+The decision question was how public legacy Previous/PR/planning consumers respond to freshness-relevant changes beside independently invalidated B1/range/comparison readers. Section 18 now selects that product policy; the independent runtime cache lifetimes remain unchanged and implementation/acceptance remain pending. Cached positive evidence can be reused without a new legacy read. A newer incomplete comparison cannot certify that the old compatibility badge remains current.
 
 This is not proof that every retry displays a stale visible bug. Current resets, account guards, conditional rendering and unchanged history can prevent a visible mismatch. Conversely, passing comparison fanout tests does not establish this cache's freshness. Public activation needs both honest suppression and bounded recovery, not merely a stronger claim about existing tests.
 
@@ -176,7 +180,7 @@ Suppress unqualified previous best/per-set cues, PR/diff badges and historical d
 
 `HYBRID_POLICY_FEASIBILITY = CONDITIONAL`; `OPTION_D_HYBRID_STATE_DEPENDENT = CONDITIONAL`.
 
-Proposed coherent policy, derived from the query and lifecycle rather than UI adjacency:
+Product-approved policy shape, derived from the query and lifecycle rather than UI adjacency; none of these freshness behaviors is implemented by this publication:
 
 1. Revoke compatibility publication/historical seeding immediately on scope rejection, relevant legacy mutation or uncertain currentness. Do not erase existing same-scope user drafts.
 2. Refresh affected consumed IDs after relevant durable legacy commit, on an explicit parent-currentness recovery request, and when a new mount/query or uncertain recovery interval lacks proof. Batch IDs sharing the exact query/lifetime; do not globally refresh merely because a canonical child publication changed.
@@ -189,15 +193,15 @@ The condition is real: mutation coverage, trigger routing, bounded batching, pub
 
 ## 11. Planning-default safety
 
-`PLANNING_DEFAULT_CURRENTNESS_POLICY = REQUIRES_PRODUCT_DECISION`.
+`PLANNING_DEFAULT_CURRENTNESS_POLICY = RETAIN_EXISTING_DRAFT_ONLY_BUT_DO_NOT_RESEED`.
 
-Proposed classification within D: `RETAIN_EXISTING_DRAFT_ONLY_BUT_DO_NOT_RESEED` while historical freshness is unproven; new history-derived defaults require freshness proof.
+Product-approved within D, not implemented: unproven historical freshness must not discard or reseed an existing valid draft; new history-derived defaults require freshness proof. A later qualifying refresh must still not overwrite user edits.
 
 | Candidate choice | Assessment |
 | --- | --- |
 | YES_ALWAYS | Reject: a private stale cache hit would silently seed a new public draft. |
 | YES_ONLY_IF_FRESHNESS_PROVEN | Necessary for new historical defaults, but does not by itself specify treatment of existing user draft. |
-| RETAIN_EXISTING_DRAFT_ONLY_BUT_DO_NOT_RESEED | Proposed: preserve valid current-scope draft; do not derive a new count from stale history or auto-reseed after refresh. |
+| RETAIN_EXISTING_DRAFT_ONLY_BUT_DO_NOT_RESEED | Selected within D: preserve valid current-scope draft; do not derive a new count from stale history or auto-reseed after refresh. |
 | WITHHOLD_NEW_DEFAULTS_WHILE_STALE | Necessary for the history-derived branch, not a prohibition on explicit preset/manual counts. |
 
 Current [set constructors](../src/components/views/features/health/workoutSetCount.ts) retain count precedence/default 1 and non-cardio clamp 1-12; cardio gets one. The mounted routine [preset count](../src/components/views/features/health/routinePresets.ts) prefers an explicit stored count, then previous length, then default 3, subject to existing cardio/clamp behavior. Whole previous arrays, including unfinished sets, influence compatibility count. These formulas are not changed or replaced with comparison eligibility.
@@ -206,27 +210,27 @@ A verified successful no-prior result may use the existing no-history fallback. 
 
 ## 12. Legacy PR badge safety
 
-`LEGACY_PR_BADGE_CURRENTNESS_POLICY = REQUIRES_PRODUCT_DECISION`.
+`LEGACY_PR_BADGE_CURRENTNESS_POLICY = HIDE_UNQUALIFIED_BADGE_REPLACE_WITH_STATUS`.
 
-Proposed classification within D: `HIDE_UNQUALIFIED_BADGE_REPLACE_WITH_STATUS`, including historical diff.
+Product-approved within D, not implemented; includes historical diff.
 
 The [PR helper](../src/components/views/features/health/computeWorkoutPrBadge.ts) compares completed current strength-set positive kg against `pr_kg`, and computes the display-unit diff against completed positive kg in the latest previous sets. All-prior legacy `pr_kg` and latest-row diff have different coverage; neither may be qualified by the bounded comparison window. Preserve rounding/unit and assistance compatibility, not the new comparison filters.
 
-An old PR badge is a claim about current-vs-history, not just a dated fact. A stale label on the same “PR” badge risks retaining that claim; proposed policy hides PR/diff and shows currentness status. Hidden is not “no PR”. A newer partial comparison must not coexist with an unqualified old badge as current. Conversely, independently fresh full-query legacy evidence can support the unchanged badge after ordinary canonical failure, marked as legacy/local evidence with no complete composite claim. It reappears only when the current legacy query qualifies, not when comparison becomes complete.
+An old PR badge is a claim about current-vs-history, not just a dated fact. A stale label on the same “PR” badge risks retaining that claim; the approved policy requires hiding unqualified PR/diff and showing currentness status. Hidden is not “no PR”. A newer partial comparison must not coexist with an unqualified old badge as current. Conversely, independently fresh full-query legacy evidence can support the unchanged badge after ordinary canonical failure, marked as legacy/local evidence with no complete composite claim. It reappears only when the current legacy query qualifies, not when comparison becomes complete.
 
 ## 13. Legacy Previous micro-cue safety
 
-`LEGACY_PREVIOUS_CUE_CURRENTNESS_POLICY = REQUIRES_PRODUCT_DECISION`.
+`LEGACY_PREVIOUS_CUE_CURRENTNESS_POLICY = HIDE_UNQUALIFIED_CUE_REPLACE_WITH_STATUS`.
 
-Proposed classification within D: `HIDE_UNQUALIFIED_CUE_REPLACE_WITH_STATUS`, for both best-session and per-set references; existing draft values are not deleted.
+Product-approved within D, not implemented; covers both best-session and per-set references, without deleting existing draft values.
 
-This was evaluated separately from PR: a previous cue can be a dated historical candidate rather than a superlative against all history. A clearly stale, dated historical-only cue is therefore more defensible than a stale PR badge, but would still require approved copy and must never seed new defaults. D recommends withholding it to avoid ambiguous adjacent-currentness UX, not because the two computations are identical. Qualified previous cues retain completed/usable-set, semantic set-number/drop and unit rules; no comparison candidate silently replaces them. See [cue tests](../src/components/views/features/health/previousMicroCue.test.ts).
+This was evaluated separately from PR: a previous cue can be a dated historical candidate rather than a superlative against all history. A clearly stale, dated historical-only cue is therefore more defensible than a stale PR badge, but that variant remains unselected and must never seed new defaults. The selected D policy requires withholding the unqualified cue to avoid ambiguous adjacent-currentness UX, not because the two computations are identical. Qualified previous cues retain completed/usable-set, semantic set-number/drop and unit rules; no comparison candidate silently replaces them. See [cue tests](../src/components/views/features/health/previousMicroCue.test.ts).
 
 ## 14. Public states and local-first behavior
 
-These are future copy/interaction requirements, not strings implemented or product-approved here. Status must be accessible/localized, scoped to legacy compatibility evidence, and separate from the unchanged draft and independently qualified comparison lanes.
+These are requirements of the selected policy, not implemented strings or accepted public copy/interaction behavior. Public copy acceptance remains NOT_EXECUTED. Status must be accessible/localized, scoped to legacy compatibility evidence, and separate from the unchanged draft and independently qualified comparison lanes.
 
-| State | Under A | Under B | Under C | Under proposed D |
+| State | Under A (unselected) | Under B (unselected) | Under C (unselected) | Under selected D (not implemented) |
 | --- | --- | --- | --- | --- |
 | Current | Accepted fresh read shows unchanged facts | Independently qualified token permits facts | Qualifying event permits facts | Qualified local legacy evidence shows facts |
 | Refreshing | Hide old current claim; show read status | Old token fenced; show qualification pending | Withhold; show recovery pending if attempted | Fence old cues/defaults; show bounded refresh status |
@@ -240,7 +244,7 @@ These are future copy/interaction requirements, not strings implemented or produ
 
 “Eligible” in the no-prior row means eligible for this unchanged legacy query, not new exercise-comparison eligibility. Current omitted block keys do not encode success/error scope metadata on their own. A future wrapper must distinguish verified query no-match from incomplete/failed read before publishing copy or fallback defaults. `STALE`, `UNAVAILABLE`, `NO_MATCH`, and `VERIFIED_EMPTY` are distinct; a nonempty source can still have no match for one block/date.
 
-`LOCAL_FIRST_CURRENTNESS_COMPATIBILITY = PASS` for the proposed policy's constraints, not an executed runtime result. Local account legacy evidence remains the compatibility owner and can qualify offline. No forced login or remote success solely to refresh local history; no cloud completeness claim. Fresh legacy remains useful under ordinary canonical unavailability without guessed identity. Typed isolation and invalid account ownership remain fail-closed. Home/Search publication cannot manufacture qualification.
+`LOCAL_FIRST_CURRENTNESS_COMPATIBILITY = PASS` for the selected policy's design constraints, not an executed runtime result. Local account legacy evidence remains the compatibility owner and can qualify offline. No forced login or remote success solely to refresh local history; no cloud completeness claim. Fresh legacy remains useful under ordinary canonical unavailability without guessed identity. Typed isolation and invalid account ownership remain fail-closed. Home/Search publication cannot manufacture qualification.
 
 ## 15. Read and performance budget
 
@@ -283,29 +287,59 @@ Existing coverage inspected: [AppContent comparison integration](../src/componen
 
 ## 17. Range/comparison/B1 and other dependencies
 
-`RANGE_INVALIDATION_ALWAYS_INVALIDATES_PREVDATA = CONDITIONAL` as the proposed owner policy, not current runtime wiring. Relevant legacy mutation or unknown legacy impact revokes affected previous proof; a proven canonical-only change or range-only projection/bounds change does not. Range-window coverage cannot prove the all-prior query unchanged.
+`RANGE_INVALIDATION_ALWAYS_INVALIDATES_PREVDATA = CONDITIONAL` as the selected product policy, not current runtime wiring. Relevant legacy mutation or unknown legacy impact revokes affected previous proof; a proven canonical-only change or range-only projection/bounds change does not. Range-window coverage cannot prove the all-prior query unchanged.
 
 `COMPARISON_PUBLICATION_REVISION_QUALIFIES_PREVDATA = NO`. A newer or complete comparison is insufficient; an incomplete comparison does not automatically make independently fresh legacy history stale. Each source's success, query coverage and eligibility must be established separately.
 
-`B1_REFRESH_INVALIDATES_PREVDATA = CONDITIONAL`. A refresh of the selected-day record is not logically a query of all history strictly before that day. Under proposed D, an explicitly approved Health parent-currentness/manual recovery gesture includes a bounded compatibility refresh; a truly narrower B1-only event may preserve proven unaffected legacy proof. Public copy/coverage must make that distinction explicit before implementation. The same distinction applies to a manual range/comparison retry versus a programmatic unrelated child reload. Current B1 retry/range fanout does not automatically implement either previous-cache action.
+`B1_REFRESH_INVALIDATES_PREVDATA = CONDITIONAL`. A refresh of the selected-day record is not logically a query of all history strictly before that day. Under selected D, a Health parent-currentness/manual recovery gesture includes a bounded compatibility refresh; a truly narrower B1-only source-refresh event may preserve proven unaffected legacy proof. Public copy/coverage must make that distinction explicit before implementation. The same distinction applies to a manual range/comparison retry versus a programmatic unrelated child reload. Current B1 retry/range fanout does not automatically implement either previous-cache action; no blanket runtime rule is authorized by this publication.
 
 `HOME_DEPENDENCY = NONE_FOR_THIS_DECISION`; `SEARCH_DEPENDENCY = NONE_FOR_THIS_DECISION`. Their shared/read-range lifecycles do not own Health's compatibility cache, authorize its public currentness, or receive behavior changes here. No Home/Search gate or public routing activation follows.
 
 `REL05G5A_001_STATUS = ACTIVATION_PREREQUISITE / REQUIRES_CORRECTION`; `REL05G5A_001_PRESERVED = YES`. Freshness cannot repair malformed established identity; canonical unavailability is not removed by this decision or hidden through empty copy.
 
-## 18. Explicit product-owner decision request
+## 18. Product-owner choices and explicit human approval record
 
-`PREVDATA_FRESHNESS_PD01`: Which public currentness policy governs legacy `prevData`?
+`PREVDATA_FRESHNESS_PD01 = D_HYBRID_STATE_DEPENDENT`: selected public-currentness product policy for legacy `prevData`.
 
-| Exclusive owner choice | Product commitment / ceiling |
+| Exclusive owner choice | Current selection | Product commitment / ceiling |
+| --- | --- | --- |
+| A_BOUNDED_REFRESH | `NOT_SELECTED` | Bounded legacy refresh with scope fencing and truthful failure handling; no blanket child-revision freshness claim. |
+| B_REVISION_FENCE | `NOT_SELECTED` | Private retained values with independent qualification; not permission to stamp a range revision on old values. |
+| C_WITHHOLD_WHEN_UNPROVEN | `NOT_SELECTED` | Explicit degradation while proof is absent; not false absence or editor/draft erasure. |
+| D_HYBRID_STATE_DEPENDENT | `PRODUCT_OWNER_APPROVED` | Section 10's relevant/uncertain-trigger refresh, independent publication fences, failure withholding, preservation of independently proven disjoint evidence and sections 11-14 consumer treatment. Implementation/acceptance remain separate. |
+| HOLD_NO_POLICY_SELECTION_YET | `NOT_SELECTED` | Deferral alternative, not the current decision; would not authorize implementation or activation. |
+
+### Approval provenance and pre-approval qualification
+
+- Approval date: `2026-10-12` (UTC+09:00).
+- Exact human product-owner instruction supplied in this chat for this publication task: `PREVDATA_FRESHNESS_PD01 = D_HYBRID_STATE_DEPENDENT`.
+- `PRODUCT_OWNER_DECISION = D_HYBRID_STATE_DEPENDENT`; `PRODUCT_OWNER_DECISION_STATUS = PRODUCT_OWNER_APPROVED`; `HUMAN_APPROVAL_PROVENANCE = EXPLICIT_HUMAN_PRODUCT_OWNER_INSTRUCTION`.
+- `SELECTED_PREVDATA_FRESHNESS_POLICY = D_HYBRID_STATE_DEPENDENT`; `NEW_PRODUCT_DECISION_MADE = YES`.
+- Pre-approval reviewed head: `5a49c95d148ce3be5aa2e24f92380a41c8c52b7d`. The independently reported review in this conversation was `REVIEW_PASS`, P0/P1/P2/P3 `0/0/0/0`, `FINDINGS = NONE`; `PRE_APPROVAL_REVIEW = PASS`.
+- All requested pre-approval problem/source/scope/query-vs-publication/mutation/trigger/reuse, range/comparison/B1, A-D/hybrid, planning/PR/cue/no-match/coverage, race/epoch/mount/eligibility, local-first/performance/formula/source-owner, Home/Search/provenance/REL05G5A-001/authority, choice/calibration/no-self-approval checks were PASS. This qualifies that prior head, **not this approval-publication delta**.
+- Pre-approval exact-head CI `38154680453` at that same head: test, typecheck, build, backend-rel05g1 and backend-recovery completed/success; `PRE_APPROVAL_CI = PASS`. CI is regression evidence, not approval or freshness acceptance.
+- Historical pre-approval values were `PRODUCT_OWNER_DECISION_STATUS = REQUIRES_EXPLICIT_APPROVAL`, `PREVDATA_FRESHNESS_PD01 = NOT_SELECTED`, and `PUBLIC_READER_CURRENTNESS_PREREQUISITE = OPEN`; these are no longer the current values.
+
+Only D is selected by the explicit human instruction, not by recommendation, review PASS, CI, publication, PR body, silence or eventual merge. Approval means the policy shape in section 10 and sub-policies in sections 11-14 are selected: relevant/unknown impact immediately fences unqualified publication; superseded completions are rejected; required fresh evidence comes from bounded verified legacy refresh; independently proven unrelated evidence may remain; failed qualification withholds with truthful status. Range/comparison revision, canonical success, value equality, or matching account/date after ABA never manufacture previous-cache freshness. Valid same-scope drafts remain intact; unqualified history never seeds new defaults; unqualified PR and previous cues are hidden/replaced with status; stale/unavailable/no-match/verified-empty remain distinct. No canonical auto-planning or legacy PR arithmetic change, and no failed refresh is turned into absence.
+
+`QUERY_IDENTITY != PUBLICATION_CURRENTNESS_PROOF`. The reviewed conceptual tuple in section 6 is unchanged. Request/invalidation/mutation-coverage epochs remain future concepts, not current runtime capabilities. Selecting D is not reader activation, identity recovery, provenance research or closure of any writer blocker. Variations, including dated stale cue display, require a separate explicit decision/review rather than an inferred exception.
+
+### Implementation, acceptance and publication ceiling
+
+| Field | Current state |
 | --- | --- |
-| A_BOUNDED_REFRESH | Approve bounded legacy refresh at defined relevant triggers, with scope fencing and truthful failure handling; separately review implementation/read budget. No blanket child-revision freshness claim. |
-| B_REVISION_FENCE | Approve retaining values privately with independent qualification; separately choose/prove recovery acquisition. Not permission to stamp a range revision on old values. |
-| C_WITHHOLD_WHEN_UNPROVEN | Approve explicit historical-guidance degradation while proof is absent, with stated local/manual recovery envelope; not false absence or editor/draft erasure. |
-| D_HYBRID_STATE_DEPENDENT | Approve section 10's relevant/uncertain-trigger refresh, independent publication fences, failure withholding, preservation of qualified disjoint evidence and section 11-14 consumer treatment. Requires separately reviewed coverage/UX/performance and implementation. |
-| HOLD_NO_POLICY_SELECTION_YET | Defer freshness policy selection; prerequisite remains OPEN and parent public activation remains unauthorized. No automatic implementation. |
+| FRESHNESS_POLICY_IMPLEMENTATION / PRODUCTION_IMPLEMENTATION | `NOT_AUTHORIZED / NOT_AUTHORIZED` |
+| FRESHNESS_POLICY_IMPLEMENTED | `NO` |
+| NEW_EPOCHS_OR_COUNTERS / NEW_CACHE_KEY / NEW_HOOKS / NEW_TESTS | `NOT_IMPLEMENTED / NOT_IMPLEMENTED / NOT_IMPLEMENTED / NOT_IMPLEMENTED` |
+| READER_ACTIVATION / PUBLIC_READER_ACTIVATION / HEALTH_PARENT_PUBLIC_READER_ACTIVATION | `NOT_AUTHORIZED / NOT_AUTHORIZED / NOT_AUTHORIZED` |
+| PREVDATA-C01 through PREVDATA-C15 | `REQUIRED / NOT EXECUTED` |
+| PERFORMANCE_ACCEPTANCE / PUBLIC_COPY_ACCEPTANCE / PHYSICAL_BROWSER_QA | `NOT_EXECUTED / NOT_EXECUTED / NOT_EXECUTED` |
+| PUBLIC_READER_CURRENTNESS_PREREQUISITE | `POLICY_SELECTED_IMPLEMENTATION_AND_ACCEPTANCE_PENDING`, not CLOSED |
+| APPROVAL_DELTA_INDEPENDENT_REVIEW | `NOT_YET_PERFORMED` |
+| FINAL_MERGE_GATE / READY / MERGE / AUTO_MERGE | `NOT_PERFORMED / NOT_PERFORMED / NOT_PERFORMED / NOT_PERFORMED` |
+| IMPLEMENTATION / ACTIVATION | `NOT_AUTHORIZED / NOT_AUTHORIZED` |
 
-All choices are currently `NOT_SELECTED`; no default or silence-based approval. Selecting a policy is not reader activation, identity recovery, provenance research or closure of writer blockers. Ambiguous approval requires clarification of the named choice and scope; publication, independent review, CI or merge does not supply product-owner consent. Any variation, such as showing dated stale micro-cues, needs explicit decision and review rather than an inferred exception.
+All future race/ABA, mutation, partial/isolation, no-reseed, formula, offline/focus and truthful public-state assertions remain required. Product approval is not acceptance evidence or proof that refresh cost is acceptable. No thresholds are invented. After approval-delta independent review and canonical review/merge, implementation still requires a separate authorized task.
 
 ## 19. One recommendation
 
@@ -315,7 +349,7 @@ All choices are currently `NOT_SELECTED`; no default or silence-based approval. 
 
 D provides acquisition after relevant changes, fail-closed ordering during transitions and honest fallback after failure, while avoiding unrelated global reloads. It preserves local-first availability, existing drafts/explicit counts, unchanged legacy arithmetic and source-separated partial evidence. A alone over-refreshes if tied blindly to all child invalidations; B alone cannot acquire new proof; C alone can indefinitely degrade guidance. D's targeted coverage and consumer distinctions address those costs without fabricating a shared source revision.
 
-Confidence is medium because actual mutation-observation coverage, all historical seeding paths, copy/gesture scope, read coalescing and physical performance need separate implementation evidence and owner-approved acceptance thresholds. This is a recommendation, not approval or a claim that the proposed epoch mechanism already exists. Next action: `REL_05G_HEALTH_PARENT_LEGACY_PREVDATA_FRESHNESS_INDEPENDENT_REVIEW_01`.
+Confidence remains medium because actual mutation-observation coverage, all historical seeding paths, copy/gesture scope, read coalescing and physical performance need separate implementation evidence and owner-approved acceptance thresholds. Recommendation confidence does not supply approval; section 18 records the independent human policy selection, not implemented epochs or accepted performance. Next action after new exact-head CI: `INDEPENDENT_REVIEW_REL_05G_HEALTH_PARENT_PREVDATA_FRESHNESS_D_APPROVAL_DELTA_01`, not direct Final Merge Gate or implementation.
 
 ## 20. Frozen authority and publication validation
 
@@ -348,8 +382,13 @@ The [approved prospective-provenance HOLD record](REL-05G-health-id-prospective-
 | BOOTSTRAP_ADMISSION | `BLOCKED_BY_EVIDENCE_QUALIFICATION` |
 | R2-U | `NOT_IMPLEMENTED / ARCHITECTURALLY_FEASIBLE_PENDING_DIFFERENTIAL_PROOF` |
 | PHYSICAL_QUALIFICATION_STATE | `DEFERRED_UNCHANGED` |
+| NO_NEW_PR_FORMULA | `YES` |
+| NO_NEW_PLANNING_FORMULA | `YES` |
+| NO_CANONICAL_AUTO_PLANNING | `YES` |
+| NO_COMPARISON_FILTER_SUBSTITUTION_IN_LEGACY_PR | `YES` |
+| NO_HISTORY_SEMANTIC_REWRITE | `YES` |
 | LOCAL_DATABASE_VERSION / LOCAL_SCHEMA_VERSION | `7 / 1`, verified in [local database types](../src/lib/localDatabase/types.ts) |
 | WorkoutSessionV1; stores/indexes/keyPaths; Supabase/RLS/backend | Unchanged; no API, database, schema or remote work |
 | AUTHORITY_STATE | `UNCHANGED`; no canonical writer, bind/push/pull/resync/reset activation or G6 |
 
-Publication scope is exactly this Markdown artifact. Validate relative links and `git diff --check`, inspect the staged one-file diff, commit/push normally, and publish as Draft. No production/test/config/gate changes, no local full suite required solely for this document. Observe hosted exact-head CI as a regression signal and report its actual initial state separately; do not predeclare this unpublished head green. No independent review or product approval is claimed here. Do not mark Ready, merge or enable auto-merge. Stop after publication and initial CI observation.
+Approval-publication scope is exactly this Markdown artifact and synchronization of existing Draft PR #769's body. Validate relative links and `git diff --check`, inspect the one-file approval delta, commit/push normally to the same branch, and keep Draft. No production/test/config/gate changes; no local full suite required solely for this document. New exact-head hosted CI is required regression evidence, not acceptance. The pre-approval review applies only to the recorded prior head; approval-delta independent review is NOT_YET_PERFORMED and Final Merge Gate is NOT_PERFORMED. Only the explicit human product-policy approval in section 18 is recorded. Do not create another PR, mark Ready, merge, enable auto-merge or implement. Stop after publication, PR-body synchronization and new exact-head CI qualification/report.
