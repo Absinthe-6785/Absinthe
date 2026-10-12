@@ -113,6 +113,13 @@ Tests: [pure owner](../src/components/views/features/health/legacyPreviousCurren
 
 Correction evidence: 18 mounted cases plus five hook trust-latch cases cover R01-A–E, R02-A–F and R03-A–G, including combined cases and extra preset/date/simultaneous/foreign-identity checks. Before production edits, the first 16 mounted cases yielded 10 expected semantic failures / 6 passes at the reviewed head; fixture UUID/verified-account setup was corrected before that final red baseline. After correction all mounted cases and existing integration cases pass. R01-C uses a later explicit-count routine B that completes before held history-dependent A; it does not claim two independent source batches when the owner legitimately coalesces requests. R02 uses the real previous adapter/IndexedDB history mutations; R03 uses real parent hook/coordinator lifecycles with injected fixture source errors. No assertions or existing timeouts are weakened.
 
+### First correction CI and completion-barrier follow-up
+
+The first correction publication was `cd8854ea7d7961691b0b89169a8ca31ab45b403b`. [Push run 38209087157](https://github.com/Absinthe-6785/Absinthe/actions/runs/38209087157) and [PR run 38209090920](https://github.com/Absinthe-6785/Absinthe/actions/runs/38209090920) both passed typecheck/build/backend-rel05g1/backend-recovery, but their test jobs failed for different reasons; they are not successful final qualification.
+
+- PR test: R01-A observed zero cards before its required new Squat row was published. Its fixed microtask/gate-ACK helper did not await the real async loader. The follow-up waits for the actual source Promises and settled parent fixture before evaluating workflow publication. A separately controlled pre-source gate proves that releasing the response gate is not source completion. The exact assertion remains one Squat and no resurrected Bench; cancelled-load assertions now also follow actual completion, avoiding false negative-result passes. R01-A passed ten independent local executions. This follow-up changes tests/documentation only, not production behavior, assertions or timeouts.
+- Push test: unchanged `recoveryExportPackage.test.ts` K-320A ZIP-byte determinism failed. Both package source/test blobs are unchanged from main. A read-only in-memory execution of the actual archive function with JSZip 3.10.1 and a controlled two-second clock step reproduced different bytes for the same package: seven automatically created directory entries used current dates while explicit file dates stayed fixed. This separate pre-existing timestamp issue is outside this correction; neither recovery implementation nor its test is changed. A green exact-head CI run is still required, and any retry/failure must be disclosed rather than treating this failed run as PASS.
+
 ## Read budget and validation
 
 - 1, 20 or 100 simultaneous same-scope dependencies: exactly one loader call; warm qualified negatives: zero additional calls.
@@ -144,7 +151,7 @@ Correction validation on 2026-10-12 before publication:
 | Final focused command: 19 owner/hook/mounted/persistence/isolation/B1/range/formula/locale files | 272 PASS, 0 FAIL, 0 SKIP |
 | `npm run typecheck` | PASS: editor, bare-identifier and app |
 | `npm run build` | PASS; existing Browserslist-age/large-chunk warnings only |
-| Full `npm test -- --maxWorkers=4` | 756 files: 754 PASS, 1 known K-333B FAIL, 1 SKIP; 7,815 tests: 7,807 PASS, 1 known K-333B FAIL, 7 SKIP; 324.32s |
+| Full `npm test -- --maxWorkers=4` after completion-barrier follow-up | 756 files: 754 PASS, 1 known K-333B FAIL, 1 SKIP; 7,815 tests: 7,807 PASS, 1 known K-333B FAIL, 7 SKIP; 395.45s |
 | `git diff --check` | PASS before publication |
 
 Hosted CI on the new exact correction head is required before handoff for focused rereview. Its result does not independently close R01/R02/R03.

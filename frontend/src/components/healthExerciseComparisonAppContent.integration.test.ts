@@ -11,6 +11,7 @@ type DeferredVoid = Readonly<{ promise: Promise<void>; resolve: () => void }>;
 const mocks = vi.hoisted(() => ({
   parentEnabled: true, childEnabled: true, rangeEnabled: true, healthProps: [] as Array<import('../types').HealthProps>,
   realPrevious: false, previousReads: vi.fn(), previousGate: null as DeferredVoid | null, previousFailure: false,
+  previousSourceGate: null as DeferredVoid | null,
   extraBlocks: [] as Array<import('../types').ExerciseBlock>,
   selectedFailure: null as unknown, rangeFailure: null as unknown,
   rangeGate: null as DeferredVoid | null, alignedRangeIdentity: false,
@@ -184,6 +185,7 @@ vi.mock('./views/features/health/prevWorkoutFetch', async importOriginal => {
   return { ...actual, fetchPrevWorkoutForBlocks: vi.fn(async (...args: Parameters<typeof actual.fetchPrevWorkoutForBlocks>) => {
     if (!mocks.realPrevious) return { [BLOCK]: { prev_sets: [{ type: 'strength', set: 1, kg: 10, reps: 5, done: true }], prev_date: '2026-09-25', pr_kg: 10 } };
     mocks.previousReads(...args);
+    await mocks.previousSourceGate?.promise;
     const result = await actual.fetchPrevWorkoutForBlocks(...args); // REAL verified all-history adapter
     await mocks.previousGate?.promise;
     if (mocks.previousFailure) throw new Error('previous-read-failed');
@@ -341,6 +343,7 @@ beforeEach(async () => {
   await resetLocalHealthRuntimeForTests(); globalThis.indexedDB = new IDBFactory();
   localStorage.clear(); mocks.parentEnabled = true; mocks.childEnabled = true; mocks.rangeEnabled = true;
   mocks.realPrevious = false; mocks.previousReads.mockClear(); mocks.previousGate = null; mocks.previousFailure = false;
+  mocks.previousSourceGate = null;
   mocks.extraBlocks = []; mocks.selectedFailure = null; mocks.rangeFailure = null;
   mocks.rangeGate = null; mocks.alignedRangeIdentity = false;
   mocks.accountWorkouts.clear(); mocks.accountWorkouts.set(B, []);
@@ -645,16 +648,36 @@ describe('PR770 bounded correction: mounted workflow and trust regressions', () 
     mocks.accountWorkouts.set(A, [{ ...mocks.accountWorkouts.get(A)![0], id: 'temp-edited-bench' }]);
     return state.activePresetId;
   }
-  async function heldLoad() {
+  async function heldLoad(holdSource = false) {
+    const { fetchPrevWorkoutForBlocks } = await import('./views/features/health/prevWorkoutFetch');
+    const loader = vi.mocked(fetchPrevWorkoutForBlocks), initial = loader.mock.results.length;
     await mount(); await settle();
+    await act(async () => { await Promise.all(loader.mock.results.slice(initial).map(result => result.value)); });
     await act(async () => btn('editBtn')?.click());
+    const started = loader.mock.results.length;
+    const sourceGate = holdSource ? deferredVoid() : null; mocks.previousSourceGate = sourceGate;
     const gate = deferredVoid(); mocks.previousGate = gate;
     act(() => window.dispatchEvent(new Event('health-bootstrap-complete'))); await settle();
+    await waitFor(() => {
+      expect(loader.mock.results.length).toBeGreaterThan(started);
+      expect(mocks.healthProps.at(-1)!.selectedDayComposite?.phase).toBe('settled');
+      expect(range().phase).toBe('settled');
+    });
     await act(async () => load()); await settle();
-    return async () => { mocks.previousGate = null; await act(async () => gate.resolve()); await settle(); };
+    const sources = loader.mock.results.slice(started).map(result => result.value);
+    let sourceSettled = false;
+    const completion = Promise.all(sources).then(() => { sourceSettled = true; });
+    return async () => {
+      mocks.previousGate = null; await act(async () => gate.resolve());
+      if (sourceGate) {
+        await settle(); expect(sourceSettled).toBe(false); // A gate ACK alone is not read completion.
+        mocks.previousSourceGate = null; sourceGate.resolve();
+      }
+      await act(async () => { await completion; }); await settle();
+    };
   }
   it('R01-A held history never resurrects an edited row removed after capture', async () => {
-    await routines(); const release = await heldLoad();
+    await routines(); const release = await heldLoad(true);
     await act(async () => cards()[0].querySelector<HTMLButtonElement>('button.absolute')!.click());
     expect(cards()).toHaveLength(0);
     await release();
