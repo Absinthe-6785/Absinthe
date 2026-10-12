@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import 'fake-indexeddb/auto';
 import { IDBFactory } from 'fake-indexeddb';
-import { createElement, useEffect } from 'react';
+import { createElement, StrictMode, useEffect } from 'react';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -9,7 +9,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 type DeferredVoid = Readonly<{ promise: Promise<void>; resolve: () => void }>;
 
 const mocks = vi.hoisted(() => ({
-  childEnabled: true, rangeEnabled: true, healthProps: [] as Array<import('../types').HealthProps>,
+  parentEnabled: true, childEnabled: true, rangeEnabled: true, healthProps: [] as Array<import('../types').HealthProps>,
+  realPrevious: false, previousReads: vi.fn(), previousGate: null as DeferredVoid | null, previousFailure: false,
+  previousSourceGate: null as DeferredVoid | null,
+  routineState: null as import('./views/features/health/routinePresets').RoutinePresetState | null,
+  routineSyncState: null as import('./views/features/health/routinePresets').RoutinePresetState | null,
+  routineCommitInputs: [] as Array<import('./views/features/health/routinePresets').RoutinePresetState>,
+  strictMode: false,
+  extraBlocks: [] as Array<import('../types').ExerciseBlock>,
+  selectedFailure: null as unknown, rangeFailure: null as unknown,
+  rangeGate: null as DeferredVoid | null, alignedRangeIdentity: false,
   legacyReads: vi.fn(), canonicalReads: vi.fn(), commitInputs: [] as unknown[],
   sourceGate: null as DeferredVoid | null, afterStorageCommit: null as null | (() => void),
   accountWorkouts: new Map<string, Array<Record<string, unknown>>>(),
@@ -37,7 +46,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('./views/features/health/healthSelectedDayCompositeConfig', () => ({
-  HEALTH_SELECTED_DAY_COMPOSITE_READER_ENABLED: true,
+  get HEALTH_SELECTED_DAY_COMPOSITE_READER_ENABLED() { return mocks.parentEnabled; },
 }));
 vi.mock('./views/features/home/homeWorkoutCompositeConfig', () => ({
   HOME_WORKOUT_COMPOSITE_READER_ENABLED: false,
@@ -68,6 +77,7 @@ vi.mock('./views/features/health/selectedDayLegacySnapshot', () => ({
     const version = mocks.accountVersions.get(accountId) ?? 0;
     const workouts = structuredClone(mocks.accountWorkouts.get(accountId) ?? []);
     const held = mocks.holdNextSelectedRead;
+    const failure = mocks.selectedFailure;
     mocks.holdNextSelectedRead = false;
     mocks.selectedReads.push({ accountId, version, count: workouts.length, held });
     mocks.events.push(`selected-read:${accountId}:v${version}:${held ? 'held' : 'live'}`);
@@ -78,9 +88,9 @@ vi.mock('./views/features/health/selectedDayLegacySnapshot', () => ({
       })),
       daily: { workouts, inbody: { weight: null, smm: null, pbf: null }, routines: [] },
     };
-    if (!held) return Promise.resolve(value);
-    return new Promise<typeof value>(resolve => {
-      mocks.heldSelectedReads.push(() => resolve(value));
+    if (!held) return failure ? Promise.reject(failure) : Promise.resolve(value);
+    return new Promise<typeof value>((resolve, reject) => {
+      mocks.heldSelectedReads.push(() => failure ? reject(failure) : resolve(value));
     });
   },
 }));
@@ -105,11 +115,12 @@ vi.mock('../hooks/useNow', () => ({ useNow: () => ({
   formatDate: (date: Date) => date.toISOString().slice(0, 10), isToday: () => true,
 }) }));
 vi.mock('../hooks/useToast', () => ({ useToast: () => ({ toast: null, showToast: mocks.showToast }) }));
-vi.mock('../hooks/useDaily', () => ({ useDailyData: () => ({ schedules: [], todos: [], todosState: {}, routines: [], workouts: [],
+vi.mock('../hooks/useDaily', () => ({ useDailyData: () => ({ schedules: [], todos: [], todosState: {}, routines: [],
+  workouts: mocks.parentEnabled ? [] : mocks.accountWorkouts.get(A) ?? [],
   inbody: { weight: null, smm: null, pbf: null }, mutate: mocks.mutateDaily, mutateTodos: mocks.mutateTodos,
   mutateRoutines: mocks.mutateRoutines, isLoading: false }) }));
 vi.mock('../hooks/useStatic', () => ({ useStaticData: () => ({ markedDates: [],
-  healthBlocks: [{ id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', name: 'Bench', type: 'strength', tags: [] }], healthBlocksState: {}, healthRoutines: [],
+  healthBlocks: [{ id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', name: 'Bench', type: 'strength', tags: [] }, ...mocks.extraBlocks], healthBlocksState: {}, healthRoutines: [],
   healthRoutinesState: { status: 'READY_EMPTY', validating: false }, weeklySchedules: [], mutate: mocks.mutateStatic }) }));
 vi.mock('../hooks/useEscapeKey', () => ({ useEscapeKey: vi.fn() }));
 vi.mock('../hooks/useIsMobile', () => ({ useIsMobile: () => false }));
@@ -159,34 +170,51 @@ vi.mock('./views/RecipeView', () => ({ RecipeView: () => null }));
 vi.mock('./views/features/search/GlobalSearchHost', () => ({ GlobalSearchHost: () => null }));
 vi.mock('./views/features/search/searchDomainNavigation', () => ({ registerSearchDomainHandlers: vi.fn() }));
 vi.mock('./views/features/health/HealthWorkspaceNav', () => ({ HEALTH_WORKSPACE_SECTIONS: [{ id: 'workout' }], HealthWorkspaceNav: () => null }));
-vi.mock('./views/features/health/HealthBlockLibrary', () => ({ HealthBlockLibrary: () => null }));
+vi.mock('./views/features/health/HealthBlockLibrary', () => ({ HealthBlockLibrary: ({ blocks, onAddToToday }: {
+  blocks: Array<import('../types').ExerciseBlock>; onAddToToday: (block: import('../types').ExerciseBlock) => void;
+}) => mocks.realPrevious ? createElement('div', null, ...blocks.map(block => createElement('button', {
+  key: block.id, 'data-test-add-block': block.id, onClick: () => onAddToToday(block),
+}, block.name))) : null }));
 vi.mock('./views/features/health/HealthSupportingPanels', () => ({ HealthSupportingPanels: ({ workoutCalendarActivity }: { workoutCalendarActivity?: { phase: string; knownPresentDates: Set<string> } }) =>
   createElement('div', { 'data-testid': 'range-state' }, workoutCalendarActivity
     ? `${workoutCalendarActivity.phase}:${workoutCalendarActivity.knownPresentDates.size}` : 'legacy') }));
-vi.mock('./views/features/health/HealthSelectedDayCompositePanel', () => ({ HealthSelectedDayCompositePanel: ({ model }: { model: { phase: string; accountId: string; legacyDaily?: { workouts?: Array<{ local_version?: string }> } | null } }) =>
-  createElement('div', { 'data-testid': 'selected-state' }, `${model.phase}:${model.accountId}:${model.legacyDaily?.workouts?.[0]?.local_version ?? 'empty'}`) }));
+vi.mock('./views/features/health/HealthSelectedDayCompositePanel', () => ({ HealthSelectedDayCompositePanel: ({ model }: { model: { phase: string; accountId: string; isolationError?: boolean; legacyDaily?: { workouts?: Array<{ local_version?: string }> } | null } }) =>
+  createElement('div', { 'data-testid': 'selected-state', 'data-test-parent-rejected': String(!!model.isolationError) }, `${model.phase}:${model.accountId}:${model.legacyDaily?.workouts?.[0]?.local_version ?? 'empty'}`) }));
 vi.mock('./views/features/health/nutrition', () => ({ ProteinTracker: () => null }));
 vi.mock('./views/features/health/PreviousWorkoutView', () => ({ PreviousWorkoutView: () => null }));
 vi.mock('./views/features/health/PreviousWorkoutSheet', () => ({ PreviousWorkoutSheet: () => null }));
 vi.mock('./views/features/health/HealthMobileWorkoutActions', () => ({ HealthMobileWorkoutActions: () => null }));
-vi.mock('./views/features/health/prevWorkoutFetch', () => ({ fetchPrevWorkoutForBlocks: vi.fn(async () => ({
-  [BLOCK]: { prev_sets: [{ type: 'strength', set: 1, kg: 10, reps: 5, done: true }], prev_date: '2026-09-25', pr_kg: 10 },
-})) }));
+vi.mock('./views/features/health/prevWorkoutFetch', async importOriginal => {
+  const actual = await importOriginal<typeof import('./views/features/health/prevWorkoutFetch')>();
+  return { ...actual, fetchPrevWorkoutForBlocks: vi.fn(async (...args: Parameters<typeof actual.fetchPrevWorkoutForBlocks>) => {
+    if (!mocks.realPrevious) return { [BLOCK]: { prev_sets: [{ type: 'strength', set: 1, kg: 10, reps: 5, done: true }], prev_date: '2026-09-25', pr_kg: 10 } };
+    mocks.previousReads(...args);
+    await mocks.previousSourceGate?.promise;
+    const result = await actual.fetchPrevWorkoutForBlocks(...args); // REAL verified all-history adapter
+    await mocks.previousGate?.promise;
+    if (mocks.previousFailure) throw new Error('previous-read-failed');
+    return result;
+  }) };
+});
 vi.mock('./views/features/health/recovery/recoveryNotes', () => ({ getRecoveryEntry: () => null }));
 vi.mock('./views/features/health/healthSectionPrefs', () => ({ readHealthSectionPrefs: () => ({}) }));
 vi.mock('./views/features/health/buildHealthProjection', () => ({ buildHealthProjection: () => ({ workoutDates: [] }) }));
 vi.mock('./views/k102DateFormat', () => ({ formatAbsoluteDateKey: (value: Date | string) => value instanceof Date ? value.toISOString().slice(0, 10) : value,
   formatLongDate: (value: Date) => value.toISOString().slice(0, 10) }));
 vi.mock('../lib/healthRoutineSync', () => ({ productionHealthRoutinePersistence: {
-  bootstrap: async ({ legacyState }: { legacyState: unknown }) => legacyState,
-  commitState: async (_accountId: string, _previous: unknown, next: unknown) => next,
-  sync: async () => null, snapshot: async () => null, reset: async () => null, recover: async (_accountId: string, recovered: unknown) => recovered,
+  bootstrap: async ({ legacyState }: { legacyState: import('./views/features/health/routinePresets').RoutinePresetState }) => (mocks.routineState = legacyState),
+  commitState: async (_accountId: string, _previous: unknown, next: import('./views/features/health/routinePresets').RoutinePresetState) => {
+    mocks.routineCommitInputs.push(structuredClone(next)); return (mocks.routineState = next);
+  },
+  sync: async () => mocks.routineSyncState ? (mocks.routineState = mocks.routineSyncState) : null,
+  snapshot: async () => null, reset: async () => null, recover: async (_accountId: string, recovered: unknown) => recovered,
 } }));
 vi.mock('../lib/migrateLegacyDdays', () => ({ migrateLegacyDdays: vi.fn(async () => undefined) }));
 vi.mock('../lib/vaultSnapshotAuto', () => ({ runPeriodicSnapshotSlots: vi.fn() }));
 vi.mock('../lib/i18n', async importOriginal => {
   const actual = await importOriginal<typeof import('../lib/i18n')>();
-  return { ...actual, useTranslation: () => ({ t: (key: string) => key, lang: 'en' }) };
+  return { ...actual, useTranslation: () => ({ t: (key: string) => mocks.realPrevious && key.startsWith('previous')
+    ? actual.getTranslator('en')(key as never) : key, lang: 'en' }) };
 });
 vi.mock('../lib/healthSupabaseBootstrap', () => ({ bootstrapHealthFromSupabase: vi.fn(async () => undefined),
   HEALTH_LOCAL_BOOTSTRAP_COMPLETE_EVENT: 'health-bootstrap-complete' }));
@@ -205,10 +233,15 @@ vi.mock('./views/features/health/healthExerciseComparisonPreviewConfig', () => (
 }));
 vi.mock('../lib/workoutRangeReader', () => ({
   WorkoutRangeReader: { open: async (account: string) => ({
-    scope: { accountId: account, namespaceKey: 'ns', generationId: 'g1' },
+    scope: { accountId: account, namespaceKey: mocks.alignedRangeIdentity ? `ns-${account}` : 'ns',
+      generationId: mocks.alignedRangeIdentity ? `g-${account}` : 'g1' },
     readAllActive: async () => {
       mocks.canonicalReads(account);
-      return [{ accountId: account, namespaceKey: 'ns', generationId: 'g1', entityId: SESSION, localRevision: 1,
+      const gate = mocks.rangeGate, failure = mocks.rangeFailure;
+      await gate?.promise;
+      if (failure) throw failure;
+      return [{ accountId: account, namespaceKey: mocks.alignedRangeIdentity ? `ns-${account}` : 'ns',
+        generationId: mocks.alignedRangeIdentity ? `g-${account}` : 'g1', entityId: SESSION, localRevision: 1,
         session: { version: 1, id: SESSION, localDate: '2026-09-27', entries: [{ id: ENTRY,
           exercise: { id: BLOCK, name: 'Bench', type: 'strength', tags: [], cardioMode: null },
           sets: [{ id: SET, ordinal: 1, kind: 'strength', loadKind: 'external_weight', weightKg: account === A ? '900' : '777',
@@ -304,17 +337,27 @@ const btn = (label: string) => Array.from(host.querySelectorAll('button')).find(
 async function mount() {
   await import('./views/HealthView');
   const { AppContent } = await import('./AppContent');
-  await act(async () => { root = createRoot(host); root.render(createElement(AppContent, { authUser: user(A) })); });
+  await act(async () => {
+    root = createRoot(host); const app = createElement(AppContent, { authUser: user(A) });
+    root.render(mocks.strictMode ? createElement(StrictMode, null, app) : app);
+  });
   await waitFor(() => expect(host.querySelector('[data-testid="nav-health"]')).not.toBeNull());
   await act(async () => host.querySelector<HTMLButtonElement>('[data-testid="nav-health"]')!.click());
-  await waitFor(() => expect(host.querySelectorAll('[data-k126-workout-exercise-card]')).toHaveLength(1));
-  if (mocks.childEnabled && mocks.rangeEnabled) await waitFor(() => expect(comparison()?.getAttribute('data-excomp-status')).toBe('complete'));
+  const expectedCards = mocks.accountWorkouts.get(A)?.length ?? 0;
+  await waitFor(() => expect(host.querySelectorAll('[data-k126-workout-exercise-card]')).toHaveLength(expectedCards));
+  if (expectedCards && mocks.childEnabled && mocks.rangeEnabled) await waitFor(() => expect(comparison()?.getAttribute('data-excomp-status')).toBe('complete'));
   return AppContent;
 }
 beforeEach(async () => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   await resetLocalHealthRuntimeForTests(); globalThis.indexedDB = new IDBFactory();
-  localStorage.clear(); mocks.childEnabled = true; mocks.rangeEnabled = true;
+  localStorage.clear(); mocks.parentEnabled = true; mocks.childEnabled = true; mocks.rangeEnabled = true;
+  mocks.realPrevious = false; mocks.previousReads.mockClear(); mocks.previousGate = null; mocks.previousFailure = false;
+  mocks.previousSourceGate = null;
+  mocks.routineState = null; mocks.routineSyncState = null; mocks.routineCommitInputs.length = 0;
+  mocks.strictMode = false;
+  mocks.extraBlocks = []; mocks.selectedFailure = null; mocks.rangeFailure = null;
+  mocks.rangeGate = null; mocks.alignedRangeIdentity = false;
   mocks.accountWorkouts.clear(); mocks.accountWorkouts.set(B, []);
   mocks.accountVersions.clear(); mocks.accountVersions.set(A, 1); mocks.accountVersions.set(B, 0);
   mocks.mutationGate = deferredVoid(); mocks.sourceGate = null; mocks.afterStorageCommit = null;
@@ -426,5 +469,505 @@ describe('C29 real AppContent → HealthView → durable Health repository → s
     await waitFor(() => expect(comparison()?.textContent).toContain('900 kg'));
     expect(await old.publish(vi.fn())).toBe(false);
     expect(mocks.legacyReads).toHaveBeenCalledTimes(1); expect(mocks.canonicalReads).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('D real previous adapter + mounted Health + durable local mutation', () => {
+  const cue = () => host.querySelector('[data-health-previous-micro-cue]');
+  const add = () => host.querySelector<HTMLButtonElement>(`[data-test-add-block="${BLOCK}"]`)!;
+  const loadRoutine = () => {
+    const select = [...host.querySelectorAll('select')].find(item => item.querySelector('option[value="__load__"]'))!;
+    select.value = 'Day 1'; select.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+  it('B1 parent OFF preserves legacy DOM, read count, planning and focus/bootstrap behavior', async () => {
+    mocks.parentEnabled = false; mocks.childEnabled = false; mocks.rangeEnabled = false; mocks.realPrevious = true;
+    await mount(); await waitFor(() => expect(cue()?.textContent).toContain('30'));
+    const card = host.querySelector('[data-k126-workout-exercise-card]')!;
+    const before = card.innerHTML, count = mocks.previousReads.mock.calls.length;
+    expect(host.querySelector('[data-health-previous-state]')).toBeNull();
+    act(() => { window.dispatchEvent(new Event('focus')); window.dispatchEvent(new Event('health-bootstrap-complete')); });
+    await settle(); expect(card.innerHTML).toBe(before); expect(mocks.previousReads).toHaveBeenCalledTimes(count);
+    expect(mocks.canonicalReads).not.toHaveBeenCalled();
+  });
+  it('C12 add withholds failed history (not default 1); verified no-match restores exact default 1', async () => {
+    mocks.realPrevious = true; mocks.accountWorkouts.set(A, []); mocks.previousFailure = true;
+    await mount(); await act(async () => add().click());
+    await waitFor(() => expect(mocks.showToast).toHaveBeenCalledWith('healthPreviousSuppressed', 'info'));
+    expect(host.querySelectorAll('[data-k126-workout-exercise-card]')).toHaveLength(0);
+    mocks.previousFailure = false;
+    act(() => mocks.healthProps.at(-1)!.setSelectedDate(new Date('2026-09-01T12:00:00Z')));
+    await settle(); await act(async () => add().click());
+    await waitFor(() => expect(host.querySelectorAll('[data-k126-workout-exercise-card]')).toHaveLength(1));
+    expect(host.querySelectorAll('[data-k126-workout-exercise-card] input[inputmode="decimal"]')).toHaveLength(1);
+    expect(host.querySelector('[data-health-previous-state="NO_MATCH"]')).not.toBeNull();
+  });
+  it.each([undefined, 7])('C12 routine failure cannot seed default 3; explicit preset %s stays usable', async explicit => {
+    const { createRoutinePresetState, writeRoutinePresetState } = await import('./views/features/health/routinePresets');
+    writeRoutinePresetState(localStorage, A, createRoutinePresetState({
+      splitCount: 1, routines: [{ id: 'routine', day_name: 'Day 1', blocks: [BLOCK] }],
+      plannedSetsByDay: explicit ? { 'Day 1': { [BLOCK]: explicit } } : {},
+    }));
+    mocks.realPrevious = true; mocks.accountWorkouts.set(A, []); mocks.previousFailure = true;
+    await mount(); await settle(); await act(async () => loadRoutine()); await settle();
+    expect(host.querySelectorAll('[data-k126-workout-exercise-card]')).toHaveLength(explicit ? 1 : 0);
+    if (explicit) expect(host.querySelectorAll('[data-k126-workout-exercise-card] input[inputmode="decimal"]')).toHaveLength(explicit);
+    else {
+      mocks.previousFailure = false;
+      act(() => mocks.healthProps.at(-1)!.setSelectedDate(new Date('2026-09-01T12:00:00Z')));
+      await settle(); await act(async () => loadRoutine());
+      await waitFor(() => expect(host.querySelectorAll('[data-k126-workout-exercise-card]')).toHaveLength(1));
+      expect(host.querySelectorAll('[data-k126-workout-exercise-card] input[inputmode="decimal"]')).toHaveLength(3);
+    }
+  });
+  it('C12 assembly has no stale/default initialization; a user-entered manual count remains usable', async () => {
+    const { createRoutinePresetState, writeRoutinePresetState, readRoutinePresetState } = await import('./views/features/health/routinePresets');
+    writeRoutinePresetState(localStorage, A, createRoutinePresetState({ splitCount: 1,
+      routines: [{ id: 'routine', day_name: 'Day 1', blocks: [BLOCK] }] }));
+    mocks.realPrevious = true; mocks.accountWorkouts.set(A, []); mocks.previousFailure = true;
+    await mount(); await settle(); await act(async () => btn('assembleBtn').click());
+    const input = host.querySelector<HTMLInputElement>('[data-routine-idx] input[type="number"]')!;
+    expect(input.value).toBe('');
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '4');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(input.value).toBe('4'); await act(async () => btn('saveRoutine').click());
+    await waitFor(() => expect(readRoutinePresetState(localStorage, A)?.presets[0].days[0].plannedSets[BLOCK]).toBe(4));
+    await act(async () => loadRoutine()); await settle();
+    expect(host.querySelectorAll('[data-k126-workout-exercise-card] input[inputmode="decimal"]')).toHaveLength(4);
+  });
+  it('fresh legacy survives range retry/canonical comparison; focus withholds without reseeding edited draft', async () => {
+    mocks.realPrevious = true; await mount();
+    await waitFor(() => expect(cue()?.textContent).toContain('30'));
+    const before = mocks.previousReads.mock.calls.length;
+    expect(before).toBe(1);
+    act(() => range().retry()); await waitFor(() => expect(range().phase).toBe('settled'));
+    expect(mocks.previousReads).toHaveBeenCalledTimes(before); expect(cue()?.textContent).toContain('30');
+    await act(async () => btn('editBtn').click());
+    const input = () => host.querySelector<HTMLInputElement>('[data-k126-workout-exercise-card] input[inputmode="decimal"]')!;
+    expect(input()).not.toBeNull(); const original = input().value;
+    mocks.previousGate = deferredVoid();
+    act(() => window.dispatchEvent(new Event('focus')));
+    expect(cue()).toBeNull(); expect(host.querySelector('[data-k107-workout-pr-badge]')).toBeNull();
+    await waitFor(() => expect(host.querySelector('[data-health-previous-state="REFRESHING"]')).not.toBeNull());
+    expect(input().value).toBe(original);
+    mocks.previousGate.resolve(); mocks.previousGate = null;
+    await waitFor(() => expect(cue()?.textContent).toContain('30'));
+    expect(input().value).toBe(original);
+    expect(mocks.previousReads).toHaveBeenCalledTimes(before + 1);
+  });
+  it('real historical max deletion crosses held read, fences synchronously, then restores unchanged PR arithmetic', async () => {
+    const repo = await createLocalHealthRepository(A);
+    const fixtureDriver = await createLocalHealthDriver();
+    const [older] = await new HealthRepository(fixtureDriver, A).saveWorkouts([{ date: '2025-01-01', blockId: BLOCK, expectedVersion: null, sortOrder: 0,
+      sets: [{ type: 'strength', set: 1, kg: 300, reps: 5, done: true }] }]);
+    fixtureDriver.close();
+    mocks.accountWorkouts.set(A, [{ ...mocks.accountWorkouts.get(A)![0], sets: [{ type: 'strength', set: 1, kg: 100, reps: 5, done: true }] }]);
+    mocks.realPrevious = true; await mount(); await waitFor(() => expect(cue()?.textContent).toContain('30'));
+    expect(host.querySelector('[data-k107-workout-pr-badge]')?.textContent).not.toContain('PR');
+    const previousGate = deferredVoid(); mocks.previousGate = previousGate;
+    act(() => window.dispatchEvent(new Event('focus'))); await settle();
+    const { deleteHealthWorkout } = await import('./views/features/health/healthWorkoutPersistence');
+    const old = (await repo.readAll()).workout_logs.find(row => row.id === older.id)!;
+    let deletion!: Promise<unknown>;
+    act(() => { deletion = deleteHealthWorkout({ mode: 'local', accountId: A, workoutId: older.id,
+      expectedVersion: computeLocalHealthLogicalVersion([old])! }); });
+    await settle(); expect(cue()).toBeNull();
+    mocks.previousGate = null;
+    await act(async () => { mocks.mutationGate!.resolve(); await deletion; });
+    await waitFor(() => expect(host.querySelector('[data-k107-workout-pr-badge]')?.textContent).toContain('PR'));
+    previousGate.resolve(); await settle();
+    expect(cue()?.textContent).toContain('30'); expect(host.querySelector('[data-k107-workout-pr-badge]')?.textContent).toContain('PR');
+    expect((await repo.readAll()).workout_logs.some(row => row.id === older.id)).toBe(false);
+    expect((await repo.readAll()).workout_logs.some(row => row.id === PRIOR)).toBe(true);
+    expect(host.querySelectorAll('[data-k126-workout-exercise-card]')).toHaveLength(1); // current draft unchanged
+  });
+  it('real historical save changes latest row/count, preserves current draft and never copies canonical 900kg', async () => {
+    mocks.realPrevious = true; await mount(); await waitFor(() => expect(cue()?.textContent).toContain('30'));
+    const heldPrevious = deferredVoid(); mocks.previousGate = heldPrevious;
+    act(() => window.dispatchEvent(new Event('focus'))); await settle();
+    const { saveHealthWorkouts } = await import('./views/features/health/healthWorkoutPersistence');
+    const repo = await createLocalHealthRepository(A);
+    const prior = (await repo.readAll()).workout_logs.find(row => row.id === PRIOR)!;
+    let saving!: Promise<unknown>;
+    act(() => { saving = saveHealthWorkouts({ mode: 'local', accountId: A, date: '2026-09-25',
+      workouts: [{ ...persistedWorkout, id: PRIOR, local_version: computeLocalHealthLogicalVersion([prior])!,
+        sets: [{ type: 'strength', set: 1, kg: 70, reps: 5, done: true }, { type: 'strength', set: 2, kg: 60, reps: 5, done: false }] }] }); });
+    await settle(); expect(cue()).toBeNull();
+    mocks.previousGate = null;
+    await act(async () => { mocks.mutationGate!.resolve(); await saving; });
+    await waitFor(() => expect(cue()?.textContent).toContain('70'));
+    await act(async () => { heldPrevious.resolve(); }); await settle(); expect(cue()?.textContent).toContain('70');
+    expect(host.querySelectorAll('[data-k126-workout-exercise-card] input[inputmode="decimal"]')).toHaveLength(1);
+    expect(host.querySelector<HTMLInputElement>('[data-k126-workout-exercise-card] input[inputmode="decimal"]')!.value).toBe('20');
+    expect(host.querySelector('[data-health-workout-editor]')?.textContent ?? host.textContent).not.toContain('healthPreviousUnavailable');
+    expect(host.querySelectorAll('[data-k126-workout-exercise-card] input')).not.toHaveLength(0);
+    const stored = (await repo.readAll()).workout_logs.find(row => row.id === PRIOR)!;
+    expect(JSON.stringify(stored)).not.toContain('900');
+  });
+  it('local read failure has explicit unavailable status, never false NO_MATCH; bootstrap can recover', async () => {
+    mocks.realPrevious = true; await mount(); await waitFor(() => expect(cue()?.textContent).toContain('30'));
+    mocks.previousFailure = true;
+    act(() => window.dispatchEvent(new Event('focus')));
+    await waitFor(() => expect(host.querySelector('[data-health-previous-state="UNAVAILABLE"]')).not.toBeNull());
+    expect(cue()).toBeNull(); expect(host.querySelector('[data-health-previous-state="NO_MATCH"]')).toBeNull();
+    mocks.previousFailure = false;
+    act(() => window.dispatchEvent(new Event('health-bootstrap-complete')));
+    await waitFor(() => expect(cue()?.textContent).toContain('30'));
+  });
+  it('failed real delete attempt requalifies unchanged history, not absence; current draft survives', async () => {
+    mocks.realPrevious = true; await mount(); await waitFor(() => expect(cue()?.textContent).toContain('30'));
+    const { deleteHealthWorkout } = await import('./views/features/health/healthWorkoutPersistence');
+    const before = mocks.previousReads.mock.calls.length;
+    let deletion!: Promise<unknown>;
+    act(() => { deletion = deleteHealthWorkout({ mode: 'local', accountId: A, workoutId: PRIOR, expectedVersion: 'incorrect' }).catch(error => error); });
+    await settle(); expect(cue()).toBeNull();
+    await act(async () => { mocks.mutationGate!.resolve(); await deletion; });
+    await waitFor(() => expect(cue()?.textContent).toContain('30'));
+    expect(mocks.previousReads).toHaveBeenCalledTimes(before + 1);
+    expect(host.querySelectorAll('[data-k126-workout-exercise-card] input[inputmode="decimal"]')).toHaveLength(1);
+  });
+});
+
+describe('PR770 bounded correction: mounted workflow and trust regressions', () => {
+  const SQUAT = '66666666-6666-4666-8666-666666666666';
+  const PULL = '77777777-7777-4777-8777-777777777777';
+  const PRESET_B = '88888888-8888-4888-8888-888888888888';
+  const cards = () => [...host.querySelectorAll<HTMLElement>('[data-k126-workout-exercise-card]')];
+  const cue = () => host.querySelector('[data-health-previous-micro-cue]');
+  const rejected = () => host.querySelector('[data-test-parent-rejected]')?.getAttribute('data-test-parent-rejected');
+  const input = () => host.querySelector<HTMLInputElement>('[data-routine-idx] input[type="number"]')!;
+  const change = (element: HTMLInputElement | HTMLSelectElement, value: string) => {
+    const proto = element instanceof HTMLInputElement ? HTMLInputElement.prototype : HTMLSelectElement.prototype;
+    Object.getOwnPropertyDescriptor(proto, 'value')!.set!.call(element, value);
+    element.dispatchEvent(new Event(element instanceof HTMLInputElement ? 'input' : 'change', { bubbles: true }));
+  };
+  const load = (day = 'Day 1') => change([...host.querySelectorAll('select')]
+    .find(item => item.querySelector('option[value="__load__"]'))!, day);
+  async function routines(extraPreset = false) {
+    const { createRoutinePresetState, writeRoutinePresetState } = await import('./views/features/health/routinePresets');
+    const state = createRoutinePresetState({ splitCount: 2, routines: [
+      { id: 'r-a', day_name: 'Day 1', blocks: [BLOCK, SQUAT] },
+      { id: 'r-b', day_name: 'Day 2', blocks: [PULL] },
+    ], plannedSetsByDay: { 'Day 2': { [PULL]: 4 } } });
+    if (extraPreset) state.presets.push({ ...structuredClone(state.presets[0]), id: PRESET_B, name: 'B' });
+    writeRoutinePresetState(localStorage, A, state);
+    mocks.extraBlocks = [
+      { id: SQUAT, name: 'Squat', type: 'strength', tags: [] },
+      { id: PULL, name: 'Pull', type: 'strength', tags: [] },
+    ];
+    mocks.realPrevious = true;
+    mocks.accountWorkouts.set(A, [{ ...mocks.accountWorkouts.get(A)![0], id: 'temp-edited-bench' }]);
+    return state.activePresetId;
+  }
+  async function heldLoad(holdSource = false) {
+    const { fetchPrevWorkoutForBlocks } = await import('./views/features/health/prevWorkoutFetch');
+    const loader = vi.mocked(fetchPrevWorkoutForBlocks), initial = loader.mock.results.length;
+    await mount(); await settle();
+    await act(async () => { await Promise.all(loader.mock.results.slice(initial).map(result => result.value)); });
+    await act(async () => btn('editBtn')?.click());
+    const started = loader.mock.results.length;
+    const sourceGate = holdSource ? deferredVoid() : null; mocks.previousSourceGate = sourceGate;
+    const gate = deferredVoid(); mocks.previousGate = gate;
+    act(() => window.dispatchEvent(new Event('health-bootstrap-complete'))); await settle();
+    await waitFor(() => {
+      expect(loader.mock.results.length).toBeGreaterThan(started);
+      expect(mocks.healthProps.at(-1)!.selectedDayComposite?.phase).toBe('settled');
+      expect(range().phase).toBe('settled');
+    });
+    await act(async () => load()); await settle();
+    const sources = loader.mock.results.slice(started).map(result => result.value);
+    let sourceSettled = false;
+    const completion = Promise.all(sources).then(() => { sourceSettled = true; });
+    return async () => {
+      mocks.previousGate = null; await act(async () => gate.resolve());
+      if (sourceGate) {
+        await settle(); expect(sourceSettled).toBe(false); // A gate ACK alone is not read completion.
+        mocks.previousSourceGate = null; sourceGate.resolve();
+      }
+      await act(async () => { await completion; }); await settle();
+    };
+  }
+  it('R01-A held history never resurrects an edited row removed after capture', async () => {
+    await routines(); const release = await heldLoad(true);
+    await act(async () => cards()[0].querySelector<HTMLButtonElement>('button.absolute')!.click());
+    expect(cards()).toHaveLength(0);
+    await release();
+    expect(cards()).toHaveLength(1); expect(cards()[0].textContent).toContain('Squat');
+    expect(cards().some(card => card.textContent?.includes('Bench'))).toBe(false);
+  });
+  it('R01-B preset A → B → A does not revive an old load intention', async () => {
+    const presetA = await routines(true); const release = await heldLoad();
+    const select = () => host.querySelector<HTMLSelectElement>('select[aria-label="healthPresetLabel"]')!;
+    await act(async () => change(select(), PRESET_B)); await settle();
+    expect(select().value).toBe(PRESET_B);
+    await act(async () => change(select(), presetA)); await settle(); expect(select().value).toBe(presetA);
+    await release();
+    expect(cards()).toHaveLength(1); expect(cards()[0].textContent).toContain('Bench');
+  });
+  it('R01-C later explicit-count routine B completes before held A, which cannot publish last', async () => {
+    await routines(); const release = await heldLoad();
+    await act(async () => load('Day 2')); await settle();
+    expect(cards().some(card => card.textContent?.includes('Pull'))).toBe(true);
+    await release();
+    expect(cards().some(card => card.textContent?.includes('Pull'))).toBe(true);
+    expect(cards().some(card => card.textContent?.includes('Squat'))).toBe(false);
+  });
+  it('R01-D current edits survive; R01-E a still-current genuinely new routine row is added', async () => {
+    await routines(); const release = await heldLoad();
+    const weight = cards()[0].querySelector<HTMLInputElement>('input[inputmode="decimal"]')!;
+    await act(async () => change(weight, '41'));
+    await release();
+    expect(cards()).toHaveLength(2);
+    expect(cards()[0].querySelector<HTMLInputElement>('input[inputmode="decimal"]')!.value).toBe('41');
+    expect(cards()[1].textContent).toContain('Squat');
+    expect(cards()[1].querySelectorAll('input[inputmode="decimal"]')).toHaveLength(3);
+  });
+
+  async function history(count: number | null) {
+    const driver = await createLocalHealthDriver(); const repo = new HealthRepository(driver, A);
+    const row = (await repo.readAll()).workout_logs.find(value => value.id === PRIOR);
+    if (count === null) {
+      if (row) await repo.deleteWorkout(PRIOR, computeLocalHealthLogicalVersion([row])!);
+    } else await repo.saveWorkouts([{ ...(row ? { id: PRIOR } : {}), date: '2026-09-25', blockId: BLOCK,
+      sortOrder: 0, expectedVersion: row ? computeLocalHealthLogicalVersion([row])! : null,
+      sets: Array.from({ length: count }, (_, n) => ({ type: 'strength', set: n + 1, kg: 30, reps: 6, done: true })) }]);
+    driver.close();
+  }
+  async function assembly(count: number | null = 2, explicit?: number) {
+    const { createRoutinePresetState, writeRoutinePresetState } = await import('./views/features/health/routinePresets');
+    writeRoutinePresetState(localStorage, A, createRoutinePresetState({ splitCount: 1,
+      routines: [{ id: 'routine', day_name: 'Day 1', blocks: [BLOCK] }],
+      plannedSetsByDay: explicit ? { 'Day 1': { [BLOCK]: explicit } } : {} }));
+    await history(count); mocks.realPrevious = true;
+    await mount(); await settle(); await act(async () => btn('assembleBtn').click());
+  }
+  async function refreshHistory(count = 5, fail = false) {
+    await history(count); const gate = deferredVoid(); mocks.previousGate = gate; mocks.previousFailure = fail;
+    act(() => window.dispatchEvent(new Event('health-bootstrap-complete'))); await settle();
+    return async () => {
+      mocks.previousGate = null; await act(async () => gate.resolve());
+      if (fail) await waitFor(() => expect(host.querySelector('[data-health-previous-state="UNAVAILABLE"]')).not.toBeNull());
+      else await waitFor(() => expect(cue()?.textContent).toContain('30'));
+    };
+  }
+  it.each([false, true])('R02-A/B initialized 2 survives refresh (failure=%s)', async fail => {
+    await assembly(); expect(input().value).toBe('2');
+    const release = await refreshHistory(5, fail); expect(input().value).toBe('2');
+    await release(); expect(input().value).toBe('2');
+  });
+  it('R02-C manual 4 and explicit preset precedence survive replacement history', async () => {
+    await assembly(2, 7); expect(input().value).toBe('7');
+    await act(async () => change(input(), '4'));
+    const release = await refreshHistory(); expect(input().value).toBe('4');
+    await release(); expect(input().value).toBe('4');
+  });
+  it.each([false, true])('R02-D unavailable is not no-match; first qualification respects manual=%s', async manual => {
+    mocks.previousFailure = true; await assembly(); expect(input().value).toBe('');
+    if (manual) await act(async () => change(input(), '4'));
+    mocks.previousFailure = false;
+    act(() => window.dispatchEvent(new Event('health-bootstrap-complete')));
+    await waitFor(() => expect(cue()?.textContent).toContain('30'));
+    expect(input().value).toBe(manual ? '4' : '2');
+  });
+  it('R02-E verified no-match initializes exact default 3 once; R02-F a new modal lifetime may use 5', async () => {
+    await assembly(null); expect(input().value).toBe('3');
+    const release = await refreshHistory(); await release(); expect(input().value).toBe('3');
+    const modal = btn('saveRoutine').closest('.fixed')!;
+    await act(async () => modal.querySelector<HTMLButtonElement>('button')!.click());
+    expect(host.querySelector('[data-routine-idx]')).toBeNull();
+    await act(async () => btn('assembleBtn').click()); await waitFor(() => expect(input().value).toBe('5'));
+  });
+  it('R02 new preset lifetime closes the old assembly and initializes its own explicit count', async () => {
+    await routines(true); await history(2);
+    const { readRoutinePresetState, writeRoutinePresetState } = await import('./views/features/health/routinePresets');
+    const state = readRoutinePresetState(localStorage, A)!;
+    state.presets.find(preset => preset.id === PRESET_B)!.days[0].plannedSets[BLOCK] = 7;
+    writeRoutinePresetState(localStorage, A, state);
+    await mount(); await settle(); await act(async () => btn('assembleBtn').click());
+    expect(input().value).toBe('2'); await act(async () => change(input(), '4'));
+    await act(async () => change(host.querySelector<HTMLSelectElement>('select[aria-label="healthPresetLabel"]')!, PRESET_B));
+    await settle(); expect(host.querySelector('[data-routine-idx]')).toBeNull();
+    await act(async () => btn('assembleBtn').click()); expect(input().value).toBe('7');
+  });
+  it('R02 selected-date history changes retain an already owned manual assembly count', async () => {
+    await assembly(); expect(input().value).toBe('2');
+    await act(async () => change(input(), '4')); await history(5);
+    await act(async () => mocks.healthProps.at(-1)!.setSelectedDate(new Date('2026-09-28T12:00:00Z')));
+    expect(input().value).toBe('4');
+    await waitFor(() => expect(mocks.previousReads.mock.calls.some(args => args[1] === '2026-09-28')).toBe(true));
+    await waitFor(() => expect(cue()?.textContent).toContain('30')); expect(input().value).toBe('4');
+  });
+
+  const assemblyBlock = () => [...btn('saveRoutine').closest('.fixed')!.querySelectorAll<HTMLElement>('.cursor-pointer')]
+    .find(item => item.textContent?.startsWith('Bench'))!;
+  async function holdAssemblyHistory() {
+    const { fetchPrevWorkoutForBlocks } = await import('./views/features/health/prevWorkoutFetch');
+    const loader = vi.mocked(fetchPrevWorkoutForBlocks), started = loader.mock.results.length;
+    const gate = deferredVoid(); mocks.previousGate = gate;
+    act(() => window.dispatchEvent(new Event('health-bootstrap-complete')));
+    await waitFor(() => {
+      expect(loader.mock.results.length).toBeGreaterThan(started);
+      expect(mocks.healthProps.at(-1)!.selectedDayComposite?.phase).toBe('settled');
+      expect(range().phase).toBe('settled');
+    });
+    const completion = Promise.all(loader.mock.results.slice(started).map(result => result.value));
+    return async () => { mocks.previousGate = null; await act(async () => { gate.resolve(); await completion; }); await settle(); };
+  }
+  async function pendingAssembly() {
+    const { createRoutinePresetState, writeRoutinePresetState } = await import('./views/features/health/routinePresets');
+    writeRoutinePresetState(localStorage, A, createRoutinePresetState({ splitCount: 1,
+      routines: [{ id: 'routine', day_name: 'Day 1', blocks: [] }] }));
+    if (mocks.strictMode) {
+      const { localHealthDraftKey } = await import('../lib/healthBackfillUiSafety');
+      // Start with an owned Today draft; qualification is still the real local
+      // previous adapter. This case targets StrictMode assembly, not hydration.
+      localStorage.setItem(localHealthDraftKey(A, '2026-09-29'), JSON.stringify([persistedWorkout]));
+    }
+    await history(2); mocks.realPrevious = true; await mount(); await settle();
+    await act(async () => btn('assembleBtn').click());
+    const release = await holdAssemblyHistory();
+    await act(async () => assemblyBlock().click());
+    expect(host.querySelector('[data-routine-idx]')).toBeNull();
+    return release;
+  }
+  async function syncAssemblyPreset(count?: number, inPlace = false, selected = count !== undefined) {
+    const state = inPlace ? mocks.routineState! : structuredClone(mocks.routineState!);
+    const day = state.presets.find(preset => preset.id === state.activePresetId)!.days[0];
+    day.blocks = selected ? [BLOCK] : [];
+    day.plannedSets = count === undefined ? {} : { [BLOCK]: count };
+    mocks.routineSyncState = state;
+    await act(async () => window.dispatchEvent(new Event('online'))); await settle();
+    expect(mocks.routineState!.presets.find(preset => preset.id === state.activePresetId)!.days[0].plannedSets[BLOCK]).toBe(count);
+  }
+  async function savedAssemblyCount() {
+    mocks.routineCommitInputs.length = 0;
+    await act(async () => btn('saveRoutine').click());
+    await waitFor(() => expect(mocks.routineCommitInputs).toHaveLength(1));
+    const saved = mocks.routineCommitInputs[0];
+    return saved.presets.find(preset => preset.id === saved.activePresetId)!.days[0].plannedSets[BLOCK];
+  }
+  it.each([false, true])('R04-A mounted pending first initialization uses latest explicit 7 (in-place=%s)', async inPlace => {
+    mocks.strictMode = inPlace;
+    const release = await pendingAssembly(); await syncAssemblyPreset(7, inPlace); await release();
+    expect(input().value).toBe('7'); expect(await savedAssemblyCount()).toBe(7);
+  });
+  it('R04-B latest explicit 8, not captured history 2 or intermediate 7, reaches persistence', async () => {
+    const release = await pendingAssembly(); await syncAssemblyPreset(7); await syncAssemblyPreset(8); await release();
+    expect(input().value).toBe('8'); expect(await savedAssemblyCount()).toBe(8);
+  });
+  it('R04-C owned manual 4 beats both pending history 2 and external explicit 7', async () => {
+    mocks.previousFailure = true; await assembly(); expect(input().value).toBe('');
+    await act(async () => change(input(), '4')); mocks.previousFailure = false;
+    const release = await holdAssemblyHistory(); await syncAssemblyPreset(7); await release();
+    expect(input().value).toBe('4'); expect(await savedAssemblyCount()).toBe(4);
+  });
+  it('R04-D removal of selected uninitialized block prevents a late count write', async () => {
+    mocks.previousFailure = true; await assembly(); mocks.previousFailure = false;
+    const release = await holdAssemblyHistory(); await act(async () => assemblyBlock().click());
+    await syncAssemblyPreset(7); await release();
+    expect(host.querySelector('[data-routine-idx]')).toBeNull(); expect(await savedAssemblyCount()).toBeUndefined();
+  });
+  it('R04-E close/reopen fences the old equal-valued assembly callback', async () => {
+    const release = await pendingAssembly();
+    await act(async () => btn('saveRoutine').closest('.fixed')!.querySelector<HTMLButtonElement>('button')!.click());
+    await act(async () => btn('assembleBtn').click()); await release();
+    expect(host.querySelector('[data-routine-idx]')).toBeNull();
+  });
+  it('R04-F/G initialized 2 survives refresh 5 and equivalent preset clones; a new lifetime may initialize 5', async () => {
+    await assembly(); expect(input().value).toBe('2');
+    const release = await refreshHistory(5); await release();
+    await syncAssemblyPreset(); expect(input().value).toBe('2');
+    await act(async () => btn('saveRoutine').closest('.fixed')!.querySelector<HTMLButtonElement>('button')!.click());
+    await syncAssemblyPreset(undefined, false, true);
+    await act(async () => btn('assembleBtn').click()); expect(input().value).toBe('5');
+  });
+  it('R04-H no-explicit → 7 → no-explicit cannot revive obsolete history; a fresh add may initialize', async () => {
+    const release = await pendingAssembly(); await syncAssemblyPreset(7); await syncAssemblyPreset(); await release();
+    expect(host.querySelector('[data-routine-idx]')).toBeNull();
+    await act(async () => assemblyBlock().click()); await waitFor(() => expect(input().value).toBe('2'));
+    expect(await savedAssemblyCount()).toBe(2);
+  });
+  it('R04 equivalent configuration objects do not cancel a still-valid first initialization', async () => {
+    const release = await pendingAssembly(); await syncAssemblyPreset(); await release();
+    expect(input().value).toBe('2'); expect(await savedAssemblyCount()).toBe(2);
+  });
+  it('R04 in-place explicit authority initializes a selected blank count without requiring history recovery', async () => {
+    mocks.previousFailure = true; await assembly(); expect(input().value).toBe('');
+    await syncAssemblyPreset(7, true);
+    expect(input().value).toBe('7'); expect(await savedAssemblyCount()).toBe(7);
+  });
+  it('R04 an already owned history count remains draft authority after an external preset change', async () => {
+    await assembly(); expect(input().value).toBe('2'); await syncAssemblyPreset(7);
+    const release = await refreshHistory(5); await release();
+    expect(input().value).toBe('2'); expect(await savedAssemblyCount()).toBe(2);
+  });
+
+  async function trust() {
+    mocks.realPrevious = true; mocks.alignedRangeIdentity = true;
+    await mount(); await waitFor(() => expect(cue()?.textContent).toContain('30'));
+  }
+  async function isolate(boundary: 'range' | 'b1') {
+    const { CompositeWorkoutReadIsolationError } = await import('./views/features/health/compositeWorkoutReadProjection');
+    const failure = new CompositeWorkoutReadIsolationError('ACCOUNT_MISMATCH');
+    if (boundary === 'range') { mocks.rangeFailure = failure; act(() => range().retry()); }
+    else { mocks.selectedFailure = failure; act(() => mocks.healthProps.at(-1)!.selectedDayComposite!.retry()); }
+    await waitFor(() => expect(rejected()).toBe('true'));
+    expect(cue()).toBeNull(); expect(host.querySelector('[data-k107-workout-pr-badge]')).toBeNull();
+  }
+  it.each([false, true])('R03-A/B/C range isolation remains latched through held retry (ordinary failure=%s)', async fail => {
+    await trust(); await isolate('range');
+    const reads = mocks.previousReads.mock.calls.length, gate = deferredVoid();
+    mocks.rangeFailure = fail ? new Error('ordinary-range-retry-failed') : null; mocks.rangeGate = gate;
+    act(() => range().retry()); await settle();
+    expect(range().phase).toBe('loading'); expect(rejected()).toBe('true'); expect(cue()).toBeNull();
+    expect(mocks.previousReads).toHaveBeenCalledTimes(reads);
+    mocks.rangeGate = null; await act(async () => gate.resolve()); await settle();
+    if (fail) { expect(rejected()).toBe('true'); expect(cue()).toBeNull(); }
+    else { await waitFor(() => expect(cue()?.textContent).toContain('30')); expect(rejected()).toBe('false'); }
+  });
+  it.each([false, true])('R03-D/E B1 isolation survives loading/null and requires affirmative success (ordinary failure=%s)', async fail => {
+    await trust(); await isolate('b1');
+    const reads = mocks.previousReads.mock.calls.length;
+    mocks.selectedFailure = fail ? new Error('ordinary-b1-retry-failed') : null; mocks.holdNextSelectedRead = true;
+    act(() => mocks.healthProps.at(-1)!.selectedDayComposite!.retry()); await settle();
+    expect(mocks.healthProps.at(-1)!.selectedDayComposite!.phase).toBe('loading');
+    expect(mocks.healthProps.at(-1)!.selectedDayComposite!.cacheKey).toBeNull();
+    expect(rejected()).toBe('true'); expect(cue()).toBeNull(); expect(mocks.previousReads).toHaveBeenCalledTimes(reads);
+    await act(async () => mocks.heldSelectedReads.shift()!()); await settle();
+    if (fail) { expect(rejected()).toBe('true'); expect(cue()).toBeNull(); }
+    else { await waitFor(() => expect(cue()?.textContent).toContain('30')); expect(rejected()).toBe('false'); }
+  });
+  it('R03-F ordinary canonical failure/loading without typed rejection retains qualified compatibility proof', async () => {
+    await trust(); const reads = mocks.previousReads.mock.calls.length;
+    const gate = deferredVoid(); mocks.rangeGate = gate; mocks.rangeFailure = new Error('ordinary');
+    act(() => range().retry()); await settle(); expect(cue()?.textContent).toContain('30');
+    mocks.rangeGate = null; await act(async () => gate.resolve()); await settle();
+    expect(rejected()).toBe('false'); expect(cue()?.textContent).toContain('30');
+    expect(mocks.previousReads).toHaveBeenCalledTimes(reads);
+  });
+  it('R03-G old rejection does not poison a newly admitted account/namespace or leak old evidence', async () => {
+    await trust(); await isolate('range'); mocks.rangeFailure = null;
+    // B's legacy absence must also be verified, not an unbootstrapped source.
+    const datasets = Object.fromEntries(HEALTH_RECOVERY_DATASETS.map(name => [name, []])) as HealthRecoveryDatasets;
+    datasets.exercise_blocks.push({ ...persistedWorkout.exercise_blocks, user_id: B, cardio_mode: null });
+    const built = await buildHealthRecoveryExport({ sourceAccount: { userId: B, email: 'b@example.test' },
+      exportedAt: '2026-09-29T00:00:00.000Z', datasets });
+    const counts = Object.fromEntries(HEALTH_RECOVERY_DATASETS.map(name => [name, datasets[name].length])) as PendingLocalHealthImportState['datasetCounts'];
+    const driver = await createLocalHealthDriver();
+    await driver.commitPendingImportAtomically({ accountId: B, datasets, expectedImportState: null,
+      pendingImportState: { accountId: B, status: 'IMPORT_COMMITTED_PENDING_READBACK', snapshotId: 'new-b-trust',
+        importedAt: built.exportedAt, sourceExportedAt: built.exportedAt, sourceFileSha256: '2'.repeat(64),
+        sourceContentSha256: built.checksum.value, totalRowCount: 1, datasetCounts: counts, diagnostics: built.diagnostics } });
+    await driver.finalizePendingIfStillCurrent({ accountId: B, expectedSnapshotId: 'new-b-trust' }); driver.close();
+    mocks.accountWorkouts.set(B, [{ ...structuredClone(persistedWorkout), id: 'temp-b', sets: [
+      { type: 'strength', set: 1, kg: 55, reps: 5, done: true },
+    ] }]);
+    const { AppContent } = await import('./AppContent');
+    await act(async () => root!.render(createElement(AppContent, { authUser: user(B) })));
+    await waitFor(() => expect(mocks.healthProps.at(-1)!.selectedDayComposite?.accountId).toBe(B));
+    await waitFor(() => expect(rejected()).toBe('false'));
+    await waitFor(() => expect(host.querySelector('[data-health-previous-state="NO_MATCH"]')).not.toBeNull());
+    expect(cue()).toBeNull(); expect(host.textContent).not.toContain('30 kg');
   });
 });

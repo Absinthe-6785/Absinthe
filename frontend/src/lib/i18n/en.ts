@@ -2142,6 +2142,10 @@ const enTranslations = [
   "assisted",
   "unassisted",
   "Untrusted numeric claims are withheld; other eligible factual claims may remain.",
+  "Checking legacy previous/PR evidence…",
+  "Legacy previous/PR evidence is unavailable; absence is not verified.",
+  "Legacy previous/PR guidance is withheld until currentness is verified.",
+  "No prior legacy row matches this exercise and date cutoff.",
 ] as const;
 
 export default enTranslations;

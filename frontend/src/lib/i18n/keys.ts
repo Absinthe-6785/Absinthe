@@ -2142,6 +2142,10 @@ const translationKeys = [
   "exerciseComparisonAssisted",
   "exerciseComparisonUnassisted",
   "exerciseComparisonWithheld",
+  "healthPreviousRefreshing",
+  "healthPreviousUnavailable",
+  "healthPreviousSuppressed",
+  "healthPreviousNoMatch",
 ] as const;
 
 export type TranslationKey = (typeof translationKeys)[number];
