@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, useCallback, MouseEvent, ChangeEvent, TouchEvent } from 'react';
+import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback, MouseEvent, ChangeEvent, TouchEvent } from 'react';
 import { Plus, X, Trash2, Save, Dumbbell, Activity, ChevronLeft, ChevronRight, Lock, Pencil, GripVertical, Loader2, ClipboardCopy, Check, FileText, MoreHorizontal } from 'lucide-react';
 import { API_URL } from '../../lib/config';
 import { useConfirm } from '../../hooks/useConfirm';
@@ -82,6 +82,9 @@ import {
   showsPlannedSetCount,
 } from './features/health/routinePlannedSets';
 import { DEFAULT_ROUTINE_PRESET_ID } from './features/health/routinePresets';
+import { useLegacyPreviousCurrentness } from './features/health/useLegacyPreviousCurrentness';
+import { LegacyPreviousStatus } from './features/health/LegacyPreviousStatus';
+import type { PreviousEvidence } from './features/health/legacyPreviousCurrentness';
 import { isRoutinePresetMenuOutsideTarget } from './features/health/routinePresetMenu';
 import { useRoutinePresetController } from './features/health/useRoutinePresetController';
 import useSWR from 'swr';
@@ -295,13 +298,13 @@ export const HealthView = ({
   // ── 날짜별 메모 ───────────────────────────────────────────────────────
   const [workoutMemo, setWorkoutMemo] = useState('');
   // ── 이전 세션 데이터 / PR — block_id 키로 캐시 ───────────────────────
-  const [prevData, setPrevData] = useState<Record<string, {
+  const [legacyPrevData, setPrevData] = useState<Record<string, {
     prev_sets: WorkoutSet[];
     prev_date: string | null;
     pr_kg: number | null;
   }>>({});
-  const prevDataRef = useRef(prevData);
-  useEffect(() => { prevDataRef.current = prevData; }, [prevData]);
+  const prevDataRef = useRef(legacyPrevData);
+  useEffect(() => { prevDataRef.current = legacyPrevData; }, [legacyPrevData]);
 
   // ── 운동 요약 텍스트 생성 ────────────────────────────────────────────
   // 저장된 localWorkouts를 클립보드에 붙여넣기 가능한 텍스트로 변환
@@ -388,6 +391,25 @@ export const HealthView = ({
 
   // ── Draft 자동 저장/복원 ──────────────────────────────────────────
   const selectedDateDraftKey = formatDate(selectedDate);
+  // B1 parent presence is the existing gated Health eligibility boundary.
+  // The independent all-prior legacy owner never borrows comparison revisions.
+  const previousEnabled = !!selectedDayComposite;
+  const previousRejected = !!selectedDayComposite?.isolationError || !!workoutRangeComposite?.isolationError
+    || !!(selectedDayComposite && (selectedDayComposite.accountId !== user.id
+      || selectedDayComposite.localDate !== selectedDateDraftKey));
+  const previousParentIdentity = selectedDayComposite?.cacheKey
+    ? JSON.stringify(selectedDayComposite.cacheKey.slice(1, 4)) : null;
+  const previousCurrentness = useLegacyPreviousCurrentness(previousEnabled, {
+    accountId: user.id, beforeDate: selectedDateDraftKey,
+    authority: localMode ? 'local' : 'unsupported',
+    parentIdentity: previousParentIdentity, rejected: previousRejected,
+  });
+  const previousOwner = previousCurrentness.owner;
+  const prevData = previousEnabled
+    ? previousCurrentness.current ? previousOwner.payloads() : {}
+    : legacyPrevData;
+  const previousState = (id: string) => previousCurrentness.current
+    ? previousOwner.evidence(id).state : 'STALE_OR_SUPPRESSED' as const;
   const activeWorkoutDateKeyRef = useRef(selectedDateDraftKey);
   activeWorkoutDateKeyRef.current = selectedDateDraftKey;
   const currentWorkoutOperation = (scope: HealthWorkoutOperationScope): boolean =>
@@ -447,6 +469,10 @@ export const HealthView = ({
   }, [buildWorkoutSummary, formatDate, selectedDate, localWorkouts, workoutMemo]);
 
   const ensurePrevData = useCallback(async (blockIds: readonly string[], source: string) => {
+    if (previousEnabled) {
+      if (previousCurrentness.current) await previousOwner.ensure(blockIds);
+      return;
+    }
     const accountOperation = { accountId: user.id, generation: accountGenerationRef.current };
     const missing = [...new Set(blockIds.filter(id => id && id !== '__session__'))]
       .filter(id => prevDataRef.current[id] === undefined);
@@ -455,7 +481,8 @@ export const HealthView = ({
     if (currentAccountOperation(accountOperation) && Object.keys(fetched).length > 0) {
       setPrevData(prev => ({ ...prev, ...fetched }));
     }
-  }, [formatDate, selectedDate, user.id]);
+  }, [formatDate, selectedDate, user.id, previousEnabled, previousCurrentness.current, previousOwner,
+    previousParentIdentity, previousRejected]);
 
   // localWorkouts가 세팅될 때 각 블록의 이전 세션 + PR fetch (max 4 concurrent)
   useEffect(() => {
@@ -467,20 +494,36 @@ export const HealthView = ({
   }, [localWorkouts, ensurePrevData]);
 
   const fetchPrevForBlock = useCallback(async (blockId: string) => {
+    if (previousEnabled) {
+      const [evidence] = previousCurrentness.current ? await previousOwner.ensure([blockId]) : [];
+      return { sets: evidence?.payload?.prev_sets, evidence,
+        allowed: !!evidence && previousOwner.qualified(evidence) };
+    }
     const accountOperation = { accountId: user.id, generation: accountGenerationRef.current };
-    if (prevData[blockId]?.prev_sets) return prevData[blockId].prev_sets;
+    if (prevData[blockId]?.prev_sets) return { sets: prevData[blockId].prev_sets, allowed: true };
     const result = await fetchPrevWorkoutForBlocks(
       [blockId],
       formatDate(selectedDate),
       'HealthView.fetchPrevForBlock',
       user.id,
     );
-    if (!currentAccountOperation(accountOperation)) return undefined;
+    if (!currentAccountOperation(accountOperation)) return { allowed: false };
     const data = result[blockId];
-    if (!data) return undefined;
+    if (!data) return { allowed: true, sets: undefined };
     setPrevData(prev => ({ ...prev, [blockId]: data }));
-    return data.prev_sets;
-  }, [prevData, selectedDate, formatDate, user.id]);
+    return { sets: data.prev_sets, allowed: true };
+  }, [prevData, selectedDate, formatDate, user.id, previousEnabled, previousOwner, previousCurrentness.current]);
+
+  const planningAllowed = (value: { allowed: boolean; evidence?: PreviousEvidence }) => value.allowed
+    && (!previousEnabled || (!!value.evidence && previousOwner.qualified(value.evidence)));
+  const explicitRoutineCount = (day: string, blockId: string, type: string) => type === 'cardio'
+    || !!activePreset.days.find(candidate => candidate.dayName === day)?.plannedSets[blockId];
+  const routineCount = (day: string, blockId: string, type: string): number | undefined => {
+    if (previousEnabled && !explicitRoutineCount(day, blockId, type)
+      && (!previousCurrentness.current || !previousOwner.qualified(previousOwner.evidence(blockId)))) return undefined;
+    return getPlannedSetCount(day, blockId, type,
+      previousEnabled ? previousOwner.evidence(blockId).payload?.prev_sets : prevData[blockId]?.prev_sets);
+  };
 
   useEffect(() => {
     if (!selectedHealthRoutines.length) return;
@@ -588,7 +631,32 @@ export const HealthView = ({
     });
     setShowAssembleModal(true);
   };
-  const toggleBlockInRoutine = (blockId: string) => {
+  const assemblyContext = useMemo(() => ({}), [activeDayForm, activePreset.id, showAssembleModal, user.id, selectedDateDraftKey]);
+  const assemblyContextRef = useRef(assemblyContext);
+  useLayoutEffect(() => { assemblyContextRef.current = assemblyContext; }, [assemblyContext]);
+  const toggleBlockInRoutine = async (blockId: string) => {
+    const capturedAssembly = assemblyContext;
+    const b = healthBlocks.find((bk: ExerciseBlock) => bk.id === blockId);
+    if (previousEnabled && tempRoutineBlocks.includes(blockId)) {
+      setTempRoutineBlocks(current => current.filter(id => id !== blockId));
+      setTempRoutineSetCounts(current => { const next = { ...current }; delete next[blockId]; return next; });
+      return;
+    }
+    let previous: Awaited<ReturnType<typeof fetchPrevForBlock>> | undefined;
+    if (previousEnabled && b && !tempRoutineBlocks.includes(blockId)
+      && !explicitRoutineCount(activeDayForm, blockId, b.type)) {
+      previous = await fetchPrevForBlock(blockId);
+      if (assemblyContextRef.current !== capturedAssembly) return;
+      if (!planningAllowed(previous)) return showToast(t('healthPreviousSuppressed'), 'info');
+    }
+    if (previousEnabled && b) {
+      const count = routineCount(activeDayForm, blockId, b.type);
+      if (count === undefined) return;
+      const current = () => assemblyContextRef.current === capturedAssembly && (!previous || planningAllowed(previous));
+      setTempRoutineBlocks(ids => current() && !ids.includes(blockId) ? [...ids, blockId] : ids);
+      setTempRoutineSetCounts(counts => current() ? { ...counts, [blockId]: counts[blockId] ?? count } : counts);
+      return;
+    }
     setTempRoutineBlocks(prev => {
       if (prev.includes(blockId)) {
         setTempRoutineSetCounts(counts => {
@@ -609,6 +677,10 @@ export const HealthView = ({
     });
   };
   const handleSaveRoutine = async () => {
+    if (previousEnabled && tempRoutineBlocks.some(id => {
+      const b = healthBlocks.find(block => block.id === id);
+      return b && tempRoutineSetCounts[id] === undefined && routineCount(activeDayForm, id, b.type) === undefined;
+    })) return showToast(t('healthPreviousSuppressed'), 'info');
     const result = await setPresetDay({
       presetId: activePreset.id,
       dayName: activeDayForm,
@@ -634,6 +706,14 @@ export const HealthView = ({
     if (!routine?.blocks?.length) { showToast(t('noBlocks'), 'error'); e.target.value = '__load__'; return; }
 
     const routineOrdered: Workout[] = [];
+    const currentPreviousOperation = previousOwner.captureOperation();
+    const usedEvidence: PreviousEvidence[] = [];
+    // Qualify all history-dependent routine IDs in one batch, not one full
+    // account read per card. Explicit counts and existing drafts are independent.
+    if (previousEnabled && previousCurrentness.current) await previousOwner.ensure(routine.blocks.filter(id => {
+      const b = healthBlocks.find(block => block.id === id);
+      return b && !localWorkouts.some(w => w.block_id === id) && !explicitRoutineCount(dayName, id, b.type);
+    }));
     for (const id of routine.blocks) {
       const existing = localWorkouts.find(w => w.block_id === id);
       if (existing) {
@@ -642,9 +722,14 @@ export const HealthView = ({
       }
       const b = healthBlocks.find((bk: ExerciseBlock) => bk.id === id);
       if (!b) continue;
-      const prevSets = await fetchPrevForBlock(id);
+      const previous = previousEnabled && explicitRoutineCount(dayName, id, b.type)
+        ? { allowed: true, sets: undefined } : await fetchPrevForBlock(id);
       if (!currentAccountOperation(accountOperation)) return;
-      const count = getPlannedSetCount(dayName, id, b.type, prevSets);
+      if (previousEnabled && !currentPreviousOperation()) return;
+      if (previousEnabled && !explicitRoutineCount(dayName, id, b.type) && !planningAllowed(previous))
+        return showToast(t('healthPreviousSuppressed'), 'info');
+      if ('evidence' in previous && previous.evidence) usedEvidence.push(previous.evidence);
+      const count = getPlannedSetCount(dayName, id, b.type, previous.sets);
       routineOrdered.push({
         id: `temp-${Date.now()}-${b.id}`,
         block_id: b.id,
@@ -654,8 +739,13 @@ export const HealthView = ({
     }
 
     if (!currentAccountOperation(accountOperation)) return;
+    if (previousEnabled && (!currentPreviousOperation() || usedEvidence.some(value => !previousOwner.qualified(value)))) return;
     const unrelated = localWorkouts.filter(w => !routine.blocks.includes(w.block_id));
-    setLocalWorkouts([...routineOrdered, ...unrelated]);
+    if (previousEnabled) setLocalWorkouts(current => [
+      ...routineOrdered.map(row => current.find(w => w.block_id === row.block_id) ?? row),
+      ...current.filter(w => !routine.blocks.includes(w.block_id)),
+    ]);
+    else setLocalWorkouts([...routineOrdered, ...unrelated]);
     setIsDirty(true);
     e.target.value = '__load__';
     showToast(t('loaded'));
@@ -736,16 +826,19 @@ export const HealthView = ({
   const handleAddWorkoutToToday = async (block: ExerciseBlock) => {
     if (localWorkouts.find(w => w.block_id === block.id)) return showToast(t('alreadyAdded'), 'error');
     const accountOperation = { accountId: user.id, generation: accountGenerationRef.current };
-    const prevSets = await fetchPrevForBlock(block.id);
+    const previous = await fetchPrevForBlock(block.id);
     if (!currentAccountOperation(accountOperation)) return;
+    if (!planningAllowed(previous)) return showToast(t('healthPreviousSuppressed'), 'info');
     setIsDirty(true);
     pendingLatestWorkoutIndexRef.current = localWorkouts.length;
-    setLocalWorkouts([...localWorkouts, {
+    const added: Workout = {
       id: `temp-${Date.now()}`,
       block_id: block.id,
       exercise_blocks: block,
-      sets: buildSetsFromPrevCount(block.type, prevSets),
-    }]);
+      sets: buildSetsFromPrevCount(block.type, previous.sets),
+    };
+    if (previousEnabled) setLocalWorkouts(current => current.some(w => w.block_id === block.id) ? current : [...current, added]);
+    else setLocalWorkouts([...localWorkouts, added]);
   };
 
   const handleQuickPresetChange = async (presetId: string) => {
@@ -1400,12 +1493,12 @@ export const HealthView = ({
       {healthSection === 'workout' && (
     <>
     {selectedDayComposite && <HealthSelectedDayCompositePanel
-      model={selectedDayComposite}
+      model={previousOwner.isRejected() ? { ...selectedDayComposite, result: null, legacyDaily: null, isolationError: true } : selectedDayComposite}
       draftDirty={isDirty}
       onPreviousDay={() => setSelectedDate(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate() - 1))}
       onNextDay={() => setSelectedDate(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate() + 1))}
     />}
-    {(!selectedDayComposite || (selectedDayComposite.phase === 'settled'
+    {(!selectedDayComposite || (!previousOwner.isRejected() && selectedDayComposite.phase === 'settled'
       && selectedDayComposite.result?.legacyStatus === 'success')) && (
     <HealthWorkoutComposition>
       <HealthMobileSetupNav
@@ -1748,6 +1841,7 @@ export const HealthView = ({
                         {previousBestLabel}
                       </p>
                     )}
+                    {previousEnabled && <LegacyPreviousStatus state={previousState(w.block_id)} />}
                   </div>
                   <WorkoutPrBadge badge={prBadgeMap[w.block_id] ?? null} darkMode={appSettings.darkMode} />
                 </div>
@@ -2169,7 +2263,9 @@ export const HealthView = ({
                         <span className="truncate">{b.name}</span>
                         {showsPlannedSetCount(b.type) ? (
                           <span className={`shrink-0 tabular-nums ${theme.textMuted}`}>
-                            {t('k76SetCount').replace('{count}', String(getPlannedSetCount(dayName, b.id, b.type, prevData[b.id]?.prev_sets)))}
+                            {routineCount(dayName, b.id, b.type) === undefined
+                              ? <LegacyPreviousStatus state={previousState(b.id)} />
+                              : t('k76SetCount').replace('{count}', String(routineCount(dayName, b.id, b.type)))}
                           </span>
                         ) : null}
                       </div>
@@ -2469,7 +2565,7 @@ export const HealthView = ({
                                 inputMode="numeric"
                                 min={1}
                                 max={12}
-                                value={tempRoutineSetCounts[id] ?? getPlannedSetCount(activeDayForm, id, b.type, prevData[id]?.prev_sets)}
+                                value={tempRoutineSetCounts[id] ?? routineCount(activeDayForm, id, b.type) ?? ''}
                                 onClick={e => e.stopPropagation()}
                                 onChange={e => {
                                   const n = Math.min(12, Math.max(1, Number(e.target.value) || 1));
@@ -2478,6 +2574,8 @@ export const HealthView = ({
                                 className="w-9 bg-white/15 rounded px-1 py-0.5 text-center tabular-nums outline-none"
                               />
                               {t('setsLabel')}
+                              {previousEnabled && tempRoutineSetCounts[id] === undefined && routineCount(activeDayForm, id, b.type) === undefined
+                                && <LegacyPreviousStatus state={previousState(id)} />}
                             </label>
                           ) : null}
                         </div>

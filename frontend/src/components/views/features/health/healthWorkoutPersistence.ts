@@ -6,6 +6,7 @@ import {
 } from '../../../../lib/healthLocalRuntime';
 import type { HealthRepository, LocalHealthWriteResult } from '../../../../lib/healthLocalRepository';
 import type { HealthRecoveryRecord } from '../../../../lib/healthRecoveryExport';
+import { beginLegacyWorkoutMutation } from './legacyWorkoutMutationCoverage';
 import {
   ASSISTED_REPS_VALIDATION_ERROR,
   assistedRepsMatchExerciseType,
@@ -105,23 +106,29 @@ export async function saveHealthWorkouts({
   if (mode === 'local') {
     const repository = await repositoryFactory(accountId);
     if (shouldContinue && !shouldContinue()) return abortedSave(rows.length, 0, 0);
-    const results = await repository.saveWorkouts(rows.map((workout, sortOrder) => ({
-      id: UUID_PATTERN.test(workout.id) ? workout.id : undefined,
-      date,
-      blockId: workout.block_id,
-      sets: workout.sets as unknown as HealthRecoveryRecord[],
-      sortOrder,
-      expectedVersion: workout.local_version ?? null,
-    })));
-    onLocalCommit?.();
-    if (shouldContinue && !shouldContinue()) return abortedSave(rows.length, rows.length, 0);
-    return {
-      status: 'success',
-      total: rows.length,
-      succeeded: rows.length,
-      failed: 0,
-      localResults: results,
-    };
+    // New rows have a proven block/date impact. Existing IDs can replace/move
+    // older storage identities; the view does not prove their old scope.
+    const finishCoverage = beginLegacyWorkoutMutation(accountId,
+      rows.some(row => UUID_PATTERN.test(row.id)) ? 'unknown' : rows.map(row => ({ blockId: row.block_id, date })));
+    try {
+      const results = await repository.saveWorkouts(rows.map((workout, sortOrder) => ({
+        id: UUID_PATTERN.test(workout.id) ? workout.id : undefined,
+        date,
+        blockId: workout.block_id,
+        sets: workout.sets as unknown as HealthRecoveryRecord[],
+        sortOrder,
+        expectedVersion: workout.local_version ?? null,
+      })));
+      onLocalCommit?.();
+      if (shouldContinue && !shouldContinue()) return abortedSave(rows.length, rows.length, 0);
+      return {
+        status: 'success',
+        total: rows.length,
+        succeeded: rows.length,
+        failed: 0,
+        localResults: results,
+      };
+    } finally { finishCoverage(); }
   }
 
   let failed = 0;
@@ -167,10 +174,14 @@ export async function deleteHealthWorkout({
   if (mode === 'local') {
     const repository = await repositoryFactory(accountId);
     if (shouldContinue && !shouldContinue()) return { status: 'aborted' };
-    await repository.deleteWorkout(workoutId, expectedVersion);
-    onLocalCommit?.();
-    if (shouldContinue && !shouldContinue()) return { status: 'aborted' };
-    return { status: 'success' };
+    // ID/version alone cannot prove the deleted row's block/date coverage.
+    const finishCoverage = beginLegacyWorkoutMutation(accountId, 'unknown');
+    try {
+      await repository.deleteWorkout(workoutId, expectedVersion);
+      onLocalCommit?.();
+      if (shouldContinue && !shouldContinue()) return { status: 'aborted' };
+      return { status: 'success' };
+    } finally { finishCoverage(); }
   }
 
   const response = await authFetch(`${API_URL}/api/workouts/${workoutId}`, { method: 'DELETE' });
