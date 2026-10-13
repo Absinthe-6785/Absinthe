@@ -2,7 +2,7 @@
 
 Task: `REL_05G_HEALTH_PARENT_PARTIAL_SOURCE_AVAILABILITY_PRODUCT_DECISION_01`.
 
-Status: `PRODUCT_DECISION_PENDING_HUMAN_APPROVAL`. This is a docs-only product/architecture recommendation. No availability policy is selected by publication, review, CI or merge. No implementation, public copy, physical QA, performance acceptance, provenance recovery or activation is included.
+Status: `PRODUCT_DECISION_APPROVED_PENDING_IMPLEMENTATION_DESIGN_AND_ACCEPTANCE`. The human product owner explicitly selected the five PA-PD product semantics after independent `REVIEW_PASS`. This approval records product policy only: no implementation, public copy, physical QA, performance acceptance, provenance recovery, reader/writer activation, Ready or merge authority is included.
 
 ## 1. Exact baseline and authority ceiling
 
@@ -11,16 +11,19 @@ Repository: `Absinthe-6785/Absinthe`; canonical workspace: `C:\Users\이도현\G
 - [PR #771](https://github.com/Absinthe-6785/Absinthe/pull/771): MERGED/CLOSED; reviewed/final head `7e3abac779060322d3bd9f029f4bb8975d617ccb`; merge equals this baseline. Initial review at `3fe67d954fc58966dee72c02cc9ddd692cec5837` was CHANGES_REQUIRED (0/0/0/1); the one-sentence correction received independent REREVIEW_PASS (0/0/0/0), PR771-R01 CLOSED, then Final Merge Gate PASS and human merge.
 - [Post-merge CI 38337906850](https://github.com/Absinthe-6785/Absinthe/actions/runs/38337906850): exact baseline, test/typecheck/build/backend-rel05g1/backend-recovery completed/success (5/5). This is baseline regression evidence, not the new decision head's CI or product approval.
 - Current authority is the [merged post-prevData rebaseline](REL-05G-health-parent-public-readiness-post-prevdata-rebaseline.md). Its publication-time pending-review labels are historical after #771 closure. Its substantive conclusion remains `HEALTH_PARENT_PUBLIC_ACTIVATION_STILL_BLOCKED`.
-- B1 ON + range ON + comparison OFF remains the best bounded **future candidate**, RECOMMENDED / NOT APPROVED. B1/R/C/H/S are all literally OFF in production. This package analyzes that candidate, not shipped gate-ON behavior.
+- B1 ON + range ON + comparison OFF remains the best bounded **future runtime candidate** and is not activated or publicly approved. The partial-source product semantics in this document are now selected, while B1/R/C/H/S remain literally OFF in production. This package records policy for that candidate, not shipped gate-ON behavior.
 
 ```text
 SELECTED_DAY_PERSISTED_ISOLATION_PREREQUISITE = SATISFIED
 AUTOMATED_CURRENTNESS_PREREQUISITE = SATISFIED
 PUBLIC_READER_CURRENTNESS_PREREQUISITE = IMPLEMENTED_AUTOMATED_ACCEPTANCE_COMPLETE_PUBLIC_ACCEPTANCE_PENDING
-PARENT_PARTIAL_SOURCE_AVAILABILITY = REQUIRES_PRODUCT_DECISION
-PARTIAL_SOURCE_POLICY_ALREADY_SELECTED = NO
-PRODUCT_OWNER_DECISION = REQUIRED
-PRODUCT_OWNER_APPROVAL = NOT_YET_PERFORMED
+INDEPENDENT_REVIEW = REVIEW_PASS
+ORIGINAL_P0_P1_P2_P3 = 0/0/0/0
+PARENT_PARTIAL_SOURCE_AVAILABILITY = PRODUCT_POLICY_SELECTED_DESIGN_AND_ACCEPTANCE_PENDING
+SELECTED_PARTIAL_SOURCE_POLICY = C_HYBRID_STRUCTURAL_SHELL_WITH_SOURCE_QUALIFIED_CHILDREN
+PARTIAL_SOURCE_POLICY_ALREADY_SELECTED = YES
+PRODUCT_OWNER_DECISION = COMPLETE
+PRODUCT_OWNER_APPROVAL = APPROVED
 ```
 
 ## 2. Inputs, chronology and problem
@@ -98,7 +101,7 @@ All options below preserve these constraints:
 - Preserve same-account/date dirty drafts; never publish them as persisted proof. Retention does not permit unsafe Save/Delete or transfer into another lifetime. In-flight durable commit/account fanout semantics remain unchanged.
 - Invalid/sign-out/foreign context withholds all data/actions; none of the matrices is a substitute for account/scope admission. No identity repair, writer shutdown, store clearing or device allocation is authorized.
 
-The following is a visibility recommendation over existing trust outcomes, **not a new trust rule**. If safe decoupling cannot preserve these dependencies, STOP the later implementation design; do not make the UI resilient by weakening them.
+The following became the selected visibility contract over existing trust outcomes after independent review and explicit human approval; it remains **not a new trust rule**. If safe decoupling cannot preserve these dependencies, STOP the later implementation design; do not make the UI resilient by weakening them.
 
 ## 6. Option A — ALL_OR_NOTHING_PARENT_COMPOSITION
 
@@ -311,35 +314,71 @@ Partial-source UI can honestly show eligible local evidence; it cannot restore h
 
 Home/Search implementation or activation is not bundled. These semantic terms might inform later consistency decisions, not authorize sibling behavior. Comparison is OFF and not an eligibility or recovery prerequisite for Previous/Calendar; neither it nor a healthy legacy surface proves whole-product completeness. Seven live-writer blockers remain OPEN, none closed by a visibility policy.
 
-## 19. One recommendation and explicit owner decision block
+## 19. Historical recommendation and explicit owner decision record
 
 ```text
 RECOMMENDED_OPTION = C_HYBRID_STRUCTURAL_SHELL_WITH_SOURCE_QUALIFIED_CHILDREN
-PRODUCT_OWNER_DECISION = REQUIRED
-PRODUCT_OWNER_APPROVAL = NOT_YET_PERFORMED
-PARTIAL_SOURCE_POLICY_ALREADY_SELECTED = NO
-DECISION_PACKAGE_STATUS = PRODUCT_DECISION_PENDING_HUMAN_APPROVAL
+SELECTED_OPTION = C_HYBRID_STRUCTURAL_SHELL_WITH_SOURCE_QUALIFIED_CHILDREN
+SELECTED_PARTIAL_SOURCE_POLICY = C_HYBRID_STRUCTURAL_SHELL_WITH_SOURCE_QUALIFIED_CHILDREN
+PA_PD01 = C_STABLE_SHELL_QUALIFIED_CHILDREN
+PA_PD02 = SAME_ELIGIBILITY_AND_SELECTION
+PA_PD03 = STABLE_ADMITTED_WORKOUT_SHELL
+PA_PD04 = HYBRID_EXPLICIT_LOCAL_OWNER_FANOUT_REMOTE_SEPARATE
+PA_PD05 = RETAIN_SAME_SCOPE_NONINTERACTIVE_PREVIEW_SAVE_DELETE_FENCED
+DESKTOP_MOBILE_PREVIOUS_POLICY = SAME_ELIGIBILITY_AND_SELECTION
+DIRTY_DRAFT_POLICY = RETAIN_SAME_SCOPE_NONINTERACTIVE_PREVIEW_SAVE_DELETE_FENCED
+RETRY_POLICY = HYBRID_EXPLICIT_LOCAL_OWNER_FANOUT_REMOTE_SEPARATE
+PRODUCT_OWNER_DECISION = COMPLETE
+PRODUCT_OWNER_APPROVAL = APPROVED
+PARTIAL_SOURCE_POLICY_ALREADY_SELECTED = YES
+DECISION_PACKAGE_STATUS = PRODUCT_DECISION_APPROVED_PENDING_IMPLEMENTATION_DESIGN_AND_ACCEPTANCE
+OPTION_A = VIABLE_CONDITIONAL_NOT_SELECTED
+OPTION_B = VIABLE_CONDITIONAL_NOT_SELECTED
+OPTION_C = SELECTED
 ```
 
-C best preserves useful independently verified local history without disguising failed/distrusted sources, retains owned drafts without writable-by-visibility inference, intentionally unifies desktop/sheet semantics, and gives later accessible status/recovery work stable locations. Its bounded scope is the workout shell/read-only slots, existing trust owners and UI admission proofs, not general Health supporting writers or a new data plane. A remains safe but unnecessarily couples independent history to editor health; B preserves source utility but leaves more structural disappearance paths. C is recommended for these product properties, not because it is cheaper; its UI/fence/retry design prerequisites are explicit and unproven.
+C best preserves useful independently verified local history without disguising failed/distrusted sources, retains owned drafts without writable-by-visibility inference, intentionally unifies desktop/sheet semantics, and gives later accessible status/recovery work stable locations. Its bounded scope is the workout shell/read-only slots, existing trust owners and UI admission proofs, not general Health supporting writers or a new data plane. A remains safe but unnecessarily couples independent history to editor health; B preserves source utility but leaves more structural disappearance paths. C was recommended for these product properties, not because it is cheaper, and was subsequently selected by explicit human instruction after independent `REVIEW_PASS`; its UI/fence/retry design prerequisites remain explicit and unproven.
 
-The recommendation is a coherent conditional bundle. Owner selections must not contradict invariants or each other: C requires stable shell and same Previous eligibility; choosing different semantics requires a revised/reviewed contract, not silently combining A's hiding rule with C's labels. Explicit HOLD is allowed. All fields below are currently **UNSELECTED**. Approval must be a separate human instruction after review; no approval record or selected policy is written here.
+The selected policy is a coherent conditional bundle. C requires stable shell and same Previous eligibility; changing these semantics requires a revised/reviewed contract, not silently combining A's hiding rule with C's labels. This approval was supplied by explicit human instruction after independent review. It does not rewrite the reviewed viability of A or B and grants no implementation or acceptance authority.
 
-### PRODUCT_OWNER_DECISION_REQUIRED
+### PRODUCT_OWNER_DECISION_COMPLETE
 
-| ID | Explicit choices | Recommended, not selected |
-| --- | --- | --- |
-| PA-PD01 Parent availability | A_ALL_OR_NOTHING / B_SOURCE_PARTIAL_CONDITIONAL_BODIES / C_STABLE_SHELL_QUALIFIED_CHILDREN / OTHER_REVISE / HOLD | C_STABLE_SHELL_QUALIFIED_CHILDREN |
-| PA-PD02 Desktop/mobile Previous | SAME_ELIGIBILITY_AND_SELECTION / DIFFERENT_BY_DESIGN_REQUIRES_REVISED_MATRIX / HOLD | SAME_ELIGIBILITY_AND_SELECTION |
-| PA-PD03 Workout shell | STABLE_ADMITTED_WORKOUT_SHELL / CONDITIONAL_COMPOSITION_WITH_EXTERNAL_RECOVERY / HOLD | STABLE_ADMITTED_WORKOUT_SHELL |
-| PA-PD04 Retry | SOURCE_SPECIFIC_CURRENT_SCOPES / EXPLICIT_LOCAL_PARENT_FANOUT_REMOTE_SEPARATE / HYBRID_EXPLICIT_LOCAL_OWNER_FANOUT_REMOTE_SEPARATE / HOLD | HYBRID_EXPLICIT_LOCAL_OWNER_FANOUT_REMOTE_SEPARATE |
-| PA-PD05 Dirty draft when unqualified | RETAIN_SAME_SCOPE_NONINTERACTIVE_PREVIEW_SAVE_DELETE_FENCED / HIDE_BUT_PRESERVE_OWNED_DRAFT / OTHER_REVISE / HOLD | RETAIN_SAME_SCOPE_NONINTERACTIVE_PREVIEW_SAVE_DELETE_FENCED |
+| ID | Reviewed explicit choices | Historical recommendation | Selected by explicit human instruction |
+| --- | --- | --- | --- |
+| PA-PD01 Parent availability | A_ALL_OR_NOTHING / B_SOURCE_PARTIAL_CONDITIONAL_BODIES / C_STABLE_SHELL_QUALIFIED_CHILDREN / OTHER_REVISE / HOLD | C_STABLE_SHELL_QUALIFIED_CHILDREN | `SELECTED = C_STABLE_SHELL_QUALIFIED_CHILDREN` |
+| PA-PD02 Desktop/mobile Previous | SAME_ELIGIBILITY_AND_SELECTION / DIFFERENT_BY_DESIGN_REQUIRES_REVISED_MATRIX / HOLD | SAME_ELIGIBILITY_AND_SELECTION | `SELECTED = SAME_ELIGIBILITY_AND_SELECTION` |
+| PA-PD03 Workout shell | STABLE_ADMITTED_WORKOUT_SHELL / CONDITIONAL_COMPOSITION_WITH_EXTERNAL_RECOVERY / HOLD | STABLE_ADMITTED_WORKOUT_SHELL | `SELECTED = STABLE_ADMITTED_WORKOUT_SHELL` |
+| PA-PD04 Retry | SOURCE_SPECIFIC_CURRENT_SCOPES / EXPLICIT_LOCAL_PARENT_FANOUT_REMOTE_SEPARATE / HYBRID_EXPLICIT_LOCAL_OWNER_FANOUT_REMOTE_SEPARATE / HOLD | HYBRID_EXPLICIT_LOCAL_OWNER_FANOUT_REMOTE_SEPARATE | `SELECTED = HYBRID_EXPLICIT_LOCAL_OWNER_FANOUT_REMOTE_SEPARATE` |
+| PA-PD05 Dirty draft when unqualified | RETAIN_SAME_SCOPE_NONINTERACTIVE_PREVIEW_SAVE_DELETE_FENCED / HIDE_BUT_PRESERVE_OWNED_DRAFT / OTHER_REVISE / HOLD | RETAIN_SAME_SCOPE_NONINTERACTIVE_PREVIEW_SAVE_DELETE_FENCED | `SELECTED = RETAIN_SAME_SCOPE_NONINTERACTIVE_PREVIEW_SAVE_DELETE_FENCED` |
 
-An owner can reply with the five exact PA-PD selections. This approves a policy only if supplied separately; it is not implementation/physical/public activation authority. If choices conflict, return a revised coherent package for review before recording approval. No implicit “all recommendations” approval is inferred from asking to prepare/publish this document.
+The selected values are recorded exactly as provided by the human product owner. No timestamp or person metadata is inferred. The approval means only that these product semantics are selected; it does not assert current production conformance, acceptance completion, implementation authority, reader activation or writer authority.
+
+### Selected policy contract and approval ceiling
+
+1. The admitted Health workout/status shell is stable for this bounded parent candidate. Unrelated InBody, nutrition and other supporting domains do not become stable or move merely because they currently share wrappers.
+2. Child visibility and content remain source-qualified.
+3. Stable shell does not imply source data remains qualified.
+4. Stable shell does not imply write or edit authority.
+5. Desktop Previous and mobile Previous share semantic eligibility and selection rules. Sheet containment, focus trap, scrolling, launcher and responsive presentation may differ; mobile has no stale or already-open privilege.
+6. Ordinary source failures preserve only independently qualified surviving evidence.
+7. Typed isolation continues to withhold the rejected pair and dependencies fail-closed.
+8. The legacy editor remains independently admitted.
+9. `DIRTY_DRAFT_POLICY = RETAIN_SAME_SCOPE_NONINTERACTIVE_PREVIEW_SAVE_DELETE_FENCED`: a same-scope user-owned draft remains preserved and may be shown only as a noninteractive preview while persisted-source authority is unqualified. It is not persisted proof; no automatic hydration overwrite, canonical substitution, auto-save or cross-scope reuse follows. Account/date lifetime fences remain.
+10. `SAVE_DELETE_ADMISSION_CLASSIFICATION = CORRECTLY_UNPROVEN`: Save/Delete remains fenced until future implementation separately proves Save admission, Delete admission, callback-time authority, account/date/source lifetime and late-completion fencing. Disabled DOM alone is insufficient.
+11. Canonical records never hydrate, adopt, copy or plan the legacy editor.
+12. Calendar retains known-present, complete covered-absence and unknown semantics.
+13. `RETRY_POLICY = HYBRID_EXPLICIT_LOCAL_OWNER_FANOUT_REMOTE_SEPARATE`: future LOCAL parent recovery may coordinate B1, range and D only through one exact admitted route per owner. It must not invoke two wrappers that duplicate B1/range fanout.
+14. Remote/bootstrap recovery remains separate from local parent recovery.
+15. D currentness remains an independent owner and proof.
+16. No retry may invent identity, provenance or writer authority.
+17. `CURRENT_LOCAL_PARENT_RETRY_BRIDGE = NOT_IMPLEMENTED`; `D_OWNER_ROUTING = NOT_IMPLEMENTED`; `PER_SOURCE_RETRY_ELIGIBILITY = CORRECTLY_UNPROVEN`; `FINITE_RETRY_CLASSIFICATION = REQUIRES_IMPLEMENTATION_DESIGN_PROOF`. Current AppContent does not already satisfy the selected public parent retry policy.
+18. `REL05G5A-001` remains a hard activation veto. No provenance research, issuer/reidentification design, recovery target or activation is authorized.
+
+The decision supplies policy authority only. It does **not** mark PA-C01 through PA-C18 passed; prove public copy, performance, browser/AT behavior; prove Save/Delete or retry admission; create the private D bridge; authorize implementation; close writer blockers; or authorize Ready, merge or auto-merge.
 
 ## 20. Future implementation acceptance contract
 
-Every criterion below is `REQUIRED / NOT_EXECUTED`. They are specifications, not acceptance results from current CI or source inspection.
+`PA_C01_C18_STATUS = REQUIRED / NOT_EXECUTED`. Every criterion below remains a specification, not an acceptance result from current CI, source inspection or human policy approval.
 
 | ID | Required future proof |
 | --- | --- |
@@ -398,8 +437,11 @@ Scope: this one new Markdown file. Existing rebaseline/decision documents are no
 ## 22. Exact next action and conditional later work
 
 ```text
-NEXT_ACTION = HUMAN_PRODUCT_DECISION_REL_05G_HEALTH_PARENT_PARTIAL_SOURCE_AVAILABILITY
-RECOMMENDED_NEXT_ACTION = INDEPENDENT_REVIEW_REL_05G_HEALTH_PARENT_PARTIAL_SOURCE_AVAILABILITY_PRODUCT_DECISION_01
+NEXT_ACTION = FOCUSED_REREVIEW_PR_772_PRODUCT_OWNER_DECISION_RECORD_01
+NEXT_SUBSTANTIVE_TASK = REL_05G_HEALTH_PARENT_PARTIAL_SOURCE_AVAILABILITY_INTEGRATION_DESIGN_01
+NEXT_SUBSTANTIVE_TASK_STATUS = RECOMMENDED_NOT_STARTED
 ```
 
-First independently review this pending decision package after exact-head CI, then obtain a separate explicit human PA-PD selection. No implementation prompt is auto-created. With no decision/HOLD, remain pending and keep all runtime authority frozen. A later coherent human-approved/reviewed/canonically closed policy still requires a separately authorized default-OFF integration design/plan or characterization task, including action-admission and finite-retry prerequisites above; only then can a separately scoped implementation be requested. Approval alone does not make those prerequisites proven, waive writer STOP, authorize provenance work or grant public activation. Different/OTHER choices require package revision/review, not an automatic alternate implementation.
+Perform a bounded focused rereview of this approval record after exact-head CI. Verify the five selections, preserved A/B viability, unchanged matrices and invariants, no implementation-authority expansion, PA-C01 through PA-C18 still NOT_EXECUTED, Save/Delete and retry/D prerequisites still unproven, REL05G5A-001/provenance freezes intact, all gates false and one-file docs-only scope. Do not repeat the full architecture review unless this record expanded scope.
+
+After that approval record is independently closed, the one recommended substantive engineering activity is `REL_05G_HEALTH_PARENT_PARTIAL_SOURCE_AVAILABILITY_INTEGRATION_DESIGN_01`: a separately scoped **design/characterization-first** task covering the stable workout-shell boundary, qualified child ownership, Save/Delete callback admission, desktop/mobile selection degradation and recovery, local retry routing, private D bridge, finite eligibility, source-error classification, dirty-draft noninteractive admission, gate-OFF equivalence, focus/accessibility topology and exclusion of unrelated supporting domains. It is not started or authorized here. Only a later reviewed design may support a separately scoped implementation request. Approval alone does not prove prerequisites, waive writer STOP, authorize provenance work or grant public activation.
