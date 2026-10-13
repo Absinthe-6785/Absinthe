@@ -1,6 +1,6 @@
 # REL-05G Health parent legacy previous-currentness D implementation
 
-Current workstream: `REL_05G_HEALTH_PARENT_PREVDATA_FRESHNESS_D_IMPLEMENTATION_CORRECTION_02`.
+Current workstream: `REL_05G_HEALTH_PARENT_POSTMERGE_EVIDENCE_AND_PUBLIC_READINESS_REBASELINE_01` (docs-only post-merge evidence closure).
 
 Original implementation: `REL_05G_HEALTH_PARENT_LEGACY_PREVDATA_FRESHNESS_D_IMPLEMENTATION_01`.
 
@@ -12,7 +12,38 @@ Repository: `Absinthe-6785/Absinthe`. Workspace: `C:\Users\이도현\GitRepos\Ab
 - [PR #769](https://github.com/Absinthe-6785/Absinthe/pull/769): MERGED / CLOSED; reviewed head `b93f2c4ae07b1f26cdc70245b3ee2fa331cb50cd`; merge commit equals the base above.
 - [Post-merge CI 38195543323](https://github.com/Absinthe-6785/Absinthe/actions/runs/38195543323): all five required jobs completed/success at that exact main.
 - The [merged product decision](REL-05G-health-parent-legacy-prevdata-freshness-product-decision.md) selects `D_HYBRID_STATE_DEPENDENT`, PRODUCT_OWNER_APPROVED. A/B/C/HOLD freshness alternatives remain NOT_SELECTED.
-- This subsequent human task authorizes implementation and automated acceptance only. The merged policy document's historical publication lifecycle is not rewritten. Independent implementation review is still required; this document is not self-approval.
+- The implementation task authorized implementation and automated acceptance only. Its independent implementation review, corrections and Final Merge Gate subsequently completed. This post-merge task authorizes documentation only; it grants no public acceptance or activation. The merged policy document's historical publication lifecycle is not rewritten.
+
+### Current merged baseline, independently reviewed closure
+
+Observed on 2026-10-13 (UTC+09:00): [PR #770](https://github.com/Absinthe-6785/Absinthe/pull/770) is MERGED / CLOSED; reviewed/final head `cd632ec5af31f4d3b21398a920ad313fa5b492c1`; merge commit and exact live main `e20c8f58d3300e36758e9a4f85d65a029306d095`. [Post-merge push CI 38264972138](https://github.com/Absinthe-6785/Absinthe/actions/runs/38264972138) completed/success at that main for test, typecheck, build, backend-rel05g1 and backend-recovery (5/5). That run is merged implementation evidence, not this new docs head's CI.
+
+Correction-02 focused independent rereview: `REREVIEW_PASS`, P0/P1/P2/P3 = `0/0/0/0`, `NEW_FINDINGS = NONE`. It CLOSED R04/R05 and preserved independent R01/R02/R03 closures. Final Merge Gate: PASS; fresh synthetic integration TREE `d72956aeb810162a374670a7d4d277169df9118e`, conflict-free and equal to the reviewed head tree; expected 15-file scope, both exact-head required CI runs successful. The gate recommended merge but performed no Ready/merge/activation; the subsequent human merge is recorded separately above.
+
+```text
+PR770_R01 = CLOSED
+PR770_R02 = CLOSED
+PR770_R03 = CLOSED
+PR770_R04 = CLOSED
+PR770_R05 = CLOSED
+AUTOMATED_CURRENTNESS_ACCEPTANCE = PASS
+PREVDATA_C01 = PASS
+PREVDATA_C02 = PASS
+PREVDATA_C03 = PASS
+PREVDATA_C04 = PASS
+PREVDATA_C05 = PASS
+PREVDATA_C06 = PASS
+PREVDATA_C07 = PASS
+PREVDATA_C08 = PASS
+PREVDATA_C09 = PASS
+PREVDATA_C10 = PASS
+PREVDATA_C11 = PASS
+PREVDATA_C12 = PASS
+PREVDATA_C13 = PASS
+PREVDATA_C14 = PASS
+PREVDATA_C15_SOURCE_STATE_IMPLEMENTATION = PASS
+PREVDATA_C15_PUBLIC_ACCEPTANCE = NOT_EXECUTED
+```
 
 ## Independent review and bounded correction
 
@@ -20,17 +51,17 @@ PR #770's reviewed head was `c102bf71adf50bc5fda56000ba79904e18294ed6`. The inde
 
 Correction-01 author publication preceded independent rereview: its intended state was `CORRECTED_PENDING_REREVIEW`, not independent closure. The former table's `CLOSED_PENDING_INDEPENDENT_REREVIEW` wording was the subsequently reviewed nonblocking R05 taxonomy defect; it did not claim approval and is corrected here without rewriting that chronology.
 
-Focused independent rereview at correction-01 head `4e78d8097ce7c308d1b3c562c57648ed6bacc44d` returned `CHANGES_REQUIRED`, P0/P1/P2/P3 = 0/0/1/1. It CLOSED R01/R02/R03, passed C08/C10, and found C12 FAIL because of the distinct pending-first-initialization race R04. R04/R05 below are correction-02 author evidence awaiting a new independent rereview, not independently closed findings.
+Focused independent rereview at correction-01 head `4e78d8097ce7c308d1b3c562c57648ed6bacc44d` returned `CHANGES_REQUIRED`, P0/P1/P2/P3 = 0/0/1/1. It CLOSED R01/R02/R03, passed C08/C10, and found C12 FAIL because of the distinct pending-first-initialization race R04. At correction-02 publication, R04/R05 were historically `CORRECTED_PENDING_REREVIEW`; the later independent rereview at `cd632ec5af31f4d3b21398a920ad313fa5b492c1` returned `REREVIEW_PASS`, 0/0/0/0, no new findings, CLOSED R04/R05 and passed C12. The current table records those independent closures, not author self-approval.
 
 | Finding | Defect | Current state / basis |
 | --- | --- | --- |
 | PR770-R01 / P1 | Held routine load restored a removed captured draft and lacked workflow/preset supersession. | CLOSED — independent correction-01 rereview |
 | PR770-R02 / P2 | Assembly displayed a live historical fallback, so refresh blanked/reseeded an initialized count. | CLOSED — independent correction-01 rereview |
 | PR770-R03 / P2 | Loading cleared typed parent rejection before trustworthy recovery. | CLOSED — independent correction-01 rereview |
-| PR770-R04 / P2 | Pending first initialization used an old history count after the same preset acquired a newer explicit count. | CORRECTED_PENDING_REREVIEW — correction-02 author evidence |
-| PR770-R05 / P3 | Correction-01 finding-state wording did not match its intended pending-review taxonomy. | CORRECTED_PENDING_REREVIEW — corrected chronology/state table |
+| PR770-R04 / P2 | Pending first initialization used an old history count after the same preset acquired a newer explicit count. | CLOSED — independent correction-02 rereview |
+| PR770-R05 / P3 | Correction-01 finding-state wording did not match its intended pending-review taxonomy. | CLOSED — independent correction-02 rereview |
 
-Correction-01 changed HealthView, its existing currentness hook, mounted/hook tests and this evidence document. Correction-02 is limited to HealthView, the existing mounted integration test and this document. Owner/latch/persistence/mutation modules are unchanged by correction-02; no additional production file or helper module is introduced. The exact correction SHA and hosted run IDs are recorded in the publication report and PR body.
+Correction-01 changed HealthView, its existing currentness hook, mounted/hook tests and this evidence document. Correction-02 was limited to HealthView, the existing mounted integration test and this document. Owner/latch/persistence/mutation modules were unchanged by correction-02; no additional production file or helper module was introduced. The final correction head is `cd632ec5af31f4d3b21398a920ad313fa5b492c1`; final [Push 38255920340](https://github.com/Absinthe-6785/Absinthe/actions/runs/38255920340) and [PR 38255927476](https://github.com/Absinthe-6785/Absinthe/actions/runs/38255927476) both completed/success for all five required jobs. Each hosted frontend suite: 755 files PASS / 1 SKIP; 7,819 tests PASS / 0 FAIL / 7 SKIP. Each run_attempt was 1. Historical failed runs below are retained, not substituted for this qualification.
 
 ## One compatibility owner, two separate paths
 
@@ -106,25 +137,25 @@ For no-explicit → 7 → no-explicit while an addition is still pending and own
 
 ## Automated acceptance matrix
 
-The initial review passed C01-C07/C09/C11/C13-C15 source but found C08/C10/C12 incomplete. Correction-01 independent rereview passed C08/C10 and CLOSED R01/R02/R03, while C12 remained FAIL for R04. C12's correction-02 result below is author evidence pending rereview, not REVIEW_PASS or public acceptance. Other author regression labels are not a new independent approval.
+The initial review passed C01-C07/C09/C11/C13-C15 source but found C08/C10/C12 incomplete. Correction-01 independent rereview passed C08/C10 and CLOSED R01/R02/R03, while C12 remained FAIL for R04. Correction-02 independent rereview CLOSED R04/R05 and passed C12 with prior closures preserved. Final Merge Gate verified C01-C14 and C15 source-state PASS. The table records current reviewed automated acceptance; C15 public acceptance remains separately NOT_EXECUTED. This documentation task supplies no new implementation/public approval.
 
-| Criterion | Author result | Evidence |
+| Criterion | Reviewed result | Evidence |
 | --- | --- | --- |
-| C01 | PASS_PENDING_INDEPENDENT_REREVIEW | Pure owner positive/negative account ABA; full-mounted returning-account durable fanout regression. |
-| C02 | PASS_PENDING_INDEPENDENT_REREVIEW | Pure owner positive/negative cutoff ABA; mounted selected-date ABA regression. |
-| C03 | PASS_PENDING_INDEPENDENT_REREVIEW | Held old completion after replacement failure stays UNAVAILABLE; obsolete typed failure cannot suppress replacement. |
-| C04 | PASS_PENDING_INDEPENDENT_REREVIEW | Reversed equal responses preserve only the new evidence identity. |
-| C05 | PASS_PENDING_INDEPENDENT_REREVIEW | Owner barriers; real IndexedDB save/delete cross captured previous reads; older maximum deletion; failed delete recovery; disjoint retention. |
-| C06 | PASS_PENDING_INDEPENDENT_REREVIEW | Coalesced 1/20/100 dependencies and held/synchronous retries; unchanged exact read budgets. |
-| C07 | PASS_PENDING_INDEPENDENT_REREVIEW | Close/re-entry tokens, StrictMode hook cleanup, mounted exit/re-entry regression. |
+| C01 | PASS | Pure owner positive/negative account ABA; full-mounted returning-account durable fanout regression. |
+| C02 | PASS | Pure owner positive/negative cutoff ABA; mounted selected-date ABA regression. |
+| C03 | PASS | Held old completion after replacement failure stays UNAVAILABLE; obsolete typed failure cannot suppress replacement. |
+| C04 | PASS | Reversed equal responses preserve only the new evidence identity. |
+| C05 | PASS | Owner barriers; real IndexedDB save/delete cross captured previous reads; older maximum deletion; failed delete recovery; disjoint retention. |
+| C06 | PASS | Coalesced 1/20/100 dependencies and held/synchronous retries; unchanged exact read budgets. |
+| C07 | PASS | Close/re-entry tokens, StrictMode hook cleanup, mounted exit/re-entry regression. |
 | C08 | PASS | Independent correction-01 rereview: identity/authority fences, R03 loading/null rejection, matching recovery/new scope, query/generation and foreign recovery-identity rejection. Correction-02 preserves that boundary. |
-| C09 | PASS_PENDING_INDEPENDENT_REREVIEW | Failure→verified current/no-match; real local bootstrap recovery; first assembly qualification without manual overwrite. |
+| C09 | PASS | Failure→verified current/no-match; real local bootstrap recovery; first assembly qualification without manual overwrite. |
 | C10 | PASS | Independent correction-01 rereview: typed B1/range rejection stays latched through held/failed retries; affirmative recovery and simultaneous-boundary separation. Synthetic legacy handling is not real-adapter typed proof; correction-02 changes no latch module. |
-| C11 | PASS_PENDING_INDEPENDENT_REREVIEW | Ordinary child failure/retry retains independent legacy with zero additional previous reads; child revisions never qualify it. |
-| C12 | PASS_PENDING_REREVIEW | Closed R01/R02 regressions plus mounted R04 current explicit 7/latest 8 persistence-facing counts, manual 4, removal/reopen, semantic ABA, equivalent clones and in-place changes. Latest authority is revalidated at first-write time without reseeding owned counts. |
-| C13 | PASS_PENDING_INDEPENDENT_REREVIEW | Unchanged helpers/formulas; real historical max/latest-row behavior; canonical 900kg never enters planning/writer input. |
-| C14 | PASS_PENDING_INDEPENDENT_REREVIEW | Offline retention, visibility/focus/bootstrap bursts, real local adapter without remote success. |
-| C15_SOURCE_STATE_IMPLEMENTATION | PASS_PENDING_INDEPENDENT_REREVIEW | Mounted status, accessible role, EN/KO/JA parity and OFF DOM/read/listener tests. |
+| C11 | PASS | Ordinary child failure/retry retains independent legacy with zero additional previous reads; child revisions never qualify it. |
+| C12 | PASS | Independent correction-02 closure: R01/R02 regressions plus mounted R04 current explicit 7/latest 8 persistence-facing counts, manual 4, removal/reopen, semantic ABA, equivalent clones and in-place changes. Latest authority is revalidated at first-write time without reseeding owned counts. |
+| C13 | PASS | Unchanged helpers/formulas; real historical max/latest-row behavior; canonical 900kg never enters planning/writer input. |
+| C14 | PASS | Offline retention, visibility/focus/bootstrap bursts, real local adapter without remote success. |
+| C15_SOURCE_STATE_IMPLEMENTATION | PASS | Mounted status, accessible role, EN/KO/JA parity and OFF DOM/read/listener tests; not final public-language/physical acceptance. |
 | C15_PUBLIC_ACCEPTANCE | NOT_EXECUTED | No public copy/gesture or physical-browser acceptance claim. |
 
 Tests: [pure owner](../src/components/views/features/health/legacyPreviousCurrentness.test.ts), [hook/lifecycle](../src/components/views/features/health/useLegacyPreviousCurrentness.test.ts), and [real-adapter/mounted/durable integration](../src/components/healthExerciseComparisonAppContent.integration.test.ts). Existing AppContent comparison tests retain their original test-double cases; the added D cases explicitly delegate to the real previous adapter and real verified IndexedDB transactions. Paired canonical/B1 fixture readers remain test fixtures, not new physical/source qualification claims.
@@ -162,7 +193,7 @@ Historical original-head local validation on 2026-10-12 (not correction qualific
 | `npm run build` | PASS; existing Browserslist-age/large-chunk warnings, no build failure |
 | `git diff --check` | PASS |
 
-Exact-head push/PR hosted CI is required and recorded in the publication report/PR body. At artifact authoring it is not yet available; this historical local validation table does not self-certify later CI. The known unrelated Windows K-333B fixture anchor is not changed; hosted exact-head CI supplies final full-suite qualification. No test assertion or timeout is weakened to obtain green CI. Read-budget assertions do not claim physical/performance acceptance.
+Historically, exact-head push/PR hosted CI was not available at original artifact authoring. The historical local table does not self-certify later CI. Final correction-02 runs and exact-main post-merge CI are now verified above. The known unrelated Windows K-333B fixture anchor is unchanged; hosted exact-head CI supplies final full-suite qualification. No test assertion or timeout was weakened to obtain green CI. Read-budget assertions do not claim physical/performance acceptance.
 
 Historical correction-01 validation on 2026-10-12 before publication:
 
@@ -174,7 +205,7 @@ Historical correction-01 validation on 2026-10-12 before publication:
 | Full `npm test -- --maxWorkers=4` after completion-barrier follow-up | 756 files: 754 PASS, 1 known K-333B FAIL, 1 SKIP; 7,815 tests: 7,807 PASS, 1 known K-333B FAIL, 7 SKIP; 395.45s |
 | `git diff --check` | PASS before publication |
 
-Correction-01 final [Push 38212546677](https://github.com/Absinthe-6785/Absinthe/actions/runs/38212546677) and [PR 38212551931](https://github.com/Absinthe-6785/Absinthe/actions/runs/38212551931) succeeded on `4e78d8097ce7c308d1b3c562c57648ed6bacc44d`, each with 7,808 frontend tests PASS / 7 SKIP / 0 FAIL and all five required jobs successful. Subsequent independent rereview closed R01/R02/R03, not CI itself. Correction-02 requires its own exact-head Push/PR qualification before handoff; results will be recorded below and in the PR body/report.
+Correction-01 final [Push 38212546677](https://github.com/Absinthe-6785/Absinthe/actions/runs/38212546677) and [PR 38212551931](https://github.com/Absinthe-6785/Absinthe/actions/runs/38212551931) succeeded on `4e78d8097ce7c308d1b3c562c57648ed6bacc44d`, each with 7,808 frontend tests PASS / 7 SKIP / 0 FAIL and all five required jobs successful. Subsequent independent rereview closed R01/R02/R03, not CI itself. Correction-02's separate exact-head qualification is recorded above; prior-head runs remain historical only.
 
 The sole local failure has the unchanged K-333B `Mutation anchor missing` signature. Both related Git blobs are identical to main/reviewed head. The raw CRLF source lacks the test's LF anchor; in-memory LF normalization finds it. No on-disk normalization, fixture change, timeout change or assertion relaxation was performed. `K333B_FAILURE_CLASSIFICATION = UNRELATED_CONFIRMED`, subject to exact-head hosted full-suite qualification.
 
@@ -189,7 +220,7 @@ The sole local failure has the unchanged K-333B `Mutation anchor missing` signat
 | `npm run typecheck` / `npm run build` | PASS; existing Browserslist/chunk warnings only |
 | `git diff --check` | PASS |
 
-The full suite's sole failure is the unchanged CRLF K-333B anchor at test line 707 / `replaceOnce` line 285. K-320A passed locally; its separately diagnosed directory timestamp risk remains `UNRELATED_CONFIRMED`, not fixed or closed. Source/test blobs for both areas remain identical to main. Correction-02's exact-head hosted CI must still succeed before rereview handoff and is recorded in the PR body/report rather than inferred from previous-head CI. R04/R05 remain `CORRECTED_PENDING_REREVIEW` after author validation.
+The author's full suite's sole failure was the unchanged CRLF K-333B anchor at test line 707 / `replaceOnce` line 285. K-320A passed locally; its separately diagnosed directory timestamp risk remains `UNRELATED_CONFIRMED`, not fixed or closed. Both areas were unchanged by PR #770. Historically R04/R05 were `CORRECTED_PENDING_REREVIEW` after author validation; they are now independently CLOSED. The later focused rereview reran 23 files / 420 PASS, R04 in five fresh processes (each 11 PASS / 35 filtered), typecheck PASS and build PASS (10.34s). Its local full suite: 756 files = 754 PASS / 1 known unrelated K-333B FAIL / 1 SKIP; 7,826 tests = 7,818 PASS / 1 same FAIL / 7 SKIP (258.34s). This local result is NOT all-green. The independent reviewer also passed eight read-only runtime-memory mounted diagnostics across three fresh processes; routine persistence/B1/range fixtures retain the limits stated above. Final Gate freshly passed the same 23-file / 420-test focused suite (8.56s). No supplemental diagnostic establishes physical QA or a real legacy-adapter typed conversion.
 
 ## Frozen state and handoff
 
@@ -199,6 +230,18 @@ All five production reader gates remain false; PUBLIC_READER_ACTIVATION and HEAL
 
 PERFORMANCE_ACCEPTANCE, PUBLIC_COPY_ACCEPTANCE, PHYSICAL_BROWSER_QA and C15_PUBLIC_ACCEPTANCE = NOT_EXECUTED.
 
-`PUBLIC_READER_CURRENTNESS_PREREQUISITE = IMPLEMENTATION_CORRECTED_PENDING_INDEPENDENT_REREVIEW_PUBLIC_ACCEPTANCE_PENDING`; not CLOSED. Passing author regressions/CI is not independent review approval or public acceptance.
+```text
+PREVDATA_IMPLEMENTATION_STATUS = MERGED_AUTOMATED_ACCEPTANCE_COMPLETE_PUBLIC_ACCEPTANCE_PENDING
+PR_770 = MERGED / CLOSED
+PR_770_MERGE_COMMIT = e20c8f58d3300e36758e9a4f85d65a029306d095
+PR_770_POSTMERGE_CI = PASS
+PR_770_POSTMERGE_CI_RUN = 38264972138
+PUBLIC_READER_CURRENTNESS_PREREQUISITE = IMPLEMENTED_AUTOMATED_ACCEPTANCE_COMPLETE_PUBLIC_ACCEPTANCE_PENDING
+REAL_LEGACY_TYPED_ISOLATION_PATH = NOT_ESTABLISHED
+PERFORMANCE_ACCEPTANCE = NOT_EXECUTED
+PUBLIC_COPY_ACCEPTANCE = NOT_EXECUTED
+PHYSICAL_BROWSER_QA = NOT_EXECUTED
+PREVDATA_C15_PUBLIC_ACCEPTANCE = NOT_EXECUTED
+```
 
-Next action after correction-02 exact-head CI: `FOCUSED_REREVIEW_REL_05G_HEALTH_PARENT_PREVDATA_FRESHNESS_D_IMPLEMENTATION_CORRECTION_02`. Keep PR #770 Draft. No Ready, merge or auto-merge. Focus on R04 latest semantic preset authority, updater-time revalidation/ABA, R05 chronology and preservation of independently closed R01/R02/R03. Do not infer product/public/writer activation from passing automated tests.
+The implementation/currentness automated prerequisite is complete; public readiness is not. The [post-prevData parent rebaseline](REL-05G-health-parent-public-readiness-post-prevdata-rebaseline.md) separates remaining public semantics, presentation, measurement/QA and frozen identity authority. Review of this docs-only publication is still required; it is not another implementation rereview or an activation decision.
