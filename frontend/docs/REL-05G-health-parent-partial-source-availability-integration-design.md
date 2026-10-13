@@ -2,7 +2,7 @@
 
 Task: `REL_05G_HEALTH_PARENT_PARTIAL_SOURCE_AVAILABILITY_INTEGRATION_DESIGN_01`.
 
-Status: `IMPLEMENTATION_DESIGN_COMPLETE_READY_FOR_INDEPENDENT_REVIEW`. This is a docs-only characterization of the already approved Option C policy. It does not implement the design, activate a reader or writer, choose public copy, pass PA-C01 through PA-C18, or authorize a later slice.
+Status: `INTEGRATION_DESIGN_CORRECTION_01_PENDING_FOCUSED_REREVIEW`; `DESIGN_IMPLEMENTATION_READY = NO_PENDING_SHARED_DATE_ABA_CORRECTION`. This is a docs-only characterization of the already approved Option C policy. It does not implement the design or the existing shared date ABA correction, activate a reader or writer, choose public copy, pass PA-C01 through PA-C18, or authorize a later slice. Finding `PR773-R01` is `CORRECTED_PENDING_REREVIEW`, not independently closed.
 
 ## 1. Exact merged baseline and authority
 
@@ -130,7 +130,7 @@ The derived parent model maps B1 and effective D rejection to exactly one select
 
 | State | Evidence | Visible facts | Editor/retry consequence |
 | --- | --- | --- | --- |
-| `DISABLED` | shell candidate not admitted | no candidate UI/read | legacy gate-OFF path remains exact |
+| `DISABLED` | shell candidate not admitted | no candidate UI/read | legacy gate-OFF path remains equivalent subject to the separately reviewed shared date ABA correctness correction in section 24 |
 | `LOADING` | current account/date B1 phase loading, no effective rejection | status only; no prior records | same-scope dirty preview may remain; B1/R retry is temporarily ineligible while current flight runs |
 | `COMPLETE` | settled complete, at least one persisted record | all qualified source-separated facts | legacy editor may be interactive only if legacy evidence is qualified |
 | `PARTIAL_LEGACY` | settled partial, legacy success/canonical error | qualified legacy persisted facts only | legacy editor may be admitted; canonical unavailable |
@@ -187,7 +187,7 @@ The later implementation must add an event-boundary `captureWorkoutActionPermit(
 4. the draft owner token is current and the payload contains at least one non-separator workout;
 5. no effective B1/range/D rejection invalidates the selected editor lane.
 
-The handler rejects before normalization/persistence when capture fails, captures an immutable account/date/generation/draft/publication scope plus immutable payload, and rechecks that permit immediately before dispatch. Once a valid durable operation is dispatched, source refresh alone does not retroactively rewrite or cancel writer semantics. Existing account/date/unmount `shouldContinue`, optimistic versions, validation, remote ordering, durable commit, original-account fanout and late UI suppression stay intact. Disabled markup is secondary defense, never proof.
+The handler rejects before normalization/persistence when capture fails, captures an immutable account/date/generation/draft/publication scope plus immutable payload, and rechecks that permit immediately before dispatch. Once a valid durable operation is dispatched, source refresh alone does not retroactively rewrite or cancel writer semantics. The separately reviewed Slice 0 strengthens shared date-lifetime UI currentness; existing account/unmount fencing, optimistic versions, validation, remote ordering, durable commit, original-account fanout and other late UI suppression stay intact. Disabled markup is secondary defense, never proof.
 
 ```text
 SAVE_CALLBACK_ADMISSION_DESIGN = EVENT_BOUNDARY_OPAQUE_SAVE_PERMIT_OVER_CURRENT_SHELL_DATE_GENERATION_B1_PUBLICATION_EDITOR_AND_DRAFT_LIFETIMES; RECHECK_BEFORE_DISPATCH; PRESERVE_EXISTING_PERSISTENCE_AND_POSTCOMMIT_FANOUT
@@ -204,7 +204,7 @@ Future admission therefore has a shared base and operation-specific checks:
 - Base `captureWorkoutMutationPermit(kind)` checks the same shell/account/date-generation/B1/editor/draft/effective-rejection authority as Save.
 - Draft-only row/set/exercise removal additionally proves the row belongs to the current draft token.
 - Persisted Delete additionally proves the exact row is still present in that draft snapshot and captures immutable `workoutId` plus required `local_version`; it rechecks the permit before dispatch.
-- Delete completion preserves the current durable and late-completion behavior. A source failure after dispatch does not fabricate rollback; account/date/lifetime retirement still suppresses stale UI continuation.
+- Delete completion preserves current durable behavior and uses the shared date-lifetime correction from Slice 0 for late UI suppression. A source failure after dispatch does not fabricate rollback; account/date/lifetime retirement suppresses stale UI continuation.
 
 ```text
 DELETE_CALLBACK_ADMISSION_DESIGN = SHARED_BASE_MUTATION_PERMIT_PLUS_EXACT_CURRENT_DRAFT_ROW_AND_PERSISTED_ID_VERSION_CHECK_FOR_DURABLE_DELETE; RECHECK_BEFORE_DISPATCH; NO_WRITER_SEMANTIC_CHANGE
@@ -453,23 +453,29 @@ This split makes the 18 product matrix rows and action denial paths directly tes
 PARENT_VIEW_MODEL_RECOMMENDATION = ADD_PURE_HEALTH_WORKOUT_PARENT_AVAILABILITY_DERIVATION_PLUS_ONE_STATEFUL_SHARED_PREVIOUS_SELECTION_COORDINATOR; NO_IO_OR_AUTHORITY_IN_THE_PURE_MODULE
 ```
 
-## 24. Gate-OFF equivalence
+## 24. Option C gate-OFF equivalence and shared correctness correction
 
 The implementation must mount a new `HealthWorkoutAvailabilityCandidate` child only when AppContent has admitted the existing B1 **and** range candidate and supplies both models. When either candidate is absent, HealthView executes the current legacy subtree without the new shell/controller/adapter/selection hook.
 
-This component boundary, rather than conditional hook calls in HealthView, proves:
+### A. Option C gate-OFF equivalence
+
+This component boundary, rather than conditional hook calls in HealthView, preserves the unrelated legacy behavior against the baseline after the separately reviewed Slice 0 correction:
 
 - no new B1/range/D read or source owner;
 - no new focus/visibility/bootstrap listener or retry controller work;
 - no new layout/status/copy;
-- no Save/Delete, block/routine, InBody or nutrition behavior change;
+- no Option C writer-semantic change and no block/routine, InBody or nutrition behavior change;
 - no draft mount/reset/storage/hydration change;
 - no current legacy SWR/fallback behavior change.
 
-The five literal gate constants remain false and no env/storage/runtime override is introduced.
+### B. Shared correctness correction
+
+The existing shared `HealthWorkoutOperationScope` must independently gain date-lifetime currentness for both gate-OFF Save/Delete and future Option C actions. This intentionally changes late-completion admission for the confirmed X1→Y→X2 defect. It is a correctness correction, not a feature-gated product behavior change, and cannot be claimed as exact preservation of pre-correction Save/Delete behavior. A candidate-only fix would leave the existing gate-OFF defect unresolved.
+
+Slice 0 changes only this confirmed UI/action currentness boundary; its acceptance contract in section 30 must prove unchanged writer semantics and all unrelated legacy behavior. Later Option C slices compare gate-OFF behavior with that corrected baseline. The five literal gate constants remain false and no env/storage/runtime override is introduced.
 
 ```text
-GATE_OFF_EQUIVALENCE_DESIGN = MOUNT_NEW_CANDIDATE_COMPONENT_ONLY_WHEN_EXISTING_B1_AND_RANGE_GATES_ADMIT; OTHERWISE_RENDER_CURRENT_LEGACY_SUBTREE_AND_OWNERS_EXACTLY
+GATE_OFF_EQUIVALENCE_DESIGN = PASS_EXCEPT_FOR_SEPARATELY_REVIEWED_SHARED_DATE_ABA_CORRECTION
 ```
 
 ## 25. Read and listener budget
@@ -490,7 +496,19 @@ READ_OWNER_BUDGET = ONE_EXISTING_B1_PAIR_AND_ONE_EXISTING_RANGE_SNAPSHOT_PER_ADM
 
 ## 26. Account, date and ABA fences
 
-Existing account generation already distinguishes account A1→B→A2. Existing `HealthWorkoutOperationScope` compares only a date string, so date X1→Y→X2 can make an old X1 completion look current. A later implementation must replace equality-only date authority with a committed monotonically changing generation or opaque object token.
+Existing account generation already distinguishes account A1→B→A2. Existing `HealthWorkoutOperationScope` contains only `accountOperation` and `dateKey`; its currentness helper checks date-string equality plus current account generation. Both Save and persisted Delete in HealthView use this shared helper. The existing operation-scope tests cover a simple X→Y switch, not X1→Y→X2. An old X1 completion can therefore appear current again at X2.
+
+This defect predates Option C and affects shared Save/Delete UI/action currentness and late-completion suppression. Option C exposed the need to reason explicitly about that lifetime; it did not create the defect. These source facts do not establish a writer-data durability failure. Changing the shared helper is an intentional correctness correction across gate-OFF and candidate paths, not candidate-only behavior preservation.
+
+```text
+DATE_ABA_CHARACTERIZATION = PASS
+DATE_ABA_FIX_SCOPE = BROADER_EXISTING_DEFECT
+HEALTH_WORKOUT_OPERATION_SCOPE_DATE_ABA = CONFIRMED_EXISTING_SHARED_UI_CURRENTNESS_DEFECT
+DATE_OPERATION_SCOPE_TARGET = ACCOUNT_GENERATION_PLUS_OPAQUE_DATE_LIFETIME
+DATE_EQUALITY_ALONE = INSUFFICIENT
+```
+
+Slice 0 must establish a shared operation scope containing `accountOperation`, `dateKey`, and an opaque date-lifetime token (or equivalent committed generation). The exact representation is finalized in that separately reviewed precursor. Every committed date transition creates fresh authority: `dateToken(X1) != dateToken(X2)` even when `dateKey(X1) == dateKey(X2)`. Unmount and scope retirement revoke UI currentness. Later Option C permits compose with this corrected shared boundary rather than implementing a second candidate-only repair.
 
 Every newly reachable data/action path captures:
 
@@ -512,10 +530,13 @@ NEW_ACTION_ABA_FENCE_DESIGN = ACCOUNT_GENERATION_PLUS_NEW_DATE_GENERATION_PLUS_S
 
 The new layer is pre-dispatch admission and stronger UI currentness, not a writer redesign. It must not change local transaction semantics, expected-version handling, UUID behavior, remote sequential request shape, partial remote result semantics, assisted-reps validation, local mutation coverage, or fanout order.
 
-After durable local commit, `onLocalCommit` continues to invalidate current eligible range first and B1 second for the captured original account even if that operation's UI scope has become stale. Postcommit `shouldContinue` may suppress UI success/lock/draft-clear; it cannot undo durable data. Date-generation fencing closes X→Y→X without inventing rollback. No existing admitted in-flight operation is cancelled solely because a read owner begins refreshing after valid dispatch.
+Pre-dispatch/UI currentness and post-durable-commit fanout have different jobs. Slice 0 strengthens the shared scope check before an operation is dispatched and for its UI continuation; it preserves existing persistence stop points and request semantics. Once a valid local transaction has been dispatched, later navigation does not roll back or semantically cancel its durable effect.
+
+After durable local commit, `onLocalCommit` continues to invalidate current eligible range first and B1 second for the captured original account even if that operation's UI scope has become stale. Persistence currently calls this fanout before checking postcommit `shouldContinue`. If X1 commits after navigation to Y/X2, the original-account fanout still runs, while stale X1 success/toast/lock/draft-clear/row-removal continuations cannot act as current X2 completion. Postcommit suppression cannot undo durable data. No existing admitted in-flight operation is cancelled solely because a read owner begins refreshing after valid dispatch. This docs correction implements none of these fences.
 
 ```text
 DURABLE_COMMIT_PRESERVATION = PASS
+POSTCOMMIT_ORIGINAL_ACCOUNT_FANOUT = MUST_BE_PRESERVED
 ```
 
 ## 28. Accessibility topology
@@ -563,10 +584,41 @@ PUBLIC_COPY_ACCEPTANCE = NOT_EXECUTED
 
 The design requires a reviewed sequence. Listing a slice does not authorize it.
 
+### Slice 0 — shared date operation ABA correction
+
+Task: `REL_05G_HEALTH_WORKOUT_OPERATION_DATE_ABA_CORRECTION_01`; label: `SLICE_0_SHARED_DATE_OPERATION_ABA_CORRECTION`.
+
+- Purpose: close the broader existing X1→Y→X2 defect in shared Health workout Save/Delete UI currentness before Option C callback admission depends on it.
+- Likely files: `healthWorkoutOperationScope.ts`, HealthView shared Save/persisted Delete scope capture and currentness, their focused helper/mounted tests, and persistence/fanout regression tests. Persistence behavior remains unchanged.
+- Prerequisite: this correction receives focused rereview; Slice 0 scope/design is then separately authorized and independently reviewed before implementation.
+- Acceptance: the twelve criteria below, plus explicit unmount/currentness coverage. After implementation, focused review and merge must complete before the ordered Option C sequence begins.
+- Untouched: Option C presentation/permits, source owners/retry routing, gates, DB/schema/backend, durable writer transaction and request contracts.
+
+| ID | Future acceptance requirement | Status |
+| --- | --- | --- |
+| ABA0-C01 | Shared operation scope distinguishes date lifetime, not only equal date string; every committed X1→Y→X2 transition produces a fresh token. | REQUIRED / NOT_EXECUTED |
+| ABA0-C02 | Late X1 Save completion cannot mutate X2 UI state as if it belonged to X2. | REQUIRED / NOT_EXECUTED |
+| ABA0-C03 | Late X1 persisted Delete completion cannot mutate X2 UI state as if it belonged to X2. | REQUIRED / NOT_EXECUTED |
+| ABA0-C04 | Account A1→B→A2 fencing remains intact. | REQUIRED / NOT_EXECUTED |
+| ABA0-C05 | Simple X→Y invalidation remains intact. | REQUIRED / NOT_EXECUTED |
+| ABA0-C06 | Valid same-lifetime Save/Delete remains admitted; unmount retires currentness and cannot admit a late continuation. | REQUIRED / NOT_EXECUTED |
+| ABA0-C07 | A validly dispatched durable local commit is not rolled back or semantically cancelled by later date navigation. | REQUIRED / NOT_EXECUTED |
+| ABA0-C08 | After durable local commit, payload-free `onLocalCommit` invalidation/fanout for the captured original account remains independent of stale UI scope. | REQUIRED / NOT_EXECUTED |
+| ABA0-C09 | Stale date lifetime suppresses late UI success/toast/lock/draft-clear/row removal. | REQUIRED / NOT_EXECUTED |
+| ABA0-C10 | DB/schema/backend, expected-version, remote request, and durable writer semantics remain unchanged. | REQUIRED / NOT_EXECUTED |
+| ABA0-C11 | All five gate values remain false. | REQUIRED / NOT_EXECUTED |
+| ABA0-C12 | Current legacy behavior changes only by closing this confirmed shared date ABA currentness defect. | REQUIRED / NOT_EXECUTED |
+
+```text
+SLICE_0 = SHARED_DATE_OPERATION_ABA_CORRECTION
+FIRST_REQUIRED_IMPLEMENTATION_PREREQUISITE = REL_05G_HEALTH_WORKOUT_OPERATION_DATE_ABA_CORRECTION_01
+ABA0_C01_C12 = REQUIRED / NOT_EXECUTED
+```
+
 ### Slice A — pure availability/action model foundation
 
 - Likely files: new `healthWorkoutParentAvailability.ts` and tests only.
-- Prerequisite: this design independently reviewed.
+- Prerequisite: this design independently reviewed and Slice 0 implemented, focused-reviewed and merged under the conservative sequence.
 - Acceptance: exhaustive Option C matrix, independent-source survival, editor states, action/retry denial reasons; no mount or runtime behavior.
 - Untouched: HealthView JSX, owners, writers, gates, DB/backend.
 
@@ -600,26 +652,30 @@ The design requires a reviewed sequence. Listing a slice does not authorize it.
 
 ### Slice F — draft preview and action admission
 
-- Likely files: HealthView, draft/operation-scope helper and focused mounted/persistence tests.
-- Prerequisite: publication permits, parent model and date-generation token.
+- Likely files: HealthView, draft/candidate permit composition and focused mounted/persistence tests; consume the corrected shared operation-scope helper from Slice 0.
+- Prerequisite: Slice 0 implemented, focused-reviewed and merged; publication permits, parent model and its corrected shared date-lifetime token.
 - Acceptance: dirty preview noninteractive; clean stale hydration hidden; every edit/planning/Save/Delete event guarded at callback; X→Y→X and A→B→A; durable fanout unchanged.
 - Untouched: persistence transaction/request contracts, canonical adoption, block/routine/InBody/nutrition writers.
 
 ### Slice G — integrated acceptance candidate
 
 - Likely files: bounded parent integration tests, status/copy/i18n presentation files and accessibility tests as separately approved.
-- Prerequisite: A-F individually reviewed.
+- Prerequisite: Slice 0 implemented, focused-reviewed and merged; A-F individually reviewed.
 - Acceptance: PA-C01 through PA-C14 automated matrix, gate-OFF/read-listener regression, qualitative instrumentation; PA-C15-C17 remain pending until their separately authorized public/physical/performance work.
 - Untouched: activation gates, provenance/identity/writer blockers, DB/backend/G6.
 
-Dependency graph: `A → B → C`; `A + C → D`; `D → E`; `A + B + D → F`; `C + E + F → G`.
+Conservative delivery order: `0 → A → B → C → D → E → F → G`. Dependencies: `0 → A`; `A → B → C`; `A + C → D`; `D → E`; `0 + A + B + D → F`; `0 + C + E + F → G`.
+
+A pure model can technically be reviewed without runtime effect before Slice 0, and B/C/D/E can only be independently safe if they expose no new writer action and respect their own dependencies. This package nevertheless selects the conservative order: no A-E implementation is recommended before Slice 0 closes. D must keep candidate editor mutations/Save/Delete unavailable until F supplies admission; structural visibility cannot bypass that dependency. F cannot land without Slice 0, and G cannot pass without it. No slice may claim final Option C implementation readiness before the shared correction closes.
 
 ```text
 IMPLEMENTATION_SHAPE = MULTI_SLICE_SEQUENCE
-IMPLEMENTATION_SLICES = A_MODEL, B_OWNER_ADAPTERS, C_LOCAL_RECOVERY_AND_D_BRIDGE, D_STABLE_SHELL_AND_CALENDAR, E_SHARED_PREVIOUS, F_EDITOR_AND_CALLBACK_ADMISSION, G_INTEGRATED_ACCEPTANCE
+IMPLEMENTATION_SLICES = SLICE_0_SHARED_DATE_OPERATION_ABA_CORRECTION, A_MODEL, B_OWNER_ADAPTERS, C_LOCAL_RECOVERY_AND_D_BRIDGE, D_STABLE_SHELL_AND_CALENDAR, E_SHARED_PREVIOUS, F_EDITOR_AND_CALLBACK_ADMISSION, G_INTEGRATED_ACCEPTANCE
+IMPLEMENTATION_SLICE_ORDER = CORRECTED_WITH_SLICE_0
+SLICE_INDEPENDENT_SAFETY = PASS_WITH_EXPLICIT_DEPENDENCIES
 ```
 
-One PR would combine source trust typing, controller authority, risky callback fencing, layout extraction and responsive state behavior, making independent review and rollback unsafe. Each slice remains default OFF and requires separate authorization.
+One PR would combine source trust typing, controller authority, risky callback fencing, layout extraction and responsive state behavior, making independent review and rollback unsafe. Every slice requires separate authorization and retains all gates false. Slice 0 corrects shared currentness even with gates OFF; all Option C behavior remains default OFF.
 
 ## 31. PA-C01 through PA-C18 traceability
 
@@ -628,7 +684,7 @@ Every criterion remains `REQUIRED / NOT_EXECUTED`.
 | ID | Design owner | Implementation location | Automated proof | Physical/public proof if required |
 | --- | --- | --- | --- | --- |
 | PA-C01 | parent availability model | Slice A + selected-day slot in D | all selected-day state rows, dirty distinction, no stale publication | final localized state comprehension under PA-C15/16 |
-| PA-C02 | editor/action permits | Slice F | mounted event tests for every edit/planning/Save/Delete callback, not disabled DOM | keyboard/touch/focus and public action explanation |
+| PA-C02 | editor/action permits + shared date currentness | Slice 0 prerequisite + Slice F | ABA0-C01-C12 and mounted event tests for every edit/planning/Save/Delete callback, not disabled DOM | keyboard/touch/focus and public action explanation |
 | PA-C03 | shared Previous model | Slice E | all matrix rows including independently healthy range | responsive desktop review |
 | PA-C04 | shared Previous model + sheet presentation | Slice E | same object/selection, open degradation, retirement, no stale records | supported mobile browser and AT modal/focus execution |
 | PA-C05 | Calendar activity + stable slot | Slice D/G | present/covered-absent/unknown under complete/partial/loading/error/isolation | non-color/reflow/browser verification |
@@ -637,9 +693,9 @@ Every criterion remains `REQUIRED / NOT_EXECUTED`.
 | PA-C08 | draft owner + editor model | Slice F | preserve/restore/no auto-save/no erase/no reseed/account-date ABA | preview clarity and focus behavior |
 | PA-C09 | draft/planning authority | Slice A/F | no canonical hydration/copy/adoption; formula and explicit-count precedence regression | none |
 | PA-C10 | recovery controller/adapters | Slice B/C/G | exact owner call counts, dedupe, finite episodes, deterministic/unknown fence, no remote/writer effect | truthful recovery labels and user flow |
-| PA-C11 | opaque lifetime permits | Slice B/C/E/F | A→B→A, X→Y→X, owner/device/namespace/generation, unmount, late completion and captured-account fanout | interruption/navigation browser scenarios |
+| PA-C11 | shared date-lifetime correction + opaque lifetime permits | Slice 0 prerequisite + Slice B/C/E/F | ABA0-C01-C12; A→B→A, X1→Y→X2, owner/device/namespace/generation, unmount, late completion and captured-account fanout | interruption/navigation browser scenarios |
 | PA-C12 | D hook/owner adapter | Slice B/C/F | exact block/cutoff proof; no sibling/revision/default/rejection shortcuts | none |
-| PA-C13 | candidate component boundary | Slice C/D/G | gates OFF: identical UI, zero new reads/listeners/retries, draft/writer regression | whole-parent performance later under PA-C17 |
+| PA-C13 | candidate boundary + explicit shared correctness exception | Slice 0 baseline + Slice C/D/G | gates OFF: equivalent UI and zero Option C reads/listeners/retries against the corrected baseline; ABA0-C12 proves the intentional shared ABA fix is the only legacy behavior change, with draft/writer regression | whole-parent performance later under PA-C17 |
 | PA-C14 | compile-time gate authority | every slice | literal five-gate false assertions; no env/storage override | activation requires a different reviewed task |
 | PA-C15 | copy/accessibility owner | separate copy/acceptance task after G | translation-key completeness and role/focus unit tests are supporting only | reviewed EN/KO/JA copy plus accessibility acceptance |
 | PA-C16 | qualification owner | separate authorized protocol | unit/CI cannot pass this criterion | supported physical browser/AT raw evidence required |
@@ -708,19 +764,31 @@ FINITE_RETRY_PROVABLE_WITH_CURRENT_APIS = PARTIAL
 D_DEPENDENCY_INTEGRATION = PRESERVE_EXISTING_B1_AND_RANGE_REJECTION_LATCHES_AND_MATCHED_COMPLETE_RECOVERY; CONSUME_ONLY_CURRENT_D_OWNER_BLOCK_CUTOFF_EVIDENCE; NO_SIBLING_REVISION_OR_D_ONLY_CLEARANCE
 ACTION_AUTHORITY_MODEL = ONE_IMMUTABLE_HEALTH_WORKOUT_PARENT_AVAILABILITY_VALUE_WITH_EXPLICIT_CHILD_STATES_ACTION_PERMITS_RETRY_ADMISSIONS_AND_OPAQUE_LIFETIME_TOKENS
 PARENT_VIEW_MODEL_RECOMMENDATION = ADD_PURE_HEALTH_WORKOUT_PARENT_AVAILABILITY_DERIVATION_PLUS_ONE_STATEFUL_SHARED_PREVIOUS_SELECTION_COORDINATOR; NO_IO_OR_AUTHORITY_IN_THE_PURE_MODULE
-GATE_OFF_EQUIVALENCE_DESIGN = MOUNT_NEW_CANDIDATE_COMPONENT_ONLY_WHEN_EXISTING_B1_AND_RANGE_GATES_ADMIT; OTHERWISE_RENDER_CURRENT_LEGACY_SUBTREE_AND_OWNERS_EXACTLY
+GATE_OFF_EQUIVALENCE_DESIGN = PASS_EXCEPT_FOR_SEPARATELY_REVIEWED_SHARED_DATE_ABA_CORRECTION
 READ_OWNER_BUDGET = ONE_EXISTING_B1_PAIR_AND_ONE_EXISTING_RANGE_SNAPSHOT_PER_ADMITTED_EPISODE_PLUS_ONE_COALESCED_D_BATCH_FOR_CONSUMED_IDS; ZERO_PER_SLOT_DATE_CARD_READS_AND_ZERO_NEW_LISTENERS_OR_POLLING
 NEW_ACTION_ABA_FENCE_DESIGN = ACCOUNT_GENERATION_PLUS_NEW_DATE_GENERATION_PLUS_SHELL_SOURCE_DRAFT_REQUEST_IDENTITY_TOKENS_AND_UNMOUNT_FENCE; NO_EQUALITY_BASED_A_OR_X_REVIVAL
 DURABLE_COMMIT_PRESERVATION = PASS
+POSTCOMMIT_ORIGINAL_ACCOUNT_FANOUT = MUST_BE_PRESERVED
 ACCESSIBILITY_TOPOLOGY = PASS
 COPY_STATE_TAXONOMY_INPUT = PASS
 IMPLEMENTATION_SHAPE = MULTI_SLICE_SEQUENCE
-DESIGN_IMPLEMENTATION_READY = YES
+DATE_ABA_CHARACTERIZATION = PASS
+DATE_ABA_FIX_SCOPE = BROADER_EXISTING_DEFECT
+HEALTH_WORKOUT_OPERATION_SCOPE_DATE_ABA = CONFIRMED_EXISTING_SHARED_UI_CURRENTNESS_DEFECT
+DATE_OPERATION_SCOPE_TARGET = ACCOUNT_GENERATION_PLUS_OPAQUE_DATE_LIFETIME
+DATE_EQUALITY_ALONE = INSUFFICIENT
+SLICE_0 = SHARED_DATE_OPERATION_ABA_CORRECTION
+IMPLEMENTATION_SLICE_ORDER = CORRECTED_WITH_SLICE_0
+SLICE_INDEPENDENT_SAFETY = PASS_WITH_EXPLICIT_DEPENDENCIES
+DESIGN_IMPLEMENTATION_READY = NO_PENDING_SHARED_DATE_ABA_CORRECTION
+DESIGN_BLOCKER = PR773-R01_SHARED_DATE_OPERATION_ABA_SCOPE
+FIRST_REQUIRED_IMPLEMENTATION_PREREQUISITE = REL_05G_HEALTH_WORKOUT_OPERATION_DATE_ABA_CORRECTION_01
+PR773_R01 = CORRECTED_PENDING_REREVIEW
 ```
 
-`DESIGN_IMPLEMENTATION_READY = YES` means the design is complete enough for independent review and, only after that review, separately authorized Slice A planning. It does not authorize implementation or activation now.
+The integration design becomes implementation-ready only after Slice 0 scope/design is independently reviewed, the shared defect correction is implemented, and its focused review and merge are complete. This docs correction does not close the runtime defect or authorize Slice 0 or A_MODEL implementation. The immediate next action is focused rereview of this correction.
 
 ```text
-NEXT_ACTION = INDEPENDENT_REVIEW_REL_05G_HEALTH_PARENT_PARTIAL_SOURCE_AVAILABILITY_INTEGRATION_DESIGN_01
-RECOMMENDED_NEXT_ACTION = INDEPENDENT_REVIEW_REL_05G_HEALTH_PARENT_PARTIAL_SOURCE_AVAILABILITY_INTEGRATION_DESIGN_01
+NEXT_ACTION = FOCUSED_REREVIEW_PR_773_INTEGRATION_DESIGN_CORRECTION_01
+RECOMMENDED_NEXT_ACTION = FOCUSED_REREVIEW_PR_773_INTEGRATION_DESIGN_CORRECTION_01
 ```
