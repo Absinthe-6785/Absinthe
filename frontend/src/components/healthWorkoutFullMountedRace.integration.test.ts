@@ -7,6 +7,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 type DeferredVoid = Readonly<{ promise: Promise<void>; resolve: () => void }>;
 
 const mocks = vi.hoisted(() => ({
+  saving: undefined as boolean | undefined,
+  locked: undefined as boolean | undefined,
+  baselineSavingLine: -1,
+  baselineLockedLine: -1,
+  candidateSavingLine: -1,
+  candidateLockedLine: -1,
+  subject: null as any,
   verifiedLegacyProjection: false,
   selectDate: null as null | ((date: Date) => void),
   latestDraft: null as any,
@@ -23,6 +30,7 @@ const mocks = vi.hoisted(() => ({
   rangeInvalidations: [] as string[],
   events: [] as string[],
   repositoryEvents: [] as string[],
+  dispatches: [] as any[],
   homeModels: [] as Array<{ phase: string; accountId: string; legacyDaily?: { workouts?: Array<{ local_version?: string }> } | null }>,
   showToast: vi.fn(),
   mutateDaily: vi.fn(),
@@ -33,6 +41,34 @@ const mocks = vi.hoisted(() => ({
   confirmModal: { current: null as null | { onConfirm: () => void | Promise<void>; onCancel: () => void } },
   notesState: { notes: [] as unknown[], createNote: vi.fn(), updateNote: vi.fn() },
 }));
+
+// Transparent named-state observation. Delegates both value and setter unchanged;
+// the normal oracle never creates state or supplies a production observer API.
+vi.mock('react', async importOriginal => {
+  const real = await importOriginal<typeof import('react')>();
+  const fs = await import('node:fs');
+  const source = fs.readFileSync('src/components/views/HealthView.tsx', 'utf8').split(/\r?\n/);
+  const saving = source.findIndex(line => line.includes('const [isSaving, setIsSaving] = useState')) + 1;
+  const locked = source.findIndex(line => line.includes('const [isWorkoutLocked, setIsWorkoutLocked] = useState')) + 1;
+  return { ...real, useState: ((...args: any[]) => {
+    const result = (real.useState as any)(...args);
+    const stack = new Error().stack;
+    const line = Number(stack?.match(/HealthView\.tsx:(\d+):/)?.[1]);
+    const baselineLine = Number(stack?.match(/HealthViewBaseline\.js:(\d+):/)?.[1]);
+    const candidateLine = Number(stack?.match(/HealthViewCandidate\.js:(\d+):/)?.[1]);
+    if (candidateLine === mocks.candidateSavingLine) mocks.saving = result[0];
+    if (candidateLine === mocks.candidateLockedLine) mocks.locked = result[0];
+    if (line === saving || baselineLine === mocks.baselineSavingLine) mocks.saving = result[0];
+    if (line === locked || baselineLine === mocks.baselineLockedLine) mocks.locked = result[0];
+    return result;
+  }) as typeof real.useState };
+});
+
+vi.mock('./views/HealthView', async importOriginal => {
+  const real = await importOriginal<typeof import('./views/HealthView')>();
+  return { ...real, HealthView: (props: Parameters<typeof real.HealthView>[0]) =>
+    createElement(mocks.subject ?? real.HealthView, props) };
+});
 
 vi.mock('./views/features/health/healthSelectedDayCompositeConfig', () => ({
   HEALTH_SELECTED_DAY_COMPOSITE_READER_ENABLED: true,
@@ -153,6 +189,7 @@ vi.mock('../lib/healthLocalRuntime', async importOriginal => {
   return { ...real,
   createLocalHealthRepository: async (accountId: string) => ({
     saveWorkouts: async (rows: Array<Record<string, unknown>>) => {
+      mocks.dispatches.push({ kind: 'save', accountId, rows: structuredClone(rows) });
       mocks.repositoryEvents.push(`save-start:${accountId}`);
       mocks.events.push(`save-start:${accountId}`);
       await mocks.mutationGate?.promise;
@@ -172,7 +209,8 @@ vi.mock('../lib/healthLocalRuntime', async importOriginal => {
       mocks.events.push(`save-commit:${accountId}:v${nextVersion}`);
       return saved.map(row => ({ id: row.id, version: row.local_version }));
     },
-    deleteWorkout: async (workoutId: string) => {
+    deleteWorkout: async (workoutId: string, expectedVersion: string) => {
+      mocks.dispatches.push({ kind: 'delete', accountId, workoutId, expectedVersion });
       mocks.repositoryEvents.push(`delete-start:${accountId}`);
       mocks.events.push(`delete-start:${accountId}`);
       await mocks.mutationGate?.promise;
@@ -343,6 +381,13 @@ function deleteButton(): HTMLButtonElement {
 }
 
 async function mountHealth() {
+  if (!mocks.subject) {
+    const { loadCandidateHealthView } = await import('../../test-support/healthWorkoutExactMain');
+    const loaded = await loadCandidateHealthView(specifier => import(/* @vite-ignore */
+      specifier.startsWith('.') ? './views/' + specifier : specifier));
+    mocks.subject = loaded.HealthView;
+    mocks.candidateSavingLine = loaded.savingLine; mocks.candidateLockedLine = loaded.lockedLine;
+  }
   // Preload the real lazy target so timing measures the mounted lifecycle,
   // not the test transformer's first-module compilation.
   await import('./views/HealthView');
@@ -381,14 +426,17 @@ async function startHeldA2Reads() {
   });
 }
 
-beforeEach(() => {
+function resetIntegratedFixture() {
+  mocks.saving = undefined; mocks.locked = undefined;
+  mocks.baselineSavingLine = -1; mocks.baselineLockedLine = -1;
+  mocks.candidateSavingLine = -1; mocks.candidateLockedLine = -1; mocks.subject = null;
   mocks.verifiedLegacyProjection = false; mocks.selectDate = null; mocks.latestDraft = null;
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   localStorage.clear();
-  mocks.accountWorkouts.clear();
+  mocks.accountWorkouts = new Map();
   mocks.accountWorkouts.set('account-a', [structuredClone(persistedWorkout)]);
   mocks.accountWorkouts.set('account-b', []);
-  mocks.accountVersions.clear();
+  mocks.accountVersions = new Map();
   mocks.accountVersions.set('account-a', 1);
   mocks.accountVersions.set('account-b', 0);
   mocks.mutationGate = deferredVoid();
@@ -402,6 +450,7 @@ beforeEach(() => {
   mocks.rangeInvalidations.length = 0;
   mocks.events.length = 0;
   mocks.repositoryEvents.length = 0;
+  mocks.dispatches.length = 0;
   mocks.homeModels.length = 0;
   mocks.showToast.mockReset();
   mocks.mutateDaily.mockReset();
@@ -409,7 +458,8 @@ beforeEach(() => {
   host = document.createElement('div');
   document.body.appendChild(host);
   root = null;
-});
+}
+beforeEach(resetIntegratedFixture);
 
 afterEach(() => {
   if (root) act(() => root?.unmount());
@@ -418,58 +468,206 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('REL-05G5B2B2B fully mounted save/delete ABA races', () => {
-  it.each(['save', 'delete'] as const)('S06/D06/H08 %s: real date ABA, preserved preseeded bytes, commit then range then B1', async operation => {
-    const { localHealthDraftKey } = await import('../lib/healthBackfillUiSafety');
-    const writes: Array<{ key: string; value: string | null }> = [];
-    const values = new Map<string, string>();
-    const storage: Storage = {
-      get length() { return values.size; }, key: index => [...values.keys()][index] ?? null,
-      getItem: key => values.get(key) ?? null,
-      setItem: (key, value) => { values.set(key, value); writes.push({ key, value }); },
-      removeItem: key => { values.delete(key); writes.push({ key, value: null }); }, clear: () => values.clear(),
-    };
-    const x = '2026-09-29', y = '2026-09-30';
-    const drafts = [
-      { account: 'account-a', date: x, kg: '31', id: persistedWorkout.id },
-      { account: 'account-a', date: y, kg: '41', id: '22222222-2222-4222-8222-222222222222' },
-      { account: 'account-b', date: y, kg: '51', id: '33333333-3333-4333-8333-333333333333' },
-    ].map(({ account, date, kg, id }) => ({ key: localHealthDraftKey(account, date), bytes: JSON.stringify([
-      { ...persistedWorkout, id, sets: [{ ...persistedWorkout.sets[0], kg }] },
-    ]) }));
-    drafts.forEach(({ key, bytes }) => storage.setItem(key, bytes)); writes.length = 0;
-    vi.stubGlobal('localStorage', storage);
-    mocks.verifiedLegacyProjection = true;
-    const check = (kg: string) => {
-      expect(mocks.latestDraft.localWorkouts[0]?.sets[0]?.kg).toBe(kg);
-      expect(mocks.latestDraft.isDirty).toBe(true); expect(mocks.latestDraft.isDirtyRef.current).toBe(true);
-      drafts.forEach(({ key, bytes }) => {
-        expect(storage.getItem(key)).toBe(bytes);
-        expect(writes.filter(write => write.key === key).every(write => write.value === bytes)).toBe(true);
-      });
-    };
-    await mountHealth(); check('31');
-    await act(async () => {
-      if (operation === 'save') host.querySelector<HTMLButtonElement>('[data-testid="health-save-workout"]')!.click();
-      else deleteButton().click();
-    });
-    expect(mocks.repositoryEvents).toContain(`${operation}-start:account-a`);
-    await act(async () => mocks.selectDate!(new Date(`${y}T12:00:00Z`))); check('41');
-    await act(async () => mocks.selectDate!(new Date(`${x}T12:00:00Z`))); check('31');
-    const beforeRows = structuredClone(mocks.latestDraft.localWorkouts), beforeToast = mocks.showToast.mock.calls.length;
-    mocks.events.length = 0;
-    await act(async () => mocks.mutationGate!.resolve());
-    expect(mocks.repositoryEvents).toContain(`${operation}-commit:account-a:v2`);
-    const commit = mocks.events.indexOf(`${operation}-commit:account-a:v2`);
-    const range = mocks.events.indexOf('range-invalidate:account-a');
-    const b1 = mocks.events.findIndex(event => event.startsWith('selected-read:account-a:v2:'));
-    expect(commit).toBeGreaterThanOrEqual(0); expect(range).toBeGreaterThan(commit); expect(b1).toBeGreaterThan(range);
-    expect(mocks.selectedReads.at(-1)).toMatchObject({ accountId: 'account-a', version: 2, count: operation === 'save' ? 1 : 0 });
-    expect(mocks.accountWorkouts.get('account-a')).toHaveLength(operation === 'save' ? 1 : 0);
-    check('31'); expect(mocks.latestDraft.localWorkouts).toEqual(beforeRows);
-    expect(mocks.showToast).toHaveBeenCalledTimes(beforeToast);
-    expect(mocks.mutateDaily).not.toHaveBeenCalled(); expect(mocks.mutateStatic).not.toHaveBeenCalled();
+async function editMountedKg(kg: string) {
+  const input = host.querySelector<HTMLInputElement>('[data-k126-workout-exercise-card] input[inputmode="decimal"]');
+  if (!input) throw new Error('Mounted editable weight input absent');
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, kg);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
   });
+}
+
+async function integratedH08(operation: 'save' | 'delete', control: 'editable' | 'pending' | 'acknowledged', side: 'baseline' | 'candidate' = 'candidate') {
+  const { localHealthDraftKey } = await import('../lib/healthBackfillUiSafety');
+  const writes: Array<{ key: string; value: string | null }> = [];
+  const values = new Map<string, string>();
+  const storage: Storage = {
+    get length() { return values.size; }, key: index => [...values.keys()][index] ?? null,
+    getItem: key => values.get(key) ?? null,
+    setItem: (key, value) => { values.set(key, value); writes.push({ key, value }); },
+    removeItem: key => { values.delete(key); writes.push({ key, value: null }); }, clear: () => values.clear(),
+  };
+  const x = '2026-09-29', y = '2026-09-30';
+  const drafts = [
+    { account: 'account-a', date: x, kg: '31', id: persistedWorkout.id },
+    { account: 'account-a', date: y, kg: '41', id: '22222222-2222-4222-8222-222222222222' },
+    { account: 'account-b', date: y, kg: '51', id: '33333333-3333-4333-8333-333333333333' },
+  ].map(({ account, date, kg, id }) => ({ key: localHealthDraftKey(account, date), bytes: JSON.stringify([
+    { ...persistedWorkout, id, sets: [{ ...persistedWorkout.sets[0], kg }] },
+  ]) }));
+  drafts.forEach(({ key, bytes }) => storage.setItem(key, bytes)); writes.length = 0;
+  vi.stubGlobal('localStorage', storage);
+  mocks.verifiedLegacyProjection = true;
+  const checkpoints: any[] = [];
+  const observed = () => {
+    if (mocks.saving === undefined || mocks.locked === undefined) throw new Error('H08_STATE_OBSERVER_ABSENT');
+    return { saving: mocks.saving, locked: mocks.locked,
+      rows: structuredClone(mocks.latestDraft.localWorkouts),
+      dirty: mocks.latestDraft.isDirty, dirtyRef: mocks.latestDraft.isDirtyRef.current,
+      bytes: [...values.entries()], history: structuredClone(writes),
+      toasts: structuredClone(mocks.showToast.mock.calls),
+      cache: [mocks.mutateDaily.mock.calls.length, mocks.mutateStatic.mock.calls.length],
+      savedStatus: host.textContent?.includes('healthSessionSaved') ?? false };
+  };
+  const restored = (kg: string) => {
+    expect(observed()).toMatchObject({ saving: false, locked: false, dirty: true, dirtyRef: true });
+    expect(mocks.latestDraft.localWorkouts[0]?.sets[0]?.kg).toBe(kg);
+    drafts.forEach(({ key, bytes }) => {
+      expect(storage.getItem(key)).toBe(bytes);
+      expect(writes.filter(write => write.key === key).every(write => write.value === bytes)).toBe(true);
+    });
+    checkpoints.push({ label: 'restored-' + kg, ...observed() });
+  };
+  await mountHealth(); restored('31');
+  const x1 = mocks.mutationGate!;
+  await act(async () => {
+    if (operation === 'save') host.querySelector<HTMLButtonElement>('[data-testid="health-save-workout"]')!.click();
+    else deleteButton().click();
+  });
+  expect(mocks.dispatches).toHaveLength(1);
+  expect(mocks.dispatches[0]).toMatchObject(operation === 'save'
+    ? { kind: operation, accountId: 'account-a', rows: [expect.objectContaining({ date: x, expectedVersion: 'v1', id: persistedWorkout.id })] }
+    : { kind: operation, accountId: 'account-a', workoutId: persistedWorkout.id, expectedVersion: 'v1' });
+  if (operation === 'save') expect(observed().saving).toBe(true);
+  await act(async () => mocks.selectDate!(new Date(y + 'T12:00:00Z'))); restored('41');
+  await act(async () => mocks.selectDate!(new Date(x + 'T12:00:00Z'))); restored('31');
+  await editMountedKg('47');
+  expect(observed()).toMatchObject({ saving: false, locked: false, dirty: true, dirtyRef: true });
+  expect(mocks.latestDraft.localWorkouts[0].sets[0].kg).toBe('47');
+  expect(storage.getItem(drafts[0].key)).toBe(JSON.stringify(mocks.latestDraft.localWorkouts));
+  expect(storage.getItem(drafts[0].key)).not.toBe(drafts[0].bytes);
+  const x2 = deferredVoid();
+  if (control !== 'editable') {
+    mocks.mutationGate = x2;
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-testid="health-save-workout"]')!.click());
+    expect(observed()).toMatchObject({ saving: true, locked: false });
+    if (control === 'acknowledged') {
+      await act(async () => x2.resolve()); await settle();
+      expect(observed()).toMatchObject({ saving: false, locked: true, dirty: false, dirtyRef: false });
+      expect(storage.getItem(drafts[0].key)).toBeNull();
+      // Hold the independent, legitimate clean hydration separately from the
+      // stale operation continuation. Releasing it later is not an X1 UI ACK.
+      mocks.holdNextSelectedRead = true;
+    }
+  }
+  const before = observed(), version = mocks.accountVersions.get('account-a')! + 1;
+  mocks.events.length = 0;
+  await act(async () => x1.resolve()); await settle();
+  const after = observed();
+  if (side === 'baseline') {
+    expect(after).toMatchObject({ saving: false, dirty: false, dirtyRef: false, locked: operation === 'save' });
+    expect(storage.getItem(drafts[0].key)).toBeNull();
+    if (operation === 'delete') expect(after.rows).toEqual([]);
+    else {
+      // The real verified projection may already have hydrated the clean old
+      // ACK with its collection-version evidence, not the repository's row v2.
+      expect(JSON.parse(after.rows[0].local_version)).toEqual([expect.objectContaining({ id: persistedWorkout.id, version: 'v2' })]);
+      expect(Number(after.rows[0].sets[0].kg)).toBe(31);
+      expect(after.toasts.length).toBe(before.toasts.length + 1);
+    }
+  } else {
+    if (after.saving !== before.saving) throw new Error('H08_STATE_ORACLE:saving');
+    if (after.locked !== before.locked) throw new Error('H08_STATE_ORACLE:locked');
+    if (control === 'acknowledged') {
+      // The independent B1 refresh intentionally enters loading while its read is
+      // held, hiding the settled status panel. That is not a stale UI transition.
+      expect(host.querySelector('[data-testid="selected-state"]')?.textContent).toMatch(/^loading:/);
+      expect(before.savedStatus).toBe(true); expect(after.savedStatus).toBe(false);
+      expect({ ...after, savedStatus: before.savedStatus }).toEqual(before);
+    } else expect(after).toEqual(before);
+  }
+  const commit = mocks.events.indexOf(operation + '-commit:account-a:v' + version);
+  const range = mocks.events.indexOf('range-invalidate:account-a');
+  const b1 = mocks.events.findIndex(event => event.startsWith('selected-read:account-a:v' + version + ':'));
+  expect(commit).toBeGreaterThanOrEqual(0); expect(range).toBeGreaterThan(commit); expect(b1).toBeGreaterThan(range);
+  expect(mocks.selectedReads.at(-1)).toMatchObject({ accountId: 'account-a', version });
+  expect(mocks.accountWorkouts.get('account-a')).toHaveLength(operation === 'save' ? 1 : 0);
+  if (operation === 'save') expect(mocks.accountWorkouts.get('account-a')![0].sets).toEqual(JSON.parse(drafts[0].bytes)[0].sets);
+  if (control === 'pending') {
+    await act(async () => x2.resolve()); await settle();
+    expect(observed()).toMatchObject({ saving: false, locked: true, dirty: false, dirtyRef: false });
+    expect(storage.getItem(drafts[0].key)).toBeNull();
+    expect(Number(mocks.latestDraft.localWorkouts[0].sets[0].kg)).toBe(47);
+  }
+  if (control === 'acknowledged') {
+    drafts.slice(1).forEach(({ key, bytes }) => expect(storage.getItem(key)).toBe(bytes));
+    await act(async () => mocks.heldSelectedReads.splice(0).forEach(release => release())); await settle();
+    if (operation === 'save') {
+      expect(observed().locked).toBe(true);
+      await act(async () => buttonWithText('editBtn').click());
+      await editMountedKg('59');
+      expect(observed()).toMatchObject({ dirty: true, dirtyRef: true, saving: false, locked: false });
+      expect(mocks.latestDraft.localWorkouts[0].sets[0].kg).toBe('59');
+    } else {
+      // Independently qualified EMPTY source legitimately resets lock. Navigate
+      // through the real date control and edit the normally restored Y draft.
+      expect(observed()).toMatchObject({ rows: [], locked: false, saving: false });
+      await act(async () => mocks.selectDate!(new Date(y + 'T12:00:00Z')));
+      expect(mocks.latestDraft.localWorkouts[0].sets[0].kg).toBe('41');
+      await editMountedKg('59');
+      expect(observed()).toMatchObject({ dirty: true, dirtyRef: true, saving: false, locked: false });
+      expect(storage.getItem(drafts[1].key)).toBe(JSON.stringify(mocks.latestDraft.localWorkouts));
+    }
+  }
+  if (control !== 'acknowledged') drafts.slice(1).forEach(({ key, bytes }) => expect(storage.getItem(key)).toBe(bytes));
+  return { input: { operation, control, account: 'account-a', x, y, drafts, edit: '47', source: 'verified-paired-legacy', gateMode: 'test-only-ID' },
+    checkpoints, before, after, dispatches: structuredClone(mocks.dispatches),
+    durable: structuredClone(mocks.accountWorkouts.get('account-a')),
+    fanout: { commit, range, b1, events: [...mocks.events], reads: structuredClone(mocks.selectedReads),
+      rangeInvalidations: [...mocks.rangeInvalidations] }, allowedDelta: 'stale-X1-UI-only' };
+}
+
+describe('REL-05G5B2B2B fully mounted save/delete ABA races', () => {
+  it.each(['save', 'delete'] as const)('R02_ID_PAIR %s: paired actual parent durable effect, range -> B1, and edited X2 state', async operation => {
+    const run = async (side: 'baseline' | 'candidate') => {
+      if (root) { act(() => root!.unmount()); root = null; }
+      host.remove(); vi.resetModules(); resetIntegratedFixture();
+      const fixture = await import('../../test-support/healthWorkoutExactMain');
+      const loaded = await (side === 'baseline' ? fixture.loadExactMainHealthView : fixture.loadCandidateHealthView)(
+        specifier => import(/* @vite-ignore */ specifier.startsWith('.') ? './views/' + specifier : specifier));
+      mocks.subject = loaded.HealthView;
+      if (side === 'baseline') {
+        mocks.baselineSavingLine = loaded.savingLine; mocks.baselineLockedLine = loaded.lockedLine;
+      } else {
+        mocks.candidateSavingLine = loaded.savingLine; mocks.candidateLockedLine = loaded.lockedLine;
+      }
+      try { return await integratedH08(operation, 'editable', side); }
+      catch (error) { throw new Error('R02_ID_ORACLE:' + side + ': ' + String(error), { cause: error }); }
+      finally { act(() => root!.unmount()); root = null; }
+    };
+    const baseline = await run('baseline'), candidate = await run('candidate');
+    expect(candidate.input).toEqual(baseline.input);
+    expect(candidate.checkpoints).toEqual(baseline.checkpoints);
+    expect(candidate.before).toEqual(baseline.before);
+    expect(candidate.dispatches).toEqual(baseline.dispatches);
+    expect(candidate.durable).toEqual(baseline.durable);
+    expect(candidate.fanout).toEqual(baseline.fanout);
+    expect(candidate.after).toEqual(candidate.before);
+    expect(baseline.after.dirty).toBe(false); // sole documented X1 UI defect
+  }, 30_000);
+  it.each(['save', 'delete'] as const)('S06/D06/H08 %s editable X2: actual edit and independent saving/lock oracle', async operation => {
+    await integratedH08(operation, 'editable');
+  });
+  it.each(['save', 'delete'] as const)('S06/D06/H08 %s pending X2: stale completion cannot clear saving', async operation => {
+    await integratedH08(operation, 'pending');
+  });
+  it.each(['save', 'delete'] as const)('S06/D06/H08 %s acknowledged X2: stale completion cannot unlock', async operation => {
+    await integratedH08(operation, 'acknowledged');
+  });
+  it('R01 sensitivity: the SAME integrated oracle detects stale relock, unsaving and unlock', async () => {
+    const { runCandidateStateFault } = await import('../../test-support/healthWorkoutExactMain');
+    for (const [fault, control, field] of [
+      ['relock', 'editable', 'locked'], ['unsaving', 'pending', 'saving'], ['unlock', 'acknowledged', 'locked'],
+    ]) {
+      const output = await runCandidateStateFault('src/components/healthWorkoutFullMountedRace.integration.test.ts',
+        'S06/D06/H08 .* ' + control + ' X2', fault);
+      expect(output).toContain('H08_STATE_ORACLE:' + field);
+      expect(output).toMatch(/2 failed/);
+      expect(output).toContain('H08 save ' + control);
+      expect(output).toContain('H08 delete ' + control);
+    }
+  }, 120_000);
   it('routes an A1 save commit into settled A2 readers and fences old pending reads and UI continuation', async () => {
     const AppContent = await mountHealth();
     await act(async () => buttonWithText('editBtn').click());

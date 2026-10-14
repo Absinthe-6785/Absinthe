@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { createElement, useEffect, useLayoutEffect } from 'react';
+import { createElement, StrictMode, useEffect, useLayoutEffect } from 'react';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { flushSync } from 'react-dom';
@@ -354,6 +354,7 @@ function deferred<T = void>() {
 }
 let storage: ByteStorage, root: Root | null, host: HTMLDivElement, props: HealthProps;
 let raf: Array<FrameRequestCallback>;
+let strictMode = false;
 function healthProps(overrides: Partial<HealthProps> = {}): HealthProps {
   return { now: {} as HealthProps['now'], currentDate: date(X), selectedDate: date(X),
     setCurrentDate: vi.fn(), setSelectedDate: vi.fn(),
@@ -367,7 +368,10 @@ function healthProps(overrides: Partial<HealthProps> = {}): HealthProps {
 async function render(overrides: Partial<HealthProps> = {}) {
   props = props ? { ...props, ...overrides } : healthProps(overrides);
   if (!root) root = createRoot(host);
-  await act(async () => { root!.render(createElement(subject, props)); });
+  await act(async () => {
+    const tree = createElement(subject, props);
+    root!.render(strictMode ? createElement(StrictMode, null, tree) : tree);
+  });
 }
 function seed() {
   for (const [key, value] of [[localHealthDraftKey(A, X), DRAFT_X], [localHealthDraftKey(A, Y), DRAFT_Y], [localHealthDraftKey(B, Z), DRAFT_Z]] as const)
@@ -423,7 +427,8 @@ async function invoke(callback: () => unknown) { await act(async () => { void ca
 async function navigateABA() {
   await render({ selectedDate: date(Y) }); await render({ selectedDate: date(X) });
 }
-beforeEach(() => {
+function resetFixture() {
+  strictMode = false;
   subject = HealthView;
   mocks.baselineSavingLine = -1; mocks.baselineLockedLine = -1;
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -454,7 +459,8 @@ beforeEach(() => {
   });
   mocks.showConfirm.mockReset(); mocks.clearConfirm.mockReset(); mocks.confirmModal.current = null;
   host = document.createElement('div'); document.body.appendChild(host); root = null; props = undefined as unknown as HealthProps;
-});
+}
+beforeEach(resetFixture);
 afterEach(() => { if (root) act(() => root!.unmount()); host.remove(); vi.unstubAllGlobals(); });
 
 /**
@@ -463,68 +469,11 @@ afterEach(() => { if (root) act(() => root!.unmount()); host.remove(); vi.unstub
  * then verify the original Git blob hash. Works with shallow hosted checkouts.
  * No production files/Git objects are written by this fixture.
  */
-const BASELINE_REVERSE_HUNKS = [
-  {
-    "candidate": "import { buildPreviousWorkoutHistoryProjection } from './features/health/previousWorkoutProjection';\nimport { useHealthWorkoutDraft } from './features/health/useHealthWorkoutDraft';\nimport {\n  captureHealthWorkoutOperationScope,\n  isCurrentHealthWorkoutOperationScope,\n  type HealthWorkoutOperationScope,\n} from './features/health/healthWorkoutOperationScope';\nimport { useHealthWorkoutOperationLifetime } from './features/health/useHealthWorkoutOperationLifetime';\nimport { readHealthSectionPrefs } from './features/health/healthSectionPrefs';\nimport { buildSetsFromPlannedCount, buildSetsFromPrevCount } from './features/health/workoutSetCount';\nimport { fetchPrevWorkoutForBlocks } from './features/health/prevWorkoutFetch';",
-    "baseline": "import { buildPreviousWorkoutHistoryProjection } from './features/health/previousWorkoutProjection';\nimport { useHealthWorkoutDraft } from './features/health/useHealthWorkoutDraft';\nimport {\n  isCurrentHealthWorkoutOperationScope,\n  type HealthWorkoutOperationScope,\n} from './features/health/healthWorkoutOperationScope';\nimport { readHealthSectionPrefs } from './features/health/healthSectionPrefs';\nimport { buildSetsFromPlannedCount, buildSetsFromPrevCount } from './features/health/workoutSetCount';\nimport { fetchPrevWorkoutForBlocks } from './features/health/prevWorkoutFetch';"
-  },
-  {
-    "candidate": "    : legacyPrevData;\n  const previousState = (id: string) => previousCurrentness.current\n    ? previousOwner.evidence(id).state : 'STALE_OR_SUPPRESSED' as const;\n  const workoutAccountOperation = Object.freeze({ accountId: user.id, generation: accountGenerationRef.current });\n  const workoutLifetime = useHealthWorkoutOperationLifetime(\n    workoutAccountOperation.accountId, workoutAccountOperation.generation, selectedDateDraftKey,\n  );\n  const captureWorkoutOperation = () => captureHealthWorkoutOperationScope(\n    workoutLifetime.publication, workoutAccountOperation, selectedDateDraftKey,\n    workoutLifetime.getCurrent(), currentAccountOperation,\n  );\n  const currentWorkoutOperation = (scope: HealthWorkoutOperationScope): boolean =>\n    isCurrentHealthWorkoutOperationScope(\n      scope,\n      workoutLifetime.getCurrent(),\n      currentAccountOperation,\n    );\n  const memoKey = localHealthMemoKey(user.id, selectedDateDraftKey);",
-    "baseline": "    : legacyPrevData;\n  const previousState = (id: string) => previousCurrentness.current\n    ? previousOwner.evidence(id).state : 'STALE_OR_SUPPRESSED' as const;\n  const activeWorkoutDateKeyRef = useRef(selectedDateDraftKey);\n  activeWorkoutDateKeyRef.current = selectedDateDraftKey;\n  const currentWorkoutOperation = (scope: HealthWorkoutOperationScope): boolean =>\n    isCurrentHealthWorkoutOperationScope(\n      scope,\n      activeWorkoutDateKeyRef.current,\n      currentAccountOperation,\n    );\n  const memoKey = localHealthMemoKey(user.id, selectedDateDraftKey);"
-  },
-  {
-    "candidate": "  };\n\n  const handleRemoveWorkout = async (index: number, dbId: string) => {\n    const operationScope = captureWorkoutOperation();\n    if (!operationScope) return;\n    if (previousEnabled) {\n      const blockId = localWorkouts[index]?.block_id;\n      if (blockId) routineLoadIntentRef.current?.removed.add(blockId);\n    }\n    try {\n      // 세션 구분선은 DB에 없으므로 API 호출 없이 바로 제거\n      if (dbId !== 'session' && !dbId.startsWith('session-') && !dbId.startsWith('temp')) {\n        const expectedVersion = localWorkouts[index]?.local_version;\n        if (localMode && !expectedVersion) throw new Error('health_local_workout_expected_version_missing');\n        if (!currentWorkoutOperation(operationScope)) return;\n        const result = await deleteHealthWorkout({\n          mode: localMode ? 'local' : 'remote',\n          accountId: operationScope.accountOperation.accountId,",
-    "baseline": "  };\n\n  const handleRemoveWorkout = async (index: number, dbId: string) => {\n    if (previousEnabled) {\n      const blockId = localWorkouts[index]?.block_id;\n      if (blockId) routineLoadIntentRef.current?.removed.add(blockId);\n    }\n    const operationScope: HealthWorkoutOperationScope = {\n      accountOperation: {\n        accountId: user.id,\n        generation: accountGenerationRef.current,\n      },\n      dateKey: selectedDateDraftKey,\n    };\n    try {\n      // 세션 구분선은 DB에 없으므로 API 호출 없이 바로 제거\n      if (dbId !== 'session' && !dbId.startsWith('session-') && !dbId.startsWith('temp')) {\n        const expectedVersion = localWorkouts[index]?.local_version;\n        if (localMode && !expectedVersion) throw new Error('health_local_workout_expected_version_missing');\n        const result = await deleteHealthWorkout({\n          mode: localMode ? 'local' : 'remote',\n          accountId: operationScope.accountOperation.accountId,"
-  },
-  {
-    "candidate": "    toggleWeightUnit(blockId);\n  };\n  const handleSaveWorkouts = async () => {\n    const operationScope = captureWorkoutOperation();\n    if (!operationScope) return;\n    if (localWorkouts.filter(w => w.block_id !== '__session__').length === 0)\n      return showToast(t('noWorkouts'), 'error');\n    setIsSaving(true);\n\n    try {",
-    "baseline": "    toggleWeightUnit(blockId);\n  };\n  const handleSaveWorkouts = async () => {\n    if (localWorkouts.filter(w => w.block_id !== '__session__').length === 0)\n      return showToast(t('noWorkouts'), 'error');\n    const operationScope: HealthWorkoutOperationScope = {\n      accountOperation: {\n        accountId: user.id,\n        generation: accountGenerationRef.current,\n      },\n      dateKey: selectedDateDraftKey,\n    };\n    setIsSaving(true);\n\n    try {"
-  },
-  {
-    "candidate": "          return normalizeStrengthSetForSave(set, getUnit(workout.block_id));\n        }),\n      }));\n      if (!currentWorkoutOperation(operationScope)) return;\n      const persistence = await saveHealthWorkouts({\n        mode: localMode ? 'local' : 'remote',\n        accountId: operationScope.accountOperation.accountId,",
-    "baseline": "          return normalizeStrengthSetForSave(set, getUnit(workout.block_id));\n        }),\n      }));\n      const persistence = await saveHealthWorkouts({\n        mode: localMode ? 'local' : 'remote',\n        accountId: operationScope.accountOperation.accountId,"
-  },
-  {
-    "candidate": "        if (localMode) mutateStatic();\n        if (isMobile) {\n          requestAnimationFrame(() => {\n            if (!currentWorkoutOperation(operationScope)) return;\n            inbodyQuickRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });\n          });\n        }",
-    "baseline": "        if (localMode) mutateStatic();\n        if (isMobile) {\n          requestAnimationFrame(() => {\n            inbodyQuickRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });\n          });\n        }"
-  },
-  {
-    "candidate": "        if (localMode) mutateStatic();\n        if (isMobile) {\n          requestAnimationFrame(() => {\n            if (!currentWorkoutOperation(operationScope)) return;\n            inbodyQuickRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });\n          });\n        }",
-    "baseline": "        if (localMode) mutateStatic();\n        if (isMobile) {\n          requestAnimationFrame(() => {\n            inbodyQuickRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });\n          });\n        }"
-  }
-];
-const BASELINE_SCOPE_SOURCE = "import type { HealthAccountGenerationToken } from '../../../../lib/healthBackfillUiSafety';\n\nexport interface HealthWorkoutOperationScope {\n  accountOperation: HealthAccountGenerationToken;\n  dateKey: string;\n}\n\nexport function isCurrentHealthWorkoutOperationScope(\n  scope: HealthWorkoutOperationScope,\n  currentDateKey: string,\n  isCurrentAccountOperation: (token: HealthAccountGenerationToken) => boolean,\n): boolean {\n  return scope.dateKey === currentDateKey && isCurrentAccountOperation(scope.accountOperation);\n}\n";
 async function baselineSubject() {
-  const fs = await import('node:fs');
-  const { createHash } = await import('node:crypto');
-  const ts = await import('typescript');
-  const blob = (source: string) => createHash('sha1').update('blob ' + Buffer.byteLength(source) + '\0').update(source).digest('hex');
-  let source = fs.readFileSync('src/components/views/HealthView.tsx', 'utf8').replace(/\r\n/g, '\n');
-  for (const hunk of BASELINE_REVERSE_HUNKS) {
-    expect(source.includes(hunk.candidate), 'frozen baseline hunk is present; final blob hash proves exactness').toBe(true);
-    source = source.replace(hunk.candidate, hunk.baseline);
-  }
-  expect(blob(source)).toBe('4e7bdd8b5d0808f02e9f9bc5c3c580ae7f0c8b97');
-  expect(blob(BASELINE_SCOPE_SOURCE)).toBe('b8ca520297a6b8ecb6543222969e4da5bf4c2f29');
-  const compile = (text: string) => ts.transpileModule(text, { compilerOptions: {
-    module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2022,
-  } }).outputText;
-  const code = compile(source);
-  const baselineScope: any = {};
-  new Function('exports', compile(BASELINE_SCOPE_SOURCE))(baselineScope);
-  const modules = new Map<string, unknown>();
-  for (const match of code.matchAll(/require\("([^"]+)"\)/g)) {
-    const specifier = match[1];
-    modules.set(specifier, specifier === './features/health/healthWorkoutOperationScope'
-      ? baselineScope : await import(/* @vite-ignore */ specifier));
-  }
-  const lines = code.split('\n');
-  // Function constructor contributes two wrapper lines to the runtime stack.
-  mocks.baselineSavingLine = lines.findIndex(line => line.includes('const [isSaving, setIsSaving]')) + 3;
-  mocks.baselineLockedLine = lines.findIndex(line => line.includes('const [isWorkoutLocked, setIsWorkoutLocked]')) + 3;
-  const exports: any = {};
-  new Function('require', 'exports', code + '\n//# sourceURL=HealthViewBaseline.js')((specifier: string) => modules.get(specifier), exports);
-  return exports.HealthView as typeof HealthView;
+  const { loadExactMainHealthView } = await import('../../../test-support/healthWorkoutExactMain');
+  const result = await loadExactMainHealthView(specifier => import(/* @vite-ignore */ specifier));
+  mocks.baselineSavingLine = result.savingLine; mocks.baselineLockedLine = result.lockedLine;
+  return result.HealthView as typeof HealthView;
 }
 
 describe('gate-OFF exact-main differential draft/hydration oracle', () => {
@@ -563,6 +512,200 @@ describe('gate-OFF exact-main differential draft/hydration oracle', () => {
   }, 30_000); // Two real mounted subjects plus an in-memory TypeScript baseline compilation.
 });
 
+
+type PairScenario = 'hydration' | 'restoration' | 'strict-restore' | 'save-ack' | 'delete-ack' | 'draft-delete' | 'durable-save' | 'durable-delete' | 'preservation-faults';
+
+// Every side has a new root/storage/module registry/source owners/action queues.
+// Only frozen INPUT constants are shared. No candidate observation seeds baseline.
+async function directExperiment(side: 'baseline' | 'candidate', scenario: PairScenario) {
+  if (root) { act(() => root!.unmount()); root = null; }
+  host.remove(); vi.resetModules(); resetFixture();
+  // resetModules does not invalidate Vitest's cached mock factory exports.
+  // Re-evaluate the transparent owner wrapper too, so the private lifetime
+  // WeakSet and HealthView's fresh scope module belong to ONE module registry.
+  vi.doMock('./features/health/useHealthWorkoutOperationLifetime', async () => {
+    const real = await vi.importActual<typeof import('./features/health/useHealthWorkoutOperationLifetime')>(
+      './features/health/useHealthWorkoutOperationLifetime');
+    return { ...real, useHealthWorkoutOperationLifetime: (...args: Parameters<typeof real.useHealthWorkoutOperationLifetime>) => {
+      const value = real.useHealthWorkoutOperationLifetime(...args); mocks.owner = value;
+      useLayoutEffect(() => { mocks.events.push({ phase: 'binding-commit', publication: value.publication, current: value.getCurrent() }); });
+      return value;
+    } };
+  });
+  mocks.remoteMode = false; mocks.realPersistence = true;
+  const baseline = side === 'baseline' ? await baselineSubject() : null;
+  subject = baseline ?? (await import('./HealthView')).HealthView;
+  strictMode = scenario === 'strict-restore';
+  const notifications: string[] = [], checkpoints: any[] = [];
+  const notify = (account: string) => {
+    expect(mocks.commits.length).toBeGreaterThan(0);
+    notifications.push(account);
+  };
+  const input = { account: A, dates: [X, Y, Z], scenario, strictMode,
+    source: JSON.stringify(HYDRATED), initial: JSON.stringify([DRAFT_X, DRAFT_Y, DRAFT_Z]),
+    mode: 'local', gates: 'all-five-literal-false', raf: 'controlled', swr: 'fresh-module/no-remote-key' };
+  const observe = (label: string) => checkpoints.push({ label, ...snapshot() });
+  const settleInitial = async (withDraft = true) => {
+    if (withDraft) seed();
+    await render({ onLocalWorkoutCommitted: notify });
+    if (withDraft) assertRestored(DRAFT_X);
+    expect(snapshot()).toMatchObject({ saving: false, locked: false });
+    observe('initial');
+  };
+  try {
+    if (scenario === 'hydration') {
+      storage.setItem(localHealthDraftKey(B, Z), JSON.stringify(DRAFT_Z));
+      await settleInitial(false);
+      await render({ workouts: HYDRATED }); observe('clean-hydration');
+      expect(snapshot()).toMatchObject({ rows: HYDRATED, dirty: false, dirtyRef: false, saving: false, locked: true, bytes: null });
+      const sameArray = mocks.draft.localWorkouts;
+      await render({ workouts: HYDRATED }); expect(mocks.draft.localWorkouts).toBe(sameArray); observe('same-array');
+      await render({ selectedDayComposite: { accountId: A, localDate: X, phase: 'loading', result: null,
+        legacyDaily: null, isolationError: false, cacheKey: null, retry: vi.fn() } as any, workouts: DRAFT_Y });
+      expect(mocks.draft.localWorkouts).toBe(sameArray); observe('ineligible-source');
+      await render({ selectedDayComposite: undefined, workouts: [...HYDRATED] }); observe('fresh-eligible-source');
+      await invoke(() => button('editBtn').click()); await editKg('42'); observe('user-edit');
+      const owned = snapshot();
+      await render({ workouts: [...DRAFT_Y] }); expect(snapshot()).toEqual(owned);
+      await render({ appSettings: { ...props.appSettings, darkMode: true }, workouts: [...HYDRATED] });
+      expect(snapshot()).toEqual(owned); observe('dirty-source-denied');
+    } else if (scenario === 'restoration' || scenario === 'strict-restore') {
+      const bytes = seed(); await render({ workouts: HYDRATED, onLocalWorkoutCommitted: notify });
+      assertRestored(DRAFT_X); assertBytes(bytes); observe('restored-with-immediate-source');
+      const current = mocks.owner?.getCurrent();
+      await render({ appSettings: { ...props.appSettings, darkMode: true }, workouts: [...HYDRATED] });
+      if (side === 'candidate') expect(mocks.owner.getCurrent()).toBe(current);
+      assertRestored(DRAFT_X); assertBytes(bytes); observe('same-date');
+      for (const [key, rows] of [[Y, DRAFT_Y], [X, DRAFT_X]] as const) {
+        await render({ selectedDate: date(key), workouts: [...HYDRATED] });
+        assertRestored(rows); assertBytes(bytes); observe('transition-' + key);
+      }
+      await render({ user: { id: B, name: 'B' }, selectedDate: date(Z), workouts: [...HYDRATED] });
+      assertRestored(DRAFT_Z); assertBytes(bytes); observe('other-account');
+      await render({ user: { id: A, name: 'A' }, selectedDate: date(X), workouts: [...HYDRATED] });
+      assertRestored(DRAFT_X); assertBytes(bytes); observe('return-account');
+      if (side === 'candidate') {
+        expect(mocks.owner.publication).toBe(mocks.owner.getCurrent());
+        expect(mocks.owner.getCurrent().dateLifetime).not.toBe(current.dateLifetime);
+      } else expect(mocks.owner).toBeNull(); // no counterfeit owner on main
+    } else if (scenario === 'save-ack' || scenario === 'delete-ack') {
+      await settleInitial(); const gate = deferred(); mocks.commitGate = gate;
+      if (scenario === 'save-ack') await editKg('33');
+      await invoke(scenario === 'save-ack' ? () => mocks.saveCallback!() : removeCallback());
+      expect(mocks.dispatches).toHaveLength(1); expect(mocks.commits).toHaveLength(0);
+      expect(snapshot().saving).toBe(scenario === 'save-ack'); observe('pending');
+      await render({ appSettings: { ...props.appSettings, darkMode: true } }); observe('pending-rerender');
+      await act(async () => gate.release()); observe('acknowledged');
+      expect(snapshot()).toMatchObject({ saving: false, dirty: false, dirtyRef: false, bytes: null, locked: scenario === 'save-ack' });
+      expect(mocks.commits).toHaveLength(1); expect(notifications).toEqual([A]);
+      if (scenario === 'save-ack') expect(snapshot().rows[0]).toMatchObject({ id: DRAFT_X[0].id, local_version: 'v2' });
+      else expect(snapshot().rows).toEqual([]);
+      await render({ selectedDate: date(Y) }); assertRestored(DRAFT_Y); observe('Y-reset');
+      await render({ selectedDate: date(X) }); observe('X2-return');
+      expect(snapshot()).toMatchObject({ rows: [], dirty: false, saving: false, locked: false, bytes: null });
+      await render({ workouts: HYDRATED }); await invoke(() => button('editBtn').click()); await editKg('44');
+      mocks.commitGate = null; await save(); observe('normal-X2-completion');
+      expect(snapshot()).toMatchObject({ dirty: false, dirtyRef: false, saving: false, locked: true, bytes: null });
+      expect(notifications).toEqual([A, A]);
+    } else if (scenario === 'draft-delete') {
+      seed(); storage.setItem(localHealthDraftKey(A, X), JSON.stringify([row('temp-owned', '23')]));
+      await render({ onLocalWorkoutCommitted: notify }); observe('draft-only-before');
+      expect(snapshot()).toMatchObject({ saving: false, locked: false, dirty: true });
+      await invoke(removeCallback()); observe('draft-only-after');
+      expect(snapshot()).toMatchObject({ rows: [], dirty: false, dirtyRef: false, saving: false, locked: false, bytes: null });
+      expect(mocks.inputs).toEqual([]); expect(mocks.dispatches).toEqual([]); expect(notifications).toEqual([]);
+      expect(snapshot().cacheCalls).toEqual([0, 0]);
+    } else if (scenario.startsWith('durable-')) {
+      const operation = scenario === 'durable-save' ? 'save' : 'delete';
+      await settleInitial(); const gate = deferred(); mocks.commitGate = gate;
+      await invoke(operation === 'save' ? () => mocks.saveCallback!() : removeCallback());
+      observe('X1-dispatched'); expect(mocks.dispatches).toHaveLength(1);
+      const bytes = Object.fromEntries([localHealthDraftKey(A, X), localHealthDraftKey(A, Y), localHealthDraftKey(B, Z)]
+        .map(key => [key, storage.getItem(key)!]));
+      await render({ selectedDate: date(Y) }); assertRestored(DRAFT_Y); assertBytes(bytes); observe('Y');
+      await render({ selectedDate: date(X) }); assertRestored(DRAFT_X); assertBytes(bytes); observe('X2-restored');
+      await editKg('47'); observe('X2-user-owned'); const before = snapshot();
+      await act(async () => gate.release()); observe('X1-durable-return');
+      expect(mocks.commits).toEqual([{ kind: operation, accountId: A }]); expect(notifications).toEqual([A]);
+      if (side === 'candidate') {
+        expect(snapshot()).toEqual(before);
+        await render({ workouts: [...HYDRATED] }); expect(snapshot()).toEqual(before);
+      } else {
+        expect(snapshot()).toMatchObject({ dirty: false, dirtyRef: false, bytes: null, saving: false });
+        if (operation === 'save') expect(snapshot()).toMatchObject({ locked: true, rows: [expect.objectContaining({ local_version: 'v2' })] });
+        else expect(snapshot().rows).toEqual([]);
+      }
+      for (const key of [localHealthDraftKey(A, Y), localHealthDraftKey(B, Z)]) expect(storage.getItem(key)).toBe(bytes[key]);
+    } else {
+      const before = seed(); mocks.fault = 'restore'; await render();
+      expect(() => assertRestored(DRAFT_X)).toThrow(/restored dirty rows/); observe('withheld-restore-detected');
+      mocks.fault = ''; await navigateABA(); assertRestored(DRAFT_X); observe('normal-restore');
+      storage.wrongKeyFault = true; await render({ selectedDate: date(Y) });
+      storage.setItem(localHealthDraftKey(A, Y), before[localHealthDraftKey(A, Y)]);
+      expect(() => assertBytes(before)).toThrow(/intermediate stored draft write/); observe('wrong-key-history-detected');
+      await render({ selectedDate: date(X) }); assertRestored(DRAFT_X);
+      mocks.fault = 'dirty-guard'; await render({ workouts: [...HYDRATED] });
+      expect(() => assertRestored(DRAFT_X)).toThrow(/restored dirty rows/); observe('dirty-guard-detected');
+      if (side === 'candidate') expect(mocks.owner.publication).toBe(mocks.owner.getCurrent());
+    }
+    const report = { input, checkpoints,
+      history: storage.history.filter(event => event.op !== 'get'),
+      restored: mocks.events.filter(event => event.phase === 'restored').map(event => event.date),
+      dispatches: structuredClone(mocks.dispatches), commits: structuredClone(mocks.commits), notifications };
+    return report;
+  } catch (error) {
+    throw new Error('R02_PAIR_ORACLE:' + side + ':' + scenario + ': ' + String(error), { cause: error });
+  } finally { act(() => root!.unmount()); root = null; }
+}
+
+describe('R02 expanded isolated exact-main MD differential pairs', () => {
+  it('R02 differential sensitivity: EVERY MD, real-parent and ID pair rejects an actual candidate saving-state regression', async () => {
+    const { runCandidateStateFault } = await import('../../../test-support/healthWorkoutExactMain');
+    const direct = await runCandidateStateFault(
+      'src/components/views/healthWorkoutDateLifetimeDraftHydration.integration.test.ts',
+      'R02_PAIR', 'reset-saving', 'R02_PAIR_ORACLE:candidate:');
+    expect(direct).toContain('9 failed');
+    for (const scenario of ['hydration', 'restoration', 'strict-restore', 'save-ack', 'delete-ack',
+      'draft-delete', 'preservation-faults', 'durable-save', 'durable-delete'])
+      expect(direct).toContain('R02_PAIR_ORACLE:candidate:' + scenario);
+    const parent = await runCandidateStateFault(
+      'src/components/healthWorkoutDateLifetimeLegacyParent.integration.test.ts',
+      'R02_PARENT_PAIR', 'reset-saving', 'R02_PARENT_ORACLE:candidate:');
+    expect(parent).toContain('3 failed');
+    expect(parent).toContain('dirty=false StrictMode=false');
+    expect(parent).toContain('dirty=true StrictMode=false');
+    expect(parent).toContain('dirty=true StrictMode=true');
+    const integrated = await runCandidateStateFault(
+      'src/components/healthWorkoutFullMountedRace.integration.test.ts',
+      'R02_ID_PAIR', 'reset-saving', 'R02_ID_ORACLE:candidate:');
+    expect(integrated).toContain('2 failed');
+    expect(integrated).toContain('R02_ID_PAIR save');
+    expect(integrated).toContain('R02_ID_PAIR delete');
+  }, 180_000);
+  it.each(['hydration', 'restoration', 'strict-restore', 'save-ack', 'delete-ack', 'draft-delete', 'preservation-faults'] as PairScenario[])(
+    'R02_PAIR %s: identical inputs, production-derived outcomes, no unintended delta', async scenario => {
+      const baseline = await directExperiment('baseline', scenario);
+      const candidate = await directExperiment('candidate', scenario);
+      expect(candidate.input).toEqual(baseline.input);
+      expect(candidate, 'allowed delta NONE; includes named state, notifications, complete write history and requests').toEqual(baseline);
+    }, 30_000);
+  it.each(['durable-save', 'durable-delete'] as PairScenario[])(
+    'R02_PAIR %s: equal durable boundary/fanout; ONLY documented stale X1 UI delta', async scenario => {
+      const baseline = await directExperiment('baseline', scenario);
+      const candidate = await directExperiment('candidate', scenario);
+      expect(candidate.input).toEqual(baseline.input);
+      expect(candidate.dispatches).toEqual(baseline.dispatches);
+      expect(candidate.commits).toEqual(baseline.commits);
+      expect(candidate.notifications).toEqual(baseline.notifications);
+      expect(candidate.restored).toEqual(baseline.restored);
+      expect(candidate.checkpoints.slice(0, -1)).toEqual(baseline.checkpoints.slice(0, -1));
+      // Explicit allowed delta: the final old UI ACK/row filter/storage removal.
+      // Both sides assert their exact expected branch INSIDE the real experiment.
+      expect(candidate.checkpoints.at(-1)).toEqual({ ...candidate.checkpoints.at(-2), label: 'X1-durable-return' });
+      expect(candidate.history.some(event => event.op === 'remove')).toBe(false);
+      expect(baseline.history.some(event => event.op === 'remove' && event.key === localHealthDraftKey(A, X))).toBe(true);
+    }, 30_000);
+});
 
 describe('mandatory real draft/hydration H-series', () => {
   it('H01 clean qualified hydration adopts rows without dirty or persisted draft creation', async () => {

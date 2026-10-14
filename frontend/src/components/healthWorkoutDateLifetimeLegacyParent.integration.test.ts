@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { createElement, useEffect, useLayoutEffect } from 'react';
+import { createElement, StrictMode, useEffect, useLayoutEffect } from 'react';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { SWRConfig } from 'swr';
@@ -8,6 +8,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 type DeferredVoid = Readonly<{ promise: Promise<void>; resolve: () => void }>;
 
 const mocks = vi.hoisted(() => ({
+  saving: undefined as boolean | undefined,
+  locked: undefined as boolean | undefined,
+  baselineSavingLine: -1,
+  baselineLockedLine: -1,
+  candidateSavingLine: -1,
+  candidateLockedLine: -1,
+  dailyOwner: null as any,
   verifiedLegacyProjection: false,
   dailyReads: [] as Array<{ accountId: string; date: string; resolve: (value: any) => void }>,
   selectDate: null as null | ((date: Date) => void),
@@ -35,6 +42,32 @@ const mocks = vi.hoisted(() => ({
   confirmModal: { current: null as null | { onConfirm: () => void | Promise<void>; onCancel: () => void } },
   notesState: { notes: [] as unknown[], createNote: vi.fn(), updateNote: vi.fn() },
 }));
+
+vi.mock('react', async importOriginal => {
+  const real = await importOriginal<typeof import('react')>();
+  const fs = await import('node:fs');
+  const source = fs.readFileSync('src/components/views/HealthView.tsx', 'utf8').split(/\r?\n/);
+  const saving = source.findIndex(line => line.includes('const [isSaving, setIsSaving] = useState')) + 1;
+  const locked = source.findIndex(line => line.includes('const [isWorkoutLocked, setIsWorkoutLocked] = useState')) + 1;
+  return { ...real, useState: ((...args: any[]) => {
+    const result = (real.useState as any)(...args), stack = new Error().stack;
+    const line = Number(stack?.match(/HealthView\.tsx:(\d+):/)?.[1]);
+    const baselineLine = Number(stack?.match(/HealthViewBaseline\.js:(\d+):/)?.[1]);
+    const candidateLine = Number(stack?.match(/HealthViewCandidate\.js:(\d+):/)?.[1]);
+    if (candidateLine === mocks.candidateSavingLine) mocks.saving = result[0];
+    if (candidateLine === mocks.candidateLockedLine) mocks.locked = result[0];
+    if (line === saving || baselineLine === mocks.baselineSavingLine) mocks.saving = result[0];
+    if (line === locked || baselineLine === mocks.baselineLockedLine) mocks.locked = result[0];
+    return result;
+  }) as typeof real.useState };
+});
+// Transparent only: actual useDailyData invokes real SWR/key/readiness owners.
+vi.mock('../hooks/useDaily', async importOriginal => {
+  const real = await importOriginal<typeof import('../hooks/useDaily')>();
+  return { ...real, useDailyData: (...args: Parameters<typeof real.useDailyData>) => {
+    const state = real.useDailyData(...args); mocks.dailyOwner = state; return state;
+  } };
+});
 
 vi.mock('./views/features/health/useHealthWorkoutDraft', async importOriginal => {
   const real = await importOriginal<typeof import('./views/features/health/useHealthWorkoutDraft')>();
@@ -158,6 +191,115 @@ vi.mock('../lib/workoutRuntimeAuthority', () => ({ createProductionWorkoutRuntim
 
 import { localHealthDraftKey } from '../lib/healthBackfillUiSafety';
 import { projectLocalHealthDaily } from '../lib/healthLocalRuntime';
+async function parentExperiment(side: 'baseline' | 'candidate', dirty: boolean, strict: boolean) {
+  act(() => root.unmount()); host.remove();
+  vi.doUnmock('./views/HealthView'); vi.resetModules(); resetParentFixture();
+  // Explicitly refresh cached transparent factories along with source modules.
+  vi.doMock('../hooks/useDaily', async () => {
+    const real = await vi.importActual<typeof import('../hooks/useDaily')>('../hooks/useDaily');
+    return { ...real, useDailyData: (...args: Parameters<typeof real.useDailyData>) => {
+      const state = real.useDailyData(...args); mocks.dailyOwner = state; return state;
+    } };
+  });
+  const { loadExactMainHealthView, loadCandidateHealthView, EXACT_MAIN, BASELINE_HEALTH_BLOB, BASELINE_SCOPE_BLOB } =
+    await import('../../test-support/healthWorkoutExactMain');
+  let component: any;
+  if (side === 'baseline') {
+    const loaded = await loadExactMainHealthView(specifier => import(/* @vite-ignore */
+      specifier.startsWith('.') ? './views/' + specifier : specifier));
+    expect(loaded.identity).toEqual({ main: EXACT_MAIN, healthBlob: BASELINE_HEALTH_BLOB, scopeBlob: BASELINE_SCOPE_BLOB });
+    mocks.baselineSavingLine = loaded.savingLine; mocks.baselineLockedLine = loaded.lockedLine;
+    component = loaded.HealthView;
+  } else {
+    const loaded = await loadCandidateHealthView(specifier => import(/* @vite-ignore */
+      specifier.startsWith('.') ? './views/' + specifier : specifier));
+    mocks.candidateSavingLine = loaded.savingLine; mocks.candidateLockedLine = loaded.lockedLine;
+    component = loaded.HealthView;
+  }
+  vi.doMock('./views/HealthView', () => ({ HealthView: component }));
+  const { AppContent } = await import('./AppContent');
+  const { SWRConfig: FreshSWRConfig } = await import('swr');
+  const cache = new Map();
+  const initial: Array<[string, string]> = [];
+  for (const [account, key, rows] of [['account-a', X, DX], ['account-a', Y, DY], ['account-b', Z, DZ]] as const) {
+    if (dirty || account === 'account-b') initial.push([localHealthDraftKey(account, key), JSON.stringify(rows)]);
+  }
+  initial.forEach(([key, value]) => values.set(key, value));
+  const input = { main: EXACT_MAIN, account: 'account-a', dates: [X, Y], initial, dirty, strict,
+    cache: 'NEW_EMPTY_MAP', scheduling: 'explicit-act/deferred-read', source: ['X:91', 'Y:92', 'refresh:93'] };
+  const checkpoints: any[] = [];
+  const capture = (label: string) => {
+    if (mocks.saving === undefined || mocks.locked === undefined) throw new Error('parent state observer absent');
+    checkpoints.push({ label, rows: structuredClone(mocks.latestDraft.localWorkouts),
+      dirty: mocks.latestDraft.isDirty, dirtyRef: mocks.latestDraft.isDirtyRef.current,
+      saving: mocks.saving, locked: mocks.locked, bytes: [...values.entries()],
+      history: structuredClone(history), toasts: structuredClone(mocks.showToast.mock.calls) });
+  };
+  try {
+    const tree = createElement(FreshSWRConfig, { value: {
+      provider: () => cache, dedupingInterval: 0, revalidateOnFocus: false, revalidateOnReconnect: false,
+    } }, createElement(AppContent, { authUser: { id: 'account-a', email: 'a@example.test' } as never }));
+    await act(async () => root.render(strict ? createElement(StrictMode, null, tree) : tree));
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-testid="nav-health"]')!.click());
+    expect(mocks.selectDate).not.toBeNull();
+    capture('initial');
+    expect(checkpoints.at(-1)).toMatchObject({ rows: dirty ? DX : [], dirty, dirtyRef: dirty, saving: false, locked: false });
+    await act(async () => mocks.selectDate!(new Date(Y + 'T12:00:00Z'))); capture('Y-committed');
+    await deliver(X, '91'); capture('X-response-under-Y');
+    expect(mocks.latestDraft.localWorkouts).toEqual(dirty ? DY : []);
+    await deliver(Y, '92'); capture('Y-qualified');
+    expect(mocks.latestDraft.localWorkouts[0].sets[0].kg).toBe(dirty ? '41' : '92');
+    expect(checkpoints.at(-1)).toMatchObject({ dirty, dirtyRef: dirty, saving: false, locked: !dirty });
+    await act(async () => mocks.selectDate!(new Date(X + 'T12:00:00Z'))); capture('X2-cache-owned');
+    expect(mocks.latestDraft.localWorkouts[0].sets[0].kg).toBe(dirty ? '31' : '91');
+    initial.forEach(([key, bytes]) => {
+      expect(values.get(key)).toBe(bytes);
+      expect(history.filter(write => write.key === key).every(write => write.value === bytes)).toBe(true);
+    });
+    // A current, real UI edit followed by real SWR revalidation. No source-owner
+    // guard is replaced and no expected rows are injected into the draft hook.
+    if (!dirty) {
+      const edit = [...host.querySelectorAll('button')].find(node => node.textContent?.trim() === 'editBtn')!;
+      await act(async () => edit.click());
+    }
+    const weight = host.querySelector<HTMLInputElement>('[data-k126-workout-exercise-card] input[inputmode="decimal"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(weight, '57');
+      weight.dispatchEvent(new Event('input', { bubbles: true }));
+      weight.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    capture('X2-actual-edit');
+    const before = checkpoints.at(-1);
+    expect(before).toMatchObject({ dirty: true, dirtyRef: true, saving: false, locked: false });
+    expect(before.rows[0].sets[0].kg).toBe('57');
+    const reads = mocks.dailyReads.length;
+    await act(async () => { mocks.dailyOwner.mutate(); });
+    const refresh = mocks.dailyReads.slice(reads).find(read => read.date === X);
+    expect(refresh, 'real SWR revalidation must dispatch the current account/date read').toBeDefined();
+    await act(async () => refresh!.resolve(source(X, '93')));
+    capture('X2-dirty-refuses-qualified-refresh');
+    expect({ ...checkpoints.at(-1), label: before.label }).toEqual(before);
+    expect(cache.size).toBeGreaterThan(0);
+    expect(mocks.dailyReads.every(read => read.accountId === 'account-a' && [X, Y].includes(read.date))).toBe(true);
+    expect(mocks.selectedReads).toEqual([]); expect(mocks.rangeLoads).toEqual([]);
+    return { input, checkpoints, reads: mocks.dailyReads.map(({ accountId, date }) => ({ accountId, date })),
+      cacheKeys: [...cache.keys()].sort(), history: structuredClone(history),
+      restoredNotifications: mocks.showToast.mock.calls.filter(call => call[0] === 'draftRestored'),
+      finalScope: { account: 'account-a', date: X, saving: mocks.saving, locked: mocks.locked },
+      unexpectedDelta: 'NONE' };
+  } catch (error) { throw new Error('R02_PARENT_ORACLE:' + side + ': ' + String(error), { cause: error }); }
+  finally { act(() => root.unmount()); vi.doUnmock('./views/HealthView'); }
+}
+
+describe('R02 exact-main REAL legacy parent/source/cache pairs', () => {
+  it.each([[false, false], [true, false], [true, true]])(
+    'R02_PARENT_PAIR dirty=%s StrictMode=%s: real AppContent/useDailyData/SWR, isolated cache, exact bytes/state', async (dirty, strict) => {
+      const baseline = await parentExperiment('baseline', dirty, strict);
+      const candidate = await parentExperiment('candidate', dirty, strict);
+      expect(candidate.input).toEqual(baseline.input);
+      expect(candidate, 'NO allowed delta: includes actual restoration notification identities/count and write history').toEqual(baseline);
+    }, 30_000);
+});
 
 const X = '2026-09-29', Y = '2026-09-30', Z = '2026-10-01';
 const workout = (id: string, kg: string) => ({ id, block_id: 'bench', local_version: 'v1',
@@ -181,7 +323,10 @@ async function deliver(date: string, kg: string) {
   expect(read, 'real useDailyData must request the account/date key').toBeDefined();
   await act(async () => read!.resolve(source(date, kg)));
 }
-beforeEach(() => {
+function resetParentFixture() {
+  mocks.saving = undefined; mocks.locked = undefined; mocks.dailyOwner = null;
+  mocks.baselineSavingLine = -1; mocks.baselineLockedLine = -1;
+  mocks.candidateSavingLine = -1; mocks.candidateLockedLine = -1;
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
   mocks.selectDate = null; mocks.latestDraft = null; mocks.dailyReads.length = 0;
   mocks.showToast.mockReset(); values = new Map(); history = [];
@@ -193,7 +338,8 @@ beforeEach(() => {
     clear: () => values.clear(),
   });
   host = document.createElement('div'); document.body.appendChild(host); root = createRoot(host);
-});
+}
+beforeEach(resetParentFixture);
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.unstubAllGlobals(); });
 describe('gate-OFF real AppContent/useDailyData/SWR date ownership', () => {
   it.each([false, true])('H01-H04 qualified clean hydration and restored dirty protection (draft=%s)', async dirty => {
