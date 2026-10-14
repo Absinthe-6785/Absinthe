@@ -60,9 +60,11 @@ import {
 import { buildPreviousWorkoutHistoryProjection } from './features/health/previousWorkoutProjection';
 import { useHealthWorkoutDraft } from './features/health/useHealthWorkoutDraft';
 import {
+  captureHealthWorkoutOperationScope,
   isCurrentHealthWorkoutOperationScope,
   type HealthWorkoutOperationScope,
 } from './features/health/healthWorkoutOperationScope';
+import { useHealthWorkoutOperationLifetime } from './features/health/useHealthWorkoutOperationLifetime';
 import { readHealthSectionPrefs } from './features/health/healthSectionPrefs';
 import { buildSetsFromPlannedCount, buildSetsFromPrevCount } from './features/health/workoutSetCount';
 import { fetchPrevWorkoutForBlocks } from './features/health/prevWorkoutFetch';
@@ -433,12 +435,18 @@ export const HealthView = ({
     : legacyPrevData;
   const previousState = (id: string) => previousCurrentness.current
     ? previousOwner.evidence(id).state : 'STALE_OR_SUPPRESSED' as const;
-  const activeWorkoutDateKeyRef = useRef(selectedDateDraftKey);
-  activeWorkoutDateKeyRef.current = selectedDateDraftKey;
+  const workoutAccountOperation = Object.freeze({ accountId: user.id, generation: accountGenerationRef.current });
+  const workoutLifetime = useHealthWorkoutOperationLifetime(
+    workoutAccountOperation.accountId, workoutAccountOperation.generation, selectedDateDraftKey,
+  );
+  const captureWorkoutOperation = () => captureHealthWorkoutOperationScope(
+    workoutLifetime.publication, workoutAccountOperation, selectedDateDraftKey,
+    workoutLifetime.getCurrent(), currentAccountOperation,
+  );
   const currentWorkoutOperation = (scope: HealthWorkoutOperationScope): boolean =>
     isCurrentHealthWorkoutOperationScope(
       scope,
-      activeWorkoutDateKeyRef.current,
+      workoutLifetime.getCurrent(),
       currentAccountOperation,
     );
   const memoKey = localHealthMemoKey(user.id, selectedDateDraftKey);
@@ -1018,22 +1026,18 @@ export const HealthView = ({
   };
 
   const handleRemoveWorkout = async (index: number, dbId: string) => {
+    const operationScope = captureWorkoutOperation();
+    if (!operationScope) return;
     if (previousEnabled) {
       const blockId = localWorkouts[index]?.block_id;
       if (blockId) routineLoadIntentRef.current?.removed.add(blockId);
     }
-    const operationScope: HealthWorkoutOperationScope = {
-      accountOperation: {
-        accountId: user.id,
-        generation: accountGenerationRef.current,
-      },
-      dateKey: selectedDateDraftKey,
-    };
     try {
       // 세션 구분선은 DB에 없으므로 API 호출 없이 바로 제거
       if (dbId !== 'session' && !dbId.startsWith('session-') && !dbId.startsWith('temp')) {
         const expectedVersion = localWorkouts[index]?.local_version;
         if (localMode && !expectedVersion) throw new Error('health_local_workout_expected_version_missing');
+        if (!currentWorkoutOperation(operationScope)) return;
         const result = await deleteHealthWorkout({
           mode: localMode ? 'local' : 'remote',
           accountId: operationScope.accountOperation.accountId,
@@ -1213,15 +1217,10 @@ export const HealthView = ({
     toggleWeightUnit(blockId);
   };
   const handleSaveWorkouts = async () => {
+    const operationScope = captureWorkoutOperation();
+    if (!operationScope) return;
     if (localWorkouts.filter(w => w.block_id !== '__session__').length === 0)
       return showToast(t('noWorkouts'), 'error');
-    const operationScope: HealthWorkoutOperationScope = {
-      accountOperation: {
-        accountId: user.id,
-        generation: accountGenerationRef.current,
-      },
-      dateKey: selectedDateDraftKey,
-    };
     setIsSaving(true);
 
     try {
@@ -1232,6 +1231,7 @@ export const HealthView = ({
           return normalizeStrengthSetForSave(set, getUnit(workout.block_id));
         }),
       }));
+      if (!currentWorkoutOperation(operationScope)) return;
       const persistence = await saveHealthWorkouts({
         mode: localMode ? 'local' : 'remote',
         accountId: operationScope.accountOperation.accountId,
@@ -1271,6 +1271,7 @@ export const HealthView = ({
         if (localMode) mutateStatic();
         if (isMobile) {
           requestAnimationFrame(() => {
+            if (!currentWorkoutOperation(operationScope)) return;
             inbodyQuickRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
           });
         }
@@ -1282,6 +1283,7 @@ export const HealthView = ({
         if (localMode) mutateStatic();
         if (isMobile) {
           requestAnimationFrame(() => {
+            if (!currentWorkoutOperation(operationScope)) return;
             inbodyQuickRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
           });
         }

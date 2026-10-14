@@ -38,6 +38,56 @@ function localDependencies() {
 }
 
 describe('healthWorkoutPersistence', () => {
+  it.each(['save', 'delete'] as const)('%s factory pending: stale lifetime stops before dispatch and never notifies', async operation => {
+    let release!: () => void, current = true;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const local = localDependencies(), onLocalCommit = vi.fn();
+    const factory = vi.fn(async () => { await gate; return { saveWorkouts: local.saveWorkouts, deleteWorkout: local.deleteWorkout }; });
+    const common = { mode: 'local' as const, accountId: 'original-account', shouldContinue: () => current,
+      onLocalCommit, dependencies: { createLocalHealthRepository: factory } };
+    const pending = operation === 'save'
+      ? saveHealthWorkouts({ ...common, date: '2026-09-29', workouts: [workout('temp', 'bench')] })
+      : deleteHealthWorkout({ ...common, workoutId: 'original-id', expectedVersion: 'exact-version' });
+    expect(factory).toHaveBeenCalledWith('original-account'); current = false; release();
+    expect((await pending).status).toBe('aborted');
+    expect(local.saveWorkouts).not.toHaveBeenCalled(); expect(local.deleteWorkout).not.toHaveBeenCalled();
+    expect(onLocalCommit).not.toHaveBeenCalled();
+  });
+  it.each(['save', 'delete'] as const)('%s dispatched: durable completion precedes original-account notification even after UI retires', async operation => {
+    let release!: () => void, started!: () => void, current = true;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const dispatch = new Promise<void>(resolve => { started = resolve; });
+    const events: string[] = [], local = localDependencies();
+    const saveWorkouts = vi.fn(async (inputs: LocalWorkoutWriteInput[]) => {
+      events.push('dispatch'); started(); await gate;
+      const result = await local.saveWorkouts(inputs); events.push('durable'); return result;
+    });
+    const deleteWorkout = vi.fn(async (id: string, version: string) => {
+      events.push('dispatch'); started(); await gate;
+      await local.deleteWorkout(id, version); events.push('durable');
+    });
+    const onLocalCommit = vi.fn(() => { events.push('notify:original-account'); });
+    const common = { mode: 'local' as const, accountId: 'original-account', shouldContinue: () => current,
+      onLocalCommit, dependencies: { createLocalHealthRepository: async () => ({ saveWorkouts, deleteWorkout }) } };
+    const pending = operation === 'save'
+      ? saveHealthWorkouts({ ...common, date: '2026-09-29', workouts: [workout('temp', 'bench')] })
+      : deleteHealthWorkout({ ...common, workoutId: 'original-id', expectedVersion: 'exact-version' });
+    await dispatch; current = false; release(); expect((await pending).status).toBe('aborted');
+    expect(events).toEqual(['dispatch', 'durable', 'notify:original-account']);
+    expect(onLocalCommit).toHaveBeenCalledTimes(1);
+    if (operation === 'save') expect(local.savedInputs[0]).toMatchObject({ date: '2026-09-29', blockId: 'bench', expectedVersion: null });
+    else expect(local.deleteWorkout).toHaveBeenCalledWith('original-id', 'exact-version');
+  });
+  it('stale remote Save preserves dispatched request and stops the sequential tail without local notification', async () => {
+    let release!: (response: Response) => void, current = true;
+    const authFetch = vi.fn(() => new Promise<Response>(resolve => { release = resolve; })), onLocalCommit = vi.fn();
+    const pending = saveHealthWorkouts({ mode: 'remote', accountId: 'original-account', date: '2026-09-29',
+      workouts: [workout('one', 'bench'), workout('two', 'row')], shouldContinue: () => current,
+      dependencies: { authFetch }, onLocalCommit });
+    expect(authFetch).toHaveBeenCalledTimes(1); current = false; release(new Response(null, { status: 201 }));
+    expect(await pending).toMatchObject({ status: 'aborted', succeeded: 1 });
+    expect(authFetch).toHaveBeenCalledTimes(1); expect(onLocalCommit).not.toHaveBeenCalled();
+  });
   it('invalidates immediately after durable local save/delete, before a stale completion can return', async () => {
     const local = localDependencies();
     const onLocalCommit = vi.fn();

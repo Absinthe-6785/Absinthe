@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { createElement, useEffect } from 'react';
+import { createElement, useEffect, useLayoutEffect } from 'react';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -7,6 +7,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 type DeferredVoid = Readonly<{ promise: Promise<void>; resolve: () => void }>;
 
 const mocks = vi.hoisted(() => ({
+  verifiedLegacyProjection: false,
+  selectDate: null as null | ((date: Date) => void),
+  latestDraft: null as any,
   accountWorkouts: new Map<string, Array<Record<string, unknown>>>(),
   accountVersions: new Map<string, number>(),
   mutationGate: null as DeferredVoid | null,
@@ -58,17 +61,25 @@ vi.mock('../lib/workoutSelectedDayReader', () => {
   }
   return { WorkoutSelectedDayReader, readEstablishedWorkoutDeviceId: () => 'device-test' };
 });
-vi.mock('./views/features/health/selectedDayLegacySnapshot', () => ({
-  loadVerifiedSelectedDayLegacySnapshot: (accountId: string) => {
+vi.mock('./views/features/health/selectedDayLegacySnapshot', async importOriginal => {
+  const real = await importOriginal<typeof import('./views/features/health/selectedDayLegacySnapshot')>();
+  return { loadVerifiedSelectedDayLegacySnapshot: (accountId: string, localDate = '2026-09-29') => {
     const version = mocks.accountVersions.get(accountId) ?? 0;
-    const workouts = structuredClone(mocks.accountWorkouts.get(accountId) ?? []);
+    const workouts = structuredClone(mocks.accountWorkouts.get(accountId) ?? [])
+      .filter(row => (row.date ?? '2026-09-29') === localDate);
     const held = mocks.holdNextSelectedRead;
     mocks.holdNextSelectedRead = false;
     mocks.selectedReads.push({ accountId, version, count: workouts.length, held });
     mocks.events.push(`selected-read:${accountId}:v${version}:${held ? 'held' : 'live'}`);
-    const value = {
+    const value = mocks.verifiedLegacyProjection ? real.projectVerifiedSelectedDayLegacySnapshot({
+      exercise_blocks: [{ id: 'bench', user_id: accountId, name: 'Bench', type: 'strength', tags: [] }],
+      workout_logs: workouts.map((row, index) => ({ id: row.id, user_id: accountId, date: localDate,
+        block_id: row.block_id, sort_order: index, sets: structuredClone(row.sets ?? []), version: row.local_version })),
+      inbody_logs: [], health_routines: [], routines: [], routine_logs: [], protein_profiles: [],
+      protein_sources: [], protein_intake_logs: [], workout_memos: [],
+    }, accountId, localDate) : {
       persistedRows: workouts.filter(workout => workout.block_id !== '__session__').map((workout, index) => ({
-        accountId, rowId: String(workout.id), localDate: '2026-09-29', blockId: String(workout.block_id), sortOrder: index,
+        accountId, rowId: String(workout.id), localDate, blockId: String(workout.block_id), sortOrder: index,
         exerciseDisplay: { kind: 'historical_fallback', name: 'Bench' }, sets: structuredClone(workout.sets ?? []),
       })),
       daily: { workouts, inbody: { weight: null, smm: null, pbf: null }, routines: [] },
@@ -77,8 +88,16 @@ vi.mock('./views/features/health/selectedDayLegacySnapshot', () => ({
     return new Promise<typeof value>(resolve => {
       mocks.heldSelectedReads.push(() => resolve(value));
     });
-  },
-}));
+  } };
+});
+vi.mock('./views/features/health/useHealthWorkoutDraft', async importOriginal => {
+  const real = await importOriginal<typeof import('./views/features/health/useHealthWorkoutDraft')>();
+  return { ...real, useHealthWorkoutDraft: (options: Parameters<typeof real.useHealthWorkoutDraft>[0]) => {
+    const state = real.useHealthWorkoutDraft(options);
+    useLayoutEffect(() => { mocks.latestDraft = state; });
+    return state;
+  } };
+});
 vi.mock('./views/features/health/verifiedWorkoutRangeSnapshot', () => {
   class WorkoutReadSnapshotCoordinator {
     accountId: string;
@@ -129,37 +148,45 @@ vi.mock('./views/features/health/verifiedWorkoutRangeSnapshot', () => {
   }
   return { WorkoutReadSnapshotCoordinator };
 });
-vi.mock('../lib/healthLocalRuntime', () => ({
+vi.mock('../lib/healthLocalRuntime', async importOriginal => {
+  const real = await importOriginal<typeof import('../lib/healthLocalRuntime')>();
+  return { ...real,
   createLocalHealthRepository: async (accountId: string) => ({
     saveWorkouts: async (rows: Array<Record<string, unknown>>) => {
       mocks.repositoryEvents.push(`save-start:${accountId}`);
+      mocks.events.push(`save-start:${accountId}`);
       await mocks.mutationGate?.promise;
       const nextVersion = (mocks.accountVersions.get(accountId) ?? 0) + 1;
       const previous = mocks.accountWorkouts.get(accountId) ?? [];
       const saved = rows.map((row, index) => ({
         id: row.id ?? previous[index]?.id ?? `00000000-0000-4000-8000-00000000000${index + 1}`,
         block_id: row.blockId,
+        date: row.date,
         exercise_blocks: previous[index]?.exercise_blocks ?? { id: row.blockId, name: 'Bench', type: 'strength', tags: [] },
         sets: structuredClone(row.sets ?? []),
         local_version: `v${nextVersion}`,
       }));
-      mocks.accountWorkouts.set(accountId, saved);
+      mocks.accountWorkouts.set(accountId, [...previous.filter(row => row.date && row.date !== rows[0]?.date), ...saved]);
       mocks.accountVersions.set(accountId, nextVersion);
       mocks.repositoryEvents.push(`save-commit:${accountId}:v${nextVersion}`);
+      mocks.events.push(`save-commit:${accountId}:v${nextVersion}`);
       return saved.map(row => ({ id: row.id, version: row.local_version }));
     },
     deleteWorkout: async (workoutId: string) => {
       mocks.repositoryEvents.push(`delete-start:${accountId}`);
+      mocks.events.push(`delete-start:${accountId}`);
       await mocks.mutationGate?.promise;
       const nextVersion = (mocks.accountVersions.get(accountId) ?? 0) + 1;
       mocks.accountWorkouts.set(accountId, (mocks.accountWorkouts.get(accountId) ?? []).filter(row => row.id !== workoutId));
       mocks.accountVersions.set(accountId, nextVersion);
       mocks.repositoryEvents.push(`delete-commit:${accountId}:v${nextVersion}`);
+      mocks.events.push(`delete-commit:${accountId}:v${nextVersion}`);
     },
   }),
   readLocalHealthWorkoutRange: vi.fn(async () => []),
   readLocalPreviousWorkoutRows: vi.fn(async () => []),
-}));
+  };
+});
 vi.mock('../lib/syncAuthority', () => ({ domainUsesLocalWorkingCopy: () => true }));
 vi.mock('../lib/config', () => ({ API_URL: 'https://example.test' }));
 vi.mock('../lib/supabase', () => ({ supabase: { auth: { signOut: vi.fn() } }, authFetch: vi.fn() }));
@@ -230,9 +257,13 @@ vi.mock('./views/features/search/GlobalSearchHost', () => ({ GlobalSearchHost: (
 vi.mock('./views/features/search/searchDomainNavigation', () => ({ registerSearchDomainHandlers: vi.fn() }));
 vi.mock('./views/features/health/HealthWorkspaceNav', () => ({ HEALTH_WORKSPACE_SECTIONS: [{ id: 'workout' }], HealthWorkspaceNav: () => null }));
 vi.mock('./views/features/health/HealthBlockLibrary', () => ({ HealthBlockLibrary: () => null }));
-vi.mock('./views/features/health/HealthSupportingPanels', () => ({ HealthSupportingPanels: ({ workoutCalendarActivity }: { workoutCalendarActivity?: { phase: string; knownPresentDates: Set<string> } }) =>
-  createElement('div', { 'data-testid': 'range-state' }, workoutCalendarActivity
-    ? `${workoutCalendarActivity.phase}:${workoutCalendarActivity.knownPresentDates.size}` : 'legacy') }));
+vi.mock('./views/features/health/HealthSupportingPanels', () => ({ HealthSupportingPanels: ({ workoutCalendarActivity, setSelectedDate }: {
+  workoutCalendarActivity?: { phase: string; knownPresentDates: Set<string> }; setSelectedDate: (date: Date) => void;
+}) => {
+  mocks.selectDate = setSelectedDate;
+  return createElement('div', { 'data-testid': 'range-state' }, workoutCalendarActivity
+    ? `${workoutCalendarActivity.phase}:${workoutCalendarActivity.knownPresentDates.size}` : 'legacy');
+} }));
 vi.mock('./views/features/health/HealthSelectedDayCompositePanel', () => ({ HealthSelectedDayCompositePanel: ({ model }: { model: { phase: string; accountId: string; legacyDaily?: { workouts?: Array<{ local_version?: string }> } | null } }) =>
   createElement('div', { 'data-testid': 'selected-state' }, `${model.phase}:${model.accountId}:${model.legacyDaily?.workouts?.[0]?.local_version ?? 'empty'}`) }));
 vi.mock('./views/features/health/nutrition', () => ({ ProteinTracker: () => null }));
@@ -287,7 +318,6 @@ let host: HTMLDivElement;
 async function settle() {
   await act(async () => {
     for (let index = 0; index < 16; index += 1) await Promise.resolve();
-    await new Promise(resolve => setTimeout(resolve, 0));
   });
 }
 
@@ -324,7 +354,8 @@ async function mountHealth() {
   await waitFor(() => expect(host.querySelector('[data-testid="nav-health"]')).not.toBeNull());
   await act(async () => host.querySelector<HTMLButtonElement>('[data-testid="nav-health"]')!.click());
   await waitFor(() => {
-    expect(host.querySelector('[data-testid="selected-state"]')?.textContent).toBe('settled:account-a:v1');
+    if (mocks.verifiedLegacyProjection) expect(host.querySelector('[data-testid="selected-state"]')?.textContent).toMatch(/^settled:account-a:/);
+    else expect(host.querySelector('[data-testid="selected-state"]')?.textContent).toBe('settled:account-a:v1');
     expect(host.querySelector('[data-testid="range-state"]')?.textContent).toBe('settled:1');
   });
   return AppContent;
@@ -351,6 +382,7 @@ async function startHeldA2Reads() {
 }
 
 beforeEach(() => {
+  mocks.verifiedLegacyProjection = false; mocks.selectDate = null; mocks.latestDraft = null;
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   localStorage.clear();
   mocks.accountWorkouts.clear();
@@ -383,9 +415,61 @@ afterEach(() => {
   if (root) act(() => root?.unmount());
   root = null;
   host.remove();
+  vi.unstubAllGlobals();
 });
 
 describe('REL-05G5B2B2B fully mounted save/delete ABA races', () => {
+  it.each(['save', 'delete'] as const)('S06/D06/H08 %s: real date ABA, preserved preseeded bytes, commit then range then B1', async operation => {
+    const { localHealthDraftKey } = await import('../lib/healthBackfillUiSafety');
+    const writes: Array<{ key: string; value: string | null }> = [];
+    const values = new Map<string, string>();
+    const storage: Storage = {
+      get length() { return values.size; }, key: index => [...values.keys()][index] ?? null,
+      getItem: key => values.get(key) ?? null,
+      setItem: (key, value) => { values.set(key, value); writes.push({ key, value }); },
+      removeItem: key => { values.delete(key); writes.push({ key, value: null }); }, clear: () => values.clear(),
+    };
+    const x = '2026-09-29', y = '2026-09-30';
+    const drafts = [
+      { account: 'account-a', date: x, kg: '31', id: persistedWorkout.id },
+      { account: 'account-a', date: y, kg: '41', id: '22222222-2222-4222-8222-222222222222' },
+      { account: 'account-b', date: y, kg: '51', id: '33333333-3333-4333-8333-333333333333' },
+    ].map(({ account, date, kg, id }) => ({ key: localHealthDraftKey(account, date), bytes: JSON.stringify([
+      { ...persistedWorkout, id, sets: [{ ...persistedWorkout.sets[0], kg }] },
+    ]) }));
+    drafts.forEach(({ key, bytes }) => storage.setItem(key, bytes)); writes.length = 0;
+    vi.stubGlobal('localStorage', storage);
+    mocks.verifiedLegacyProjection = true;
+    const check = (kg: string) => {
+      expect(mocks.latestDraft.localWorkouts[0]?.sets[0]?.kg).toBe(kg);
+      expect(mocks.latestDraft.isDirty).toBe(true); expect(mocks.latestDraft.isDirtyRef.current).toBe(true);
+      drafts.forEach(({ key, bytes }) => {
+        expect(storage.getItem(key)).toBe(bytes);
+        expect(writes.filter(write => write.key === key).every(write => write.value === bytes)).toBe(true);
+      });
+    };
+    await mountHealth(); check('31');
+    await act(async () => {
+      if (operation === 'save') host.querySelector<HTMLButtonElement>('[data-testid="health-save-workout"]')!.click();
+      else deleteButton().click();
+    });
+    expect(mocks.repositoryEvents).toContain(`${operation}-start:account-a`);
+    await act(async () => mocks.selectDate!(new Date(`${y}T12:00:00Z`))); check('41');
+    await act(async () => mocks.selectDate!(new Date(`${x}T12:00:00Z`))); check('31');
+    const beforeRows = structuredClone(mocks.latestDraft.localWorkouts), beforeToast = mocks.showToast.mock.calls.length;
+    mocks.events.length = 0;
+    await act(async () => mocks.mutationGate!.resolve());
+    expect(mocks.repositoryEvents).toContain(`${operation}-commit:account-a:v2`);
+    const commit = mocks.events.indexOf(`${operation}-commit:account-a:v2`);
+    const range = mocks.events.indexOf('range-invalidate:account-a');
+    const b1 = mocks.events.findIndex(event => event.startsWith('selected-read:account-a:v2:'));
+    expect(commit).toBeGreaterThanOrEqual(0); expect(range).toBeGreaterThan(commit); expect(b1).toBeGreaterThan(range);
+    expect(mocks.selectedReads.at(-1)).toMatchObject({ accountId: 'account-a', version: 2, count: operation === 'save' ? 1 : 0 });
+    expect(mocks.accountWorkouts.get('account-a')).toHaveLength(operation === 'save' ? 1 : 0);
+    check('31'); expect(mocks.latestDraft.localWorkouts).toEqual(beforeRows);
+    expect(mocks.showToast).toHaveBeenCalledTimes(beforeToast);
+    expect(mocks.mutateDaily).not.toHaveBeenCalled(); expect(mocks.mutateStatic).not.toHaveBeenCalled();
+  });
   it('routes an A1 save commit into settled A2 readers and fences old pending reads and UI continuation', async () => {
     const AppContent = await mountHealth();
     await act(async () => buttonWithText('editBtn').click());
