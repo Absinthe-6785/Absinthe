@@ -10,6 +10,7 @@ import {
   type LegacyWorkoutReadInput, type SourceRead,
 } from './compositeWorkoutReadProjection';
 import { loadVerifiedSelectedDayLegacySnapshot } from './selectedDayLegacySnapshot';
+import { observeOwnerFailure, type OwnerFailureDisposition, type SelectedDayOwnerData, type WorkoutOwnerEvidence } from './healthWorkoutOwnerAdapters';
 
 /** A cache identity, not an invalidation counter. No unverified rows enter it. */
 export function selectedDayCompositeKey(scope: SelectedDayCanonicalScope, date: string): readonly string[] {
@@ -25,6 +26,8 @@ export type HealthSelectedDayReadModel = Readonly<{
   legacyDaily: LocalHealthDailyProjection | null;
   isolationError: boolean;
   retry: () => void;
+  /** Observation only: no read, subscription, invalidation or retry. */
+  captureOwnerEvidence?: () => WorkoutOwnerEvidence<'B1', SelectedDayOwnerData> | null;
 }>;
 
 export type HealthSelectedDayCompositeOptions = Readonly<{
@@ -32,8 +35,10 @@ export type HealthSelectedDayCompositeOptions = Readonly<{
   managedLifecycle?: boolean;
 }>;
 
-type StoredRead = Omit<HealthSelectedDayReadModel, 'retry'>;
-type Publication = { scopeVersion: number; sequence: number; epoch: number };
+type StoredRead = Omit<HealthSelectedDayReadModel, 'retry' | 'captureOwnerEvidence'>;
+type Publication = { scopeVersion: number; sequence: number; epoch: number;
+  ownerPublication: object | null; ownerLifetime: object | null; request: object | null;
+  canonicalScope: SelectedDayCanonicalScope | null; failures: readonly OwnerFailureDisposition[] };
 
 function loading(accountId: string, localDate: string): StoredRead {
   return { phase: 'loading', accountId, localDate, cacheKey: null,
@@ -48,11 +53,15 @@ export function useHealthSelectedDayComposite(
   const [refresh, setRefresh] = useState(0);
   const [stored, setStored] = useState<StoredRead & Publication>(() => ({
     ...loading(accountId, localDate), scopeVersion: -1, sequence: -1, epoch: -1,
+    ownerPublication: null, ownerLifetime: null, request: null, canonicalScope: null, failures: [],
   }));
   const requestSequence = useRef(0);
   const mountEpoch = useRef(0);
   const readerRef = useRef<WorkoutSelectedDayReader | null>(null);
   const openingRef = useRef<Promise<WorkoutSelectedDayReader> | null>(null);
+  // Proof metadata for the existing mount/request owner; no additional lifecycle.
+  const ownerLifetimeRef = useRef<object | null>(null);
+  const ownerPublicationRef = useRef<object | null>(null);
   const currentRef = useRef({ enabled, accountId, localDate, scopeVersion: 0 });
   const previousScope = currentRef.current;
   if (previousScope.enabled !== enabled || previousScope.accountId !== accountId || previousScope.localDate !== localDate) {
@@ -64,12 +73,16 @@ export function useHealthSelectedDayComposite(
     if (!currentRef.current.enabled) return;
     // Supersede synchronously, including before React can schedule the next effect.
     requestSequence.current += 1;
+    ownerPublicationRef.current = null;
     setRefresh(value => value + 1);
   }, []);
 
   useEffect(() => {
     mountEpoch.current += 1;
+    ownerLifetimeRef.current = enabled ? Object.freeze({}) : null;
     return () => {
+      ownerLifetimeRef.current = null;
+      ownerPublicationRef.current = null;
       mountEpoch.current += 1;
       requestSequence.current += 1;
       readerRef.current?.close();
@@ -106,6 +119,9 @@ export function useHealthSelectedDayComposite(
     const sequence = ++requestSequence.current;
     const epoch = mountEpoch.current;
     const scopeVersion = currentRef.current.scopeVersion;
+    const ownerLifetime = ownerLifetimeRef.current;
+    // Request identity is NOT a finite user-retry episode or execution permit.
+    const request = Object.freeze({});
     const captured = { accountId, localDate };
     const isCurrent = () => requestSequence.current === sequence
       && mountEpoch.current === epoch
@@ -113,12 +129,21 @@ export function useHealthSelectedDayComposite(
       && currentRef.current.enabled
       && currentRef.current.accountId === captured.accountId
       && currentRef.current.localDate === captured.localDate;
-    const publish = (value: StoredRead) => setStored(previous => isCurrent()
-      ? { ...value, scopeVersion, sequence, epoch } : previous);
+    const publish = (value: StoredRead, failures: readonly OwnerFailureDisposition[] = []) => {
+      if (!isCurrent()) return;
+      const ownerPublication = Object.freeze({});
+      ownerPublicationRef.current = ownerPublication;
+      setStored(previous => isCurrent() && ownerPublicationRef.current === ownerPublication
+        ? { ...value, scopeVersion, sequence, epoch, ownerLifetime, ownerPublication, request, canonicalScope: null, failures }
+        : previous);
+    };
     // Retain only the previous verified daily object's identity internally.
     // It is never exposed while loading and is reused only after a fresh pair agrees.
-    setStored(previous => isCurrent() ? {
+    const loadingPublication = Object.freeze({});
+    ownerPublicationRef.current = loadingPublication;
+    setStored(previous => isCurrent() && ownerPublicationRef.current === loadingPublication ? {
       ...loading(accountId, localDate), scopeVersion, sequence, epoch,
+      ownerLifetime, ownerPublication: loadingPublication, request, canonicalScope: null, failures: [],
       legacyDaily: previous.scopeVersion === scopeVersion ? previous.legacyDaily : null,
     } : previous);
     // Separate from readCanonical's single internal stale-generation reopen.
@@ -157,6 +182,7 @@ export function useHealthSelectedDayComposite(
       scope: SelectedDayCanonicalScope | null;
       source: SourceRead<ActiveCanonicalWorkoutReadInput>;
       isolationError: boolean;
+      failure?: OwnerFailureDisposition;
     }> {
       let reader: WorkoutSelectedDayReader | null = null;
       try {
@@ -177,6 +203,7 @@ export function useHealthSelectedDayComposite(
       } catch (error) {
         return { scope: reader && readerRef.current === reader ? reader.scope : null,
           source: { status: 'error' },
+          failure: observeOwnerFailure(error),
           isolationError: error instanceof CompositeWorkoutReadIsolationError };
       }
     }
@@ -187,13 +214,17 @@ export function useHealthSelectedDayComposite(
         loadVerifiedSelectedDayLegacySnapshot(accountId, localDate)
           .then(value => ({ value, source: { status: 'success', records: value.persistedRows } as SourceRead<LegacyWorkoutReadInput>, isolationError: false }))
           .catch((error: unknown) => ({ value: null, source: { status: 'error' } as SourceRead<LegacyWorkoutReadInput>,
-            isolationError: error instanceof CompositeWorkoutReadIsolationError })),
+            isolationError: error instanceof CompositeWorkoutReadIsolationError, failure: observeOwnerFailure(error) })),
         readCanonical(),
       ]);
       if (!isCurrent()) return;
+      const failures: OwnerFailureDisposition[] = [
+        ...('failure' in legacy && legacy.failure ? [legacy.failure] : []),
+        ...(canonical.failure ? [canonical.failure] : []),
+      ];
       if (legacy.isolationError || canonical.isolationError) {
         publish({ phase: 'settled', accountId, localDate, cacheKey: null,
-          result: null, legacyDaily: null, isolationError: true });
+          result: null, legacyDaily: null, isolationError: true }, failures);
         return;
       }
       if (canonical.scope) {
@@ -214,6 +245,7 @@ export function useHealthSelectedDayComposite(
           // A metadata failure is an unavailable canonical source, never a
           // license to publish the previously captured generation.
           canonical.source = { status: 'error' };
+          failures.push(observeOwnerFailure(error));
         }
       }
       // A changed device cannot publish a result from its former namespace.
@@ -245,8 +277,10 @@ export function useHealthSelectedDayComposite(
           legacy: legacySource, canonical: canonicalSource,
         });
         if (!isCurrent()) return;
+        const ownerPublication = Object.freeze({});
+        ownerPublicationRef.current = ownerPublication;
         setStored(previous => {
-          if (!isCurrent()) return previous;
+          if (!isCurrent() || ownerPublicationRef.current !== ownerPublication) return previous;
           const sameLegacy = previous.accountId === accountId && previous.localDate === localDate
             && previous.legacyDaily && legacy.value
             && JSON.stringify(previous.legacyDaily) === JSON.stringify(legacy.value.daily);
@@ -254,27 +288,44 @@ export function useHealthSelectedDayComposite(
             cacheKey: canonical.scope ? selectedDayCompositeKey(canonical.scope, localDate) : null,
             result, legacyDaily: legacySource.status === 'success' && legacy.value
               ? sameLegacy ? previous.legacyDaily : legacy.value.daily : null,
-            isolationError: false, scopeVersion, sequence, epoch };
+            isolationError: false, scopeVersion, sequence, epoch, ownerLifetime, ownerPublication, request,
+            canonicalScope: canonical.scope ? Object.freeze({ ...canonical.scope }) : null,
+            failures: Object.freeze(failures) };
         });
       } catch (error) {
         if (!isCurrent()) return;
         if (error instanceof CompositeWorkoutReadIsolationError) {
           publish({ phase: 'settled', accountId, localDate, cacheKey: null,
-            result: null, legacyDaily: null, isolationError: true });
+            result: null, legacyDaily: null, isolationError: true }, [observeOwnerFailure(error)]);
         } else {
           publish({ phase: 'settled', accountId, localDate, cacheKey: null,
-            result: null, legacyDaily: null, isolationError: false });
+            result: null, legacyDaily: null, isolationError: false }, [observeOwnerFailure(error)]);
         }
       }
     }
     void loadPair();
-    return () => { requestSequence.current += 1; };
+    return () => { requestSequence.current += 1; ownerPublicationRef.current = null; };
   }, [enabled, accountId, localDate, refresh]);
 
-  const visible = enabled && stored.accountId === accountId && stored.localDate === localDate
+  const storedCurrent = enabled && stored.accountId === accountId && stored.localDate === localDate
     && stored.scopeVersion === currentRef.current.scopeVersion
-    && stored.sequence === requestSequence.current && stored.epoch === mountEpoch.current
+    && stored.sequence === requestSequence.current && stored.epoch === mountEpoch.current;
+  const visible = storedCurrent
     ? stored.phase === 'loading' ? loading(accountId, localDate) : stored
     : loading(accountId, localDate);
-  return { ...visible, retry };
+  const bound = storedCurrent ? stored : null;
+  const evidenceCurrent = () => !!bound && !!bound.ownerLifetime && !!bound.ownerPublication
+    && ownerLifetimeRef.current === bound.ownerLifetime && ownerPublicationRef.current === bound.ownerPublication
+    && requestSequence.current === bound.sequence && mountEpoch.current === bound.epoch
+    && currentRef.current.enabled && currentRef.current.scopeVersion === bound.scopeVersion
+    && currentRef.current.accountId === bound.accountId && currentRef.current.localDate === bound.localDate;
+  const captureOwnerEvidence = (): WorkoutOwnerEvidence<'B1', SelectedDayOwnerData> | null => evidenceCurrent()
+    ? Object.freeze({ owner: 'B1', lifetime: bound!.ownerLifetime!, publication: bound!.ownerPublication!,
+      request: bound!.request, inFlight: bound!.phase === 'loading', isCurrent: evidenceCurrent,
+      data: Object.freeze({ phase: visible.phase, accountId: visible.accountId, localDate: visible.localDate,
+        result: visible.result, legacyDaily: visible.legacyDaily, isolationError: visible.isolationError,
+        canonicalScope: bound!.canonicalScope, failures: bound!.failures }) }) : null;
+  return { phase: visible.phase, accountId: visible.accountId, localDate: visible.localDate,
+    cacheKey: visible.cacheKey, result: visible.result, legacyDaily: visible.legacyDaily,
+    isolationError: visible.isolationError, retry, captureOwnerEvidence };
 }
