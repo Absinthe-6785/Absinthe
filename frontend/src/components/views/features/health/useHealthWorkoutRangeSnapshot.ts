@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { HealthExerciseComparisonBorrower, type HealthExerciseComparisonPort, type HealthExerciseComparisonRead } from './healthExerciseComparisonBorrower';
 import type { WorkoutExerciseComparisonContext } from '../../../../lib/workoutExerciseComparisonOwner';
 import { observeOwnerFailure, type OwnerFailureDisposition, type RangeOwnerData, type WorkoutOwnerEvidence } from './healthWorkoutOwnerAdapters';
@@ -41,13 +41,14 @@ export type HealthWorkoutRangeReadModel = Readonly<{
   previewRead?: WorkoutRangePreviewRead;
   isPreviewCurrent: (read: WorkoutRangePreviewRead) => boolean;
   exerciseComparison?: HealthExerciseComparisonRead;
-  /** Existing owner observation only; never calls coordinator verification/IO. */
+  /** Uses the existing synchronous coordinator fence; no repository/IDB verification. */
   captureOwnerEvidence?: () => WorkoutOwnerEvidence<'RANGE', RangeOwnerData> | null;
 }>;
 
 type RangeEvidence = Readonly<{
   lifetime: object; publication: object; request: object; inFlight: boolean;
   snapshot: object | null; isCurrent: () => boolean;
+  coordinatorPublication: ReturnType<WorkoutReadSnapshotCoordinator['captureCurrentSnapshot']>;
   failures: readonly OwnerFailureDisposition[];
 }>;
 type StoredRangeRead = Omit<HealthWorkoutRangeReadModel,
@@ -119,6 +120,8 @@ export function useHealthWorkoutRangeSnapshot(
   const ownerEpoch = useRef(0);
   const publicationSequence = useRef(0);
   const ownerEvidenceRef = useRef<RangeEvidence | null>(null);
+  const connectionRef = useRef<object | null>(null);
+  const [connection, setConnection] = useState<object | null>(null);
   const automaticCurrentnessRetryUsed = useRef(false);
   const currentRef = useRef({ enabled, accountId, previousBounds, monthBounds, previewScope, comparisonContext });
   // Async source callbacks and durable commit handlers observe the LAST COMMIT,
@@ -126,6 +129,15 @@ export function useHealthWorkoutRangeSnapshot(
   useLayoutEffect(() => {
     currentRef.current = { enabled, accountId, previousBounds, monthBounds, previewScope, comparisonContext };
   });
+  useLayoutEffect(() => {
+    // Revoke proof during committed layout retirement, leaving passive reader IO
+    // cleanup with its existing owner. Render never issues/retires this token.
+    const issued = enabled ? Object.freeze({}) : null;
+    connectionRef.current = issued;
+    setConnection(issued);
+    return () => { if (connectionRef.current === issued) connectionRef.current = null; };
+  }, [enabled, accountId, dependencies?.createCoordinator, dependencies?.deviceStorage,
+    previousBounds.startDate, previousBounds.endDate, monthBounds.startDate, monthBounds.endDate, previewScope]);
   const comparisonEnabled = enabled && !!comparisonContext?.enabled;
   const comparisonDate = comparisonContext?.selectedDate ?? '';
   useLayoutEffect(() => {
@@ -262,7 +274,7 @@ export function useHealthWorkoutRangeSnapshot(
       && ownerEpoch.current === epoch
       && publicationSequence.current === sequence;
     const proof: RangeEvidence = { lifetime: sourceLifetimeRef.current!, publication: Object.freeze({}),
-      request: Object.freeze({}), inFlight: true, snapshot: null, isCurrent, failures: [] };
+      request: Object.freeze({}), inFlight: true, snapshot: null, coordinatorPublication: null, isCurrent, failures: [] };
     ownerEvidenceRef.current = proof;
     setStored({ ...initialState(true, accountId, currentRef.current.previousBounds, currentRef.current.monthBounds), ownerEvidence: proof });
     previewPublicationRef.current = null;
@@ -312,10 +324,13 @@ export function useHealthWorkoutRangeSnapshot(
       && ownerEpoch.current === epoch
       && publicationSequence.current === sequence;
     const proof: RangeEvidence = { lifetime: sourceLifetimeRef.current!, publication: Object.freeze({}),
-      request: Object.freeze({}), inFlight: true, snapshot: null, isCurrent, failures: [] };
+      request: Object.freeze({}), inFlight: true, snapshot: null, coordinatorPublication: null, isCurrent, failures: [] };
     ownerEvidenceRef.current = proof;
     setStored(previous => ({ ...previous, phase: 'loading', accountId,
-      previousBounds: capturedPrevious, monthBounds: capturedMonth, ownerEvidence: proof }));
+      previousBounds: capturedPrevious, monthBounds: capturedMonth,
+      // Layout publication can flush this passive update before paint: do not
+      // relabel old-bounds views as the newly loading bounds on that binding render.
+      previousView: null, monthView: null, ownerEvidence: proof }));
     previewPublicationRef.current = null;
     void Promise.all([
       coordinator.deriveRange(capturedPrevious.startDate, capturedPrevious.endDate),
@@ -335,8 +350,10 @@ export function useHealthWorkoutRangeSnapshot(
         isolationError: false, publication: {}, isCurrent: () => isPreviewCurrent(previewRead!),
       } : undefined;
       previewPublicationRef.current = previewRead ?? null;
+      const snapshot = coordinator.currentSnapshot;
+      const coordinatorPublication = coordinator.captureCurrentSnapshot?.() ?? null;
       const settled = { ...proof, publication: Object.freeze({}), inFlight: false,
-        snapshot: coordinator.currentSnapshot };
+        snapshot, coordinatorPublication };
       ownerEvidenceRef.current = settled;
       setStored({
         phase: 'settled',
@@ -402,11 +419,16 @@ export function useHealthWorkoutRangeSnapshot(
           : coordinatorRef.current?.currentSnapshot ? 'ready' : 'unavailable' }
     : undefined;
   const bound = visible.ownerEvidence;
-  const evidenceCurrent = () => !!bound && currentRef.current.enabled
+  // This memo binds identities only; authority is the layout-issued connection
+  // plus the existing source/coordinator fences, never memo retention itself.
+  const publication = useMemo(() => bound && connection ? Object.freeze({}) : null, [bound, connection]);
+  const evidenceCurrent = () => !!connection && connectionRef.current === connection
+    && !!bound && currentRef.current.enabled
     && ownerEvidenceRef.current === bound && sourceLifetimeRef.current === bound.lifetime
-    && bound.isCurrent() && (!bound.snapshot || coordinatorRef.current?.currentSnapshot === bound.snapshot);
+    && bound.isCurrent() && (!bound.snapshot || (coordinatorRef.current?.currentSnapshot === bound.snapshot
+      && bound.coordinatorPublication?.snapshot === bound.snapshot && bound.coordinatorPublication.isCurrent()));
   const captureOwnerEvidence = (): WorkoutOwnerEvidence<'RANGE', RangeOwnerData> | null => evidenceCurrent()
-    ? Object.freeze({ owner: 'RANGE', lifetime: bound!.lifetime, publication: bound!.publication,
+    ? Object.freeze({ owner: 'RANGE', lifetime: connection!, publication: publication!,
       request: bound!.request, inFlight: bound!.inFlight, isCurrent: evidenceCurrent,
       data: Object.freeze({ phase: visible.phase, accountId: visible.accountId,
         previousBounds: visible.previousBounds, monthBounds: visible.monthBounds,

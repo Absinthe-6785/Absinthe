@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { HEALTH_LOCAL_BOOTSTRAP_COMPLETE_EVENT } from '../../../../lib/healthSupabaseBootstrap';
 import { LocalDatabaseError } from '../../../../lib/localDatabase/errors';
 import { WorkoutSelectedDayReader, readEstablishedWorkoutDeviceId,
@@ -62,12 +62,23 @@ export function useHealthSelectedDayComposite(
   // Proof metadata for the existing mount/request owner; no additional lifecycle.
   const ownerLifetimeRef = useRef<object | null>(null);
   const ownerPublicationRef = useRef<object | null>(null);
+  const connectionRef = useRef<object | null>(null);
+  const [connection, setConnection] = useState<object | null>(null);
   const currentRef = useRef({ enabled, accountId, localDate, scopeVersion: 0 });
-  const previousScope = currentRef.current;
-  if (previousScope.enabled !== enabled || previousScope.accountId !== accountId || previousScope.localDate !== localDate) {
-    // Render-time fencing also covers the interval before effect cleanup/setup.
-    currentRef.current = { enabled, accountId, localDate, scopeVersion: previousScope.scopeVersion + 1 };
-  }
+  useLayoutEffect(() => {
+    const previousScope = currentRef.current;
+    if (previousScope.enabled !== enabled || previousScope.accountId !== accountId || previousScope.localDate !== localDate) {
+      currentRef.current = { enabled, accountId, localDate, scopeVersion: previousScope.scopeVersion + 1 };
+    }
+  });
+  useLayoutEffect(() => {
+    // Proof authority follows committed layout connection, not passive IO lifetime.
+    // Suspense reconnect/StrictMode replay always issues a new, never-restored token.
+    const issued = enabled ? Object.freeze({}) : null;
+    connectionRef.current = issued;
+    setConnection(issued);
+    return () => { if (connectionRef.current === issued) connectionRef.current = null; };
+  }, [enabled, accountId, localDate]);
 
   const retry = useCallback(() => {
     if (!currentRef.current.enabled) return;
@@ -314,13 +325,17 @@ export function useHealthSelectedDayComposite(
     ? stored.phase === 'loading' ? loading(accountId, localDate) : stored
     : loading(accountId, localDate);
   const bound = storedCurrent ? stored : null;
-  const evidenceCurrent = () => !!bound && !!bound.ownerLifetime && !!bound.ownerPublication
+  // Pure binding cache, NOT authority issuance: both exact committed connection and
+  // source publication are independently checked below. No ref is borrowed by render.
+  const publication = useMemo(() => bound && connection ? Object.freeze({}) : null, [bound, connection]);
+  const evidenceCurrent = () => !!connection && connectionRef.current === connection
+    && !!bound && !!bound.ownerLifetime && !!bound.ownerPublication
     && ownerLifetimeRef.current === bound.ownerLifetime && ownerPublicationRef.current === bound.ownerPublication
     && requestSequence.current === bound.sequence && mountEpoch.current === bound.epoch
     && currentRef.current.enabled && currentRef.current.scopeVersion === bound.scopeVersion
     && currentRef.current.accountId === bound.accountId && currentRef.current.localDate === bound.localDate;
   const captureOwnerEvidence = (): WorkoutOwnerEvidence<'B1', SelectedDayOwnerData> | null => evidenceCurrent()
-    ? Object.freeze({ owner: 'B1', lifetime: bound!.ownerLifetime!, publication: bound!.ownerPublication!,
+    ? Object.freeze({ owner: 'B1', lifetime: connection!, publication: publication!,
       request: bound!.request, inFlight: bound!.phase === 'loading', isCurrent: evidenceCurrent,
       data: Object.freeze({ phase: visible.phase, accountId: visible.accountId, localDate: visible.localDate,
         result: visible.result, legacyDaily: visible.legacyDaily, isolationError: visible.isolationError,

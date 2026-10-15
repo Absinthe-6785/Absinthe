@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
-import { act, createElement } from 'react';
+import * as React from 'react';
+import { act, createElement, Suspense, StrictMode, startTransition, useLayoutEffect } from 'react';
+import { flushSync } from 'react-dom';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -17,6 +19,10 @@ import { buildWorkoutCalendarActivity } from './workoutCalendarActivity';
 import { WorkoutReadSnapshotCoordinator } from './verifiedWorkoutRangeSnapshot';
 import { LegacyPreviousCurrentness } from './legacyPreviousCurrentness';
 import * as adapters from './healthWorkoutOwnerAdapters';
+import * as dayReaderModule from '../../../../lib/workoutSelectedDayReader';
+import * as projectionModule from './compositeWorkoutReadProjection';
+import * as legacySnapshotModule from './selectedDayLegacySnapshot';
+import * as comparisonBorrowerModule from './healthExerciseComparisonBorrower';
 
 const mocks = vi.hoisted(() => ({ repo: vi.fn(), readAll: vi.fn(), dayOpen: vi.fn(), rangeOpen: vi.fn(),
   dayCanonical: vi.fn(), rangeCanonical: vi.fn(), previous: vi.fn() }));
@@ -371,6 +377,164 @@ describe('Slice B real-owner publication observations (not runtime activation)',
     expect(win.mock.calls.filter(([name]) => name === 'owner-adapter-bootstrap')).toHaveLength(1);
     expect(doc.mock.calls.filter(([name]) => name === 'visibilitychange')).toHaveLength(1);
     expect(write).not.toHaveBeenCalled();
+  });
+});
+
+describe('R01/R02 real coordinator and committed-layout proof boundaries', () => {
+  const pb = { startDate: '2025-10-15', endDate: '2026-10-14' };
+  const mb = { startDate: '2026-10-01', endDate: '2026-10-31' };
+  const realHooks = { day: useHealthSelectedDayComposite, range: useHealthWorkoutRangeSnapshot };
+  type Hooks = typeof realHooks;
+  // Candidate-only in-memory mutations. No faulty source is written to disk.
+  function faultyHook<K extends keyof Hooks>(key: K, needle: string, replacement: string): Hooks[K] {
+    const file = key === 'day' ? 'useHealthSelectedDayComposite' : 'useHealthWorkoutRangeSnapshot';
+    const source = readFileSync(resolve(`src/components/views/features/health/${file}.ts`), 'utf8').replace(/\r\n/g, '\n');
+    expect(source.split(needle)).toHaveLength(2);
+    const code = transpileModule(source.replace(needle, replacement), {
+      compilerOptions: { module: ModuleKind.CommonJS },
+    }).outputText;
+    const exports: Record<string, unknown> = {};
+    const modules: Record<string, unknown> = {
+      react: React,
+      '../../../../lib/healthSupabaseBootstrap': { HEALTH_LOCAL_BOOTSTRAP_COMPLETE_EVENT: 'owner-adapter-bootstrap' },
+      '../../../../lib/localDatabase/errors': { LocalDatabaseError },
+      '../../../../lib/workoutSelectedDayReader': dayReaderModule,
+      './compositeWorkoutReadProjection': projectionModule,
+      './selectedDayLegacySnapshot': legacySnapshotModule,
+      './healthExerciseComparisonBorrower': comparisonBorrowerModule,
+      './verifiedWorkoutRangeSnapshot': { WorkoutReadSnapshotCoordinator },
+      './healthWorkoutOwnerAdapters': adapters,
+    };
+    new Function('exports', 'require', code)(exports, (id: string) => {
+      if (!(id in modules)) throw Error(`unexpected hook mutation import: ${id}`);
+      return modules[id];
+    });
+    return exports[file] as Hooks[K];
+  }
+  async function lifecycle(hooks = realHooks, strict = false) {
+    const wait = deferred<void>();
+    let ports!: Pick<typeof latest, 'day' | 'range' | 'previous'>;
+    let parentCurrent = false, speculativeAttempt = false;
+    let atLayout: boolean[] = [], nullAtLayout: boolean[] = [];
+    let passiveCleaned = false, passiveAtLayout = true;
+    const evidence = () => [ports.day.captureOwnerEvidence!(), ports.range.captureOwnerEvidence!(), ports.previous.captureOwnerEvidence()];
+    function Sources({ suspend, date }: { suspend: boolean; date: string }) {
+      const day = hooks.day(true, 'a', date, { managedLifecycle: true });
+      const range = hooks.range(true, 'a', { ...pb, endDate: date === X ? pb.endDate : X }, mb);
+      const previous = useLegacyPreviousCurrentness(true, {
+        accountId: 'a', beforeDate: X, authority: 'local', parentIdentity: null, rejected: false,
+      });
+      useLayoutEffect(() => () => {
+        passiveAtLayout = passiveCleaned;
+        atLayout = held.map(value => value.isCurrent());
+        nullAtLayout = evidence().map(value => value === null);
+      }, []);
+      React.useEffect(() => () => { passiveCleaned = true; }, []);
+      if (suspend) { speculativeAttempt = true; throw wait.promise; }
+      ports = { day, range, previous };
+      return createElement('div', null, 'sources');
+    }
+    function Parent({ show, suspend, date }: { show: boolean; suspend: boolean; date: string }) {
+      const parent = useHealthWorkoutOperationLifetime('a', 1, X);
+      parentCurrent = parent.getCurrent() !== null;
+      return createElement(Suspense, { fallback: createElement('div', null, 'fallback') },
+        show ? createElement(Sources, { suspend, date }) : null);
+    }
+    const draw = (show = true, suspend = false, date = X) => {
+      const tree = createElement(Parent, { show, suspend, date });
+      root ??= createRoot(host);
+      root.render(strict ? createElement(StrictMode, null, tree) : tree);
+    };
+    // StrictMode's initial cleanup runs before any source result exists.
+    let held: NonNullable<ReturnType<typeof evidence>[number]>[] = [];
+    await act(async () => draw()); await tick();
+    held = evidence().map(value => { expect(value).not.toBeNull(); return value!; });
+    expect(held.map(value => value.isCurrent())).toEqual([true, true, true]);
+    passiveCleaned = false;
+    return { draw, wait, held, evidence,
+      state: () => ({ parentCurrent, speculativeAttempt, atLayout, nullAtLayout, passiveAtLayout }) };
+  }
+  it('R01-C01–C06 consumes exact existing device fence without external proof checks or extra metadata IO', async () => {
+    await render(); await tick();
+    const held = latest.r, port = latest.range;
+    const fence = vi.spyOn(WorkoutReadSnapshotCoordinator.prototype, 'captureCurrentSnapshot');
+    const get = vi.spyOn(window.localStorage, 'getItem');
+    const before = counts();
+    expect(held.isCurrent()).toBe(true);
+    expect(get.mock.calls).toEqual([['absinthe-health-routine-device-id:v1']]);
+    expect(fence).not.toHaveBeenCalled(); // Already captured once at source publication.
+    window.localStorage.setItem('absinthe-health-routine-device-id:v1', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb');
+    expect(held.isCurrent()).toBe(false);
+    expect(port.captureOwnerEvidence!()).toBeNull();
+    window.localStorage.setItem('absinthe-health-routine-device-id:v1', DEVICE);
+    expect(held.isCurrent()).toBe(false); expect(port.captureOwnerEvidence!()).toBeNull();
+    expect(counts()).toEqual(before);
+  });
+  it('R02-C01/C02/C03/C07 rejects all held source closures in child layout cleanup with parent still mounted', async () => {
+    const run = await lifecycle();
+    await act(async () => run.draw(false));
+    expect(run.state()).toMatchObject({ parentCurrent: true, passiveAtLayout: false,
+      atLayout: [false, false, false], nullAtLayout: [true, true, true] });
+  });
+  it.each([false, true])('R02-C04/C05/C06/C10 Suspense reconnect retires permanently and issues fresh proof; StrictMode=%s', async strict => {
+    const run = await lifecycle(realHooks, strict), before = counts();
+    act(() => flushSync(() => run.draw(true, true)));
+    expect(host.textContent).toContain('fallback');
+    expect(run.state().atLayout).toEqual([false, false, false]);
+    expect(run.state().passiveAtLayout).toBe(false);
+    expect(run.held.map(value => value.isCurrent())).toEqual([false, false, false]);
+    await act(async () => { run.draw(); run.wait.resolve(); }); await tick();
+    expect(run.held.map(value => value.isCurrent())).toEqual([false, false, false]);
+    const fresh = run.evidence();
+    for (let i = 0; i < 2; i++) {
+      expect(fresh[i]!.isCurrent()).toBe(true);
+      expect(fresh[i]!.lifetime).not.toBe(run.held[i]!.lifetime);
+      expect(fresh[i]!.publication).not.toBe(run.held[i]!.publication);
+    }
+    // Normal reconnection binds proof without IO. Development StrictMode also
+    // replays the EXISTING passive source effects: one paired source episode.
+    expect(counts()).toEqual(strict ? before.map((value, i) => value + [2, 2, 1, 1, 1, 1, 0][i]!) : before);
+  });
+  it('R02-C08 late completion while layout-disconnected cannot restore the retired proof', async () => {
+    const pending = deferred<HealthRecoveryDatasets>(); mocks.readAll.mockReturnValue(pending.promise);
+    const run = await lifecycle();
+    act(() => flushSync(() => run.draw(true, true)));
+    await act(async () => pending.resolve(datasets())); await tick();
+    expect(run.held.map(value => value.isCurrent())).toEqual([false, false, false]);
+    await act(async () => { run.draw(); run.wait.resolve(); }); await tick();
+    expect(run.held.map(value => value.isCurrent())).toEqual([false, false, false]);
+    expect(run.evidence().slice(0, 2).map(value => value!.isCurrent())).toEqual([true, true]);
+  });
+  it('R02-C09 abandoned speculative date render cannot revoke committed proof or start source IO', async () => {
+    const run = await lifecycle(), before = counts();
+    act(() => startTransition(() => run.draw(true, true, Y))); await tick();
+    expect(run.state().speculativeAttempt).toBe(true);
+    expect(host.textContent).not.toContain('fallback');
+    expect(run.held.map(value => value.isCurrent())).toEqual([true, true, true]);
+    await act(async () => { run.draw(); run.wait.resolve(); }); await tick();
+    expect(run.held.map(value => value.isCurrent())).toEqual([true, true, true]);
+    expect(counts()).toEqual(before);
+  });
+  it('negative control: removing coordinator fence fails the same device authority oracle', async () => {
+    const range = faultyHook('range', '&& bound.coordinatorPublication.isCurrent()', '&& true');
+    const run = await lifecycle({ ...realHooks, range });
+    window.localStorage.setItem('absinthe-health-routine-device-id:v1', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb');
+    const oracle = () => expect(run.held[1]!.isCurrent()).toBe(false);
+    expect(run.held[1]!.isCurrent()).toBe(true); expect(oracle).toThrow(/false/);
+  });
+  it.each(['passive', 'revival'] as const)('negative control: %s retirement fails the matching real layout authority oracle', async mode => {
+    const mutate = <K extends keyof Hooks>(key: K) => mode === 'revival'
+      ? faultyHook(key, 'connectionRef.current === connection', '!!connectionRef.current')
+      : faultyHook(key, key === 'day' ? 'useLayoutEffect(() => {\n    // Proof authority' : 'useLayoutEffect(() => {\n    // Revoke proof',
+        key === 'day' ? 'useEffect(() => {\n    // Proof authority' : 'useEffect(() => {\n    // Revoke proof');
+    const run = await lifecycle({ day: mutate('day'), range: mutate('range') });
+    act(() => flushSync(() => run.draw(true, true)));
+    if (mode === 'revival') {
+      await act(async () => { run.draw(); run.wait.resolve(); }); await tick();
+    }
+    const actual = run.held.slice(0, 2).map(value => value.isCurrent());
+    const oracle = () => expect(actual).toEqual([false, false]);
+    expect(actual).toEqual([true, true]); expect(oracle).toThrow(/false/);
   });
 });
 
