@@ -83,6 +83,9 @@ const mocks = vi.hoisted(() => ({
   showToast: vi.fn(),
   mutateDaily: vi.fn(),
   mutateStatic: vi.fn(),
+  // One stable bound mutate per actual SWR key, not one fabricated per render.
+  swrMutators: new Map<string, (...args: unknown[]) => Promise<undefined>>(),
+  cacheEffects: [] as Array<{ sequence: number; target: string; key: unknown; args: unknown[] }>,
   deleteHealthWorkout: vi.fn(),
   saveHealthWorkouts: vi.fn(),
   showConfirm: vi.fn(),
@@ -111,7 +114,18 @@ vi.mock('../../lib/remoteBoundary', () => ({
 }));
 vi.mock('../../lib/fetcher', () => ({ fetcher: vi.fn(async () => []) }));
 vi.mock('swr', () => ({
-  default: () => ({ data: [], mutate: vi.fn(), isLoading: false, error: undefined }),
+  default: (key: unknown) => {
+    const identity = JSON.stringify(key);
+    if (!mocks.swrMutators.has(identity)) {
+      const boundKey = structuredClone(key);
+      mocks.swrMutators.set(identity, async (...args: unknown[]) => {
+        mocks.cacheEffects.push({ sequence: mocks.cacheEffects.length + 1,
+          target: 'swr-bound-mutate', key: boundKey, args: structuredClone(args) });
+        return undefined;
+      });
+    }
+    return { data: [], mutate: mocks.swrMutators.get(identity), isLoading: false, error: undefined };
+  },
 }));
 vi.mock('../../hooks/useEscapeKey', () => ({ useEscapeKey: vi.fn() }));
 vi.mock('../../hooks/useIsMobile', () => ({ useIsMobile: () => mocks.mobile }));
@@ -329,6 +343,7 @@ function row(id = '11111111-1111-4111-8111-111111111111', kg = '20', block = blo
 const DRAFT_X = [row()], DRAFT_Y = [row('22222222-2222-4222-8222-222222222222', '45', blocks[1]!)];
 const DRAFT_Z = [row('33333333-3333-4333-8333-333333333333', '70')];
 const HYDRATED = [row('44444444-4444-4444-8444-444444444444', '99')];
+const FRESH_HYDRATED = [row('44444444-4444-4444-8444-444444444444', '101')];
 class ByteStorage implements Storage {
   private bytes = new Map<string, string>();
   history: Array<{ op: string; key: string; value?: string }> = [];
@@ -392,7 +407,32 @@ function snapshot() {
   return { rows: structuredClone(mocks.draft.localWorkouts) as Workout[], dirty: mocks.draft.isDirty as boolean,
     dirtyRef: mocks.draft.isDirtyRef.current as boolean, saving: mocks.saving, locked: mocks.locked,
     bytes: storage.getItem(localHealthDraftKey(props.user.id, props.formatDate(props.selectedDate))), toasts: [...mocks.showToast.mock.calls],
-    cacheCalls: [mocks.mutateDaily.mock.calls.length, mocks.mutateStatic.mock.calls.length] };
+    cacheCalls: [mocks.mutateDaily.mock.calls.length, mocks.mutateStatic.mock.calls.length],
+    cacheEffects: structuredClone(mocks.cacheEffects) };
+}
+// Assert the contract independently on BOTH subjects as well as comparing logs.
+// The test's date formatter is UTC; JS constructs month endpoints in local time,
+// exactly as the existing UI contract does (including on Windows in Asia/Seoul).
+function expectedCacheEffects(count: number) {
+  const start = new Date(2026, 0, 1).toISOString().slice(0, 10);
+  const end = new Date(2026, 1, 0).toISOString().slice(0, 10);
+  return Array.from({ length: count }, (_, index) => [
+    { sequence: index * 3 + 1, target: 'daily', key: [A, X], args: [] },
+    { sequence: index * 3 + 2, target: 'swr-bound-mutate',
+      key: ['local-health-workout-range', A, start, end], args: [] },
+    { sequence: index * 3 + 3, target: 'static', key: [A], args: [] },
+  ]).flat();
+}
+function assertFreshHydration(expected: Workout[]) {
+  expect(snapshot(), 'R02_FRESH_HYDRATION_ORACLE:actual rows/dirty/storage').toMatchObject({
+    rows: expected, dirty: false, dirtyRef: false, saving: false, locked: true, bytes: null,
+  });
+  // Rendered output, not only delivered props or the transparent hook observer.
+  const input = host.querySelector<HTMLInputElement>('[data-k126-workout-exercise-card] input[inputmode="decimal"]');
+  const set = expected[0].sets[0];
+  expect(input?.value, 'R02_FRESH_HYDRATION_ORACLE:rendered kg').toBe('kg' in set ? String(set.kg) : undefined);
+  expect(props.user.id).toBe(A); expect(props.formatDate(props.selectedDate)).toBe(X);
+  expect(storage.history.filter(event => event.op !== 'get' && event.key === localHealthDraftKey(A, X))).toEqual([]);
 }
 function assertRestored(expected: Workout[]) {
   const state = snapshot();
@@ -440,6 +480,15 @@ function resetFixture() {
   mocks.dispatches.length = 0; mocks.commits.length = 0; mocks.factoryGate = null; mocks.commitGate = null;
   mocks.authFetch.mockReset().mockResolvedValue(new Response(null, { status: 201 }));
   mocks.showToast.mockReset(); mocks.mutateDaily.mockReset(); mocks.mutateStatic.mockReset();
+  mocks.swrMutators.clear(); mocks.cacheEffects.length = 0;
+  mocks.mutateDaily.mockImplementation((...args: unknown[]) => {
+    mocks.cacheEffects.push({ sequence: mocks.cacheEffects.length + 1,
+      target: 'daily', key: [props.user.id, props.formatDate(props.selectedDate)], args: structuredClone(args) });
+  });
+  mocks.mutateStatic.mockImplementation((...args: unknown[]) => {
+    mocks.cacheEffects.push({ sequence: mocks.cacheEffects.length + 1,
+      target: 'static', key: [props.user.id], args: structuredClone(args) });
+  });
   mocks.saveHealthWorkouts.mockReset().mockResolvedValue({ status: 'success', total: 1, succeeded: 1, failed: 0 });
   mocks.deleteHealthWorkout.mockReset().mockResolvedValue({ status: 'success' });
   mocks.repositoryFactory.mockReset().mockImplementation(async (accountId: string) => {
@@ -483,6 +532,7 @@ describe('gate-OFF exact-main differential draft/hydration oracle', () => {
       subject = component; props = undefined as unknown as HealthProps;
       storage = new ByteStorage(); vi.stubGlobal('localStorage', storage);
       mocks.showToast.mockReset(); mocks.mutateDaily.mockReset(); mocks.mutateStatic.mockReset();
+      mocks.swrMutators.clear(); mocks.cacheEffects.length = 0;
       mocks.saveHealthWorkouts.mockReset().mockResolvedValue({ status: 'success', total: 1, succeeded: 1, failed: 0 });
       const observations: any[] = [];
       await render({ workouts: HYDRATED }); observations.push(snapshot());
@@ -542,7 +592,7 @@ async function directExperiment(side: 'baseline' | 'candidate', scenario: PairSc
     notifications.push(account);
   };
   const input = { account: A, dates: [X, Y, Z], scenario, strictMode,
-    source: JSON.stringify(HYDRATED), initial: JSON.stringify([DRAFT_X, DRAFT_Y, DRAFT_Z]),
+    source: JSON.stringify([HYDRATED, FRESH_HYDRATED]), initial: JSON.stringify([DRAFT_X, DRAFT_Y, DRAFT_Z]),
     mode: 'local', gates: 'all-five-literal-false', raf: 'controlled', swr: 'fresh-module/no-remote-key' };
   const observe = (label: string) => checkpoints.push({ label, ...snapshot() });
   const settleInitial = async (withDraft = true) => {
@@ -557,13 +607,18 @@ async function directExperiment(side: 'baseline' | 'candidate', scenario: PairSc
       storage.setItem(localHealthDraftKey(B, Z), JSON.stringify(DRAFT_Z));
       await settleInitial(false);
       await render({ workouts: HYDRATED }); observe('clean-hydration');
-      expect(snapshot()).toMatchObject({ rows: HYDRATED, dirty: false, dirtyRef: false, saving: false, locked: true, bytes: null });
+      assertFreshHydration(HYDRATED);
       const sameArray = mocks.draft.localWorkouts;
       await render({ workouts: HYDRATED }); expect(mocks.draft.localWorkouts).toBe(sameArray); observe('same-array');
       await render({ selectedDayComposite: { accountId: A, localDate: X, phase: 'loading', result: null,
         legacyDaily: null, isolationError: false, cacheKey: null, retry: vi.fn() } as any, workouts: DRAFT_Y });
       expect(mocks.draft.localWorkouts).toBe(sameArray); observe('ineligible-source');
-      await render({ selectedDayComposite: undefined, workouts: [...HYDRATED] }); observe('fresh-eligible-source');
+      await render({ selectedDayComposite: undefined, workouts: [...FRESH_HYDRATED] });
+      assertFreshHydration(FRESH_HYDRATED); observe('fresh-eligible-source');
+      expect(storage.getItem(localHealthDraftKey(A, Y))).toBeNull();
+      expect(storage.getItem(localHealthDraftKey(B, Z))).toBe(JSON.stringify(DRAFT_Z));
+      expect(mocks.inputs).toEqual([]); expect(notifications).toEqual([]);
+      expect(mocks.showToast).not.toHaveBeenCalled();
       await invoke(() => button('editBtn').click()); await editKg('42'); observe('user-edit');
       const owned = snapshot();
       await render({ workouts: [...DRAFT_Y] }); expect(snapshot()).toEqual(owned);
@@ -598,6 +653,10 @@ async function directExperiment(side: 'baseline' | 'candidate', scenario: PairSc
       await act(async () => gate.release()); observe('acknowledged');
       expect(snapshot()).toMatchObject({ saving: false, dirty: false, dirtyRef: false, bytes: null, locked: scenario === 'save-ack' });
       expect(mocks.commits).toHaveLength(1); expect(notifications).toEqual([A]);
+      expect(snapshot().cacheEffects, 'R02_MONTH_CACHE_ORACLE:' + scenario).toEqual(expectedCacheEffects(1));
+      expect(mocks.dispatches[0]).toMatchObject(scenario === 'save-ack'
+        ? { kind: 'save', accountId: A, rows: [expect.objectContaining({ id: DRAFT_X[0].id, date: X, expectedVersion: 'v1' })] }
+        : { kind: 'delete', accountId: A, id: DRAFT_X[0].id, version: 'v1' });
       if (scenario === 'save-ack') expect(snapshot().rows[0]).toMatchObject({ id: DRAFT_X[0].id, local_version: 'v2' });
       else expect(snapshot().rows).toEqual([]);
       await render({ selectedDate: date(Y) }); assertRestored(DRAFT_Y); observe('Y-reset');
@@ -607,6 +666,7 @@ async function directExperiment(side: 'baseline' | 'candidate', scenario: PairSc
       mocks.commitGate = null; await save(); observe('normal-X2-completion');
       expect(snapshot()).toMatchObject({ dirty: false, dirtyRef: false, saving: false, locked: true, bytes: null });
       expect(notifications).toEqual([A, A]);
+      expect(snapshot().cacheEffects, 'R02_MONTH_CACHE_ORACLE:second valid completion').toEqual(expectedCacheEffects(2));
     } else if (scenario === 'draft-delete') {
       seed(); storage.setItem(localHealthDraftKey(A, X), JSON.stringify([row('temp-owned', '23')]));
       await render({ onLocalWorkoutCommitted: notify }); observe('draft-only-before');
@@ -615,6 +675,7 @@ async function directExperiment(side: 'baseline' | 'candidate', scenario: PairSc
       expect(snapshot()).toMatchObject({ rows: [], dirty: false, dirtyRef: false, saving: false, locked: false, bytes: null });
       expect(mocks.inputs).toEqual([]); expect(mocks.dispatches).toEqual([]); expect(notifications).toEqual([]);
       expect(snapshot().cacheCalls).toEqual([0, 0]);
+      expect(snapshot().cacheEffects).toEqual([]);
     } else if (scenario.startsWith('durable-')) {
       const operation = scenario === 'durable-save' ? 'save' : 'delete';
       await settleInitial(); const gate = deferred(); mocks.commitGate = gate;
@@ -629,8 +690,10 @@ async function directExperiment(side: 'baseline' | 'candidate', scenario: PairSc
       expect(mocks.commits).toEqual([{ kind: operation, accountId: A }]); expect(notifications).toEqual([A]);
       if (side === 'candidate') {
         expect(snapshot()).toEqual(before);
+        expect(snapshot().cacheEffects).toEqual([]);
         await render({ workouts: [...HYDRATED] }); expect(snapshot()).toEqual(before);
       } else {
+        expect(snapshot().cacheEffects, 'R02_MONTH_CACHE_ORACLE:baseline stale ACK').toEqual(expectedCacheEffects(1));
         expect(snapshot()).toMatchObject({ dirty: false, dirtyRef: false, bytes: null, saving: false });
         if (operation === 'save') expect(snapshot()).toMatchObject({ locked: true, rows: [expect.objectContaining({ local_version: 'v2' })] });
         else expect(snapshot().rows).toEqual([]);
@@ -658,7 +721,88 @@ async function directExperiment(side: 'baseline' | 'candidate', scenario: PairSc
   } finally { act(() => root!.unmount()); root = null; }
 }
 
+// These children execute the SAME R02_PAIR tests. Only the candidate Vite
+// module is perturbed; exact-main reconstruction reads/hash-checks raw bytes.
+// A targeted candidate assertion (not a fault-call counter/setup error) must fail.
+async function runR02EvidenceFault(fault: string, pattern: string, marker: string, failures: number) {
+  const { execFile } = await import('node:child_process');
+  const program = `
+    import { startVitest } from 'vitest/node'; import react from '@vitejs/plugin-react';
+    import os from 'node:os'; import path from 'node:path';
+    const fault = ${JSON.stringify(fault)};
+    const plugin = { name: 'bounded-r02-evidence-fault', enforce: 'pre', transform(source, id) {
+      if (!id.replaceAll('\\\\', '/').endsWith('/views/HealthView.tsx')) return;
+      source = source.replace(/\\r\\n/g, '\\n');
+      const replace = (from, to) => {
+        if (source.split(from).length !== 2) throw new Error('R02_FAULT_ANCHOR_MISSING_OR_AMBIGUOUS');
+        source = source.replace(from, to);
+      };
+      if (fault === 'missing-save-month') replace(
+        '        mutateDaily();\\n        mutateMonthWorkoutRows();\\n        mutateStatic();\\n        return;',
+        '        mutateDaily();\\n        mutateStatic();\\n        return;');
+      else if (fault === 'missing-delete-month') replace(
+        '          mutateDaily();\\n          mutateMonthWorkoutRows();\\n          mutateStatic();',
+        '          mutateDaily();\\n          mutateStatic();');
+      else if (fault === 'wrong-account') replace(
+        "['local-health-workout-range', user.id, monthStart, monthEnd]",
+        "['local-health-workout-range', 'account-b', monthStart, monthEnd]");
+      else if (fault === 'wrong-month') replace(
+        "['local-health-workout-range', user.id, monthStart, monthEnd]",
+        "['local-health-workout-range', user.id, '2025-12-01', '2025-12-31']");
+      else if (fault === 'suppress-fresh-hydration') {
+        replace('const lastHydratedWorkoutsRef = useRef<Workout[] | null>(null);',
+          'const lastHydratedWorkoutsRef = useRef<Workout[] | null>(null);\\n' +
+          '  const auditLastNonemptyScope = useRef<string | null>(null);');
+        replace('&& lastHydratedWorkoutsRef.current !== workouts',
+          "&& auditLastNonemptyScope.current !== user.id + ':' + selectedDateDraftKey\\n" +
+          '      && lastHydratedWorkoutsRef.current !== workouts');
+        replace('lastHydratedWorkoutsRef.current = workouts;',
+          "lastHydratedWorkoutsRef.current = workouts;\\n" +
+          "      if (sorted.length > 0) auditLastNonemptyScope.current = user.id + ':' + selectedDateDraftKey;");
+      } else throw new Error('UNKNOWN_R02_EVIDENCE_FAULT');
+      return source;
+    } };
+    const ctx = await startVitest('test', ['src/components/views/healthWorkoutDateLifetimeDraftHydration.integration.test.ts'],
+      { config: false, watch: false, cache: false, maxWorkers: 1, testNamePattern: ${JSON.stringify(pattern)} },
+      { plugins: [plugin, react()], cacheDir: path.join(os.tmpdir(), 'absinthe-r02-' + process.pid),
+        resolve: { alias: { '@': process.cwd() + '/src' } },
+        test: { environment: 'node', setupFiles: ['./src/test/setup.ts'] } });
+    await ctx.close();
+  `;
+  const output = await new Promise<string>((resolve, reject) => {
+    execFile(process.execPath, ['--input-type=module', '-e', program],
+      { cwd: process.cwd(), timeout: 60_000, maxBuffer: 4 * 1024 * 1024 }, (error, stdout, stderr) => {
+        const text = stdout + stderr;
+        if (!error || error.killed || !text.includes(marker) || text.includes('R02_PAIR_ORACLE:baseline:')
+          || text.includes('R02_FAULT_ANCHOR_')) {
+          reject(new Error('R02 evidence fault did not fail the targeted candidate oracle: ' + text)); return;
+        }
+        resolve(text);
+      });
+  });
+  expect(output).toContain(failures + ' failed');
+  expect(output).toContain('R02_PAIR_ORACLE:candidate:');
+  return output;
+}
+
 describe('R02 expanded isolated exact-main MD differential pairs', () => {
+  it.each([
+    ['missing-save-month', 'R02_PAIR save-ack', 'R02_MONTH_CACHE_ORACLE:save-ack', 1],
+    ['missing-delete-month', 'R02_PAIR delete-ack', 'R02_MONTH_CACHE_ORACLE:delete-ack', 1],
+    ['wrong-account', 'R02_PAIR (save-ack|delete-ack)', 'R02_MONTH_CACHE_ORACLE:', 2],
+    ['wrong-month', 'R02_PAIR (save-ack|delete-ack)', 'R02_MONTH_CACHE_ORACLE:', 2],
+    ['suppress-fresh-hydration', 'R02_PAIR hydration', 'R02_FRESH_HYDRATION_ORACLE:actual rows/dirty/storage', 1],
+  ] as const)('R02 evidence sensitivity %s fails the same candidate paired oracle', async (fault, pattern, marker, failures) => {
+    const output = await runR02EvidenceFault(fault, pattern, marker, failures);
+    if (fault.startsWith('wrong-')) {
+      expect(output).toContain('R02_PAIR_ORACLE:candidate:save-ack');
+      expect(output).toContain('R02_PAIR_ORACLE:candidate:delete-ack');
+    }
+    if (fault === 'suppress-fresh-hydration') {
+      // Initial 99 assertion passed; failure is the distinct second 101 adoption.
+      expect(output).toContain('101'); expect(output).toContain('99');
+    }
+  }, 90_000);
   it('R02 differential sensitivity: EVERY MD, real-parent and ID pair rejects an actual candidate saving-state regression', async () => {
     const { runCandidateStateFault } = await import('../../../test-support/healthWorkoutExactMain');
     const direct = await runCandidateStateFault(
@@ -718,8 +862,8 @@ describe('mandatory real draft/hydration H-series', () => {
       isolationError: false, cacheKey: null, retry: vi.fn() } as unknown as HealthProps['selectedDayComposite'];
     await render({ selectedDayComposite: pending, workouts: DRAFT_Y });
     expect(mocks.draft.localWorkouts).toBe(rows);
-    await render({ selectedDayComposite: undefined, workouts: [...HYDRATED] });
-    expect(snapshot()).toMatchObject({ rows: HYDRATED, dirty: false, bytes: null });
+    await render({ selectedDayComposite: undefined, workouts: [...FRESH_HYDRATED] });
+    assertFreshHydration(FRESH_HYDRATED);
     expect(storage.getItem(localHealthDraftKey(A, Y))).toBeNull();
     expect(storage.getItem(localHealthDraftKey(B, Z))).toBe(sentinel);
     expect(mocks.inputs).toHaveLength(0); expect(mocks.showToast).not.toHaveBeenCalled();
