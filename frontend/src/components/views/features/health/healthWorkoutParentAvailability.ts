@@ -111,19 +111,25 @@ export type HealthWorkoutParentAvailabilityInput = Readonly<{
 }>;
 
 type SourceState = 'COMPLETE' | 'PARTIAL_LEGACY' | 'PARTIAL_CANONICAL';
+type DeepReadonly<T> = T extends readonly (infer Item)[]
+  ? readonly DeepReadonly<Item>[]
+  : T extends object ? { readonly [Key in keyof T]: DeepReadonly<T[Key]> } : T;
+
+export type PublishedLegacyDaily = DeepReadonly<LocalHealthDailyProjection>;
+
 export type SelectedDayAvailability =
   | Readonly<{ state: 'DISABLED' | 'LOADING' | 'UNAVAILABLE' | 'ISOLATION'; reason: string }>
   | Readonly<{ state: SourceState | 'VERIFIED_EMPTY'; publication: ParentPublication;
-      result: CompositeWorkoutReadResult; legacyDaily: LocalHealthDailyProjection | null }>;
+      result: DeepReadonly<CompositeWorkoutReadResult>; legacyDaily: PublishedLegacyDaily | null }>;
 
 export type RangeAvailability =
   | Readonly<{ state: 'DISABLED' | 'LOADING' | 'UNAVAILABLE' | 'ISOLATION'; reason: string }>
   | Readonly<{ state: SourceState; publication: ParentPublication;
-      previousView: WorkoutRangeView; monthView: WorkoutRangeView }>;
+      previousView: DeepReadonly<WorkoutRangeView>; monthView: DeepReadonly<WorkoutRangeView> }>;
 
 export type EditorAvailability =
   | Readonly<{ state: 'EDITOR_INTERACTIVE'; publication: ParentPublication;
-      legacyDaily: LocalHealthDailyProjection;
+      legacyDaily: PublishedLegacyDaily;
       hydration: 'CLEAN_DRAFT_ONLY' | 'PRESERVE_DIRTY_DRAFT' | 'FENCED_DRAFT_SCOPE' }>
   | Readonly<{ state: 'EDITOR_NONINTERACTIVE_DRAFT_PREVIEW'; draft: DraftAvailabilityInput }>
   | Readonly<{ state: 'EDITOR_HIDDEN' }>;
@@ -219,6 +225,24 @@ function sourceState(result: CompositeWorkoutReadResult): SourceState {
     : result.legacyStatus === 'success' ? 'PARTIAL_LEGACY' : 'PARTIAL_CANONICAL';
 }
 
+/** Publish detached, deeply readonly AND runtime-frozen data, not just frozen wrappers.
+ * Actual day/result/range projections contain arrays, plain objects and primitives.
+ * structuredClone preserves their null/undefined/number values (unlike JSON).
+ * Freeze only the owned copy; never pass scope/publication/permit identities here.
+ * This is an as-of data snapshot, not a cache, new source owner or freshness permit.
+ */
+function publishedDataSnapshot<T>(value: T): DeepReadonly<T> {
+  const copy = structuredClone(value);
+  const freezeOwned = (node: unknown): void => {
+    if (node !== null && typeof node === 'object' && !Object.isFrozen(node)) {
+      Object.freeze(node);
+      Object.values(node).forEach(freezeOwned);
+    }
+  };
+  freezeOwned(copy);
+  return copy as DeepReadonly<T>;
+}
+
 function deriveDay(input: SelectedDayAvailabilityInput, scope: HealthWorkoutParentScope | null,
   rejected: boolean): SelectedDayAvailability {
   if (!scope) return Object.freeze({ state: 'DISABLED', reason: 'NOT_ADMITTED' });
@@ -257,7 +281,7 @@ function deriveRange(input: RangeAvailabilityInput, scope: HealthWorkoutParentSc
     return Object.freeze({ state: 'UNAVAILABLE', reason: 'BOTH_SOURCES_FAILED' });
   }
   return Object.freeze({ state: sourceState(input.previousView.result), publication,
-    previousView: input.previousView, monthView: input.monthView });
+    ...publishedDataSnapshot({ previousView: input.previousView, monthView: input.monthView }) });
 }
 
 function deriveHistory(input: HistoryAvailabilityInput, scope: HealthWorkoutParentScope | null,
@@ -308,7 +332,12 @@ export function deriveHealthWorkoutParentAvailability(input: HealthWorkoutParent
     && candidate && validDate(candidate.dateKey) && sameScope(candidate, input.currentScope) ? candidate : null;
   const range = deriveRange(input.range, scope);
   const rejected = input.history.rejected || input.range.isolationError || range.state === 'ISOLATION';
-  const selectedDay = deriveDay(input.selectedDay, scope, rejected);
+  const day = deriveDay(input.selectedDay, scope, rejected);
+  // Copy only publishable data, once. The state-only B1 retry classification below
+  // must not clone withheld payloads or create a second daily representation.
+  const selectedDay: SelectedDayAvailability = 'result' in day
+    ? Object.freeze({ ...day, ...publishedDataSnapshot({ result: day.result, legacyDaily: day.legacyDaily }) })
+    : day;
   const effectiveRejection = rejected || selectedDay.state === 'ISOLATION';
   const draftCurrent = !!scope && sameScope(input.draft.scope, scope) && !!input.draft.lifetime
     && input.draft.lifetime === input.draft.currentLifetime;

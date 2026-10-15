@@ -1,6 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
-import { ModuleKind, transpileModule } from 'typescript';
+import { ModuleKind, createCompilerHost, createProgram, createSourceFile, getPreEmitDiagnostics, parseJsonConfigFileContent,
+  readConfigFile, sys, transpileModule } from 'typescript';
+import { fileURLToPath } from 'node:url';
+import { HEALTH_RECOVERY_DATASETS, type HealthRecoveryDatasets } from '../../../../lib/healthRecoveryExport';
+import { projectVerifiedSelectedDayLegacySnapshot } from './selectedDayLegacySnapshot';
 import { createHealthWorkoutOperationAuthority } from './healthWorkoutOperationScope';
 import { projectCompositeWorkoutRead, type CompositeWorkoutReadResult } from './compositeWorkoutReadProjection';
 import { deriveWorkoutRange } from './verifiedWorkoutRangeSnapshot';
@@ -72,6 +76,242 @@ function frozen<T>(value: T): T {
   return value;
 }
 
+/** Real paired projection, including both set variants and nullable/optional data. */
+function projectedInput(accountId = 'A'): Input {
+  const datasets = Object.fromEntries(HEALTH_RECOVERY_DATASETS.map(name => [name, []])) as unknown as HealthRecoveryDatasets;
+  datasets.exercise_blocks.push(
+    { id: 'bench', user_id: accountId, name: 'Bench', type: 'strength', tags: ['UPPER'] },
+    { id: 'run', user_id: accountId, name: 'Run', type: 'cardio', tags: ['CARDIO'], cardio_mode: 'both' },
+  );
+  datasets.workout_logs.push(
+    { id: '44444444-4444-4444-8444-444444444444', user_id: accountId, date, block_id: 'bench', sort_order: 0,
+      sets: [{ type: 'strength', set: 1, kg: '10', reps: 8, assisted_reps: 2, done: true,
+        weight_source_value: 10, weight_source_unit: 'kg' }] },
+    { id: '55555555-5555-4555-8555-555555555555', user_id: accountId, date, block_id: 'run', sort_order: 1,
+      sets: [{ type: 'cardio', set: 1, time: '20:00', distance: '3', pace: '6:40', done: true }] },
+  );
+  datasets.inbody_logs.push({ id: 'inbody', user_id: accountId, date, weight: 74.5, smm: null, pbf: 18.4 });
+  datasets.routines.push({ id: 'routine', user_id: accountId, text: 'Mobility', deleted_at: null, is_active: true });
+  const pair = projectVerifiedSelectedDayLegacySnapshot(datasets, accountId, date);
+  const i = input();
+  const p: ParentPublication = accountId === 'A' ? i.selectedDay.publication! : {
+    scope: { ...i.boundScope!, accountOperation: { accountId, generation: 1 } }, ownerLifetime: {},
+    canonicalScope: { ...canonicalScope, accountId },
+  };
+  return { ...i, selectedDay: { ...i.selectedDay, ...proof(p), accountId, legacyDaily: pair.daily,
+    result: projectCompositeWorkoutRead({ context: { ...canonicalScope, accountId },
+      legacy: { status: 'success', records: pair.persistedRows }, canonical: { status: 'success', records: [] } }) } };
+}
+
+function dataObjects(value: unknown, found = new Set<object>()): Set<object> {
+  if (value !== null && typeof value === 'object' && !found.has(value)) {
+    found.add(value); Object.values(value).forEach(child => dataObjects(child, found));
+  }
+  return found;
+}
+
+function publishedLegacy(i: Input) {
+  const m = derive(i);
+  if (m.editor.state !== 'EDITOR_INTERACTIVE' || !('legacyDaily' in m.selectedDay) || !m.selectedDay.legacyDaily) {
+    throw Error('qualified legacy fixture was not published');
+  }
+  return { m, daily: m.editor.legacyDaily, day: m.selectedDay };
+}
+
+/** Real compiler + virtual adjacent source file; no disk writes or ts-expect-error comments. */
+function compilePublicationProbe(lines: readonly string[]) {
+  const root = fileURLToPath(new URL('../../../../../', import.meta.url));
+  const configPath = fileURLToPath(new URL('../../../../../tsconfig.app.json', import.meta.url));
+  const config = readConfigFile(configPath, sys.readFile);
+  expect(config.error).toBeUndefined();
+  const parsed = parseJsonConfigFileContent(config.config, sys, root);
+  expect(parsed.errors).toEqual([]);
+  const probe = fileURLToPath(new URL('./__r01_readonly_probe__.ts', import.meta.url));
+  const text = lines.join('\n');
+  const host = createCompilerHost(parsed.options);
+  const read = host.readFile, exists = host.fileExists, source = host.getSourceFile;
+  const isProbe = (path: string) => path.replace(/\\/g, '/') === probe.replace(/\\/g, '/');
+  host.fileExists = path => isProbe(path) || exists(path);
+  host.readFile = path => isProbe(path) ? text : read(path);
+  host.getSourceFile = (path, language, onError, shouldCreate) => isProbe(path)
+    ? createSourceFile(path, text, language, true) : source(path, language, onError, shouldCreate);
+  const viteEnvironment = fileURLToPath(new URL('../../../../vite-env.d.ts', import.meta.url));
+  const program = createProgram([viteEnvironment, probe], parsed.options, host);
+  return getPreEmitDiagnostics(program).map(d => ({ file: d.file?.fileName, code: d.code,
+    line: d.file && d.start !== undefined ? d.file.getLineAndCharacterOfPosition(d.start).line + 1 : null }));
+}
+
+describe('PR776-R01 protected published payload boundary', () => {
+  it('R01-C01/C08 derives unchanged values without freezing/mutating borrowed input or identity tokens', () => {
+    const i = projectedInput(), owner = i.selectedDay.legacyDaily!;
+    const before = structuredClone(owner), objects = [...dataObjects(i)], flags = objects.map(Object.isFrozen);
+    const { m, daily, day } = publishedLegacy(i);
+    expect(daily).toEqual(before); expect(daily).not.toBe(owner);
+    expect(day.legacyDaily).toBe(daily); expect(day.result).toEqual(i.selectedDay.result);
+    expect(m.selectedDay.state).toBe('COMPLETE'); expect(m.actions.save.state).toBe('PREREQUISITES_SATISFIED');
+    expect(m.scope).toBe(i.boundScope); expect(day.publication).toBe(i.selectedDay.publication);
+    expect(m.editor.state === 'EDITOR_INTERACTIVE' && m.editor.publication).toBe(i.selectedDay.publication);
+    expect(i.selectedDay.legacyDaily).toBe(owner); expect(owner).toEqual(before);
+    expect(objects.map(Object.isFrozen)).toEqual(flags);
+    const ownerObjects = dataObjects(owner);
+    expect([...dataObjects(daily)].every(object => !ownerObjects.has(object))).toBe(true);
+    expect([...dataObjects(daily)].every(Object.isFrozen)).toBe(true);
+    expect(Object.prototype.hasOwnProperty.call(daily.workouts[0]!.exercise_blocks, 'cardio_mode')).toBe(true);
+    expect(daily.workouts[0]!.exercise_blocks).toHaveProperty('cardio_mode', undefined);
+  });
+
+  it('R01-C02/C04/C05 rejects nested consumer mutations, preserves owner and both paired representations', () => {
+    const i = projectedInput(), owner = i.selectedDay.legacyDaily!, before = structuredClone(owner);
+    const { m, daily, day } = publishedLegacy(i);
+    expect(Reflect.set(daily.workouts[0]!.sets[0]!, 'reps', 42)).toBe(false);
+    expect(Reflect.set(daily.workouts[1]!.sets[0]!, 'distance', '999')).toBe(false);
+    expect(Reflect.set(daily.workouts[0]!.exercise_blocks, 'name', 'Changed')).toBe(false);
+    expect(Reflect.set(daily.inbody, 'weight', 0)).toBe(false);
+    expect(Reflect.set(daily.routines[0]!, 'done', true)).toBe(false);
+    const persisted = day.result.records.find(record => record.source === 'legacy')!;
+    if (persisted.source !== 'legacy') throw Error('legacy record missing');
+    expect(Reflect.set(persisted.legacy.sets[0]!, 'reps', 42)).toBe(false);
+    expect(daily).toEqual(before); expect(owner).toEqual(before);
+    expect(day.legacyDaily).toBe(daily); expect(day.result).toEqual(i.selectedDay.result);
+    expect(persisted.legacy.sets[0]).toMatchObject({ reps: 8 });
+    expect(m.draft.sameScopeDirty).toBe(false); expect(m.selectedDay.state).toBe('COMPLETE');
+  });
+
+  it.each(['workouts', 'sets', 'tags', 'routines'] as const)('R01-C03 array splice rejects %s removal and cannot alter input', key => {
+    const i = projectedInput(), owner = i.selectedDay.legacyDaily!, before = structuredClone(owner);
+    const { daily } = publishedLegacy(i);
+    const array = key === 'workouts' ? daily.workouts : key === 'sets' ? daily.workouts[0]!.sets
+      : key === 'tags' ? daily.workouts[0]!.exercise_blocks.tags! : daily.routines;
+    expect(() => Reflect.apply(Array.prototype.splice, array, [0, 1])).toThrow(TypeError);
+    expect(daily).toEqual(before); expect(owner).toEqual(before);
+  });
+
+  it('R01-C05 also detaches and protects selected-day result and published range view data, not their identity tokens', () => {
+    const i = projectedInput(), { m, day } = publishedLegacy(i);
+    expect(day.result).not.toBe(i.selectedDay.result);
+    expect([...dataObjects(day.result)].every(o => !dataObjects(i.selectedDay.result).has(o))).toBe(true);
+    expect([...dataObjects(day.result)].every(Object.isFrozen)).toBe(true);
+    if (!('previousView' in m.range)) throw Error('range fixture missing');
+    expect(m.range.publication).toBe(i.range.publication);
+    expect(m.range.previousView).toEqual(i.range.previousView); expect(m.range.previousView).not.toBe(i.range.previousView);
+    expect(m.range.monthView).toEqual(i.range.monthView); expect(m.range.monthView).not.toBe(i.range.monthView);
+    const borrowed = dataObjects([i.range.previousView, i.range.monthView]);
+    expect([...dataObjects([m.range.previousView, m.range.monthView])].every(o => !borrowed.has(o))).toBe(true);
+    expect([...dataObjects(m.range.monthView)].every(Object.isFrozen)).toBe(true);
+    const month = m.range.monthView;
+    expect(() => Reflect.apply(Array.prototype.splice, month.result.records, [0, 1])).toThrow(TypeError);
+    const ownerSet = i.selectedDay.legacyDaily!.workouts[0]!.sets[0]!;
+    expect(Reflect.set(ownerSet, 'reps', 21)).toBe(true);
+    expect(day.legacyDaily!.workouts[0]!.sets[0]).toMatchObject({ reps: 8 });
+  });
+
+  it('R01-C06/C07 real TypeScript compiler rejects nested writes and array mutators on the published API', () => {
+    const lines = [
+      "import type { HealthWorkoutParentAvailability } from './healthWorkoutParentAvailability';",
+      'declare const model: HealthWorkoutParentAvailability;',
+      "if (model.editor.state === 'EDITOR_INTERACTIVE') {",
+      ' const daily = model.editor.legacyDaily;',
+      ' const set = daily.workouts[0]!.sets[0]!;',
+      " const validRead = set.type !== 'cardio' ? set.reps : null;",
+    ];
+    const mutations: [string, number][] = [
+      [" if (set.type !== 'cardio') set.reps = 42;", 2540],
+      [" daily.workouts[0]!.block_id = 'changed';", 2540],
+      [' daily.inbody.weight = 0;', 2540],
+      [' daily.routines[0]!.done = true;', 2540],
+      [' daily.workouts.splice(0, 1);', 2551],
+      [' daily.workouts[0]!.sets.push(set);', 2339],
+      [" daily.workouts[0]!.exercise_blocks.tags!.push('changed');", 2339],
+      [' daily.routines.pop();', 2339],
+    ];
+    const expected = mutations.map(([statement, code]) => { lines.push(statement); return { code, line: lines.length }; });
+    lines.push('}', "if ('legacyDaily' in model.selectedDay && model.selectedDay.legacyDaily) {",
+      ' model.selectedDay.legacyDaily.workouts.length = 0;', '}');
+    expected.push({ code: 2540, line: lines.length - 1 });
+    const diagnostics = compilePublicationProbe(lines);
+    expect(diagnostics.map(({ code, line }) => ({ code, line }))).toEqual(expected);
+    expect(compilePublicationProbe([
+      "import type { HealthWorkoutParentAvailability } from './healthWorkoutParentAvailability';",
+      'declare const model: HealthWorkoutParentAvailability;',
+      "if (model.editor.state === 'EDITOR_INTERACTIVE') {",
+      ' const rows = model.editor.legacyDaily.workouts.map(row => row.sets.length);',
+      '}',
+    ])).toEqual([]);
+  }, 60000);
+
+  it.each(['loading', 'partial-canonical', 'unavailable', 'isolation', 'gate-off', 'missing-daily'] as const)(
+    'R01-C09/C10 does not clone absent/unqualified daily payload: %s', state => {
+      const i = projectedInput();
+      const daily = { get workouts(): never { throw Error('unqualified legacy payload accessed'); },
+        inbody: i.selectedDay.legacyDaily!.inbody, routines: [] };
+      const candidate: Input = { ...i, gates: state === 'gate-off' ? { selectedDay: false, range: false } : i.gates,
+        selectedDay: { ...i.selectedDay, legacyDaily: state === 'missing-daily' ? null : daily,
+          phase: state === 'loading' ? 'loading' : 'settled', isolationError: state === 'isolation',
+          result: state === 'partial-canonical' ? result(false, true) : state === 'unavailable' ? null : i.selectedDay.result } };
+      const clone = vi.spyOn(globalThis, 'structuredClone');
+      try {
+        const model = derive(candidate);
+        expect(model.editor.state).toBe('EDITOR_HIDDEN');
+        expect(clone.mock.calls.filter(([value]) => value && typeof value === 'object' && 'legacyDaily' in value && value.legacyDaily !== null)).toHaveLength(0);
+      } finally { clone.mockRestore(); }
+    });
+
+  it('R01-C10 makes exactly one daily data snapshot shared by day/editor; classification does not duplicate it', () => {
+    const i = projectedInput(), clone = vi.spyOn(globalThis, 'structuredClone');
+    try {
+      const { daily, day } = publishedLegacy(i);
+      expect(day.legacyDaily).toBe(daily);
+      expect(clone.mock.calls.filter(([value]) => value && typeof value === 'object' && 'legacyDaily' in value && value.legacyDaily !== null)).toHaveLength(1);
+    } finally { clone.mockRestore(); }
+  });
+});
+
+describe('post-R01 N01–N12 independent-review scenario regressions', () => {
+  const cases: [string, (i: Input) => Input, object][] = [
+    ['N01 stale B1 publication', i => ({ ...i, selectedDay: { ...i.selectedDay,
+      currentPublication: { ...i.selectedDay.currentPublication! } } }),
+    { selectedDay: { state: 'UNAVAILABLE' }, editor: { state: 'EDITOR_HIDDEN' } }],
+    ['N02 same-value date retired lifetime', i => ({ ...i, currentScope: { ...i.currentScope!, dateLifetime: scope().dateLifetime } }),
+    { shell: 'DISABLED', actions: { save: { state: 'FENCED' } } }],
+    ['N03 coherent foreign account success', i => ({ ...i, selectedDay: projectedInput('B').selectedDay }),
+    { selectedDay: { state: 'ISOLATION' }, actions: { editDraft: { state: 'FENCED' } } }],
+    ['N04 canonical-only success', i => ({ ...i, selectedDay: { ...i.selectedDay, result: result(false, true), legacyDaily: null } }),
+    { selectedDay: { state: 'PARTIAL_CANONICAL' }, editor: { state: 'EDITOR_HIDDEN' } }],
+    ['N05 clean hydration loading', i => ({ ...i, selectedDay: { ...i.selectedDay, phase: 'loading' } }),
+    { selectedDay: { state: 'LOADING' }, editor: { state: 'EDITOR_HIDDEN' } }],
+    ['N06 typed isolation while loading with dirty draft', i => ({ ...i, draft: { ...i.draft, isDirty: true },
+      selectedDay: { ...i.selectedDay, phase: 'loading', isolationError: true } }),
+    { selectedDay: { state: 'ISOLATION' }, history: 'REJECTED', editor: { state: 'EDITOR_NONINTERACTIVE_DRAFT_PREVIEW' },
+      actions: { save: { state: 'FENCED' }, editDraft: { state: 'FENCED' } } }],
+    ['N07 both ordinary errors', i => ({ ...i, selectedDay: { ...i.selectedDay, result: result(false, false), legacyDaily: null } }),
+    { selectedDay: { state: 'UNAVAILABLE' } }],
+    ['N08 every owner retry UNKNOWN', i => ({ ...i, retry: {
+      RANGE: { ...i.retry.RANGE, disposition: { state: 'UNKNOWN' } },
+      B1: { ...i.retry.B1, disposition: { state: 'UNKNOWN' } }, D: { ...i.retry.D, disposition: { state: 'UNKNOWN' } },
+    } }), { retry: { localParent: { state: 'FENCED', eligibleOwners: [] } } }],
+    ['N09 effective D rejection with healthy B1', i => ({ ...i, history: { ...i.history, rejected: true } }),
+    { selectedDay: { state: 'ISOLATION' }, history: 'REJECTED', retry: { owners: { D: { reason: 'WAITING_FOR_PARENT' } } } }],
+    ...(['locked', 'saving'] as const).map(flag => [
+      `N10 workflow ${flag}`, (i: Input) => ({ ...i, workflow: { ...i.workflow, [flag]: true } }),
+      { actions: { editDraft: { state: 'FENCED', reason: flag === 'locked' ? 'LOCKED' : 'SAVING' },
+        save: { state: 'FENCED' }, deletePersisted: { state: 'FENCED' }, useHistoricalPlanning: { state: 'FENCED' } } },
+    ] as [string, (i: Input) => Input, object]),
+    ['N11 stale populated range', i => ({ ...i, range: { ...i.range, currentPublication: { ...i.range.currentPublication! } } }),
+    { range: { state: 'UNAVAILABLE' }, selectedDay: { state: 'COMPLETE' } }],
+    ['N12 disabled candidate with dirty draft', i => ({ ...i, gates: { selectedDay: false, range: false }, draft: { ...i.draft, isDirty: true } }),
+    { shell: 'DISABLED', editor: { state: 'EDITOR_HIDDEN' }, selectedDay: { state: 'DISABLED' },
+      actions: { save: { state: 'FENCED' } }, retry: { localParent: { state: 'FENCED' } } }],
+  ];
+  it.each(cases)('%s', (_, change, expected) => {
+    const model = derive(change(projectedInput()));
+    expect(model).toMatchObject(expected);
+    if (!('result' in model.selectedDay)) expect(model.selectedDay).not.toHaveProperty('legacyDaily');
+    if (model.range.state === 'UNAVAILABLE') {
+      expect(model.range).not.toHaveProperty('previousView'); expect(model.range).not.toHaveProperty('monthView');
+    }
+  });
+});
+
 describe('Slice A dormant Option C pure prerequisites (not integrated PA acceptance)', () => {
   // PA-C01/06 model evidence: four source outcomes, populated AND no surviving records.
   it.each([true, false].flatMap(l => [true, false].flatMap(c => [true, false].map(rows => [l, c, rows] as const))))(
@@ -83,7 +323,8 @@ describe('Slice A dormant Option C pure prerequisites (not integrated PA accepta
         : l ? 'PARTIAL_LEGACY' : c ? 'PARTIAL_CANONICAL' : 'UNAVAILABLE');
       expect(model.editor.state).toBe(l ? 'EDITOR_INTERACTIVE' : 'EDITOR_HIDDEN');
       if ('result' in model.selectedDay) {
-        expect(model.selectedDay.result).toBe(r);
+        expect(model.selectedDay.result).toEqual(r);
+        expect(model.selectedDay.result).not.toBe(r);
         expect(model.selectedDay.result.records.every(row => row.source === 'legacy' ? l : c)).toBe(true);
       } else expect(model.selectedDay).not.toHaveProperty('result');
     });
