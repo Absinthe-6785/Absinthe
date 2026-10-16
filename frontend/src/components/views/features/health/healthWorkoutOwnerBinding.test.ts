@@ -6,7 +6,7 @@ import { IDBFactory, IDBKeyRange, IDBDatabase, IDBObjectStore } from 'fake-index
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { setImmediate } from 'node:timers';
+import { setTimeout as taskDelay } from 'node:timers/promises';
 import { ModuleKind, transpileModule } from 'typescript';
 import { HEALTH_RECOVERY_DATASETS, buildHealthRecoveryExport, type HealthRecoveryDatasets,
   type HealthRecoveryDatasetName } from '../../../../lib/healthRecoveryExport';
@@ -40,9 +40,13 @@ let publications: Array<{ device: string | undefined; current: boolean }>;
 let renders: number;
 const routeLifetime = {}, shellLifetime = {};
 async function settle() {
-  for (let round = 0; round < 5; round++) await act(async () => {
-    for (let i = 0; i < 45; i++) await new Promise<void>(done => setImmediate(done));
-  });
+  // IDB completion is task-based, not a fixed number of immediate turns. Await
+  // the actual terminal state, including the hook's ONE recovery when required.
+  const deadline = Date.now() + 4_000;
+  do {
+    await act(async () => { await taskDelay(5); });
+  } while (latest.phase !== 'settled' && Date.now() < deadline);
+  expect(latest.phase, 'the actual source/recovery episode must finish before authority assertions').toBe('settled');
 }
 async function mount(configure?: Configure, hook: Hook = useHealthWorkoutRangeSnapshot) {
   const createCoordinator = (account: string, storage: Storage) => {
@@ -190,7 +194,9 @@ describe('R01-C11–C22 successful owner binding, actual coordinator/repositorie
     expect(load).toHaveBeenCalledTimes(2); expect(read).toHaveBeenCalledTimes(2); expect(scans).toHaveBeenCalledTimes(2);
     expect(latest.phase).toBe('settled'); expect(publications).toEqual([]); expect(latest.captureOwnerEvidence!()).toBeNull();
     expect(adapter.retry.disposition.state).not.toBe('TRANSIENT');
-    const before = renders; await settle(); expect(load).toHaveBeenCalledTimes(2); expect(renders).toBe(before);
+    const before = renders;
+    for (let i = 0; i < 10; i++) await act(async () => { await taskDelay(5); });
+    expect(load).toHaveBeenCalledTimes(2); expect(renders).toBe(before);
   });
   it('negative control restores correction-01 null-snapshot bypass and fails the SAME real race authority oracle', async () => {
     await mount(c => afterPair(c, () => {
