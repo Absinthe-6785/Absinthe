@@ -5,7 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { flushSync } from 'react-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CompositeWorkoutReadResult } from './compositeWorkoutReadProjection';
-import type { WorkoutRangeView } from './verifiedWorkoutRangeSnapshot';
+import type { WorkoutRangeView, WorkoutReadSourceSnapshot } from './verifiedWorkoutRangeSnapshot';
 import {
   useHealthWorkoutRangeSnapshot,
   type HealthWorkoutRangeReadModel,
@@ -28,11 +28,16 @@ function range(accountId: string, startDate: string, endDate: string): WorkoutRa
 
 function coordinator(accountId: string) {
   const value = {
-    currentSnapshot: null as object | null,
-    load: vi.fn(async (): Promise<{ accountId: string; scope: null; result: CompositeWorkoutReadResult } | null> => {
-      value.currentSnapshot = {};
-      return { accountId, scope: null, result: complete };
+    currentSnapshot: null as WorkoutReadSourceSnapshot | null,
+    load: vi.fn(async (): Promise<WorkoutReadSourceSnapshot | null> => {
+      value.currentSnapshot = { accountId, scope: null, result: complete };
+      return value.currentSnapshot;
     }),
+    captureCurrentSnapshot: () => {
+      const snapshot = value.currentSnapshot;
+      return snapshot ? { snapshot, isCurrent: () => value.currentSnapshot === snapshot,
+        verifyCurrent: async () => value.currentSnapshot === snapshot } : null;
+    },
     deriveRange: vi.fn(async (startDate: string, endDate: string): Promise<WorkoutRangeView | null> => range(accountId, startDate, endDate)),
     invalidate: vi.fn(() => { value.currentSnapshot = null; }),
     close: vi.fn(() => { value.currentSnapshot = null; }),
@@ -166,7 +171,7 @@ describe('single Workout range snapshot hook', () => {
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(null)
       .mockImplementationOnce(async () => {
-        owner.currentSnapshot = {};
+        owner.currentSnapshot = { accountId: 'a', scope: null, result: complete };
         return { accountId: 'a', scope: null, result: complete };
       });
     const create = vi.fn(() => owner);
@@ -201,7 +206,7 @@ describe('single Workout range snapshot hook', () => {
     owner.deriveRange.mockResolvedValue(null);
     owner.load
       .mockImplementationOnce(async () => {
-        owner.currentSnapshot = {};
+        owner.currentSnapshot = { accountId: 'a', scope: null, result: complete };
         return { accountId: 'a', scope: null, result: complete };
       })
       .mockResolvedValueOnce(null);
@@ -243,7 +248,7 @@ describe('single Workout range snapshot hook', () => {
     const first = deferred<{ accountId: string; scope: null; result: CompositeWorkoutReadResult } | null>();
     const owner = coordinator('a');
     owner.load.mockImplementationOnce(() => first.promise).mockImplementationOnce(async () => {
-      owner.currentSnapshot = {};
+      owner.currentSnapshot = { accountId: 'a', scope: null, result: complete };
       return { accountId: 'a', scope: null, result: complete };
     });
     const create = vi.fn(() => owner);

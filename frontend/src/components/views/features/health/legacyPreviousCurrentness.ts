@@ -1,5 +1,6 @@
 import type { PrevWorkoutPayload } from './prevWorkoutFetch';
 import { CompositeWorkoutReadIsolationError } from './compositeWorkoutReadProjection';
+import { observeOwnerFailure, type OwnerFailureDisposition, type PreviousOwnerData, type WorkoutOwnerEvidence } from './healthWorkoutOwnerAdapters';
 
 export type PreviousState = 'CURRENT' | 'NO_MATCH' | 'REFRESHING' | 'UNAVAILABLE' | 'STALE_OR_SUPPRESSED';
 export type PreviousEvidence = Readonly<{
@@ -24,12 +25,14 @@ export class LegacyPreviousCurrentness {
   private scope: PreviousScope | null = null;
   private lifetime = {};
   private entries = new Map<string, PreviousEvidence>();
+  private failures = new Map<string, OwnerFailureDisposition>();
   private flights = new Map<string, Flight>();
   private queued = new Set<string>();
   private dependencies = new Set<string>();
   private mutations = new Map<object, { accountId: string; impact: LegacyImpact }>();
   private scheduled = false;
   private version = 0;
+  private publication: object = Object.freeze({});
   private listeners = new Set<() => void>();
   constructor(private readonly load: PreviousLoader) {}
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
@@ -39,7 +42,24 @@ export class LegacyPreviousCurrentness {
     const lifetime = this.lifetime;
     return () => this.lifetime === lifetime && !!this.scope && !this.scope.rejected;
   }
-  private publish() { this.version++; for (const listener of this.listeners) listener(); }
+  private publish() {
+    // Tag the existing publication; this adds no lifecycle, subscription or read.
+    this.publication = Object.freeze({});
+    this.version++; for (const listener of this.listeners) listener();
+  }
+  captureOwnerEvidence(): WorkoutOwnerEvidence<'D', PreviousOwnerData> | null {
+    const scope = this.scope, lifetime = this.lifetime, publication = this.publication;
+    if (!scope) return null;
+    const consumedBlockIds = Object.freeze([...this.dependencies]);
+    return Object.freeze({ owner: 'D', lifetime, publication,
+      // Aggregate current-flight tag only, never a finite retry/execution permit.
+      request: this.flights.size ? publication : null, inFlight: this.flights.size > 0,
+      isCurrent: () => this.scope === scope && this.lifetime === lifetime && this.publication === publication,
+      data: Object.freeze({ scope: Object.freeze({ ...scope }), rejected: scope.rejected,
+        consumedBlockIds, entries: Object.freeze(consumedBlockIds.map(id => this.evidence(id))),
+        failures: Object.freeze(consumedBlockIds.flatMap(id => this.failures.has(id) ? [this.failures.get(id)!] : [])) }),
+    });
+  }
   matches(scope: PreviousScope): boolean {
     const current = this.scope;
     return !!current && current.accountId === scope.accountId && current.beforeDate === scope.beforeDate
@@ -59,6 +79,7 @@ export class LegacyPreviousCurrentness {
     this.lifetime = {};
     for (const [id, flight] of this.flights) flight.resolve({ blockId: id, state: 'STALE_OR_SUPPRESSED' });
     this.flights.clear(); this.queued.clear(); this.entries.clear(); this.dependencies.clear();
+    this.failures.clear();
     this.scope = null;
     // Active writes are retained across query transitions: returning A must not
     // read before an A write settles. The signal subscriber supplies their account.
@@ -82,6 +103,7 @@ export class LegacyPreviousCurrentness {
   private revoke(ids: readonly string[]) {
     for (const id of ids) {
       this.entries.set(id, { blockId: id, state: 'STALE_OR_SUPPRESSED' });
+      this.failures.delete(id);
       this.flights.get(id)?.resolve(this.evidence(id));
       this.flights.delete(id); this.queued.delete(id);
     }
@@ -117,6 +139,7 @@ export class LegacyPreviousCurrentness {
       let resolve!: Flight['resolve'];
       const promise = new Promise<PreviousEvidence>(done => { resolve = done; });
       const evidence: PreviousEvidence = { blockId: id, state: 'REFRESHING' };
+      this.failures.delete(id);
       this.entries.set(id, evidence); this.flights.set(id, { evidence, promise, resolve }); this.queued.add(id);
       changed = true;
       return promise;
@@ -134,7 +157,9 @@ export class LegacyPreviousCurrentness {
     this.queued.clear();
     if (!scope || !batch.length) return;
     let result: Record<string, PrevWorkoutPayload> | null = null;
+    let failure: OwnerFailureDisposition | null = null;
     try { result = await this.load(batch.map(([id]) => id), scope); } catch (error) {
+      failure = observeOwnerFailure(error);
       if (error instanceof CompositeWorkoutReadIsolationError && this.lifetime === lifetime
         && batch.some(([id, flight]) => this.flights.get(id) === flight)) {
         this.scope = { ...scope, rejected: true };
@@ -148,6 +173,8 @@ export class LegacyPreviousCurrentness {
       const value: PreviousEvidence = result === null ? { blockId: id, state: 'UNAVAILABLE' }
         : result[id] ? { blockId: id, state: 'CURRENT', payload: result[id] }
           : { blockId: id, state: 'NO_MATCH' };
+      if (failure) this.failures.set(id, failure);
+      else this.failures.delete(id);
       this.entries.set(id, value); this.flights.delete(id); flight.resolve(value);
     }
     this.publish();

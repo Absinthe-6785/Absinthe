@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { HealthExerciseComparisonBorrower, type HealthExerciseComparisonPort, type HealthExerciseComparisonRead } from './healthExerciseComparisonBorrower';
 import type { WorkoutExerciseComparisonContext } from '../../../../lib/workoutExerciseComparisonOwner';
+import { observeOwnerFailure, type OwnerFailureDisposition, type RangeOwnerData, type WorkoutOwnerEvidence } from './healthWorkoutOwnerAdapters';
 import {
   CompositeWorkoutReadIsolationError,
 } from './compositeWorkoutReadProjection';
@@ -40,9 +41,19 @@ export type HealthWorkoutRangeReadModel = Readonly<{
   previewRead?: WorkoutRangePreviewRead;
   isPreviewCurrent: (read: WorkoutRangePreviewRead) => boolean;
   exerciseComparison?: HealthExerciseComparisonRead;
+  /** Uses the existing synchronous coordinator fence; no repository/IDB verification. */
+  captureOwnerEvidence?: () => WorkoutOwnerEvidence<'RANGE', RangeOwnerData> | null;
 }>;
 
-type StoredRangeRead = Omit<HealthWorkoutRangeReadModel, 'retry' | 'invalidateAndReload' | 'isPreviewCurrent' | 'exerciseComparison'>;
+type RangeEvidence = Readonly<{
+  lifetime: object; publication: object; request: object; inFlight: boolean;
+  snapshot: object | null; isCurrent: () => boolean;
+  coordinatorPublication: ReturnType<WorkoutReadSnapshotCoordinator['captureCurrentSnapshot']>;
+  failures: readonly OwnerFailureDisposition[];
+}>;
+type StoredRangeRead = Omit<HealthWorkoutRangeReadModel,
+  'retry' | 'invalidateAndReload' | 'isPreviewCurrent' | 'exerciseComparison' | 'captureOwnerEvidence'>
+  & { ownerEvidence?: RangeEvidence };
 
 type RangeCoordinator = Pick<WorkoutReadSnapshotCoordinator,
   'load' | 'deriveRange' | 'invalidate' | 'close' | 'currentSnapshot'>
@@ -108,6 +119,9 @@ export function useHealthWorkoutRangeSnapshot(
   const [committedComparison, setCommittedComparison] = useState<CommittedComparison | null>(null);
   const ownerEpoch = useRef(0);
   const publicationSequence = useRef(0);
+  const ownerEvidenceRef = useRef<RangeEvidence | null>(null);
+  const connectionRef = useRef<object | null>(null);
+  const [connection, setConnection] = useState<object | null>(null);
   const automaticCurrentnessRetryUsed = useRef(false);
   const currentRef = useRef({ enabled, accountId, previousBounds, monthBounds, previewScope, comparisonContext });
   // Async source callbacks and durable commit handlers observe the LAST COMMIT,
@@ -115,6 +129,15 @@ export function useHealthWorkoutRangeSnapshot(
   useLayoutEffect(() => {
     currentRef.current = { enabled, accountId, previousBounds, monthBounds, previewScope, comparisonContext };
   });
+  useLayoutEffect(() => {
+    // Revoke proof during committed layout retirement, leaving passive reader IO
+    // cleanup with its existing owner. Render never issues/retires this token.
+    const issued = enabled ? Object.freeze({}) : null;
+    connectionRef.current = issued;
+    setConnection(issued);
+    return () => { if (connectionRef.current === issued) connectionRef.current = null; };
+  }, [enabled, accountId, dependencies?.createCoordinator, dependencies?.deviceStorage,
+    previousBounds.startDate, previousBounds.endDate, monthBounds.startDate, monthBounds.endDate, previewScope]);
   const comparisonEnabled = enabled && !!comparisonContext?.enabled;
   const comparisonDate = comparisonContext?.selectedDate ?? '';
   useLayoutEffect(() => {
@@ -165,6 +188,7 @@ export function useHealthWorkoutRangeSnapshot(
     const current = currentRef.current;
     if (!current.enabled) return;
     automaticCurrentnessRetryUsed.current = false;
+    ownerEvidenceRef.current = null;
     previewPublicationRef.current = null;
     publicationSequence.current += 1;
     comparisonRef.current?.invalidate();
@@ -176,6 +200,7 @@ export function useHealthWorkoutRangeSnapshot(
   const recoverCurrentnessOrSettle = useCallback(() => {
     const current = currentRef.current;
     if (!current.enabled) return;
+    ownerEvidenceRef.current = null;
     previewPublicationRef.current = null;
     publicationSequence.current += 1;
     comparisonRef.current?.invalidate();
@@ -200,6 +225,7 @@ export function useHealthWorkoutRangeSnapshot(
   const retry = invalidateAndReload;
 
   useEffect(() => {
+    ownerEvidenceRef.current = null;
     previewPublicationRef.current = null;
     ownerEpoch.current += 1;
     publicationSequence.current += 1;
@@ -222,6 +248,7 @@ export function useHealthWorkoutRangeSnapshot(
       factory: dependencies?.createCoordinator, deviceStorage: dependencies?.deviceStorage };
     setStored(initialState(true, accountId, previousBounds, monthBounds));
     return () => {
+      ownerEvidenceRef.current = null;
       previewPublicationRef.current = null;
       ownerEpoch.current += 1;
       publicationSequence.current += 1;
@@ -246,7 +273,10 @@ export function useHealthWorkoutRangeSnapshot(
       && coordinatorRef.current === coordinator
       && ownerEpoch.current === epoch
       && publicationSequence.current === sequence;
-    setStored(initialState(true, accountId, currentRef.current.previousBounds, currentRef.current.monthBounds));
+    const proof: RangeEvidence = { lifetime: sourceLifetimeRef.current!, publication: Object.freeze({}),
+      request: Object.freeze({}), inFlight: true, snapshot: null, coordinatorPublication: null, isCurrent, failures: [] };
+    ownerEvidenceRef.current = proof;
+    setStored({ ...initialState(true, accountId, currentRef.current.previousBounds, currentRef.current.monthBounds), ownerEvidence: proof });
     previewPublicationRef.current = null;
     comparisonRef.current?.invalidate();
     void coordinator.load().then(snapshot => {
@@ -258,12 +288,16 @@ export function useHealthWorkoutRangeSnapshot(
       setSourceRevision(value => value + 1);
     }).catch((error: unknown) => {
       if (!isCurrent()) return;
+      const settled = { ...proof, publication: Object.freeze({}), inFlight: false,
+        failures: Object.freeze([observeOwnerFailure(error)]) };
+      ownerEvidenceRef.current = settled;
       setStored(previous => ({
         ...previous,
         phase: 'settled',
         previousView: null,
         monthView: null,
         isolationError: error instanceof CompositeWorkoutReadIsolationError,
+        ownerEvidence: settled,
       }));
     });
   }, [enabled, accountId, refresh, recoverCurrentnessOrSettle,
@@ -289,8 +323,14 @@ export function useHealthWorkoutRangeSnapshot(
       && coordinatorRef.current === coordinator
       && ownerEpoch.current === epoch
       && publicationSequence.current === sequence;
+    const proof: RangeEvidence = { lifetime: sourceLifetimeRef.current!, publication: Object.freeze({}),
+      request: Object.freeze({}), inFlight: true, snapshot: null, coordinatorPublication: null, isCurrent, failures: [] };
+    ownerEvidenceRef.current = proof;
     setStored(previous => ({ ...previous, phase: 'loading', accountId,
-      previousBounds: capturedPrevious, monthBounds: capturedMonth }));
+      previousBounds: capturedPrevious, monthBounds: capturedMonth,
+      // Layout publication can flush this passive update before paint: do not
+      // relabel old-bounds views as the newly loading bounds on that binding render.
+      previousView: null, monthView: null, ownerEvidence: proof }));
     previewPublicationRef.current = null;
     void Promise.all([
       coordinator.deriveRange(capturedPrevious.startDate, capturedPrevious.endDate),
@@ -304,12 +344,26 @@ export function useHealthWorkoutRangeSnapshot(
         recoverCurrentnessOrSettle();
         return;
       }
+      const snapshot = coordinator.currentSnapshot;
+      const coordinatorPublication = coordinator.captureCurrentSnapshot?.() ?? null;
+      // Success requires the exact live source proof, not just completed views.
+      const sourceCurrent = !!snapshot && !!coordinatorPublication
+        && coordinatorPublication.snapshot === snapshot && coordinatorPublication.isCurrent();
+      if (!isCurrent()) return;
+      if (!sourceCurrent) {
+        recoverCurrentnessOrSettle();
+        return;
+      }
+      // Only an admitted success replenishes the existing bounded recovery budget.
       automaticCurrentnessRetryUsed.current = false;
       const previewRead: WorkoutRangePreviewRead | undefined = capturedPreview ? {
         scope: capturedPreview, phase: 'settled', view: previewView,
         isolationError: false, publication: {}, isCurrent: () => isPreviewCurrent(previewRead!),
       } : undefined;
       previewPublicationRef.current = previewRead ?? null;
+      const settled = { ...proof, publication: Object.freeze({}), inFlight: false,
+        snapshot, coordinatorPublication };
+      ownerEvidenceRef.current = settled;
       setStored({
         phase: 'settled',
         accountId,
@@ -319,9 +373,13 @@ export function useHealthWorkoutRangeSnapshot(
         monthView,
         isolationError: false,
         previewRead,
+        ownerEvidence: settled,
       });
     }).catch((error: unknown) => {
       if (!isCurrent()) return;
+      const settled = { ...proof, publication: Object.freeze({}), inFlight: false,
+        failures: Object.freeze([observeOwnerFailure(error)]) };
+      ownerEvidenceRef.current = settled;
       setStored({
         phase: 'settled',
         accountId,
@@ -330,6 +388,7 @@ export function useHealthWorkoutRangeSnapshot(
         previousView: null,
         monthView: null,
         isolationError: error instanceof CompositeWorkoutReadIsolationError,
+        ownerEvidence: settled,
       });
     });
   }, [enabled, accountId, previousBounds.startDate, previousBounds.endDate,
@@ -368,5 +427,28 @@ export function useHealthWorkoutRangeSnapshot(
         : visible.phase !== 'settled' ? 'loading'
           : coordinatorRef.current?.currentSnapshot ? 'ready' : 'unavailable' }
     : undefined;
-  return { ...visible, previewRead, retry, invalidateAndReload, isPreviewCurrent, exerciseComparison };
+  const bound = visible.ownerEvidence;
+  // This memo binds identities only; authority is the layout-issued connection
+  // plus the existing source/coordinator fences, never memo retention itself.
+  const publication = useMemo(() => bound && connection ? Object.freeze({}) : null, [bound, connection]);
+  // Pending/failure metadata may lack a source snapshot; successful views may not.
+  const hasDerivedViews = !!visible.previousView || !!visible.monthView;
+  const evidenceCurrent = () => !!connection && connectionRef.current === connection
+    && !!bound && currentRef.current.enabled
+    && ownerEvidenceRef.current === bound && sourceLifetimeRef.current === bound.lifetime
+    && bound.isCurrent() && (!hasDerivedViews || (!!bound.snapshot
+      && coordinatorRef.current?.currentSnapshot === bound.snapshot
+      && bound.coordinatorPublication?.snapshot === bound.snapshot && bound.coordinatorPublication.isCurrent()));
+  const captureOwnerEvidence = (): WorkoutOwnerEvidence<'RANGE', RangeOwnerData> | null => evidenceCurrent()
+    ? Object.freeze({ owner: 'RANGE', lifetime: connection!, publication: publication!,
+      request: bound!.request, inFlight: bound!.inFlight, isCurrent: evidenceCurrent,
+      data: Object.freeze({ phase: visible.phase, accountId: visible.accountId,
+        previousBounds: visible.previousBounds, monthBounds: visible.monthBounds,
+        previousView: visible.phase === 'settled' ? visible.previousView : null,
+        monthView: visible.phase === 'settled' ? visible.monthView : null,
+        isolationError: visible.isolationError, failures: bound!.failures }) }) : null;
+  return { phase: visible.phase, accountId: visible.accountId,
+    previousBounds: visible.previousBounds, monthBounds: visible.monthBounds,
+    previousView: visible.previousView, monthView: visible.monthView, isolationError: visible.isolationError,
+    previewRead, retry, invalidateAndReload, isPreviewCurrent, exerciseComparison, captureOwnerEvidence };
 }

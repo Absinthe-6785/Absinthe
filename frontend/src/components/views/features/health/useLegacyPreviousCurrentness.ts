@@ -91,6 +91,12 @@ export function useLegacyPreviousCurrentness(enabled: boolean, scope: PreviousSc
       window.removeEventListener(HEALTH_LOCAL_BOOTSTRAP_COMPLETE_EVENT, bootstrap);
     };
   }, [owner, enabled]);
+  const boundEvidence = enabled && owner.matches(effectiveScope) ? owner.captureOwnerEvidence() : null;
+  const captureOwnerEvidence = () => boundEvidence?.isCurrent() ? boundEvidence : null;
   return { owner, revision, rejected: enabled && (rejected || owner.isRejected()),
-    current: enabled && owner.matches(effectiveScope) && !rejected };
+    current: enabled && owner.matches(effectiveScope) && !rejected,
+    captureOwnerEvidence,
+    // Denial-only observation: a held port cannot clear a later committed latch.
+    isEffectivelyRejected: () => rejected || owner.isRejected(),
+  };
 }
