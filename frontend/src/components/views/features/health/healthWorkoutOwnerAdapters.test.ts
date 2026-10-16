@@ -516,6 +516,9 @@ describe('F1-P1 source evidence at real mounted owner/coordinator boundaries', (
   });
   it('P1-C19/C20/C24/C25/C29 observations are frozen bounded descriptions, not identities, payload or execution', async () => {
     const error = new LocalDatabaseError('OPEN_FAILED', 'account/user payload');
+    // Materialize V8's lazy stack BEFORE poisoning either getter. Otherwise
+    // defining stack can itself format message, before any production code runs.
+    void error.stack;
     Object.defineProperties(error, { message: { get: () => { throw Error('must not inspect message'); } },
       stack: { get: () => { throw Error('must not inspect stack'); } } });
     mocks.dayCanonical.mockRejectedValue(error); await render(); await tick();
