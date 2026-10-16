@@ -46,6 +46,21 @@ export function observeOwnerFailure(error: unknown): OwnerFailureDisposition {
       ? { kind: deterministicCodes.has(error.code) ? 'DETERMINISTIC' : 'UNCLASSIFIED', reasonCode: error.code }
       : { kind: 'UNCLASSIFIED', reasonCode: 'UNKNOWN' });
 }
+/** Descriptive catch metadata only. No cause identity, scope proof or retry authority.
+ * PAIR_OWNER explicitly means that the aggregate boundary cannot attribute a lane.
+ */
+export type OwnerSourceFailure<K extends 'B1' | 'RANGE'> = Readonly<{
+  owner: K;
+  source: 'LEGACY' | 'CANONICAL' | 'PAIR_OWNER';
+  boundary: 'READ' | 'SCOPE_VERIFICATION' | 'PAIR_PROJECTION' | 'LOAD' | 'DERIVATION';
+  disposition: OwnerFailureDisposition;
+}>;
+export function observeSourceFailure<K extends 'B1' | 'RANGE'>(
+  owner: K, source: OwnerSourceFailure<K>['source'],
+  boundary: OwnerSourceFailure<K>['boundary'], error: unknown,
+): OwnerSourceFailure<K> {
+  return Object.freeze({ owner, source, boundary, disposition: observeOwnerFailure(error) });
+}
 export type SelectedDayOwnerData = Readonly<{
   phase: 'loading' | 'settled'; accountId: string; localDate: string;
   canonicalScope: SelectedDayCanonicalScope | null;
@@ -53,6 +68,8 @@ export type SelectedDayOwnerData = Readonly<{
   legacyDaily: LocalHealthDailyProjection | null;
   isolationError: boolean;
   failures: readonly OwnerFailureDisposition[];
+  /** Internal diagnostics; never consumed by retry/qualification. */
+  sourceFailures?: readonly OwnerSourceFailure<'B1'>[];
 }>;
 export type RangeOwnerData = Readonly<{
   phase: 'disabled' | 'loading' | 'settled'; accountId: string;
@@ -61,6 +78,8 @@ export type RangeOwnerData = Readonly<{
   previousView: WorkoutRangeView | null; monthView: WorkoutRangeView | null;
   isolationError: boolean;
   failures: readonly OwnerFailureDisposition[];
+  /** Internal diagnostics; never consumed by retry/qualification. */
+  sourceFailures?: readonly OwnerSourceFailure<'RANGE'>[];
 }>;
 export type PreviousOwnerData = Readonly<{
   scope: PreviousScope;

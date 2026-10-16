@@ -67,8 +67,9 @@ function reader(accountId: string, range = false) {
 }
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>(done => { resolve = done; });
-  return { promise, resolve };
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail; });
+  return { promise, resolve, reject };
 }
 type Props = { enabled?: boolean; accountId?: string; date?: string; generation?: number;
   trust?: PreviousParentTrust; cutoff?: string; rejected?: boolean };
@@ -132,6 +133,30 @@ beforeEach(() => {
 afterEach(() => { if (root) act(() => root!.unmount()); root = null; host.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); window.localStorage.clear(); });
 
 describe('Slice B real-owner publication observations (not runtime activation)', () => {
+  it('P1-C01/C02 reproduces lost lane attribution at the actual B1 catches', async () => {
+    mocks.readAll.mockRejectedValueOnce(new Error('sensitive legacy error'));
+    await render(); await tick();
+    expect(latest.day.captureOwnerEvidence!()!.data).toMatchObject({ sourceFailures: [
+      { owner: 'B1', source: 'LEGACY', boundary: 'READ', disposition: { kind: 'UNCLASSIFIED', reasonCode: 'UNKNOWN' } },
+    ] });
+    mocks.dayCanonical.mockRejectedValueOnce(new LocalDatabaseError('OPEN_FAILED', 'sensitive operation'));
+    act(() => latest.day.retry()); await tick();
+    expect(latest.day.captureOwnerEvidence!()!.data).toMatchObject({ sourceFailures: [
+      { owner: 'B1', source: 'CANONICAL', boundary: 'READ', disposition: { kind: 'UNCLASSIFIED', reasonCode: 'OPEN_FAILED' } },
+    ] });
+  });
+
+  it('P1-C09/C10 reproduces ordinary RANGE allSettled cause loss at the actual coordinator', async () => {
+    mocks.readAll.mockRejectedValue(new Error('sensitive legacy error'));
+    mocks.rangeCanonical.mockRejectedValueOnce(new LocalDatabaseError('OPEN_FAILED', 'sensitive operation'));
+    await render(); await tick();
+    expect(latest.range.captureOwnerEvidence!()!.data).toMatchObject({ sourceFailures: [
+      { owner: 'RANGE', source: 'LEGACY', boundary: 'READ', disposition: { kind: 'UNCLASSIFIED', reasonCode: 'UNKNOWN' } },
+      { owner: 'RANGE', source: 'CANONICAL', boundary: 'READ', disposition: { kind: 'UNCLASSIFIED', reasonCode: 'OPEN_FAILED' } },
+    ] });
+    expect(latest.range.monthView?.result.status).toBe('error');
+  });
+
   it('B01/B29 accepts current B1 and supplies Slice A without changing its immutable output boundary', async () => {
     await render(); await tick();
     expect(latest.b1.input.publication).not.toBeNull(); expect(latest.b1.isCurrent()).toBe(true);
@@ -380,6 +405,223 @@ describe('Slice B real-owner publication observations (not runtime activation)',
   });
 });
 
+describe('F1-P1 source evidence at real mounted owner/coordinator boundaries', () => {
+  // Rejected source seams below are deliberate faults, NOT proof of a production
+  // transient producer. Legacy projection/isolation and orchestration run normally.
+  const observations = (owner: 'B1' | 'RANGE') => owner === 'B1'
+    ? latest.day.captureOwnerEvidence!()!.data.sourceFailures!
+    : latest.range.captureOwnerEvidence!()!.data.sourceFailures!;
+  const failure = (owner: 'B1' | 'RANGE', source: 'LEGACY' | 'CANONICAL', reasonCode = 'UNKNOWN', kind = 'UNCLASSIFIED') => (
+    { owner, source, boundary: 'READ', disposition: { kind, reasonCode } }
+  );
+  function exactEvidence(actual: unknown, expected: unknown) { expect(actual).toEqual(expected); }
+
+  it('P1-C03/C04 keeps simultaneous B1 failures, and healthy partial canonical never clears legacy failure', async () => {
+    mocks.readAll.mockRejectedValue(new Error('private'));
+    mocks.dayCanonical.mockRejectedValueOnce(new LocalDatabaseError('MALFORMED_METADATA', 'private'));
+    await render(); await tick();
+    exactEvidence(observations('B1'), [failure('B1', 'LEGACY'), failure('B1', 'CANONICAL', 'MALFORMED_METADATA', 'DETERMINISTIC')]);
+    expect(latest.b1.retryClassification.state).toBe('DETERMINISTICALLY_BLOCKED');
+    act(() => latest.day.retry()); await tick();
+    exactEvidence(observations('B1'), [failure('B1', 'LEGACY')]);
+    expect(latest.day.result).toMatchObject({ status: 'partial_data', legacyStatus: 'error', canonicalStatus: 'success' });
+    expect(latest.b1.retryClassification.state).toBe('UNKNOWN');
+  });
+  it('P1-C05 actual legacy row account-check preserves typed isolation and whole-pair veto', async () => {
+    mocks.readAll.mockResolvedValueOnce(datasets('foreign-account'));
+    await render(); await tick();
+    exactEvidence(observations('B1'), [failure('B1', 'LEGACY', 'ACCOUNT_MISMATCH', 'ISOLATION')]);
+    expect(latest.day).toMatchObject({ isolationError: true, result: null, legacyDaily: null });
+    expect(latest.b1.retryClassification.state).toBe('ISOLATION_BLOCKED');
+    expect(latest.day.captureOwnerEvidence!()!.data.canonicalScope).toBeNull();
+  });
+  it('P1-C06/C11/C18 plain/forged/open errors remain UNCLASSIFIED, never positive', async () => {
+    const plain = Object.assign(new Error('payload'), { code: 'MALFORMED_METADATA', retryEligible: true });
+    mocks.readAll.mockRejectedValue(plain);
+    mocks.dayCanonical.mockRejectedValue(new LocalDatabaseError('OPEN_FAILED', 'private'));
+    mocks.rangeCanonical.mockRejectedValue(new LocalDatabaseError('OPEN_BLOCKED', 'private'));
+    await render(); await tick();
+    expect(observations('B1').map(o => o.disposition)).toEqual([
+      { kind: 'UNCLASSIFIED', reasonCode: 'UNKNOWN' }, { kind: 'UNCLASSIFIED', reasonCode: 'OPEN_FAILED' },
+    ]);
+    expect(observations('RANGE').map(o => o.disposition)).toEqual([
+      { kind: 'UNCLASSIFIED', reasonCode: 'UNKNOWN' }, { kind: 'UNCLASSIFIED', reasonCode: 'OPEN_BLOCKED' },
+    ]);
+    expect([latest.b1.retryClassification.state, latest.r.retryClassification.state]).toEqual(['UNKNOWN', 'UNKNOWN']);
+  });
+  it('P1-C07 B1 whole-pair currentness recovery remains exactly two pairs, no invented error', async () => {
+    mocks.dayOpen.mockImplementation(async account => ({ ...reader(account),
+      verifyCurrentScope: vi.fn(async () => { throw new LocalDatabaseError('STALE_GENERATION', 'scope'); }) }));
+    await render(); await tick();
+    expect(mocks.dayOpen).toHaveBeenCalledTimes(2); expect(mocks.dayCanonical).toHaveBeenCalledTimes(2);
+    expect(latest.day).toMatchObject({ phase: 'settled', result: null });
+    exactEvidence(observations('B1'), []);
+    expect(mocks.rangeCanonical).toHaveBeenCalledTimes(1);
+  });
+  it('P1-C08 late pre-retry failure cannot append evidence to the new B1 publication', async () => {
+    const old = deferred<HealthRecoveryDatasets>(); mocks.readAll.mockReturnValueOnce(old.promise);
+    await render(); const held = latest.day.captureOwnerEvidence!()!;
+    act(() => latest.day.retry()); await tick();
+    const current = latest.day.captureOwnerEvidence!()!;
+    expect(held.isCurrent()).toBe(false);
+    await act(async () => old.reject(new Error('old private error'))); await tick();
+    expect(latest.day.captureOwnerEvidence!()!.publication).toBe(current.publication);
+    exactEvidence(observations('B1'), []);
+  });
+  it('P1-C12 RANGE scope distrust is still a terminal negative, not salvaged source success', async () => {
+    mocks.rangeOpen.mockImplementation(async account => ({ ...reader(account, true),
+      verifyCurrentScope: vi.fn(async () => { throw new LocalDatabaseError('MALFORMED_METADATA', 'scope'); }) }));
+    await render(); await tick();
+    expect(latest.range).toMatchObject({ phase: 'settled', previousView: null, monthView: null });
+    expect(latest.r.retryClassification.state).toBe('DETERMINISTICALLY_BLOCKED');
+    exactEvidence(observations('RANGE'), [{ owner: 'RANGE', source: 'PAIR_OWNER', boundary: 'LOAD',
+      disposition: { kind: 'DETERMINISTIC', reasonCode: 'MALFORMED_METADATA' } }]);
+  });
+  it('P1-C13/C16 diagnostic metadata cannot change partial coverage, absence or existing retry precedence', async () => {
+    mocks.rangeCanonical.mockRejectedValue(new LocalDatabaseError('MALFORMED_METADATA', 'private'));
+    await render(); await tick();
+    exactEvidence(observations('RANGE'), [failure('RANGE', 'CANONICAL', 'MALFORMED_METADATA', 'DETERMINISTIC')]);
+    expect(latest.range.monthView?.result).toMatchObject({ status: 'partial_data', legacyStatus: 'success', canonicalStatus: 'error' });
+    // Diagnostics intentionally do not retroactively change the old retry input.
+    expect(latest.range.captureOwnerEvidence!()!.data.failures).toEqual([]);
+    expect(latest.r.retryClassification.state).toBe('UNKNOWN');
+    expect(latest.range.monthView?.result.records.every(r => r.source === 'legacy')).toBe(true);
+  });
+  it('P1-C14 allSettled still waits for both lanes and keeps LEGACY/CANONICAL order, not completion order', async () => {
+    const legacy = deferred<HealthRecoveryDatasets>(); mocks.readAll.mockReturnValue(legacy.promise);
+    mocks.rangeCanonical.mockRejectedValue(new Error('canonical first'));
+    await render(); await tick(); expect(latest.range.phase).toBe('loading');
+    await act(async () => legacy.reject(new Error('legacy later'))); await tick();
+    exactEvidence(observations('RANGE'), [failure('RANGE', 'LEGACY'), failure('RANGE', 'CANONICAL')]);
+    expect(mocks.readAll).toHaveBeenCalledTimes(2); expect(mocks.rangeCanonical).toHaveBeenCalledTimes(1);
+  });
+  it('P1-C15 existing B1 opening coalesces and RANGE bounds derivation does not rescan', async () => {
+    const open = deferred<ReturnType<typeof reader>>(); mocks.dayOpen.mockReturnValueOnce(open.promise);
+    await render(); act(() => latest.day.retry()); await tick(); expect(mocks.dayOpen).toHaveBeenCalledTimes(1);
+    await act(async () => open.resolve(reader('a'))); await tick();
+    const before = [mocks.readAll.mock.calls.length, mocks.rangeCanonical.mock.calls.length];
+    await render({ date: Y }); await tick();
+    expect(mocks.rangeCanonical).toHaveBeenCalledTimes(before[1]!);
+    expect(mocks.readAll.mock.calls.length).toBe(before[0]! + 1); // B1 date pair only
+  });
+  it('P1-C17 D keeps its old interface, rejection and unavailable semantics; no sibling evidence', async () => {
+    mocks.readAll.mockRejectedValue(new Error('B1/RANGE failure'));
+    mocks.previous.mockRejectedValue(new Error('LOCAL D failure'));
+    await render(); await act(async () => { await latest.previous.owner.ensure(['bench']); }); await tick();
+    const evidence = latest.previous.captureOwnerEvidence!()!;
+    expect(evidence.data).not.toHaveProperty('sourceFailures');
+    expect(evidence.data.entries[0]?.state).toBe('UNAVAILABLE');
+    expect(latest.d.retryClassification.state).toBe('UNKNOWN');
+    await render({ rejected: true }); await tick(); expect(latest.d.input.rejected).toBe(true);
+  });
+  it('P1-C19/C20/C24/C25/C29 observations are frozen bounded descriptions, not identities, payload or execution', async () => {
+    const error = new LocalDatabaseError('OPEN_FAILED', 'account/user payload');
+    Object.defineProperties(error, { message: { get: () => { throw Error('must not inspect message'); } },
+      stack: { get: () => { throw Error('must not inspect stack'); } } });
+    mocks.dayCanonical.mockRejectedValue(error); await render(); await tick();
+    const observed = observations('B1'), before = counts();
+    for (let n = 0; n < 20; n++) {
+      expect(latest.day.captureOwnerEvidence!()!.data.sourceFailures).toBe(observed);
+      expect(adapters.observeSourceFailure('B1', 'CANONICAL', 'READ', error)).toEqual(observed[0]);
+    }
+    expect(counts()).toEqual(before);
+    expect(Object.keys(observed[0]!).sort()).toEqual(['boundary', 'disposition', 'owner', 'source']);
+    expect(Object.keys(observed[0]!.disposition).sort()).toEqual(['kind', 'reasonCode']);
+    expect(Object.isFrozen(observed)).toBe(true); expect(Object.isFrozen(observed[0])).toBe(true);
+    expect(Object.isFrozen(observed[0]!.disposition)).toBe(true);
+    expect(JSON.stringify(observed)).not.toMatch(/account\/user|message|stack|permit|allowance|episode|causeRef|retryEligible/i);
+  });
+  it.each(['account', 'date'] as const)('P1-C21 %s ABA retires old observation binding, including equal values', async kind => {
+    mocks.readAll.mockRejectedValue(new Error('ordinary source failure'));
+    await render(); await tick(); const held = latest.day.captureOwnerEvidence!()!;
+    await render(kind === 'account' ? { accountId: 'b', generation: 2 } : { date: Y }); await tick();
+    await render(kind === 'account' ? { generation: 3 } : {}); await tick();
+    expect(held.isCurrent()).toBe(false);
+    expect(latest.day.captureOwnerEvidence!()!.lifetime).not.toBe(held.lifetime);
+    expect(observations('B1')).not.toBe(held.data.sourceFailures);
+  });
+  it('P1-C22 RANGE observed device retirement is permanent; unobserved ABA is still not causal proof', async () => {
+    mocks.rangeCanonical.mockRejectedValue(new Error('unknown')); await render(); await tick();
+    const held = latest.range.captureOwnerEvidence!()!, before = counts();
+    const key = 'absinthe-health-routine-device-id:v1';
+    window.localStorage.setItem(key, 'different-device'); window.localStorage.setItem(key, DEVICE);
+    expect(held.isCurrent()).toBe(true); // wholly unobserved round trip remains the existing limitation
+    expect(latest.r.retryClassification.state).toBe('UNKNOWN');
+    window.localStorage.setItem(key, 'different-device'); expect(held.isCurrent()).toBe(false);
+    window.localStorage.setItem(key, DEVICE); expect(held.isCurrent()).toBe(false);
+    expect(counts()).toEqual(before);
+  });
+  it('P1-C23 detach plus late failure never revives the old owner observation', async () => {
+    const old = deferred<HealthRecoveryDatasets>(); mocks.readAll.mockReturnValueOnce(old.promise);
+    await render(); const held = latest.day.captureOwnerEvidence!()!;
+    await act(async () => root!.unmount()); root = null;
+    await act(async () => old.reject(new Error('late after detach'))); await tick();
+    expect(held.isCurrent()).toBe(false);
+    await render(); await tick(); exactEvidence(observations('B1'), []);
+  });
+  it('P1-C30 all five literal production reader gates remain OFF', () => {
+    const gates = [
+      ['health/healthSelectedDayCompositeConfig', 'HEALTH_SELECTED_DAY_COMPOSITE_READER_ENABLED'],
+      ['health/healthWorkoutRangeCompositeConfig', 'HEALTH_WORKOUT_RANGE_COMPOSITE_READER_ENABLED'],
+      ['health/healthExerciseComparisonPreviewConfig', 'HEALTH_EXERCISE_COMPARISON_PREVIEW_ENABLED'],
+      ['home/homeWorkoutCompositeConfig', 'HOME_WORKOUT_COMPOSITE_READER_ENABLED'],
+      ['search/searchWorkoutCompositeConfig', 'SEARCH_WORKOUT_COMPOSITE_READER_ENABLED'],
+    ];
+    for (const [file, name] of gates) expect(readFileSync(resolve(`src/components/views/features/${file}.ts`), 'utf8'))
+      .toContain(`export const ${name} = false;`);
+  });
+
+  // These are explicitly synthetic corruptions of observations captured from the
+  // actual mounted pipeline. They test oracle sensitivity, not producer provenance.
+  it.each(['N01', 'N02', 'N04', 'N05', 'N06', 'N07', 'N10', 'N14', 'N15', 'N16'] as const)(
+    'P1-%s bounded evidence oracle rejects the named corruption', async id => {
+      mocks.readAll.mockRejectedValue(new Error('private legacy'));
+      mocks.dayCanonical.mockRejectedValue(new LocalDatabaseError('OPEN_FAILED', 'private canonical'));
+      if (id === 'N06') mocks.rangeCanonical.mockRejectedValue(new LocalDatabaseError('OPEN_FAILED', 'private canonical'));
+      await render(); await tick();
+      const owner = id === 'N06' ? 'RANGE' : 'B1';
+      const expected = [failure(owner, 'LEGACY'), failure(owner, 'CANONICAL', 'OPEN_FAILED')];
+      exactEvidence(observations(owner), expected);
+      const bad = structuredClone(observations(owner)) as Array<Record<string, any>>;
+      if (id === 'N01') bad[0]!.source = 'CANONICAL';
+      if (id === 'N02') bad[1]!.source = 'LEGACY';
+      if (id === 'N04') bad[0]!.disposition.kind = 'TRANSIENT';
+      if (id === 'N05') bad[1]!.disposition.kind = 'TRANSIENT';
+      if (id === 'N06') delete bad[0]!.source;
+      if (id === 'N07') bad[1] = structuredClone(bad[0]!);
+      if (id === 'N10') bad[0]!.message = 'private legacy';
+      if (id === 'N14') bad[0]!.causalEpisodeId = {};
+      if (id === 'N15') bad[0]!.retryEligible = true;
+      if (id === 'N16') bad[0]!.owner = 'RANGE';
+      expect(() => exactEvidence(bad, expected)).toThrow();
+    });
+  it('P1-N03 partial success cannot erase its sibling observation', async () => {
+    mocks.readAll.mockRejectedValueOnce(new Error('legacy only')); await render(); await tick();
+    const expected = [failure('B1', 'LEGACY')]; exactEvidence(observations('B1'), expected);
+    expect(latest.day.result?.canonicalStatus).toBe('success');
+    expect(() => exactEvidence([], expected)).toThrow();
+  });
+  it('P1-N08/N09 retired proof or ABA-reused observation fails the same lifetime oracle', async () => {
+    mocks.readAll.mockRejectedValue(new Error('unknown')); await render(); await tick();
+    const old = latest.day.captureOwnerEvidence!()!;
+    await render({ date: Y }); await render({}); await tick(); const current = latest.day.captureOwnerEvidence!()!;
+    const oracle = (isCurrent: boolean, observed: unknown) => {
+      expect(isCurrent).toBe(false); expect(observed).not.toBe(old.data.sourceFailures);
+    };
+    oracle(old.isCurrent(), current.data.sourceFailures);
+    expect(() => oracle(true, current.data.sourceFailures)).toThrow();
+    expect(() => oracle(false, old.data.sourceFailures)).toThrow();
+  });
+  it('P1-N13 diagnostic metadata cannot upgrade existing source coverage or trust', async () => {
+    mocks.rangeCanonical.mockRejectedValue(new Error('canonical')); await render(); await tick();
+    const oracle = (canonicalStatus: string | undefined, status: string | undefined) => {
+      expect(canonicalStatus).toBe('error'); expect(status).toBe('partial_data');
+    };
+    oracle(latest.range.monthView?.result.canonicalStatus, latest.range.monthView?.result.status);
+    expect(() => oracle('success', 'complete_empty')).toThrow();
+  });
+});
+
 describe('R01/R02 real coordinator and committed-layout proof boundaries', () => {
   const pb = { startDate: '2025-10-15', endDate: '2026-10-14' };
   const mb = { startDate: '2026-10-01', endDate: '2026-10-31' };
@@ -574,6 +816,16 @@ describe('targeted same-oracle negative controls', () => {
     const oracle = (module: typeof adapters) => expect(module.adaptSelectedDayOwner(latest.day, latest.context).retry.disposition.state).toBe('UNKNOWN');
     oracle(adapters);
     const mutant = fault("{ state: 'UNKNOWN' as const },", "{ state: 'TRANSIENT' as const, episode: evidence!.request!, permit: evidence!.publication, currentPermit: evidence!.publication },");
+    expect(mutant.adaptSelectedDayOwner(latest.day, latest.context).retry.disposition.state).toBe('TRANSIENT');
+    expect(() => oracle(mutant)).toThrow(/UNKNOWN/);
+  });
+  it('P1-N15 same retry oracle detects promoting retained observation into episode/permit authority', async () => {
+    mocks.dayOpen.mockRejectedValue(new Error('unclassified source')); await render(); await tick();
+    expect(latest.day.captureOwnerEvidence!()!.data.sourceFailures).toHaveLength(1);
+    const oracle = (module: typeof adapters) => expect(module.adaptSelectedDayOwner(latest.day, latest.context).retry.disposition.state).toBe('UNKNOWN');
+    oracle(adapters);
+    const mutant = fault("{ state: 'UNKNOWN' as const },",
+      "((evidence?.data as SelectedDayOwnerData | undefined)?.sourceFailures?.length ? { state: 'TRANSIENT' as const, episode: (evidence!.data as SelectedDayOwnerData).sourceFailures![0], permit: evidence!.publication, currentPermit: evidence!.publication } : { state: 'UNKNOWN' as const }),");
     expect(mutant.adaptSelectedDayOwner(latest.day, latest.context).retry.disposition.state).toBe('TRANSIENT');
     expect(() => oracle(mutant)).toThrow(/UNKNOWN/);
   });

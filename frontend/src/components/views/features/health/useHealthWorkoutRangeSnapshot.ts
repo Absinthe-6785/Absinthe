@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { HealthExerciseComparisonBorrower, type HealthExerciseComparisonPort, type HealthExerciseComparisonRead } from './healthExerciseComparisonBorrower';
 import type { WorkoutExerciseComparisonContext } from '../../../../lib/workoutExerciseComparisonOwner';
-import { observeOwnerFailure, type OwnerFailureDisposition, type RangeOwnerData, type WorkoutOwnerEvidence } from './healthWorkoutOwnerAdapters';
+import { observeSourceFailure, type OwnerFailureDisposition, type OwnerSourceFailure,
+  type RangeOwnerData, type WorkoutOwnerEvidence } from './healthWorkoutOwnerAdapters';
 import {
   CompositeWorkoutReadIsolationError,
 } from './compositeWorkoutReadProjection';
@@ -50,6 +51,7 @@ type RangeEvidence = Readonly<{
   snapshot: object | null; isCurrent: () => boolean;
   coordinatorPublication: ReturnType<WorkoutReadSnapshotCoordinator['captureCurrentSnapshot']>;
   failures: readonly OwnerFailureDisposition[];
+  sourceFailures?: readonly OwnerSourceFailure<'RANGE'>[];
 }>;
 type StoredRangeRead = Omit<HealthWorkoutRangeReadModel,
   'retry' | 'invalidateAndReload' | 'isPreviewCurrent' | 'exerciseComparison' | 'captureOwnerEvidence'>
@@ -288,8 +290,10 @@ export function useHealthWorkoutRangeSnapshot(
       setSourceRevision(value => value + 1);
     }).catch((error: unknown) => {
       if (!isCurrent()) return;
+      const sourceFailure = observeSourceFailure('RANGE', 'PAIR_OWNER', 'LOAD', error);
       const settled = { ...proof, publication: Object.freeze({}), inFlight: false,
-        failures: Object.freeze([observeOwnerFailure(error)]) };
+        failures: Object.freeze([sourceFailure.disposition]),
+        sourceFailures: Object.freeze([sourceFailure]) };
       ownerEvidenceRef.current = settled;
       setStored(previous => ({
         ...previous,
@@ -362,7 +366,7 @@ export function useHealthWorkoutRangeSnapshot(
       } : undefined;
       previewPublicationRef.current = previewRead ?? null;
       const settled = { ...proof, publication: Object.freeze({}), inFlight: false,
-        snapshot, coordinatorPublication };
+        snapshot, coordinatorPublication, sourceFailures: snapshot?.sourceFailures };
       ownerEvidenceRef.current = settled;
       setStored({
         phase: 'settled',
@@ -377,8 +381,10 @@ export function useHealthWorkoutRangeSnapshot(
       });
     }).catch((error: unknown) => {
       if (!isCurrent()) return;
+      const sourceFailure = observeSourceFailure('RANGE', 'PAIR_OWNER', 'DERIVATION', error);
       const settled = { ...proof, publication: Object.freeze({}), inFlight: false,
-        failures: Object.freeze([observeOwnerFailure(error)]) };
+        failures: Object.freeze([sourceFailure.disposition]),
+        sourceFailures: Object.freeze([sourceFailure]) };
       ownerEvidenceRef.current = settled;
       setStored({
         phase: 'settled',
@@ -446,7 +452,8 @@ export function useHealthWorkoutRangeSnapshot(
         previousBounds: visible.previousBounds, monthBounds: visible.monthBounds,
         previousView: visible.phase === 'settled' ? visible.previousView : null,
         monthView: visible.phase === 'settled' ? visible.monthView : null,
-        isolationError: visible.isolationError, failures: bound!.failures }) }) : null;
+        isolationError: visible.isolationError, failures: bound!.failures,
+        sourceFailures: bound!.sourceFailures }) }) : null;
   return { phase: visible.phase, accountId: visible.accountId,
     previousBounds: visible.previousBounds, monthBounds: visible.monthBounds,
     previousView: visible.previousView, monthView: visible.monthView, isolationError: visible.isolationError,

@@ -10,7 +10,8 @@ import {
   type LegacyWorkoutReadInput, type SourceRead,
 } from './compositeWorkoutReadProjection';
 import { loadVerifiedSelectedDayLegacySnapshot } from './selectedDayLegacySnapshot';
-import { observeOwnerFailure, type OwnerFailureDisposition, type SelectedDayOwnerData, type WorkoutOwnerEvidence } from './healthWorkoutOwnerAdapters';
+import { observeSourceFailure, type OwnerFailureDisposition, type OwnerSourceFailure,
+  type SelectedDayOwnerData, type WorkoutOwnerEvidence } from './healthWorkoutOwnerAdapters';
 
 /** A cache identity, not an invalidation counter. No unverified rows enter it. */
 export function selectedDayCompositeKey(scope: SelectedDayCanonicalScope, date: string): readonly string[] {
@@ -38,7 +39,8 @@ export type HealthSelectedDayCompositeOptions = Readonly<{
 type StoredRead = Omit<HealthSelectedDayReadModel, 'retry' | 'captureOwnerEvidence'>;
 type Publication = { scopeVersion: number; sequence: number; epoch: number;
   ownerPublication: object | null; ownerLifetime: object | null; request: object | null;
-  canonicalScope: SelectedDayCanonicalScope | null; failures: readonly OwnerFailureDisposition[] };
+  canonicalScope: SelectedDayCanonicalScope | null; failures: readonly OwnerFailureDisposition[];
+  sourceFailures: readonly OwnerSourceFailure<'B1'>[] };
 
 function loading(accountId: string, localDate: string): StoredRead {
   return { phase: 'loading', accountId, localDate, cacheKey: null,
@@ -53,7 +55,7 @@ export function useHealthSelectedDayComposite(
   const [refresh, setRefresh] = useState(0);
   const [stored, setStored] = useState<StoredRead & Publication>(() => ({
     ...loading(accountId, localDate), scopeVersion: -1, sequence: -1, epoch: -1,
-    ownerPublication: null, ownerLifetime: null, request: null, canonicalScope: null, failures: [],
+    ownerPublication: null, ownerLifetime: null, request: null, canonicalScope: null, failures: [], sourceFailures: Object.freeze([]),
   }));
   const requestSequence = useRef(0);
   const mountEpoch = useRef(0);
@@ -140,12 +142,14 @@ export function useHealthSelectedDayComposite(
       && currentRef.current.enabled
       && currentRef.current.accountId === captured.accountId
       && currentRef.current.localDate === captured.localDate;
-    const publish = (value: StoredRead, failures: readonly OwnerFailureDisposition[] = []) => {
+    const publish = (value: StoredRead, failures: readonly OwnerFailureDisposition[] = [],
+      sourceFailures: readonly OwnerSourceFailure<'B1'>[] = []) => {
       if (!isCurrent()) return;
       const ownerPublication = Object.freeze({});
       ownerPublicationRef.current = ownerPublication;
       setStored(previous => isCurrent() && ownerPublicationRef.current === ownerPublication
-        ? { ...value, scopeVersion, sequence, epoch, ownerLifetime, ownerPublication, request, canonicalScope: null, failures }
+        ? { ...value, scopeVersion, sequence, epoch, ownerLifetime, ownerPublication, request, canonicalScope: null,
+          failures, sourceFailures: Object.freeze(sourceFailures) }
         : previous);
     };
     // Retain only the previous verified daily object's identity internally.
@@ -154,7 +158,7 @@ export function useHealthSelectedDayComposite(
     ownerPublicationRef.current = loadingPublication;
     setStored(previous => isCurrent() && ownerPublicationRef.current === loadingPublication ? {
       ...loading(accountId, localDate), scopeVersion, sequence, epoch,
-      ownerLifetime, ownerPublication: loadingPublication, request, canonicalScope: null, failures: [],
+      ownerLifetime, ownerPublication: loadingPublication, request, canonicalScope: null, failures: [], sourceFailures: Object.freeze([]),
       legacyDaily: previous.scopeVersion === scopeVersion ? previous.legacyDaily : null,
     } : previous);
     // Separate from readCanonical's single internal stale-generation reopen.
@@ -194,6 +198,7 @@ export function useHealthSelectedDayComposite(
       source: SourceRead<ActiveCanonicalWorkoutReadInput>;
       isolationError: boolean;
       failure?: OwnerFailureDisposition;
+      sourceFailure?: OwnerSourceFailure<'B1'>;
     }> {
       let reader: WorkoutSelectedDayReader | null = null;
       try {
@@ -212,9 +217,10 @@ export function useHealthSelectedDayComposite(
           return { scope: reader.scope, source: { status: 'success', records: await reader.read(localDate) }, isolationError: false };
         }
       } catch (error) {
+        const sourceFailure = observeSourceFailure('B1', 'CANONICAL', 'READ', error);
         return { scope: reader && readerRef.current === reader ? reader.scope : null,
           source: { status: 'error' },
-          failure: observeOwnerFailure(error),
+          failure: sourceFailure.disposition, sourceFailure,
           isolationError: error instanceof CompositeWorkoutReadIsolationError };
       }
     }
@@ -224,8 +230,12 @@ export function useHealthSelectedDayComposite(
       const [legacy, canonical] = await Promise.all([
         loadVerifiedSelectedDayLegacySnapshot(accountId, localDate)
           .then(value => ({ value, source: { status: 'success', records: value.persistedRows } as SourceRead<LegacyWorkoutReadInput>, isolationError: false }))
-          .catch((error: unknown) => ({ value: null, source: { status: 'error' } as SourceRead<LegacyWorkoutReadInput>,
-            isolationError: error instanceof CompositeWorkoutReadIsolationError, failure: observeOwnerFailure(error) })),
+          .catch((error: unknown) => {
+            const sourceFailure = observeSourceFailure('B1', 'LEGACY', 'READ', error);
+            return { value: null, source: { status: 'error' } as SourceRead<LegacyWorkoutReadInput>,
+              isolationError: error instanceof CompositeWorkoutReadIsolationError,
+              failure: sourceFailure.disposition, sourceFailure };
+          }),
         readCanonical(),
       ]);
       if (!isCurrent()) return;
@@ -233,9 +243,13 @@ export function useHealthSelectedDayComposite(
         ...('failure' in legacy && legacy.failure ? [legacy.failure] : []),
         ...(canonical.failure ? [canonical.failure] : []),
       ];
+      const sourceFailures: OwnerSourceFailure<'B1'>[] = [
+        ...('sourceFailure' in legacy ? [legacy.sourceFailure] : []),
+        ...(canonical.sourceFailure ? [canonical.sourceFailure] : []),
+      ];
       if (legacy.isolationError || canonical.isolationError) {
         publish({ phase: 'settled', accountId, localDate, cacheKey: null,
-          result: null, legacyDaily: null, isolationError: true }, failures);
+          result: null, legacyDaily: null, isolationError: true }, failures, sourceFailures);
         return;
       }
       if (canonical.scope) {
@@ -256,7 +270,9 @@ export function useHealthSelectedDayComposite(
           // A metadata failure is an unavailable canonical source, never a
           // license to publish the previously captured generation.
           canonical.source = { status: 'error' };
-          failures.push(observeOwnerFailure(error));
+          const sourceFailure = observeSourceFailure('B1', 'CANONICAL', 'SCOPE_VERIFICATION', error);
+          failures.push(sourceFailure.disposition);
+          sourceFailures.push(sourceFailure);
         }
       }
       // A changed device cannot publish a result from its former namespace.
@@ -301,16 +317,18 @@ export function useHealthSelectedDayComposite(
               ? sameLegacy ? previous.legacyDaily : legacy.value.daily : null,
             isolationError: false, scopeVersion, sequence, epoch, ownerLifetime, ownerPublication, request,
             canonicalScope: canonical.scope ? Object.freeze({ ...canonical.scope }) : null,
-            failures: Object.freeze(failures) };
+            failures: Object.freeze(failures), sourceFailures: Object.freeze(sourceFailures) };
         });
       } catch (error) {
         if (!isCurrent()) return;
+        const sourceFailure = observeSourceFailure('B1', 'PAIR_OWNER', 'PAIR_PROJECTION', error);
+        const projectionFailures = [...sourceFailures, sourceFailure];
         if (error instanceof CompositeWorkoutReadIsolationError) {
           publish({ phase: 'settled', accountId, localDate, cacheKey: null,
-            result: null, legacyDaily: null, isolationError: true }, [observeOwnerFailure(error)]);
+            result: null, legacyDaily: null, isolationError: true }, [sourceFailure.disposition], projectionFailures);
         } else {
           publish({ phase: 'settled', accountId, localDate, cacheKey: null,
-            result: null, legacyDaily: null, isolationError: false }, [observeOwnerFailure(error)]);
+            result: null, legacyDaily: null, isolationError: false }, [sourceFailure.disposition], projectionFailures);
         }
       }
     }
@@ -339,7 +357,8 @@ export function useHealthSelectedDayComposite(
       request: bound!.request, inFlight: bound!.phase === 'loading', isCurrent: evidenceCurrent,
       data: Object.freeze({ phase: visible.phase, accountId: visible.accountId, localDate: visible.localDate,
         result: visible.result, legacyDaily: visible.legacyDaily, isolationError: visible.isolationError,
-        canonicalScope: bound!.canonicalScope, failures: bound!.failures }) }) : null;
+        canonicalScope: bound!.canonicalScope, failures: bound!.failures,
+        sourceFailures: bound!.sourceFailures }) }) : null;
   return { phase: visible.phase, accountId: visible.accountId, localDate: visible.localDate,
     cacheKey: visible.cacheKey, result: visible.result, legacyDaily: visible.legacyDaily,
     isolationError: visible.isolationError, retry, captureOwnerEvidence };
