@@ -344,14 +344,23 @@ export function useHealthWorkoutRangeSnapshot(
         recoverCurrentnessOrSettle();
         return;
       }
+      const snapshot = coordinator.currentSnapshot;
+      const coordinatorPublication = coordinator.captureCurrentSnapshot?.() ?? null;
+      // Success requires the exact live source proof, not just completed views.
+      const sourceCurrent = !!snapshot && !!coordinatorPublication
+        && coordinatorPublication.snapshot === snapshot && coordinatorPublication.isCurrent();
+      if (!isCurrent()) return;
+      if (!sourceCurrent) {
+        recoverCurrentnessOrSettle();
+        return;
+      }
+      // Only an admitted success replenishes the existing bounded recovery budget.
       automaticCurrentnessRetryUsed.current = false;
       const previewRead: WorkoutRangePreviewRead | undefined = capturedPreview ? {
         scope: capturedPreview, phase: 'settled', view: previewView,
         isolationError: false, publication: {}, isCurrent: () => isPreviewCurrent(previewRead!),
       } : undefined;
       previewPublicationRef.current = previewRead ?? null;
-      const snapshot = coordinator.currentSnapshot;
-      const coordinatorPublication = coordinator.captureCurrentSnapshot?.() ?? null;
       const settled = { ...proof, publication: Object.freeze({}), inFlight: false,
         snapshot, coordinatorPublication };
       ownerEvidenceRef.current = settled;
@@ -422,10 +431,13 @@ export function useHealthWorkoutRangeSnapshot(
   // This memo binds identities only; authority is the layout-issued connection
   // plus the existing source/coordinator fences, never memo retention itself.
   const publication = useMemo(() => bound && connection ? Object.freeze({}) : null, [bound, connection]);
+  // Pending/failure metadata may lack a source snapshot; successful views may not.
+  const hasDerivedViews = !!visible.previousView || !!visible.monthView;
   const evidenceCurrent = () => !!connection && connectionRef.current === connection
     && !!bound && currentRef.current.enabled
     && ownerEvidenceRef.current === bound && sourceLifetimeRef.current === bound.lifetime
-    && bound.isCurrent() && (!bound.snapshot || (coordinatorRef.current?.currentSnapshot === bound.snapshot
+    && bound.isCurrent() && (!hasDerivedViews || (!!bound.snapshot
+      && coordinatorRef.current?.currentSnapshot === bound.snapshot
       && bound.coordinatorPublication?.snapshot === bound.snapshot && bound.coordinatorPublication.isCurrent()));
   const captureOwnerEvidence = (): WorkoutOwnerEvidence<'RANGE', RangeOwnerData> | null => evidenceCurrent()
     ? Object.freeze({ owner: 'RANGE', lifetime: connection!, publication: publication!,

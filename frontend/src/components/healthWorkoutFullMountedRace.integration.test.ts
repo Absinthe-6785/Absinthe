@@ -139,6 +139,11 @@ vi.mock('./views/features/health/verifiedWorkoutRangeSnapshot', () => {
     accountId: string;
     currentSnapshot: null | { version: number; workouts: Array<Record<string, unknown>> } = null;
     constructor(accountId: string) { this.accountId = accountId; }
+    captureCurrentSnapshot() {
+      const snapshot = this.currentSnapshot;
+      return snapshot ? { snapshot, isCurrent: () => this.currentSnapshot === snapshot,
+        verifyCurrent: async () => this.currentSnapshot === snapshot } : null;
+    }
     load() {
       const snapshot = {
         version: mocks.accountVersions.get(this.accountId) ?? 0,
