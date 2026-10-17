@@ -268,7 +268,6 @@ export class WorkoutReadSnapshotCoordinator {
           canonical: canonical.status === 'fulfilled'
             ? { status: 'success', records: canonical.value } : { status: 'error' },
         });
-        if (!current()) return null;
         // Only this current source attempt survives. Preserve settled-array source order;
         // do not salvage thrown isolation, discarded attempts or unqualified snapshots.
         const sourceFailures = [
@@ -276,6 +275,9 @@ export class WorkoutReadSnapshotCoordinator {
           ...(canonical.status === 'rejected' ? [observeSourceFailure('RANGE', 'CANONICAL', 'READ', canonical.reason)] : []),
         ];
         const snapshot = freezeDeep({ accountId, scope, result, sourceFailures });
+        // Relocate (not duplicate) the existing final fence: diagnostic reflection
+        // may encounter a Proxy trap that retires this attempt synchronously.
+        if (!current()) return null;
         this.snapshot = snapshot;
         this.deviceAtPublication = deviceAtStart;
         this.reader = reader;

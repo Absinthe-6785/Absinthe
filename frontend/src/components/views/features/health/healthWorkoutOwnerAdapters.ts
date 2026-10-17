@@ -46,6 +46,39 @@ export function observeOwnerFailure(error: unknown): OwnerFailureDisposition {
       ? { kind: deterministicCodes.has(error.code) ? 'DETERMINISTIC' : 'UNCLASSIFIED', reasonCode: error.code }
       : { kind: 'UNCLASSIFIED', reasonCode: 'UNKNOWN' });
 }
+const unknownDiagnostic: OwnerFailureDisposition = Object.freeze({ kind: 'UNCLASSIFIED', reasonCode: 'UNKNOWN' });
+// Only the current two concrete producer classes and their OWN data code are
+// supported. No prototype walk, subclass, name/message parsing or getter fallback.
+const isolationDiagnosticCodes = new Set(['INVALID_CONTEXT', 'ACCOUNT_MISMATCH', 'NAMESPACE_MISMATCH', 'GENERATION_MISMATCH']);
+const unclassifiedDiagnosticCodes = new Set<LocalDatabaseErrorCode>([
+  'OPEN_FAILED', 'OPEN_BLOCKED', 'DATABASE_CLOSED', 'STALE_CONNECTION', 'STALE_GENERATION',
+  'TRANSACTION_ABORTED', 'TRANSACTION_FAILED', 'LEGACY_SOURCE_UNAVAILABLE',
+]);
+function observeDiagnosticFailure(error: unknown): OwnerFailureDisposition {
+  if (error === null || typeof error !== 'object') return unknownDiagnostic;
+  try {
+    const prototype = Object.getPrototypeOf(error);
+    if (prototype !== LocalDatabaseError.prototype && prototype !== CompositeWorkoutReadIsolationError.prototype) {
+      return unknownDiagnostic;
+    }
+    const descriptor = Object.getOwnPropertyDescriptor(error, 'code');
+    if (!descriptor || !Object.prototype.hasOwnProperty.call(descriptor, 'value')
+      || typeof descriptor.value !== 'string' || descriptor.value.length > 64) return unknownDiagnostic;
+    const code = descriptor.value;
+    if (prototype === CompositeWorkoutReadIsolationError.prototype) {
+      return isolationDiagnosticCodes.has(code) ? Object.freeze({ kind: 'ISOLATION', reasonCode: code }) : unknownDiagnostic;
+    }
+    if (deterministicCodes.has(code as LocalDatabaseErrorCode)) {
+      return Object.freeze({ kind: 'DETERMINISTIC', reasonCode: code });
+    }
+    return unclassifiedDiagnosticCodes.has(code as LocalDatabaseErrorCode)
+      ? Object.freeze({ kind: 'UNCLASSIFIED', reasonCode: code }) : unknownDiagnostic;
+  } catch {
+    // Reflection on a Proxy can trap/throw. Never turn a diagnostic failure into
+    // source failure/recovery; callers retain their existing post-capture fences.
+    return unknownDiagnostic;
+  }
+}
 /** Descriptive catch metadata only. No cause identity, scope proof or retry authority.
  * PAIR_OWNER explicitly means that the aggregate boundary cannot attribute a lane.
  */
@@ -59,7 +92,7 @@ export function observeSourceFailure<K extends 'B1' | 'RANGE'>(
   owner: K, source: OwnerSourceFailure<K>['source'],
   boundary: OwnerSourceFailure<K>['boundary'], error: unknown,
 ): OwnerSourceFailure<K> {
-  return Object.freeze({ owner, source, boundary, disposition: observeOwnerFailure(error) });
+  return Object.freeze({ owner, source, boundary, disposition: observeDiagnosticFailure(error) });
 }
 export type SelectedDayOwnerData = Readonly<{
   phase: 'loading' | 'settled'; accountId: string; localDate: string;

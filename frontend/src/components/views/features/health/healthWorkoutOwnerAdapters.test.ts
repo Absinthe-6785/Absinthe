@@ -562,7 +562,7 @@ describe('F1-P1 source evidence at real mounted owner/coordinator boundaries', (
     expect(held.isCurrent()).toBe(false);
     await render(); await tick(); exactEvidence(observations('B1'), []);
   });
-  it('P1-C30 all five literal production reader gates remain OFF', () => {
+  it('P1-C30 / R01-C20 all five literal production reader gates remain OFF', () => {
     const gates = [
       ['health/healthSelectedDayCompositeConfig', 'HEALTH_SELECTED_DAY_COMPOSITE_READER_ENABLED'],
       ['health/healthWorkoutRangeCompositeConfig', 'HEALTH_WORKOUT_RANGE_COMPOSITE_READER_ENABLED'],
@@ -622,6 +622,149 @@ describe('F1-P1 source evidence at real mounted owner/coordinator boundaries', (
     };
     oracle(latest.range.monthView?.result.canonicalStatus, latest.range.monthView?.result.status);
     expect(() => oracle('success', 'complete_empty')).toThrow();
+  });
+});
+
+describe('PR780-R01 bounded diagnostic sanitation (injected failures, not producer authority)', () => {
+  const unknown = { kind: 'UNCLASSIFIED', reasonCode: 'UNKNOWN' };
+  function withCode(code: unknown) {
+    const error = new LocalDatabaseError('OPEN_FAILED', 'PRIVATE_OPERATION');
+    Object.defineProperty(error, 'code', { value: code, configurable: true });
+    return error;
+  }
+  const badValues = () => [
+    ['object', { note: 'PRIVATE_NOTE', account: 'PRIVATE_ACCOUNT', raw: new Error('PRIVATE_ERROR') }],
+    ['function', () => 'PRIVATE_CALLBACK'], ['oversized', 'PRIVATE_MESSAGE_'.padEnd(10_016, 'x')],
+    ['symbol', Symbol('PRIVATE')], ['short-unknown', 'PRIVATE_SHORT'],
+    ['unsupported-typed-code', 'INVALID_OUTBOX'], ['boxed-string', new String('MALFORMED_METADATA')],
+  ] as const;
+  it.each(badValues())('R01-C01/C02/C03/C10/C11 rejects runtime %s code by value', (_name, value) => {
+    const result = adapters.observeSourceFailure('RANGE', 'LEGACY', 'READ', withCode(value));
+    expect(result).toEqual({ owner: 'RANGE', source: 'LEGACY', boundary: 'READ', disposition: unknown });
+    expect(Object.isFrozen(result)).toBe(true); expect(Object.isFrozen(result.disposition)).toBe(true);
+    expect(JSON.stringify(result)).not.toMatch(/PRIVATE/);
+  });
+  it('R01-C04/C05/C06/C07 rejects own/inherited accessors and unknown subclasses without calling them', () => {
+    const getter = vi.fn(() => { throw new LocalDatabaseError('STALE_GENERATION', 'PRIVATE'); });
+    const setter = vi.fn();
+    const own = withCode('OPEN_FAILED'); Object.defineProperty(own, 'code', { get: getter, set: setter });
+    const setterOnly = withCode('OPEN_FAILED'); Object.defineProperty(setterOnly, 'code', { set: setter });
+    const inherited = withCode('OPEN_FAILED'); Reflect.deleteProperty(inherited, 'code');
+    Object.setPrototypeOf(inherited, Object.create(LocalDatabaseError.prototype, { code: { get: getter } }));
+    class Unsupported extends LocalDatabaseError {}
+    for (const error of [own, setterOnly, inherited, new Unsupported('MALFORMED_METADATA', 'PRIVATE')]) {
+      expect(adapters.observeSourceFailure('B1', 'CANONICAL', 'READ', error).disposition).toEqual(unknown);
+    }
+    expect(getter).not.toHaveBeenCalled(); expect(setter).not.toHaveBeenCalled();
+  });
+  it('R01-C08 descriptor/prototype trap failures and revoked proxies never escape diagnostics', () => {
+    const revoked = Proxy.revocable(withCode('OPEN_FAILED'), {}); revoked.revoke();
+    const descriptor = new Proxy(withCode('OPEN_FAILED'), { getOwnPropertyDescriptor() { throw Error('PRIVATE'); } });
+    const prototype = new Proxy(withCode('OPEN_FAILED'), { getPrototypeOf() { throw Error('PRIVATE'); } });
+    for (const error of [revoked.proxy, descriptor, prototype, null, 'PRIVATE', Symbol('PRIVATE')]) {
+      expect(adapters.observeSourceFailure('RANGE', 'LEGACY', 'READ', error).disposition).toEqual(unknown);
+    }
+  });
+  it('R01-C04/C08 never performs an ordinary get on a Proxy to collect code', () => {
+    const get = vi.fn(() => { throw Error('PRIVATE_GET'); });
+    const proxy = new Proxy(withCode('OPEN_FAILED'), { get });
+    expect(adapters.observeSourceFailure('B1', 'CANONICAL', 'READ', proxy).disposition)
+      .toEqual({ kind: 'UNCLASSIFIED', reasonCode: 'OPEN_FAILED' });
+    expect(get).not.toHaveBeenCalled();
+  });
+  it('R01-C09 preserves genuine typed isolation/deterministic codes and known denied open errors', () => {
+    for (const code of ['INVALID_CONTEXT', 'ACCOUNT_MISMATCH', 'NAMESPACE_MISMATCH', 'GENERATION_MISMATCH'] as const) {
+      expect(adapters.observeSourceFailure('B1', 'LEGACY', 'READ', new CompositeWorkoutReadIsolationError(code)).disposition)
+        .toEqual({ kind: 'ISOLATION', reasonCode: code });
+    }
+    for (const code of ['MALFORMED_METADATA', 'INVALID_ENTITY', 'LEGACY_SOURCE_AUTHORITY_CONFLICT'] as const) {
+      expect(adapters.observeSourceFailure('B1', 'CANONICAL', 'READ', new LocalDatabaseError(code, 'PRIVATE')).disposition)
+        .toEqual({ kind: 'DETERMINISTIC', reasonCode: code });
+    }
+    for (const code of ['OPEN_FAILED', 'OPEN_BLOCKED', 'STALE_GENERATION', 'TRANSACTION_FAILED'] as const) {
+      expect(adapters.observeSourceFailure('RANGE', 'CANONICAL', 'READ', new LocalDatabaseError(code, 'PRIVATE')).disposition)
+        .toEqual({ kind: 'UNCLASSIFIED', reasonCode: code });
+    }
+  });
+  it.each(['stale', 'invalidate', 'sequence'] as const)('R01-C05/C06/C12/C13 %s getter cannot change RANGE partial outcome or attempt budget', async mode => {
+    const coordinator = new WorkoutReadSnapshotCoordinator('a', window.localStorage);
+    const getter = vi.fn(() => {
+      if (mode === 'stale') throw new LocalDatabaseError('STALE_GENERATION', 'PRIVATE');
+      if (mode === 'invalidate') coordinator.invalidate();
+      else Reflect.set(coordinator, 'sequence', 1000);
+      return 'OPEN_FAILED';
+    });
+    const error = withCode('OPEN_FAILED'); Object.defineProperty(error, 'code', { get: getter });
+    mocks.readAll.mockRejectedValue(error);
+    try {
+      const result = await coordinator.load();
+      expect(result?.result).toMatchObject({ status: 'partial_data', legacyStatus: 'error', canonicalStatus: 'success' });
+      expect(result?.sourceFailures?.[0]?.disposition).toEqual(unknown);
+      expect(getter).not.toHaveBeenCalled();
+      expect(mocks.readAll).toHaveBeenCalledTimes(1); expect(mocks.rangeOpen).toHaveBeenCalledTimes(1);
+      expect(mocks.rangeCanonical).toHaveBeenCalledTimes(1);
+      expect(coordinator.captureCurrentSnapshot()?.isCurrent()).toBe(true);
+    } finally { coordinator.close(); }
+  });
+  // Reflection on a hostile Proxy may itself run a trap. No getter fallback is
+  // permitted; the post-construction fence must still reject any retired attempt.
+  async function retired(Ctor = WorkoutReadSnapshotCoordinator) {
+    const coordinator = new Ctor('a', window.localStorage);
+    const trap = vi.fn(() => { coordinator.invalidate(); throw Error('PRIVATE_DESCRIPTOR'); });
+    mocks.readAll.mockRejectedValue(new Proxy(withCode('OPEN_FAILED'), { getOwnPropertyDescriptor: trap }));
+    const result = await coordinator.load();
+    const view = await coordinator.deriveRange(X, X);
+    const publication = coordinator.captureCurrentSnapshot();
+    const current = coordinator.currentSnapshot;
+    coordinator.close();
+    return { result, view, publication, current, trap };
+  }
+  const retiredOracle = (value: Awaited<ReturnType<typeof retired>>) => {
+    expect(value.result).toBeNull(); expect(value.view).toBeNull();
+    expect(value.publication).toBeNull(); expect(value.current).toBeNull();
+  };
+  it('R01-C14/C15 retirement during diagnostic reflection cannot reinstall source evidence', async () => {
+    const value = await retired(); retiredOracle(value); expect(value.trap).toHaveBeenCalledTimes(1);
+    expect(mocks.readAll).toHaveBeenCalledTimes(1); expect(mocks.rangeOpen).toHaveBeenCalledTimes(1);
+  });
+  it('R01-C15 sensitivity: removing the final fence fails the same retired-publication oracle', async () => {
+    const source = readFileSync(resolve('src/components/views/features/health/verifiedWorkoutRangeSnapshot.ts'), 'utf8').replace(/\r\n/g, '\n');
+    const needle = '        if (!current()) return null;\n        this.snapshot = snapshot;';
+    expect(source.split(needle)).toHaveLength(2);
+    const code = transpileModule(source.replace(needle, '        this.snapshot = snapshot;'), {
+      compilerOptions: { module: ModuleKind.CommonJS },
+    }).outputText;
+    const exports: Record<string, unknown> = {};
+    const modules: Record<string, unknown> = {
+      '../../../../lib/healthLocalRuntime': { createLocalHealthRepository: mocks.repo },
+      '../../../../lib/workoutLocalReaderAuthority': {
+        HEALTH_ROUTINE_DEVICE_ID_KEY: 'absinthe-health-routine-device-id:v1',
+        readEstablishedWorkoutDeviceId: () => DEVICE,
+      },
+      '../../../../lib/workoutRangeReader': { WorkoutRangeReader: { open: mocks.rangeOpen } },
+      '../../../../lib/localDatabase/errors': { LocalDatabaseError },
+      './compositeWorkoutReadProjection': projectionModule, './healthWorkoutOwnerAdapters': adapters,
+    };
+    new Function('exports', 'require', code)(exports, (id: string) => {
+      if (!(id in modules)) throw Error(`unexpected coordinator import: ${id}`);
+      return modules[id];
+    });
+    const value = await retired(exports.WorkoutReadSnapshotCoordinator as typeof WorkoutReadSnapshotCoordinator);
+    expect(value.result).not.toBeNull(); expect(() => retiredOracle(value)).toThrow();
+  });
+  it('R01-C16/C17/C18 B1 keeps source attribution and deterministic veto without invoking legacy code getter', async () => {
+    const getter = vi.fn(() => { throw Error('PRIVATE'); });
+    const error = withCode('OPEN_FAILED'); Object.defineProperty(error, 'code', { get: getter });
+    mocks.readAll.mockRejectedValue(error);
+    mocks.dayOpen.mockRejectedValue(new LocalDatabaseError('MALFORMED_METADATA', 'PRIVATE'));
+    await render(); await tick();
+    expect(latest.day.captureOwnerEvidence!()!.data.sourceFailures).toEqual([
+      { owner: 'B1', source: 'LEGACY', boundary: 'READ', disposition: unknown },
+      { owner: 'B1', source: 'CANONICAL', boundary: 'READ', disposition: { kind: 'DETERMINISTIC', reasonCode: 'MALFORMED_METADATA' } },
+    ]);
+    expect(latest.b1.retryClassification.state).toBe('DETERMINISTICALLY_BLOCKED');
+    expect(getter).not.toHaveBeenCalled(); expect(mocks.readAll).toHaveBeenCalledTimes(2); // B1 + RANGE, one each
+    expect(latest.b1.retry.disposition).toEqual({ state: 'BLOCKED', reasonCode: 'MALFORMED_METADATA' });
   });
 });
 

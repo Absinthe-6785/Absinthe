@@ -13,12 +13,14 @@ import { createLocalHealthDriver, HealthRepository, IndexedDbLocalHealthDriver,
 import { createLocalHealthRepository, resetLocalHealthRuntimeForTests } from '../../../../lib/healthLocalRuntime';
 import { createDormantLocalDatabaseCapability, openLocalDatabase, closeLocalDatabase } from '../../../../lib/localDatabase';
 import { LocalDatabaseRepository } from '../../../../lib/localDatabase/repository';
+import { LocalDatabaseError } from '../../../../lib/localDatabase/errors';
 import { WorkoutSelectedDayReader } from '../../../../lib/workoutSelectedDayReader';
 import { WorkoutRangeReader } from '../../../../lib/workoutRangeReader';
 import { HEALTH_ROUTINE_DEVICE_ID_KEY as KEY, HEALTH_ROUTINE_PROJECT_REF,
   HEALTH_ROUTINE_GENERATION_ID } from '../../../../lib/workoutLocalReaderAuthority';
 import { useHealthSelectedDayComposite } from './useHealthSelectedDayComposite';
 import { useHealthWorkoutRangeSnapshot } from './useHealthWorkoutRangeSnapshot';
+import { WorkoutReadSnapshotCoordinator } from './verifiedWorkoutRangeSnapshot';
 
 vi.mock('../../../../lib/healthSupabaseBootstrap', () => ({ HEALTH_LOCAL_BOOTSTRAP_COMPLETE_EVENT: 'p1-effects-bootstrap' }));
 const ACCOUNT = '44444444-4444-4444-8444-444444444444';
@@ -81,7 +83,7 @@ async function seed(state: 'verified' | 'pending' | 'pending-null' | 'absent', w
     await canonical.initializeNamespace(); closeLocalDatabase(canonical);
   }
 }
-function instrument() {
+function instrument(rejectAfterRead?: () => unknown) {
   const transactions: Array<{ db: string; mode: string; stores: string[] }> = [];
   const writes: Array<{ db: string; store: string; operation: string }> = [];
   const transaction = IDBDatabase.prototype.transaction;
@@ -103,7 +105,11 @@ function instrument() {
   const legacyCompletion = new Promise<void>(resolve => { legacyFinished = resolve; });
   const readAll = HealthRepository.prototype.readAll;
   const reads = vi.spyOn(HealthRepository.prototype, 'readAll').mockImplementation(async function (this: HealthRepository) {
-    try { return await readAll.call(this); } finally { legacyFinished(); }
+    try {
+      const data = await readAll.call(this);
+      if (rejectAfterRead) throw rejectAfterRead();
+      return data;
+    } finally { legacyFinished(); }
   });
   const dayOpen = WorkoutSelectedDayReader.open, rangeOpen = WorkoutRangeReader.open;
   vi.spyOn(WorkoutSelectedDayReader, 'open').mockImplementation(async (...args) => {
@@ -117,6 +123,8 @@ function instrument() {
     recovery: vi.spyOn(IndexedDbLocalHealthDriver.prototype, 'recoverPendingImport'),
     restore: vi.spyOn(IndexedDbLocalHealthDriver.prototype, 'restorePendingIfStillCurrent'),
     initialize: vi.spyOn(LocalDatabaseRepository.prototype, 'initializeNamespace'),
+    dayReads: vi.spyOn(WorkoutSelectedDayReader.prototype, 'read'),
+    rangeReads: vi.spyOn(WorkoutRangeReader.prototype, 'readAllActive'),
     save: vi.spyOn(IndexedDbLocalHealthDriver.prototype, 'saveWorkouts'),
     remove: vi.spyOn(IndexedDbLocalHealthDriver.prototype, 'deleteWorkout'),
     fetch: vi.spyOn(globalThis, 'fetch'),
@@ -128,6 +136,93 @@ beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   window.localStorage.clear(); window.localStorage.setItem(KEY, DEVICE);
   root = null; host = document.createElement('div'); document.body.append(host);
+});
+
+describe('PR780-R01 matched adverse-code effects, real recovery before injected source rejection', () => {
+  // Source fault injection follows the REAL read/recovery; it does not replace
+  // or hide inherited dataset/import-state writes. Baseline uses a plain Error
+  // at the identical seam, so both schedules have the same unavailable source.
+  async function measure(owner: Owner, state: 'verified' | 'pending', warm: boolean,
+    rejection: (coordinator: () => WorkoutReadSnapshotCoordinator | null) => unknown) {
+    resetLocalHealthRuntimeForTests();
+    vi.stubGlobal('indexedDB', new IDBFactory());
+    window.localStorage.clear(); window.localStorage.setItem(KEY, DEVICE);
+    await seed(state, warm);
+    let coordinator: WorkoutReadSnapshotCoordinator | null = null;
+    const load = WorkoutReadSnapshotCoordinator.prototype.load;
+    const loads = vi.spyOn(WorkoutReadSnapshotCoordinator.prototype, 'load').mockImplementation(function (this: WorkoutReadSnapshotCoordinator) {
+      coordinator = this; return load.call(this);
+    });
+    const error = rejection(() => coordinator);
+    const p = instrument(() => error);
+    const deviceReads = vi.spyOn(window.localStorage, 'getItem');
+    await mount(owner);
+    const model = owner === 'B1' ? day : range;
+    const result = owner === 'B1' ? day.result : range.monthView?.result;
+    expect(result).toMatchObject({ status: 'partial_data', legacyStatus: 'error', canonicalStatus: 'success' });
+    const before = [p.reads.mock.calls.length, p.recovery.mock.calls.length, p.restore.mock.calls.length,
+      p.transactions.length, p.writes.length, p.initialize.mock.calls.length];
+    const sourceDeviceReads = deviceReads.mock.calls.length;
+    for (let n = 0; n < 20; n++) expect(model.captureOwnerEvidence!()).not.toBeNull();
+    expect([p.reads.mock.calls.length, p.recovery.mock.calls.length, p.restore.mock.calls.length,
+      p.transactions.length, p.writes.length, p.initialize.mock.calls.length]).toEqual(before);
+    const outcome = {
+      reads: before[0], recovery: before[1], restore: before[2], initialization: before[5],
+      opens: owner === 'B1' ? vi.mocked(WorkoutSelectedDayReader.open).mock.calls.length : vi.mocked(WorkoutRangeReader.open).mock.calls.length,
+      canonicalReads: owner === 'B1' ? p.dayReads.mock.calls.length : p.rangeReads.mock.calls.length,
+      coordinatorLoads: loads.mock.calls.length, sourceDeviceReads,
+      captureDeviceReads: deviceReads.mock.calls.length - sourceDeviceReads,
+      transactions: structuredClone(p.transactions), writes: structuredClone(p.writes),
+      recoveryResults: await Promise.all(p.recovery.mock.results.map(result => result.value)),
+      restoreResults: await Promise.all(p.restore.mock.results.map(result => result.value)),
+      status: result?.status, legacyStatus: result?.legacyStatus, canonicalStatus: result?.canonicalStatus,
+      save: p.save.mock.calls.length, remove: p.remove.mock.calls.length, fetch: p.fetch.mock.calls.length,
+    };
+    expect(outcome.reads).toBe(1); expect(outcome.opens).toBe(1); expect(outcome.recovery).toBe(1);
+    expect(outcome.canonicalReads).toBe(1); expect(outcome.coordinatorLoads).toBe(owner === 'RANGE' ? 1 : 0);
+    expect(outcome.captureDeviceReads).toBe(owner === 'RANGE' ? 20 : 0);
+    expect(outcome.restore).toBe(state === 'pending' ? 1 : 0);
+    expect(outcome.save + outcome.remove + outcome.fetch).toBe(0);
+    await act(async () => root!.unmount()); root = null;
+    resetLocalHealthRuntimeForTests(); vi.restoreAllMocks();
+    return outcome;
+  }
+  const cases = ['object', 'function', 'oversized', 'stale-getter', 'invalidate-getter', 'sequence-getter',
+    'inherited-getter', 'descriptor-throw', 'short-unknown', 'known-open'] as const;
+  const rows = (['B1', 'RANGE'] as const).flatMap(owner =>
+    (owner === 'B1' ? cases.filter(name => ['object', 'stale-getter'].includes(name)) : cases).flatMap(name =>
+      (['verified', 'pending'] as const).flatMap(state => [false, true].map(warm => ({ owner, name, state, warm })))));
+  it.each(rows)('R01-C12/C13/C19 adverse parity $owner $name $state warm=$warm', async ({ owner, name, state, warm }) => {
+    const baseline = await measure(owner, state, warm, () => new Error('INJECTED_BASELINE_REJECTION'));
+    const getter = vi.fn();
+    const actual = await measure(owner, state, warm, coordinator => {
+      const error = new LocalDatabaseError('OPEN_FAILED', 'PRIVATE_OPERATION');
+      let code: unknown = 'OPEN_FAILED';
+      if (name === 'object') code = { note: 'PRIVATE_NOTE', raw: new Error('PRIVATE_ERROR') };
+      if (name === 'function') code = () => 'PRIVATE_CALLBACK';
+      if (name === 'oversized') code = 'PRIVATE_'.padEnd(10_016, 'x');
+      if (name === 'short-unknown') code = 'PRIVATE_SHORT';
+      if (name.endsWith('getter')) {
+        getter.mockImplementation(() => {
+          if (name === 'stale-getter') throw new LocalDatabaseError('STALE_GENERATION', 'PRIVATE');
+          if (name === 'invalidate-getter') coordinator()?.invalidate();
+          if (name === 'sequence-getter') Reflect.set(coordinator()!, 'sequence', 1000);
+          return 'OPEN_FAILED';
+        });
+        if (name === 'inherited-getter') {
+          Reflect.deleteProperty(error, 'code');
+          Object.setPrototypeOf(error, Object.create(LocalDatabaseError.prototype, { code: { get: getter } }));
+        } else Object.defineProperty(error, 'code', { get: getter });
+      } else Object.defineProperty(error, 'code', { value: code });
+      return name === 'descriptor-throw' ? new Proxy(error, { getOwnPropertyDescriptor() { throw Error('PRIVATE'); } }) : error;
+    });
+    expect(getter).not.toHaveBeenCalled();
+    expect(actual).toEqual(baseline);
+    process.stdout.write(`R01_MATCHED_EFFECTS ${JSON.stringify({ owner, name, state, warm, reads: actual.reads,
+      opens: actual.opens, recovery: actual.recovery, restore: actual.restore,
+      transactions: actual.transactions.length, readwrite: actual.transactions.filter(t => t.mode === 'readwrite').length,
+      fingerprint: createHash('sha256').update(JSON.stringify(actual)).digest('hex'), writes: actual.writes })}\n`);
+  });
 });
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
