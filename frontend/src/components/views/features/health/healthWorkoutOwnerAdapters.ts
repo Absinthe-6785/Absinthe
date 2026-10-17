@@ -1,7 +1,9 @@
 import type { LocalHealthDailyProjection } from '../../../../lib/healthLocalRuntime';
 import type { SelectedDayCanonicalScope } from '../../../../lib/workoutSelectedDayReader';
-import { CompositeWorkoutReadIsolationError, type CompositeWorkoutReadResult } from './compositeWorkoutReadProjection';
-import { LocalDatabaseError, type LocalDatabaseErrorCode } from '../../../../lib/localDatabase/errors';
+import { CompositeWorkoutReadIsolationError, readIssuedWorkoutIsolationDiagnostic,
+  type CompositeWorkoutReadResult } from './compositeWorkoutReadProjection';
+import { LocalDatabaseError, readIssuedLocalDatabaseDiagnostic,
+  type LocalDatabaseErrorCode } from '../../../../lib/localDatabase/errors';
 import type { PreviousEvidence, PreviousScope } from './legacyPreviousCurrentness';
 import type { WorkoutRangeView } from './verifiedWorkoutRangeSnapshot';
 import type {
@@ -46,6 +48,40 @@ export function observeOwnerFailure(error: unknown): OwnerFailureDisposition {
       ? { kind: deterministicCodes.has(error.code) ? 'DETERMINISTIC' : 'UNCLASSIFIED', reasonCode: error.code }
       : { kind: 'UNCLASSIFIED', reasonCode: 'UNKNOWN' });
 }
+const unknownDiagnostic: OwnerFailureDisposition = Object.freeze({ kind: 'UNCLASSIFIED', reasonCode: 'UNKNOWN' });
+// The two concrete constructors freeze bounded primitive evidence at issuance.
+// Observation is identity-only: no reflection, instanceof, property access on
+// error, or registration fallback. A wrapping Proxy is a different, unknown key.
+const unclassifiedDiagnosticCodes = new Set<LocalDatabaseErrorCode>([
+  'OPEN_FAILED', 'OPEN_BLOCKED', 'DATABASE_CLOSED', 'STALE_CONNECTION', 'STALE_GENERATION',
+  'TRANSACTION_ABORTED', 'TRANSACTION_FAILED', 'LEGACY_SOURCE_UNAVAILABLE',
+]);
+function observeDiagnosticFailure(error: unknown): OwnerFailureDisposition {
+  if (error === null || typeof error !== 'object') return unknownDiagnostic;
+  const isolation = readIssuedWorkoutIsolationDiagnostic(error);
+  if (isolation) return Object.freeze({ kind: 'ISOLATION', reasonCode: isolation.reasonCode });
+  const local = readIssuedLocalDatabaseDiagnostic(error);
+  if (!local) return unknownDiagnostic;
+  const code = local.reasonCode;
+  if (deterministicCodes.has(code)) return Object.freeze({ kind: 'DETERMINISTIC', reasonCode: code });
+  return unclassifiedDiagnosticCodes.has(code)
+    ? Object.freeze({ kind: 'UNCLASSIFIED', reasonCode: code }) : unknownDiagnostic;
+}
+/** Descriptive catch metadata only. No cause identity, scope proof or retry authority.
+ * PAIR_OWNER explicitly means that the aggregate boundary cannot attribute a lane.
+ */
+export type OwnerSourceFailure<K extends 'B1' | 'RANGE'> = Readonly<{
+  owner: K;
+  source: 'LEGACY' | 'CANONICAL' | 'PAIR_OWNER';
+  boundary: 'READ' | 'SCOPE_VERIFICATION' | 'PAIR_PROJECTION' | 'LOAD' | 'DERIVATION';
+  disposition: OwnerFailureDisposition;
+}>;
+export function observeSourceFailure<K extends 'B1' | 'RANGE'>(
+  owner: K, source: OwnerSourceFailure<K>['source'],
+  boundary: OwnerSourceFailure<K>['boundary'], error: unknown,
+): OwnerSourceFailure<K> {
+  return Object.freeze({ owner, source, boundary, disposition: observeDiagnosticFailure(error) });
+}
 export type SelectedDayOwnerData = Readonly<{
   phase: 'loading' | 'settled'; accountId: string; localDate: string;
   canonicalScope: SelectedDayCanonicalScope | null;
@@ -53,6 +89,8 @@ export type SelectedDayOwnerData = Readonly<{
   legacyDaily: LocalHealthDailyProjection | null;
   isolationError: boolean;
   failures: readonly OwnerFailureDisposition[];
+  /** Internal diagnostics; never consumed by retry/qualification. */
+  sourceFailures?: readonly OwnerSourceFailure<'B1'>[];
 }>;
 export type RangeOwnerData = Readonly<{
   phase: 'disabled' | 'loading' | 'settled'; accountId: string;
@@ -61,6 +99,8 @@ export type RangeOwnerData = Readonly<{
   previousView: WorkoutRangeView | null; monthView: WorkoutRangeView | null;
   isolationError: boolean;
   failures: readonly OwnerFailureDisposition[];
+  /** Internal diagnostics; never consumed by retry/qualification. */
+  sourceFailures?: readonly OwnerSourceFailure<'RANGE'>[];
 }>;
 export type PreviousOwnerData = Readonly<{
   scope: PreviousScope;

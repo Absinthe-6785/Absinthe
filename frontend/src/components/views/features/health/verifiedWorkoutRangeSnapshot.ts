@@ -12,6 +12,7 @@ import {
   type ActiveCanonicalWorkoutReadInput, type CompositeWorkoutReadResult,
   type CompositeWorkoutRecord, type LegacyWorkoutReadInput,
 } from './compositeWorkoutReadProjection';
+import { observeSourceFailure, type OwnerSourceFailure } from './healthWorkoutOwnerAdapters';
 
 type DateBucket = Readonly<{
   localDate: string;
@@ -24,6 +25,8 @@ export type WorkoutReadSourceSnapshot = Readonly<{
   /** Null only when the canonical database could not be opened; never a fabricated namespace. */
   scope: SelectedDayCanonicalScope | null;
   result: CompositeWorkoutReadResult;
+  /** Optional internal diagnostics, not source coverage/currentness or admission proof. */
+  sourceFailures?: readonly OwnerSourceFailure<'RANGE'>[];
 }>;
 
 /** Borrowed read evidence, never a repository or an independently renewable lifetime. */
@@ -265,8 +268,16 @@ export class WorkoutReadSnapshotCoordinator {
           canonical: canonical.status === 'fulfilled'
             ? { status: 'success', records: canonical.value } : { status: 'error' },
         });
+        // Only this current source attempt survives. Preserve settled-array source order;
+        // do not salvage thrown isolation, discarded attempts or unqualified snapshots.
+        const sourceFailures = [
+          ...(legacy.status === 'rejected' ? [observeSourceFailure('RANGE', 'LEGACY', 'READ', legacy.reason)] : []),
+          ...(canonical.status === 'rejected' ? [observeSourceFailure('RANGE', 'CANONICAL', 'READ', canonical.reason)] : []),
+        ];
+        const snapshot = freezeDeep({ accountId, scope, result, sourceFailures });
+        // Relocate (not duplicate) the existing final fence: diagnostic reflection
+        // may encounter a Proxy trap that retires this attempt synchronously.
         if (!current()) return null;
-        const snapshot = freezeDeep({ accountId, scope, result });
         this.snapshot = snapshot;
         this.deviceAtPublication = deviceAtStart;
         this.reader = reader;

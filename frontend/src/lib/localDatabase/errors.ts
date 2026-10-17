@@ -47,6 +47,25 @@ export type PersistedEntityFailure =
   | 'ACCOUNT_MISMATCH' | 'NAMESPACE_MISMATCH' | 'GENERATION_MISMATCH'
   | 'UNTRUSTED_SCOPE' | 'INVALID_ENTITY';
 
+// Issuance-time diagnostic copy only, never source qualification or retry proof.
+// Keep the existing bounded Health diagnostic vocabulary; do not register every
+// database error, payload, operation, subclass, or arbitrary object supplied later.
+const diagnosticCodes = new Set<LocalDatabaseErrorCode>([
+  'CAPABILITY_REQUIRED', 'INVALID_NAMESPACE', 'UNSAFE_NAMESPACE', 'UNSUPPORTED_SCHEMA_VERSION',
+  'MALFORMED_METADATA', 'NAMESPACE_MISMATCH', 'GENERATION_NOT_FOUND', 'GENERATION_NOT_ACTIVE',
+  'INVALID_GENERATION_TRANSITION', 'CORRUPT_PERSISTED_RECORD', 'INVALID_ENTITY',
+  'INVALID_LEGACY_MIGRATION', 'LEGACY_SOURCE_AUTHORITY_REQUIRED', 'LEGACY_SOURCE_AUTHORITY_CONFLICT',
+  'LEGACY_SOURCE_AUTHORITY_REVOKED', 'LEGACY_SOURCE_IDENTITY_MISMATCH',
+  'OPEN_FAILED', 'OPEN_BLOCKED', 'DATABASE_CLOSED', 'STALE_CONNECTION', 'STALE_GENERATION',
+  'TRANSACTION_ABORTED', 'TRANSACTION_FAILED', 'LEGACY_SOURCE_UNAVAILABLE',
+]);
+const issuedDiagnostics = new WeakMap<object, Readonly<{ reasonCode: LocalDatabaseErrorCode }>>();
+
+/** Exact identity lookup: does not inspect the supplied object, even a revoked Proxy. */
+export function readIssuedLocalDatabaseDiagnostic(error: object): Readonly<{ reasonCode: LocalDatabaseErrorCode }> | undefined {
+  return issuedDiagnostics.get(error);
+}
+
 export class LocalDatabaseError extends Error {
   readonly code: LocalDatabaseErrorCode;
   readonly operation: string;
@@ -58,6 +77,9 @@ export class LocalDatabaseError extends Error {
     this.code = code;
     this.operation = operation;
     this.persistedEntityFailure = persistedEntityFailure;
+    if (new.target === LocalDatabaseError && typeof code === 'string' && code.length <= 64 && diagnosticCodes.has(code)) {
+      issuedDiagnostics.set(this, Object.freeze({ reasonCode: code }));
+    }
   }
 }
 
