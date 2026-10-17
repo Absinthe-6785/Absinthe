@@ -101,6 +101,243 @@ describe('K-320A deterministic package and availability', () => {
   });
 });
 
+const archiveRoot = 'absinthe-recovery-export/';
+const archiveClock = Date.parse('2026-10-17T00:00:00.000Z');
+const archiveDirectories = [archiveRoot, ...['attachments', 'health', 'metadata', 'notes', 'planning', 'recipes']
+  .map(directory => `${archiveRoot}${directory}/`)];
+
+async function archiveFixture() {
+  return buildRecoveryExportPackage({
+    exportedAt, warningCodes: ['synthetic_warning'],
+    datasets: {
+      notes: { availability: 'present_records', source, records: [
+        note('active', { body: 'Synthetic private payload 한글', created_at: '2026-07-10T23:30:00-05:00' }),
+        note('deleted', { deleted_at: exportedAt }),
+      ] },
+      workoutLogs: { availability: 'present_empty', records: [] },
+      recipes: { availability: 'unavailable' },
+    },
+  });
+}
+
+// Frozen pre-correction behavior: an independent negative control, not the expected implementation.
+async function implicitDirectoryArchive(pkg: RecoveryExportPackage) {
+  const zip = new JSZip();
+  for (const [name, content] of Object.entries(pkg.files).sort(([a], [b]) => a.localeCompare(b))) {
+    zip.file(`${archiveRoot}${name}`, content, {
+      date: new Date('1980-01-01T00:00:00.000Z'), createFolders: true,
+      unixPermissions: 0o100644, dosPermissions: 0,
+    });
+  }
+  return zip.generateAsync({ type: 'uint8array', compression: 'STORE', platform: 'DOS' });
+}
+
+async function archiveAt(pkg: RecoveryExportPackage, now: number, build = createRecoveryExportArchive) {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(now);
+  try { return await build(pkg); } finally { vi.useRealTimers(); }
+}
+
+function archiveEntries(bytes: Uint8Array) {
+  validateZipBytes(bytes);
+  const { view, eocd } = zipOffsets(bytes);
+  let central = view.getUint32(eocd + 16, true);
+  return Array.from({ length: view.getUint16(eocd + 10, true) }, () => {
+    const local = view.getUint32(central + 42, true);
+    const length = view.getUint16(central + 28, true);
+    const row = {
+      name: new TextDecoder().decode(bytes.subarray(central + 46, central + 46 + length)), central, local,
+      time: view.getUint16(central + 12, true), date: view.getUint16(central + 14, true),
+      localTime: view.getUint16(local + 10, true), localDate: view.getUint16(local + 12, true),
+      flags: view.getUint16(central + 8, true), localFlags: view.getUint16(local + 6, true),
+      method: view.getUint16(central + 10, true), localMethod: view.getUint16(local + 8, true),
+      crc: view.getUint32(central + 16, true), localCrc: view.getUint32(local + 14, true),
+      madeBy: view.getUint16(central + 4, true), attributes: view.getUint32(central + 38, true),
+    };
+    central += 46 + length + view.getUint16(central + 30, true) + view.getUint16(central + 32, true);
+    return row;
+  });
+}
+
+function withoutArchiveDates(bytes: Uint8Array) {
+  const copy = bytes.slice();
+  for (const row of archiveEntries(bytes)) {
+    copy.fill(0, row.central + 12, row.central + 16);
+    copy.fill(0, row.local + 10, row.local + 14);
+  }
+  return copy;
+}
+
+function expectArchiveMetadata(bytes: Uint8Array, expectedNames: string[]) {
+  const entries = archiveEntries(bytes);
+  expect(entries.map(row => row.name)).toEqual(expectedNames);
+  expect(entries.filter(row => row.name.endsWith('/')).map(row => row.name)).toEqual(archiveDirectories);
+  expect(new Set(expectedNames).size).toBe(expectedNames.length);
+  for (const row of entries) {
+    expect([row.date, row.time, row.localDate, row.localTime]).toEqual([33, 0, 33, 0]);
+    expect([row.method, row.localMethod, row.madeBy]).toEqual([0, 0, 20]);
+    expect(row.flags).toBe(row.localFlags);
+    expect(row.crc).toBe(row.localCrc);
+    expect(row.attributes).toBe(row.name.endsWith('/') ? 16 : 0);
+  }
+}
+
+async function archiveFiles(bytes: Uint8Array) {
+  const names = validateZipBytes(bytes);
+  const zip = await JSZip.loadAsync(bytes, { checkCRC32: true });
+  return Object.fromEntries(await Promise.all(names.filter(item => !item.directory).map(async item =>
+    [item.path.slice(archiveRoot.length), await zip.file(item.raw)!.async('string')] as const)));
+}
+
+describe('REL-05G recovery ZIP timestamp determinism', () => {
+  it('ZIP-D01/D02/D03/E04/E05 keeps complete bytes equal across clocks, repeats and enumeration', async () => {
+    const pkg = await archiveFixture();
+    const first = await archiveAt(pkg, archiveClock);
+    expect(await archiveAt(pkg, archiveClock + 4_000)).toEqual(first);
+    expect(await archiveAt(pkg, archiveClock + 86_401_999)).toEqual(first);
+    expect(await archiveAt(pkg, archiveClock)).toEqual(first);
+    const reversed = { ...pkg, files: Object.fromEntries(Object.entries(pkg.files).reverse()) };
+    expect(await archiveAt(reversed, archiveClock + 4_000)).toEqual(first);
+  });
+
+  it('ZIP-D04/D05/D06/D07/D08 preserves baseline layout/payload and fixes both header dates', async () => {
+    const pkg = await archiveFixture(), before = JSON.stringify(pkg);
+    const baseline = await archiveAt(pkg, archiveClock, implicitDirectoryArchive);
+    const corrected = await archiveAt(pkg, archiveClock + 4_000);
+    const expectedNames = archiveEntries(baseline).map(row => row.name);
+    expectArchiveMetadata(corrected, expectedNames);
+    // This also compares all non-date header bytes, CRCs, permissions, sizes and entry order.
+    expect(withoutArchiveDates(corrected)).toEqual(withoutArchiveDates(baseline));
+    for (const bytes of [baseline, corrected]) {
+      const files = await archiveFiles(bytes);
+      expect(files).toEqual(pkg.files);
+      expect(Object.fromEntries(Object.entries(files).map(([name, value]) => [name, hash(value)])))
+        .toEqual(Object.fromEntries(Object.entries(pkg.files).map(([name, value]) => [name, hash(value)])));
+      expect(await verifyRecoveryExportPackage({ files })).toEqual(await verifyRecoveryExportPackage(pkg));
+    }
+    expect((await verifyRecoveryExportPackage(pkg)).valid).toBe(true);
+    expect(JSON.stringify(pkg)).toBe(before);
+  });
+
+  it('sensitivity: the old behavior differs only in seven directory timestamps beyond a DOS tick', async () => {
+    const pkg = await archiveFixture();
+    const first = await archiveAt(pkg, archiveClock, implicitDirectoryArchive);
+    const sameTick = await archiveAt(pkg, archiveClock + 1_000, implicitDirectoryArchive);
+    const later = await archiveAt(pkg, archiveClock + 4_000, implicitDirectoryArchive);
+    expect(sameTick).toEqual(first);
+    expect(later).not.toEqual(first);
+    expect(withoutArchiveDates(later)).toEqual(withoutArchiveDates(first));
+    const laterRows = archiveEntries(later);
+    expect(archiveEntries(first).filter((row, index) => row.time !== laterRows[index].time)
+      .map(row => row.name)).toEqual(archiveDirectories);
+    const timestampBytes = new Set(archiveEntries(first).filter(row => row.name.endsWith('/'))
+      .flatMap(row => [row.local + 10, row.local + 11, row.central + 12, row.central + 13]));
+    const differences = [...first.keys()].filter(index => first[index] !== later[index]);
+    expect(differences).toHaveLength(14); // One DOS time byte per local/central directory record.
+    expect(differences.every(index => timestampBytes.has(index))).toBe(true);
+  });
+
+  it('sensitivity: detects directory loss, payload mutation and local/central inconsistency', async () => {
+    const pkg = await archiveFixture(), bytes = await archiveAt(pkg, archiveClock);
+    const names = archiveEntries(bytes).map(row => row.name);
+    const zip = await JSZip.loadAsync(bytes);
+    delete zip.files[`${archiveRoot}attachments/`];
+    const missingDirectory = await zip.generateAsync({ type: 'uint8array', compression: 'STORE', platform: 'DOS' });
+    expect(() => expectArchiveMetadata(missingDirectory, names)).toThrow();
+    const mismatchedDate = bytes.slice(), row = archiveEntries(mismatchedDate)[0];
+    new DataView(mismatchedDate.buffer).setUint16(row.local + 10, 1, true);
+    expect(() => expectArchiveMetadata(mismatchedDate, names)).toThrow();
+    const mismatchedName = bytes.slice(); mismatchedName[row.local + 30] ^= 1;
+    expect(() => validateZipBytes(mismatchedName)).toThrow('zip_local_central_name_mismatch');
+    const malformed = bytes.slice(); new DataView(malformed.buffer).setUint32(row.local, 0, true);
+    const rejectionOracle = (validate: typeof validateZipBytes) =>
+      expect(() => validate(malformed)).toThrow('zip_local_header_invalid');
+    rejectionOracle(validateZipBytes);
+    // A validation bypass must fail the same rejection oracle, not count as acceptance.
+    expect(() => rejectionOracle(() => [])).toThrow();
+    const changed = { ...pkg, files: { ...pkg.files, 'notes/active.json': `${pkg.files['notes/active.json']} ` } };
+    const result = await verifyRecoveryExportPackage({ files: await archiveFiles(await createRecoveryExportArchive(changed)) });
+    expect(result.valid).toBe(false);
+    expect(result.errors.map(error => error.code)).toContain('checksum_mismatch');
+  });
+
+  it('preserves conflict diagnostics, warnings and invalid completeness without repairing payloads', async () => {
+    const pkg = await buildRecoveryExportPackage({
+      exportedAt, warningCodes: ['synthetic_warning'],
+      datasets: { notes: { availability: 'present_records', records: [note('duplicate'), note('duplicate')] } },
+    });
+    const expected = await verifyRecoveryExportPackage(pkg);
+    expect(expected.valid).toBe(false);
+    expect(expected.completeness).toBe('invalid');
+    expect(expected.conflictDiagnostics.length).toBeGreaterThan(0);
+    expect(JSON.parse(pkg.files['metadata/warnings.json']).warningCodes).toContain('synthetic_warning');
+    expect(pkg.manifest.warningCount).toBeGreaterThan(0);
+    for (const build of [implicitDirectoryArchive, createRecoveryExportArchive]) {
+      const files = await archiveFiles(await archiveAt(pkg, archiveClock, build));
+      expect(files).toEqual(pkg.files);
+      expect(await verifyRecoveryExportPackage({ files })).toEqual(expected);
+    }
+  });
+
+  it.each([
+    ['unexpected.json', '{}\n', 'unexpected_file'],
+    ['manifest.json', '{', 'invalid_manifest_json'],
+  ])('ZIP-N08/N10 preserves package rejection for %s', async (name, value, code) => {
+    const pkg = await archiveFixture();
+    const altered = { ...pkg, files: { ...pkg.files, [name]: value } };
+    const result = await verifyRecoveryExportPackage({ files: await archiveFiles(await createRecoveryExportArchive(altered)) });
+    expect(result.valid).toBe(false);
+    expect(result.errors.map(error => error.code)).toContain(code);
+  });
+
+  it.each(['../escape', '/absolute', 'C:/absolute'])('ZIP-N01/N02 still rejects unsafe package path %s', async name => {
+    const pkg = await archiveFixture();
+    await expect(createRecoveryExportArchive({ ...pkg, files: { ...pkg.files, [name]: 'x' } }))
+      .rejects.toThrow('unsafe_package_path');
+  });
+
+  it.each([
+    ['UTC', 0], ['Asia/Seoul', -540], ['America/New_York', 240],
+  ])('ZIP-E01/E02/E03/E06 compares actual archives in a separate %s Node process', async (timezone, offset) => {
+    const pkg = await archiveFixture();
+    const script = `
+      const fs = require('node:fs'), ts = require('typescript'), JSZip = require('jszip');
+      const { createHash } = require('node:crypto');
+      const pkg = JSON.parse(fs.readFileSync(0, 'utf8'));
+      const source = fs.readFileSync('src/lib/recoveryExportPackage.ts', 'utf8');
+      const mod = { exports: {} };
+      new Function('require', 'module', 'exports', ts.transpileModule(source, { compilerOptions: {
+        module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true,
+      } }).outputText)(require, mod, mod.exports);
+      const RealDate = Date, now = ${archiveClock};
+      async function archiveAt(time) {
+        globalThis.Date = class extends RealDate {
+          constructor(...args) { super(...(args.length ? args : [time])); }
+          static now() { return time; }
+        };
+        try { return await mod.exports.createRecoveryExportArchive(pkg); }
+        finally { globalThis.Date = RealDate; }
+      }
+      (async () => {
+        const bytes = [await archiveAt(now), await archiveAt(now + 4000)];
+        process.stdout.write(JSON.stringify({ version: JSZip.version,
+          offset: new RealDate(now).getTimezoneOffset(),
+          hashes: bytes.map(value => createHash('sha256').update(value).digest('hex')) }));
+      })().catch(error => { process.stderr.write(String(error)); process.exitCode = 1; });
+    `;
+    const child = spawnSync(process.execPath, ['-e', script], {
+      input: JSON.stringify(pkg), encoding: 'utf8', cwd: process.cwd(),
+      env: { ...process.env, TZ: String(timezone) }, timeout: 10_000, killSignal: 'SIGKILL',
+    });
+    expect(child.error).toBeUndefined(); expect(child.signal).toBeNull(); expect(child.status, child.stderr).toBe(0);
+    const result = JSON.parse(child.stdout);
+    const expected = createHash('sha256').update(await archiveAt(pkg, archiveClock)).digest('hex');
+    expect(result.offset).toBe(offset);
+    expect(result.version).toBe(JSZip.version);
+    expect(result.hashes).toEqual([expected, expected]);
+  }, 15_000);
+});
+
 describe('K-320A VaultBackupManifest adapter', () => {
   it('preserves recognized sections, tombstones, relationships and attachment references without mutation', async () => {
     const fixture = {
@@ -427,10 +664,40 @@ describe('K-320A developer CLI', () => {
       expect(verifiedZip.status, verifiedZip.stderr).toBe(0);
       expect(JSON.parse(verifiedDirectory.stdout).valid).toBe(true);
       expect(JSON.parse(verifiedZip.stdout).valid).toBe(true);
+      expect(JSON.parse(verifiedZip.stdout)).toEqual(JSON.parse(verifiedDirectory.stdout));
     } finally {
       await rm(root, { recursive: true, force: true });
     }
   }, recoveryCliTestTimeoutMs);
+
+  it('returns identical verification output for baseline and timestamp-corrected ZIPs', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'absinthe-zip-timestamps-'));
+    try {
+      const pkg = await archiveFixture();
+      const expected = await verifyRecoveryExportPackage(pkg);
+      const outputs = [];
+      for (const [name, build] of [
+        ['baseline', implicitDirectoryArchive], ['corrected', createRecoveryExportArchive],
+      ] as const) {
+        const archive = path.join(root, `${name}.zip`);
+        const bytes = await archiveAt(pkg, archiveClock, build);
+        await writeFile(archive, bytes);
+        const verified = runRecoveryCli({
+          label: 'VERIFY_ZIP', args: ['verify', '--package', archive], timeoutMs: recoveryCliTimeoutMs,
+        });
+        outputs.push(JSON.parse(verified.stdout));
+        expect(await readFile(archive)).toEqual(Buffer.from(bytes));
+      }
+      expect(outputs[1]).toEqual(outputs[0]);
+      expect(outputs[1]).toEqual({
+        valid: expected.valid, completeness: expected.completeness, verifiedFiles: expected.verifiedFiles.length,
+        errorCodes: expected.errors.map(item => item.code), warningCodes: expected.warnings.map(item => item.code),
+        conflictCodes: expected.conflictDiagnostics.map(item => item.code),
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 2 * recoveryCliTimeoutMs + 10_000);
 });
 
 describe('K-320B semantic closure', () => {
