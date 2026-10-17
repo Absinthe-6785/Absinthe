@@ -44,11 +44,25 @@ export type CompositeWorkoutReadIsolationCode =
   | 'NAMESPACE_MISMATCH'
   | 'GENERATION_MISMATCH';
 
+const isolationDiagnosticCodes = new Set<CompositeWorkoutReadIsolationCode>([
+  'INVALID_CONTEXT', 'ACCOUNT_MISMATCH', 'NAMESPACE_MISMATCH', 'GENERATION_MISMATCH',
+]);
+const issuedIsolationDiagnostics = new WeakMap<object, Readonly<{ reasonCode: CompositeWorkoutReadIsolationCode }>>();
+
+/** Bounded constructor-issued description only; not a scope/provenance capability. */
+export function readIssuedWorkoutIsolationDiagnostic(error: object): Readonly<{ reasonCode: CompositeWorkoutReadIsolationCode }> | undefined {
+  return issuedIsolationDiagnostics.get(error);
+}
+
 /** Isolation failure is never a partial source read; details contain no workout data. */
 export class CompositeWorkoutReadIsolationError extends Error {
   constructor(readonly code: CompositeWorkoutReadIsolationCode) {
     super(code);
     this.name = 'CompositeWorkoutReadIsolationError';
+    if (new.target === CompositeWorkoutReadIsolationError && typeof code === 'string'
+      && code.length <= 64 && isolationDiagnosticCodes.has(code)) {
+      issuedIsolationDiagnostics.set(this, Object.freeze({ reasonCode: code }));
+    }
   }
 }
 

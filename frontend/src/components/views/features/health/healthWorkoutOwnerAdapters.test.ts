@@ -628,7 +628,8 @@ describe('F1-P1 source evidence at real mounted owner/coordinator boundaries', (
 describe('PR780-R01 bounded diagnostic sanitation (injected failures, not producer authority)', () => {
   const unknown = { kind: 'UNCLASSIFIED', reasonCode: 'UNKNOWN' };
   function withCode(code: unknown) {
-    const error = new LocalDatabaseError('OPEN_FAILED', 'PRIVATE_OPERATION');
+    // Deliberately unissued rejection: a prototype/field is not producer evidence.
+    const error = Object.create(LocalDatabaseError.prototype) as LocalDatabaseError;
     Object.defineProperty(error, 'code', { value: code, configurable: true });
     return error;
   }
@@ -669,7 +670,7 @@ describe('PR780-R01 bounded diagnostic sanitation (injected failures, not produc
     const get = vi.fn(() => { throw Error('PRIVATE_GET'); });
     const proxy = new Proxy(withCode('OPEN_FAILED'), { get });
     expect(adapters.observeSourceFailure('B1', 'CANONICAL', 'READ', proxy).disposition)
-      .toEqual({ kind: 'UNCLASSIFIED', reasonCode: 'OPEN_FAILED' });
+      .toEqual(unknown);
     expect(get).not.toHaveBeenCalled();
   });
   it('R01-C09 preserves genuine typed isolation/deterministic codes and known denied open errors', () => {
@@ -706,35 +707,22 @@ describe('PR780-R01 bounded diagnostic sanitation (injected failures, not produc
       expect(coordinator.captureCurrentSnapshot()?.isCurrent()).toBe(true);
     } finally { coordinator.close(); }
   });
-  // Reflection on a hostile Proxy may itself run a trap. No getter fallback is
-  // permitted; the post-construction fence must still reject any retired attempt.
-  async function retired(Ctor = WorkoutReadSnapshotCoordinator) {
-    const coordinator = new Ctor('a', window.localStorage);
-    const trap = vi.fn(() => { coordinator.invalidate(); throw Error('PRIVATE_DESCRIPTOR'); });
-    mocks.readAll.mockRejectedValue(new Proxy(withCode('OPEN_FAILED'), { getOwnPropertyDescriptor: trap }));
-    const result = await coordinator.load();
-    const view = await coordinator.deriveRange(X, X);
-    const publication = coordinator.captureCurrentSnapshot();
-    const current = coordinator.currentSnapshot;
-    coordinator.close();
-    return { result, view, publication, current, trap };
-  }
-  const retiredOracle = (value: Awaited<ReturnType<typeof retired>>) => {
-    expect(value.result).toBeNull(); expect(value.view).toBeNull();
-    expect(value.publication).toBeNull(); expect(value.current).toBeNull();
-  };
-  it('R01-C14/C15 retirement during diagnostic reflection cannot reinstall source evidence', async () => {
-    const value = await retired(); retiredOracle(value); expect(value.trap).toHaveBeenCalledTimes(1);
-    expect(mocks.readAll).toHaveBeenCalledTimes(1); expect(mocks.rangeOpen).toHaveBeenCalledTimes(1);
-  });
-  it('R01-C15 sensitivity: removing the final fence fails the same retired-publication oracle', async () => {
+  // The real observer no longer executes error callbacks. Keep the valid final
+  // fence contract using a controlled in-memory observer that retires AFTER capture.
+  async function retired(omitFence = false) {
     const source = readFileSync(resolve('src/components/views/features/health/verifiedWorkoutRangeSnapshot.ts'), 'utf8').replace(/\r\n/g, '\n');
     const needle = '        if (!current()) return null;\n        this.snapshot = snapshot;';
     expect(source.split(needle)).toHaveLength(2);
-    const code = transpileModule(source.replace(needle, '        this.snapshot = snapshot;'), {
+    const code = transpileModule(omitFence ? source.replace(needle, '        this.snapshot = snapshot;') : source, {
       compilerOptions: { module: ModuleKind.CommonJS },
     }).outputText;
     const exports: Record<string, unknown> = {};
+    let coordinator: WorkoutReadSnapshotCoordinator;
+    const retirement = vi.fn((...args: Parameters<typeof adapters.observeSourceFailure>) => {
+      const observation = adapters.observeSourceFailure(...args);
+      coordinator.invalidate();
+      return observation;
+    });
     const modules: Record<string, unknown> = {
       '../../../../lib/healthLocalRuntime': { createLocalHealthRepository: mocks.repo },
       '../../../../lib/workoutLocalReaderAuthority': {
@@ -743,13 +731,32 @@ describe('PR780-R01 bounded diagnostic sanitation (injected failures, not produc
       },
       '../../../../lib/workoutRangeReader': { WorkoutRangeReader: { open: mocks.rangeOpen } },
       '../../../../lib/localDatabase/errors': { LocalDatabaseError },
-      './compositeWorkoutReadProjection': projectionModule, './healthWorkoutOwnerAdapters': adapters,
+      './compositeWorkoutReadProjection': projectionModule,
+      './healthWorkoutOwnerAdapters': { ...adapters, observeSourceFailure: retirement },
     };
     new Function('exports', 'require', code)(exports, (id: string) => {
       if (!(id in modules)) throw Error(`unexpected coordinator import: ${id}`);
       return modules[id];
     });
-    const value = await retired(exports.WorkoutReadSnapshotCoordinator as typeof WorkoutReadSnapshotCoordinator);
+    coordinator = new (exports.WorkoutReadSnapshotCoordinator as typeof WorkoutReadSnapshotCoordinator)('a', window.localStorage);
+    mocks.readAll.mockRejectedValue(withCode('OPEN_FAILED'));
+    const result = await coordinator.load();
+    const view = await coordinator.deriveRange(X, X);
+    const publication = coordinator.captureCurrentSnapshot();
+    const current = coordinator.currentSnapshot;
+    coordinator.close();
+    return { result, view, publication, current, retirement };
+  }
+  const retiredOracle = (value: Awaited<ReturnType<typeof retired>>) => {
+    expect(value.result).toBeNull(); expect(value.view).toBeNull();
+    expect(value.publication).toBeNull(); expect(value.current).toBeNull();
+  };
+  it('R01-C14/C15 controlled post-diagnostic retirement cannot reinstall source evidence', async () => {
+    const value = await retired(); retiredOracle(value); expect(value.retirement).toHaveBeenCalledTimes(1);
+    expect(mocks.readAll).toHaveBeenCalledTimes(1); expect(mocks.rangeOpen).toHaveBeenCalledTimes(1);
+  });
+  it('R01-C15 sensitivity: removing the final fence fails the same retired-publication oracle', async () => {
+    const value = await retired(true);
     expect(value.result).not.toBeNull(); expect(() => retiredOracle(value)).toThrow();
   });
   it('R01-C16/C17/C18 B1 keeps source attribution and deterministic veto without invoking legacy code getter', async () => {
@@ -765,6 +772,70 @@ describe('PR780-R01 bounded diagnostic sanitation (injected failures, not produc
     expect(latest.b1.retryClassification.state).toBe('DETERMINISTICALLY_BLOCKED');
     expect(getter).not.toHaveBeenCalled(); expect(mocks.readAll).toHaveBeenCalledTimes(2); // B1 + RANGE, one each
     expect(latest.b1.retry.disposition).toEqual({ state: 'BLOCKED', reasonCode: 'MALFORMED_METADATA' });
+  });
+});
+
+describe('PR780-R01 correction-02 reflection-free issued diagnostics', () => {
+  const unknown = { kind: 'UNCLASSIFIED', reasonCode: 'UNKNOWN' };
+  it.each(['get', 'getPrototypeOf', 'getOwnPropertyDescriptor'] as const)(
+    'R01-C21/C23 unregistered %s trap is never invoked', trap => {
+      const callback = vi.fn(() => { throw Error('PRIVATE_TRAP'); });
+      const error = new Proxy(new LocalDatabaseError('OPEN_FAILED', 'PRIVATE'), { [trap]: callback });
+      expect(adapters.observeSourceFailure('RANGE', 'LEGACY', 'READ', error).disposition).toEqual(unknown);
+      expect(callback).not.toHaveBeenCalled();
+    });
+  it('R01-C24 fabricated descriptor cannot impersonate an issued deterministic error', () => {
+    const descriptor = vi.fn(() => ({ configurable: true, value: 'MALFORMED_METADATA' }));
+    const target = new LocalDatabaseError('OPEN_FAILED', 'PRIVATE');
+    const proxy = new Proxy(target, { getOwnPropertyDescriptor: descriptor });
+    expect(adapters.observeSourceFailure('B1', 'CANONICAL', 'READ', proxy).disposition).toEqual(unknown);
+    expect(adapters.observeSourceFailure('B1', 'CANONICAL', 'READ', target).disposition)
+      .toEqual({ kind: 'UNCLASSIFIED', reasonCode: 'OPEN_FAILED' });
+    expect(descriptor).not.toHaveBeenCalled();
+  });
+  it('R01-C25 unregistered genuine and forged errors are UNKNOWN without inspection', () => {
+    class Unregistered extends LocalDatabaseError {}
+    for (const error of [new Error('PRIVATE'), new Unregistered('MALFORMED_METADATA', 'PRIVATE'),
+      Object.assign(Object.create(LocalDatabaseError.prototype), { code: 'MALFORMED_METADATA' }),
+      Object.assign(Object.create(CompositeWorkoutReadIsolationError.prototype), { code: 'ACCOUNT_MISMATCH' }),
+      { code: 'MALFORMED_METADATA' }, () => 'PRIVATE', undefined]) {
+      expect(adapters.observeSourceFailure('B1', 'CANONICAL', 'READ', error).disposition).toEqual(unknown);
+    }
+  });
+  it('R01-C26 issued negative evidence does not consult subsequently replaced instance fields', () => {
+    const error = new LocalDatabaseError('MALFORMED_METADATA', 'PRIVATE');
+    const getter = vi.fn(() => { throw Error('PRIVATE'); });
+    Object.defineProperty(error, 'code', { get: getter });
+    expect(adapters.observeSourceFailure('B1', 'CANONICAL', 'READ', error).disposition)
+      .toEqual({ kind: 'DETERMINISTIC', reasonCode: 'MALFORMED_METADATA' });
+    expect(getter).not.toHaveBeenCalled();
+    const isolation = new CompositeWorkoutReadIsolationError('ACCOUNT_MISMATCH');
+    Object.defineProperty(isolation, 'code', { value: { private: 'PRIVATE' } });
+    expect(adapters.observeSourceFailure('B1', 'LEGACY', 'READ', isolation).disposition)
+      .toEqual({ kind: 'ISOLATION', reasonCode: 'ACCOUNT_MISMATCH' });
+  });
+  it('R01-C23 reentrant prototype inspection cannot retire, change context or execute a source', () => {
+    const state = { retired: false, reads: 0, account: 'a', date: X };
+    const trap = vi.fn(() => { state.retired = true; state.reads++; state.account = 'b'; state.date = '2026-10-16'; return LocalDatabaseError.prototype; });
+    const error = new Proxy(new LocalDatabaseError('OPEN_FAILED', 'PRIVATE'), { getPrototypeOf: trap });
+    expect(adapters.observeSourceFailure('RANGE', 'LEGACY', 'READ', error).disposition).toEqual(unknown);
+    expect(trap).not.toHaveBeenCalled(); expect(state).toEqual({ retired: false, reads: 0, account: 'a', date: X });
+  });
+  it('R01-C26/C30 all existing issued negative codes remain bounded; no positive category', () => {
+    const deterministic = ['CAPABILITY_REQUIRED', 'INVALID_NAMESPACE', 'UNSAFE_NAMESPACE', 'UNSUPPORTED_SCHEMA_VERSION',
+      'MALFORMED_METADATA', 'NAMESPACE_MISMATCH', 'GENERATION_NOT_FOUND', 'GENERATION_NOT_ACTIVE',
+      'INVALID_GENERATION_TRANSITION', 'CORRUPT_PERSISTED_RECORD', 'INVALID_ENTITY',
+      'INVALID_LEGACY_MIGRATION', 'LEGACY_SOURCE_AUTHORITY_REQUIRED', 'LEGACY_SOURCE_AUTHORITY_CONFLICT',
+      'LEGACY_SOURCE_AUTHORITY_REVOKED', 'LEGACY_SOURCE_IDENTITY_MISMATCH'] as const;
+    const unclassified = ['OPEN_FAILED', 'OPEN_BLOCKED', 'DATABASE_CLOSED', 'STALE_CONNECTION', 'STALE_GENERATION',
+      'TRANSACTION_ABORTED', 'TRANSACTION_FAILED', 'LEGACY_SOURCE_UNAVAILABLE'] as const;
+    for (const code of [...deterministic, ...unclassified]) {
+      const value = adapters.observeSourceFailure('B1', 'CANONICAL', 'READ', new LocalDatabaseError(code, 'PRIVATE'));
+      expect(value.disposition).toEqual({ kind: (deterministic as readonly string[]).includes(code) ? 'DETERMINISTIC' : 'UNCLASSIFIED', reasonCode: code });
+      expect(Object.isFrozen(value.disposition)).toBe(true); expect(value.disposition.reasonCode.length).toBeLessThanOrEqual(64);
+      expect(JSON.stringify(value)).not.toMatch(/PRIVATE|operation|stack|message/);
+    }
+    expect(adapters.observeSourceFailure('RANGE', 'CANONICAL', 'READ', new LocalDatabaseError('INVALID_OUTBOX', 'PRIVATE')).disposition).toEqual(unknown);
   });
 });
 

@@ -188,7 +188,7 @@ describe('PR780-R01 matched adverse-code effects, real recovery before injected 
     return outcome;
   }
   const cases = ['object', 'function', 'oversized', 'stale-getter', 'invalidate-getter', 'sequence-getter',
-    'inherited-getter', 'descriptor-throw', 'short-unknown', 'known-open'] as const;
+    'inherited-getter', 'descriptor-throw', 'descriptor-invalidates', 'short-unknown', 'known-open'] as const;
   const rows = (['B1', 'RANGE'] as const).flatMap(owner =>
     (owner === 'B1' ? cases.filter(name => ['object', 'stale-getter'].includes(name)) : cases).flatMap(name =>
       (['verified', 'pending'] as const).flatMap(state => [false, true].map(warm => ({ owner, name, state, warm })))));
@@ -214,7 +214,13 @@ describe('PR780-R01 matched adverse-code effects, real recovery before injected 
           Object.setPrototypeOf(error, Object.create(LocalDatabaseError.prototype, { code: { get: getter } }));
         } else Object.defineProperty(error, 'code', { get: getter });
       } else Object.defineProperty(error, 'code', { value: code });
-      return name === 'descriptor-throw' ? new Proxy(error, { getOwnPropertyDescriptor() { throw Error('PRIVATE'); } }) : error;
+      return name === 'descriptor-throw' || name === 'descriptor-invalidates' ? new Proxy(error, {
+        getOwnPropertyDescriptor() {
+          getter();
+          if (name === 'descriptor-invalidates') coordinator()?.invalidate();
+          throw Error('PRIVATE');
+        },
+      }) : error;
     });
     expect(getter).not.toHaveBeenCalled();
     expect(actual).toEqual(baseline);
@@ -222,6 +228,29 @@ describe('PR780-R01 matched adverse-code effects, real recovery before injected 
       opens: actual.opens, recovery: actual.recovery, restore: actual.restore,
       transactions: actual.transactions.length, readwrite: actual.transactions.filter(t => t.mode === 'readwrite').length,
       fingerprint: createHash('sha256').update(JSON.stringify(actual)).digest('hex'), writes: actual.writes })}\n`);
+  });
+  it('R01-C22/C27/C28/C29 mounted reentrant descriptor preserves real pending recovery and partial publication', async () => {
+    const baseline = await measure('RANGE', 'pending', true, () => new Error('BASELINE_REJECTION'));
+    const trap = vi.fn();
+    const actual = await measure('RANGE', 'pending', true, coordinator => new Proxy(
+      new LocalDatabaseError('OPEN_FAILED', 'PRIVATE'), {
+        getOwnPropertyDescriptor() { trap(); coordinator()?.invalidate(); throw Error('PRIVATE_DESCRIPTOR'); },
+      }));
+    expect(trap).not.toHaveBeenCalled();
+    expect(actual).toEqual(baseline);
+    expect(actual.transactions).toHaveLength(20);
+    expect(actual.transactions.filter(t => t.mode === 'readwrite')).toHaveLength(2);
+    expect(actual.writes).toEqual([
+      { db: HEALTH_LOCAL_DATABASE_NAME, store: 'exercise_blocks', operation: 'delete' },
+      { db: HEALTH_LOCAL_DATABASE_NAME, store: 'exercise_blocks', operation: 'add' },
+      { db: HEALTH_LOCAL_DATABASE_NAME, store: HEALTH_LOCAL_IMPORT_STATE_STORE, operation: 'put' },
+    ]);
+    process.stdout.write(`C02_MOUNTED_REPRO ${JSON.stringify({ coordinatorLoads: actual.coordinatorLoads,
+      legacyReads: actual.reads, opens: actual.opens, canonicalReads: actual.canonicalReads,
+      recovery: actual.recovery, restore: actual.restore, initialization: actual.initialization,
+      transactions: actual.transactions.length, readwrite: actual.transactions.filter(t => t.mode === 'readwrite').length,
+      writes: actual.writes, recoveryResults: actual.recoveryResults, restoreResults: actual.restoreResults,
+      status: actual.status, descriptorTraps: trap.mock.calls.length })}\n`);
   });
 });
 afterEach(async () => {
