@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { runInNewContext } from 'node:vm';
 import * as ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 import { sha256Hex } from '../outboxIdentity';
@@ -280,21 +281,75 @@ function analyzeTransactionEvidenceStructure(source: string): SourceStructureAna
   return { issues: Object.freeze(issues) };
 }
 
-function replaceOnce(source: string, needle: string, replacement: string): string {
+// Canonicalize only physical CRLFs at the test-fixture boundary, not the checkout.
+function normalizeSourceFixture(source: string): string {
+  return source.replace(/\r\n/g, '\n');
+}
+
+function uniqueAnchorIndex(source: string, needle: string): number {
+  if (needle.length === 0) throw new Error('Mutation anchor empty');
   const index = source.indexOf(needle);
   if (index < 0) throw new Error(`Mutation anchor missing: ${needle.slice(0, 48)}`);
+  if (source.indexOf(needle, index + 1) >= 0) {
+    throw new Error(`Mutation anchor ambiguous: ${needle.slice(0, 48)}`);
+  }
+  return index;
+}
+
+function replaceOnce(source: string, needle: string, replacement: string): string {
+  const index = uniqueAnchorIndex(source, needle);
   return `${source.slice(0, index)}${replacement}${source.slice(index + needle.length)}`;
 }
 
 function moveRepresentativeValidationBeforeLoop(source: string): string {
-  const start = source.indexOf('  const representative = validateRepresentativeAuthorityGraph({');
-  const end = source.indexOf('\n  const op = operation.value;', start);
-  const loop = source.indexOf('  for (const edge of TRANSACTION_EVIDENCE_GRAPH_COMPATIBILITY_EDGES) {');
-  if (start < 0 || end < 0 || loop < 0) throw new Error('Representative mutation anchor missing');
+  const start = uniqueAnchorIndex(source, '  const representative = validateRepresentativeAuthorityGraph({');
+  const end = uniqueAnchorIndex(source, '\n  const op = operation.value;');
+  const loop = uniqueAnchorIndex(source, '  for (const edge of TRANSACTION_EVIDENCE_GRAPH_COMPATIBILITY_EDGES) {');
+  if (end <= start || start <= loop) throw new Error('Representative mutation anchor order invalid');
   const fragment = source.slice(start, end);
   const without = `${source.slice(0, start)}${source.slice(end)}`;
-  const targetLoop = without.indexOf('  for (const edge of TRANSACTION_EVIDENCE_GRAPH_COMPATIBILITY_EDGES) {');
+  const targetLoop = uniqueAnchorIndex(without, '  for (const edge of TRANSACTION_EVIDENCE_GRAPH_COMPATIBILITY_EDGES) {');
   return `${without.slice(0, targetLoop)}${fragment}\n${without.slice(targetLoop)}`;
+}
+
+function sourceMutationVariants(input: string) {
+  const source = normalizeSourceFixture(input);
+  return [
+    ['selector drift', replaceOnce(source,
+      "predecessor: 'operation', successor: 'admission',",
+      "predecessor: 'operation', successor: 'terminal',"), 'edge_inventory_mismatch'],
+    ['pre-call continue', replaceOnce(source,
+      '  for (const edge of TRANSACTION_EVIDENCE_GRAPH_COMPATIBILITY_EDGES) {\n',
+      "  for (const edge of TRANSACTION_EVIDENCE_GRAPH_COMPATIBILITY_EDGES) {\n    if (edge.successor === 'admission') continue;\n"),
+    'compatibility_pre_call_structure'],
+    ['pre-call break', replaceOnce(source,
+      '  for (const edge of TRANSACTION_EVIDENCE_GRAPH_COMPATIBILITY_EDGES) {\n',
+      "  for (const edge of TRANSACTION_EVIDENCE_GRAPH_COMPATIBILITY_EDGES) {\n    if (edge.predecessor === 'writer') break;\n"),
+    'compatibility_pre_call_structure'],
+    ['decoder result check below loop', replaceOnce(
+      replaceOnce(source, '  if (!terminal.ok) return terminal;\n', ''),
+      '  const representative = validateRepresentativeAuthorityGraph({',
+      '  if (!terminal.ok) return terminal;\n  const representative = validateRepresentativeAuthorityGraph({',
+    ), 'completed_decode_boundary'],
+    ['ignored compatibility result', replaceOnce(source,
+      '    if (!compatible.ok) return compatible;',
+      '    void compatible;'), 'compatibility_failure_propagation'],
+    ['relationship validation before loop', moveRepresentativeValidationBeforeLoop(source),
+      'relationship_after_compatibility'],
+  ] as const;
+}
+
+function sourceLineEndingVariants() {
+  const source = readFileSync(new URL('./transactionEvidenceProtocol.ts', import.meta.url), 'utf8');
+  const lf = normalizeSourceFixture(source);
+  let line = 0;
+  return [
+    ['LF', lf],
+    ['CRLF', lf.replace(/\n/g, '\r\n')],
+    ['mixed', lf.replace(/\n/g, () => ++line % 2 === 0 ? '\r\n' : '\n')],
+    ['LF without final newline', lf.replace(/\n$/, '')],
+    ['CRLF without final newline', lf.replace(/\n$/, '').replace(/\n/g, '\r\n')],
+  ] as const;
 }
 
 function must<T>(result: ProtocolResult<T>): T {
@@ -692,41 +747,82 @@ describe('K-333B transaction evidence graph and compatibility', () => {
   });
 
   it('semantically guards complete decoding and every public compatibility iteration before relationship use', () => {
-    const source = readFileSync(new URL('./transactionEvidenceProtocol.ts', import.meta.url), 'utf8');
     expect(validateProductionTransactionEvidenceGraph(fixtures()).ok).toBe(true);
-    const analysis = analyzeTransactionEvidenceStructure(source);
-    expect(analysis.issues, analysis.issues.join(', ')).toEqual([]);
+    for (const [name, source] of sourceLineEndingVariants()) {
+      // Both raw and normalized inputs must pass: the parser is not the portability defect.
+      expect(analyzeTransactionEvidenceStructure(source).issues, name).toEqual([]);
+      expect(analyzeTransactionEvidenceStructure(normalizeSourceFixture(source)).issues, name).toEqual([]);
+    }
   });
 
   it('rejects selector and loop-structure mutations in bounded source fixtures', () => {
-    const source = readFileSync(new URL('./transactionEvidenceProtocol.ts', import.meta.url), 'utf8');
-    const variants = [
-      ['selector drift', replaceOnce(source,
-        "predecessor: 'operation', successor: 'admission',",
-        "predecessor: 'operation', successor: 'terminal',"), 'edge_inventory_mismatch'],
-      ['pre-call continue', replaceOnce(source,
-        '  for (const edge of TRANSACTION_EVIDENCE_GRAPH_COMPATIBILITY_EDGES) {\n',
-        "  for (const edge of TRANSACTION_EVIDENCE_GRAPH_COMPATIBILITY_EDGES) {\n    if (edge.successor === 'admission') continue;\n"),
-      'compatibility_pre_call_structure'],
-      ['pre-call break', replaceOnce(source,
-        '  for (const edge of TRANSACTION_EVIDENCE_GRAPH_COMPATIBILITY_EDGES) {\n',
-        "  for (const edge of TRANSACTION_EVIDENCE_GRAPH_COMPATIBILITY_EDGES) {\n    if (edge.predecessor === 'writer') break;\n"),
-      'compatibility_pre_call_structure'],
-      ['decoder result check below loop', replaceOnce(
-        replaceOnce(source, '  if (!terminal.ok) return terminal;\n', ''),
-        '  const representative = validateRepresentativeAuthorityGraph({',
-        '  if (!terminal.ok) return terminal;\n  const representative = validateRepresentativeAuthorityGraph({',
-      ), 'completed_decode_boundary'],
-      ['ignored compatibility result', replaceOnce(source,
-        '    if (!compatible.ok) return compatible;',
-        '    void compatible;'), 'compatibility_failure_propagation'],
-      ['relationship validation before loop', moveRepresentativeValidationBeforeLoop(source),
-        'relationship_after_compatibility'],
-    ] as const;
-    for (const [name, variant, expectedIssue] of variants) {
-      const analysis = analyzeTransactionEvidenceStructure(variant);
-      expect(analysis.issues, `${name}: ${analysis.issues.join(', ')}`).toContain(expectedIssue);
+    const representations = sourceLineEndingVariants();
+    const baseline = sourceMutationVariants(representations[0][1]);
+    expect(baseline).toHaveLength(6);
+    const baselineIssues = baseline.map(([, variant]) => analyzeTransactionEvidenceStructure(variant).issues);
+    for (const [lineEnding, source] of representations) {
+      const variants = sourceMutationVariants(source);
+      expect(variants).toHaveLength(6);
+      for (const [index, [name, variant, expectedIssue]] of variants.entries()) {
+        const analysis = analyzeTransactionEvidenceStructure(variant);
+        expect(variant, `${lineEnding}: ${name}`).not.toBe(normalizeSourceFixture(source));
+        expect(analysis.issues, `${lineEnding}: ${name}`).toContain(expectedIssue);
+        expect(analysis.issues, `${lineEnding}: ${name} parity`).toEqual(baselineIssues[index]);
+      }
     }
+  });
+
+  it('requires exactly one nonempty anchor and preserves unrelated fixture bytes', () => {
+    expect(replaceOnce('prefix\nanchor\nsuffix', 'anchor', 'changed')).toBe('prefix\nchanged\nsuffix');
+    expect(() => replaceOnce('prefix suffix', 'anchor', 'changed')).toThrow('Mutation anchor missing');
+    expect(() => replaceOnce('anchor suffix anchor', 'anchor', 'changed')).toThrow('Mutation anchor ambiguous');
+    expect(() => replaceOnce('aaa', 'aa', 'changed')).toThrow('Mutation anchor ambiguous');
+    expect(() => replaceOnce('source', '', 'changed')).toThrow('Mutation anchor empty');
+  });
+
+  it('fails fixture generation for missing or ambiguous real mutation anchors', () => {
+    const source = sourceLineEndingVariants()[0][1];
+    const anchors = [
+      "predecessor: 'operation', successor: 'admission',",
+      '  for (const edge of TRANSACTION_EVIDENCE_GRAPH_COMPATIBILITY_EDGES) {\n',
+      '  if (!terminal.ok) return terminal;\n',
+      '    if (!compatible.ok) return compatible;',
+      '  const representative = validateRepresentativeAuthorityGraph({',
+      '\n  const op = operation.value;',
+    ];
+    for (const anchor of anchors) {
+      expect(() => sourceMutationVariants(replaceOnce(source, anchor, '')), anchor).toThrow('Mutation anchor missing');
+      expect(() => sourceMutationVariants(`${source}\n${anchor}`), anchor).toThrow('Mutation anchor ambiguous');
+    }
+  });
+
+  it('still detects a removed compatibility-result guard after fixture normalization', () => {
+    for (const [name, source] of sourceLineEndingVariants()) {
+      const variant = replaceOnce(normalizeSourceFixture(source), '    if (!compatible.ok) return compatible;', '');
+      expect(analyzeTransactionEvidenceStructure(variant).issues, name).toContain('compatibility_failure_propagation');
+    }
+  });
+
+  it('normalizes physical CRLF only without trimming, unescaping, or changing literal values', () => {
+    expect(normalizeSourceFixture('  prefix\r\nmiddle\nend  \r\n')).toBe('  prefix\nmiddle\nend  \n');
+    expect(normalizeSourceFixture('  end  ')).toBe('  end  ');
+    expect(normalizeSourceFixture('a\\nb\\r\\nc\rd')).toBe('a\\nb\\r\\nc\rd');
+    // ECMAScript normalizes physical CRLF in cooked AND tagged raw template values.
+    // Include escaped newlines, a string line continuation, and template interpolation.
+    const fixture = [
+      'const escaped = "a\\nb\\r\\nc";',
+      'const continued = "a\\\r\nb";',
+      'const template = `a\r\nb${"c"}\r\nd`;',
+      'const raw = String.raw`a\r\nb\\nc${"d"}\r\ne`;',
+      'JSON.stringify([escaped, continued, template, raw]);',
+    ].join('\r\n');
+    const normalized = normalizeSourceFixture(fixture);
+    const expected = ['a\nb\r\nc', 'ab', 'a\nbc\nd', 'a\nb\\ncd\ne'];
+    expect(JSON.parse(runInNewContext(fixture))).toEqual(expected);
+    expect(JSON.parse(runInNewContext(normalized))).toEqual(expected);
+    expect(normalized).toContain('"a\\nb\\r\\nc"');
+    expect(normalized).toContain('b\\nc');
+    expect(normalizeSourceFixture(normalized)).toBe(normalized);
   });
 
   it('rejects same-ID different-operation replay only after every mixed record independently validates', () => {
