@@ -797,5 +797,9 @@ export async function createRecoveryExportArchive(pkg: RecoveryExportPackage): P
       date: fixedDate, createFolders: true, unixPermissions: 0o100644, dosPermissions: 0,
     });
   }
+  // JSZip's implicit folders do not inherit the fixed file date.
+  zip.forEach((_path, entry) => {
+    if (entry.dir) entry.date = fixedDate;
+  });
   return zip.generateAsync({ type: 'uint8array', compression: 'STORE', platform: 'DOS' });
 }
