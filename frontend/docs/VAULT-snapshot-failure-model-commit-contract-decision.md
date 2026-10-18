@@ -210,9 +210,9 @@ Use synthetic content only. Tests record key identities/counts and equality/inte
 | T01: preexisting old + unrelated copies | Verify initial readback/integrity; capture raw index and exact old/unrelated bytes |
 | T02: metadata / every chunk write rejects | Inject at metadata and each chunk, including first/middle/final; old/index unchanged, readable/discoverable when reads resume, no new indexed ID |
 | T03: index rejects before mutation, then all writes refuse | Same preservation; no dependence on restoring index; staging residue cannot invalidate old |
-| T04: preparation `getItem` rejects / corrupted readback | Abort before publication; no old deletion, no false success, incomplete payload never accepted |
+| T04: preparation `getItem` rejects / corrupted readback | Abort before publication; no old deletion, no false success, incomplete payload never accepted. Also require every equal-fingerprint invalid-old-base rejection case T04-OLD-01 through T04-OLD-06 below |
 | T05: trusted-index failures | Null absent is distinct from empty string, malformed JSON, unsupported schema, bad/null/duplicate entries, or read failure; no writes on rejection |
-| T06: ID collisions | Same-ID changed content, unrelated indexed ID, occupied legacy/meta/each planned chunk all fail closed; unchanged valid fingerprint skip performs zero mutations |
+| T06: ID collisions / unchanged-base validity | Same-ID changed content, unrelated indexed ID, occupied legacy/meta/each planned chunk all fail closed. Separately require VALID_UNCHANGED_SKIP only after old-payload validation and INVALID_UNCHANGED_REJECTION for every T04-OLD case below; both perform zero storage mutations |
 | T07: successful replacement | Exact payload equality and validation; new ID retained/indexed; old/victim removal occurs only after successful publication |
 | T08: precommit cleanup removal rejects | Old/index/unrelated bytes remain; any residue belongs only to this attempt; retry does not delete it indiscriminately |
 | T09: superseded/prune cleanup rejects; reads fail after commit | `saved=true` remains truthful publication result, new/retained payloads remain usable when reads resume; no rollback or index references to deleted retained data |
@@ -223,8 +223,31 @@ Use synthetic content only. Tests record key identities/counts and equality/inte
 | T14: logical interruption cut points | Stop between completed metadata/chunk/index/cleanup calls while retaining the logical map; old view precommit, complete new view postcommit; known orphan residue allowed; no returned result after termination |
 | T15: concurrency boundary | Multiple same-agent scheduled calls remain sequential/fresh-index; model reentry and cross-tab race explicitly as unsupported without claiming a lock. If such races become acceptance requirements, STOP |
 | T16: stronger adversaries | Mutate-then-throw, truncated write returning success, wrong-key side effects, ambiguous publication + denied read/rollback, remove-then-throw: retain explicit expected contract-violation/counterexample outcomes; no assertion that generic `saved=false` restored old view |
-| T17: sensitivity | Untouched delete-before-write baseline fails T02/T03. Intentional early deletion, incomplete readback acceptance, unreadable published payload, unrelated deletion, false success, and old-key staging cleanup must each fail the relevant oracle in isolation; leave no faults behind |
+| T17: sensitivity | Untouched delete-before-write baseline fails T02/T03. Intentional early deletion, incomplete readback acceptance, unreadable published payload, unrelated deletion, false success, and old-key staging cleanup must each fail the relevant oracle in isolation. Also require T17-SKIP-01 below to detect the fingerprint-only shortcut before old-base validation; leave no faults behind |
 | T18: regressions | Snapshot store/automation/verification/retention/legacy, relevant recovery, complete frontend suite, typecheck, build, diff check, exact-head CI in the separately authorized implementation task |
+
+### R01 correction: existing-base validity before unchanged skip
+
+This docs-only correction targets only the independent review's P2 `PR786-R01` (`TEST_ORACLE_GAP`). The historical review outcome remains `CHANGES_REQUIRED`; `PR786-R01 = OPEN / PENDING_FOCUSED_REREVIEW` until independent focused rereview. These are future test requirements, not executed tests or a declaration of finding closure.
+
+For every case below, use a trusted, syntactically valid index referencing an existing same-slot snapshot. Establish the base fixture, then introduce the specified invalidity or read fault **before** the save invocation; no concurrent mutation or stronger adapter behavior is needed. Attempt a save with the **same fingerprint as the indexed existing snapshot**. Unlike T01's valid-base preservation fixtures, these cases deliberately begin the invocation with an unusable base.
+
+| Case | Existing-base failure introduced before the invocation |
+|---|---|
+| T04-OLD-01 | Final chunk missing |
+| T04-OLD-02 | Middle chunk missing from a snapshot with at least three chunks |
+| T04-OLD-03 | Legacy snapshot JSON malformed |
+| T04-OLD-04 | Existing payload read throws |
+| T04-OLD-05 | Existing snapshot ID or slot identity (slot/slotKey) does not match its index entry |
+| T04-OLD-06 | Existing content fingerprint or integrity validation fails |
+
+For **every** T04-OLD case require `saved=false`, `skipped=false`: no successful replacement claim and no unchanged skip. Require zero storage mutations: no staging, index publication/rewrite, deletion, or pruning; preserve the exact raw index bytes, all remaining old payload bytes, and unrelated snapshot bytes. Do not require an already-invalid snapshot to become valid. A corrupt base or rejected read is not quota exhaustion: omit the existing optional `reason` unless an actual quota failure was observed and established. No new public enum or `SaveSnapshotResult` change is authorized.
+
+T06 must distinguish two controls. **VALID_UNCHANGED_SKIP:** the indexed existing snapshot is actually readable, identity-consistent, and passes the existing integrity contract; its fingerprint matches the input; require `saved=false`, `skipped=true`, `reason='unchanged'`, with zero storage mutations. **INVALID_UNCHANGED_REJECTION:** the index fingerprint matches but the existing payload cannot be read, assembled, parsed, identity-matched, or validated; require `saved=false`, `skipped=false` and the zero-mutation/preservation/reason obligations above. Fingerprint equality alone cannot establish backup validity.
+
+**T17-SKIP-01:** in an isolated future implementation test, deliberately restore the old fingerprint-only early-return shortcut before existing-payload validation. Use a valid index, a missing final chunk, and same-fingerprint input. The corrected T04/T06 oracle must **FAIL** against this unsafe implementation by detecting `skipped=true` without established existing-backup validity. Repeat with at least one alternate invalid base: malformed legacy JSON or an identity/fingerprint mismatch. Establish fixture validity/invalidity through actual payload assembly, parsing, identity/integrity validation, or the explicit read rejection; an enumerated old ID alone is insufficient. Remove the intentional implementation fault after the sensitivity check.
+
+These cases enforce FM14's existing `IN_AS_REJECTED_INPUT` boundary: preserve remaining bytes/index and reject truthfully, without silent repair, forced unchanged skip, or destructive replacement. M1, Option A, and the FM02/FM04/FM12 exclusions remain unchanged.
 
 ## 11. Implementation boundary, STOP and reopening conditions
 
