@@ -8,12 +8,13 @@
 - Canonical workspace: `C:\Users\이도현\GitRepos\Absinthe`; the alternate `D:\Projects\Absinthe` was not used.
 - `PRE262_CHARACTERIZATION = COMPLETE_REVIEW_PENDING`.
 - Separate compatibility correction disposition: `REQUIRES_POLICY_DECISION`.
-- `REVIEW_STATUS = PENDING`; `IMPLEMENTATION_AUTHORIZATION = NOT_GRANTED`.
+- Independent review returned `CHANGES_REQUIRED`: `PR788-R01` (P1, conditional restore-policy acceptance of outer-invalid H06) and `PR788-R02` (P2, overbroad occupied-key/legacy-shadow oracles). This docs-only correction leaves both `PENDING_FOCUSED_REREVIEW`; it does not self-declare closure.
+- `REVIEW_STATUS = FOCUSED_REREVIEW_PENDING`; `IMPLEMENTATION_AUTHORIZATION = NOT_GRANTED`.
 - This is a docs-only characterization, not a new validator, migration, restore authorization, or product-owner option selection.
 
 An intact snapshot produced at #260 passes its original validator but fails today's snapshot validator with **only** `fingerprint_mismatch`. The same-slot save gate added in #787 therefore rejects replacement without modifying the old recovery copy. Repeating the invocation does not repair the mismatch. This is a demonstrated compatibility/liveness limitation, not evidence that those historical bytes were corrupt.
 
-Do not infer that every restore path is blocked: the current snapshot-to-manifest preview path **does not enforce the outer snapshot readiness result**. It produced valid core/export previews for both the authentic historical fixture and an actually altered-payload negative control. Execution remains subject to separate runtime policy and import safeguards; no restore was executed. A compatibility decision must address this diagnostic-versus-preview inconsistency, not merely make a validator return true.
+Do not infer that every restore path is blocked: the current snapshot-to-manifest path **does not enforce the outer snapshot readiness result**. It produced valid core/export previews for both the authentic historical fixture and outer-invalid H06. Independent review also observed a precise local/core-only policy profile returning allow while normal `mayRestore()` returned false (section 5). Remaining account/epoch, verified-undo and persistence gates are separate; no live restore or data loss was observed. This conditional authorization gap requires a separate restore-safety contract characterization before any runtime correction, independently of the pre262 recognition decision. Preview validity, policy acceptance and authorized import are not interchangeable.
 
 The approved [M1 commit contract](VAULT-snapshot-failure-model-commit-contract-decision.md) is unchanged. #787 remains `CLOSED_IN_MAIN_UNDER_M1`; that closure is not an all-generations compatibility or universal storage-atomicity guarantee.
 
@@ -165,13 +166,48 @@ Source anchors below refer to the qualified main; relative links are repository 
 | B. Loading | `OBSERVED_IN_SYNTHETIC_PROBE`: `loadSnapshotPayload` parses the legacy envelope and returns its unchanged data. Schema 1 passes the parser; fingerprint validation is separate. |
 | C. Validation | `OBSERVED_IN_SYNTHETIC_PROBE`: [validateVaultSnapshot](../src/lib/vaultSnapshotValidate.ts) yields false / false / false and only fingerprint_mismatch. [useRecoveryCenter](../src/hooks/useRecoveryCenter.ts):54 delegates to that validator on request. |
 | D. Restore preview | `OBSERVED_IN_SYNTHETIC_PROBE`: [manifestFromSnapshot](../src/lib/vaultRestorePipeline.ts):162 calls assessSnapshotRestoreReadiness but consumes only `readiness.manifest`, not `readiness.ready`; it adds portable extensions to its in-memory manifest copy/normalizes to v3. `buildFullVaultRestorePreview` returns core valid=true and export valid=true for H01. It also does so for H06. Original persisted bytes are not changed by these probes. |
-| E. Restore selection / execution eligibility | `SOURCE_DERIVED`: [RecoveryCenterPanel](../src/components/views/features/settings/RecoveryCenterPanel.tsx):193 exposes indexed cards directly to `openSnapshotRestore`; [useVaultRestoreFlow](../src/hooks/useVaultRestoreFlow.ts):127 does not call/enforce the hook's snapshot validation. Its confirm path checks core/export validation and `mayRestoreLocalCoreJsonBackup(...) || mayRestore()`, not the outer snapshot report. [VaultRestoreModal](../src/components/views/features/knowledge/VaultRestoreModal.tsx):108 rejects invalid core preview, not this outer mismatch. Actual permission/import success in a live account is `NOT_PROVEN`; no restore was executed. |
+| E. Restore selection / execution eligibility | `SOURCE_DERIVED`: [RecoveryCenterPanel](../src/components/views/features/settings/RecoveryCenterPanel.tsx):193 exposes indexed cards directly to `openSnapshotRestore`; [useVaultRestoreFlow](../src/hooks/useVaultRestoreFlow.ts):127 does not call/enforce the hook's snapshot validation. Its confirm path at :212 checks core/export validation and `mayRestoreLocalCoreJsonBackup(...) || mayRestore()`, not the original outer snapshot report. [VaultRestoreModal](../src/components/views/features/knowledge/VaultRestoreModal.tsx):108 rejects invalid core preview, not this outer mismatch. The independent-review profile below demonstrates conditional predicate acceptance, not live import success. |
 | F. Same-content save | `OBSERVED_IN_SYNTHETIC_PROBE`: [saveVaultSnapshot](../src/lib/vaultSnapshotStore.ts):374-380 validates the incoming envelope and then existing same-slot payload **before** unchanged-skip comparison. The historical base fails in `requireUsablePayload`; return F/F, no reason, zero mutations. Passing H01 itself as the input would fail even earlier at incoming validation (`SOURCE_DERIVED`), not gain a legacy bypass. |
 | G. Changed-content replacement | `OBSERVED_IN_SYNTHETIC_PROBE`: same existing-base check rejects; no staging, deletion, index publication, pruning, or silent conversion occurs. Valid post262/current bases can be replaced. |
 | H. Periodic autosave | `OBSERVED_IN_SYNTHETIC_PROBE`: [vaultSnapshotAuto](../src/lib/vaultSnapshotAuto.ts):117 calls daily/weekly/monthly independently; matching historical daily/weekly slot keys fail, but a new monthly key saves. The wrapper ignores the individual results (`SOURCE_DERIVED`). New-period helpers saved all three current-valid snapshots. |
 | I. Last-slot autosave | `OBSERVED_IN_SYNTHETIC_PROBE`: direct `createLastSnapshot` and three schedule/flush cycles against an H01 last base leave every stored byte unchanged, with F/F from the direct helper. `SOURCE_DERIVED`: flush advances `lastFlushedFingerprint` only on saved/skipped, clears pending inputs after failure, and schedules no self-retry; a later schedule reattempt still meets the same invalid base. |
 
-Additional boundary: `executeVaultRestorePipeline` calls `createLastSnapshot` for backup-before-restore but ignores its result and sets `backedUp=true` at lines 250-253. This is **not** proof of a newly created/valid last snapshot. Distinct verified-undo and import-core safeguards still exist; their end-to-end effectiveness with historical inputs is `NOT_PROVEN` here. This task does not alter or authorize bypassing them.
+### R01: conditional local/core-only policy acceptance and remaining gates
+
+`OBSERVED_IN_SYNTHETIC_PROBE` (independent review, distinct from the original deny-stubbed preview harness in section 4): actual [recoverySafetyPolicy](../src/lib/recoverySafetyPolicy.ts):575 and [syncMode](../src/lib/syncMode.ts):19 predicates were evaluated with recovery mode active, runtime local mode and no legacy-write cutover block. The exact authorization input was:
+
+```text
+operation = LOCAL_CORE_JSON_NOTES_FOLDERS_RESTORE
+syncMode = local
+strategy = replace
+createVerifiedSnapshot = true
+restoreCore = true
+restoreExtensions = false
+restoreCloud = false
+backupValidation = verified_valid
+selectedNoteCount = 1
+
+mayRestore() = false
+mayRestoreLocalCoreJsonBackup(...) = true
+```
+
+This is an observed pure policy result, not an assertion about deployed settings, actual verified-undo creation or actual import. H06 fails its original outer fingerprint integrity check and today's outer check, but its converted core/export preview can be valid. `backupValidation=verified_valid` here is derived from manifest validation, not from an original outer PASS. `manifestFromSnapshot` consumes `readiness.manifest` without enforcing `readiness.ready`; the [pipeline](../src/lib/vaultRestorePipeline.ts):225 independently checks the manifest and the same policy exception. [useNotesStore.importVaultRestore](../src/store/useNotesStore.ts):1565 canonicalizes/revalidates the manifest and rechecks the local/core profile; it receives no original snapshot outer report. Canonical manifest structure/content validation is not proof of H06's original fingerprint integrity.
+
+The remaining execution boundaries must be established separately, not assumed bypassed:
+
+- **Account/epoch:** pipeline operation-epoch checks precede core import (:246-263); account-scoped Notes requires a recovery context (:1596-1603), and private restore capabilities enforce their bound context/epoch. The hook's Health-account and post-restore callback checks are not an original snapshot-integrity gate.
+- **Verified undo:** [saveVaultRestoreSnapshot](../src/lib/vaultRestoreSnapshot.ts):84 is called at store :1603 **before** applying/importing replacement content. It requires usable prior Notes/Folders and exact persisted readback; failure throws and prevents import. It protects a recoverable prior local state, not incoming H06 integrity. Normal Undo remains restricted while recovery mode is active ([mayUndoRestore](../src/lib/recoverySafetyPolicy.ts):599; store :1700); do not promise immediate ordinary Undo availability. Neither actual verified-undo creation nor a real restore was executed here.
+- **Persistence/import:** private capabilities and durable write/readback eligibility remain separate ([useNotesStore](../src/store/useNotesStore.ts):704, :754, :1621). `SOURCE_DERIVED`: if all remaining gates pass, recovery-mode `replace` filters resulting Notes/Folders to manifest IDs (:1615-1620), so absent prior IDs are excluded from the replacement result. That conditional destructive potential is not observed execution or actual data loss.
+
+```text
+RESTORE_OUTER_INTEGRITY_GATE = NOT_ENFORCED_ON_IDENTIFIED_PATH
+CONDITIONAL_LOCAL_CORE_POLICY = ALLOW_PROFILE_OBSERVED
+LIVE_RESTORE_EXECUTION = NOT_PROVEN
+ACTUAL_DATA_LOSS = NOT_OBSERVED
+RESTORE_SAFETY_FOLLOWUP = SEPARATE_BOUNDED_TASK_REQUIRED
+```
+
+Additional, distinct boundary: `executeVaultRestorePipeline` calls `createLastSnapshot` for backup-before-restore but ignores its result and sets `backedUp=true` at lines 250-253. This is **not** proof of a newly created/valid last snapshot and is not the store's verified-undo gate. Verified undo remains required before import; its success would not make an outer-invalid incoming H06 safe. This task changes neither safeguard nor runtime authority.
 
 `SOURCE_DERIVED`: `assessRecoveryProtectionStatus` uses existence of a snapshot timestamp to report partial protection, not snapshot validation. An enumerated timestamp or note count must not be presented as proof of this old copy's current restore readiness.
 
@@ -205,7 +241,7 @@ The letters below belong to **this compatibility comparison**, not the separate 
 
 `REQUIRES_POLICY_DECISION`: independently review this characterization, then decide whether to retain A or authorize design of a **strict historical-generation recognition contract** (B), with D as a separately bounded evidence-preservation alternative. B is the recommended next design question, not a selected product policy or implementation-ready fix. Do not select it solely for increased acceptance. C is not justified as an automatic first step given absent real-data census/ownership/restart evidence.
 
-The decision must explicitly define: accepted generations/provenance, `HISTORICALLY_VALID` versus `CURRENTLY_VALID`, unknown/corrupt handling, whether recognition confers save-base/cleanup and/or restore authority, consistent enforcement by all consumers, raw-byte preservation, result/report semantics, and whether the current preview discrepancy needs a separate safety correction. No silent validator relaxation, fingerprint recomputation on originals, delete-and-retry workaround, or product activation is approved.
+The compatibility decision must explicitly define: accepted generations/provenance, `HISTORICALLY_VALID` versus `CURRENTLY_VALID`, unknown/corrupt handling, whether recognition confers save-base/cleanup and/or restore authority, consistent enforcement by all consumers, raw-byte preservation, and result/report semantics. Independently, R01 requires a **separate bounded restore-safety contract characterization before any runtime correction** covering original outer-integrity authority through the local/core-only exception, account/epoch, verified undo and import boundaries. This follow-up is required regardless of which compatibility option is chosen; neither that characterization nor its implementation is performed by #788. No silent validator relaxation, fingerprint recomputation on originals, delete-and-retry workaround, or product activation is approved.
 
 ## 8. Future correction acceptance oracle (not implemented here)
 
@@ -215,17 +251,19 @@ These are requirements for a separately reviewed and authorized correction. The 
 |---|---|
 | P01 Authentic provenance | Generate exact #260/#262/#308/#309 fixtures with their actual producer/serializer/store, preserve raw strings, hashes, index and key maps; never emulate old validity by today's builder alone. |
 | P02 Classifications | H01: HISTORICALLY_VALID, currently rejected. H02-H05B: CURRENTLY_VALID. H06: CORRUPT under both generation checks. Unrecognized shapes/algorithms/provenance: UNKNOWN, not historical-valid by elimination. Recognition is not cryptographic authentication. |
-| P03 Strict identity | Wrong snapshotId, slot/slotKey, timestamp, fingerprint/index mismatch, byte counts, schema, duplicate IDs/slot keys, malformed index, occupied legacy/meta/planned chunk keys all reject without writes. Same notes in another slot do not prove ownership. |
-| P04 Legacy / chunked | Cover optional historical counts, Unicode/emoji and UTF-16 chunk seams vs UTF-8 byte totals; missing/middle/final/truncated/reordered chunks and legacy shadows fail closed. Preserve original byte identity; no automatic normalization in a read path. |
+| P03 Strict identity / staging versus skip | Wrong snapshotId, slot/slotKey, timestamp, fingerprint/index mismatch, byte counts, schema, duplicate index IDs/slot keys, malformed index and untrusted identities fail closed without writes. **NEW_STAGING_COLLISION:** when a new candidate must be staged, an indexed incoming-ID collision or any occupied candidate legacy/meta/planned chunk key requires `saved=false, skipped=false`, zero storage mutations and preservation of occupied bytes. **VALID_UNCHANGED_SKIP:** a verified readable, identity-consistent, valid same-slot base matching the incoming fingerprint requires `saved=false, skipped=true, reason='unchanged'`, zero mutations; input ID may equal the existing base ID. New-staging collision checks do not precede this valid skip. Same notes in another slot do not prove ownership. |
+| P04 Legacy / chunked / shadow ownership | Cover optional historical counts, Unicode/emoji and UTF-16 chunk seams vs UTF-8 byte totals; an applicable chunked payload with missing/middle/final/truncated/reordered chunks fails closed. **LEGACY_BASE_WITH_SHADOW:** an indexed valid legacy payload establishes validity from its own exact indexed blob despite separate untrusted meta/chunk shadows; valid unchanged skip is allowed with zero mutations. Shadows confer no cleanup authority and remain untouched. **NEW_CHUNK_CANDIDATE_SHADOW:** when new staging is needed, an occupied legacy key at the candidate ID would shadow the new chunks; reject before writes, preserving occupied bytes. Preserve original byte identity; no read-path normalization or inferred shadow deletion. |
 | P05 Unchanged | A known valid recognized base may skip only after the entire approved validity/identity proof. Preserve all six T04-OLD rejection categories and T17-SKIP-01 sensitivity from the M1 contract. Equal fingerprint alone never warrants skipped=true. |
 | P06 Changed replacement | If policy authorizes recognized bases: fresh nonconflicting current candidate, exact stored-byte validation, pure retention, single index publication, then exact unretained cleanup. If recognition is export-only: ordinary replacement remains rejected truthfully. |
-| P07 Restore parity | Test both snapshot diagnostic/readiness and actual card -> hook -> manifest -> core/export preview -> policy/verified-undo/import gates. H01 acceptance requires an explicit policy; H06/UNKNOWN must not gain authorized execution through a manifest-only shortcut. No test may infer permission from preview.valid alone. |
+| P07 Restore parity | Future tests for H01/H06/UNKNOWN must trace card selection -> outer validation -> manifest conversion -> core/export preview -> policy predicates -> account/epoch gates -> verified-undo gate -> import entry boundary. Include the exact section 5 local/core-only profile (`local`, `replace`, verified snapshot requested, core only, no extensions/cloud, `verified_valid`, one selected note) where `mayRestore()=false` but the exception returns true. H01 acceptance requires explicit policy; outer-invalid H06/UNKNOWN must not silently gain import authority through manifest-only validation. Assert the exception is distinct from normal `mayRestore()`, actual account/persistence eligibility is separately established, verified-undo failure prevents import, and verified-undo success does not validate incoming integrity. Preview-valid, predicate-allowed, undo-passed and import-authorized are four separate assertions. These are future acceptance requirements, not executed fixes or claims that current runtime satisfies the safety oracle. |
 | P08 No precommit loss | Throw-before-write at metadata/every chunk/index; permanent refusal; read failures; retain old raw index/payload, unrelated data and conditional discoverability; no dependence on successful rollback or deletion to gain capacity. |
 | P09 Retention / cleanup | 1/30/12/12 and indexed byte cap/oversized last; retained original keys never cleanup targets. An ambiguous/corrupt historical victim is not deletion authority. Cleanup refusal after known commit stays saved=true; no guaranteed physical reclamation. |
 | P10 Automation | Last same-base retries, same/next daily/weekly/monthly periods, saved-or-skipped flush marker, failure pending-clear behavior, no false success or unauthorized self-retry. Repeated corrupted/unknown inputs never become accepted merely to improve liveness. |
 | P11 No unauthorized migration | Repeated reads/validation/export/preview leave exact original bytes/index unchanged. No fingerprint rewrite, schema bump, key replacement, DB/storage migration, restore execution or activation unless independently authorized. |
 | P12 Current regressions | Existing snapshot/compaction/restore/recovery suites, full frontend test/typecheck/build and exact-head Push/PR five-job CI remain green; do not broaden unrelated Health authority. |
-| P13 Negative sensitivity | In-memory mutants must be caught: accept-all historical fallback (H06/UNKNOWN); fingerprint-only early skip; remove-before-commit; accept missing chunk; trust index identity alone; rehash original in place; ignore failed outer classification on an allegedly gated restore path; wrong-generation preference. Remove every intentional fault. Stronger non-M1 adversaries remain explicitly unsupported, not renamed PASS. |
+| P13 Negative sensitivity | Future isolated in-memory mutants must be caught: accept-all historical fallback (H06/UNKNOWN); fingerprint-only early skip; remove-before-commit; accept missing chunk; trust index identity alone; rehash original in place; wrong-generation preference (expectations require approved recognition policy). Specifically, a mutant that discards original outer validation and permits H06 through the exact section 5 local/core-only profile must **FAIL** the separately approved restore-safety oracle, even if preview-valid, policy-predicate-allowed and verified-undo-passed are all true; import-authorized must be asserted separately. Do not claim current runtime already meets this oracle or execute a real restore. Remove every intentional fault. Stronger non-M1 adversaries remain explicitly unsupported, not renamed PASS. |
+
+R02 source/contract alignment: [vaultSnapshotStore](../src/lib/vaultSnapshotStore.ts):288 validates a legacy base before granting authority over **only its legacy key**. At :374-380, input and same-slot base validation precede unchanged skip; indexed-ID and fresh staging-key checks follow at :383-399 only if a new write is needed. Exact postcommit cleanup (:425-438) cannot infer ownership of untrusted shadows. This matches [M1's unchanged-skip and staging rules](VAULT-snapshot-failure-model-commit-contract-decision.md), section 7 (:167) and T06/T04-OLD/T17-SKIP-01. Preserve no destructive collision recovery, root-wide orphan sweep, inferred shadow deletion, occupied-key overwrite, incomplete acceptance, false skip, precommit old-copy deletion, retained-key deletion or unknown-corruption repair. No M1 contract change is proposed.
 
 ## 9. Validation, unknowns, and reporting limits
 
@@ -233,7 +271,7 @@ Successful isolated characterization assertions: seven fixture rows (H01-H06 plu
 
 Existing production tests were not edited. `npm test -- src/lib/vaultSnapshot.test.ts src/lib/snapshotCompaction.test.ts src/lib/vaultRestoreSnapshot.test.ts` passed **3 files / 98 tests**. The first sandboxed attempt could not start esbuild because parent-directory access was denied; rerunning the identical command outside that sandbox restriction passed. This was an environment startup failure, not a failed test assertion or a source fix.
 
-Publication validation requires this single Markdown file only, resolving local references, verifying pinned historical Git paths/line anchors, `git diff --check`, a normal docs commit, clean tracked worktree/index and one Draft PR. Exact-head Push and PR CI are reported separately in the publication report/PR body, not invented in this precommit document. Independent review remains pending. Probes created no repository artifacts and their Maps/VMs ended with the Node process; no real storage residue exists.
+Publication validation requires this single Markdown file only, resolving local references, verifying pinned historical Git paths/line anchors, `git diff --check`, a normal docs commit, clean tracked worktree/index and the existing Draft PR #788. Exact-head Push and PR CI are reported separately in the correction report, not invented in this precommit document. Initial independent review returned `CHANGES_REQUIRED`; R01/R02 corrections await focused independent rereview. Original characterization probes created no repository artifacts and their Maps/VMs ended with the Node process; no real storage residue exists. This correction rechecks source and documents independent-review evidence; it executes no restore, migration or new runtime acceptance tests.
 
 Remaining unknowns and risks:
 
@@ -242,14 +280,19 @@ Remaining unknowns and risks:
 - Matching the historical 32-bit hash plus structure is not authentication or complete provenance; malicious/colliding objects and generation ambiguity need policy and negative tests.
 - Actual UI interaction, restore execution, verified undo, import side effects and physical-browser behavior were not run. Pure preview success must not be represented as safe end-to-end restore.
 - Last-slot freshness can remain blocked; periodic rollover can progress but does not validate/repair old copies. Quota, unavailable reads, cleanup residue and out-of-M1 concurrent/crash failures remain separately bounded.
-- The inconsistent outer-validator versus manifest-preview path and ignored backup-before-restore result are explicit source-derived risks, not fixed by this document. Any correction needs separate scoped authorization.
+- R01's conditional local/core-only acceptance of outer-invalid H06 is more than a preview discrepancy: the policy allow profile was observed, but live account/epoch, verified undo, persistence and import were not exercised. Separate restore-safety contract characterization is required before any runtime correction, independently of pre262 recognition policy. The ignored backup-before-restore result is a distinct source-derived reporting risk. Neither runtime issue is fixed or authorized for implementation here.
 
 ## 10. Authority freeze
 
 ```text
 PRE262_CHARACTERIZATION = COMPLETE_REVIEW_PENDING
-REVIEW_STATUS = PENDING
+REVIEW_STATUS = FOCUSED_REREVIEW_PENDING
+PR788-R01 = PENDING_FOCUSED_REREVIEW
+PR788-R02 = PENDING_FOCUSED_REREVIEW
 IMPLEMENTATION_AUTHORIZATION = NOT_GRANTED
+PRE262_COMPATIBILITY_DISPOSITION = REQUIRES_POLICY_DECISION
+PRE262_IMPLEMENTATION_AUTHORIZATION = NOT_GRANTED
+RESTORE_SAFETY_IMPLEMENTATION_AUTHORIZATION = NOT_GRANTED
 VAULT_SNAPSHOT_CONTRACT_DECISION = CLOSED_IN_MAIN
 VAULT_SNAPSHOT_FAILURE_SAFETY = CLOSED_IN_MAIN_UNDER_M1
 PRE_262_FINGERPRINT_COMPATIBILITY = KNOWN_SEPARATE_LIMITATION
