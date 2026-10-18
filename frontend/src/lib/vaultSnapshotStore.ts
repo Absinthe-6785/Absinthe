@@ -17,6 +17,7 @@ import {
   planSnapshotChunks,
   splitSnapshotIntoChunks,
 } from './snapshotCompaction';
+import { validateVaultSnapshot } from './vaultSnapshotValidate';
 
 export interface SnapshotStorageAdapter {
   getItem(key: string): string | null;
@@ -102,34 +103,6 @@ function readChunkedPayload(snapshotId: string, storage: SnapshotStorageAdapter)
   }
 }
 
-function writeChunkedPayload(
-  snapshotId: string,
-  serialized: string,
-  storage: SnapshotStorageAdapter,
-): { payloadBytes: number; chunkCount: number; writeCount: number } {
-  storage.removeItem(payloadKey(snapshotId));
-  removeChunkedPayload(snapshotId, storage);
-
-  const chunks = splitSnapshotIntoChunks(serialized, SNAPSHOT_CHUNK_TARGET_BYTES);
-  const plan = planSnapshotChunks(serialized, SNAPSHOT_CHUNK_TARGET_BYTES);
-  const meta: ChunkedSnapshotMeta = {
-    storageFormat: SNAPSHOT_CHUNK_STORAGE_FORMAT,
-    chunkCount: chunks.length,
-    totalBytes: plan.totalBytes,
-  };
-
-  storage.setItem(metaKey(snapshotId), JSON.stringify(meta));
-  chunks.forEach((chunk, index) => {
-    storage.setItem(chunkKey(snapshotId, index), chunk);
-  });
-
-  return {
-    payloadBytes: plan.totalBytes,
-    chunkCount: plan.chunkCount,
-    writeCount: plan.writeCount,
-  };
-}
-
 /** Test/audit helper — inspect chunk plan without writing storage. */
 export function inspectSnapshotChunkPlan(serialized: string) {
   return planSnapshotChunks(serialized, SNAPSHOT_CHUNK_TARGET_BYTES);
@@ -209,7 +182,8 @@ function removeSnapshotEntry(
   removeChunkedPayload(entry.snapshotId, storage);
 }
 
-function pruneIndex(index: VaultSnapshotIndex, storage: SnapshotStorageAdapter): VaultSnapshotIndex {
+/** Pure plan: payload deletion is permitted only AFTER index publication. */
+function pruneIndex(index: VaultSnapshotIndex): VaultSnapshotIndex {
   let entries = [...index.entries];
 
   const bySlot = (slot: VaultSnapshotSlot) =>
@@ -227,12 +201,6 @@ function pruneIndex(index: VaultSnapshotIndex, storage: SnapshotStorageAdapter):
     ...keepMonthly.map(e => e.snapshotId),
   ]);
 
-  for (const entry of entries) {
-    if (!keepIds.has(entry.snapshotId)) {
-      removeSnapshotEntry(entry, storage);
-    }
-  }
-
   entries = entries.filter(e => keepIds.has(e.snapshotId));
 
   let totalBytes = entries.reduce((sum, e) => sum + e.payloadBytes, 0);
@@ -242,13 +210,128 @@ function pruneIndex(index: VaultSnapshotIndex, storage: SnapshotStorageAdapter):
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     for (const entry of droppable) {
       if (totalBytes <= SNAPSHOT_RETENTION.maxTotalBytes) break;
-      removeSnapshotEntry(entry, storage);
       entries = entries.filter(e => e.snapshotId !== entry.snapshotId);
       totalBytes -= entry.payloadBytes;
     }
   }
 
   return { schemaVersion: 1, entries };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function nonemptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function validSlot(value: unknown): value is VaultSnapshotSlot {
+  return value === 'last' || value === 'daily' || value === 'weekly' || value === 'monthly';
+}
+
+function nonnegativeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
+function positiveInteger(value: unknown): value is number {
+  return nonnegativeInteger(value) && value > 0;
+}
+
+function validIdentity(value: Record<string, unknown>): boolean {
+  return nonemptyString(value.snapshotId) && validSlot(value.slot) && nonemptyString(value.slotKey)
+    && nonemptyString(value.contentFingerprint) && nonemptyString(value.createdAt)
+    && Number.isFinite(Date.parse(value.createdAt));
+}
+
+/** Save-private trust gate. Public tolerant readers deliberately remain unchanged. */
+function readTrustedIndex(storage: SnapshotStorageAdapter): VaultSnapshotIndex {
+  const raw = storage.getItem(SNAPSHOT_INDEX_KEY);
+  if (raw === null) return { schemaVersion: 1, entries: [] };
+  const parsed: unknown = JSON.parse(raw);
+  if (!isRecord(parsed) || parsed.schemaVersion !== 1 || !Array.isArray(parsed.entries)) {
+    throw new Error('Invalid snapshot index');
+  }
+  const ids = new Set<string>();
+  const slots = new Set<string>();
+  for (const entry of parsed.entries) {
+    if (!isRecord(entry) || !validIdentity(entry) || !nonnegativeInteger(entry.payloadBytes)
+      || (entry.chunkCount !== undefined && !positiveInteger(entry.chunkCount))
+      || (entry.writeCount !== undefined && !positiveInteger(entry.writeCount))
+      || ids.has(entry.snapshotId as string) || slots.has(entry.slotKey as string)) {
+      throw new Error('Invalid snapshot index entry');
+    }
+    ids.add(entry.snapshotId as string);
+    slots.add(entry.slotKey as string);
+  }
+  // Keep historical optional/unknown fields; none confer deletion authority.
+  return parsed as unknown as VaultSnapshotIndex;
+}
+
+function requireUsablePayload(raw: string, entry: VaultSnapshotIndexEntry): VaultSnapshot {
+  const snapshot = parseVaultSnapshotJson(raw);
+  if (!snapshot || !validIdentity(snapshot as unknown as Record<string, unknown>)
+    || snapshot.snapshotId !== entry.snapshotId || snapshot.slot !== entry.slot
+    || snapshot.slotKey !== entry.slotKey || snapshot.createdAt !== entry.createdAt
+    || snapshot.contentFingerprint !== entry.contentFingerprint
+    || new TextEncoder().encode(raw).length !== entry.payloadBytes) {
+    throw new Error('Snapshot identity or bytes mismatch');
+  }
+  const report = validateVaultSnapshot(snapshot);
+  if (!report.valid || !report.fingerprintMatch || !report.restoreReady) {
+    throw new Error('Snapshot is not a usable recovery copy');
+  }
+  return snapshot;
+}
+
+/** Read/validate before granting either unchanged-skip or exact cleanup authority. */
+function readValidatedPayloadKeys(entry: VaultSnapshotIndexEntry, storage: SnapshotStorageAdapter): string[] {
+  const legacy = storage.getItem(payloadKey(entry.snapshotId));
+  if (legacy !== null) {
+    requireUsablePayload(legacy, entry);
+    // A legacy blob proves only its own key, not any shadow/orphan chunk keys.
+    return [payloadKey(entry.snapshotId)];
+  }
+  const raw = storage.getItem(metaKey(entry.snapshotId));
+  if (raw === null) throw new Error('Missing snapshot metadata');
+  const meta: unknown = JSON.parse(raw);
+  if (!isRecord(meta) || meta.storageFormat !== SNAPSHOT_CHUNK_STORAGE_FORMAT
+    || !positiveInteger(meta.chunkCount) || !positiveInteger(meta.totalBytes)
+    || meta.totalBytes !== entry.payloadBytes
+    || meta.chunkCount > Math.ceil(meta.totalBytes / SNAPSHOT_CHUNK_TARGET_BYTES)
+    || (entry.chunkCount !== undefined && entry.chunkCount !== meta.chunkCount)
+    || (entry.writeCount !== undefined && entry.writeCount !== meta.chunkCount + 1)) {
+    throw new Error('Invalid snapshot metadata');
+  }
+  const keys = [metaKey(entry.snapshotId)];
+  const chunks: string[] = [];
+  for (let i = 0; i < meta.chunkCount; i += 1) {
+    const key = chunkKey(entry.snapshotId, i);
+    const chunk = storage.getItem(key);
+    if (chunk === null || chunk.length === 0 || chunk.length > SNAPSHOT_CHUNK_TARGET_BYTES
+      || (i < meta.chunkCount - 1 && chunk.length !== SNAPSHOT_CHUNK_TARGET_BYTES)) {
+      throw new Error('Incomplete snapshot chunks');
+    }
+    keys.push(key);
+    chunks.push(chunk);
+  }
+  requireUsablePayload(chunks.join(''), entry);
+  return keys;
+}
+
+/** Best effort, finite, exact keys only. Refusal leaves residue; never retry/scan. */
+function cleanupKeys(keys: readonly string[], storage: SnapshotStorageAdapter): boolean {
+  try {
+    for (const key of keys) storage.removeItem(key);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function isQuotaFailure(error: unknown): boolean {
+  return error instanceof DOMException
+    && (error.name === 'QuotaExceededError' || error.name === 'NS_ERROR_DOM_QUOTA_REACHED');
 }
 
 export interface SaveSnapshotResult {
@@ -262,46 +345,104 @@ export interface SaveSnapshotResult {
 
 export function saveVaultSnapshot(
   snapshot: VaultSnapshot,
-  storage: SnapshotStorageAdapter = defaultStorage(),
+  storage?: SnapshotStorageAdapter,
 ): SaveSnapshotResult {
-  const serialized = serializeVaultSnapshot(snapshot);
-  const index = loadSnapshotIndex(storage);
-
-  const sameSlot = index.entries.find(e => e.slotKey === snapshot.slotKey);
-  if (sameSlot?.contentFingerprint === snapshot.contentFingerprint) {
-    return { saved: false, skipped: true, reason: 'unchanged' };
-  }
-
-  if (sameSlot) {
-    removeSnapshotEntry(sameSlot, storage);
-    index.entries = index.entries.filter(e => e.snapshotId !== sameSlot.snapshotId);
-  }
-
+  // M1: native/browser-faithful, synchronous, non-reentrant, no other writer.
+  // A throwing set leaves its target unchanged. Not an arbitrary-adapter,
+  // cross-tab transaction or disk-durability guarantee. No rollback dependency.
+  const ownedKeys: string[] = [];
+  let candidate: VaultSnapshotIndex;
+  let previous: VaultSnapshotIndex;
+  let entry: VaultSnapshotIndexEntry;
   try {
-    const written = writeChunkedPayload(snapshot.snapshotId, serialized, storage);
-    const entry: VaultSnapshotIndexEntry = {
-      snapshotId: snapshot.snapshotId,
-      slot: snapshot.slot,
-      slotKey: snapshot.slotKey,
-      createdAt: snapshot.createdAt,
-      contentFingerprint: snapshot.contentFingerprint,
-      payloadBytes: written.payloadBytes,
-      chunkCount: written.chunkCount,
-      writeCount: written.writeCount,
+    storage ??= defaultStorage();
+    previous = readTrustedIndex(storage);
+    const serialized = serializeVaultSnapshot(snapshot);
+    const frozen = parseVaultSnapshotJson(serialized);
+    if (!frozen) throw new Error('Invalid snapshot envelope');
+    const plan = planSnapshotChunks(serialized, SNAPSHOT_CHUNK_TARGET_BYTES);
+    entry = {
+      snapshotId: frozen.snapshotId,
+      slot: frozen.slot,
+      slotKey: frozen.slotKey,
+      createdAt: frozen.createdAt,
+      contentFingerprint: frozen.contentFingerprint,
+      payloadBytes: plan.totalBytes,
+      chunkCount: plan.chunkCount,
+      writeCount: plan.writeCount,
     };
-    index.entries.push(entry);
-    const pruned = pruneIndex(index, storage);
-    saveSnapshotIndex(pruned, storage);
-    return {
-      saved: true,
-      skipped: false,
-      snapshotId: snapshot.snapshotId,
-      chunkCount: written.chunkCount,
-      writeCount: written.writeCount,
-    };
-  } catch {
-    return { saved: false, skipped: false, reason: 'quota' };
+    requireUsablePayload(serialized, entry);
+    const sameSlot = previous.entries.find(e => e.slotKey === entry.slotKey);
+    if (sameSlot) {
+      readValidatedPayloadKeys(sameSlot, storage);
+      if (sameSlot.slot !== entry.slot) throw new Error('Snapshot slot mismatch');
+      if (sameSlot.contentFingerprint === entry.contentFingerprint) {
+        return { saved: false, skipped: true, reason: 'unchanged' };
+      }
+    }
+    if (previous.entries.some(e => e.snapshotId === entry.snapshotId)) {
+      throw new Error('Snapshot ID collision');
+    }
+    const chunks = splitSnapshotIntoChunks(serialized, SNAPSHOT_CHUNK_TARGET_BYTES);
+    const meta = JSON.stringify({
+      storageFormat: SNAPSHOT_CHUNK_STORAGE_FORMAT,
+      chunkCount: chunks.length,
+      totalBytes: plan.totalBytes,
+    } satisfies ChunkedSnapshotMeta);
+    const staged = [
+      [metaKey(entry.snapshotId), meta],
+      ...chunks.map((chunk, i) => [chunkKey(entry.snapshotId, i), chunk]),
+    ];
+    // Prove ALL keys fresh before the first write. Even an empty value collides.
+    for (const key of [payloadKey(entry.snapshotId), ...staged.map(([key]) => key)]) {
+      if (storage.getItem(key) !== null) throw new Error('Occupied snapshot key');
+    }
+    for (const [key, value] of staged) {
+      ownedKeys.push(key); // Include the failing target, already proven absent.
+      storage.setItem(key, value);
+    }
+    for (const [key, value] of staged) {
+      if (storage.getItem(key) !== value) throw new Error('Snapshot readback mismatch');
+    }
+    if (storage.getItem(payloadKey(entry.snapshotId)) !== null) throw new Error('Legacy shadow');
+    // Reassemble and validate stored bytes, not just the already-valid input.
+    readValidatedPayloadKeys(entry, storage);
+    candidate = pruneIndex({
+      schemaVersion: 1,
+      entries: [...previous.entries.filter(e => e.snapshotId !== sameSlot?.snapshotId), entry],
+    });
+    if (!candidate.entries.some(e => e.snapshotId === entry.snapshotId)) {
+      throw new Error('New snapshot would be pruned');
+    }
+    // M1 logical commit: successful synchronous return, NOT disk acknowledgement.
+    saveSnapshotIndex(candidate, storage);
+  } catch (error) {
+    if (storage) cleanupKeys(ownedKeys, storage);
+    return isQuotaFailure(error)
+      ? { saved: false, skipped: false, reason: 'quota' }
+      : { saved: false, skipped: false };
   }
+
+  // Commit already confirmed. Cleanup failure must NEVER become save failure.
+  const retainedIds = new Set(candidate.entries.map(e => e.snapshotId));
+  for (const victim of previous.entries) {
+    if (retainedIds.has(victim.snapshotId)) continue;
+    try {
+      // Capture every validated key before deleting metadata. Unknown/corrupt
+      // historical payloads confer no cleanup authority; leave bounded residue.
+      const keys = readValidatedPayloadKeys(victim, storage);
+      if (!cleanupKeys(keys, storage)) break;
+    } catch {
+      break;
+    }
+  }
+  return {
+    saved: true,
+    skipped: false,
+    snapshotId: entry.snapshotId,
+    chunkCount: entry.chunkCount,
+    writeCount: entry.writeCount,
+  };
 }
 
 export function getSnapshotTotalBytes(
