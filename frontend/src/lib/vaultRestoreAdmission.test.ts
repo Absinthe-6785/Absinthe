@@ -216,6 +216,32 @@ describe('vault restore operation-local admission owner', () => {
     expect(result.ok).toBe(false);
   });
 
+  it('P790-03 H06 hybrid cannot open, confirm, or consume and causes no storage mutation', async () => {
+    const { owner, storage, snapshot } = setup();
+    snapshot.vault.notes[0]!.markdown += '\ncorrupted with the original outer fingerprint retained';
+    const direct = snapshot.vault;
+    const hybrid = {
+      ...snapshot,
+      schemaVersion: direct.schemaVersion,
+      exportedAt: direct.exportedAt,
+      app: direct.app,
+      noteCount: direct.noteCount,
+      folderCount: direct.folderCount,
+      relationCount: direct.relationCount,
+      folders: direct.folders,
+      notes: direct.notes,
+    };
+    const before = new Map(storage.values);
+    const opened = await owner.openDirectJson(new Blob([JSON.stringify(hybrid)]), intent(), context);
+    expect(opened.ok).toBe(false);
+    expect(opened).not.toHaveProperty('value');
+    expect(await owner.confirm(undefined as unknown as RestorePreviewHandle, context))
+      .toEqual({ ok: false, code: 'INVALID_ADMISSION' });
+    expect(await owner.consume(undefined as unknown as RestoreAdmission, context))
+      .toEqual({ ok: false, code: 'INVALID_ADMISSION' });
+    expect([...storage.values]).toEqual([...before]);
+  });
+
   it('A22 performs no writes or cleanup and returns no Notes-store writer capability', async () => {
     const { owner, storage, snapshot } = setup();
     const before = new Map(storage.values);

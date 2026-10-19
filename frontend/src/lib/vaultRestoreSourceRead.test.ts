@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import JSZip from 'jszip';
 import { buildVaultBackupZip } from './vaultBackupZip';
 import { fingerprintPortableVaultContent } from './vaultSnapshotFingerprint';
 import { serializeVaultSnapshot, type VaultSnapshot } from './vaultSnapshotBuild';
@@ -17,6 +18,21 @@ function indexed(snapshot = makeCurrentSnapshot(), layout: 'legacy' | 'chunked' 
   const storage = new MemorySnapshotSourceStorage();
   const raw = persistSnapshotFixture(storage, snapshot, layout);
   return { storage, snapshot, raw };
+}
+
+function hybridWithStaleSnapshotFingerprint(snapshot: VaultSnapshot) {
+  const direct = snapshot.vault;
+  return {
+    ...snapshot,
+    schemaVersion: direct.schemaVersion,
+    exportedAt: direct.exportedAt,
+    app: direct.app,
+    noteCount: direct.noteCount,
+    folderCount: direct.folderCount,
+    relationCount: direct.relationCount,
+    folders: direct.folders,
+    notes: direct.notes,
+  };
 }
 
 describe('vault restore source reader', () => {
@@ -51,6 +67,54 @@ describe('vault restore source reader', () => {
     const result = await readVaultRestoreDirectZipSource(zip);
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.source.origin).toBe('direct-zip');
+  });
+
+  it('P790-01 rejects a raw direct-manifest/snapshot hybrid before normalization', async () => {
+    const snapshot = makeCurrentSnapshot('p790-json-hybrid');
+    snapshot.vault.notes[0]!.markdown += '\ncorrupted while retaining the original snapshot fingerprint';
+    const hybrid = hybridWithStaleSnapshotFingerprint(snapshot);
+    const strictStorage = new MemorySnapshotSourceStorage();
+    persistSnapshotFixture(strictStorage, snapshot);
+    expect(readVaultRestoreSnapshotSource(snapshot.snapshotId, strictStorage).ok).toBe(false);
+
+    const direct = await readVaultRestoreDirectJsonSource(new Blob([JSON.stringify(hybrid)]));
+    expect(direct.ok).toBe(false);
+  });
+
+  it('P790-02 rejects the same raw direct-manifest/snapshot hybrid inside a ZIP', async () => {
+    const snapshot = makeCurrentSnapshot('p790-zip-hybrid');
+    snapshot.vault.notes[0]!.markdown += '\ncorrupted while retaining the original snapshot fingerprint';
+    const hybrid = hybridWithStaleSnapshotFingerprint(snapshot);
+    const zip = new JSZip();
+    zip.file('manifest.json', JSON.stringify(hybrid));
+    const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+
+    const strictStorage = new MemorySnapshotSourceStorage();
+    persistSnapshotFixture(strictStorage, snapshot);
+    expect(readVaultRestoreSnapshotSource(snapshot.snapshotId, strictStorage).ok).toBe(false);
+    expect((await readVaultRestoreDirectZipSource(blob)).ok).toBe(false);
+  });
+
+  it('P790-08/09 rejects pure snapshot envelopes on both direct routes', async () => {
+    const snapshot = makeCurrentSnapshot('p790-pure-envelope');
+    const json = await readVaultRestoreDirectJsonSource(new Blob([serializeVaultSnapshot(snapshot)]));
+    const zip = new JSZip();
+    zip.file('manifest.json', serializeVaultSnapshot(snapshot));
+    const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+    expect(json.ok).toBe(false);
+    expect((await readVaultRestoreDirectZipSource(blob)).ok).toBe(false);
+  });
+
+  it('P790-11 accepts harmless unknown direct-manifest fields', async () => {
+    const direct = { ...makeDirectManifest(3), harmlessExtension: { label: 'kept-compatible' } };
+    const result = await readVaultRestoreDirectJsonSource(new Blob([JSON.stringify(direct)]));
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.source.origin).toBe('direct-json');
+  });
+
+  it('P790-12 rejects a snapshot provenance marker before normalization can discard it', async () => {
+    const direct = { ...makeDirectManifest(3), snapshotSchemaVersion: 1 };
+    expect((await readVaultRestoreDirectJsonSource(new Blob([JSON.stringify(direct)]))).ok).toBe(false);
   });
 
   it('A05 rejects a genuine H01 historical fingerprint under the current-only profile', () => {

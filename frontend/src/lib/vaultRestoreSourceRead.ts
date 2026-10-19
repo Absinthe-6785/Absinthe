@@ -6,7 +6,7 @@ import {
   VAULT_EXTENSIONS_SCHEMA_VERSION,
 } from './vaultBackupConstants';
 import { canonicalizeVaultRestoreManifest, parseVaultBackupJson, validateVaultBackupManifest } from './importVaultBackup';
-import { parseVaultBackupZip } from './vaultBackupZip';
+import { parseVaultBackupZipWithRawManifest } from './vaultBackupZip';
 import { SNAPSHOT_CHUNK_TARGET_BYTES } from './snapshotCompaction';
 import {
   SNAPSHOT_CHUNK_PREFIX,
@@ -54,6 +54,35 @@ const sourceProofs = new WeakMap<object, SourceProof>();
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function hasOwn(value: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+type DirectOriginClassification =
+  | 'VALID_DIRECT_MANIFEST'
+  | 'SNAPSHOT_ENVELOPE'
+  | 'AMBIGUOUS_DUAL_SHAPE'
+  | 'INVALID_INPUT';
+
+/** Classify provenance from the unnormalized envelope; normalization drops unknown fields. */
+function classifyDirectOrigin(raw: unknown): DirectOriginClassification {
+  if (!isRecord(raw)) return 'INVALID_INPUT';
+  const directShape = raw.app === 'absinthe'
+    && typeof raw.schemaVersion === 'number'
+    && typeof raw.exportedAt === 'string'
+    && Array.isArray(raw.folders)
+    && Array.isArray(raw.notes);
+  const snapshotMarker = raw.kind === VAULT_SNAPSHOT_KIND
+    || hasOwn(raw, 'snapshotSchemaVersion')
+    || hasOwn(raw, 'snapshotId')
+    || hasOwn(raw, 'vault');
+  if (snapshotMarker) return directShape ? 'AMBIGUOUS_DUAL_SHAPE' : 'SNAPSHOT_ENVELOPE';
+  if (hasOwn(raw, 'kind') && raw.kind !== VAULT_EXPORT_KIND) {
+    return directShape ? 'AMBIGUOUS_DUAL_SHAPE' : 'INVALID_INPUT';
+  }
+  return directShape ? 'VALID_DIRECT_MANIFEST' : 'INVALID_INPUT';
 }
 
 function nonempty(value: unknown): value is string {
@@ -282,7 +311,12 @@ async function readDirectBytes(file: Blob): Promise<Uint8Array> {
 export async function readVaultRestoreDirectJsonSource(file: Blob): Promise<RestoreSourceReadResult> {
   try {
     const bytes = await readDirectBytes(file);
-    const manifest = parseVaultBackupJson(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+    const rawText = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    const raw: unknown = JSON.parse(rawText);
+    if (classifyDirectOrigin(raw) !== 'VALID_DIRECT_MANIFEST') {
+      return { ok: false, code: 'INVALID_MANIFEST' };
+    }
+    const manifest = parseVaultBackupJson(rawText);
     if (!manifest) return { ok: false, code: 'INVALID_MANIFEST' };
     const canonical = canonicalManifest(manifest);
     if (!canonical) return { ok: false, code: 'INVALID_MANIFEST' };
@@ -299,12 +333,14 @@ export async function readVaultRestoreDirectJsonSource(file: Blob): Promise<Rest
 export async function readVaultRestoreDirectZipSource(file: Blob): Promise<RestoreSourceReadResult> {
   try {
     const bytes = await readDirectBytes(file);
-    const parsed = await parseVaultBackupZip(new Blob([bytes.buffer.slice(
+    const parsed = await parseVaultBackupZipWithRawManifest(new Blob([bytes.buffer.slice(
       bytes.byteOffset,
       bytes.byteOffset + bytes.byteLength,
     ) as ArrayBuffer]));
-    if (!parsed) return { ok: false, code: 'INVALID_MANIFEST' };
-    const canonical = canonicalManifest(parsed);
+    if (!parsed || classifyDirectOrigin(parsed.rawManifest) !== 'VALID_DIRECT_MANIFEST') {
+      return { ok: false, code: 'INVALID_MANIFEST' };
+    }
+    const canonical = canonicalManifest(parsed.manifest);
     if (!canonical) return { ok: false, code: 'INVALID_MANIFEST' };
     return {
       ok: true,

@@ -59,13 +59,23 @@ export async function downloadVaultBackupZip(manifest: VaultBackupManifest): Pro
 }
 
 export async function parseVaultBackupZip(file: Blob): Promise<VaultBackupManifest | null> {
+  const parsed = await parseVaultBackupZipWithRawManifest(file);
+  return parsed?.manifest ?? null;
+}
+
+/** Extract and parse manifest.json once, retaining its pre-normalized structure for trusted callers. */
+export async function parseVaultBackupZipWithRawManifest(
+  file: Blob,
+): Promise<{ readonly rawManifest: unknown; readonly manifest: VaultBackupManifest } | null> {
   try {
     const zip = await JSZip.loadAsync(await file.arrayBuffer());
     const manifestFile = zip.file('manifest.json');
     if (!manifestFile) return null;
     const raw = await manifestFile.async('string');
-    const data = JSON.parse(raw) as Partial<VaultBackupManifest>;
-    return normalizeVaultBackupManifest(data);
+    const data: unknown = JSON.parse(raw);
+    if (data === null || typeof data !== 'object' || Array.isArray(data)) return null;
+    const manifest = normalizeVaultBackupManifest(data as Partial<VaultBackupManifest>);
+    return manifest ? { rawManifest: data, manifest } : null;
   } catch {
     return null;
   }
