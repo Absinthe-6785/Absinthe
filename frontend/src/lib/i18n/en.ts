@@ -2146,6 +2146,23 @@ const enTranslations = [
   "Legacy previous/PR evidence is unavailable; absence is not verified.",
   "Legacy previous/PR guidance is withheld until currentness is verified.",
   "No prior legacy row matches this exercise and date cutoff.",
+  "Headings & blocks",
+  "Navigation & editing",
+  "Help",
+  "Inline code",
+  "Body text",
+  "Headings 1–4 / toggle heading",
+  "To-do",
+  "Toggle",
+  "Callout",
+  "Code block",
+  "Slash command",
+  "Search notes",
+  "Focus mode",
+  "Undo / redo",
+  "Reading mode",
+  "Indent / outdent",
+  "Clear block selection",
 ] as const;
 
 export default enTranslations;

@@ -2146,6 +2146,23 @@ const translationKeys = [
   "healthPreviousUnavailable",
   "healthPreviousSuppressed",
   "healthPreviousNoMatch",
+  "shortcutSectionHeadings",
+  "shortcutSectionNavigation",
+  "shortcutSectionHelp",
+  "shortcutInlineCode",
+  "shortcutBodyText",
+  "shortcutHeadingLevels",
+  "shortcutTodo",
+  "shortcutToggle",
+  "shortcutCallout",
+  "shortcutCodeBlock",
+  "shortcutSlashCommand",
+  "shortcutNoteSearch",
+  "shortcutFocusMode",
+  "shortcutUndoRedo",
+  "shortcutReadMode",
+  "shortcutIndentOutdent",
+  "shortcutClearBlockSelection",
 ] as const;
 
 export type TranslationKey = (typeof translationKeys)[number];
