@@ -40,6 +40,7 @@ jobs:
                 'any(.[]; .state == "open" and .base.repo.full_name == $repository and .base.ref == "main" and .head.sha == $sha and .head.repo.full_name == $repository)' \
                 >/dev/null; then
                 run_required_ci=false
+                echo "::notice::Exact open main PR matched; required validation remains on the PR run."
               fi
             else
               echo "::warning::Could not verify an equivalent open PR; running full Push CI."
