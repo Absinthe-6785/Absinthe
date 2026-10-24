@@ -19,7 +19,7 @@ jobs:
       contents: read
       pull-requests: read
     outputs:
-      run-required-ci: ${{ steps.decide.outputs.run-required-ci }}
+      skip-duplicate-push: ${{ steps.decide.outputs.skip-duplicate-push }}
     steps:
       - name: Keep CI unless an exact open main PR covers this push
         id: decide
@@ -30,7 +30,7 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           SHA: ${{ github.sha }}
         run: |
-          run_required_ci=true
+          skip_duplicate_push=0
 
           if [[ "$EVENT_NAME" == "push" && "$REF" != "refs/heads/main" && "$REPOSITORY" == "Absinthe-6785/Absinthe" ]]; then
             if pull_requests="$(gh api "repos/$REPOSITORY/commits/$SHA/pulls?per_page=100" 2>/dev/null)"; then
@@ -39,7 +39,7 @@ jobs:
                 --arg sha "$SHA" \
                 'any(.[]; .state == "open" and .base.repo.full_name == $repository and .base.ref == "main" and .head.sha == $sha and .head.repo.full_name == $repository)' \
                 >/dev/null; then
-                run_required_ci=false
+                skip_duplicate_push=1
                 echo "::notice::Exact open main PR matched; required validation remains on the PR run."
               fi
             else
@@ -47,13 +47,13 @@ jobs:
             fi
           fi
 
-          echo "run-required-ci=$run_required_ci" >> "$GITHUB_OUTPUT"
+          echo "skip-duplicate-push=$skip_duplicate_push" >> "$GITHUB_OUTPUT"
 
   # Keep protected contexts on PR/main runs; feature Push contexts are distinct and cannot mask PR checks.
   typecheck:
     name: ${{ github.event_name == 'push' && github.ref != 'refs/heads/main' && 'typecheck (push)' || 'typecheck' }}
     needs: [push-pr-gate]
-    if: ${{ !cancelled() && (github.event_name != 'push' || github.ref == 'refs/heads/main' || needs.push-pr-gate.result != 'success' || needs.push-pr-gate.outputs.run-required-ci == 'true') }}
+    if: ${{ !cancelled() && (github.event_name != 'push' || github.ref == 'refs/heads/main' || needs.push-pr-gate.result != 'success' || needs.push-pr-gate.outputs.skip-duplicate-push != '1') }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -71,7 +71,7 @@ jobs:
   test:
     name: ${{ github.event_name == 'push' && github.ref != 'refs/heads/main' && 'test (push)' || 'test' }}
     needs: [push-pr-gate]
-    if: ${{ !cancelled() && (github.event_name != 'push' || github.ref == 'refs/heads/main' || needs.push-pr-gate.result != 'success' || needs.push-pr-gate.outputs.run-required-ci == 'true') }}
+    if: ${{ !cancelled() && (github.event_name != 'push' || github.ref == 'refs/heads/main' || needs.push-pr-gate.result != 'success' || needs.push-pr-gate.outputs.skip-duplicate-push != '1') }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -91,7 +91,7 @@ jobs:
   build:
     name: ${{ github.event_name == 'push' && github.ref != 'refs/heads/main' && 'build (push)' || 'build' }}
     needs: [push-pr-gate]
-    if: ${{ !cancelled() && (github.event_name != 'push' || github.ref == 'refs/heads/main' || needs.push-pr-gate.result != 'success' || needs.push-pr-gate.outputs.run-required-ci == 'true') }}
+    if: ${{ !cancelled() && (github.event_name != 'push' || github.ref == 'refs/heads/main' || needs.push-pr-gate.result != 'success' || needs.push-pr-gate.outputs.skip-duplicate-push != '1') }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -109,7 +109,7 @@ jobs:
   backend-recovery:
     name: ${{ github.event_name == 'push' && github.ref != 'refs/heads/main' && 'backend-recovery (push)' || 'backend-recovery' }}
     needs: [push-pr-gate]
-    if: ${{ !cancelled() && (github.event_name != 'push' || github.ref == 'refs/heads/main' || needs.push-pr-gate.result != 'success' || needs.push-pr-gate.outputs.run-required-ci == 'true') }}
+    if: ${{ !cancelled() && (github.event_name != 'push' || github.ref == 'refs/heads/main' || needs.push-pr-gate.result != 'success' || needs.push-pr-gate.outputs.skip-duplicate-push != '1') }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -132,7 +132,7 @@ jobs:
   backend-rel05g1:
     name: ${{ github.event_name == 'push' && github.ref != 'refs/heads/main' && 'backend-rel05g1 (push)' || 'backend-rel05g1' }}
     needs: [push-pr-gate]
-    if: ${{ !cancelled() && (github.event_name != 'push' || github.ref == 'refs/heads/main' || needs.push-pr-gate.result != 'success' || needs.push-pr-gate.outputs.run-required-ci == 'true') }}
+    if: ${{ !cancelled() && (github.event_name != 'push' || github.ref == 'refs/heads/main' || needs.push-pr-gate.result != 'success' || needs.push-pr-gate.outputs.skip-duplicate-push != '1') }}
     runs-on: ubuntu-latest
     defaults:
       run:
