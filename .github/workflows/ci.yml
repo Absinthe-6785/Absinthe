@@ -11,7 +11,49 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # A feature Push may skip only when an exact open main PR covers its SHA.
+  push-pr-gate:
+    name: CI event gate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      run-required-ci: ${{ steps.decide.outputs.run-required-ci }}
+    steps:
+      - name: Keep CI unless an exact open main PR covers this push
+        id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          REPOSITORY: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          run_required_ci=true
+
+          if [[ "$EVENT_NAME" == "push" && "$REF" != "refs/heads/main" && "$REPOSITORY" == "Absinthe-6785/Absinthe" ]]; then
+            if pull_requests="$(gh api "repos/$REPOSITORY/commits/$SHA/pulls?per_page=100" 2>/dev/null)"; then
+              if printf '%s' "$pull_requests" | jq -e \
+                --arg repository "$REPOSITORY" \
+                --arg sha "$SHA" \
+                'any(.[]; .state == "open" and .base.repo.full_name == $repository and .base.ref == "main" and .head.sha == $sha and .head.repo.full_name == $repository)' \
+                >/dev/null; then
+                run_required_ci=false
+                echo "::notice::Exact open main PR matched; required validation remains on the PR run."
+              fi
+            else
+              echo "::warning::Could not verify an equivalent open PR; running full Push CI."
+            fi
+          fi
+
+          echo "run-required-ci=$run_required_ci" >> "$GITHUB_OUTPUT"
+
+  # Keep protected contexts on PR/main runs; feature Push contexts are distinct and cannot mask PR checks.
   typecheck:
+    name: ${{ github.event_name == 'push' && github.ref != 'refs/heads/main' && 'typecheck (push)' || 'typecheck' }}
+    needs: [push-pr-gate]
+    if: ${{ !cancelled() && (github.event_name != 'push' || github.ref == 'refs/heads/main' || needs.push-pr-gate.result != 'success' || needs.push-pr-gate.outputs.run-required-ci == 'true') }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -27,6 +69,9 @@ jobs:
       - run: npm run typecheck
 
   test:
+    name: ${{ github.event_name == 'push' && github.ref != 'refs/heads/main' && 'test (push)' || 'test' }}
+    needs: [push-pr-gate]
+    if: ${{ !cancelled() && (github.event_name != 'push' || github.ref == 'refs/heads/main' || needs.push-pr-gate.result != 'success' || needs.push-pr-gate.outputs.run-required-ci == 'true') }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -44,6 +89,9 @@ jobs:
         run: node --test qualification/rel05g-patha/fixture.test.mjs
 
   build:
+    name: ${{ github.event_name == 'push' && github.ref != 'refs/heads/main' && 'build (push)' || 'build' }}
+    needs: [push-pr-gate]
+    if: ${{ !cancelled() && (github.event_name != 'push' || github.ref == 'refs/heads/main' || needs.push-pr-gate.result != 'success' || needs.push-pr-gate.outputs.run-required-ci == 'true') }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -59,6 +107,9 @@ jobs:
       - run: npm run build
 
   backend-recovery:
+    name: ${{ github.event_name == 'push' && github.ref != 'refs/heads/main' && 'backend-recovery (push)' || 'backend-recovery' }}
+    needs: [push-pr-gate]
+    if: ${{ !cancelled() && (github.event_name != 'push' || github.ref == 'refs/heads/main' || needs.push-pr-gate.result != 'success' || needs.push-pr-gate.outputs.run-required-ci == 'true') }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -79,6 +130,9 @@ jobs:
       - run: python -m pytest test_deployment_authority.py test_recovery_mode.py test_recipe_schema_readiness.py test_recipes_endpoint_characterization.py -q
 
   backend-rel05g1:
+    name: ${{ github.event_name == 'push' && github.ref != 'refs/heads/main' && 'backend-rel05g1 (push)' || 'backend-rel05g1' }}
+    needs: [push-pr-gate]
+    if: ${{ !cancelled() && (github.event_name != 'push' || github.ref == 'refs/heads/main' || needs.push-pr-gate.result != 'success' || needs.push-pr-gate.outputs.run-required-ci == 'true') }}
     runs-on: ubuntu-latest
     defaults:
       run:
