@@ -1,60 +1,62 @@
+import type { TranslationKey } from '../../lib/i18n';
+
 export interface ShortcutEntry {
   keys: string;
-  label: string;
+  labelKey: TranslationKey;
 }
 
 export interface ShortcutSection {
   id: string;
-  title: string;
+  titleKey: TranslationKey;
   items: ShortcutEntry[];
 }
 
 export const EDITOR_SHORTCUT_SECTIONS: ShortcutSection[] = [
   {
     id: 'format',
-    title: '서식',
+    titleKey: 'selectionFormat',
     items: [
-      { keys: 'Ctrl+B', label: '굵게' },
-      { keys: 'Ctrl+I', label: '기울임' },
-      { keys: 'Ctrl+Shift+S', label: '취소선' },
-      { keys: 'Ctrl+Shift+M', label: '강조' },
-      { keys: 'Ctrl+`', label: '인라인 코드' },
-      { keys: 'Ctrl+Shift+K', label: '위키 링크' },
-      { keys: 'Ctrl+Shift+H', label: '태그' },
+      { keys: 'Ctrl+B', labelKey: 'editorToolbarBold' },
+      { keys: 'Ctrl+I', labelKey: 'editorToolbarItalic' },
+      { keys: 'Ctrl+Shift+S', labelKey: 'editorToolbarStrike' },
+      { keys: 'Ctrl+Shift+M', labelKey: 'editorToolbarHighlight' },
+      { keys: 'Ctrl+`', labelKey: 'shortcutInlineCode' },
+      { keys: 'Ctrl+Shift+K', labelKey: 'editorToolbarWikiLink' },
+      { keys: 'Ctrl+Shift+H', labelKey: 'editorToolbarTags' },
     ],
   },
   {
     id: 'headings',
-    title: '제목 · 블록',
+    titleKey: 'shortcutSectionHeadings',
     items: [
-      { keys: 'Ctrl+Shift+0', label: '본문' },
-      { keys: 'Ctrl+Shift+1–4', label: '제목 1–4 / 토글 제목' },
-      { keys: 'Ctrl+Shift+7', label: '할 일' },
-      { keys: 'Ctrl+Shift+8', label: '토글' },
-      { keys: 'Ctrl+Shift+9', label: '콜아웃' },
-      { keys: 'Ctrl+Shift+C', label: '코드 블록' },
-      { keys: '/', label: '슬래시 명령' },
+      { keys: 'Ctrl+Shift+0', labelKey: 'shortcutBodyText' },
+      { keys: 'Ctrl+Shift+1–4', labelKey: 'shortcutHeadingLevels' },
+      { keys: 'Ctrl+Shift+7', labelKey: 'shortcutTodo' },
+      { keys: 'Ctrl+Shift+8', labelKey: 'shortcutToggle' },
+      { keys: 'Ctrl+Shift+9', labelKey: 'shortcutCallout' },
+      { keys: 'Ctrl+Shift+C', labelKey: 'shortcutCodeBlock' },
+      { keys: '/', labelKey: 'shortcutSlashCommand' },
     ],
   },
   {
     id: 'navigation',
-    title: '탐색 · 편집',
+    titleKey: 'shortcutSectionNavigation',
     items: [
-      { keys: 'Ctrl+F', label: '노트 검색' },
-      { keys: 'Ctrl+Shift+F', label: '집중 모드' },
-      { keys: 'Ctrl+S', label: '저장' },
-      { keys: 'Ctrl+Z / Ctrl+Y', label: '실행 취소 / 다시 실행' },
-      { keys: 'Ctrl+E', label: '읽기 모드' },
-      { keys: 'Tab / Shift+Tab', label: '들여쓰기 / 내어쓰기' },
-      { keys: 'Esc', label: '블록 선택 해제' },
+      { keys: 'Ctrl+F', labelKey: 'shortcutNoteSearch' },
+      { keys: 'Ctrl+Shift+F', labelKey: 'shortcutFocusMode' },
+      { keys: 'Ctrl+S', labelKey: 'save' },
+      { keys: 'Ctrl+Z / Ctrl+Y', labelKey: 'shortcutUndoRedo' },
+      { keys: 'Ctrl+E', labelKey: 'shortcutReadMode' },
+      { keys: 'Tab / Shift+Tab', labelKey: 'shortcutIndentOutdent' },
+      { keys: 'Esc', labelKey: 'shortcutClearBlockSelection' },
     ],
   },
   {
     id: 'help',
-    title: '도움말',
+    titleKey: 'shortcutSectionHelp',
     items: [
-      { keys: '?', label: '단축키 목록' },
-      { keys: 'Ctrl+/', label: '단축키 목록' },
+      { keys: '?', labelKey: 'shortcutsOverlayAria' },
+      { keys: 'Ctrl+/', labelKey: 'shortcutsOverlayAria' },
     ],
   },
 ];

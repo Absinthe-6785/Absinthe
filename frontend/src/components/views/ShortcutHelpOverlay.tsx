@@ -33,26 +33,26 @@ export function ShortcutHelpOverlay({ open, colors: c, onClose }: ShortcutHelpOv
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: c.text }}>키보드 단축키</h2>
+          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: c.text }}>{t('shortcutsOverlayAria')}</h2>
           <button
             type="button"
             onClick={onClose}
             style={{ background: 'none', border: 'none', color: c.textMuted, cursor: 'pointer', fontSize: 13 }}
           >
-            Esc 닫기
+            Esc {t('close')}
           </button>
         </div>
         {EDITOR_SHORTCUT_SECTIONS.map(section => (
           <div key={section.id} style={{ marginBottom: 14 }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: c.textFaint, letterSpacing: 0.8, marginBottom: 6 }}>
-              {section.title.toUpperCase()}
+              {t(section.titleKey).toUpperCase()}
             </div>
             {section.items.map(item => (
               <div
                 key={`${section.id}-${item.keys}`}
                 style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '5px 0', gap: 12 }}
               >
-                <span style={{ fontSize: 13, color: c.text }}>{item.label}</span>
+                <span style={{ fontSize: 13, color: c.text }}>{t(item.labelKey)}</span>
                 <kbd style={{
                   fontSize: 11, fontFamily: 'ui-monospace, monospace', color: c.textMuted,
                   background: c.toolbar, border: `1px solid ${c.border}`, borderRadius: 5, padding: '2px 7px',
