@@ -16,27 +16,27 @@ type Locale = 'en' | 'ko' | 'ja';
 // translationKeys order, so it detects insertion, omission, reordering, and
 // substitution without using buildLocaleDictionary.
 const EXPECTED_LOCALE_INTEGRITY_SHA256: Record<Locale, string> = {
-  en: 'd199a835bbd3bcca32549b728ed3b1b75f80afe0756db4706fd4d2df7fe10b93',
-  ko: '498da15b12ef447db0765dc3b736fda71fc9a8b8d99d05df5a6d33ff72f988bd',
-  ja: 'e690ee0b0de0a066f4cf0ab76d3745e18c22efeba562ea15649cdf25ea8df24e',
+  en: '22875d92ef35aee446c457359e397f74d8a4a002463466968a872818609be8be',
+  ko: '75e23d4ac7d9037c10e7c827a30ccaa661b18dfd40059feb9b29c33de77e13bd',
+  ja: '7fe10eda29693aee42842c4187ec95943819c8822142066dc248a76a1fe5c531',
 };
 
 const PRE_SHORTCUT_LOCALE_SHA256: Record<Locale, string> = {
-  en: '68f89ecf9a9de9ded96310e2b2b389a2379f899b16709f9782b0f76f83afe1f7',
-  ko: 'fb612d0bb5a4259ea0fe67cc2740c1414e2c0d714540f9001fa76f06769b2047',
-  ja: 'd0592d3d57ac6810d66e330b3b8c3975e636e499a11c2c4700686ffee034c012',
+  en: '1f3acf0a16f0d42eb302e373ff3898db7937bc515cdd72835dee13c9ad66f8aa',
+  ko: 'dd4c25b8759be389813d327c4c860dbc635ed582f3059b01e44ae14a547a5554',
+  ja: '7d8f97df413cb465039f41d5151d258681bd7ff71df8f0fa7e5208dcfc1a866d',
 };
 
 const PRE_CURRENTNESS_LOCALE_SHA256: Record<Locale, string> = {
-  en: 'f5726ffc115c1a36c6914f06880afd039c161558e74936988dbc8afa99b4108e',
-  ko: '475b168f519b4f56521cf1b22c14c38258458185a095c70d3127fdc7d7005648',
-  ja: '760a088a8e880b29b6760dcf7b960ef3335329ba150ec73ac85b7f45a2090fdd',
+  en: 'de99de8ecc8c063584841c0a82140ccad67248ba92da9e7290f75fec04426a3f',
+  ko: 'a38265759dd1b1790d619f1462c789bb4bfb6ed8e6fc1642ee55a8a29be50d3c',
+  ja: 'c6f591fcee1b214302209f5159ced958c53a57e07414de9e141ee412bbf8557f',
 };
 
 const PRE_COMPARISON_LOCALE_SHA256: Record<Locale, string> = {
-  en: '71c014f37b1180bf096fd52d7b42c0c5feb8dfcd3984909071ce4396ea84a14b',
-  ko: '4bbf47b48432831cd8b69d327c64f429d2e1fce7d600d304e24fcee78d150b64',
-  ja: '0842a1f2701cad6a7cd3f54f2a21b64599d45204f842644892e3c774d87208af',
+  en: '9dd45b8c2311caaf74f472936d35924104de799f63ca64f401695833e5af9e4b',
+  ko: '9d69b70f012805fe7002a1480ef4733dc445629ae7c7bce3d97cc9df9ca3a6d8',
+  ja: 'f2e542d2dd46b0cfd11917255cfa93c78bb675b5e00e2889badf0f38274101a4',
 };
 
 function localeIntegrityDigest(values: readonly string[], keys: readonly string[] = translationKeys) {
@@ -112,14 +112,55 @@ describe('i18n locale dictionaries', () => {
     expect(() => assertLocaleValuesIntegrity('ja', jaLocaleValues)).not.toThrow();
   });
 
-  it('preserves every pre-comparison key and exact locale value unchanged', () => {
+  it('keeps backup success and coverage copy explicit about supported data and excluded attachment originals', () => {
+    const attachmentDisclosure: Record<Locale, string> = {
+      en: 'original attachment files are not included',
+      ko: '첨부 원본 파일은 포함되지 않',
+      ja: '添付ファイルのオリジナルは含まれ',
+    };
+    const supportedData: Record<Locale, string> = {
+      en: 'supported',
+      ko: '지원',
+      ja: '対応',
+    };
+    const cloudCompletenessDisclosure: Record<Locale, string> = {
+      en: 'cloud-complete does not mean original attachment files are backed up',
+      ko: '클라우드 범위가 완전해도 첨부 원본 파일이 백업되는 것은 아닙니다',
+      ja: 'クラウド範囲が完全でも、添付ファイルのオリジナルがバックアップされるわけではありません',
+    };
+
+    for (const [locale, dictionary] of [
+      ['en', enTranslations],
+      ['ko', koTranslations],
+      ['ja', jaTranslations],
+    ] as const) {
+      for (const key of [
+        'dataSafetyBackupDesc',
+        'dataSafetyLocalBackupDesc',
+        'vaultBackupZipComplete',
+        'dataSafetyLocalBackupComplete',
+        'dataSafetyLimitedBackupComplete',
+      ] as const) {
+        expect(dictionary[key].toLowerCase(), `${locale}.${key}`).toContain(attachmentDisclosure[locale]);
+        expect(dictionary[key].toLowerCase(), `${locale}.${key}`).toContain(supportedData[locale]);
+      }
+      expect(dictionary.dataSafetyStatusDesc.toLowerCase(), `${locale}.dataSafetyStatusDesc`)
+        .toContain(cloudCompletenessDisclosure[locale]);
+      expect(dictionary.dataSafetyLimitedBackupDesc.toLowerCase(), `${locale}.dataSafetyLimitedBackupDesc`)
+        .toContain(attachmentDisclosure[locale]);
+      expect(dictionary.dataSafetyLimitedBackupRecipeDesc.toLowerCase(), `${locale}.dataSafetyLimitedBackupRecipeDesc`)
+        .toContain(attachmentDisclosure[locale]);
+    }
+  });
+
+  it('keeps the current 2122-key localized baseline stable, including backup-scope copy', () => {
     for (const [locale, values] of [['en', enLocaleValues], ['ko', koLocaleValues], ['ja', jaLocaleValues]] as const) {
       expect(localeIntegrityDigest(values.slice(0, 2_122), translationKeys.slice(0, 2_122)))
         .toBe(PRE_COMPARISON_LOCALE_SHA256[locale]);
     }
   });
 
-  it('preserves the 2142-key prefix, four currentness keys, and appends shortcut keys only', () => {
+  it('keeps the current 2142-key prefix, four currentness keys, and appends shortcut keys only', () => {
     for (const [locale, values] of [['en', enLocaleValues], ['ko', koLocaleValues], ['ja', jaLocaleValues]] as const) {
       expect(localeIntegrityDigest(values.slice(0, 2_142), translationKeys.slice(0, 2_142)))
         .toBe(PRE_CURRENTNESS_LOCALE_SHA256[locale]);
