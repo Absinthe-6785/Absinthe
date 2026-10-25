@@ -160,8 +160,9 @@ export const PlannerView = ({
     });
     setEditingId(null);
     setEndNextDay(sch.end_next_day ?? false);
+    setScheduleDateStr(formatDate(selectedDate));
     setShowForm(true);
-  }, [schedules]);
+  }, [formatDate, schedules, selectedDate]);
 
   const scheduleDetailBlock = useMemo((): PlannerScheduleRow | null => {
     if (!scheduleDetailId) return null;

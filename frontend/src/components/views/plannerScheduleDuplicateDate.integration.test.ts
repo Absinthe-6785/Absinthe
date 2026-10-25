@@ -1,0 +1,232 @@
+// @vitest-environment happy-dom
+import { act, createElement, useState } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { DateTime } from 'luxon';
+import type { PlannerProps, Schedule } from '../../types';
+import { PlannerView } from './PlannerView';
+
+const testState = vi.hoisted(() => ({
+  apiMutate: vi.fn(),
+}));
+
+vi.mock('../../hooks/useConfirm', () => ({
+  useConfirm: () => ({
+    confirm: null,
+    showConfirm: vi.fn(),
+    clearConfirm: vi.fn(),
+    handleConfirm: vi.fn(),
+  }),
+}));
+
+vi.mock('../../hooks/useApiMutation', () => ({
+  useApiMutation: () => ({ mutate: testState.apiMutate }),
+}));
+
+vi.mock('../../hooks/useEscapeKey', () => ({ useEscapeKey: () => {} }));
+
+vi.mock('../../lib/i18n', () => ({
+  useTranslation: () => ({ t: (key: string) => key, lang: 'en' as const }),
+}));
+
+vi.mock('swr', () => ({ default: () => ({ data: [], mutate: vi.fn() }) }));
+
+vi.mock('./features/planner/calendar-ui', async () => {
+  const { createElement } = await import('react');
+  return {
+    CalendarShell: (props: {
+      anchorDate: string;
+      onAnchorDateChange: (date: string) => void;
+      onAddSchedule: () => void;
+      dayScheduleActions: { onDuplicate: (id: string) => void };
+    }) => createElement('div', null,
+      createElement('output', { 'data-calendar-date': true }, props.anchorDate),
+      createElement('button', {
+        type: 'button',
+        'data-test-navigate': true,
+        onClick: () => props.onAnchorDateChange('2026-06-20'),
+      }, 'Navigate'),
+      createElement('button', {
+        type: 'button',
+        'data-test-add': true,
+        onClick: props.onAddSchedule,
+      }, 'Add'),
+      createElement('button', {
+        type: 'button',
+        'data-test-duplicate': true,
+        onClick: () => props.dayScheduleActions.onDuplicate('source-event'),
+      }, 'Duplicate'),
+    ),
+  };
+});
+
+vi.mock('./features/planner/hooks/usePlannerScheduleEventActions', () => ({
+  usePlannerScheduleEventActions: () => ({
+    eventDialog: null,
+    setEventDialog: vi.fn(),
+    agendaEventActions: {},
+    handleEventDialogSave: vi.fn(),
+    handleRemoveEventStatus: vi.fn(),
+  }),
+}));
+
+vi.mock('./features/knowledge/trace/EventNoteDialog', () => ({ EventNoteDialog: () => null }));
+
+vi.mock('../../store/useNotesStore', () => {
+  const state = {
+    notes: [], folders: [], activeNoteId: null, activeFolderId: null,
+    createNote: vi.fn(), updateNote: vi.fn(), moveNoteToTrash: vi.fn(),
+    restoreNote: vi.fn(), permanentDeleteNote: vi.fn(), setActiveNoteId: vi.fn(),
+    createFolder: vi.fn(), renameFolder: vi.fn(), deleteFolder: vi.fn(), setActiveFolderId: vi.fn(),
+  };
+  return {
+    useNotesStore: (selector?: (value: typeof state) => unknown) => selector ? selector(state) : state,
+  };
+});
+
+const selectedDay = new Date(2026, 5, 12, 12);
+const sourceSchedule: Schedule = Object.freeze({
+  id: 'source-event',
+  text: 'Study session',
+  start_time: '23:00',
+  end_time: '01:00',
+  end_next_day: true,
+  is_dday: false,
+  color: 'blue',
+  category: 'Study',
+});
+
+const theme = {
+  card: 'card', input: 'input', border: 'border', textMuted: 'muted', hoverBg: 'hover',
+};
+const appSettings = { darkMode: false, defaultCategory: 'Personal', defaultColor: 'blue', language: 'en' as const };
+const themeColors = [{ id: 'blue', bg: 'blue', text: 'white', border: 'blue' }];
+
+function formatDate(value: Date | DateTime): string {
+  const date = value instanceof Date ? value : value.toJSDate();
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function props(overrides: Partial<PlannerProps> = {}): PlannerProps {
+  return {
+    now: DateTime.fromJSDate(selectedDay),
+    currentDate: selectedDay,
+    setCurrentDate: vi.fn(),
+    selectedDate: selectedDay,
+    setSelectedDate: vi.fn(),
+    formatDate,
+    isToday: () => false,
+    schedules: [sourceSchedule],
+    todos: [], routines: [], markedDates: [], weeklySchedules: [],
+    showToast: vi.fn(), appSettings, updateSetting: vi.fn(), theme, THEME_COLORS: themeColors,
+    mutateDaily: vi.fn(), mutateStatic: vi.fn(), mutateTodos: vi.fn(), mutateRoutines: vi.fn(),
+    user: { id: 'account-a', name: 'Account A' },
+    ...overrides,
+  };
+}
+
+function StatefulPlanner() {
+  const [selectedDate, setSelectedDate] = useState(selectedDay);
+  const [currentDate, setCurrentDate] = useState(selectedDay);
+  return createElement(PlannerView, props({ selectedDate, setSelectedDate, currentDate, setCurrentDate }));
+}
+
+let root: Root | undefined;
+let host: HTMLDivElement;
+
+async function mountPlanner() {
+  host = document.createElement('div');
+  document.body.append(host);
+  root = createRoot(host);
+  await act(async () => { root!.render(createElement(StatefulPlanner)); });
+}
+
+function click(selector: string) {
+  const button = host.querySelector<HTMLButtonElement>(selector);
+  if (!button) throw new Error(`Missing button: ${selector}`);
+  act(() => button.click());
+}
+
+function duplicateDateInput(): HTMLInputElement {
+  const input = host.querySelector<HTMLInputElement>('[data-k139-event-date-picker]');
+  if (!input) throw new Error('Schedule form date input is not mounted');
+  return input;
+}
+
+function setInputValue(input: HTMLInputElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+  act(() => {
+    setter?.call(input, value);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+}
+
+beforeEach(() => {
+  testState.apiMutate.mockReset().mockResolvedValue(true);
+});
+
+afterEach(() => {
+  if (root) act(() => root!.unmount());
+  root = undefined;
+  host?.remove();
+});
+
+describe('PlannerView Schedule duplication date', () => {
+  it('uses the newly selected calendar date after navigation instead of the prior form date', async () => {
+    await mountPlanner();
+
+    click('[data-test-navigate]');
+    expect(host.querySelector('[data-calendar-date]')?.textContent).toBe('2026-06-20');
+    click('[data-test-duplicate]');
+
+    expect(duplicateDateInput().value).toBe('2026-06-20');
+    expect(host.textContent).toContain('newSchedule');
+    expect(host.textContent).not.toContain('editSchedule');
+    expect((host.querySelector('input[type="text"]') as HTMLInputElement).value).toBe('Study session');
+    expect(sourceSchedule).toMatchObject({ id: 'source-event', text: 'Study session', start_time: '23:00' });
+  });
+
+  it('resets a date from a closed prior form, preserves duplicate edits, and saves a new event', async () => {
+    await mountPlanner();
+
+    click('[data-test-add]');
+    const firstDateInput = duplicateDateInput();
+    setInputValue(firstDateInput, '2026-06-30');
+    expect(firstDateInput.value).toBe('2026-06-30');
+    setInputValue(host.querySelector<HTMLInputElement>('input[type="text"]')!, 'Temporary event');
+    await act(async () => {
+      const save = [...host.querySelectorAll('button')].find(button => button.textContent === 'saveSchedule');
+      if (!save) throw new Error('Schedule save button is not mounted');
+      save.click();
+    });
+    expect(testState.apiMutate).toHaveBeenCalledTimes(1);
+    expect(testState.apiMutate).toHaveBeenLastCalledWith(
+      'POST', '/api/schedules', expect.objectContaining({ date: '2026-06-30', text: 'Temporary event' }), expect.any(Object),
+    );
+    expect(() => duplicateDateInput()).toThrow();
+
+    click('[data-test-duplicate]');
+    expect(duplicateDateInput().value).toBe('2026-06-12');
+    expect(host.textContent).toContain('newSchedule');
+    expect((host.querySelector('input[type="text"]') as HTMLInputElement).value).toBe('Study session');
+    expect((host.querySelector('input[type="time"]') as HTMLInputElement).value).toBe('23:00');
+    expect((host.querySelector('input[type="checkbox"]') as HTMLInputElement).checked).toBe(false);
+    expect((host.querySelector('select') as HTMLSelectElement).value).toBe('Study');
+    expect([...host.querySelectorAll('button')].some(button => button.textContent === '+1 day' && button.className.includes('bg-primary'))).toBe(true);
+
+    const dateInput = duplicateDateInput();
+    setInputValue(dateInput, '2026-07-01');
+    await act(async () => {
+      const save = [...host.querySelectorAll('button')].find(button => button.textContent === 'saveSchedule');
+      if (!save) throw new Error('Schedule save button is not mounted');
+      save.click();
+    });
+
+    expect(testState.apiMutate).toHaveBeenCalledTimes(2);
+    expect(testState.apiMutate).toHaveBeenLastCalledWith(
+      'POST', '/api/schedules', expect.objectContaining({ date: '2026-07-01', text: 'Study session' }), expect.any(Object),
+    );
+    expect(sourceSchedule).toMatchObject({ id: 'source-event', text: 'Study session', start_time: '23:00' });
+  });
+});
