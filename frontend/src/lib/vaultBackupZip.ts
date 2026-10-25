@@ -5,9 +5,15 @@ import { buildCloudZipSidecars } from './vaultCloudCsv';
 const README_V3 = `Absinthe Vault Backup (v3)
 ============================
 This archive contains:
-- manifest.json  — full portable vault (notes, folders, extensions, optional cloud)
+- manifest.json  — supported notes, folders, portable extensions, and optional supported cloud data
 - notes/         — individual Markdown exports per note
-- cloud/         — human-readable CSV sidecars (when cloud data was exported)
+- cloud/         — human-readable CSV sidecars (when supported cloud data was exported)
+
+Original attachment files:
+- Original attachment binary bytes are not included in ZIP or JSON vault exports.
+- Attachment references or metadata in exported notes do not contain the original file bytes.
+
+A successful export means the supported data for that export was written. It does not mean every app data type or original attachment file is backed up.
 
 Restore via Settings → Import Vault Backup.
 v2 and v3 manifests are supported on import (core notes + folders).

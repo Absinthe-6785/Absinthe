@@ -171,14 +171,17 @@ describe('RecoveryCenterPanel backup coverage presentation', () => {
   it('renders local-only backup semantics from mounted props', () => {
     const { container } = mounted({ cloudSyncEnabled: false });
 
+    expect(container.textContent).toContain('dataSafetyStatusDesc');
     expect(container.textContent).toContain('dataSafetyLocalBackupDesc');
     expect(container.textContent).toContain('dataSafetyCreateLocalBackup');
     expect(container.querySelector('[data-settings-limited-backup-warning]')).toBeNull();
   });
 
-  it('renders the normal cloud backup control without a limited warning', () => {
-    const { container } = mounted({ cloudSyncEnabled: true });
+  it('renders healthy cloud coverage without implying original attachment files are backed up', () => {
+    const { container } = mounted({ cloudSyncEnabled: true, recovery: recovery('protected') });
 
+    expect(container.textContent).toContain('dataSafetyHealthy');
+    expect(container.textContent).toContain('dataSafetyStatusDesc');
     expect(container.textContent).toContain('dataSafetyBackupDesc');
     expect(container.textContent).toContain('dataSafetyCreateBackup');
     expect(container.querySelector('[data-settings-limited-backup-warning]')).toBeNull();
