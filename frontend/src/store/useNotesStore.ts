@@ -267,7 +267,173 @@ function shouldPreserveExistingSyncIssue(
     && isLowerPrioritySyncIssueSource(incoming);
 }
 
+// Session-only provenance. Neither this key nor a publication mutator is exported.
+const publishedNotesKey = Symbol('published-notes-hydration');
+const publishedNotesArrays = new WeakMap<Note[], object>();
+const revokedNotesPublications = new WeakSet<object>();
+interface PublishedNotesDataShape {
+  readonly target: object;
+  readonly prototype: object | null;
+  readonly keys: readonly PropertyKey[];
+  readonly values: readonly unknown[];
+}
+const publishedNotesContent = new WeakMap<object, readonly PublishedNotesDataShape[]>();
+let pendingNotesHydration: NotesAuthorityRequest | null = null;
+// Orders Store initializers only; this counter never authorizes an account.
+let notesHydrationAttempt = 0;
+let latestNotesPublication: {
+  readonly token: object;
+  readonly request: NotesAuthorityRequest;
+} | null = null;
+
+export type PublishedNotesHydrationObservation =
+  | { readonly status: 'CURRENT'; readonly request: NotesAuthorityRequest }
+  | {
+    readonly status: 'UNAVAILABLE';
+    readonly reason: 'MISSING_AUTHORITY' | 'NO_PUBLISHED_HYDRATION'
+      | 'PENDING_REPLACEMENT_HYDRATION' | 'STALE_PUBLISHED_HYDRATION'
+      | 'INVALID_PUBLISHED_STATE';
+  };
+
+function isExactCurrentNotesRequest(request: NotesAuthorityRequest): boolean {
+  return getActiveNotesAuthorityRequest() === request && isNotesAuthorityRequestActive(request);
+}
+
+function isLoadedNotesAuthority(state: NotesAuthorityLoadState | undefined): boolean {
+  return state === 'LOADED_EMPTY' || state === 'LOADED_POPULATED';
+}
+
+// Snapshot data slots, not Notes records: body strings are retained by value,
+// never serialized/copied, and no application array/object is frozen or wrapped.
+// Traversal is limited to Note fields plus properties/relations in NoteBase.
+function capturePublishedNotesContent(notes: Note[]): readonly PublishedNotesDataShape[] | null {
+  const shapes: PublishedNotesDataShape[] = [];
+  const capture = (target: object): PublishedNotesDataShape | null => {
+    const keys = Reflect.ownKeys(target);
+    const values: unknown[] = [];
+    for (const key of keys) {
+      const descriptor = Object.getOwnPropertyDescriptor(target, key);
+      if (!descriptor || !('value' in descriptor)) return null;
+      values.push(descriptor.value);
+    }
+    const shape = Object.freeze({ target, prototype: Object.getPrototypeOf(target) as object | null,
+      keys: Object.freeze(keys), values: Object.freeze(values) });
+    shapes.push(shape);
+    return shape;
+  };
+  const denseArray = (shape: PublishedNotesDataShape): boolean => {
+    const length = shape.values[shape.values.length - 1];
+    return Array.isArray(shape.target) && shape.prototype === Array.prototype
+      && typeof length === 'number' && shape.keys.length === length + 1
+      && shape.keys[length] === 'length'
+      && shape.keys.slice(0, length).every((key, index) => key === String(index));
+  };
+  const plainRecord = (value: unknown): value is Record<string, unknown> => value !== null
+    && typeof value === 'object' && !Array.isArray(value)
+    && (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null);
+  try {
+    const array = capture(notes);
+    if (!array || !denseArray(array)) return null;
+    for (const item of array.values.slice(0, -1)) {
+      if (!plainRecord(item)) return null;
+      const note = capture(item);
+      if (!note) return null;
+      for (let index = 0; index < note.keys.length; index += 1) {
+        const key = note.keys[index];
+        const value = note.values[index];
+        if ((key === 'properties' || key === 'relations') && plainRecord(value)) {
+          const record = capture(value);
+          if (!record || record.keys.some(name => typeof name !== 'string')) return null;
+          for (const entry of record.values) {
+            if (key === 'properties') {
+              if (typeof entry !== 'string') return null;
+            } else {
+              if (!Array.isArray(entry)) return null;
+              const targets = capture(entry);
+              if (!targets || !denseArray(targets)
+                || targets.values.slice(0, -1).some(id => typeof id !== 'string')) return null;
+            }
+          }
+        } else if (value !== null && value !== undefined
+          && typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean') {
+          // Unsupported mutable shapes remain visible in the Store but cannot
+          // acquire this narrow NoteBase provenance attestation.
+          return null;
+        }
+      }
+    }
+    return Object.freeze(shapes);
+  } catch {
+    return null;
+  }
+}
+
+function matchesPublishedNotesContent(token: object): boolean {
+  const shapes = publishedNotesContent.get(token);
+  if (!shapes) return false;
+  try {
+    return shapes.every(shape => {
+      if (Object.getPrototypeOf(shape.target) !== shape.prototype) return false;
+      const keys = Reflect.ownKeys(shape.target);
+      return keys.length === shape.keys.length && keys.every((key, index) => {
+        if (key !== shape.keys[index]) return false;
+        const descriptor = Object.getOwnPropertyDescriptor(shape.target, key);
+        return descriptor !== undefined && 'value' in descriptor
+          && Object.is(descriptor.value, shape.values[index]);
+      });
+    });
+  } catch {
+    return false;
+  }
+}
+
+function matchesPublishedNotesState(
+  state: NotesState,
+  publication: NonNullable<typeof latestNotesPublication>,
+): boolean {
+  return state[publishedNotesKey] === publication.token
+    && publishedNotesArrays.get(state.notes) === publication.token
+    && isExactCurrentNotesRequest(publication.request)
+    && state.activeAccountId === publication.request.accountId
+    && isLoadedNotesAuthority(state.notesAuthorityState)
+    && isLoadedNotesAuthority(state.foldersAuthorityState);
+}
+
+function revokePublishedNotes(publication = latestNotesPublication): void {
+  if (publication) {
+    revokedNotesPublications.add(publication.token);
+    publishedNotesContent.delete(publication.token);
+  }
+}
+
+function currentPublishedNotesRequest(state: NotesState): NotesAuthorityRequest | null {
+  const publication = latestNotesPublication;
+  if (!publication || revokedNotesPublications.has(publication.token)) return null;
+  if (!matchesPublishedNotesState(state, publication) || !matchesPublishedNotesContent(publication.token)
+    || latestNotesPublication !== publication || revokedNotesPublications.has(publication.token)
+    || !matchesPublishedNotesState(state, publication)) {
+    revokePublishedNotes(publication);
+    return null;
+  }
+  return publication.request;
+}
+
+function bindPublishedNotes(notes: Note[], request: NotesAuthorityRequest): object | undefined {
+  revokePublishedNotes();
+  const content = capturePublishedNotesContent(notes);
+  if (!content) {
+    latestNotesPublication = null;
+    return undefined;
+  }
+  const token = Object.freeze({});
+  publishedNotesArrays.set(notes, token);
+  publishedNotesContent.set(token, content);
+  latestNotesPublication = Object.freeze({ token, request });
+  return token;
+}
+
 interface NotesState {
+  readonly [publishedNotesKey]?: object;
   notes: Note[];
   folders: NoteFolder[];
   activeNoteId: string | null;
@@ -928,6 +1094,21 @@ export function isVaultRestoreUndoAvailable(): boolean {
 }
 
 export const useNotesStore = create<NotesState>((set, get) => {
+  // Ordinary owner mutations may continue an already hydrated request, but can
+  // never mint provenance for a new generation or an unrecognized replacement.
+  const publishOwnedNotes = (
+    update: Partial<NotesState> & { notes: Note[] },
+    originatingRequest: NotesAuthorityRequest | null,
+  ): void => {
+    const current = currentPublishedNotesRequest(get());
+    set({
+      ...update,
+      [publishedNotesKey]: originatingRequest && current === originatingRequest
+        ? bindPublishedNotes(update.notes, originatingRequest)
+        : undefined,
+    });
+  };
+
   const currentSyncIssue = (): SyncIssueState | null => {
     const state = get();
     const issue = state.syncIssue;
@@ -1511,12 +1692,13 @@ export const useNotesStore = create<NotesState>((set, get) => {
     vaultRestoreCanUndo: isVaultRestoreUndoAvailable(),
 
     setActiveNoteId: (id) => {
+      const publication = currentPublishedNotesRequest(get());
       if (id) {
         const now = Date.now();
         const notes = get().notes.map(n =>
           n.id === id ? { ...n, lastOpenedAt: now } : n,
         );
-        set({ activeNoteId: id, notes, vaultStructureVersion: get().vaultStructureVersion + 1 });
+        publishOwnedNotes({ activeNoteId: id, notes, vaultStructureVersion: get().vaultStructureVersion + 1 }, publication);
         persistNotes(notes);
         invalidateNoteGalaxyMapCache();
       } else {
@@ -1528,6 +1710,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
     setActiveFolderId: (id) => set({ activeFolderId: id }),
 
     createNote: (opts) => {
+      const publication = currentPublishedNotesRequest(get());
       const id = `note-${Date.now()}`;
       const now = Date.now();
       const note: Note = {
@@ -1542,7 +1725,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
         starred: false,
       };
       const notes = [note, ...get().notes];
-      set({ notes, activeNoteId: id, vaultStructureVersion: get().vaultStructureVersion + 1 });
+      publishOwnedNotes({ notes, activeNoteId: id, vaultStructureVersion: get().vaultStructureVersion + 1 }, publication);
       const persistence = persistNotes(notes);
       saveActiveNoteId(id);
       knowledgeIndexService.updateNote(note);
@@ -1553,8 +1736,9 @@ export const useNotesStore = create<NotesState>((set, get) => {
     },
 
     importNote: (note) => {
+      const publication = currentPublishedNotesRequest(get());
       const notes = [note, ...get().notes];
-      set({ notes, activeNoteId: note.id, vaultStructureVersion: get().vaultStructureVersion + 1 });
+      publishOwnedNotes({ notes, activeNoteId: note.id, vaultStructureVersion: get().vaultStructureVersion + 1 }, publication);
       const persistence = persistNotes(notes);
       saveActiveNoteId(note.id);
       knowledgeIndexService.updateNote(note);
@@ -1735,6 +1919,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
     },
 
     updateNote: (id, patch) => {
+      const publication = currentPublishedNotesRequest(get());
       const previous = get().notes.find(n => n.id === id);
       const normalizedPatch = 'properties' in patch
         ? { ...patch, properties: normalizeNoteProperties(patch.properties) }
@@ -1742,7 +1927,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
       const notes = get().notes.map(n =>
         n.id === id ? mergeNotePatch(n, normalizedPatch) : n
       );
-      set({ notes });
+      publishOwnedNotes({ notes }, publication);
       const persistence = persistNotes(notes);
       const updated = notes.find(n => n.id === id);
       if (!updated) return;
@@ -1759,10 +1944,11 @@ export const useNotesStore = create<NotesState>((set, get) => {
     },
 
     toggleStar: (id) => {
+      const publication = currentPublishedNotesRequest(get());
       const notes = get().notes.map(n =>
         n.id === id ? { ...n, starred: !n.starred } : n
       );
-      set({ notes, vaultStructureVersion: get().vaultStructureVersion + 1 });
+      publishOwnedNotes({ notes, vaultStructureVersion: get().vaultStructureVersion + 1 }, publication);
       const persistence = persistNotes(notes);
       invalidateNoteGalaxyMapCache();
       const note = notes.find(n => n.id === id);
@@ -1770,6 +1956,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
     },
 
     duplicateNote: (note) => {
+      const publication = currentPublishedNotesRequest(get());
       const id = `note-${Date.now()}`;
       const now = Date.now();
       const copy: Note = {
@@ -1781,7 +1968,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
         deletedAt: null,
       };
       const notes = [copy, ...get().notes];
-      set({ notes, activeNoteId: id, vaultStructureVersion: get().vaultStructureVersion + 1 });
+      publishOwnedNotes({ notes, activeNoteId: id, vaultStructureVersion: get().vaultStructureVersion + 1 }, publication);
       const persistence = persistNotes(notes);
       saveActiveNoteId(id);
       knowledgeIndexService.updateNote(copy);
@@ -1792,12 +1979,13 @@ export const useNotesStore = create<NotesState>((set, get) => {
     },
 
     moveNoteToTrash: (id) => {
+      const publication = currentPublishedNotesRequest(get());
       const now = Date.now();
       const notes = get().notes.map(n =>
         n.id === id ? { ...n, deletedAt: now, updatedAt: now } : n
       );
       const nextActive = notes.find(n => !n.deletedAt)?.id ?? null;
-      set({ notes, activeNoteId: nextActive, vaultStructureVersion: get().vaultStructureVersion + 1 });
+      publishOwnedNotes({ notes, activeNoteId: nextActive, vaultStructureVersion: get().vaultStructureVersion + 1 }, publication);
       const persistence = persistNotes(notes);
       saveActiveNoteId(nextActive);
       invalidateNoteGalaxyMapCache();
@@ -1809,16 +1997,17 @@ export const useNotesStore = create<NotesState>((set, get) => {
     },
 
     restoreNote: (id) => {
+      const publication = currentPublishedNotesRequest(get());
       const notes = get().notes.map(n =>
         n.id === id ? { ...n, deletedAt: null, updatedAt: Date.now() } : n
       );
       const restored = notes.find(n => n.id === id);
-      set({
+      publishOwnedNotes({
         notes,
         activeNoteId: id,
         activeFolderId: restored?.folderId ?? get().activeFolderId,
         vaultStructureVersion: get().vaultStructureVersion + 1,
-      });
+      }, publication);
       const persistence = persistNotes(notes);
       saveActiveNoteId(id);
       invalidateNoteGalaxyMapCache();
@@ -1854,6 +2043,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
     permanentDeleteNote: async (authorization) => get().deleteNotePermanently(authorization),
 
     deleteNotePermanently: async (authorization) => {
+      const publication = currentPublishedNotesRequest(get());
       const begun = await beginNotesSingleDelete(authorization);
       if (!begun) {
         setSyncIssue('Permanent delete was blocked because its account or operation context is stale.', 'recovery_permanent_delete', {
@@ -1918,13 +2108,13 @@ export const useNotesStore = create<NotesState>((set, get) => {
         notes,
         get().activeFolderId,
       );
-      set({
+      publishOwnedNotes({
         notes,
         activeNoteId: nextActive,
         vaultStructureVersion: get().vaultStructureVersion + 1,
         indexContentVersion: get().indexContentVersion + 1,
         savedAt: new Date(),
-      });
+      }, publication);
       clearSyncIssue('recovery_permanent_delete', id);
       setCachedNotes(notes);
       saveActiveNoteId(nextActive);
@@ -1948,6 +2138,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
     },
 
     emptyTrash: () => {
+      const publication = currentPublishedNotesRequest(get());
       if (!mayEmptyTrash()) {
         recordRecoveryBlock('empty_trash');
         setSyncIssue(RECOVERY_MODE_MESSAGE, 'recovery');
@@ -1972,12 +2163,12 @@ export const useNotesStore = create<NotesState>((set, get) => {
         notes,
         get().activeFolderId,
       );
-      set({
+      publishOwnedNotes({
         notes,
         activeNoteId: nextActive,
         vaultStructureVersion: get().vaultStructureVersion + 1,
         indexContentVersion: get().indexContentVersion + 1,
-      });
+      }, publication);
       persistNotes(notes);
       saveActiveNoteId(nextActive);
 
@@ -2005,6 +2196,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
     },
 
     deleteFolder: async (id) => {
+      const publication = currentPublishedNotesRequest(get());
       if (folderDeletionInProgress.has(id)) {
         return { status: 'in_progress', message: 'Folder deletion is already in progress.' };
       }
@@ -2091,7 +2283,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
         }
 
         const activeFolderId = get().activeFolderId === id ? null : get().activeFolderId;
-        set({ folders, notes, activeFolderId, vaultStructureVersion: get().vaultStructureVersion + 1 });
+        publishOwnedNotes({ folders, notes, activeFolderId, vaultStructureVersion: get().vaultStructureVersion + 1 }, publication);
         scheduleAutoSnapshot(notes, folders);
         invalidateNoteGalaxyMapCache();
 
@@ -2133,6 +2325,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
     },
 
     undoFolderDeletion: async (token) => {
+      const publication = currentPublishedNotesRequest(get());
       const pending = pendingFolderDeletion;
       if (!pending || pending.token !== token) {
         return { status: 'not_found', message: 'This folder recovery is no longer available.' };
@@ -2243,7 +2436,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
           }
         }
 
-        set({ folders, notes, vaultStructureVersion: get().vaultStructureVersion + 1 });
+        publishOwnedNotes({ folders, notes, vaultStructureVersion: get().vaultStructureVersion + 1 }, publication);
         scheduleAutoSnapshot(notes, folders);
         invalidateNoteGalaxyMapCache();
         for (const note of notes.filter(note => restoredNoteIds.includes(note.id))) {
@@ -2262,6 +2455,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
     },
 
     bootstrapFromSupabase: async () => {
+      const publication = currentPublishedNotesRequest(get());
       const context = createNotesAccountRecoveryContext();
       if (!context) return;
       const localMutationGeneration = notesLocalMutationGeneration;
@@ -2545,7 +2739,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
           && existingIssue
           && existingIssue.source !== 'bootstrap'
           && !resolvedRecoveryConflict;
-        set({
+        publishOwnedNotes({
           notes: committedNotes,
           folders,
           activeNoteId: nextActive,
@@ -2576,7 +2770,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
             }
             : (keepExistingIssue ? existingIssue : null),
           folderDeletionUndoEpoch: invalidateFolderDeletionUndoForStoreReplacement(),
-        });
+        }, publication);
         if (folderRemoteMutations.length > 0 && !displayedConflictMessage) {
           const marker = folderRemoteMutations[0];
           setSyncIssue(
@@ -2657,13 +2851,23 @@ export const useNotesStore = create<NotesState>((set, get) => {
     },
 
     initNotesStorage: async (accountId) => {
+      const attempt = ++notesHydrationAttempt;
       const request = accountId?.trim() ? activateNotesAccountAuthority(accountId) : null;
+      const authorityAtStart = getActiveNotesAuthorityRequest();
+      const replacementAtStart = folderStoreReplacementGeneration;
+      const isCurrentInitialization = () => attempt === notesHydrationAttempt
+        && getActiveNotesAuthorityRequest() === authorityAtStart
+        && folderStoreReplacementGeneration === replacementAtStart;
+      pendingNotesHydration = request;
+      if (!request) latestNotesPublication = null;
       let result;
       try {
         result = await initNotesPersistence(accountId, request ?? undefined);
       } catch (error) {
-        if (request && !isNotesAuthorityRequestActive(request)) return;
+        if (attempt === notesHydrationAttempt) pendingNotesHydration = null;
+        if (!isCurrentInitialization()) return;
         set({
+          [publishedNotesKey]: undefined,
           notes: [],
           folders: [],
           activeNoteId: null,
@@ -2676,8 +2880,12 @@ export const useNotesStore = create<NotesState>((set, get) => {
         rebuildKnowledgeIndex([]);
         throw error;
       }
-      if (result.accountId && (result.requestGeneration === undefined
-        || !isNotesAuthorityRequestActive({ accountId: result.accountId, generation: result.requestGeneration }))) return;
+      if (attempt === notesHydrationAttempt) pendingNotesHydration = null;
+      if (!isCurrentInitialization()) return;
+      if (request ? (!isExactCurrentNotesRequest(request)
+        || result.mode !== 'accountScoped'
+        || result.accountId !== request.accountId
+        || result.requestGeneration !== request.generation) : result.accountId !== undefined) return;
       // The unauthenticated compatibility path retains its legacy merge for
       // existing tests and migration tooling. Authenticated runtime calls pass
       // an account id and intentionally never merge across account memory.
@@ -2691,7 +2899,20 @@ export const useNotesStore = create<NotesState>((set, get) => {
         ? loadActiveNoteId(notes)
         : (notes.some(note => note.id === previousActive) ? previousActive : loadActiveNoteId(notes));
       const fallbackError = result.fallbackError;
+      const successfulHydration = request !== null && !fallbackError
+        && result.notesAuthorityState?.accountId === request.accountId
+        && result.notesAuthorityState.domainId === NOTES_CORE_DOMAIN
+        && isLoadedNotesAuthority(result.notesAuthorityState.state)
+        && result.notesAuthorityState.recordCount === notes.length
+        && result.foldersAuthorityState?.accountId === request.accountId
+        && result.foldersAuthorityState.domainId === NOTES_FOLDERS_DOMAIN
+        && isLoadedNotesAuthority(result.foldersAuthorityState.state)
+        && result.foldersAuthorityState.recordCount === folders.length;
+      if (!isCurrentInitialization()) return;
+      // The private token and its Notes array are published by the same set().
+      // Installing a claim after set() would lose synchronous subscriber reentry.
       set({
+        [publishedNotesKey]: successfulHydration ? bindPublishedNotes(notes, request!) : undefined,
         notes,
         folders,
         activeNoteId: nextActive,
@@ -2717,6 +2938,9 @@ export const useNotesStore = create<NotesState>((set, get) => {
     },
 
     detachNotesStorage: () => {
+      revokePublishedNotes();
+      notesHydrationAttempt += 1;
+      pendingNotesHydration = null;
       clearAllBodySyncTimers();
       pendingBodySync.clear();
       latestNoteSyncAttempts.clear();
@@ -2725,6 +2949,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
       pendingFolderDeletion = null;
       detachNotesPersistenceAccount();
       set({
+        [publishedNotesKey]: undefined,
         notes: [],
         folders: [],
         activeNoteId: null,
@@ -2749,6 +2974,9 @@ export const useNotesStore = create<NotesState>((set, get) => {
         setSyncIssue(RECOVERY_MODE_MESSAGE, 'recovery');
         return;
       }
+      revokePublishedNotes();
+      notesHydrationAttempt += 1;
+      pendingNotesHydration = null;
       clearAllBodySyncTimers();
       pendingBodySync.clear();
       latestNoteSyncAttempts.clear();
@@ -2762,6 +2990,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
       void clearNotesPersistence();
       const notes = createDefaultWelcomeNotes();
       set({
+        [publishedNotesKey]: undefined,
         notes,
         folders: [],
         activeNoteId: notes[0]?.id ?? null,
@@ -2781,6 +3010,41 @@ export const useNotesStore = create<NotesState>((set, get) => {
     },
   };
 });
+
+// Revoke before later subscribers can replay an invalidated snapshot. This
+// observes provenance fields only and never changes Store data or authority.
+useNotesStore.subscribe(state => {
+  const publication = latestNotesPublication;
+  if (publication && !matchesPublishedNotesState(state, publication)) {
+    revokePublishedNotes(publication);
+  }
+});
+
+/**
+ * Read-only, session-local provenance of the currently published Notes. The
+ * returned request is the authority owner's original frozen object, not a
+ * reconstructed account/generation pair. This grants no persistence authority.
+ */
+export function observePublishedNotesHydration(): PublishedNotesHydrationObservation {
+  const request = getActiveNotesAuthorityRequest();
+  if (!request) return Object.freeze({ status: 'UNAVAILABLE', reason: 'MISSING_AUTHORITY' });
+  const state = useNotesStore.getState();
+  const published = currentPublishedNotesRequest(state);
+  if (published) return Object.freeze({ status: 'CURRENT', request: published });
+  if (pendingNotesHydration === request) {
+    return Object.freeze({ status: 'UNAVAILABLE', reason: 'PENDING_REPLACEMENT_HYDRATION' });
+  }
+  const publication = latestNotesPublication;
+  if (!publication || !state[publishedNotesKey]) {
+    return Object.freeze({ status: 'UNAVAILABLE', reason: 'NO_PUBLISHED_HYDRATION' });
+  }
+  if (revokedNotesPublications.has(publication.token)
+    || publication.request !== request || state[publishedNotesKey] !== publication.token
+    || publishedNotesArrays.get(state.notes) !== publication.token) {
+    return Object.freeze({ status: 'UNAVAILABLE', reason: 'STALE_PUBLISHED_HYDRATION' });
+  }
+  return Object.freeze({ status: 'UNAVAILABLE', reason: 'INVALID_PUBLISHED_STATE' });
+}
 
 // ── 다중 탭: storage 이벤트로 localStorage 변경 병합 ─────────────────
 let applyingStorageMerge = false;
