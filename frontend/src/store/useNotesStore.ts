@@ -2859,6 +2859,11 @@ export const useNotesStore = create<NotesState>((set, get) => {
         && getActiveNotesAuthorityRequest() === authorityAtStart
         && folderStoreReplacementGeneration === replacementAtStart;
       pendingNotesHydration = request;
+      // Publish the existing provenance invalidation immediately so attached
+      // views retire previews before replacement hydration settles. The
+      // private token is cleared without changing Notes or storage data.
+      if (request && latestNotesPublication) set({ [publishedNotesKey]: undefined });
+      if (!isCurrentInitialization()) return;
       if (!request) latestNotesPublication = null;
       let result;
       try {
