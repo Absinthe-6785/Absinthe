@@ -1,94 +1,41 @@
 import { authFetch } from './supabase';
 import { API_URL } from './config';
 import { shouldUseDomainRemotePersistence } from './remoteBoundary';
-import { applyEventToNote, readEventFromNote } from '../components/views/features/knowledge/trace/eventNotes';
-import { useNotesStore } from '../store/useNotesStore';
-import type { NoteBase } from '../components/views/noteUtils';
 
 const MIGRATION_KEY = 'absinthe:dday-migration-v1';
 
-interface LegacyDdayRow {
-  id: string;
-  text: string;
-  date: string;
-}
-
-function normalizeCountdownKey(date: string, title: string): string {
-  return `${date}:${title.trim().toLowerCase()}`;
-}
-
-function eventNoteExists(notes: readonly NoteBase[], date: string, title: string): boolean {
-  const key = normalizeCountdownKey(date, title);
-  return notes.some(note => {
-    const event = readEventFromNote(note);
-    if (!event) return false;
-    return normalizeCountdownKey(event.eventDate, event.title) === key;
-  });
-}
-
 /**
- * One-time migration: legacy schedules.is_dday rows → event notes, then delete legacy rows.
- * Idempotent — safe to call on every app boot; skips when flag is set or API returns empty.
+ * Compatibility startup entry for legacy D-day migration, paused fail-closed.
+ *
+ * createNote/updateNote publish memory and start persistence but expose no
+ * acknowledgement for the exact legacy row's replacement. A matching Event
+ * Note or syncNoteToDB's generic boolean is not that proof. Until a separately
+ * approved durable migration boundary exists, only read the legacy list:
+ * never create/update Notes, delete originals, count rows as migrated, or
+ * publish completion. The historical global flag is neither read as proof nor
+ * rewritten; even an empty/current-account read cannot complete other accounts.
  */
 export async function migrateLegacyDdays(
-  onMigrated?: (count: number) => void,
+  _onMigrated?: (count: number) => void,
 ): Promise<number> {
-  if (!shouldUseDomainRemotePersistence('planner_ddays')) {
-    return 0;
-  }
-
-  if (typeof localStorage !== 'undefined' && localStorage.getItem(MIGRATION_KEY)) {
-    return 0;
-  }
+  if (!shouldUseDomainRemotePersistence('planner_ddays')) return 0;
 
   try {
-    const res = await authFetch(`${API_URL}/api/schedules/ddays`);
-    if (!res.ok) {
-      if (typeof localStorage !== 'undefined') localStorage.setItem(MIGRATION_KEY, 'done');
-      return 0;
+    const res = await authFetch(API_URL + '/api/schedules/ddays');
+    if (!res.ok) return 0;
+    const rows: unknown = await res.json();
+    if (Array.isArray(rows) && rows.length > 0) {
+      // Fixed diagnostic only: no titles, dates, account ids or row ids.
+      console.warn('legacy_dday_migration_blocked: replacement_durability_unverified; originals retained.');
     }
-
-    const ddays = (await res.json()) as LegacyDdayRow[];
-    if (!Array.isArray(ddays) || ddays.length === 0) {
-      if (typeof localStorage !== 'undefined') localStorage.setItem(MIGRATION_KEY, 'done');
-      return 0;
-    }
-
-    let migrated = 0;
-    const { createNote, updateNote } = useNotesStore.getState();
-
-    for (const dday of ddays) {
-      if (!dday.date || !dday.text?.trim()) continue;
-
-      const currentNotes = useNotesStore.getState().notes;
-      if (!eventNoteExists(currentNotes, dday.date, dday.text)) {
-        const id = createNote({ title: dday.text.trim() });
-        const created = useNotesStore.getState().notes.find(n => n.id === id);
-        if (created) {
-          const withEvent = applyEventToNote(created, {
-            title: dday.text.trim(),
-            eventDate: dday.date,
-          });
-          updateNote(id, {
-            title: withEvent.title,
-            properties: withEvent.properties,
-          });
-        }
-      }
-
-      await authFetch(`${API_URL}/api/schedules/${dday.id}`, { method: 'DELETE' });
-      migrated++;
-    }
-
-    if (typeof localStorage !== 'undefined') localStorage.setItem(MIGRATION_KEY, 'done');
-    if (migrated > 0) onMigrated?.(migrated);
-    return migrated;
+    return 0;
   } catch {
+    // A failed/unknown read is not completion and cannot authorize cleanup.
     return 0;
   }
 }
 
-/** Test helper — reset migration flag. */
+/** Test helper — reset the historical migration flag, not migration authority. */
 export function resetDdayMigrationFlag(): void {
   if (typeof localStorage !== 'undefined') {
     localStorage.removeItem(MIGRATION_KEY);
