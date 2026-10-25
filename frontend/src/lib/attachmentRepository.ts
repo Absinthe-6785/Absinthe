@@ -1,5 +1,6 @@
 import { containsRawBlobData } from './blobPayloadBoundary';
 import type { RemoteBlobProviderType } from './remoteBlobProvider';
+import type { NotesAuthorityRequest } from './notesAccountAuthority';
 
 export const ATTACHMENT_REFERENCE_SCHEME = 'attachment';
 export const ATTACHMENT_REFERENCE_PREFIX = `${ATTACHMENT_REFERENCE_SCHEME}://`;
@@ -68,6 +69,20 @@ export interface AccountScopedAttachmentMetadata extends AttachmentMetadata {
   accountId: string;
 }
 
+/** A snapshot, not a transferable write permit. Currentness is checked at the write boundary. */
+export interface ScopedAttachmentTombstoneInput {
+  readonly accountId: string;
+  readonly noteId: string;
+  readonly request: NotesAuthorityRequest;
+  readonly expected: AccountScopedAttachmentMetadata;
+  readonly isCurrent: () => boolean;
+  readonly deletedAt?: AttachmentTimestamp;
+}
+
+export type ScopedAttachmentTombstoneResult = Readonly<{
+  status: 'TOMBSTONED' | 'DENIED' | 'NOT_STARTED' | 'ABORTED' | 'INDETERMINATE';
+}>;
+
 export function attachmentMetadataAccountId(metadata: AttachmentMetadata): string | null {
   const accountId = (metadata as Partial<AccountScopedAttachmentMetadata>).accountId;
   return typeof accountId === 'string' && accountId.trim() ? accountId.trim() : null;
@@ -112,6 +127,8 @@ export interface BlobStorageAdapter {
 export interface AttachmentRepository {
   listAttachments(): Promise<AttachmentMetadata[]>;
   listAttachmentsForAccount?(accountId: string): Promise<AccountScopedAttachmentMetadata[]>;
+  listAttachmentsForAccountNote?(accountId: string, noteId: string): Promise<AccountScopedAttachmentMetadata[]>;
+  tombstoneAttachmentForAccountNote?(input: ScopedAttachmentTombstoneInput): Promise<ScopedAttachmentTombstoneResult>;
   listAttachmentsForNote(noteId: string): Promise<AttachmentMetadata[]>;
   getAttachment(id: string): Promise<AttachmentMetadata | null>;
   putAttachment(metadata: AttachmentMetadata): Promise<void>;

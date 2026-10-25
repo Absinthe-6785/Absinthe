@@ -23,6 +23,7 @@ export interface K147LocalImageAttachmentAudit {
   notePayloadReferenceOnly: boolean;
   noteUiHasAttachImagePrototype: boolean;
   noteUiUsesLocalAttachmentHelper: boolean;
+  ordinaryPreviewHasScopedAccess: boolean;
   noDataUrlInsertionPaths: boolean;
   noRemoteObjectStoreCalls: boolean;
   k146MetadataBoundaryStillIntact: boolean;
@@ -64,6 +65,11 @@ export function runK147LocalImageAttachmentAudit(): K147LocalImageAttachmentAudi
     noteUiUsesLocalAttachmentHelper:
       noteActions.includes('attachLocalImageToNote') &&
       attachmentPreview.includes('attachLocalImageToNote'),
+    ordinaryPreviewHasScopedAccess:
+      attachmentPreview.includes('observePublishedNotesHydration') &&
+      attachmentPreview.includes('listAttachmentsForAccountNote') &&
+      attachmentPreview.includes('tombstoneAttachmentForAccountNote') &&
+      attachmentPreview.includes('UPLOAD_UNAVAILABLE'),
     noDataUrlInsertionPaths:
       !imageBlock.includes('readAsDataURL') &&
       !noteActions.includes('readAsDataURL') &&

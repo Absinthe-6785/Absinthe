@@ -11,11 +11,12 @@ describe('K-147 local image attachment prototype audit', () => {
     expect(audit.notePayloadReferenceOnly).toBe(true);
   });
 
-  it('wires the Notes prototype through the local attachment helper', () => {
+  it('keeps ordinary scoped access separate from the unproven upload helper', () => {
     const audit = runK147LocalImageAttachmentAudit();
 
     expect(audit.noteUiHasAttachImagePrototype).toBe(true);
-    expect(audit.noteUiUsesLocalAttachmentHelper).toBe(true);
+    expect(audit.noteUiUsesLocalAttachmentHelper).toBe(false);
+    expect(audit.ordinaryPreviewHasScopedAccess).toBe(true);
     expect(audit.noDataUrlInsertionPaths).toBe(true);
   });
 

@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react';
+import { useLayoutEffect, useRef, useState, type ChangeEvent } from 'react';
 import { Image as ImageIcon, X } from 'lucide-react';
 import type { NoteChromeColors } from '../noteEditorTheme';
 import type { NoteBase as Note } from '../noteUtils';
-import type { AttachmentMetadata } from '../../../lib/attachmentRepository';
+import { attachmentMetadataAccountId, isAttachmentReference, type AccountScopedAttachmentMetadata } from '../../../lib/attachmentRepository';
 import { createLocalAttachmentBlobAdapter } from '../../../lib/attachmentBlobIndexedDb';
 import { createLocalAttachmentMetadataRepository } from '../../../lib/attachmentMetadataIndexedDb';
-import { attachLocalImageToNote } from '../../../lib/localImageAttachments';
-import { getActiveNotesAuthorityAccountId } from '../../../lib/notesAccountAuthority';
+import { localAttachmentBlobKey } from '../../../lib/localImageAttachments';
+import type { NotesAuthorityRequest } from '../../../lib/notesAccountAuthority';
+import { observePublishedNotesHydration, useNotesStore } from '../../../store/useNotesStore';
 import {
   isReturnToUseAttachmentIsolationEnabled,
   RETURN_TO_USE_ATTACHMENT_ISOLATION_MESSAGE,
@@ -16,9 +17,38 @@ const metadataRepository = createLocalAttachmentMetadataRepository();
 const blobAdapter = createLocalAttachmentBlobAdapter();
 
 interface AttachmentPreview {
-  metadata: AttachmentMetadata;
+  metadata: AccountScopedAttachmentMetadata;
   objectUrl: string | null;
   unavailable: boolean;
+}
+
+interface AttachmentSession {
+  request: NotesAuthorityRequest;
+  note: Note;
+  live: boolean;
+  urls: Set<string>;
+  busy: boolean;
+  uncertain: boolean;
+}
+
+const UPLOAD_UNAVAILABLE = 'Image upload is unavailable until account-scoped write safety is verified.';
+
+function isCurrent(session: AttachmentSession): boolean {
+  const observation = observePublishedNotesHydration();
+  return session.live && observation.status === 'CURRENT' && observation.request === session.request
+    && !session.note.deletedAt && useNotesStore.getState().notes.includes(session.note);
+}
+
+function isScopedLocalImage(item: AccountScopedAttachmentMetadata, session: AttachmentSession): boolean {
+  return attachmentMetadataAccountId(item) === session.request.accountId && item.accountId === session.request.accountId
+    && item.noteId === session.note.id && !item.deletedAt && item.mimeType.startsWith('image/')
+    && item.source === 'local' && isAttachmentReference(`attachment://${item.id}`)
+    && item.localBlobKey === localAttachmentBlobKey(session.request.accountId, item.id);
+}
+
+function revokeSessionUrls(session: AttachmentSession): void {
+  for (const url of session.urls) blobAdapter.revokeObjectUrl?.(url);
+  session.urls.clear();
 }
 
 export interface NoteImageAttachmentsProps {
@@ -34,78 +64,108 @@ function formatBytes(bytes: number): string {
   return `${Math.round(bytes / 1024 / 102.4) / 10} MB`;
 }
 
-export function NoteImageAttachments({ note, colors: c, readOnly, onUpdateBody }: NoteImageAttachmentsProps) {
+export function NoteImageAttachments({ note, colors: c, readOnly }: NoteImageAttachmentsProps) {
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const objectUrlsRef = useRef<string[]>([]);
-  const [attachments, setAttachments] = useState<AttachmentPreview[]>([]);
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
+  const sessionRef = useRef<AttachmentSession | null>(null);
+  const [reload, setReload] = useState(0);
+  const [view, setView] = useState<{ owner: AttachmentSession | null; previews: AttachmentPreview[]; error: string }>({
+    owner: null, previews: [], error: '',
+  });
+  // A Store publication, not a matching noteId, owns this exact displayed Note.
+  const store = useNotesStore();
+  const observation = observePublishedNotesHydration();
+  const request = observation.status === 'CURRENT' && store.notes.includes(note) && !note.deletedAt
+    ? observation.request : null;
   const attachmentIsolationEnabled = isReturnToUseAttachmentIsolationEnabled();
+  const owns = (owner: AttachmentSession): boolean => sessionRef.current === owner && isCurrent(owner);
 
-  const revokeLoadedUrls = useCallback(() => {
-    for (const url of objectUrlsRef.current) {
-      blobAdapter.revokeObjectUrl?.(url);
-    }
-    objectUrlsRef.current = [];
-  }, []);
+  useLayoutEffect(() => {
+    if (!request) return;
+    const owner: AttachmentSession = { request, note, live: true, urls: new Set(), busy: false, uncertain: false };
+    sessionRef.current = owner;
+    let loading = true;
+    const current = () => loading && sessionRef.current === owner && isCurrent(owner);
+    setView({ owner, previews: [], error: '' });
+    void (async () => {
+      try {
+        if (!current() || !metadataRepository.listAttachmentsForAccountNote) return;
+        const records = await metadataRepository.listAttachmentsForAccountNote(request.accountId, note.id);
+        if (!current()) return;
+        const metadata = records.filter(item => isScopedLocalImage(item, owner));
+        const previews = await Promise.all(metadata.map(async item => {
+          if (!current()) return null;
+          const objectUrl = await blobAdapter.getObjectUrl(item.localBlobKey!);
+          if (!current()) {
+            if (objectUrl) blobAdapter.revokeObjectUrl?.(objectUrl);
+            return null;
+          }
+          if (objectUrl) owner.urls.add(objectUrl);
+          return { metadata: item, objectUrl, unavailable: !objectUrl };
+        }));
+        if (current()) setView({ owner, previews: previews.filter((item): item is AttachmentPreview => item !== null), error: '' });
+        else revokeSessionUrls(owner);
+      } catch {
+        revokeSessionUrls(owner);
+        if (current()) {
+          setView({ owner, previews: [], error: 'Image attachments could not be loaded.' });
+        }
+      } finally { loading = false; }
+    })();
+    return () => {
+      loading = false;
+      owner.live = false;
+      if (sessionRef.current === owner) sessionRef.current = null;
+      revokeSessionUrls(owner);
+    };
+  }, [note, request, reload]);
 
-  const loadAttachments = useCallback(async () => {
-    revokeLoadedUrls();
-    const metadata = (await metadataRepository.listAttachmentsForNote(note.id))
-      .filter(item => !item.deletedAt && item.mimeType.startsWith('image/'));
-    const previews = await Promise.all(metadata.map(async item => {
-      const objectUrl = item.localBlobKey ? await blobAdapter.getObjectUrl(item.localBlobKey) : null;
-      if (objectUrl) objectUrlsRef.current.push(objectUrl);
-      return { metadata: item, objectUrl, unavailable: !objectUrl };
-    }));
-    setAttachments(previews);
-  }, [note.body, note.id, revokeLoadedUrls]);
-
-  useEffect(() => {
-    void loadAttachments();
-    return revokeLoadedUrls;
-  }, [loadAttachments, revokeLoadedUrls]);
-
-  const attachFile = useCallback(async (file: File) => {
-    if (isReturnToUseAttachmentIsolationEnabled()) {
-      setError(RETURN_TO_USE_ATTACHMENT_ISOLATION_MESSAGE);
-      return;
-    }
-    setBusy(true);
-    setError('');
-    try {
-      const result = await attachLocalImageToNote({
-        accountId: getActiveNotesAuthorityAccountId() ?? '',
-        noteId: note.id,
-        file,
-        currentBody: note.body,
-        repository: metadataRepository,
-        blobAdapter,
-      });
-      onUpdateBody(result.body);
-      await loadAttachments();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Image attachment failed');
-    } finally {
-      setBusy(false);
-    }
-  }, [loadAttachments, note.body, note.id, onUpdateBody]);
-
-  const handleFileChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
+  const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     event.target.value = '';
-    if (file) void attachFile(file);
-  }, [attachFile]);
+    const owner = sessionRef.current;
+    // The existing upload helper has unguarded async writes. Never invoke it here.
+    if (!readOnly && owner && owns(owner)) setView(previous => ({ ...previous, owner,
+      error: isReturnToUseAttachmentIsolationEnabled() ? RETURN_TO_USE_ATTACHMENT_ISOLATION_MESSAGE : UPLOAD_UNAVAILABLE,
+    }));
+  };
 
-  const handleRemove = useCallback(async (id: string) => {
+  const handleRemove = async (owner: AttachmentSession, metadata: AccountScopedAttachmentMetadata) => {
+    if (readOnly || !owns(owner) || owner.busy || owner.uncertain || !isScopedLocalImage(metadata, owner)) return;
     if (isReturnToUseAttachmentIsolationEnabled()) {
-      setError(RETURN_TO_USE_ATTACHMENT_ISOLATION_MESSAGE);
+      setView(previous => ({ ...previous, error: RETURN_TO_USE_ATTACHMENT_ISOLATION_MESSAGE }));
       return;
     }
-    const deletedAt = new Date().toISOString();
-    await metadataRepository.tombstoneAttachment(id, deletedAt);
-    await loadAttachments();
-  }, [loadAttachments]);
+    if (!metadataRepository.tombstoneAttachmentForAccountNote) return;
+    owner.busy = true;
+    setView(previous => ({ ...previous, error: '' }));
+    try {
+      const result = await metadataRepository.tombstoneAttachmentForAccountNote({
+        accountId: owner.request.accountId, noteId: owner.note.id, request: owner.request, expected: metadata,
+        isCurrent: () => owns(owner) && !isReturnToUseAttachmentIsolationEnabled(),
+      });
+      if (!owns(owner)) return;
+      owner.busy = false;
+      if (result.status === 'TOMBSTONED') {
+        revokeSessionUrls(owner);
+        setView({ owner, previews: [], error: '' });
+        setReload(value => value + 1);
+      } else {
+        owner.uncertain = result.status === 'INDETERMINATE';
+        setView(previous => ({ ...previous, error: owner.uncertain
+          ? 'Image removal outcome is uncertain. Do not retry automatically.' : 'Image removal was not completed.' }));
+      }
+    } catch {
+      if (!owns(owner)) return;
+      owner.busy = false;
+      owner.uncertain = true;
+      setView(previous => ({ ...previous, error: 'Image removal outcome is uncertain. Do not retry automatically.' }));
+    }
+  };
+
+  const visible = view.owner !== null && view.owner.note === note && view.owner.request === request && owns(view.owner);
+  const attachments = visible ? view.previews : [];
+  const error = visible ? view.error : '';
+  const busy = visible && view.owner?.busy;
+  if (!request) return null;
 
   if (readOnly && attachments.length === 0) return null;
 
@@ -138,8 +198,8 @@ export function NoteImageAttachments({ note, colors: c, readOnly, onUpdateBody }
             type="button"
             className="btbtn"
             onClick={() => inputRef.current?.click()}
-            disabled={busy || attachmentIsolationEnabled}
-            title={attachmentIsolationEnabled ? RETURN_TO_USE_ATTACHMENT_ISOLATION_MESSAGE : 'Attach image'}
+            disabled
+            title={attachmentIsolationEnabled ? RETURN_TO_USE_ATTACHMENT_ISOLATION_MESSAGE : UPLOAD_UNAVAILABLE}
             style={{
               minHeight: 30,
               padding: '0 10px',
@@ -202,8 +262,8 @@ export function NoteImageAttachments({ note, colors: c, readOnly, onUpdateBody }
                   <button
                     type="button"
                     className="btbtn"
-                    onClick={() => void handleRemove(metadata.id)}
-                    disabled={attachmentIsolationEnabled}
+                    onClick={() => { if (view.owner) void handleRemove(view.owner, metadata); }}
+                    disabled={attachmentIsolationEnabled || !!busy || !!view.owner?.uncertain}
                     title={attachmentIsolationEnabled ? RETURN_TO_USE_ATTACHMENT_ISOLATION_MESSAGE : 'Remove image'}
                     style={{ width: 28, height: 28, color: c.textMuted, flexShrink: 0 }}
                   >

@@ -5,7 +5,10 @@ import {
   type AttachmentMetadata,
   type AttachmentRepository,
   type AttachmentTimestamp,
+  type ScopedAttachmentTombstoneInput,
+  type ScopedAttachmentTombstoneResult,
 } from './attachmentRepository';
+import { getActiveNotesAuthorityRequest, isNotesAuthorityRequestActive } from './notesAccountAuthority';
 
 export const ATTACHMENT_METADATA_DB_NAME = 'absinthe.attachments.metadata';
 export const ATTACHMENT_METADATA_STORE = 'metadata';
@@ -121,7 +124,117 @@ async function writeMetadata(db: IDBDatabase, metadata: AttachmentMetadata): Pro
   });
 }
 
+/** Compare all normalized metadata fields, including nested remote verification data. */
+function metadataSnapshot(metadata: AttachmentMetadata): string {
+  const seen = new WeakSet<object>();
+  const data = (value: unknown): unknown => {
+    if (value === undefined) return ['undefined'];
+    if (value === null) return ['null'];
+    if (typeof value === 'string' || typeof value === 'boolean') return [typeof value, value];
+    if (typeof value === 'number' && Number.isFinite(value)) return ['number', Object.is(value, -0) ? '-0' : value];
+    if (!value || typeof value !== 'object' || seen.has(value)) throw new Error('Unsupported metadata snapshot');
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null && prototype !== Array.prototype) throw new Error('Unsupported metadata shape');
+    seen.add(value);
+    const entries = Reflect.ownKeys(value).map(key => {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (typeof key !== 'string' || !descriptor || !('value' in descriptor)) throw new Error('Unsupported metadata slot');
+      return [key, data(descriptor.value)];
+    }).sort(([a], [b]) => String(a).localeCompare(String(b)));
+    seen.delete(value);
+    return [Array.isArray(value) ? 'array' : 'record', entries];
+  };
+  return JSON.stringify(data(metadata));
+}
+
 export class LocalAttachmentMetadataRepository implements AttachmentRepository {
+  async listAttachmentsForAccountNote(accountId: string, noteId: string): Promise<AccountScopedAttachmentMetadata[]> {
+    if (!accountId || accountId !== accountId.trim() || !noteId || noteId !== noteId.trim()) return [];
+    const db = await openAttachmentMetadataDb();
+    try {
+      return await new Promise((resolve, reject) => {
+        const tx = db.transaction(ATTACHMENT_METADATA_STORE, 'readonly');
+        const request = tx.objectStore(ATTACHMENT_METADATA_STORE).index('accountId').getAll(accountId);
+        request.onerror = () => reject(request.error ?? new Error('Attachment metadata scoped read failed'));
+        request.onsuccess = () => resolve((Array.isArray(request.result) ? request.result : [])
+          .filter((item: Partial<AccountScopedAttachmentMetadata>) => item.accountId === accountId && item.noteId === noteId)
+          .map(normalizeRecord)
+          .filter((item): item is AccountScopedAttachmentMetadata => item !== null)
+          .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
+      });
+    } finally { db.close(); }
+  }
+
+  async tombstoneAttachmentForAccountNote(input: ScopedAttachmentTombstoneInput): Promise<ScopedAttachmentTombstoneResult> {
+    const result = (status: ScopedAttachmentTombstoneResult['status']): ScopedAttachmentTombstoneResult => Object.freeze({ status });
+    const request = input.request;
+    const checkCurrent = input.isCurrent;
+    const current = (): boolean => {
+      try {
+        return getActiveNotesAuthorityRequest() === request && request.accountId === input.accountId
+          && isNotesAuthorityRequestActive(request) && checkCurrent() === true
+          && getActiveNotesAuthorityRequest() === request && isNotesAuthorityRequestActive(request);
+      } catch { return false; }
+    };
+    // Copy before the first await: callers cannot change the compared snapshot in flight.
+    let expected: AccountScopedAttachmentMetadata;
+    let fingerprint: string;
+    const { accountId, noteId } = input;
+    const deletedAt = input.deletedAt ?? new Date().toISOString();
+    try {
+      expected = normalizeAttachmentMetadata(structuredClone(input.expected)) as AccountScopedAttachmentMetadata;
+      fingerprint = metadataSnapshot(expected);
+      if (!accountId || accountId !== accountId.trim() || !noteId || noteId !== noteId.trim()
+        || expected.accountId !== accountId || expected.noteId !== noteId || expected.deletedAt
+        || !deletedAt.trim() || !current()) return result('DENIED');
+    } catch { return result('DENIED'); }
+    let db: IDBDatabase;
+    try { db = await openAttachmentMetadataDb(); } catch { return result('NOT_STARTED'); }
+    try {
+      if (!current()) return result('DENIED');
+      return await new Promise<ScopedAttachmentTombstoneResult>(resolve => {
+        let tx: IDBTransaction;
+        try { tx = db.transaction(ATTACHMENT_METADATA_STORE, 'readwrite'); }
+        catch { resolve(result('NOT_STARTED')); return; }
+        let settled = false;
+        let putIssued = false;
+        const finish = (status: ScopedAttachmentTombstoneResult['status']) => {
+          if (!settled) { settled = true; resolve(result(status)); }
+        };
+        // Install before requests. Only actual terminal events establish commit/abort.
+        tx.addEventListener('complete', () => finish(putIssued ? 'TOMBSTONED' : 'DENIED'));
+        tx.addEventListener('abort', () => finish('ABORTED'));
+        tx.addEventListener('error', () => finish('INDETERMINATE'));
+        const abort = () => {
+          try { tx.abort(); } catch { finish('INDETERMINATE'); }
+        };
+        try {
+          const store = tx.objectStore(ATTACHMENT_METADATA_STORE);
+          const lookup = store.get(expected.id);
+          lookup.addEventListener('error', () => finish('INDETERMINATE'));
+          lookup.addEventListener('success', () => {
+            if (settled) return;
+            try {
+              const raw = lookup.result as Partial<AccountScopedAttachmentMetadata> | undefined;
+              const record = normalizeRecord(raw);
+              if (!raw || raw.accountId !== accountId || raw.noteId !== noteId || raw.id !== expected.id
+                || !record || (record as AccountScopedAttachmentMetadata).accountId !== accountId
+                || record.noteId !== noteId || record.id !== expected.id || record.deletedAt
+                || metadataSnapshot(record) !== fingerprint || !current()) return;
+              // No await between read, exact-record check, final authority check and put.
+              const write = store.put({ ...record, deletedAt, updatedAt: deletedAt, syncStatus: 'deleted' });
+              putIssued = true;
+              write.addEventListener('error', () => finish('INDETERMINATE'));
+            } catch { abort(); }
+          });
+        } catch { abort(); }
+      });
+    } finally {
+      // close() is not abort proof; queued authorized work may still commit.
+      db.close();
+    }
+  }
+
   async listAttachments(): Promise<AttachmentMetadata[]> {
     const db = await openAttachmentMetadataDb();
     try {
