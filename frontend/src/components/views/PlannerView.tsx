@@ -183,9 +183,9 @@ export const PlannerView = ({
 
   const openScheduleDetail = useCallback((id: string) => {
     const sch = schedules.find(s => s.id === id) ?? prevSchedules.find(s => s.id === id);
-    if (sch) recordPlannerActivity('schedule', id, sch.text);
+    if (sch) recordPlannerActivity(accountId, 'schedule', id, sch.text);
     setScheduleDetailId(id);
-  }, [schedules, prevSchedules]);
+  }, [accountId, schedules, prevSchedules]);
 
   useEffect(() => {
     return registerSearchDomainHandlers({

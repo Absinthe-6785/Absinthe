@@ -7,6 +7,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { accountBoundRemoteFetcher, accountBoundRemoteKey } from '../../lib/accountBoundRemote';
 import { HomeView } from './HomeView';
+import { PlannerView } from './PlannerView';
+import { switchToTab } from '../../lib/noteNavigation';
+import {
+  PLANNER_ACTIVITY_KEY,
+  readPlannerActivityRecents,
+  recordPlannerActivity,
+} from './features/planner/plannerActivityStorage';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -17,6 +24,7 @@ const harness = vi.hoisted(() => ({
   requests: [] as PlannerRequest[],
   notesState: { notes: [], folders: [], vaultStructureVersion: 0 },
   recipeRecents: {} as Record<string, Array<{ recipeId: string; title: string; at: number }>>,
+  apiMutation: vi.fn(),
 }));
 
 vi.mock('../../lib/config', () => ({ API_URL: 'https://example.invalid' }));
@@ -103,12 +111,29 @@ vi.mock('../../store/useNotesStore', () => {
 vi.mock('../common/WorkspaceErrorBoundary', () => ({ WorkspaceErrorBoundary: ({ children }: { children: unknown }) => children }));
 vi.mock('../common/WorkspacePageHeader', () => ({ WorkspacePageHeader: () => null }));
 vi.mock('../common/ProductEmptyState', () => ({ ProductEmptyState: () => null }));
+vi.mock('../../hooks/useApiMutation', () => ({ useApiMutation: () => ({ mutate: harness.apiMutation }) }));
+vi.mock('./features/planner/calendar-ui', () => ({
+  CalendarShell: ({ dayScheduleActions, schedules }: {
+    dayScheduleActions: { onView: (id: string) => void };
+    schedules: Array<{ id: string }>;
+  }) => createElement('button', {
+    'data-open-planner-activity': true,
+    onClick: () => dayScheduleActions.onView(schedules[0].id),
+  }, 'Open schedule'),
+}));
 vi.mock('../../lib/noteNavigation', () => ({ openNote: vi.fn(), switchToTab: vi.fn() }));
 vi.mock('./buildRecentActivityProjection', () => ({
-  buildRecentActivityProjection: ({ recipeRecents }: { recipeRecents: Array<{ recipeId: string; title: string; at: number }> }) => ({
+  buildRecentActivityProjection: ({ recipeRecents, plannerRecents }: {
+    recipeRecents: Array<{ recipeId: string; title: string; at: number }>;
+    plannerRecents: Array<{ kind: string; itemId: string; title: string; at: number }>;
+  }) => ({
     groups: [{
       bucket: 'today',
-      items: recipeRecents.map(entry => ({
+      items: [...plannerRecents.map(entry => ({
+        id: `planner:${entry.kind}:${entry.itemId}`,
+        domain: 'planner', kind: entry.kind, title: entry.title,
+        timestamp: entry.at, relativeLabel: 'now', plannerItemId: entry.itemId,
+      })), ...recipeRecents.map(entry => ({
         id: `recipe:${entry.recipeId}`,
         domain: 'recipe',
         kind: 'viewed',
@@ -116,12 +141,11 @@ vi.mock('./buildRecentActivityProjection', () => ({
         timestamp: entry.at,
         relativeLabel: 'now',
         recipeId: entry.recipeId,
-      })),
+      }))],
     }],
   }),
 }));
 vi.mock('./k102RelativeDateLabels', () => ({ buildRelativeDateLabels: () => ({}) }));
-vi.mock('./features/planner/plannerActivityStorage', () => ({ readPlannerActivityRecents: () => [] }));
 vi.mock('./features/recipe/recipeActivityStorage', () => ({
   readRecipeViewRecents: (accountId?: string) => harness.recipeRecents[accountId ?? ''] ?? [],
 }));
@@ -232,6 +256,8 @@ describe('Planner/Home account-bound production paths', () => {
   let host: HTMLDivElement | null = null;
 
   beforeEach(() => {
+    localStorage.clear();
+    vi.clearAllMocks();
     harness.account = 'account-a';
     harness.requests.length = 0;
     harness.recipeRecents = {
@@ -247,6 +273,7 @@ describe('Planner/Home account-bound production paths', () => {
     host?.remove();
     root = null;
     host = null;
+    localStorage.clear();
   });
 
   it('keeps direct D-Day and Home Planner data isolated across authenticated A -> B', async () => {
@@ -327,5 +354,71 @@ describe('Planner/Home account-bound production paths', () => {
     await flush();
     expect(host?.textContent ?? '').toContain('Account B recipe');
     expect(host?.textContent ?? '').not.toContain('Account A recipe');
+  });
+
+  it('uses real Planner storage in Home across A -> B -> A and preserves current-account navigation', async () => {
+    const legacy = JSON.stringify([{ kind: 'schedule', itemId: 'old', title: 'Legacy private event', at: Date.now() }]);
+    localStorage.setItem(PLANNER_ACTIVITY_KEY, legacy);
+    recordPlannerActivity('account-a', 'schedule', 'same-id', 'Planner A private event');
+    recordPlannerActivity('account-b', 'schedule', 'same-id', 'Planner B private event');
+    const cache = new Map<unknown, unknown>();
+    root = createRoot(host!);
+    await act(async () => renderProbe(root!, cache, { active: true, account: 'account-a' }));
+    await flush();
+    expect(host!.textContent).toContain('Planner A private event');
+    expect(host!.textContent).not.toContain('Planner B private event');
+    expect(host!.textContent).not.toContain('Legacy private event');
+    const requestsBeforeNavigation = harness.requests.length;
+    const trace = Array.from(host!.querySelectorAll('button')).find(button => button.textContent?.includes('Planner A private event'));
+    expect(trace).toBeDefined();
+    act(() => trace!.click());
+    expect(switchToTab).toHaveBeenCalledWith('planner');
+    expect(harness.requests).toHaveLength(requestsBeforeNavigation);
+
+    await act(async () => renderProbe(root!, cache, { active: true, account: 'account-b' }));
+    expect(host!.textContent).not.toContain('Planner A private event');
+    expect(host!.textContent).toContain('Planner B private event');
+    await flush();
+    await act(async () => renderProbe(root!, cache, { active: true, account: 'account-a' }));
+    expect(host!.textContent).toContain('Planner A private event');
+    expect(host!.textContent).not.toContain('Planner B private event');
+    expect(host!.textContent).not.toContain('Legacy private event');
+    expect(localStorage.getItem(PLANNER_ACTIVITY_KEY)).toBe(legacy);
+    expect(readPlannerActivityRecents('account-a')).toHaveLength(1);
+    expect(readPlannerActivityRecents('account-b')).toHaveLength(1);
+  });
+
+  it('records actual Planner detail opens under the current account, even when schedule props are unchanged', async () => {
+    const cache = new Map<unknown, unknown>();
+    const selectedDate = new Date(2026, 7, 18);
+    const schedules = [{ id: 'same-id', text: 'Event title', start_time: '10:00', end_time: '11:00', is_dday: false }];
+    root = createRoot(host!);
+    const renderPlanner = async (account?: string) => {
+      harness.account = account ?? '';
+      await act(async () => root!.render(createElement(SWRConfig, {
+        value: { provider: () => cache, revalidateOnFocus: false },
+      }, createElement(PlannerView, {
+        now: DateTime.fromISO('2026-08-18T12:00:00'), currentDate: selectedDate, selectedDate,
+        setCurrentDate: vi.fn(), setSelectedDate: vi.fn(), formatDate: () => '2026-08-18',
+        isToday: true, showToast: vi.fn(), mutateDaily: vi.fn(), mutateStatic: vi.fn(), mutateRoutines: vi.fn(),
+        appSettings: { darkMode: false, language: 'en' }, schedules, todos: [], routines: [], weeklySchedules: [],
+        theme: { card: '', input: '', border: '', textMuted: '', hoverBg: '' }, THEME_COLORS: {},
+        user: account ? { id: account } : undefined,
+      } as any))));
+      act(() => (host!.querySelector('[data-open-planner-activity]') as HTMLButtonElement).click());
+    };
+    await renderPlanner('account-a');
+    expect(readPlannerActivityRecents('account-a')).toEqual([
+      expect.objectContaining({ kind: 'schedule', itemId: 'same-id', title: 'Event title' }),
+    ]);
+    await renderPlanner('account-b');
+    expect(readPlannerActivityRecents('account-b')).toEqual([
+      expect.objectContaining({ kind: 'schedule', itemId: 'same-id', title: 'Event title' }),
+    ]);
+    await renderPlanner();
+    expect(readPlannerActivityRecents(undefined)).toEqual([]);
+    expect(readPlannerActivityRecents('account-a')).toHaveLength(1);
+    expect(readPlannerActivityRecents('account-b')).toHaveLength(1);
+    expect(harness.apiMutation).not.toHaveBeenCalled();
   });
 });

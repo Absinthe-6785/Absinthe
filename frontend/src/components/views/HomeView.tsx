@@ -224,7 +224,7 @@ export const HomeView = ({
 
   const recentActivity = useMemo(() => buildRecentActivityProjection({
     notes: useNotesStore.getState().notes,
-    plannerRecents: readPlannerActivityRecents(),
+    plannerRecents: readPlannerActivityRecents(user.id),
     recipeRecents: readRecipeViewRecents(user.id),
     archiveRestoreRecents: readArchiveRestoreRecents(),
     labels: buildRelativeDateLabels(t),
