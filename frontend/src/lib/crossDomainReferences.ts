@@ -14,10 +14,6 @@ export function findNoteByTitle(title: string): string | null {
   return exact?.id ?? null;
 }
 
-export function recipeCookingNoteTitle(recipeTitle: string): string {
-  return recipeTitle.trim();
-}
-
 export interface OpenRelatedNoteOptions {
   noteId?: string;
   title?: string;
@@ -32,29 +28,5 @@ export function openRelatedNote(options: OpenRelatedNoteOptions): boolean {
   const openOpts: OpenNoteOptions = { returnTab: options.returnTab };
   if (options.breadcrumb?.length) openOpts.breadcrumb = options.breadcrumb;
   openNote(noteId, openOpts);
-  return true;
-}
-
-export function openRecipeCookingNote(
-  recipeTitle: string,
-  createNote: () => string,
-  updateNote: (id: string, patch: { title: string }) => void,
-  breadcrumb?: readonly NoteBreadcrumbSegment[],
-): boolean {
-  const title = recipeCookingNoteTitle(recipeTitle);
-  if (!title) return false;
-  const existingId = findNoteByTitle(title);
-  const noteId = existingId ?? (() => {
-    const id = createNote();
-    updateNote(id, { title });
-    return id;
-  })();
-  openNote(noteId, {
-    returnTab: 'recipe',
-    breadcrumb: breadcrumb ?? [
-      { type: 'key', key: 'recipe' },
-      { type: 'key', key: 'k113OpenCookingNote' },
-    ],
-  });
   return true;
 }

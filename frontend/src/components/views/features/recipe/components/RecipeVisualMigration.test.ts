@@ -204,7 +204,6 @@ describe('VIS-08 Recipe visual migration', () => {
       trashValidating: false,
       onRetryTrash: () => undefined,
       onRestore: () => undefined,
-      onMarkCooked: () => undefined,
       onNewRecipe: () => undefined,
       onScrollToRecipe: () => undefined,
     };

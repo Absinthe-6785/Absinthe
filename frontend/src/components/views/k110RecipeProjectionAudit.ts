@@ -37,7 +37,6 @@ export function auditRecipeProjectionConsumers(): readonly string[] {
     'RecipeStudioView.tsx',
     'RecipeHomeSection.tsx',
     'RecipeIngredientsSection.tsx',
-    'RecipeHistorySection.tsx',
     'RecipeCollectionsSection.tsx',
   ];
 }

@@ -15,7 +15,6 @@ export const K110_MOBILE_HOOKS = [
   'data-k110-recipe-card',
   'data-k110-ingredient-explorer',
   'data-k110-collection-list',
-  'data-k110-history-list',
 ] as const;
 
 export function auditRecipeMobileSections(): readonly string[] {

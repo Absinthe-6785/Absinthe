@@ -7,7 +7,6 @@ export const K113_NAVIGATION_ACTIONS = [
   { source: 'search', domain: 'archive', labelKey: 'k113OpenArchiveItem', handler: 'searchNavigation+switchToTab' },
   { source: 'archive', domain: 'notes', labelKey: 'k113OpenInNotes', handler: 'openNote' },
   { source: 'planner', domain: 'notes', labelKey: 'k113OpenRelatedNote', handler: 'crossDomainReferences' },
-  { source: 'recipe', domain: 'notes', labelKey: 'k113OpenCookingNote', handler: 'crossDomainReferences' },
   { source: 'health', domain: 'notes', labelKey: 'k113OpenWorkoutNote', handler: 'openHealthDayNote' },
 ] as const;
 

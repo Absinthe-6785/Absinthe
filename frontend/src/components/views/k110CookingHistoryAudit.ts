@@ -1,18 +1,16 @@
-/** K-110 — Cooking history audit. */
-export const K110_HISTORY_BUCKETS = ['today', 'yesterday', 'earlier'] as const;
+import {
+  RECIPE_COOK_HISTORY_KEY,
+  RECIPE_EDIT_RECENTS_KEY,
+  RECIPE_VIEW_RECENTS_KEY,
+} from './features/recipe/recipeActivityStorage';
 
-export const K110_HISTORY_HOOKS = [
-  'data-k110-history-list',
-  'data-k110-history-group',
-  'data-k110-history-row',
-] as const;
-
-export const K110_HISTORY_FIELDS = [
-  'lastCooked',
-  'frequency',
-  'lastEdit',
+/** Legacy activity storage keys remain reserved for existing history consumers. */
+export const K110_PRESERVED_ACTIVITY_STORAGE_KEYS = [
+  RECIPE_VIEW_RECENTS_KEY,
+  RECIPE_COOK_HISTORY_KEY,
+  RECIPE_EDIT_RECENTS_KEY,
 ] as const;
 
 export function auditCookingHistory(): readonly string[] {
-  return [...K110_HISTORY_BUCKETS, ...K110_HISTORY_HOOKS, ...K110_HISTORY_FIELDS];
+  return K110_PRESERVED_ACTIVITY_STORAGE_KEYS;
 }

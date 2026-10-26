@@ -7,7 +7,6 @@ export const K113_SURFACE_ROW_HOOKS = [
 
 export const K113_TOUCH_TARGET_HOOKS = [
   'data-k113-open-related-note',
-  'data-k113-open-cooking-note',
   'data-k113-open-workout-note',
   'data-k113-open-in-notes',
 ] as const;
