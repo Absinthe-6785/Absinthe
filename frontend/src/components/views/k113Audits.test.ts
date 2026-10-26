@@ -18,7 +18,7 @@ describe('k113 audits', () => {
   it('recent activity buckets and domains', () => {
     expect(auditRecentActivity()).toContain('today');
     expect(auditRecentActivity()).toContain('planner');
-    expect(auditRecentActivity()).toContain('data-k113-recent-activity');
+    expect(auditRecentActivity()).toContain('buildRecentActivityProjection');
   });
 
   it('unified relative date buckets', () => {

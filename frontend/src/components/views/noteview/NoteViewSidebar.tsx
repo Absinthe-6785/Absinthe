@@ -10,13 +10,7 @@ import { WorkspaceSectionNav } from '../../common/WorkspaceSectionNav';
 import { WorkspacePageHeader } from '../../common/WorkspacePageHeader';
 import { displayNoteTitle } from '../noteDisplayTitle';
 import { estimateDeletedNoteBytes, formatRecoverableStorage } from '../../../lib/trashNoteStorage';
-import { openWorkspaceSearch, switchToTab } from '../../../lib/noteNavigation';
-import { buildRecentActivityProjection } from '../buildRecentActivityProjection';
-import { buildRelativeDateLabels } from '../k102RelativeDateLabels';
-import { readPlannerActivityRecents } from '../features/planner/plannerActivityStorage';
-import { readRecipeViewRecents } from '../features/recipe/recipeActivityStorage';
-import { readArchiveRestoreRecents } from '../features/knowledge/archive/archiveRestoreRecents';
-import type { RecentActivityItem } from '../buildRecentActivityProjection';
+import { openWorkspaceSearch } from '../../../lib/noteNavigation';
 import {
   formatTraceDayHeading,
   formatAreaRangeHeading,
@@ -348,14 +342,6 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
     return toDateKey(d);
   }, [todayTraceKey]);
   const weekTraceBounds = useMemo(() => isoWeekBounds(todayTraceKey), [todayTraceKey]);
-  const crossDomainActivity = useMemo(() => buildRecentActivityProjection({
-    notes: activeNotes,
-    plannerRecents: readPlannerActivityRecents(),
-    recipeRecents: readRecipeViewRecents(accountId),
-    archiveRestoreRecents: readArchiveRestoreRecents(),
-    labels: buildRelativeDateLabels(t),
-    locale: lang,
-  }), [accountId, activeNotes, t, lang]);
   const isTraceWeekMode = isTraceRangeMode
     && traceRange?.kind === 'custom'
     && weekTraceBounds
@@ -404,23 +390,6 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
     handleUpdateNoteProperties, handleNavigateToProjectEditor, setEditingLearningPathId,
     resumeWorkspace, handleEmptyTrash,
   } = handlers;
-
-  const handleCrossDomainActivityNavigate = (item: RecentActivityItem) => {
-    if (item.domain === 'notes' || item.domain === 'archive') {
-      if (item.noteId) {
-        handleLeaveDashboardForNote(item.noteId);
-        setActiveNoteId(item.noteId);
-      }
-      return;
-    }
-    if (item.domain === 'planner') {
-      switchToTab('planner');
-      return;
-    }
-    if (item.domain === 'recipe') {
-      switchToTab('recipe');
-    }
-  };
 
   return (
     <>
@@ -1280,8 +1249,6 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
               handleLeaveDashboardForNote(noteId);
               setActiveNoteId(noteId);
             }}
-            crossDomainActivity={crossDomainActivity}
-            onCrossDomainActivityNavigate={handleCrossDomainActivityNavigate}
             signalPanel={<NotesOverviewSignalPanelContainer />}
             quickActions={{
               onNewNote: () => createNote(),
