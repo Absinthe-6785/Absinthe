@@ -807,21 +807,21 @@ describe('R02 expanded isolated exact-main MD differential pairs', () => {
     const { runCandidateStateFault } = await import('../../../test-support/healthWorkoutExactMain');
     const direct = await runCandidateStateFault(
       'src/components/views/healthWorkoutDateLifetimeDraftHydration.integration.test.ts',
-      'R02_PAIR', 'reset-saving', 'R02_PAIR_ORACLE:candidate:');
+      'R02_PAIR', 'reset-saving', 'R02_PAIR_ORACLE:candidate:', 9, 'prefix');
     expect(direct).toContain('9 failed');
     for (const scenario of ['hydration', 'restoration', 'strict-restore', 'save-ack', 'delete-ack',
       'draft-delete', 'preservation-faults', 'durable-save', 'durable-delete'])
       expect(direct).toContain('R02_PAIR_ORACLE:candidate:' + scenario);
     const parent = await runCandidateStateFault(
       'src/components/healthWorkoutDateLifetimeLegacyParent.integration.test.ts',
-      'R02_PARENT_PAIR', 'reset-saving', 'R02_PARENT_ORACLE:candidate:');
+      'R02_PARENT_PAIR', 'reset-saving', 'R02_PARENT_ORACLE:candidate:', 3, 'prefix');
     expect(parent).toContain('3 failed');
     expect(parent).toContain('dirty=false StrictMode=false');
     expect(parent).toContain('dirty=true StrictMode=false');
     expect(parent).toContain('dirty=true StrictMode=true');
     const integrated = await runCandidateStateFault(
       'src/components/healthWorkoutFullMountedRace.integration.test.ts',
-      'R02_ID_PAIR', 'reset-saving', 'R02_ID_ORACLE:candidate:');
+      'R02_ID_PAIR', 'reset-saving', 'R02_ID_ORACLE:candidate:', 2, 'prefix');
     expect(integrated).toContain('2 failed');
     expect(integrated).toContain('R02_ID_PAIR save');
     expect(integrated).toContain('R02_ID_PAIR delete');
