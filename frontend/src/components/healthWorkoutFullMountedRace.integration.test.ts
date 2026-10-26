@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
   baselineLockedLine: -1,
   candidateSavingLine: -1,
   candidateLockedLine: -1,
+  candidateFault: null as string | null,
+  candidateFaultApplied: false,
   subject: null as any,
   verifiedLegacyProjection: false,
   selectDate: null as null | ((date: Date) => void),
@@ -385,18 +387,24 @@ function deleteButton(): HTMLButtonElement {
   return button;
 }
 
-async function mountHealth() {
+async function prepareHealthModules() {
   if (!mocks.subject) {
     const { loadCandidateHealthView } = await import('../../test-support/healthWorkoutExactMain');
     const loaded = await loadCandidateHealthView(specifier => import(/* @vite-ignore */
       specifier.startsWith('.') ? './views/' + specifier : specifier));
     mocks.subject = loaded.HealthView;
+    mocks.candidateFault = loaded.fault;
+    mocks.candidateFaultApplied = loaded.faultApplied;
     mocks.candidateSavingLine = loaded.savingLine; mocks.candidateLockedLine = loaded.lockedLine;
   }
-  // Preload the real lazy target so timing measures the mounted lifecycle,
-  // not the test transformer's first-module compilation.
+  // Cold preparation belongs to setup, not the mounted race's test deadline.
   await import('./views/HealthView');
   const { AppContent } = await import('./AppContent');
+  return AppContent;
+}
+
+async function mountHealth() {
+  const AppContent = await prepareHealthModules();
   await act(async () => {
     root = createRoot(host);
     root.render(createElement(AppContent, { authUser: user('account-a') }));
@@ -435,6 +443,7 @@ function resetIntegratedFixture() {
   mocks.saving = undefined; mocks.locked = undefined;
   mocks.baselineSavingLine = -1; mocks.baselineLockedLine = -1;
   mocks.candidateSavingLine = -1; mocks.candidateLockedLine = -1; mocks.subject = null;
+  mocks.candidateFault = null; mocks.candidateFaultApplied = false;
   mocks.verifiedLegacyProjection = false; mocks.selectDate = null; mocks.latestDraft = null;
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   localStorage.clear();
@@ -464,13 +473,20 @@ function resetIntegratedFixture() {
   document.body.appendChild(host);
   root = null;
 }
-beforeEach(resetIntegratedFixture);
+beforeEach(async () => {
+  resetIntegratedFixture();
+  await prepareHealthModules();
+});
 
-afterEach(() => {
-  if (root) act(() => root?.unmount());
+afterEach(async () => {
+  const mountedRoot = root;
   root = null;
-  host.remove();
-  vi.unstubAllGlobals();
+  try {
+    if (mountedRoot) await act(async () => mountedRoot.unmount());
+  } finally {
+    host.remove();
+    vi.unstubAllGlobals();
+  }
 });
 
 async function editMountedKg(kg: string) {
@@ -651,13 +667,25 @@ describe('REL-05G5B2B2B fully mounted save/delete ABA races', () => {
     expect(candidate.after).toEqual(candidate.before);
     expect(baseline.after.dirty).toBe(false); // sole documented X1 UI defect
   }, 30_000);
-  it.each(['save', 'delete'] as const)('S06/D06/H08 %s editable X2: actual edit and independent saving/lock oracle', async operation => {
+  it.for(['save', 'delete'] as const)('S06/D06/H08 %s editable X2: actual edit and independent saving/lock oracle', async (operation, { annotate }) => {
+    if (mocks.candidateFault !== null) {
+      expect(mocks.candidateFaultApplied).toBe(true);
+      await annotate('H08_FAULT_APPLIED:' + mocks.candidateFault);
+    }
     await integratedH08(operation, 'editable');
   });
-  it.each(['save', 'delete'] as const)('S06/D06/H08 %s pending X2: stale completion cannot clear saving', async operation => {
+  it.for(['save', 'delete'] as const)('S06/D06/H08 %s pending X2: stale completion cannot clear saving', async (operation, { annotate }) => {
+    if (mocks.candidateFault !== null) {
+      expect(mocks.candidateFaultApplied).toBe(true);
+      await annotate('H08_FAULT_APPLIED:' + mocks.candidateFault);
+    }
     await integratedH08(operation, 'pending');
   });
-  it.each(['save', 'delete'] as const)('S06/D06/H08 %s acknowledged X2: stale completion cannot unlock', async operation => {
+  it.for(['save', 'delete'] as const)('S06/D06/H08 %s acknowledged X2: stale completion cannot unlock', async (operation, { annotate }) => {
+    if (mocks.candidateFault !== null) {
+      expect(mocks.candidateFaultApplied).toBe(true);
+      await annotate('H08_FAULT_APPLIED:' + mocks.candidateFault);
+    }
     await integratedH08(operation, 'acknowledged');
   });
   it('R01 sensitivity: the SAME integrated oracle detects stale relock, unsaving and unlock', async () => {
@@ -665,12 +693,17 @@ describe('REL-05G5B2B2B fully mounted save/delete ABA races', () => {
     for (const [fault, control, field] of [
       ['relock', 'editable', 'locked'], ['unsaving', 'pending', 'saving'], ['unlock', 'acknowledged', 'locked'],
     ]) {
-      const output = await runCandidateStateFault('src/components/healthWorkoutFullMountedRace.integration.test.ts',
-        'S06/D06/H08 .* ' + control + ' X2', fault);
-      expect(output).toContain('H08_STATE_ORACLE:' + field);
-      expect(output).toMatch(/2 failed/);
-      expect(output).toContain('H08 save ' + control);
-      expect(output).toContain('H08 delete ' + control);
+      for (const operation of ['save', 'delete'] as const) {
+        // A timed-out case must exit its process before the next case gets a root.
+        // Both operations still have to fail their own unchanged state oracle.
+        const output = await runCandidateStateFault('src/components/healthWorkoutFullMountedRace.integration.test.ts',
+          'S06/D06/H08 ' + operation + ' ' + control + ' X2:', fault,
+          'H08_STATE_ORACLE:' + field, 1, 'exact');
+        const plainOutput = output.replace(/\x1b\[[0-9;]*m/g, '');
+        expect(plainOutput).toContain('H08_STATE_ORACLE:' + field);
+        expect(plainOutput).toMatch(/Tests\s+1 failed\s*\|\s*14 skipped\s*\(15\)/);
+        expect(plainOutput).toContain('H08 ' + operation + ' ' + control);
+      }
     }
   }, 120_000);
   it('routes an A1 save commit into settled A2 readers and fences old pending reads and UI continuation', async () => {
