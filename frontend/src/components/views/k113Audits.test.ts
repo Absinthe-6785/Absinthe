@@ -11,7 +11,8 @@ import { buildRecentActivityProjection } from './buildRecentActivityProjection';
 
 describe('k113 audits', () => {
   it('cross-reference hooks', () => {
-    expect(auditCrossReferences()).toContain('data-k113-open-related-note');
+    expect(auditCrossReferences()).not.toContain('data-k113-open-related-note');
+    expect(auditCrossReferences()).toContain('data-k113-open-workout-note');
     expect(auditCrossReferences()).not.toContain('data-k113-open-cooking-note');
   });
 
@@ -28,6 +29,7 @@ describe('k113 audits', () => {
 
   it('navigation matrix', () => {
     expect(auditNavigation().some(n => n.includes('planner'))).toBe(true);
+    expect(auditNavigation()).not.toContain('planner:notes:k113OpenRelatedNote');
     expect(auditNavigation().some(n => n.includes('k113OpenInNotes'))).toBe(true);
     expect(auditNavigation()).not.toContain('recipe:notes:k113OpenCookingNote');
   });
@@ -43,6 +45,7 @@ describe('k113 audits', () => {
 
   it('mobile widths and touch targets', () => {
     expect(auditMobile()).toContain('320');
+    expect(auditMobile()).not.toContain('data-k113-open-related-note');
     expect(auditMobile()).not.toContain('data-k113-open-cooking-note');
   });
 
