@@ -18,7 +18,6 @@ import { usePlannerScheduleEventActions } from './features/planner/hooks/usePlan
 import { EventNoteDialog } from './features/knowledge/trace/EventNoteDialog';
 import { buildNoteChrome } from './noteEditorTheme';
 import { openNote } from '../../lib/noteNavigation';
-import { openRelatedNote, findNoteByTitle } from '../../lib/crossDomainReferences';
 import { registerSearchDomainHandlers } from './features/search/searchDomainNavigation';
 import { recordPlannerActivity } from './features/planner/plannerActivityStorage';
 import { ScheduleEventDetailPanel } from './features/planner/calendar-ui/day/ScheduleEventDetailPanel';
@@ -187,23 +186,6 @@ export const PlannerView = ({
     if (sch) recordPlannerActivity(accountId, 'schedule', id, sch.text);
     setScheduleDetailId(id);
   }, [accountId, schedules, prevSchedules]);
-
-  const handleOpenScheduleRelatedNote = useCallback(() => {
-    if (!scheduleDetailBlock) return;
-    openRelatedNote({
-      title: scheduleDetailBlock.title,
-      returnTab: 'planner',
-      breadcrumb: [
-        { type: 'key', key: 'planner' },
-        { type: 'key', key: 'k113OpenRelatedNote' },
-      ],
-    });
-  }, [scheduleDetailBlock]);
-
-  const scheduleRelatedNoteAvailable = useMemo(() => {
-    if (!scheduleDetailBlock) return false;
-    return Boolean(findNoteByTitle(scheduleDetailBlock.title));
-  }, [scheduleDetailBlock]);
 
   useEffect(() => {
     return registerSearchDomainHandlers({
@@ -437,8 +419,6 @@ export const PlannerView = ({
             setScheduleDetailId(null);
           }}
           onClose={() => setScheduleDetailId(null)}
-          relatedNoteAvailable={scheduleRelatedNoteAvailable}
-          onOpenRelatedNote={handleOpenScheduleRelatedNote}
         />
       ) : null}
 
