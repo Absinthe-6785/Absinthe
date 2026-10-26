@@ -19,7 +19,6 @@ import { RECIPE_CATEGORIES } from '../recipeTypes';
 import { useRecipeSectionPrefs } from '../hooks/useRecipeSectionPrefs';
 import { RecipeHomeSection } from './RecipeHomeSection';
 import { RecipeIngredientsSection } from './RecipeIngredientsSection';
-import { RecipeHistorySection } from './RecipeHistorySection';
 import { RecipeCollectionsSection } from './RecipeCollectionsSection';
 import { RecipeVirtualList } from './RecipeListParts';
 import { RecipeCompositionLayout } from './RecipeCompositionLayout';
@@ -49,8 +48,6 @@ export interface RecipeStudioViewProps {
   trashValidating: boolean;
   onRetryTrash: () => void;
   onRestore: (id: string) => void;
-  onMarkCooked: (id: string) => void;
-  onOpenCookingNote?: (recipe: Recipe) => void;
   onNewRecipe: () => void;
   onScrollToRecipe: (id: string) => void;
 }
@@ -74,8 +71,6 @@ export function RecipeStudioView({
   trashValidating,
   onRetryTrash,
   onRestore,
-  onMarkCooked,
-  onOpenCookingNote,
   onNewRecipe,
   onScrollToRecipe,
 }: RecipeStudioViewProps) {
@@ -274,8 +269,6 @@ export function RecipeStudioView({
                     pendingStarRecipeIds={pendingStarRecipeIds}
                     onEdit={onEdit}
                     onDelete={onDelete}
-                    onMarkCooked={onMarkCooked}
-                    onOpenCookingNote={onOpenCookingNote}
                     mutationsDisabled={!activeReady}
                   />
                 )}
@@ -368,16 +361,6 @@ export function RecipeStudioView({
               appSettings={appSettings}
               collapsed={prefs.ingredientsCollapsed}
               onToggle={() => toggle('ingredientsCollapsed')}
-              onRecipeClick={handleRecipeNav}
-            />
-
-            <RecipeHistorySection
-              historyItems={projection.historyItems}
-              emptyAuthoritative={activeReady}
-              theme={theme}
-              appSettings={appSettings}
-              collapsed={prefs.historyCollapsed}
-              onToggle={() => toggle('historyCollapsed')}
               onRecipeClick={handleRecipeNav}
             />
 

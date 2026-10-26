@@ -9,8 +9,16 @@ const mocks = vi.hoisted(() => ({
   mutateDeletedRecipes: vi.fn(),
   showConfirm: vi.fn(),
   showToast: vi.fn(),
+  recordRecipeView: vi.fn(),
+  recordRecipeCook: vi.fn(),
+  recordRecipeEdit: vi.fn(),
+  openRecipeCookingNote: vi.fn(),
+  createNote: vi.fn(),
+  updateNote: vi.fn(),
+  useNotesStore: vi.fn(),
   confirmAction: null as (() => Promise<void>) | null,
   studioProps: null as Record<string, any> | null,
+  formModalProps: null as Record<string, any> | null,
 }));
 
 vi.mock('swr', () => ({
@@ -46,9 +54,9 @@ vi.mock('../../lib/i18n', () => ({
 vi.mock('./features/recipe', () => ({
   EMPTY_RECIPE_FORM: { title: '', category: 'Korean', ingredients: '', steps: '', memo: '', starred: false },
   useRecipeProjection: () => emptyProjection,
-  recordRecipeView: vi.fn(),
-  recordRecipeCook: vi.fn(),
-  recordRecipeEdit: vi.fn(),
+  recordRecipeView: mocks.recordRecipeView,
+  recordRecipeCook: mocks.recordRecipeCook,
+  recordRecipeEdit: mocks.recordRecipeEdit,
 }));
 vi.mock('./features/recipe/components/RecipeStudioView', () => ({
   RecipeStudioView: (props: Record<string, any>) => {
@@ -56,21 +64,31 @@ vi.mock('./features/recipe/components/RecipeStudioView', () => ({
     return null;
   },
 }));
-vi.mock('./features/recipe/components/RecipeListParts', () => ({ RecipeFormModal: () => null }));
+vi.mock('./features/recipe/components/RecipeListParts', () => ({
+  RecipeFormModal: (props: Record<string, any>) => {
+    mocks.formModalProps = props;
+    return null;
+  },
+}));
 vi.mock('../common/WorkspaceErrorBoundary', () => ({
   WorkspaceErrorBoundary: ({ children }: { children: unknown }) => children,
 }));
 vi.mock('../common/ConfirmModal', () => ({ ConfirmModal: () => null }));
-vi.mock('../../lib/crossDomainReferences', () => ({ openRecipeCookingNote: vi.fn() }));
+vi.mock('../../lib/crossDomainReferences', () => ({ openRecipeCookingNote: mocks.openRecipeCookingNote }));
 vi.mock('./features/search/searchDomainNavigation', () => ({ registerSearchDomainHandlers: () => () => undefined }));
 vi.mock('../../store/useNotesStore', () => ({
-  useNotesStore: (selector: (state: Record<string, unknown>) => unknown) => selector({
-    createNote: vi.fn(),
-    updateNote: vi.fn(),
-  }),
+  useNotesStore: (selector: (state: Record<string, unknown>) => unknown) => {
+    mocks.useNotesStore();
+    return selector({ createNote: mocks.createNote, updateNote: mocks.updateNote });
+  },
 }));
 
 import { RecipeView } from './RecipeView';
+import {
+  RECIPE_COOK_HISTORY_KEY,
+  RECIPE_EDIT_RECENTS_KEY,
+  RECIPE_VIEW_RECENTS_KEY,
+} from './features/recipe/recipeActivityStorage';
 
 const activeRecipe = {
   id: 'recipe-active',
@@ -121,8 +139,23 @@ beforeEach(() => {
   mocks.mutateDeletedRecipes.mockReset();
   mocks.showConfirm.mockReset();
   mocks.showToast.mockReset();
+  mocks.recordRecipeView.mockReset();
+  mocks.recordRecipeCook.mockReset();
+  mocks.recordRecipeEdit.mockReset();
+  mocks.openRecipeCookingNote.mockReset();
+  mocks.createNote.mockReset();
+  mocks.updateNote.mockReset();
+  mocks.useNotesStore.mockReset();
   mocks.confirmAction = null;
   mocks.studioProps = null;
+  mocks.formModalProps = null;
+  for (const [key, value] of [
+    [RECIPE_VIEW_RECENTS_KEY, '[{"recipeId":"old-view","at":1}]'],
+    [RECIPE_COOK_HISTORY_KEY, '[{"recipeId":"old-cook","at":2}]'],
+    [RECIPE_EDIT_RECENTS_KEY, '[{"recipeId":"old-edit","at":3}]'],
+  ] as const) {
+    localStorage.setItem(`${key}:account:${encodeURIComponent('account-a')}`, value);
+  }
   host = document.createElement('div');
   document.body.appendChild(host);
   root = createRoot(host);
@@ -137,6 +170,36 @@ afterEach(() => {
 });
 
 describe('RecipeView delete and recovery production path', () => {
+  it('keeps Recipe viewing and editing free of cooking, Notes, and activity side effects', async () => {
+    const activityKeys = [RECIPE_VIEW_RECENTS_KEY, RECIPE_COOK_HISTORY_KEY, RECIPE_EDIT_RECENTS_KEY]
+      .map(key => `${key}:account:${encodeURIComponent('account-a')}`);
+    const priorActivity = activityKeys.map(key => localStorage.getItem(key));
+
+    expect(mocks.studioProps).not.toHaveProperty('onMarkCooked');
+    expect(mocks.studioProps).not.toHaveProperty('onOpenCookingNote');
+    act(() => {
+      mocks.studioProps?.onToggleExpand('recipe-active');
+      mocks.studioProps?.onScrollToRecipe('recipe-active');
+      mocks.studioProps?.onEdit(activeRecipe);
+    });
+
+    mocks.authFetch.mockResolvedValue({
+      ok: true,
+      json: async () => activeRecipe,
+    } as Response);
+    await act(async () => { await mocks.formModalProps?.onSave(); });
+
+    expect(mocks.authFetch).toHaveBeenCalledWith('https://api.example.test/api/recipes/recipe-active', expect.objectContaining({ method: 'PUT' }));
+    expect(mocks.recordRecipeView).not.toHaveBeenCalled();
+    expect(mocks.recordRecipeCook).not.toHaveBeenCalled();
+    expect(mocks.recordRecipeEdit).not.toHaveBeenCalled();
+    expect(mocks.openRecipeCookingNote).not.toHaveBeenCalled();
+    expect(mocks.useNotesStore).not.toHaveBeenCalled();
+    expect(mocks.createNote).not.toHaveBeenCalled();
+    expect(mocks.updateNote).not.toHaveBeenCalled();
+    expect(activityKeys.map(key => localStorage.getItem(key))).toEqual(priorActivity);
+  });
+
   it('removes a Recipe from the active cache only after a successful delete response', async () => {
     mocks.authFetch.mockResolvedValue({ ok: true } as Response);
     await act(async () => { await mocks.studioProps?.onDelete('recipe-active', 'Active recipe'); });

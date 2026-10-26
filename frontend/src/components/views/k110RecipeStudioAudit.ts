@@ -3,7 +3,6 @@ export const K110_RECIPE_STUDIO_IA = [
   'home',
   'recipes',
   'ingredients',
-  'history',
   'collections',
 ] as const;
 

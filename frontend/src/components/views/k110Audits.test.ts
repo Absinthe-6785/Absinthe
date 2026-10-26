@@ -9,7 +9,7 @@ import { auditIngredientExplorer } from './k110IngredientExplorerAudit';
 import { auditCookingHistory } from './k110CookingHistoryAudit';
 import { auditRecipeCollection } from './k110RecipeCollectionAudit';
 import { auditRecipeEmptyStates } from './k110RecipeEmptyStateAudit';
-import { auditRecipeMobile, auditRecipeMobileTouchTargets } from './k110RecipeMobileAudit';
+import { auditRecipeMobile, auditRecipeMobileSections, auditRecipeMobileTouchTargets } from './k110RecipeMobileAudit';
 import { auditRecipePerformance } from './k110RecipePerformanceAudit';
 import { auditRecipeLayout } from './k110RecipeLayoutAudit';
 import {
@@ -25,6 +25,7 @@ describe('k110 audits', () => {
     expect(sections[0]).toBe('home');
     expect(sections[1]).toBe('recipes');
     expect(K110_RECIPE_STUDIO_IA).toContain('collections');
+    expect(K110_RECIPE_STUDIO_IA).not.toContain('history');
   });
 
   it('RecipeProjection single-pass slices', () => {
@@ -41,9 +42,12 @@ describe('k110 audits', () => {
     expect(auditRecipeProjectionSinglePass()).toBe(true);
   });
 
-  it('home buckets and hooks', () => {
-    expect(auditRecipeHome()).toContain('today');
-    expect(auditRecipeHome()).toContain('data-k110-home-favorites');
+  it('home exposes favorites without activity-derived sections', () => {
+    const homeAudit = auditRecipeHome();
+    expect(homeAudit).toContain('data-k110-home-favorites');
+    expect(homeAudit).not.toContain('data-k110-home-recent');
+    expect(homeAudit).not.toContain('data-k110-home-cooked');
+    expect(homeAudit).not.toContain('data-k110-home-suggestions');
   });
 
   it('ingredient explorer hooks', () => {
@@ -51,9 +55,12 @@ describe('k110 audits', () => {
     expect(auditIngredientExplorer()).toContain('buildIngredientGroups');
   });
 
-  it('cooking history buckets', () => {
-    expect(auditCookingHistory()).toContain('yesterday');
-    expect(auditCookingHistory()).toContain('frequency');
+  it('preserves legacy activity storage keys without a Recipe history surface', () => {
+    expect(auditCookingHistory()).toEqual([
+      'absinthe-recipe-view-recents',
+      'absinthe-recipe-cook-history',
+      'absinthe-recipe-edit-recents',
+    ]);
   });
 
   it('collection hooks and prefs key', () => {
@@ -69,6 +76,10 @@ describe('k110 audits', () => {
   it('mobile widths and touch targets', () => {
     expect(auditRecipeMobile()).toEqual([320, 375, 768]);
     expect(auditRecipeMobileTouchTargets()).toBe(true);
+  });
+
+  it('does not list the removed history panel as a mobile surface', () => {
+    expect(auditRecipeMobileSections()).not.toContain('data-k110-history-list');
   });
 
   it('performance lazy sections', () => {

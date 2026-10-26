@@ -1,4 +1,4 @@
-import { Star, Pencil, Trash2, ChevronDown, ChevronUp, ChefHat, FileText } from 'lucide-react';
+import { Star, Pencil, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
 import type { Theme } from '../../../../../types';
 import type { TranslationKey } from '../../../../../lib/i18n';
 import type { Recipe } from '../recipeTypes';
@@ -15,8 +15,6 @@ export interface RecipeCardProps {
   onToggleStar: () => void;
   onEdit: () => void;
   onDelete: () => void;
-  onMarkCooked?: () => void;
-  onOpenCookingNote?: () => void;
   compact?: boolean;
   mutationsDisabled?: boolean;
   starPending?: boolean;
@@ -32,8 +30,6 @@ export function RecipeCard({
   onToggleStar,
   onEdit,
   onDelete,
-  onMarkCooked,
-  onOpenCookingNote,
   compact = false,
   mutationsDisabled = false,
   starPending = false,
@@ -124,29 +120,6 @@ export function RecipeCard({
               <p className={`text-[10px] font-bold uppercase tracking-wider mb-1 ${theme.textMuted}`}>{t('recipeMemo')}</p>
               <p className={`text-sm leading-relaxed ${theme.textMuted}`}>{recipe.memo}</p>
             </div>
-          )}
-          {onOpenCookingNote ? (
-            <button
-              type="button"
-              onClick={e => { e.stopPropagation(); onOpenCookingNote(); }}
-              className="flex items-center gap-1.5 text-xs font-bold text-primary min-h-[44px] px-2 rounded-xl hover:bg-primary/10"
-              data-k113-cross-ref="recipe"
-              data-k113-open-cooking-note={recipe.id}
-            >
-              <FileText size={14} />
-              {t('k113OpenCookingNote')}
-            </button>
-          ) : null}
-          {onMarkCooked && (
-            <button
-              type="button"
-              onClick={onMarkCooked}
-              className="flex items-center gap-1.5 text-xs font-bold text-primary min-h-[44px] px-2 rounded-xl hover:bg-primary/10"
-              data-k110-mark-cooked={recipe.id}
-            >
-              <ChefHat size={14} />
-              {t('k110MarkCooked')}
-            </button>
           )}
         </div>
       )}

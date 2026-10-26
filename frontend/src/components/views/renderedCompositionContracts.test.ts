@@ -239,7 +239,6 @@ const recipeProps: RecipeStudioViewProps = {
   trashValidating: false,
   onRetryTrash: vi.fn(),
   onRestore: vi.fn(),
-  onMarkCooked: vi.fn(),
   onNewRecipe: vi.fn(),
   onScrollToRecipe: vi.fn(),
 };

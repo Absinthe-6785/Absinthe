@@ -263,14 +263,27 @@ describe('Recipe account isolation production paths', () => {
     expect(output?.getAttribute('data-trash-recipes')).toContain('Account B');
   });
 
-  it('writes and reads Recipe activity under the mounted account and resets local state for B', async () => {
+  it('preserves account-scoped Recipe activity without recording views and resets local state for B', async () => {
+    const accountAHistory = [{ recipeId: 'historical-a', at: 1, title: 'Account A historical recipe' }];
+    const accountBHistory = [{ recipeId: 'historical-b', at: 2, title: 'Account B historical recipe' }];
+    const accountAKey = `${RECIPE_VIEW_RECENTS_KEY}${RECIPE_ACTIVITY_ACCOUNT_SEPARATOR}account-a`;
+    const accountBKey = `${RECIPE_VIEW_RECENTS_KEY}${RECIPE_ACTIVITY_ACCOUNT_SEPARATOR}account-b`;
+    localStorage.setItem(accountAKey, JSON.stringify(accountAHistory));
+    localStorage.setItem(accountBKey, JSON.stringify(accountBHistory));
+
     renderRecipe(root, cache, 'account-a');
     await flush();
+    expect(readRecipeViewRecents('account-a')).toEqual(accountAHistory);
+    expect(readRecipeViewRecents('account-b')).toEqual(accountBHistory);
+    const storedAccountAHistory = localStorage.getItem(accountAKey);
+    const storedAccountBHistory = localStorage.getItem(accountBKey);
+
     act(() => harness.studioProps?.onToggleExpand('recipe-a'));
     await flush();
 
-    expect(readRecipeViewRecents('account-a')[0]?.recipeId).toBe('recipe-a');
-    expect(localStorage.getItem(`${RECIPE_VIEW_RECENTS_KEY}${RECIPE_ACTIVITY_ACCOUNT_SEPARATOR}account-a`)).toContain('Account A recipe');
+    expect(readRecipeViewRecents('account-a')).toEqual(accountAHistory);
+    expect(readRecipeViewRecents('account-b')).toEqual(accountBHistory);
+    expect(localStorage.getItem(accountAKey)).toBe(storedAccountAHistory);
 
     harness.account = 'account-b';
     renderRecipe(root, cache, 'account-b');
@@ -279,7 +292,9 @@ describe('Recipe account isolation production paths', () => {
     expect(output?.getAttribute('data-recent-recipes')).toBe('');
     await flush();
 
-    expect(readRecipeViewRecents('account-b')).toEqual([]);
+    expect(readRecipeViewRecents('account-b')).toEqual(accountBHistory);
+    expect(readRecipeViewRecents('account-a')).toEqual(accountAHistory);
+    expect(localStorage.getItem(accountBKey)).toBe(storedAccountBHistory);
     expect(host.querySelector('output')?.getAttribute('data-active-recipes')).not.toContain('Account A recipe');
   });
 

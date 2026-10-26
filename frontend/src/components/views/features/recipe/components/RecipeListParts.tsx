@@ -268,8 +268,6 @@ export interface RecipeVirtualListProps {
   pendingStarRecipeIds?: ReadonlySet<string>;
   onEdit: (recipe: Recipe) => void;
   onDelete: (id: string, title: string) => void;
-  onMarkCooked?: (id: string) => void;
-  onOpenCookingNote?: (recipe: Recipe) => void;
   mutationsDisabled?: boolean;
 }
 
@@ -284,8 +282,6 @@ export function RecipeVirtualList({
   pendingStarRecipeIds = new Set(),
   onEdit,
   onDelete,
-  onMarkCooked,
-  onOpenCookingNote,
   mutationsDisabled = false,
 }: RecipeVirtualListProps) {
   const parentRef = useRef<HTMLDivElement>(null);
@@ -313,8 +309,6 @@ export function RecipeVirtualList({
       onToggleStar={() => onToggleStar(recipe)}
       onEdit={() => onEdit(recipe)}
       onDelete={() => onDelete(recipe.id, recipe.title)}
-      onMarkCooked={onMarkCooked ? () => onMarkCooked(recipe.id) : undefined}
-      onOpenCookingNote={onOpenCookingNote ? () => onOpenCookingNote(recipe) : undefined}
       mutationsDisabled={mutationsDisabled}
       starPending={pendingStarRecipeIds.has(recipe.id)}
     />

@@ -39,6 +39,7 @@ describe('k115 release candidate audits', () => {
     expect(auditMobileTouchTargets()).toBe(true);
     expect(auditMobileChecklist()).toContain('320');
     expect(auditMobileDomains().some(d => d.startsWith('search:'))).toBe(true);
+    expect(auditMobileDomains()).not.toContain('recipe:data-k113-open-cooking-note');
   });
 
   it('D — desktop QA', () => {

@@ -100,6 +100,16 @@ const activeSummary = {
 
 const populatedProjection: RecipeProjection = {
   ...emptyProjection,
+  recentRecipes: {
+    today: [{ recipeId: activeRecipe.id, title: activeRecipe.title, category: activeRecipe.category, viewedAt: 1, relativeLabel: 'today' }],
+    thisWeek: [],
+    earlier: [],
+  },
+  recentlyCooked: {
+    today: [{ recipeId: activeRecipe.id, title: activeRecipe.title, cookedAt: 1, relativeLabel: 'today' }],
+    yesterday: [],
+    earlier: [],
+  },
   ingredientGroups: [{ name: 'rice', recipeIds: [activeRecipe.id], recipes: [activeSummary] }],
   historyItems: [{
     bucket: 'today',
@@ -115,6 +125,7 @@ const populatedProjection: RecipeProjection = {
     }],
   }],
   collectionGroups: [{ id: 'favorites', labelKey: 'recipeStarred', recipeIds: [activeRecipe.id], recipes: [activeSummary] }],
+  suggestions: [activeSummary],
   allRecipes: [activeSummary],
   empty: {
     noRecipes: false,
@@ -155,7 +166,6 @@ function renderStudio(
       trashValidating: false,
       onRetryTrash: vi.fn(),
       onRestore,
-      onMarkCooked: vi.fn(),
       onNewRecipe: vi.fn(),
       onScrollToRecipe: vi.fn(),
       ...overrides,
@@ -203,14 +213,11 @@ function renderForm(overrides: Partial<RecipeFormModalProps> = {}) {
 }
 
 function expandDerivedSections() {
-  for (const section of ['ingredients', 'history'] as const) {
-    act(() => host?.querySelector<HTMLButtonElement>(`[data-k110-section-toggle="${section}"]`)?.click());
-  }
+  act(() => host?.querySelector<HTMLButtonElement>('[data-k110-section-toggle="ingredients"]')?.click());
 }
 
 function expectNoDerivedEmptyClaims() {
   expect(host?.querySelector('[data-k110-empty-state="ingredients"]')).toBeNull();
-  expect(host?.querySelector('[data-k110-empty-state="history"]')).toBeNull();
   expect(host?.querySelector('[data-k110-empty-state="collections"]')).toBeNull();
 }
 
@@ -398,7 +405,7 @@ describe('RecipeStudioView recovery surface', () => {
     expectNoDerivedEmptyClaims();
   });
 
-  it('keeps populated derived projections viewable while active authority is stale', () => {
+  it('keeps library projections viewable while hiding activity history', () => {
     renderStudio(vi.fn(), {
       activeAvailability: 'STALE_WITH_DATA',
       recipes: [activeRecipe],
@@ -407,9 +414,27 @@ describe('RecipeStudioView recovery surface', () => {
 
     expandDerivedSections();
     expect(host?.querySelector('[data-k110-ingredient-explorer]')).not.toBeNull();
-    expect(host?.querySelector('[data-k110-history-list]')).not.toBeNull();
+    expect(host?.querySelector('[data-k110-history-list]')).toBeNull();
+    expect(host?.querySelector('[data-k110-empty-state="history"]')).toBeNull();
     expect(host?.querySelector('[data-k110-collection-list]')).not.toBeNull();
     expectNoDerivedEmptyClaims();
+  });
+
+  it('hides activity-derived home sections and cooking actions even when legacy activity exists', () => {
+    renderStudio(vi.fn(), {
+      activeAvailability: 'READY_WITH_DATA',
+      recipes: [activeRecipe],
+      projection: populatedProjection,
+      expandedId: activeRecipe.id,
+    });
+
+    expect(host?.querySelector('[data-k110-home-favorites]')).not.toBeNull();
+    expect(host?.querySelector('[data-k110-home-recent]')).toBeNull();
+    expect(host?.querySelector('[data-k110-home-cooked]')).toBeNull();
+    expect(host?.querySelector('[data-k110-home-suggestions]')).toBeNull();
+    expect(host?.querySelector('[data-k110-history-list]')).toBeNull();
+    expect(host?.querySelector('[data-k110-mark-cooked]')).toBeNull();
+    expect(host?.querySelector('[data-k113-open-cooking-note]')).toBeNull();
   });
 
   it('renders confirmed empty only after active authority is ready', () => {
@@ -424,7 +449,7 @@ describe('RecipeStudioView recovery surface', () => {
     expect(host?.querySelector('[data-k110-empty-state="collections"]')).not.toBeNull();
     expandDerivedSections();
     expect(host?.querySelector('[data-k110-empty-state="ingredients"]')).not.toBeNull();
-    expect(host?.querySelector('[data-k110-empty-state="history"]')).not.toBeNull();
+    expect(host?.querySelector('[data-k110-empty-state="history"]')).toBeNull();
   });
 
   it('exposes deleted Recipes and routes Restore to the production callback', () => {

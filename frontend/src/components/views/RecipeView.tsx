@@ -11,16 +11,11 @@ import {
   type Recipe,
   EMPTY_RECIPE_FORM,
   useRecipeProjection,
-  recordRecipeView,
-  recordRecipeCook,
-  recordRecipeEdit,
 } from './features/recipe';
 import { RecipeStudioView } from './features/recipe/components/RecipeStudioView';
 import { WorkspaceErrorBoundary } from '../common/WorkspaceErrorBoundary';
 import { RecipeFormModal, type RecipeFormState } from './features/recipe/components/RecipeListParts';
-import { openRecipeCookingNote } from '../../lib/crossDomainReferences';
 import { registerSearchDomainHandlers } from './features/search/searchDomainNavigation';
-import { useNotesStore } from '../../store/useNotesStore';
 import {
   normalizeRecipeDraftForm,
   readRecipeDraft,
@@ -83,7 +78,6 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
   const [draftStorageWarning, setDraftStorageWarning] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formSession, setFormSession] = useState<number | null>(null);
-  const [activityTick, setActivityTick] = useState(0);
   const [pendingStarRecipeIds, setPendingStarRecipeIds] = useState<ReadonlySet<string>>(() => new Set());
   const accountIdRef = useRef(accountId);
   const accountGenerationRef = useRef(0);
@@ -166,9 +160,7 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
   trashAvailabilityRef.current = trashAvailability;
 
   const locale = resolveAppLanguage(appSettings.language);
-  const projection = useRecipeProjection(recipes, { locale, accountId, activityTick });
-
-  const bumpActivity = useCallback(() => setActivityTick(n => n + 1), []);
+  const projection = useRecipeProjection(recipes, { locale });
 
   const beginFormSession = useCallback(() => {
     const generation = formSessionGenerationRef.current + 1;
@@ -358,30 +350,16 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
   const handleToggleExpand = useCallback((id: string) => {
     setExpandedId(prev => {
       const next = prev === id ? null : id;
-      if (next) {
-        const recipe = recipes.find(r => r.id === id);
-        recordRecipeView(id, recipe?.title, accountId);
-        bumpActivity();
-      }
       return next;
     });
-  }, [accountId, bumpActivity, recipes]);
+  }, []);
 
   const handleScrollToRecipe = useCallback((id: string) => {
-    const recipe = recipes.find(r => r.id === id);
-    recordRecipeView(id, recipe?.title, accountId);
-    bumpActivity();
     setExpandedId(id);
     requestAnimationFrame(() => {
       document.querySelector(`[data-k110-recipe-card="${id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     });
-  }, [accountId, bumpActivity, recipes]);
-
-  const handleMarkCooked = useCallback((id: string) => {
-    recordRecipeCook(id, accountId);
-    bumpActivity();
-    showToast(t('k110MarkedCooked'));
-  }, [accountId, bumpActivity, showToast, t]);
+  }, []);
 
   const handleSave = useCallback(async () => {
     const submittedFormSession = activeFormSessionRef.current;
@@ -437,8 +415,6 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
         false,
       );
       void mutateRecipes();
-      recordRecipeEdit(saved.id, accountSnapshot.accountId);
-      bumpActivity();
       showToast(submittedEditingId ? t('recipeUpdated') : t('recipeSaved'));
       if (cleanupWarning) showToast(t('recipeDraftStorageWarning'), 'error');
       setShowForm(false);
@@ -455,7 +431,7 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
         setSaving(false);
       }
     }
-  }, [bumpActivity, captureAccountGeneration, draftConflict, editingId, form, invalidateFormSession, isCurrentAccountGeneration, mutateRecipes, showToast, t]);
+  }, [captureAccountGeneration, draftConflict, editingId, form, invalidateFormSession, isCurrentAccountGeneration, mutateRecipes, showToast, t]);
 
   const handleDelete = useCallback((id: string) => {
     if (!recipeAuthorityIsReady(activeAvailabilityRef.current)) return;
@@ -696,13 +672,6 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
     }, { confirmLabel: t('recipeDraftDiscard') });
   }, [discardCurrentDraft, draftConflict, handleDiscardDraft, openFreshEdit, showConfirm, t]);
 
-  const createNote = useNotesStore(s => s.createNote);
-  const updateNote = useNotesStore(s => s.updateNote);
-
-  const handleOpenCookingNote = useCallback((recipe: Recipe) => {
-    openRecipeCookingNote(recipe.title, createNote, updateNote);
-  }, [createNote, updateNote]);
-
   useEffect(() => {
     return registerSearchDomainHandlers({
       onSelectRecipe: (recipeId) => {
@@ -733,8 +702,6 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
         trashValidating={deletedRecipeValidating}
         onRetryTrash={retryDeletedRecipes}
         onRestore={handleRestore}
-        onMarkCooked={handleMarkCooked}
-        onOpenCookingNote={handleOpenCookingNote}
         onNewRecipe={openNew}
         onScrollToRecipe={handleScrollToRecipe}
       />

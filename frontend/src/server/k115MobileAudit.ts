@@ -10,7 +10,7 @@ export const K115_MOBILE_DOMAINS = [
   { domain: 'planner', hooks: ['data-schedule-event-detail', 'data-k108-empty'] },
   { domain: 'health', hooks: ['data-k107-empty', 'data-k113-open-workout-note'] },
   { domain: 'archive', hooks: ['data-k109-archive-shell', 'data-k113-open-in-notes'] },
-  { domain: 'recipe', hooks: ['data-k110-recipe-studio', 'data-k113-open-cooking-note'] },
+  { domain: 'recipe', hooks: ['data-k110-recipe-studio'] },
   { domain: 'search', hooks: ['data-k111-search-modal', 'data-k111-search-card'] },
 ] as const;
 
