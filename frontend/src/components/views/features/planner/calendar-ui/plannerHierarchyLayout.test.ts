@@ -35,7 +35,6 @@ function renderPlannerHierarchy() {
     anchorDate: '2027-02-03',
     schedules: [],
     todos: [],
-    routines: [],
     ddaySchedules: [],
     weeklySchedules: [],
     appSettings,
@@ -162,13 +161,6 @@ describe('UI-05 Planner hierarchy allocation', () => {
         text: `Todo ${index + 1}`,
         done: false,
       })),
-      routines: Array.from({ length: 4 }, (_, index) => ({
-        id: `routine-${index}`,
-        date: '2027-02-03',
-        text: `Routine ${index + 1}`,
-        done: false,
-        is_active: true,
-      })),
       ddaySchedules: [],
       weeklySchedules: [],
       appSettings,
@@ -189,12 +181,6 @@ describe('UI-05 Planner hierarchy allocation', () => {
         onDelete: vi.fn(),
         onDuplicate: vi.fn(),
       },
-      routineActions: {
-        onAdd: vi.fn(),
-        onToggle: vi.fn(),
-        onEdit: vi.fn(),
-        onDelete: vi.fn(),
-      },
     }));
     const host = document.createElement('div');
     host.innerHTML = html;
@@ -211,7 +197,8 @@ describe('UI-05 Planner hierarchy allocation', () => {
     expect(owner?.className.split(/\s+/)).not.toContain('overflow-y-auto');
     expect(today?.querySelectorAll('[data-planner-today-scroll-owner]')).toHaveLength(1);
     expect(Array.from(owner?.children ?? []).every(child => child.className.includes('shrink-0'))).toBe(true);
-    expect(owner?.querySelector('[data-k139-routine-list-scroll]')).not.toBeNull();
+    expect(owner?.querySelector('[data-k117-schedule-section="routine"]')).toBeNull();
+    expect(owner?.querySelector('[data-k139-routine-list-scroll]')).toBeNull();
     expect(owner?.querySelector('[data-planner-day-todos]')).not.toBeNull();
     expect(owner?.querySelector('[data-planner-day-schedule-timeline]')).not.toBeNull();
     expect(owner?.querySelector('[data-k105-planner-todays-note] button')).not.toBeNull();

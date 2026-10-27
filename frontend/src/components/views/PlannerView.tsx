@@ -28,8 +28,8 @@ type ScheduleDday = Schedule & { date: string };
 
 export const PlannerView = ({
   now, currentDate, setCurrentDate, selectedDate, setSelectedDate,
-  formatDate, isToday, showToast,   mutateDaily, mutateStatic, mutateRoutines,
-  appSettings, schedules, todos, routines, weeklySchedules, theme, THEME_COLORS,
+  formatDate, isToday, showToast,   mutateDaily, mutateStatic,
+  appSettings, schedules, todos, weeklySchedules, theme, THEME_COLORS,
   user,
 }: PlannerProps) => {
   const { t, lang } = useTranslation();
@@ -216,53 +216,6 @@ export const PlannerView = ({
     onDuplicate: handleDuplicateSchedule,
   }), [schedules, openScheduleDetail, handleDeleteSchedule, handleDuplicateSchedule]);
 
-  const routineActions = useMemo(() => ({
-    onAdd: (text: string) => {
-      void api(
-        'POST',
-        '/api/routines',
-        { text, created_date: formatDate(selectedDate) },
-        { revalidate: 'daily', successMsg: t('routineSaved') },
-      );
-    },
-    onToggle: (routineId: string, currentDone: boolean) => {
-      mutateRoutines(
-        cur => cur.map(routine => (
-          routine.id === routineId ? { ...routine, done: !currentDone } : routine
-        )),
-        false,
-      );
-      void api(
-        'POST',
-        '/api/routine_logs',
-        { routine_id: routineId, date: formatDate(selectedDate), done: !currentDone },
-        { revalidate: 'daily' },
-      );
-    },
-    onEdit: (routineId: string, text: string) => {
-      void api(
-        'PUT',
-        `/api/routines/${routineId}`,
-        { text },
-        { revalidate: 'daily', successMsg: t('routineSaved') },
-      );
-    },
-    onDelete: (routineId: string) => {
-      showConfirm(
-        t('deleteRoutine'),
-        async () => {
-          await api(
-            'DELETE',
-            `/api/routines/${routineId}`,
-            undefined,
-            { revalidate: 'daily', successMsg: t('routineDeleted') },
-          );
-        },
-        { confirmLabel: t('deleteLabel') },
-      );
-    },
-  }), [api, formatDate, mutateRoutines, selectedDate, showConfirm, t]);
-
   return (
     <div className={`${WORKSPACE_PANE_ROOT_CLASS} abs-cosmos-planner flex flex-col animate-in fade-in duration-300 ${WORKSPACE_GAP_CLASS}`} data-workspace="planner" data-workspace-scroll-mode={WORKSPACE_SCROLL_MODE.pane} data-k134b-workspace-scroll>
       <div className="abs-cosmos-planner-header shrink-0 px-0.5">
@@ -282,7 +235,6 @@ export const PlannerView = ({
         previousDaySchedules={prevSchedules}
         previousDayDate={prevDateStr}
         todos={todos}
-        routines={routines}
         ddaySchedules={ddaySchedules}
         weeklySchedules={weeklySchedules}
         appSettings={appSettings}
@@ -290,7 +242,6 @@ export const PlannerView = ({
         onEventNoteClick={openPlannerNote}
         onAnchorDateChange={handleCalendarAnchorChange}
         dayScheduleActions={cardScheduleActions}
-        routineActions={routineActions}
         eventActions={agendaEventActions}
         THEME_COLORS={THEME_COLORS}
         mutateStatic={mutateStatic}

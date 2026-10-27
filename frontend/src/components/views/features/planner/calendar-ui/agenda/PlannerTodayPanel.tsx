@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { FileText } from 'lucide-react';
-import type { Routine, Theme } from '@/types';
+import type { Theme } from '@/types';
 import type { PlannerCalendarPresentation } from '../../calendar';
 import type { PlannerProjection } from '../../calendar/buildPlannerProjection';
 import { useTranslation } from '@/lib/i18n';
@@ -9,8 +9,6 @@ import { hasDailyNote, formatDailyNoteLabel } from '../../../../k101DailyNote';
 import { openTodaysDailyNoteFromApp } from '../../../../k105DailyWorkflow';
 import { DayScheduleTimeline } from '../day/DayScheduleTimeline';
 import type { DayScheduleActions } from '../day/dayScheduleActions';
-import { DayRoutineSummary } from '../day/DayRoutineSummary';
-import type { DayRoutineActions } from '../day/dayRoutineActions';
 import { DayTodoSummary } from '../day/DayTodoSummary';
 import { buildDayViewPayload } from '../../calendar/buildPlannerViewPayloads';
 import { WORKSPACE_CARD_VISUAL_CLASS } from '@/components/common/workspaceCardSizes';
@@ -21,8 +19,6 @@ export interface PlannerTodayPanelProps {
   theme: Theme;
   todayKey: string;
   scheduleActions?: DayScheduleActions;
-  routines?: readonly Routine[];
-  routineActions?: DayRoutineActions;
 }
 
 function resolveTodayTimeline(
@@ -58,8 +54,6 @@ export function PlannerTodayPanel({
   theme,
   todayKey,
   scheduleActions,
-  routines = [],
-  routineActions,
 }: PlannerTodayPanelProps) {
   const { t, lang } = useTranslation();
   const notes = useNotesStore(s => s.notes);
@@ -89,16 +83,6 @@ export function PlannerTodayPanel({
           data-k139-schedule-today-stack
           data-planner-today-scroll-owner="desktop-body"
         >
-          <div className="min-h-0 lg:shrink-0" data-k117-schedule-section="routine">
-            <DayRoutineSummary
-              routines={routines}
-              isRoutineException={Boolean(routines[0]?.is_exception_day)}
-              theme={theme}
-              routineActions={routineActions}
-              compactEmpty
-            />
-          </div>
-
           {todos.length > 0 ? (
             <section className="min-h-0 lg:shrink-0" data-k117-schedule-section="todo">
               <DayTodoSummary todos={todos} theme={theme} />

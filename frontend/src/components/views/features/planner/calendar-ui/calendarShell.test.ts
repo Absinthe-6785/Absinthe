@@ -224,7 +224,7 @@ describe('CalendarShell', () => {
     expect(html).not.toContain('data-planner-calendar-week');
   });
 
-  it('renders multiple eligible Todos once in the active production calendar surface', () => {
+  it('renders Todos and schedules while omitting the Schedule routine surface', () => {
     const html = renderToStaticMarkup(
       createElement(CalendarShell, shellProps({
         schedules: [{
@@ -235,13 +235,6 @@ describe('CalendarShell', () => {
           is_dday: false,
           color: 'purple',
           category: 'Personal',
-        }],
-        routines: [{
-          id: 'routine-visible',
-          date: '2027-02-03',
-          text: 'Stretch',
-          done: false,
-          is_active: true,
         }],
         todos: [
           { id: 'todo-render-1', date: '2027-02-03', text: 'Pack bag', done: false },
@@ -257,10 +250,12 @@ describe('CalendarShell', () => {
     expect(html).toContain('Pack bag');
     expect(html).toContain('Charge phone');
     expect(html).toContain('Study');
-    expect(html).toContain('Stretch');
+    expect(html).not.toContain('data-k117-schedule-section="routine"');
+    expect(html).not.toContain('data-planner-day-routines');
+    expect(html).not.toContain('Stretch');
   });
 
-  it('keeps an empty Todo collection safe while schedule and routine surfaces remain mounted', () => {
+  it('keeps an empty Todo collection safe without restoring the removed routine surface', () => {
     const html = renderToStaticMarkup(
       createElement(CalendarShell, shellProps({
         schedules: [{
@@ -272,21 +267,15 @@ describe('CalendarShell', () => {
           color: 'blue',
           category: 'Personal',
         }],
-        routines: [{
-          id: 'routine-empty-todo',
-          date: '2027-02-03',
-          text: 'Walk',
-          done: true,
-          is_active: true,
-        }],
         todos: [],
       })),
     );
 
     expect(html).not.toContain('data-planner-day-todos');
-    expect(html).toContain('data-planner-day-routines');
+    expect(html).not.toContain('data-k117-schedule-section="routine"');
+    expect(html).not.toContain('data-planner-day-routines');
     expect(html).toContain('Read');
-    expect(html).toContain('Walk');
+    expect(html).not.toContain('Walk');
   });
 
   it('renders period navigation controls when onAnchorDateChange is provided', () => {
