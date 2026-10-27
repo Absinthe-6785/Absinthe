@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, createElement } from 'react';
+import { act, createElement, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -347,6 +347,55 @@ describe('UI-07 production Recipe composition hierarchy', () => {
 });
 
 describe('RecipeStudioView recovery surface', () => {
+  it('keeps a support-navigation target expanded while direct cards still toggle', () => {
+    const onScrollToRecipe = vi.fn<(id: string) => void>();
+    function NavigationHarness() {
+      const [expandedId, setExpandedId] = useState<string | null>(null);
+      onScrollToRecipe.mockImplementation(id => setExpandedId(id));
+      const toggleExpand = (id: string) => setExpandedId(current => current === id ? null : id);
+      return createElement(RecipeStudioView, {
+        projection: { ...populatedProjection, favoriteRecipes: [activeSummary] },
+        recipes: [activeRecipe],
+        theme,
+        appSettings,
+        activeAvailability: 'READY_WITH_DATA',
+        activeValidating: false,
+        onRetryActive: vi.fn(),
+        expandedId,
+        onToggleExpand: toggleExpand,
+        onToggleStar: vi.fn(),
+        onEdit: vi.fn(),
+        onDelete: vi.fn(),
+        deletedRecipes: [],
+        trashAvailability: 'READY_EMPTY',
+        trashValidating: false,
+        onRetryTrash: vi.fn(),
+        onRestore: vi.fn(),
+        onNewRecipe: vi.fn(),
+        onScrollToRecipe,
+      });
+    }
+
+    host = document.createElement('div');
+    document.body.appendChild(host);
+    root = createRoot(host);
+    act(() => root?.render(createElement(NavigationHarness)));
+
+    const supportRow = host.querySelector<HTMLButtonElement>(`[data-k110-favorite-row="${activeRecipe.id}"]`);
+    expect(supportRow).not.toBeNull();
+    act(() => supportRow?.click());
+
+    expect(onScrollToRecipe).toHaveBeenCalledWith(activeRecipe.id);
+    const card = host.querySelector<HTMLElement>(`[data-k110-recipe-card="${activeRecipe.id}"]`)!;
+    expect(card.getAttribute('data-expanded')).toBe('true');
+
+    act(() => card.querySelector<HTMLElement>('.cursor-pointer')?.click());
+    expect(host.querySelector(`[data-k110-recipe-card="${activeRecipe.id}"]`)?.getAttribute('data-expanded')).toBe('false');
+
+    act(() => host.querySelector<HTMLElement>('[data-k110-favorite-row="recipe-active"]')?.click());
+    expect(host.querySelector(`[data-k110-recipe-card="${activeRecipe.id}"]`)?.getAttribute('data-expanded')).toBe('true');
+  });
+
   it('does not render an empty library while active Recipes are loading', () => {
     renderStudio(vi.fn(), {
       activeAvailability: 'LOADING',

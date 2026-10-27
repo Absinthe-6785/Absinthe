@@ -105,7 +105,6 @@ export function RecipeStudioView({
 
   const handleRecipeNav = (id: string) => {
     onScrollToRecipe(id);
-    onToggleExpand(id);
   };
 
   return (
