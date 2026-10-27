@@ -318,6 +318,13 @@ export const HomeView = ({
       .slice(0, 3);
   }, [ddaySchedules, todayKey]);
 
+  const recentActivityDomainLabels: Record<RecentActivityItem['domain'], string> = {
+    notes: t('note'),
+    planner: t('planner'),
+    recipe: t('recipe'),
+    archive: t('analytics'),
+  };
+
   return (
     <WorkspaceErrorBoundary workspace="home">
       <div
@@ -461,7 +468,7 @@ export const HomeView = ({
                     <FlowRow
                       key={item.id}
                       title={item.title}
-                      meta={`${item.relativeLabel} · ${item.domain}${item.eventDate ? ` · ${t('k76ScheduleDate')}: ${item.eventDate}` : ''}`}
+                      meta={`${item.relativeLabel} · ${recentActivityDomainLabels[item.domain]}${item.eventDate ? ` · ${t('k76ScheduleDate')}: ${item.eventDate}` : ''}`}
                       onClick={() => handleTraceNavigate(item)}
                       theme={theme}
                       dataHook={`trace-${item.domain}`}

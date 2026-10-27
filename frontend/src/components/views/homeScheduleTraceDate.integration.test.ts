@@ -8,6 +8,7 @@ import { HomeView, type HomeViewProps } from './HomeView';
 import { PLANNER_ACTIVITY_KEY } from './features/planner/plannerActivityStorage';
 
 const state = vi.hoisted(() => ({ lang: 'en' as Language, openNote: vi.fn(), switchToTab: vi.fn(), openRecipe: vi.fn(),
+  archiveRecents: [] as { noteId: string; restoredAt: number }[],
   notes: [{ id: 'note-1', title: 'Note trace', body: '', folderId: null, deletedAt: null, updatedAt: new Date(2026, 5, 12, 9).getTime() }] }));
 vi.mock('swr', () => ({ default: () => ({ data: [] }) }));
 vi.mock('../../lib/accountBoundRemote', () => ({ accountBoundRemoteKey: () => null, accountBoundRemoteFetcher: vi.fn() }));
@@ -24,7 +25,7 @@ vi.mock('./features/planner/calendar-ui/usePlannerCalendarProjection', () => ({ 
 vi.mock('./features/planner/calendar/buildPlannerProjection', () => ({ buildPlannerProjection: () => ({ todayItems: [], timetableToday: [] }) }));
 vi.mock('./features/planner/hooks/useCountdownReviewed', () => ({ useCountdownReviewed: () => ({ isReviewed: () => false }) }));
 vi.mock('./features/archive/hooks/useArchiveProjection', () => ({ useArchiveProjection: () => ({ projection: { historyItems: { groups: [] } } }) }));
-vi.mock('./features/knowledge/archive/archiveRestoreRecents', () => ({ readArchiveRestoreRecents: () => [] }));
+vi.mock('./features/knowledge/archive/archiveRestoreRecents', () => ({ readArchiveRestoreRecents: () => state.archiveRecents }));
 vi.mock('./features/recipe/recipeActivityStorage', () => ({ readRecipeViewRecents: () => [
   { recipeId: 'recipe-1', title: 'Recipe trace', at: new Date(2026, 5, 12, 8).getTime() },
 ] }));
@@ -54,7 +55,7 @@ function row(title: string) {
   return result!;
 }
 beforeEach(() => {
-  localStorage.clear(); vi.clearAllMocks(); state.lang = 'en';
+  localStorage.clear(); vi.clearAllMocks(); state.lang = 'en'; state.archiveRecents = [];
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
 });
 afterEach(() => { act(() => root.unmount()); host.remove(); localStorage.clear(); });
@@ -68,16 +69,39 @@ describe('Home Schedule trace source dates through real storage and recent proje
     expect(dated.textContent).toContain(`${getTranslator(lang)('k76ScheduleDate')}: 2020-01-02`);
     expect(dated.textContent).toContain(getTranslator(lang)('nvToday'));
     expect(row('Undated Schedule').textContent).not.toContain('2020-01-02');
+    expect(row('Dated Schedule').textContent).toContain(`· ${getTranslator(lang)('planner')}`);
     act(() => dated.click());
     act(() => row('Undated Schedule').click());
     expect(state.switchToTab.mock.calls).toEqual([['planner'], ['planner']]);
     expect(localStorage.getItem(key)).toBe(raw);
   });
 
+  it.each(['en', 'ko', 'ja'] as const)('localizes all four Recent Traces domain labels in %s', async lang => {
+    state.lang = lang;
+    state.archiveRecents = [{ noteId: 'archive-note', restoredAt: new Date(2026, 5, 12, 7).getTime() }];
+    seed('2026-06-12');
+    await renderHome();
+    const t = getTranslator(lang);
+
+    const labels = [
+      ['Note trace', 'note', 'notes'],
+      ['Dated Schedule', 'planner', 'planner'],
+      ['Recipe trace', 'recipe', 'recipe'],
+      ['archive-note', 'analytics', 'archive'],
+    ] as const;
+    for (const [title, translationKey, rawDomain] of labels) {
+      const text = row(title).textContent ?? '';
+      expect(text).toContain(`· ${t(translationKey)}`);
+      expect(text).not.toContain(`· ${rawDomain}`);
+    }
+    expect(row('Dated Schedule').textContent).toContain(`${t('k76ScheduleDate')}: 2026-06-12`);
+  });
+
   it.each([undefined, '2026-02-30', '2026-13-01', 'bad', 123])('does not guess or display an invalid/missing date %s', async date => {
     const raw = seed(date);
     await renderHome();
     expect(row('Dated Schedule').textContent).not.toContain(`${getTranslator('en')('k76ScheduleDate')}:`);
+    expect(row('Dated Schedule').textContent).toContain(`· ${getTranslator('en')('planner')}`);
     expect(row('Undated Schedule').textContent).not.toContain(`${getTranslator('en')('k76ScheduleDate')}:`);
     expect(localStorage.getItem(key)).toBe(raw);
   });
