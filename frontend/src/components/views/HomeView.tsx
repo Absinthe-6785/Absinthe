@@ -8,7 +8,6 @@ import {
   BookOpen,
   Plus,
   Clock,
-  Activity,
   FileText,
 } from 'lucide-react';
 import type { ViewProps } from '../../types';
@@ -25,13 +24,11 @@ import { buildRecentActivityProjection } from './buildRecentActivityProjection';
 import { buildRelativeDateLabels } from './k102RelativeDateLabels';
 import { readPlannerActivityRecents } from './features/planner/plannerActivityStorage';
 import { readRecipeViewRecents } from './features/recipe/recipeActivityStorage';
-import { readArchiveRestoreRecents } from './features/knowledge/archive/archiveRestoreRecents';
 import { usePlannerCalendarProjection } from './features/planner/calendar-ui/usePlannerCalendarProjection';
 import { buildPlannerProjection } from './features/planner/calendar/buildPlannerProjection';
 import { resolveUpcomingRelativeLabel } from './features/planner/calendar-ui/agenda/buildUpcomingTierGroups';
 import { useCountdownReviewed } from './features/planner/hooks/useCountdownReviewed';
 import { toDateKey } from './features/knowledge/databaseViews/parseDatabaseDate';
-import { useArchiveProjection } from './features/archive/hooks/useArchiveProjection';
 import { buildHomeFoundationProjection } from './features/home/buildHomeFoundationProjection';
 import { buildHomeWorkoutCompositeProjection, type HomeWorkoutCompositeProjection } from './features/home/homeWorkoutCompositeProjection';
 import { readHomeWorkoutDraft, type HomeWorkoutDraftRead } from './features/home/homeWorkoutDraftRead';
@@ -230,14 +227,13 @@ export const HomeView = ({
     notes: continueNotes,
     plannerRecents: readPlannerActivityRecents(user.id),
     recipeRecents: readRecipeViewRecents(user.id),
-    archiveRestoreRecents: readArchiveRestoreRecents(),
+    // Global Archive restore recents have no account provenance for Home.
+    archiveRestoreRecents: [],
     labels: buildRelativeDateLabels(t),
     locale: lang,
     now: todayDate,
     limitPerBucket: 6,
   }), [continueNotes, vaultStructureVersion, t, lang, todayDate, user.id]);
-
-  const { projection: archiveProjection } = useArchiveProjection(todayDate, lang);
 
   const homeDraft = useMemo<HomeWorkoutDraftRead | null>(() => {
     if (!homeWorkoutComposite) return null;
@@ -257,13 +253,12 @@ export const HomeView = ({
       workouts,
       plannerProjection,
       recentActivity,
-      archiveHistory: archiveProjection.historyItems,
       accountId: user.id,
       todayKey,
       locale: lang,
       workoutComposite,
     }),
-    [continueNotes, vaultStructureVersion, workouts, plannerProjection, recentActivity, archiveProjection.historyItems, user.id, todayKey, lang, workoutComposite],
+    [continueNotes, vaultStructureVersion, workouts, plannerProjection, recentActivity, user.id, todayKey, lang, workoutComposite],
   );
 
   const handleContinue = useCallback(() => {
@@ -286,10 +281,6 @@ export const HomeView = ({
       openNote(item.noteId, { returnTab: 'home' });
       return;
     }
-    if (item.domain === 'archive' && item.noteId) {
-      openNote(item.noteId, { returnTab: 'home' });
-      return;
-    }
     if (item.domain === 'planner') {
       switchToTab('planner');
       return;
@@ -301,9 +292,6 @@ export const HomeView = ({
       }
       switchToTab('recipe');
       return;
-    }
-    if (item.domain === 'archive') {
-      switchToTab('analytics');
     }
   }, [continueRequest, user.id, onOpenRecipe]);
 
@@ -487,17 +475,6 @@ export const HomeView = ({
                   {t('homeTracesEmpty')}
                 </p>
               )}
-              {projection.archiveTracesToday > 0 ? (
-                <button
-                  type="button"
-                  onClick={() => switchToTab('analytics')}
-                  className={`mt-3 inline-flex items-center gap-1.5 text-xs font-bold min-h-[44px] ${theme.textMuted} hover:text-foreground`}
-                  data-k132a-home-open-archive
-                >
-                  <Activity size={14} />
-                  {t('homeArchiveActivityToday').replace('{count}', String(projection.archiveTracesToday))}
-                </button>
-              ) : null}
             </HomeSection>
 
             <HomeSection title={t('homeQuickActions')} dataHook="actions">
