@@ -175,6 +175,19 @@ function renderStudio(
   });
 }
 
+function setStudioSearch(query: string) {
+  const search = host!.querySelector<HTMLInputElement>('[data-k110-recipe-search]')!;
+  const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+  act(() => {
+    setValue.call(search, query);
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+}
+
+function visibleStudioRecipeIds(): string[] {
+  return Array.from(host!.querySelectorAll<HTMLElement>('[data-k110-recipe-card]'), card => card.dataset.k110RecipeCard!);
+}
+
 const recipeForm: RecipeFormModalProps['form'] = {
   title: 'Soup',
   category: 'Other',
@@ -367,6 +380,94 @@ describe('UI-07 production Recipe composition hierarchy', () => {
 });
 
 describe('RecipeStudioView recovery surface', () => {
+  it.each([
+    ['steps', 'saffron simmer'],
+    ['memo', 'star anise note'],
+  ] as const)('finds a Recipe by text only in %s', (field, query) => {
+    const recipe: Recipe = {
+      ...activeRecipe,
+      id: 'search-content-recipe',
+      title: 'Chicken stew',
+      ingredients: 'chicken and rice',
+      steps: field === 'steps' ? `Add ${query}` : 'Cook slowly',
+      memo: field === 'memo' ? `Remember ${query}` : 'Serve warm',
+    };
+    const unrelated: Recipe = {
+      ...recipe,
+      id: 'unrelated-search-recipe',
+      title: 'Tomato pasta',
+      ingredients: 'tomato and pasta',
+      steps: 'Boil pasta',
+      memo: 'Weeknight meal',
+    };
+    renderStudio(vi.fn(), { recipes: [recipe, unrelated], activeAvailability: 'READY_WITH_DATA' });
+
+    setStudioSearch(query);
+
+    expect(visibleStudioRecipeIds()).toEqual(['search-content-recipe']);
+  });
+
+  it('keeps title and ingredient search, trims/case-folds queries, and preserves empty-search sorting without mutating Recipes', () => {
+    const recipes: Recipe[] = [
+      { ...activeRecipe, id: 'title-match', title: 'Citrus Noodles', ingredients: 'rice', created_at: '2026-08-01T00:00:00Z' },
+      { ...activeRecipe, id: 'ingredient-match', title: 'Zaatar Toast', ingredients: 'zaatar and olive oil', created_at: '2026-08-03T00:00:00Z' },
+      { ...activeRecipe, id: 'unrelated', title: 'Tomato Soup', ingredients: 'tomato', created_at: '2026-08-02T00:00:00Z' },
+    ];
+    const original = JSON.stringify(recipes);
+    renderStudio(vi.fn(), { recipes, activeAvailability: 'READY_WITH_DATA' });
+
+    setStudioSearch('  cItRuS nOoDlEs  ');
+    expect(visibleStudioRecipeIds()).toEqual(['title-match']);
+    setStudioSearch('  ZAATAR  ');
+    expect(visibleStudioRecipeIds()).toEqual(['ingredient-match']);
+    setStudioSearch('no such recipe');
+    expect(visibleStudioRecipeIds()).toEqual([]);
+    setStudioSearch('   ');
+    expect(visibleStudioRecipeIds()).toEqual(['ingredient-match', 'unrelated', 'title-match']);
+
+    const titleSort = Array.from(host!.querySelectorAll<HTMLButtonElement>('.abs-recipe-sort-control button'))
+      .find(button => button.textContent?.trim() === 'A-Z')!;
+    act(() => titleSort.click());
+    expect(visibleStudioRecipeIds()).toEqual(['title-match', 'unrelated', 'ingredient-match']);
+    expect(JSON.stringify(recipes)).toBe(original);
+  });
+
+  it('combines content search with category and starred-only filters', () => {
+    const recipes: Recipe[] = [
+      { ...activeRecipe, id: 'dessert-starred', title: 'Apple cake', category: 'Dessert', starred: true, steps: 'Fold vanilla gently' },
+      { ...activeRecipe, id: 'dessert-unstarred', title: 'Banana tart', category: 'Dessert', starred: false, memo: 'Vanilla bean option' },
+      { ...activeRecipe, id: 'other-starred', title: 'Roast vegetables', category: 'Other', starred: true, steps: 'Add vanilla' },
+    ];
+    renderStudio(vi.fn(), { recipes, activeAvailability: 'READY_WITH_DATA' });
+    setStudioSearch('VANILLA');
+    expect(visibleStudioRecipeIds()).toHaveLength(3);
+
+    const category = Array.from(host!.querySelectorAll<HTMLButtonElement>('[data-k110-recipe-filters] button'))
+      .find(button => button.textContent?.trim() === 'Dessert')!;
+    act(() => category.click());
+    expect(visibleStudioRecipeIds()).toEqual(['dessert-starred', 'dessert-unstarred']);
+
+    act(() => host!.querySelector<HTMLButtonElement>('.abs-recipe-star-filter')!.click());
+    expect(visibleStudioRecipeIds()).toEqual(['dessert-starred']);
+  });
+
+  it('treats empty or missing textual fields as non-matching rather than throwing', () => {
+    const incomplete = {
+      ...activeRecipe,
+      id: 'incomplete-text',
+      title: 'Known recipe',
+      ingredients: '',
+      steps: undefined,
+      memo: null,
+    } as unknown as Recipe;
+    renderStudio(vi.fn(), { recipes: [incomplete], activeAvailability: 'READY_WITH_DATA' });
+
+    setStudioSearch('unavailable text');
+    expect(visibleStudioRecipeIds()).toEqual([]);
+    setStudioSearch('known recipe');
+    expect(visibleStudioRecipeIds()).toEqual(['incomplete-text']);
+  });
+
   it('keeps a support-navigation target expanded while direct cards still toggle', () => {
     const onScrollToRecipe = vi.fn<(id: string) => void>();
     function NavigationHarness() {
