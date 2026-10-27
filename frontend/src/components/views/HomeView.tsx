@@ -51,6 +51,7 @@ type ScheduleDday = Schedule & { date: string };
 export type HomeViewProps = ViewProps & Readonly<{
   homeWorkoutComposite?: HealthSelectedDayReadModel;
   onOpenTodayWorkout?: () => void;
+  onOpenRecipe?: (recipeId: string) => void;
 }>;
 
 function HomeCompositeWorkoutCard({ model, onOpen, onRetry }: Readonly<{
@@ -169,6 +170,7 @@ export const HomeView = ({
   user,
   homeWorkoutComposite,
   onOpenTodayWorkout,
+  onOpenRecipe,
 }: HomeViewProps) => {
   const { t, lang } = useTranslation();
   const vaultStructureVersion = useNotesStore(s => s.vaultStructureVersion);
@@ -284,13 +286,17 @@ export const HomeView = ({
       return;
     }
     if (item.domain === 'recipe') {
+      if (item.recipeId && onOpenRecipe) {
+        onOpenRecipe(item.recipeId);
+        return;
+      }
       switchToTab('recipe');
       return;
     }
     if (item.domain === 'archive') {
       switchToTab('analytics');
     }
-  }, []);
+  }, [onOpenRecipe]);
 
   const handleNewNote = useCallback(() => {
     switchToTab('note');

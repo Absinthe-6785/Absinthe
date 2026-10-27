@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Search, X, Plus, BookMarked, Star, Trash2, RotateCcw, AlertTriangle, RefreshCw } from 'lucide-react';
 import type { AppSettings, Theme } from '../../../../../types';
 import { resolveAppLanguage, getTranslator } from '../../../../../lib/i18n';
@@ -50,6 +50,7 @@ export interface RecipeStudioViewProps {
   onRestore: (id: string) => void;
   onNewRecipe: () => void;
   onScrollToRecipe: (id: string) => void;
+  navigationRequestId?: number | null;
 }
 
 export function RecipeStudioView({
@@ -73,6 +74,7 @@ export function RecipeStudioView({
   onRestore,
   onNewRecipe,
   onScrollToRecipe,
+  navigationRequestId = null,
 }: RecipeStudioViewProps) {
   const t = getTranslator(resolveAppLanguage(appSettings.language));
   const dark = appSettings.darkMode;
@@ -87,6 +89,14 @@ export function RecipeStudioView({
   const activeUnavailable = recipeAuthorityIsUnavailable(activeAvailability);
   const trashReady = recipeAuthorityIsReady(trashAvailability);
   const trashUnavailable = recipeAuthorityIsUnavailable(trashAvailability);
+
+  useEffect(() => {
+    if (navigationRequestId === null) return;
+    setSearchQuery('');
+    setActiveCategory('All');
+    setShowStarredOnly(false);
+    setShowTrash(false);
+  }, [navigationRequestId]);
 
   const visible = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();

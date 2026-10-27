@@ -17,6 +17,7 @@ import { Sidebar, TabId, type SettingsSectionId } from './common/Sidebar';
 import { ViewLoadingFallback } from './common/ViewLoadingFallback';
 
 import { NotesRouteBoundary } from './NotesRouteBoundary';
+import type { RecipeNavigationRequest } from './views/RecipeView';
 
 const HomeView = lazy(() => import('./views/HomeView').then(m => ({ default: m.HomeView })));
 const PlannerView = lazy(() => import('./views/PlannerView').then(m => ({ default: m.PlannerView })));
@@ -160,6 +161,30 @@ export function AppContent({ authUser }: { authUser: User }) {
   const [selectedDate, setSelectedDate] = useState(now.toJSDate());
 
   const [activeTab, setActiveTab] = useState<TabId>('home');
+  const [recipeNavigationRequest, setRecipeNavigationRequest] = useState<RecipeNavigationRequest | null>(null);
+  const recipeNavigationRequestIdRef = useRef(0);
+  const recipeNavigationAccountRef = useRef({ accountId: authUser.id, generation: 0 });
+  if (recipeNavigationAccountRef.current.accountId !== authUser.id) {
+    recipeNavigationAccountRef.current = {
+      accountId: authUser.id,
+      generation: recipeNavigationAccountRef.current.generation + 1,
+    };
+  }
+  const openRecipeFromHome = useCallback((recipeId: string) => {
+    const targetId = recipeId.trim();
+    if (!targetId) return;
+    const accountScope = recipeNavigationAccountRef.current;
+    setRecipeNavigationRequest({
+      accountId: accountScope.accountId,
+      accountGeneration: accountScope.generation,
+      requestId: ++recipeNavigationRequestIdRef.current,
+      recipeId: targetId,
+    });
+    setActiveTab('recipe');
+  }, []);
+  const consumeRecipeNavigationRequest = useCallback((requestId: number) => {
+    setRecipeNavigationRequest(current => current?.requestId === requestId ? null : current);
+  }, []);
   // Search owns the live query; this small upward signal only controls the
   // deferred Search datasets in the shell-owned hooks.
   const [searchHasQuery, setSearchHasQuery] = useState(false);
@@ -251,6 +276,18 @@ export function AppContent({ authUser }: { authUser: User }) {
       unregisterApp();
     };
   }, []);
+
+  useEffect(() => {
+    if (!recipeNavigationRequest) return;
+    const currentScope = recipeNavigationAccountRef.current;
+    if (
+      recipeNavigationRequest.accountId !== authUser.id
+      || recipeNavigationRequest.accountGeneration !== currentScope.generation
+      || activeTab !== 'recipe'
+    ) {
+      consumeRecipeNavigationRequest(recipeNavigationRequest.requestId);
+    }
+  }, [activeTab, authUser.id, consumeRecipeNavigationRequest, recipeNavigationRequest]);
 
   useEffect(() => {
     const TAB_BY_ALT: Record<string, TabId> = {
@@ -550,7 +587,8 @@ export function AppContent({ authUser }: { authUser: User }) {
         <Suspense fallback={<ViewLoadingFallback />}>
           {activeTab === 'home' && <HomeView key={authUser.id} {...globalProps}
             homeWorkoutComposite={homeCompositeEnabled ? selectedDayRead : undefined}
-            onOpenTodayWorkout={homeCompositeEnabled ? openTodayWorkout : undefined} />}
+            onOpenTodayWorkout={homeCompositeEnabled ? openTodayWorkout : undefined}
+            onOpenRecipe={openRecipeFromHome} />}
           {activeTab === 'planner'   && <PlannerView   key={authUser.id} {...globalProps} />}
           {activeTab === 'health' && !selectedDayReaderEnabled && (!healthStartupCurrent || (healthBootstrapRequired && startupState.health.status === 'pending')) && (
             <ViewLoadingFallback label={t('startupHealthLoading')} />
@@ -608,7 +646,22 @@ export function AppContent({ authUser }: { authUser: User }) {
               onSettingsScrollTargetConsumed={() => setSettingsScrollTarget(null)}
             />
           )}
-          {activeTab === 'recipe'    && <RecipeView key={authUser.id} accountId={authUser.id} showToast={showToast} appSettings={appSettings} updateSetting={updateSetting} theme={theme} THEME_COLORS={THEME_COLORS}/>}
+          {activeTab === 'recipe' && <RecipeView
+            key={authUser.id}
+            accountId={authUser.id}
+            recipeNavigationRequest={
+              recipeNavigationRequest?.accountId === authUser.id
+                && recipeNavigationRequest.accountGeneration === recipeNavigationAccountRef.current.generation
+                ? recipeNavigationRequest
+                : undefined
+            }
+            onRecipeNavigationConsumed={consumeRecipeNavigationRequest}
+            showToast={showToast}
+            appSettings={appSettings}
+            updateSetting={updateSetting}
+            theme={theme}
+            THEME_COLORS={THEME_COLORS}
+          />}
         </Suspense>
         {activeTab === 'note' && startupState.notes.status === 'pending' && (
           <ViewLoadingFallback label={t('startupNotesLoading')} />

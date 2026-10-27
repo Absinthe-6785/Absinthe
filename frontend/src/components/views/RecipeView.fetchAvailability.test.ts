@@ -26,6 +26,7 @@ const harness = vi.hoisted(() => ({
   authFetch: vi.fn(),
   studioProps: null as Record<string, any> | null,
   formProps: null as Record<string, any> | null,
+  navigationConsumed: vi.fn(),
   confirmAction: null as (() => void | Promise<void>) | null,
 }));
 
@@ -113,11 +114,16 @@ function editDraft(remote: ReturnType<typeof recipe>): RecipeDraftEnvelope {
 let root: Root;
 let host: HTMLDivElement;
 
-function render(accountId = 'account-a') {
+function render(
+  accountId = 'account-a',
+  recipeNavigationRequest?: { accountId: string; accountGeneration: number; requestId: number; recipeId: string },
+) {
   harness.account = accountId;
   act(() => root.render(createElement(RecipeView, {
     key: accountId, accountId, showToast: vi.fn(), appSettings: settings,
     updateSetting: vi.fn(), theme, THEME_COLORS: [],
+    recipeNavigationRequest,
+    onRecipeNavigationConsumed: harness.navigationConsumed,
   })));
 }
 
@@ -137,6 +143,7 @@ beforeEach(() => {
   harness.authFetch.mockReset();
   harness.studioProps = null;
   harness.formProps = null;
+  harness.navigationConsumed.mockReset();
   harness.confirmAction = null;
   host = document.createElement('div');
   document.body.appendChild(host);
@@ -150,6 +157,51 @@ afterEach(() => {
 });
 
 describe('Recipe fetch availability production wiring', () => {
+  it('waits for account-scoped authoritative recipe data before expanding a Home deep link', async () => {
+    const request = { accountId: 'account-a', accountGeneration: 0, requestId: 11, recipeId: 'target-recipe' };
+    harness.active = { data: undefined, isLoading: true, isValidating: true };
+    render('account-a', request);
+    await flush();
+    expect(harness.navigationConsumed).not.toHaveBeenCalled();
+    expect(harness.studioProps?.expandedId).toBeNull();
+
+    harness.active = { data: [recipe('target-recipe')], isLoading: false, isValidating: false };
+    render('account-a', request);
+    await flush();
+    expect(harness.studioProps?.expandedId).toBe('target-recipe');
+    expect(harness.studioProps?.navigationRequestId).toBe(11);
+    expect(harness.navigationConsumed).toHaveBeenCalledExactlyOnceWith(11);
+  });
+
+  it('consumes a missing recipe only after an authoritative empty response', async () => {
+    const request = { accountId: 'account-a', accountGeneration: 0, requestId: 12, recipeId: 'deleted-recipe' };
+    harness.active = { data: [], isLoading: false, isValidating: false };
+    render('account-a', request);
+    await flush();
+    expect(harness.studioProps?.expandedId).toBeNull();
+    expect(harness.navigationConsumed).toHaveBeenCalledExactlyOnceWith(12);
+  });
+
+  it('does not consume a request for another account or while recipe authority is unavailable', async () => {
+    const otherAccountRequest = {
+      accountId: 'account-b', accountGeneration: 1, requestId: 13, recipeId: 'target-recipe',
+    };
+    harness.active = { data: [recipe('target-recipe')], isLoading: false, isValidating: false };
+    render('account-a', otherAccountRequest);
+    await flush();
+    expect(harness.studioProps?.expandedId).toBeNull();
+    expect(harness.navigationConsumed).not.toHaveBeenCalled();
+
+    const unavailableRequest = {
+      accountId: 'account-a', accountGeneration: 0, requestId: 14, recipeId: 'target-recipe',
+    };
+    harness.active = { data: undefined, error: new Error('offline'), isLoading: false, isValidating: false };
+    render('account-a', unavailableRequest);
+    await flush();
+    expect(harness.studioProps?.activeAvailability).toBe('UNAVAILABLE_NO_DATA');
+    expect(harness.navigationConsumed).not.toHaveBeenCalled();
+  });
+
   it('distinguishes active nonempty, confirmed empty, loading, cold failure, and warm failure', async () => {
     harness.active = { data: [recipe()], isLoading: false, isValidating: false };
     render(); await flush();
