@@ -254,16 +254,27 @@ export function RecipeStudioView({
                 {activeAvailability === 'LOADING' && (
                   <WorkspaceCardSkeleton theme={theme} minHeight="min-h-[200px]" bars={2} />
                 )}
-                {activeReady && visible.length === 0 && (
+                {activeAvailability === 'READY_EMPTY' && recipes.length === 0 && visible.length === 0 && (
                   <div data-k121-empty-state="recipe-list">
-                  <ProductEmptyState
-                    icon={BookMarked}
-                    title={t('k110EmptyNoRecipes')}
-                    description={t('k110EmptyNoRecipesHint')}
-                    primaryAction={{ label: t('newRecipe'), onClick: onNewRecipe }}
-                    dataHook="k110-empty-recipes-list"
-                    theme={theme}
-                  />
+                    <ProductEmptyState
+                      icon={BookMarked}
+                      title={t('k110EmptyNoRecipes')}
+                      description={t('k110EmptyNoRecipesHint')}
+                      primaryAction={{ label: t('newRecipe'), onClick: onNewRecipe }}
+                      dataHook="k110-empty-recipes-list"
+                      theme={theme}
+                    />
+                  </div>
+                )}
+                {activeAvailability === 'READY_WITH_DATA' && recipes.length > 0 && visible.length === 0 && (
+                  <div data-k121-empty-state="recipe-filtered-no-results">
+                    <ProductEmptyState
+                      icon={Search}
+                      title={t('workspaceSearchNoResults')}
+                      description={t('k99EmptySearchDesc')}
+                      dataHook="k121-recipe-filtered-no-results"
+                      theme={theme}
+                    />
                   </div>
                 )}
                 {activeAvailability !== 'LOADING' && visible.length > 0 && (
