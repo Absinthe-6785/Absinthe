@@ -5,12 +5,9 @@ import type { Language } from '../../../../lib/i18n';
 import type { NoteBase } from '../../noteUtils';
 import type { Workout } from '../../../../types';
 import { displayNoteTitleForLocale } from '../../noteDisplayTitle';
-import { loadWorkspaceSession } from '../knowledge/workspace/workspaceSessionStorage';
-import { loadWorkspacePreferences } from '../knowledge/workspace/workspacePreferencesStorage';
 import type { PlannerProjection } from '../planner/calendar/buildPlannerProjection';
 import type { RecentActivityProjection } from '../../buildRecentActivityProjection';
 import type { ArchiveHistoryProjection } from '../knowledge/archive/archiveProjectionModels';
-import type { WorkspaceActivation } from '../knowledge/workspace/workspaceModels';
 import type { HomeContinueItem, HomeFoundationProjection, HomeWorkoutSummary } from './homeFoundationModels';
 import { readLocalHealthWorkoutDraft } from '../../../../lib/healthBackfillUiSafety';
 import type { HomeWorkoutCompositeProjection } from './homeWorkoutCompositeProjection';
@@ -32,46 +29,14 @@ function buildContinueItem(
   notes: readonly NoteBase[],
   locale?: Language | null,
 ): HomeContinueItem | null {
-  const session = loadWorkspaceSession();
-  const resumeActivation = session?.resumeActivation;
-  if (
-    resumeActivation
-    && resumeActivation.kind !== 'none'
-    && resumeActivation.kind !== 'dashboard'
-  ) {
-    const recent = loadWorkspacePreferences().recent.find(
-      entry => entry.workspace.kind === resumeActivation.kind
-        && entry.workspace.id === resumeActivation.id,
-    );
-    return {
-      kind: 'workspace',
-      title: recent?.workspace.name ?? resumeActivation.kind.replace('-', ' '),
-      subtitle: recent?.workspace.subtitle,
-      workspaceActivation: resumeActivation,
-    };
-  }
-
   const lastOpened = [...notes]
-    .filter(note => !note.deletedAt && note.lastOpenedAt)
+    .filter(note => !note.deletedAt && Number.isFinite(note.lastOpenedAt) && (note.lastOpenedAt ?? 0) > 0)
     .sort((a, b) => (b.lastOpenedAt ?? 0) - (a.lastOpenedAt ?? 0))[0];
   if (lastOpened) {
     return {
       kind: 'note',
       title: displayNoteTitleForLocale(lastOpened.title, locale ?? undefined),
       noteId: lastOpened.id,
-    };
-  }
-
-  const recentWork = loadWorkspacePreferences().recent[0];
-  if (recentWork) {
-    return {
-      kind: 'workspace',
-      title: recentWork.workspace.name,
-      subtitle: recentWork.workspace.subtitle,
-      workspaceActivation: {
-        kind: recentWork.workspace.kind,
-        id: recentWork.workspace.id,
-      } as WorkspaceActivation,
     };
   }
 

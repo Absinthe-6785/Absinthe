@@ -142,7 +142,7 @@ describe('buildHomeFoundationProjection', () => {
     expect(yesterdayItems).toEqual(beforeYesterday);
   });
 
-  it('prioritizes resume workspace over last opened note', () => {
+  it('selects a recent Note instead of a global resume workspace without changing workspace bytes', () => {
     localStorage.setItem('note-workspace-session-v1', JSON.stringify({
       activation: { kind: 'none' },
       updatedAt: Date.now(),
@@ -156,6 +156,7 @@ describe('buildHomeFoundationProjection', () => {
       }],
     }));
 
+    const workspaceBytes = [...storage];
     const projection = buildHomeFoundationProjection({
       notes: [note('n1', { lastOpenedAt: Date.now() })],
       workouts: [],
@@ -165,8 +166,39 @@ describe('buildHomeFoundationProjection', () => {
       todayKey: '2026-06-23',
     });
 
-    expect(projection.continueItem?.kind).toBe('workspace');
-    expect(projection.continueItem?.title).toBe('Recent notes');
+    expect(projection.continueItem).toMatchObject({ kind: 'note', noteId: 'n1', title: 'Note n1' });
+    expect([...storage]).toEqual(workspaceBytes);
+  });
+
+  it('selects the most recently opened non-deleted Note without sorting the input', () => {
+    const notes = Object.freeze([
+      note('older', { lastOpenedAt: 10 }),
+      note('deleted', { lastOpenedAt: 50, deletedAt: 60 }),
+      note('newest', { lastOpenedAt: 30 }),
+      note('edited-only', { updatedAt: 100 }),
+    ]);
+    const projection = buildHomeFoundationProjection({ notes, workouts: [], plannerProjection: null,
+      recentActivity: { groups: [], isEmpty: true, generatedAt: '' }, accountId: 'account-a', todayKey: '2026-06-23' });
+    expect(projection.continueItem).toMatchObject({ kind: 'note', noteId: 'newest' });
+    expect(notes.map(item => item.id)).toEqual(['older', 'deleted', 'newest', 'edited-only']);
+  });
+
+  it.each([undefined, 0, -1, NaN, Infinity])('does not offer a Note with invalid/missing lastOpenedAt %s', lastOpenedAt => {
+    const projection = buildHomeFoundationProjection({ notes: [note('unopened', { lastOpenedAt })], workouts: [],
+      plannerProjection: null, recentActivity: { groups: [], isEmpty: true, generatedAt: '' },
+      accountId: 'account-a', todayKey: '2026-06-23' });
+    expect(projection.continueItem).toBeNull();
+  });
+
+  it('does not use global recent workspace preferences as an empty-Notes fallback', () => {
+    const raw = JSON.stringify({ pinned: [], recent: [{ workspace: {
+      kind: 'saved-view', id: 'legacy-private', name: 'Legacy workspace',
+    }, lastOpenedAt: 100 }] });
+    localStorage.setItem('workspace-prefs-v1', raw);
+    const projection = buildHomeFoundationProjection({ notes: [], workouts: [], plannerProjection: null,
+      recentActivity: { groups: [], isEmpty: true, generatedAt: '' }, accountId: 'account-b', todayKey: '2026-06-23' });
+    expect(projection.continueItem).toBeNull();
+    expect(localStorage.getItem('workspace-prefs-v1')).toBe(raw);
   });
 
   it('summarizes saved workouts for today without routine progress fields', () => {

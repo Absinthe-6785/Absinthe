@@ -44,7 +44,8 @@ vi.mock('../store/useNotesStore', () => {
   const state = { notes: [], folders: [], notesAuthorityState: 'LOADED_EMPTY', foldersAuthorityState: 'LOADED_EMPTY',
     syncError: null, vaultStructureVersion: 0, createNote: vi.fn(), initNotesStorage: vi.fn(async () => undefined),
     bootstrapFromSupabase: vi.fn(async () => undefined), detachNotesStorage: vi.fn() };
-  return { useNotesStore: Object.assign((select: (value: typeof state) => unknown) => select(state), { getState: () => state }) };
+  return { useNotesStore: Object.assign((select: (value: typeof state) => unknown) => select(state), { getState: () => state }),
+    observePublishedNotesHydration: () => ({ status: 'UNAVAILABLE', reason: 'NO_PUBLISHED_HYDRATION' }) };
 });
 // Use the real useNow: the system clock can cross midnight before its 60s tick.
 vi.mock('./views/HomeView', async importOriginal => {
