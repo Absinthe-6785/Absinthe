@@ -39,6 +39,7 @@ vi.mock('./features/planner/calendar-ui', async () => {
       onAnchorDateChange: (date: string) => void;
       onAddSchedule: () => void;
       dayScheduleActions: { onDuplicate: (id: string) => void };
+      onEditDday: (schedule: Schedule & { date: string }) => void;
     }) => createElement('div', null,
       createElement('output', { 'data-calendar-date': true }, props.anchorDate),
       createElement('button', {
@@ -56,6 +57,17 @@ vi.mock('./features/planner/calendar-ui', async () => {
         'data-test-duplicate': true,
         onClick: () => props.dayScheduleActions.onDuplicate('source-event'),
       }, 'Duplicate'),
+      createElement('button', {
+        type: 'button',
+        'data-test-edit-legacy': true,
+        onClick: () => props.onEditDday({
+          ...sourceSchedule,
+          id: 'legacy-category-event',
+          text: 'Legacy category event',
+          category: 'LegacyCustomCategory',
+          date: '2026-06-12',
+        }),
+      }, 'Edit legacy category'),
     ),
   };
 });
@@ -180,6 +192,7 @@ describe('PlannerView Schedule duplication date', () => {
     expect(host.querySelector('[data-calendar-date]')?.textContent).toBe('2026-06-20');
     click('[data-test-duplicate]');
 
+    expect(host.querySelector('.fixed.inset-0')?.querySelectorAll('select')).toHaveLength(0);
     expect(duplicateDateInput().value).toBe('2026-06-20');
     expect(host.textContent).toContain('newSchedule');
     expect(host.textContent).not.toContain('editSchedule');
@@ -191,6 +204,7 @@ describe('PlannerView Schedule duplication date', () => {
     await mountPlanner();
 
     click('[data-test-add]');
+    expect(host.querySelector('.fixed.inset-0')?.querySelectorAll('select')).toHaveLength(0);
     const firstDateInput = duplicateDateInput();
     setInputValue(firstDateInput, '2026-06-30');
     expect(firstDateInput.value).toBe('2026-06-30');
@@ -202,7 +216,7 @@ describe('PlannerView Schedule duplication date', () => {
     });
     expect(testState.apiMutate).toHaveBeenCalledTimes(1);
     expect(testState.apiMutate).toHaveBeenLastCalledWith(
-      'POST', '/api/schedules', expect.objectContaining({ date: '2026-06-30', text: 'Temporary event' }), expect.any(Object),
+      'POST', '/api/schedules', expect.objectContaining({ date: '2026-06-30', text: 'Temporary event', category: 'Personal' }), expect.any(Object),
     );
     expect(() => duplicateDateInput()).toThrow();
 
@@ -212,7 +226,7 @@ describe('PlannerView Schedule duplication date', () => {
     expect((host.querySelector('input[type="text"]') as HTMLInputElement).value).toBe('Study session');
     expect((host.querySelector('input[type="time"]') as HTMLInputElement).value).toBe('23:00');
     expect((host.querySelector('input[type="checkbox"]') as HTMLInputElement).checked).toBe(false);
-    expect((host.querySelector('select') as HTMLSelectElement).value).toBe('Study');
+    expect(host.querySelector('.fixed.inset-0')?.querySelectorAll('select')).toHaveLength(0);
     expect([...host.querySelectorAll('button')].some(button => button.textContent === '+1 day' && button.className.includes('bg-primary'))).toBe(true);
 
     const dateInput = duplicateDateInput();
@@ -225,8 +239,57 @@ describe('PlannerView Schedule duplication date', () => {
 
     expect(testState.apiMutate).toHaveBeenCalledTimes(2);
     expect(testState.apiMutate).toHaveBeenLastCalledWith(
-      'POST', '/api/schedules', expect.objectContaining({ date: '2026-07-01', text: 'Study session' }), expect.any(Object),
+      'POST', '/api/schedules', expect.objectContaining({ date: '2026-07-01', text: 'Study session', category: 'Study' }), expect.any(Object),
     );
     expect(sourceSchedule).toMatchObject({ id: 'source-event', text: 'Study session', start_time: '23:00' });
+  });
+
+  it('preserves an existing legacy category when editing without rendering a category selector', async () => {
+    await mountPlanner();
+
+    click('[data-test-edit-legacy]');
+    expect(host.querySelector('.fixed.inset-0')?.querySelectorAll('select')).toHaveLength(0);
+    expect((host.querySelector('input[type="text"]') as HTMLInputElement).value).toBe('Legacy category event');
+
+    await act(async () => {
+      const save = [...host.querySelectorAll('button')].find(button => button.textContent === 'saveSchedule');
+      if (!save) throw new Error('Schedule save button is not mounted');
+      save.click();
+    });
+
+    expect(testState.apiMutate).toHaveBeenCalledWith(
+      'PUT', '/api/schedules/legacy-category-event',
+      expect.objectContaining({ category: 'LegacyCustomCategory', date: '2026-06-12', text: 'Legacy category event' }),
+      expect.any(Object),
+    );
+  });
+
+  it('creates a D-day with the existing default category and without time or category selectors', async () => {
+    await mountPlanner();
+
+    click('[data-test-add]');
+    const modal = host.querySelector('.fixed.inset-0');
+    const ddayToggle = modal?.querySelector<HTMLInputElement>('input[type="checkbox"]');
+    if (!ddayToggle) throw new Error('D-day toggle is not mounted');
+    act(() => ddayToggle.click());
+    const titleInput = modal?.querySelector<HTMLInputElement>('input[type="text"]');
+    if (!titleInput) throw new Error('Schedule title input is not mounted');
+    setInputValue(titleInput, 'Important date');
+
+    expect(modal?.querySelectorAll('select')).toHaveLength(0);
+    expect(modal?.querySelectorAll('input[type="time"]')).toHaveLength(0);
+    expect(modal?.textContent).toContain('k80DdayTimeHint');
+
+    await act(async () => {
+      const save = [...host.querySelectorAll('button')].find(button => button.textContent === 'saveSchedule');
+      if (!save) throw new Error('Schedule save button is not mounted');
+      save.click();
+    });
+
+    expect(testState.apiMutate).toHaveBeenCalledWith(
+      'POST', '/api/schedules',
+      expect.objectContaining({ category: 'Personal', is_dday: true, start_time: '00:00', end_time: '23:59' }),
+      expect.any(Object),
+    );
   });
 });
