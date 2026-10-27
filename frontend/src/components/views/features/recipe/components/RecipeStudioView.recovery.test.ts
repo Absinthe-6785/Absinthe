@@ -188,6 +188,17 @@ function visibleStudioRecipeIds(): string[] {
   return Array.from(host!.querySelectorAll<HTMLElement>('[data-k110-recipe-card]'), card => card.dataset.k110RecipeCard!);
 }
 
+function setStudioCategory(category: string) {
+  const button = Array.from(host!.querySelectorAll<HTMLButtonElement>('[data-k110-recipe-filters] button'))
+    .find(candidate => candidate.textContent?.trim() === category);
+  if (!button) throw new Error(`Recipe category button not found: ${category}`);
+  act(() => button.click());
+}
+
+function toggleStudioStarredOnly() {
+  act(() => host!.querySelector<HTMLButtonElement>('.abs-recipe-star-filter')!.click());
+}
+
 const recipeForm: RecipeFormModalProps['form'] = {
   title: 'Soup',
   category: 'Other',
@@ -451,6 +462,86 @@ describe('RecipeStudioView recovery surface', () => {
     expect(visibleStudioRecipeIds()).toEqual(['dessert-starred']);
   });
 
+  it.each([
+    ['en', 'No results', 'Try different keywords or clear the filter.'],
+    ['ko', '결과 없음', '다른 키워드를 시도하거나 필터를 지워보세요.'],
+    ['ja', '結果なし', '別のキーワードを試すか、フィルターをクリアしてください。'],
+  ])('shows localized filtered no-results feedback for an existing library (%s)', (language, title, description) => {
+    const onNewRecipe = vi.fn();
+    renderStudio(vi.fn(), {
+      projection: populatedProjection,
+      recipes: [activeRecipe],
+      activeAvailability: 'READY_WITH_DATA',
+      appSettings: { ...appSettings, language },
+      onNewRecipe,
+    });
+
+    setStudioSearch('no matching recipe');
+
+    const noResults = host!.querySelector('[data-k121-empty-state="recipe-filtered-no-results"]');
+    expect(noResults).not.toBeNull();
+    expect(noResults?.textContent).toContain(title);
+    expect(noResults?.textContent).toContain(description);
+    expect(noResults?.textContent).not.toContain('No recipes yet');
+    expect(host!.querySelector('[data-k121-empty-state="recipe-list"]')).toBeNull();
+    expect(host!.querySelector('[data-k110-recipe-studio]')?.getAttribute('data-recipe-empty')).toBe('false');
+    expect(noResults?.querySelector('button')).toBeNull();
+    expect(onNewRecipe).not.toHaveBeenCalled();
+  });
+
+  it('shows filtered no-results feedback when only the category filter excludes existing Recipes', () => {
+    renderStudio(vi.fn(), {
+      projection: populatedProjection,
+      recipes: [{ ...activeRecipe, category: 'Other' }],
+      activeAvailability: 'READY_WITH_DATA',
+    });
+
+    setStudioCategory('Dessert');
+
+    expect(host!.querySelector('[data-k121-empty-state="recipe-filtered-no-results"]')).not.toBeNull();
+    expect(host!.querySelector('[data-k121-empty-state="recipe-list"]')).toBeNull();
+    expect(host!.querySelector('[data-k110-recipe-studio]')?.getAttribute('data-recipe-empty')).toBe('false');
+    expect(host!.querySelector('[data-k121-empty-state="recipe-filtered-no-results"] button')).toBeNull();
+  });
+
+  it('shows filtered no-results feedback when the starred-only filter excludes existing Recipes', () => {
+    renderStudio(vi.fn(), {
+      projection: populatedProjection,
+      recipes: [{ ...activeRecipe, starred: false }],
+      activeAvailability: 'READY_WITH_DATA',
+    });
+
+    toggleStudioStarredOnly();
+
+    expect(host!.querySelector('[data-k121-empty-state="recipe-filtered-no-results"]')).not.toBeNull();
+    expect(host!.querySelector('[data-k121-empty-state="recipe-list"]')).toBeNull();
+    expect(host!.querySelector('[data-k110-recipe-studio]')?.getAttribute('data-recipe-empty')).toBe('false');
+    expect(host!.querySelector('[data-k121-empty-state="recipe-filtered-no-results"] button')).toBeNull();
+  });
+
+  it('combines filters, restores matching cards when cleared, and does not mutate source Recipes', () => {
+    const recipes: Recipe[] = [
+      { ...activeRecipe, id: 'dessert-unstarred', title: 'Vanilla tart', category: 'Dessert', starred: false, memo: 'vanilla' },
+      { ...activeRecipe, id: 'other-starred', title: 'Roast vegetables', category: 'Other', starred: true, memo: 'herbs' },
+    ];
+    const original = JSON.stringify(recipes);
+    renderStudio(vi.fn(), { projection: populatedProjection, recipes, activeAvailability: 'READY_WITH_DATA' });
+
+    setStudioSearch('vanilla');
+    setStudioCategory('Dessert');
+    toggleStudioStarredOnly();
+    expect(visibleStudioRecipeIds()).toEqual([]);
+    expect(host!.querySelector('[data-k121-empty-state="recipe-filtered-no-results"]')).not.toBeNull();
+    expect(JSON.stringify(recipes)).toBe(original);
+
+    setStudioSearch('');
+    setStudioCategory('All');
+    toggleStudioStarredOnly();
+    expect(visibleStudioRecipeIds()).toEqual(['dessert-unstarred', 'other-starred']);
+    expect(host!.querySelector('[data-k121-empty-state="recipe-filtered-no-results"]')).toBeNull();
+    expect(JSON.stringify(recipes)).toBe(original);
+  });
+
   it('treats empty or missing textual fields as non-matching rather than throwing', () => {
     const incomplete = {
       ...activeRecipe,
@@ -524,6 +615,7 @@ describe('RecipeStudioView recovery surface', () => {
     });
 
     expect(host?.querySelector('[data-k121-empty-state="recipe-list"]')).toBeNull();
+    expect(host?.querySelector('[data-k121-empty-state="recipe-filtered-no-results"]')).toBeNull();
     expect(host?.querySelector<HTMLButtonElement>('[data-k110-new-recipe]')?.disabled).toBe(true);
     expect(host?.querySelector('[data-k110-recipe-studio]')?.getAttribute('data-recipe-empty')).toBe('false');
     expandDerivedSections();
@@ -540,6 +632,7 @@ describe('RecipeStudioView recovery surface', () => {
 
     expect(host?.querySelector('[data-recipe-availability="active"]')).not.toBeNull();
     expect(host?.querySelector('[data-k121-empty-state="recipe-list"]')).toBeNull();
+    expect(host?.querySelector('[data-k121-empty-state="recipe-filtered-no-results"]')).toBeNull();
     expect(host?.querySelector<HTMLButtonElement>('[data-k110-new-recipe]')?.disabled).toBe(true);
     expect(host?.querySelector('[data-k110-recipe-studio]')?.getAttribute('data-recipe-empty')).toBe('false');
     expandDerivedSections();
@@ -559,6 +652,20 @@ describe('RecipeStudioView recovery surface', () => {
     expect(host?.querySelector('[data-recipe-availability="active"][data-recipe-availability-stale="true"]')).not.toBeNull();
     expect(host?.querySelector('[data-k121-empty-state="recipe-list"]')).toBeNull();
     expect(Array.from(card?.querySelectorAll<HTMLButtonElement>('button') ?? []).slice(0, 3).every(button => button.disabled)).toBe(true);
+  });
+
+  it('does not treat filtered stale cached data as an authoritative no-results state', () => {
+    renderStudio(vi.fn(), {
+      activeAvailability: 'STALE_WITH_DATA',
+      recipes: [activeRecipe],
+    });
+
+    setStudioSearch('no matching recipe');
+
+    expect(host?.querySelector('[data-recipe-availability="active"][data-recipe-availability-stale="true"]')).not.toBeNull();
+    expect(host?.querySelector('[data-k121-empty-state="recipe-list"]')).toBeNull();
+    expect(host?.querySelector('[data-k121-empty-state="recipe-filtered-no-results"]')).toBeNull();
+    expect(host?.querySelector<HTMLButtonElement>('[data-k110-new-recipe]')?.disabled).toBe(true);
   });
 
   it('does not render confirmed empty from cached empty data plus an error', () => {
@@ -608,9 +715,11 @@ describe('RecipeStudioView recovery surface', () => {
   });
 
   it('renders confirmed empty only after active authority is ready', () => {
+    const onNewRecipe = vi.fn();
     renderStudio(vi.fn(), {
       activeAvailability: 'READY_EMPTY',
       recipes: [],
+      onNewRecipe,
     });
 
     expect(host?.querySelector('[data-k121-empty-state="recipe-list"]')).not.toBeNull();
@@ -620,6 +729,11 @@ describe('RecipeStudioView recovery surface', () => {
     expandDerivedSections();
     expect(host?.querySelector('[data-k110-empty-state="ingredients"]')).not.toBeNull();
     expect(host?.querySelector('[data-k110-empty-state="history"]')).toBeNull();
+    const emptyLibrary = host?.querySelector('[data-k121-empty-state="recipe-list"]');
+    expect(emptyLibrary?.textContent).toContain('No recipes yet');
+    expect(emptyLibrary?.querySelector('button')?.textContent).toContain('New Recipe');
+    act(() => emptyLibrary?.querySelector<HTMLButtonElement>('button')?.click());
+    expect(onNewRecipe).toHaveBeenCalledTimes(1);
   });
 
   it('exposes deleted Recipes and routes Restore to the production callback', () => {
