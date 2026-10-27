@@ -8,6 +8,8 @@ import type { HomeViewProps } from './HomeView';
 import type { NotesPersistenceInitResult } from '../../lib/notePersistence';
 import type { RecipeActivityEntry } from './features/recipe/recipeActivityStorage';
 import { PLANNER_ACTIVITY_KEY } from './features/planner/plannerActivityStorage';
+import { ARCHIVE_RESTORE_RECENTS_KEY, readArchiveRestoreRecents } from './features/knowledge/archive/archiveRestoreRecents';
+import { buildArchiveProjectionForHook } from './features/archive/hooks/useArchiveProjection';
 import {
   activateNotesAccountAuthority, detachNotesAccountAuthority, getActiveNotesAuthorityRequest, NOTES_CORE_DOMAIN, NOTES_FOLDERS_DOMAIN,
   type NotesAuthorityDomainState, type NotesAuthorityRequest,
@@ -30,8 +32,6 @@ vi.mock('../../lib/i18n', async importOriginal => {
 vi.mock('./features/planner/calendar-ui/usePlannerCalendarProjection', () => ({ usePlannerCalendarProjection: () => ({ projection: {}, presentation: {} }) }));
 vi.mock('./features/planner/calendar/buildPlannerProjection', () => ({ buildPlannerProjection: () => ({ todayItems: [], timetableToday: [] }) }));
 vi.mock('./features/planner/hooks/useCountdownReviewed', () => ({ useCountdownReviewed: () => ({ isReviewed: () => false }) }));
-vi.mock('./features/archive/hooks/useArchiveProjection', () => ({ useArchiveProjection: () => ({ projection: { historyItems: { groups: [] } } }) }));
-vi.mock('./features/knowledge/archive/archiveRestoreRecents', () => ({ readArchiveRestoreRecents: () => [] }));
 vi.mock('./features/recipe/recipeActivityStorage', () => ({ readRecipeViewRecents: () => mocks.recipeRecents }));
 vi.mock('../common/WorkspacePageHeader', () => ({ WorkspacePageHeader: () => null }));
 
@@ -296,5 +296,70 @@ describe('Home Notes-domain trace provenance', () => {
     expect(mocks.openRecipe).toHaveBeenCalledExactlyOnceWith('recipe-1');
     expect(mocks.openNote).not.toHaveBeenCalled();
     expect(localStorage.getItem(plannerKey)).toBe(plannerRaw);
+  });
+});
+
+describe('Home Archive trace account boundary', () => {
+  it('preserves supported mixed trace ordering, date metadata, Continue and exact navigation when Archive data is newer', async () => {
+    const at = new Date(2026, 5, 12, 10).getTime();
+    const raw = JSON.stringify([{ noteId: 'foreign', restoredAt: at + 1 }]);
+    localStorage.setItem(ARCHIVE_RESTORE_RECENTS_KEY, raw);
+    await publish('A', [note('current', at)]);
+    mocks.recipeRecents = [{ recipeId: 'recipe-1', title: 'Recipe trace', at: at - 1 }];
+    localStorage.setItem(`${PLANNER_ACTIVITY_KEY}:account:A`, JSON.stringify([
+      { kind: 'schedule', itemId: 'schedule-1', title: 'Schedule trace', at: at - 2, eventDate: '2026-06-13' },
+    ]));
+    await render('A');
+    const rows = [...host.querySelectorAll<HTMLButtonElement>('[data-k132a-home-row^="trace-"]')];
+    expect(rows.map(row => row.querySelector('p')?.textContent)).toEqual(['Note current', 'Recipe trace', 'Schedule trace']);
+    expect(rows[2].textContent).toContain('2026-06-13');
+    act(() => { rows.forEach(row => row.click()); button()!.click(); });
+    expect(mocks.openNote.mock.calls).toEqual([['current', { returnTab: 'home' }], ['current', { returnTab: 'home' }]]);
+    expect(mocks.openRecipe).toHaveBeenCalledExactlyOnceWith('recipe-1');
+    expect(mocks.switchToTab).toHaveBeenCalledExactlyOnceWith('planner');
+    expect(localStorage.getItem(ARCHIVE_RESTORE_RECENTS_KEY)).toBe(raw);
+  });
+
+  it('never shows or navigates global restore activity across A -> B -> A, even when a published Note ID matches', async () => {
+    const at = new Date(2026, 5, 12, 10).getTime();
+    const recents = [{ noteId: 'shared-id', restoredAt: at + 2 }, { noteId: 'foreign-id', restoredAt: at + 1 }];
+    const raw = JSON.stringify(recents);
+    localStorage.setItem(ARCHIVE_RESTORE_RECENTS_KEY, raw);
+    const observations = [];
+    for (const account of ['A', 'B', 'A']) {
+      await publish(account, [{ ...note('shared-id', at), title: `${account} current Note` }]);
+      const notesBefore = JSON.stringify(useNotesStore.getState().notes);
+      const request = getActiveNotesAuthorityRequest();
+      await render(account);
+      expectNoteTraces(`${account} current Note`);
+      expect(button()?.textContent).toContain(`${account} current Note`);
+      const rows = [...host.querySelectorAll<HTMLButtonElement>('[data-k132a-home-row="trace-archive"]')];
+      const count = host.querySelector<HTMLButtonElement>('[data-k132a-home-open-archive]');
+      const callsBefore = mocks.openNote.mock.calls.length + mocks.switchToTab.mock.calls.length;
+      act(() => { rows.forEach(row => row.click()); count?.click(); });
+      observations.push({ account, archiveTitles: rows.map(row => row.querySelector('p')?.textContent),
+        countVisible: Boolean(count), navigationCalls: mocks.openNote.mock.calls.length + mocks.switchToTab.mock.calls.length - callsBefore });
+      expect(localStorage.getItem(ARCHIVE_RESTORE_RECENTS_KEY)).toBe(raw);
+      expect(readArchiveRestoreRecents()).toEqual(recents);
+      expect(JSON.stringify(useNotesStore.getState().notes)).toBe(notesBefore);
+      expect(getActiveNotesAuthorityRequest()).toBe(request);
+    }
+    expect(observations).toEqual(['A', 'B', 'A'].map(account => ({
+      account, archiveTitles: [], countVisible: false, navigationCalls: 0,
+    })));
+  });
+
+  it('does not show a Home Archive count derived only from unpublished Notes; Archive internal history remains available', async () => {
+    const at = new Date(2026, 5, 12, 10).getTime();
+    useNotesStore.setState({ notes: [{ ...note('unpublished', at), updatedAt: at }] });
+    const notesBefore = JSON.stringify(useNotesStore.getState().notes);
+    const archive = buildArchiveProjectionForHook(useNotesStore.getState().notes, new Date(2026, 5, 12, 12), [], 'en');
+    const today = archive.historyItems.groups.find(group => group.bucket === 'today')!;
+    expect(today.opened.map(item => item.noteId)).toEqual(['unpublished']);
+    expect(today.edited.map(item => item.noteId)).toEqual(['unpublished']);
+    await render('B');
+    expectEmpty(); expectNoteTraces();
+    expect(host.querySelector('[data-k132a-home-open-archive]')).toBeNull();
+    expect(JSON.stringify(useNotesStore.getState().notes)).toBe(notesBefore);
   });
 });
