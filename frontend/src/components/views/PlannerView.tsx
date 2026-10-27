@@ -109,7 +109,7 @@ export const PlannerView = ({
     setShowForm(true);
   };
   const handleSaveSchedule = async () => {
-    if (!newSch.text) return showToast(t('enterText'), 'error');
+    if (!newSch.text?.trim()) return showToast(t('enterText'), 'error');
     const isDday = Boolean(newSch.is_dday);
     if (!isDday && !endNextDay && newSch.start_time && newSch.end_time && newSch.start_time >= newSch.end_time)
       return showToast(t('endTimeError'), 'error');
