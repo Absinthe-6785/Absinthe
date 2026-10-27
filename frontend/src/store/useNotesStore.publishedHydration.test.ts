@@ -19,11 +19,24 @@ const persistence = vi.hoisted(() => ({
 
 vi.mock('../lib/notePersistence', async importOriginal => {
   const actual = await importOriginal<typeof import('../lib/notePersistence')>();
+  const authority = await import('../lib/notesAccountAuthority');
+  const safety = await import('../lib/recoverySafetyPolicy');
+  const { notesResetResult, NOTES_RESET_STAGES } = await import('../lib/notesResetContract');
   return {
     ...actual,
     initNotesPersistence: persistence.initialize,
     saveNotesAsync: persistence.save,
     clearNotesPersistence: vi.fn(async () => {}),
+    // This suite stubs hydration instead of initializing storage. Model the new
+    // reset receipt explicitly; real durability is tested by resetAcknowledgement.
+    captureNotesResetContext: (_account?: string, isUiCurrent: () => boolean = () => true) => ({
+      accountId: authority.getActiveNotesAuthorityAccountId(), request: authority.getActiveNotesAuthorityRequest(),
+      safetyEpoch: safety.captureOperationEpoch(), mode: 'accountScoped', isUiCurrent,
+    }),
+    isNotesResetContextCurrent: (context: import('../lib/notePersistence').NotesResetContext) => (
+      context.request === authority.getActiveNotesAuthorityRequest() && safety.isOperationEpochCurrent(context.safetyEpoch)
+    ),
+    persistNotesReset: vi.fn(async () => notesResetResult('completed', NOTES_RESET_STAGES)),
   };
 });
 vi.mock('../lib/supabase', () => ({ authFetch: vi.fn(), authReadFetch: vi.fn() }));
@@ -254,9 +267,10 @@ describe('published Notes hydration provenance', () => {
 
   it('H11 reset invalidates the claim without changing the authority owner', async () => {
     const request = await publish();
-    useNotesStore.getState().resetAllNotes();
+    const reset = useNotesStore.getState().resetAllNotes();
     expect(getActiveNotesAuthorityRequest()).toBe(request);
     expectUnavailable('NO_PUBLISHED_HYDRATION');
+    expect((await reset).status).toBe('completed');
   });
 
   it('IR01/T01 rejects in-place replacement of B contents with retained A1 Notes', async () => {
@@ -293,7 +307,7 @@ describe('published Notes hydration provenance', () => {
     const request = await publish();
     const snapshot = useNotesStore.getState();
     expect(mayReset()).toBe(true);
-    snapshot.resetAllNotes();
+    expect((await snapshot.resetAllNotes()).status).toBe('completed');
     expect(getActiveNotesAuthorityRequest()).toBe(request);
     expect(useNotesStore.getState().notes).not.toBe(snapshot.notes);
     useNotesStore.setState(snapshot);
@@ -314,7 +328,7 @@ describe('published Notes hydration provenance', () => {
     const old = await publish();
     const snapshot = useNotesStore.getState();
     expect(mayReset()).toBe(true);
-    snapshot.resetAllNotes();
+    expect((await snapshot.resetAllNotes()).status).toBe('completed');
     useNotesStore.setState(snapshot);
     expectUnavailable('STALE_PUBLISHED_HYDRATION');
     const fresh = await publish();
@@ -345,7 +359,7 @@ describe('published Notes hydration provenance', () => {
     persistence.initialize.mockReturnValueOnce(wait.promise);
     const run = useNotesStore.getState().initNotesStorage('A');
     const request = currentRequest();
-    if (action === 'reset') useNotesStore.getState().resetAllNotes();
+    if (action === 'reset') expect((await useNotesStore.getState().resetAllNotes()).status).toBe('blocked');
     else useNotesStore.getState().detachNotesStorage();
     const replacement = useNotesStore.getState().notes;
     wait.resolve(hydrated(request, [note('obsolete')]));

@@ -25,8 +25,6 @@ import {
   isNotesAccountAuthorityActive,
   loadAccountScopedActiveNoteId,
   loadAccountScopedFolders,
-  saveAccountScopedActiveNoteId,
-  saveAccountScopedFolders,
 } from '../../lib/notesAccountAuthority';
 
 // 순환 참조 방지: useAppStore에서 import하지 않고 독립 타입 정의
@@ -323,7 +321,8 @@ export function saveNotes(notes: NoteBase[]): boolean {
 }
 
 export function saveFolders(folders: NoteFolderBase[]): boolean {
-  if (isNotesAccountAuthorityActive()) return saveAccountScopedFolders(folders);
+  // A synchronous bridge cannot acknowledge an account Web Lock operation.
+  if (isNotesAccountAuthorityActive()) return false;
   if (!mayWriteLegacyNotes()) return false;
   try {
     localStorage.setItem(FOLDERS_KEY, JSON.stringify(folders));
@@ -333,30 +332,27 @@ export function saveFolders(folders: NoteFolderBase[]): boolean {
   }
 }
 
-export function saveActiveNoteId(id: string | null): void {
+export function saveActiveNoteId(id: string | null): boolean {
   if (isNotesAccountAuthorityActive()) {
-    saveAccountScopedActiveNoteId(id);
-    return;
+    return false;
   }
-  if (!mayWriteLegacyNotes()) return;
-  try { localStorage.setItem(ACTIVE_KEY, id ?? ''); } catch { /**/ }
+  if (!mayWriteLegacyNotes()) return false;
+  try { localStorage.setItem(ACTIVE_KEY, id ?? ''); return true; } catch { return false; }
 }
 
 /** Settings Reset 등 — notes localStorage 전부 제거 */
-export function clearNotesStorage(): void {
+export function clearNotesStorage(): boolean {
   if (isNotesAccountAuthorityActive()) {
-    // The paired account-scoped IndexedDB clear is performed by
-    // clearNotesPersistence; never fall back to the legacy global keys.
-    saveAccountScopedFolders([]);
-    saveAccountScopedActiveNoteId(null);
-    return;
+    // Account reset is owned by the single-lock async Notes operation.
+    return false;
   }
-  if (!mayWriteLegacyNotes()) return;
+  if (!mayWriteLegacyNotes()) return false;
   try {
     localStorage.removeItem(NOTES_KEY);
     localStorage.removeItem(FOLDERS_KEY);
     localStorage.removeItem(ACTIVE_KEY);
-  } catch { /**/ }
+    return true;
+  } catch { return false; }
 }
 
 /** Settings reset — explicit welcome note creation. */

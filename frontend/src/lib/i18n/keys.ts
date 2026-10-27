@@ -2163,6 +2163,11 @@ const translationKeys = [
   "shortcutReadMode",
   "shortcutIndentOutdent",
   "shortcutClearBlockSelection",
+  "notesResetAction",
+  "notesResetScope",
+  "notesResetConfirm",
+  "notesResetCompleted",
+  "notesResetIncomplete",
 ] as const;
 
 export type TranslationKey = (typeof translationKeys)[number];

@@ -1,4 +1,5 @@
 import 'fake-indexeddb/auto';
+import { saveFoldersAsync } from '../lib/notePersistence';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   FOLDERS_KEY,
@@ -93,9 +94,9 @@ function resetStore() {
   });
 }
 
-function seed(notes: NoteBase[], folders: NoteFolderBase[], activeFolderId: string | null = null) {
+async function seed(notes: NoteBase[], folders: NoteFolderBase[], activeFolderId: string | null = null) {
   storage.set(NOTES_KEY, JSON.stringify(notes));
-  expect(saveFolders(folders)).toBe(true);
+  expect(await saveFoldersAsync(folders)).toBe(true);
   useNotesStore.setState({ notes, folders, activeFolderId });
 }
 
@@ -112,7 +113,7 @@ async function seedInitializedAccount(
 ): Promise<void> {
   await useNotesStore.getState().initNotesStorage(accountId);
   expect(await saveAccountScopedNotes(accountId, notes)).toBe(true);
-  expect(saveFolders(folders)).toBe(true);
+  expect(await saveFoldersAsync(folders)).toBe(true);
   useNotesStore.setState({
     notes,
     folders,
@@ -200,7 +201,7 @@ describe('Notes folder destructive lifecycle', () => {
       note('trashed-member', 'research', 'keep trashed body', 100),
       note('unrelated', 'after', 'keep unrelated body'),
     ];
-    seed(notes, folders, 'research');
+    await seed(notes, folders, 'research');
     const identitiesAndBodies = notes.map(({ id, body }) => ({ id, body }));
 
     const result = await useNotesStore.getState().deleteFolder('research');
@@ -221,7 +222,7 @@ describe('Notes folder destructive lifecycle', () => {
   it('restores only still-unassigned members and preserves a newer explicit assignment', async () => {
     const folders = [folder('research', 'Research', 1), folder('later', 'Later', 2)];
     const notes = [note('restore-me', 'research'), note('move-me', 'research'), note('unrelated', null)];
-    seed(notes, folders, 'research');
+    await seed(notes, folders, 'research');
     const deleted = await useNotesStore.getState().deleteFolder('research');
     if (deleted.status !== 'deleted') throw new Error('expected deletion receipt');
 
@@ -243,7 +244,7 @@ describe('Notes folder destructive lifecycle', () => {
   });
 
   it('fails closed when the deleted folder identity already exists at Undo time', async () => {
-    seed([note('member', 'research')], [folder('research', 'Research', 1)]);
+    await seed([note('member', 'research')], [folder('research', 'Research', 1)]);
     const deleted = await useNotesStore.getState().deleteFolder('research');
     if (deleted.status !== 'deleted') throw new Error('expected deletion receipt');
     const conflicting = folder('research', 'Newer identity', 99);
@@ -259,7 +260,7 @@ describe('Notes folder destructive lifecycle', () => {
   it('expires the narrow recovery capability after the bounded Undo window', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(1_000);
-    seed([note('member', 'research')], [folder('research', 'Research', 1)]);
+    await seed([note('member', 'research')], [folder('research', 'Research', 1)]);
     const deleted = await useNotesStore.getState().deleteFolder('research');
     if (deleted.status !== 'deleted') throw new Error('expected deletion receipt');
 
@@ -274,7 +275,7 @@ describe('Notes folder destructive lifecycle', () => {
   it('keeps in-memory and durable state unchanged when deletion persistence fails', async () => {
     const folders = [folder('research', 'Research', 1)];
     const notes = [note('member', 'research', 'irreplaceable')];
-    seed(notes, folders, 'research');
+    await seed(notes, folders, 'research');
     rejectFolderWrites = true;
 
     const result = await useNotesStore.getState().deleteFolder('research');
@@ -289,7 +290,7 @@ describe('Notes folder destructive lifecycle', () => {
 
   it('keeps the coherent deleted state when Undo persistence fails', async () => {
     const folders = [folder('research', 'Research', 1)];
-    seed([note('member', 'research', 'irreplaceable')], folders);
+    await seed([note('member', 'research', 'irreplaceable')], folders);
     const deleted = await useNotesStore.getState().deleteFolder('research');
     if (deleted.status !== 'deleted') throw new Error('expected deletion receipt');
     const deletedNotes = useNotesStore.getState().notes;
@@ -308,7 +309,7 @@ describe('Notes folder destructive lifecycle', () => {
     bindRemoteAccount();
     const folders = [folder('research', 'Research', 1)];
     const notes = [note('member', 'research', 'local body survives')];
-    seed(notes, folders);
+    await seed(notes, folders);
     authFetchMock.mockResolvedValue({ ok: false, status: 503, json: async () => ({}) });
 
     const result = await useNotesStore.getState().deleteFolder('research');
@@ -329,7 +330,7 @@ describe('Notes folder destructive lifecycle', () => {
   it('settles remote deletion before recreating the folder and syncing current memberships on Undo', async () => {
     bindRemoteAccount();
     const folders = [folder('research', 'Research', 1)];
-    seed([note('member', 'research', 'remote-safe body')], folders);
+    await seed([note('member', 'research', 'remote-safe body')], folders);
     authFetchMock.mockImplementation(async (url: unknown, options?: RequestInit) => {
       if (String(url).endsWith('/api/notes') && options?.method === 'POST') {
         const payload = JSON.parse(String(options.body)) as Record<string, unknown>;
@@ -392,7 +393,7 @@ describe('Notes folder destructive lifecycle', () => {
     );
     expect(prepared?.phase).toBe('PREPARED');
     expect(await saveAccountScopedNotes(accountId, [locallyDeletedNote])).toBe(true);
-    expect(saveFolders([])).toBe(true);
+    expect(await saveFoldersAsync([])).toBe(true);
 
     useNotesStore.getState().detachNotesStorage();
     await useNotesStore.getState().initNotesStorage(accountId);
@@ -474,7 +475,7 @@ describe('Notes folder destructive lifecycle', () => {
       [deletedNote.id],
     )?.phase).toBe('PREPARED');
     expect(await saveAccountScopedNotes(accountId, [locallyRestoredNote])).toBe(true);
-    expect(saveFolders([originalFolder])).toBe(true);
+    expect(await saveFoldersAsync([originalFolder])).toBe(true);
 
     useNotesStore.getState().detachNotesStorage();
     await useNotesStore.getState().initNotesStorage(accountId);
@@ -850,7 +851,7 @@ describe('Notes folder destructive lifecycle', () => {
 
     const replacementNote = note('reused-note', null, 'replacement body');
     expect(await saveAccountScopedNotes(accountId, [replacementNote])).toBe(true);
-    expect(saveFolders([])).toBe(true);
+    expect(await saveFoldersAsync([])).toBe(true);
     const previousEpoch = useNotesStore.getState().folderDeletionUndoEpoch;
     await useNotesStore.getState().initNotesStorage(accountId);
     expect(useNotesStore.getState().folderDeletionUndoEpoch).toBeGreaterThan(previousEpoch);
@@ -905,7 +906,7 @@ describe('Notes folder destructive lifecycle', () => {
 
   it('releases a failed Undo claim so a later retry can succeed once', async () => {
     const originalFolder = folder('research', 'Research', 1);
-    seed([note('member', 'research')], [originalFolder]);
+    await seed([note('member', 'research')], [originalFolder]);
     const deleted = await useNotesStore.getState().deleteFolder('research');
     if (deleted.status !== 'deleted') throw new Error('expected deletion receipt');
 

@@ -2163,6 +2163,11 @@ const enTranslations = [
   "Reading mode",
   "Indent / outdent",
   "Clear block selection",
+  "Reset Notes and Health routines",
+  "Resets this account's Notes, folders, selection and Health routines. Attachment originals, backups and other account data are not erased. History cleanup is best-effort.",
+  "Reset this account's Notes and Health routines and create a new Welcome Note? Changes cannot be undone; a failure may leave partial changes.",
+  "Notes, folders, Welcome Note and selection were saved; Health routine reset completed. This was not a complete account wipe.",
+  "Reset was not fully confirmed. Some changes may already be saved; no rollback or automatic retry was performed.",
 ] as const;
 
 export default enTranslations;

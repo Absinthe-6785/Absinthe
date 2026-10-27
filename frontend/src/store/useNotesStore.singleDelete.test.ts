@@ -319,7 +319,7 @@ describe('POST_RTU_03 account-scoped trash and permanent deletion', () => {
   it('preserves a local-only Folder through a complete bootstrap', async () => {
     const localOnlyFolder = { id: 'local-only-folder', name: 'Local only', createdAt: 10 };
     await seedAccount('account-a', []);
-    expect(saveAccountScopedFolders([localOnlyFolder])).toBe(true);
+    expect(await saveAccountScopedFolders([localOnlyFolder])).toBe(true);
     useNotesStore.setState({ notes: [], folders: [localOnlyFolder], activeAccountId: 'account-a' });
     installRemoteSnapshot('account-a', []);
 
@@ -338,7 +338,7 @@ describe('POST_RTU_03 account-scoped trash and permanent deletion', () => {
       { id: 'local-only-folder-b', name: 'B', createdAt: 20 },
     ];
     await seedAccount('account-a', localNotes);
-    expect(saveAccountScopedFolders(localFolders)).toBe(true);
+    expect(await saveAccountScopedFolders(localFolders)).toBe(true);
     useNotesStore.setState({ notes: localNotes, folders: localFolders, activeAccountId: 'account-a' });
     installRemoteSnapshot('account-a', []);
 

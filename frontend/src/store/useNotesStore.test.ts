@@ -252,14 +252,14 @@ describe('useNotesStore — sync failure & retry', () => {
 describe('useNotesStore — Settings Reset', () => {
   beforeEach(() => resetStore());
 
-  it('resetAllNotes clears old localStorage and seeds welcome note', () => {
+  it('resetAllNotes clears old localStorage and durably acknowledges the welcome note', async () => {
     const old = sampleNote();
     useNotesStore.setState({ notes: [old], folders: [{ id: 'f1', name: 'X', createdAt: 1 }], activeNoteId: old.id });
     storage.set(NOTES_KEY, JSON.stringify([old]));
     storage.set(FOLDERS_KEY, JSON.stringify([{ id: 'f1', name: 'X', createdAt: 1 }]));
     storage.set(ACTIVE_KEY, old.id);
 
-    useNotesStore.getState().resetAllNotes();
+    expect((await useNotesStore.getState().resetAllNotes()).status).toBe('completed');
 
     const { notes, folders, syncError } = useNotesStore.getState();
     expect(notes).toHaveLength(1);

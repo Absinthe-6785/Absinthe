@@ -219,17 +219,20 @@ export async function deleteNoteFromIndexedDb(noteId: string): Promise<boolean> 
   }
 }
 
-export async function clearIndexedDbNotes(): Promise<boolean> {
+export async function clearIndexedDbNotes(isCurrent: () => boolean = () => true): Promise<boolean> {
+  if (!isCurrent()) return false;
   if (!mayWriteLegacyNotes() || !mayDeleteLegacyStorage()) {
     recordRecoveryBlock('delete_legacy_storage');
     return false;
   }
   const db = await openNotesDb();
   try {
+    if (!isCurrent()) return false;
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(NOTES_IDB_STORE, 'readwrite');
       const store = tx.objectStore(NOTES_IDB_STORE);
       tx.onerror = () => reject(tx.error ?? new Error('IndexedDB clear transaction failed'));
+      tx.onabort = () => reject(tx.error ?? new Error('IndexedDB clear transaction aborted'));
       tx.oncomplete = () => resolve();
       const req = store.clear();
       req.onerror = () => reject(req.error ?? new Error('IndexedDB clear failed'));

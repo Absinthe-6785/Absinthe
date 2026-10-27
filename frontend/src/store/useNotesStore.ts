@@ -28,13 +28,19 @@ import {
   loadNotesAsync,
   saveNotesAsync,
   saveNotesSyncResult,
+  saveFoldersAsync,
+  saveActiveNoteIdAsync,
   setCachedNotes,
   getNotesPersistenceMode,
   isNotesIndexedDbRevisionEvent,
-  clearNotesPersistence,
+  captureNotesResetContext,
+  isNotesResetContextCurrent,
+  persistNotesReset,
+  type NotesResetContext,
   detachNotesPersistenceAccount,
   type NotesPersistenceWriteResult,
 } from '../lib/notePersistence';
+import { notesResetResult, type NotesResetResult } from '../lib/notesResetContract';
 import {
   type NotesAuthorityLoadState,
   type NotesAccountRecoveryContext,
@@ -83,8 +89,7 @@ import {
   loadActiveNoteId,
   saveFolders,
   saveActiveNoteId,
-  clearNotesStorage,
-  createDefaultWelcomeNotes,
+  defaultSeedNotes,
   mergeNoteArrays,
   mergeNotesFromStorageJson,
   mergeFoldersFromStorageJson,
@@ -480,8 +485,9 @@ interface NotesState {
   syncNoteToDB: (note: Note) => Promise<boolean>;
   flushPendingSync: () => void;
   retrySync: () => void;
-  /** Settings Reset — localStorage + in-memory notes 초기화 */
-  resetAllNotes: () => void;
+  /** Settings Reset — completion is acknowledged only after the bounded durable snapshot is verified. */
+  captureResetContext: (accountId?: string, isUiCurrent?: () => boolean) => NotesResetContext | null;
+  resetAllNotes: (context?: NotesResetContext) => Promise<NotesResetResult>;
   /** K-96B — hydrate notes from IndexedDB (or localStorage fallback) once at startup */
   initNotesStorage: (accountId?: string) => Promise<void>;
   /** Detach runtime memory on sign-out or account switch without deleting account data. */
@@ -506,6 +512,8 @@ const latestNoteSyncAttempts = new Map<string, number>();
 let lastFailedNote: Note | null = null;
 let lastFailedDeleteId: string | null = null;
 let notesLocalMutationGeneration = 0;
+// Runtime reset intent only: not a durable revision or a cross-tab coordinator.
+let notesResetIntentGeneration = 0;
 let nextNoteSyncAttempt = 0;
 let nextFolderDeletionToken = 0;
 const folderDeletionInProgress = new Set<string>();
@@ -839,18 +847,24 @@ async function saveAuthorizedRestoreNotes(
   }
 }
 
-function saveAuthorizedRestoreFolders(
+async function saveAuthorizedRestoreFolders(
   folders: readonly NoteFolder[],
   capability: unknown,
   purpose: LocalCoreJsonRestorePurpose,
-): boolean {
+): Promise<boolean> {
   const record = authorityRecord(capability);
   if (!record || record.state !== 'notes_write_started' || record.purpose !== purpose) return false;
+  const authorized = () => authorityRecord(capability) === record
+    && record.state === 'notes_write_started' && record.purpose === purpose
+    && record.namespace === LOCAL_CORE_JSON_RESTORE_NAMESPACE
+    && isOperationEpochCurrent(record.operationEpoch)
+    && localCoreJsonRestoreDigest(folders) === record.foldersDigest
+    && (purpose === 'rollback' || !record.recoveryContext || isNotesAccountRecoveryContextActive(record.recoveryContext));
   if (record.recoveryContext) {
     if (purpose === 'restore' && !isNotesAccountRecoveryContextActive(record.recoveryContext)) return false;
-    return saveFoldersForRecoveryContext(record.recoveryContext, folders);
+    return saveFoldersForRecoveryContext(record.recoveryContext, folders, authorized);
   }
-  return saveFolders(folders as NoteFolder[]);
+  return authorized() && saveFolders(folders as NoteFolder[]);
 }
 
 async function loadAuthorizedRestoreNotes(capability: unknown): Promise<Note[]> {
@@ -943,7 +957,7 @@ async function persistAndVerifyRestoreState(
       previous.notes,
       previous.folders,
     )) throw new Error('restore_authority_folders');
-    if (!saveAuthorizedRestoreFolders(expected.folders, authorities.restore, 'restore')) throw new Error('folders_write:rejected');
+    if (!await saveAuthorizedRestoreFolders(expected.folders, authorities.restore, 'restore')) throw new Error('folders_write:rejected');
 
     stage = 'notes_readback';
     const persistedNotes = await loadAuthorizedRestoreNotes(authorities.restore);
@@ -974,7 +988,7 @@ async function persistAndVerifyRestoreState(
         previous.notes,
         previous.folders,
       )) throw new Error('rollback_authority_folders');
-      if (!rollbackNotes || !saveAuthorizedRestoreFolders(previous.folders, authorities.rollback, 'rollback')) throw new Error('rollback_write');
+      if (!rollbackNotes || !await saveAuthorizedRestoreFolders(previous.folders, authorities.rollback, 'rollback')) throw new Error('rollback_write');
       const readbackNotes = await loadAuthorizedRestoreNotes(authorities.rollback);
       const readbackFolders = loadAuthorizedRestoreFolders(authorities.rollback);
       rollbackVerified = sameDurablePayload(previous.notes, readbackNotes)
@@ -1377,15 +1391,37 @@ export const useNotesStore = create<NotesState>((set, get) => {
     return saveNotesAsync(notes).then(handleResult);
   };
 
-  const persistFolders = (folders: NoteFolder[]): boolean => {
-    if (!saveFolders(folders)) {
-      setSyncIssue(LOCAL_FOLDERS_SAVE_ERROR, 'local_folders_persistence', { retryable: true });
-      return false;
-    } else {
-      clearSyncIssue('local_folders_persistence');
-      scheduleAutoSnapshot(get().notes, folders);
-      return true;
-    }
+  const persistFolders = (folders: NoteFolder[]): boolean | Promise<boolean> => {
+    notesResetIntentGeneration += 1;
+    const request = getActiveNotesAuthorityRequest();
+    const epoch = captureOperationEpoch();
+    const observed = (saved: boolean) => {
+      if (request !== getActiveNotesAuthorityRequest() || !isOperationEpochCurrent(epoch)) return false;
+      if (!saved) setSyncIssue(LOCAL_FOLDERS_SAVE_ERROR, 'local_folders_persistence', { retryable: true });
+      else {
+        clearSyncIssue('local_folders_persistence');
+        scheduleAutoSnapshot(get().notes, folders);
+      }
+      return saved;
+    };
+    return request !== null || getNotesPersistenceMode() === 'accountScoped'
+      ? saveFoldersAsync(folders).then(observed, () => observed(false))
+      : observed(saveFolders(folders));
+  };
+
+  const persistActiveNoteId = (id: string | null): boolean | Promise<boolean> => {
+    const request = getActiveNotesAuthorityRequest();
+    const epoch = captureOperationEpoch();
+    const observed = (saved: boolean) => {
+      if (request !== getActiveNotesAuthorityRequest() || !isOperationEpochCurrent(epoch)) return false;
+      // Selection metadata failure is observable through this result, but
+      // must not replace an existing hydration/recovery/write diagnostic.
+      if (!saved && !get().syncError) setSyncIssue(LOCAL_NOTES_SAVE_ERROR, 'local_notes_persistence', { retryable: true });
+      return saved;
+    };
+    return request !== null || getNotesPersistenceMode() === 'accountScoped'
+      ? saveActiveNoteIdAsync(id).then(observed, () => observed(false))
+      : observed(saveActiveNoteId(id));
   };
 
   const persistFolderLifecycleState = async (
@@ -1399,7 +1435,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
       let reconciled = false;
       try {
         const notesWrite = await persistNotes(current.notes);
-        const foldersWrite = persistFolders(current.folders);
+        const foldersWrite = await persistFolders(current.folders);
         const durableNotes = await loadNotesAsync() as Note[];
         const durableFolders = loadFolders() as NoteFolder[];
         reconciled = notesWrite.status === 'persisted'
@@ -1430,7 +1466,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
       notesCommitted = true;
       if (stateChanged()) return reconcileConcurrentState();
 
-      if (!persistFolders(expected.folders)) throw new Error('folders_write_rejected');
+      if (!await persistFolders(expected.folders)) throw new Error('folders_write_rejected');
       foldersCommitted = true;
       if (stateChanged()) return reconcileConcurrentState();
 
@@ -1449,7 +1485,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
           ? await persistNotes(previous.notes)
           : { status: 'persisted' as const };
         const foldersRollback = foldersCommitted
-          ? persistFolders(previous.folders)
+          ? await persistFolders(previous.folders)
           : true;
         const durableNotes = await loadNotesAsync() as Note[];
         const durableFolders = loadFolders() as NoteFolder[];
@@ -1692,6 +1728,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
     vaultRestoreCanUndo: isVaultRestoreUndoAvailable(),
 
     setActiveNoteId: (id) => {
+      notesResetIntentGeneration += 1;
       const publication = currentPublishedNotesRequest(get());
       if (id) {
         const now = Date.now();
@@ -1704,10 +1741,10 @@ export const useNotesStore = create<NotesState>((set, get) => {
       } else {
         set({ activeNoteId: id });
       }
-      saveActiveNoteId(id);
+      persistActiveNoteId(id);
     },
 
-    setActiveFolderId: (id) => set({ activeFolderId: id }),
+    setActiveFolderId: (id) => { notesResetIntentGeneration += 1; set({ activeFolderId: id }); },
 
     createNote: (opts) => {
       const publication = currentPublishedNotesRequest(get());
@@ -1727,7 +1764,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
       const notes = [note, ...get().notes];
       publishOwnedNotes({ notes, activeNoteId: id, vaultStructureVersion: get().vaultStructureVersion + 1 }, publication);
       const persistence = persistNotes(notes);
-      saveActiveNoteId(id);
+      persistActiveNoteId(id);
       knowledgeIndexService.updateNote(note);
       invalidateNoteGalaxyMapCache();
       recordNoteCreated(id);
@@ -1740,7 +1777,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
       const notes = [note, ...get().notes];
       publishOwnedNotes({ notes, activeNoteId: note.id, vaultStructureVersion: get().vaultStructureVersion + 1 }, publication);
       const persistence = persistNotes(notes);
-      saveActiveNoteId(note.id);
+      persistActiveNoteId(note.id);
       knowledgeIndexService.updateNote(note);
       invalidateNoteGalaxyMapCache();
       void syncPreparedNoteToDB(prepareNoteSyncAttempt(note, persistence));
@@ -1970,7 +2007,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
       const notes = [copy, ...get().notes];
       publishOwnedNotes({ notes, activeNoteId: id, vaultStructureVersion: get().vaultStructureVersion + 1 }, publication);
       const persistence = persistNotes(notes);
-      saveActiveNoteId(id);
+      persistActiveNoteId(id);
       knowledgeIndexService.updateNote(copy);
       invalidateNoteGalaxyMapCache();
       recordNoteCreated(id);
@@ -1987,7 +2024,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
       const nextActive = notes.find(n => !n.deletedAt)?.id ?? null;
       publishOwnedNotes({ notes, activeNoteId: nextActive, vaultStructureVersion: get().vaultStructureVersion + 1 }, publication);
       const persistence = persistNotes(notes);
-      saveActiveNoteId(nextActive);
+      persistActiveNoteId(nextActive);
       invalidateNoteGalaxyMapCache();
       const trashed = notes.find(n => n.id === id);
       if (trashed) {
@@ -2009,7 +2046,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
         vaultStructureVersion: get().vaultStructureVersion + 1,
       }, publication);
       const persistence = persistNotes(notes);
-      saveActiveNoteId(id);
+      persistActiveNoteId(id);
       invalidateNoteGalaxyMapCache();
       if (restored) {
         knowledgeIndexService.updateNote(restored);
@@ -2117,7 +2154,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
       }, publication);
       clearSyncIssue('recovery_permanent_delete', id);
       setCachedNotes(notes);
-      saveActiveNoteId(nextActive);
+      persistActiveNoteId(nextActive);
       invalidateNoteGalaxyMapCache();
       if (attachmentGcCandidates.size > 0) {
         void gcOrphanedLocalNoteAttachments({
@@ -2170,7 +2207,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
         indexContentVersion: get().indexContentVersion + 1,
       }, publication);
       persistNotes(notes);
-      saveActiveNoteId(nextActive);
+      persistActiveNoteId(nextActive);
 
       for (const note of trashed) {
         void removeNoteFromDB(note.id);
@@ -2782,7 +2819,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
           );
         }
         clearResolvedPermanentDeleteIssue(accountId, committedNotes);
-        saveActiveNoteId(nextActive);
+        await persistActiveNoteId(nextActive);
         rebuildKnowledgeIndex(committedNotes);
       } catch (error) {
         if (isNotesAccountRecoveryContextActive(context)) {
@@ -2814,8 +2851,8 @@ export const useNotesStore = create<NotesState>((set, get) => {
         }
         dismissNoTargetStaleSyncIssue();
       };
-      const afterNotesSaved = () => {
-        if (!saveFolders(get().folders)) {
+      const afterNotesSaved = async () => {
+        if (!await persistFolders(get().folders)) {
           setSyncIssue(LOCAL_FOLDERS_SAVE_ERROR, 'local_folders_persistence', { retryable: true });
           return;
         }
@@ -2939,7 +2976,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
         persistNotes(notes);
       }
       rebuildKnowledgeIndex(notes);
-      saveActiveNoteId(nextActive);
+      await persistActiveNoteId(nextActive);
     },
 
     detachNotesStorage: () => {
@@ -2973,13 +3010,47 @@ export const useNotesStore = create<NotesState>((set, get) => {
       rebuildKnowledgeIndex([]);
     },
 
-    resetAllNotes: () => {
+    captureResetContext: (accountId, isUiCurrent) => {
+      const context = captureNotesResetContext(accountId, isUiCurrent);
+      if (!context) return null;
+      const generation = notesResetIntentGeneration;
+      const state = get();
+      return Object.freeze({
+        ...context,
+        isStoreCurrent: () => notesResetIntentGeneration === generation,
+        expectedSnapshot: JSON.parse(JSON.stringify({
+          notes: state.notes, folders: state.folders, activeNoteId: state.activeNoteId,
+        })) as NonNullable<NotesResetContext['expectedSnapshot']>,
+      });
+    },
+
+    resetAllNotes: async (capturedContext) => {
       if (!mayReset()) {
         recordRecoveryBlock('reset');
         setSyncIssue(RECOVERY_MODE_MESSAGE, 'recovery');
-        return;
+        return notesResetResult('blocked', [], 'reset_denied');
       }
+      const context = capturedContext ?? get().captureResetContext();
+      if (!context || !isNotesResetContextCurrent(context)) return notesResetResult('stale', [], 'reset_scope_changed');
+      if (context.accountId !== get().activeAccountId) {
+        if (get().activeAccountId === null && context.request !== null && pendingNotesHydration === context.request) {
+          // Retire this exact pending load, but do not treat an unhydrated Store
+          // as authority to clear any durable account data.
+          revokePublishedNotes();
+          notesHydrationAttempt += 1;
+          pendingNotesHydration = null;
+          return notesResetResult('blocked', [], 'notes_hydration_pending');
+        }
+        return notesResetResult('stale', [], 'reset_scope_changed');
+      }
+      const generation = ++notesLocalMutationGeneration;
+      const isCurrent = () => isNotesResetContextCurrent(context)
+        && (context.isStoreCurrent?.() ?? true)
+        && notesLocalMutationGeneration === generation
+        && get().activeAccountId === context.accountId;
       revokePublishedNotes();
+      set({ [publishedNotesKey]: undefined });
+      if (!isCurrent()) return notesResetResult('stale', [], 'reset_scope_changed');
       notesHydrationAttempt += 1;
       pendingNotesHydration = null;
       clearAllBodySyncTimers();
@@ -2991,9 +3062,21 @@ export const useNotesStore = create<NotesState>((set, get) => {
       const remoteMutationsSuperseded = !activeAccountId
         || clearNotesFolderRemoteMutationsForReplacement(activeAccountId);
       clearKnowledgeHistory();
-      clearNotesStorage();
-      void clearNotesPersistence();
-      const notes = createDefaultWelcomeNotes();
+      if (!remoteMutationsSuperseded) {
+        setSyncIssue('Folder remote mutation authority could not be superseded by Notes reset.', 'recovery');
+        return notesResetResult('incomplete', [], 'folder_remote_intents_unresolved', [
+          'folder_remote_intents', 'local_metadata_clear', 'notes_clear', 'welcome_note', 'folders', 'active_note', 'readback',
+        ]);
+      }
+      // Pure generation avoids starting a second, unobserved bridge write.
+      const notes = defaultSeedNotes();
+      const result = await persistNotesReset(context, notes, isCurrent);
+      if (!isCurrent()) return notesResetResult('stale', result.completedStages, 'reset_scope_changed');
+      if (result.status !== 'completed') {
+        setSyncIssue('Notes reset is incomplete; some changes may already be persisted.', 'recovery');
+        return result;
+      }
+      const beforePublication = notesResetIntentGeneration;
       set({
         [publishedNotesKey]: undefined,
         notes,
@@ -3008,12 +3091,23 @@ export const useNotesStore = create<NotesState>((set, get) => {
         indexContentVersion: 0,
         folderDeletionUndoEpoch: invalidateFolderDeletionUndoForStoreReplacement(),
       });
-      if (!remoteMutationsSuperseded) {
-        setSyncIssue('Folder remote mutation authority could not be superseded by Notes reset.', 'recovery');
-      }
+      const publicationCurrent = () => isNotesResetContextCurrent(context)
+        && notesLocalMutationGeneration === generation
+        && notesResetIntentGeneration === beforePublication + 1;
+      if (!publicationCurrent()) return notesResetResult('stale', result.completedStages, 'reset_scope_changed');
       rebuildKnowledgeIndex(notes);
+      return publicationCurrent() ? result : notesResetResult('stale', result.completedStages, 'reset_scope_changed');
     },
   };
+});
+
+// Observe actual data/selection transitions, including replacements not routed
+// through ordinary editing helpers. The reset's own final publication is one
+// transition and is checked explicitly above, including reentrant subscribers.
+useNotesStore.subscribe((state, previous) => {
+  if (state.notes !== previous.notes || state.folders !== previous.folders
+    || state.activeNoteId !== previous.activeNoteId || state.activeFolderId !== previous.activeFolderId
+    || state.activeAccountId !== previous.activeAccountId) notesResetIntentGeneration += 1;
 });
 
 // Revoke before later subscribers can replay an invalidated snapshot. This
