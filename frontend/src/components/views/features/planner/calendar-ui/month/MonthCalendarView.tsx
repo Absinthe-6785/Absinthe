@@ -1,13 +1,12 @@
 import { useMemo, type ReactNode } from 'react';
 import { Edit2, Trash2 } from 'lucide-react';
-import type { AppSettings, Routine, Schedule, Theme, ThemeColor } from '@/types';
+import type { AppSettings, Schedule, Theme, ThemeColor } from '@/types';
 import type { PlannerCalendarPresentation } from '../../calendar';
 import type { PlannerProjection } from '../../calendar/buildPlannerProjection';
 import { MonthCalendarGrid } from './MonthCalendarGrid';
 import { PlannerTodayPanel } from '../agenda/PlannerTodayPanel';
 import { WeeklyTimetableSection } from '../../WeeklyTimetableSection';
 import type { DayScheduleActions, AgendaEventActions } from '../day/dayScheduleActions';
-import type { DayRoutineActions } from '../day/dayRoutineActions';
 import { useElementVisible } from '@/hooks/useElementVisible';
 import { useTranslation } from '@/lib/i18n';
 import { WorkspaceCardSkeleton } from '@/components/common/WorkspaceCardSkeleton';
@@ -24,8 +23,6 @@ export interface MonthCalendarViewProps {
   onEventNoteClick?: (noteId: string) => void;
   onDateSelect?: (dateKey: string) => void;
   scheduleActions?: DayScheduleActions;
-  routines?: readonly Routine[];
-  routineActions?: DayRoutineActions;
   ddaySchedules?: readonly ScheduleDday[];
   eventActions?: AgendaEventActions;
   weeklySchedules?: readonly import('@/types').WeeklySchedule[];
@@ -48,8 +45,6 @@ export function MonthCalendarView({
   onEventNoteClick,
   onDateSelect,
   scheduleActions,
-  routines = [],
-  routineActions,
   ddaySchedules = [],
   weeklySchedules = [],
   appSettings,
@@ -148,8 +143,6 @@ export function MonthCalendarView({
             theme={theme}
             todayKey={todayKey}
             scheduleActions={scheduleActions}
-            routines={routines}
-            routineActions={routineActions}
           />
         </section>
 

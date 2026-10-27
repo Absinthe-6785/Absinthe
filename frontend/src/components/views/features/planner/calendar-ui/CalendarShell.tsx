@@ -1,11 +1,10 @@
 import { useMemo, useCallback } from 'react';
 import type { DateTime } from 'luxon';
-import type { AppSettings, Routine, Schedule, Theme, ThemeColor, Todo, WeeklySchedule } from '../../../../../types';
+import type { AppSettings, Schedule, Theme, ThemeColor, Todo, WeeklySchedule } from '../../../../../types';
 import { useTranslation } from '../../../../../lib/i18n';
 import { CalendarPeriodNav } from './CalendarPeriodNav';
 import { MonthCalendarView } from './month';
 import type { DayScheduleActions, AgendaEventActions } from './day/dayScheduleActions';
-import type { DayRoutineActions } from './day/dayRoutineActions';
 import { usePlannerCalendarProjection } from './usePlannerCalendarProjection';
 import { WORKSPACE_CARD } from '../../../../common/workspaceCardSizes';
 import { toDateKey } from '../../knowledge/databaseViews/parseDatabaseDate';
@@ -20,7 +19,6 @@ export interface CalendarShellProps {
   previousDaySchedules?: readonly Schedule[];
   previousDayDate?: string;
   todos?: readonly Todo[];
-  routines?: readonly Routine[];
   ddaySchedules?: readonly (Schedule & { date: string })[];
   weeklySchedules: readonly WeeklySchedule[];
   appSettings: AppSettings;
@@ -28,7 +26,6 @@ export interface CalendarShellProps {
   onEventNoteClick?: (noteId: string) => void;
   onAnchorDateChange?: (dateKey: string) => void;
   dayScheduleActions?: DayScheduleActions;
-  routineActions?: DayRoutineActions;
   eventActions?: AgendaEventActions;
   THEME_COLORS?: ThemeColor[];
   mutateStatic?: () => void;
@@ -46,7 +43,6 @@ export function CalendarShell({
   previousDaySchedules,
   previousDayDate,
   todos = [],
-  routines = [],
   ddaySchedules = [],
   weeklySchedules,
   appSettings,
@@ -54,7 +50,6 @@ export function CalendarShell({
   onEventNoteClick,
   onAnchorDateChange,
   dayScheduleActions,
-  routineActions,
   eventActions,
   THEME_COLORS,
   mutateStatic,
@@ -114,8 +109,6 @@ export function CalendarShell({
         onEventNoteClick={onEventNoteClick}
         onDateSelect={onAnchorDateChange}
         scheduleActions={dayScheduleActions}
-        routines={routines}
-        routineActions={routineActions}
         ddaySchedules={ddaySchedules}
         eventActions={eventActions}
         weeklySchedules={weeklySchedules}
