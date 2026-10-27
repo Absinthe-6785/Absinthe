@@ -286,18 +286,6 @@ export const PlannerView = ({
               </label>
               {!newSch.is_dday ? (
               <>
-              <div>
-                <label className={`block text-xs font-bold uppercase tracking-wide mb-1.5 ${theme.textMuted}`}>{t('defaultCategory')}</label>
-                <select
-                  value={newSch.category ?? 'Personal'}
-                  onChange={e => setNewSch({ ...newSch, category: e.target.value })}
-                  className={`w-full rounded-xl p-3 outline-none text-sm font-semibold ${theme.input}`}
-                >
-                  {(['Study', 'Work', 'Exercise', 'Personal'] as const).map(cat => (
-                    <option key={cat} value={cat}>{cat}</option>
-                  ))}
-                </select>
-              </div>
               <div className="flex gap-3">
                 <div className="flex-1">
                   <label className={`block text-xs font-bold uppercase tracking-wide mb-1.5 ${theme.textMuted}`}>{t('labelStart')}</label>
@@ -325,18 +313,6 @@ export const PlannerView = ({
               </>
               ) : (
                 <>
-                  <div>
-                    <label className={`block text-xs font-bold uppercase tracking-wide mb-1.5 ${theme.textMuted}`}>{t('defaultCategory')}</label>
-                    <select
-                      value={newSch.category ?? 'Personal'}
-                      onChange={e => setNewSch({ ...newSch, category: e.target.value })}
-                      className={`w-full rounded-xl p-3 outline-none text-sm font-semibold ${theme.input}`}
-                    >
-                      {(['Study', 'Work', 'Exercise', 'Personal'] as const).map(cat => (
-                        <option key={cat} value={cat}>{cat}</option>
-                      ))}
-                    </select>
-                  </div>
                   <p className={`text-[11px] ${theme.textMuted}`}>{t('k80DdayTimeHint')}</p>
                 </>
               )}
