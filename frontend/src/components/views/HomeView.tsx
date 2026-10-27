@@ -461,7 +461,7 @@ export const HomeView = ({
                     <FlowRow
                       key={item.id}
                       title={item.title}
-                      meta={`${item.relativeLabel} · ${item.domain}`}
+                      meta={`${item.relativeLabel} · ${item.domain}${item.eventDate ? ` · ${t('k76ScheduleDate')}: ${item.eventDate}` : ''}`}
                       onClick={() => handleTraceNavigate(item)}
                       theme={theme}
                       dataHook={`trace-${item.domain}`}

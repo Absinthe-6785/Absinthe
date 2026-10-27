@@ -7,11 +7,13 @@ import type { PlannerProps, Schedule } from '../../types';
 import { setRuntimeAccountSyncAccount } from '../../lib/remoteBoundary';
 import { formatLongDateKey } from './k102DateFormat';
 import { PlannerView } from './PlannerView';
+import { readPlannerActivityRecents } from './features/planner/plannerActivityStorage';
 
 const state = vi.hoisted(() => ({
   api: vi.fn(),
   previous: [] as Schedule[],
   ddays: [] as Array<Schedule & { date: string }>,
+  openPlannerItem: undefined as ((id: string) => void) | undefined,
 }));
 
 vi.mock('swr', () => ({
@@ -36,7 +38,12 @@ vi.mock('../../lib/i18n', async importOriginal => ({
   useTranslation: () => ({ t: (key: string) => key, lang: 'en' as const }),
 }));
 vi.mock('../../lib/noteNavigation', () => ({ openNote: vi.fn() }));
-vi.mock('./features/search/searchDomainNavigation', () => ({ registerSearchDomainHandlers: () => () => undefined }));
+vi.mock('./features/search/searchDomainNavigation', () => ({
+  registerSearchDomainHandlers: ({ onOpenPlannerItem }: { onOpenPlannerItem?: (id: string) => void }) => {
+    state.openPlannerItem = onOpenPlannerItem;
+    return () => { state.openPlannerItem = undefined; };
+  },
+}));
 vi.mock('./features/planner/hooks/usePlannerScheduleEventActions', () => ({
   usePlannerScheduleEventActions: () => ({
     eventDialog: null, setEventDialog: vi.fn(), agendaEventActions: {},
@@ -137,6 +144,7 @@ describe('Planner previous-day Schedule editing through the production month cal
     }
     await mountPlanner();
     await click('[data-planner-month-cell="2026-06-11"] [data-planner-month-block="previous-event"]');
+    expect(readPlannerActivityRecents('account-a')[0]).toMatchObject({ itemId: 'previous-event', eventDate: '2026-06-11' });
     expect(host.querySelector('[data-selected-date]')?.textContent).toBe('2026-06-12');
     const detailDate = host.querySelector('[data-schedule-event-detail] dd')?.textContent;
 
@@ -158,6 +166,7 @@ describe('Planner previous-day Schedule editing through the production month cal
   it('preserves current-day detail and editing dates', async () => {
     await mountPlanner();
     await click('[data-planner-month-cell="2026-06-12"] [data-planner-month-block="current-event"]');
+    expect(readPlannerActivityRecents('account-a')[0]).toMatchObject({ itemId: 'current-event', eventDate: '2026-06-12' });
     expect(host.querySelector('[data-schedule-event-detail] dd')?.textContent).toBe(formatLongDateKey('2026-06-12', 'en'));
     await click('[data-schedule-event-edit]');
     expect(formDate().value).toBe('2026-06-12');
@@ -177,6 +186,24 @@ describe('Planner previous-day Schedule editing through the production month cal
     expect(state.api.mock.calls[0][2]).toMatchObject({ date: '2026-06-15', text: previousEvent.text });
     expect(state.previous[0]).toBe(previousEvent);
     expect(previousEvent).not.toHaveProperty('date');
+  });
+
+  it('records a valid explicit event date in preference to its source collection date', async () => {
+    state.previous = [{ ...previousEvent, date: '2026-06-10' } as Schedule];
+    await mountPlanner();
+    await click('[data-planner-month-block="previous-event"]');
+    expect(readPlannerActivityRecents('account-a')[0].eventDate).toBe('2026-06-10');
+    expect(host.querySelector('[data-selected-date]')?.textContent).toBe('2026-06-12');
+    expect(state.api).not.toHaveBeenCalled();
+  });
+
+  it.each(['bad', '2026-02-30'])('uses only the proven previous collection date when an explicit date is invalid: %s', async date => {
+    state.previous = [{ ...previousEvent, date } as Schedule];
+    await mountPlanner();
+    expect(state.openPlannerItem).toBeTypeOf('function');
+    act(() => state.openPlannerItem!('previous-event'));
+    expect(readPlannerActivityRecents('account-a')[0]).toMatchObject({ itemId: 'previous-event', eventDate: '2026-06-11' });
+    expect(state.api).not.toHaveBeenCalled();
   });
 
   it('retains the explicit D-Day date and its existing all-day payload behavior', async () => {

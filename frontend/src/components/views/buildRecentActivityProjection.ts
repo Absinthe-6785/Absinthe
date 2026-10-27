@@ -14,6 +14,7 @@ import { toDateKey } from './features/knowledge/databaseViews/parseDatabaseDate'
 import type { ArchiveRestoreRecentEntry } from './features/knowledge/archive/archiveProjectionModels';
 import type { RecipeActivityEntry } from './features/recipe/recipeActivityStorage';
 import type { PlannerActivityEntry } from './features/planner/plannerActivityStorage';
+import { validPlannerEventDate } from './features/planner/plannerActivityStorage';
 
 export type RecentActivityDomain = 'notes' | 'planner' | 'recipe' | 'archive';
 
@@ -39,6 +40,7 @@ export interface RecentActivityItem {
   relativeLabel: string;
   noteId?: string;
   plannerItemId?: string;
+  eventDate?: string;
   recipeId?: string;
 }
 
@@ -111,6 +113,7 @@ export function buildRecentActivityProjection(
 
   for (const entry of input.plannerRecents) {
     const bucket = classifyRecentActivityBucket(entry.at, todayKey);
+    const eventDate = entry.kind === 'schedule' ? validPlannerEventDate(entry.eventDate) : undefined;
     pushToBucket(groups, bucket, {
       id: `planner:${entry.kind}:${entry.itemId}`,
       domain: 'planner',
@@ -119,6 +122,7 @@ export function buildRecentActivityProjection(
       timestamp: entry.at,
       relativeLabel: rel(entry.at),
       plannerItemId: entry.itemId,
+      ...(eventDate ? { eventDate } : {}),
     }, limit);
   }
 

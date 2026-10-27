@@ -6,6 +6,7 @@ import {
   clearPlannerActivityForTest,
   readPlannerActivityRecents,
   recordPlannerActivity,
+  validPlannerEventDate,
 } from './plannerActivityStorage';
 
 describe('account-scoped Planner activity', () => {
@@ -69,6 +70,68 @@ describe('account-scoped Planner activity', () => {
     recordPlannerActivity('owner%2Fa', 'schedule', 'id', 'Literal percent account', 200);
     expect(readPlannerActivityRecents('owner/a')[0].title).toBe('Slash account');
     expect(readPlannerActivityRecents('owner%2Fa')[0].title).toBe('Literal percent account');
+  });
+
+  it.each(['2024-02-29', '2000-02-29', '0099-01-01', '2026-12-31'])('accepts real calendar date %s', date => {
+    expect(validPlannerEventDate(date)).toBe(date);
+  });
+
+  it.each([undefined, null, 20260612, '', '2026-6-12', '2026-02-29', '1900-02-29',
+    '2026-02-30', '2026-04-31', '2026-00-10', '2026-13-01', '2026-01-00', '0000-01-01',
+    '2026-06-12T12:00:00Z', ' 2026-06-12'])('rejects unverifiable event date %s', date => {
+    expect(validPlannerEventDate(date)).toBeUndefined();
+  });
+
+  it('keeps optional dates account-bound, updates only the matching identity, and never invents a missing date', () => {
+    recordPlannerActivity('account-a', 'schedule', 'id', 'A', 100, '2026-06-11');
+    recordPlannerActivity('account-b', 'schedule', 'id', 'B', 200, '2026-07-12');
+    expect(readPlannerActivityRecents('account-a')[0].eventDate).toBe('2026-06-11');
+    expect(readPlannerActivityRecents('account-b')[0].eventDate).toBe('2026-07-12');
+    recordPlannerActivity('account-a', 'schedule', 'id', 'A updated', 300, '2026-06-13');
+    expect(readPlannerActivityRecents('account-a')).toEqual([
+      { kind: 'schedule', itemId: 'id', title: 'A updated', at: 300, eventDate: '2026-06-13' },
+    ]);
+    recordPlannerActivity('account-a', 'schedule', 'id', 'A undated revisit', 400);
+    expect(readPlannerActivityRecents('account-a')[0]).not.toHaveProperty('eventDate');
+    expect(readPlannerActivityRecents('account-b')[0].eventDate).toBe('2026-07-12');
+  });
+
+  it('keeps undated and malformed-date records readable without rewriting stored bytes or unrelated entries', () => {
+    const key = `${PLANNER_ACTIVITY_KEY}:account:account-a`;
+    const entries = [
+      { kind: 'schedule', itemId: 'old', title: 'Undated', at: 100 },
+      { kind: 'schedule', itemId: 'bad', title: 'Invalid date', at: 200, eventDate: '2026-02-30' },
+      { kind: 'schedule', itemId: 'wrong-type', title: 'Wrong type', at: 300, eventDate: 123 },
+    ];
+    const raw = JSON.stringify(entries);
+    localStorage.setItem(key, raw);
+    const read = readPlannerActivityRecents('account-a');
+    expect(read.map(entry => entry.itemId)).toEqual(['old', 'bad', 'wrong-type']);
+    expect(read.every(entry => !('eventDate' in entry))).toBe(true);
+    expect(localStorage.getItem(key)).toBe(raw);
+    recordPlannerActivity('account-a', 'schedule', 'new', 'New invalid date', 400, '2026-04-31');
+    const stored = JSON.parse(localStorage.getItem(key)!);
+    expect(stored.slice(1)).toEqual(entries);
+    expect(stored[0]).not.toHaveProperty('eventDate');
+  });
+
+  it('projects only valid Schedule dates without changing activity buckets, navigation or frozen input', () => {
+    const at = new Date(2026, 5, 12, 10).getTime();
+    const entries = Object.freeze([
+      Object.freeze({ kind: 'schedule', itemId: 'dated', title: 'Dated', at, eventDate: '2020-01-02' }),
+      Object.freeze({ kind: 'schedule', itemId: 'bad', title: 'Bad', at, eventDate: '2026-02-30' }),
+      Object.freeze({ kind: 'schedule', itemId: 'old', title: 'Undated', at }),
+      Object.freeze({ kind: 'other', itemId: 'other', title: 'Other', at, eventDate: '2020-01-02' }),
+    ]);
+    const before = JSON.stringify(entries);
+    const projection = buildRecentActivityProjection({ notes: [], recipeRecents: [], archiveRestoreRecents: [],
+      plannerRecents: entries, labels: { today: 'Today', yesterday: 'Yesterday', daysAgo: days => `${days}d` },
+      locale: 'en', now: new Date(2026, 5, 12, 12) });
+    const items = projection.groups[0].items;
+    expect(items[0]).toMatchObject({ plannerItemId: 'dated', timestamp: at, eventDate: '2020-01-02' });
+    expect(items[0].relativeLabel).toContain('Today');
+    expect(items.slice(1).every(item => !('eventDate' in item))).toBe(true);
+    expect(JSON.stringify(entries)).toBe(before);
   });
 
   it('preserves real projection date buckets and navigation identity without network requests', () => {
