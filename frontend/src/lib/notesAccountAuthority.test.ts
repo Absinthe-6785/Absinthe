@@ -17,6 +17,7 @@ import {
   saveAccountScopedActiveNoteId,
   saveAccountScopedFolders,
   saveAccountScopedNotes,
+  runAccountScopedNotesMutation,
 } from './notesAccountAuthority';
 import { revalidateResolvedBootstrapNotes } from './notesBootstrapAuthority';
 
@@ -114,6 +115,47 @@ function revisionAwareResolver(
 }
 
 describe('account-scoped Notes/Folders local authority', () => {
+  it('rechecks absent folders under the mutation lock without blocking read-only generations', async () => {
+    await initializeAccountScopedNotesAuthority('account-a');
+    storage.delete(foldersKey('account-a'));
+    let entered!: () => void; let release!: () => void;
+    const ready = new Promise<void>(resolve => { entered = resolve; });
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const writerFolders = [folder(7)];
+    const holder = runAccountScopedNotesMutation('account-a', async () => {
+      entered(); await gate;
+      storage.set(foldersKey('account-a'), JSON.stringify({
+        accountId: 'account-a', domainId: 'notes.folders', schemaVersion: 1, folders: writerFolders,
+      }));
+    });
+    await ready;
+    const lock = vi.spyOn(navigator.locks, 'request');
+    const initialization = initializeAccountScopedNotesAuthority('account-a');
+    try { await vi.waitFor(() => expect(lock).toHaveBeenCalledTimes(1)); }
+    finally { release(); }
+    await holder;
+    expect((await initialization).folders).toEqual(writerFolders);
+    expect(JSON.parse(storage.get(foldersKey('account-a'))!).folders).toEqual(writerFolders);
+    lock.mockRestore();
+  });
+
+  it('reports folder/selection completion only after the shared lock releases', async () => {
+    await initializeAccountScopedNotesAuthority('account-a');
+    let release!: () => void; let entered!: () => void;
+    const ready = new Promise<void>(resolve => { entered = resolve; });
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const holder = runAccountScopedNotesMutation('account-a', async () => { entered(); await gate; });
+    await ready;
+    let settled = false;
+    const folders = saveAccountScopedFolders([folder(1)]).then(saved => { settled = true; return saved; });
+    const active = saveAccountScopedActiveNoteId('a-note-1');
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    expect(storage.get(foldersKey('account-a'))).not.toContain('a-folder-1');
+    release(); await holder;
+    expect(await folders).toBe(true); expect(await active).toBe(true);
+  });
+
   beforeEach(async () => {
     detachNotesAccountAuthority();
     __testOnlyNotesAccountAuthorityHooks?.setBootstrapStageOverride(null);
@@ -142,8 +184,8 @@ describe('account-scoped Notes/Folders local authority', () => {
     const accountANotes = Array.from({ length: 103 }, (_, index) => note(index + 1));
     const accountAFolders = Array.from({ length: 8 }, (_, index) => folder(index));
     expect(await saveAccountScopedNotes('account-a', accountANotes)).toBe(true);
-    expect(saveAccountScopedFolders(accountAFolders)).toBe(true);
-    expect(saveAccountScopedActiveNoteId('a-note-47')).toBe(true);
+    expect(await saveAccountScopedFolders(accountAFolders)).toBe(true);
+    expect(await saveAccountScopedActiveNoteId('a-note-47')).toBe(true);
 
     detachNotesAccountAuthority();
     const accountB = await initializeAccountScopedNotesAuthority('account-b');
@@ -182,7 +224,7 @@ describe('account-scoped Notes/Folders local authority', () => {
     const previousNotes = [note(1)];
     const previousFolders = [folder(1)];
     expect(await saveAccountScopedNotes('account-a', previousNotes)).toBe(true);
-    expect(saveAccountScopedFolders(previousFolders)).toBe(true);
+    expect(await saveAccountScopedFolders(previousFolders)).toBe(true);
     const context = createNotesAccountRecoveryContext();
     expect(context).not.toBeNull();
     if (!context) throw new Error('recovery context unavailable');
@@ -220,7 +262,7 @@ describe('account-scoped Notes/Folders local authority', () => {
     if (!hooks) throw new Error('notes authority test seam unavailable');
     await initializeAccountScopedNotesAuthority('account-a');
     expect(await saveAccountScopedNotes('account-a', [note(1)])).toBe(true);
-    expect(saveAccountScopedFolders([folder(1)])).toBe(true);
+    expect(await saveAccountScopedFolders([folder(1)])).toBe(true);
     const context = createNotesAccountRecoveryContext();
     expect(context).not.toBeNull();
     if (!context) throw new Error('recovery context unavailable');
@@ -256,7 +298,7 @@ describe('account-scoped Notes/Folders local authority', () => {
     if (!hooks) throw new Error('notes authority test seam unavailable');
     await initializeAccountScopedNotesAuthority('account-a');
     expect(await saveAccountScopedNotes('account-a', [note(1)])).toBe(true);
-    expect(saveAccountScopedFolders([folder(1)])).toBe(true);
+    expect(await saveAccountScopedFolders([folder(1)])).toBe(true);
     const context = createNotesAccountRecoveryContext();
     expect(context).not.toBeNull();
     if (!context) throw new Error('recovery context unavailable');
@@ -536,7 +578,7 @@ describe('account-scoped Notes/Folders local authority', () => {
     const bootstrapCandidate = { ...original, body: 'bootstrap body', updatedAt: 20 };
     const independentNewer = { ...original, body: 'newer after bootstrap write', updatedAt: 30 };
     expect(await saveAccountScopedNotes('account-a', [original])).toBe(true);
-    expect(saveAccountScopedFolders([folder(1)])).toBe(true);
+    expect(await saveAccountScopedFolders([folder(1)])).toBe(true);
     const context = createNotesAccountRecoveryContext();
     expect(context).not.toBeNull();
     if (!context) throw new Error('recovery context unavailable');
@@ -664,7 +706,7 @@ describe('account-scoped Notes/Folders local authority', () => {
     const previousNotes = [note(1)];
     const previousFolders = [folder(1)];
     expect(await saveAccountScopedNotes('account-a', previousNotes)).toBe(true);
-    expect(saveAccountScopedFolders(previousFolders)).toBe(true);
+    expect(await saveAccountScopedFolders(previousFolders)).toBe(true);
     const context = createNotesAccountRecoveryContext();
     expect(context).not.toBeNull();
     if (!context) throw new Error('recovery context unavailable');
@@ -690,7 +732,7 @@ describe('account-scoped Notes/Folders local authority', () => {
     const previousNotes = [note(1)];
     const previousFolders = [folder(1)];
     expect(await saveAccountScopedNotes('account-a', previousNotes)).toBe(true);
-    expect(saveAccountScopedFolders(previousFolders)).toBe(true);
+    expect(await saveAccountScopedFolders(previousFolders)).toBe(true);
     const context = createNotesAccountRecoveryContext();
     expect(context).not.toBeNull();
     if (!context) throw new Error('recovery context unavailable');
@@ -723,7 +765,7 @@ describe('account-scoped Notes/Folders local authority', () => {
     const previousNotes = [note(1)];
     const previousFolders = [folder(1)];
     expect(await saveAccountScopedNotes('account-a', previousNotes)).toBe(true);
-    expect(saveAccountScopedFolders(previousFolders)).toBe(true);
+    expect(await saveAccountScopedFolders(previousFolders)).toBe(true);
     const context = createNotesAccountRecoveryContext();
     expect(context).not.toBeNull();
     if (!context) throw new Error('recovery context unavailable');

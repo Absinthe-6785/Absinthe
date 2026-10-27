@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import 'fake-indexeddb/auto';
+import * as notesAuthority from '../lib/notesAccountAuthority';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NOTES_KEY, FOLDERS_KEY, type NoteBase, type NoteFolder, loadFolders } from '../components/views/noteUtils';
 import { clearIndexedDbNotes, loadNotesFromIndexedDb, saveNotesToIndexedDb } from '../lib/noteIndexedDb';
@@ -423,7 +424,7 @@ describe('account-scoped Backup v3 restore authority', () => {
 
     await initializeAccountScopedNotesAuthority('account-b');
     expect(await saveAccountScopedNotes('account-b', [accountBSentinel])).toBe(true);
-    expect(saveAccountScopedFolders([accountBFolder])).toBe(true);
+    expect(await saveAccountScopedFolders([accountBFolder])).toBe(true);
 
     await useNotesStore.getState().initNotesStorage('account-a');
     useNotesStore.setState({
@@ -433,6 +434,45 @@ describe('account-scoped Backup v3 restore authority', () => {
   });
 
   afterEach(() => vi.restoreAllMocks());
+
+  it.each(['pending', 'false', 'rejected', 'expired'] as const)('awaits scoped folder persistence and preserves the %s verdict', async kind => {
+    const previousNotes = canonical(useNotesStore.getState().notes);
+    const previousFolders = canonical(loadFolders());
+    const folders = [{ id: 'awaited-folder', name: 'Awaited', createdAt: 91 }];
+    const notes = notesFixture('awaited-note', 2, folders);
+    let entered!: () => void; let release!: () => void;
+    const reached = new Promise<void>(resolve => { entered = resolve; });
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const originalSave = notesAuthority.saveFoldersForRecoveryContext;
+    vi.spyOn(notesAuthority, 'saveFoldersForRecoveryContext').mockImplementationOnce(async (...args) => {
+      entered(); await gate;
+      if (kind === 'false') return false;
+      if (kind === 'rejected') throw new Error('synthetic_folder_rejection');
+      return originalSave(...args);
+    });
+    let settled = false;
+    const outcome = useNotesStore.getState().importVaultRestore(buildVaultBackupManifest(notes, folders), 'replace')
+      .then(() => { settled = true; return null; }, error => { settled = true; return error; });
+    try {
+      await reached;
+      expect(settled).toBe(false);
+      expect(canonical(useNotesStore.getState().notes)).toEqual(previousNotes);
+      expect(canonical(loadFolders())).toEqual(previousFolders);
+      if (kind === 'expired') setRecoveryModeActiveForTest(false); // invalidates the original operation epoch
+    } finally { release(); }
+    const error = await outcome;
+    if (kind === 'pending') {
+      expect(error).toBeNull();
+      expect(canonical(loadFolders())).toEqual(folders);
+      expect(canonical(useNotesStore.getState().notes)).toEqual(canonical(notes.map(note => ({
+        ...note, createdAt: note.createdAt ?? note.updatedAt,
+      }))));
+    } else {
+      expect(error).toBeInstanceOf(VaultRestoreDurabilityError);
+      expect(canonical(loadFolders())).toEqual(previousFolders);
+      if (kind !== 'expired') expect(canonical(await loadAccountScopedNotes('account-a'))).toEqual(previousNotes);
+    }
+  });
 
   it('restores 103 Notes and 8 Folders only into active account A without touching legacy global or B', async () => {
     const folders = Array.from({ length: 8 }, (_, index) => ({
@@ -543,7 +583,7 @@ describe('store-level account initialization generation guard', () => {
     storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'local');
     await initializeAccountScopedNotesAuthority('account-a');
     expect(await saveAccountScopedNotes('account-a', aNotes)).toBe(true);
-    expect(saveAccountScopedFolders(aFolders)).toBe(true);
+    expect(await saveAccountScopedFolders(aFolders)).toBe(true);
     await initializeAccountScopedNotesAuthority('account-b');
     expect(await saveAccountScopedNotes('account-b', [bNote])).toBe(true);
     detachNotesAccountAuthority();

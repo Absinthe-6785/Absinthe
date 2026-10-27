@@ -12,7 +12,6 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useSWRConfig } from 'swr';
 import { Settings, AlertTriangle, LogOut, ShieldCheck } from 'lucide-react';
-import { authFetch } from '../../lib/supabase';
 import { ViewProps } from '../../types';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { WorkspacePageHeader } from '../common/WorkspacePageHeader';
@@ -52,8 +51,14 @@ import { RECOVERY_MODE_MESSAGE, mayReset, recordRecoveryBlock } from '../../lib/
 import { revalidatePlannerAccountCache } from '../../lib/plannerCacheRevalidation';
 import { revalidateRecipeAccountCacheAfterRestore } from '../../lib/recipeCacheRevalidation';
 import { productionHealthRoutinePersistence } from '../../lib/healthRoutineSync';
+import {
+  isNotesResetContextCurrent,
+  type NotesResetContext,
+} from '../../lib/notePersistence';
+import {
+  NOTES_RESET_STAGES, notesResetResult, type NotesResetResult, type NotesResetStage,
+} from '../../lib/notesResetContract';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
 const SETTINGS_SECTION_SCROLL_CLASS = 'scroll-mt-4';
 
 export function buildResetRequestInit(): RequestInit {
@@ -61,6 +66,39 @@ export function buildResetRequestInit(): RequestInit {
     method: 'DELETE',
     headers: { 'X-Absinthe-Recovery-Intent': 'reset-confirmed' },
   };
+}
+
+/** The existing Health operation is awaited, not reimplemented or retried here. */
+export async function performSettingsNotesReset(
+  context: NotesResetContext | null,
+  resetHealth: (accountId: string) => Promise<unknown>,
+  resetNotes: (context: NotesResetContext) => Promise<NotesResetResult>,
+): Promise<NotesResetResult> {
+  const required: readonly NotesResetStage[] = ['health_routines', ...NOTES_RESET_STAGES];
+  const completed: NotesResetStage[] = [];
+  if (!mayReset()) {
+    recordRecoveryBlock('reset');
+    return notesResetResult('blocked', completed, 'reset_denied', required);
+  }
+  if (!context?.accountId || !context.request) return notesResetResult('blocked', completed, 'notes_account_unavailable', required);
+  if (!isNotesResetContextCurrent(context) || context.isStoreCurrent?.() === false) return notesResetResult('stale', completed, 'reset_scope_changed', required);
+  // The current product policy disables whole-account remote reset. Do not
+  // silently widen this bounded Notes acknowledgement if that policy changes.
+  if (shouldUseDomainRemotePersistence('account_reset')) return notesResetResult('blocked', completed, 'remote_reset_out_of_scope', required);
+  try {
+    await resetHealth(context.accountId);
+    completed.push('health_routines');
+    if (!isNotesResetContextCurrent(context) || context.isStoreCurrent?.() === false || !mayReset()) return notesResetResult('stale', completed, 'reset_scope_changed', required);
+    const notesResult = await resetNotes(context);
+    completed.push(...notesResult.completedStages);
+    if (!isNotesResetContextCurrent(context)) return notesResetResult('stale', completed, 'reset_scope_changed', required);
+    const status = notesResult.status === 'completed'
+      && (notesResult.unresolvedStages.length !== 0 || NOTES_RESET_STAGES.some(stage => !completed.includes(stage)))
+      ? 'incomplete' : notesResult.status;
+    return notesResetResult(status, completed, notesResult.reason, [...required, ...notesResult.unresolvedStages]);
+  } catch {
+    return notesResetResult(isNotesResetContextCurrent(context) ? 'incomplete' : 'stale', completed, 'reset_stage_failed', required);
+  }
 }
 
 export const SettingsView = ({
@@ -76,6 +114,14 @@ export const SettingsView = ({
   const { t } = useTranslation();
   const workspaceRef = useRef<HTMLDivElement>(null);
   const resetAllNotes = useNotesStore(s => s.resetAllNotes);
+  const captureResetContext = useNotesStore(s => s.captureResetContext);
+  const resetUiRef = useRef({ accountId: user?.id ?? null, generation: 0 });
+  if (resetUiRef.current.accountId !== (user?.id ?? null)) {
+    resetUiRef.current = { accountId: user?.id ?? null, generation: resetUiRef.current.generation + 1 };
+  }
+  const [resettingGeneration, setResettingGeneration] = useState<number | null>(null);
+  const resetting = resettingGeneration === resetUiRef.current.generation;
+  useEffect(() => () => { resetUiRef.current.generation += 1; }, []);
   const notes = useNotesStore(s => s.notes);
   const folders = useNotesStore(s => s.folders);
   const cloudSyncEnabled = shouldUseLegacyNotesRemoteData() && Boolean(user?.id);
@@ -196,37 +242,28 @@ export const SettingsView = ({
     }
   };
 
-  const doResetData = async () => {
-    if (!mayReset()) {
-      recordRecoveryBlock('reset');
-      showToast(RECOVERY_MODE_MESSAGE, 'error');
-      return;
-    }
-    if (!shouldUseDomainRemotePersistence('account_reset')) {
-      try {
-        if (user?.id) await productionHealthRoutinePersistence.reset(user.id);
-        resetAllNotes();
-        showToast(t('resetSuccess'));
+  const confirmResetData = () => {
+    if (resetting) return;
+    const accountId = user?.id;
+    const generation = ++resetUiRef.current.generation;
+    const isUiCurrent = () => resetUiRef.current.generation === generation
+      && resetUiRef.current.accountId === accountId;
+    const context = accountId ? captureResetContext(accountId, isUiCurrent) : null;
+    showConfirm(t('notesResetConfirm'), async () => {
+      if (!isUiCurrent()) return;
+      setResettingGeneration(generation);
+      const result = await performSettingsNotesReset(context,
+        id => productionHealthRoutinePersistence.reset(id), resetAllNotes);
+      if (!isUiCurrent()) return;
+      setResettingGeneration(null);
+      if (result.status === 'completed') {
+        showToast(t('notesResetCompleted'));
         mutateDaily();
         mutateStatic();
-      } catch {
-        showToast(t('resetFailed'), 'error');
+      } else {
+        showToast(result.reason === 'reset_denied' ? RECOVERY_MODE_MESSAGE : t('notesResetIncomplete'), 'error');
       }
-      return;
-    }
-
-    try {
-      if (user?.id) await productionHealthRoutinePersistence.reset(user.id);
-      const res = await authFetch(`${API_URL}/api/reset`, buildResetRequestInit());
-      if (res.ok) {
-        resetAllNotes();
-        showToast(t('resetSuccess'));
-        mutateDaily();
-        mutateStatic();
-      } else throw new Error();
-    } catch {
-      showToast(t('resetFailed'), 'error');
-    }
+    });
   };
 
   return (
@@ -331,15 +368,16 @@ export const SettingsView = ({
               <div className={`flex flex-col lg:flex-row justify-between lg:items-center gap-3 lg:gap-0`}>
                 <div>
                   <p className="text-base font-bold text-danger flex items-center gap-1.5">
-                    <AlertTriangle size={18} />{t('resetData')}
+                    <AlertTriangle size={18} />{t('notesResetAction')}
                   </p>
-                  <p className="text-sm font-medium mt-1 text-danger opacity-80">{t('resetDesc')}</p>
+                  <p className="text-sm font-medium mt-1 text-danger opacity-80">{t('notesResetScope')}</p>
                 </div>
                 <button
-                  onClick={() => showConfirm(t('resetConfirm'), doResetData)}
+                  onClick={confirmResetData}
+                  disabled={resetting}
                   className={`abs-settings-danger-action text-foreground border px-6 py-3.5 rounded-xl font-bold text-sm transition-colors ${UI_INTERACTION.focusRingClass}`}
                   data-settings-reset-action
-                >{t('resetData')}
+                >{t('notesResetAction')}
                 </button>
               </div>
 

@@ -8,7 +8,7 @@ import translationKeys, { buildLocaleDictionary } from './i18n/keys';
 import type { TranslationKey } from './i18n';
 
 const PLANNER_STORAGE_KEY = 'planner-storage';
-const EXPECTED_KEY_COUNT = 2_163;
+const EXPECTED_KEY_COUNT = 2_168;
 type Locale = 'en' | 'ko' | 'ja';
 
 // Current independent canonical authority, including the append-only shortcut UI keys.
@@ -16,6 +16,13 @@ type Locale = 'en' | 'ko' | 'ja';
 // translationKeys order, so it detects insertion, omission, reordering, and
 // substitution without using buildLocaleDictionary.
 const EXPECTED_LOCALE_INTEGRITY_SHA256: Record<Locale, string> = {
+  en: 'fef558138843fcc57ea20c589b19f3a8b38a6bee3108752f3d07ffbd6131d96b',
+  ko: '9d895b5f9adb008e867596ed7856d47679dc68bc4a579c45398060c4f4fdad62',
+  ja: '6d1bd671f2fadd60ede1706df15e4b8821e7ba4c267317e616fc48a31cad3fb4',
+};
+
+// Preserve every existing value; the reset-specific copy is append-only.
+const PRE_RESET_LOCALE_SHA256: Record<Locale, string> = {
   en: '22875d92ef35aee446c457359e397f74d8a4a002463466968a872818609be8be',
   ko: '75e23d4ac7d9037c10e7c827a30ccaa661b18dfd40059feb9b29c33de77e13bd',
   ja: '7fe10eda29693aee42842c4187ec95943819c8822142066dc248a76a1fe5c531',
@@ -170,7 +177,7 @@ describe('i18n locale dictionaries', () => {
     expect(translationKeys.slice(2_142, 2_146)).toEqual([
       'healthPreviousRefreshing', 'healthPreviousUnavailable', 'healthPreviousSuppressed', 'healthPreviousNoMatch',
     ]);
-    expect(translationKeys.slice(2_146)).toEqual([
+    expect(translationKeys.slice(2_146, 2_163)).toEqual([
       'shortcutSectionHeadings', 'shortcutSectionNavigation', 'shortcutSectionHelp', 'shortcutInlineCode',
       'shortcutBodyText', 'shortcutHeadingLevels', 'shortcutTodo', 'shortcutToggle', 'shortcutCallout',
       'shortcutCodeBlock', 'shortcutSlashCommand', 'shortcutNoteSearch', 'shortcutFocusMode', 'shortcutUndoRedo',
@@ -178,15 +185,29 @@ describe('i18n locale dictionaries', () => {
     ]);
   });
 
+  it('appends bounded reset feedback without altering the previous 2163-key authority', () => {
+    expect(translationKeys.slice(2_163)).toEqual([
+      'notesResetAction', 'notesResetScope', 'notesResetConfirm', 'notesResetCompleted', 'notesResetIncomplete',
+    ]);
+    for (const [locale, values] of [['en', enLocaleValues], ['ko', koLocaleValues], ['ja', jaLocaleValues]] as const) {
+      expect(localeIntegrityDigest(values.slice(0, 2_163), translationKeys.slice(0, 2_163)))
+        .toBe(PRE_RESET_LOCALE_SHA256[locale]);
+      const dictionary = buildLocaleDictionary(values);
+      expect(dictionary.notesResetScope).toMatch(/Attachment originals|첨부 원본|添付原本/);
+      expect(dictionary.notesResetCompleted).toMatch(/not a complete account wipe|계정 전체 삭제는 아닙니다|アカウント全体の消去ではありません/);
+      expect(dictionary.notesResetIncomplete).toMatch(/no rollback|되돌리기나 자동 재시도는 수행하지|ロールバックや自動再試行は行っていません/);
+    }
+  });
+
   it('rejects a missing value before positional assembly', () => {
     const missing = [...enLocaleValues];
     missing.splice(1_000, 1);
 
     expect(() => buildLocaleDictionary(missing)).toThrow(
-      'Locale dictionary length mismatch: expected 2163, received 2162',
+      'Locale dictionary length mismatch: expected 2168, received 2167',
     );
     expect(() => assertLocaleValuesIntegrity('en', missing)).toThrow(
-      'Locale integrity length mismatch: expected 2163, received 2162',
+      'Locale integrity length mismatch: expected 2168, received 2167',
     );
   });
 
@@ -195,10 +216,10 @@ describe('i18n locale dictionaries', () => {
     extra.splice(1_000, 0, '__unexpected__');
 
     expect(() => buildLocaleDictionary(extra)).toThrow(
-      'Locale dictionary length mismatch: expected 2163, received 2164',
+      'Locale dictionary length mismatch: expected 2168, received 2169',
     );
     expect(() => assertLocaleValuesIntegrity('en', extra)).toThrow(
-      'Locale integrity length mismatch: expected 2163, received 2164',
+      'Locale integrity length mismatch: expected 2168, received 2169',
     );
   });
 

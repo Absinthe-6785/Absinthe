@@ -178,7 +178,7 @@ async function seedSyntheticAuthority(noteCount = NOTE_COUNT) {
   const notes = syntheticNotes(folders, noteCount);
   await useNotesStore.getState().initNotesStorage(ACCOUNT_ID);
   expect(await saveAccountScopedNotes(ACCOUNT_ID, notes)).toBe(true);
-  expect(saveAccountScopedFolders(folders)).toBe(true);
+  expect(await saveAccountScopedFolders(folders)).toBe(true);
   useNotesStore.setState({
     notes,
     folders,

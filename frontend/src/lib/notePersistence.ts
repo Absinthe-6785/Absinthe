@@ -3,11 +3,18 @@
  */
 import {
   NOTES_KEY,
+  FOLDERS_KEY,
+  ACTIVE_KEY,
+  clearNotesStorage,
+  saveFolders,
+  saveActiveNoteId,
+  normalizeNote,
   loadRawNotesFromKey,
   mergeNoteArrays,
   registerNotesStorageBridge,
   type NotesStorageBridgeSaveResult,
   type NoteBase,
+  type NoteFolderBase,
 } from '@/components/views/noteUtils';
 import { runPersistenceCleanup } from '@/lib/persistenceCleanup';
 import {
@@ -29,6 +36,7 @@ import {
   isRecoveryModeActive,
   isOperationEpochCurrent,
   mayDeleteLegacyStorage,
+  mayReset,
   mayWriteLegacyNotes,
   recordRecoveryBlock,
   validatePersistedNotesReplacement,
@@ -38,14 +46,22 @@ import {
 import {
   detachNotesAccountAuthority,
   getActiveNotesAuthorityAccountId,
+  getActiveNotesAuthorityRequest,
+  isNotesAuthorityRequestActive,
+  loadAccountScopedFolders,
+  loadAccountScopedActiveNoteId,
   initializeAccountScopedNotesAuthority,
   loadAccountScopedNotes,
   resetNotesAccountAuthorityForTests,
   saveAccountScopedNotes,
   clearAccountScopedNotesAuthority,
+  resetAccountScopedNotes,
+  saveAccountScopedFolders,
+  saveAccountScopedActiveNoteId,
   type NotesAuthorityRequest,
   type NotesAuthorityDomainState,
 } from '@/lib/notesAccountAuthority';
+import { notesResetResult, type NotesResetResult, type NotesResetStage } from './notesResetContract';
 
 export type NotesPersistenceMode = 'accountScoped' | 'indexeddb' | 'localStorage';
 
@@ -356,7 +372,9 @@ export async function loadNotesAsync(): Promise<NoteBase[]> {
 
 async function saveNotesAsyncInternal(
   notes: unknown,
+  isCurrent: () => boolean = () => true,
 ): Promise<NotesPersistenceWriteResult> {
+  if (!isCurrent()) return { status: 'blocked', reason: 'stale_epoch' };
   const epoch = captureOperationEpoch();
   const accountId = getActiveNotesAuthorityAccountId();
   if (persistenceMode === 'accountScoped' && accountId) {
@@ -364,8 +382,8 @@ async function saveNotesAsyncInternal(
     if (!persistenceHydrated) return { status: 'rejected', reason: 'empty_replacement' };
     if (!notes.every(isCompletePersistedNote)) return { status: 'rejected', reason: 'malformed_note' };
     if (new Set(notes.map(note => note.id)).size !== notes.length) return { status: 'rejected', reason: 'duplicate_id' };
-    const ok = await saveAccountScopedNotes(accountId, notes as unknown as readonly NoteBase[]);
-    if (!isOperationEpochCurrent(epoch)) return { status: 'blocked', reason: 'stale_epoch' };
+    const ok = await saveAccountScopedNotes(accountId, notes as unknown as readonly NoteBase[], isCurrent);
+    if (!isCurrent() || !isOperationEpochCurrent(epoch)) return { status: 'blocked', reason: 'stale_epoch' };
     if (!ok) return { status: 'failed', reason: 'indexeddb_rejected' };
     notesCache = [...notes] as NoteBase[];
     return { status: 'persisted' };
@@ -380,8 +398,8 @@ async function saveNotesAsyncInternal(
     return { status: 'rejected', reason: 'empty_replacement' };
   }
   if (persistenceMode === 'indexeddb' && canUseIndexedDb()) {
-    const ok = await saveNotesToIndexedDb(notes as readonly NoteBase[], () => isOperationEpochCurrent(epoch));
-    if (!isOperationEpochCurrent(epoch)) {
+    const ok = await saveNotesToIndexedDb(notes as readonly NoteBase[], () => isCurrent() && isOperationEpochCurrent(epoch));
+    if (!isCurrent() || !isOperationEpochCurrent(epoch)) {
       recordRecoveryBlock('replace_persisted_notes', 'stale_operation_epoch');
       return { status: 'blocked', reason: 'stale_epoch' };
     }
@@ -404,29 +422,152 @@ async function saveNotesAsyncInternal(
   return result;
 }
 
-export async function saveNotesAsync(notes: unknown): Promise<NotesPersistenceWriteResult> {
-  return saveNotesAsyncInternal(notes);
+export async function saveNotesAsync(notes: unknown, isCurrent: () => boolean = () => true): Promise<NotesPersistenceWriteResult> {
+  return saveNotesAsyncInternal(notes, isCurrent);
 }
 
-export async function clearNotesPersistence(): Promise<void> {
+export async function clearNotesPersistence(isCurrent: () => boolean = () => true): Promise<boolean> {
+  if (!isCurrent()) return false;
   const accountId = getActiveNotesAuthorityAccountId();
   if (persistenceMode === 'accountScoped' && accountId) {
-    await clearAccountScopedNotesAuthority(accountId);
+    await clearAccountScopedNotesAuthority(accountId, isCurrent);
+    if (!isCurrent()) return false;
     notesCache = [];
-    return;
+    return true;
   }
   if (!mayWriteLegacyNotes() || !mayDeleteLegacyStorage()) {
     recordRecoveryBlock('delete_legacy_storage');
-    return;
+    return false;
   }
-  notesCache = null;
-  try {
-    localStorage.removeItem(NOTES_KEY);
-    localStorage.removeItem(NOTES_IDB_MIGRATION_FLAG);
-    localStorage.removeItem(NOTES_IDB_REV_KEY);
-  } catch { /**/ }
+  localStorage.removeItem(NOTES_KEY);
+  localStorage.removeItem(NOTES_IDB_MIGRATION_FLAG);
+  localStorage.removeItem(NOTES_IDB_REV_KEY);
   if (canUseIndexedDb()) {
-    try { await clearIndexedDbNotes(); } catch { /**/ }
+    if (!await clearIndexedDbNotes(isCurrent)) return false;
+  }
+  if (!isCurrent()) return false;
+  notesCache = null;
+  return true;
+}
+
+export interface NotesResetContext {
+  readonly accountId: string | null;
+  readonly request: NotesAuthorityRequest | null;
+  readonly safetyEpoch: number;
+  readonly mode: NotesPersistenceMode;
+  readonly isUiCurrent: () => boolean;
+  readonly isStoreCurrent?: () => boolean;
+  readonly expectedSnapshot?: {
+    readonly notes: readonly NoteBase[];
+    readonly folders: readonly NoteFolderBase[];
+    readonly activeNoteId: string | null;
+  };
+}
+
+/** Explicit completion bridge; legacy callers retain their synchronous APIs. */
+export async function saveFoldersAsync(folders: NoteFolderBase[]): Promise<boolean> {
+  if (getActiveNotesAuthorityRequest()) {
+    try { return await saveAccountScopedFolders(folders); } catch { return false; }
+  }
+  return persistenceMode === 'accountScoped' ? false : saveFolders(folders);
+}
+
+export async function saveActiveNoteIdAsync(id: string | null): Promise<boolean> {
+  if (getActiveNotesAuthorityRequest()) {
+    try { return await saveAccountScopedActiveNoteId(id); } catch { return false; }
+  }
+  return persistenceMode === 'accountScoped' ? false : saveActiveNoteId(id);
+}
+
+/** Bind an existing reset to its original authority; missing authenticated scope never falls back to legacy. */
+export function captureNotesResetContext(
+  expectedAccountId?: string,
+  isUiCurrent: () => boolean = () => true,
+): NotesResetContext | null {
+  const request = getActiveNotesAuthorityRequest();
+  if (expectedAccountId !== undefined && (!expectedAccountId.trim()
+    || expectedAccountId !== request?.accountId)) return null;
+  if ((persistenceMode === 'accountScoped') !== (request !== null)) return null;
+  return Object.freeze({
+    accountId: request?.accountId ?? null,
+    request,
+    safetyEpoch: captureOperationEpoch(),
+    mode: persistenceMode,
+    isUiCurrent,
+  });
+}
+
+export function isNotesResetContextCurrent(context: NotesResetContext): boolean {
+  try {
+    return context.isUiCurrent()
+      && isOperationEpochCurrent(context.safetyEpoch)
+      && persistenceMode === context.mode
+      && getActiveNotesAuthorityRequest() === context.request
+      && (context.request === null || isNotesAuthorityRequestActive(context.request));
+  } catch { return false; }
+}
+
+/** Only observes the existing reset writes; never retries, compensates, or deletes attachments. */
+export async function persistNotesReset(
+  context: NotesResetContext,
+  welcome: readonly NoteBase[],
+  isStoreCurrent: () => boolean,
+): Promise<NotesResetResult> {
+  const completed: NotesResetStage[] = [];
+  const current = () => isNotesResetContextCurrent(context) && isStoreCurrent()
+    && (context.isStoreCurrent?.() ?? true);
+  const allowed = () => current() && mayReset();
+  if (!current()) return notesResetResult('stale', completed, 'reset_scope_changed');
+  if (!mayReset()) return notesResetResult('blocked', completed, 'reset_denied');
+  if (context.accountId) {
+    const expected = context.expectedSnapshot;
+    if (!context.request || !expected) return notesResetResult('blocked', [], 'reset_snapshot_unavailable');
+    const notesJson = (notes: readonly NoteBase[]) => JSON.stringify([...notes].map(normalizeNote).sort((a, b) => a.id.localeCompare(b.id)));
+    const foldersJson = (folders: readonly NoteFolderBase[]) => JSON.stringify([...folders].sort((a, b) => a.id.localeCompare(b.id)));
+    const result = await resetAccountScopedNotes(context.request, welcome, allowed, (notes, folders, active) => (
+      notesJson(notes) === notesJson(expected.notes)
+      && foldersJson(folders) === foldersJson(expected.folders)
+      && active === expected.activeNoteId
+    ));
+    if (result.status === 'completed' && allowed()) notesCache = welcome.map(normalizeNote);
+    return result;
+  }
+  let stage: NotesResetStage = 'local_metadata_clear';
+  try {
+    if (!clearNotesStorage()) throw new Error('reset_metadata_clear_failed');
+    completed.push(stage);
+    stage = 'notes_clear';
+    if (!allowed() || !await clearNotesPersistence(allowed)) throw new Error('reset_notes_clear_failed');
+    completed.push(stage);
+    if (!allowed()) return notesResetResult('stale', completed, 'reset_scope_changed');
+    stage = 'welcome_note';
+    const saved = await saveNotesAsync(welcome, allowed);
+    if (!allowed()) return notesResetResult('stale', completed, 'reset_scope_changed');
+    if (saved.status !== 'persisted') throw new Error('reset_welcome_save_failed');
+    completed.push(stage);
+    stage = 'folders';
+    if (!saveFolders([])) throw new Error('reset_folders_save_failed');
+    completed.push(stage);
+    stage = 'active_note';
+    const activeId = welcome[0]?.id ?? null;
+    if (!saveActiveNoteId(activeId)) throw new Error('reset_active_note_save_failed');
+    completed.push(stage);
+    stage = 'readback';
+    const durable = context.accountId
+      ? await loadAccountScopedNotes(context.accountId)
+      : context.mode === 'indexeddb'
+        ? await loadNotesFromIndexedDb()
+        : JSON.parse(localStorage.getItem(NOTES_KEY) ?? 'null') as NoteBase[] | null;
+    if (!allowed()) return notesResetResult('stale', completed, 'reset_scope_changed');
+    const folders = context.accountId ? loadAccountScopedFolders() : JSON.parse(localStorage.getItem(FOLDERS_KEY) ?? 'null');
+    const active = context.accountId ? loadAccountScopedActiveNoteId(welcome) : localStorage.getItem(ACTIVE_KEY);
+    if (!Array.isArray(durable)
+      || JSON.stringify(durable.map(normalizeNote)) !== JSON.stringify(welcome.map(normalizeNote))
+      || JSON.stringify(folders) !== '[]' || active !== activeId) throw new Error('reset_readback_mismatch');
+    completed.push(stage);
+    return notesResetResult('completed', completed);
+  } catch {
+    return notesResetResult(current() && mayReset() ? 'incomplete' : 'stale', completed, `${stage}_unresolved`);
   }
 }
 
