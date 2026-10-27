@@ -19,7 +19,7 @@ import { EventNoteDialog } from './features/knowledge/trace/EventNoteDialog';
 import { buildNoteChrome } from './noteEditorTheme';
 import { openNote } from '../../lib/noteNavigation';
 import { registerSearchDomainHandlers } from './features/search/searchDomainNavigation';
-import { recordPlannerActivity } from './features/planner/plannerActivityStorage';
+import { recordPlannerActivity, validPlannerEventDate } from './features/planner/plannerActivityStorage';
 import { ScheduleEventDetailPanel } from './features/planner/calendar-ui/day/ScheduleEventDetailPanel';
 import { formatLongDateKey } from './k102DateFormat';
 import type { PlannerScheduleRow } from './features/planner/calendar';
@@ -186,10 +186,15 @@ export const PlannerView = ({
   }, [scheduleDetailId, schedules, prevSchedules, selectedDate, formatDate, prevDateStr]);
 
   const openScheduleDetail = useCallback((id: string) => {
-    const sch = schedules.find(s => s.id === id) ?? prevSchedules.find(s => s.id === id);
-    if (sch) recordPlannerActivity(accountId, 'schedule', id, sch.text);
+    const selectedDaySchedule = schedules.find(s => s.id === id);
+    const sch = selectedDaySchedule ?? prevSchedules.find(s => s.id === id);
+    if (sch) {
+      const eventDate = validPlannerEventDate('date' in sch ? sch.date : undefined)
+        ?? validPlannerEventDate(selectedDaySchedule ? formatDate(selectedDate) : prevDateStr);
+      recordPlannerActivity(accountId, 'schedule', id, sch.text, Date.now(), eventDate);
+    }
     setScheduleDetailId(id);
-  }, [accountId, schedules, prevSchedules]);
+  }, [accountId, schedules, prevSchedules, selectedDate, formatDate, prevDateStr]);
 
   useEffect(() => {
     return registerSearchDomainHandlers({

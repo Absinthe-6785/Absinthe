@@ -402,10 +402,16 @@ describe('Planner/Home account-bound production paths', () => {
     expect(readPlannerActivityRecents('account-b')).toHaveLength(1);
   });
 
-  it('records actual Planner detail opens under the current account, even when schedule props are unchanged', async () => {
+  it.each([
+    { explicitDate: undefined, collectionDate: '2026-08-18', expected: '2026-08-18' },
+    { explicitDate: '2026-08-20', collectionDate: '2026-08-18', expected: '2026-08-20' },
+    { explicitDate: '2026-02-30', collectionDate: '2026-08-18', expected: '2026-08-18' },
+    { explicitDate: undefined, collectionDate: '', expected: undefined },
+    { explicitDate: 'bad', collectionDate: '2026-02-30', expected: undefined },
+  ])('records current-account detail opens only with a verified source date: $explicitDate / $collectionDate', async ({ explicitDate, collectionDate, expected }) => {
     const cache = new Map<unknown, unknown>();
     const selectedDate = new Date(2026, 7, 18);
-    const schedules = [{ id: 'same-id', text: 'Event title', start_time: '10:00', end_time: '11:00', is_dday: false }];
+    const schedules = [{ id: 'same-id', text: 'Event title', start_time: '10:00', end_time: '11:00', is_dday: false, date: explicitDate }];
     root = createRoot(host!);
     const renderPlanner = async (account?: string) => {
       harness.account = account ?? '';
@@ -413,7 +419,7 @@ describe('Planner/Home account-bound production paths', () => {
         value: { provider: () => cache, revalidateOnFocus: false },
       }, createElement(PlannerView, {
         now: DateTime.fromISO('2026-08-18T12:00:00'), currentDate: selectedDate, selectedDate,
-        setCurrentDate: vi.fn(), setSelectedDate: vi.fn(), formatDate: () => '2026-08-18',
+        setCurrentDate: vi.fn(), setSelectedDate: vi.fn(), formatDate: () => collectionDate,
         isToday: true, showToast: vi.fn(), mutateDaily: vi.fn(), mutateStatic: vi.fn(), mutateRoutines: vi.fn(),
         appSettings: { darkMode: false, language: 'en' }, schedules, todos: [], routines: [], weeklySchedules: [],
         theme: { card: '', input: '', border: '', textMuted: '', hoverBg: '' }, THEME_COLORS: {},
@@ -425,10 +431,12 @@ describe('Planner/Home account-bound production paths', () => {
     expect(readPlannerActivityRecents('account-a')).toEqual([
       expect.objectContaining({ kind: 'schedule', itemId: 'same-id', title: 'Event title' }),
     ]);
+    expect(readPlannerActivityRecents('account-a')[0].eventDate).toBe(expected);
     await renderPlanner('account-b');
     expect(readPlannerActivityRecents('account-b')).toEqual([
       expect.objectContaining({ kind: 'schedule', itemId: 'same-id', title: 'Event title' }),
     ]);
+    expect(readPlannerActivityRecents('account-b')[0].eventDate).toBe(expected);
     await renderPlanner();
     expect(readPlannerActivityRecents(undefined)).toEqual([]);
     expect(readPlannerActivityRecents('account-a')).toHaveLength(1);
