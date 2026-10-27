@@ -28,8 +28,6 @@ export interface HomeFoundationProjection {
   continueItem: HomeContinueItem | null;
   todayAgenda: readonly UnifiedAgendaItem[];
   timetableSlots: readonly PlannerWeeklySlotRow[];
-  activeRoutines: number;
-  completedRoutines: number;
   workout: HomeWorkoutSummary | HomeWorkoutCompositeProjection;
   traces: readonly RecentActivityItem[];
   archiveTracesToday: number;

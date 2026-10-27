@@ -3,7 +3,7 @@
  */
 import type { Language } from '../../../../lib/i18n';
 import type { NoteBase } from '../../noteUtils';
-import type { Routine, Workout } from '../../../../types';
+import type { Workout } from '../../../../types';
 import { displayNoteTitleForLocale } from '../../noteDisplayTitle';
 import { loadWorkspaceSession } from '../knowledge/workspace/workspaceSessionStorage';
 import { loadWorkspacePreferences } from '../knowledge/workspace/workspacePreferencesStorage';
@@ -104,7 +104,6 @@ function flattenArchiveTracesToday(history: ArchiveHistoryProjection | null | un
 
 export function buildHomeFoundationProjection(input: {
   notes: readonly NoteBase[];
-  routines: readonly Routine[];
   workouts: readonly Workout[];
   plannerProjection: PlannerProjection | null;
   recentActivity: RecentActivityProjection;
@@ -115,8 +114,6 @@ export function buildHomeFoundationProjection(input: {
   traceLimit?: number;
   workoutComposite?: HomeWorkoutCompositeProjection;
 }): HomeFoundationProjection {
-  const activeRoutines = input.routines.filter(routine => routine.is_active);
-  const completedRoutines = activeRoutines.filter(routine => routine.done).length;
   const traces = input.recentActivity.groups
     .flatMap(group => group.items)
     .sort((a, b) => b.timestamp - a.timestamp)
@@ -126,8 +123,6 @@ export function buildHomeFoundationProjection(input: {
     continueItem: buildContinueItem(input.notes, input.locale),
     todayAgenda: input.plannerProjection?.todayItems ?? [],
     timetableSlots: input.plannerProjection?.timetableToday ?? [],
-    activeRoutines: activeRoutines.length,
-    completedRoutines,
     // The composite branch must never invoke the legacy draft helper (it can remove bytes).
     workout: input.workoutComposite ?? buildWorkoutSummary(input.workouts, input.accountId, input.todayKey),
     traces,

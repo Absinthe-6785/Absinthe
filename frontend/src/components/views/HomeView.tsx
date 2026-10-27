@@ -161,7 +161,6 @@ export const HomeView = ({
   selectedDate,
   formatDate,
   schedules,
-  routines,
   workouts,
   weeklySchedules,
   appSettings,
@@ -250,7 +249,6 @@ export const HomeView = ({
   const projection = useMemo(
     () => buildHomeFoundationProjection({
       notes: useNotesStore.getState().notes,
-      routines,
       workouts,
       plannerProjection,
       recentActivity,
@@ -260,7 +258,7 @@ export const HomeView = ({
       locale: lang,
       workoutComposite,
     }),
-    [vaultStructureVersion, routines, workouts, plannerProjection, recentActivity, archiveProjection.historyItems, user.id, todayKey, lang, workoutComposite],
+    [vaultStructureVersion, workouts, plannerProjection, recentActivity, archiveProjection.historyItems, user.id, todayKey, lang, workoutComposite],
   );
 
   const handleContinue = useCallback(() => {
@@ -376,13 +374,6 @@ export const HomeView = ({
               ) : (
                 <p className={`text-sm mb-3 ${theme.textMuted}`}>{t('homeTodayEmpty')}</p>
               )}
-              {projection.activeRoutines > 0 ? (
-                <p className={`text-xs font-semibold mb-2 ${theme.textMuted}`}>
-                  {t('homeRoutineProgress')
-                    .replace('{done}', String(projection.completedRoutines))
-                    .replace('{total}', String(projection.activeRoutines))}
-                </p>
-              ) : null}
               {timetablePreview.length > 0 ? (
                 <div className="flex flex-col gap-1.5">
                   {timetablePreview.map(slot => (
