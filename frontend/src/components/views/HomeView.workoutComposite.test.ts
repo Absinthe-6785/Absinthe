@@ -122,4 +122,13 @@ describe('real Home current-day Workout card (unmocked foundation and projection
     await act(async () => card().querySelector<HTMLButtonElement>('[data-k132a-home-open-health]')!.click());
     expect(mocks.legacyNavigate).toHaveBeenCalledWith('health');
   });
+  it('does not show routine completion progress when routine data is supplied', async () => {
+    await render(undefined, { isDailyLoading: false,
+      routines: [{ id: 'routine-1', text: 'Stretch', done: true, is_active: true }] } as Partial<HomeViewProps>);
+
+    const today = host.querySelector<HTMLElement>('[data-k132a-home-section="today"]')!;
+    expect(today).not.toBeNull();
+    expect(today.textContent).not.toContain('homeRoutineProgress');
+    expect(today.textContent).not.toMatch(/\b\d+\/\d+ routines\b/i);
+  });
 });

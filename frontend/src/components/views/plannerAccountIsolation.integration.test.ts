@@ -75,7 +75,6 @@ vi.mock('../../lib/i18n', () => ({
       homeContinueEmpty: 'Nothing to continue',
       homeToday: 'Today',
       homeTodayEmpty: 'No schedule',
-      homeRoutineProgress: '{done}/{total} routines',
       homeWorkout: 'Workout',
       homeWorkoutEmpty: 'No workout',
       homeWorkoutEmptyDesc: 'No workout',
@@ -168,12 +167,10 @@ vi.mock('./features/planner/hooks/useCountdownReviewed', () => ({ useCountdownRe
 vi.mock('./features/knowledge/databaseViews/parseDatabaseDate', () => ({ toDateKey: (date: Date) => date.toISOString().slice(0, 10) }));
 vi.mock('./features/archive/hooks/useArchiveProjection', () => ({ useArchiveProjection: () => ({ projection: { historyItems: [] } }) }));
 vi.mock('./features/home/buildHomeFoundationProjection', () => ({
-  buildHomeFoundationProjection: ({ plannerProjection, routines, workouts, recentActivity }: { plannerProjection?: { todayItems?: unknown[] }; routines: unknown[]; workouts: unknown[]; recentActivity?: { groups?: Array<{ items?: unknown[] }> } }) => ({
+  buildHomeFoundationProjection: ({ plannerProjection, workouts, recentActivity }: { plannerProjection?: { todayItems?: unknown[] }; workouts: unknown[]; recentActivity?: { groups?: Array<{ items?: unknown[] }> } }) => ({
     continueItem: null,
     todayAgenda: plannerProjection?.todayItems ?? [],
     timetableSlots: [],
-    activeRoutines: routines.length,
-    completedRoutines: 0,
     workout: {
       exerciseCount: workouts.length,
       setCount: 0,

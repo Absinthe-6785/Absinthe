@@ -41,7 +41,6 @@ const recentItem = (id: string, timestamp: number, metadata: Partial<RecentActiv
 function buildTraces(groups: RecentActivityGroup[], traceLimit?: number) {
   const projection = buildHomeFoundationProjection({
     notes: [],
-    routines: [],
     workouts: [],
     plannerProjection: null,
     recentActivity: { groups, isEmpty: groups.every(group => group.items.length === 0), generatedAt: '' },
@@ -53,6 +52,24 @@ function buildTraces(groups: RecentActivityGroup[], traceLimit?: number) {
 }
 
 describe('buildHomeFoundationProjection', () => {
+  it('preserves the Today agenda and weekly timetable preview without routine progress', () => {
+    const agenda = [{ key: 'event-1', title: 'Study', time: '09:00', kind: 'schedule' }];
+    const timetable = [{ id: 'slot-1', title: 'Reading', startTime: '10:00', endTime: '11:00' }];
+    const projection = buildHomeFoundationProjection({
+      notes: [],
+      workouts: [],
+      plannerProjection: { todayItems: agenda, timetableToday: timetable } as any,
+      recentActivity: { groups: [], isEmpty: true, generatedAt: '' },
+      accountId: 'account-a',
+      todayKey: '2026-06-23',
+    });
+
+    expect(projection.todayAgenda).toBe(agenda);
+    expect(projection.timetableSlots).toBe(timetable);
+    expect(projection).not.toHaveProperty('activeRoutines');
+    expect(projection).not.toHaveProperty('completedRoutines');
+  });
+
   it('includes today activity in the traces list', () => {
     const today = recentItem('today-note', 300);
 
@@ -141,7 +158,6 @@ describe('buildHomeFoundationProjection', () => {
 
     const projection = buildHomeFoundationProjection({
       notes: [note('n1', { lastOpenedAt: Date.now() })],
-      routines: [],
       workouts: [],
       plannerProjection: null,
       recentActivity: { groups: [], isEmpty: true, generatedAt: '' },
@@ -153,10 +169,9 @@ describe('buildHomeFoundationProjection', () => {
     expect(projection.continueItem?.title).toBe('Recent notes');
   });
 
-  it('summarizes saved workouts for today', () => {
+  it('summarizes saved workouts for today without routine progress fields', () => {
     const projection = buildHomeFoundationProjection({
       notes: [],
-      routines: [{ id: 'r1', text: 'Stretch', done: true, is_active: true }],
       workouts: [{
         id: 'w1',
         block_id: 'b1',
@@ -172,7 +187,8 @@ describe('buildHomeFoundationProjection', () => {
     expect(projection.workout.hasSession).toBe(true);
     expect(projection.workout.isLocked).toBe(true);
     expect(projection.workout.exerciseCount).toBe(1);
-    expect(projection.completedRoutines).toBe(1);
+    expect(projection).not.toHaveProperty('activeRoutines');
+    expect(projection).not.toHaveProperty('completedRoutines');
   });
 
   it('bypasses the mutating legacy draft helper in the explicit composite branch', () => {
@@ -182,7 +198,7 @@ describe('buildHomeFoundationProjection', () => {
       read: { phase: 'loading', accountId, localDate: todayKey, cacheKey: null, result: null,
         legacyDaily: null, isolationError: false, retry: vi.fn() },
       draft: { accountId, localDate: todayKey, status: 'unavailable' } });
-    const projection = buildHomeFoundationProjection({ notes: [], routines: [], workouts: [],
+    const projection = buildHomeFoundationProjection({ notes: [], workouts: [],
       plannerProjection: null, recentActivity: { groups: [], isEmpty: true, generatedAt: '' },
       accountId, todayKey, workoutComposite });
     expect(projection.workout).toBe(workoutComposite);
