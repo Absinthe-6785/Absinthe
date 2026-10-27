@@ -295,6 +295,15 @@ export function RecipeVirtualList({
     overscan: 6,
     enabled: useVirtual,
   });
+  const expandedIndex = expandedId === null
+    ? -1
+    : recipes.findIndex(recipe => recipe.id === expandedId);
+
+  useEffect(() => {
+    if (useVirtual && expandedIndex >= 0) {
+      virtualizer.scrollToIndex(expandedIndex, { align: 'auto' });
+    }
+  }, [expandedIndex, useVirtual, virtualizer]);
 
   const renderCard = (recipe: Recipe) => (
     <RecipeCard

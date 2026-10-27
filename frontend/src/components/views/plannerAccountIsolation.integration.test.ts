@@ -190,9 +190,9 @@ vi.mock('./features/knowledge/workspace/workspaceSessionStorage', () => ({
 vi.mock('./k102DateFormat', () => ({ formatLongDate: () => 'August 18, 2026' }));
 vi.mock('../../lib/healthBackfillUiSafety', () => ({ readLocalHealthWorkoutDraft: () => null }));
 
-type ProbeProps = { account?: string; active: boolean };
+type ProbeProps = { account?: string; active: boolean; onOpenRecipe?: (recipeId: string) => void };
 
-function ProductionHomeProbe({ account, active }: ProbeProps) {
+function ProductionHomeProbe({ account, active, onOpenRecipe }: ProbeProps) {
   harness.account = account ?? 'account-a';
   const date = '2026-08-18';
   const accountId = active ? account : undefined;
@@ -229,6 +229,7 @@ function ProductionHomeProbe({ account, active }: ProbeProps) {
       theme: { card: '', input: '', border: '', text: '', textMuted: '', hoverBg: '' },
       isDailyLoading: false,
       user: { id: account, name: account },
+      onOpenRecipe,
     } as any),
   );
 }
@@ -351,6 +352,19 @@ describe('Planner/Home account-bound production paths', () => {
     await flush();
     expect(host?.textContent ?? '').toContain('Account B recipe');
     expect(host?.textContent ?? '').not.toContain('Account A recipe');
+  });
+
+  it('hands the exact recipe ID from a Home recent trace to app navigation', async () => {
+    const cache = new Map<unknown, unknown>();
+    const onOpenRecipe = vi.fn();
+    root = createRoot(host!);
+    await act(async () => renderProbe(root!, cache, { active: true, account: 'account-a', onOpenRecipe }));
+    await flush();
+
+    const trace = Array.from(host!.querySelectorAll('button')).find(button => button.textContent?.includes('Account A recipe'));
+    expect(trace).toBeDefined();
+    act(() => trace!.click());
+    expect(onOpenRecipe).toHaveBeenCalledExactlyOnceWith('recipe-a');
   });
 
   it('uses real Planner storage in Home across A -> B -> A and preserves current-account navigation', async () => {

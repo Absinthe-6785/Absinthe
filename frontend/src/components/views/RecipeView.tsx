@@ -38,7 +38,16 @@ export type { Recipe } from './features/recipe';
 
 interface RecipeViewProps extends BaseViewProps {
   accountId?: string;
+  recipeNavigationRequest?: RecipeNavigationRequest;
+  onRecipeNavigationConsumed?: (requestId: number) => void;
 }
+
+export type RecipeNavigationRequest = Readonly<{
+  accountId: string;
+  accountGeneration: number;
+  requestId: number;
+  recipeId: string;
+}>;
 
 type DraftConflict =
   | { kind: 'remote-changed'; remote: Recipe }
@@ -63,7 +72,14 @@ const isConfirmedRecipeStarResponse = (
     && row.starred === target;
 };
 
-export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeViewProps) => {
+export const RecipeView = ({
+  showToast,
+  appSettings,
+  theme,
+  accountId,
+  recipeNavigationRequest,
+  onRecipeNavigationConsumed,
+}: RecipeViewProps) => {
   const { t } = useTranslation();
   const dark = appSettings.darkMode;
   const { confirm, showConfirm, clearConfirm, handleConfirm } = useConfirm();
@@ -71,6 +87,7 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [navigationRequestId, setNavigationRequestId] = useState<number | null>(null);
   const [form, setForm] = useState<RecipeFormState>({ ...EMPTY_RECIPE_FORM });
   const [draft, setDraft] = useState<RecipeDraftEnvelope | null>(null);
   const [baseSnapshot, setBaseSnapshot] = useState<RecipeDraftForm | null>(null);
@@ -88,6 +105,7 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
   const activeEditingRecipeIdRef = useRef<string | null>(null);
   const savingRef = useRef(false);
   const recoveredDraftRef = useRef<string | null>(null);
+  const handledNavigationRequestRef = useRef<number | null>(null);
   const pendingStarMutationKeysRef = useRef(new Set<string>());
   const unresolvedStarMutationKeysRef = useRef(new Set<string>());
   if (accountIdRef.current !== accountId) {
@@ -360,6 +378,27 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
       document.querySelector(`[data-k110-recipe-card="${id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     });
   }, []);
+
+  useEffect(() => {
+    const request = recipeNavigationRequest;
+    if (
+      !request
+      || !accountId
+      || request.accountId !== accountId
+      || !activeAuthorityReady
+      || handledNavigationRequestRef.current === request.requestId
+    ) return;
+
+    handledNavigationRequestRef.current = request.requestId;
+    if (recipes.some(recipe => recipe.id === request.recipeId)) {
+      handleScrollToRecipe(request.recipeId);
+      setNavigationRequestId(request.requestId);
+    }
+    // A ready account-scoped response is authoritative even when it confirms
+    // that the requested recipe no longer exists; consume it without opening a
+    // different record or replaying it on a later account/session.
+    onRecipeNavigationConsumed?.(request.requestId);
+  }, [accountId, activeAuthorityReady, handleScrollToRecipe, onRecipeNavigationConsumed, recipeNavigationRequest, recipes]);
 
   const handleSave = useCallback(async () => {
     const submittedFormSession = activeFormSessionRef.current;
@@ -704,6 +743,7 @@ export const RecipeView = ({ showToast, appSettings, theme, accountId }: RecipeV
         onRestore={handleRestore}
         onNewRecipe={openNew}
         onScrollToRecipe={handleScrollToRecipe}
+        navigationRequestId={navigationRequestId}
       />
       </WorkspaceErrorBoundary>
 

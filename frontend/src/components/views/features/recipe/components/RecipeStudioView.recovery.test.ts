@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const virtualizerHarness = vi.hoisted(() => ({
   measureElement: vi.fn(),
+  scrollToIndex: vi.fn(),
 }));
 
 vi.mock('@tanstack/react-virtual', () => ({
@@ -14,6 +15,7 @@ vi.mock('@tanstack/react-virtual', () => ({
       ? Array.from({ length: Math.min(options.count, 8) }, (_, index) => ({ index, start: index * 72 }))
       : [],
     measureElement: virtualizerHarness.measureElement,
+    scrollToIndex: virtualizerHarness.scrollToIndex,
   }),
 }));
 
@@ -224,6 +226,7 @@ function expectNoDerivedEmptyClaims() {
 beforeEach(() => {
   localStorage.clear();
   virtualizerHarness.measureElement.mockClear();
+  virtualizerHarness.scrollToIndex.mockClear();
   useAppStore.getState().updateSetting('language', 'en');
 });
 
@@ -235,6 +238,23 @@ afterEach(() => {
 });
 
 describe('UI-07 production Recipe composition hierarchy', () => {
+  it('scrolls an expanded off-screen recipe into the virtualized list window', () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1440 });
+    const recipes = Array.from({ length: 60 }, (_, index) => ({
+      ...activeRecipe,
+      id: `virtual-recipe-${index + 1}`,
+      created_at: '2026-08-01T00:00:00Z',
+    }));
+    renderStudio(vi.fn(), {
+      recipes,
+      activeAvailability: 'READY_WITH_DATA',
+      expandedId: 'virtual-recipe-60',
+      navigationRequestId: 44,
+    });
+
+    expect(virtualizerHarness.scrollToIndex).toHaveBeenCalledWith(59, { align: 'auto' });
+  });
+
   it.each([390, 768, 1024, 1279, 1280, 1440])(
     'keeps the populated list before bounded support at %ipx',
     width => {

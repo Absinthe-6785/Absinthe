@@ -104,13 +104,24 @@ vi.mock('./common/Sidebar', () => ({
       { type: 'button', 'data-testid': 'nav-notes', onClick: () => setActiveTab('note') },
       'Notes',
     ),
+    createElement(
+      'button',
+      { type: 'button', 'data-testid': 'nav-recipe', onClick: () => setActiveTab('recipe') },
+      'Recipe',
+    ),
   ),
 }));
 vi.mock('./common/ViewLoadingFallback', () => ({
   ViewLoadingFallback: ({ label }: { label?: string }) => createElement('div', { 'data-testid': 'view-loading' }, label),
 }));
 vi.mock('./views/NoteView', () => ({ NoteView: () => null }));
-vi.mock('./views/HomeView', () => ({ HomeView: () => createElement('div', { 'data-testid': 'home-view' }) }));
+vi.mock('./views/HomeView', () => ({ HomeView: ({ onOpenRecipe }: { onOpenRecipe?: (id: string) => void }) => createElement(
+  'div',
+  { 'data-testid': 'home-view' },
+  createElement('button', {
+    type: 'button', 'data-testid': 'home-open-recipe', onClick: () => onOpenRecipe?.('exact-recipe-id'),
+  }, 'Open recipe'),
+) }));
 vi.mock('./views/PlannerView', () => ({ PlannerView: () => null }));
 vi.mock('./views/HealthView', () => ({ HealthView: ({ user, workouts }: { user: { id: string }; workouts: Array<{ id: string }> }) => {
     const draft = useHealthWorkoutDraft({ accountId: user.id, dateKey: '2026-01-01' });
@@ -134,7 +145,21 @@ vi.mock('./views/HealthView', () => ({ HealthView: ({ user, workouts }: { user: 
   } }));
 vi.mock('./views/AnalyticsView', () => ({ AnalyticsView: () => null }));
 vi.mock('./views/SettingsView', () => ({ SettingsView: () => null }));
-vi.mock('./views/RecipeView', () => ({ RecipeView: () => null }));
+vi.mock('./views/RecipeView', () => ({ RecipeView: ({
+  accountId,
+  recipeNavigationRequest,
+  onRecipeNavigationConsumed,
+}: {
+  accountId: string;
+  recipeNavigationRequest?: { requestId: number; recipeId: string };
+  onRecipeNavigationConsumed?: (requestId: number) => void;
+}) => createElement('div', {
+  'data-testid': 'recipe-view',
+  'data-account': accountId,
+  'data-recipe-id': recipeNavigationRequest?.recipeId ?? '',
+  'data-request-id': recipeNavigationRequest?.requestId ?? '',
+  'data-consume-request': onRecipeNavigationConsumed ? 'available' : 'missing',
+}) }));
 vi.mock('./views/features/search/GlobalSearchHost', () => ({ GlobalSearchHost: () => null }));
 vi.mock('../lib/migrateLegacyDdays', () => ({ migrateLegacyDdays: async () => undefined }));
 vi.mock('../lib/vaultSnapshotAuto', () => ({ runPeriodicSnapshotSlots: vi.fn() }));
@@ -238,6 +263,66 @@ describe('AppContent startup lifecycle integration', () => {
     expect(mocks.workoutAuthorityStart).toHaveBeenCalledTimes(1);
     health.resolve();
     await flushStartup();
+  });
+
+  it('carries the selected Home recipe ID into the account-scoped Recipe mount', async () => {
+    const { AppContent } = await import('./AppContent');
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(createElement(AppContent, { authUser: user('recipe-link-account') }));
+    });
+    await flushStartup();
+
+    await act(async () => {
+      (container!.querySelector('[data-testid="home-open-recipe"]') as HTMLButtonElement).click();
+    });
+    const recipeView = container!.querySelector('[data-testid="recipe-view"]');
+    expect(recipeView?.getAttribute('data-account')).toBe('recipe-link-account');
+    expect(recipeView?.getAttribute('data-recipe-id')).toBe('exact-recipe-id');
+    expect(recipeView?.getAttribute('data-request-id')).not.toBe('');
+    expect(recipeView?.getAttribute('data-consume-request')).toBe('available');
+  });
+
+  it('does not replay an unconsumed Home recipe request after account A -> B -> A', async () => {
+    const { AppContent } = await import('./AppContent');
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(createElement(AppContent, { authUser: user('account-a') }));
+    });
+    await flushStartup();
+    await act(async () => {
+      (container!.querySelector('[data-testid="home-open-recipe"]') as HTMLButtonElement).click();
+    });
+    expect(container!.querySelector('[data-testid="recipe-view"]')?.getAttribute('data-recipe-id')).toBe('exact-recipe-id');
+
+    await act(async () => root!.render(createElement(AppContent, { authUser: user('account-b') })));
+    await flushStartup();
+    expect(container!.querySelector('[data-testid="recipe-view"]')?.getAttribute('data-recipe-id')).toBe('');
+
+    await act(async () => root!.render(createElement(AppContent, { authUser: user('account-a') })));
+    await flushStartup();
+    expect(container!.querySelector('[data-testid="recipe-view"]')?.getAttribute('data-recipe-id')).toBe('');
+  });
+
+  it('drops a pending Home recipe request when the user leaves Recipe before data is ready', async () => {
+    const { AppContent } = await import('./AppContent');
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(createElement(AppContent, { authUser: user('leave-before-ready-account') }));
+    });
+    await flushStartup();
+    await act(async () => {
+      (container!.querySelector('[data-testid="home-open-recipe"]') as HTMLButtonElement).click();
+    });
+    expect(container!.querySelector('[data-testid="recipe-view"]')?.getAttribute('data-recipe-id')).toBe('exact-recipe-id');
+
+    await act(async () => {
+      (container!.querySelector('[data-testid="nav-health"]') as HTMLButtonElement).click();
+    });
+    await act(async () => {
+      (container!.querySelector('[data-testid="nav-recipe"]') as HTMLButtonElement).click();
+    });
+    expect(container!.querySelector('[data-testid="recipe-view"]')?.getAttribute('data-recipe-id')).toBe('');
   });
 
   it('does not gate Health visibility on a never-settling Workout authority request', async () => {
