@@ -21,7 +21,7 @@ import { openNote } from '../../lib/noteNavigation';
 import { registerSearchDomainHandlers } from './features/search/searchDomainNavigation';
 import { recordPlannerActivity } from './features/planner/plannerActivityStorage';
 import { ScheduleEventDetailPanel } from './features/planner/calendar-ui/day/ScheduleEventDetailPanel';
-import { formatLongDate } from './k102DateFormat';
+import { formatLongDateKey } from './k102DateFormat';
 import type { PlannerScheduleRow } from './features/planner/calendar';
 
 type ScheduleDday = Schedule & { date: string };
@@ -99,11 +99,13 @@ export const PlannerView = ({
   }, []);
 
   // ── Schedule ───────────────────────────────────────────────────────
-  const openModal = (sch?: Schedule | ScheduleDday) => {
+  const openModal = (sch?: Schedule | ScheduleDday, sourceDate?: string) => {
+    const date = sch ? ('date' in sch ? sch.date : sourceDate) : formatDate(selectedDate);
+    if (!date) return;
     setNewSch(sch ?? { text: '', start_time: '10:00', end_time: '11:00', is_dday: false, color: 'purple', category: 'Personal' });
     setEditingId(sch?.id ?? null);
     setEndNextDay(sch?.end_next_day ?? false);
-    setScheduleDateStr(sch && 'date' in sch ? sch.date : formatDate(selectedDate));
+    setScheduleDateStr(date);
     setShowForm(true);
   };
   const handleSaveSchedule = async () => {
@@ -165,12 +167,14 @@ export const PlannerView = ({
 
   const scheduleDetailBlock = useMemo((): PlannerScheduleRow | null => {
     if (!scheduleDetailId) return null;
-    const sch = schedules.find(s => s.id === scheduleDetailId)
-      ?? prevSchedules.find(s => s.id === scheduleDetailId);
+    const selectedDaySchedule = schedules.find(s => s.id === scheduleDetailId);
+    const sch = selectedDaySchedule ?? prevSchedules.find(s => s.id === scheduleDetailId);
     if (!sch) return null;
     return {
       id: sch.id,
-      dateKey: formatDate(selectedDate),
+      dateKey: 'date' in sch && typeof sch.date === 'string'
+        ? sch.date
+        : selectedDaySchedule ? formatDate(selectedDate) : prevDateStr,
       title: sch.text,
       startTime: sch.start_time,
       endTime: sch.end_time,
@@ -179,7 +183,7 @@ export const PlannerView = ({
       color: sch.color,
       source: 'schedule',
     };
-  }, [scheduleDetailId, schedules, prevSchedules, selectedDate, formatDate]);
+  }, [scheduleDetailId, schedules, prevSchedules, selectedDate, formatDate, prevDateStr]);
 
   const openScheduleDetail = useCallback((id: string) => {
     const sch = schedules.find(s => s.id === id) ?? prevSchedules.find(s => s.id === id);
@@ -207,14 +211,14 @@ export const PlannerView = ({
     onEdit: (id: string) => {
       setScheduleDetailId(null);
       const sch = schedules.find(s => s.id === id);
-      if (sch) openModal(sch);
+      if (sch) openModal(sch, formatDate(selectedDate));
     },
     onDelete: (id: string) => {
       setScheduleDetailId(null);
       handleDeleteSchedule(id);
     },
     onDuplicate: handleDuplicateSchedule,
-  }), [schedules, openScheduleDetail, handleDeleteSchedule, handleDuplicateSchedule]);
+  }), [schedules, selectedDate, formatDate, openScheduleDetail, handleDeleteSchedule, handleDuplicateSchedule]);
 
   return (
     <div className={`${WORKSPACE_PANE_ROOT_CLASS} abs-cosmos-planner flex flex-col animate-in fade-in duration-300 ${WORKSPACE_GAP_CLASS}`} data-workspace="planner" data-workspace-scroll-mode={WORKSPACE_SCROLL_MODE.pane} data-k134b-workspace-scroll>
@@ -330,12 +334,12 @@ export const PlannerView = ({
         <ScheduleEventDetailPanel
           block={scheduleDetailBlock}
           theme={theme}
-          dateLabel={formatLongDate(selectedDate, lang)}
+          dateLabel={formatLongDateKey(scheduleDetailBlock.dateKey, lang)}
           onEdit={() => {
             const sch = schedules.find(s => s.id === scheduleDetailBlock.id)
               ?? prevSchedules.find(s => s.id === scheduleDetailBlock.id);
             setScheduleDetailId(null);
-            if (sch) openModal(sch);
+            if (sch) openModal(sch, scheduleDetailBlock.dateKey);
           }}
           onDelete={() => {
             handleDeleteSchedule(scheduleDetailBlock.id);
