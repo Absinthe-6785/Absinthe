@@ -103,7 +103,7 @@ export function RecipeStudioView({
     const filtered = recipes.filter(r => {
       if (showStarredOnly && !r.starred) return false;
       if (activeCategory !== 'All' && r.category !== activeCategory) return false;
-      if (q && !(r.title ?? '').toLowerCase().includes(q) && !(r.ingredients ?? '').toLowerCase().includes(q)) return false;
+      if (q && ![r.title, r.ingredients, r.steps, r.memo].some(text => (text ?? '').toLowerCase().includes(q))) return false;
       return true;
     });
     return [...filtered].sort((a, b) => {
