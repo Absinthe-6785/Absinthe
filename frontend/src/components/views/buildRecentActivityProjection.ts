@@ -74,10 +74,9 @@ function pushToBucket(
   groups: RecentActivityGroup[],
   bucket: RecentActivityBucket,
   item: RecentActivityItem,
-  limit: number,
 ): void {
   const group = groups.find(g => g.bucket === bucket);
-  if (!group || group.items.length >= limit) return;
+  if (!group) return;
   if (group.items.some(x => x.domain === item.domain && x.id === item.id)) return;
   group.items.push(item);
 }
@@ -88,7 +87,7 @@ export function buildRecentActivityProjection(
   const now = input.now ?? new Date();
   const todayKey = toDateKey(now);
   const locale = input.locale;
-  const limit = input.limitPerBucket ?? 6;
+  const limit = Math.max(0, input.limitPerBucket ?? 6);
   const groups = emptyGroups();
   const labels = input.labels;
 
@@ -108,7 +107,7 @@ export function buildRecentActivityProjection(
       timestamp: ts,
       relativeLabel: rel(ts),
       noteId: note.id,
-    }, limit);
+    });
   }
 
   for (const entry of input.plannerRecents) {
@@ -123,7 +122,7 @@ export function buildRecentActivityProjection(
       relativeLabel: rel(entry.at),
       plannerItemId: entry.itemId,
       ...(eventDate ? { eventDate } : {}),
-    }, limit);
+    });
   }
 
   for (const entry of input.recipeRecents) {
@@ -136,7 +135,7 @@ export function buildRecentActivityProjection(
       timestamp: entry.at,
       relativeLabel: rel(entry.at),
       recipeId: entry.recipeId,
-    }, limit);
+    });
   }
 
   for (const entry of input.archiveRestoreRecents) {
@@ -153,11 +152,15 @@ export function buildRecentActivityProjection(
       timestamp: entry.restoredAt,
       relativeLabel: rel(entry.restoredAt),
       noteId: entry.noteId,
-    }, limit);
+    });
   }
 
   for (const group of groups) {
-    group.items.sort((a, b) => b.timestamp - a.timestamp);
+    group.items = group.items
+      .map((item, index) => ({ item, index }))
+      .sort((a, b) => b.item.timestamp - a.item.timestamp || a.index - b.index)
+      .slice(0, limit)
+      .map(({ item }) => item);
   }
 
   const isEmpty = groups.every(g => g.items.length === 0);
