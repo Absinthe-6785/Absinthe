@@ -117,8 +117,10 @@ export function buildHomeFoundationProjection(input: {
 }): HomeFoundationProjection {
   const activeRoutines = input.routines.filter(routine => routine.is_active);
   const completedRoutines = activeRoutines.filter(routine => routine.done).length;
-  const traces = input.recentActivity.groups.find(group => group.bucket === 'today')?.items
-    .slice(0, input.traceLimit ?? 6) ?? [];
+  const traces = input.recentActivity.groups
+    .flatMap(group => group.items)
+    .sort((a, b) => b.timestamp - a.timestamp)
+    .slice(0, input.traceLimit ?? 6);
 
   return {
     continueItem: buildContinueItem(input.notes, input.locale),
