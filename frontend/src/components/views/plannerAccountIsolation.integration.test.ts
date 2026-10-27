@@ -105,7 +105,7 @@ vi.mock('../../store/useNotesStore', () => {
     }),
     { getState: () => harness.notesState },
   );
-  return { useNotesStore };
+  return { useNotesStore, observePublishedNotesHydration: () => ({ status: 'UNAVAILABLE', reason: 'NO_PUBLISHED_HYDRATION' }) };
 });
 vi.mock('../common/WorkspaceErrorBoundary', () => ({ WorkspaceErrorBoundary: ({ children }: { children: unknown }) => children }));
 vi.mock('../common/WorkspacePageHeader', () => ({ WorkspacePageHeader: () => null }));

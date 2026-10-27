@@ -1,0 +1,189 @@
+// @vitest-environment happy-dom
+import { act, createElement } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { DateTime } from 'luxon';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { NoteBase } from './noteUtils';
+import type { HomeViewProps } from './HomeView';
+import type { NotesPersistenceInitResult } from '../../lib/notePersistence';
+import {
+  detachNotesAccountAuthority, getActiveNotesAuthorityRequest, NOTES_CORE_DOMAIN, NOTES_FOLDERS_DOMAIN,
+  type NotesAuthorityDomainState, type NotesAuthorityRequest,
+} from '../../lib/notesAccountAuthority';
+
+const mocks = vi.hoisted(() => ({ initialize: vi.fn(), openNote: vi.fn(), switchToTab: vi.fn() }));
+vi.mock('../../lib/notePersistence', async importOriginal => ({
+  ...await importOriginal<typeof import('../../lib/notePersistence')>(), initNotesPersistence: mocks.initialize,
+}));
+vi.mock('../../lib/supabase', () => ({ authFetch: vi.fn(), authReadFetch: vi.fn() }));
+vi.mock('../../lib/vaultSnapshotAuto', () => ({ scheduleAutoSnapshot: vi.fn() }));
+vi.mock('swr', () => ({ default: () => ({ data: [] }) }));
+vi.mock('../../lib/accountBoundRemote', () => ({ accountBoundRemoteKey: () => null, accountBoundRemoteFetcher: vi.fn() }));
+vi.mock('../../lib/noteNavigation', () => ({ openNote: mocks.openNote, switchToTab: mocks.switchToTab }));
+vi.mock('../../lib/i18n', async importOriginal => {
+  const actual = await importOriginal<typeof import('../../lib/i18n')>();
+  return { ...actual, useTranslation: () => ({ t: actual.getTranslator('en'), lang: 'en' }) };
+});
+vi.mock('./features/planner/calendar-ui/usePlannerCalendarProjection', () => ({ usePlannerCalendarProjection: () => ({ projection: {}, presentation: {} }) }));
+vi.mock('./features/planner/calendar/buildPlannerProjection', () => ({ buildPlannerProjection: () => ({ todayItems: [], timetableToday: [] }) }));
+vi.mock('./features/planner/hooks/useCountdownReviewed', () => ({ useCountdownReviewed: () => ({ isReviewed: () => false }) }));
+vi.mock('./features/archive/hooks/useArchiveProjection', () => ({ useArchiveProjection: () => ({ projection: { historyItems: { groups: [] } } }) }));
+vi.mock('./features/knowledge/archive/archiveRestoreRecents', () => ({ readArchiveRestoreRecents: () => [] }));
+vi.mock('./features/recipe/recipeActivityStorage', () => ({ readRecipeViewRecents: () => [] }));
+vi.mock('../common/WorkspacePageHeader', () => ({ WorkspacePageHeader: () => null }));
+
+const { useNotesStore, observePublishedNotesHydration } = await import('../../store/useNotesStore');
+const { resetNotesPersistenceForTests } = await import('../../lib/notePersistence');
+const { setRecoveryModeActiveForTest } = await import('../../lib/recoverySafetyPolicy');
+const { HomeView } = await import('./HomeView');
+
+(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+const note = (id: string, lastOpenedAt = 100): NoteBase => ({
+  id, title: `Note ${id}`, body: '', updatedAt: 1, folderId: null, deletedAt: null, lastOpenedAt,
+});
+function domain(request: NotesAuthorityRequest, domainId: NotesAuthorityDomainState['domainId'], count: number): NotesAuthorityDomainState {
+  return { accountId: request.accountId, domainId, schemaVersion: 1, state: count ? 'LOADED_POPULATED' : 'LOADED_EMPTY',
+    recordCount: count, verifiedAt: 1, legacyGlobalDataPresent: false };
+}
+function hydrated(request: NotesAuthorityRequest, notes: NoteBase[]): NotesPersistenceInitResult {
+  return { notes, mode: 'accountScoped', accountId: request.accountId, requestGeneration: request.generation,
+    migrated: false, migrationMs: 0, loadMs: 0,
+    notesAuthorityState: domain(request, NOTES_CORE_DOMAIN, notes.length),
+    foldersAuthorityState: domain(request, NOTES_FOLDERS_DOMAIN, 0) };
+}
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(yes => { resolve = yes; });
+  return { promise, resolve };
+}
+async function publish(accountId: string, notes = [note(accountId)]) {
+  mocks.initialize.mockImplementationOnce(async (_account: string, request: NotesAuthorityRequest) => hydrated(request, notes));
+  await act(async () => { await useNotesStore.getState().initNotesStorage(accountId); });
+  expect(observePublishedNotesHydration().status).toBe('CURRENT');
+}
+
+let root: Root;
+let host: HTMLDivElement;
+async function render(accountId: string) {
+  const props = { user: { id: accountId, name: accountId }, now: DateTime.local(2026, 6, 12, 12),
+    selectedDate: new Date(2026, 5, 12), formatDate: () => '2026-06-12', schedules: [], routines: [], workouts: [], weeklySchedules: [],
+    appSettings: { darkMode: false, language: 'en' }, theme: {}, isDailyLoading: true } as HomeViewProps;
+  await act(async () => root.render(createElement(HomeView, props)));
+}
+const section = () => host.querySelector<HTMLElement>('[data-k132a-home-section="continue"]')!;
+const button = () => section().querySelector<HTMLButtonElement>('[data-k132a-home-row="continue-primary"]');
+function expectEmpty() {
+  expect(button()).toBeNull();
+  expect(section().querySelector('[data-k132a-home-empty="continue"]')).not.toBeNull();
+  expect(host.querySelector<HTMLButtonElement>('[data-k132a-home-continue-action]')?.disabled).toBe(true);
+}
+beforeEach(() => {
+  useNotesStore.getState().detachNotesStorage();
+  resetNotesPersistenceForTests();
+  setRecoveryModeActiveForTest(false);
+  localStorage.clear();
+  vi.clearAllMocks();
+  mocks.initialize.mockReset();
+  host = document.createElement('div'); document.body.append(host); root = createRoot(host);
+});
+afterEach(() => {
+  act(() => root.unmount()); host.remove();
+  useNotesStore.getState().detachNotesStorage();
+  resetNotesPersistenceForTests();
+});
+
+describe('Home Note-only Continue with actual Notes publication provenance', () => {
+  it('opens the exact most-recent Note ID and leaves all global workspace bytes unchanged', async () => {
+    await publish('A', [{ ...note('older', 10), title: 'Same title' }, { ...note('newer', 20), title: 'Same title' }]);
+    const session = JSON.stringify({ activation: { kind: 'saved-view', id: 'stale' },
+      resumeActivation: { kind: 'saved-view', id: 'stale' }, updatedAt: 1 });
+    const prefs = JSON.stringify({ pinned: [], recent: [{ workspace: {
+      kind: 'saved-view', id: 'stale', name: 'Private workspace',
+    }, lastOpenedAt: 1 }] });
+    localStorage.setItem('note-workspace-session-v1', session);
+    localStorage.setItem('workspace-prefs-v1', prefs);
+    await render('A');
+    expect(button()?.textContent).toContain('Same title');
+    expect(section().textContent).not.toContain('Private workspace');
+    act(() => button()!.click());
+    expect(mocks.openNote).toHaveBeenCalledExactlyOnceWith('newer', { returnTab: 'home' });
+    expect(mocks.switchToTab).not.toHaveBeenCalled();
+    expect(localStorage.getItem('note-workspace-session-v1')).toBe(session);
+    expect(localStorage.getItem('workspace-prefs-v1')).toBe(prefs);
+  });
+
+  it('shows the existing empty state before any proven publication, even with matching public account fields', async () => {
+    useNotesStore.setState({ notes: [note('unproven')], activeAccountId: 'B',
+      notesAuthorityState: 'LOADED_POPULATED', foldersAuthorityState: 'LOADED_EMPTY' });
+    await render('B');
+    expectEmpty();
+    await publish('B');
+    expect(button()?.textContent).toContain('Note B');
+  });
+
+  it('keeps A -> B -> A Continue empty until each account publishes its current Notes', async () => {
+    await publish('A'); await render('A');
+    expect(button()?.textContent).toContain('Note A');
+    await render('B');
+    expectEmpty();
+    expect(useNotesStore.getState().notes[0].id).toBe('A');
+    const pendingB = deferred<NotesPersistenceInitResult>();
+    mocks.initialize.mockReturnValueOnce(pendingB.promise);
+    let loadingB!: Promise<void>;
+    await act(async () => { loadingB = useNotesStore.getState().initNotesStorage('B'); });
+    const b = getActiveNotesAuthorityRequest()!;
+    expectEmpty();
+    await act(async () => { pendingB.resolve(hydrated(b, [note('B')])); await loadingB; });
+    expect(button()?.textContent).toContain('Note B');
+    await render('A');
+    expectEmpty();
+    const pendingA = deferred<NotesPersistenceInitResult>();
+    mocks.initialize.mockReturnValueOnce(pendingA.promise);
+    let loadingA!: Promise<void>;
+    await act(async () => { loadingA = useNotesStore.getState().initNotesStorage('A'); });
+    const a2 = getActiveNotesAuthorityRequest()!;
+    expectEmpty();
+    await act(async () => { pendingA.resolve(hydrated(a2, [note('A-new')])); await loadingA; });
+    expect(button()?.textContent).toContain('Note A-new');
+    expect(section().textContent).not.toContain('Note B');
+  });
+
+  it('retires Continue immediately when same-account replacement starts, without a new Notes array', async () => {
+    await publish('A'); await render('A');
+    const oldNotes = useNotesStore.getState().notes;
+    const pending = deferred<NotesPersistenceInitResult>();
+    mocks.initialize.mockReturnValueOnce(pending.promise);
+    let loading!: Promise<void>;
+    await act(async () => { loading = useNotesStore.getState().initNotesStorage('A'); });
+    expect(useNotesStore.getState().notes).toBe(oldNotes);
+    expectEmpty();
+    const request = getActiveNotesAuthorityRequest()!;
+    await act(async () => { pending.resolve(hydrated(request, [note('replacement')])); await loading; });
+    expect(button()?.textContent).toContain('Note replacement');
+  });
+
+  it('ignores a delayed A hydration after B has already published', async () => {
+    const old = deferred<NotesPersistenceInitResult>();
+    mocks.initialize.mockReturnValueOnce(old.promise);
+    const loadingA = useNotesStore.getState().initNotesStorage('A');
+    const a1 = getActiveNotesAuthorityRequest()!;
+    await render('A'); expectEmpty();
+    await render('B'); await publish('B');
+    await act(async () => { old.resolve(hydrated(a1, [note('late-A')])); await loadingA; });
+    expect(button()?.textContent).toContain('Note B');
+    expect(section().textContent).not.toContain('late-A');
+  });
+
+  it('fails closed on a stale click even before a Store notification and preserves hydration recovery errors', async () => {
+    await publish('A'); await render('A');
+    const staleButton = button()!;
+    detachNotesAccountAuthority();
+    act(() => staleButton.click());
+    expect(mocks.openNote).not.toHaveBeenCalled();
+    mocks.initialize.mockRejectedValueOnce(new Error('synthetic hydration failure'));
+    await act(async () => { await expect(useNotesStore.getState().initNotesStorage('A')).rejects.toThrow('synthetic hydration failure'); });
+    expectEmpty();
+    expect(useNotesStore.getState().notesAuthorityState).toBe('RECOVERY_REQUIRED');
+    expect(useNotesStore.getState().syncError).toContain('synthetic hydration failure');
+  });
+});

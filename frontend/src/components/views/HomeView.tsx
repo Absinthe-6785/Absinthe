@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import type { ViewProps } from '../../types';
 import { useTranslation } from '../../lib/i18n';
-import { useNotesStore } from '../../store/useNotesStore';
+import { observePublishedNotesHydration, useNotesStore } from '../../store/useNotesStore';
 import { WorkspaceErrorBoundary } from '../common/WorkspaceErrorBoundary';
 import { WorkspacePageHeader } from '../common/WorkspacePageHeader';
 import { ProductEmptyState } from '../common/ProductEmptyState';
@@ -36,10 +36,6 @@ import { buildHomeFoundationProjection } from './features/home/buildHomeFoundati
 import { buildHomeWorkoutCompositeProjection, type HomeWorkoutCompositeProjection } from './features/home/homeWorkoutCompositeProjection';
 import { readHomeWorkoutDraft, type HomeWorkoutDraftRead } from './features/home/homeWorkoutDraftRead';
 import type { HealthSelectedDayReadModel } from './features/health/useHealthSelectedDayComposite';
-import {
-  saveWorkspaceSession,
-  workspaceSessionFromActivation,
-} from './features/knowledge/workspace/workspaceSessionStorage';
 import type { RecentActivityItem } from './buildRecentActivityProjection';
 import { API_URL } from '../../lib/config';
 import { accountBoundRemoteFetcher, accountBoundRemoteKey } from '../../lib/accountBoundRemote';
@@ -47,6 +43,7 @@ import type { Schedule } from '../../types';
 import { formatLongDate } from './k102DateFormat';
 
 type ScheduleDday = Schedule & { date: string };
+const EMPTY_CONTINUE_NOTES = [] as const;
 
 export type HomeViewProps = ViewProps & Readonly<{
   homeWorkoutComposite?: HealthSelectedDayReadModel;
@@ -173,8 +170,14 @@ export const HomeView = ({
   onOpenRecipe,
 }: HomeViewProps) => {
   const { t, lang } = useTranslation();
-  const vaultStructureVersion = useNotesStore(s => s.vaultStructureVersion);
-  const createNote = useNotesStore(s => s.createNote);
+  // Subscribe to publication invalidation as well as Notes edits/replacements.
+  const notesState = useNotesStore(s => s);
+  const { vaultStructureVersion, createNote } = notesState;
+  const notesPublication = observePublishedNotesHydration();
+  const continueRequest = notesPublication.status === 'CURRENT' && notesPublication.request.accountId === user.id
+    ? notesPublication.request : null;
+  const continueNotes = continueRequest && notesState === useNotesStore.getState()
+    ? notesState.notes : EMPTY_CONTINUE_NOTES;
   const todayKey = toDateKey(now.toJSDate()) ?? formatDate(homeWorkoutComposite ? now.toJSDate() : selectedDate);
   const todayDate = now.toJSDate();
 
@@ -250,7 +253,7 @@ export const HomeView = ({
 
   const projection = useMemo(
     () => buildHomeFoundationProjection({
-      notes: useNotesStore.getState().notes,
+      notes: continueNotes,
       workouts,
       plannerProjection,
       recentActivity,
@@ -260,21 +263,18 @@ export const HomeView = ({
       locale: lang,
       workoutComposite,
     }),
-    [vaultStructureVersion, workouts, plannerProjection, recentActivity, archiveProjection.historyItems, user.id, todayKey, lang, workoutComposite],
+    [continueNotes, vaultStructureVersion, workouts, plannerProjection, recentActivity, archiveProjection.historyItems, user.id, todayKey, lang, workoutComposite],
   );
 
   const handleContinue = useCallback(() => {
     const item = projection.continueItem;
-    if (!item) return;
-    if (item.kind === 'note' && item.noteId) {
-      openNote(item.noteId, { returnTab: 'home' });
-      return;
-    }
-    if (item.kind === 'workspace' && item.workspaceActivation) {
-      saveWorkspaceSession(workspaceSessionFromActivation(item.workspaceActivation));
-      switchToTab('note');
-    }
-  }, [projection.continueItem]);
+    if (!item || item.kind !== 'note' || !item.noteId || !continueRequest) return;
+    const current = observePublishedNotesHydration();
+    if (current.status !== 'CURRENT' || current.request !== continueRequest
+      || current.request.accountId !== user.id) return;
+    if (!useNotesStore.getState().notes.some(note => note.id === item.noteId && !note.deletedAt)) return;
+    openNote(item.noteId, { returnTab: 'home' });
+  }, [projection.continueItem, continueRequest, user.id]);
 
   const handleTraceNavigate = useCallback((item: RecentActivityItem) => {
     if ((item.domain === 'notes' || item.domain === 'archive') && item.noteId) {
@@ -351,9 +351,7 @@ export const HomeView = ({
               {projection.continueItem ? (
                 <FlowRow
                   title={projection.continueItem.title}
-                  meta={projection.continueItem.subtitle ?? (
-                    projection.continueItem.kind === 'note' ? t('homeContinueNote') : t('homeContinueWorkspace')
-                  )}
+                  meta={t('homeContinueNote')}
                   onClick={handleContinue}
                   theme={theme}
                   dataHook="continue-primary"

@@ -108,7 +108,8 @@ vi.mock('../store/useAppStore', () => ({ useAppStore: () => ({
 vi.mock('../store/useNotesStore', () => {
   const state = { ...mocks.notesState, folders: [], notesAuthorityState: 'LOADED_EMPTY', foldersAuthorityState: 'LOADED_EMPTY', syncError: null,
     initNotesStorage: vi.fn(async () => undefined), bootstrapFromSupabase: vi.fn(async () => undefined), detachNotesStorage: vi.fn() };
-  return { useNotesStore: Object.assign((select: (value: typeof state) => unknown) => select(state), { getState: () => state }) };
+  return { useNotesStore: Object.assign((select: (value: typeof state) => unknown) => select(state), { getState: () => state }),
+    observePublishedNotesHydration: () => ({ status: 'UNAVAILABLE', reason: 'NO_PUBLISHED_HYDRATION' }) };
 });
 vi.mock('../hooks/useNow', () => ({ useNow: () => ({
   now: { toJSDate: () => new Date('2026-09-29T12:00:00Z') },
