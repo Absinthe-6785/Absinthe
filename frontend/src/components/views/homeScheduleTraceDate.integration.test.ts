@@ -15,8 +15,9 @@ vi.mock('../../lib/accountBoundRemote', () => ({ accountBoundRemoteKey: () => nu
 vi.mock('../../lib/noteNavigation', () => ({ openNote: state.openNote, switchToTab: state.switchToTab }));
 vi.mock('../../store/useNotesStore', () => {
   const store = { notes: state.notes, vaultStructureVersion: 0, createNote: vi.fn() };
+  const request = Object.freeze({ accountId: 'account-a', generation: 1 });
   return { useNotesStore: Object.assign((select: (value: typeof store) => unknown) => select(store), { getState: () => store }),
-    observePublishedNotesHydration: () => ({ status: 'UNAVAILABLE', reason: 'NO_PUBLISHED_HYDRATION' }) };
+    observePublishedNotesHydration: () => ({ status: 'CURRENT', request }) };
 });
 vi.mock('../../lib/i18n', async importOriginal => {
   const actual = await importOriginal<typeof import('../../lib/i18n')>();

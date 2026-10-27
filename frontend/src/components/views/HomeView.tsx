@@ -227,7 +227,7 @@ export const HomeView = ({
   );
 
   const recentActivity = useMemo(() => buildRecentActivityProjection({
-    notes: useNotesStore.getState().notes,
+    notes: continueNotes,
     plannerRecents: readPlannerActivityRecents(user.id),
     recipeRecents: readRecipeViewRecents(user.id),
     archiveRestoreRecents: readArchiveRestoreRecents(),
@@ -235,7 +235,7 @@ export const HomeView = ({
     locale: lang,
     now: todayDate,
     limitPerBucket: 6,
-  }), [vaultStructureVersion, t, lang, todayDate, user.id]);
+  }), [continueNotes, vaultStructureVersion, t, lang, todayDate, user.id]);
 
   const { projection: archiveProjection } = useArchiveProjection(todayDate, lang);
 
@@ -277,7 +277,16 @@ export const HomeView = ({
   }, [projection.continueItem, continueRequest, user.id]);
 
   const handleTraceNavigate = useCallback((item: RecentActivityItem) => {
-    if ((item.domain === 'notes' || item.domain === 'archive') && item.noteId) {
+    if (item.domain === 'notes') {
+      if (!item.noteId || !continueRequest) return;
+      const current = observePublishedNotesHydration();
+      if (current.status !== 'CURRENT' || current.request !== continueRequest
+        || current.request.accountId !== user.id) return;
+      if (!useNotesStore.getState().notes.some(note => note.id === item.noteId && !note.deletedAt)) return;
+      openNote(item.noteId, { returnTab: 'home' });
+      return;
+    }
+    if (item.domain === 'archive' && item.noteId) {
       openNote(item.noteId, { returnTab: 'home' });
       return;
     }
@@ -296,7 +305,7 @@ export const HomeView = ({
     if (item.domain === 'archive') {
       switchToTab('analytics');
     }
-  }, [onOpenRecipe]);
+  }, [continueRequest, user.id, onOpenRecipe]);
 
   const handleNewNote = useCallback(() => {
     switchToTab('note');
