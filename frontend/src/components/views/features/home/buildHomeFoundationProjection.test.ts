@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildHomeFoundationProjection } from './buildHomeFoundationProjection';
 import type { NoteBase } from '../../noteUtils';
+import type { RecentActivityGroup, RecentActivityItem } from '../../buildRecentActivityProjection';
 import { buildHomeWorkoutCompositeProjection } from './homeWorkoutCompositeProjection';
 
 const storage = new Map<string, string>();
@@ -27,7 +28,103 @@ const note = (id: string, overrides: Partial<NoteBase> = {}): NoteBase => ({
   ...overrides,
 });
 
+const recentItem = (id: string, timestamp: number, metadata: Partial<RecentActivityItem> = {}): RecentActivityItem => ({
+  id,
+  domain: 'notes' as const,
+  kind: 'opened',
+  title: `Trace ${id}`,
+  timestamp,
+  relativeLabel: 'recent',
+  ...metadata,
+});
+
+function buildTraces(groups: RecentActivityGroup[], traceLimit?: number) {
+  const projection = buildHomeFoundationProjection({
+    notes: [],
+    routines: [],
+    workouts: [],
+    plannerProjection: null,
+    recentActivity: { groups, isEmpty: groups.every(group => group.items.length === 0), generatedAt: '' },
+    accountId: 'account-a',
+    todayKey: '2026-06-23',
+    traceLimit,
+  });
+  return projection.traces;
+}
+
 describe('buildHomeFoundationProjection', () => {
+  it('includes today activity in the traces list', () => {
+    const today = recentItem('today-note', 300);
+
+    expect(buildTraces([{ bucket: 'today', items: [today] }])).toEqual([today]);
+  });
+
+  it('shows yesterday-only and earlier-only activity when today is empty', () => {
+    const yesterday = recentItem('yesterday-note', 200);
+    const earlier = recentItem('earlier-note', 100);
+
+    expect(buildTraces([
+      { bucket: 'today', items: [] },
+      { bucket: 'yesterday', items: [yesterday] },
+      { bucket: 'earlier', items: [] },
+    ])).toEqual([yesterday]);
+    expect(buildTraces([
+      { bucket: 'today', items: [] },
+      { bucket: 'yesterday', items: [] },
+      { bucket: 'earlier', items: [earlier] },
+    ])).toEqual([earlier]);
+  });
+
+  it('merges available buckets by descending timestamp without changing navigation metadata', () => {
+    const note = recentItem('note', 150, { noteId: 'note-1' });
+    const planner = recentItem('planner', 250, { domain: 'planner', kind: 'schedule', plannerItemId: 'schedule-1' });
+    const recipe = recentItem('recipe', 200, { domain: 'recipe', kind: 'viewed', recipeId: 'recipe-1' });
+    const traces = buildTraces([
+      { bucket: 'today', items: [note] },
+      { bucket: 'yesterday', items: [recipe] },
+      { bucket: 'earlier', items: [planner] },
+    ]);
+
+    expect(traces.map(item => item.id)).toEqual(['planner', 'recipe', 'note']);
+    expect(traces[0]).toMatchObject({ plannerItemId: 'schedule-1', domain: 'planner' });
+    expect(traces[1]).toMatchObject({ recipeId: 'recipe-1', domain: 'recipe' });
+    expect(traces[2]).toMatchObject({ noteId: 'note-1', domain: 'notes' });
+  });
+
+  it('keeps the default six-item display limit across buckets', () => {
+    const groups = [
+      { bucket: 'today' as const, items: [recentItem('a', 700), recentItem('b', 600), recentItem('c', 500)] },
+      { bucket: 'yesterday' as const, items: [recentItem('d', 400), recentItem('e', 300)] },
+      { bucket: 'earlier' as const, items: [recentItem('f', 200), recentItem('g', 100)] },
+    ];
+
+    expect(buildTraces(groups).map(item => item.id)).toEqual(['a', 'b', 'c', 'd', 'e', 'f']);
+  });
+
+  it('preserves the empty list when all activity buckets are empty', () => {
+    expect(buildTraces([
+      { bucket: 'today', items: [] },
+      { bucket: 'yesterday', items: [] },
+      { bucket: 'earlier', items: [] },
+    ])).toEqual([]);
+  });
+
+  it('does not mutate source group item arrays while sorting the combined traces', () => {
+    const todayItems = [recentItem('older-today', 100), recentItem('newer-today', 300)];
+    const yesterdayItems = [recentItem('yesterday', 200)];
+    const beforeToday = [...todayItems];
+    const beforeYesterday = [...yesterdayItems];
+
+    const traces = buildTraces([
+      { bucket: 'today', items: todayItems },
+      { bucket: 'yesterday', items: yesterdayItems },
+    ]);
+
+    expect(traces.map(item => item.id)).toEqual(['newer-today', 'yesterday', 'older-today']);
+    expect(todayItems).toEqual(beforeToday);
+    expect(yesterdayItems).toEqual(beforeYesterday);
+  });
+
   it('prioritizes resume workspace over last opened note', () => {
     localStorage.setItem('note-workspace-session-v1', JSON.stringify({
       activation: { kind: 'none' },
