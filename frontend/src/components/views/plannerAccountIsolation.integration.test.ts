@@ -187,7 +187,10 @@ vi.mock('./features/knowledge/workspace/workspaceSessionStorage', () => ({
   saveWorkspaceSession: vi.fn(),
   workspaceSessionFromActivation: vi.fn(),
 }));
-vi.mock('./k102DateFormat', () => ({ formatLongDate: () => 'August 18, 2026' }));
+vi.mock('./k102DateFormat', () => ({
+  formatLongDate: () => 'August 18, 2026',
+  formatLongDateKey: () => 'August 18, 2026',
+}));
 vi.mock('../../lib/healthBackfillUiSafety', () => ({ readLocalHealthWorkoutDraft: () => null }));
 
 type ProbeProps = { account?: string; active: boolean; onOpenRecipe?: (recipeId: string) => void };
