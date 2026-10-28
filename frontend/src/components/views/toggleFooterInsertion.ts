@@ -3,6 +3,7 @@
  */
 import { findBlockById, makeBlock, updateBlockById, type Block } from './blockUtils';
 import { findExpandedToggleFooterHit, isCollapsedToggle } from './toggleFocusZones';
+import { isToggleBlockType } from './toggleBlockTypes';
 
 export interface ToggleFooterInsertionResult {
   toggleId: string;
@@ -21,7 +22,7 @@ export function appendToggleChildParagraph(
   toggleId: string,
 ): { blocks: Block[]; focusBlockId: string; created: boolean } | null {
   const toggle = findBlockById(blocks, toggleId);
-  if (!toggle || toggle.type !== 'toggle' || isCollapsedToggle(toggle)) return null;
+  if (!toggle || !isToggleBlockType(toggle.type) || isCollapsedToggle(toggle)) return null;
 
   const lastChild = toggle.children[toggle.children.length - 1];
   if (lastChild?.type === 'paragraph' && !lastChild.content.trim()) {
