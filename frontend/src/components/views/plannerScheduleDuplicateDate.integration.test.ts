@@ -9,15 +9,7 @@ import { PlannerView } from './PlannerView';
 const testState = vi.hoisted(() => ({
   apiMutate: vi.fn(),
   showToast: vi.fn(),
-}));
-
-vi.mock('../../hooks/useConfirm', () => ({
-  useConfirm: () => ({
-    confirm: null,
-    showConfirm: vi.fn(),
-    clearConfirm: vi.fn(),
-    handleConfirm: vi.fn(),
-  }),
+  overlap: false,
 }));
 
 vi.mock('../../hooks/useApiMutation', () => ({
@@ -139,7 +131,7 @@ function props(overrides: Partial<PlannerProps> = {}): PlannerProps {
     setSelectedDate: vi.fn(),
     formatDate,
     isToday: () => false,
-    schedules: [sourceSchedule],
+    schedules: [sourceSchedule, ...(testState.overlap ? [{ ...sourceSchedule, id: 'overlap', start_time: '09:00', end_time: '12:00', end_next_day: false }] : [])],
     todos: [], routines: [], markedDates: [], weeklySchedules: [],
     showToast: testState.showToast, appSettings, updateSetting: vi.fn(), theme, THEME_COLORS: themeColors,
     mutateDaily: vi.fn(), mutateStatic: vi.fn(), mutateTodos: vi.fn(), mutateRoutines: vi.fn(),
@@ -156,6 +148,24 @@ function StatefulPlanner() {
 
 let root: Root | undefined;
 let host: HTMLDivElement;
+
+function deferredSave() {
+  let resolve!: (ok: boolean) => void;
+  const promise = new Promise<boolean>(done => { resolve = done; });
+  return { promise, resolve };
+}
+
+function saveButton(): HTMLButtonElement {
+  const button = [...host.querySelectorAll('button')].find(value => value.textContent === 'saveSchedule');
+  if (!button) throw new Error('Schedule save button is not mounted');
+  return button;
+}
+
+function namedButton(label: string): HTMLButtonElement {
+  const button = [...host.querySelectorAll('button')].find(value => value.textContent === label);
+  if (!button) throw new Error(`Missing button: ${label}`);
+  return button;
+}
 
 async function mountPlanner() {
   host = document.createElement('div');
@@ -186,6 +196,7 @@ function setInputValue(input: HTMLInputElement, value: string) {
 }
 
 beforeEach(() => {
+  testState.overlap = false;
   testState.apiMutate.mockReset().mockResolvedValue(true);
   testState.showToast.mockReset();
 });
@@ -197,6 +208,107 @@ afterEach(() => {
 });
 
 describe('PlannerView Schedule duplication date', () => {
+  it.each(['POST', 'PUT', 'D-day'] as const)('guards repeated Enter and click submissions for %s', async kind => {
+    const pending = deferredSave();
+    testState.apiMutate.mockReturnValue(pending.promise);
+    await mountPlanner();
+    click(kind === 'PUT' ? '[data-test-edit-legacy]' : '[data-test-add]');
+    if (kind === 'D-day') act(() => host.querySelector<HTMLInputElement>('.fixed.inset-0 input[type="checkbox"]')!.click());
+    const input = host.querySelector<HTMLInputElement>('input[type="text"]')!;
+    setInputValue(input, '  One event  ');
+    act(() => {
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      saveButton().click();
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    });
+    expect(testState.apiMutate).toHaveBeenCalledTimes(1);
+    expect(testState.apiMutate.mock.calls[0][0]).toBe(kind === 'PUT' ? 'PUT' : 'POST');
+    expect(testState.apiMutate.mock.calls[0][2]).toMatchObject({
+      text: '  One event  ', date: '2026-06-12', color: 'purple',
+      category: kind === 'PUT' ? 'LegacyCustomCategory' : 'Personal',
+      is_dday: kind === 'D-day', end_next_day: kind === 'PUT',
+      start_time: kind === 'D-day' ? '00:00' : kind === 'PUT' ? '23:00' : '10:00',
+      end_time: kind === 'D-day' ? '23:59' : kind === 'PUT' ? '01:00' : '11:00',
+    });
+    expect(testState.apiMutate.mock.calls[0][3]).toEqual({ revalidate: 'both', successMsg: 'scheduleSaved' });
+    expect(saveButton().disabled).toBe(true);
+    await act(async () => { pending.resolve(true); });
+    expect(host.querySelector('.fixed.inset-0')).toBeNull();
+  });
+
+  it('keeps failed input open and permits a deliberate retry', async () => {
+    const pending = deferredSave();
+    testState.apiMutate.mockReturnValueOnce(pending.promise).mockResolvedValueOnce(true);
+    await mountPlanner();
+    click('[data-test-add]');
+    setInputValue(host.querySelector<HTMLInputElement>('input[type="text"]')!, 'Retry title');
+    act(() => saveButton().click());
+    await act(async () => { pending.resolve(false); });
+    expect(saveButton().disabled).toBe(false);
+    expect(host.querySelector<HTMLInputElement>('input[type="text"]')!.value).toBe('Retry title');
+    await act(async () => saveButton().click());
+    expect(testState.apiMutate).toHaveBeenCalledTimes(2);
+    expect(testState.apiMutate.mock.calls[1]).toEqual(testState.apiMutate.mock.calls[0]);
+    expect(host.querySelector('.fixed.inset-0')).toBeNull();
+  });
+
+  it.each([true, false])('does not let an old completion (%s) close or unlock a newer pending form', async result => {
+    const old = deferredSave();
+    const current = deferredSave();
+    testState.apiMutate.mockReturnValueOnce(old.promise).mockReturnValueOnce(current.promise);
+    await mountPlanner();
+    click('[data-test-add]');
+    setInputValue(host.querySelector<HTMLInputElement>('input[type="text"]')!, 'Old');
+    act(() => saveButton().click());
+    act(() => host.querySelector<HTMLElement>('.fixed.inset-0')!.click());
+    click('[data-test-duplicate]');
+    act(() => saveButton().click());
+    await act(async () => { old.resolve(result); });
+    expect(saveButton().disabled).toBe(true);
+    expect(host.querySelector<HTMLInputElement>('input[type="text"]')!.value).toBe('Study session');
+    act(() => host.querySelector<HTMLInputElement>('input[type="text"]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
+    expect(testState.apiMutate).toHaveBeenCalledTimes(2);
+    await act(async () => { current.resolve(true); });
+    expect(host.querySelector('.fixed.inset-0')).toBeNull();
+  });
+
+  it.each([true, false])('preserves overlap confirmation, confirmed=%s', async confirmed => {
+    testState.overlap = true;
+    const pending = deferredSave();
+    testState.apiMutate.mockReturnValue(pending.promise);
+    await mountPlanner();
+    click('[data-test-add]');
+    setInputValue(host.querySelector<HTMLInputElement>('input[type="text"]')!, 'Overlap');
+    act(() => { saveButton().click(); saveButton().click(); });
+    expect(testState.apiMutate).not.toHaveBeenCalled();
+    expect(host.textContent).toContain('overlapMsg');
+    if (!confirmed) {
+      act(() => namedButton('cancel').click());
+      expect(testState.apiMutate).not.toHaveBeenCalled();
+      expect(saveButton().disabled).toBe(false);
+      return;
+    }
+    const confirm = namedButton('saveLabel');
+    act(() => { confirm.click(); confirm.click(); });
+    expect(testState.apiMutate).toHaveBeenCalledTimes(1);
+    expect(saveButton().disabled).toBe(true);
+    await act(async () => { pending.resolve(true); });
+    expect(host.querySelector('.fixed.inset-0')).toBeNull();
+  });
+
+  it('dispatches one POST for two rapid Save clicks while the request is unresolved', async () => {
+    let resolve!: (ok: boolean) => void;
+    testState.apiMutate.mockReturnValue(new Promise<boolean>(done => { resolve = done; }));
+    await mountPlanner();
+    click('[data-test-add]');
+    setInputValue(host.querySelector<HTMLInputElement>('input[type="text"]')!, 'One event');
+    const save = [...host.querySelectorAll('button')].find(button => button.textContent === 'saveSchedule')!;
+    act(() => { save.click(); save.click(); });
+    const count = testState.apiMutate.mock.calls.length;
+    await act(async () => { resolve(true); });
+    expect(count).toBe(1);
+    expect(host.querySelector('.fixed.inset-0')).toBeNull();
+  });
   it.each(['', '   ', '\t\n'])(
     'rejects a title containing only whitespace (%j) without closing the form or mutating',
     async title => {
