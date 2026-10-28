@@ -43,10 +43,106 @@ export interface MathDisplayToken {
 
 export type MathToken = MathTextToken | MathInlineToken | MathDisplayToken;
 
-export function tokenizeMathInText(text: string): MathToken[] {
+function hasEscapedBackslash(text: string, index: number): boolean {
+  let precedingBackslashes = 0;
+  for (let cursor = index - 1; cursor >= 0 && text[cursor] === '\\'; cursor -= 1) {
+    precedingBackslashes += 1;
+  }
+  return precedingBackslashes % 2 === 1;
+}
+
+function findUnescapedBracketClose(text: string, start: number): number {
+  let cursor = start;
+  let inlineCodeClose = -1;
+  while (cursor < text.length) {
+    if (cursor === 0 || text[cursor - 1] === '\n') {
+      if (markdownFenceAtLine(text, cursor)) return -1;
+    }
+    if (inlineCodeClose < cursor) inlineCodeClose = -1;
+    if (inlineCodeClose < cursor
+      && text[cursor] === '`'
+      && !hasEscapedBackslash(text, cursor)) {
+      const runLength = backtickRunLength(text, cursor);
+      const close = findMatchingInlineCodeClose(text, cursor + runLength, runLength);
+      if (close !== -1) inlineCodeClose = close + runLength - 1;
+    }
+    if (inlineCodeClose < cursor
+      && text[cursor] === '\\'
+      && text[cursor + 1] === ']'
+      && !hasEscapedBackslash(text, cursor)) {
+      return cursor;
+    }
+    cursor += 1;
+  }
+  return -1;
+}
+
+function markdownFenceAtLine(text: string, index: number): { marker: string; length: number; tail: string } | null {
+  if (index !== 0 && text[index - 1] !== '\n') return null;
+  let cursor = index;
+  while (cursor < text.length && cursor - index < 4 && text[cursor] === ' ') cursor += 1;
+  if (cursor - index > 3 || (text[cursor] !== '`' && text[cursor] !== '~')) return null;
+  const marker = text[cursor];
+  const markerStart = cursor;
+  while (text[cursor] === marker) cursor += 1;
+  const length = cursor - markerStart;
+  if (length < 3) return null;
+  const lineEnd = text.indexOf('\n', cursor);
+  return { marker, length, tail: text.slice(cursor, lineEnd === -1 ? text.length : lineEnd) };
+}
+
+function backtickRunLength(text: string, index: number): number {
+  let cursor = index;
+  while (text[cursor] === '`') cursor += 1;
+  return cursor - index;
+}
+
+function findMatchingInlineCodeClose(text: string, start: number, delimiterLength: number): number {
+  let cursor = start;
+  let fenceMarker: string | null = null;
+  let fenceLength = 0;
+  let fenceBoundaryLine = false;
+  while (cursor < text.length) {
+    if (cursor === 0 || text[cursor - 1] === '\n') {
+      fenceBoundaryLine = false;
+      const fence = markdownFenceAtLine(text, cursor);
+      if (fence) {
+        fenceBoundaryLine = true;
+        if (fenceMarker !== null) {
+          if (fence.marker === fenceMarker && fence.length >= fenceLength && !fence.tail.trim()) {
+            fenceMarker = null;
+            fenceLength = 0;
+          }
+        } else if (fence.marker !== '`' || !fence.tail.includes('`')) {
+          fenceMarker = fence.marker;
+          fenceLength = fence.length;
+        }
+      }
+    }
+    if (fenceMarker === null && !fenceBoundaryLine
+      && text[cursor] === '`'
+      && !hasEscapedBackslash(text, cursor)) {
+      const runLength = backtickRunLength(text, cursor);
+      if (runLength === delimiterLength) return cursor;
+      cursor += runLength;
+    } else {
+      cursor += 1;
+    }
+  }
+  return -1;
+}
+
+export function tokenizeMathInText(
+  text: string,
+  options: { includeBracketDisplay?: boolean } = {},
+): MathToken[] {
   const tokens: MathToken[] = [];
   let buf = '';
   let i = 0;
+  let fenceMarker: string | null = null;
+  let fenceLength = 0;
+  let fenceBoundaryLine = false;
+  let inlineCodeClose = -1;
 
   const flushText = () => {
     if (buf) {
@@ -56,6 +152,54 @@ export function tokenizeMathInText(text: string): MathToken[] {
   };
 
   while (i < text.length) {
+    if (options.includeBracketDisplay && (i === 0 || text[i - 1] === '\n')) {
+      fenceBoundaryLine = false;
+      const fence = markdownFenceAtLine(text, i);
+      if (fence) {
+        fenceBoundaryLine = true;
+        if (fenceMarker !== null) {
+          if (fence.marker === fenceMarker && fence.length >= fenceLength && !fence.tail.trim()) {
+            fenceMarker = null;
+            fenceLength = 0;
+          }
+        } else if (fence.marker !== '`' || !fence.tail.includes('`')) {
+          fenceMarker = fence.marker;
+          fenceLength = fence.length;
+        }
+      }
+    }
+
+    if (options.includeBracketDisplay && inlineCodeClose < i) inlineCodeClose = -1;
+    if (options.includeBracketDisplay
+      && fenceMarker === null
+      && !fenceBoundaryLine
+      && inlineCodeClose < i
+      && text[i] === '`'
+      && !hasEscapedBackslash(text, i)) {
+      const runLength = backtickRunLength(text, i);
+      const close = findMatchingInlineCodeClose(text, i + runLength, runLength);
+      if (close !== -1) inlineCodeClose = close + runLength - 1;
+    }
+
+    const bracketMathAllowed = options.includeBracketDisplay === true
+      && fenceMarker === null
+      && !fenceBoundaryLine
+      && inlineCodeClose < i;
+    if (bracketMathAllowed
+      && text[i] === '\\'
+      && text[i + 1] === '['
+      && !hasEscapedBackslash(text, i)) {
+      const close = findUnescapedBracketClose(text, i + 2);
+      if (close !== -1) {
+        const raw = text.slice(i, close + 2);
+        const expr = text.slice(i + 2, close);
+        flushText();
+        tokens.push({ kind: 'display', raw, expr });
+        i = close + 2;
+        continue;
+      }
+    }
+
     if (text[i] === '\\' && text[i + 1] === '$') {
       buf += '$';
       i += 2;
@@ -142,7 +286,7 @@ export function restoreMathPlaceholders(html: string, slots: string[]): string {
 /** Protect math in markdown source before line/block parsing. */
 export function protectMathInMarkdown(md: string): { text: string; mathBlocks: string[] } {
   const mathBlocks: string[] = [];
-  const tokens = tokenizeMathInText(md);
+  const tokens = tokenizeMathInText(md, { includeBracketDisplay: true });
   const text = tokens.map(tok => {
     if (tok.kind === 'text') return tok.value;
     mathBlocks.push(tok.raw);

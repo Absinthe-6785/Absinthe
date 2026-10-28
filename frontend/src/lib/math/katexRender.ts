@@ -26,6 +26,9 @@ export function renderMathTokenHtml(token: MathSlotToken): string | null {
 }
 
 export function extractMathExpression(raw: string): { expr: string; displayMode: boolean } {
+  if (raw.startsWith('\\[') && raw.endsWith('\\]')) {
+    return { expr: raw.slice(2, -2).trim(), displayMode: true };
+  }
   const displayMode = raw.startsWith('$$');
   const expr = raw.replace(/^\$\$?/, '').replace(/\$\$?$/, '').trim();
   return { expr, displayMode };

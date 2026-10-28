@@ -87,5 +87,44 @@ describe('mathParse', () => {
       expect(text).toBe('%%M0%% and %%M1%%');
       expect(mathBlocks).toEqual(['$x$', '$$y$$']);
     });
+
+    it('protects bracket-delimited multiline display math without changing its source', () => {
+      const source = String.raw`\[
+\varepsilon=
+\left|
+\frac{\text{수요량 변화율}}{\text{가격 변화율}}
+\right|
+\]`;
+      const result = protectMathInMarkdown(source);
+      expect(result.text).toBe('%%M0%%');
+      expect(result.mathBlocks).toEqual([source]);
+    });
+
+    it.each([
+      String.raw`\[\varepsilon=x`,
+      String.raw`\varepsilon=x\]`,
+    ])('leaves incomplete bracket math literal and recoverable: %s', source => {
+      expect(protectMathInMarkdown(source)).toEqual({ text: source, mathBlocks: [] });
+    });
+
+    it('does not interpret escaped bracket delimiters as math', () => {
+      const source = String.raw`\\[x^2\\]`;
+      expect(protectMathInMarkdown(source)).toEqual({ text: source, mathBlocks: [] });
+    });
+
+    it('leaves bracket-looking text inside fenced code literal', () => {
+      const source = ['```latex', String.raw`\[x^2\]`, '```'].join('\n');
+      expect(protectMathInMarkdown(source)).toEqual({ text: source, mathBlocks: [] });
+    });
+
+    it('leaves bracket-looking text inside an inline code span literal', () => {
+      const source = String.raw`Literal ` + '`' + String.raw`\[x^2\]` + '`';
+      expect(protectMathInMarkdown(source)).toEqual({ text: source, mathBlocks: [] });
+    });
+
+    it('does not pair a bracket delimiter across a fenced-code boundary', () => {
+      const source = ['\\[', 'before', '```latex', String.raw`\]`, '```', 'after', String.raw`\]`].join('\n');
+      expect(protectMathInMarkdown(source)).toEqual({ text: source, mathBlocks: [] });
+    });
   });
 });

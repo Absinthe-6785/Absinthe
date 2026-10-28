@@ -89,6 +89,42 @@ describe('markdownToBlocks ↔ blocksToMarkdown', () => {
     expect(blocksToMarkdown(blocks)).toBe(md);
   });
 
+  it('parses bracket-delimited display math as a block and preserves the source on round-trip', () => {
+    const md = String.raw`\[
+\varepsilon=
+\left|
+\frac{\text{수요량 변화율}}{\text{가격 변화율}}
+\right|
+\]`;
+    const blocks = markdownToBlocks(md);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]).toMatchObject({
+      type: 'math',
+      math: String.raw`\varepsilon=
+\left|
+\frac{\text{수요량 변화율}}{\text{가격 변화율}}
+\right|`,
+      mathBlock: true,
+      mathDelimiter: 'bracket',
+    });
+    expect(blocksToMarkdown(blocks)).toBe(md);
+  });
+
+  it.each([
+    String.raw`\[
+\varepsilon=x`,
+    String.raw`\varepsilon=x
+\]`,
+    '$$\nx^2',
+  ])('preserves incomplete math delimiters exactly: %s', md => {
+    expect(blocksToMarkdown(markdownToBlocks(md))).toBe(md);
+  });
+
+  it('does not close bracket display math with a delimiter inside fenced code', () => {
+    const md = ['\\[', 'before', '```latex', String.raw`\]`, '```', 'after', String.raw`\]`].join('\n');
+    expect(blocksToMarkdown(markdownToBlocks(md))).toBe(md);
+  });
+
   it('roundtrips inline math ($...$)', () => {
     const md = '$E=mc^2$';
     expect(blocksToMarkdown(markdownToBlocks(md))).toBe(md);

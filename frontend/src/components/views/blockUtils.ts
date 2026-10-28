@@ -105,7 +105,8 @@ export interface Block {
 
   // math
   math?: string;           // LaTeX 표현식
-  mathBlock?: boolean;     // true → $$...$$ 블록, false/undefined → $...$ 인라인
+  mathBlock?: boolean;     // true → display math block, false/undefined → inline
+  mathDelimiter?: 'bracket'; // Preserve \[...\] display-math source on serialization.
 
   // footnote definition block
   footnoteId?: string;
@@ -309,15 +310,26 @@ export function markdownToBlocks(md: string): Block[] {
 
   // ── 수학 블록 $$...$$──────────────────────────────────────────────
   const tryMathBlock = (): Block | null => {
-    if (lines[i] !== '$$') return null;
-    const mathLines: string[] = [];
-    i++;
-    while (i < lines.length && lines[i] !== '$$') {
-      mathLines.push(lines[i]);
-      i++;
+    const opening = lines[i];
+    const closing = opening === '$$' ? '$$' : opening === '\\[' ? '\\]' : null;
+    if (!closing) return null;
+    let closeIndex = -1;
+    for (let cursor = i + 1; cursor < lines.length; cursor += 1) {
+      if (opening === '\\[' && /^ {0,3}(?:`{3,}|~{3,})/.test(lines[cursor])) return null;
+      if (lines[cursor] === closing) {
+        closeIndex = cursor;
+        break;
+      }
     }
-    i++;
-    return makeBlock('math', { math: mathLines.join('\n'), mathBlock: true });
+    if (closeIndex === -1) return null;
+
+    const math = lines.slice(i + 1, closeIndex).join('\n');
+    i = closeIndex + 1;
+    return makeBlock('math', {
+      math,
+      mathBlock: true,
+      ...(opening === '\\[' ? { mathDelimiter: 'bracket' as const } : {}),
+    });
   };
 
   // ── 테이블 ───────────────────────────────────────────────────────
@@ -720,9 +732,11 @@ export function blocksToMarkdown(blocks: Block[]): string {
 
       case 'math':
         if (block.mathBlock || (block.math ?? '').includes('\n')) {
-          lines.push('$$');
+          const delimiter = block.mathDelimiter === 'bracket' ? '\\[' : '$$';
+          const closingDelimiter = block.mathDelimiter === 'bracket' ? '\\]' : '$$';
+          lines.push(delimiter);
           lines.push(block.math ?? '');
-          lines.push('$$');
+          lines.push(closingDelimiter);
         } else {
           lines.push(`$${block.math}$`);
         }
