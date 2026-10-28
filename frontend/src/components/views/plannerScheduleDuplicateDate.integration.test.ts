@@ -221,6 +221,30 @@ describe('PlannerView Schedule duplication date', () => {
     expect(testState.apiMutate).toHaveBeenCalledTimes(0);
   });
 
+  it('suppresses the keyCode 229 fallback but saves on Enter after composition ends', async () => {
+    await mountPlanner();
+    click('[data-test-add]');
+    const input = host.querySelector<HTMLInputElement>('input[type="text"]')!;
+    setInputValue(input, '한국어 일정');
+
+    act(() => {
+      input.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true, data: '한국어' }));
+      input.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'Enter', keyCode: 229, bubbles: true, isComposing: false,
+      }));
+    });
+    expect(testState.apiMutate).not.toHaveBeenCalled();
+
+    act(() => input.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '한국어' })));
+    expect(testState.apiMutate).not.toHaveBeenCalled();
+
+    await act(async () => {
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    });
+    expect(testState.apiMutate).toHaveBeenCalledTimes(1);
+    expect(testState.apiMutate.mock.calls[0][2]).toMatchObject({ text: '한국어 일정' });
+  });
+
   it.each(['POST', 'PUT', 'D-day'] as const)('guards repeated Enter and click submissions for %s', async kind => {
     const pending = deferredSave();
     testState.apiMutate.mockReturnValue(pending.promise);
