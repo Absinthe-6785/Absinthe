@@ -45,6 +45,56 @@ describe('editableRender', () => {
     expect(html).toContain('#tag');
   });
 
+  it('recognizes hyphenated, Korean, and Japanese tags as whole tokens', () => {
+    const hyphenatedRead = renderInlineMarkdownHtml('#work-notes', c);
+    const koreanRead = renderInlineMarkdownHtml('#노트-태그', c);
+    const japaneseRead = renderInlineMarkdownHtml('#東京_日記', c);
+    const hyphenatedEdit = liveInlineHtml('#work-notes', c);
+    const koreanEdit = liveInlineHtml('#노트-태그', c);
+    const japaneseEdit = liveInlineHtml('#東京_日記', c);
+
+    for (const [html, tag] of [
+      [hyphenatedRead, 'work-notes'], [koreanRead, '노트-태그'], [japaneseRead, '東京_日記'],
+      [hyphenatedEdit, 'work-notes'], [koreanEdit, '노트-태그'], [japaneseEdit, '東京_日記'],
+    ]) {
+      expect(html).toContain(`data-tag="${tag}"`);
+    }
+  });
+
+  it('keeps tag-looking text inside inline code untouched in reading and editing renderers', () => {
+    const source = 'literal `example #tag`';
+    expect(renderInlineMarkdownHtml(source, c)).toContain('<code style=');
+    expect(renderInlineMarkdownHtml(source, c)).toContain('example #tag</code>');
+    expect(renderInlineMarkdownHtml(source, c)).not.toContain('data-tag=');
+    expect(liveInlineHtml(source, c)).toContain('example #tag');
+    expect(liveInlineHtml(source, c)).not.toContain('data-tag=');
+  });
+
+  it('does not turn tags inside wiki links or footnote references into nested tag markup', () => {
+    const source = '[[#topic]] [^#ref]';
+    const read = renderInlineMarkdownHtml(source, c);
+    const edit = liveInlineHtml(source, c);
+
+    for (const html of [read, edit]) {
+      expect(html).not.toContain('data-tag=');
+      expect(html).toContain('#topic');
+      expect(html).toContain('#ref');
+    }
+  });
+
+  it('recognizes tags across formatting and punctuation without interpreting math or HTML source', () => {
+    const source = '**bold #태그-name**, (#東京), $\\text{#literal-tag}$ <img src=x>';
+    const read = renderInlineMarkdownHtml(source, c);
+    const edit = liveInlineHtml(source, c);
+
+    for (const html of [read, edit]) {
+      expect(html).toContain('data-tag="태그-name"');
+      expect(html).toContain('data-tag="東京"');
+      expect(html).not.toContain('data-tag="literal-tag"');
+      expect(html).not.toContain('<img src=x>');
+    }
+  });
+
   it('liveInlineHtml wiki chip', () => {
     const html = liveInlineHtml('[[X]]', c, ['X']);
     expect(html).toContain('be-wiki-chip');
