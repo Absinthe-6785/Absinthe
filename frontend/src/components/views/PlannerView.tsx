@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import useSWR from 'swr';
 import { API_URL } from '../../lib/config';
 import { accountBoundRemoteFetcher, accountBoundRemoteKey } from '../../lib/accountBoundRemote';
@@ -51,6 +51,24 @@ export const PlannerView = ({
   );
 
   const [showForm, setShowForm] = useState(false);
+  const [isSavingSchedule, setIsSavingSchedule] = useState(false);
+  const formSessionRef = useRef(0);
+  const pendingSaveSessionRef = useRef<number | null>(null);
+  const accountIdRef = useRef(accountId);
+  accountIdRef.current = accountId;
+  const resetScheduleSession = useCallback(() => {
+    formSessionRef.current += 1;
+    pendingSaveSessionRef.current = null;
+    setIsSavingSchedule(false);
+  }, []);
+  const closeScheduleForm = useCallback(() => {
+    resetScheduleSession();
+    setShowForm(false);
+  }, [resetScheduleSession]);
+  useEffect(() => {
+    closeScheduleForm();
+    return () => { formSessionRef.current += 1; };
+  }, [accountId, closeScheduleForm]);
   const [scheduleDetailId, setScheduleDetailId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [newSch, setNewSch] = useState<Partial<Schedule>>({
@@ -81,7 +99,7 @@ export const PlannerView = ({
   // 전날 일정 — calendar projection carry-over
 
   useEscapeKey(() => {
-    setShowForm(false);
+    closeScheduleForm();
     setScheduleDetailId(null);
     setEventDialog(null);
     clearConfirm();
@@ -102,6 +120,7 @@ export const PlannerView = ({
   const openModal = (sch?: Schedule | ScheduleDday, sourceDate?: string) => {
     const date = sch ? ('date' in sch ? sch.date : sourceDate) : formatDate(selectedDate);
     if (!date) return;
+    resetScheduleSession();
     setNewSch(sch ?? { text: '', start_time: '10:00', end_time: '11:00', is_dday: false, color: 'purple', category: 'Personal' });
     setEditingId(sch?.id ?? null);
     setEndNextDay(sch?.end_next_day ?? false);
@@ -109,6 +128,7 @@ export const PlannerView = ({
     setShowForm(true);
   };
   const handleSaveSchedule = async () => {
+    if (pendingSaveSessionRef.current !== null) return;
     if (!newSch.text?.trim()) return showToast(t('enterText'), 'error');
     const isDday = Boolean(newSch.is_dday);
     if (!isDday && !endNextDay && newSch.start_time && newSch.end_time && newSch.start_time >= newSch.end_time)
@@ -125,16 +145,28 @@ export const PlannerView = ({
       start_time: isDday ? '00:00' : newSch.start_time,
       end_time: isDday ? '23:59' : newSch.end_time,
     };
+    const session = formSessionRef.current;
+    const isCurrentSession = () => session === formSessionRef.current && accountId === accountIdRef.current;
     const doSave = async () => {
-      const ok = await api(
-        editingId ? 'PUT' : 'POST',
-        editingId ? `/api/schedules/${editingId}` : '/api/schedules',
-        { ...payload, date: scheduleDateStr, end_next_day: isDday ? false : endNextDay },
-        { revalidate: 'both', successMsg: t('scheduleSaved') },
-      );
-      if (ok) {
-        setShowForm(false);
-        void mutateDdaySchedules();
+      if (!isCurrentSession() || pendingSaveSessionRef.current !== null) return;
+      pendingSaveSessionRef.current = session;
+      setIsSavingSchedule(true);
+      try {
+        const ok = await api(
+          editingId ? 'PUT' : 'POST',
+          editingId ? `/api/schedules/${editingId}` : '/api/schedules',
+          { ...payload, date: scheduleDateStr, end_next_day: isDday ? false : endNextDay },
+          { revalidate: 'both', successMsg: t('scheduleSaved') },
+        );
+        if (ok) {
+          void mutateDdaySchedules();
+          if (isCurrentSession()) closeScheduleForm();
+        }
+      } finally {
+        if (isCurrentSession() && pendingSaveSessionRef.current === session) {
+          pendingSaveSessionRef.current = null;
+          setIsSavingSchedule(false);
+        }
       }
     };
     if (isOverlap) { showConfirm(t('overlapMsg'), doSave, { confirmLabel: t('saveLabel'), variant: 'primary' }); return; }
@@ -151,6 +183,7 @@ export const PlannerView = ({
   const handleDuplicateSchedule = useCallback((id: string) => {
     const sch = schedules.find(s => s.id === id);
     if (!sch) return;
+    resetScheduleSession();
     setNewSch({
       text: sch.text,
       start_time: sch.start_time,
@@ -163,7 +196,7 @@ export const PlannerView = ({
     setEndNextDay(sch.end_next_day ?? false);
     setScheduleDateStr(formatDate(selectedDate));
     setShowForm(true);
-  }, [formatDate, schedules, selectedDate]);
+  }, [formatDate, schedules, selectedDate, resetScheduleSession]);
 
   const scheduleDetailBlock = useMemo((): PlannerScheduleRow | null => {
     if (!scheduleDetailId) return null;
@@ -262,11 +295,11 @@ export const PlannerView = ({
 
       {/* ── 스케줄 추가/편집 모달 ── */}
       {showForm && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4 backdrop-blur-sm" onClick={() => setShowForm(false)}>
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4 backdrop-blur-sm" onClick={closeScheduleForm}>
           <div className={`${WORKSPACE_MODAL_SURFACE} w-full max-w-[380px]`} onClick={e => e.stopPropagation()}>
             <div className="flex justify-between items-center mb-4">
               <h3 className="font-heading text-lg font-bold">{editingId ? t('editSchedule') : t('newSchedule')}</h3>
-              <button onClick={() => setShowForm(false)} className={`min-h-[40px] min-w-[40px] flex items-center justify-center rounded-full ${theme.hoverBg}`}><X size={18}/></button>
+              <button onClick={closeScheduleForm} className={`min-h-[40px] min-w-[40px] flex items-center justify-center rounded-full ${theme.hoverBg}`}><X size={18}/></button>
             </div>
             <div className="space-y-4">
               <div>
@@ -325,7 +358,7 @@ export const PlannerView = ({
                   <p className={`text-[11px] ${theme.textMuted}`}>{t('k80DdayTimeHint')}</p>
                 </>
               )}
-              <button onClick={handleSaveSchedule} className="w-full bg-primary text-primary-foreground font-bold text-base rounded-xl py-3 hover:opacity-90 transition-opacity shadow-md">
+              <button onClick={handleSaveSchedule} disabled={isSavingSchedule} aria-busy={isSavingSchedule} className="w-full bg-primary text-primary-foreground font-bold text-base rounded-xl py-3 hover:opacity-90 transition-opacity shadow-md disabled:opacity-50">
                 {t('saveSchedule')}
               </button>
             </div>
