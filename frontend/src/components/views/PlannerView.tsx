@@ -305,7 +305,7 @@ export const PlannerView = ({
               <div>
                 <label className={`block text-xs font-bold uppercase tracking-wide mb-1.5 ${theme.textMuted}`}>{t('labelText')}</label>
                 <input autoFocus type="text" value={newSch.text} onChange={e => setNewSch({ ...newSch, text: e.target.value })}
-                  onKeyDown={e => e.key === 'Enter' && handleSaveSchedule()}
+                  onKeyDown={e => e.key === 'Enter' && !e.nativeEvent.isComposing && e.nativeEvent.keyCode !== 229 && handleSaveSchedule()}
                   className={`w-full rounded-xl p-3 outline-none focus:ring-2 focus:ring-primary text-sm font-semibold ${theme.input}`} placeholder={t('scheduleTextPh')}/>
               </div>
               <div>
