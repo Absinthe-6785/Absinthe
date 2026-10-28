@@ -208,6 +208,19 @@ afterEach(() => {
 });
 
 describe('PlannerView Schedule duplication date', () => {
+  it('reproduces the active IME Enter submission candidate', async () => {
+    await mountPlanner();
+    click('[data-test-add]');
+    const input = host.querySelector<HTMLInputElement>('input[type="text"]')!;
+    setInputValue(input, '조합 중 제목');
+    act(() => {
+      input.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true, data: '조합 중' }));
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, isComposing: true }));
+      input.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '조합 중' }));
+    });
+    expect(testState.apiMutate).toHaveBeenCalledTimes(0);
+  });
+
   it.each(['POST', 'PUT', 'D-day'] as const)('guards repeated Enter and click submissions for %s', async kind => {
     const pending = deferredSave();
     testState.apiMutate.mockReturnValue(pending.promise);
