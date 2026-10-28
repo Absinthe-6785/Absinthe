@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { makeBlock, markdownToBlocks } from './blockUtils';
+import { blocksToMarkdown, makeBlock, markdownToBlocks } from './blockUtils';
 import { loadValidatedBlocks, repairBlock, validateDocument } from './documentRecovery';
 
 describe('documentRecovery', () => {
@@ -66,6 +66,17 @@ describe('documentRecovery', () => {
     const blocks = loadValidatedBlocks(md, markdownToBlocks);
     expect(blocks.length).toBeGreaterThan(0);
     expect(blocks.every(b => b.id && b.type)).toBe(true);
+  });
+
+  it('preserves bracket display delimiters through validated edit loading and serialization', () => {
+    const source = String.raw`\[
+\varepsilon=\frac{a}{b}
+\]`;
+    const blocks = loadValidatedBlocks(source, markdownToBlocks);
+
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]).toMatchObject({ type: 'math', mathDelimiter: 'bracket' });
+    expect(blocksToMarkdown(blocks)).toBe(source);
   });
 
   it('validateDocument never returns empty array', () => {

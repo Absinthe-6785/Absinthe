@@ -88,6 +88,7 @@ export function repairBlock(raw: unknown): Block | null {
   if (type === 'math') {
     partial.math = asString(o.math);
     if (typeof o.mathBlock === 'boolean') partial.mathBlock = o.mathBlock;
+    if (o.mathDelimiter === 'bracket') partial.mathDelimiter = 'bracket';
   }
   if (type === 'callout' && typeof o.calloutIcon === 'string') {
     partial.calloutIcon = o.calloutIcon;
