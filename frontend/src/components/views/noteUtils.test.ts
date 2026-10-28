@@ -5,6 +5,7 @@ import {
   noteReferencesTitle,
   findWikiLinkInText,
   parseNoteSearchQuery,
+  extractTags,
   noteMatchesTagSearch,
   extractLinkContexts,
   mergeDbAndLocalNotes,
@@ -17,6 +18,7 @@ import {
   normalizeNote,
   normalizeNoteProperties,
   noteSyncPayload,
+  parseMarkdown,
   saveNotes,
   LOCAL_NOTES_SAVE_ERROR,
   NOTES_KEY,
@@ -100,6 +102,45 @@ describe('tag search helpers', () => {
   it('noteMatchesTagSearch supports partial match', () => {
     expect(noteMatchesTagSearch('#workflow #idea', 'work')).toBe(true);
     expect(noteMatchesTagSearch('plain text', 'work')).toBe(false);
+  });
+
+  it('extracts the same Unicode/hyphen tag names as rendering and excludes code/math text', () => {
+    const body = '본문 #노트-태그, #東京_日記 `#inline-code` $\\text{#math-tag}$\n```text\n#fenced-code\n```';
+    expect(extractTags(body)).toEqual(['노트-태그', '東京_日記']);
+  });
+
+  it('does not treat hash text inside wiki links or footnote references as inline tags', () => {
+    const body = '[[#topic]] [^#ref] #actual';
+    expect(extractTags(body)).toEqual(['actual']);
+    expect(noteMatchesTagSearch(body, 'topic')).toBe(false);
+    expect(noteMatchesTagSearch(body, 'ref')).toBe(false);
+  });
+
+  it('keeps multiline malformed wiki text and image alt text consistent with rendering', () => {
+    const body = '[[unfinished\n#visible-tag]]\n![#cover](image.png)\n![#visible-alt\ntext](image.png)\n`open\n#visible-code\n`';
+    const html = parseMarkdown(body, []);
+
+    expect(html).toContain('data-tag="visible-tag"');
+    expect(html).toContain('data-tag="visible-alt"');
+    expect(html).toContain('data-tag="visible-code"');
+    expect(html).not.toContain('data-tag="cover"');
+    expect(extractTags(body)).toEqual(['visible-tag', 'visible-alt', 'visible-code']);
+    expect(noteMatchesTagSearch(body, 'cover')).toBe(false);
+  });
+});
+
+describe('inline tag rendering compatibility', () => {
+  it('renders Korean, Japanese, and hyphenated tags without tagging inline code or math', () => {
+    const source = '본문 #노트-태그, #東京. `code #literal` $\\text{#math-tag}$';
+    const html = parseMarkdown(source, []);
+
+    expect(html).toContain('data-tag="노트-태그"');
+    expect(html).toContain('data-tag="東京"');
+    expect(html).toContain('<code class="bcode">code #literal</code>');
+    expect(html).toContain('class="bmathi"');
+    expect(html).not.toContain('data-tag="literal"');
+    expect(html).not.toContain('data-tag="math-tag"');
+    expect(source).toBe('본문 #노트-태그, #東京. `code #literal` $\\text{#math-tag}$');
   });
 });
 

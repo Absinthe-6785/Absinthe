@@ -13,6 +13,7 @@ import {
   tagsFromPropertyValue,
   tagsToPropertyValue,
 } from './features/knowledge/tags/tagConstants';
+import { extractInlineTagNames, inlineTagSpan, renderInlineTagsInHtml } from './features/knowledge/tags/inlineTagRender';
 import { protectMathInMarkdown } from '../../lib/math/mathParse';
 import { renderProtectedMathBlock } from '../../lib/math/katexRender';
 import {
@@ -480,15 +481,13 @@ export function parseMarkdown(md: string, allNotes: NoteBase[]): string {
 }
 
 export function processInline(text: string, allNotes: NoteBase[]): string {
-  return text
+  const html = text
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/\[\[(.+?)\]\]/g, (_, t: string) => {
       const f = allNotes.find(n => n.title === t && !n.deletedAt);
       return f ? `<span class="bwl" data-id="${f.id}">[[${t}]]</span>`
                : `<span class="bwlm">[[${t}]]</span>`;
     })
-    .replace(/(^|\s)#([\w\uAC00-\uD7A3]+)/g, (_: string, sp: string, tag: string) =>
-      `${sp}<span class="bwtag" data-tag="${tag}">#${tag}</span>`)
     .replace(/!\[([^\]]*)\]\((data:image\/[^)]+)\)/g, (_: string, alt: string, src: string) =>
       `<img class="bimg" src="${src}" alt="${alt.replace(/"/g, '&quot;')}"/>`)
     .replace(/!\[([^\]]*)\]\(((?!javascript:)[^)]+)\)/g, (_: string, alt: string, src: string) =>
@@ -499,6 +498,8 @@ export function processInline(text: string, allNotes: NoteBase[]): string {
     .replace(/\*(.+?)\*/g,        '<em class="bital">$1</em>')
     .replace(/~~(.+?)~~/g,        '<del>$1</del>')
     .replace(/==(.+?)==/g,        '<mark class="bhl">$1</mark>');
+
+  return renderInlineTagsInHtml(html, tag => inlineTagSpan(tag, 'bwtag'));
 }
 
 export function processLine(line: string, allNotes: NoteBase[]): string {
@@ -547,9 +548,14 @@ export function extractTOC(body: string, options?: { untitledLabel?: string }): 
 
 export function extractTags(body: string): string[] {
   if (!body) return [];
-  return [...new Set(
-    (body.match(/(^|\s)#([\w\uAC00-\uD7A3]+)/g) || []).map(m => m.trim().replace('#', ''))
-  )];
+  const visibleMarkdown = protectMathInMarkdown(body).text
+    .replace(/```[\w]*\n[\s\S]*?```/g, ' ')
+    .replace(/`([^`\r\n]+)`/g, ' ')
+    .replace(/\[\[(.+?)\]\]/g, ' ')
+    .replace(/!\[[^\]\r\n]*\]\(data:image\/[^)\r\n]+\)/g, ' ')
+    .replace(/!\[[^\]\r\n]*\]\((?!javascript:)[^)\r\n]+\)/g, ' ')
+    .replace(/\[\^[^\]]+\]/g, ' ');
+  return [...new Set(extractInlineTagNames(visibleMarkdown))];
 }
 
 export function extractLinks(body: string): string[] {

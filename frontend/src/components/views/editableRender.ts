@@ -10,6 +10,7 @@ import {
 import { renderMathTokenHtml } from '../../lib/math/katexRender';
 import { normalizeWikiTitle } from './noteUtils';
 import type { BlockEditorColors } from './editorTypes';
+import { inlineTagSpan, renderInlineTagsInHtml } from './features/knowledge/tags/inlineTagRender';
 
 export function escHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -120,9 +121,10 @@ export function renderInlineMarkdownHtml(
       const extra = broken ? ';opacity:0.85;font-style:italic' : '';
       const title = broken ? ' title="Create note"' : '';
       return `<span class="be-wikilink${broken ? ' be-wikilink-broken' : ''}" data-wiki="${escAttr(t)}"${title} style="color:${color};text-decoration:${deco};text-underline-offset:2px;cursor:pointer${extra}">${escHtml(t)}</span>`;
-    })
-    .replace(/(^|\s)#([\w\uAC00-\uD7A3]+)/g, (_m, sp: string, tag: string) =>
-      `${sp}<span class="be-tag" data-tag="${escAttr(tag)}" style="color:${c.accent};opacity:.85;cursor:pointer">#${tag}</span>`);
+    });
+
+  html = renderInlineTagsInHtml(html, tag =>
+    inlineTagSpan(tag, 'be-tag', `color:${c.accent};opacity:.85;cursor:pointer`));
 
   html = applySearchHighlight(html, searchQuery);
   return restoreMathPlaceholders(html, math);
@@ -145,8 +147,6 @@ export function liveInlineHtml(
       const cls = broken ? 'be-wiki-chip be-wiki-chip-broken' : 'be-wiki-chip';
       return `<span class="${cls}" data-wiki="${escAttr(t)}"><span class="be-bracket">[[</span>${escHtml(t)}<span class="be-bracket">]]</span></span>`;
     })
-    .replace(/(^|\s)(#[\w\uAC00-\uD7A3]+)/g, (_m, sp: string, tag: string) =>
-      `${sp}<span class="be-tag-chip" data-tag="${escAttr(tag.slice(1))}">${tag}</span>`)
     .replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em><span class="be-mark">***</span>$1<span class="be-mark">***</span></em></strong>')
     .replace(/\*\*(.+?)\*\*/g, '<strong><span class="be-mark">**</span>$1<span class="be-mark">**</span></strong>')
     .replace(/\*(.+?)\*/g, '<em><span class="be-mark">*</span>$1<span class="be-mark">*</span></em>')
@@ -156,6 +156,9 @@ export function liveInlineHtml(
     .replace(/`([^`]+)`/g, `<code class="be-live-code"><span class="be-mark">\`</span>$1<span class="be-mark">\`</span></code>`)
     .replace(/\[\^([^\]]+)\]/g, (_m, id: string) =>
       `<sup class="be-footnote-ref" data-footnote-id="${escAttr(id)}"><span class="be-mark">[</span>^${escHtml(id)}<span class="be-mark">]</span></sup>`);
+
+  html = renderInlineTagsInHtml(html, tag =>
+    inlineTagSpan(tag, 'be-tag-chip'));
 
   html = applySearchHighlight(html, searchQuery);
   return restoreMathPlaceholders(html, math);
