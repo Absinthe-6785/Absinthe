@@ -224,8 +224,12 @@ export function useDragDrop(
   getEditorRootRef.current = options.getEditorRoot;
   const resolveDragOverRef = useRef(options.resolveDragOver);
   resolveDragOverRef.current = options.resolveDragOver;
+  const activeDragCleanupRef = useRef<(() => void) | null>(null);
 
-  useEffect(() => () => clearPendingDragRejectTimers(), []);
+  useEffect(() => () => {
+    activeDragCleanupRef.current?.();
+    clearPendingDragRejectTimers();
+  }, []);
 
   const publishDragState = useCallback((next: DragState | null) => {
     setDragStateStore(next);
@@ -247,6 +251,10 @@ export function useDragDrop(
     const startY = e.clientY;
     let dragging = false;
     let cleanedUp = false;
+    let pointerX = startX;
+    let pointerY = startY;
+    let autoscrollFrameId: number | null = null;
+    let lastAutoscrollTimestamp: number | null = null;
     const draggingIds = resolveDraggingIds(id);
     const primaryId = draggingIds[0];
     const captureEl = e.currentTarget as HTMLElement;
@@ -263,6 +271,36 @@ export function useDragDrop(
       syncDragDom(getDragStateSnapshot(), () => getEditorRootRef.current?.() ?? null);
     };
 
+    const updateTargetAtCurrentPointer = () => {
+      const resolve = resolveDragOverRef.current ?? resolveDragOverFromPoint;
+      const hit = resolve(pointerX, pointerY, draggingIds);
+      if (hit) updateOver(hit.overId, hit.overPos);
+      else updateOver(null, null);
+    };
+
+    const scheduleAutoscrollFrame = () => {
+      if (cleanedUp || !dragging || autoscrollFrameId !== null) return;
+      autoscrollFrameId = window.requestAnimationFrame(advanceAutoscrollFrame);
+    };
+
+    const advanceAutoscrollFrame = (timestamp: number) => {
+      autoscrollFrameId = null;
+      if (cleanedUp || !dragging) return;
+
+      const scrollContainer = getScrollContainerRef.current?.();
+      const elapsedMs = lastAutoscrollTimestamp === null
+        ? 1000 / 60
+        : Math.min(50, Math.max(1, timestamp - lastAutoscrollTimestamp));
+      lastAutoscrollTimestamp = timestamp;
+      const scrollDelta = scrollContainer
+        ? applyDragAutoscroll(scrollContainer, pointerY, undefined, elapsedMs)
+        : 0;
+
+      updateTargetAtCurrentPointer();
+      if (scrollDelta !== 0) scheduleAutoscrollFrame();
+      else lastAutoscrollTimestamp = null;
+    };
+
     const beginDragging = () => {
       dragging = true;
       try {
@@ -276,6 +314,12 @@ export function useDragDrop(
     const cleanup = (shouldCommit: boolean) => {
       if (cleanedUp) return;
       cleanedUp = true;
+
+      if (autoscrollFrameId !== null) {
+        window.cancelAnimationFrame(autoscrollFrameId);
+        autoscrollFrameId = null;
+      }
+      lastAutoscrollTimestamp = null;
 
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onPointerEnd);
@@ -306,28 +350,23 @@ export function useDragDrop(
       }
 
       publishDragState(null);
+      if (activeDragCleanupRef.current === cancelOnUnmount) {
+        activeDragCleanupRef.current = null;
+      }
     };
 
     const onMove = (ev: PointerEvent) => {
       if (ev.pointerId !== pointerId) return;
+      pointerX = ev.clientX;
+      pointerY = ev.clientY;
 
       if (!dragging) {
         if (Math.hypot(ev.clientX - startX, ev.clientY - startY) < DRAG_THRESHOLD_PX) return;
         beginDragging();
       }
 
-      const scrollContainer = getScrollContainerRef.current?.();
-      if (scrollContainer) {
-        applyDragAutoscroll(scrollContainer, ev.clientY);
-      }
-
-      const resolve = resolveDragOverRef.current ?? resolveDragOverFromPoint;
-      const hit = resolve(ev.clientX, ev.clientY, draggingIds);
-      if (hit) {
-        updateOver(hit.overId, hit.overPos);
-      } else {
-        updateOver(null, null);
-      }
+      updateTargetAtCurrentPointer();
+      scheduleAutoscrollFrame();
     };
 
     const onPointerEnd = (ev: PointerEvent) => {
@@ -351,6 +390,8 @@ export function useDragDrop(
       cleanup(false);
     };
 
+    const cancelOnUnmount = () => cleanup(false);
+    activeDragCleanupRef.current = cancelOnUnmount;
     captureEl.addEventListener('lostpointercapture', onLostCapture);
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onPointerEnd);

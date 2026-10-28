@@ -210,6 +210,21 @@ export const EDITOR_CHROME_STYLES = `
     border-radius: 8px;
     transition: background .12s ease, box-shadow .12s ease, opacity .12s ease;
   }
+  .be-block.be-drop-target-before::before,
+  .be-block.be-drop-target-after::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 3px;
+    border-radius: 2px;
+    background: var(--be-accent, #8B5CF6);
+    box-shadow: 0 0 8px var(--be-accent, #8B5CF6);
+    pointer-events: none;
+    z-index: 10;
+  }
+  .be-block.be-drop-target-before::before { top: -1px; }
+  .be-block.be-drop-target-after::before { bottom: -1px; }
   .be-editor-root.be-drag-active,
   .be-editor-root.be-drag-active * {
     user-select: none;

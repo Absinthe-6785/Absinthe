@@ -117,6 +117,30 @@ function fireGripPointer(grip: HTMLElement, type: 'pointerdown', clientY: number
   });
 }
 
+function mockAnimationFrames() {
+  let nextId = 0;
+  let timestamp = 0;
+  const callbacks = new Map<number, FrameRequestCallback>();
+  vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => {
+    const id = ++nextId;
+    callbacks.set(id, callback);
+    return id;
+  });
+  vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(id => {
+    callbacks.delete(id);
+  });
+  return {
+    step: (elapsedMs = 1000 / 60) => {
+      timestamp += elapsedMs;
+      const current = [...callbacks.values()];
+      callbacks.clear();
+      current.forEach(callback => callback(timestamp));
+      return current.length;
+    },
+    pendingCount: () => callbacks.size,
+  };
+}
+
 function startDrag(fromId: string, flatIds: string[]) {
   const grip = gripFor(fromId);
   const fromIdx = flatIds.indexOf(fromId);
@@ -134,6 +158,7 @@ describe('drag reliability integration', () => {
   });
 
   it('Escape during drag cancels without commit or stuck UI', () => {
+    const frames = mockAnimationFrames();
     const blocks = ['a', 'b', 'c'].map(id => makeBlock('paragraph', { id, content: id }));
     let latest = blocks;
     mountEditor(blocks, next => { latest = next; });
@@ -143,12 +168,14 @@ describe('drag reliability integration', () => {
     fireWindowPointer('pointermove', 12);
 
     expect(document.querySelector('.be-block.be-dragging')).toBeTruthy();
+    expect(frames.pendingCount()).toBeGreaterThan(0);
 
     act(() => {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     });
 
     expect(document.querySelector('.be-block.be-dragging')).toBeFalsy();
+    expect(frames.pendingCount()).toBe(0);
     expect(latest.map(b => b.id)).toEqual(['a', 'b', 'c']);
 
     fireWindowPointer('pointerup', startY + 12);
@@ -156,6 +183,7 @@ describe('drag reliability integration', () => {
   });
 
   it('pointercancel ends drag without commit', () => {
+    const frames = mockAnimationFrames();
     const blocks = ['a', 'b'].map(id => makeBlock('paragraph', { id }));
     let latest = blocks;
     mountEditor(blocks, next => { latest = next; });
@@ -163,14 +191,17 @@ describe('drag reliability integration', () => {
     const flatIds = flattenBlockIds(blocks);
     const { startY } = startDrag('b', flatIds);
     fireWindowPointer('pointermove', flatIds.indexOf('a') * ROW_H + 12);
+    expect(frames.pendingCount()).toBeGreaterThan(0);
 
     fireWindowPointer('pointercancel', startY + 12);
 
     expect(document.querySelector('.be-block.be-dragging')).toBeFalsy();
+    expect(frames.pendingCount()).toBe(0);
     expect(latest.map(b => b.id)).toEqual(['a', 'b']);
   });
 
   it('autoscrolls editor-drop-zone when pointer is in bottom edge band', () => {
+    const frames = mockAnimationFrames();
     const blocks = Array.from({ length: 30 }, (_, i) =>
       makeBlock('paragraph', { id: `b${i}`, content: `${i}` }),
     );
@@ -188,6 +219,7 @@ describe('drag reliability integration', () => {
     expect(mountedDragId).toBeTruthy();
     const { startY } = startDrag(mountedDragId!, flatIds);
     fireWindowPointer('pointermove', 295);
+    act(() => { frames.step(); });
 
     expect(scrollZone.scrollTop).toBeGreaterThan(100);
     expect(latest).toBe(blocks);
@@ -195,5 +227,63 @@ describe('drag reliability integration', () => {
     act(() => {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     });
+    expect(frames.pendingCount()).toBe(0);
+  });
+
+  it('continues scrolling while the pointer stays stationary in the top edge band', () => {
+    const frames = mockAnimationFrames();
+    const blocks = Array.from({ length: 30 }, (_, i) =>
+      makeBlock('paragraph', { id: `b${i}`, content: `${i}` }),
+    );
+    const { root, scrollZone } = mountEditor(blocks, () => {});
+
+    Object.defineProperty(scrollZone, 'getBoundingClientRect', {
+      value: () => rect(0, 0, 800, 300),
+    });
+    Object.defineProperty(scrollZone, 'clientHeight', { value: 300, configurable: true });
+    Object.defineProperty(scrollZone, 'scrollHeight', { value: 3000, configurable: true });
+    scrollZone.scrollTop = 1000;
+
+    try {
+      fireGripPointer(gripFor('b29'), 'pointerdown', 29 * ROW_H + 12);
+      fireWindowPointer('pointermove', 12);
+      const afterPointerMove = scrollZone.scrollTop;
+
+      act(() => { frames.step(); });
+      const afterFirstFrame = scrollZone.scrollTop;
+      expect(afterFirstFrame).toBeLessThan(afterPointerMove);
+
+      act(() => { frames.step(); });
+      expect(scrollZone.scrollTop).toBeLessThan(afterFirstFrame);
+
+      fireWindowPointer('pointerup', 12);
+      expect(frames.pendingCount()).toBe(0);
+      expect(document.querySelector('.be-block.be-dragging')).toBeFalsy();
+    } finally {
+      fireWindowPointer('pointercancel', 12);
+      act(() => root?.unmount());
+    }
+  });
+
+  it('cancels a pending autoscroll frame when the editor unmounts mid-drag', () => {
+    const frames = mockAnimationFrames();
+    const blocks = Array.from({ length: 4 }, (_, i) => makeBlock('paragraph', { id: `b${i}` }));
+    const { root, scrollZone, flatIds } = mountEditor(blocks, () => {});
+    Object.defineProperty(scrollZone, 'getBoundingClientRect', {
+      value: () => rect(0, 0, 800, 300),
+    });
+    Object.defineProperty(scrollZone, 'clientHeight', { value: 300, configurable: true });
+    Object.defineProperty(scrollZone, 'scrollHeight', { value: 1000, configurable: true });
+
+    startDrag('b3', flatIds);
+    fireWindowPointer('pointermove', 8);
+    expect(frames.pendingCount()).toBeGreaterThan(0);
+
+    act(() => root?.unmount());
+    expect(frames.pendingCount()).toBe(0);
+
+    fireWindowPointer('pointermove', 8);
+    expect(frames.pendingCount()).toBe(0);
+    expect(scrollZone.scrollTop).toBe(0);
   });
 });

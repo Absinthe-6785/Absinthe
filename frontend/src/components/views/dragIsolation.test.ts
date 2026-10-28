@@ -207,4 +207,13 @@ describe('drag isolation', () => {
     expect(document.querySelectorAll('.be-drop-target')).toHaveLength(0);
     expect(document.querySelector('.be-block.be-dragging')).toBeFalsy();
   });
+
+  it('styles the exact before/after drop targets with a visible insertion line', () => {
+    expect(EDITOR_CHROME_STYLES).toContain('.be-block.be-drop-target-before::before');
+    expect(EDITOR_CHROME_STYLES).toContain('.be-block.be-drop-target-after::before');
+    expect(EDITOR_CHROME_STYLES).toContain('height: 3px;');
+    expect(EDITOR_CHROME_STYLES).toContain('background: var(--be-accent, #8B5CF6);');
+    expect(EDITOR_CHROME_STYLES).toContain('.be-block.be-drop-target-before::before { top: -1px; }');
+    expect(EDITOR_CHROME_STYLES).toContain('.be-block.be-drop-target-after::before { bottom: -1px; }');
+  });
 });

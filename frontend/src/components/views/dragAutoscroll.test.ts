@@ -55,4 +55,17 @@ describe('applyDragAutoscroll', () => {
     const el2 = mockScrollContainer({ top: 0, height: 200, scrollHeight: 1000, scrollTop: 50 });
     expect(applyDragAutoscroll(el2, 10, 8)).toBe(0);
   });
+
+  it('scales scrolling with elapsed animation-frame time and caps long gaps', () => {
+    const oneFrame = mockScrollContainer({ top: 100, height: 400, scrollHeight: 2000, scrollTop: 200 });
+    const twoFrames = mockScrollContainer({ top: 100, height: 400, scrollHeight: 2000, scrollTop: 200 });
+    const cappedFrame = mockScrollContainer({ top: 100, height: 400, scrollHeight: 2000, scrollTop: 200 });
+
+    const oneFrameDelta = applyDragAutoscroll(oneFrame, 110, undefined, 1000 / 60);
+    const twoFrameDelta = applyDragAutoscroll(twoFrames, 110, undefined, 2000 / 60);
+    const cappedFrameDelta = applyDragAutoscroll(cappedFrame, 110, undefined, 200);
+
+    expect(twoFrameDelta).toBeCloseTo(oneFrameDelta * 2);
+    expect(cappedFrameDelta).toBeCloseTo(oneFrameDelta * 3);
+  });
 });
