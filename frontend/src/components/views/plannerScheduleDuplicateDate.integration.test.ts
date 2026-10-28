@@ -8,6 +8,7 @@ import { PlannerView } from './PlannerView';
 
 const testState = vi.hoisted(() => ({
   apiMutate: vi.fn(),
+  showToast: vi.fn(),
 }));
 
 vi.mock('../../hooks/useConfirm', () => ({
@@ -68,6 +69,16 @@ vi.mock('./features/planner/calendar-ui', async () => {
           date: '2026-06-12',
         }),
       }, 'Edit legacy category'),
+      createElement('button', {
+        type: 'button',
+        'data-test-edit-missing-title': true,
+        onClick: () => props.onEditDday({
+          ...sourceSchedule,
+          id: 'missing-title-event',
+          text: undefined as unknown as string,
+          date: '2026-06-12',
+        }),
+      }, 'Edit missing title'),
     ),
   };
 });
@@ -130,7 +141,7 @@ function props(overrides: Partial<PlannerProps> = {}): PlannerProps {
     isToday: () => false,
     schedules: [sourceSchedule],
     todos: [], routines: [], markedDates: [], weeklySchedules: [],
-    showToast: vi.fn(), appSettings, updateSetting: vi.fn(), theme, THEME_COLORS: themeColors,
+    showToast: testState.showToast, appSettings, updateSetting: vi.fn(), theme, THEME_COLORS: themeColors,
     mutateDaily: vi.fn(), mutateStatic: vi.fn(), mutateTodos: vi.fn(), mutateRoutines: vi.fn(),
     user: { id: 'account-a', name: 'Account A' },
     ...overrides,
@@ -176,6 +187,7 @@ function setInputValue(input: HTMLInputElement, value: string) {
 
 beforeEach(() => {
   testState.apiMutate.mockReset().mockResolvedValue(true);
+  testState.showToast.mockReset();
 });
 
 afterEach(() => {
@@ -185,6 +197,91 @@ afterEach(() => {
 });
 
 describe('PlannerView Schedule duplication date', () => {
+  it.each(['', '   ', '\t\n'])(
+    'rejects a title containing only whitespace (%j) without closing the form or mutating',
+    async title => {
+      await mountPlanner();
+      click('[data-test-add]');
+      setInputValue(host.querySelector<HTMLInputElement>('input[type="text"]')!, title);
+
+      await act(async () => {
+        const save = [...host.querySelectorAll('button')].find(button => button.textContent === 'saveSchedule');
+        if (!save) throw new Error('Schedule save button is not mounted');
+        save.click();
+      });
+
+      expect(testState.apiMutate).not.toHaveBeenCalled();
+      expect(testState.showToast).toHaveBeenCalledWith('enterText', 'error');
+      expect(host.querySelector('.fixed.inset-0')).not.toBeNull();
+      expect(host.querySelector('input[type="text"]')).not.toBeNull();
+    },
+  );
+
+  it('rejects whitespace-only titles when editing and creating a D-day', async () => {
+    await mountPlanner();
+    click('[data-test-edit-legacy]');
+    setInputValue(host.querySelector<HTMLInputElement>('input[type="text"]')!, ' \t ');
+
+    await act(async () => {
+      const save = [...host.querySelectorAll('button')].find(button => button.textContent === 'saveSchedule');
+      if (!save) throw new Error('Schedule save button is not mounted');
+      save.click();
+    });
+
+    expect(testState.apiMutate).not.toHaveBeenCalled();
+    expect(testState.showToast).toHaveBeenLastCalledWith('enterText', 'error');
+    expect(host.querySelector('.fixed.inset-0')).not.toBeNull();
+
+    click('[data-test-add]');
+    const ddayToggle = host.querySelector<HTMLInputElement>('.fixed.inset-0 input[type="checkbox"]');
+    if (!ddayToggle) throw new Error('D-day toggle is not mounted');
+    act(() => ddayToggle.click());
+    setInputValue(host.querySelector<HTMLInputElement>('.fixed.inset-0 input[type="text"]')!, '\n\t');
+
+    await act(async () => {
+      const save = [...host.querySelectorAll('button')].find(button => button.textContent === 'saveSchedule');
+      if (!save) throw new Error('Schedule save button is not mounted');
+      save.click();
+    });
+
+    expect(testState.apiMutate).not.toHaveBeenCalled();
+    expect(testState.showToast).toHaveBeenLastCalledWith('enterText', 'error');
+    expect(host.querySelector('.fixed.inset-0')).not.toBeNull();
+  });
+
+  it('rejects a missing title on an existing Schedule without mutation', async () => {
+    await mountPlanner();
+    click('[data-test-edit-missing-title]');
+
+    await act(async () => {
+      const save = [...host.querySelectorAll('button')].find(button => button.textContent === 'saveSchedule');
+      if (!save) throw new Error('Schedule save button is not mounted');
+      save.click();
+    });
+
+    expect(testState.apiMutate).not.toHaveBeenCalled();
+    expect(testState.showToast).toHaveBeenCalledWith('enterText', 'error');
+    expect(host.querySelector('.fixed.inset-0')).not.toBeNull();
+  });
+
+  it('preserves leading and trailing spaces in a nonempty title payload', async () => {
+    await mountPlanner();
+    click('[data-test-add]');
+    setInputValue(host.querySelector<HTMLInputElement>('input[type="text"]')!, '  Preserve title spacing  ');
+
+    await act(async () => {
+      const save = [...host.querySelectorAll('button')].find(button => button.textContent === 'saveSchedule');
+      if (!save) throw new Error('Schedule save button is not mounted');
+      save.click();
+    });
+
+    expect(testState.apiMutate).toHaveBeenCalledWith(
+      'POST', '/api/schedules',
+      expect.objectContaining({ text: '  Preserve title spacing  ' }),
+      expect.any(Object),
+    );
+  });
+
   it('uses the newly selected calendar date after navigation instead of the prior form date', async () => {
     await mountPlanner();
 
