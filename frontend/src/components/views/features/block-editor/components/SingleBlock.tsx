@@ -193,7 +193,7 @@ export const SingleBlock = React.memo(function SingleBlock({
     if (isTextBlockType(block.type)) {
       const el = editableRef.current;
       if (!el) return;
-      el.focus();
+      el.focus({ preventScroll: cmd.preventScroll ?? false });
       const text = block.content ?? '';
       const caret = cmd.offset === 'start'
         ? 0
@@ -204,7 +204,7 @@ export const SingleBlock = React.memo(function SingleBlock({
             : text.length;
       paintEditableLive(el, text, c, wikiTargets, searchQuery, caret);
     } else {
-      shellRef.current?.focus();
+      shellRef.current?.focus({ preventScroll: cmd.preventScroll ?? false });
     }
   }, [block.type, block.content, c, wikiTargets, searchQuery]);
 

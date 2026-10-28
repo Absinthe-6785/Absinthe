@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import { useNotesStore } from '../../../../store/useNotesStore';
 import { findNoteByTitle } from '../../noteUtils';
 import type { NoteBase as Note } from '../../noteUtils';
 import { toggleEditReading } from '../../editorMode';
-import { scheduleEditorFocus } from '../editorFocus';
+import { cancelScheduledEditorModeFocus, scheduleEditorFocus, scheduleEditorModeFocus } from '../editorFocus';
 import { toDateKey } from '../../features/knowledge/databaseViews/parseDatabaseDate';
 import { openOrCreateDailyNote } from '../../k101DailyNote';
 import { navigateToNoteWithHistory } from '../../../../lib/noteNavigationStack';
@@ -24,6 +24,7 @@ export function useNoteKeyboardActions(
     showSortMenu,
     searchInputRef,
     blockEditorRef,
+    editorScrollRef,
     setViewMode,
     setShowShortcuts,
     setShowSortMenu,
@@ -35,13 +36,49 @@ export function useNoteKeyboardActions(
     syncNoteToDB,
   } = params;
 
+  const editorModeStateRef = useRef({ viewMode, activeNoteId });
+  editorModeStateRef.current = { viewMode, activeNoteId };
+  const pendingModeFocusCancelRef = useRef<(() => void) | null>(null);
+  const previousModeFocusNoteIdRef = useRef(activeNoteId);
+  useLayoutEffect(() => {
+    if (previousModeFocusNoteIdRef.current === activeNoteId) return;
+    pendingModeFocusCancelRef.current?.();
+    pendingModeFocusCancelRef.current = null;
+    cancelScheduledEditorModeFocus(editorScrollRef.current);
+    previousModeFocusNoteIdRef.current = activeNoteId;
+  }, [activeNoteId]);
+  useEffect(() => () => pendingModeFocusCancelRef.current?.(), []);
+
+  const setEditorMode = (nextMode: typeof viewMode) => {
+    const currentMode = editorModeStateRef.current.viewMode;
+    const isReadingEditTransition = (currentMode === 'reading' && nextMode === 'edit')
+      || (currentMode === 'edit' && nextMode === 'reading');
+    cancelScheduledEditorModeFocus(editorScrollRef.current);
+    pendingModeFocusCancelRef.current?.();
+    pendingModeFocusCancelRef.current = null;
+    if (isReadingEditTransition) {
+      const transitionNoteId = editorModeStateRef.current.activeNoteId;
+      pendingModeFocusCancelRef.current = scheduleEditorModeFocus(blockEditorRef, editorScrollRef, {
+        focus: nextMode === 'edit',
+        isCurrent: () => editorModeStateRef.current.activeNoteId === transitionNoteId
+          && editorModeStateRef.current.viewMode === nextMode,
+      });
+    } else if (nextMode === 'edit') {
+      scheduleEditorFocus(blockEditorRef);
+    }
+    setViewMode(nextMode);
+  };
+
   const navigateToWiki = useCallback((title: string, opts?: { preferReading?: boolean }) => {
     const trimmed = title.trim();
     if (!trimmed) return;
     const found = findNoteByTitle(trimmed, notes);
     if (found) {
       navigateToNoteWithHistory(found.id, 'wiki');
-      if (opts?.preferReading) setViewMode('reading');
+      if (opts?.preferReading) {
+        cancelScheduledEditorModeFocus(editorScrollRef.current);
+        setViewMode('reading');
+      }
       return;
     }
     createNote({ title: trimmed, body: '' });
@@ -145,19 +182,11 @@ export function useNoteKeyboardActions(
         case 'd': e.preventDefault(); { if (an) dn(an); } break;
         case 'e':
           e.preventDefault();
-          setViewMode(v => {
-            const next = toggleEditReading(v);
-            if (next === 'edit') scheduleEditorFocus(blockEditorRef);
-            return next;
-          });
+          setEditorMode(toggleEditReading(editorModeStateRef.current.viewMode));
           break;
         case 'g':
           e.preventDefault();
-          setViewMode(v => {
-            const next = v === 'graph' ? 'edit' : 'graph';
-            if (next === 'edit') scheduleEditorFocus(blockEditorRef);
-            return next;
-          });
+          setEditorMode(editorModeStateRef.current.viewMode === 'graph' ? 'edit' : 'graph');
           break;
         case 'f':
           e.preventDefault();

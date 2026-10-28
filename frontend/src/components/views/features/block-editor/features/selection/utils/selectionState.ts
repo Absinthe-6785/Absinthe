@@ -2,7 +2,7 @@
  * selectionState.ts — Focus command registry + selection range persistence
  */
 
-export type FocusCmd = { blockId: string; offset: 'start' | 'end' | number };
+export type FocusCmd = { blockId: string; offset: 'start' | 'end' | number; preventScroll?: boolean };
 
 type FocusHandler = (cmd: FocusCmd) => void;
 

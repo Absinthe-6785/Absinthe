@@ -43,6 +43,25 @@ describe('virtualNavigation', () => {
     unregister();
   });
 
+  it('does not scroll the virtual list for a prevent-scroll focus command', () => {
+    const queue = new PendingFocusQueue();
+    const scrollToBlockId = vi.fn(() => true);
+    const handler = vi.fn();
+    const unregister = registerFocusHandler('visible-block', handler);
+    const api = createVirtualNavigationApi({
+      virtualEnabled: true,
+      scrollToBlockId,
+      queue,
+    });
+
+    api.requestFocus({ blockId: 'visible-block', offset: 'end', preventScroll: true });
+
+    expect(scrollToBlockId).not.toHaveBeenCalled();
+    expect(handler).toHaveBeenCalledWith({ blockId: 'visible-block', offset: 'end', preventScroll: true });
+    expect(queue.peek()).toBeNull();
+    unregister();
+  });
+
   it('does not scroll when virtual disabled', () => {
     const scrollToBlockId = vi.fn(() => true);
     const api = createVirtualNavigationApi({

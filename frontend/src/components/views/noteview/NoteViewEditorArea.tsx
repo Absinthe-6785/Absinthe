@@ -29,7 +29,7 @@ import {
   type NoteChromeColors,
 } from '../noteEditorTheme';
 import { type EditorMode, toggleEditReading } from '../editorMode';
-import { scheduleEditorFocus } from './editorFocus';
+import { cancelScheduledEditorModeFocus, scheduleEditorFocus, scheduleEditorModeFocus } from './editorFocus';
 import type { VirtualScrollApiRef } from '../features/block-editor/performance';
 import {
   setNoteKind,
@@ -99,7 +99,7 @@ const NoteBlockEditor = forwardRef<BlockEditorHandle, NoteBlockEditorProps>(func
   const {
     blocks, handleBlockChange, undo, redo, canUndo, canRedo,
     insertImage, insertEmptyImageBlock, insertWikiLinkDraft,
-    setActiveBlockId, externalFocusId, externalFocusOffset, clearExternalFocus,
+    setActiveBlockId, externalFocusId, externalFocusOffset, externalFocusPreventScroll, clearExternalFocus,
     getBlocks, copyDocument, focusEditor,
   } = useBlockEditor(body, onBodyChange);
 
@@ -150,6 +150,7 @@ const NoteBlockEditor = forwardRef<BlockEditorHandle, NoteBlockEditorProps>(func
       onActiveBlockChange={setActiveBlockId}
       externalFocusId={externalFocusId}
       externalFocusOffset={externalFocusOffset}
+      externalFocusPreventScroll={externalFocusPreventScroll}
       onExternalFocusConsumed={clearExternalFocus}
       virtualScrollApiRef={virtualScrollApiRef}
       virtualScrollParentRef={virtualScrollParentRef}
@@ -305,6 +306,38 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
     onOpenTodaysNote, onImportVault,
   } = handlers;
 
+  const modeFocusStateRef = useRef({ viewMode, activeNoteId });
+  modeFocusStateRef.current = { viewMode, activeNoteId };
+  const pendingModeFocusCancelRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => pendingModeFocusCancelRef.current?.(), []);
+
+  const setEditorMode = (nextMode: EditorMode) => {
+    const currentMode = modeFocusStateRef.current.viewMode;
+    const isReadingEditTransition = (currentMode === 'reading' && nextMode === 'edit')
+      || (currentMode === 'edit' && nextMode === 'reading');
+    cancelScheduledEditorModeFocus(editorScrollRef.current);
+    pendingModeFocusCancelRef.current?.();
+    pendingModeFocusCancelRef.current = null;
+    if (isReadingEditTransition) {
+      const transitionNoteId = activeNoteId;
+      pendingModeFocusCancelRef.current = scheduleEditorModeFocus(blockEditorRef, editorScrollRef, {
+        focus: nextMode === 'edit',
+        isCurrent: () => modeFocusStateRef.current.activeNoteId === transitionNoteId
+          && modeFocusStateRef.current.viewMode === nextMode,
+      });
+    } else if (nextMode === 'edit') {
+      scheduleEditorFocus(blockEditorRef);
+    }
+    setViewMode(nextMode);
+  };
+
+  const handleViewModeToggle = (key: 'reading' | 'graph') => {
+    const currentMode = modeFocusStateRef.current.viewMode;
+    setEditorMode(key === 'reading'
+      ? toggleEditReading(currentMode)
+      : currentMode === 'graph' ? 'edit' : 'graph');
+  };
+
   const showFindInNotePanel = documentSearchOpen && Boolean(activeNote) && !isTrash;
   const recentEmptyStateNotes = useMemo(
     () => notes
@@ -432,21 +465,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
               isMilestone={isMilestoneNote(activeNote)}
               isArea={isAreaNote(activeNote)}
               canMarkArea={canMarkAsArea(activeNote)}
-              onViewModeToggle={key => {
-                if (key === 'reading') {
-                  setViewMode(v => {
-                    const next = toggleEditReading(v);
-                    if (next === 'edit' && v === 'reading') scheduleEditorFocus(blockEditorRef);
-                    return next;
-                  });
-                } else {
-                  setViewMode(v => {
-                    const next = v === 'graph' ? 'edit' : 'graph';
-                    if (next === 'edit') scheduleEditorFocus(blockEditorRef);
-                    return next;
-                  });
-                }
-              }}
+              onViewModeToggle={handleViewModeToggle}
               onOpenDocumentSearch={openDocumentSearch}
               onMarkEvent={() => openEditEventDialog(activeNote)}
               onMarkMilestone={() => openMilestoneDialog(activeNote)}

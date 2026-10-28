@@ -1,12 +1,24 @@
 // @vitest-environment happy-dom
-import { act, createElement, createRef } from 'react';
+import { act, createElement, createRef, useLayoutEffect, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { NoteViewEditorArea } from './NoteViewEditorArea';
 import { getTranslator } from '../../../lib/i18n';
 import { projectNoteSyncPresentation, type NoteSyncPresentation } from './notesSyncPresentation';
 
-vi.mock('./NoteEditorHeaderActions', () => ({ NoteEditorHeaderActions: () => null }));
+vi.mock('./NoteEditorHeaderActions', () => ({
+  NoteEditorHeaderActions: ({
+    viewMode,
+    onViewModeToggle,
+  }: {
+    viewMode: string;
+    onViewModeToggle: (key: 'reading' | 'graph') => void;
+  }) => createElement('button', {
+    type: 'button',
+    'data-test-mode-toggle': true,
+    onClick: () => onViewModeToggle('reading'),
+  }, viewMode),
+}));
 vi.mock('./NoteBreadcrumbBar', () => ({ NoteBreadcrumbBar: () => null }));
 vi.mock('./WorkspaceContextBanner', () => ({ WorkspaceContextBanner: () => null }));
 vi.mock('./NoteImageAttachments', () => ({
@@ -86,6 +98,86 @@ function renderEditor(props: ReturnType<typeof makeProps>) {
   const root = createRoot(host);
   act(() => root.render(createElement(NoteViewEditorArea, props)));
   return { host, root };
+}
+
+function renderModeEditor(initialMode: 'edit' | 'reading' = 'reading') {
+  const host = document.createElement('div');
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  const editorScrollRef = createRef<HTMLDivElement>();
+  const blockEditorRef = createRef();
+  let changeNoteId: (id: string) => void = () => {};
+
+  function Harness() {
+    const [viewMode, setViewMode] = useState(initialMode);
+    const [noteId, setNoteId] = useState('note-1');
+    changeNoteId = setNoteId;
+    const props = makeProps(vi.fn(), vi.fn(), 'first block\n\nvisible block\n\nlast block') as any;
+    props.layout = { ...props.layout, viewMode };
+    props.data = {
+      ...props.data,
+      activeNoteId: noteId,
+      activeNote: {
+        ...props.data.activeNote,
+        id: noteId,
+        body: noteId === 'note-2' ? 'note two first\n\nnote two second' : props.data.activeNote.body,
+      },
+      notes: [{ ...props.data.activeNote, id: noteId }],
+    };
+    props.handlers = {
+      ...props.handlers,
+      blockEditorRef,
+      editorScrollRef,
+      setViewMode,
+    };
+
+    // Model a browser anchoring adjustment when the read-only layout commits.
+    useLayoutEffect(() => {
+      if (viewMode === 'reading' && editorScrollRef.current?.scrollTop) {
+        editorScrollRef.current.scrollTop = 0;
+      }
+    }, [viewMode]);
+
+    return createElement(NoteViewEditorArea, props);
+  }
+
+  act(() => root.render(createElement(Harness)));
+  return { host, root, editorScrollRef, changeNoteId: (id: string) => changeNoteId(id) };
+}
+
+function rect(top: number, bottom: number): DOMRect {
+  return {
+    x: 0, y: top, top, bottom, left: 0, right: 640,
+    width: 640, height: bottom - top,
+    toJSON: () => ({}),
+  } as DOMRect;
+}
+
+function setViewportGeometry(scroll: HTMLElement, blocks: HTMLElement[]) {
+  vi.spyOn(scroll, 'getBoundingClientRect').mockReturnValue(rect(100, 300));
+  blocks.forEach((block, index) => {
+    const top = index === 0 ? 20 : index === 1 ? 130 : 220;
+    vi.spyOn(block, 'getBoundingClientRect').mockReturnValue(rect(top, top + 40));
+  });
+}
+
+function textBlocks(scroll: HTMLElement, labels: string[]) {
+  return Array.from(scroll.querySelectorAll<HTMLElement>('.be-block[data-drag-id]'))
+    .filter(block => labels.includes(block.textContent?.trim() ?? ''));
+}
+
+async function flushAnimationFrames() {
+  await act(async () => {
+    await new Promise<void>(resolve => {
+      let remaining = 8;
+      const next = () => {
+        remaining -= 1;
+        if (remaining === 0) resolve();
+        else requestAnimationFrame(next);
+      };
+      requestAnimationFrame(next);
+    });
+  });
 }
 
 function cleanup(root: Root, host: HTMLElement) {
@@ -382,6 +474,63 @@ describe('NoteViewEditorArea Return-to-Use attachment isolation', () => {
     expect(onBodyChange).not.toHaveBeenCalled();
 
     outsideInput.remove();
+    cleanup(mounted.root, mounted.host);
+  });
+});
+
+describe('Notes editor mode scroll preservation', () => {
+  it('keeps the visible block and scroll position when toolbar switches reading to edit', async () => {
+    const mounted = renderModeEditor();
+    const scroll = mounted.host.querySelector('.editor-drop-zone') as HTMLElement;
+    const blocks = textBlocks(scroll, ['first block', 'visible block', 'last block']);
+    expect(blocks).toHaveLength(3);
+    setViewportGeometry(scroll, blocks);
+    scroll.scrollTop = 640;
+    expect(scroll.scrollTop).toBe(640);
+    const focusedBlockIds: string[] = [];
+    vi.spyOn(HTMLElement.prototype, 'focus').mockImplementation(function (this: HTMLElement) {
+      const id = this.closest<HTMLElement>('[data-drag-id]')?.dataset.dragId;
+      if (id) {
+        focusedBlockIds.push(id);
+        if (id === blocks[0].dataset.dragId) scroll.scrollTop = 0;
+      }
+    });
+
+    act(() => (mounted.host.querySelector('[data-test-mode-toggle]') as HTMLButtonElement).click());
+    await flushAnimationFrames();
+
+    expect(mounted.host.querySelector('[contenteditable="true"]')).not.toBeNull();
+    expect(focusedBlockIds).toEqual([blocks[1].dataset.dragId]);
+    expect(scroll).toBe(mounted.editorScrollRef.current);
+    expect(scroll.scrollTop).toBe(640);
+    cleanup(mounted.root, mounted.host);
+  });
+
+  it('preserves reading position when returning from edit and cancels pending work after changing notes', async () => {
+    const mounted = renderModeEditor('edit');
+    const scroll = mounted.host.querySelector('.editor-drop-zone') as HTMLElement;
+    const blocks = textBlocks(scroll, ['first block', 'visible block', 'last block']);
+    setViewportGeometry(scroll, blocks);
+    scroll.scrollTop = 840;
+    const focusedBlockIds: string[] = [];
+    vi.spyOn(HTMLElement.prototype, 'focus').mockImplementation(function (this: HTMLElement) {
+      const id = this.closest<HTMLElement>('[data-drag-id]')?.dataset.dragId;
+      if (id) focusedBlockIds.push(id);
+    });
+
+    act(() => (mounted.host.querySelector('[data-test-mode-toggle]') as HTMLButtonElement).click());
+    await flushAnimationFrames();
+    expect(mounted.host.querySelector('[contenteditable="true"]')).toBeNull();
+    expect(scroll.scrollTop).toBe(840);
+    expect(focusedBlockIds).toHaveLength(0);
+
+    act(() => (mounted.host.querySelector('[data-test-mode-toggle]') as HTMLButtonElement).click());
+    act(() => mounted.changeNoteId('note-2'));
+    scroll.scrollTop = 72;
+    await flushAnimationFrames();
+    expect(focusedBlockIds).toHaveLength(0);
+    expect(scroll.scrollTop).toBe(72);
+    expect(mounted.host.textContent).toContain('note two first');
     cleanup(mounted.root, mounted.host);
   });
 });
