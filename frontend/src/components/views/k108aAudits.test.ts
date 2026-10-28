@@ -27,6 +27,7 @@ describe('k108a audits', () => {
     const entries = auditEditorFocus();
     expect(entries).toContain('focusEditor');
     expect(entries).toContain('scheduleEditorFocus');
+    expect(entries).toContain('scheduleEditorModeFocus');
     expect(entries).toContain('data-k108-editor-focus');
     expect(entries).toContain('double-click-reading-mode');
   });

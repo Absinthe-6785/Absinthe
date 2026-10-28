@@ -112,8 +112,8 @@ export interface BlockEditorHandle {
   redo: () => void;
   canUndo: () => boolean;
   canRedo: () => boolean;
-  /** Focus first or specified block — K-108A */
-  focusEditor: (blockId?: string) => void;
+  /** Focus the first or specified block; mode transitions may suppress scrolling. */
+  focusEditor: (blockId?: string, options?: { preventScroll?: boolean }) => void;
 }
 
 function isStructuralBlockChange(prev: Block[], next: Block[]): boolean {
@@ -288,14 +288,20 @@ export function useBlockEditor(body: string, onBodyChange: (md: string) => void)
   const activeBlockIdRef = useRef<string | null>(null);
   const [externalFocusId, setExternalFocusId] = useState<string | null>(null);
   const [externalFocusOffset, setExternalFocusOffset] = useState<'start' | 'end' | number>('start');
+  const [externalFocusPreventScroll, setExternalFocusPreventScroll] = useState(false);
 
   const setActiveBlockId = useCallback((id: string | null) => {
     activeBlockIdRef.current = id;
   }, []);
 
-  const queueFocus = useCallback((blockId: string, offset: 'start' | 'end' | number = 'start') => {
+  const queueFocus = useCallback((
+    blockId: string,
+    offset: 'start' | 'end' | number = 'start',
+    preventScroll = false,
+  ) => {
     activeBlockIdRef.current = blockId;
     setExternalFocusOffset(offset);
+    setExternalFocusPreventScroll(preventScroll);
     setExternalFocusId(blockId);
   }, []);
 
@@ -332,11 +338,12 @@ export function useBlockEditor(body: string, onBodyChange: (md: string) => void)
   const clearExternalFocus = useCallback(() => {
     setExternalFocusId(null);
     setExternalFocusOffset('start');
+    setExternalFocusPreventScroll(false);
   }, []);
 
-  const focusEditor = useCallback((blockId?: string) => {
+  const focusEditor = useCallback((blockId?: string, options?: { preventScroll?: boolean }) => {
     const id = blockId ?? blocksRef.current[0]?.id;
-    if (id) queueFocus(id, 'end');
+    if (id) queueFocus(id, 'end', options?.preventScroll ?? false);
   }, [queueFocus]);
 
   const getBlocks = useCallback(() => blocks, [blocks]);
@@ -349,6 +356,7 @@ export function useBlockEditor(body: string, onBodyChange: (md: string) => void)
     blocks, handleBlockChange, undo, redo, canUndo, canRedo,
     insertImage, insertEmptyImageBlock, insertWikiLinkDraft,
     setActiveBlockId, externalFocusId, externalFocusOffset, clearExternalFocus,
+    externalFocusPreventScroll,
     getBlocks, copyDocument, focusEditor,
   };
 }

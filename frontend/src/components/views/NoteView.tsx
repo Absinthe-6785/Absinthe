@@ -177,7 +177,7 @@ import type { AppSettings } from '../../types';
 import { useTranslation } from '../../lib/i18n';
 import { NoteGraphView } from './NoteGraphView';
 import { type BlockEditorHandle } from './BlockEditor';
-import { scheduleEditorFocus } from './noteview/editorFocus';
+import { cancelScheduledEditorModeFocus, scheduleEditorFocus, scheduleEditorModeFocus } from './noteview/editorFocus';
 import {
   buildNoteChrome,
   buildBlockEditorColors,
@@ -448,6 +448,10 @@ export const NoteView = ({ showToast = () => {}, accountId }: NoteViewProps) => 
   const searchInputRef = useRef<HTMLInputElement>(null);
   const blockEditorRef = useRef<BlockEditorHandle>(null);
   const editorScrollRef = useRef<HTMLDivElement>(null);
+  const editorModeFocusStateRef = useRef({ viewMode, activeNoteId });
+  editorModeFocusStateRef.current = { viewMode, activeNoteId };
+  const pendingModeFocusCancelRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => pendingModeFocusCancelRef.current?.(), []);
   const virtualScrollApiRef = useRef<{
     scrollToBlockId: (blockId: string) => boolean;
     getBlockScrollTop?: (blockId: string) => number | null;
@@ -543,6 +547,7 @@ export const NoteView = ({ showToast = () => {}, accountId }: NoteViewProps) => 
     titleComposingRef,
     docCopyTimerRef,
     blockEditorRef,
+    editorScrollRef,
     searchInputRef,
     openCreateEventDialogRef,
     setViewMode,
@@ -778,6 +783,7 @@ export const NoteView = ({ showToast = () => {}, accountId }: NoteViewProps) => 
 
   useEffect(() => {
     if (isFocusPresetActive && focusUiPreferences.hideGraph && viewMode === 'graph') {
+      cancelScheduledEditorModeFocus(editorScrollRef.current);
       setViewMode('edit');
     }
   }, [isFocusPresetActive, focusUiPreferences.hideGraph, viewMode]);
@@ -1279,10 +1285,18 @@ export const NoteView = ({ showToast = () => {}, accountId }: NoteViewProps) => 
     // 편집 가능한 셀/체크박스 등 인터랙티브 요소 클릭은 무시
     if (target.closest('[contenteditable], button, input, textarea, .be-block .be-handles, .be-block-handle-menu, .be-slash-menu')) return;
     if (e.detail === 2) {
+      pendingModeFocusCancelRef.current?.();
+      const transitionNoteId = activeNoteId;
+      const preferredBlockId = target.closest<HTMLElement>('.be-block[data-drag-id]')?.dataset.dragId;
+      pendingModeFocusCancelRef.current = scheduleEditorModeFocus(blockEditorRef, editorScrollRef, {
+        focus: true,
+        preferredBlockId,
+        isCurrent: () => editorModeFocusStateRef.current.activeNoteId === transitionNoteId
+          && editorModeFocusStateRef.current.viewMode === 'edit',
+      });
       setViewMode('edit');
-      scheduleEditorFocus(blockEditorRef);
     }
-  }, [navigateToWiki, blockEditorRef]);
+  }, [navigateToWiki, blockEditorRef, editorScrollRef, activeNoteId, setViewMode]);
 
   // ── Obsidian-style 색상 + 사용자 글자/강조색 ─────────────────────
   const c = useMemo(

@@ -111,7 +111,7 @@ const noopBlockSelect = () => {};
 // ── 내부 재귀 렌더러 ─────────────────────────────────────────────────
 function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, depth,
   wikiTargets, onWikiNavigate, onActiveBlockChange,
-  externalFocusId, externalFocusOffset = 'start', onExternalFocusConsumed,
+  externalFocusId, externalFocusOffset = 'start', externalFocusPreventScroll = false, onExternalFocusConsumed,
   onEscapeToParentBelow, onEscapeToParentHeader, onMergeFirstChildIntoHeader,
   getRootBlocks: getRootBlocksProp, onRootChange: onRootChangeProp,
   searchScope = 'document', searchMatchIndex = 0,
@@ -571,9 +571,13 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     if (!externalFocusId) return;
     selectBlock(externalFocusId);
     handleActiveBlockChange(externalFocusId);
-    requestFocus({ blockId: externalFocusId, offset: externalFocusOffset });
+    requestFocus({
+      blockId: externalFocusId,
+      offset: externalFocusOffset,
+      preventScroll: externalFocusPreventScroll,
+    });
     onExternalFocusConsumed?.();
-  }, [externalFocusId, externalFocusOffset, handleActiveBlockChange, onExternalFocusConsumed, selectBlock, requestFocus]);
+  }, [externalFocusId, externalFocusOffset, externalFocusPreventScroll, handleActiveBlockChange, onExternalFocusConsumed, selectBlock, requestFocus]);
 
   const headingIndexById = useMemo(
     () => buildHeadingIndexById(blocks, depth),
@@ -820,7 +824,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
 export const BlockEditor = React.memo(function BlockEditor({
   blocks, onChange, colors, readOnly = false, searchQuery = '', searchScope = 'document',
   searchMatchIndex = 0, wikiTargets = [], onWikiNavigate,
-  onActiveBlockChange, externalFocusId, externalFocusOffset = 'start', onExternalFocusConsumed,
+  onActiveBlockChange, externalFocusId, externalFocusOffset = 'start', externalFocusPreventScroll = false, onExternalFocusConsumed,
   virtualBlocksPoc, virtualScrollApiRef, virtualScrollParentRef,
 }: BlockEditorProps) {
   const documentFocusApiRef = useRef<{
@@ -850,6 +854,7 @@ export const BlockEditor = React.memo(function BlockEditor({
         onActiveBlockChange={onActiveBlockChange}
         externalFocusId={externalFocusId}
         externalFocusOffset={externalFocusOffset}
+        externalFocusPreventScroll={externalFocusPreventScroll}
         onExternalFocusConsumed={onExternalFocusConsumed}
         documentFocusApiRef={documentFocusApiRef}
         virtualBlocksPoc={virtualBlocksPoc}

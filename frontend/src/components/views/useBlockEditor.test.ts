@@ -16,7 +16,7 @@ vi.mock('./features/block-editor/features/clipboard/copy/copyToClipboard', () =>
   copyBlocksToClipboard: vi.fn(),
 }));
 
-type HistoryApi = BlockEditorHandle & {
+type HistoryApi = BlockEditorHandle & Pick<ReturnType<typeof useBlockEditor>, 'externalFocusId' | 'externalFocusPreventScroll'> & {
   handleBlockChange: (blocks: Block[]) => void;
   getBody: () => string;
 };
@@ -96,6 +96,21 @@ describe('useBlockEditor history transactions', () => {
     const api = mounted.apiRef.current!;
 
     await expect(api.copyDocument()).rejects.toBe(error);
+
+    act(() => mounted.root?.unmount());
+  });
+
+  it('keeps ordinary editor focus scrollable while allowing mode focus to opt out', () => {
+    const mounted = mountHistoryHarness();
+    const api = mounted.apiRef.current!;
+    const firstBlockId = api.getBlocks()[0]!.id;
+
+    act(() => api.focusEditor());
+    expect(mounted.apiRef.current?.externalFocusId).toBe(firstBlockId);
+    expect(mounted.apiRef.current?.externalFocusPreventScroll).toBe(false);
+
+    act(() => mounted.apiRef.current?.focusEditor(firstBlockId, { preventScroll: true }));
+    expect(mounted.apiRef.current?.externalFocusPreventScroll).toBe(true);
 
     act(() => mounted.root?.unmount());
   });

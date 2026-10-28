@@ -6,9 +6,7 @@ export interface VirtualNavigationApi {
   isVirtualNavigationEnabled: () => boolean;
   /** Scroll a root block into the virtual viewport. */
   scrollToBlockId: (blockId: string) => boolean;
-  /**
-   * Request focus at block/offset. Scrolls first when virtual; queues until mount.
-   */
+  /** Request focus; virtual scrolling can be suppressed by the focus command. */
   requestFocus: (cmd: FocusCmd) => void;
   /** Called when a block mounts — returns and clears a queued focus for that id. */
   consumePendingFocus: (blockId: string) => FocusCmd | null;
@@ -41,7 +39,7 @@ export function createVirtualNavigationApi({
     },
     requestFocus: (cmd) => {
       queue.queueFocus(cmd);
-      if (virtualEnabled) {
+      if (virtualEnabled && !cmd.preventScroll) {
         scrollToBlockId(cmd.blockId);
       }
       tryDispatch(cmd);

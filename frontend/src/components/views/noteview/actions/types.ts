@@ -24,6 +24,7 @@ export interface UseNoteViewActionsParams {
   titleComposingRef: MutableRefObject<boolean>;
   docCopyTimerRef: MutableRefObject<ReturnType<typeof setTimeout> | null>;
   blockEditorRef: RefObject<BlockEditorHandle | null>;
+  editorScrollRef: RefObject<HTMLElement | null>;
   searchInputRef: RefObject<HTMLInputElement | null>;
   openCreateEventDialogRef: MutableRefObject<(defaults?: Partial<EventFormValues>) => void>;
   setViewMode: Dispatch<SetStateAction<EditorMode>>;
