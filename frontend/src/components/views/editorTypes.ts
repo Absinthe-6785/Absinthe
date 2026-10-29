@@ -49,6 +49,7 @@ export interface TurnIntoMenuState {
   blockId: string;
   anchorY: number;
   anchorX: number;
+  returnFocusEl?: HTMLElement | null;
 }
 
 export interface SlashMenuState {

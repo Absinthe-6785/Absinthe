@@ -19,7 +19,6 @@ export function shouldDeleteSelectedBlocks(
   selectedIds: Set<string>,
 ): boolean {
   if (selectedIds.size === 0) return false;
-  if (selectedIds.size > 1) return true;
 
   const t = e.target as HTMLElement | null;
   if (!t) return true;
@@ -27,9 +26,24 @@ export function shouldDeleteSelectedBlocks(
   // Form controls (tag inputs, search fields, …) — never steal Backspace/Delete
   const tag = t.tagName;
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return false;
+  const closest = (selector: string) => typeof t.closest === 'function' ? t.closest(selector) : null;
+
+  // Embedded controls (todo toggles, links, etc.) keep their native keyboard
+  // behavior. The grip is the intentional keyboard selection/delete control.
+  if (closest('button, a[href], [role="button"]') && !closest('.be-grip')) return false;
+
+  if (selectedIds.size > 1) {
+    // A stale multi-selection must not steal deletion from any editable target.
+    if (t.isContentEditable || closest('[contenteditable="true"]')) return false;
+    return true;
+  }
 
   const selectedId = [...selectedIds][0]!;
   const focusBlockId = blockIdFromElement(t);
+  const focusedEditable = t.isContentEditable || closest('[contenteditable="true"]');
+
+  // A stale single-block selection must not steal editing keys from a different editable.
+  if (focusedEditable && focusBlockId !== selectedId) return false;
 
   // Focus in a different block than the sole selection → block delete (gutter/shell select).
   if (focusBlockId && focusBlockId !== selectedId) return true;

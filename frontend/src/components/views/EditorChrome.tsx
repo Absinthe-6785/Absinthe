@@ -2,11 +2,15 @@
  * EditorChrome.tsx — Block chrome presentation (handles, shell classes)
  */
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { MoreHorizontal } from 'lucide-react';
 import { BlockGripIcon } from './editorDragDrop';
 import { shouldShowBlockChrome } from './editorReading';
 import { EDITOR_CHROME_STYLES } from './editorChromeStyles';
 import type { TurnIntoMenuState } from './editorTypes';
 import { GRIP_DRAG_TITLE, GUTTER_RANGE_TITLE } from './features/block-editor/utils/editorDiscoverability';
+import { blurActiveEditorFocus } from './documentFocus';
+import { useTranslation } from '@/lib/i18n';
+import type { BlockSelectionModifiers } from './features/block-editor/features/selection';
 
 export function blockShellClassName(
   isActive: boolean,
@@ -44,12 +48,16 @@ export interface BlockHandlesProps {
   blockId: string;
   depth: number;
   readOnly: boolean;
+  isSelected: boolean;
+  blockLabel?: string;
   controlsVisible: boolean;
+  actionsMenuOpen: boolean;
   onChromeEnter?: (id: string) => void;
   onChromeLeave?: () => void;
   onToggleControlsPin?: (id: string) => void;
   bindGripPointer: (id: string, e: React.PointerEvent, onClick: () => void) => void;
-  onOpenTurnInto: (state: TurnIntoMenuState) => void;
+  onSelectBlock?: (id: string, modifiers: BlockSelectionModifiers) => void;
+  onOpenTurnInto: (state: TurnIntoMenuState | null) => void;
 }
 
 /**
@@ -81,9 +89,8 @@ export function alignHandleToFirstVisualLine(handlesEl: HTMLElement): void {
     : Math.min(Math.max(measuredHeight, 0), 32);
   const anchorCenter = anchorRect.top + firstLineHeight / 2;
   const offset = Math.max(0, anchorCenter - blockRect.top);
-
   handlesEl.style.top = `${offset}px`;
-  handlesEl.style.transform = 'translate(-50%, -50%)';
+  handlesEl.style.transform = 'translateY(-50%)';
 }
 
 export function isHandleGeometryActive(
@@ -101,10 +108,14 @@ export function isHandleGeometryActive(
 }
 
 export function BlockHandles({
-  blockId, depth, readOnly, controlsVisible,
+  blockId, depth, readOnly, isSelected, blockLabel, controlsVisible, actionsMenuOpen,
   onChromeEnter, onChromeLeave, onToggleControlsPin,
-  bindGripPointer, onOpenTurnInto,
+  bindGripPointer, onSelectBlock, onOpenTurnInto,
 }: BlockHandlesProps) {
+  const { t } = useTranslation();
+  const accessibleBlockName = blockLabel?.trim() || blockId;
+  const gripAccessibleName = `${GRIP_DRAG_TITLE}: ${accessibleBlockName}`;
+  const actionsAccessibleName = `${t('k126BlockActions')}: ${accessibleBlockName}`;
   const handlesRef = useRef<HTMLDivElement | null>(null);
   const geometryObserverRef = useRef<ResizeObserver | null>(null);
   const geometryBlockRef = useRef<HTMLElement | null>(null);
@@ -185,28 +196,85 @@ export function BlockHandles({
       onMouseEnter={() => onChromeEnter?.(blockId)}
       onMouseLeave={() => onChromeLeave?.()}
       style={{
-        position: 'absolute', left: '50%', top: 0, transform: 'translate(-50%, -50%)',
-        display: 'flex', flexDirection: 'row', alignItems: 'center',
+        position: 'absolute', left: 0, top: 0, width: '100%', transform: 'translateY(-50%)',
+        display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', alignItems: 'center',
       }}
     >
       <button
         type="button"
         className={`be-grip be-handle-btn${controlsVisible ? ' be-grip-pinned' : ''}`}
+        aria-pressed={isSelected}
         onPointerDown={e => {
           e.stopPropagation();
           pointerIdRef.current = e.pointerId;
           setPointerGeometryActive(true);
           const gripEl = e.currentTarget as HTMLElement;
+          const modifiers: BlockSelectionModifiers = {
+            shiftKey: e.shiftKey,
+            metaKey: e.metaKey,
+            ctrlKey: e.ctrlKey,
+          };
           bindGripPointer(blockId, e, () => {
-            onToggleControlsPin?.(blockId);
-            const rect = gripEl.getBoundingClientRect();
-            onOpenTurnInto({ blockId, anchorY: rect.top, anchorX: rect.right + 2 });
+            onSelectBlock?.(blockId, modifiers);
+            const editorRoot = gripEl.closest('.be-document-edit')
+              ?? gripEl.closest('.be-editor-root');
+            blurActiveEditorFocus(editorRoot as HTMLElement | null);
           });
         }}
-        title={GRIP_DRAG_TITLE}
-        aria-label={GRIP_DRAG_TITLE}
+        onClick={e => {
+          // Pointer selection is handled by bindGripPointer on pointerup. A
+          // click with detail 0 is the synthesized activation used by keyboard,
+          // voice, and other assistive controls, which have no pointer gesture.
+          if (e.detail !== 0) return;
+          onSelectBlock?.(blockId, {
+            shiftKey: e.shiftKey,
+            metaKey: e.metaKey,
+            ctrlKey: e.ctrlKey,
+          });
+          const editorRoot = e.currentTarget.closest('.be-document-edit')
+            ?? e.currentTarget.closest('.be-editor-root');
+          blurActiveEditorFocus(editorRoot as HTMLElement | null);
+        }}
+        onKeyDown={e => {
+          if (e.key !== 'Enter' && e.key !== ' ') return;
+          e.preventDefault();
+          if (e.repeat) return;
+          onSelectBlock?.(blockId, {
+            shiftKey: e.shiftKey,
+            metaKey: e.metaKey,
+            ctrlKey: e.ctrlKey,
+          });
+        }}
+        title={gripAccessibleName}
+        aria-label={gripAccessibleName}
       >
         <BlockGripIcon />
+      </button>
+      <button
+        type="button"
+        className="be-handle-btn be-handle-menu-btn"
+        data-be-menu-trigger={blockId}
+        title={actionsAccessibleName}
+        aria-label={actionsAccessibleName}
+        aria-expanded={actionsMenuOpen}
+        aria-controls={actionsMenuOpen ? `be-block-actions-${blockId}` : undefined}
+        onPointerDown={e => e.stopPropagation()}
+        onClick={e => {
+          onToggleControlsPin?.(blockId);
+          if (actionsMenuOpen) {
+            onOpenTurnInto(null);
+            return;
+          }
+          const rect = e.currentTarget.getBoundingClientRect();
+          onOpenTurnInto({
+            blockId,
+            anchorY: rect.top,
+            anchorX: rect.right + 2,
+            returnFocusEl: e.currentTarget,
+          });
+        }}
+      >
+        <MoreHorizontal size={16} aria-hidden="true" />
       </button>
     </div>
   );

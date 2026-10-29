@@ -14,6 +14,17 @@ function keyEvt(
   } as KeyboardEvent;
 }
 
+function editableTarget(blockId?: string): Partial<HTMLElement> {
+  return {
+    isContentEditable: true,
+    closest: (selector: string) => (
+      selector === '[data-drag-id]' && blockId
+        ? { getAttribute: () => blockId } as unknown as Element
+        : null
+    ),
+  };
+}
+
 describe('shouldDeleteSelectedBlocks', () => {
   it('returns false when nothing selected', () => {
     expect(shouldDeleteSelectedBlocks(keyEvt('Delete', {}), new Set())).toBe(false);
@@ -37,7 +48,7 @@ describe('shouldDeleteSelectedBlocks', () => {
     )).toBe(false);
   });
 
-  it('returns true when focus is in a different block than the sole selection', () => {
+  it('preserves editing keys in a different editable block than the sole selection', () => {
     const spySel = vi.spyOn(selection, 'getSelectionOffsets').mockReturnValue(null);
     const spyText = vi.spyOn(editableDom, 'readBlockText').mockReturnValue('hello');
     const otherBlock = {
@@ -47,16 +58,34 @@ describe('shouldDeleteSelectedBlocks', () => {
     expect(shouldDeleteSelectedBlocks(
       keyEvt('Delete', otherBlock),
       new Set(['selected']),
-    )).toBe(true);
+    )).toBe(false);
     spySel.mockRestore();
     spyText.mockRestore();
+  });
+
+  it('preserves editing keys in an unrelated editable without a block id', () => {
+    expect(shouldDeleteSelectedBlocks(
+      keyEvt('Delete', editableTarget()),
+      new Set(['selected']),
+    )).toBe(false);
+  });
+
+  it('still deletes the selected block when a different non-editable shell has focus', () => {
+    const otherBlockShell = {
+      isContentEditable: false,
+      closest: (sel: string) => (sel === '[data-drag-id]' ? { getAttribute: () => 'other' } : null),
+    };
+    expect(shouldDeleteSelectedBlocks(
+      keyEvt('Delete', otherBlockShell),
+      new Set(['selected']),
+    )).toBe(true);
   });
 
   it('returns false for non-empty editable block even when selected', () => {
     const spySel = vi.spyOn(selection, 'getSelectionOffsets').mockReturnValue(null);
     const spyText = vi.spyOn(editableDom, 'readBlockText').mockReturnValue('hello');
     expect(shouldDeleteSelectedBlocks(
-      keyEvt('Backspace', { isContentEditable: true }),
+      keyEvt('Backspace', editableTarget('a')),
       new Set(['a']),
     )).toBe(false);
     spySel.mockRestore();
@@ -68,7 +97,7 @@ describe('shouldDeleteSelectedBlocks', () => {
     const spyText = vi.spyOn(editableDom, 'readBlockText').mockReturnValue('');
     const spyCaret = vi.spyOn(selection, 'getCaretOffset').mockReturnValue(0);
     expect(shouldDeleteSelectedBlocks(
-      keyEvt('Backspace', { isContentEditable: true }),
+      keyEvt('Backspace', editableTarget('a')),
       new Set(['a']),
     )).toBe(false);
     spySel.mockRestore();
@@ -81,7 +110,7 @@ describe('shouldDeleteSelectedBlocks', () => {
     const spyText = vi.spyOn(editableDom, 'readBlockText').mockReturnValue('');
     const spyCaret = vi.spyOn(selection, 'getCaretOffset').mockReturnValue(0);
     expect(shouldDeleteSelectedBlocks(
-      keyEvt('Delete', { isContentEditable: true }),
+      keyEvt('Delete', editableTarget('a')),
       new Set(['a']),
     )).toBe(true);
     spySel.mockRestore();
@@ -92,7 +121,7 @@ describe('shouldDeleteSelectedBlocks', () => {
   it('returns false when a text range is selected inside editable', () => {
     const spy = vi.spyOn(selection, 'getSelectionOffsets').mockReturnValue({ start: 0, end: 3 });
     expect(shouldDeleteSelectedBlocks(
-      keyEvt('Delete', { isContentEditable: true }),
+      keyEvt('Delete', editableTarget('a')),
       new Set(['a']),
     )).toBe(false);
     spy.mockRestore();
@@ -110,11 +139,11 @@ describe('shouldDeleteSelectedBlocks', () => {
     const spyText = vi.spyOn(editableDom, 'readBlockText').mockReturnValue('content remains');
     const spyCaret = vi.spyOn(selection, 'getCaretOffset').mockReturnValue(3);
     expect(shouldDeleteSelectedBlocks(
-      keyEvt('Backspace', { isContentEditable: true }),
+      keyEvt('Backspace', editableTarget('block-1')),
       new Set(['block-1']),
     )).toBe(false);
     expect(shouldDeleteSelectedBlocks(
-      keyEvt('Backspace', { isContentEditable: true }),
+      keyEvt('Backspace', editableTarget('block-1')),
       new Set(['block-1']),
     )).toBe(false);
     spySel.mockRestore();

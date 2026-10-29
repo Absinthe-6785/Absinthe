@@ -33,7 +33,7 @@ export interface UseEditorBlockOpsOptions {
 export interface UseEditorBlockOpsResult {
   handleAddBelow: (id: string) => void;
   handleAddAbove: (id: string) => void;
-  handleDelete: (id: string) => void;
+  handleDelete: (id: string) => string | null;
   handleDeleteSelected: () => void;
   handleDuplicateSelected: () => void;
   handleMove: (id: string, dir: 'up' | 'down') => void;
@@ -71,11 +71,24 @@ export function useEditorBlockOps({
     selectBlock(nb.id);
   }, [onChange, selectBlock]);
 
-  const handleDelete = useCallback((id: string) => {
-    const updated = deleteBlockById(getBlocks(), id);
-    onChange(updated.length > 0 ? updated : [makeBlock('paragraph')]);
+  const handleDelete = useCallback((id: string): string | null => {
+    const before = getBlocks();
+    const updated = deleteBlockById(before, id);
+    const next = updated.length > 0 ? updated : [makeBlock('paragraph')];
+    onChange(next);
     clearSelection();
-  }, [onChange, clearSelection]);
+
+    const focus = resolveFocusAfterBlockDelete(before, [id], next);
+    if (!focus) {
+      onActiveBlockChange(null);
+      return null;
+    }
+
+    selectBlock(focus.blockId);
+    onActiveBlockChange(focus.blockId);
+    onFocusCmd({ blockId: focus.blockId, offset: focus.offset });
+    return focus.blockId;
+  }, [getBlocks, onChange, clearSelection, onActiveBlockChange, selectBlock, onFocusCmd]);
 
   const handleDeleteSelected = useCallback(() => {
     const ids = getSelectedIds();

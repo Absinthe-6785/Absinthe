@@ -303,11 +303,11 @@ export function EditableBlock({
 
     if (e.key === 'ArrowUp') {
       const offset = getCaretOffset(el);
-      if (offset === 0) { e.preventDefault(); onNavigateBlock(block.id, 'up'); return; }
+      if (!e.shiftKey && offset === 0) { e.preventDefault(); onNavigateBlock(block.id, 'up'); return; }
     }
     if (e.key === 'ArrowDown') {
       const text = getElText(el);
-      if (getCaretOffset(el) === text.length) { e.preventDefault(); onNavigateBlock(block.id, 'down'); return; }
+      if (!e.shiftKey && getCaretOffset(el) === text.length) { e.preventDefault(); onNavigateBlock(block.id, 'down'); return; }
     }
 
     if (e.key === 'Escape') {

@@ -281,6 +281,7 @@ registerBlockRenderer('table', (block, c, ctx) => (
     readOnly={ctx.readOnly} searchQuery={ctx.searchQuery}
     inline={ctx.inline}
     onTableChange={ctx.onTableChange}
+    onClearBlockSelection={ctx.onClearBlockSelection}
   />
 ));
 

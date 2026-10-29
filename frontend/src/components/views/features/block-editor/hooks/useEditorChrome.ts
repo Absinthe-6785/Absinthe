@@ -3,10 +3,6 @@ import type { TurnIntoMenuState } from '../../../editorTypes';
 import { CHROME_LEAVE_DELAY_MS } from '../constants/blockEditorConstants';
 import { isControlsVisible } from '../utils/controlsVisibility';
 
-export interface UseEditorChromeOptions {
-  onPinSelection: (id: string) => void;
-}
-
 export interface UseEditorChromeResult {
   handleMenu: TurnIntoMenuState | null;
   setHandleMenu: React.Dispatch<React.SetStateAction<TurnIntoMenuState | null>>;
@@ -19,22 +15,15 @@ export interface UseEditorChromeResult {
   controlsVisibleFor: (blockId: string) => boolean;
 }
 
-export function useEditorChrome({
-  onPinSelection,
-}: UseEditorChromeOptions): UseEditorChromeResult {
+export function useEditorChrome(): UseEditorChromeResult {
   const [handleMenu, setHandleMenu] = useState<TurnIntoMenuState | null>(null);
   const [pinnedControlsId, setPinnedControlsId] = useState<string | null>(null);
   const [chromeHoverId, setChromeHoverId] = useState<string | null>(null);
   const chromeLeaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleToggleControlsPin = useCallback((id: string) => {
-    setPinnedControlsId(prev => {
-      if (prev !== id) {
-        onPinSelection(id);
-      }
-      return prev === id ? null : id;
-    });
-  }, [onPinSelection]);
+    setPinnedControlsId(prev => prev === id ? null : id);
+  }, []);
 
   const handleChromeEnter = useCallback((id: string) => {
     if (chromeLeaveTimer.current) {

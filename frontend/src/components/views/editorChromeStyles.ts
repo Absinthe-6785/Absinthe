@@ -57,9 +57,9 @@ export const EDITOR_CHROME_STYLES = `
     touch-action: none;
   }
   .be-editor-nested .be-gutter {
-    flex-basis: 44px;
-    width: 44px;
-    margin-left: -44px;
+    flex-basis: ${K123_EDITOR_GUTTER_PX}px;
+    width: ${K123_EDITOR_GUTTER_PX}px;
+    margin-left: -${K123_EDITOR_GUTTER_PX}px;
   }
   .be-gutter-strip {
     position: absolute;
@@ -90,6 +90,7 @@ export const EDITOR_CHROME_STYLES = `
     position: relative;
   }
   .be-handles {
+    width: 100%;
     opacity: 0;
     visibility: hidden;
     pointer-events: none;
@@ -101,7 +102,8 @@ export const EDITOR_CHROME_STYLES = `
   .be-block.be-controls-visible > .be-gutter > .be-handles,
   .be-block.be-dragging > .be-gutter > .be-handles,
   .be-gutter:hover > .be-handles,
-  .be-handles:hover {
+  .be-handles:hover,
+  .be-handles:focus-within {
     opacity: 1 !important;
     visibility: visible !important;
     pointer-events: auto !important;
@@ -109,7 +111,8 @@ export const EDITOR_CHROME_STYLES = `
   }
   .be-handle-btn {
     position: relative;
-    width: 32px;
+    width: 100%;
+    min-width: 0;
     height: 32px;
     display: flex;
     align-items: center;
@@ -125,7 +128,7 @@ export const EDITOR_CHROME_STYLES = `
   .be-grip.be-handle-btn::before {
     content: '';
     position: absolute;
-    inset: -8px;
+    inset: -8px 0;
     z-index: -1;
   }
   .be-grip.be-grip-pinned {
@@ -168,6 +171,10 @@ export const EDITOR_CHROME_STYLES = `
   }
   .be-handle-btn:hover {
     background: var(--be-accent-bg, rgba(139,92,246,0.1));
+  }
+  .be-handle-btn:focus-visible {
+    outline: 2px solid var(--be-accent, #8B5CF6);
+    outline-offset: 2px;
   }
   .be-handle-btn:hover .be-grip-dot { opacity: 1; }
   .be-selection-toolbar button {
@@ -256,6 +263,18 @@ export const EDITOR_CHROME_STYLES = `
     overflow: visible;
   }
   @media (pointer: coarse) {
+    .be-document-edit {
+      padding-left: 88px;
+    }
+    .be-gutter,
+    .be-editor-nested .be-gutter {
+      flex-basis: 88px;
+      width: 88px;
+      margin-left: -88px;
+    }
+    .be-handles {
+      grid-template-columns: repeat(2, minmax(44px, 1fr)) !important;
+    }
     .be-block-active > .be-gutter,
     .be-block.be-block-selected > .be-gutter {
       opacity: 1;
@@ -266,15 +285,15 @@ export const EDITOR_CHROME_STYLES = `
       visibility: visible;
       pointer-events: auto;
     }
-    .be-grip.be-handle-btn::before {
-      inset: -12px;
-    }
+    .be-grip.be-handle-btn::before { inset: -12px 0; }
     .be-gutter-strip {
       inset: -8px -14px;
     }
     .be-handle-btn {
-      width: 36px;
-      height: 36px;
+      width: 100%;
+      min-width: 0;
+      min-height: 44px;
+      height: 44px;
     }
   }
   .be-editable[contenteditable]:empty::before {
@@ -470,7 +489,7 @@ export const EDITOR_CHROME_STYLES = `
     }
   }
   @media (pointer: coarse) {
-    .be-handle-btn { width: 40px; height: 40px; }
+    .be-handle-btn { height: 44px; }
     .be-image-block [data-k108-image-more] { min-height: 48px; min-width: 48px; }
     .be-editor-toolbar { row-gap: 10px; }
   }

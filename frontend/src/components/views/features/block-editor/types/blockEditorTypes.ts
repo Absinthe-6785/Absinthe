@@ -47,6 +47,10 @@ export interface BlockEditorInnerProps {
   onMergeFirstChildIntoHeader?: (childId: string, childContent: string) => void;
   getRootBlocks?: () => Block[];
   onRootChange?: (b: Block[]) => void;
+  onDeleteSelected?: () => void;
+  onDuplicateSelected?: () => void;
+  onIndentSelected?: () => void;
+  onOutdentSelected?: () => void;
   searchScope?: EditorSearchScope;
   searchMatchIndex?: number;
   documentFocusApiRef?: DocumentFocusApiRef;

@@ -29,6 +29,7 @@ import { isToggleBlockType } from '../../../toggleBlockTypes';
 import type { ToggleNestedRenderer } from '../../../toggleRender';
 import {
   registerFocusHandler,
+  type BlockSelectionModifiers,
   type FocusCmd,
 } from '../features/selection';
 import { useVirtualNavigation } from '../performance/VirtualNavigationContext';
@@ -39,11 +40,20 @@ import { shouldHideBlockInReadingMode } from '../../../readingModeVisibility';
 
 const getElText = readBlockText;
 
+function accessibleBlockLabel(block: Block): string {
+  const text = block.content
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 64);
+  return text ? `${block.type}: ${text}` : block.type;
+}
+
 interface SingleBlockProps {
   block: Block;
   colors: BlockEditorColors;
   isSelected: boolean;
-  onBlockSelect: (id: string, e: React.MouseEvent) => void;
+  onBlockSelect: (id: string, modifiers: BlockSelectionModifiers) => void;
   onAddBelow: (id: string) => void; readOnly: boolean;
   searchQuery: string; depth: number; wikiTargets: string[];
   headingIndex?: number;   // 최상위 헤딩 순번 (TOC 점프 타겟용), 헤딩이 아니면 undefined
@@ -54,7 +64,7 @@ interface SingleBlockProps {
   // Phase 3: 드래그&드롭
   bindGripPointer: (id: string, e: React.PointerEvent, onClick?: () => void) => void;
   getDragProps: (id: string) => { onPointerEnter: (e: React.PointerEvent) => void; 'data-drag-id': string };
-  onOpenTurnInto: (state: TurnIntoMenuState) => void;
+  onOpenTurnInto: (state: TurnIntoMenuState | null) => void;
   onConvertBlock: (id: string, type: BlockType) => void;
   // Phase 3: 슬래시 커맨드
   onSlashOpen:  (state: SlashMenuState) => void;
@@ -74,6 +84,7 @@ interface SingleBlockProps {
   onActiveBlockChange?: (id: string | null) => void;
   activeBlockId?: string | null;
   controlsVisible?: boolean;
+  actionsMenuOpen: boolean;
   onToggleControlsPin?: (id: string) => void;
   onChromeEnter?: (id: string) => void;
   onChromeLeave?: () => void;
@@ -96,6 +107,7 @@ function singleBlockPropsEqual(prev: SingleBlockProps, next: SingleBlockProps): 
     && prev.onBlockSelect === next.onBlockSelect
     && prev.activeBlockId === next.activeBlockId
     && prev.controlsVisible === next.controlsVisible
+    && prev.actionsMenuOpen === next.actionsMenuOpen
     && prev.readOnly === next.readOnly
     && prev.searchQuery === next.searchQuery
     && prev.depth === next.depth
@@ -152,6 +164,7 @@ export const SingleBlock = React.memo(function SingleBlock({
   onActiveBlockChange,
   activeBlockId,
   controlsVisible,
+  actionsMenuOpen,
   onToggleControlsPin,
   onChromeEnter,
   onChromeLeave,
@@ -246,11 +259,15 @@ export const SingleBlock = React.memo(function SingleBlock({
       blockId={block.id}
       depth={depth}
       readOnly={readOnly}
+      isSelected={isSelected}
+      blockLabel={accessibleBlockLabel(block)}
       controlsVisible={controlsVisible ?? false}
+      actionsMenuOpen={actionsMenuOpen}
       onChromeEnter={onChromeEnter}
       onChromeLeave={onChromeLeave}
       onToggleControlsPin={onToggleControlsPin}
       bindGripPointer={bindGripPointer}
+      onSelectBlock={onBlockSelect}
       onOpenTurnInto={onOpenTurnInto}
     />
   );
@@ -292,6 +309,8 @@ export const SingleBlock = React.memo(function SingleBlock({
   );
 
   const shellKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement;
+    if (e.shiftKey && target !== e.currentTarget && target.closest('[contenteditable="true"]')) return;
     if (e.key === 'ArrowUp')   { e.preventDefault(); onNavigateBlock(block.id, 'up'); }
     if (e.key === 'ArrowDown') { e.preventDefault(); onNavigateBlock(block.id, 'down'); }
   }, [block.id, onNavigateBlock]);
@@ -345,16 +364,23 @@ export const SingleBlock = React.memo(function SingleBlock({
       tabIndex={0}
       onKeyDown={shellKeyDown}
       onMouseDown={handleContentMouseDown}
-      onFocus={() => { onBlockSelect(block.id, { shiftKey: false, metaKey: false, ctrlKey: false } as React.MouseEvent); onActiveBlockChange?.(block.id); }}
+      onFocus={e => {
+        // Focusing a child control is not a block-selection gesture. In
+        // particular, table controls must keep their native Tab/Delete behavior.
+        if (e.target !== e.currentTarget) return;
+        onBlockSelect(block.id, { shiftKey: false, metaKey: false, ctrlKey: false });
+        onActiveBlockChange?.(block.id);
+      }}
       style={{ outline: 'none', borderRadius: 6 }}
     >
       {inner}
     </div>
   ) : inner;
 
-  const openBlockMenu = useCallback((clientX: number, clientY: number) => {
+  const openBlockMenu = useCallback((clientX: number, clientY: number, blockEl: Element) => {
     onToggleControlsPin?.(block.id);
-    onOpenTurnInto({ blockId: block.id, anchorY: clientY, anchorX: clientX });
+    const returnFocusEl = blockEl.querySelector<HTMLButtonElement>('.be-handle-menu-btn');
+    onOpenTurnInto({ blockId: block.id, anchorY: clientY, anchorX: clientX, returnFocusEl });
   }, [block.id, onOpenTurnInto, onToggleControlsPin]);
 
   const blockShellProps = {
@@ -365,7 +391,7 @@ export const SingleBlock = React.memo(function SingleBlock({
     onContextMenu: readOnly ? undefined : (e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
-      openBlockMenu(e.clientX, e.clientY);
+      openBlockMenu(e.clientX, e.clientY, e.currentTarget);
     },
   } as const;
 
