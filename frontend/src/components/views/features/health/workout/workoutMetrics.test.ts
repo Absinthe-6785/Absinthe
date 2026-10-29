@@ -97,4 +97,21 @@ describe('workoutMetrics', () => {
 
     expect(badge).toMatchObject({ isPR: true, diff: 5, prevMax: 15, unit: 'kg' });
   });
+
+  it('uses the maximum completed current set rather than assuming the first set is the maximum', () => {
+    const badge = computeWorkoutPrBadge(
+      {
+        id: 'today', block_id: 'squat', exercise_blocks: { name: 'Squat', type: 'strength' },
+        sets: [
+          { type: 'strength', set: 1, kg: 80, reps: 5, done: true },
+          { type: 'strength', set: 2, kg: 105, reps: 2, done: true },
+          { type: 'strength', set: 3, kg: 110, reps: 1, done: false },
+        ],
+      },
+      { prev_sets: [{ type: 'strength', set: 1, kg: 100, reps: 3, done: true }], prev_date: '2026-06-10', pr_kg: 100 },
+      kg => kg,
+      'kg',
+    );
+    expect(badge).toMatchObject({ isPR: true, diff: 5, prevMax: 100, unit: 'kg' });
+  });
 });
