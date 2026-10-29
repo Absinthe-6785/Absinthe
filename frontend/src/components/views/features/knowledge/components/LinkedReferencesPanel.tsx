@@ -4,6 +4,7 @@ import { findWikiLinkInText } from '../../../noteUtils';
 import { findMentionInText } from '../mentions';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { OutgoingReference, PageReference } from '../backlinks';
+import type { WikiNavigationTarget } from '../../../wikiLinks';
 
 export interface LinkedReferencesPanelProps {
   colors: NoteChromeColors;
@@ -14,7 +15,7 @@ export interface LinkedReferencesPanelProps {
   mentionContexts: LinkContext[];
   outgoing: OutgoingReference[];
   onNavigateToNote: (noteId: string) => void;
-  onNavigateToWiki: (title: string) => void;
+  onNavigateToWiki: (target: WikiNavigationTarget) => void;
 }
 
 export function LinkedReferencesPanel({
@@ -259,7 +260,7 @@ export function LinkedReferencesPanel({
                   key={link.title}
                   className="bbl"
                   style={{ color: c.green }}
-                  onClick={() => onNavigateToNote(link.targetNoteId!)}
+                  onClick={() => link.idLink ? onNavigateToWiki(link.idLink) : onNavigateToNote(link.targetNoteId!)}
                 >
                   → {link.title}
                 </div>
@@ -270,11 +271,11 @@ export function LinkedReferencesPanel({
                 key={link.title}
                 className="bbl"
                 style={{ color: c.textMuted, fontStyle: 'italic' }}
-                title={t('knClickCreateNote')}
-                onClick={() => onNavigateToWiki(link.title)}
+                title={link.idLink ? undefined : t('knClickCreateNote')}
+                onClick={link.idLink ? undefined : () => onNavigateToWiki(link.title)}
               >
                 → {link.title}{' '}
-                <span style={{ fontSize: 9, color: c.accent }}>{t('knCreateNote')}</span>
+                {!link.idLink && <span style={{ fontSize: 9, color: c.accent }}>{t('knCreateNote')}</span>}
               </div>
             );
           })}

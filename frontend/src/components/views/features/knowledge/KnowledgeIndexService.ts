@@ -1,4 +1,5 @@
 import type { NoteBase } from '../../noteUtils';
+import { parseIdWikiLinks, type IdWikiLink } from '../../wikiLinks';
 import { extractLinks, findNoteByTitle, normalizeWikiTitle } from '../../noteUtils';
 import { containsWholeWordMention, bodyTextWithoutWikiLinks } from './mentions/mentionDetection';
 import { computeRelatedScore, RELATED_SCORE, type RelatedReason } from './related/relatedNotesScoring';
@@ -45,6 +46,8 @@ export class KnowledgeIndexService {
   private incomingByTitle = new Map<string, Set<string>>();
   /** source note id → outgoing link titles */
   private outgoingByNoteId = new Map<string, string[]>();
+  private outgoingIdLinks = new Map<string, IdWikiLink[]>();
+  private incomingById = new Map<string, Set<string>>();
   /** note id → page properties (extension point for tags/queries/graph) */
   private propertiesByNoteId = new Map<string, Readonly<Record<string, string>>>();
   /** note id → tag display names */
@@ -92,6 +95,8 @@ export class KnowledgeIndexService {
   buildFromNotes(notes: NoteBase[]): void {
     this.incomingByTitle.clear();
     this.outgoingByNoteId.clear();
+    this.outgoingIdLinks.clear();
+    this.incomingById.clear();
     this.propertiesByNoteId.clear();
     this.tagsByNoteId.clear();
     this.notesByTag.clear();
@@ -381,8 +386,8 @@ export class KnowledgeIndexService {
    */
   getConnectionScore(noteId: string): number {
     const title = this.getNoteTitle(noteId);
-    const incomingLinks = this.getIncoming(title).length;
-    const outgoingLinks = this.getOutgoing(noteId).length;
+    const incomingLinks = this.getIncomingForNote(noteId, false).length;
+    const outgoingLinks = this.getOutgoingWikiCount(noteId);
     const incomingMentions = this.getMentioningNotes(noteId).length;
     const outgoingMentions = (this.mentionsFromSourceId.get(noteId) ?? []).length;
     const relatedCount = this.deriveUniqueRelatedCount(noteId);
@@ -436,8 +441,8 @@ export class KnowledgeIndexService {
     const result: string[] = [];
     for (const noteId of this.getAllNoteIds()) {
       const title = this.getNoteTitle(noteId);
-      if (this.getIncoming(title).length > 0) continue;
-      if (this.getOutgoing(noteId).length > 0) continue;
+      if (this.getIncomingForNote(noteId, false).length > 0) continue;
+      if (this.getOutgoingWikiCount(noteId) > 0) continue;
       if (this.getMentioningNotes(noteId).length > 0) continue;
       if ((this.mentionsFromSourceId.get(noteId) ?? []).length > 0) continue;
       result.push(noteId);
@@ -454,7 +459,7 @@ export class KnowledgeIndexService {
   getNoteIdsWithBacklinks(): string[] {
     return this.getAllNoteIds().filter(noteId => {
       const title = this.getNoteTitle(noteId);
-      return this.getIncoming(title).length > 0 || this.getOutgoing(noteId).length > 0;
+      return this.getIncomingForNote(noteId, false).length > 0 || this.getOutgoingWikiCount(noteId) > 0;
     });
   }
 
@@ -503,6 +508,31 @@ export class KnowledgeIndexService {
     return [...(this.outgoingByNoteId.get(noteId) ?? [])];
   }
 
+  /** Typed-ID path; legacy title lookup is intentionally kept separate. */
+  getIncomingForNote(noteId: string, excludeSelf = true): PageReference[] {
+    if (!this.activeNotes.has(noteId)) return [];
+    const refs = this.getIncoming(this.getNoteTitle(noteId), { excludeNoteId: excludeSelf ? noteId : undefined });
+    const merged = new Map(refs.map(ref => [ref.noteId, ref]));
+    for (const sourceId of this.incomingById.get(noteId) ?? []) {
+      if ((!excludeSelf || sourceId !== noteId) && this.activeNotes.has(sourceId)) {
+        merged.set(sourceId, this.hydratePageReference(sourceId));
+      }
+    }
+    return [...merged.values()];
+  }
+
+  getOutgoingTargetIds(noteId: string): string[] {
+    return [...new Set([
+      ...this.getOutgoing(noteId).map(title => this.resolveNoteId(title)).filter((id): id is string => Boolean(id)),
+      ...(this.outgoingIdLinks.get(noteId) ?? []).map(link => link.noteId).filter(id => this.activeNotes.has(id)),
+    ])];
+  }
+
+  getOutgoingWikiCount(noteId: string): number {
+    return this.getOutgoing(noteId).length
+      + new Set((this.outgoingIdLinks.get(noteId) ?? []).map(link => link.noteId)).size;
+  }
+
   getBacklinkCount(title: string, excludeNoteId?: string): number {
     return this.getIncoming(title, { excludeNoteId }).length;
   }
@@ -541,13 +571,17 @@ export class KnowledgeIndexService {
     note: NoteBase,
     allNotes: NoteBase[],
   ): { incoming: PageReference[]; outgoing: OutgoingReference[] } {
-    const incoming = this.getIncoming(note.title ?? '', { excludeNoteId: note.id });
+    const incoming = this.getIncomingForNote(note.id);
 
-    const outgoing = this.getOutgoing(note.id).map(title => {
+    const outgoing: OutgoingReference[] = this.getOutgoing(note.id).map(title => {
       const target = findNoteByTitle(title, allNotes);
       return target ? { title, targetNoteId: target.id } : { title };
     });
 
+    for (const link of this.outgoingIdLinks.get(note.id) ?? []) {
+      const target = allNotes.find(candidate => candidate.id === link.noteId && !candidate.deletedAt);
+      outgoing.push({ title: link.label || target?.title || 'Missing note', idLink: link, ...(target ? { targetNoteId: target.id } : {}) });
+    }
     return { incoming, outgoing };
   }
 
@@ -586,6 +620,12 @@ export class KnowledgeIndexService {
   }
 
   private removeNoteEdges(noteId: string): void {
+    for (const link of this.outgoingIdLinks.get(noteId) ?? []) {
+      const bucket = this.incomingById.get(link.noteId);
+      bucket?.delete(noteId);
+      if (bucket?.size === 0) this.incomingById.delete(link.noteId);
+    }
+    this.outgoingIdLinks.delete(noteId);
     const outgoing = this.outgoingByNoteId.get(noteId);
     if (!outgoing) return;
 
@@ -602,6 +642,13 @@ export class KnowledgeIndexService {
   }
 
   private upsertNoteEdges(note: NoteBase): void {
+    const idLinks = parseIdWikiLinks(note.body ?? '');
+    this.outgoingIdLinks.set(note.id, idLinks);
+    for (const link of idLinks) {
+      const bucket = this.incomingById.get(link.noteId) ?? new Set<string>();
+      bucket.add(note.id);
+      this.incomingById.set(link.noteId, bucket);
+    }
     const outgoing = extractLinks(note.body ?? '');
     this.outgoingByNoteId.set(note.id, outgoing);
 
@@ -865,6 +912,7 @@ export class KnowledgeIndexService {
   }
 
   private hasWikiLinkTo(fromId: string, toId: string): boolean {
+    if ((this.outgoingIdLinks.get(fromId) ?? []).some(link => link.noteId === toId)) return true;
     const toTitle = this.activeNotes.get(toId)?.title ?? '';
     if (!toTitle.trim()) return false;
     const key = normalizeWikiTitle(toTitle);
@@ -900,12 +948,11 @@ export class KnowledgeIndexService {
     const neighbors = new Set<string>();
     const title = this.activeNotes.get(noteId)?.title ?? '';
 
-    for (const ref of this.getIncoming(title, { excludeNoteId: noteId })) {
+    for (const ref of this.getIncomingForNote(noteId)) {
       neighbors.add(ref.noteId);
     }
 
-    for (const linkTitle of this.getOutgoing(noteId)) {
-      const tid = this.resolveNoteId(linkTitle);
+    for (const tid of this.getOutgoingTargetIds(noteId)) {
       if (tid && tid !== noteId) neighbors.add(tid);
     }
 
@@ -1029,7 +1076,7 @@ export class KnowledgeIndexService {
 
     const aLinksB = this.hasWikiLinkTo(noteId, otherId);
     const bLinksA = this.hasWikiLinkTo(otherId, noteId);
-    const directOutgoing = this.getOutgoing(noteId).some(t => this.resolveNoteId(t) === otherId);
+    const directOutgoing = this.getOutgoingTargetIds(noteId).includes(otherId);
     const otherMeta = this.activeNotes.get(otherId);
     const recentActivity = otherMeta
       ? otherMeta.updatedAt > Date.now() - 14 * 86_400_000
@@ -1065,7 +1112,7 @@ export class KnowledgeIndexService {
       const bLinksA = this.hasWikiLinkTo(otherId, noteId);
       const hasRelation = this.hasRelationEdge(noteId, otherId);
       const hasSharedRelation = this.hasSharedRelationTarget(noteId, otherId);
-      const directOutgoing = this.getOutgoing(noteId).some(t => this.resolveNoteId(t) === otherId);
+      const directOutgoing = this.getOutgoingTargetIds(noteId).includes(otherId);
       const otherMeta = this.activeNotes.get(otherId);
       const recentActivity = otherMeta
         ? otherMeta.updatedAt > Date.now() - 14 * 86_400_000

@@ -8,6 +8,7 @@ import { useNoteKeyboardActions } from './useNoteKeyboardActions';
 
 vi.mock('../../../../store/useNotesStore', () => ({
   useNotesStore: { getState: () => ({ notes: [] }) },
+  observePublishedNotesHydration: () => ({ status: 'UNAVAILABLE', reason: 'NO_PUBLISHED_HYDRATION' }),
 }));
 vi.mock('../../../../hooks/useNoteNavigationStack', () => ({
   useNoteNavigationStack: () => ({ canBack: false, canForward: false, goBack: vi.fn(), goForward: vi.fn() }),

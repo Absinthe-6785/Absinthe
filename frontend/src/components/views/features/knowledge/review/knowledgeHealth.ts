@@ -1,5 +1,6 @@
 import type { NoteBase } from '../../../noteUtils';
 import { buildBacklinkIndex, getBacklinkCount } from '../backlinks';
+import { getOutgoingReferenceCount } from '../backlinks/buildBacklinkIndex';
 import { listTags } from '../tags/noteTags';
 import { countOrphanNotes, isOrphanNote } from './orphanNotes';
 import { countStaleNotes } from './staleNotes';
@@ -24,8 +25,8 @@ export function buildKnowledgeHealthMetrics(notes: readonly NoteBase[]): Knowled
   let totalBacklinks = 0;
 
   for (const note of active) {
-    const incoming = getBacklinkCount(index, note.title ?? '', note.id);
-    const outgoing = index.outgoingByNoteId.get(note.id)?.length ?? 0;
+    const incoming = getBacklinkCount(index, note.title ?? '', note.id, note.id);
+    const outgoing = getOutgoingReferenceCount(index, note.id);
     totalBacklinks += incoming;
     const connections = incoming + outgoing;
     totalConnections += connections;

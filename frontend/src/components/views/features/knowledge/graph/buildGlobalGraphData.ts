@@ -44,8 +44,7 @@ export function collectGlobalGraphEdges(
 
   for (const noteId of service.getAllNoteIds()) {
     if (includeBacklinks(relationshipFilter)) {
-      for (const title of service.getOutgoing(noteId)) {
-        const targetId = service.resolveNoteId(title);
+      for (const targetId of service.getOutgoingTargetIds(noteId)) {
         if (!targetId || targetId === noteId) continue;
         addEdge(edgeMap, noteId, targetId, 'backlink', RELATED_SCORE.BACKLINK);
         incrementDegree(degrees, noteId, targetId);

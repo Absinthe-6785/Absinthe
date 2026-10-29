@@ -5,14 +5,15 @@ import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { useTranslation } from '@/lib/i18n';
 import type { BlockEditorColors } from '../../../../../editorTypes';
 import { filterWikiTargets } from '../utils/wikiSearch';
+import { type WikiTarget, wikiTargetTitle } from '../../../../../wikiLinks';
 
 export interface WikiMenuProps {
   query: string;
-  targets: string[];
+  targets: WikiTarget[];
   anchorY: number;
   anchorX: number;
   colors: BlockEditorColors;
-  onSelect: (title: string) => void;
+  onSelect: (target: WikiTarget) => void;
   onClose: () => void;
 }
 
@@ -62,7 +63,7 @@ export function WikiMenu({ query, targets, anchorY, anchorX, colors: c, onSelect
       {items.map((title, idx) => {
         const active = cursor === idx;
         return (
-          <button key={title + idx} data-idx={idx}
+          <button key={(typeof title === 'string' ? title : title.id) + idx} data-idx={idx}
             onMouseDown={e => { e.preventDefault(); onSelect(title); }}
             onMouseEnter={() => setCursor(idx)}
             style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%',
@@ -70,7 +71,7 @@ export function WikiMenu({ query, targets, anchorY, anchorX, colors: c, onSelect
               border: 'none', cursor: 'pointer', textAlign: 'left' }}>
             <span style={{ fontSize: 11, color: c.textFaint, flexShrink: 0 }}>📄</span>
             <span style={{ fontSize: 13, color: c.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {title}
+              {wikiTargetTitle(title)}
             </span>
           </button>
         );

@@ -2,14 +2,15 @@
  * wikiSearch.ts — Wiki autocomplete target filtering (pure)
  */
 
+import { type WikiTarget, isCurrentWikiTarget, wikiTargetTitle } from '../../../../../wikiLinks';
 const DEFAULT_LIMIT = 8;
 
-export function filterWikiTargets(
+export function filterWikiTargets<T extends WikiTarget>(
   query: string,
-  targets: string[],
+  targets: T[],
   limit = DEFAULT_LIMIT,
-): string[] {
+): T[] {
   const q = query.toLowerCase().trim();
-  const list = q ? targets.filter(t => t.toLowerCase().includes(q)) : targets;
+  const list = targets.filter(t => isCurrentWikiTarget(t) && (!q || wikiTargetTitle(t).toLowerCase().includes(q)));
   return list.slice(0, limit);
 }

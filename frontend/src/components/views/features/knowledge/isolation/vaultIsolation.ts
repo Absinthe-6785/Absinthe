@@ -16,8 +16,8 @@ export function evaluateNoteIsolation(
   service: KnowledgeIndexService,
 ): IsolationStatus {
   const title = (note.title ?? '').trim();
-  const incomingWiki = title ? service.getIncoming(title, { excludeNoteId: note.id }).length : 0;
-  const outgoingWiki = service.getOutgoing(note.id).length;
+  const incomingWiki = service.getIncomingForNote(note.id).length;
+  const outgoingWiki = service.getOutgoingWikiCount(note.id);
   const incomingMentions = service.getMentioningNotes(note.id, { excludeNoteId: note.id }).length;
   const hasRelations = service.getOutgoingRelations(note.id).length > 0
     || service.getIncomingRelations(note.id).length > 0;

@@ -5,10 +5,12 @@
  * React 의존성 없음 — 순수 TypeScript
  */
 import { resolveSlashCommand, slashCommandKeysMatching } from './features/block-editor/features/menus';
+import { markdownCodeLanguage, markdownMathBlockEnd, isMarkdownTableStart, isMarkdownTableRow,
+  markdownTableCells, markdownToggleHeader, isMarkdownToggleChildLine, markdownObsidianCallout } from './markdownBlockBoundaries';
 import { citationFieldsToBlockPatch, parseCitationBody, serializeCitationBody } from './citationUtils';
 import { parseAnswerBody, parseQuestionBody, serializeAnswerBody } from './studyBlockUtils';
 import type { BlockTint } from './blockColors';
-import { CALLOUT_PRESETS, DEFAULT_CALLOUT_ICON, calloutIconForObsidianAlias } from './calloutPresets';
+import { CALLOUT_PRESETS, DEFAULT_CALLOUT_ICON } from './calloutPresets';
 import {
   isToggleBlockType,
   toggleHeadingBlockType,
@@ -276,9 +278,8 @@ export function markdownToBlocks(md: string): Block[] {
 
   // ── 코드블록 ─────────────────────────────────────────────────────
   const tryCodeBlock = (): Block | null => {
-    const m = lines[i].match(/^```([\w]*)\s*$/);
-    if (!m) return null;
-    const lang = m[1] || '';
+    const lang = markdownCodeLanguage(lines[i]);
+    if (lang === null) return null;
     const codeLines: string[] = [];
     i++;
     while (i < lines.length && lines[i] !== '```') {
@@ -311,16 +312,7 @@ export function markdownToBlocks(md: string): Block[] {
   // ── 수학 블록 $$...$$──────────────────────────────────────────────
   const tryMathBlock = (): Block | null => {
     const opening = lines[i];
-    const closing = opening === '$$' ? '$$' : opening === '\\[' ? '\\]' : null;
-    if (!closing) return null;
-    let closeIndex = -1;
-    for (let cursor = i + 1; cursor < lines.length; cursor += 1) {
-      if (opening === '\\[' && /^ {0,3}(?:`{3,}|~{3,})/.test(lines[cursor])) return null;
-      if (lines[cursor] === closing) {
-        closeIndex = cursor;
-        break;
-      }
-    }
+    const closeIndex = markdownMathBlockEnd(lines, i);
     if (closeIndex === -1) return null;
 
     const math = lines.slice(i + 1, closeIndex).join('\n');
@@ -334,19 +326,18 @@ export function markdownToBlocks(md: string): Block[] {
 
   // ── 테이블 ───────────────────────────────────────────────────────
   const tryTable = (): Block | null => {
-    if (!/^\|.+\|/.test(lines[i])) return null;
+    if (!isMarkdownTableStart(lines[i], lines[i + 1])) return null;
     const headerLine = lines[i];
     // 다음 줄이 구분자 줄인지 확인
-    if (i + 1 >= lines.length || !/^\|[\s\-:|]+\|/.test(lines[i + 1])) return null;
 
     const parseRow = (line: string) =>
-      line.split('|').slice(1, -1).map(c => c.trim());
+      markdownTableCells(line).map(cell => line.slice(cell.start, cell.end).trim());
 
     const headers = parseRow(headerLine);
     i += 2; // header + divider 건너뜀
 
     const rows: string[][] = [];
-    while (i < lines.length && /^\|.+\|/.test(lines[i])) {
+    while (i < lines.length && isMarkdownTableRow(lines[i])) {
       rows.push(parseRow(lines[i]));
       i++;
     }
@@ -371,21 +362,17 @@ export function markdownToBlocks(md: string): Block[] {
 
   // ── Obsidian 콜아웃 (> [!tip] …) ─────────────────────────────────
   const tryObsidianCallout = (): Block | null => {
-    const m = lines[i].match(/^> \[!(\w+)\]\s*(.*)$/i);
-    if (!m) return null;
-
-    const icon = calloutIconForObsidianAlias(m[1]);
-    if (!icon) return null;
+    const callout = markdownObsidianCallout(lines, i);
+    if (!callout) return null;
 
     const contentLines: string[] = [];
-    if (m[2]?.trim()) contentLines.push(m[2].trim());
-    i++;
-    while (i < lines.length && /^> /.test(lines[i]) && !/^> \[!(\w+)\]/i.test(lines[i])) {
-      contentLines.push(lines[i].replace(/^> /, ''));
-      i++;
+    if (callout.summary) contentLines.push(callout.summary);
+    for (let cursor = i + 1; cursor < callout.end; cursor++) {
+      contentLines.push(lines[cursor].replace(/^> /, ''));
     }
+    i = callout.end;
 
-    return makeBlock('callout', { content: contentLines.join('\n'), calloutIcon: icon });
+    return makeBlock('callout', { content: contentLines.join('\n'), calloutIcon: callout.icon });
   };
 
   // ── 콜아웃 (토글·인용보다 먼저 — "> 💡 text" 직렬화 호환) ─────────
@@ -404,24 +391,14 @@ export function markdownToBlocks(md: string): Block[] {
 
   // ── 토글 제목 (#> … / ##> …) ─────────────────────────────────────
   const tryToggleHeading = (): Block | null => {
-    const mClosed = lines[i].match(/^(#{1,4})>!\s?(.*)$/);
-    const mOpen = !mClosed && lines[i].match(/^(#{1,4})>(?!!)\s?(.*)$/);
-    const m = mClosed ?? mOpen;
-    if (!m) return null;
-
-    const level = m[1].length as 1 | 2 | 3 | 4;
-    const collapsed = !!mClosed;
-    const summary = m[2] ?? '';
-
-    const nextLine = lines[i + 1];
-    const hasChildren = nextLine !== undefined &&
-      (nextLine.startsWith('  ') || nextLine === '');
-
-    if (!collapsed && !hasChildren && !summary) return null;
+    const header = markdownToggleHeader(lines[i], lines[i + 1], true);
+    if (!header) return null;
+    const { summary, collapsed } = header;
+    const level = header.level!;
 
     const childLines: string[] = [];
     i++;
-    while (i < lines.length && (lines[i].startsWith('  ') || lines[i] === '')) {
+    while (i < lines.length && isMarkdownToggleChildLine(lines[i])) {
       childLines.push(lines[i].replace(/^  /, ''));
       i++;
     }
@@ -435,25 +412,13 @@ export function markdownToBlocks(md: string): Block[] {
   // 열린 toggle : "> 제목" / ">" (빈 제목) → collapsed: false
   // 닫힌 toggle : ">! 제목" / ">!"         → collapsed: true
   const tryToggle = (): Block | null => {
-    const mClosed = lines[i].match(/^>!\s?(.*)$/);
-    const mOpen   = !mClosed && lines[i].match(/^>(?!!)\s?(.*)$/);
-    const m       = mClosed ?? mOpen;
-    if (!m) return null;
-
-    const collapsed = !!mClosed;
-    const summary   = m[1] ?? '';
-
-    const nextLine = lines[i + 1];
-    const hasChildren = nextLine !== undefined &&
-      (nextLine.startsWith('  ') || nextLine === '');
-
-    // 닫힌 toggle(>!)은 자식 유무 무관하게 toggle로 처리
-    // 열린 toggle(>)은 자식이 있을 때만 toggle — 없으면 quote로 양보
-    if (!collapsed && !hasChildren) return null;
+    const header = markdownToggleHeader(lines[i], lines[i + 1], false);
+    if (!header) return null;
+    const { summary, collapsed } = header;
 
     const childLines: string[] = [];
     i++;
-    while (i < lines.length && (lines[i].startsWith('  ') || lines[i] === '')) {
+    while (i < lines.length && isMarkdownToggleChildLine(lines[i])) {
       childLines.push(lines[i].replace(/^  /, ''));
       i++;
     }

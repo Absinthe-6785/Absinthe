@@ -1,8 +1,11 @@
 import { normalizeWikiTitle } from '../../../noteUtils';
+import { parseIdWikiLinks } from '../../../wikiLinks';
 
 /** Remove wiki link regions so plain-text mention scan ignores [[...]] */
 export function bodyTextWithoutWikiLinks(body: string): string {
-  return body.replace(/\[\[(.+?)\]\]/g, ' ');
+  let plain = body;
+  for (const link of parseIdWikiLinks(body).reverse()) plain = plain.slice(0, link.start) + ' ' + plain.slice(link.end);
+  return plain.replace(/\[\[(.+?)\]\]/g, ' ');
 }
 
 function escapeRegExp(text: string): string {

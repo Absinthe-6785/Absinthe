@@ -9,6 +9,7 @@ import {
 } from '../../lib/math/mathParse';
 import { renderMathTokenHtml } from '../../lib/math/katexRender';
 import { normalizeWikiTitle } from './noteUtils';
+import { type WikiTarget, isCurrentWikiTarget, wikiTargetTitle, parseIdWikiLinks, resolveIdWikiTarget } from './wikiLinks';
 import type { BlockEditorColors } from './editorTypes';
 import { inlineTagSpan, renderInlineTagsInHtml } from './features/knowledge/tags/inlineTagRender';
 
@@ -31,8 +32,31 @@ export function applySearchHighlight(html: string, searchQuery: string): string 
   });
 }
 
-function wikiSetFrom(targets: string[]): Set<string> {
-  return new Set(targets.map(normalizeWikiTitle));
+function wikiSetFrom(targets: WikiTarget[]): Set<string> {
+  return new Set(targets.filter(isCurrentWikiTarget).map(target => normalizeWikiTitle(wikiTargetTitle(target))));
+}
+
+function protectIdLinks(text: string, targets: WikiTarget[], live: boolean) {
+  const slots: string[] = [];
+  let prefix = '\uE200WIKI';
+  while (text.includes(prefix)) prefix += 'W';
+  let cursor = 0;
+  let work = '';
+  for (const link of parseIdWikiLinks(text, 'inline')) {
+    work += text.slice(cursor, link.start) + prefix + slots.length + '\uE201';
+    const target = resolveIdWikiTarget(link, targets);
+    const shown = live ? link.raw : link.label || target?.title || 'Missing note';
+    const cls = live ? 'be-wiki-chip' : 'be-wikilink';
+    const data = target ? ` data-note-link="${escAttr(escHtml(link.raw))}"` : '';
+    const style = target
+      ? 'color:var(--be-accent,inherit);text-decoration:underline;cursor:pointer'
+      : 'color:var(--be-text-muted,inherit);text-decoration:underline dashed';
+    slots.push(`<span class="${cls}${target ? '' : ' be-wikilink-broken'}"${data} style="${style}">${escHtml(shown)}</span>`);
+    cursor = link.end;
+  }
+  work += text.slice(cursor);
+  return { work, restore: (html: string) => slots.reduce((value, slot, i) =>
+    value.replace(prefix + i + '\uE201', () => slot), html) };
 }
 
 function isWikiBroken(title: string, wikiSet: Set<string>): boolean {
@@ -99,10 +123,11 @@ export function renderInlineMarkdownHtml(
   text: string,
   c: BlockEditorColors,
   searchQuery = '',
-  wikiTargets: string[] = [],
+  wikiTargets: WikiTarget[] = [],
 ): string {
   const wikiSet = wikiSetFrom(wikiTargets);
-  const { work, math } = protectInlineMathReadOnly(text, c, searchQuery);
+  const idLinks = protectIdLinks(text, wikiTargets, false);
+  const { work, math } = protectInlineMathReadOnly(idLinks.work, c, searchQuery);
 
   let html = escHtml(work)
     .replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>')
@@ -126,7 +151,7 @@ export function renderInlineMarkdownHtml(
   html = renderInlineTagsInHtml(html, tag =>
     inlineTagSpan(tag, 'be-tag', `color:${c.accent};opacity:.85;cursor:pointer`));
 
-  html = applySearchHighlight(html, searchQuery);
+  html = applySearchHighlight(idLinks.restore(html), searchQuery);
   return restoreMathPlaceholders(html, math);
 }
 
@@ -134,12 +159,13 @@ export function renderInlineMarkdownHtml(
 export function liveInlineHtml(
   text: string,
   c: BlockEditorColors,
-  wikiTargets: string[] = [],
+  wikiTargets: WikiTarget[] = [],
   searchQuery = '',
 ): string {
   if (!text) return '';
   const wikiSet = wikiSetFrom(wikiTargets);
-  const { work, math } = protectInlineMathLive(text, searchQuery);
+  const idLinks = protectIdLinks(text, wikiTargets, true);
+  const { work, math } = protectInlineMathLive(idLinks.work, searchQuery);
 
   let html = escHtml(work)
     .replace(/\[\[(.+?)\]\]/g, (_m, t: string) => {
@@ -160,7 +186,7 @@ export function liveInlineHtml(
   html = renderInlineTagsInHtml(html, tag =>
     inlineTagSpan(tag, 'be-tag-chip'));
 
-  html = applySearchHighlight(html, searchQuery);
+  html = applySearchHighlight(idLinks.restore(html), searchQuery);
   return restoreMathPlaceholders(html, math);
 }
 
@@ -169,7 +195,7 @@ export function renderInlineMarkdown(
   text: string,
   c: BlockEditorColors,
   searchQuery = '',
-  wikiTargets: string[] = [],
+  wikiTargets: WikiTarget[] = [],
 ): ReactNode {
   const html = renderInlineMarkdownHtml(text, c, searchQuery, wikiTargets);
   return React.createElement('span', { dangerouslySetInnerHTML: { __html: html } });

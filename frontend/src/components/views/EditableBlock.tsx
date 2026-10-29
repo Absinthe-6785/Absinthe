@@ -23,6 +23,7 @@ import {
   traceClipboardToBlocks,
 } from './pastePipelineTrace';
 import { detectWikiQuery, findWikiLinkAtOffset } from './features/block-editor/features/menus';
+import { parseIdWikiLink, type WikiNavigationTarget } from './wikiLinks';
 import { applySymbolShortcut } from './symbolShortcuts';
 import { headingConvertTarget } from './headingToolbar';
 import type { BlockEditorColors, SlashMenuState, WikiMenuState } from './editorTypes';
@@ -45,11 +46,11 @@ export interface EditableBlockProps {
   onWikiOpen: (state: WikiMenuState) => void;
   onWikiClose: () => void;
   isMenuOpen: boolean;
-  onWikiNavigate?: (title: string) => void;
+  onWikiNavigate?: (target: WikiNavigationTarget) => void;
   onEnterOverride?: (before: string, after: string) => void;
   onNavigateBlock: (fromId: string, dir: 'up' | 'down') => void;
   onActiveBlockChange?: (id: string | null) => void;
-  wikiTargets?: string[];
+  wikiTargets?: WikiTarget[];
   searchQuery?: string;
   onConvertBlock?: (id: string, type: BlockType) => void;
   onIndentBlock?: (id: string) => void;
@@ -375,6 +376,12 @@ export function EditableBlock({
 
   const handleClick = useCallback((e: React.MouseEvent<HTMLElement>) => {
     if (!onWikiNavigate) return;
+    const idElement = (e.target as HTMLElement).closest('[data-note-link]') as HTMLElement | null;
+    const idLink = parseIdWikiLink(idElement?.dataset.noteLink ?? '');
+    if (idLink) {
+      if (!(e.ctrlKey || e.metaKey) || e.shiftKey) return;
+      e.preventDefault(); onWikiNavigate(idLink); return;
+    }
     const wl = (e.target as HTMLElement).closest('.be-wikilink') as HTMLElement | null;
     if (wl) {
       const title = wl.getAttribute('data-wiki');
@@ -519,3 +526,4 @@ export function EditableBlock({
     />
   );
 }
+import type { WikiTarget } from '@/components/views/wikiLinks';

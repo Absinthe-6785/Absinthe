@@ -12,7 +12,7 @@ const MOST_RELATED_LIMIT = 6;
 const WORTH_REVISITING_LIMIT = 4;
 
 function incomingLinkCount(noteId: string, noteTitle: string, service: KnowledgeIndexService): number {
-  return service.getIncoming(noteTitle, { excludeNoteId: noteId }).length;
+  return service.getIncomingForNote(noteId).length;
 }
 
 function worthRevisitingScore(

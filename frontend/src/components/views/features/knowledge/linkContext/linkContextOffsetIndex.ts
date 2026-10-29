@@ -1,5 +1,6 @@
 import type { NoteBase } from '../../../noteUtils';
 import { extractLinks, normalizeWikiTitle, noteReferencesTitle } from '../../../noteUtils';
+import { parseIdWikiLinks } from '../../../wikiLinks';
 
 export interface ParagraphOffsetEntry {
   start: number;
@@ -19,6 +20,7 @@ export interface LinkContext {
 }
 
 export interface ExtractLinkContextsOptions {
+  targetNoteId?: string;
   maxExcerpts?: number;
   excerptMax?: number;
   /** Bumps with note body edits — cache entries mismatch when body fingerprint changes. */
@@ -133,9 +135,11 @@ export function getCachedParagraphOffsets(noteId: string, body: string): Paragra
   return offsets;
 }
 
-function paragraphHasLink(body: string, start: number, end: number, targetKey: string): boolean {
+function paragraphHasLink(body: string, start: number, end: number, targetKey: string, targetNoteId?: string): boolean {
   const slice = body.slice(start, end);
-  return extractLinks(slice).some(link => normalizeWikiTitle(link) === targetKey);
+  return extractLinks(slice).some(link => normalizeWikiTitle(link) === targetKey)
+    || Boolean(targetNoteId && parseIdWikiLinks(body).some(link =>
+      link.noteId === targetNoteId && link.start >= start && link.end <= end));
 }
 
 function formatExcerpt(body: string, start: number, end: number, excerptMax: number): string {
@@ -160,17 +164,18 @@ function excerptsFromOffsets(
   maxExcerpts: number,
   excerptMax: number,
   lineFallback: boolean,
+  targetNoteId?: string,
 ): string[] {
   const excerpts: string[] = [];
   for (const { start, end } of offsets) {
-    if (!paragraphHasLink(body, start, end, targetKey)) continue;
+    if (!paragraphHasLink(body, start, end, targetKey, targetNoteId)) continue;
     excerpts.push(formatExcerpt(body, start, end, excerptMax));
     if (excerpts.length >= maxExcerpts) break;
   }
 
   if (excerpts.length === 0 && lineFallback) {
     for (const { start, end } of buildLineOffsets(body)) {
-      if (!paragraphHasLink(body, start, end, targetKey)) continue;
+      if (!paragraphHasLink(body, start, end, targetKey, targetNoteId)) continue;
       excerpts.push(formatLineExcerpt(body, start, end, excerptMax));
       if (excerpts.length >= maxExcerpts) break;
     }
@@ -185,7 +190,7 @@ export function extractLinkContexts(
   allNotes: readonly NoteBase[],
   opts: ExtractLinkContextsOptions = {},
 ): LinkContext[] {
-  if (!targetTitle.trim()) return [];
+  if (!targetTitle.trim() && !opts.targetNoteId) return [];
 
   syncLinkContextOffsetCache(opts.contentVersion);
 
@@ -197,10 +202,10 @@ export function extractLinkContexts(
   for (const note of allNotes) {
     if (note.deletedAt) continue;
     const body = note.body ?? '';
-    if (!noteReferencesTitle(body, targetTitle)) continue;
+    if (!noteReferencesTitle(body, targetTitle) && !parseIdWikiLinks(body).some(link => link.noteId === opts.targetNoteId)) continue;
 
     const offsets = getCachedParagraphOffsets(note.id, body);
-    const excerpts = excerptsFromOffsets(body, offsets, targetKey, maxExcerpts, excerptMax, true);
+    const excerpts = excerptsFromOffsets(body, offsets, targetKey, maxExcerpts, excerptMax, true, opts.targetNoteId);
     if (excerpts.length > 0) {
       results.push({ noteId: note.id, noteTitle: note.title ?? '', excerpts });
     }

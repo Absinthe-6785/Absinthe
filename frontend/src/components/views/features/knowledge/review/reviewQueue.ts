@@ -1,6 +1,7 @@
 import type { NoteBase } from '../../../noteUtils';
 import { displayNoteTitle } from '../../../noteDisplayTitle';
 import { buildBacklinkIndex, getBacklinkCount } from '../backlinks';
+import { getOutgoingReferenceCount } from '../backlinks/buildBacklinkIndex';
 import { isMilestoneNote } from '../trace/milestoneNotes';
 import { buildKnowledgeReviewLists } from './buildKnowledgeReview';
 import { buildStaleNotesBuckets } from './staleNotes';
@@ -63,8 +64,8 @@ export function buildReviewQueue(
   const hubs = [...active]
     .map(note => ({
       note,
-      total: getBacklinkCount(index, note.title ?? '', note.id)
-        + (index.outgoingByNoteId.get(note.id)?.length ?? 0),
+      total: getBacklinkCount(index, note.title ?? '', note.id, note.id)
+        + getOutgoingReferenceCount(index, note.id),
     }))
     .filter(row => row.total >= 2)
     .sort((a, b) => b.total - a.total)

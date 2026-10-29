@@ -30,8 +30,8 @@ export interface UseEditorToggleOptions {
   readOnly: boolean;
   searchQuery: string;
   depth: number;
-  wikiTargets: string[];
-  onWikiNavigate?: (title: string) => void;
+  wikiTargets: WikiTarget[];
+  onWikiNavigate?: (title: import('@/components/views/wikiLinks').WikiNavigationTarget) => void;
   onActiveBlockChange?: (id: string | null) => void;
   searchScope: BlockEditorInnerProps['searchScope'];
   searchMatchIndex: number;
@@ -161,3 +161,4 @@ export function useEditorToggle({
     renderToggleNested,
   };
 }
+import type { WikiTarget } from '@/components/views/wikiLinks';

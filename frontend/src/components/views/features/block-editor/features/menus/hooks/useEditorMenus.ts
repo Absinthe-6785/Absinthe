@@ -3,6 +3,7 @@ import { type Block, type BlockTypeMeta, updateBlockById } from '../../../../../
 import type { BlockEditorColors, SlashMenuState, WikiMenuState } from '../../../../../editorTypes';
 import { recordSlashUsage } from '../utils/slashRecent';
 import { insertWikiAtCaret } from '../utils/wikiNavigation';
+import { isCurrentWikiTarget } from '../../../../../wikiLinks';
 import type { FocusCmd } from '../../selection';
 import { applySlashMenuTypeChange } from '../../../utils/blockEditorMutations';
 
@@ -11,7 +12,7 @@ export interface UseEditorMenusOptions {
   onChange: (blocks: Block[]) => void;
   onFocusCmd: (cmd: FocusCmd) => void;
   colors: BlockEditorColors;
-  wikiTargets: string[];
+  wikiTargets: WikiTarget[];
   searchQuery: string;
   onContentChange: (id: string, content: string) => void;
 }
@@ -26,7 +27,7 @@ export interface UseEditorMenusResult {
   closeMenus: () => void;
   isMenuOpenForBlock: (blockId: string) => boolean;
   handleSlashSelect: (meta: BlockTypeMeta) => void;
-  handleWikiSelect: (title: string) => void;
+  handleWikiSelect: (target: WikiTarget) => void;
 }
 
 export function useEditorMenus({
@@ -69,7 +70,8 @@ export function useEditorMenus({
     onFocusCmd({ blockId, offset: 'end' });
   }, [slashMenu, onChange, getBlocks, onFocusCmd]);
 
-  const handleWikiSelect = useCallback((title: string) => {
+  const handleWikiSelect = useCallback((title: WikiTarget) => {
+    if (!isCurrentWikiTarget(title)) { setWikiMenu(null); return; }
     const el = document.activeElement as HTMLElement | null;
     if (el && el.isContentEditable) {
       const text = insertWikiAtCaret(el, title, colors, wikiTargets, searchQuery);
@@ -91,3 +93,4 @@ export function useEditorMenus({
     handleWikiSelect,
   };
 }
+import type { WikiTarget } from '@/components/views/wikiLinks';

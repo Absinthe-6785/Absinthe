@@ -40,8 +40,7 @@ export function buildNoteGalaxyMap(
 
     let assignment: GalaxyAssignment | null = null;
 
-    for (const title of service.getOutgoing(note.id)) {
-      const targetId = service.resolveNoteId(title);
+    for (const targetId of service.getOutgoingTargetIds(note.id)) {
       if (targetId && areaById.has(targetId)) {
         const area = areaById.get(targetId)!;
         assignment = {

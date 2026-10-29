@@ -11,7 +11,7 @@ export function paintEditableLive(
   el: HTMLElement,
   text: string,
   c: BlockEditorColors,
-  wikiTargets: string[],
+  wikiTargets: WikiTarget[],
   searchQuery: string,
   caretOffset?: number,
   selection?: { start: number; end: number },
@@ -20,3 +20,4 @@ export function paintEditableLive(
   if (selection) setSelectionOffsets(el, selection.start, selection.end);
   else if (caretOffset != null) setCaretOffset(el, caretOffset);
 }
+import type { WikiTarget } from '@/components/views/wikiLinks';
