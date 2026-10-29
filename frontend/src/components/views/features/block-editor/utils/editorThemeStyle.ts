@@ -14,6 +14,12 @@ export function buildEditorCssVariables(colors: BlockEditorColors): CSSPropertie
     '--be-font-size': colors.fontSize ? `${colors.fontSize}px` : '16px',
     '--be-search-hl-bg': colors.searchHlBg ?? colors.accentBg,
     '--be-search-hl-color': colors.searchHlColor ?? colors.text,
+    '--be-text-selection-bg': colors.isDark
+      ? `color-mix(in srgb, ${colors.accent} 34%, transparent)`
+      : `color-mix(in srgb, ${colors.accent} 22%, transparent)`,
+    '--be-block-selection-outline': colors.isDark
+      ? `color-mix(in srgb, ${colors.accent} 48%, transparent)`
+      : `color-mix(in srgb, ${colors.accent} 34%, transparent)`,
     '--be-block-hover-bg': colors.isDark ? 'rgba(139,92,246,0.06)' : 'rgba(139,92,246,0.035)',
     '--be-block-active-bg': colors.blockFocusBg ?? 'transparent',
     '--be-block-selected-bg': colors.blockSelectedBg ?? 'rgba(139,92,246,0.05)',
