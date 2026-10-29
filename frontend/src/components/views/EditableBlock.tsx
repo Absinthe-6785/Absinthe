@@ -102,10 +102,9 @@ export function EditableBlock({
     const el = editableRef.current;
     if (!el) return;
     if (block.content !== lastContent.current) {
-      // History restores publish a new block snapshot while this same
-      // contenteditable remains mounted. Always reconcile the rendered text;
-      // stable React keys keep the DOM node and its focus continuity intact.
-      paintEditableLive(el, block.content, c, wikiTargets, searchQuery);
+      // Reconcile history/external changes, but do not replace an identical
+      // live toolbar edit and discard the caret it has just restored.
+      if (getElText(el) !== block.content) paintEditableLive(el, block.content, c, wikiTargets, searchQuery);
       lastContent.current = block.content;
     }
   }, [block.content, editableRef, c, wikiTargets, searchQuery]);

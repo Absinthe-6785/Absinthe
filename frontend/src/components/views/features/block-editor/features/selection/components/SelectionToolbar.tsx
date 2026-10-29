@@ -7,7 +7,7 @@ import {
   Bold, Italic, Hash, Code2, Heading1, Heading2, Heading3, Heading4,
   Strikethrough, Highlighter,
 } from 'lucide-react';
-import { readBlockText } from '../../../../../editableDom';
+import { readBlockText, setSelectionOffsets } from '../../../../../editableDom';
 import type { BlockType } from '../../../../../blockUtils';
 import { headingConvertTarget } from '../../../../../headingToolbar';
 import type { BlockEditorColors } from '../../../../../editorTypes';
@@ -17,6 +17,8 @@ import {
   EMPTY_FORMATS, type ToolbarFormatState,
 } from '../utils/toolbarFormat';
 import { saveSelectionRange } from '../utils/selectionState';
+import { captureWikiSelection, buildSelectedWikiInsertText } from '../utils/selectionWikiLink';
+import { WikiMenu } from '../../menus/components/WikiMenu';
 
 export interface SelectionToolbarProps {
   colors: BlockEditorColors;
@@ -64,9 +66,18 @@ export function SelectionToolbar({
   const blockIdRef = useRef<string | null>(null);
   const editableRef = useRef<HTMLElement | null>(null);
   const savedRangeRef = useRef<Range | null>(null);
+  const [picker, setPicker] = useState<{
+    el: HTMLElement; blockId: string; text: string; start: number; end: number;
+    targets: WikiTarget[]; onChange: SelectionToolbarProps['onContentChange'];
+    top: number; left: number;
+  } | null>(null);
+  const pickerRef = useRef(picker);
+  pickerRef.current = picker;
+  const [wikiQuery, setWikiQuery] = useState('');
 
   useEffect(() => {
     const update = () => {
+      if (pickerRef.current) return;
       const sel = window.getSelection();
       if (!sel || sel.isCollapsed || sel.rangeCount === 0) {
         setPos(null);
@@ -128,6 +139,66 @@ export function SelectionToolbar({
     };
   }, [getBlockType, activeBlockId]);
 
+  const openWikiPicker = useCallback(() => {
+    const el = editableRef.current, blockId = blockIdRef.current;
+    if (!el || !blockId || blockId !== activeBlockId || !pos) return;
+    const selection = captureWikiSelection(el, getBlockType(blockId));
+    if (!selection) return;
+    setWikiQuery('');
+    const next = { el, blockId, ...selection, targets: wikiTargets, onChange: onContentChange,
+      top: pos.top, left: pos.left };
+    pickerRef.current = next;
+    setPicker(next);
+  }, [activeBlockId, pos, getBlockType, wikiTargets, onContentChange]);
+
+  const pickerIsCurrent = useCallback((pending: NonNullable<typeof picker>) =>
+    pending.el.isConnected && pending.blockId === activeBlockId && pending.targets === wikiTargets
+    && pending.onChange === onContentChange && readBlockText(pending.el) === pending.text,
+  [activeBlockId, wikiTargets, onContentChange]);
+
+  const closeWikiPicker = useCallback(() => {
+    const pending = pickerRef.current;
+    pickerRef.current = null;
+    setPicker(null);
+    if (pending && pickerIsCurrent(pending) && pending.targets.some(target => typeof target !== 'string' && target.isCurrent())) {
+      pending.el.focus({ preventScroll: true });
+      setSelectionOffsets(pending.el, pending.start, pending.end);
+    }
+  }, [pickerIsCurrent]);
+
+  useEffect(() => {
+    if (picker && !pickerIsCurrent(picker)) { pickerRef.current = null; setPicker(null); setPos(null); }
+  }, [picker, pickerIsCurrent]);
+
+  useEffect(() => {
+    const shortcut = (e: KeyboardEvent) => {
+      if (!pickerRef.current && (e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'k'
+        && pos && !e.isComposing && editableRef.current?.contains(e.target as Node)) {
+        e.preventDefault(); e.stopPropagation(); openWikiPicker();
+      }
+    };
+    const dismiss = (e: MouseEvent) => {
+      if (pickerRef.current && !(e.target as Element)?.closest('.be-wiki-menu, .be-selection-toolbar')) {
+        pickerRef.current = null; setPicker(null); setPos(null);
+      }
+    };
+    document.addEventListener('keydown', shortcut, true);
+    document.addEventListener('mousedown', dismiss);
+    return () => { document.removeEventListener('keydown', shortcut, true); document.removeEventListener('mousedown', dismiss); };
+  }, [pos, openWikiPicker]);
+
+  const selectWikiTarget = (target: WikiTarget) => {
+    const pending = pickerRef.current;
+    pickerRef.current = null;
+    setPicker(null); setPos(null);
+    if (!pending || !pickerIsCurrent(pending) || !pending.targets.includes(target)) return;
+    const result = buildSelectedWikiInsertText(pending.text, pending.start, pending.end, target);
+    if (!result) return;
+    pending.el.focus({ preventScroll: true });
+    paintEditableLive(pending.el, result.newText, c, wikiTargets, searchQuery, result.caret);
+    onContentChange(pending.blockId, result.newText);
+  };
+
   const applyFormat = useCallback((before: string, after: string) => {
     const blockId = blockIdRef.current;
     const el = editableRef.current;
@@ -157,6 +228,9 @@ export function SelectionToolbar({
     });
   }, [c, wikiTargets, searchQuery, onContentChange, getBlockType, activeBlockId]);
 
+  if (picker) return <WikiMenu query={wikiQuery} onQueryChange={setWikiQuery}
+    targets={picker.targets.filter(target => typeof target !== 'string')}
+    anchorY={picker.top} anchorX={picker.left} colors={c} onSelect={selectWikiTarget} onClose={closeWikiPicker} />;
   if (!pos) return null;
 
   const activeFg = c.toolbarActiveFg ?? '#FFFFFF';
@@ -169,6 +243,7 @@ export function SelectionToolbar({
         aria-label={label}
         aria-pressed={active}
         onMouseDown={e => { e.preventDefault(); fn(); }}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fn(); } }}
         style={{
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           width: 24, height: 24,
@@ -232,7 +307,7 @@ export function SelectionToolbar({
       {iconBtn(<Heading4 size={12}/>, formats.isToggleHeading ? t('editorToolbarToggleHeadingN').replace('{n}', '4') : t('editorToolbarHeadingN').replace('{n}', '4'), 'Ctrl+Shift+4', headingActive(4), () => convertHeading(4))}
       <span style={{ width:1, height:18, background:c.border, margin:'0 2px', flexShrink:0 }}/>
       <span style={{ fontSize:9, fontWeight:700, color:c.textFaint, padding:'0 4px', letterSpacing:0.6 }}>{t('editorToolbarLinks')}</span>
-      {iconBtn(<span style={{ fontSize:11, fontWeight:700 }}>[[]]</span>, t('editorToolbarWikiLink'), 'Ctrl+Shift+K', formats.wiki, () => applyFormat('[[', ']]'))}
+      {iconBtn(<span style={{ fontSize:11, fontWeight:700 }}>[[]]</span>, t('editorToolbarWikiLink'), 'Ctrl+Shift+K', formats.wiki, openWikiPicker)}
       <span style={{ width:1, height:18, background:c.border, margin:'0 2px', flexShrink:0 }}/>
       <span style={{ fontSize:9, fontWeight:700, color:c.textFaint, padding:'0 4px', letterSpacing:0.6 }}>{t('editorToolbarTags')}</span>
       {iconBtn(<Hash size={12}/>, t('editorToolbarTags'), 'Ctrl+Shift+H', formats.tag, () => applyFormat('#', ''))}
