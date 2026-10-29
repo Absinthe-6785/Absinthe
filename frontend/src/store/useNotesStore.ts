@@ -1251,6 +1251,12 @@ export const useNotesStore = create<NotesState>((set, get) => {
       return false;
     }
     const persistence = await attempt.persistence;
+    if (attempt.authorityRequest !== getActiveNotesAuthorityRequest()
+      || attempt.accountId !== get().activeAccountId
+      || !isOperationEpochCurrent(attempt.operationEpoch)) {
+      finishNoteSyncAttempt(attempt);
+      return false;
+    }
     if (persistence.status !== 'persisted') {
       finishNoteSyncAttempt(attempt);
       return false;
@@ -1371,9 +1377,25 @@ export const useNotesStore = create<NotesState>((set, get) => {
     }
   };
 
+  // Runtime result ownership only; this does not cancel or redefine a durable write.
+  const captureNotesPersistenceResultOwner = () => {
+    const request = getActiveNotesAuthorityRequest();
+    const accountId = get().activeAccountId;
+    const epoch = captureOperationEpoch();
+    const hydration = notesHydrationAttempt;
+    const generation = notesLocalMutationGeneration;
+    return () => request === getActiveNotesAuthorityRequest()
+      && accountId === get().activeAccountId
+      && isOperationEpochCurrent(epoch)
+      && hydration === notesHydrationAttempt
+      && generation === notesLocalMutationGeneration;
+  };
+
   const persistNotes = (notes: Note[]): Promise<NotesPersistenceWriteResult> => {
     notesLocalMutationGeneration += 1;
+    const isCurrentResult = captureNotesPersistenceResultOwner();
     const handleResult = (result: ReturnType<typeof saveNotesSyncResult>) => {
+      if (!isCurrentResult()) return result;
       if (result.status !== 'persisted') {
         setSyncIssue(LOCAL_NOTES_SAVE_ERROR, 'local_notes_persistence', {
           retryable: result.status !== 'blocked',
@@ -1391,12 +1413,12 @@ export const useNotesStore = create<NotesState>((set, get) => {
     return saveNotesAsync(notes).then(handleResult);
   };
 
-  const persistFolders = (folders: NoteFolder[]): boolean | Promise<boolean> => {
+  const persistFolders = (folders: NoteFolder[], isCurrentResult = () => true): boolean | Promise<boolean> => {
     notesResetIntentGeneration += 1;
     const request = getActiveNotesAuthorityRequest();
     const epoch = captureOperationEpoch();
     const observed = (saved: boolean) => {
-      if (request !== getActiveNotesAuthorityRequest() || !isOperationEpochCurrent(epoch)) return false;
+      if (!isCurrentResult() || request !== getActiveNotesAuthorityRequest() || !isOperationEpochCurrent(epoch)) return false;
       if (!saved) setSyncIssue(LOCAL_FOLDERS_SAVE_ERROR, 'local_folders_persistence', { retryable: true });
       else {
         clearSyncIssue('local_folders_persistence');
@@ -2840,7 +2862,10 @@ export const useNotesStore = create<NotesState>((set, get) => {
     syncNoteToDB,
     flushPendingSync,
     retrySync: () => {
+      notesLocalMutationGeneration += 1;
+      const isCurrentRetry = captureNotesPersistenceResultOwner();
       const retryNoteFailures = () => {
+        if (!isCurrentRetry()) return;
         if (lastFailedDeleteId) {
           void removeNoteFromDB(lastFailedDeleteId);
           return;
@@ -2852,13 +2877,19 @@ export const useNotesStore = create<NotesState>((set, get) => {
         dismissNoTargetStaleSyncIssue();
       };
       const afterNotesSaved = async () => {
-        if (!await persistFolders(get().folders)) {
+        if (!isCurrentRetry()) return;
+        // Folder writers replace the array; selection-only intents must not cancel a valid retry.
+        const folders = get().folders;
+        const isCurrentFolderRetry = () => isCurrentRetry() && get().folders === folders;
+        const foldersSaved = await persistFolders(folders, isCurrentFolderRetry);
+        if (!isCurrentFolderRetry()) return;
+        if (!foldersSaved) {
           setSyncIssue(LOCAL_FOLDERS_SAVE_ERROR, 'local_folders_persistence', { retryable: true });
           return;
         }
         clearSyncIssue('local_folders_persistence');
         void retryPendingFolderRemoteMutations().then(succeeded => {
-          if (succeeded) retryNoteFailures();
+          if (isCurrentFolderRetry() && succeeded) retryNoteFailures();
         });
       };
 
@@ -2876,6 +2907,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
       }
 
       void saveNotesAsync(get().notes).then(result => {
+        if (!isCurrentRetry()) return;
         if (result.status !== 'persisted') {
           setSyncIssue(LOCAL_NOTES_SAVE_ERROR, 'local_notes_persistence', {
             retryable: result.status !== 'blocked',

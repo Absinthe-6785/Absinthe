@@ -4,18 +4,21 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NoteBase } from '../components/views/noteUtils';
 import { FOLDERS_KEY } from '../components/views/noteUtils';
 import { NOTES_RUNTIME_SYNC_MODE_KEY } from '../lib/notesSyncClient';
-import { resetNotesPersistenceForTests } from '../lib/notePersistence';
+import { resetNotesPersistenceForTests, type NotesPersistenceWriteResult } from '../lib/notePersistence';
 import { activateNotesAccountAuthority } from '../lib/notesAccountAuthority';
 import { setRecoveryModeActiveForTest } from '../lib/recoverySafetyPolicy';
 import { projectNoteSyncPresentation } from '../components/views/noteview/notesSyncPresentation';
 import { NOTES_BOOTSTRAP_FAILURE_MESSAGE } from '../lib/notesBootstrapDiagnostics';
 
-const { authFetchMock, authReadFetchMock, persistenceHarness } = vi.hoisted(() => ({
+const { authFetchMock, authReadFetchMock, snapshotMock, persistenceHarness } = vi.hoisted(() => ({
   authFetchMock: vi.fn(),
   authReadFetchMock: vi.fn(),
+  snapshotMock: vi.fn(),
   persistenceHarness: {
     intercept: false,
     saveNotesAsyncMock: vi.fn(),
+    interceptFolders: false,
+    saveFoldersAsyncMock: vi.fn(),
   },
 }));
 
@@ -24,6 +27,8 @@ vi.mock('../lib/supabase', () => ({
   authReadFetch: (...args: unknown[]) => authReadFetchMock(...args),
 }));
 
+vi.mock('../lib/vaultSnapshotAuto', () => ({ scheduleAutoSnapshot: snapshotMock }));
+
 vi.mock('../lib/notePersistence', async importOriginal => {
   const actual = await importOriginal<typeof import('../lib/notePersistence')>();
   return {
@@ -31,6 +36,9 @@ vi.mock('../lib/notePersistence', async importOriginal => {
     saveNotesAsync: (...args: unknown[]) => persistenceHarness.intercept
       ? persistenceHarness.saveNotesAsyncMock(...args)
       : actual.saveNotesAsync(...args),
+    saveFoldersAsync: (...args: unknown[]) => persistenceHarness.interceptFolders
+      ? persistenceHarness.saveFoldersAsyncMock(...args)
+      : actual.saveFoldersAsync(...args),
   };
 });
 
@@ -104,9 +112,12 @@ function resetStore() {
   storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'remote');
   authFetchMock.mockReset();
   authReadFetchMock.mockReset();
+  snapshotMock.mockClear();
   authReadFetchMock.mockResolvedValue({ ok: false, status: 404, json: async () => ({}) });
   persistenceHarness.intercept = false;
   persistenceHarness.saveNotesAsyncMock.mockReset();
+  persistenceHarness.interceptFolders = false;
+  persistenceHarness.saveFoldersAsyncMock.mockReset();
   resetNotesPersistenceForTests();
   useNotesStore.setState({
     notes: [],
@@ -135,6 +146,259 @@ function currentSyncPresentation() {
 
 describe('Notes sync-issue ownership and clearing contract', () => {
   beforeEach(resetStore);
+
+  const lateResults: NotesPersistenceWriteResult[] = [
+    { status: 'persisted' },
+    { status: 'failed', reason: 'indexeddb_rejected' },
+    { status: 'blocked', reason: 'stale_epoch' },
+  ];
+  const localIssue = (message: string) => ({
+    syncError: message,
+    syncIssue: { source: 'local_notes_persistence' as const, retryable: true, message },
+  });
+  const switchAccount = async (accountId: string) => {
+    useNotesStore.getState().detachNotesStorage();
+    await useNotesStore.getState().initNotesStorage(accountId);
+  };
+
+  it.each(lateResults.flatMap(result => [false, true].map(aba => ({ result, aba }))))(
+    'ignores an old Notes $result.status result after account replacement (ABA=$aba)', async ({ result, aba }) => {
+      storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'local');
+      await switchAccount('account-a');
+      const pending = deferred<NotesPersistenceWriteResult>();
+      persistenceHarness.intercept = true;
+      persistenceHarness.saveNotesAsyncMock.mockReturnValue(pending.promise);
+      useNotesStore.getState().importNote(note('old-account-note'));
+      await switchAccount('account-b');
+      if (aba) await switchAccount('account-a');
+      const current = note('current-account-note');
+      useNotesStore.setState({ notes: [current], folders: [{ id: 'current-folder', name: 'Current' }], ...localIssue('current issue') });
+      const before = useNotesStore.getState();
+      pending.resolve(result);
+      await new Promise(resolve => setTimeout(resolve, 0));
+      expect(useNotesStore.getState().syncError).toBe('current issue');
+      expect(useNotesStore.getState().notes).toBe(before.notes);
+      expect(useNotesStore.getState().folders).toBe(before.folders);
+      expect(useNotesStore.getState().savedAt).toBeNull();
+      expect(authFetchMock).not.toHaveBeenCalled();
+      expect(snapshotMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([true, false])('keeps the newest same-account persistence verdict (old success=$oldSuccess)', async oldSuccess => {
+    storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'local');
+    await switchAccount('account-a');
+    const older = deferred<NotesPersistenceWriteResult>();
+    const newer = deferred<NotesPersistenceWriteResult>();
+    persistenceHarness.intercept = true;
+    persistenceHarness.saveNotesAsyncMock.mockReturnValueOnce(older.promise).mockReturnValueOnce(newer.promise);
+    useNotesStore.getState().importNote(note('same-note'));
+    useNotesStore.getState().updateNote('same-note', { title: 'newer title' });
+    newer.resolve(oldSuccess ? { status: 'failed', reason: 'indexeddb_rejected' } : { status: 'persisted' });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const currentIssue = useNotesStore.getState().syncIssue;
+    expect(currentIssue?.source ?? null).toBe(oldSuccess ? 'local_notes_persistence' : null);
+    older.resolve(oldSuccess ? { status: 'persisted' } : { status: 'failed', reason: 'indexeddb_rejected' });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(useNotesStore.getState().syncIssue).toBe(currentIssue);
+    expect(useNotesStore.getState().notes[0].title).toBe('newer title');
+  });
+
+  it.each(lateResults.flatMap(result => [false, true].map(aba => ({ result, aba }))))(
+    'does not continue an old retry after account replacement ($result.status, ABA=$aba)', async ({ result, aba }) => {
+      storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'local');
+      await switchAccount('account-a');
+      const pending = deferred<NotesPersistenceWriteResult>();
+      persistenceHarness.intercept = true;
+      persistenceHarness.saveNotesAsyncMock.mockReturnValue(pending.promise);
+      persistenceHarness.interceptFolders = true;
+      persistenceHarness.saveFoldersAsyncMock.mockResolvedValue(true);
+      useNotesStore.getState().retrySync();
+      await switchAccount('account-b');
+      if (aba) await switchAccount('account-a');
+      useNotesStore.setState(localIssue('new account issue'));
+      pending.resolve(result);
+      await new Promise(resolve => setTimeout(resolve, 0));
+      expect(useNotesStore.getState().syncError).toBe('new account issue');
+      expect(persistenceHarness.saveFoldersAsyncMock).not.toHaveBeenCalled();
+      expect(authFetchMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it('does not publish a stale folder result from retrySync after account replacement', async () => {
+    storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'local');
+    await switchAccount('account-a');
+    persistenceHarness.intercept = true;
+    persistenceHarness.saveNotesAsyncMock.mockResolvedValue({ status: 'persisted' });
+    persistenceHarness.interceptFolders = true;
+    const folderSave = deferred<boolean>();
+    persistenceHarness.saveFoldersAsyncMock.mockReturnValue(folderSave.promise);
+    useNotesStore.getState().retrySync();
+    await vi.waitFor(() => expect(persistenceHarness.saveFoldersAsyncMock).toHaveBeenCalledTimes(1));
+    await switchAccount('account-b');
+    useNotesStore.setState(localIssue('newer account issue'));
+    folderSave.resolve(false);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(useNotesStore.getState().syncError).toBe('newer account issue');
+    expect(authFetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each(['notes', 'retry'])('ignores a %s result after the operation epoch changes', async operation => {
+    storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'local');
+    await switchAccount('account-a');
+    const pending = deferred<NotesPersistenceWriteResult>();
+    persistenceHarness.intercept = true;
+    persistenceHarness.saveNotesAsyncMock.mockReturnValue(pending.promise);
+    persistenceHarness.interceptFolders = true;
+    if (operation === 'retry') useNotesStore.getState().retrySync();
+    else useNotesStore.getState().importNote(note('epoch-note'));
+    setRecoveryModeActiveForTest(true);
+    useNotesStore.setState(localIssue('current recovery issue'));
+    pending.resolve({ status: 'persisted' });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(useNotesStore.getState().syncError).toBe('current recovery issue');
+    expect(snapshotMock).not.toHaveBeenCalled();
+    expect(persistenceHarness.saveFoldersAsyncMock).not.toHaveBeenCalled();
+  });
+
+  it('does not continue an older retry after a newer same-account mutation', async () => {
+    storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'local');
+    await switchAccount('account-a');
+    const pending = deferred<NotesPersistenceWriteResult>();
+    persistenceHarness.intercept = true;
+    persistenceHarness.saveNotesAsyncMock.mockReturnValueOnce(pending.promise)
+      .mockResolvedValue({ status: 'failed', reason: 'indexeddb_rejected' });
+    persistenceHarness.interceptFolders = true;
+    useNotesStore.getState().retrySync();
+    useNotesStore.getState().importNote(note('newer-write'));
+    await vi.waitFor(() => expect(useNotesStore.getState().syncIssue?.source).toBe('local_notes_persistence'));
+    const issue = useNotesStore.getState().syncIssue;
+    pending.resolve({ status: 'persisted' });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(useNotesStore.getState().syncIssue).toBe(issue);
+    expect(persistenceHarness.saveFoldersAsyncMock).not.toHaveBeenCalled();
+  });
+
+  it('does not snapshot or publish a retry folder result superseded by a Notes mutation', async () => {
+    storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'local');
+    await switchAccount('account-a');
+    persistenceHarness.intercept = true;
+    persistenceHarness.saveNotesAsyncMock.mockResolvedValueOnce({ status: 'persisted' })
+      .mockResolvedValue({ status: 'failed', reason: 'indexeddb_rejected' });
+    persistenceHarness.interceptFolders = true;
+    const pending = deferred<boolean>();
+    persistenceHarness.saveFoldersAsyncMock.mockReturnValue(pending.promise);
+    useNotesStore.getState().retrySync();
+    await vi.waitFor(() => expect(persistenceHarness.saveFoldersAsyncMock).toHaveBeenCalledTimes(1));
+    useNotesStore.getState().importNote(note('newer-write'));
+    await vi.waitFor(() => expect(useNotesStore.getState().syncIssue?.source).toBe('local_notes_persistence'));
+    const issue = useNotesStore.getState().syncIssue;
+    snapshotMock.mockClear();
+    pending.resolve(true);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(useNotesStore.getState().syncIssue).toBe(issue);
+    expect(snapshotMock).not.toHaveBeenCalled();
+  });
+
+  it('preserves an unchanged Note upload while a newer unrelated Note owns the local failure', async () => {
+    await switchAccount('account-a');
+    const first = note('first');
+    useNotesStore.setState({ notes: [first, note('second')] });
+    const pending = deferred<NotesPersistenceWriteResult>();
+    persistenceHarness.intercept = true;
+    persistenceHarness.saveNotesAsyncMock.mockReturnValueOnce(pending.promise)
+      .mockResolvedValue({ status: 'failed', reason: 'indexeddb_rejected' });
+    authFetchMock.mockResolvedValue(okResponse());
+    const upload = useNotesStore.getState().syncNoteToDB(first);
+    useNotesStore.getState().updateNote('second', { title: 'new title' });
+    await vi.waitFor(() => expect(useNotesStore.getState().syncIssue?.source).toBe('local_notes_persistence'));
+    pending.resolve({ status: 'persisted' });
+    expect(await upload).toBe(true);
+    expect(authFetchMock).toHaveBeenCalledTimes(1);
+    expect(useNotesStore.getState().syncIssue?.source).toBe('local_notes_persistence');
+  });
+
+  it('keeps the current async retry and its remote Note retry operational', async () => {
+    await switchAccount('account-a');
+    const item = note('valid-retry');
+    useNotesStore.setState({ notes: [item] });
+    persistenceHarness.intercept = true;
+    persistenceHarness.saveNotesAsyncMock.mockResolvedValue({ status: 'persisted' });
+    persistenceHarness.interceptFolders = true;
+    persistenceHarness.saveFoldersAsyncMock.mockResolvedValue(true);
+    authFetchMock.mockResolvedValueOnce(failedResponse()).mockResolvedValueOnce(okResponse());
+    expect(await useNotesStore.getState().syncNoteToDB(item)).toBe(false);
+    useNotesStore.getState().retrySync();
+    await vi.waitFor(() => expect(useNotesStore.getState().syncIssue).toBeNull());
+    expect(persistenceHarness.saveFoldersAsyncMock).toHaveBeenCalledTimes(1);
+    expect(authFetchMock).toHaveBeenCalledTimes(2);
+    expect(snapshotMock).toHaveBeenCalled();
+  });
+
+  it('rejects local success publication when the persistence completion has a stale epoch', async () => {
+    storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'local');
+    await switchAccount('account-a');
+    const item = note('stale-local-success');
+    useNotesStore.setState({ notes: [item], savedAt: null });
+    const pending = deferred<NotesPersistenceWriteResult>();
+    persistenceHarness.intercept = true;
+    persistenceHarness.saveNotesAsyncMock.mockReturnValue(pending.promise);
+    const upload = useNotesStore.getState().syncNoteToDB(item);
+    setRecoveryModeActiveForTest(true);
+    pending.resolve({ status: 'persisted' });
+    expect(await upload).toBe(false);
+    expect(useNotesStore.getState().savedAt).toBeNull();
+    expect(snapshotMock).not.toHaveBeenCalled();
+    expect(authFetchMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps a newer folder-only failure when an older retry folder write succeeds', async () => {
+    storage.set(NOTES_RUNTIME_SYNC_MODE_KEY, 'local');
+    await switchAccount('account-a');
+    useNotesStore.setState({ folders: [{ id: 'folder', name: 'Before' }] });
+    persistenceHarness.intercept = true;
+    persistenceHarness.saveNotesAsyncMock.mockResolvedValue({ status: 'persisted' });
+    persistenceHarness.interceptFolders = true;
+    const older = deferred<boolean>();
+    const newer = deferred<boolean>();
+    persistenceHarness.saveFoldersAsyncMock.mockReturnValueOnce(older.promise).mockReturnValueOnce(newer.promise);
+    useNotesStore.getState().retrySync();
+    await vi.waitFor(() => expect(persistenceHarness.saveFoldersAsyncMock).toHaveBeenCalledTimes(1));
+    useNotesStore.getState().renameFolder('folder', 'Newer');
+    newer.resolve(false);
+    await vi.waitFor(() => expect(useNotesStore.getState().syncIssue?.source).toBe('local_folders_persistence'));
+    const issue = useNotesStore.getState().syncIssue;
+    snapshotMock.mockClear();
+    older.resolve(true);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(useNotesStore.getState().syncIssue).toBe(issue);
+    expect(useNotesStore.getState().folders[0].name).toBe('Newer');
+    expect(snapshotMock).not.toHaveBeenCalled();
+    expect(authFetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([null, 'folder-view'])('finishes a valid retry through folder selection %s', async folderId => {
+    await switchAccount('account-a');
+    const item = note('retry-during-navigation');
+    useNotesStore.setState({ notes: [item], activeFolderId: null });
+    persistenceHarness.intercept = true;
+    persistenceHarness.saveNotesAsyncMock.mockResolvedValue({ status: 'persisted' });
+    authFetchMock.mockResolvedValueOnce(failedResponse()).mockResolvedValueOnce(okResponse());
+    expect(await useNotesStore.getState().syncNoteToDB(item)).toBe(false);
+    persistenceHarness.interceptFolders = true;
+    const pending = deferred<boolean>();
+    persistenceHarness.saveFoldersAsyncMock.mockReturnValue(pending.promise);
+    useNotesStore.getState().retrySync();
+    await vi.waitFor(() => expect(persistenceHarness.saveFoldersAsyncMock).toHaveBeenCalledTimes(1));
+    const { notes, folders } = useNotesStore.getState();
+    useNotesStore.getState().setActiveFolderId(folderId);
+    expect(useNotesStore.getState().notes).toBe(notes);
+    expect(useNotesStore.getState().folders).toBe(folders);
+    pending.resolve(true);
+    await vi.waitFor(() => expect(useNotesStore.getState().syncIssue).toBeNull());
+    expect(authFetchMock).toHaveBeenCalledTimes(2);
+    expect(persistenceHarness.saveFoldersAsyncMock).toHaveBeenCalledTimes(1);
+  });
 
   it('clears a failed Note POST only after matching success', async () => {
     bindRemoteAccount();
