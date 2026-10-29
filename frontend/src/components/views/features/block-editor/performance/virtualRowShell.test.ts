@@ -12,6 +12,7 @@ function baseMemoState(overrides: Partial<VirtualRowMemoState> = {}): VirtualRow
   return {
     isSelected: false,
     isMenuOpen: false,
+    actionsMenuOpen: false,
     controlsVisible: false,
     activeBlockId: null,
     headingIndex: undefined,
@@ -75,6 +76,30 @@ describe('VirtualRowShell', () => {
       root!.render(createElement(VirtualRowShell, {
         block: BLOCK,
         memoState: baseMemoState({ isSelected: true }),
+        renderBlock,
+      }));
+    });
+    expect(renderBlock).toHaveBeenCalledTimes(2);
+  });
+
+  it('re-invokes renderBlock when the block actions menu state changes', () => {
+    const renderBlock = vi.fn((block: Block) => createElement('div', { 'data-id': block.id }));
+    host = document.createElement('div');
+    document.body.appendChild(host);
+
+    act(() => {
+      root = createRoot(host);
+      root.render(createElement(VirtualRowShell, {
+        block: BLOCK,
+        memoState: baseMemoState({ actionsMenuOpen: false }),
+        renderBlock,
+      }));
+    });
+
+    act(() => {
+      root!.render(createElement(VirtualRowShell, {
+        block: BLOCK,
+        memoState: baseMemoState({ actionsMenuOpen: true }),
         renderBlock,
       }));
     });

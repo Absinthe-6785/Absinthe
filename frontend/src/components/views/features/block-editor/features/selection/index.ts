@@ -1,5 +1,5 @@
 // Context
-export { SelectionCtx, type SelectionCtxValue } from './context/SelectionContext';
+export { SelectionCtx, type BlockSelectionModifiers, type SelectionCtxValue } from './context/SelectionContext';
 
 // Hooks
 export {

@@ -98,6 +98,7 @@ function convertParagraphToToggle(blockId: string) {
     .find(button => toggleLabels.has(button.textContent?.trim() ?? ''));
   expect(toggleOption).toBeDefined();
   act(() => toggleOption!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true })));
+  click(toggleOption!);
 }
 
 afterEach(() => {

@@ -18,7 +18,6 @@ import {
   navigateTableCellEnter,
   navigateTableCellTab,
   navigateTableHeaderEnter,
-  navigateTableHeaderTab,
   type TableNavAction,
 } from './tableNavigation';
 
@@ -29,9 +28,10 @@ export interface TableBlockProps {
   searchQuery: string;
   inline: (s: string) => ReactNode;
   onTableChange: (blockId: string, headers: string[], rows: string[][]) => void;
+  onClearBlockSelection?: () => void;
 }
 
-export function TableBlock({ block, colors: c, readOnly, inline, onTableChange }: TableBlockProps) {
+export function TableBlock({ block, colors: c, readOnly, inline, onTableChange, onClearBlockSelection }: TableBlockProps) {
   const { t } = useTranslation();
   const headers = block.tableHeaders ?? [];
   const rows = block.tableRows ?? [];
@@ -39,6 +39,14 @@ export function TableBlock({ block, colors: c, readOnly, inline, onTableChange }
 
   const [focusedCell, setFocusedCell] = useState<[number, number] | null>(null);
   const cellRefs = useRef<Map<string, HTMLElement>>(new Map());
+  const addRowButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  const focusAddRowButtonShortcut = useCallback((e: React.KeyboardEvent<HTMLElement>) => {
+    if (e.key !== 'Enter' || !e.shiftKey || (!e.ctrlKey && !e.metaKey)) return false;
+    e.preventDefault();
+    addRowButtonRef.current?.focus();
+    return true;
+  }, []);
 
   const registerCell = useCallback((r: number, ci: number, el: HTMLElement | null) => {
     const k = tableCellKey(r, ci);
@@ -107,9 +115,11 @@ export function TableBlock({ block, colors: c, readOnly, inline, onTableChange }
     e: React.KeyboardEvent<HTMLElement>,
     r: number, ci: number,
   ) => {
+    if (focusAddRowButtonShortcut(e)) return;
     const totalRows = rows.length;
 
     if (e.key === 'Tab') {
+      if (e.shiftKey && ci === 0) return;
       e.preventDefault();
       applyNavAction(navigateTableCellTab(r, ci, colCount, totalRows, e.shiftKey));
     }
@@ -123,16 +133,16 @@ export function TableBlock({ block, colors: c, readOnly, inline, onTableChange }
       (e.currentTarget as HTMLElement).blur();
       setFocusedCell(null);
     }
-  }, [rows.length, colCount, applyNavAction]);
+  }, [rows.length, colCount, applyNavAction, focusAddRowButtonShortcut]);
 
   const handleHeaderKeyDown = useCallback((
     e: React.KeyboardEvent<HTMLElement>,
     ci: number,
   ) => {
-    if (e.key === 'Tab') {
-      e.preventDefault();
-      applyNavAction(navigateTableHeaderTab(ci, colCount, rows.length, e.shiftKey));
-    }
+    if (focusAddRowButtonShortcut(e)) return;
+    // Let the browser traverse the per-column action buttons rendered before
+    // each focused header. Custom cell Tab behavior remains unchanged.
+    if (e.key === 'Tab') return;
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       applyNavAction(navigateTableHeaderEnter(ci));
@@ -141,7 +151,7 @@ export function TableBlock({ block, colors: c, readOnly, inline, onTableChange }
       (e.currentTarget as HTMLElement).blur();
       setFocusedCell(null);
     }
-  }, [colCount, rows.length, applyNavAction]);
+  }, [colCount, rows.length, applyNavAction, focusAddRowButtonShortcut]);
 
   const [hoveredCol, setHoveredCol] = useState<number | null>(null);
   const [hoveredRow, setHoveredRow] = useState<number | null>(null);
@@ -210,7 +220,11 @@ export function TableBlock({ block, colors: c, readOnly, inline, onTableChange }
 
   const iconBtn = (onClick: () => void, title: string, content: ReactNode, danger = false): ReactNode => (
     <button
-      onMouseDown={e => { e.preventDefault(); e.stopPropagation(); onClick(); }}
+      type="button"
+      className="be-table-control"
+      onFocus={onClearBlockSelection}
+      onMouseDown={e => { e.preventDefault(); e.stopPropagation(); onClearBlockSelection?.(); }}
+      onClick={e => { e.stopPropagation(); onClearBlockSelection?.(); onClick(); }}
       title={title}
       style={{
         background: danger ? `${c.danger}18` : c.card,
@@ -232,8 +246,20 @@ export function TableBlock({ block, colors: c, readOnly, inline, onTableChange }
               <th
                 key={ci}
                 style={thStyle(ci)}
+                onFocusCapture={() => {
+                  setHoveredCol(ci);
+                  onClearBlockSelection?.();
+                }}
+                onBlurCapture={e => {
+                  if (!e.currentTarget.contains(e.relatedTarget as Node | null)
+                    && !e.currentTarget.matches(':hover')) {
+                    setHoveredCol(current => current === ci ? null : current);
+                  }
+                }}
                 onMouseEnter={() => setHoveredCol(ci)}
-                onMouseLeave={() => setHoveredCol(null)}
+                onMouseLeave={e => {
+                  if (!e.currentTarget.contains(document.activeElement)) setHoveredCol(null);
+                }}
               >
                 {hoveredCol === ci && (
                   <div style={{
@@ -269,7 +295,11 @@ export function TableBlock({ block, colors: c, readOnly, inline, onTableChange }
             ))}
             <th style={{ border: 'none', padding: '4px 6px', background: 'transparent', width: 28 }}>
               <button
-                onMouseDown={e => { e.preventDefault(); addCol(headers.length - 1); }}
+                type="button"
+                className="be-table-control"
+                onFocus={onClearBlockSelection}
+                onMouseDown={e => { e.preventDefault(); onClearBlockSelection?.(); }}
+                onClick={e => { e.stopPropagation(); onClearBlockSelection?.(); addCol(headers.length - 1); }}
                 title={t('blockAddColumn')}
                 style={{
                   background: 'none', border: `1px dashed ${c.border}`,
@@ -285,13 +315,29 @@ export function TableBlock({ block, colors: c, readOnly, inline, onTableChange }
           {rows.map((row, r) => (
             <tr
               key={r}
+              onFocusCapture={() => {
+                setHoveredRow(r);
+                onClearBlockSelection?.();
+              }}
+              onBlurCapture={e => {
+                if (!e.currentTarget.contains(e.relatedTarget as Node | null)
+                  && !e.currentTarget.matches(':hover')) {
+                  setHoveredRow(current => current === r ? null : current);
+                }
+              }}
               onMouseEnter={() => setHoveredRow(r)}
-              onMouseLeave={() => setHoveredRow(null)}
+              onMouseLeave={e => {
+                if (!e.currentTarget.contains(document.activeElement)) setHoveredRow(null);
+              }}
             >
               <td style={{ width: 24, padding: '0 2px', border: 'none', verticalAlign: 'middle' }}>
                 {hoveredRow === r && (
                   <button
-                    onMouseDown={e => { e.preventDefault(); deleteRow(r); }}
+                    type="button"
+                    className="be-table-control"
+                    onFocus={onClearBlockSelection}
+                    onMouseDown={e => { e.preventDefault(); onClearBlockSelection?.(); }}
+                    onClick={e => { e.stopPropagation(); onClearBlockSelection?.(); deleteRow(r); }}
                     title={t('blockDeleteRow')}
                     style={{
                       background: 'none', border: 'none', cursor: 'pointer',
@@ -338,7 +384,13 @@ export function TableBlock({ block, colors: c, readOnly, inline, onTableChange }
           <tr>
             <td colSpan={colCount + 2} style={{ border: 'none', padding: '4px 0 2px' }}>
               <button
-                onMouseDown={e => { e.preventDefault(); addRow(); }}
+                type="button"
+                className="be-table-control"
+                ref={addRowButtonRef}
+                aria-keyshortcuts="Control+Shift+Enter Meta+Shift+Enter"
+                onFocus={onClearBlockSelection}
+                onMouseDown={e => { e.preventDefault(); onClearBlockSelection?.(); }}
+                onClick={e => { e.stopPropagation(); onClearBlockSelection?.(); addRow(); }}
                 title={t('blockAddRow')}
                 style={{
                   background: 'none', border: `1px dashed ${c.border}`,

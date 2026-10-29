@@ -20,7 +20,7 @@ export const EMPTY_DOC_HINT_LINES = [
   'Drag ⋮⋮ handles to reorder blocks',
 ] as const;
 
-export const BLOCK_MENU_FOOTER_HINT = '⋮⋮ grip: drag or menu · Right-click block · Shift+click multi-select';
+export const BLOCK_MENU_FOOTER_HINT = '⋮⋮ grip: click/Enter to select · drag to move · ⋯ block actions · Right-click block · Shift+click multi-select';
 
-export const GRIP_DRAG_TITLE = 'Drag to move · Click for block menu';
+export const GRIP_DRAG_TITLE = 'Click or Enter to select · Drag to move';
 export const GUTTER_RANGE_TITLE = 'Shift+drag to select multiple blocks';

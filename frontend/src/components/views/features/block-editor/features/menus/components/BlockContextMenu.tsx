@@ -29,6 +29,8 @@ export interface BlockContextMenuProps {
   colors: BlockEditorColors;
   /** When > 1, shows multi-select header and simplified actions */
   selectionCount?: number;
+  returnFocusEl?: HTMLElement | null;
+  onFallbackBlockFocus?: () => void;
   onAddAbove: () => void;
   onAddBelow: () => void;
   onDuplicate: () => void;
@@ -50,7 +52,8 @@ export interface BlockContextMenuProps {
 }
 
 export function BlockContextMenu({
-  blockId, currentType, anchorY, anchorX, colors: c, selectionCount,
+  blockId, currentType, anchorY, anchorX, colors: c, selectionCount, returnFocusEl,
+  onFallbackBlockFocus,
   onAddAbove, onAddBelow, onDuplicate, onIndent, onOutdent,
   onMoveIntoToggle, onMoveOutOfToggle, canMoveIntoToggle, canMoveOutOfToggle,
   onSetTint, onCopyLink,
@@ -67,17 +70,33 @@ export function BlockContextMenu({
 
   useEffect(() => {
     const h = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) onClose();
+      const target = e.target as Element;
+      const trigger = target.closest<HTMLElement>('[data-be-menu-trigger]');
+      if (menuRef.current?.contains(target) || trigger?.dataset.beMenuTrigger === blockId) return;
+      onClose();
     };
     document.addEventListener('mousedown', h);
     return () => document.removeEventListener('mousedown', h);
-  }, [onClose]);
+  }, [blockId, onClose]);
 
   useEffect(() => {
-    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const h = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      onClose();
+      if (returnFocusEl?.isConnected) {
+        returnFocusEl.focus();
+        return;
+      }
+      onFallbackBlockFocus?.();
+    };
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
-  }, [onClose]);
+  }, [onClose, onFallbackBlockFocus, returnFocusEl]);
+
+  useLayoutEffect(() => {
+    menuRef.current?.querySelector<HTMLButtonElement>('[data-be-menu-action]:not(:disabled)')?.focus();
+  }, [submenu]);
 
   const [menuPos, setMenuPos] = useState({ top: anchorY, left: anchorX });
 
@@ -89,7 +108,7 @@ export function BlockContextMenu({
   }, [anchorX, anchorY, submenu, selectionCount]);
 
   const mi = (icon: ReactNode, label: string, fn: () => void, danger = false, disabled = false) => (
-    <button type="button" disabled={disabled} onClick={() => { if (!disabled) fn(); }} style={{
+    <button type="button" disabled={disabled} data-be-menu-action onClick={() => { if (!disabled) fn(); }} style={{
       display:'flex', alignItems:'center', gap: UI_INTERACTION.editorMenuItemGapPx, width:'100%',
       padding:`7px ${UI_INTERACTION.editorMenuItemPaddingPx}px`, background:'none', border:'none',
       cursor: disabled ? 'default' : 'pointer', fontSize: UI_DENSITY.editorMenuItemFontPx,
@@ -110,6 +129,7 @@ export function BlockContextMenu({
   return (
     <div
       ref={menuRef}
+      id={`be-block-actions-${blockId}`}
       className="be-block-handle-menu"
       onMouseEnter={() => onChromeEnter?.(blockId)}
       onMouseLeave={() => onChromeLeave?.()}
@@ -131,8 +151,9 @@ export function BlockContextMenu({
             {turnIntoItems.map(item => {
               const active = item.type === currentType;
               return (
-                <button key={item.type} type="button"
-                  onMouseDown={e => { e.preventDefault(); onSelect(item.type); }}
+                <button key={item.type} type="button" data-be-menu-action data-be-block-type={item.type}
+                  onMouseDown={e => e.preventDefault()}
+                  onClick={() => onSelect(item.type)}
                   style={{
                     display:'flex', alignItems:'center', gap:10, width:'100%',
                     padding:'6px 12px', background: active ? c.accentBg : 'none',
@@ -152,7 +173,7 @@ export function BlockContextMenu({
             background:'none', border:'none', cursor:'pointer', fontSize:12, color:c.textMuted, textAlign:'left',
           }}>← {CONTEXT_MENU.color}</button>
           {BLOCK_TINT_OPTIONS.map(opt => (
-            <button key={opt.id} type="button" onClick={() => onSetTint(opt.id)}
+            <button key={opt.id} type="button" data-be-menu-action onClick={() => onSetTint(opt.id)}
               style={{
                 display:'flex', alignItems:'center', gap:10, width:'100%', padding:'6px 12px',
                 background:'none', border:'none', cursor:'pointer', textAlign:'left',
@@ -168,6 +189,8 @@ export function BlockContextMenu({
             {selectionCount} blocks selected
           </div>
           <div style={{ borderTop:`1px solid ${c.border}`, margin:'4px 0' }}/>
+          {mi(<Indent size={13}/>, CONTEXT_MENU.indent, onIndent)}
+          {mi(<Outdent size={13}/>, CONTEXT_MENU.outdent, onOutdent)}
           {mi(<Copy size={13}/>, CONTEXT_MENU.duplicate, onDuplicate)}
           {mi(<Trash2 size={12}/>, CONTEXT_MENU.delete, onDelete, true)}
         </>

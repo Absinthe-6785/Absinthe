@@ -5,6 +5,7 @@ import type { Block } from '../../../blockUtils';
 export interface VirtualRowMemoState {
   isSelected: boolean;
   isMenuOpen: boolean;
+  actionsMenuOpen: boolean;
   controlsVisible: boolean;
   activeBlockId: string | null | undefined;
   headingIndex: number | undefined;
@@ -26,6 +27,7 @@ function virtualRowMemoStateEqual(
 ): boolean {
   return prev.isSelected === next.isSelected
     && prev.isMenuOpen === next.isMenuOpen
+    && prev.actionsMenuOpen === next.actionsMenuOpen
     && prev.controlsVisible === next.controlsVisible
     && prev.activeBlockId === next.activeBlockId
     && prev.headingIndex === next.headingIndex

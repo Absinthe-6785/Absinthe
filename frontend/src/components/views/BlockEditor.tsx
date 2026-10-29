@@ -114,6 +114,10 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
   externalFocusId, externalFocusOffset = 'start', externalFocusPreventScroll = false, onExternalFocusConsumed,
   onEscapeToParentBelow, onEscapeToParentHeader, onMergeFirstChildIntoHeader,
   getRootBlocks: getRootBlocksProp, onRootChange: onRootChangeProp,
+  onDeleteSelected: onDeleteSelectedProp,
+  onDuplicateSelected: onDuplicateSelectedProp,
+  onIndentSelected: onIndentSelectedProp,
+  onOutdentSelected: onOutdentSelectedProp,
   searchScope = 'document', searchMatchIndex = 0,
   documentFocusApiRef,
   virtualBlocksPoc,
@@ -373,7 +377,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     handleChromeLeave,
     handleToggleControlsPin,
     controlsVisibleFor,
-  } = useEditorChrome({ onPinSelection: selectBlock });
+  } = useEditorChrome();
 
   const getBlockType = useCallback(
     (blockId: string) => findBlockById(getRootBlocks(), blockId)?.type,
@@ -450,48 +454,79 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     const id = state.blockId;
     const root = getRootBlocks();
     const menuBlock = findBlockById(root, id);
-    const multiCount = selectedBlockIds.size > 1 && selectedBlockIds.has(id)
-      ? selectedBlockIds.size
+    const activeSelectedIds = activeSelection?.selectedBlockIds ?? selectedBlockIds;
+    const multiCount = activeSelectedIds.size > 1 && activeSelectedIds.has(id)
+      ? activeSelectedIds.size
       : undefined;
+    const onDoneAndRestoreFocus = () => {
+      onDone();
+      // Keep the handle visible until the next-frame focus restoration. The
+      // menu may have been opened from a pinned handle and toggled that pin off.
+      setPinnedControlsId(id);
+      requestAnimationFrame(() => {
+        if (state.returnFocusEl?.isConnected) {
+          state.returnFocusEl.focus();
+          if (document.activeElement === state.returnFocusEl) {
+            setPinnedControlsId(current => current === id ? null : current);
+            return;
+          }
+        }
+        requestFocus({ blockId: id, offset: 'end' });
+        setPinnedControlsId(current => current === id ? null : current);
+      });
+    };
     return (
       <BlockContextMenu
+        key={id}
         blockId={id}
         currentType={menuBlock?.type ?? 'paragraph'}
         anchorY={state.anchorY}
         anchorX={state.anchorX}
         colors={c}
         selectionCount={multiCount}
+        returnFocusEl={state.returnFocusEl}
+        onFallbackBlockFocus={() => requestFocus({ blockId: id, offset: 'end' })}
         onAddAbove={() => { handleAddAbove(id); onDone(); }}
         onAddBelow={() => { handleAddBelow(id); onDone(); }}
         onDuplicate={() => {
-          if (multiCount) handleDuplicateSelected();
+          if (multiCount) (onDuplicateSelectedProp ?? handleDuplicateSelected)();
           else handleDuplicate(id);
-          onDone();
+          if (multiCount) onDoneAndRestoreFocus();
+          else onDone();
         }}
         onIndent={() => {
-          if (multiCount) handleIndentSelected();
+          if (multiCount) (onIndentSelectedProp ?? handleIndentSelected)();
           else handleIndentBlock(id);
-          onDone();
+          onDoneAndRestoreFocus();
         }}
         onOutdent={() => {
-          if (multiCount) handleOutdentSelected();
+          if (multiCount) (onOutdentSelectedProp ?? handleOutdentSelected)();
           else handleOutdentBlock(id);
-          onDone();
+          onDoneAndRestoreFocus();
         }}
-        onMoveIntoToggle={() => { handleMoveIntoPrevToggle(id); onDone(); }}
-        onMoveOutOfToggle={() => { handleMoveOutOfToggleBlock(id); onDone(); }}
+        onMoveIntoToggle={() => { handleMoveIntoPrevToggle(id); onDoneAndRestoreFocus(); }}
+        onMoveOutOfToggle={() => { handleMoveOutOfToggleBlock(id); onDoneAndRestoreFocus(); }}
         canMoveIntoToggle={canMoveIntoPreviousToggle(root, id)}
         canMoveOutOfToggle={isInsideToggle(root, id)}
-        onSetTint={tint => { handleSetTint(id, tint); onDone(); }}
-        onCopyLink={() => { handleCopyBlockLink(id); onDone(); }}
+        onSetTint={tint => { handleSetTint(id, tint); onDoneAndRestoreFocus(); }}
+        onCopyLink={() => { handleCopyBlockLink(id); onDoneAndRestoreFocus(); }}
         onSelect={type => handleConvert(id, type)}
         onDelete={() => {
-          if (multiCount) handleDeleteSelected();
-          else handleDelete(id);
+          if (multiCount) (onDeleteSelectedProp ?? handleDeleteSelected)();
+          else {
+            const focusBlockId = handleDelete(id);
+            if (focusBlockId) {
+              activeSelection?.onBlockSelect(focusBlockId, {
+                shiftKey: false,
+                metaKey: false,
+                ctrlKey: false,
+              });
+            }
+          }
           onDone();
         }}
-        onMoveUp={() => { handleMove(id, 'up'); onDone(); }}
-        onMoveDown={() => { handleMove(id, 'down'); onDone(); }}
+        onMoveUp={() => { handleMove(id, 'up'); onDoneAndRestoreFocus(); }}
+        onMoveDown={() => { handleMove(id, 'down'); onDoneAndRestoreFocus(); }}
         onClose={onDone}
         onChromeEnter={handleChromeEnter}
         onChromeLeave={handleChromeLeave}
@@ -554,6 +589,10 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     getRootBlocks,
     onChange,
     onRootChange,
+    onDeleteSelected: onDeleteSelectedProp ?? handleDeleteSelected,
+    onDuplicateSelected: onDuplicateSelectedProp ?? handleDuplicateSelected,
+    onIndentSelected: onIndentSelectedProp ?? handleIndentSelected,
+    onOutdentSelected: onOutdentSelectedProp ?? handleOutdentSelected,
     NestedEditor: BlockEditorInner,
     colors: c,
     readOnly,
@@ -647,6 +686,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
       onNavigateBlock={handleNavigateBlock}
       onActiveBlockChange={handleActiveBlockChange}
       controlsVisible={controlsVisibleFor(block.id)}
+      actionsMenuOpen={handleMenu?.blockId === block.id}
       onToggleControlsPin={handleToggleControlsPin}
       onChromeEnter={handleChromeEnter}
       onChromeLeave={handleChromeLeave}
@@ -660,7 +700,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
       searchQueryFor={searchQueryFor}
       renderToggleNested={renderToggleNested}
       showPersistentPlaceholder={showPersistentPlaceholder}
-      onClearBlockSelection={clearSelection}
+      onClearBlockSelection={activeSelection?.clearSelection ?? clearSelection}
     />
   );
 
@@ -675,6 +715,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     selectedBlockIds: EMPTY_SELECTION_IDS,
     activeBlockId: null as string | null | undefined,
     isMenuOpenForBlock,
+    isBlockActionsOpen: (_id: string): boolean => false,
     controlsVisibleFor,
     headingIndexById,
     searchQueryFor,
@@ -686,6 +727,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     selectedBlockIds: activeSelection?.selectedBlockIds ?? EMPTY_SELECTION_IDS,
     activeBlockId,
     isMenuOpenForBlock,
+    isBlockActionsOpen: (id: string) => handleMenu?.blockId === id,
     controlsVisibleFor,
     headingIndexById,
     searchQueryFor,
@@ -699,6 +741,7 @@ function BlockEditorInner({ blocks, onChange, colors: c, readOnly, searchQuery, 
     return {
       isSelected: isBlockVisuallySelected(block, ctx.selectedBlockIds),
       isMenuOpen: ctx.isMenuOpenForBlock(block.id),
+      actionsMenuOpen: ctx.isBlockActionsOpen(block.id),
       controlsVisible: ctx.controlsVisibleFor(block.id),
       activeBlockId: ctx.activeBlockId,
       headingIndex: ctx.headingIndexById[block.id],

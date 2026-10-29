@@ -21,6 +21,10 @@ export interface UseEditorToggleOptions {
   getRootBlocks: () => Block[];
   onChange: (blocks: Block[]) => void;
   onRootChange: (blocks: Block[]) => void;
+  onDeleteSelected: () => void;
+  onDuplicateSelected: () => void;
+  onIndentSelected: () => void;
+  onOutdentSelected: () => void;
   NestedEditor: React.ComponentType<BlockEditorInnerProps>;
   colors: BlockEditorInnerProps['colors'];
   readOnly: boolean;
@@ -44,6 +48,10 @@ export function useEditorToggle({
   getRootBlocks,
   onChange,
   onRootChange,
+  onDeleteSelected,
+  onDuplicateSelected,
+  onIndentSelected,
+  onOutdentSelected,
   NestedEditor,
   colors,
   readOnly,
@@ -101,6 +109,10 @@ export function useEditorToggle({
       externalFocusId: undefined,
       getRootBlocks,
       onRootChange,
+      onDeleteSelected,
+      onDuplicateSelected,
+      onIndentSelected,
+      onOutdentSelected,
       searchScope,
       searchMatchIndex,
       onEscapeToParentBelow: () => {
@@ -139,7 +151,8 @@ export function useEditorToggle({
     })
   ), [
     onChange, colors, readOnly, searchQuery, depth, wikiTargets, onWikiNavigate,
-    onActiveBlockChange, getRootBlocks, onRootChange, searchScope, searchMatchIndex,
+    onActiveBlockChange, getRootBlocks, onRootChange, onDeleteSelected,
+    onDuplicateSelected, onIndentSelected, onOutdentSelected, searchScope, searchMatchIndex,
   ]);
 
   return {

@@ -2,7 +2,7 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import type { Block } from '../../../../../blockUtils';
 import { updateGutterSelection } from '../../../../../blockGutterSelection';
 import { applyPointerSelection, clearSelection as emptySelection, selectSingle } from '../utils/blockSelection';
-import type { SelectionCtxValue } from '../context/SelectionContext';
+import type { BlockSelectionModifiers, SelectionCtxValue } from '../context/SelectionContext';
 
 export interface UseEditorSelectionOptions {
   readOnly: boolean;
@@ -17,7 +17,7 @@ export interface UseEditorSelectionResult {
   setAnchorBlockId: React.Dispatch<React.SetStateAction<string | null>>;
   selectedBlockIdsRef: React.MutableRefObject<Set<string>>;
   selectBlock: (id: string) => void;
-  handleBlockSelect: (id: string, e: React.MouseEvent) => void;
+  handleBlockSelect: (id: string, modifiers: BlockSelectionModifiers) => void;
   clearSelection: () => void;
   applyGutterRange: (anchorId: string, hoverId: string) => void;
   selectionCtx: SelectionCtxValue;
@@ -43,14 +43,14 @@ export function useEditorSelection({
     setAnchorBlockId(null);
   }, []);
 
-  const handleBlockSelect = useCallback((id: string, e: React.MouseEvent) => {
+  const handleBlockSelect = useCallback((id: string, modifiers: BlockSelectionModifiers) => {
     if (readOnly) return;
     const { selected, anchorId } = applyPointerSelection(
       getRootBlocks(),
       selectedBlockIdsRef.current,
       anchorBlockId,
       id,
-      { shiftKey: e.shiftKey, additiveKey: e.metaKey || e.ctrlKey },
+      { shiftKey: modifiers.shiftKey, additiveKey: modifiers.metaKey || modifiers.ctrlKey },
     );
     setSelectedBlockIds(selected);
     setAnchorBlockId(anchorId);
@@ -68,8 +68,9 @@ export function useEditorSelection({
     selectedBlockIds,
     anchorBlockId,
     onBlockSelect: handleBlockSelect,
+    clearSelection,
     applyGutterRange,
-  }), [selectedBlockIds, anchorBlockId, handleBlockSelect, applyGutterRange]);
+  }), [selectedBlockIds, anchorBlockId, handleBlockSelect, clearSelection, applyGutterRange]);
 
   return {
     selectedBlockIds,

@@ -17,7 +17,7 @@ function elementClosest(el: HTMLElement | null, selector: string): Element | nul
 
 function editorMenuOpen(): boolean {
   if (typeof document === 'undefined') return false;
-  return Boolean(document.querySelector('.be-slash-menu, .be-wiki-menu'));
+  return Boolean(document.querySelector('.be-slash-menu, .be-wiki-menu, .be-block-handle-menu'));
 }
 
 function editorDragActive(): boolean {
@@ -95,12 +95,14 @@ export function useEditorKeyboard({
           ? inEditorRoot
           : null;
         if (editing && onSelectBlock) {
-          const blockId = elementClosest(target, '[data-drag-id]')?.getAttribute('data-drag-id');
+          const blockElement = elementClosest(target, '[data-drag-id]');
+          const blockId = blockElement?.getAttribute('data-drag-id');
           if (blockId) {
             e.preventDefault();
             (elementClosest(target, '.be-editable[contenteditable="true"]') as HTMLElement | null)?.blur();
             blurActiveEditorFocus(documentRootRef?.current ?? null);
             onSelectBlock(blockId);
+            blockElement?.querySelector<HTMLButtonElement>('.be-grip')?.focus();
             return;
           }
         }
@@ -112,6 +114,15 @@ export function useEditorKeyboard({
       }
 
       if (shouldSuppressEditorKeyboardShortcuts()) return;
+
+      // Native interactive-control behavior takes precedence over editor shortcuts.
+      if (
+        (e.key === 'Enter' || e.key === 'Tab')
+        && elementClosest(
+          e.target as HTMLElement | null,
+          '.be-grip, .be-handle-menu-btn, .be-block-handle-menu, .be-table-control, button, a[href], input, textarea, select, [role="button"]',
+        )
+      ) return;
 
       if (e.key === 'Tab' && !e.ctrlKey && !e.metaKey && !e.altKey) {
         const selected = getSelectedIds();
@@ -158,6 +169,9 @@ export function useEditorKeyboard({
         if (!focusId) return;
         const target = e.target as HTMLElement | null;
         if (!elementClosest(target, '.be-editor-root')) return;
+        if (elementClosest(target, '.be-block-handle-menu, .be-handle-menu-btn')) return;
+        // Shift+Arrow remains native text selection while editing a block or table cell.
+        if (elementClosest(target, '[contenteditable="true"]')) return;
         const extended = extendSelectionByArrow(
           blocks,
           anchorBlockId,
@@ -172,6 +186,7 @@ export function useEditorKeyboard({
       }
 
       if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+      if (elementClosest(e.target as HTMLElement | null, '.be-block-handle-menu, .be-handle-menu-btn, .be-table-control')) return;
       if (!shouldDeleteSelectedBlocks(e, getSelectedIds())) return;
       e.preventDefault();
       onDeleteSelected();
