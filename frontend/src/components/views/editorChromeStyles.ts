@@ -190,17 +190,9 @@ export const EDITOR_CHROME_STYLES = `
   .be-block-selected {
     background: var(--be-block-selected-bg, rgba(139,92,246,0.05));
   }
-  .be-block-selected:not(.be-toggle-header-block)::after {
-    content: '';
-    position: absolute;
-    left: -10px;
-    top: 3px;
-    bottom: 3px;
-    width: 2px;
-    border-radius: 2px;
-    background: var(--be-accent, #8B5CF6);
-    opacity: 0.35;
-    pointer-events: none;
+  .be-block-selected:not(.be-toggle-header-block) > .be-content {
+    border-radius: 6px;
+    box-shadow: inset 0 0 0 1px var(--be-block-selection-outline, rgba(139,92,246,0.34));
   }
   .be-block-active {
     scroll-margin: 80px;
@@ -243,6 +235,16 @@ export const EDITOR_CHROME_STYLES = `
     font-size: calc(var(--be-font-size, 16px) + 1px);
     line-height: 1.65;
     letter-spacing: -0.005em;
+    color: var(--be-text, inherit);
+  }
+  .be-editor-root::selection,
+  .be-editor-root ::selection {
+    background-color: var(--be-text-selection-bg, rgba(139,92,246,0.22));
+    color: var(--be-text, inherit);
+  }
+  .be-editor-root::-moz-selection,
+  .be-editor-root ::-moz-selection {
+    background-color: var(--be-text-selection-bg, rgba(139,92,246,0.22));
     color: var(--be-text, inherit);
   }
   @media ${VIEWPORT_MEDIA_QUERIES.tabletUp} {
