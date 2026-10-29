@@ -24,6 +24,28 @@ export type WikiNavigationTarget = string | IdWikiLink;
 export const wikiTargetTitle = (target: WikiTarget): string => typeof target === 'string' ? target : target.title;
 export const isCurrentWikiTarget = (target: WikiTarget): boolean => typeof target === 'string' || target.isCurrent();
 
+/** Delegated keyboard activation for focusable Wiki spans in reading-mode output. */
+export function handleReadingWikiKeyDown(
+  event: KeyboardEvent,
+  root: HTMLElement,
+  navigate: (target: WikiNavigationTarget, options?: { preferReading?: boolean }) => void,
+): boolean {
+  if (event.key !== 'Enter' || event.repeat || event.isComposing || event.keyCode === 229
+    || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return false;
+  const source = event.target;
+  if (!(source instanceof Element)) return false;
+  const link = source.closest<HTMLElement>('.be-wikilink[role="link"][tabindex="0"]');
+  if (!link || !root.contains(link)) return false;
+
+  const idLink = parseIdWikiLink(link.dataset.noteLink ?? '');
+  const title = link.dataset.wiki;
+  if (!idLink && title === undefined) return false;
+  event.preventDefault();
+  event.stopPropagation();
+  navigate(idLink ?? title!, { preferReading: true });
+  return true;
+}
+
 export function serializeIdWikiLink(noteId: string, label = ''): string {
   if (!noteId || /[\r\n\u0000]/.test(noteId) || /[\r\n]/.test(label)) throw new Error('Invalid Wiki link');
   const id = encodeURIComponent(noteId).replace(/[!'()*]/g, c => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
