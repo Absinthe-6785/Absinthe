@@ -20,6 +20,7 @@ import {
   runAccountScopedNotesMutation,
 } from './notesAccountAuthority';
 import { revalidateResolvedBootstrapNotes } from './notesBootstrapAuthority';
+import { setRecoveryModeActiveForTest } from './recoverySafetyPolicy';
 
 const storage = new Map<string, string>();
 vi.stubGlobal('localStorage', {
@@ -158,6 +159,7 @@ describe('account-scoped Notes/Folders local authority', () => {
 
   beforeEach(async () => {
     detachNotesAccountAuthority();
+    __testOnlyNotesAccountAuthorityHooks?.setReadNotesOverride(null);
     __testOnlyNotesAccountAuthorityHooks?.setBootstrapStageOverride(null);
     storage.clear();
     await deleteAuthorityDatabase();
@@ -165,6 +167,7 @@ describe('account-scoped Notes/Folders local authority', () => {
 
   afterEach(async () => {
     detachNotesAccountAuthority();
+    __testOnlyNotesAccountAuthorityHooks?.setReadNotesOverride(null);
     __testOnlyNotesAccountAuthorityHooks?.setBootstrapStageOverride(null);
     storage.clear();
     await deleteAuthorityDatabase();
@@ -217,6 +220,250 @@ describe('account-scoped Notes/Folders local authority', () => {
 
     await initializeAccountScopedNotesAuthority('account-b');
     expect((await loadAccountScopedNotes('account-b')).map(item => item.id)).toEqual(['b-existing']);
+  });
+
+  it('characterizes populated-to-absent startup replacing prior state evidence without affecting another account', async () => {
+    await initializeAccountScopedNotesAuthority('account-a');
+    expect(await saveAccountScopedNotes('account-a', [note(1)])).toBe(true);
+    expect(await saveAccountScopedFolders([folder(1)])).toBe(true);
+    await initializeAccountScopedNotesAuthority('account-b');
+    const accountBNote = { ...note(2), id: 'b-existing' };
+    expect(await saveAccountScopedNotes('account-b', [accountBNote])).toBe(true);
+    await initializeAccountScopedNotesAuthority('account-a');
+    expect(getNotesAuthorityState('account-a', NOTES_CORE_DOMAIN)).toMatchObject({
+      state: 'LOADED_POPULATED', recordCount: 1,
+    });
+    const foldersBefore = storage.get(foldersKey('account-a'));
+    // Isolated fake-indexeddb fixture only: simulate an unexplained missing row.
+    await deleteRawScopedNote('account-a', 'a-note-1');
+    const coreTransitions: unknown[] = [];
+    const stateWrite = vi.spyOn(localStorage, 'setItem').mockImplementation((key, value) => {
+      if (key === 'absinthe.notes.account-authority.state.v1:account-a:notes.core') {
+        coreTransitions.push(JSON.parse(value));
+      }
+      storage.set(key, value);
+    });
+    try {
+      const reopened = await initializeAccountScopedNotesAuthority('account-a');
+      // Current behavior, not an endorsed recovery contract or a fixed regression.
+      expect(reopened.notes).toEqual([]);
+      expect(reopened.notesState).toMatchObject({ state: 'LOADED_EMPTY', recordCount: 0 });
+      expect(coreTransitions).toMatchObject([
+        { state: 'LOADING', recordCount: 0 },
+        { state: 'LOADED_EMPTY', recordCount: 0 },
+      ]);
+      expect(storage.get(foldersKey('account-a'))).toBe(foldersBefore);
+    } finally {
+      stateWrite.mockRestore();
+    }
+    const accountB = await initializeAccountScopedNotesAuthority('account-b');
+    expect(accountB.notes).toEqual([accountBNote]);
+    expect(accountB.notesState).toMatchObject({ state: 'LOADED_POPULATED', recordCount: 1 });
+  });
+
+  it('loads a genuinely new account as empty without attributing legacy global Notes', async () => {
+    storage.set('notes-v2', JSON.stringify([note(99)]));
+    expect(getNotesAuthorityState('new-account', NOTES_CORE_DOMAIN).state).toBe('NOT_LOADED');
+    const opened = await initializeAccountScopedNotesAuthority('new-account');
+    expect(opened.notes).toEqual([]);
+    expect(opened.notesState).toMatchObject({ state: 'LOADED_EMPTY', recordCount: 0 });
+    expect(storage.get('notes-v2')).toBe(JSON.stringify([note(99)]));
+  });
+
+  it('reopens an intentionally emptied account after a successful scoped save', async () => {
+    await initializeAccountScopedNotesAuthority('account-a');
+    expect(await saveAccountScopedNotes('account-a', [note(1)])).toBe(true);
+    expect(await saveAccountScopedNotes('account-a', [])).toBe(true);
+    expect(getNotesAuthorityState('account-a', NOTES_CORE_DOMAIN)).toMatchObject({
+      state: 'LOADED_EMPTY', recordCount: 0,
+    });
+    detachNotesAccountAuthority();
+    const reopened = await initializeAccountScopedNotesAuthority('account-a');
+    expect(reopened.notes).toEqual([]);
+    expect(reopened.notesState).toMatchObject({ state: 'LOADED_EMPTY', recordCount: 0 });
+  });
+
+  it.each([{ nextNotes: [] }, { nextNotes: [note(2)] }])('revalidates Notes after a newer writer overtakes folder initialization ($nextNotes.length records)', async ({ nextNotes }) => {
+    await initializeAccountScopedNotesAuthority('account-a');
+    expect(await saveAccountScopedNotes('account-a', [note(1)])).toBe(true);
+    // Force the existing absent-folder lock boundary after the Notes read.
+    storage.delete(foldersKey('account-a'));
+    let entered!: () => void;
+    let release!: () => void;
+    const ready = new Promise<void>(resolve => { entered = resolve; });
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const holder = runAccountScopedNotesMutation('account-a', async () => { entered(); await gate; });
+    await ready;
+    const lock = vi.spyOn(navigator.locks, 'request');
+    const reopening = initializeAccountScopedNotesAuthority('account-a');
+    // This save uses the same current request and queues before folder initialization.
+    const newerSave = saveAccountScopedNotes('account-a', nextNotes);
+    try {
+      await vi.waitFor(() => expect(lock).toHaveBeenCalledTimes(2));
+    } finally {
+      release();
+      lock.mockRestore();
+    }
+    await holder;
+    expect(await newerSave).toBe(true);
+    const reopened = await reopening;
+    expect(reopened.notes).toEqual(nextNotes);
+    const expectedState = nextNotes.length ? 'LOADED_POPULATED' : 'LOADED_EMPTY';
+    expect(reopened.notesState).toMatchObject({ state: expectedState, recordCount: nextNotes.length });
+    expect(getNotesAuthorityState('account-a', NOTES_CORE_DOMAIN)).toMatchObject({
+      state: expectedState, recordCount: nextNotes.length,
+    });
+    const nextStartup = await initializeAccountScopedNotesAuthority('account-a');
+    expect(nextStartup.notes).toEqual(nextNotes);
+    expect(nextStartup.notesState).toMatchObject({ state: expectedState, recordCount: nextNotes.length });
+  });
+
+  it.each([{ nextNotes: [] }, { nextNotes: [note(2)] }])('revalidates a delayed Notes read even when folders already exist ($nextNotes.length records)', async ({ nextNotes }) => {
+    await initializeAccountScopedNotesAuthority('account-a');
+    expect(await saveAccountScopedNotes('account-a', [note(1)])).toBe(true);
+    const foldersBefore = storage.get(foldersKey('account-a'));
+    const hooks = __testOnlyNotesAccountAuthorityHooks!;
+    let release!: () => void;
+    hooks.setReadNotesOverride(() => new Promise(resolve => {
+      release = () => resolve({ kind: 'valid', records: [note(1)] });
+    }));
+    try {
+      const reopening = initializeAccountScopedNotesAuthority('account-a');
+      expect(await saveAccountScopedNotes('account-a', nextNotes)).toBe(true);
+      hooks.setReadNotesOverride(null);
+      release();
+      const reopened = await reopening;
+      expect(reopened.notes).toEqual(nextNotes);
+      expect(reopened.notesState).toMatchObject({
+        state: nextNotes.length ? 'LOADED_POPULATED' : 'LOADED_EMPTY', recordCount: nextNotes.length,
+      });
+      expect(storage.get(foldersKey('account-a'))).toBe(foldersBefore);
+    } finally {
+      hooks.setReadNotesOverride(null);
+    }
+  });
+
+  it.each(['malformed', 'read-error'] as const)('fails closed when final revalidation returns %s', async failure => {
+    await initializeAccountScopedNotesAuthority('account-a');
+    expect(await saveAccountScopedNotes('account-a', [note(1)])).toBe(true);
+    const foldersBefore = storage.get(foldersKey('account-a'));
+    let reads = 0;
+    const hooks = __testOnlyNotesAccountAuthorityHooks!;
+    hooks.setReadNotesOverride(async () => {
+      if (++reads === 1) return { kind: 'valid', records: [note(1)] };
+      if (failure === 'read-error') throw new Error('final_read_failed');
+      return { kind: 'malformed' };
+    });
+    try {
+      await expect(initializeAccountScopedNotesAuthority('account-a')).rejects.toThrow(
+        failure === 'read-error' ? 'final_read_failed' : 'notes_account_authority_notes_malformed',
+      );
+      expect(reads).toBe(2);
+      expect(getNotesAuthorityState('account-a', NOTES_CORE_DOMAIN).state).toBe('RECOVERY_REQUIRED');
+      expect(storage.get(foldersKey('account-a'))).toBe(foldersBefore);
+    } finally {
+      hooks.setReadNotesOverride(null);
+    }
+    expect(await loadAccountScopedNotes('account-a')).toEqual([note(1)]);
+  });
+
+  it('fails closed on finalization lock failure without changing durable content', async () => {
+    await initializeAccountScopedNotesAuthority('account-a');
+    expect(await saveAccountScopedNotes('account-a', [note(1)])).toBe(true);
+    const foldersBefore = storage.get(foldersKey('account-a'));
+    const stateBefore = getNotesAuthorityState('account-a', NOTES_CORE_DOMAIN);
+    const lock = vi.spyOn(navigator.locks, 'request').mockRejectedValueOnce(new Error('lock_failed'));
+    try {
+      await expect(initializeAccountScopedNotesAuthority('account-a'))
+        .rejects.toThrow('notes_attachment_mutation_lock_acquisition_failed');
+      expect(getNotesAuthorityState('account-a', NOTES_CORE_DOMAIN)).toEqual(stateBefore);
+      expect(storage.get(foldersKey('account-a'))).toBe(foldersBefore);
+    } finally {
+      lock.mockRestore();
+    }
+    expect(await loadAccountScopedNotes('account-a')).toEqual([note(1)]);
+  });
+
+  it.each([{ nextNotes: [] }, { nextNotes: [note(2)] }])('keeps a newer writer verdict when older acquisition fails ($nextNotes.length records)', async ({ nextNotes }) => {
+    await initializeAccountScopedNotesAuthority('account-a');
+    expect(await saveAccountScopedNotes('account-a', [note(1)])).toBe(true);
+    const foldersBefore = storage.get(foldersKey('account-a'));
+    let rejectAcquisition!: (error: Error) => void;
+    const failedAcquisition = new Promise<never>((_resolve, reject) => { rejectAcquisition = reject; });
+    const lock = vi.spyOn(navigator.locks, 'request').mockReturnValueOnce(failedAcquisition);
+    const reopening = initializeAccountScopedNotesAuthority('account-a');
+    const rejection = expect(reopening).rejects.toThrow('notes_attachment_mutation_lock_acquisition_failed');
+    try {
+      await vi.waitFor(() => expect(lock).toHaveBeenCalledTimes(1));
+      expect(await saveAccountScopedNotes('account-a', nextNotes)).toBe(true);
+      const newerState = getNotesAuthorityState('account-a', NOTES_CORE_DOMAIN);
+      expect(newerState).toMatchObject({
+        state: nextNotes.length ? 'LOADED_POPULATED' : 'LOADED_EMPTY', recordCount: nextNotes.length,
+      });
+      rejectAcquisition(new Error('delayed_acquisition_failure'));
+      await rejection;
+      expect(getNotesAuthorityState('account-a', NOTES_CORE_DOMAIN)).toEqual(newerState);
+      expect(storage.get(foldersKey('account-a'))).toBe(foldersBefore);
+      expect(await loadAccountScopedNotes('account-a')).toEqual(nextNotes);
+    } finally {
+      rejectAcquisition(new Error('test_cleanup'));
+      lock.mockRestore();
+    }
+  });
+
+  it.each(['epoch', 'account'] as const)('cancels final publication after a %s transition during revalidation', async transition => {
+    await initializeAccountScopedNotesAuthority('account-a');
+    expect(await saveAccountScopedNotes('account-a', [note(1)])).toBe(true);
+    const foldersBefore = storage.get(foldersKey('account-a'));
+    const hooks = __testOnlyNotesAccountAuthorityHooks!;
+    let entered!: () => void;
+    let release!: () => void;
+    const ready = new Promise<void>(resolve => { entered = resolve; });
+    let reads = 0;
+    hooks.setReadNotesOverride(async () => {
+      if (++reads === 1) return { kind: 'valid', records: [note(1)] };
+      entered();
+      return new Promise(resolve => { release = () => resolve({ kind: 'valid', records: [note(1)] }); });
+    });
+    const reopening = initializeAccountScopedNotesAuthority('account-a');
+    const rejection = expect(reopening).rejects.toThrow('notes_account_scope_inactive');
+    await ready;
+    hooks.setReadNotesOverride(null);
+    try {
+      if (transition === 'epoch') setRecoveryModeActiveForTest(true);
+      else {
+        const accountB = await initializeAccountScopedNotesAuthority('account-b');
+        expect(accountB.notes).toEqual([]);
+        expect(accountB.notesState.state).toBe('LOADED_EMPTY');
+      }
+    } finally {
+      release();
+    }
+    await rejection;
+    expect(getNotesAuthorityState('account-a', NOTES_CORE_DOMAIN).state).toBe('LOADING');
+    expect(storage.get(foldersKey('account-a'))).toBe(foldersBefore);
+    if (transition === 'account') {
+      expect(getNotesAuthorityState('account-b', NOTES_CORE_DOMAIN).state).toBe('LOADED_EMPTY');
+    }
+    const reopened = await initializeAccountScopedNotesAuthority('account-a');
+    expect(reopened.notes).toEqual([note(1)]);
+  });
+
+  it('uses a successful final read rather than publishing an optimistic read error over a newer writer', async () => {
+    await initializeAccountScopedNotesAuthority('account-a');
+    const hooks = __testOnlyNotesAccountAuthorityHooks!;
+    let rejectRead!: () => void;
+    hooks.setReadNotesOverride(() => new Promise((_resolve, reject) => {
+      rejectRead = () => reject(new Error('optimistic_read_failed'));
+    }));
+    const reopening = initializeAccountScopedNotesAuthority('account-a');
+    expect(await saveAccountScopedNotes('account-a', [note(2)])).toBe(true);
+    hooks.setReadNotesOverride(null);
+    rejectRead();
+    expect((await reopening).notes).toEqual([note(2)]);
+    expect(getNotesAuthorityState('account-a', NOTES_CORE_DOMAIN)).toMatchObject({
+      state: 'LOADED_POPULATED', recordCount: 1,
+    });
   });
 
   it('verifies both domains and restores both after a folder apply failure', async () => {
@@ -865,9 +1112,13 @@ describe('account-scoped Notes/Folders local authority', () => {
     expect(hooks).toBeDefined();
     if (!hooks) throw new Error('notes authority test seam unavailable');
     const pending = new Map<string, () => void>();
-    hooks.setReadNotesOverride(accountId => new Promise(resolve => {
-      pending.set(`${accountId}:${pending.size + 1}`, () => resolve({ kind: 'absent' }));
+    const delayRead = () => hooks.setReadNotesOverride(accountId => new Promise(resolve => {
+      pending.set(`${accountId}:${pending.size + 1}`, () => {
+        hooks.setReadNotesOverride(null);
+        resolve({ kind: 'absent' });
+      });
     }));
+    delayRead();
 
     const a1 = initializeAccountScopedNotesAuthority('account-a');
     await Promise.resolve();
@@ -875,6 +1126,7 @@ describe('account-scoped Notes/Folders local authority', () => {
     await Promise.resolve();
     pending.get('account-b:2')?.();
     await b;
+    delayRead();
     const a2 = initializeAccountScopedNotesAuthority('account-a');
     await Promise.resolve();
     pending.get('account-a:3')?.();
@@ -883,6 +1135,7 @@ describe('account-scoped Notes/Folders local authority', () => {
     await expect(a1).rejects.toThrow('notes_account_scope_inactive');
     expect(currentA.requestGeneration).toBeGreaterThan(1);
 
+    delayRead();
     const logoutLoad = initializeAccountScopedNotesAuthority('account-a');
     await Promise.resolve();
     detachNotesAccountAuthority();

@@ -1569,73 +1569,76 @@ export async function initializeAccountScopedNotesAuthority(
 ): Promise<AccountScopedNotesSnapshot> {
   if (request.accountId !== normalizedAccountId(accountId)) throw new Error('notes_account_scope_request_mismatch');
   const normalized = request.accountId;
-  try {
-    assertActiveRequest(request);
-    // A surviving marker is durable evidence that the previous cross-store
-    // bootstrap did not prove completion.  Never normalize its contents into
-    // a normal LOADED_* state on restart.
-    const pending = readPendingBootstrapMarker(normalized);
-    if (pending.kind !== 'absent') {
+  const epoch = captureOperationEpoch();
+  const isCurrent = () => isNotesAuthorityRequestActive(request) && isOperationEpochCurrent(epoch);
+  const assertCurrent = () => {
+    if (!isCurrent()) throw new Error('notes_account_scope_inactive');
+  };
+  const markRecoveryRequired = () => {
+    if (!isCurrent()) return;
+    try {
       writeState(normalized, NOTES_CORE_DOMAIN, 'RECOVERY_REQUIRED', 0);
       writeState(normalized, NOTES_FOLDERS_DOMAIN, 'RECOVERY_REQUIRED', 0);
-      throw new Error('notes_account_authority_bootstrap_pending');
-    }
-    writeState(normalized, NOTES_CORE_DOMAIN, 'LOADING', 0);
-    writeState(normalized, NOTES_FOLDERS_DOMAIN, 'LOADING', 0);
-    const notesRead = await readAccountNotes(normalized);
-    // A newer authentication transition owns the runtime now.  Do not let an
-    // older asynchronous load publish its account snapshot into that runtime.
-    assertActiveRequest(request);
-    if (notesRead.kind === 'malformed') throw new Error('notes_account_authority_notes_malformed');
-    const foldersRead = readFolders(normalized);
-    if (foldersRead.kind === 'malformed') throw new Error('notes_account_authority_folders_malformed');
-    const notes = notesRead.kind === 'valid' ? notesRead.records : [];
-    let folders = foldersRead.kind === 'valid' ? foldersRead.records : [];
-    if (foldersRead.kind === 'absent') {
-      // Reads must not hold up a newer generation's initialization. Only the
-      // absent-folder mutation participates in the shared writer lock, and
-      // it must not overwrite a writer that committed while we were waiting.
-      folders = await runAccountMutationExclusive(normalized, async () => {
-        assertActiveRequest(request);
-        if (readPendingBootstrapMarker(normalized).kind !== 'absent') throw new Error('notes_account_authority_bootstrap_pending');
-        const current = readFolders(normalized);
-        if (current.kind === 'malformed') throw new Error('notes_account_authority_folders_malformed');
-        if (current.kind === 'valid') return current.records;
-        if (!writeFolders(normalized, [])) throw new Error('notes_account_authority_folders_write_failed');
-        return [];
-      });
-      assertActiveRequest(request);
-    }
-    const notesState = writeState(
-      normalized,
-      NOTES_CORE_DOMAIN,
-      notes.length === 0 ? 'LOADED_EMPTY' : 'LOADED_POPULATED',
-      notes.length,
-    );
-    const foldersState = writeState(
-      normalized,
-      NOTES_FOLDERS_DOMAIN,
-      folders.length === 0 ? 'LOADED_EMPTY' : 'LOADED_POPULATED',
-      folders.length,
-    );
-    return {
-      accountId: normalized,
-      requestGeneration: request.generation,
-      notes,
-      folders,
-      activeNoteId: readActiveNoteId(normalized, notes),
-      notesState,
-      foldersState,
-    };
-  } catch (error) {
-    if (isNotesAuthorityRequestActive(request)) {
-      try {
-        writeState(normalized, NOTES_CORE_DOMAIN, 'RECOVERY_REQUIRED', 0);
-        writeState(normalized, NOTES_FOLDERS_DOMAIN, 'RECOVERY_REQUIRED', 0);
-      } catch { /** storage itself is unavailable */ }
-    }
-    throw error;
+    } catch { /** storage itself is unavailable */ }
+  };
+  assertCurrent();
+  // A surviving marker is durable evidence that the previous cross-store
+  // bootstrap did not prove completion. Never normalize its contents into
+  // a normal LOADED_* state on restart.
+  const pending = readPendingBootstrapMarker(normalized);
+  if (pending.kind !== 'absent') {
+    markRecoveryRequired();
+    throw new Error('notes_account_authority_bootstrap_pending');
   }
+  // An obsolete slow read must not hold the writer lock against a newer
+  // request generation. This optimistic probe publishes neither data nor
+  // errors: only the final locked read may classify the durable source.
+  await readAccountNotes(normalized).then(() => undefined, () => undefined);
+  assertCurrent();
+  // Acquisition failure rejects without unowned metadata writes: another
+  // writer may have completed while this initialization was waiting.
+  return runAccountMutationExclusive(normalized, async () => {
+    try {
+      assertCurrent();
+      if (readPendingBootstrapMarker(normalized).kind !== 'absent') throw new Error('notes_account_authority_bootstrap_pending');
+      writeState(normalized, NOTES_CORE_DOMAIN, 'LOADING', 0);
+      writeState(normalized, NOTES_FOLDERS_DOMAIN, 'LOADING', 0);
+      // Keep revalidation and publication in one existing account-lock
+      // acquisition, so no completed writer can be followed by our old read.
+      const notesRead = await readAccountNotes(normalized);
+      assertCurrent();
+      if (notesRead.kind === 'malformed') throw new Error('notes_account_authority_notes_malformed');
+      const foldersRead = readFolders(normalized);
+      if (foldersRead.kind === 'malformed') throw new Error('notes_account_authority_folders_malformed');
+      const notes = notesRead.kind === 'valid' ? notesRead.records : [];
+      const folders = foldersRead.kind === 'valid' ? foldersRead.records : [];
+      if (foldersRead.kind === 'absent' && !writeFolders(normalized, [])) {
+        throw new Error('notes_account_authority_folders_write_failed');
+      }
+      const notesState = writeState(
+        normalized, NOTES_CORE_DOMAIN,
+        notes.length === 0 ? 'LOADED_EMPTY' : 'LOADED_POPULATED', notes.length,
+      );
+      const foldersState = writeState(
+        normalized, NOTES_FOLDERS_DOMAIN,
+        folders.length === 0 ? 'LOADED_EMPTY' : 'LOADED_POPULATED', folders.length,
+      );
+      return {
+        accountId: normalized,
+        requestGeneration: request.generation,
+        notes,
+        folders,
+        activeNoteId: readActiveNoteId(normalized, notes),
+        notesState,
+        foldersState,
+      };
+    } catch (error) {
+      // Failure metadata belongs to this same serialized finalization, not
+      // to a continuation running after the next writer acquired the lock.
+      markRecoveryRequired();
+      throw error;
+    }
+  });
 }
 
 export async function loadAccountScopedNotes(accountId: string): Promise<NoteBase[]> {
