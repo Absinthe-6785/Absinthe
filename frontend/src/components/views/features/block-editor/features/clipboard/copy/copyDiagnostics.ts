@@ -14,6 +14,7 @@ export type CopyPath =
   | 'handler-not-registered-nested-depth'
   | 'skipped-no-clipboard'
   | 'multi-select'
+  | 'table-cell-text-fallback'
   | 'single-gutter-full-block'
   | 'single-gutter-partial-fallback'
   | 'editable-full-block'

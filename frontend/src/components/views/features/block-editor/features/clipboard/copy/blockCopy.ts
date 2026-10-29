@@ -4,7 +4,7 @@
  * Serializes blocks to HTML/plain for copy so paste reuses UX-3A HTML parsers.
  */
 import { classifyClipboardHtml, type CopyTraceReport } from './copyDiagnostics';
-import { resolveCopySelection } from './copySelection';
+import { hasTableCellTextSelection, resolveCopySelection } from './copySelection';
 import { blocksToMarkdown, findBlockById, type Block, formatImageDisplayLabel } from '../../../../../blockUtils';
 import { extractLoneUrl, classifyMediaUrl, formatMediaDisplayLabel } from '../../../../../mediaUrlUtils';
 import { normalizedOpIds } from '../../../../../dragSelection';
@@ -335,6 +335,24 @@ export function handleEditorCopyEvent(
       expectedHtml: null,
       expectedPlain: null,
     }, null, false);
+  }
+
+  // A live cell text range is a more specific copy intent than a stale
+  // gutter selection. Leave the range to the browser's native text copier.
+  if (selectedIds.size > 0 && hasTableCellTextSelection()) {
+    return traceAfter({
+      path: 'table-cell-text-fallback',
+      preventedDefault: false,
+      selectedBlockIds,
+      activeBlockId,
+      activeBlockType,
+      selectionStart: null,
+      selectionEnd: null,
+      selectionLength: null,
+      blocksCopied: 0,
+      expectedHtml: null,
+      expectedPlain: null,
+    }, clipboard, false);
   }
 
   if (selectedIds.size > 1) {
