@@ -8,6 +8,7 @@ import type { NotesPersistenceInitResult } from '../../lib/notePersistence';
 import { serializeIdWikiLink, parseIdWikiLink } from './wikiLinks';
 import { captureWikiPublication } from './wikiNoteAuthority';
 import { buildWikiInsertText } from './features/block-editor/features/menus/utils/wikiNavigation';
+import { buildSelectedWikiInsertText } from './features/block-editor/features/selection/utils/selectionWikiLink';
 import { filterWikiTargets } from './features/block-editor/features/menus/utils/wikiSearch';
 import { renderInlineMarkdownHtml } from './editableRender';
 import { useNoteKeyboardActions } from './noteview/actions/useNoteKeyboardActions';
@@ -107,6 +108,7 @@ describe('ID Wiki authorized publication and navigation', () => {
     expect(useNotesStore.getState().activeNoteId).not.toBe('target');
     expect(filterWikiTargets('', oldPublication.targets)).toEqual([]);
     expect(buildWikiInsertText('[[', 2, oldTarget)).toBeNull();
+    expect(buildSelectedWikiInsertText('Label', 0, 5, oldTarget)).toBeNull();
     const rendered = renderInlineMarkdownHtml(body.raw, {} as BlockEditorColors, '', oldPublication.targets);
     expect(rendered).not.toContain('Duplicate');
     expect(rendered).not.toContain('data-note-link=');
@@ -114,6 +116,9 @@ describe('ID Wiki authorized publication and navigation', () => {
     await act(async () => oldNavigate(body));
     expect(useNotesStore.getState().activeNoteId).not.toBe('target');
     expect(oldPublication.resolve(body)).toBeUndefined();
+    expect(buildSelectedWikiInsertText('Label', 0, 5, oldTarget)).toBeNull();
+    expect(buildSelectedWikiInsertText('Label', 0, 5, captureWikiPublication().targets.find(t => t.id === 'target')!)?.newText)
+      .toBe('[Label](absinthe-note:target)');
     await act(async () => navigate(body));
     expect(useNotesStore.getState().activeNoteId).toBe('target');
   });
