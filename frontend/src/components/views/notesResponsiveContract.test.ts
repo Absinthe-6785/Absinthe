@@ -38,6 +38,7 @@ describe('Notes semantic responsive contract', () => {
     expect(mediaConditions(K123_EDITOR_LAYOUT_STYLES)).toContain(VIEWPORT_MEDIA_QUERIES.tabletUp);
     expect(mediaConditions(EDITOR_CHROME_STYLES)).toContain(VIEWPORT_MEDIA_QUERIES.tabletUp);
     expect(noteStyles).not.toContain('@media (max-width: 768px)');
+    expect(noteStyles).toContain('.be-wikilink[role="link"]:focus-visible');
     expect(EDITOR_CHROME_STYLES).not.toContain('@media (min-width: 769px)');
   });
 });

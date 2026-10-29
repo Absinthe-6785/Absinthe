@@ -114,6 +114,7 @@ export function buildNoteViewStyles(c: NoteChromeColors, dark: boolean): string 
     .bbl{padding:6px 10px;font-size:12px;color:${c.accent};cursor:pointer;border-radius:5px}
     .bbl:hover{background:${c.cardHov}}
     .bshl{background:${dark ? '#5a4f9a' : '#c4b8ff'};color:${c.text};border-radius:3px;padding:1px 4px;box-shadow:0 0 0 1px ${c.accent}66,inset 0 -1px 0 ${c.accent}44}
+    .be-wikilink[role="link"]:focus-visible{outline:2px solid ${c.accent};outline-offset:2px;border-radius:2px}
     .k103-sidebar-sticky{position:sticky;top:0;z-index:2;background:${c.sidebar};padding-top:2px;padding-bottom:2px}
     .k101-interactive:focus-visible{outline:none;box-shadow:inset 0 0 0 2px ${c.accent}55;border-radius:4px}
     [data-document-search-match-count]{animation:k103-match-pulse .35s ease}

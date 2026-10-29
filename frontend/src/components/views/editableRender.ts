@@ -48,10 +48,11 @@ function protectIdLinks(text: string, targets: WikiTarget[], live: boolean) {
     const shown = live ? link.raw : link.label || target?.title || 'Missing note';
     const cls = live ? 'be-wiki-chip' : 'be-wikilink';
     const data = target ? ` data-note-link="${escAttr(escHtml(link.raw))}"` : '';
+    const actionAttrs = !live && target ? ' role="link" tabindex="0"' : '';
     const style = target
       ? 'color:var(--be-accent,inherit);text-decoration:underline;cursor:pointer'
       : 'color:var(--be-text-muted,inherit);text-decoration:underline dashed';
-    slots.push(`<span class="${cls}${target ? '' : ' be-wikilink-broken'}"${data} style="${style}">${escHtml(shown)}</span>`);
+    slots.push(`<span class="${cls}${target ? '' : ' be-wikilink-broken'}"${data}${actionAttrs} style="${style}">${escHtml(shown)}</span>`);
     cursor = link.end;
   }
   work += text.slice(cursor);
@@ -145,7 +146,7 @@ export function renderInlineMarkdownHtml(
       const deco = broken ? 'underline dashed' : 'underline';
       const extra = broken ? ';opacity:0.85;font-style:italic' : '';
       const title = broken ? ' title="Create note"' : '';
-      return `<span class="be-wikilink${broken ? ' be-wikilink-broken' : ''}" data-wiki="${escAttr(t)}"${title} style="color:${color};text-decoration:${deco};text-underline-offset:2px;cursor:pointer${extra}">${escHtml(t)}</span>`;
+      return `<span class="be-wikilink${broken ? ' be-wikilink-broken' : ''}" data-wiki="${escAttr(t)}" role="link" tabindex="0"${title} style="color:${color};text-decoration:${deco};text-underline-offset:2px;cursor:pointer${extra}">${escHtml(t)}</span>`;
     });
 
   html = renderInlineTagsInHtml(html, tag =>

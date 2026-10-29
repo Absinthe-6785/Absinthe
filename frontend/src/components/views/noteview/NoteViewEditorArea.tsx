@@ -65,6 +65,7 @@ import type { FocusPreset } from '../features/knowledge/workspace/focusModeModel
 import type { GraphNodeTier } from '../features/knowledge/graph/knowledgeUniverse/graphNodeTier';
 import type { NoteSyncPresentation } from './notesSyncPresentation';
 import { isReturnToUseAttachmentIsolationEnabled } from '../../../lib/returnToUseAttachmentIsolation';
+import { handleReadingWikiKeyDown } from '../wikiLinks';
 
 interface NoteBlockEditorProps {
   body: string;
@@ -1006,6 +1007,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
                       data-k123-editor-column
                       style={{ maxWidth: K123_EDITOR_SHELL_MAX_PX }}
                       onClick={viewMode === 'reading' ? handleReadingModeClick : undefined}
+                      onKeyDown={viewMode === 'reading' ? e => handleReadingWikiKeyDown(e.nativeEvent, e.currentTarget, navigateToWiki) : undefined}
                       data-k108-editor-focus={viewMode === 'edit' ? 'active' : undefined}
                     >
                       {showFindInNotePanel && !isMobile ? (
