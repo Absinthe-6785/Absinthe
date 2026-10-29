@@ -15,6 +15,7 @@ export function captureWikiPublication() {
   const targets: WikiNoteTarget[] = isCurrent()
     ? useNotesStore.getState().notes.filter(note => !note.deletedAt).map(note => ({
       id: note.id, title: note.title ?? '',
+      updatedAt: note.updatedAt,
       isCurrent: () => isCurrent() && useNotesStore.getState().notes.some(current => current.id === note.id && !current.deletedAt),
     })) : [];
   return { isCurrent, resolve, targets };

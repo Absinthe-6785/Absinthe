@@ -15,6 +15,8 @@ export interface IdWikiLink {
 export interface WikiNoteTarget {
   id: string;
   title: string;
+  /** Last-modified time from the current authorized Notes publication. */
+  updatedAt?: number;
   isCurrent: () => boolean;
 }
 export type WikiTarget = string | WikiNoteTarget;

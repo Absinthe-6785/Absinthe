@@ -26,11 +26,11 @@ const { useNotesStore, observePublishedNotesHydration } = await import('../../st
 const { resetNotesPersistenceForTests } = await import('../../lib/notePersistence');
 const { setRecoveryModeActiveForTest } = await import('../../lib/recoverySafetyPolicy');
 const { NOTES_RUNTIME_SYNC_MODE_KEY } = await import('../../lib/notesSyncClient');
-const note = (id: string, title: string): NoteBase => ({ id, title, body: '', updatedAt: 1, folderId: null, deletedAt: null });
+const note = (id: string, title: string, updatedAt = 1): NoteBase => ({ id, title, body: '', updatedAt, folderId: null, deletedAt: null });
 function hydrated(account: string, request: NotesAuthorityRequest): NotesPersistenceInitResult {
   const notes = account === 'A'
-    ? [note('source', 'Source A'), note('wrong', 'Duplicate'), note('target', 'Duplicate')]
-    : [note('source-B', 'Source B'), note('B-secret', 'Private B')];
+    ? [note('source', 'Source A'), note('wrong', 'Duplicate', 100), note('target', 'Duplicate', 200)]
+    : [note('source-B', 'Source B'), note('B-secret', 'Private B', 900)];
   const domain = (domainId: typeof NOTES_CORE_DOMAIN | typeof NOTES_FOLDERS_DOMAIN, count: number) => ({
     accountId: account, domainId, schemaVersion: 1, state: count ? 'LOADED_POPULATED' as const : 'LOADED_EMPTY' as const,
     recordCount: count, verifiedAt: 1, legacyGlobalDataPresent: false,
@@ -102,8 +102,11 @@ describe('ID Wiki authorized publication and navigation', () => {
     const oldNavigate = navigate;
     const oldPublication = captureWikiPublication();
     const oldTarget = oldPublication.targets.find(t => t.id === 'target')!;
+    expect(oldTarget.updatedAt).toBe(200);
     const body = idTarget('target');
     await publish('B');
+    const publicationB = captureWikiPublication();
+    expect(publicationB.targets.map(target => target.updatedAt)).toEqual([1, 900]);
     await act(async () => oldNavigate(body));
     expect(useNotesStore.getState().activeNoteId).not.toBe('target');
     expect(filterWikiTargets('', oldPublication.targets)).toEqual([]);
@@ -113,6 +116,7 @@ describe('ID Wiki authorized publication and navigation', () => {
     expect(rendered).not.toContain('Duplicate');
     expect(rendered).not.toContain('data-note-link=');
     await publish('A');
+    expect(captureWikiPublication().targets.find(target => target.id === 'target')?.updatedAt).toBe(200);
     await act(async () => oldNavigate(body));
     expect(useNotesStore.getState().activeNoteId).not.toBe('target');
     expect(oldPublication.resolve(body)).toBeUndefined();
