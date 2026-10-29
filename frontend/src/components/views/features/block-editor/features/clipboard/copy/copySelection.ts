@@ -27,6 +27,34 @@ function findBlockHost(node: Node | null): HTMLElement | null {
   return (el?.closest('[data-block-id]') as HTMLElement | null) ?? null;
 }
 
+function findTableCell(node: Node | null): HTMLElement | null {
+  if (!node) return null;
+  const el = node.nodeType === Node.ELEMENT_NODE ? (node as Element) : node.parentElement;
+  return (el?.closest('td, th') as HTMLElement | null) ?? null;
+}
+
+/** True when a live, non-collapsed text range belongs to table cells. */
+export function hasTableCellTextSelection(): boolean {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return false;
+
+  const range = selection.getRangeAt(0);
+  const startCell = findTableCell(range.startContainer);
+  const endCell = findTableCell(range.endContainer);
+  if (!startCell || !endCell) return false;
+
+  const table = startCell.closest<HTMLTableElement>('table');
+  if (!table || endCell.closest('table') !== table) return false;
+
+  if (table.closest('.be-editor-root.be-reading')) return true;
+
+  const active = document.activeElement as HTMLElement | null;
+  return !!active
+    && !!active.closest('td, th')
+    && active.closest('table') === table
+    && (active.isContentEditable || !!active.closest('[contenteditable="true"]'));
+}
+
 function findToggleWrap(node: Node | null): HTMLElement | null {
   if (!node) return null;
   const el = node.nodeType === Node.ELEMENT_NODE ? (node as Element) : node.parentElement;
