@@ -77,7 +77,7 @@ export interface BlockRenderContext {
   searchQuery: string;
   depth: number;
   readOnly: boolean;
-  wikiTargets: string[];
+  wikiTargets: WikiTarget[];
   onSelect: (id: string) => void;
   onAddBelow: (id: string) => void;
   onSplitBlock: (id: string, before: string, after: string) => void;
@@ -89,7 +89,7 @@ export interface BlockRenderContext {
   onWikiOpen: (state: WikiMenuState) => void;
   onWikiClose: () => void;
   isMenuOpen: boolean;
-  onWikiNavigate?: (title: string) => void;
+  onWikiNavigate?: (title: import('@/components/views/wikiLinks').WikiNavigationTarget) => void;
   onToggleAddChild: (toggleBlockId: string) => void;
   onToggleEnter: (toggleBlockId: string, before: string, after: string) => void;
   onTableChange: (blockId: string, headers: string[], rows: string[][]) => void;
@@ -112,3 +112,4 @@ export interface BlockRenderContext {
   /** Shift/Ctrl/Meta click for block range selection from static text. */
   onModifierPointerDown?: (e: React.MouseEvent) => void;
 }
+import type { WikiTarget } from '@/components/views/wikiLinks';

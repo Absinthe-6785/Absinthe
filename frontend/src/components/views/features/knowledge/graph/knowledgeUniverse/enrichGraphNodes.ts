@@ -35,7 +35,7 @@ export function enrichGraphNodeMeta(input: EnrichGraphNodesInput): Map<string, E
 
   const orbitNodes = noteIds.map(id => {
     const note = notesById.get(id);
-    const backlinkCount = service.getBacklinkCount(note?.title ?? '', id);
+    const backlinkCount = service.getIncomingForNote(id).length;
     const area = note ? isAreaNote(note) : false;
     const tier = classifyGraphNodeTier({
       backlinkCount,
@@ -66,7 +66,7 @@ export function enrichGraphNodeMeta(input: EnrichGraphNodesInput): Map<string, E
 
   for (const id of noteIds) {
     const note = notesById.get(id);
-    const backlinkCount = service.getBacklinkCount(note?.title ?? '', id);
+    const backlinkCount = service.getIncomingForNote(id).length;
     const area = note ? isAreaNote(note) : false;
     const tier = classifyGraphNodeTier({
       backlinkCount,

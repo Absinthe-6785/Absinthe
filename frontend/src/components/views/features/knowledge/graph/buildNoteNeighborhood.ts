@@ -21,11 +21,10 @@ export function buildNoteNeighborhood(
 
   nodeTitles.set(noteId, noteTitle);
 
-  const incoming = service.getIncoming(noteTitle, { excludeNoteId: noteId });
+  const incoming = service.getIncomingForNote(noteId);
   const mentioning = service.getMentioningNotes(noteId, { excludeNoteId: noteId });
   const mentioned = service.getMentionedNotes(noteId);
-  const outgoingTitles = service.getOutgoing(noteId);
-  const outgoingKeys = new Set(outgoingTitles.map(normalizeWikiTitle));
+  const outgoingIds = service.getOutgoingTargetIds(noteId);
   const related = service.getRelatedNotes(noteId);
 
   const relatedByTitleKey = new Map<string, (typeof related)[number]>();
@@ -52,7 +51,7 @@ export function buildNoteNeighborhood(
   };
 
   for (const ref of incoming) {
-    const mutual = outgoingKeys.has(normalizeWikiTitle(ref.noteTitle));
+    const mutual = outgoingIds.includes(ref.noteId);
     if (mutual) {
       trackEdge(noteId, ref.noteId, 'mutual-backlink', RELATED_SCORE.MUTUAL_BACKLINK);
     } else {
@@ -60,11 +59,10 @@ export function buildNoteNeighborhood(
     }
   }
 
-  for (const title of outgoingTitles) {
-    const key = normalizeWikiTitle(title);
-    const match = key ? relatedByTitleKey.get(key) : undefined;
-    if (!match || incomingIds.has(match.noteId)) continue;
-    trackEdge(noteId, match.noteId, 'backlink', RELATED_SCORE.BACKLINK);
+  for (const targetId of outgoingIds) {
+    if (targetId === noteId || incomingIds.has(targetId)) continue;
+    nodeTitles.set(targetId, service.getNoteTitle(targetId));
+    trackEdge(noteId, targetId, 'backlink', RELATED_SCORE.BACKLINK);
   }
 
   for (const ref of mentioning) {

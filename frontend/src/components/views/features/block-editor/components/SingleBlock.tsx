@@ -55,7 +55,7 @@ interface SingleBlockProps {
   isSelected: boolean;
   onBlockSelect: (id: string, modifiers: BlockSelectionModifiers) => void;
   onAddBelow: (id: string) => void; readOnly: boolean;
-  searchQuery: string; depth: number; wikiTargets: string[];
+  searchQuery: string; depth: number; wikiTargets: WikiTarget[];
   headingIndex?: number;   // 최상위 헤딩 순번 (TOC 점프 타겟용), 헤딩이 아니면 undefined
   // Phase 2: 편집 콜백
   onSplitBlock:    (id: string, before: string, after: string) => void;
@@ -73,7 +73,7 @@ interface SingleBlockProps {
   onWikiOpen:   (state: WikiMenuState) => void;
   onWikiClose:  () => void;
   isMenuOpen:   boolean;   // 이 블록을 대상으로 슬래시/위키 메뉴가 열려있는지
-  onWikiNavigate?: (title: string) => void;
+  onWikiNavigate?: (title: import('@/components/views/wikiLinks').WikiNavigationTarget) => void;
   // Toggle Step 1
   onToggleAddChild: (toggleBlockId: string) => void;
   // Toggle Step 2
@@ -455,3 +455,4 @@ export const SingleBlock = React.memo(function SingleBlock({
     </div>
   );
 }, singleBlockPropsEqual);
+import type { WikiTarget } from '@/components/views/wikiLinks';

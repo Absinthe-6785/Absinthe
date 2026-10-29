@@ -20,7 +20,7 @@ import { saveSelectionRange } from '../utils/selectionState';
 
 export interface SelectionToolbarProps {
   colors: BlockEditorColors;
-  wikiTargets: string[];
+  wikiTargets: WikiTarget[];
   searchQuery: string;
   activeBlockId: string | null;
   onContentChange: (blockId: string, content: string) => void;
@@ -239,3 +239,4 @@ export function SelectionToolbar({
     </div>
   );
 }
+import type { WikiTarget } from '@/components/views/wikiLinks';

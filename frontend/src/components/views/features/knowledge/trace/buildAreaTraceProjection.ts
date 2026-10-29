@@ -76,6 +76,7 @@ export function resolveAreaMembership(
   const notesById = new Map(activeNotes.map(note => [note.id, note]));
   const index = buildBacklinkIndex(activeNotes as NoteBase[]);
   const incoming = getIncomingLinks(index, areaNote.title ?? '', {
+    targetNoteId: areaNote.id,
     excludeNoteId: areaNote.id,
   });
 

@@ -2,6 +2,7 @@ import { useTranslation } from '../../../../../lib/i18n';
 import type { NoteChromeColors } from '../../../noteEditorTheme';
 import type { NoteReferenceSummary } from '../references/extractNoteReferenceSummary';
 import type { PageReference } from '../backlinks';
+import type { WikiNavigationTarget } from '../../../wikiLinks';
 import { CosmosEmptyHint } from './CosmosEmptyHint';
 
 export interface ReferenceExplorerPanelProps {
@@ -9,7 +10,7 @@ export interface ReferenceExplorerPanelProps {
   summary: NoteReferenceSummary;
   mentioning: readonly PageReference[];
   onNavigateToNote: (noteId: string) => void;
-  onNavigateToWiki: (title: string) => void;
+  onNavigateToWiki: (target: WikiNavigationTarget) => void;
 }
 
 function SectionHeader({ c, title, count }: { c: NoteChromeColors; title: string; count: number }) {
@@ -56,15 +57,15 @@ export function ReferenceExplorerPanel({
       ) : (
         summary.outgoing.map(link => (
           <ReferenceRow
-            key={link.title}
+            key={link.idLink?.raw ?? link.title}
             c={c}
             label={link.title}
             prefix="→"
             color={link.targetNoteId ? c.green : c.textMuted}
             italic={!link.targetNoteId}
-            suffix={!link.targetNoteId ? t('knCreateNote') : undefined}
-            onClick={() => (
-              link.targetNoteId
+            suffix={!link.targetNoteId && !link.idLink ? t('knCreateNote') : undefined}
+            onClick={link.idLink && !link.targetNoteId ? undefined : () => (
+              link.idLink ? onNavigateToWiki(link.idLink) : link.targetNoteId
                 ? onNavigateToNote(link.targetNoteId)
                 : onNavigateToWiki(link.title)
             )}
@@ -160,19 +161,19 @@ function ReferenceRow({
   color: string;
   italic?: boolean;
   suffix?: string;
-  onClick: () => void;
+  onClick?: () => void;
 }) {
   return (
     <div
       className="bbl"
       style={{ color, fontStyle: italic ? 'italic' : undefined }}
       onClick={onClick}
-      role="button"
-      tabIndex={0}
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
       onKeyDown={e => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
-          onClick();
+          onClick?.();
         }
       }}
     >

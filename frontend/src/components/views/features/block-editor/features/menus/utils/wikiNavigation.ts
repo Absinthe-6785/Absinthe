@@ -5,6 +5,7 @@ import { readBlockText } from '../../../../../editableDom';
 import { getCaretOffset } from '../../selection';
 import { paintEditableLive } from '../../../../../editableLive';
 import type { BlockEditorColors } from '../../../../../editorTypes';
+import { isCurrentWikiTarget, parseIdWikiLinks, serializeIdWikiLink } from '../../../../../wikiLinks';
 
 /** Unclosed `[[` query before caret, or null. */
 export function detectWikiQuery(beforeCaret: string): string | null {
@@ -15,12 +16,13 @@ export function detectWikiQuery(beforeCaret: string): string | null {
 export function buildWikiInsertText(
   text: string,
   caret: number,
-  title: string,
+  title: WikiTarget,
 ): { newText: string; caret: number } | null {
   const before = text.slice(0, caret);
   const idx = before.lastIndexOf('[[');
   if (idx < 0) return null;
-  const ins = `[[${title}]]`;
+  if (!isCurrentWikiTarget(title)) return null;
+  const ins = typeof title === 'string' ? `[[${title}]]` : serializeIdWikiLink(title.id);
   return {
     newText: text.slice(0, idx) + ins + text.slice(caret),
     caret: idx + ins.length,
@@ -28,7 +30,9 @@ export function buildWikiInsertText(
 }
 
 /** Wiki link title at plain-text offset, if caret inside `[[...]]`. */
-export function findWikiLinkAtOffset(text: string, offset: number): string | null {
+export function findWikiLinkAtOffset(text: string, offset: number): import('../../../../../wikiLinks').WikiNavigationTarget | null {
+  const idLink = parseIdWikiLinks(text, 'inline').find(link => offset >= link.start && offset <= link.end);
+  if (idLink) return idLink;
   const re = /\[\[([^\]\n]+)\]\]/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text))) {
@@ -40,9 +44,9 @@ export function findWikiLinkAtOffset(text: string, offset: number): string | nul
 /** Insert selected wiki title into active contentEditable, preserving caret. */
 export function insertWikiAtCaret(
   el: HTMLElement,
-  title: string,
+  title: WikiTarget,
   c: BlockEditorColors,
-  wikiTargets: string[],
+  wikiTargets: WikiTarget[],
   searchQuery: string,
 ): string {
   const text = el.innerText.replace(/\n$/, '');
@@ -52,3 +56,4 @@ export function insertWikiAtCaret(
   paintEditableLive(el, built.newText, c, wikiTargets, searchQuery, built.caret);
   return readBlockText(el);
 }
+import type { WikiTarget } from '@/components/views/wikiLinks';

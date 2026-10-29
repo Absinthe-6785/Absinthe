@@ -1,6 +1,7 @@
 import type { NoteBase } from '../../../noteUtils';
 import { displayNoteTitle } from '../../../noteDisplayTitle';
 import { buildBacklinkIndex, getBacklinkCount } from '../backlinks';
+import { getOutgoingReferenceCount } from '../backlinks/buildBacklinkIndex';
 
 export interface ReviewNoteEntry {
   noteId: string;
@@ -82,8 +83,8 @@ export function buildKnowledgeReviewLists(
 
   const mostLinked = [...active]
     .map(note => {
-      const incoming = getBacklinkCount(index, note.title ?? '', note.id);
-      const outgoing = index.outgoingByNoteId.get(note.id)?.length ?? 0;
+      const incoming = getBacklinkCount(index, note.title ?? '', note.id, note.id);
+      const outgoing = getOutgoingReferenceCount(index, note.id);
       const total = incoming + outgoing;
       return { note, total, incoming, outgoing };
     })

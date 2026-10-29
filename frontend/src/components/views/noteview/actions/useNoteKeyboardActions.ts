@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import { useNotesStore } from '../../../../store/useNotesStore';
 import { findNoteByTitle } from '../../noteUtils';
+import { parseIdWikiLink, type WikiNavigationTarget } from '../../wikiLinks';
+import { captureWikiPublication } from '../../wikiNoteAuthority';
 import type { NoteBase as Note } from '../../noteUtils';
 import { toggleEditReading } from '../../editorMode';
 import { cancelScheduledEditorModeFocus, scheduleEditorFocus, scheduleEditorModeFocus } from '../editorFocus';
@@ -69,7 +71,20 @@ export function useNoteKeyboardActions(
     setViewMode(nextMode);
   };
 
-  const navigateToWiki = useCallback((title: string, opts?: { preferReading?: boolean }) => {
+  const wikiPublication = captureWikiPublication();
+  const navigateToWiki = useCallback((title: WikiNavigationTarget, opts?: { preferReading?: boolean }) => {
+    if (typeof title !== 'string') {
+      const idLink = parseIdWikiLink(title.raw);
+      if (!idLink) return;
+      const target = wikiPublication.resolve(idLink);
+      if (!target) return;
+      navigateToNoteWithHistory(target.id, 'wiki');
+      if (opts?.preferReading) {
+        cancelScheduledEditorModeFocus(editorScrollRef.current);
+        setViewMode('reading');
+      }
+      return;
+    }
     const trimmed = title.trim();
     if (!trimmed) return;
     const found = findNoteByTitle(trimmed, notes);
@@ -82,7 +97,7 @@ export function useNoteKeyboardActions(
       return;
     }
     createNote({ title: trimmed, body: '' });
-  }, [notes, setViewMode, createNote]);
+  }, [notes, setViewMode, createNote, wikiPublication]);
 
   const { canBack, canForward, goBack, goForward } = useNoteNavigationStack();
 

@@ -1,6 +1,7 @@
 import type { NoteBase } from '../../../noteUtils';
 import { displayNoteTitle } from '../../../noteDisplayTitle';
 import { buildBacklinkIndex, getBacklinkCount } from '../backlinks';
+import { getOutgoingReferenceCount } from '../backlinks/buildBacklinkIndex';
 import { listTags } from '../tags/noteTags';
 import type { ReviewNoteEntry } from './buildKnowledgeReview';
 
@@ -15,8 +16,8 @@ export function isOrphanNote(
   index: ReturnType<typeof buildBacklinkIndex>,
 ): boolean {
   if (note.deletedAt) return false;
-  const incoming = getBacklinkCount(index, note.title ?? '', note.id);
-  const outgoing = index.outgoingByNoteId.get(note.id)?.length ?? 0;
+  const incoming = getBacklinkCount(index, note.title ?? '', note.id, note.id);
+  const outgoing = getOutgoingReferenceCount(index, note.id);
   const tags = listTags(note);
   return incoming === 0 && outgoing === 0 && tags.length === 0;
 }

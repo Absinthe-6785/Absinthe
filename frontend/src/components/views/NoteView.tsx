@@ -26,7 +26,9 @@ import { ConfirmModal } from '../common/ConfirmModal';
 import { SkipLink } from '../common/SkipLink';
 import { WORKSPACE_PANE_ROOT_CLASS, WORKSPACE_SCROLL_MODE } from '../common/workspaceLayout';
 import { useAppStore } from '../../store/useAppStore';
-import { useNotesStore } from '../../store/useNotesStore';
+import { useNotesStore, observePublishedNotesHydration } from '../../store/useNotesStore';
+import { captureWikiPublication } from './wikiNoteAuthority';
+import { parseIdWikiLink } from './wikiLinks';
 import {
   highlightText,
   extractTOC, extractTags, extractLinks,
@@ -893,6 +895,11 @@ export const NoteView = ({ showToast = () => {}, accountId }: NoteViewProps) => 
     () => useNotesStore.getState().notes.filter(n => !n.deletedAt && (n.title ?? '').trim()).map(n => n.title),
     [vaultStructureVersion],
   );
+  const wikiRequest = useNotesStore(() => {
+    const observation = observePublishedNotesHydration();
+    return observation.status === 'CURRENT' ? observation.request : null;
+  });
+  const wikiNoteTargets = useMemo(() => captureWikiPublication().targets, [notes, wikiRequest]);
   const pageReferences = useMemo(
     () => (activeNote ? knowledgeIndexService.getPageReferences(activeNote, useNotesStore.getState().notes) : null),
     [activeNote?.id, indexContentVersion, vaultStructureVersion],
@@ -902,6 +909,7 @@ export const NoteView = ({ showToast = () => {}, accountId }: NoteViewProps) => 
   const backlinkContexts = useMemo(
     () => (linksTabActive && activeNote
       ? extractLinkContexts(activeNote.title ?? '', useNotesStore.getState().notes, {
+        targetNoteId: activeNote.id,
         contentVersion: indexContentVersion,
       })
       : EMPTY_BACKLINK_CONTEXTS),
@@ -1128,9 +1136,9 @@ export const NoteView = ({ showToast = () => {}, accountId }: NoteViewProps) => 
   useEffect(() => {
     if (!contextPanelOpen) return;
     const activeCount = useNotesStore.getState().notes.filter(n => !n.deletedAt).length;
-    const outgoing = activeNote ? knowledgeIndexService.getOutgoing(activeNote.id).length : 0;
+    const outgoing = activeNote ? knowledgeIndexService.getOutgoingWikiCount(activeNote.id) : 0;
     const incoming = activeNote
-      ? knowledgeIndexService.getIncoming(activeNote.title ?? '').length
+      ? knowledgeIndexService.getIncomingForNote(activeNote.id, false).length
       : 0;
     logMemAudit({
       source: 'NoteView.context',
@@ -1269,6 +1277,9 @@ export const NoteView = ({ showToast = () => {}, accountId }: NoteViewProps) => 
       root?.querySelector(`#${globalThis.CSS?.escape(anchor) ?? anchor}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       return;
     }
+    const idElement = target.closest('[data-note-link]') as HTMLElement | null;
+    const idLink = parseIdWikiLink(idElement?.dataset.noteLink ?? '');
+    if (idLink) { navigateToWiki(idLink, { preferReading: true }); return; }
     const wl = target.closest('.be-wikilink') as HTMLElement | null;
     if (wl?.dataset.wiki) {
       navigateToWiki(wl.dataset.wiki, { preferReading: true });
@@ -1446,7 +1457,7 @@ export const NoteView = ({ showToast = () => {}, accountId }: NoteViewProps) => 
       c, activeNote, activeNoteId, notes, folders, titleDraft, activeNoteKind, noteTags, syncPresentation, isSyncing,
       savedAt, viewModes: VIEW_MODES, noteAreaProperty, noteLinkedProjectTitle, noteLinkedProjectId,
       noteLearningPathLabel, noteContextReviewEntry, noteConnectionCount, noteCosmosTier, activeTag, searchQuery,
-      searchScope, searchMatchIdx, editorSearchQuery, blockColors, wikiTargets, appSettings, knowledgeTimeline,
+      searchScope, searchMatchIdx, editorSearchQuery, blockColors, wikiTargets: wikiNoteTargets, appSettings, knowledgeTimeline,
       activeFocusPreset, discoveryFeed, documentSearchOpen,
     },
     editorHandlers: {
@@ -1537,7 +1548,7 @@ export const NoteView = ({ showToast = () => {}, accountId }: NoteViewProps) => 
     isFocusPresetActive, showRightPanel, viewMode, showAppearance, isDragOver, headerTagsExpanded, docCopied,
     activeNote, titleDraft, activeNoteKind, noteTags, syncPresentation, isSyncing, savedAt, VIEW_MODES, noteAreaProperty,
     noteLinkedProjectTitle, noteLinkedProjectId, noteLearningPathLabel, noteContextReviewEntry, noteConnectionCount,
-    noteCosmosTier, searchScope, searchMatchIdx, editorSearchQuery, blockColors, wikiTargets, appSettings,
+    noteCosmosTier, searchScope, searchMatchIdx, editorSearchQuery, blockColors, wikiTargets, wikiNoteTargets, appSettings,
     activeFocusPreset, titleInputRef, titleComposingRef, blockEditorRef, editorScrollRef, virtualScrollApiRef,
     setMobileShowEditor, handleExitFocusPreset, handleTitleChange, handleTitleCompositionEnd, retrySync,
     openEditEventDialog, openMilestoneDialog, handleToggleAreaNote, toggleStar, setShowRightPanel, handleCopyDocument,

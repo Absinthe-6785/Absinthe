@@ -108,7 +108,7 @@ export interface NoteContextPanelHandlers {
   noteUpdate: (id: string, patch: Partial<Pick<Note, 'title' | 'body' | 'folderId' | 'starred' | 'properties' | 'relations'>>) => void;
   setActiveNoteId: (id: string) => void;
   openNoteById: (id: string, source?: NoteNavigationSource, breadcrumb?: readonly NoteBreadcrumbSegment[]) => void;
-  navigateToWiki: (title: string, opts?: { preferReading?: boolean }) => void;
+  navigateToWiki: (title: import('../wikiLinks').WikiNavigationTarget, opts?: { preferReading?: boolean }) => void;
   handleLinkRelatedNote: (noteId: string, noteTitle: string) => void;
   handleOpenCosmosGraph: () => void;
   handleStartWikiLink: () => void;

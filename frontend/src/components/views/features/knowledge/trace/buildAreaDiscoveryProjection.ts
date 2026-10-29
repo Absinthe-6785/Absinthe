@@ -80,6 +80,7 @@ function buildPotentialHubs(notes: readonly NoteBase[]): AreaHubSuggestion[] {
       noteId: note.id,
       title: displayNoteTitle(note.title),
       referenceCount: getIncomingLinks(index, note.title ?? '', {
+        targetNoteId: note.id,
         excludeNoteId: note.id,
       }).length,
     }))

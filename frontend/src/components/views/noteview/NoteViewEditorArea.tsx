@@ -74,8 +74,8 @@ interface NoteBlockEditorProps {
   searchQuery: string;
   searchScope: EditorSearchScope;
   searchMatchIndex: number;
-  wikiTargets: string[];
-  onWikiNavigate?: (title: string) => void;
+  wikiTargets: WikiTarget[];
+  onWikiNavigate?: (title: import('@/components/views/wikiLinks').WikiNavigationTarget) => void;
   virtualScrollApiRef?: VirtualScrollApiRef;
   virtualScrollParentRef?: RefObject<HTMLElement | null>;
 }
@@ -200,7 +200,7 @@ export interface NoteViewEditorData {
   searchMatchIdx: number;
   editorSearchQuery: string;
   blockColors: BlockEditorColors;
-  wikiTargets: string[];
+  wikiTargets: WikiTarget[];
   appSettings: AppSettings;
   knowledgeTimeline: KnowledgeTimeline;
   activeFocusPreset: FocusPreset | undefined;
@@ -261,7 +261,7 @@ export interface NoteViewEditorHandlers {
   handleEditorDrop: React.DragEventHandler<HTMLDivElement>;
   handleReadingModeClick: React.MouseEventHandler<HTMLDivElement>;
   handleActiveBodyChange: (md: string) => void;
-  navigateToWiki: (title: string, options?: { preferReading?: boolean }) => void;
+  navigateToWiki: (title: import('@/components/views/wikiLinks').WikiNavigationTarget, options?: { preferReading?: boolean }) => void;
   canBackNote: boolean;
   canForwardNote: boolean;
   goBackNote: () => void;
@@ -1154,3 +1154,4 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
     </main>
   );
 }
+import type { WikiTarget } from '@/components/views/wikiLinks';
