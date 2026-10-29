@@ -8,7 +8,7 @@ import translationKeys, { buildLocaleDictionary } from './i18n/keys';
 import type { TranslationKey } from './i18n';
 
 const PLANNER_STORAGE_KEY = 'planner-storage';
-const EXPECTED_KEY_COUNT = 2_168;
+const EXPECTED_KEY_COUNT = 2_171;
 type Locale = 'en' | 'ko' | 'ja';
 
 // Current independent canonical authority, including the append-only shortcut UI keys.
@@ -16,9 +16,9 @@ type Locale = 'en' | 'ko' | 'ja';
 // translationKeys order, so it detects insertion, omission, reordering, and
 // substitution without using buildLocaleDictionary.
 const EXPECTED_LOCALE_INTEGRITY_SHA256: Record<Locale, string> = {
-  en: 'fef558138843fcc57ea20c589b19f3a8b38a6bee3108752f3d07ffbd6131d96b',
-  ko: '9d895b5f9adb008e867596ed7856d47679dc68bc4a579c45398060c4f4fdad62',
-  ja: '6d1bd671f2fadd60ede1706df15e4b8821e7ba4c267317e616fc48a31cad3fb4',
+  en: '48fe092b9b2d35c370206f7fd85d639eea47719738bb0a0b4a616df6802dd113',
+  ko: '62ed6fa4ddaa2112eeef9b8025d9f1aa28eabb4976eb5d3e851995bb6ac5ecf2',
+  ja: '1a2b6232e278ed7f7973e7483e1be3edd0db3f9718df137cfb9ca975d776ad55',
 };
 
 // Preserve every existing value; the reset-specific copy is append-only.
@@ -185,9 +185,12 @@ describe('i18n locale dictionaries', () => {
     ]);
   });
 
-  it('appends bounded reset feedback without altering the previous 2163-key authority', () => {
-    expect(translationKeys.slice(2_163)).toEqual([
+  it('appends Health badge scope copy after bounded reset feedback', () => {
+    expect(translationKeys.slice(2_163, 2_168)).toEqual([
       'notesResetAction', 'notesResetScope', 'notesResetConfirm', 'notesResetCompleted', 'notesResetIncomplete',
+    ]);
+    expect(translationKeys.slice(2_168)).toEqual([
+      'healthWorkoutBadgeLegacyScope', 'healthWorkoutBadgePrDescription', 'healthWorkoutBadgeDiffDescription',
     ]);
     for (const [locale, values] of [['en', enLocaleValues], ['ko', koLocaleValues], ['ja', jaLocaleValues]] as const) {
       expect(localeIntegrityDigest(values.slice(0, 2_163), translationKeys.slice(0, 2_163)))
@@ -204,10 +207,10 @@ describe('i18n locale dictionaries', () => {
     missing.splice(1_000, 1);
 
     expect(() => buildLocaleDictionary(missing)).toThrow(
-      'Locale dictionary length mismatch: expected 2168, received 2167',
+      'Locale dictionary length mismatch: expected 2171, received 2170',
     );
     expect(() => assertLocaleValuesIntegrity('en', missing)).toThrow(
-      'Locale integrity length mismatch: expected 2168, received 2167',
+      'Locale integrity length mismatch: expected 2171, received 2170',
     );
   });
 
@@ -216,10 +219,10 @@ describe('i18n locale dictionaries', () => {
     extra.splice(1_000, 0, '__unexpected__');
 
     expect(() => buildLocaleDictionary(extra)).toThrow(
-      'Locale dictionary length mismatch: expected 2168, received 2169',
+      'Locale dictionary length mismatch: expected 2171, received 2172',
     );
     expect(() => assertLocaleValuesIntegrity('en', extra)).toThrow(
-      'Locale integrity length mismatch: expected 2168, received 2169',
+      'Locale integrity length mismatch: expected 2171, received 2172',
     );
   });
 

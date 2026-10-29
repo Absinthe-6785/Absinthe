@@ -2168,6 +2168,9 @@ const enTranslations = [
   "Reset this account's Notes and Health routines and create a new Welcome Note? Changes cannot be undone; a failure may leave partial changes.",
   "Notes, folders, Welcome Note and selection were saved; Health routine reset completed. This was not a complete account wipe.",
   "Reset was not fully confirmed. Some changes may already be saved; no rollback or automatic retry was performed.",
+  "LEGACY",
+  "This current-workout draft exceeds the legacy historical PR threshold. It is not a verified all-source personal record.",
+  "Difference from the latest selected prior legacy row, compared with this current-workout draft. It is not an all-source personal-record comparison.",
 ] as const;
 
 export default enTranslations;

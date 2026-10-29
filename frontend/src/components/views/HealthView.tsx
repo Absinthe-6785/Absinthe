@@ -1993,7 +1993,13 @@ export const HealthView = ({
                     )}
                     {previousEnabled && <LegacyPreviousStatus state={previousState(w.block_id)} />}
                   </div>
-                  <WorkoutPrBadge badge={prBadgeMap[w.block_id] ?? null} darkMode={appSettings.darkMode} />
+                  <WorkoutPrBadge
+                    badge={prBadgeMap[w.block_id] ?? null}
+                    darkMode={appSettings.darkMode}
+                    legacyScopeLabel={t('healthWorkoutBadgeLegacyScope')}
+                    prDescription={t('healthWorkoutBadgePrDescription')}
+                    diffDescription={t('healthWorkoutBadgeDiffDescription')}
+                  />
                 </div>
                 {workoutRangeComposite?.exerciseComparison ? <HealthExerciseComparisonPreview
                   read={workoutRangeComposite.exerciseComparison}

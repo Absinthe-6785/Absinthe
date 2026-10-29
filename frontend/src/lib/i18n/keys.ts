@@ -2168,6 +2168,9 @@ const translationKeys = [
   "notesResetConfirm",
   "notesResetCompleted",
   "notesResetIncomplete",
+  "healthWorkoutBadgeLegacyScope",
+  "healthWorkoutBadgePrDescription",
+  "healthWorkoutBadgeDiffDescription",
 ] as const;
 
 export type TranslationKey = (typeof translationKeys)[number];
