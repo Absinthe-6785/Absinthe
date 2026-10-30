@@ -2175,6 +2175,18 @@ const translationKeys = [
   "nvNoteLinkCopied",
   "nvCopyNoteLinkFailed",
   "wikiIdLinkUnavailable",
+  "localOriginalsTitle",
+  "localOriginalsScope",
+  "localOriginalsCheck",
+  "localOriginalsChecking",
+  "localOriginalsCoverage",
+  "localOriginalsComplete",
+  "localOriginalsPartial",
+  "localOriginalsDetails",
+  "localOriginalsDownload",
+  "localOriginalsDownloadPartial",
+  "localOriginalsError",
+  "localOriginalsDownloaded",
 ] as const;
 
 export type TranslationKey = (typeof translationKeys)[number];
