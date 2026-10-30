@@ -48,12 +48,13 @@ export function insertWikiAtCaret(
   c: BlockEditorColors,
   wikiTargets: WikiTarget[],
   searchQuery: string,
+  unavailableLabel = 'Linked note unavailable',
 ): string {
   const text = el.innerText.replace(/\n$/, '');
   const caret = getCaretOffset(el);
   const built = buildWikiInsertText(text, caret, title);
   if (!built) return text;
-  paintEditableLive(el, built.newText, c, wikiTargets, searchQuery, built.caret);
+  paintEditableLive(el, built.newText, c, wikiTargets, searchQuery, built.caret, undefined, unavailableLabel);
   return readBlockText(el);
 }
 import type { WikiTarget } from '@/components/views/wikiLinks';

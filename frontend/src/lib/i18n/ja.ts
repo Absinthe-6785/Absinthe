@@ -2174,6 +2174,7 @@ const jaTranslations = [
   "ノートリンクをコピー",
   "ノートリンクをコピーしました",
   "ノートリンクをコピーできませんでした",
+  "リンク先ノートを利用できません",
 ] as const;
 
 export default jaTranslations;

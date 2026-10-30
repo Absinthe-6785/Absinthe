@@ -2174,6 +2174,7 @@ const koTranslations = [
   "노트 링크 복사",
   "노트 링크를 복사했어요",
   "노트 링크를 복사하지 못했어요",
+  "연결된 노트를 사용할 수 없습니다",
 ] as const;
 
 export default koTranslations;

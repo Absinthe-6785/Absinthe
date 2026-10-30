@@ -10,6 +10,7 @@ import { liveInlineHtml, renderInlineMarkdownHtml } from './editableRender';
 import { blocksToMarkdown, markdownToBlocks, makeBlock, type BlockType } from './blockUtils';
 import { parseIdWikiLink, serializeIdWikiLink, type WikiNoteTarget } from './wikiLinks';
 import type { BlockEditorColors } from './editorTypes';
+import { useAppStore } from '../../store/useAppStore';
 
 const colors = { accent: '#8260db', textMuted: '#888', text: '#222', codeBg: '#eee' } as BlockEditorColors;
 const target = (id: string, title = 'Duplicate'): WikiNoteTarget => ({ id, title, isCurrent: () => true });
@@ -179,6 +180,30 @@ describe('selected text to ID Wiki link', () => {
   it('keeps existing bold formatting behavior', async () => {
     await select(); await key('b', { ctrlKey: true });
     expect(changed).toHaveBeenLastCalledWith(block.id, 'before **label** after');
+  });
+  it('keeps the localized unavailable-link status when formatting repaints the editor', async () => {
+    const oldLanguage = useAppStore.getState().appSettings.language;
+    const missing = serializeIdWikiLink('deleted', 'Retained label');
+    try {
+      await act(async () => useAppStore.setState(state => ({
+        appSettings: { ...state.appSettings, language: 'ja' },
+      })));
+      source = `${missing} plain text`;
+      await render();
+      const start = missing.length + 1;
+      await select(start, start + 5);
+      expect(getSelectionOffsets(editor)).toEqual({ start, end: start + 5 });
+      await key('b', { ctrlKey: true });
+      const broken = editor.querySelector<HTMLElement>('.be-wiki-chip-broken')!;
+      expect(broken.getAttribute('title')).toBe('リンク先ノートを利用できません');
+      expect(broken.getAttribute('aria-description')).toBe('リンク先ノートを利用できません');
+      expect(changed).toHaveBeenLastCalledWith(block.id, `${missing} **plain** text`);
+      expect(readBlockText(editor)).toBe(`${missing} **plain** text`);
+    } finally {
+      await act(async () => useAppStore.setState(state => ({
+        appSettings: { ...state.appSettings, language: oldLanguage },
+      })));
+    }
   });
 });
 

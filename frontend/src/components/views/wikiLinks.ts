@@ -24,6 +24,25 @@ export type WikiNavigationTarget = string | IdWikiLink;
 export const wikiTargetTitle = (target: WikiTarget): string => typeof target === 'string' ? target : target.title;
 export const isCurrentWikiTarget = (target: WikiTarget): boolean => typeof target === 'string' || target.isCurrent();
 
+/** Resolve only the attributes emitted for actionable Wiki links in reading HTML. */
+export function handleReadingWikiClick(
+  source: Element,
+  navigate: (target: WikiNavigationTarget, options?: { preferReading?: boolean }) => void,
+): boolean {
+  const idElement = source.closest<HTMLElement>('[data-note-link]');
+  const idLink = parseIdWikiLink(idElement?.dataset.noteLink ?? '');
+  if (idLink) {
+    navigate(idLink, { preferReading: true });
+    return true;
+  }
+  const legacyLink = source.closest<HTMLElement>('.be-wikilink');
+  if (legacyLink?.dataset.wiki) {
+    navigate(legacyLink.dataset.wiki, { preferReading: true });
+    return true;
+  }
+  return false;
+}
+
 /** Delegated keyboard activation for focusable Wiki spans in reading-mode output. */
 export function handleReadingWikiKeyDown(
   event: KeyboardEvent,

@@ -8,17 +8,17 @@ import translationKeys, { buildLocaleDictionary } from './i18n/keys';
 import type { TranslationKey } from './i18n';
 
 const PLANNER_STORAGE_KEY = 'planner-storage';
-const EXPECTED_KEY_COUNT = 2_174;
+const EXPECTED_KEY_COUNT = 2_175;
 type Locale = 'en' | 'ko' | 'ja';
 
-// Current independent canonical authority, including append-only shortcut and Note-link copy UI keys.
+// Current independent canonical authority, including append-only Notes UI and Wiki-link accessibility keys.
 // The canonical serialization includes every key and exact locale value in
 // translationKeys order, so it detects insertion, omission, reordering, and
 // substitution without using buildLocaleDictionary.
 const EXPECTED_LOCALE_INTEGRITY_SHA256: Record<Locale, string> = {
-  en: '1486e72a6780cff335c648d25ae742128a2792c8a826f0627e6620da0e272cdb',
-  ko: '6216ffce8359821f6b308e998766a36671e6706348178fcedbd2d81f90fb8163',
-  ja: '763071b9dda936a354e16a63d090c60ae7ebcf381224bd251c1e0fd5c26aac4e',
+  en: '580e59ce3e8307ca07c4985e2a2df8cfd85f6664c1534f0a76cdf641c9bb9c97',
+  ko: '3d1fdfd3231f489cb9324bde7d107168aa2bac9c212bd193bc004533108c01b2',
+  ja: '0ed805a8e83d46e8ac22fcd592aa9a5cc03e9565f53d876f1bc4dbda5eee84be',
 };
 
 // Preserve every existing value; the reset-specific copy is append-only.
@@ -185,14 +185,16 @@ describe('i18n locale dictionaries', () => {
     ]);
   });
 
-  it('appends Note link copy after Health badge scope copy', () => {
+  it('appends Wiki-link availability copy after Note link copy', () => {
     expect(translationKeys.slice(2_163, 2_168)).toEqual([
       'notesResetAction', 'notesResetScope', 'notesResetConfirm', 'notesResetCompleted', 'notesResetIncomplete',
     ]);
     expect(translationKeys.slice(2_168, 2_171)).toEqual([
       'healthWorkoutBadgeLegacyScope', 'healthWorkoutBadgePrDescription', 'healthWorkoutBadgeDiffDescription',
     ]);
-    expect(translationKeys.slice(2_171)).toEqual(['nvCopyNoteLink', 'nvNoteLinkCopied', 'nvCopyNoteLinkFailed']);
+    expect(translationKeys.slice(2_171)).toEqual([
+      'nvCopyNoteLink', 'nvNoteLinkCopied', 'nvCopyNoteLinkFailed', 'wikiIdLinkUnavailable',
+    ]);
     for (const [locale, values] of [['en', enLocaleValues], ['ko', koLocaleValues], ['ja', jaLocaleValues]] as const) {
       expect(localeIntegrityDigest(values.slice(0, 2_163), translationKeys.slice(0, 2_163)))
         .toBe(PRE_RESET_LOCALE_SHA256[locale]);
@@ -201,9 +203,9 @@ describe('i18n locale dictionaries', () => {
       expect(dictionary.notesResetCompleted).toMatch(/not a complete account wipe|계정 전체 삭제는 아닙니다|アカウント全体の消去ではありません/);
       expect(dictionary.notesResetIncomplete).toMatch(/no rollback|되돌리기나 자동 재시도는 수행하지|ロールバックや自動再試行は行っていません/);
     }
-    expect(enLocaleValues.slice(-3)).toEqual(['Copy note link', 'Note link copied', 'Could not copy note link']);
-    expect(koLocaleValues.slice(-3)).toEqual(['노트 링크 복사', '노트 링크를 복사했어요', '노트 링크를 복사하지 못했어요']);
-    expect(jaLocaleValues.slice(-3)).toEqual(['ノートリンクをコピー', 'ノートリンクをコピーしました', 'ノートリンクをコピーできませんでした']);
+    expect(enLocaleValues.slice(-4)).toEqual(['Copy note link', 'Note link copied', 'Could not copy note link', 'Linked note unavailable']);
+    expect(koLocaleValues.slice(-4)).toEqual(['노트 링크 복사', '노트 링크를 복사했어요', '노트 링크를 복사하지 못했어요', '연결된 노트를 사용할 수 없습니다']);
+    expect(jaLocaleValues.slice(-4)).toEqual(['ノートリンクをコピー', 'ノートリンクをコピーしました', 'ノートリンクをコピーできませんでした', 'リンク先ノートを利用できません']);
   });
 
   it('rejects a missing value before positional assembly', () => {
@@ -211,10 +213,10 @@ describe('i18n locale dictionaries', () => {
     missing.splice(1_000, 1);
 
     expect(() => buildLocaleDictionary(missing)).toThrow(
-      'Locale dictionary length mismatch: expected 2174, received 2173',
+      'Locale dictionary length mismatch: expected 2175, received 2174',
     );
     expect(() => assertLocaleValuesIntegrity('en', missing)).toThrow(
-      'Locale integrity length mismatch: expected 2174, received 2173',
+      'Locale integrity length mismatch: expected 2175, received 2174',
     );
   });
 
@@ -223,10 +225,10 @@ describe('i18n locale dictionaries', () => {
     extra.splice(1_000, 0, '__unexpected__');
 
     expect(() => buildLocaleDictionary(extra)).toThrow(
-      'Locale dictionary length mismatch: expected 2174, received 2175',
+      'Locale dictionary length mismatch: expected 2175, received 2176',
     );
     expect(() => assertLocaleValuesIntegrity('en', extra)).toThrow(
-      'Locale integrity length mismatch: expected 2174, received 2175',
+      'Locale integrity length mismatch: expected 2175, received 2176',
     );
   });
 

@@ -2174,6 +2174,7 @@ const enTranslations = [
   "Copy note link",
   "Note link copied",
   "Could not copy note link",
+  "Linked note unavailable",
 ] as const;
 
 export default enTranslations;

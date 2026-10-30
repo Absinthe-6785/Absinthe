@@ -2174,6 +2174,7 @@ const translationKeys = [
   "nvCopyNoteLink",
   "nvNoteLinkCopied",
   "nvCopyNoteLinkFailed",
+  "wikiIdLinkUnavailable",
 ] as const;
 
 export type TranslationKey = (typeof translationKeys)[number];
