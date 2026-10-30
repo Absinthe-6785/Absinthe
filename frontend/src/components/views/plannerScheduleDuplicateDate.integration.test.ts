@@ -10,6 +10,7 @@ const testState = vi.hoisted(() => ({
   apiMutate: vi.fn(),
   showToast: vi.fn(),
   overlap: false,
+  duplicateTitle: false,
 }));
 
 vi.mock('../../hooks/useApiMutation', () => ({
@@ -20,6 +21,7 @@ vi.mock('../../hooks/useEscapeKey', () => ({ useEscapeKey: () => {} }));
 
 vi.mock('../../lib/i18n', () => ({
   useTranslation: () => ({ t: (key: string) => key, lang: 'en' as const }),
+  resolveIntlLocale: () => 'en-US',
 }));
 
 vi.mock('swr', () => ({ default: () => ({ data: [], mutate: vi.fn() }) }));
@@ -31,7 +33,7 @@ vi.mock('./features/planner/calendar-ui', async () => {
       anchorDate: string;
       onAnchorDateChange: (date: string) => void;
       onAddSchedule: () => void;
-      dayScheduleActions: { onDuplicate: (id: string) => void };
+      dayScheduleActions: { onDuplicate: (id: string) => void; onView: (id: string) => void };
       onEditDday: (schedule: Schedule & { date: string }) => void;
     }) => createElement('div', null,
       createElement('output', { 'data-calendar-date': true }, props.anchorDate),
@@ -50,6 +52,11 @@ vi.mock('./features/planner/calendar-ui', async () => {
         'data-test-duplicate': true,
         onClick: () => props.dayScheduleActions.onDuplicate('source-event'),
       }, 'Duplicate'),
+      createElement('button', {
+        type: 'button',
+        'data-test-view-duplicate-title': true,
+        onClick: () => props.dayScheduleActions.onView('same-title-other-id'),
+      }, 'Open duplicate-title event'),
       createElement('button', {
         type: 'button',
         'data-test-edit-legacy': true,
@@ -131,7 +138,11 @@ function props(overrides: Partial<PlannerProps> = {}): PlannerProps {
     setSelectedDate: vi.fn(),
     formatDate,
     isToday: () => false,
-    schedules: [sourceSchedule, ...(testState.overlap ? [{ ...sourceSchedule, id: 'overlap', start_time: '09:00', end_time: '12:00', end_next_day: false }] : [])],
+    schedules: [
+      sourceSchedule,
+      ...(testState.duplicateTitle ? [{ ...sourceSchedule, id: 'same-title-other-id' }] : []),
+      ...(testState.overlap ? [{ ...sourceSchedule, id: 'overlap', start_time: '09:00', end_time: '12:00', end_next_day: false }] : []),
+    ],
     todos: [], routines: [], markedDates: [], weeklySchedules: [],
     showToast: testState.showToast, appSettings, updateSetting: vi.fn(), theme, THEME_COLORS: themeColors,
     mutateDaily: vi.fn(), mutateStatic: vi.fn(), mutateTodos: vi.fn(), mutateRoutines: vi.fn(),
@@ -197,6 +208,7 @@ function setInputValue(input: HTMLInputElement, value: string) {
 
 beforeEach(() => {
   testState.overlap = false;
+  testState.duplicateTitle = false;
   testState.apiMutate.mockReset().mockResolvedValue(true);
   testState.showToast.mockReset();
 });
@@ -208,6 +220,84 @@ afterEach(() => {
 });
 
 describe('PlannerView Schedule duplication date', () => {
+  it('carries quick-edit draft into the existing form and mutates only the selected duplicate-title event on explicit Save', async () => {
+    testState.duplicateTitle = true;
+    await mountPlanner();
+    click('[data-test-view-duplicate-title]');
+    const title = host.querySelector('[data-schedule-event-detail] h3')!;
+    act(() => title.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })));
+    const quickEdit = host.querySelector<HTMLInputElement>('[data-schedule-event-quick-edit]')!;
+    setInputValue(quickEdit, 'Draft for selected duplicate');
+
+    act(() => quickEdit.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
+
+    const formTitle = host.querySelector<HTMLInputElement>('.fixed.inset-0 input[type="text"]')!;
+    expect(formTitle.value).toBe('Draft for selected duplicate');
+    expect(testState.apiMutate).not.toHaveBeenCalled();
+    expect(sourceSchedule.text).toBe('Study session');
+
+    await act(async () => saveButton().click());
+    expect(testState.apiMutate).toHaveBeenCalledTimes(1);
+    expect(testState.apiMutate.mock.calls[0][0]).toBe('PUT');
+    expect(testState.apiMutate.mock.calls[0][1]).toBe('/api/schedules/same-title-other-id');
+    expect(testState.apiMutate.mock.calls[0][2]).toMatchObject({
+      text: 'Draft for selected duplicate',
+      date: '2026-06-12',
+      start_time: '23:00',
+      end_time: '01:00',
+      end_next_day: true,
+      category: 'Study',
+      is_dday: false,
+    });
+    expect(sourceSchedule.text).toBe('Study session');
+  });
+
+  it('does not save on quick-edit Escape, and ordinary Edit opens the original title', async () => {
+    testState.duplicateTitle = true;
+    await mountPlanner();
+    click('[data-test-view-duplicate-title]');
+    const title = host.querySelector('[data-schedule-event-detail] h3')!;
+    act(() => title.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })));
+    const quickEdit = host.querySelector<HTMLInputElement>('[data-schedule-event-quick-edit]')!;
+    setInputValue(quickEdit, 'Cancelled draft');
+    act(() => quickEdit.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+    expect(testState.apiMutate).not.toHaveBeenCalled();
+    expect(host.querySelector('[data-schedule-event-detail]')).toBeNull();
+
+    click('[data-test-view-duplicate-title]');
+    act(() => (host.querySelector('[data-schedule-event-edit]') as HTMLButtonElement).click());
+    expect(host.querySelector<HTMLInputElement>('.fixed.inset-0 input[type="text"]')!.value).toBe('Study session');
+    expect(testState.apiMutate).not.toHaveBeenCalled();
+    expect(sourceSchedule.text).toBe('Study session');
+  });
+
+  it('cancelling the edit form after quick edit leaves the original Schedule unchanged', async () => {
+    testState.duplicateTitle = true;
+    await mountPlanner();
+    click('[data-test-view-duplicate-title]');
+    act(() => host.querySelector('[data-schedule-event-detail] h3')!.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })));
+    const quickEdit = host.querySelector<HTMLInputElement>('[data-schedule-event-quick-edit]')!;
+    setInputValue(quickEdit, 'Cancelled in form');
+    act(() => quickEdit.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
+    act(() => host.querySelector<HTMLElement>('.fixed.inset-0')!.click());
+    expect(testState.apiMutate).not.toHaveBeenCalled();
+    expect(sourceSchedule.text).toBe('Study session');
+  });
+
+  it('keeps a whitespace-only quick-edit draft subject to the existing form validation', async () => {
+    testState.duplicateTitle = true;
+    await mountPlanner();
+    click('[data-test-view-duplicate-title]');
+    act(() => host.querySelector('[data-schedule-event-detail] h3')!.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })));
+    const quickEdit = host.querySelector<HTMLInputElement>('[data-schedule-event-quick-edit]')!;
+    setInputValue(quickEdit, '   ');
+    act(() => quickEdit.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
+    expect(host.querySelector<HTMLInputElement>('.fixed.inset-0 input[type="text"]')!.value).toBe('   ');
+    await act(async () => saveButton().click());
+    expect(testState.apiMutate).not.toHaveBeenCalled();
+    expect(testState.showToast).toHaveBeenCalledWith('enterText', 'error');
+  });
+
   it('reproduces the active IME Enter submission candidate', async () => {
     await mountPlanner();
     click('[data-test-add]');

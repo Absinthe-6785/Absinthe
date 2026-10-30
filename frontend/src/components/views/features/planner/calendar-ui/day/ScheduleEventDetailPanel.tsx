@@ -10,7 +10,7 @@ export interface ScheduleEventDetailPanelProps {
   theme: Theme;
   dateLabel: string;
   notes?: string | null;
-  onEdit: () => void;
+  onEdit: (titleDraft?: string) => void;
   onDelete: () => void;
   onDuplicate?: () => void;
   onClose: () => void;
@@ -78,10 +78,10 @@ export function ScheduleEventDetailPanel({
               value={titleDraft}
               onChange={e => setTitleDraft(e.target.value)}
               onKeyDown={e => {
-                if (e.key === 'Enter') {
+                if (e.key === 'Enter' && !e.nativeEvent.isComposing && e.nativeEvent.keyCode !== 229) {
                   e.preventDefault();
                   setQuickEdit(false);
-                  onEdit();
+                  onEdit(titleDraft);
                 }
                 if (e.key === 'Escape') setQuickEdit(false);
               }}
@@ -130,7 +130,7 @@ export function ScheduleEventDetailPanel({
       <div className="flex flex-wrap gap-2 pt-1 items-stretch" data-k102-schedule-detail-actions data-k103-schedule-detail-actions>
         <button
           type="button"
-          onClick={onEdit}
+          onClick={() => onEdit()}
           className="flex-1 min-w-[88px] max-w-full bg-primary text-primary-foreground font-bold rounded-xl py-2 px-3 text-sm flex items-center justify-center gap-1.5 k101-interactive min-h-[40px]"
           data-schedule-event-edit
         >
