@@ -373,11 +373,14 @@ export const PlannerView = ({
           block={scheduleDetailBlock}
           theme={theme}
           dateLabel={formatLongDateKey(scheduleDetailBlock.dateKey, lang)}
-          onEdit={() => {
+          onEdit={(titleDraft) => {
             const sch = schedules.find(s => s.id === scheduleDetailBlock.id)
               ?? prevSchedules.find(s => s.id === scheduleDetailBlock.id);
             setScheduleDetailId(null);
-            if (sch) openModal(sch, scheduleDetailBlock.dateKey);
+            if (sch) openModal(
+              titleDraft === undefined ? sch : { ...sch, text: titleDraft },
+              scheduleDetailBlock.dateKey,
+            );
           }}
           onDelete={() => {
             handleDeleteSchedule(scheduleDetailBlock.id);
