@@ -8,7 +8,7 @@ import translationKeys, { buildLocaleDictionary } from './i18n/keys';
 import type { TranslationKey } from './i18n';
 
 const PLANNER_STORAGE_KEY = 'planner-storage';
-const EXPECTED_KEY_COUNT = 2_175;
+const EXPECTED_KEY_COUNT = 2_187;
 type Locale = 'en' | 'ko' | 'ja';
 
 // Current independent canonical authority, including append-only Notes UI and Wiki-link accessibility keys.
@@ -16,6 +16,12 @@ type Locale = 'en' | 'ko' | 'ja';
 // translationKeys order, so it detects insertion, omission, reordering, and
 // substitution without using buildLocaleDictionary.
 const EXPECTED_LOCALE_INTEGRITY_SHA256: Record<Locale, string> = {
+  en: 'cc7f8fa676f28d054e3cc09af68257f8e2235e32f77cb93aa4aa4790a58db2e9',
+  ko: 'bff78c5fecb756afc977c4c911bd9ecc3f717202e2a1bf3fa98c7bb67ab8a4eb',
+  ja: 'bc3577c10feabe7c79dddb82f5173ac75fccea2056b323a6b7d5e11d5f1093db',
+};
+
+const PRE_LOCAL_ORIGINALS_LOCALE_SHA256: Record<Locale, string> = {
   en: '580e59ce3e8307ca07c4985e2a2df8cfd85f6664c1534f0a76cdf641c9bb9c97',
   ko: '3d1fdfd3231f489cb9324bde7d107168aa2bac9c212bd193bc004533108c01b2',
   ja: '0ed805a8e83d46e8ac22fcd592aa9a5cc03e9565f53d876f1bc4dbda5eee84be',
@@ -192,7 +198,7 @@ describe('i18n locale dictionaries', () => {
     expect(translationKeys.slice(2_168, 2_171)).toEqual([
       'healthWorkoutBadgeLegacyScope', 'healthWorkoutBadgePrDescription', 'healthWorkoutBadgeDiffDescription',
     ]);
-    expect(translationKeys.slice(2_171)).toEqual([
+    expect(translationKeys.slice(2_171, 2_175)).toEqual([
       'nvCopyNoteLink', 'nvNoteLinkCopied', 'nvCopyNoteLinkFailed', 'wikiIdLinkUnavailable',
     ]);
     for (const [locale, values] of [['en', enLocaleValues], ['ko', koLocaleValues], ['ja', jaLocaleValues]] as const) {
@@ -203,9 +209,22 @@ describe('i18n locale dictionaries', () => {
       expect(dictionary.notesResetCompleted).toMatch(/not a complete account wipe|계정 전체 삭제는 아닙니다|アカウント全体の消去ではありません/);
       expect(dictionary.notesResetIncomplete).toMatch(/no rollback|되돌리기나 자동 재시도는 수행하지|ロールバックや自動再試行は行っていません/);
     }
-    expect(enLocaleValues.slice(-4)).toEqual(['Copy note link', 'Note link copied', 'Could not copy note link', 'Linked note unavailable']);
-    expect(koLocaleValues.slice(-4)).toEqual(['노트 링크 복사', '노트 링크를 복사했어요', '노트 링크를 복사하지 못했어요', '연결된 노트를 사용할 수 없습니다']);
-    expect(jaLocaleValues.slice(-4)).toEqual(['ノートリンクをコピー', 'ノートリンクをコピーしました', 'ノートリンクをコピーできませんでした', 'リンク先ノートを利用できません']);
+    expect(enLocaleValues.slice(2_171, 2_175)).toEqual(['Copy note link', 'Note link copied', 'Could not copy note link', 'Linked note unavailable']);
+    expect(koLocaleValues.slice(2_171, 2_175)).toEqual(['노트 링크 복사', '노트 링크를 복사했어요', '노트 링크를 복사하지 못했어요', '연결된 노트를 사용할 수 없습니다']);
+    expect(jaLocaleValues.slice(2_171, 2_175)).toEqual(['ノートリンクをコピー', 'ノートリンクをコピーしました', 'ノートリンクをコピーできませんでした', 'リンク先ノートを利用できません']);
+  });
+
+  it('preserves the full existing prefix and appends separate local-originals export disclosure', () => {
+    for (const [locale, values] of [['en', enLocaleValues], ['ko', koLocaleValues], ['ja', jaLocaleValues]] as const) {
+      expect(localeIntegrityDigest(values.slice(0, 2_175), translationKeys.slice(0, 2_175)))
+        .toBe(PRE_LOCAL_ORIGINALS_LOCALE_SHA256[locale]);
+      expect(buildLocaleDictionary(values).localOriginalsScope).toContain('Vault ZIP/JSON');
+    }
+    expect(translationKeys.slice(2_175)).toEqual([
+      'localOriginalsTitle', 'localOriginalsScope', 'localOriginalsCheck', 'localOriginalsChecking',
+      'localOriginalsCoverage', 'localOriginalsComplete', 'localOriginalsPartial', 'localOriginalsDetails',
+      'localOriginalsDownload', 'localOriginalsDownloadPartial', 'localOriginalsError', 'localOriginalsDownloaded',
+    ]);
   });
 
   it('rejects a missing value before positional assembly', () => {
@@ -213,10 +232,10 @@ describe('i18n locale dictionaries', () => {
     missing.splice(1_000, 1);
 
     expect(() => buildLocaleDictionary(missing)).toThrow(
-      'Locale dictionary length mismatch: expected 2175, received 2174',
+      'Locale dictionary length mismatch: expected 2187, received 2186',
     );
     expect(() => assertLocaleValuesIntegrity('en', missing)).toThrow(
-      'Locale integrity length mismatch: expected 2175, received 2174',
+      'Locale integrity length mismatch: expected 2187, received 2186',
     );
   });
 
@@ -225,10 +244,10 @@ describe('i18n locale dictionaries', () => {
     extra.splice(1_000, 0, '__unexpected__');
 
     expect(() => buildLocaleDictionary(extra)).toThrow(
-      'Locale dictionary length mismatch: expected 2175, received 2176',
+      'Locale dictionary length mismatch: expected 2187, received 2188',
     );
     expect(() => assertLocaleValuesIntegrity('en', extra)).toThrow(
-      'Locale integrity length mismatch: expected 2175, received 2176',
+      'Locale integrity length mismatch: expected 2187, received 2188',
     );
   });
 

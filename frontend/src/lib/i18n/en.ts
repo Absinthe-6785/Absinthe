@@ -2175,6 +2175,18 @@ const enTranslations = [
   "Note link copied",
   "Could not copy note link",
   "Linked note unavailable",
+  "Export local Notes attachment originals",
+  "Separate ZIP of verified local images on active Notes only (up to 500 records / 100 MiB read). Remote files and unproven legacy ownership are excluded. Vault ZIP/JSON backups and restore support are unchanged.",
+  "Check local originals",
+  "Preparing…",
+  "Included: {included}. Excluded: {excluded}.",
+  "All candidates in this preflight are included. This is not a complete attachment backup.",
+  "Partial coverage. Review exclusions before choosing to download only the available subset.",
+  "Included / excluded files and scope report",
+  "Download originals ZIP",
+  "Download available subset only",
+  "Export could not complete or its Notes/account context changed. No download was confirmed.",
+  "Download requested. Verify the separate ZIP and its COVERAGE.txt; no restore or durable-backup guarantee is implied.",
 ] as const;
 
 export default enTranslations;

@@ -41,6 +41,7 @@ import {
 import { useRecoveryCenter } from '../../hooks/useRecoveryCenter';
 import { VaultRestoreModal } from './features/knowledge/VaultRestoreModal';
 import { RecoveryCenterPanel } from './features/settings/RecoveryCenterPanel';
+import { LocalAttachmentOriginalsExport } from './features/settings/LocalAttachmentOriginalsExport';
 import { getVaultStorageMetrics } from '../../lib/vaultStorageMetrics';
 import {
   shouldUseDomainRemotePersistence,
@@ -357,6 +358,7 @@ export const SettingsView = ({
               cloudSyncEnabled={cloudSyncEnabled}
               pendingReducedBackup={pendingReducedBackup}
             />
+            <LocalAttachmentOriginalsExport accountId={user?.id ?? null} />
           </section>
 
           {/* Danger zone */}
