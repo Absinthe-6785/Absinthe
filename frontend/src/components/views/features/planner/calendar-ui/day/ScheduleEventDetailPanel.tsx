@@ -42,11 +42,22 @@ export function ScheduleEventDetailPanel({
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      if (e.isComposing || e.keyCode === 229) return;
+      const editableSelector = 'input, textarea, select, [contenteditable="true"], [contenteditable=""], [contenteditable="plaintext-only"]';
+      const path = e.composedPath();
+      const isEditableTarget = path.some(target => target instanceof HTMLElement && (
+        target.matches('input, textarea, select')
+        || target.isContentEditable
+        || target.matches(editableSelector)
+      ));
       if (e.key === 'Escape') {
+        if (path.some(target => target instanceof HTMLElement && target.matches('[data-schedule-event-quick-edit]'))) return;
         e.preventDefault();
         onClose();
-      } else if (e.key === 'e' || e.key === 'E') {
-        if (e.target instanceof HTMLInputElement) return;
+        return;
+      }
+      if (isEditableTarget) return;
+      if (e.key === 'e' || e.key === 'E') {
         e.preventDefault();
         onEdit();
       } else if ((e.key === 'd' || e.key === 'D') && onDuplicate) {
@@ -83,7 +94,10 @@ export function ScheduleEventDetailPanel({
                   setQuickEdit(false);
                   onEdit(titleDraft);
                 }
-                if (e.key === 'Escape') setQuickEdit(false);
+                if (e.key === 'Escape' && !e.nativeEvent.isComposing && e.nativeEvent.keyCode !== 229) {
+                  setTitleDraft(block.title);
+                  setQuickEdit(false);
+                }
               }}
               className={`w-full font-heading text-lg font-bold rounded-lg px-2 py-1 ${theme.input}`}
               data-schedule-event-quick-edit

@@ -262,9 +262,9 @@ describe('PlannerView Schedule duplication date', () => {
     setInputValue(quickEdit, 'Cancelled draft');
     act(() => quickEdit.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
     expect(testState.apiMutate).not.toHaveBeenCalled();
-    expect(host.querySelector('[data-schedule-event-detail]')).toBeNull();
+    expect(host.querySelector('[data-schedule-event-detail]')).not.toBeNull();
+    expect(host.querySelector('[data-schedule-event-quick-edit]')).toBeNull();
 
-    click('[data-test-view-duplicate-title]');
     act(() => (host.querySelector('[data-schedule-event-edit]') as HTMLButtonElement).click());
     expect(host.querySelector<HTMLInputElement>('.fixed.inset-0 input[type="text"]')!.value).toBe('Study session');
     expect(testState.apiMutate).not.toHaveBeenCalled();
