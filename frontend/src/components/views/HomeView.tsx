@@ -22,7 +22,7 @@ import { WORKSPACE_PAGE_SCROLL_CLASS, WORKSPACE_SCROLL_MODE } from '../common/wo
 import { openNote, switchToTab } from '../../lib/noteNavigation';
 import { buildRecentActivityProjection } from './buildRecentActivityProjection';
 import { buildRelativeDateLabels } from './k102RelativeDateLabels';
-import { readPlannerActivityRecents } from './features/planner/plannerActivityStorage';
+import { readPlannerActivityRecents, validPlannerEventDate } from './features/planner/plannerActivityStorage';
 import { readRecipeViewRecents } from './features/recipe/recipeActivityStorage';
 import { usePlannerCalendarProjection } from './features/planner/calendar-ui/usePlannerCalendarProjection';
 import { buildPlannerProjection } from './features/planner/calendar/buildPlannerProjection';
@@ -46,6 +46,7 @@ export type HomeViewProps = ViewProps & Readonly<{
   homeWorkoutComposite?: HealthSelectedDayReadModel;
   onOpenTodayWorkout?: () => void;
   onOpenRecipe?: (recipeId: string) => void;
+  onOpenScheduleTarget?: (itemId: string, eventDate: string) => void;
 }>;
 
 function HomeCompositeWorkoutCard({ model, onOpen, onRetry }: Readonly<{
@@ -165,6 +166,7 @@ export const HomeView = ({
   homeWorkoutComposite,
   onOpenTodayWorkout,
   onOpenRecipe,
+  onOpenScheduleTarget,
 }: HomeViewProps) => {
   const { t, lang } = useTranslation();
   // Subscribe to publication invalidation as well as Notes edits/replacements.
@@ -247,6 +249,16 @@ export const HomeView = ({
   [homeWorkoutComposite, homeDraft, user.id, todayKey]);
   const openWorkout = onOpenTodayWorkout ?? (() => switchToTab('health'));
 
+  const navigateScheduleTarget = useCallback((itemId: unknown, eventDate: unknown) => {
+    const id = typeof itemId === 'string' && itemId.trim() === itemId ? itemId : '';
+    const date = validPlannerEventDate(eventDate);
+    if (id && date && onOpenScheduleTarget) {
+      onOpenScheduleTarget(id, date);
+      return;
+    }
+    switchToTab('planner');
+  }, [onOpenScheduleTarget]);
+
   const projection = useMemo(
     () => buildHomeFoundationProjection({
       notes: continueNotes,
@@ -282,6 +294,10 @@ export const HomeView = ({
       return;
     }
     if (item.domain === 'planner') {
+      if (item.kind === 'schedule') {
+        navigateScheduleTarget(item.plannerItemId, item.eventDate);
+        return;
+      }
       switchToTab('planner');
       return;
     }
@@ -293,7 +309,7 @@ export const HomeView = ({
       switchToTab('recipe');
       return;
     }
-  }, [continueRequest, user.id, onOpenRecipe]);
+  }, [continueRequest, user.id, onOpenRecipe, navigateScheduleTarget]);
 
   const handleNewNote = useCallback(() => {
     switchToTab('note');
@@ -373,7 +389,9 @@ export const HomeView = ({
                       key={item.key}
                       title={item.title}
                       meta={item.time || item.countdownLabel}
-                      onClick={() => switchToTab('planner')}
+                      onClick={() => item.blockId
+                        ? navigateScheduleTarget(item.blockId, item.eventDate)
+                        : switchToTab('planner')}
                       theme={theme}
                       dataHook={`today-${item.kind}`}
                     />
@@ -406,7 +424,9 @@ export const HomeView = ({
                       key={item.id}
                       title={item.text}
                       meta={`${daysUntil === 0 ? 'D-Day' : `D-${daysUntil}`} · ${item.date}`}
-                      onClick={() => switchToTab('planner')}
+                      onClick={() => item.is_dday
+                        ? navigateScheduleTarget(item.id, item.date)
+                        : switchToTab('planner')}
                       theme={theme}
                       dataHook="dday-item"
                     />

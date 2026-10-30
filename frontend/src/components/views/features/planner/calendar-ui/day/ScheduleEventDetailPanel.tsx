@@ -129,7 +129,9 @@ export function ScheduleEventDetailPanel({
         <dd className="font-medium">{dateLabel}</dd>
         <dt className={`font-semibold ${theme.textMuted}`}>{t('k98ScheduleTime')}</dt>
         <dd className="font-medium tabular-nums">
-          {block.endNextDay
+          {block.isDday
+            ? t('k80DdayTimeHint')
+            : block.endNextDay
             ? `${block.startTime} → ${block.endTime} (+1)`
             : formatDayTimeRange(block.startTime, block.endTime)}
         </dd>
@@ -151,7 +153,7 @@ export function ScheduleEventDetailPanel({
           <Edit2 size={15} />
           {t('edit')}
         </button>
-        {onDuplicate ? (
+        {onDuplicate && !block.isDday ? (
           <button
             type="button"
             onClick={onDuplicate}

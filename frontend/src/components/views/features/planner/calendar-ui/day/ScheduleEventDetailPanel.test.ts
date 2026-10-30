@@ -88,6 +88,23 @@ describe('ScheduleEventDetailPanel', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it('represents D-day targets without suggesting a timed event or an unsupported duplicate action', () => {
+    act(() => root.render(createElement(ScheduleEventDetailPanel, {
+      block: { ...block, isDday: true, startTime: '00:00', endTime: '23:59' },
+      theme,
+      dateLabel: 'June 20, 2026',
+      onEdit: vi.fn(),
+      onDelete: vi.fn(),
+      onDuplicate: vi.fn(),
+      onClose: vi.fn(),
+    })));
+    const details = host.querySelector('[data-schedule-event-detail]');
+    expect(details?.textContent).toContain('June 20, 2026');
+    expect(details?.textContent).toContain('k80DdayTimeHint');
+    expect(details?.textContent).not.toContain('00:00–23:59');
+    expect(host.querySelector('[data-schedule-event-duplicate]')).toBeNull();
+  });
+
   it('passes the quick-edit title draft to the existing edit callback while ordinary Edit passes no override', () => {
     const onEdit = vi.fn();
     act(() => {
