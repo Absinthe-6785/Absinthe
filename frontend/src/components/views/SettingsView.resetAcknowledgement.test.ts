@@ -18,7 +18,7 @@ vi.mock('../../store/useNotesStore', () => ({ useNotesStore: (select: any) => se
     const context = captureNotesResetContext(account, isUiCurrent);
     return context && { ...context, isStoreCurrent: harness.current };
   },
-}) }));
+}), observePublishedNotesHydration: () => ({ status: 'UNAVAILABLE', reason: 'MISSING_AUTHORITY' }) }));
 vi.mock('../../hooks/useVaultRestoreFlow', () => ({ useVaultRestoreFlow: () => ({ preview: null, fileInputRef: { current: null } }) }));
 vi.mock('../../hooks/useRecoveryCenter', () => ({ useRecoveryCenter: () => ({ refresh: vi.fn() }) }));
 vi.mock('./features/settings/RecoveryCenterPanel', () => ({ RecoveryCenterPanel: () => null }));
