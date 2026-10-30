@@ -131,6 +131,29 @@ describe('ScheduleEventDetailPanel', () => {
     expect(host.querySelector('[data-schedule-event-quick-edit]')).not.toBeNull();
   });
 
+  it('discards a cancelled quick-edit draft before the editor is reopened', () => {
+    const onEdit = vi.fn();
+    act(() => root.render(createElement(ScheduleEventDetailPanel, {
+      block, theme, dateLabel: 'October 26, 2026', onEdit, onDelete: vi.fn(), onClose: vi.fn(),
+    })));
+
+    act(() => host.querySelector('h3')!.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })));
+    const input = host.querySelector<HTMLInputElement>('[data-schedule-event-quick-edit]')!;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+    act(() => {
+      setter?.call(input, 'Cancelled draft');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    act(() => input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+    expect(host.querySelector('[data-schedule-event-quick-edit]')).toBeNull();
+
+    act(() => host.querySelector('h3')!.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })));
+    expect(host.querySelector<HTMLInputElement>('[data-schedule-event-quick-edit]')!.value).toBe(block.title);
+    act(() => host.querySelector<HTMLInputElement>('[data-schedule-event-quick-edit]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
+    expect(onEdit).toHaveBeenCalledWith(block.title);
+  });
+
   it('does not fire E, D, or Delete global shortcuts while typing in quick edit', () => {
     const onEdit = vi.fn();
     const onDuplicate = vi.fn();

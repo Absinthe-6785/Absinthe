@@ -94,7 +94,10 @@ export function ScheduleEventDetailPanel({
                   setQuickEdit(false);
                   onEdit(titleDraft);
                 }
-                if (e.key === 'Escape' && !e.nativeEvent.isComposing && e.nativeEvent.keyCode !== 229) setQuickEdit(false);
+                if (e.key === 'Escape' && !e.nativeEvent.isComposing && e.nativeEvent.keyCode !== 229) {
+                  setTitleDraft(block.title);
+                  setQuickEdit(false);
+                }
               }}
               className={`w-full font-heading text-lg font-bold rounded-lg px-2 py-1 ${theme.input}`}
               data-schedule-event-quick-edit
