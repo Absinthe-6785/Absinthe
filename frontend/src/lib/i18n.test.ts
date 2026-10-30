@@ -8,17 +8,17 @@ import translationKeys, { buildLocaleDictionary } from './i18n/keys';
 import type { TranslationKey } from './i18n';
 
 const PLANNER_STORAGE_KEY = 'planner-storage';
-const EXPECTED_KEY_COUNT = 2_171;
+const EXPECTED_KEY_COUNT = 2_174;
 type Locale = 'en' | 'ko' | 'ja';
 
-// Current independent canonical authority, including the append-only shortcut UI keys.
+// Current independent canonical authority, including append-only shortcut and Note-link copy UI keys.
 // The canonical serialization includes every key and exact locale value in
 // translationKeys order, so it detects insertion, omission, reordering, and
 // substitution without using buildLocaleDictionary.
 const EXPECTED_LOCALE_INTEGRITY_SHA256: Record<Locale, string> = {
-  en: '48fe092b9b2d35c370206f7fd85d639eea47719738bb0a0b4a616df6802dd113',
-  ko: '62ed6fa4ddaa2112eeef9b8025d9f1aa28eabb4976eb5d3e851995bb6ac5ecf2',
-  ja: '1a2b6232e278ed7f7973e7483e1be3edd0db3f9718df137cfb9ca975d776ad55',
+  en: '1486e72a6780cff335c648d25ae742128a2792c8a826f0627e6620da0e272cdb',
+  ko: '6216ffce8359821f6b308e998766a36671e6706348178fcedbd2d81f90fb8163',
+  ja: '763071b9dda936a354e16a63d090c60ae7ebcf381224bd251c1e0fd5c26aac4e',
 };
 
 // Preserve every existing value; the reset-specific copy is append-only.
@@ -185,13 +185,14 @@ describe('i18n locale dictionaries', () => {
     ]);
   });
 
-  it('appends Health badge scope copy after bounded reset feedback', () => {
+  it('appends Note link copy after Health badge scope copy', () => {
     expect(translationKeys.slice(2_163, 2_168)).toEqual([
       'notesResetAction', 'notesResetScope', 'notesResetConfirm', 'notesResetCompleted', 'notesResetIncomplete',
     ]);
-    expect(translationKeys.slice(2_168)).toEqual([
+    expect(translationKeys.slice(2_168, 2_171)).toEqual([
       'healthWorkoutBadgeLegacyScope', 'healthWorkoutBadgePrDescription', 'healthWorkoutBadgeDiffDescription',
     ]);
+    expect(translationKeys.slice(2_171)).toEqual(['nvCopyNoteLink', 'nvNoteLinkCopied', 'nvCopyNoteLinkFailed']);
     for (const [locale, values] of [['en', enLocaleValues], ['ko', koLocaleValues], ['ja', jaLocaleValues]] as const) {
       expect(localeIntegrityDigest(values.slice(0, 2_163), translationKeys.slice(0, 2_163)))
         .toBe(PRE_RESET_LOCALE_SHA256[locale]);
@@ -200,6 +201,9 @@ describe('i18n locale dictionaries', () => {
       expect(dictionary.notesResetCompleted).toMatch(/not a complete account wipe|계정 전체 삭제는 아닙니다|アカウント全体の消去ではありません/);
       expect(dictionary.notesResetIncomplete).toMatch(/no rollback|되돌리기나 자동 재시도는 수행하지|ロールバックや自動再試行は行っていません/);
     }
+    expect(enLocaleValues.slice(-3)).toEqual(['Copy note link', 'Note link copied', 'Could not copy note link']);
+    expect(koLocaleValues.slice(-3)).toEqual(['노트 링크 복사', '노트 링크를 복사했어요', '노트 링크를 복사하지 못했어요']);
+    expect(jaLocaleValues.slice(-3)).toEqual(['ノートリンクをコピー', 'ノートリンクをコピーしました', 'ノートリンクをコピーできませんでした']);
   });
 
   it('rejects a missing value before positional assembly', () => {
@@ -207,10 +211,10 @@ describe('i18n locale dictionaries', () => {
     missing.splice(1_000, 1);
 
     expect(() => buildLocaleDictionary(missing)).toThrow(
-      'Locale dictionary length mismatch: expected 2171, received 2170',
+      'Locale dictionary length mismatch: expected 2174, received 2173',
     );
     expect(() => assertLocaleValuesIntegrity('en', missing)).toThrow(
-      'Locale integrity length mismatch: expected 2171, received 2170',
+      'Locale integrity length mismatch: expected 2174, received 2173',
     );
   });
 
@@ -219,10 +223,10 @@ describe('i18n locale dictionaries', () => {
     extra.splice(1_000, 0, '__unexpected__');
 
     expect(() => buildLocaleDictionary(extra)).toThrow(
-      'Locale dictionary length mismatch: expected 2171, received 2172',
+      'Locale dictionary length mismatch: expected 2174, received 2175',
     );
     expect(() => assertLocaleValuesIntegrity('en', extra)).toThrow(
-      'Locale integrity length mismatch: expected 2171, received 2172',
+      'Locale integrity length mismatch: expected 2174, received 2175',
     );
   });
 

@@ -2171,6 +2171,9 @@ const enTranslations = [
   "LEGACY",
   "This current-workout draft exceeds the legacy historical PR threshold. It is not a verified all-source personal record.",
   "Difference from the latest selected prior legacy row, compared with this current-workout draft. It is not an all-source personal-record comparison.",
+  "Copy note link",
+  "Note link copied",
+  "Could not copy note link",
 ] as const;
 
 export default enTranslations;

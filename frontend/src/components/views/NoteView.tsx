@@ -29,6 +29,7 @@ import { useAppStore } from '../../store/useAppStore';
 import { useNotesStore, observePublishedNotesHydration } from '../../store/useNotesStore';
 import { captureWikiPublication } from './wikiNoteAuthority';
 import { parseIdWikiLink } from './wikiLinks';
+import { copyAuthorizedNoteLink } from './noteview/actions/copyAuthorizedNoteLink';
 import {
   highlightText,
   extractTOC, extractTags, extractLinks,
@@ -900,6 +901,28 @@ export const NoteView = ({ showToast = () => {}, accountId }: NoteViewProps) => 
     return observation.status === 'CURRENT' ? observation.request : null;
   });
   const wikiNoteTargets = useMemo(() => captureWikiPublication().targets, [notes, wikiRequest]);
+  const handleCopyNoteLink = useCallback(async () => {
+    let writeText: ((text: string) => Promise<void>) | undefined;
+    try {
+      const clipboard = typeof navigator === 'undefined' ? undefined : navigator.clipboard;
+      if (clipboard?.writeText) writeText = text => clipboard.writeText(text);
+    } catch {
+      // Clipboard access may be denied by the browser; report it as a failed copy below.
+    }
+    const result = await copyAuthorizedNoteLink({
+      activeNoteId,
+      targets: wikiNoteTargets,
+      getCurrentState: () => {
+        const state = useNotesStore.getState();
+        return { activeNoteId: state.activeNoteId, notes: state.notes };
+      },
+      writeText,
+    });
+    showToast(
+      result === 'copied' ? t('nvNoteLinkCopied') : t('nvCopyNoteLinkFailed'),
+      result === 'copied' ? 'success' : 'error',
+    );
+  }, [activeNoteId, showToast, t, wikiNoteTargets]);
   const pageReferences = useMemo(
     () => (activeNote ? knowledgeIndexService.getPageReferences(activeNote, useNotesStore.getState().notes) : null),
     [activeNote?.id, indexContentVersion, vaultStructureVersion],
@@ -1464,7 +1487,7 @@ export const NoteView = ({ showToast = () => {}, accountId }: NoteViewProps) => 
       titleInputRef, titleComposingRef, blockEditorRef, editorScrollRef, virtualScrollApiRef, searchInputRef,
       importInputRef, setMobileShowEditor, setActiveNoteId, handleExitFocusPreset, handleTitleChange,
       handleTitleCompositionEnd, noteUpdate, retrySync, setViewMode, openEditEventDialog, openMilestoneDialog,
-      handleToggleAreaNote, toggleStar, duplicateNote, setShowRightPanel, handleCopyDocument, exportNote,
+      handleToggleAreaNote, toggleStar, duplicateNote, setShowRightPanel, handleCopyDocument, handleCopyNoteLink, exportNote,
       restoreNote, moveNoteToTrash, onPermanentDelete: handlePermanentDeleteActive, setActiveFolderId, setSearchQuery, setActiveTag, setHeaderTagsExpanded,
       openContextPanel, setRightPanel, handlePromoteNoteKind, handleLearnLinking, handleHudReviewWeakAreas,
       handleOpenDiscover, handleOpenTimeline, createNote, setSearchScope, setSearchMatchIdx,
@@ -1551,7 +1574,7 @@ export const NoteView = ({ showToast = () => {}, accountId }: NoteViewProps) => 
     noteCosmosTier, searchScope, searchMatchIdx, editorSearchQuery, blockColors, wikiTargets, wikiNoteTargets, appSettings,
     activeFocusPreset, titleInputRef, titleComposingRef, blockEditorRef, editorScrollRef, virtualScrollApiRef,
     setMobileShowEditor, handleExitFocusPreset, handleTitleChange, handleTitleCompositionEnd, retrySync,
-    openEditEventDialog, openMilestoneDialog, handleToggleAreaNote, toggleStar, setShowRightPanel, handleCopyDocument,
+    openEditEventDialog, openMilestoneDialog, handleToggleAreaNote, toggleStar, setShowRightPanel, handleCopyDocument, handleCopyNoteLink,
     exportNote, restoreNote, moveNoteToTrash, handlePermanentDeleteActive, handleEmptyTrash, setHeaderTagsExpanded, openContextPanel, setRightPanel, handlePromoteNoteKind,
     handleLearnLinking, handleHudReviewWeakAreas, setSearchScope, setSearchMatchIdx, insertEmptyImageBlockAtCursor,
     attachImageFilesToActiveNote, setShowAppearance, updateSetting, setIsDragOver, insertImageAtCursor, handleEditorDrop, handleReadingModeClick,

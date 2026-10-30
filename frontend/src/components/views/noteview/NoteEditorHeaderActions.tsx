@@ -32,6 +32,7 @@ export interface NoteEditorHeaderActionsProps {
   onDuplicate: () => void;
   onTogglePanel: () => void;
   onCopyDocument: () => void;
+  onCopyNoteLink?: () => void;
   onExport: () => void;
   onRestore: () => void;
   onPermanentDelete?: () => void;
@@ -74,6 +75,7 @@ export function NoteEditorHeaderActions({
   onDuplicate,
   onTogglePanel,
   onCopyDocument,
+  onCopyNoteLink,
   onExport,
   onRestore,
   onPermanentDelete,
@@ -126,6 +128,7 @@ export function NoteEditorHeaderActions({
       danger: isWeakTopic,
     }] : []),
     { key: 'copy', label: docCopied ? t('nvCopied') : t('nvCopyDocument'), onClick: onCopyDocument },
+    ...(onCopyNoteLink ? [{ key: 'copy-note-link', label: t('nvCopyNoteLink'), onClick: onCopyNoteLink }] : []),
     { key: 'duplicate', label: t('nvDuplicate'), onClick: onDuplicate },
     { key: 'export', label: t('nvExportMd'), onClick: onExport },
     ...(onOpenAppearance ? [{ key: 'appearance', label: t('nvAppearance'), onClick: onOpenAppearance }] : []),
