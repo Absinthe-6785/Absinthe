@@ -15,8 +15,9 @@ export function paintEditableLive(
   searchQuery: string,
   caretOffset?: number,
   selection?: { start: number; end: number },
+  unavailableLabel = 'Linked note unavailable',
 ) {
-  el.innerHTML = liveInlineHtml(text, c, wikiTargets, searchQuery);
+  el.innerHTML = liveInlineHtml(text, c, wikiTargets, searchQuery, unavailableLabel);
   if (selection) setSelectionOffsets(el, selection.start, selection.end);
   else if (caretOffset != null) setCaretOffset(el, caretOffset);
 }

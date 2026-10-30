@@ -24,6 +24,7 @@ import { parseNoteMarkdown, serializeNoteMarkdown } from './features/knowledge/p
 import { backupEntryToNote } from '../../lib/importVaultBackup';
 import { buildVaultBackupManifest } from '../../lib/exportVaultBackup';
 import type { BlockEditorColors } from './editorTypes';
+import { useAppStore } from '../../store/useAppStore';
 
 const colors = { accent: '#8260db', textMuted: '#888', text: '#222', codeBg: '#eee' } as BlockEditorColors;
 const note = (id: string, title: string, body = ''): NoteBase =>
@@ -182,13 +183,15 @@ describe('ID Wiki reading and editing', () => {
   it('inserts an exact-ID token through the mounted autocomplete menu and keeps the caret', async () => {
     (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     const targets = [candidate('wrong', 'Duplicate'), candidate('selected', 'Duplicate')];
+    const missing = serializeIdWikiLink('deleted', 'Existing label');
+    const editorText = `${missing} [[Du`;
     const changed = vi.fn();
     function MenuHost() {
       const menu = useEditorMenus({ getBlocks: () => [], onChange: vi.fn(), onFocusCmd: vi.fn(),
         colors, wikiTargets: targets, searchQuery: '', onContentChange: changed });
       useEffect(() => menu.setWikiMenu({ blockId: 'block', query: 'Du', anchorX: 0, anchorY: 0 }), []);
       return React.createElement(React.Fragment, null,
-        React.createElement('div', { contentEditable: true, tabIndex: 0, 'data-editor': '', suppressContentEditableWarning: true }, '[[Du'),
+        React.createElement('div', { contentEditable: true, tabIndex: 0, 'data-editor': '', suppressContentEditableWarning: true }, editorText),
         menu.wikiMenu && React.createElement(WikiMenu, { ...menu.wikiMenu, targets, colors,
           onSelect: menu.handleWikiSelect, onClose: menu.closeWikiMenu }));
     }
@@ -196,21 +199,31 @@ describe('ID Wiki reading and editing', () => {
     document.body.append(container);
     const root = createRoot(container);
     const scroll = HTMLElement.prototype.scrollIntoView;
+    const oldLanguage = useAppStore.getState().appSettings.language;
     HTMLElement.prototype.scrollIntoView = vi.fn();
     try {
+      await act(async () => useAppStore.setState(state => ({
+        appSettings: { ...state.appSettings, language: 'ko' },
+      })));
       await act(async () => root.render(React.createElement(MenuHost)));
       const editor = container.querySelector<HTMLElement>('[data-editor]')!;
       editor.focus();
-      setCaretOffset(editor, 4);
+      setCaretOffset(editor, editorText.length);
       await act(async () => container.querySelectorAll('button')[1].dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true })));
-      const raw = serializeIdWikiLink('selected');
+      const raw = `${missing} ${serializeIdWikiLink('selected')}`;
       expect(changed).toHaveBeenCalledWith('block', raw);
       expect(readBlockText(editor)).toBe(raw);
       expect(getCaretOffset(editor)).toBe(raw.length);
+      const broken = editor.querySelector<HTMLElement>('.be-wiki-chip-broken')!;
+      expect(broken.getAttribute('title')).toBe('연결된 노트를 사용할 수 없습니다');
+      expect(broken.getAttribute('aria-description')).toBe('연결된 노트를 사용할 수 없습니다');
     } finally {
       await act(async () => root.unmount());
       container.remove();
       HTMLElement.prototype.scrollIntoView = scroll;
+      await act(async () => useAppStore.setState(state => ({
+        appSettings: { ...state.appSettings, language: oldLanguage },
+      })));
     }
   });
   it('uses the current title only for empty labels; custom labels remain plain text', () => {

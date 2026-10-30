@@ -195,7 +195,7 @@ export function SelectionToolbar({
     const result = buildSelectedWikiInsertText(pending.text, pending.start, pending.end, target);
     if (!result) return;
     pending.el.focus({ preventScroll: true });
-    paintEditableLive(pending.el, result.newText, c, wikiTargets, searchQuery, result.caret);
+    paintEditableLive(pending.el, result.newText, c, wikiTargets, searchQuery, result.caret, undefined, t('wikiIdLinkUnavailable'));
     onContentChange(pending.blockId, result.newText);
   };
 
@@ -220,13 +220,13 @@ export function SelectionToolbar({
     applyWrapToBlockSelection(el, blockText, before, after, (text) => {
       onContentChange(blockId, text);
     }, (target, text, selection) => {
-      paintEditableLive(target, text, c, wikiTargets, searchQuery, undefined, selection);
+      paintEditableLive(target, text, c, wikiTargets, searchQuery, undefined, selection, t('wikiIdLinkUnavailable'));
       requestAnimationFrame(() => {
         setFormats(deriveToolbarFormats(target, blockId, activeBlockId, getBlockType));
         savedRangeRef.current = saveSelectionRange();
       });
     });
-  }, [c, wikiTargets, searchQuery, onContentChange, getBlockType, activeBlockId]);
+  }, [c, wikiTargets, searchQuery, onContentChange, getBlockType, activeBlockId, t]);
 
   if (picker) return <WikiMenu query={wikiQuery} onQueryChange={setWikiQuery}
     targets={picker.targets.filter(target => typeof target !== 'string')}

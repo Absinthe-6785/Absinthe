@@ -28,7 +28,7 @@ import { WORKSPACE_PANE_ROOT_CLASS, WORKSPACE_SCROLL_MODE } from '../common/work
 import { useAppStore } from '../../store/useAppStore';
 import { useNotesStore, observePublishedNotesHydration } from '../../store/useNotesStore';
 import { captureWikiPublication } from './wikiNoteAuthority';
-import { parseIdWikiLink } from './wikiLinks';
+import { handleReadingWikiClick } from './wikiLinks';
 import { copyAuthorizedNoteLink } from './noteview/actions/copyAuthorizedNoteLink';
 import {
   highlightText,
@@ -1300,14 +1300,7 @@ export const NoteView = ({ showToast = () => {}, accountId }: NoteViewProps) => 
       root?.querySelector(`#${globalThis.CSS?.escape(anchor) ?? anchor}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       return;
     }
-    const idElement = target.closest('[data-note-link]') as HTMLElement | null;
-    const idLink = parseIdWikiLink(idElement?.dataset.noteLink ?? '');
-    if (idLink) { navigateToWiki(idLink, { preferReading: true }); return; }
-    const wl = target.closest('.be-wikilink') as HTMLElement | null;
-    if (wl?.dataset.wiki) {
-      navigateToWiki(wl.dataset.wiki, { preferReading: true });
-      return;
-    }
+    if (handleReadingWikiClick(target, navigateToWiki)) return;
     const tg = target.closest('.be-tag') as HTMLElement | null;
     if (tg?.dataset.tag) {
       const tag = tg.dataset.tag;

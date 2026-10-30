@@ -2,6 +2,7 @@
  * EditableBlock.tsx — contentEditable inline editor (extracted from BlockEditor)
  */
 import React, { useRef, useCallback, useEffect, type CSSProperties } from 'react';
+import { useTranslation } from '../../lib/i18n';
 import type { Block, BlockType } from './blockUtils';
 import { readBlockText, deleteBeforeCaret } from './editableDom';
 import {
@@ -86,16 +87,22 @@ export function EditableBlock({
   onModifierPointerDown,
 }: EditableBlockProps) {
   const Tag = tag as React.ElementType;
+  const { t } = useTranslation();
+  const unavailableLabel = t('wikiIdLinkUnavailable');
   const composingRef = useRef(false);
   const liveRafRef = useRef<number | null>(null);
   const staticMouseRef = useRef<{ x: number; y: number } | null>(null);
   const staticActivateFromPointerRef = useRef(false);
 
+  const repaintLive = useCallback((el: HTMLElement, text: string, caretOffset?: number, selection?: { start: number; end: number }) => {
+    paintEditableLive(el, text, c, wikiTargets, searchQuery, caretOffset, selection, unavailableLabel);
+  }, [c, wikiTargets, searchQuery, unavailableLabel]);
+
   const paintLive = useCallback((el: HTMLElement, restoreCaret = true) => {
     const plain = getElText(el);
     const caret = restoreCaret ? getCaretOffset(el) : undefined;
-    paintEditableLive(el, plain, c, wikiTargets, searchQuery, caret);
-  }, [c, wikiTargets, searchQuery]);
+    repaintLive(el, plain, caret);
+  }, [repaintLive]);
 
   const lastContent = useRef(block.content);
   useEffect(() => {
@@ -104,17 +111,17 @@ export function EditableBlock({
     if (block.content !== lastContent.current) {
       // Reconcile history/external changes, but do not replace an identical
       // live toolbar edit and discard the caret it has just restored.
-      if (getElText(el) !== block.content) paintEditableLive(el, block.content, c, wikiTargets, searchQuery);
+      if (getElText(el) !== block.content) repaintLive(el, block.content);
       lastContent.current = block.content;
     }
-  }, [block.content, editableRef, c, wikiTargets, searchQuery]);
+  }, [block.content, editableRef, repaintLive]);
 
   useEffect(() => {
     const el = editableRef.current;
     if (!el || el.innerHTML) return;
-    paintEditableLive(el, block.content, c, wikiTargets, searchQuery);
+    repaintLive(el, block.content);
     lastContent.current = block.content;
-  }, [block.content, editableRef, c, wikiTargets, searchQuery]);
+  }, [block.content, editableRef, repaintLive]);
 
   useEffect(() => () => {
     if (liveRafRef.current != null) cancelAnimationFrame(liveRafRef.current);
@@ -131,7 +138,7 @@ export function EditableBlock({
         lastContent.current = text;
         onContentChange(block.id, text);
         const caret = getCaretOffset(el) + shortcut.caretDelta;
-        paintEditableLive(el, text, c, wikiTargets, searchQuery, caret);
+        repaintLive(el, text, caret);
       } else {
         lastContent.current = text;
         onContentChange(block.id, text);
@@ -174,7 +181,7 @@ export function EditableBlock({
       }
     }
     onSlashClose();
-  }, [block.id, block.type, onContentChange, onSlashOpen, onSlashClose, onWikiOpen, onWikiClose, paintLive, c, wikiTargets, searchQuery]);
+  }, [block.id, block.type, onContentChange, onSlashOpen, onSlashClose, onWikiOpen, onWikiClose, paintLive, repaintLive]);
 
   const applyInlineFormat = useCallback((before: string, after: string) => {
     const el = editableRef.current;
@@ -184,9 +191,9 @@ export function EditableBlock({
       lastContent.current = text;
       onContentChange(block.id, text);
     }, (target, text, selection) => {
-      paintEditableLive(target, text, c, wikiTargets, searchQuery, undefined, selection);
+      repaintLive(target, text, undefined, selection);
     });
-  }, [block.id, onContentChange, c, wikiTargets, searchQuery, editableRef]);
+  }, [block.id, onContentChange, repaintLive, editableRef]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLElement>) => {
     const el = e.currentTarget;
@@ -231,7 +238,7 @@ export function EditableBlock({
       const { content: next, caret } = insertNewlineInBlock(text, offset);
       lastContent.current = next;
       onContentChange(block.id, next);
-      paintEditableLive(el, next, c, wikiTargets, searchQuery, caret);
+      repaintLive(el, next, caret);
       return;
     }
 
@@ -263,7 +270,7 @@ export function EditableBlock({
         const next = text.slice(0, selection.start) + text.slice(selection.end);
         lastContent.current = next;
         onContentChange(block.id, next);
-        paintEditableLive(el, next, c, wikiTargets, searchQuery, selection.start);
+        repaintLive(el, next, selection.start);
         return;
       }
 
@@ -285,7 +292,7 @@ export function EditableBlock({
           if (!deleted) return;
           lastContent.current = deleted.text;
           onContentChange(block.id, deleted.text);
-          paintEditableLive(el, deleted.text, c, wikiTargets, searchQuery, deleted.caret);
+          repaintLive(el, deleted.text, deleted.caret);
           return;
         }
       }
@@ -314,15 +321,15 @@ export function EditableBlock({
       onSlashClose();
       onWikiClose();
     }
-  }, [block.id, onSplitBlock, onMergeWithPrev, onSlashClose, onWikiClose, onEnterOverride, isMenuOpen, onNavigateBlock, applyInlineFormat, onConvertBlock, c, wikiTargets, searchQuery, onContentChange, onIndentBlock, onOutdentBlock]);
+  }, [block.id, onSplitBlock, onMergeWithPrev, onSlashClose, onWikiClose, onEnterOverride, isMenuOpen, onNavigateBlock, applyInlineFormat, onConvertBlock, repaintLive, onContentChange, onIndentBlock, onOutdentBlock]);
 
   const handleFocus = useCallback(() => {
     onActiveBlockChange?.(block.id);
     const el = editableRef.current;
     if (el && getElText(el) !== block.content) {
-      paintEditableLive(el, block.content, c, wikiTargets, searchQuery);
+      repaintLive(el, block.content);
     }
-  }, [block.content, editableRef, block.id, onActiveBlockChange, c, wikiTargets, searchQuery]);
+  }, [block.content, editableRef, block.id, onActiveBlockChange, repaintLive]);
 
   const handleEditableMouseDown = useCallback((e: React.MouseEvent) => {
     if (!e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
@@ -337,8 +344,8 @@ export function EditableBlock({
       lastContent.current = text;
       onContentChange(block.id, text);
     }
-    paintEditableLive(el, lastContent.current, c, wikiTargets, searchQuery);
-  }, [block.id, onContentChange, c, wikiTargets, searchQuery]);
+    repaintLive(el, lastContent.current);
+  }, [block.id, onContentChange, repaintLive]);
 
   const handleCompositionStart = useCallback(() => { composingRef.current = true; }, []);
   const handleCompositionEnd = useCallback((e: React.CompositionEvent<HTMLElement>) => {

@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react';
+import { useTranslation } from '@/lib/i18n';
 import { type Block, type BlockTypeMeta, updateBlockById } from '../../../../../blockUtils';
 import type { BlockEditorColors, SlashMenuState, WikiMenuState } from '../../../../../editorTypes';
 import { recordSlashUsage } from '../utils/slashRecent';
@@ -39,6 +40,8 @@ export function useEditorMenus({
   searchQuery,
   onContentChange,
 }: UseEditorMenusOptions): UseEditorMenusResult {
+  const { t } = useTranslation();
+  const unavailableLabel = t('wikiIdLinkUnavailable');
   const [slashMenu, setSlashMenu] = useState<SlashMenuState | null>(null);
   const [wikiMenu, setWikiMenu] = useState<WikiMenuState | null>(null);
 
@@ -74,11 +77,11 @@ export function useEditorMenus({
     if (!isCurrentWikiTarget(title)) { setWikiMenu(null); return; }
     const el = document.activeElement as HTMLElement | null;
     if (el && el.isContentEditable) {
-      const text = insertWikiAtCaret(el, title, colors, wikiTargets, searchQuery);
+      const text = insertWikiAtCaret(el, title, colors, wikiTargets, searchQuery, unavailableLabel);
       if (wikiMenu) onContentChange(wikiMenu.blockId, text);
     }
     setWikiMenu(null);
-  }, [wikiMenu, onContentChange, colors, wikiTargets, searchQuery]);
+  }, [wikiMenu, onContentChange, colors, wikiTargets, searchQuery, unavailableLabel]);
 
   return {
     slashMenu,

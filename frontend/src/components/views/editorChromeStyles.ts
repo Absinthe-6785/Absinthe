@@ -392,6 +392,19 @@ export const EDITOR_CHROME_STYLES = `
   }
   .be-wiki-chip .be-bracket { opacity: 0.4; font-size: 0.85em; }
   .be-wiki-chip-broken { opacity: 0.75; font-style: italic; }
+  .be-wiki-unavailable-status {
+    display: inline-block;
+    margin-inline-end: 0.35em;
+    padding: 0 0.35em;
+    border: 1px dashed var(--be-text-muted, currentColor);
+    border-radius: 4px;
+    color: var(--be-text-muted, currentColor);
+    background: var(--be-accent-bg, transparent);
+    font-size: 0.78em;
+    font-style: normal;
+    line-height: 1.45;
+    vertical-align: 0.05em;
+  }
   .be-tag-chip {
     display: inline;
     color: var(--be-accent, #8B5CF6);

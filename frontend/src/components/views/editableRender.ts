@@ -36,7 +36,7 @@ function wikiSetFrom(targets: WikiTarget[]): Set<string> {
   return new Set(targets.filter(isCurrentWikiTarget).map(target => normalizeWikiTitle(wikiTargetTitle(target))));
 }
 
-function protectIdLinks(text: string, targets: WikiTarget[], live: boolean) {
+function protectIdLinks(text: string, targets: WikiTarget[], live: boolean, unavailableLabel: string) {
   const slots: string[] = [];
   let prefix = '\uE200WIKI';
   while (text.includes(prefix)) prefix += 'W';
@@ -45,14 +45,23 @@ function protectIdLinks(text: string, targets: WikiTarget[], live: boolean) {
   for (const link of parseIdWikiLinks(text, 'inline')) {
     work += text.slice(cursor, link.start) + prefix + slots.length + '\uE201';
     const target = resolveIdWikiTarget(link, targets);
-    const shown = live ? link.raw : link.label || target?.title || 'Missing note';
+    const shown = live ? link.raw : link.label || target?.title || (target ? 'Missing note' : unavailableLabel);
     const cls = live ? 'be-wiki-chip' : 'be-wikilink';
     const data = target ? ` data-note-link="${escAttr(escHtml(link.raw))}"` : '';
     const actionAttrs = !live && target ? ' role="link" tabindex="0"' : '';
+    const unavailableAttrs = live && !target
+      ? ` title="${escAttr(escHtml(unavailableLabel))}" aria-description="${escAttr(escHtml(unavailableLabel))}"`
+      : '';
     const style = target
       ? 'color:var(--be-accent,inherit);text-decoration:underline;cursor:pointer'
       : 'color:var(--be-text-muted,inherit);text-decoration:underline dashed';
-    slots.push(`<span class="${cls}${target ? '' : ' be-wikilink-broken'}"${data}${actionAttrs} style="${style}">${escHtml(shown)}</span>`);
+    const classes = target ? '' : live ? ' be-wiki-chip-broken be-wikilink-broken' : ' be-wikilink-broken';
+    const content = !live && !target
+      ? link.label
+        ? `<span class="be-wiki-unavailable-status">${escHtml(unavailableLabel)}:</span> ${escHtml(link.label)}`
+        : `<span class="be-wiki-unavailable-status">${escHtml(unavailableLabel)}</span>`
+      : escHtml(shown);
+    slots.push(`<span class="${cls}${classes}"${data}${actionAttrs}${unavailableAttrs} style="${style}">${content}</span>`);
     cursor = link.end;
   }
   work += text.slice(cursor);
@@ -125,9 +134,10 @@ export function renderInlineMarkdownHtml(
   c: BlockEditorColors,
   searchQuery = '',
   wikiTargets: WikiTarget[] = [],
+  unavailableLabel = 'Linked note unavailable',
 ): string {
   const wikiSet = wikiSetFrom(wikiTargets);
-  const idLinks = protectIdLinks(text, wikiTargets, false);
+  const idLinks = protectIdLinks(text, wikiTargets, false, unavailableLabel);
   const { work, math } = protectInlineMathReadOnly(idLinks.work, c, searchQuery);
 
   let html = escHtml(work)
@@ -162,10 +172,11 @@ export function liveInlineHtml(
   c: BlockEditorColors,
   wikiTargets: WikiTarget[] = [],
   searchQuery = '',
+  unavailableLabel = 'Linked note unavailable',
 ): string {
   if (!text) return '';
   const wikiSet = wikiSetFrom(wikiTargets);
-  const idLinks = protectIdLinks(text, wikiTargets, true);
+  const idLinks = protectIdLinks(text, wikiTargets, true, unavailableLabel);
   const { work, math } = protectInlineMathLive(idLinks.work, searchQuery);
 
   let html = escHtml(work)
@@ -197,7 +208,8 @@ export function renderInlineMarkdown(
   c: BlockEditorColors,
   searchQuery = '',
   wikiTargets: WikiTarget[] = [],
+  unavailableLabel = 'Linked note unavailable',
 ): ReactNode {
-  const html = renderInlineMarkdownHtml(text, c, searchQuery, wikiTargets);
+  const html = renderInlineMarkdownHtml(text, c, searchQuery, wikiTargets, unavailableLabel);
   return React.createElement('span', { dangerouslySetInnerHTML: { __html: html } });
 }

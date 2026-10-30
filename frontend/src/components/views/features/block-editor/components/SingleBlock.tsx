@@ -2,6 +2,7 @@ import React, {
   useState, useRef, useCallback, useEffect,
   type CSSProperties,
 } from 'react';
+import { useTranslation } from '../../../../../lib/i18n';
 import { flushSync } from 'react-dom';
 import {
   type Block, type BlockType,
@@ -180,6 +181,8 @@ export const SingleBlock = React.memo(function SingleBlock({
   showPersistentPlaceholder,
   onClearBlockSelection,
 }: SingleBlockProps) {
+  const { t } = useTranslation();
+  const unavailableLabel = t('wikiIdLinkUnavailable');
   const { getBlocks, onChange } = useBlocksCtx();
   const [toggleOpen, setToggleOpen] = useState(!block.collapsed);
   const shellRef = useRef<HTMLDivElement>(null);
@@ -215,11 +218,11 @@ export const SingleBlock = React.memo(function SingleBlock({
           : typeof cmd.offset === 'number'
             ? Math.min(Math.max(0, cmd.offset), text.length)
             : text.length;
-      paintEditableLive(el, text, c, wikiTargets, searchQuery, caret);
+      paintEditableLive(el, text, c, wikiTargets, searchQuery, caret, undefined, unavailableLabel);
     } else {
       shellRef.current?.focus({ preventScroll: cmd.preventScroll ?? false });
     }
-  }, [block.type, block.content, c, wikiTargets, searchQuery]);
+  }, [block.type, block.content, c, wikiTargets, searchQuery, unavailableLabel]);
 
   const handleActivateBlock = useCallback((blockId: string, offset?: 'start' | 'end' | number) => {
     if (blockId !== block.id) return;
@@ -240,7 +243,7 @@ export const SingleBlock = React.memo(function SingleBlock({
     return unregister;
   }, [block.id, applyFocusCommand, virtualNavigation]);
 
-  const inline = (text: string) => renderInlineMarkdown(text, c, searchQuery, wikiTargets);
+  const inline = (text: string) => renderInlineMarkdown(text, c, searchQuery, wikiTargets, unavailableLabel);
 
   const isActive = activeBlockId === block.id;
   const layoutIndent = blockLayoutIndentPx(block, depth);
