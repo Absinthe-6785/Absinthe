@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   commits: [] as Array<(accountId: string) => void>, rangeInvalidate: vi.fn(),
   mutate: vi.fn(), showToast: vi.fn(), updateSetting: vi.fn(), legacyDailyFlags: [] as boolean[],
   legacyNavigate: vi.fn(), homeNavigation: [] as Array<() => void>,
+  homeScheduleNavigation: [] as Array<(itemId: string, eventDate: string) => void>,
 }));
 vi.mock('./views/features/health/healthSelectedDayCompositeConfig', () => ({
   get HEALTH_SELECTED_DAY_COMPOSITE_READER_ENABLED() { return mocks.parent; },
@@ -52,14 +53,27 @@ vi.mock('./views/HomeView', async importOriginal => {
   const actual = await importOriginal<typeof import('./views/HomeView')>();
   return { ...actual, HomeView: (props: import('./views/HomeView').HomeViewProps) => {
     if (props.onOpenTodayWorkout) mocks.homeNavigation.push(props.onOpenTodayWorkout);
+    if (props.onOpenScheduleTarget) mocks.homeScheduleNavigation.push(props.onOpenScheduleTarget);
     return createElement(actual.HomeView, props);
   } };
 });
+vi.mock('./views/PlannerView', () => ({ PlannerView: (props: {
+  scheduleNavigationRequest?: { itemId: string; eventDate: string };
+  formatDate: (date: Date) => string;
+  selectedDate: Date;
+  currentDate: Date;
+}) => createElement('div', {
+  'data-planner-navigation-item': props.scheduleNavigationRequest?.itemId ?? 'none',
+  'data-planner-navigation-date': props.scheduleNavigationRequest?.eventDate ?? 'none',
+  'data-planner-selected-date': props.formatDate(props.selectedDate),
+  'data-planner-month-anchor': props.formatDate(props.currentDate),
+}) }));
 vi.mock('../hooks/useToast', () => ({ useToast: () => ({ toast: null, showToast: mocks.showToast }) }));
 vi.mock('../hooks/useDaily', () => ({ useDailyData: (...args: unknown[]) => {
   mocks.legacyDailyFlags.push(Boolean(args[3]));
   return { schedules: [], todos: [], todosState: {}, routines: [], workouts: [], inbody: {},
-    mutate: mocks.mutate, mutateTodos: mocks.mutate, mutateRoutines: mocks.mutate, isLoading: false };
+    mutate: mocks.mutate, mutateTodos: mocks.mutate, mutateRoutines: mocks.mutate, isLoading: false,
+    isScheduleLoading: false };
 } }));
 vi.mock('../hooks/useStatic', () => ({ useStaticData: () => ({ markedDates: [], healthBlocks: [], healthBlocksState: {},
   healthRoutines: [], healthRoutinesState: {}, weeklySchedules: [], mutate: mocks.mutate }) }));
@@ -69,7 +83,7 @@ vi.mock('../lib/i18n', async importOriginal => {
 });
 vi.mock('../theme', () => ({ buildThemeClasses: () => ({}) }));
 vi.mock('./common/Sidebar', () => ({ Sidebar: ({ setActiveTab }: { setActiveTab: (tab: string) => void }) =>
-  createElement('div', null, ...['home', 'health', 'note'].map(tab => createElement('button', {
+  createElement('div', null, ...['home', 'health', 'note', 'planner'].map(tab => createElement('button', {
     key: tab, 'data-nav': tab, onClick: () => setActiveTab(tab),
   }, tab))) }));
 vi.mock('./NotesRouteBoundary', () => ({ NotesRouteBoundary: () => null }));
@@ -133,12 +147,39 @@ beforeEach(async () => {
     read: (date: string) => mocks.canonical(accountId, date), verifyCurrentScope: async () => undefined, close: mocks.close }));
   mocks.commits.length = 0; mocks.rangeEligibility.length = 0; mocks.legacyDailyFlags.length = 0;
   mocks.homeNavigation.length = 0; vi.clearAllMocks();
+  mocks.homeScheduleNavigation.length = 0;
   await import('./views/HomeView'); await import('./views/HealthView');
   host = document.createElement('div'); document.body.appendChild(host); root = createRoot(host);
 });
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.useRealTimers(); });
 
 describe('real AppContent + Home + shared selected-day B1', () => {
+  it('selects the exact Schedule date and month before Planner opens, and rejects a stale A/B/A Home callback', async () => {
+    await render('a');
+    const firstAccountOpen = mocks.homeScheduleNavigation.at(-1)!;
+    const mutationCallsBeforeNavigation = mocks.mutate.mock.calls.length;
+    await act(async () => firstAccountOpen('schedule-target', '2026-06-20'));
+    await flush();
+    expect(host.querySelector('[data-planner-navigation-item="schedule-target"]')?.getAttribute('data-planner-navigation-date'))
+      .toBe('2026-06-20');
+    expect(host.querySelector('[data-planner-navigation-item="schedule-target"]')?.getAttribute('data-planner-selected-date'))
+      .toBe('2026-06-20');
+    expect(host.querySelector('[data-planner-navigation-item="schedule-target"]')?.getAttribute('data-planner-month-anchor'))
+      .toBe('2026-06-01');
+    expect(mocks.mutate).toHaveBeenCalledTimes(mutationCallsBeforeNavigation);
+
+    await click('[data-nav="home"]');
+    await render('b');
+    await render('a');
+    await act(async () => firstAccountOpen('stale-account-target', '2026-06-25'));
+    await flush();
+    expect(host.querySelector('[data-home-workout-composite]')).not.toBeNull();
+    expect(host.querySelector('[data-planner-navigation-item="stale-account-target"]')).toBeNull();
+    await click('[data-nav="planner"]');
+    expect(host.querySelector('[data-planner-navigation-item="none"]')?.getAttribute('data-planner-selected-date'))
+      .toBe('2026-06-20');
+  });
+
   it('reads one pair, no canonical reads on rerender/minute tick; same-date Home to managed Health reuses it', async () => {
     await render(); expect(todayCard()?.getAttribute('data-home-workout-presence')).toBe('present');
     expect(mocks.legacy).toHaveBeenCalledTimes(1); expect(mocks.canonical).toHaveBeenCalledTimes(1);

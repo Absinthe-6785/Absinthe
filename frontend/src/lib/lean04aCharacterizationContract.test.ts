@@ -168,7 +168,7 @@ describe('LEAN_04A characterization contract and protected boundaries', () => {
     expect(app).toContain("isDailyLoading && (activeTab === 'home' || activeTab === 'health')");
     expect(app).toContain('mutateDaily, mutateStatic');
     expect(app).toContain('mutateTodos, mutateRoutines');
-    expect(app).toContain('<PlannerView   key={authUser.id} {...globalProps} />');
+    expect(app).toMatch(/<PlannerView\b(?=[^>]*\bkey=\{authUser\.id\})(?=[^>]*\{\.\.\.globalProps\})(?=[^>]*\bisScheduleLoading=\{isScheduleLoading\})(?=[^>]*\bscheduleNavigationRequest=\{)[^>]*>/);
     expect(app).toContain('<HealthView key={authUser.id} {...globalProps} />');
     expect(bootstrap).toContain('window.dispatchEvent(new Event(HEALTH_LOCAL_BOOTSTRAP_COMPLETE_EVENT))');
     expect(source('hooks/useDaily.ts')).toContain('revalidateOnFocus: false');

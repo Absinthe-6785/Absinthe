@@ -19,6 +19,8 @@ export interface UnifiedAgendaItem {
   allDay?: boolean;
   blockId?: string;
   noteId?: string;
+  /** Explicit target date for dated agenda items; never inferred from the title. */
+  eventDate?: string;
   countdownLabel?: string;
   carryOver?: boolean;
 }
@@ -54,6 +56,7 @@ export function buildUnifiedAgendaItems({
       title: block.title,
       time: formatEventTimeLabel(block.startTime, block.endTime) ?? block.startTime,
       blockId: block.id,
+      eventDate: block.dateKey,
       carryOver: true,
     });
   }
@@ -66,6 +69,7 @@ export function buildUnifiedAgendaItems({
       title: block.title,
       time: formatEventTimeLabel(block.startTime, block.endTime) ?? block.startTime,
       blockId: block.id,
+      eventDate: block.dateKey,
     });
   }
 
@@ -103,6 +107,7 @@ export function buildUnifiedAgendaItems({
       countdownLabel: formatPlannerCountdownLabel(cd.daysUntil, locale),
       noteId: isScheduleDday ? undefined : cd.sourceRefId,
       blockId: isScheduleDday ? cd.sourceRefId : undefined,
+      eventDate: cd.targetDate,
     });
   }
 

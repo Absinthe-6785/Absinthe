@@ -26,12 +26,58 @@ import type { PlannerScheduleRow } from './features/planner/calendar';
 
 type ScheduleDday = Schedule & { date: string };
 
+export interface ScheduleNavigationRequest {
+  accountId: string;
+  accountGeneration: number;
+  requestId: number;
+  itemId: string;
+  eventDate: string;
+}
+
+type ScheduleDetailTarget = Readonly<{ id: string; eventDate?: string }>;
+
+export type PlannerViewProps = PlannerProps & Readonly<{
+  isScheduleLoading?: boolean;
+  scheduleNavigationRequest?: ScheduleNavigationRequest;
+  scheduleNavigationGeneration?: number;
+  onScheduleNavigationConsumed?: (requestId: number) => void;
+}>;
+
+function scheduleMatchesDate(
+  schedule: Schedule | ScheduleDday,
+  targetDate: string,
+  collectionDate: string,
+): boolean {
+  return 'date' in schedule
+    ? validPlannerEventDate(schedule.date) === targetDate
+    : collectionDate === targetDate;
+}
+
+function toScheduleDetailRow(schedule: Schedule | ScheduleDday, dateKey: string): PlannerScheduleRow {
+  return {
+    id: schedule.id,
+    dateKey,
+    title: schedule.text,
+    startTime: schedule.start_time,
+    endTime: schedule.end_time,
+    endNextDay: schedule.end_next_day ?? false,
+    category: schedule.category,
+    color: schedule.color,
+    source: 'schedule',
+    ...(schedule.is_dday ? { isDday: true } : {}),
+  };
+}
+
 export const PlannerView = ({
   now, currentDate, setCurrentDate, selectedDate, setSelectedDate,
   formatDate, isToday, showToast,   mutateDaily, mutateStatic,
   appSettings, schedules, todos, weeklySchedules, theme, THEME_COLORS,
   user,
-}: PlannerProps) => {
+  isScheduleLoading = false,
+  scheduleNavigationRequest,
+  scheduleNavigationGeneration = 0,
+  onScheduleNavigationConsumed,
+}: PlannerViewProps) => {
   const { t, lang } = useTranslation();
   const accountId = user?.id;
   const { mutate: api } = useApiMutation(mutateDaily, mutateStatic, showToast);
@@ -69,7 +115,8 @@ export const PlannerView = ({
     closeScheduleForm();
     return () => { formSessionRef.current += 1; };
   }, [accountId, closeScheduleForm]);
-  const [scheduleDetailId, setScheduleDetailId] = useState<string | null>(null);
+  const [scheduleDetailTarget, setScheduleDetailTarget] = useState<ScheduleDetailTarget | null>(null);
+  const handledScheduleNavigationRef = useRef<number | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [newSch, setNewSch] = useState<Partial<Schedule>>({
     text: '', start_time: '10:00', end_time: '11:00',
@@ -91,16 +138,17 @@ export const PlannerView = ({
     accountBoundRemoteFetcher,
     { revalidateOnFocus: false }
   );
-  const { data: ddaySchedules = [], mutate: mutateDdaySchedules } = useSWR<ScheduleDday[]>(
+  const { data: ddayData, mutate: mutateDdaySchedules, isLoading: isDdayLoading } = useSWR<ScheduleDday[]>(
     accountBoundRemoteKey(`${API_URL}/api/schedules/ddays`, accountId, 'planner_ddays'),
     accountBoundRemoteFetcher,
     { revalidateOnFocus: false },
   );
+  const ddaySchedules = ddayData ?? [];
   // 전날 일정 — calendar projection carry-over
 
   useEscapeKey(() => {
     closeScheduleForm();
-    setScheduleDetailId(null);
+    setScheduleDetailTarget(null);
     setEventDialog(null);
     clearConfirm();
   });
@@ -199,34 +247,91 @@ export const PlannerView = ({
   }, [formatDate, schedules, selectedDate, resetScheduleSession]);
 
   const scheduleDetailBlock = useMemo((): PlannerScheduleRow | null => {
-    if (!scheduleDetailId) return null;
-    const selectedDaySchedule = schedules.find(s => s.id === scheduleDetailId);
-    const sch = selectedDaySchedule ?? prevSchedules.find(s => s.id === scheduleDetailId);
-    if (!sch) return null;
-    return {
-      id: sch.id,
-      dateKey: 'date' in sch && typeof sch.date === 'string'
-        ? sch.date
-        : selectedDaySchedule ? formatDate(selectedDate) : prevDateStr,
-      title: sch.text,
-      startTime: sch.start_time,
-      endTime: sch.end_time,
-      endNextDay: sch.end_next_day ?? false,
-      category: sch.category,
-      color: sch.color,
-      source: 'schedule',
+    const target = scheduleDetailTarget;
+    if (!target) return null;
+    const selectedDateKey = validPlannerEventDate(formatDate(selectedDate));
+    const targetDate = validPlannerEventDate(target.eventDate);
+    let schedule: Schedule | ScheduleDday | undefined;
+    let dateKey: string | undefined;
+
+    if (targetDate) {
+      if (targetDate === selectedDateKey) {
+        schedule = schedules.find(item => item.id === target.id
+          && scheduleMatchesDate(item, targetDate, selectedDateKey));
+      }
+      if (!schedule && targetDate === prevDateStr) {
+        schedule = prevSchedules.find(item => item.id === target.id
+          && scheduleMatchesDate(item, targetDate, prevDateStr));
+      }
+      if (!schedule) {
+        schedule = ddaySchedules.find(item => item.id === target.id && item.is_dday === true
+          && validPlannerEventDate(item.date) === targetDate);
+      }
+      dateKey = targetDate;
+    } else {
+      const selectedDaySchedule = schedules.find(item => item.id === target.id);
+      schedule = selectedDaySchedule ?? prevSchedules.find(item => item.id === target.id);
+      if (schedule) {
+        dateKey = validPlannerEventDate('date' in schedule ? schedule.date : undefined)
+          ?? validPlannerEventDate(selectedDaySchedule ? formatDate(selectedDate) : prevDateStr);
+      }
+    }
+
+    if (!schedule || !dateKey) return null;
+    return toScheduleDetailRow(schedule, dateKey);
+  }, [scheduleDetailTarget, schedules, prevSchedules, ddaySchedules, selectedDate, formatDate, prevDateStr]);
+
+  useEffect(() => {
+    const request = scheduleNavigationRequest;
+    if (!request) {
+      handledScheduleNavigationRef.current = null;
+      return;
+    }
+    if (handledScheduleNavigationRef.current === request.requestId) return;
+    const consume = () => {
+      handledScheduleNavigationRef.current = request.requestId;
+      onScheduleNavigationConsumed?.(request.requestId);
     };
-  }, [scheduleDetailId, schedules, prevSchedules, selectedDate, formatDate, prevDateStr]);
+    const eventDate = validPlannerEventDate(request.eventDate);
+    const selectedDateKey = validPlannerEventDate(formatDate(selectedDate));
+    if (!accountId || request.accountId !== accountId
+      || request.accountGeneration !== scheduleNavigationGeneration
+      || !request.itemId || request.itemId.trim() !== request.itemId
+      || !eventDate || eventDate !== request.eventDate) {
+      consume();
+      return;
+    }
+    if (selectedDateKey !== eventDate) {
+      consume();
+      return;
+    }
+    if (isScheduleLoading) return;
+
+    const selectedSchedule = schedules.find(item => item.id === request.itemId
+      && scheduleMatchesDate(item, eventDate, selectedDateKey));
+    if (selectedSchedule) {
+      setScheduleDetailTarget({ id: request.itemId, eventDate });
+      consume();
+      return;
+    }
+    if (isDdayLoading) return;
+
+    const dday = ddaySchedules.find(item => item.id === request.itemId && item.is_dday === true
+      && validPlannerEventDate(item.date) === eventDate);
+    if (dday) setScheduleDetailTarget({ id: request.itemId, eventDate });
+    consume();
+  }, [scheduleNavigationRequest, accountId, scheduleNavigationGeneration, formatDate, selectedDate,
+    isScheduleLoading, schedules, isDdayLoading, ddaySchedules, onScheduleNavigationConsumed]);
 
   const openScheduleDetail = useCallback((id: string) => {
     const selectedDaySchedule = schedules.find(s => s.id === id);
     const sch = selectedDaySchedule ?? prevSchedules.find(s => s.id === id);
-    if (sch) {
-      const eventDate = validPlannerEventDate('date' in sch ? sch.date : undefined)
-        ?? validPlannerEventDate(selectedDaySchedule ? formatDate(selectedDate) : prevDateStr);
-      recordPlannerActivity(accountId, 'schedule', id, sch.text, Date.now(), eventDate);
-    }
-    setScheduleDetailId(id);
+    const eventDate = sch
+      ? validPlannerEventDate('date' in sch ? sch.date : undefined)
+        ?? validPlannerEventDate(selectedDaySchedule ? formatDate(selectedDate) : prevDateStr)
+      : undefined;
+    if (sch) recordPlannerActivity(accountId, 'schedule', id, sch.text, Date.now(), eventDate);
+    setScheduleDetailTarget({ id, ...(eventDate ? { eventDate } : {}) });
   }, [accountId, schedules, prevSchedules, selectedDate, formatDate, prevDateStr]);
 
   useEffect(() => {
@@ -247,12 +352,12 @@ export const PlannerView = ({
   const cardScheduleActions = useMemo(() => ({
     onView: openScheduleDetail,
     onEdit: (id: string) => {
-      setScheduleDetailId(null);
+      setScheduleDetailTarget(null);
       const sch = schedules.find(s => s.id === id);
       if (sch) openModal(sch, formatDate(selectedDate));
     },
     onDelete: (id: string) => {
-      setScheduleDetailId(null);
+      setScheduleDetailTarget(null);
       handleDeleteSchedule(id);
     },
     onDuplicate: handleDuplicateSchedule,
@@ -374,9 +479,18 @@ export const PlannerView = ({
           theme={theme}
           dateLabel={formatLongDateKey(scheduleDetailBlock.dateKey, lang)}
           onEdit={(titleDraft) => {
-            const sch = schedules.find(s => s.id === scheduleDetailBlock.id)
-              ?? prevSchedules.find(s => s.id === scheduleDetailBlock.id);
-            setScheduleDetailId(null);
+            const detailDate = scheduleDetailBlock.dateKey;
+            const sch = scheduleDetailBlock.isDday
+              ? ddaySchedules.find(item => item.id === scheduleDetailBlock.id
+                && item.is_dday === true && validPlannerEventDate(item.date) === detailDate)
+              : detailDate === formatDate(selectedDate)
+                ? schedules.find(item => item.id === scheduleDetailBlock.id
+                  && scheduleMatchesDate(item, detailDate, detailDate))
+                : detailDate === prevDateStr
+                  ? prevSchedules.find(item => item.id === scheduleDetailBlock.id
+                    && scheduleMatchesDate(item, detailDate, prevDateStr))
+                  : undefined;
+            setScheduleDetailTarget(null);
             if (sch) openModal(
               titleDraft === undefined ? sch : { ...sch, text: titleDraft },
               scheduleDetailBlock.dateKey,
@@ -384,13 +498,13 @@ export const PlannerView = ({
           }}
           onDelete={() => {
             handleDeleteSchedule(scheduleDetailBlock.id);
-            setScheduleDetailId(null);
+            setScheduleDetailTarget(null);
           }}
-          onDuplicate={() => {
+          onDuplicate={!scheduleDetailBlock.isDday ? () => {
             handleDuplicateSchedule(scheduleDetailBlock.id);
-            setScheduleDetailId(null);
-          }}
-          onClose={() => setScheduleDetailId(null)}
+            setScheduleDetailTarget(null);
+          } : undefined}
+          onClose={() => setScheduleDetailTarget(null)}
         />
       ) : null}
 

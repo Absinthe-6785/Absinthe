@@ -23,6 +23,8 @@ export interface UseDailyDataResult {
   inbody: Inbody;
   /** 전체 재검증 */
   mutate: () => void;
+  /** Schedule-specific readiness for date-targeted navigation. */
+  isScheduleLoading: boolean;
   /** todos만 optimistic 업데이트용 */
   mutateTodos: (updater: (cur: Todo[]) => Todo[], revalidate?: boolean) => void;
   /** routines만 optimistic 업데이트용 */
@@ -221,6 +223,7 @@ export const useDailyData = (
     workouts: localMode ? localHealth?.workouts ?? [] : workouts,
     inbody: localMode ? localHealth?.inbody ?? { weight: 0, smm: 0, pbf: 0 } : inbodyRaw?.[0] ?? { weight: 0, smm: 0, pbf: 0 },
     mutate,
+    isScheduleLoading: l1,
     mutateTodos,
     mutateRoutines,
     // Search-deferred todo loading is intentionally excluded from the global

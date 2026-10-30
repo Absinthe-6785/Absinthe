@@ -18,6 +18,8 @@ import { ViewLoadingFallback } from './common/ViewLoadingFallback';
 
 import { NotesRouteBoundary } from './NotesRouteBoundary';
 import type { RecipeNavigationRequest } from './views/RecipeView';
+import type { ScheduleNavigationRequest } from './views/PlannerView';
+import { validPlannerEventDate } from './views/features/planner/plannerActivityStorage';
 
 const HomeView = lazy(() => import('./views/HomeView').then(m => ({ default: m.HomeView })));
 const PlannerView = lazy(() => import('./views/PlannerView').then(m => ({ default: m.PlannerView })));
@@ -25,6 +27,7 @@ const HealthView = lazy(() => import('./views/HealthView').then(m => ({ default:
 const AnalyticsView = lazy(() => import('./views/AnalyticsView').then(m => ({ default: m.AnalyticsView })));
 const SettingsView = lazy(() => import('./views/SettingsView').then(m => ({ default: m.SettingsView })));
 const RecipeView = lazy(() => import('./views/RecipeView').then(m => ({ default: m.RecipeView })));
+
 import { migrateLegacyDdays } from '../lib/migrateLegacyDdays';
 import { runPeriodicSnapshotSlots } from '../lib/vaultSnapshotAuto';
 import { GlobalSearchHost } from './views/features/search/GlobalSearchHost';
@@ -50,6 +53,14 @@ import {
   type IndependentStartupRun,
   type StartupDomainState,
 } from '../lib/startupBootstrapCoordinator';
+
+function localDateFromKey(dateKey: string): Date {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  const date = new Date(0);
+  date.setFullYear(year, month - 1, day);
+  date.setHours(12, 0, 0, 0);
+  return date;
+}
 
 // ── 상수 — 모듈 레벨로 분리해 매 렌더마다 재생성 방지 ──────────────
 const THEME_COLORS: ThemeColor[] = [
@@ -185,6 +196,50 @@ export function AppContent({ authUser }: { authUser: User }) {
   const consumeRecipeNavigationRequest = useCallback((requestId: number) => {
     setRecipeNavigationRequest(current => current?.requestId === requestId ? null : current);
   }, []);
+  const [scheduleNavigationRequest, setScheduleNavigationRequest] = useState<ScheduleNavigationRequest | null>(null);
+  const scheduleNavigationRequestIdRef = useRef(0);
+  const scheduleNavigationAccountRef = useRef({ accountId: authUser.id, generation: 0, activeTab, homeLifetime: 0 });
+  if (scheduleNavigationAccountRef.current.accountId !== authUser.id) {
+    scheduleNavigationAccountRef.current = {
+      accountId: authUser.id,
+      generation: scheduleNavigationAccountRef.current.generation + 1,
+      activeTab,
+      homeLifetime: scheduleNavigationAccountRef.current.homeLifetime + 1,
+    };
+  } else if (scheduleNavigationAccountRef.current.activeTab !== activeTab) {
+    scheduleNavigationAccountRef.current = {
+      ...scheduleNavigationAccountRef.current,
+      activeTab,
+      homeLifetime: scheduleNavigationAccountRef.current.homeLifetime + 1,
+    };
+  }
+  const scheduleNavigationGeneration = scheduleNavigationAccountRef.current.generation;
+  const scheduleNavigationHomeLifetime = scheduleNavigationAccountRef.current.homeLifetime;
+  const openScheduleFromHome = useCallback((itemId: string, eventDate: string) => {
+    const targetId = itemId;
+    const targetDate = validPlannerEventDate(eventDate);
+    const currentScope = scheduleNavigationAccountRef.current;
+    if (!targetId || targetId.trim() !== targetId || !targetDate || currentScope.activeTab !== 'home'
+      || currentScope.accountId !== authUser.id
+      || currentScope.generation !== scheduleNavigationGeneration
+      || currentScope.homeLifetime !== scheduleNavigationHomeLifetime) return;
+
+    setScheduleNavigationRequest({
+      accountId: currentScope.accountId,
+      accountGeneration: currentScope.generation,
+      requestId: ++scheduleNavigationRequestIdRef.current,
+      itemId: targetId,
+      eventDate: targetDate,
+    });
+    const selected = localDateFromKey(targetDate);
+    const monthAnchor = localDateFromKey(`${targetDate.slice(0, 7)}-01`);
+    setSelectedDate(selected);
+    setCurrentDate(monthAnchor);
+    setActiveTab('planner');
+  }, [authUser.id, scheduleNavigationGeneration, scheduleNavigationHomeLifetime]);
+  const consumeScheduleNavigationRequest = useCallback((requestId: number) => {
+    setScheduleNavigationRequest(current => current?.requestId === requestId ? null : current);
+  }, []);
   // Search owns the live query; this small upward signal only controls the
   // deferred Search datasets in the shell-owned hooks.
   const [searchHasQuery, setSearchHasQuery] = useState(false);
@@ -290,6 +345,16 @@ export function AppContent({ authUser }: { authUser: User }) {
   }, [activeTab, authUser.id, consumeRecipeNavigationRequest, recipeNavigationRequest]);
 
   useEffect(() => {
+    if (!scheduleNavigationRequest) return;
+    const currentScope = scheduleNavigationAccountRef.current;
+    if (scheduleNavigationRequest.accountId !== authUser.id
+      || scheduleNavigationRequest.accountGeneration !== currentScope.generation
+      || activeTab !== 'planner') {
+      consumeScheduleNavigationRequest(scheduleNavigationRequest.requestId);
+    }
+  }, [activeTab, authUser.id, consumeScheduleNavigationRequest, scheduleNavigationRequest]);
+
+  useEffect(() => {
     const TAB_BY_ALT: Record<string, TabId> = {
       '1': 'note',
       '2': 'health',
@@ -360,7 +425,7 @@ export function AppContent({ authUser }: { authUser: User }) {
     || (selectedDayReaderEnabled && searchHasQuery);
   const inbodyActive = activeTab === 'health' && healthRuntimeReady;
   const {
-    schedules, todos, todosState, routines, workouts, inbody,
+    schedules, isScheduleLoading, todos, todosState, routines, workouts, inbody,
     mutate: mutateDaily,
     mutateTodos, mutateRoutines,
     isLoading: isDailyLoading,
@@ -588,8 +653,18 @@ export function AppContent({ authUser }: { authUser: User }) {
           {activeTab === 'home' && <HomeView key={authUser.id} {...globalProps}
             homeWorkoutComposite={homeCompositeEnabled ? selectedDayRead : undefined}
             onOpenTodayWorkout={homeCompositeEnabled ? openTodayWorkout : undefined}
-            onOpenRecipe={openRecipeFromHome} />}
-          {activeTab === 'planner'   && <PlannerView   key={authUser.id} {...globalProps} />}
+            onOpenRecipe={openRecipeFromHome}
+            onOpenScheduleTarget={openScheduleFromHome} />}
+          {activeTab === 'planner'   && <PlannerView key={authUser.id} {...globalProps}
+            isScheduleLoading={isScheduleLoading}
+            scheduleNavigationRequest={
+              scheduleNavigationRequest?.accountId === authUser.id
+                && scheduleNavigationRequest.accountGeneration === scheduleNavigationGeneration
+                ? scheduleNavigationRequest
+                : undefined
+            }
+            scheduleNavigationGeneration={scheduleNavigationGeneration}
+            onScheduleNavigationConsumed={consumeScheduleNavigationRequest} />}
           {activeTab === 'health' && !selectedDayReaderEnabled && (!healthStartupCurrent || (healthBootstrapRequired && startupState.health.status === 'pending')) && (
             <ViewLoadingFallback label={t('startupHealthLoading')} />
           )}

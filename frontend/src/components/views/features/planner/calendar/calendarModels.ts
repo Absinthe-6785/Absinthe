@@ -77,6 +77,7 @@ export interface PlannerScheduleRow {
   category: string;
   color: string;
   source: 'schedule';
+  isDday?: boolean;
 }
 
 export interface PlannerWeeklySlotRow {
