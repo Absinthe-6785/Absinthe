@@ -88,6 +88,49 @@ describe('ScheduleEventDetailPanel', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it('passes the quick-edit title draft to the existing edit callback while ordinary Edit passes no override', () => {
+    const onEdit = vi.fn();
+    act(() => {
+      root.render(createElement(ScheduleEventDetailPanel, {
+        block,
+        theme,
+        dateLabel: 'October 26, 2026',
+        onEdit,
+        onDelete: vi.fn(),
+        onClose: vi.fn(),
+      }));
+    });
+
+    act(() => host.querySelector('h3')!.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })));
+    const input = host.querySelector<HTMLInputElement>('[data-schedule-event-quick-edit]')!;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+    act(() => {
+      setter?.call(input, 'Updated planning title');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    act(() => input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
+    expect(onEdit).toHaveBeenLastCalledWith('Updated planning title');
+
+    act(() => (host.querySelector('[data-schedule-event-edit]') as HTMLButtonElement).click());
+    expect(onEdit).toHaveBeenLastCalledWith();
+  });
+
+  it('does not submit quick edit during IME composition or the keyCode 229 fallback', () => {
+    const onEdit = vi.fn();
+    act(() => root.render(createElement(ScheduleEventDetailPanel, {
+      block, theme, dateLabel: 'October 26, 2026', onEdit, onDelete: vi.fn(), onClose: vi.fn(),
+    })));
+    act(() => host.querySelector('h3')!.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })));
+    const input = host.querySelector<HTMLInputElement>('[data-schedule-event-quick-edit]')!;
+    act(() => {
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, isComposing: true }));
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 229, bubbles: true }));
+    });
+    expect(onEdit).not.toHaveBeenCalled();
+    expect(host.querySelector('[data-schedule-event-quick-edit]')).not.toBeNull();
+  });
+
   it('does not fire E, D, or Delete global shortcuts while typing in quick edit', () => {
     const onEdit = vi.fn();
     const onDuplicate = vi.fn();
