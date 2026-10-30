@@ -2025,6 +2025,17 @@ export async function applyNotesFoldersForRecoveryContext(
   ));
 }
 
+/** Side-effect-free observation only; malformed storage never updates recovery state. */
+export function observeAccountScopedFolders(request: NotesAuthorityRequest): readonly NoteFolderBase[] | null {
+  try {
+    if (!isNotesAuthorityRequestActive(request)) return null;
+    const folders = readFolders(request.accountId);
+    if (!isNotesAuthorityRequestActive(request) || folders.kind === 'malformed') return null;
+    const records = folders.kind === 'valid' ? folders.records : [];
+    return new Set(records.map(folder => folder.id)).size === records.length ? records : null;
+  } catch { return null; }
+}
+
 export function loadAccountScopedFolders(): NoteFolderBase[] {
   if (!activeRequest) return [];
   const folders = readFolders(activeRequest.accountId);

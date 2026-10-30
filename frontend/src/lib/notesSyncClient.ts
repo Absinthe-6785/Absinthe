@@ -271,6 +271,16 @@ type CompleteSnapshotPage<T> = {
   complete: boolean;
 };
 
+/** Optional read-only consumer bounds; existing bootstrap behavior is unchanged. */
+export interface NotesSnapshotReadOptions {
+  singlePageLimit?: number;
+  isCurrent?: () => boolean;
+}
+
+function assertSnapshotCurrent(options: NotesSnapshotReadOptions): void {
+  if (options.isCurrent && !options.isCurrent()) throw new Error('notes_snapshot_context_stale');
+}
+
 function hasOwn(value: object, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(value, key);
 }
@@ -312,15 +322,19 @@ function validateSnapshotPage<T>(value: unknown, accountId: string, kind: 'notes
   } as CompleteSnapshotPage<T>;
 }
 
-async function readSnapshotPage<T>(url: string, accountId: string, kind: 'notes' | 'folders'): Promise<CompleteSnapshotPage<T>> {
+async function readSnapshotPage<T>(url: string, accountId: string, kind: 'notes' | 'folders', options: NotesSnapshotReadOptions): Promise<CompleteSnapshotPage<T>> {
+  assertSnapshotCurrent(options);
   let response;
   try {
-    response = await authReadFetch(url, { method: 'GET' });
+    response = options.isCurrent
+      ? await authReadFetch(url, { method: 'GET' }, { onRequestStart: () => assertSnapshotCurrent(options) })
+      : await authReadFetch(url, { method: 'GET' });
   } catch {
     throw new NotesBootstrapDiagnosticError(
       snapshotFetchStage(kind), 'REMOTE_FETCH_REJECTED', `complete_${kind}_snapshot_fetch_failed`,
     );
   }
+  assertSnapshotCurrent(options);
   if (!response.ok) {
     throw new NotesBootstrapDiagnosticError(
       snapshotFetchStage(kind), 'REMOTE_FETCH_REJECTED', `Failed to load complete ${kind} (${response.status})`,
@@ -334,6 +348,7 @@ async function readSnapshotPage<T>(url: string, accountId: string, kind: 'notes'
       snapshotValidationStage(kind), 'SNAPSHOT_MALFORMED', `complete_${kind}_snapshot_malformed`,
     );
   }
+  assertSnapshotCurrent(options);
   return validateSnapshotPage<T>(payload, accountId, kind);
 }
 
@@ -384,6 +399,7 @@ async function readCompleteSnapshot<T>(
   kind: 'notes' | 'folders',
   buildUrl: (offset: number, limit: number) => string,
   append: (rows: T[], pageRows: T[], ids: Set<string>) => void,
+  options: NotesSnapshotReadOptions,
 ): Promise<T[]> {
   const rows: T[] = [];
   const ids = new Set<string>();
@@ -391,11 +407,12 @@ async function readCompleteSnapshot<T>(
   let offset = 0;
   let expectedTotal: number | null = null;
   for (;;) {
-    const page = await readSnapshotPage<T>(buildUrl(offset, pageSize), accountId, kind);
+    const page = await readSnapshotPage<T>(buildUrl(offset, pageSize), accountId, kind, options);
     const pageTotal = page.total_count as number;
     if (page.offset !== offset || page.limit !== pageSize
       || (expectedTotal !== null && pageTotal !== expectedTotal)
-      || page.rows.length > pageSize) {
+      || page.rows.length > pageSize
+      || (options.singlePageLimit !== undefined && (pageTotal > options.singlePageLimit || !page.complete))) {
       throw new NotesBootstrapDiagnosticError(
         snapshotValidationStage(kind), 'SNAPSHOT_INCOMPLETE', `complete_${kind}_snapshot_incomplete`,
       );
@@ -418,7 +435,10 @@ async function readCompleteSnapshot<T>(
 }
 
 /** Complete account snapshot for RTU bootstrap. This path never pushes local rows. */
-export async function fetchCompleteNotesFoldersSnapshot(accountId: string): Promise<CompleteNotesFoldersSnapshot> {
+export async function fetchCompleteNotesFoldersSnapshot(accountId: string, options: NotesSnapshotReadOptions = {}): Promise<CompleteNotesFoldersSnapshot> {
+  if (options.singlePageLimit !== undefined && (!Number.isSafeInteger(options.singlePageLimit)
+    || options.singlePageLimit < 1 || options.singlePageLimit > 500)) throw new Error('notes_snapshot_limit_invalid');
+  assertSnapshotCurrent(options);
   if (!accountId.trim()) {
     throw new NotesBootstrapDiagnosticError(
       'ACCOUNT_AUTHORITY', 'ACCOUNT_REQUIRED', 'complete_snapshot_account_required',
@@ -430,14 +450,17 @@ export async function fetchCompleteNotesFoldersSnapshot(accountId: string): Prom
       'notes',
       (offset, limit) => `${API_URL}/api/notes?updated_after=0&bootstrap=true&offset=${offset}&limit=${limit}`,
       (rows, pageRows, ids) => appendNotesPage(rows as DbNoteRow[], pageRows as DbNoteRow[], accountId, ids),
+      options,
     ),
     readCompleteSnapshot(
       accountId,
       'folders',
       (offset, limit) => `${API_URL}/api/note_folders?bootstrap=true&offset=${offset}&limit=${limit}`,
       (rows, pageRows, ids) => appendFoldersPage(rows as FoldersFetchRows, pageRows as FoldersFetchRows, accountId, ids),
+      options,
     ),
   ]);
+  assertSnapshotCurrent(options);
   const noteIds = new Set<string>();
   for (const row of notes as DbNoteRow[]) noteIds.add(row.id);
   const folderIds = new Set<string>();

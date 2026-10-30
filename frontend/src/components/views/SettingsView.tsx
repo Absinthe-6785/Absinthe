@@ -42,6 +42,7 @@ import { useRecoveryCenter } from '../../hooks/useRecoveryCenter';
 import { VaultRestoreModal } from './features/knowledge/VaultRestoreModal';
 import { RecoveryCenterPanel } from './features/settings/RecoveryCenterPanel';
 import { LocalAttachmentOriginalsExport } from './features/settings/LocalAttachmentOriginalsExport';
+import { NotesCloudComparisonPanel } from './features/settings/NotesCloudComparisonPanel';
 import { getVaultStorageMetrics } from '../../lib/vaultStorageMetrics';
 import {
   shouldUseDomainRemotePersistence,
@@ -359,6 +360,7 @@ export const SettingsView = ({
               pendingReducedBackup={pendingReducedBackup}
             />
             <LocalAttachmentOriginalsExport accountId={user?.id ?? null} />
+            <NotesCloudComparisonPanel accountId={user?.id ?? null} />
           </section>
 
           {/* Danger zone */}

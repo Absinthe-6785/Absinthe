@@ -110,7 +110,7 @@ function revisionShapeIssue(
   return null;
 }
 
-function isCompleteLocalNote(note: NoteBase): boolean {
+export function isCompleteLocalNote(note: NoteBase): boolean {
   return typeof note.id === 'string'
     && note.id.trim().length > 0
     && typeof note.title === 'string'
@@ -305,6 +305,19 @@ export function normalizeAuthoritativeRemoteBootstrapNote(
   return isCompleteAuthoritativeRemoteRow(row, accountId)
     ? normalizeRemoteBootstrapNote(row)
     : null;
+}
+
+/** Read-only supported-content comparison; never selects a winner or writes. */
+export function compareSupportedNoteContent(accountId: string, local: NoteBase, remote: DbNoteRow): 'MATCHING' | 'DIVERGENT' | 'INCOMPARABLE' {
+  const normalized = normalizeAuthoritativeRemoteBootstrapNote(
+    projectLegacyOptionalRemoteFieldsForAuthorityComparison(remote), accountId,
+  );
+  if (local.id !== remote.id || !isCompleteLocalNote(local) || !normalized) return 'INCOMPARABLE';
+  return canonicalSyncablePayloadIdentity(local) === canonicalSyncablePayloadIdentity(normalized) ? 'MATCHING' : 'DIVERGENT';
+}
+
+export function isComparableRemoteNoteContent(accountId: string, remote: DbNoteRow): boolean {
+  return normalizeAuthoritativeRemoteBootstrapNote(projectLegacyOptionalRemoteFieldsForAuthorityComparison(remote), accountId) !== null;
 }
 
 /**
