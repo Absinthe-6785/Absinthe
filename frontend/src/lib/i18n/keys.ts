@@ -2171,6 +2171,9 @@ const translationKeys = [
   "healthWorkoutBadgeLegacyScope",
   "healthWorkoutBadgePrDescription",
   "healthWorkoutBadgeDiffDescription",
+  "nvCopyNoteLink",
+  "nvNoteLinkCopied",
+  "nvCopyNoteLinkFailed",
 ] as const;
 
 export type TranslationKey = (typeof translationKeys)[number];

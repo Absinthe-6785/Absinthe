@@ -7,6 +7,7 @@ import type { NoteBase } from './noteUtils';
 import type { NotesPersistenceInitResult } from '../../lib/notePersistence';
 import { serializeIdWikiLink, parseIdWikiLink } from './wikiLinks';
 import { captureWikiPublication } from './wikiNoteAuthority';
+import { copyAuthorizedNoteLink } from './noteview/actions/copyAuthorizedNoteLink';
 import { buildWikiInsertText } from './features/block-editor/features/menus/utils/wikiNavigation';
 import { buildSelectedWikiInsertText } from './features/block-editor/features/selection/utils/selectionWikiLink';
 import { filterWikiTargets } from './features/block-editor/features/menus/utils/wikiSearch';
@@ -125,6 +126,29 @@ describe('ID Wiki authorized publication and navigation', () => {
       .toBe('[Label](absinthe-note:target)');
     await act(async () => navigate(body));
     expect(useNotesStore.getState().activeNoteId).toBe('target');
+  });
+  it('does not copy a stale Account A link after an A -> B -> A publication transition', async () => {
+    await publish('A'); await mount();
+    act(() => useNotesStore.getState().setActiveNoteId('target'));
+    const oldPublication = captureWikiPublication();
+    const writeText = vi.fn(async () => {});
+
+    await publish('B');
+    await publish('A');
+    act(() => useNotesStore.getState().setActiveNoteId('target'));
+
+    const result = await copyAuthorizedNoteLink({
+      activeNoteId: 'target',
+      targets: oldPublication.targets,
+      getCurrentState: () => {
+        const state = useNotesStore.getState();
+        return { activeNoteId: state.activeNoteId, notes: state.notes };
+      },
+      writeText,
+    });
+
+    expect(result).toBe('stale');
+    expect(writeText).not.toHaveBeenCalled();
   });
   it('fails closed during replacement hydration and without authority', async () => {
     await publish('A'); await mount();

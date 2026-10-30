@@ -232,6 +232,7 @@ export interface NoteViewEditorHandlers {
   duplicateNote: (note: Note) => void;
   setShowRightPanel: React.Dispatch<React.SetStateAction<boolean>>;
   handleCopyDocument: () => void | Promise<void>;
+  handleCopyNoteLink: () => void | Promise<void>;
   exportNote: (note: Note) => void;
   restoreNote: (id: string) => void;
   moveNoteToTrash: (id: string) => void;
@@ -297,7 +298,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
     searchInputRef, importInputRef, setMobileShowEditor, setActiveNoteId, handleExitFocusPreset,
     handleTitleChange, handleTitleCompositionEnd, noteUpdate, retrySync, setViewMode,
     openEditEventDialog, openMilestoneDialog, handleToggleAreaNote, toggleStar, duplicateNote,
-    setShowRightPanel, handleCopyDocument, exportNote, restoreNote, moveNoteToTrash, onPermanentDelete,
+    setShowRightPanel, handleCopyDocument, handleCopyNoteLink, exportNote, restoreNote, moveNoteToTrash, onPermanentDelete,
     setActiveFolderId, setSearchQuery, setActiveTag, setHeaderTagsExpanded, openContextPanel,
     setRightPanel, handlePromoteNoteKind, handleLearnLinking, handleHudReviewWeakAreas,
     handleOpenDiscover, handleOpenTimeline, createNote, setSearchScope, setSearchMatchIdx, setDocumentSearchOpen,
@@ -486,6 +487,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
                 });
               }}
               onCopyDocument={() => void handleCopyDocument()}
+              onCopyNoteLink={() => void handleCopyNoteLink()}
               onExport={() => exportNote(activeNote)}
               onRestore={() => restoreNote(activeNote.id)}
               onPermanentDelete={onPermanentDelete}
@@ -531,6 +533,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
             onDuplicate={() => duplicateNote(activeNote)}
             onTogglePanel={() => setShowRightPanel(v => !v)}
             onCopyDocument={() => void handleCopyDocument()}
+            onCopyNoteLink={() => void handleCopyNoteLink()}
             onExport={() => exportNote(activeNote)}
             onRestore={() => restoreNote(activeNote.id)}
             onPermanentDelete={onPermanentDelete}
