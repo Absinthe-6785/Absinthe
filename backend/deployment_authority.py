@@ -83,3 +83,55 @@ def deployment_health_payload(render_git_commit: str | None) -> dict[str, str | 
     candidate = (render_git_commit or "").strip()
     commit = candidate.lower() if _EXACT_GIT_COMMIT.fullmatch(candidate) else None
     return {"status": "ok", "gitCommit": commit}
+
+
+def notes_cutover_release_blockers(
+    *,
+    approved_commit: str | None = None,
+    running_commit: str | None = None,
+    evidence_commit: str | None = None,
+    running_deployment: str | None = None,
+    evidence_deployment: str | None = None,
+    recovery_mode_active: bool | None = None,
+    legacy_instances_excluded: bool | None = None,
+    legacy_credentials_fenced: bool | None = None,
+    direct_mutation_paths_denied: bool | None = None,
+    required_ci_reviews_complete: bool | None = None,
+    owner_activation_approved: bool | None = None,
+) -> tuple[str, ...]:
+    """Check a release evidence snapshot; NEVER authorize or activate cutover.
+
+    Recovery Mode already denies reset/restore before table access on NEW
+    servers. It cannot fence an old binary, credential, PostgREST or privileged
+    RPC. One configured instance, auto-deploy off, or an app flag is not proof.
+    Operators must independently verify all external facts at release time and
+    bind them to the exact approved revision AND observed deployment. A new
+    deployment/rollback invalidates that snapshot and requires fresh inspection.
+
+    An empty tuple means only that the supplied checklist is internally
+    complete, not that its assertions are true/current. This pure helper does
+    not discover Render/DB authority, consume client input, change recovery
+    configuration, grant writes, or replace required CI/review/owner approval.
+    Production activation and a durable rollback fence remain separate gates.
+    """
+    blockers: list[str] = []
+    commits = (approved_commit, running_commit, evidence_commit)
+    if (not all(type(value) is str and _EXACT_GIT_COMMIT.fullmatch(value) for value in commits)
+            or len({value.lower() for value in commits if type(value) is str}) != 1):
+        blockers.append("EXACT_APPROVED_REVISION_UNPROVEN")
+    if (type(running_deployment) is not str or not running_deployment.strip()
+            or running_deployment != running_deployment.strip()
+            or type(evidence_deployment) is not str
+            or evidence_deployment != running_deployment):
+        blockers.append("CURRENT_DEPLOYMENT_EVIDENCE_UNPROVEN")
+    for code, fact in (
+        ("RECOVERY_PROTECTION_UNPROVEN", recovery_mode_active),
+        ("LEGACY_INSTANCE_EXCLUSION_UNPROVEN", legacy_instances_excluded),
+        ("LEGACY_CREDENTIAL_FENCE_UNPROVEN", legacy_credentials_fenced),
+        ("DIRECT_MUTATION_FENCE_UNPROVEN", direct_mutation_paths_denied),
+        ("REQUIRED_CI_REVIEWS_UNPROVEN", required_ci_reviews_complete),
+        ("OWNER_ACTIVATION_APPROVAL_UNPROVEN", owner_activation_approved),
+    ):
+        if fact is not True:
+            blockers.append(code)
+    return tuple(blockers)
