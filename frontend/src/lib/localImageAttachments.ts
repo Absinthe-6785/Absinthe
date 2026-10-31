@@ -15,6 +15,8 @@ import {
   returnToUseAttachmentIsolationError,
 } from './returnToUseAttachmentIsolation';
 import { LOCAL_ATTACHMENT_FILE_MAX_BYTES } from './localAttachmentFilePolicy';
+import { admitLocalDocumentFile } from './localDocumentAttachmentAdmission';
+import { scopedAttachmentBlobKey } from './attachmentScopedCreate';
 
 export const SUPPORTED_LOCAL_IMAGE_TYPES = new Set([
   'image/png',
@@ -51,6 +53,13 @@ export class LocalImageAttachmentWriteError extends Error {
   }
 }
 
+export class LocalDocumentAttachmentWriteError extends LocalImageAttachmentWriteError {
+  constructor(lifecycle: LocalImageAttachmentWriteError['lifecycle'], reason: string) {
+    super(lifecycle, reason);
+    this.name = 'LocalDocumentAttachmentWriteError';
+  }
+}
+
 export function localAttachmentBlobKey(accountId: string, attachmentId: string): string {
   const normalizedAccountId = accountId.trim();
   if (!normalizedAccountId) throw new Error('Local attachment requires an account id');
@@ -70,7 +79,7 @@ export function validateLocalImageFile(file: File): string | null {
   return null;
 }
 
-async function checksumBytes(bytes: ArrayBuffer): Promise<string | undefined> {
+export async function checksumLocalAttachmentBytes(bytes: ArrayBuffer): Promise<string | undefined> {
   if (!globalThis.crypto?.subtle) return undefined;
   try {
     const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes);
@@ -86,10 +95,15 @@ async function checksumBytes(bytes: ArrayBuffer): Promise<string | undefined> {
 export { appendAttachmentReferenceToBody } from './attachmentRepository';
 
 export async function attachLocalImageToNote(input: AttachLocalImageInput): Promise<AttachLocalImageResult> {
+  return stageLocalAttachmentToNote(input, 'image');
+}
+
+/** Shared existing create-only staging lifecycle. Neither branch persists a Note reference. */
+export async function stageLocalAttachmentToNote(input: AttachLocalImageInput, kind: 'image' | 'document'): Promise<AttachLocalImageResult> {
   if (isReturnToUseAttachmentIsolationEnabled()) throw returnToUseAttachmentIsolationError();
   const { accountId, noteId, file, currentBody } = input;
   let blob: AttachmentCreateStage = 'NOT_STARTED', metadataStage: AttachmentCreateStage = 'NOT_STARTED';
-  const fail = (reason: string): never => { throw new LocalImageAttachmentWriteError(Object.freeze({ blob, metadata: metadataStage }), reason); };
+  const fail = (reason: string): never => { throw new (kind === 'document' ? LocalDocumentAttachmentWriteError : LocalImageAttachmentWriteError)(Object.freeze({ blob, metadata: metadataStage }), reason); };
   const observation = observePublishedNotesHydration();
   const state = useNotesStore.getState();
   const note = state.notes.find(candidate => candidate.id === noteId);
@@ -99,12 +113,14 @@ export async function attachLocalImageToNote(input: AttachLocalImageInput): Prom
     return !isReturnToUseAttachmentIsolationEnabled() && request !== null && latest.status === 'CURRENT'
       && latest.request === request && request.accountId === accountId && store.activeAccountId === accountId
       && store.activeNoteId === noteId && store.notes.find(item => item.id === noteId) === note
+      && (kind === 'image' || store.notes.filter(item => item.id === noteId).length === 1)
       && !!note && note.deletedAt === null && isCompleteLocalNote(note) && note.body === currentBody;
   };
   if (!accountId || accountId !== accountId.trim() || !noteId || noteId !== noteId.trim() || !current()) {
     blob = 'DENIED'; return fail('attachment_creation_denied');
   }
-  const validationError = validateLocalImageFile(file);
+  const admission = kind === 'document' ? admitLocalDocumentFile(file) : null;
+  const validationError = admission?.status === 'REJECTED' ? admission.reason : kind === 'image' ? validateLocalImageFile(file) : null;
   if (validationError) return fail(validationError);
   const repository = input.repository ?? createLocalAttachmentMetadataRepository();
   const blobAdapter = input.blobAdapter ?? createLocalAttachmentBlobAdapter();
@@ -115,15 +131,17 @@ export async function attachLocalImageToNote(input: AttachLocalImageInput): Prom
   let reference: string;
   try { reference = attachmentReference(id); } catch { return fail('attachment_creation_invalid_id'); }
   if (reference !== `attachment://${id}`) return fail('attachment_creation_invalid_id');
-  const localBlobKey = localAttachmentBlobKey(accountId, id);
+  const localBlobKey = kind === 'image' ? localAttachmentBlobKey(accountId, id)
+    : scopedAttachmentBlobKey({ accountId, attachmentId: id, namespace: 'local-document' })!;
   let bytes: ArrayBuffer;
   try { bytes = await file.arrayBuffer(); } catch { return fail('attachment_bytes_unavailable'); }
   if (!current()) { blob = 'DENIED'; return fail('attachment_creation_stale'); }
   if (bytes.byteLength !== file.size) return fail('attachment_size_mismatch');
-  const checksum = await checksumBytes(bytes);
+  const checksum = await checksumLocalAttachmentBytes(bytes);
   if (!current()) { blob = 'DENIED'; return fail('attachment_creation_stale'); }
   if (!checksum) return fail('attachment_checksum_unavailable');
-  const context = Object.freeze({ accountId, noteId, attachmentId: id, request: request!, isCurrent: current });
+  const context = Object.freeze({ accountId, noteId, attachmentId: id, request: request!, isCurrent: current,
+    ...(kind === 'document' ? { namespace: 'local-document' as const } : {}) });
   try { blob = await blobAdapter.createBlobForAccountNote(context, { key: localBlobKey, blob: new Blob([bytes], { type: file.type }), mimeType: file.type, checksum }); }
   catch { blob = 'INDETERMINATE'; return fail('attachment_blob_outcome_unknown'); }
   if (blob !== 'COMMITTED') return fail('attachment_blob_not_committed');
@@ -138,7 +156,7 @@ export async function attachLocalImageToNote(input: AttachLocalImageInput): Prom
     size: file.size,
     checksum,
     localBlobKey,
-    alt: file.name.replace(/\.[^.]+$/, '') || undefined,
+    ...(kind === 'image' ? { alt: file.name.replace(/\.[^.]+$/, '') || undefined } : {}),
     source: 'local',
     createdAt,
     updatedAt: createdAt,

@@ -6,7 +6,7 @@ import type {
   AttachmentCreateStage,
   ScopedAttachmentCreateContext,
 } from './attachmentRepository';
-import { addScopedAttachmentRecord, isScopedAttachmentCreateCurrent } from './attachmentScopedCreate';
+import { addScopedAttachmentRecord, isScopedAttachmentCreateCurrent, scopedAttachmentBlobKey } from './attachmentScopedCreate';
 
 export const ATTACHMENT_BLOB_DB_NAME = 'absinthe.attachments.blobs';
 export const ATTACHMENT_BLOB_STORE = 'blobs';
@@ -94,7 +94,8 @@ export class LocalAttachmentBlobAdapter implements BlobStorageAdapter {
     const scope = Object.freeze({ ...context });
     const { key, blob, mimeType, checksum } = input;
     const current = () => isScopedAttachmentCreateCurrent(scope);
-    if (!current() || key !== `local-image/${encodeURIComponent(scope.accountId)}/${scope.attachmentId}`) return 'DENIED';
+    const expectedKey = scopedAttachmentBlobKey(scope);
+    if (!expectedKey || !current() || key !== expectedKey) return 'DENIED';
     let bytes: ArrayBuffer;
     try { bytes = await blob.arrayBuffer(); } catch { return 'NOT_STARTED'; }
     if (!current()) return 'DENIED';

@@ -50,6 +50,7 @@ export function admitLocalDocumentFile(file: File): LocalDocumentFileAdmission {
   }
   const name = file.name;
   if (!name || UNSAFE_DISPLAY_NAME.test(name)) return rejected('unsafe_filename');
+  if (!name.includes('.')) return rejected('unsupported_extension');
 
   const suffixes = name.match(RECOGNIZED_DOCUMENT_SUFFIX) ?? [];
   if (suffixes.length > 1) return rejected('ambiguous_extension');

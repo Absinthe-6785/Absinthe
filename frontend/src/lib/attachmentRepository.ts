@@ -89,6 +89,8 @@ export type ScopedAttachmentTombstoneResult = Readonly<{
 }>;
 
 export interface ScopedAttachmentCreateContext {
+  /** Omitted for existing image records; documents use a separate additive key space. */
+  readonly namespace?: 'local-document';
   readonly accountId: string;
   readonly noteId: string;
   readonly attachmentId: string;

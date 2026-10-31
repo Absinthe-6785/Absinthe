@@ -10,7 +10,7 @@ import {
   type AttachmentCreateStage,
   type ScopedAttachmentCreateContext,
 } from './attachmentRepository';
-import { addScopedAttachmentRecord, isScopedAttachmentCreateCurrent } from './attachmentScopedCreate';
+import { addScopedAttachmentRecord, isScopedAttachmentCreateCurrent, scopedAttachmentBlobKey } from './attachmentScopedCreate';
 import { getActiveNotesAuthorityRequest, isNotesAuthorityRequestActive } from './notesAccountAuthority';
 
 export const ATTACHMENT_METADATA_DB_NAME = 'absinthe.attachments.metadata';
@@ -157,9 +157,10 @@ export class LocalAttachmentMetadataRepository implements AttachmentRepository {
     let record: AccountScopedAttachmentMetadata;
     try {
       record = structuredClone(metadata);
-      if (!current() || record.accountId !== scope.accountId || record.noteId !== scope.noteId
+      const expectedKey = scopedAttachmentBlobKey(scope);
+      if (!expectedKey || !current() || record.accountId !== scope.accountId || record.noteId !== scope.noteId
         || record.id !== scope.attachmentId || record.deletedAt !== null || record.source !== 'local'
-        || record.localBlobKey !== `local-image/${encodeURIComponent(scope.accountId)}/${scope.attachmentId}`) return 'DENIED';
+        || record.localBlobKey !== expectedKey) return 'DENIED';
       record = normalizeAttachmentMetadata(record) as AccountScopedAttachmentMetadata;
     } catch { return 'DENIED'; }
     let db: IDBDatabase;

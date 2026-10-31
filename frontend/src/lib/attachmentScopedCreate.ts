@@ -1,6 +1,11 @@
 import { getActiveNotesAuthorityRequest, isNotesAuthorityRequestActive } from './notesAccountAuthority';
 import { attachmentReference, type AttachmentCreateStage, type ScopedAttachmentCreateContext } from './attachmentRepository';
 
+export function scopedAttachmentBlobKey(context: Pick<ScopedAttachmentCreateContext, 'namespace' | 'accountId' | 'attachmentId'>): string | null {
+  if (context.namespace !== undefined && context.namespace !== 'local-document') return null;
+  return `${context.namespace ?? 'local-image'}/${encodeURIComponent(context.accountId)}/${context.attachmentId}`;
+}
+
 export function isScopedAttachmentCreateCurrent(context: ScopedAttachmentCreateContext): boolean {
   try {
     return !!context.accountId && context.accountId === context.accountId.trim()

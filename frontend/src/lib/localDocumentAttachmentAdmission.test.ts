@@ -30,7 +30,7 @@ describe('local document attachment admission', () => {
     }
   });
 
-  it.each(['old.doc', 'macro.docm', 'notes.txt', 'no-extension'])('rejects unsupported filename %s', name => {
+  it.each(['old.doc', 'macro.docm', 'notes.txt', 'no-extension', 'pdf', 'docx'])('rejects unsupported filename %s', name => {
     const result = admitLocalDocumentFile(file(name, DOCX_MIME));
     expect(result).toEqual({ status: 'REJECTED', reason: 'unsupported_extension' });
   });
