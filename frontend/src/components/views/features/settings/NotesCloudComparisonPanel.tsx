@@ -1,17 +1,24 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation, type TranslationKey } from '../../../../lib/i18n';
+import { isCompleteLocalNote } from '../../../../lib/notesBootstrapAuthority';
+import { openNote } from '../../../../lib/noteNavigation';
 import { observePublishedNotesHydration, useNotesStore } from '../../../../store/useNotesStore';
 import { createNotesCloudComparison, type NotesCloudComparison, type NotesCloudComparisonReport } from '../../../../lib/notesCloudComparison';
 import { NotesBootstrapDiagnosticError } from '../../../../lib/notesBootstrapDiagnostics';
 
 const DETAIL_PREVIEW_LIMIT = 30;
 const detailSections = [
-  { key: 'localOnly', label: 'notesCloudLocalOnly' },
-  { key: 'remoteOnly', label: 'notesCloudRemoteOnly' },
-  { key: 'divergent', label: 'notesCloudDivergent' },
-  { key: 'incomparable', label: 'notesCloudIncomparable' },
-  { key: 'deleted', label: 'notesCloudDeleted' },
+  { key: 'localOnly', label: 'notesCloudLocalOnly', canOpenLocal: true },
+  { key: 'remoteOnly', label: 'notesCloudRemoteOnly', canOpenLocal: false },
+  { key: 'divergent', label: 'notesCloudDivergent', canOpenLocal: true },
+  { key: 'incomparable', label: 'notesCloudIncomparable', canOpenLocal: true },
+  { key: 'deleted', label: 'notesCloudDeleted', canOpenLocal: false },
 ] as const;
+
+function eligibleLocalNote(notes: ReturnType<typeof useNotesStore.getState>['notes'], noteId: string) {
+  const note = notes.find(candidate => candidate.id === noteId);
+  return note && note.id === noteId && note.deletedAt === null && isCompleteLocalNote(note) ? note : null;
+}
 
 export function NotesCloudComparisonPanel({ accountId }: { accountId: string | null }) {
   const { t } = useTranslation();
@@ -66,7 +73,7 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
       </dl>
       <p>{t('notesCloudFolders').replace('{local}', String(visible.localFoldersOnly)).replace('{remote}', String(visible.remoteFoldersOnly)).replace('{different}', String(visible.folderDifferences)).replace('{unresolved}', String(visible.unresolvedFolders))}</p>
       <div className="space-y-2">
-        {detailSections.map(({ key, label }) => {
+        {detailSections.map(({ key, label, canOpenLocal }) => {
           const details = visible.details[key];
           if (details.length === 0) return null;
           const renderRows = (rows: typeof details) => <ul className="mt-2 list-disc space-y-2 pl-5">
@@ -74,6 +81,21 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
               <code className="break-all">{detail.id}</code>
               {detail.localTitle ? <p><span className="text-muted-foreground">{t('notesCloudLocalTitle')}: </span>{detail.localTitle}</p> : null}
               {detail.remoteTitle ? <p><span className="text-muted-foreground">{t('notesCloudRemoteTitle')}: </span>{detail.remoteTitle}</p> : null}
+              {canOpenLocal && eligibleLocalNote(notes, detail.id) ? <button
+                type="button"
+                className={`${button} mt-1 px-3 py-1`}
+                onClick={() => {
+                  const currentOwner = result?.owner;
+                  const currentPublication = observePublishedNotesHydration();
+                  const currentState = useNotesStore.getState();
+                  if (!currentOwner || currentOwner !== active.current || account.current.id !== accountId
+                    || !currentOwner.isCurrent() || currentPublication.status !== 'CURRENT'
+                    || currentPublication.request.accountId !== accountId || currentState.activeAccountId !== accountId) return;
+                  const localNote = eligibleLocalNote(currentState.notes, detail.id);
+                  if (!localNote || !currentOwner.isCurrent()) return;
+                  openNote(localNote.id, { returnTab: 'settings' });
+                }}
+              >{t('cosmosPreviewOpenNote')}</button> : null}
             </li>)}
           </ul>;
           return <details key={key} className="rounded-lg border border-border px-3 py-2">
