@@ -14,6 +14,7 @@ import {
   isReturnToUseAttachmentIsolationEnabled,
   returnToUseAttachmentIsolationError,
 } from './returnToUseAttachmentIsolation';
+import { LOCAL_ATTACHMENT_FILE_MAX_BYTES } from './localAttachmentFilePolicy';
 
 export const SUPPORTED_LOCAL_IMAGE_TYPES = new Set([
   'image/png',
@@ -21,7 +22,7 @@ export const SUPPORTED_LOCAL_IMAGE_TYPES = new Set([
   'image/webp',
   'image/gif',
 ]);
-export const LOCAL_IMAGE_ATTACHMENT_MAX_BYTES = 15 * 1024 * 1024;
+export const LOCAL_IMAGE_ATTACHMENT_MAX_BYTES = LOCAL_ATTACHMENT_FILE_MAX_BYTES;
 
 export interface AttachLocalImageInput {
   accountId: string;
