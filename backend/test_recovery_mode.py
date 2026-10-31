@@ -1,9 +1,14 @@
 from copy import deepcopy
+import os
+from pathlib import Path
+import subprocess
+import sys
 from types import SimpleNamespace
 
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 import pytest
+from jwt.exceptions import InvalidTokenError
 
 import main
 
@@ -175,6 +180,110 @@ def destructive_client(monkeypatch: pytest.MonkeyPatch):
         main.app.dependency_overrides.clear()
 
 
+class NoDatabaseAccess:
+    """Fail at the FIRST table/RPC access, before any domain can be changed."""
+    def __init__(self):
+        self.calls = []
+
+    def table(self, name):
+        self.calls.append(("table", name))
+        raise AssertionError("protected request accessed a database table")
+
+    def rpc(self, name, *args, **kwargs):
+        self.calls.append(("rpc", name))
+        raise AssertionError("protected request accessed a database RPC")
+
+
+@pytest.fixture
+def protected_client(destructive_client, monkeypatch):
+    client, _ = destructive_client
+    database = NoDatabaseAccess()
+    monkeypatch.setattr(main, "supabase", database)
+    monkeypatch.setattr(main, "RECOVERY_MODE_ACTIVE", True)
+    return client, database
+
+
+def protected_restore_payload():
+    return {
+        "notes": [note_row()], "note_folders": [folder_row()],
+        "schedules": [schedule_row()], "weekly_schedules": [weekly_schedule_row()],
+        "recipes": [recipe_row()], "todos": [{"date": "2026-08-18", "text": "Task"}],
+    }
+
+
+@pytest.mark.parametrize("method,path,intent", [
+    ("DELETE", "/api/reset", main.RESET_RECOVERY_INTENT),
+    ("POST", "/api/restore", main.RESTORE_RECOVERY_INTENT),
+])
+def test_http_protection_denies_before_first_database_access(protected_client, method, path, intent):
+    client, database = protected_client
+    payload = protected_restore_payload() if method == "POST" else None
+    before = deepcopy(payload)
+    response = client.request(
+        method, path + "?recovery_mode=disabled&cutover=false", json=payload,
+        headers={"X-Absinthe-Recovery-Intent": intent,
+                 "X-Absinthe-Recovery-Mode": "disabled", "X-Notes-Cutover-Approved": "true"},
+    )
+    assert response.status_code == 423
+    assert response.json() == {"detail": "Data recovery mode is active"}
+    assert database.calls == []  # Includes Health, Schedule, Recipe and Notes.
+    assert payload == before
+
+
+@pytest.mark.parametrize("body", ["{", "null", '{"notes":"invalid"}', '{"cutover":false}'])
+def test_protected_malformed_restore_cannot_reach_database(protected_client, body):
+    client, database = protected_client
+    response = client.post(
+        "/api/restore", content=body,
+        headers={"Content-Type": "application/json", "X-Absinthe-Recovery-Intent": main.RESTORE_RECOVERY_INTENT},
+    )
+    assert response.status_code == 422
+    assert database.calls == []
+
+
+@pytest.mark.parametrize("method,path,intent", [
+    ("DELETE", "/api/reset", main.RESET_RECOVERY_INTENT),
+    ("POST", "/api/restore", main.RESTORE_RECOVERY_INTENT),
+])
+def test_protected_invalid_token_still_requires_authentication(
+    protected_client, monkeypatch, method, path, intent,
+):
+    client, database = protected_client
+    main.app.dependency_overrides.pop(main.get_current_user)
+
+    def invalid_token(_token):
+        raise InvalidTokenError("synthetic invalid token")
+
+    monkeypatch.setattr(main.jwt_verifier, "verify_token", invalid_token)
+    response = client.request(
+        method, path, json={} if method == "POST" else None,
+        headers={"Authorization": "Bearer invalid", "X-Absinthe-Recovery-Intent": intent},
+    )
+    assert response.status_code == 401
+    assert database.calls == []
+
+
+@pytest.mark.parametrize("raw,expected", [(None, True), ("", True), ("unknown", True), ("active", True), (" disabled ", False)])
+def test_existing_startup_recovery_policy_is_fail_closed(raw, expected):
+    # Isolate both inherited env and local .env files in the child process only.
+    env = dict(os.environ)
+    env.update(SUPABASE_URL="https://example.supabase.co", SUPABASE_KEY="ci-placeholder-key",
+               CORS_ORIGINS="http://localhost:5173", PYTHONDONTWRITEBYTECODE="1")
+    for key in ("RENDER", "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_JWT_SECRET", "ABSINTHE_RECOVERY_MODE"):
+        env.pop(key, None)
+    if raw is not None:
+        env["ABSINTHE_RECOVERY_MODE"] = raw
+    script = (
+        "import dotenv; dotenv.load_dotenv = lambda *args, **kwargs: False; "
+        "import main; print('RECOVERY_CONFIG=' + str(main.RECOVERY_MODE_ACTIVE))"
+    )
+    result = subprocess.run(
+        [sys.executable, "-B", "-c", script],
+        cwd=Path(__file__).parent, env=env, capture_output=True, text=True, timeout=30, check=True,
+    )
+    assert f"RECOVERY_CONFIG={expected}" in result.stdout.splitlines()
+
+
 @pytest.mark.asyncio
 async def test_reset_is_locked_in_recovery_mode(monkeypatch: pytest.MonkeyPatch):
     supabase = FakeSupabase()
@@ -204,8 +313,10 @@ async def test_non_destructive_health_endpoints_remain_available():
 
 
 @pytest.mark.parametrize("header", [None, "reset-wrong", ""])
-def test_reset_rejects_missing_wrong_and_empty_intent(destructive_client, header):
+@pytest.mark.parametrize("recovery_active", [False, True])
+def test_reset_rejects_missing_wrong_and_empty_intent(destructive_client, monkeypatch, header, recovery_active):
     client, supabase = destructive_client
+    monkeypatch.setattr(main, "RECOVERY_MODE_ACTIVE", recovery_active)
     headers = {} if header is None else {"X-Absinthe-Recovery-Intent": header}
     response = client.delete("/api/reset", headers=headers)
     assert response.status_code == 428
@@ -213,8 +324,10 @@ def test_reset_rejects_missing_wrong_and_empty_intent(destructive_client, header
 
 
 @pytest.mark.parametrize("header", [None, "restore-wrong", ""])
-def test_restore_rejects_missing_wrong_and_empty_intent(destructive_client, header):
+@pytest.mark.parametrize("recovery_active", [False, True])
+def test_restore_rejects_missing_wrong_and_empty_intent(destructive_client, monkeypatch, header, recovery_active):
     client, supabase = destructive_client
+    monkeypatch.setattr(main, "RECOVERY_MODE_ACTIVE", recovery_active)
     headers = {} if header is None else {"X-Absinthe-Recovery-Intent": header}
     response = client.post("/api/restore", headers=headers, json={})
     assert response.status_code == 428
@@ -228,16 +341,21 @@ def test_restore_rejects_missing_wrong_and_empty_intent(destructive_client, head
         ("POST", "/api/restore", {"X-Absinthe-Recovery-Intent": main.RESTORE_RECOVERY_INTENT}, {}),
     ],
 )
+@pytest.mark.parametrize("recovery_active", [False, True])
 def test_destructive_recovery_requires_authentication(
     monkeypatch: pytest.MonkeyPatch,
     method: str,
     path: str,
     headers: dict[str, str],
     payload: dict | None,
+    recovery_active: bool,
 ):
-    monkeypatch.setattr(main, "RECOVERY_MODE_ACTIVE", False)
+    database = NoDatabaseAccess()
+    monkeypatch.setattr(main, "supabase", database)
+    monkeypatch.setattr(main, "RECOVERY_MODE_ACTIVE", recovery_active)
     response = TestClient(main.app).request(method, path, headers=headers, json=payload)
     assert response.status_code in {401, 403}
+    assert database.calls == []
 
 
 def test_reset_exact_intent_runs_only_authenticated_account_scope(destructive_client):
