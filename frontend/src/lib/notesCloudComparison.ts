@@ -5,10 +5,20 @@ import type { NoteBase, NoteFolderBase } from '../components/views/noteUtils';
 import { observeAccountScopedFolders } from './notesAccountAuthority';
 
 export const NOTES_COMPARISON_LIMIT = 500;
+export type NotesCloudComparisonDetailCategory = 'localOnly' | 'remoteOnly' | 'divergent' | 'incomparable' | 'deleted';
+export interface NotesCloudComparisonDetail {
+  readonly id: string;
+  readonly localTitle?: string;
+  readonly remoteTitle?: string;
+}
+export type NotesCloudComparisonDetails = Readonly<Record<NotesCloudComparisonDetailCategory, readonly NotesCloudComparisonDetail[]>>;
 export interface NotesCloudComparisonReport {
   localOnly: number; remoteOnly: number; matching: number; divergent: number; incomparable: number; deleted: number;
   localFoldersOnly: number; remoteFoldersOnly: number; folderDifferences: number; unresolvedFolders: number;
+  details: NotesCloudComparisonDetails;
 }
+
+const detailCategories: readonly NotesCloudComparisonDetailCategory[] = ['localOnly', 'remoteOnly', 'divergent', 'incomparable', 'deleted'];
 
 function byId<T extends { id: string }>(rows: readonly T[]): Map<string, T> {
   if (rows.length > NOTES_COMPARISON_LIMIT) throw new Error('notes_comparison_limit');
@@ -26,18 +36,30 @@ export function compareNotesCloudSnapshot(accountId: string, notes: readonly Not
   const localFolders = byId(folders), remoteFolders = byId(remote.folders);
   if (folders.some(row => typeof row.name !== 'string' || !Number.isSafeInteger(row.createdAt) || row.createdAt < 0)) throw new Error('notes_comparison_invalid');
   if (remote.notes.some(row => row.user_id !== accountId) || remote.folders.some(row => row.user_id !== accountId)) throw new Error('notes_comparison_owner');
-  const report: NotesCloudComparisonReport = { localOnly: 0, remoteOnly: 0, matching: 0, divergent: 0, incomparable: 0, deleted: 0, localFoldersOnly: 0, remoteFoldersOnly: 0, folderDifferences: 0, unresolvedFolders: 0 };
+  const report = { localOnly: 0, remoteOnly: 0, matching: 0, divergent: 0, incomparable: 0, deleted: 0, localFoldersOnly: 0, remoteFoldersOnly: 0, folderDifferences: 0, unresolvedFolders: 0 };
+  const rows: Record<NotesCloudComparisonDetailCategory, NotesCloudComparisonDetail[]> = {
+    localOnly: [], remoteOnly: [], divergent: [], incomparable: [], deleted: [],
+  };
+  const addDetail = (category: NotesCloudComparisonDetailCategory, id: string, local?: NoteBase, other?: CompleteNotesFoldersSnapshot['notes'][number]) => {
+    report[category]++;
+    const detail: NotesCloudComparisonDetail = {
+      id,
+      ...(typeof local?.title === 'string' && local.title.trim() ? { localTitle: local.title } : {}),
+      ...(typeof other?.title === 'string' && other.title.trim() ? { remoteTitle: other.title } : {}),
+    };
+    rows[category].push(Object.freeze(detail));
+  };
   for (const id of new Set([...localNotes.keys(), ...remoteNotes.keys()])) {
     const local = localNotes.get(id), other = remoteNotes.get(id);
-    if ((local && !isCompleteLocalNote(local)) || (other && !isComparableRemoteNoteContent(accountId, other))) { report.incomparable++; continue; }
-    if ((local && local.deletedAt !== null) || (other && other.deleted_at !== null)) { report.deleted++; continue; }
-    if (!local) report.remoteOnly++;
-    else if (!other) report.localOnly++;
+    if ((local && !isCompleteLocalNote(local)) || (other && !isComparableRemoteNoteContent(accountId, other))) { addDetail('incomparable', id, local, other); continue; }
+    if ((local && local.deletedAt !== null) || (other && other.deleted_at !== null)) { addDetail('deleted', id, local, other); continue; }
+    if (!local) addDetail('remoteOnly', id, local, other);
+    else if (!other) addDetail('localOnly', id, local, other);
     else {
       const comparison = compareSupportedNoteContent(accountId, local, other);
       if (comparison === 'MATCHING') report.matching++;
-      else if (comparison === 'DIVERGENT') report.divergent++;
-      else report.incomparable++;
+      else if (comparison === 'DIVERGENT') addDetail('divergent', id, local, other);
+      else addDetail('incomparable', id, local, other);
     }
   }
   for (const id of new Set([...localFolders.keys(), ...remoteFolders.keys()])) {
@@ -48,7 +70,11 @@ export function compareNotesCloudSnapshot(accountId: string, notes: readonly Not
   }
   for (const row of notes) if (row.folderId !== null && !localFolders.has(row.folderId)) report.unresolvedFolders++;
   for (const row of remote.notes) if (row.folder_id !== null && !remoteFolders.has(row.folder_id)) report.unresolvedFolders++;
-  return Object.freeze(report);
+  const details = Object.fromEntries(detailCategories.map(category => [
+    category,
+    Object.freeze(rows[category].sort((left, right) => left.id < right.id ? -1 : left.id > right.id ? 1 : 0)),
+  ])) as NotesCloudComparisonDetails;
+  return Object.freeze({ ...report, details: Object.freeze(details) });
 }
 
 /** Observes existing publication authority; grants no hydration or write permit. */

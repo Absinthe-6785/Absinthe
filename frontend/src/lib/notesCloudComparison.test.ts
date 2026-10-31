@@ -19,11 +19,50 @@ beforeEach(() => {
 });
 afterEach(() => { fake.listeners.clear(); });
 it('compares stable IDs, not duplicate titles or timestamps; does not mutate supported data', () => {
-  const local = [note('n'), note('local'), note('diff'), note('gone', { deletedAt: 2 }), note('invalid', { properties: { x: 3 } })];
-  const remote = snapshot([row('n', { updated_at: 5 }), row('remote'), row('diff', { body: 'different' }), row('gone'), row('invalid')]);
+  const local = [
+    note('n'), note('local', { title: 'Local-only title' }), note('diff', { title: 'Local version' }),
+    note('gone', { title: 'Local deleted title', deletedAt: 2 }), note('invalid', { title: 'Local malformed title', properties: { x: 3 } }),
+    note('same-local', { title: 'Duplicate title' }),
+  ];
+  const remote = snapshot([
+    row('n', { updated_at: 5 }), row('remote', { title: 'Cloud-only title' }),
+    row('diff', { title: 'Cloud version', body: 'different' }), row('gone', { title: 'Cloud title for deleted ID' }),
+    row('invalid', { title: 'Cloud malformed-pair title' }), row('same-cloud', { title: 'Duplicate title' }),
+  ]);
   const before = JSON.stringify({ local, remote });
-  expect(compareNotesCloudSnapshot('A', local, [], remote)).toMatchObject({ localOnly: 1, remoteOnly: 1, matching: 1, divergent: 1, incomparable: 1, deleted: 1 });
+  const result = compareNotesCloudSnapshot('A', local, [], remote);
+  expect(result).toMatchObject({ localOnly: 2, remoteOnly: 2, matching: 1, divergent: 1, incomparable: 1, deleted: 1 });
+  expect(Object.fromEntries(['localOnly', 'remoteOnly', 'divergent', 'incomparable', 'deleted'].map(key => [key, result.details[key as keyof typeof result.details].length])))
+    .toEqual({ localOnly: 2, remoteOnly: 2, divergent: 1, incomparable: 1, deleted: 1 });
+  expect(result.details.localOnly).toEqual([
+    { id: 'local', localTitle: 'Local-only title' }, { id: 'same-local', localTitle: 'Duplicate title' },
+  ]);
+  expect(result.details.remoteOnly).toEqual([
+    { id: 'remote', remoteTitle: 'Cloud-only title' }, { id: 'same-cloud', remoteTitle: 'Duplicate title' },
+  ]);
+  expect(result.details.divergent).toEqual([{ id: 'diff', localTitle: 'Local version', remoteTitle: 'Cloud version' }]);
+  expect(result.details.incomparable).toEqual([{ id: 'invalid', localTitle: 'Local malformed title', remoteTitle: 'Cloud malformed-pair title' }]);
+  expect(result.details.deleted).toEqual([{ id: 'gone', localTitle: 'Local deleted title', remoteTitle: 'Cloud title for deleted ID' }]);
+  expect(Object.isFrozen(result.details)).toBe(true);
+  expect(Object.isFrozen(result.details.localOnly)).toBe(true);
   expect(JSON.stringify({ local, remote })).toBe(before);
+});
+it('fails closed on duplicate or malformed local and remote IDs', () => {
+  for (const [local, remote] of [
+    [[note('dup'), note('dup')], snapshot([])],
+    [[], snapshot([row('dup'), row('dup')])],
+    [[note(' ')], snapshot([])],
+    [[], snapshot([row('')])],
+  ] as const) expect(() => compareNotesCloudSnapshot('A', local, [], remote)).toThrow('notes_comparison_invalid');
+});
+it('keeps the existing 500-record source limit before constructing details', () => {
+  const oversized = Array.from({ length: 501 }, (_, index) => note(`local-${index}`));
+  expect(() => compareNotesCloudSnapshot('A', oversized, [], snapshot([]))).toThrow('notes_comparison_limit');
+});
+it('does not expose non-string or blank titles and rejects foreign account details', () => {
+  const result = compareNotesCloudSnapshot('A', [note('bad-title', { title: 42 as any })], [], snapshot([row('bad-title', { title: '  ' })]));
+  expect(result.details.incomparable).toEqual([{ id: 'bad-title' }]);
+  expect(() => compareNotesCloudSnapshot('A', [note()], [], snapshot([row('n', { user_id: 'B', title: 'foreign title' })]))).toThrow('notes_comparison_owner');
 });
 it('uses existing supported canonical normalization and legacy optional defaults', () => {
   const legacy = row(); delete (legacy as any).starred; delete (legacy as any).properties; delete (legacy as any).relations;

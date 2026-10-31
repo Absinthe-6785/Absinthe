@@ -2206,6 +2206,9 @@ const enTranslations = [
   "Comparison cancelled or its account/Notes context changed. Run a new manual check.",
   "Comparison incomplete, invalid or above the 500-record limit. No complete counts are shown.",
   "Cloud read unavailable or rejected. Cloud data was not treated as empty.",
+  "Local title",
+  "Cloud title",
+  "Show {count} more notes",
 ] as const;
 
 export default enTranslations;
