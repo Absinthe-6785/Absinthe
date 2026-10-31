@@ -4,6 +4,15 @@ import { observePublishedNotesHydration, useNotesStore } from '../../../../store
 import { createNotesCloudComparison, type NotesCloudComparison, type NotesCloudComparisonReport } from '../../../../lib/notesCloudComparison';
 import { NotesBootstrapDiagnosticError } from '../../../../lib/notesBootstrapDiagnostics';
 
+const DETAIL_PREVIEW_LIMIT = 30;
+const detailSections = [
+  { key: 'localOnly', label: 'notesCloudLocalOnly' },
+  { key: 'remoteOnly', label: 'notesCloudRemoteOnly' },
+  { key: 'divergent', label: 'notesCloudDivergent' },
+  { key: 'incomparable', label: 'notesCloudIncomparable' },
+  { key: 'deleted', label: 'notesCloudDeleted' },
+] as const;
+
 export function NotesCloudComparisonPanel({ accountId }: { accountId: string | null }) {
   const { t } = useTranslation();
   // Publication-only invalidation may leave both array identities unchanged.
@@ -56,6 +65,27 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
         {(['localOnly', 'remoteOnly', 'matching', 'divergent', 'incomparable', 'deleted'] as const).map(key => <div key={key}><dt>{t(({ localOnly: 'notesCloudLocalOnly', remoteOnly: 'notesCloudRemoteOnly', matching: 'notesCloudMatching', divergent: 'notesCloudDivergent', incomparable: 'notesCloudIncomparable', deleted: 'notesCloudDeleted' } as const)[key])}</dt><dd className="font-semibold">{visible[key]}</dd></div>)}
       </dl>
       <p>{t('notesCloudFolders').replace('{local}', String(visible.localFoldersOnly)).replace('{remote}', String(visible.remoteFoldersOnly)).replace('{different}', String(visible.folderDifferences)).replace('{unresolved}', String(visible.unresolvedFolders))}</p>
+      <div className="space-y-2">
+        {detailSections.map(({ key, label }) => {
+          const details = visible.details[key];
+          if (details.length === 0) return null;
+          const renderRows = (rows: typeof details) => <ul className="mt-2 list-disc space-y-2 pl-5">
+            {rows.map(detail => <li key={detail.id} className="break-words">
+              <code className="break-all">{detail.id}</code>
+              {detail.localTitle ? <p><span className="text-muted-foreground">{t('notesCloudLocalTitle')}: </span>{detail.localTitle}</p> : null}
+              {detail.remoteTitle ? <p><span className="text-muted-foreground">{t('notesCloudRemoteTitle')}: </span>{detail.remoteTitle}</p> : null}
+            </li>)}
+          </ul>;
+          return <details key={key} className="rounded-lg border border-border px-3 py-2">
+            <summary className="cursor-pointer rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">{t(label)} ({details.length})</summary>
+            {renderRows(details.slice(0, DETAIL_PREVIEW_LIMIT))}
+            {details.length > DETAIL_PREVIEW_LIMIT ? <details className="ml-4 mt-2 rounded-lg border border-border px-3 py-2">
+              <summary className="cursor-pointer rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">{t('notesCloudShowMore').replace('{count}', String(details.length - DETAIL_PREVIEW_LIMIT))}</summary>
+              {renderRows(details.slice(DETAIL_PREVIEW_LIMIT))}
+            </details> : null}
+          </details>;
+        })}
+      </div>
     </div> : null}
     {error ? <p role="alert">{t(error)}</p> : null}
   </section>;

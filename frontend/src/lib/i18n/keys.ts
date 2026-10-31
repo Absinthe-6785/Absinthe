@@ -2206,6 +2206,9 @@ const translationKeys = [
   "notesCloudStale",
   "notesCloudIncomplete",
   "notesCloudUnavailable",
+  "notesCloudLocalTitle",
+  "notesCloudRemoteTitle",
+  "notesCloudShowMore",
 ] as const;
 
 export type TranslationKey = (typeof translationKeys)[number];
