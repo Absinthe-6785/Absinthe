@@ -6,10 +6,10 @@ import { downloadVaultBackup } from '../../../../lib/exportVaultBackup';
 import { downloadVaultBackupZip } from '../../../../lib/vaultBackupZip';
 import { runAccountScopedVaultExport } from '../../../../lib/vaultBackupFlow';
 import { productionHealthRoutinePersistence } from '../../../../lib/healthRoutineSync';
-import { useNotesStore } from '../../../../store/useNotesStore';
+import { observePublishedNotesHydration, useNotesStore } from '../../../../store/useNotesStore';
 import { createLocalAttachmentBlobAdapter } from '../../../../lib/attachmentBlobIndexedDb';
 import { createLocalAttachmentMetadataRepository } from '../../../../lib/attachmentMetadataIndexedDb';
-import { attachLocalImageToNote } from '../../../../lib/localImageAttachments';
+import { appendAttachmentReferenceToBody, attachLocalImageToNote } from '../../../../lib/localImageAttachments';
 import { isReturnToUseAttachmentIsolationEnabled } from '../../../../lib/returnToUseAttachmentIsolation';
 import type { UseNoteViewActionsParams } from './types';
 
@@ -29,6 +29,9 @@ export function useNoteImportExportActions(params: UseNoteViewActionsParams) {
     importNote,
     updateNote,
   } = params;
+  // The rendered callback owns this request; never rebind a retained callback to a later account.
+  const attachmentObservation = observePublishedNotesHydration();
+  const attachmentOwner = attachmentObservation.status === 'CURRENT' ? attachmentObservation.request : null;
 
   const exportNote = useCallback((note: Note) => {
     const blob = new Blob([serializeNoteMarkdown(note)], { type: 'text/markdown;charset=utf-8' });
@@ -113,24 +116,37 @@ export function useNoteImportExportActions(params: UseNoteViewActionsParams) {
 
   const attachImageFilesToActiveNote = useCallback((files: readonly File[]) => {
     if (!activeNote || viewMode !== 'edit' || isReturnToUseAttachmentIsolationEnabled()) return;
+    const current = () => {
+      const publication = observePublishedNotesHydration(), store = useNotesStore.getState();
+      return attachmentOwner !== null && publication.status === 'CURRENT' && publication.request === attachmentOwner
+        && store.activeAccountId === attachmentOwner.accountId && store.activeNoteId === activeNote.id
+        && store.notes.find(note => note.id === activeNote.id) === activeNote && activeNote.deletedAt === null
+        && !isReturnToUseAttachmentIsolationEnabled();
+    };
+    if (!current()) return;
     const imageFiles = files.filter(file => file.type.startsWith('image/'));
     if (imageFiles.length === 0) return;
     void (async () => {
       let nextBody = activeNote.body;
+      const staged = [];
       for (const file of imageFiles) {
+        if (!current()) return;
         const result = await attachLocalImageToNote({
-          accountId: useNotesStore.getState().activeAccountId ?? '',
+          accountId: attachmentOwner!.accountId,
           noteId: activeNote.id,
           file,
-          currentBody: nextBody,
+          currentBody: activeNote.body,
           repository: attachmentRepository,
           blobAdapter: attachmentBlobAdapter,
         });
-        nextBody = result.body;
+        if (!current() || !result.isCurrent()) return;
+        staged.push(result);
+        nextBody = appendAttachmentReferenceToBody(nextBody, result.reference);
       }
+      if (!current() || !staged.every(result => result.isCurrent())) return;
       updateNote(activeNote.id, { body: nextBody });
     })();
-  }, [activeNote, updateNote, viewMode]);
+  }, [activeNote, attachmentOwner, updateNote, viewMode]);
 
   const handleEditorDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();

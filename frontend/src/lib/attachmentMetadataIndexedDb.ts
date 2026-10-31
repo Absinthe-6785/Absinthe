@@ -7,7 +7,10 @@ import {
   type AttachmentTimestamp,
   type ScopedAttachmentTombstoneInput,
   type ScopedAttachmentTombstoneResult,
+  type AttachmentCreateStage,
+  type ScopedAttachmentCreateContext,
 } from './attachmentRepository';
+import { addScopedAttachmentRecord, isScopedAttachmentCreateCurrent } from './attachmentScopedCreate';
 import { getActiveNotesAuthorityRequest, isNotesAuthorityRequestActive } from './notesAccountAuthority';
 
 export const ATTACHMENT_METADATA_DB_NAME = 'absinthe.attachments.metadata';
@@ -57,7 +60,7 @@ export function normalizeAttachmentMetadata(raw: AttachmentMetadata): Attachment
     id: raw.id.trim(),
     ...(accountId ? { accountId } : {}),
     noteId: raw.noteId?.trim() || undefined,
-    fileName: raw.fileName.trim(),
+    fileName: accountId ? raw.fileName : raw.fileName.trim(),
     mimeType: raw.mimeType.trim(),
     size: Number.isFinite(raw.size) && raw.size >= 0 ? raw.size : 0,
     createdAt: normalizeTimestamp(raw.createdAt, now),
@@ -67,7 +70,7 @@ export function normalizeAttachmentMetadata(raw: AttachmentMetadata): Attachment
   };
 
   if (!metadata.id) throw new Error('Attachment metadata requires an id');
-  if (!metadata.fileName) throw new Error('Attachment metadata requires a fileName');
+  if (!metadata.fileName.trim()) throw new Error('Attachment metadata requires a fileName');
   if (!metadata.mimeType) throw new Error('Attachment metadata requires a mimeType');
   if (!isAttachmentMetadataLightweight(metadata)) {
     throw new Error('Attachment metadata cannot contain raw blob data');
@@ -148,6 +151,23 @@ function metadataSnapshot(metadata: AttachmentMetadata): string {
 }
 
 export class LocalAttachmentMetadataRepository implements AttachmentRepository {
+  async createAttachmentForAccountNote(context: ScopedAttachmentCreateContext, metadata: AccountScopedAttachmentMetadata): Promise<AttachmentCreateStage> {
+    const scope = Object.freeze({ ...context });
+    const current = () => isScopedAttachmentCreateCurrent(scope);
+    let record: AccountScopedAttachmentMetadata;
+    try {
+      record = structuredClone(metadata);
+      if (!current() || record.accountId !== scope.accountId || record.noteId !== scope.noteId
+        || record.id !== scope.attachmentId || record.deletedAt !== null || record.source !== 'local'
+        || record.localBlobKey !== `local-image/${encodeURIComponent(scope.accountId)}/${scope.attachmentId}`) return 'DENIED';
+      record = normalizeAttachmentMetadata(record) as AccountScopedAttachmentMetadata;
+    } catch { return 'DENIED'; }
+    let db: IDBDatabase;
+    try { db = await openAttachmentMetadataDb(); } catch { return 'NOT_STARTED'; }
+    try { return await addScopedAttachmentRecord(db, ATTACHMENT_METADATA_STORE, record, current); }
+    finally { db.close(); }
+  }
+
   async listAttachmentsForAccountNote(accountId: string, noteId: string): Promise<AccountScopedAttachmentMetadata[]> {
     if (!accountId || accountId !== accountId.trim() || !noteId || noteId !== noteId.trim()) return [];
     const db = await openAttachmentMetadataDb();

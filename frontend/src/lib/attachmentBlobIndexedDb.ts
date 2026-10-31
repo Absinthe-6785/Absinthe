@@ -3,7 +3,10 @@ import type {
   AttachmentBlobRecord,
   AttachmentBlobWrite,
   BlobStorageAdapter,
+  AttachmentCreateStage,
+  ScopedAttachmentCreateContext,
 } from './attachmentRepository';
+import { addScopedAttachmentRecord, isScopedAttachmentCreateCurrent } from './attachmentScopedCreate';
 
 export const ATTACHMENT_BLOB_DB_NAME = 'absinthe.attachments.blobs';
 export const ATTACHMENT_BLOB_STORE = 'blobs';
@@ -87,6 +90,24 @@ function normalizeInventoryRecord(raw: unknown): AttachmentBlobInventoryRecord |
 }
 
 export class LocalAttachmentBlobAdapter implements BlobStorageAdapter {
+  async createBlobForAccountNote(context: ScopedAttachmentCreateContext, input: AttachmentBlobWrite): Promise<AttachmentCreateStage> {
+    const scope = Object.freeze({ ...context });
+    const { key, blob, mimeType, checksum } = input;
+    const current = () => isScopedAttachmentCreateCurrent(scope);
+    if (!current() || key !== `local-image/${encodeURIComponent(scope.accountId)}/${scope.attachmentId}`) return 'DENIED';
+    let bytes: ArrayBuffer;
+    try { bytes = await blob.arrayBuffer(); } catch { return 'NOT_STARTED'; }
+    if (!current()) return 'DENIED';
+    let db: IDBDatabase;
+    try { db = await openAttachmentBlobDb(); } catch { return 'NOT_STARTED'; }
+    try {
+      const now = new Date().toISOString();
+      return await addScopedAttachmentRecord(db, ATTACHMENT_BLOB_STORE, {
+        key, bytes, mimeType: mimeType ?? blob.type, size: blob.size, checksum, createdAt: now, updatedAt: now,
+      }, current);
+    } finally { db.close(); }
+  }
+
   async putBlob(input: AttachmentBlobWrite): Promise<AttachmentBlobRecord> {
     const now = new Date().toISOString();
     const bytes = typeof input.blob.arrayBuffer === 'function'
