@@ -7,6 +7,8 @@ import {
 import { withAccountNotesAttachmentMutationLock } from './notesAttachmentMutationLock';
 import type { NotesBootstrapFailureSignal } from './notesBootstrapDiagnostics';
 import { notesResetResult, type NotesResetResult, type NotesResetStage } from './notesResetContract';
+import { appendAttachmentReferenceToBody, isAttachmentReference } from './attachmentRepository';
+import { attachmentReferenceAck, type NoteAttachmentReferenceWrite, type NoteAttachmentReferenceAck } from './notesAttachmentReferenceAck';
 
 /**
  * Local authority boundary for the Notes core.  This deliberately does not
@@ -1678,6 +1680,65 @@ export async function saveAccountScopedNotes(
       return false;
     }
   });
+}
+
+/** Target-only compare-and-write plus readback under the existing account lock. */
+export async function persistAccountScopedAttachmentReferences(input: NoteAttachmentReferenceWrite): Promise<NoteAttachmentReferenceAck> {
+  const { request, isCurrent } = input;
+  const expected = cloneNotes([input.expectedNote])[0], next = cloneNotes([input.nextNote])[0];
+  const references = [...input.references];
+  const epoch = captureOperationEpoch();
+  const current = () => getActiveNotesAuthorityRequest() === request
+    && isNotesAuthorityRequestActive(request) && isOperationEpochCurrent(epoch) && isCurrent();
+  if (!current() || !validNote(expected) || expected.deletedAt !== null || !validNote(next)
+    || references.length === 0 || !references.every(isAttachmentReference)
+    || next.body !== references.reduce(appendAttachmentReferenceToBody, expected.body)
+    || !sameNotes([{ ...next, body: expected.body, updatedAt: expected.updatedAt }], [expected])) {
+    return attachmentReferenceAck('DENIED');
+  }
+  let write: NoteAttachmentReferenceAck['write'] = 'NOT_STARTED';
+  try {
+    return await runAccountMutationExclusive(request.accountId, async () => {
+      if (!current()) return attachmentReferenceAck('DENIED');
+      let database: IDBDatabase;
+      try { database = await openDatabase(); } catch { return attachmentReferenceAck('NOT_STARTED', write, 'NOT_RUN', 'notes_open_failed'); }
+      try {
+        if (!current()) return attachmentReferenceAck('DENIED');
+        write = await new Promise<NoteAttachmentReferenceAck['write']>((resolve, reject) => {
+          let transaction: IDBTransaction;
+          try { transaction = database.transaction(NOTES_STORE, 'readwrite'); } catch { resolve('NOT_STARTED'); return; }
+          let issued = false, failed = false;
+          transaction.oncomplete = () => resolve(failed ? 'INDETERMINATE' : issued ? 'COMMITTED' : 'NOT_STARTED');
+          transaction.onabort = () => resolve('ABORTED');
+          transaction.onerror = () => { failed = true; };
+          try {
+            const store = transaction.objectStore(NOTES_STORE), read = store.getAll();
+            read.onsuccess = () => {
+              try {
+                const durable = parseAccountNotes(request.accountId, read.result);
+                const target = durable.kind === 'valid' ? durable.records.filter(note => note.id === expected.id) : [];
+                // Final currentness/CAS check immediately before issuing the only mutation.
+                if (!current() || target.length !== 1 || !sameNotes(target, [expected])) { transaction.abort(); return; }
+                store.put({ key: noteKey(request.accountId, next.id), accountId: request.accountId, note: next } satisfies StoredScopedNote);
+                issued = true;
+              } catch { failed = true; try { transaction.abort(); } catch { reject(new Error('notes_attachment_abort_unknown')); } }
+            };
+          } catch { failed = true; try { transaction.abort(); } catch { reject(new Error('notes_attachment_abort_unknown')); } }
+        });
+      } catch {
+        return attachmentReferenceAck('INDETERMINATE', 'INDETERMINATE');
+      } finally { database.close(); }
+      if (write !== 'COMMITTED') return attachmentReferenceAck(write === 'INDETERMINATE' ? 'INDETERMINATE' : write === 'NOT_STARTED' ? 'NOT_STARTED' : 'INCOMPLETE', write);
+      if (!current()) return attachmentReferenceAck('INCOMPLETE', write, 'NOT_RUN', 'context_changed_after_commit');
+      let durable: ScopedReadResult<NoteBase>;
+      try { durable = await readAccountNotes(request.accountId); }
+      catch { return attachmentReferenceAck('INDETERMINATE', write, 'UNAVAILABLE'); }
+      const target = durable.kind === 'valid' ? durable.records.filter(note => note.id === next.id) : [];
+      const matches = target.length === 1 && sameNotes(target, [next]);
+      if (!current() || !matches) return attachmentReferenceAck('INCOMPLETE', write, matches ? 'MATCHED' : 'MISMATCH');
+      return attachmentReferenceAck('REFERENCE_PERSISTED', write, 'MATCHED');
+    });
+  } catch { return attachmentReferenceAck(write === 'NOT_STARTED' ? 'NOT_STARTED' : 'INDETERMINATE', write, 'NOT_RUN', 'notes_lock_or_operation_failed'); }
 }
 
 async function saveNotesForRecoveryContextInternal(

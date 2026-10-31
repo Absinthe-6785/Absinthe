@@ -1,5 +1,6 @@
 import {
   attachmentReference,
+  appendAttachmentReferenceToBody,
   type AccountScopedAttachmentMetadata,
   type AttachmentRepository,
   type BlobStorageAdapter,
@@ -81,11 +82,7 @@ async function checksumBytes(bytes: ArrayBuffer): Promise<string | undefined> {
   }
 }
 
-export function appendAttachmentReferenceToBody(body: string, reference: string): string {
-  const trimmed = body.trimEnd();
-  if (trimmed.includes(reference)) return body;
-  return `${trimmed}${trimmed ? '\n\n' : ''}${reference}`;
-}
+export { appendAttachmentReferenceToBody } from './attachmentRepository';
 
 export async function attachLocalImageToNote(input: AttachLocalImageInput): Promise<AttachLocalImageResult> {
   if (isReturnToUseAttachmentIsolationEnabled()) throw returnToUseAttachmentIsolationError();

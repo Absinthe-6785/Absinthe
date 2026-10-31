@@ -9,7 +9,8 @@ import { productionHealthRoutinePersistence } from '../../../../lib/healthRoutin
 import { observePublishedNotesHydration, useNotesStore } from '../../../../store/useNotesStore';
 import { createLocalAttachmentBlobAdapter } from '../../../../lib/attachmentBlobIndexedDb';
 import { createLocalAttachmentMetadataRepository } from '../../../../lib/attachmentMetadataIndexedDb';
-import { appendAttachmentReferenceToBody, attachLocalImageToNote } from '../../../../lib/localImageAttachments';
+import { attachLocalImageToNote } from '../../../../lib/localImageAttachments';
+import { attachmentReferenceAck } from '../../../../lib/notesAttachmentReferenceAck';
 import { isReturnToUseAttachmentIsolationEnabled } from '../../../../lib/returnToUseAttachmentIsolation';
 import type { UseNoteViewActionsParams } from './types';
 
@@ -27,7 +28,6 @@ export function useNoteImportExportActions(params: UseNoteViewActionsParams) {
     setDocCopied,
     setIsDragOver,
     importNote,
-    updateNote,
   } = params;
   // The rendered callback owns this request; never rebind a retained callback to a later account.
   const attachmentObservation = observePublishedNotesHydration();
@@ -114,8 +114,8 @@ export function useNoteImportExportActions(params: UseNoteViewActionsParams) {
     blockEditorRef.current.insertEmptyImageBlock();
   }, [viewMode, blockEditorRef]);
 
-  const attachImageFilesToActiveNote = useCallback((files: readonly File[]) => {
-    if (!activeNote || viewMode !== 'edit' || isReturnToUseAttachmentIsolationEnabled()) return;
+  const attachImageFilesToActiveNote = useCallback(async (files: readonly File[]) => {
+    if (!activeNote || viewMode !== 'edit' || isReturnToUseAttachmentIsolationEnabled()) return attachmentReferenceAck('DENIED');
     const current = () => {
       const publication = observePublishedNotesHydration(), store = useNotesStore.getState();
       return attachmentOwner !== null && publication.status === 'CURRENT' && publication.request === attachmentOwner
@@ -123,37 +123,34 @@ export function useNoteImportExportActions(params: UseNoteViewActionsParams) {
         && store.notes.find(note => note.id === activeNote.id) === activeNote && activeNote.deletedAt === null
         && !isReturnToUseAttachmentIsolationEnabled();
     };
-    if (!current()) return;
+    if (!current()) return attachmentReferenceAck('DENIED');
     const imageFiles = files.filter(file => file.type.startsWith('image/'));
-    if (imageFiles.length === 0) return;
-    void (async () => {
-      let nextBody = activeNote.body;
-      const staged = [];
-      for (const file of imageFiles) {
-        if (!current()) return;
-        const result = await attachLocalImageToNote({
-          accountId: attachmentOwner!.accountId,
-          noteId: activeNote.id,
-          file,
-          currentBody: activeNote.body,
-          repository: attachmentRepository,
-          blobAdapter: attachmentBlobAdapter,
-        });
-        if (!current() || !result.isCurrent()) return;
-        staged.push(result);
-        nextBody = appendAttachmentReferenceToBody(nextBody, result.reference);
-      }
-      if (!current() || !staged.every(result => result.isCurrent())) return;
-      updateNote(activeNote.id, { body: nextBody });
-    })();
-  }, [activeNote, attachmentOwner, updateNote, viewMode]);
+    if (imageFiles.length === 0) return attachmentReferenceAck('NOT_STARTED');
+    const staged = [];
+    for (const file of imageFiles) {
+      if (!current()) return attachmentReferenceAck('DENIED');
+      const result = await attachLocalImageToNote({
+        accountId: attachmentOwner!.accountId,
+        noteId: activeNote.id,
+        file,
+        currentBody: activeNote.body,
+        repository: attachmentRepository,
+        blobAdapter: attachmentBlobAdapter,
+      });
+      if (!current() || !result.isCurrent()) return attachmentReferenceAck('DENIED');
+      staged.push(result);
+    }
+    if (!current() || !staged.every(result => result.isCurrent())) return attachmentReferenceAck('DENIED');
+    return useNotesStore.getState().persistAttachmentReferences(attachmentOwner!, activeNote, staged);
+  }, [activeNote, attachmentOwner, viewMode]);
 
   const handleEditorDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setIsDragOver(false);
     if (!activeNote || viewMode !== 'edit') return;
     if ((e.target as HTMLElement).closest('.be-image-block')) return;
-    attachImageFilesToActiveNote(Array.from(e.dataTransfer.files));
+    // Event handlers have no acknowledgement consumer; failure must never be shown as success.
+    void attachImageFilesToActiveNote(Array.from(e.dataTransfer.files)).catch(() => undefined);
   }, [activeNote, viewMode, attachImageFilesToActiveNote, setIsDragOver]);
 
   const handleImport = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {

@@ -54,6 +54,7 @@ import {
   loadAccountScopedNotes,
   resetNotesAccountAuthorityForTests,
   saveAccountScopedNotes,
+  persistAccountScopedAttachmentReferences,
   clearAccountScopedNotesAuthority,
   resetAccountScopedNotes,
   saveAccountScopedFolders,
@@ -62,6 +63,7 @@ import {
   type NotesAuthorityDomainState,
 } from '@/lib/notesAccountAuthority';
 import { notesResetResult, type NotesResetResult, type NotesResetStage } from './notesResetContract';
+import { attachmentReferenceAck, type NoteAttachmentReferenceWrite, type NoteAttachmentReferenceAck } from './notesAttachmentReferenceAck';
 
 export type NotesPersistenceMode = 'accountScoped' | 'indexeddb' | 'localStorage';
 
@@ -424,6 +426,13 @@ async function saveNotesAsyncInternal(
 
 export async function saveNotesAsync(notes: unknown, isCurrent: () => boolean = () => true): Promise<NotesPersistenceWriteResult> {
   return saveNotesAsyncInternal(notes, isCurrent);
+}
+
+/** No legacy/global fallback and no full-snapshot replacement for attachment acknowledgement. */
+export async function persistNoteAttachmentReferences(input: NoteAttachmentReferenceWrite): Promise<NoteAttachmentReferenceAck> {
+  if (persistenceMode !== 'accountScoped' || !persistenceHydrated
+    || getActiveNotesAuthorityRequest() !== input.request) return attachmentReferenceAck('DENIED');
+  return persistAccountScopedAttachmentReferences(input);
 }
 
 export async function clearNotesPersistence(isCurrent: () => boolean = () => true): Promise<boolean> {
