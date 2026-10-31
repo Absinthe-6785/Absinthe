@@ -124,17 +124,22 @@ describe('useNoteImportExportActions Return-to-Use attachment isolation', () => 
     } finally { cleanup(mounted.root, mounted.host); }
   });
 
-  it('retains same-owner multi-file reference assembly and the existing single body update', async () => {
+  it('awaits the same-owner multi-file reference acknowledgement without ordinary void updateNote', async () => {
     vi.stubEnv('VITE_ABSINTHE_RETURN_TO_USE_ATTACHMENT_ISOLATION', 'false');
     publish('A'); const configured = params(); const mounted = renderActions(configured.params);
     attachMock.mockResolvedValueOnce({ reference: 'attachment://one', isCurrent: () => true })
       .mockResolvedValueOnce({ reference: 'attachment://two', isCurrent: () => true });
+    const ack = { status: 'REFERENCE_PERSISTED' as const, write: 'COMMITTED' as const, readback: 'MATCHED' as const };
+    const persist = vi.spyOn(useNotesStore.getState(), 'persistAttachmentReferences').mockResolvedValue(ack);
     try {
-      await act(async () => mounted.actions.attachImageFilesToActiveNote([new File(['1'], 'one.png', { type: 'image/png' }), new File(['2'], 'two.png', { type: 'image/png' })]));
+      let result;
+      await act(async () => { result = await mounted.actions.attachImageFilesToActiveNote([new File(['1'], 'one.png', { type: 'image/png' }), new File(['2'], 'two.png', { type: 'image/png' })]); });
       expect(attachMock).toHaveBeenCalledTimes(2);
       expect(attachMock.mock.calls.every(([input]) => input.accountId === 'A' && input.currentBody === note.body)).toBe(true);
-      expect(configured.updateNote).toHaveBeenCalledExactlyOnceWith(note.id, { body: 'plain text\n\nattachment://one\n\nattachment://two' });
-    } finally { cleanup(mounted.root, mounted.host); }
+      expect(configured.updateNote).not.toHaveBeenCalled();
+      expect(persist).toHaveBeenCalledExactlyOnceWith(observeMock().request, note, [await attachMock.mock.results[0].value, await attachMock.mock.results[1].value]);
+      expect(result).toBe(ack);
+    } finally { persist.mockRestore(); cleanup(mounted.root, mounted.host); }
   });
   it('blocks editor image insertion and drag/drop attachment persistence while isolation is active', async () => {
     vi.stubEnv('VITE_ABSINTHE_RETURN_TO_USE_ATTACHMENT_ISOLATION', 'true');

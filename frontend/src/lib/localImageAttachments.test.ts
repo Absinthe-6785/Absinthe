@@ -80,6 +80,12 @@ describe('local image attachments', () => {
     expect(appendAttachmentReferenceToBody(body, 'attachment://att-1')).toBe(body);
   });
 
+  it.each(['authored \n  ', 'attachment://att-10', 'attachment://att-1/path'])('preserves authored text and requires a whole reference in %j', body => {
+    const result = appendAttachmentReferenceToBody(body, 'attachment://att-1');
+    expect(result).toBe(`${body}\n\nattachment://att-1`);
+    expect(appendAttachmentReferenceToBody(result, 'attachment://att-1')).toBe(result);
+  });
+
   it('stores blob externally, creates metadata, and updates note body by reference only', async () => {
     const repository = memoryRepository();
     const blobAdapter = memoryBlobAdapter();

@@ -5,6 +5,11 @@ import type { NotesAuthorityRequest } from './notesAccountAuthority';
 export const ATTACHMENT_REFERENCE_SCHEME = 'attachment';
 export const ATTACHMENT_REFERENCE_PREFIX = `${ATTACHMENT_REFERENCE_SCHEME}://`;
 
+export function appendAttachmentReferenceToBody(body: string, reference: string): string {
+  if (findAttachmentReferencesInText(body).some(id => attachmentReference(id) === reference)) return body;
+  return `${body}${body ? '\n\n' : ''}${reference}`;
+}
+
 export type AttachmentSyncStatus = 'local' | 'dirty' | 'synced' | 'deleted' | 'conflict' | 'failed';
 export type AttachmentRemoteSyncStatus =
   | 'not_configured'

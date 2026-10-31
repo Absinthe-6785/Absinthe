@@ -27,6 +27,7 @@ import {
   initNotesPersistence,
   loadNotesAsync,
   saveNotesAsync,
+  persistNoteAttachmentReferences,
   saveNotesSyncResult,
   saveFoldersAsync,
   saveActiveNoteIdAsync,
@@ -41,6 +42,11 @@ import {
   type NotesPersistenceWriteResult,
 } from '../lib/notePersistence';
 import { notesResetResult, type NotesResetResult } from '../lib/notesResetContract';
+import { attachmentReferenceAck, type NoteAttachmentReferenceAck } from '../lib/notesAttachmentReferenceAck';
+import { appendAttachmentReferenceToBody, attachmentReference } from '../lib/attachmentRepository';
+import type { AttachLocalImageResult } from '../lib/localImageAttachments';
+import { isCompleteLocalNote } from '../lib/notesBootstrapAuthority';
+import { isReturnToUseAttachmentIsolationEnabled } from '../lib/returnToUseAttachmentIsolation';
 import {
   type NotesAuthorityLoadState,
   type NotesAccountRecoveryContext,
@@ -463,6 +469,7 @@ interface NotesState {
   setActiveFolderId: (id: string | null | 'trash') => void;
   createNote: (opts?: CreateNoteOpts) => string;
   updateNote: (id: string, patch: Partial<Pick<Note, 'title' | 'body' | 'folderId' | 'starred' | 'properties' | 'relations'>>) => void;
+  persistAttachmentReferences: (request: NotesAuthorityRequest, note: Note, staged: readonly AttachLocalImageResult[]) => Promise<NoteAttachmentReferenceAck>;
   toggleStar: (id: string) => void;
   duplicateNote: (note: Note) => string;
   moveNoteToTrash: (id: string) => void;
@@ -1975,6 +1982,42 @@ export const useNotesStore = create<NotesState>((set, get) => {
       }
       flushPendingSync();
       return true;
+    },
+
+    persistAttachmentReferences: async (request, note, stagedInput) => {
+      const staged = [...stagedInput];
+      const generation = notesLocalMutationGeneration;
+      const epoch = captureOperationEpoch();
+      const current = (expected = note, expectedGeneration = generation) => !isReturnToUseAttachmentIsolationEnabled()
+        && currentPublishedNotesRequest(get()) === request && get().activeAccountId === request.accountId
+        && get().activeNoteId === note.id && get().notes.filter(item => item.id === note.id).length === 1
+        && get().notes.find(item => item.id === note.id) === expected && expected.deletedAt === null
+        && isCompleteLocalNote(expected) && notesLocalMutationGeneration === expectedGeneration && isOperationEpochCurrent(epoch);
+      try {
+        if (!current() || staged.length === 0 || !staged.every(item => item.status === 'STAGED' && item.isCurrent()
+          && item.metadata.accountId === request.accountId && item.metadata.noteId === note.id
+          && item.metadata.deletedAt === null && item.reference === attachmentReference(item.metadata.id)
+          && item.body === appendAttachmentReferenceToBody(note.body, item.reference))) return attachmentReferenceAck('DENIED');
+      } catch { return attachmentReferenceAck('DENIED'); }
+      const references = [...new Set(staged.map(item => item.reference))];
+      const updated = mergeNotePatch(note, { body: references.reduce(appendAttachmentReferenceToBody, note.body) });
+      const result = await persistNoteAttachmentReferences({ request, expectedNote: note, nextNote: updated, references,
+        isCurrent: () => current() && staged.every(item => item.isCurrent()) });
+      if (result.status !== 'REFERENCE_PERSISTED') return result;
+      if (!current()) return attachmentReferenceAck('INCOMPLETE', result.write, result.readback, 'publication_superseded');
+      publishOwnedNotes({ notes: get().notes.map(item => item === note ? updated : item) }, request);
+      // Reentrant store subscribers can make an ordinary edit during publication.
+      if (!current(updated)) return attachmentReferenceAck('INCOMPLETE', result.write, result.readback, 'publication_superseded');
+      const publishedGeneration = ++notesLocalMutationGeneration;
+      // An older body debounce must not later reindex the pre-attachment snapshot.
+      clearBodySyncTimer(note.id);
+      pendingBodySync.delete(note.id);
+      setCachedNotes(get().notes);
+      recordNoteUpdateDiff(note, updated);
+      knowledgeIndexService.updateNote(updated);
+      bumpIndexContent(set, get);
+      if (!current(updated, publishedGeneration)) return attachmentReferenceAck('INCOMPLETE', result.write, result.readback, 'index_notification_superseded');
+      return result;
     },
 
     updateNote: (id, patch) => {
