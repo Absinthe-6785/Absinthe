@@ -1,7 +1,7 @@
 -- UNAPPLIED LOCAL CANDIDATE, deliberately outside backend/migrations.
 -- Reuses PR #847's identity/receipt algorithm, NOT its synthetic actor().
--- public.notes below is a test-created schema contract, not a verified deployed
--- Supabase table. NO role creation, live grants, backfill, account deletion,
+-- Tests model the reported deployed Notes columns, not production integration.
+-- NO role creation, live grants, backfill, account deletion,
 -- retention policy, issuer API, legacy adapter or activation is supplied here.
 -- Model gateway is a TRUSTED SERVER, never a browser role: p_owner must be bound
 -- by separately verified backend authentication. These model grants prove no
@@ -101,6 +101,18 @@ begin
       and r.k323_enforcement and r.reset_restore and r.account_termination) then
     raise exception 'CANDIDATE_NOT_ACTIVATED';
   end if;
+  -- Read-only safety gate, NOT a repair of deployed privileges. Runtime role
+  -- binding and unguarded API/SECURITY DEFINER paths still require the separate
+  -- default-false attestations above. Owner/DBA bypass is not covered here.
+  if (select count(*) from pg_roles where rolname in ('anon','authenticated','service_role')) <> 3 then
+    raise exception 'CANDIDATE_DEPLOYED_ROLES_UNVERIFIED';
+  end if;
+  if exists (select 1 from pg_roles p
+    where p.rolname in ('anon','authenticated','service_role','notes_candidate_app','notes_candidate_gateway')
+      and (pg_catalog.has_table_privilege(p.oid,'public.notes','INSERT,UPDATE,DELETE,TRUNCATE')
+        or pg_catalog.has_any_column_privilege(p.oid,'public.notes','INSERT,UPDATE'))) then
+    raise exception 'CANDIDATE_DIRECT_WRITE_GRANTS_REMAIN';
+  end if;
   -- Fixed order: readiness -> account fence -> identity -> Note -> receipt.
   perform 1 from notes_identity_candidate.account_fences
     where owner_id=p_owner and generation=p_generation and state='ACTIVE' for share;
@@ -149,10 +161,14 @@ begin
       raise exception 'OPERATION_CONFLICT';
     end if;
     if i.state='RETIRED' then return 'APPLIED_THEN_RETIRED'; end if;
-    if i.state<>'LIVE' or not exists (select 1 from public.notes where id=p_id and user_id=p_owner
+    if i.state<>'LIVE' or not exists (select 1 from public.notes n where id=p_id and user_id=p_owner
       and title=p_payload->>'title' and body=p_payload->>'body'
       and updated_at=(p_payload->>'updated_at')::bigint and starred=(p_payload->>'starred')::boolean
-      and folder_id is null and deleted_at is null and properties is null and relations is null) then
+      and folder_id is null and deleted_at is null
+      -- Optional columns are absent in the reported deployed schema. JSON row
+      -- inspection also rejects non-null metadata if such columns are present.
+      and coalesce(to_jsonb(n)->'properties','null'::jsonb)='null'::jsonb
+      and coalesce(to_jsonb(n)->'relations','null'::jsonb)='null'::jsonb) then
       raise exception 'RESULT_INDETERMINATE';
     end if;
     return 'REPLAY_LIVE';
@@ -160,9 +176,9 @@ begin
   if i.state<>'RESERVED' then raise exception 'IDENTITY_UNAVAILABLE'; end if;
   update notes_identity_candidate.identities set state='LIVE' where id=p_id;
   -- Plain INSERT, never upsert or a missing-column/drop-metadata fallback.
-  insert into public.notes(id,user_id,title,body,updated_at,starred,folder_id,deleted_at,properties,relations)
+  insert into public.notes(id,user_id,title,body,updated_at,starred,folder_id,deleted_at)
     values(p_id,p_owner,p_payload->>'title',p_payload->>'body',(p_payload->>'updated_at')::bigint,
-      (p_payload->>'starred')::boolean,null,null,null,null);
+      (p_payload->>'starred')::boolean,null,null);
   perform notes_identity_candidate.record_receipt(p_owner,p_id,p_operation,'publish',p_payload);
   return 'CREATED';
 end $$;

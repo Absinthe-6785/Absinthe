@@ -70,13 +70,23 @@ def retire(key, operation=None, owner=OWNER_A, generation=1):
 @pytest.fixture(scope="module")
 def model_db(proof_db):
     db = CandidateDatabase(proof_db.docker, proof_db.name)
-    # Synthetic public.notes shape only: no deployed FK/cascade is assumed.
+    # Synthetic catalog model of the reported column types and FK cascade.
+    # Deployed defaults/nullability, auth.uid/RLS policy and JWT-to-role binding
+    # are NOT established here. Production grants are never modified.
     db.sql("""create role notes_candidate_owner nologin nosuperuser nobypassrls noinherit;
       create role notes_candidate_gateway login password 'synthetic-only' nosuperuser nobypassrls noinherit;
       create role notes_candidate_app login password 'synthetic-only' nosuperuser nobypassrls noinherit;
-      create table public.notes(id text primary key,user_id uuid not null,title text not null,
-        body text not null,updated_at bigint not null,starred boolean not null default false,
-        folder_id text,deleted_at bigint,properties jsonb,relations jsonb);""")
+      create role anon nologin nosuperuser nobypassrls;
+      create role authenticated nologin nosuperuser nobypassrls;
+      create role service_role nologin nosuperuser bypassrls;
+      create schema auth;
+      create table auth.users(id uuid primary key);
+      create table public.notes(id text primary key,
+        user_id uuid not null references auth.users(id) on delete cascade,
+        title text not null,body text not null,updated_at bigint not null,
+        created_at timestamptz,folder_id text,deleted_at bigint,
+        starred boolean not null default false);""")
+    db.sql(f"insert into auth.users values ('{OWNER_A}'),('{OWNER_B}');")
     db.sql(SQL.read_text(encoding="utf-8"))
     # A failure AFTER Note mutation must roll the entire candidate call back.
     db.sql(f"alter table {SCHEMA}.receipts add check(operation_id <> 'test-fail-after-note');")
@@ -258,3 +268,70 @@ def test_publication_retirement_race_reuses_observed_pg_lock_barriers(ready, pub
     finally:
         first.close()
         second.close()
+
+
+def test_reported_column_shape_and_missing_metadata_columns_support_exact_replay(ready):
+    columns = json.loads(ready.sql("""select json_object_agg(column_name,data_type)
+      from information_schema.columns where table_schema='public' and table_name='notes';"""))
+    assert columns == {"id": "text", "user_id": "uuid", "title": "text", "body": "text",
+                       "updated_at": "bigint", "created_at": "timestamp with time zone",
+                       "folder_id": "text", "deleted_at": "bigint", "starred": "boolean"}
+    key = ready.reserve()
+    assert ready.sql(publish(key), "notes_candidate_gateway") == "CREATED"
+    before = ready.snapshot(key)
+    assert before["payload"] == PAYLOAD
+    assert ready.sql(publish(key), "notes_candidate_gateway") == "REPLAY_LIVE"
+    assert ready.snapshot(key) == before
+    assert ready.sql(retire(key), "notes_candidate_gateway") == "RETIRED"
+
+
+@pytest.mark.parametrize("column", ["properties", "relations"])
+def test_replay_still_rejects_unsupported_remote_metadata_if_a_column_exists(ready, column):
+    key = ready.reserve()
+    ready.sql(publish(key), "notes_candidate_gateway")
+    before = ready.snapshot(key)
+    # ON_ERROR_STOP closes the aborted transaction, rolling back both temporary
+    # DDL and row changes. No shared fixture schema/record is left modified.
+    ready.sql(f"begin;alter table public.notes add column {column} jsonb;"
+              f"update public.notes set {column}='{{\"keep\":true}}' where id={quote(key)};"
+              + publish(key) + "commit;", error="RESULT_INDETERMINATE")
+    assert ready.snapshot(key) == before
+
+
+@pytest.mark.parametrize("role", ["anon", "authenticated", "service_role"])
+@pytest.mark.parametrize("privilege", ["INSERT", "UPDATE", "DELETE", "TRUNCATE",
+                                       "INSERT (title)", "UPDATE (body)"])
+def test_deployed_role_table_or_column_write_grants_deny_before_mutation(ready, role, privilege):
+    key = ready.reserve()
+    before = ready.snapshot(key)
+    for operation in (publish(key), retire(key)):
+        ready.sql(f"begin;grant {privilege} on public.notes to {role};" + operation + "commit;",
+                  error="CANDIDATE_DIRECT_WRITE_GRANTS_REMAIN")
+        assert ready.snapshot(key) == before
+
+
+def test_unavailable_deployed_role_evidence_fails_closed(ready):
+    key = ready.reserve()
+    before = ready.snapshot(key)
+    ready.sql("begin;alter role anon rename to candidate_unavailable_anon;" + publish(key) + "commit;",
+              error="CANDIDATE_DEPLOYED_ROLES_UNVERIFIED")
+    assert ready.snapshot(key) == before
+
+
+def test_synthetic_auth_cascade_preserves_identity_without_inventing_termination_authority(ready):
+    key = ready.reserve()
+    ready.sql(publish(key), "notes_candidate_gateway")
+    before = ready.snapshot(key)
+    # Synthetic, rolled-back Auth deletion, NOT an account retention/erasure
+    # implementation. A cascade is not an authoritative account-close fence.
+    observed = ready.sql(f"""begin;
+      update {SCHEMA}.readiness set account_termination=false;
+      delete from auth.users where id='{OWNER_A}';
+      select json_build_object(
+        'notes',(select count(*) from public.notes where id={quote(key)}),
+        'identity',(select state from {SCHEMA}.identities where id={quote(key)}),
+        'receipts',(select count(*) from {SCHEMA}.receipts where note_id={quote(key)}),
+        'fence',(select state from {SCHEMA}.account_fences where owner_id='{OWNER_A}'));
+      """ + publish(key) + "commit;", error="CANDIDATE_NOT_ACTIVATED")
+    assert json.loads(observed) == {"notes": 0, "identity": "LIVE", "receipts": 1, "fence": "ACTIVE"}
+    assert ready.snapshot(key) == before  # failed transaction did not persist deletion
