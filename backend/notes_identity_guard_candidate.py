@@ -7,6 +7,7 @@ denied. No environment variable or existing K-323 flag activates this module.
 from __future__ import annotations
 
 from dataclasses import dataclass, fields
+from hashlib import sha256
 from typing import Literal
 from uuid import UUID
 
@@ -210,3 +211,94 @@ def assess_post_candidate(
             provenance="trusted_reservation", persistence_complete=persistence_complete,
         ))
     return deny("enforcement_unavailable", "IDENTITY_OBSERVATION_INVALID")
+
+
+@dataclass(frozen=True)
+class DeleteAssessment:
+    """Diagnostic only: no deletion/retirement success, transport or permit."""
+    classification: str
+    denial: Denial
+
+    @property
+    def allowed(self) -> bool:
+        return False
+
+
+def assess_delete_candidate(
+    *,
+    authenticated_owner: str,
+    captured: AccountContext | None,
+    current: AccountContext | None,
+    note_id: str,
+    operation_id: str | None,
+    owned_row: object,
+    identity: IdentityObservation | None,
+    receipt: object = None,
+    prerequisites: Prerequisites = Prerequisites(),
+) -> DeleteAssessment:
+    """Disconnected DELETE assessment; every outcome is denied.
+
+    Owner/context, row, ledger and optional receipt are INTERNAL observations,
+    not request-body authority. No reader/transport/activation is supplied here.
+    Even matching observations are not atomic proof or successful replay.
+    A future adapter must revalidate authenticated account generation, identity,
+    row ownership and the exact operation receipt in ONE retirement transaction.
+    Never delete then retire, fall back to legacy DELETE, or report success from
+    remote absence / RETIRED / an ALREADY_RETIRED SQL status alone.
+    """
+    def deny(kind: str, code: str) -> DeleteAssessment:
+        return DeleteAssessment(kind, Denial(code))
+
+    if not _valid_context(captured) or not _valid_context(current):
+        return deny("account_unavailable", "ACCOUNT_AUTHORITY_UNAVAILABLE")
+    if authenticated_owner != captured.owner_id or authenticated_owner != current.owner_id:
+        return deny("account_mismatch", "ACCOUNT_AUTHORITY_MISMATCH")
+    if captured != current:
+        return deny("stale_account", "STALE_ACCOUNT_AUTHORITY")
+    if type(note_id) is not str or not note_id.strip() or type(operation_id) is not str or not operation_id.strip():
+        return deny("invalid_request", "INVALID_OPERATION_IDENTITY")
+    readiness = assess_candidate("retire", captured, current, prerequisites,
+                                 note_id=note_id, operation_id=operation_id)
+    if readiness.code != "CANDIDATE_NOT_ACTIVATED":
+        return DeleteAssessment("enforcement_unavailable", Denial("DATABASE_ENFORCEMENT_UNAVAILABLE", readiness.missing))
+    if owned_row is not None:
+        if type(owned_row) is not dict or owned_row.get("id") != note_id:
+            return deny("state_conflict", "NOTE_OBSERVATION_INVALID")
+        if owned_row.get("user_id") != authenticated_owner:
+            return deny("account_mismatch", "ACCOUNT_AUTHORITY_MISMATCH")
+    if identity is None:
+        return deny("unknown_historical", "IDENTITY_PROVENANCE_UNPROVEN")
+    if not isinstance(identity, IdentityObservation) or identity.note_id != note_id:
+        return deny("enforcement_unavailable", "IDENTITY_OBSERVATION_INVALID")
+    if identity.owner_id != authenticated_owner:
+        return deny("account_mismatch", "ACCOUNT_AUTHORITY_MISMATCH")
+    if receipt is not None:
+        if type(receipt) is not dict:
+            return deny("enforcement_unavailable", "RECEIPT_OBSERVATION_INVALID")
+        if receipt.get("owner_id") != authenticated_owner:
+            return deny("account_mismatch", "ACCOUNT_AUTHORITY_MISMATCH")
+        # Match the existing SQL receipt fields without normalizing or mutating
+        # the observation. This check is diagnostic, NOT DB replay admission.
+        if (receipt.get("note_id") != note_id or receipt.get("operation_id") != operation_id
+                or receipt.get("kind") != "retire" or receipt.get("payload") != {}
+                or receipt.get("digest") != sha256(b"{}").hexdigest()):
+            return deny("operation_conflict", "OPERATION_CONFLICT")
+    if identity.state == "RETIRED":
+        if owned_row is not None:
+            return deny("state_conflict", "RETIRED_NOTE_PRESENT")
+        if receipt is None:
+            return deny("retired_identity", "RETIREMENT_RECEIPT_UNPROVEN")
+        return DeleteAssessment("retired_identity", readiness)
+    if identity.state == "LIVE":
+        if owned_row is None:
+            return deny("state_conflict", "LIVE_NOTE_MISSING")
+        kind = "live_retirement"
+    elif identity.state == "RESERVED":
+        if owned_row is not None:
+            return deny("state_conflict", "RESERVED_NOTE_ALREADY_EXISTS")
+        kind = "reserved_retirement"
+    else:
+        return deny("enforcement_unavailable", "IDENTITY_OBSERVATION_INVALID")
+    if receipt is not None:
+        return deny("state_conflict", "RETIREMENT_RESULT_INDETERMINATE")
+    return DeleteAssessment(kind, readiness)
