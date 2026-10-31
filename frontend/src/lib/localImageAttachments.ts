@@ -3,7 +3,10 @@ import {
   type AccountScopedAttachmentMetadata,
   type AttachmentRepository,
   type BlobStorageAdapter,
+  type AttachmentCreateStage,
 } from './attachmentRepository';
+import { observePublishedNotesHydration, useNotesStore } from '../store/useNotesStore';
+import { isCompleteLocalNote } from './notesBootstrapAuthority';
 import { createLocalAttachmentBlobAdapter } from './attachmentBlobIndexedDb';
 import { createLocalAttachmentMetadataRepository } from './attachmentMetadataIndexedDb';
 import {
@@ -31,9 +34,19 @@ export interface AttachLocalImageInput {
 }
 
 export interface AttachLocalImageResult {
+  /** Both attachment stores committed; the Note body itself has NOT been persisted. */
+  status: 'STAGED';
+  isCurrent: () => boolean;
   metadata: AccountScopedAttachmentMetadata;
   body: string;
   reference: string;
+}
+
+export class LocalImageAttachmentWriteError extends Error {
+  constructor(readonly lifecycle: Readonly<{ blob: AttachmentCreateStage; metadata: AttachmentCreateStage }>, reason: string) {
+    super(reason);
+    this.name = 'LocalImageAttachmentWriteError';
+  }
 }
 
 export function localAttachmentBlobKey(accountId: string, attachmentId: string): string {
@@ -55,10 +68,10 @@ export function validateLocalImageFile(file: File): string | null {
   return null;
 }
 
-async function checksumBlob(blob: Blob): Promise<string | undefined> {
+async function checksumBytes(bytes: ArrayBuffer): Promise<string | undefined> {
   if (!globalThis.crypto?.subtle) return undefined;
   try {
-    const digest = await globalThis.crypto.subtle.digest('SHA-256', await blob.arrayBuffer());
+    const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes);
     const hex = Array.from(new Uint8Array(digest))
       .map(byte => byte.toString(16).padStart(2, '0'))
       .join('');
@@ -76,35 +89,58 @@ export function appendAttachmentReferenceToBody(body: string, reference: string)
 
 export async function attachLocalImageToNote(input: AttachLocalImageInput): Promise<AttachLocalImageResult> {
   if (isReturnToUseAttachmentIsolationEnabled()) throw returnToUseAttachmentIsolationError();
-  const validationError = validateLocalImageFile(input.file);
-  if (validationError) throw new Error(validationError);
-
+  const { accountId, noteId, file, currentBody } = input;
+  let blob: AttachmentCreateStage = 'NOT_STARTED', metadataStage: AttachmentCreateStage = 'NOT_STARTED';
+  const fail = (reason: string): never => { throw new LocalImageAttachmentWriteError(Object.freeze({ blob, metadata: metadataStage }), reason); };
+  const observation = observePublishedNotesHydration();
+  const state = useNotesStore.getState();
+  const note = state.notes.find(candidate => candidate.id === noteId);
+  const request = observation.status === 'CURRENT' ? observation.request : null;
+  const current = () => {
+    const latest = observePublishedNotesHydration(), store = useNotesStore.getState();
+    return !isReturnToUseAttachmentIsolationEnabled() && request !== null && latest.status === 'CURRENT'
+      && latest.request === request && request.accountId === accountId && store.activeAccountId === accountId
+      && store.activeNoteId === noteId && store.notes.find(item => item.id === noteId) === note
+      && !!note && note.deletedAt === null && isCompleteLocalNote(note) && note.body === currentBody;
+  };
+  if (!accountId || accountId !== accountId.trim() || !noteId || noteId !== noteId.trim() || !current()) {
+    blob = 'DENIED'; return fail('attachment_creation_denied');
+  }
+  const validationError = validateLocalImageFile(file);
+  if (validationError) return fail(validationError);
   const repository = input.repository ?? createLocalAttachmentMetadataRepository();
   const blobAdapter = input.blobAdapter ?? createLocalAttachmentBlobAdapter();
+  if (!repository.createAttachmentForAccountNote || !blobAdapter.createBlobForAccountNote) return fail('attachment_scoped_creation_unavailable');
   const now = input.now ?? (() => new Date().toISOString());
   const id = input.idFactory?.() ?? randomId();
   const createdAt = now();
-  const accountId = input.accountId.trim();
+  let reference: string;
+  try { reference = attachmentReference(id); } catch { return fail('attachment_creation_invalid_id'); }
+  if (reference !== `attachment://${id}`) return fail('attachment_creation_invalid_id');
   const localBlobKey = localAttachmentBlobKey(accountId, id);
-  const checksum = await checksumBlob(input.file);
-
-  await blobAdapter.putBlob({
-    key: localBlobKey,
-    blob: input.file,
-    mimeType: input.file.type,
-    checksum,
-  });
+  let bytes: ArrayBuffer;
+  try { bytes = await file.arrayBuffer(); } catch { return fail('attachment_bytes_unavailable'); }
+  if (!current()) { blob = 'DENIED'; return fail('attachment_creation_stale'); }
+  if (bytes.byteLength !== file.size) return fail('attachment_size_mismatch');
+  const checksum = await checksumBytes(bytes);
+  if (!current()) { blob = 'DENIED'; return fail('attachment_creation_stale'); }
+  if (!checksum) return fail('attachment_checksum_unavailable');
+  const context = Object.freeze({ accountId, noteId, attachmentId: id, request: request!, isCurrent: current });
+  try { blob = await blobAdapter.createBlobForAccountNote(context, { key: localBlobKey, blob: new Blob([bytes], { type: file.type }), mimeType: file.type, checksum }); }
+  catch { blob = 'INDETERMINATE'; return fail('attachment_blob_outcome_unknown'); }
+  if (blob !== 'COMMITTED') return fail('attachment_blob_not_committed');
+  if (!current()) { metadataStage = 'DENIED'; return fail('attachment_creation_stale'); }
 
   const metadata: AccountScopedAttachmentMetadata = {
     id,
     accountId,
-    noteId: input.noteId,
-    fileName: input.file.name || `${id}.image`,
-    mimeType: input.file.type,
-    size: input.file.size,
+    noteId,
+    fileName: file.name || `${id}.image`,
+    mimeType: file.type,
+    size: file.size,
     checksum,
     localBlobKey,
-    alt: input.file.name.replace(/\.[^.]+$/, '') || undefined,
+    alt: file.name.replace(/\.[^.]+$/, '') || undefined,
     source: 'local',
     createdAt,
     updatedAt: createdAt,
@@ -112,11 +148,14 @@ export async function attachLocalImageToNote(input: AttachLocalImageInput): Prom
     syncStatus: 'local',
   };
 
-  await repository.putAttachment(metadata);
-  const reference = attachmentReference(id);
-  return {
-    metadata,
+  try { metadataStage = await repository.createAttachmentForAccountNote(context, metadata); }
+  catch { metadataStage = 'INDETERMINATE'; return fail('attachment_metadata_outcome_unknown'); }
+  if (metadataStage !== 'COMMITTED') return fail('attachment_metadata_not_committed');
+  if (!current()) return fail('attachment_staged_but_context_expired');
+  return Object.freeze({
+    status: 'STAGED', isCurrent: current,
+    metadata: Object.freeze(metadata),
     reference,
-    body: appendAttachmentReferenceToBody(input.currentBody, reference),
-  };
+    body: appendAttachmentReferenceToBody(currentBody, reference),
+  });
 }

@@ -83,6 +83,16 @@ export type ScopedAttachmentTombstoneResult = Readonly<{
   status: 'TOMBSTONED' | 'DENIED' | 'NOT_STARTED' | 'ABORTED' | 'INDETERMINATE';
 }>;
 
+export interface ScopedAttachmentCreateContext {
+  readonly accountId: string;
+  readonly noteId: string;
+  readonly attachmentId: string;
+  readonly request: NotesAuthorityRequest;
+  readonly isCurrent: () => boolean;
+}
+
+export type AttachmentCreateStage = 'NOT_STARTED' | 'DENIED' | 'COMMITTED' | 'ABORTED' | 'INDETERMINATE' | 'CONFLICT';
+
 export function attachmentMetadataAccountId(metadata: AttachmentMetadata): string | null {
   const accountId = (metadata as Partial<AccountScopedAttachmentMetadata>).accountId;
   return typeof accountId === 'string' && accountId.trim() ? accountId.trim() : null;
@@ -114,6 +124,7 @@ export interface AttachmentBlobInventoryRecord {
 }
 
 export interface BlobStorageAdapter {
+  createBlobForAccountNote?(context: ScopedAttachmentCreateContext, input: AttachmentBlobWrite): Promise<AttachmentCreateStage>;
   putBlob(input: AttachmentBlobWrite): Promise<AttachmentBlobRecord>;
   getBlob(key: string): Promise<AttachmentBlobRecord | null>;
   deleteBlob(key: string): Promise<void>;
@@ -125,6 +136,7 @@ export interface BlobStorageAdapter {
 }
 
 export interface AttachmentRepository {
+  createAttachmentForAccountNote?(context: ScopedAttachmentCreateContext, metadata: AccountScopedAttachmentMetadata): Promise<AttachmentCreateStage>;
   listAttachments(): Promise<AttachmentMetadata[]>;
   listAttachmentsForAccount?(accountId: string): Promise<AccountScopedAttachmentMetadata[]>;
   listAttachmentsForAccountNote?(accountId: string, noteId: string): Promise<AccountScopedAttachmentMetadata[]>;

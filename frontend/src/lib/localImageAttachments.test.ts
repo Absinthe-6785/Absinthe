@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { webcrypto } from 'node:crypto';
 import { noteSyncPayload } from '@/components/views/noteUtils';
 import type { AttachmentMetadata, AttachmentRepository, BlobStorageAdapter } from './attachmentRepository';
 import {
@@ -7,6 +8,13 @@ import {
   attachLocalImageToNote,
   validateLocalImageFile,
 } from './localImageAttachments';
+const publication = vi.hoisted(() => ({ request: { accountId: 'account-a' }, note: { id: 'note-1', title: 'T', body: 'body', folderId: null, updatedAt: 1, deletedAt: null } }));
+vi.mock('../store/useNotesStore', () => ({
+  observePublishedNotesHydration: () => ({ status: 'CURRENT', request: publication.request }),
+  useNotesStore: { getState: () => ({ notes: [publication.note], activeNoteId: 'note-1', activeAccountId: 'account-a' }) },
+}));
+beforeEach(() => { vi.stubGlobal('crypto', webcrypto); vi.stubEnv('VITE_ABSINTHE_RETURN_TO_USE_ATTACHMENT_ISOLATION', 'false'); publication.note.body = 'body'; });
+afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
 function imageFile(name = 'scan.png', type = 'image/png') {
   return new File(['image-bytes'], name, { type });
@@ -16,6 +24,10 @@ function memoryRepository(): AttachmentRepository & { records: Map<string, Attac
   const records = new Map<string, AttachmentMetadata>();
   return {
     records,
+    async createAttachmentForAccountNote(_context, metadata) {
+      if (records.has(metadata.id)) return 'CONFLICT';
+      records.set(metadata.id, metadata); return 'COMMITTED';
+    },
     async listAttachments() { return [...records.values()]; },
     async listAttachmentsForNote(noteId) { return [...records.values()].filter(item => item.noteId === noteId); },
     async getAttachment(id) { return records.get(id) ?? null; },
@@ -49,6 +61,7 @@ function memoryBlobAdapter() {
   }));
   return {
     putBlob,
+    createBlobForAccountNote: vi.fn(async () => 'COMMITTED' as const),
     getBlob: vi.fn<BlobStorageAdapter['getBlob']>(async () => null),
     deleteBlob: vi.fn<BlobStorageAdapter['deleteBlob']>(async () => {}),
     getObjectUrl: vi.fn<BlobStorageAdapter['getObjectUrl']>(async () => null),
@@ -82,7 +95,8 @@ describe('local image attachments', () => {
       idFactory: () => 'att-1',
     });
 
-    expect(blobAdapter.putBlob).toHaveBeenCalledWith(expect.objectContaining({
+    expect(blobAdapter.putBlob).not.toHaveBeenCalled();
+    expect(blobAdapter.createBlobForAccountNote).toHaveBeenCalledWith(expect.objectContaining({ accountId: 'account-a', noteId: 'note-1' }), expect.objectContaining({
       key: 'local-image/account-a/att-1',
       blob: expect.any(Blob),
       mimeType: 'image/png',
@@ -123,6 +137,7 @@ describe('local image attachments', () => {
   });
 
   it('keeps Notes sync payload lightweight after attachment insertion', async () => {
+    publication.note.body = '';
     const result = await attachLocalImageToNote({
       accountId: 'account-a',
       noteId: 'note-1',

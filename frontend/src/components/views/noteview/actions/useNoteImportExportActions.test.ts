@@ -2,12 +2,20 @@
 import { createElement, type MutableRefObject } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { healthSnapshotMock, zipDownloadMock, jsonDownloadMock } = vi.hoisted(() => ({
+const { healthSnapshotMock, zipDownloadMock, jsonDownloadMock, observeMock, attachMock } = vi.hoisted(() => ({
   healthSnapshotMock: vi.fn(),
   zipDownloadMock: vi.fn(),
   jsonDownloadMock: vi.fn(),
+  observeMock: vi.fn(), attachMock: vi.fn(),
+}));
+
+vi.mock('../../../../store/useNotesStore', async original => ({
+  ...await original<typeof import('../../../../store/useNotesStore')>(), observePublishedNotesHydration: observeMock,
+}));
+vi.mock('../../../../lib/localImageAttachments', async original => ({
+  ...await original<typeof import('../../../../lib/localImageAttachments')>(), attachLocalImageToNote: attachMock,
 }));
 
 vi.mock('../../../../lib/healthRoutineSync', () => ({
@@ -76,12 +84,58 @@ function params(overrides: Partial<UseNoteViewActionsParams> = {}) {
   return { params: { ...base, ...overrides } as UseNoteViewActionsParams, insertImage, insertEmptyImageBlock, updateNote, setIsDragOver };
 }
 
+beforeEach(() => { observeMock.mockReturnValue({ status: 'UNAVAILABLE' }); attachMock.mockReset(); });
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.clearAllMocks();
 });
 
 describe('useNoteImportExportActions Return-to-Use attachment isolation', () => {
+  function publish(accountId: string, target = note) {
+    const request = Object.freeze({ accountId, generation: 1 });
+    useNotesStore.setState({ notes: [target], activeAccountId: accountId, activeNoteId: target.id });
+    observeMock.mockReturnValue({ status: 'CURRENT', request });
+    return request;
+  }
+
+  it.each(['foreign-same-id', 'account-a-b-a', 'missing-publication'])('rejects a retained callback for %s before attachment writes', async kind => {
+    vi.stubEnv('VITE_ABSINTHE_RETURN_TO_USE_ATTACHMENT_ISOLATION', 'false');
+    publish('A'); const configured = params(); const mounted = renderActions(configured.params);
+    attachMock.mockResolvedValue({ reference: 'attachment://att-test', isCurrent: () => true });
+    if (kind === 'foreign-same-id') publish('B', { ...note });
+    if (kind === 'account-a-b-a') { publish('B', { ...note }); publish('A'); }
+    if (kind === 'missing-publication') observeMock.mockReturnValue({ status: 'UNAVAILABLE' });
+    try {
+      await act(async () => mounted.actions.attachImageFilesToActiveNote([new File(['private-A'], 'from-A.png', { type: 'image/png' })]));
+      expect(attachMock).not.toHaveBeenCalled(); expect(configured.updateNote).not.toHaveBeenCalled();
+    } finally { cleanup(mounted.root, mounted.host); }
+  });
+
+  it('keeps one captured request for the whole batch and rejects A/B/A while a file is awaited', async () => {
+    vi.stubEnv('VITE_ABSINTHE_RETURN_TO_USE_ATTACHMENT_ISOLATION', 'false');
+    publish('A'); const configured = params(); const mounted = renderActions(configured.params);
+    let resolve!: (value: unknown) => void;
+    attachMock.mockReturnValue(new Promise(yes => { resolve = yes; }));
+    try {
+      mounted.actions.attachImageFilesToActiveNote([new File(['1'], 'one.png', { type: 'image/png' }), new File(['2'], 'two.png', { type: 'image/png' })]);
+      publish('B', { ...note }); publish('A');
+      await act(async () => { resolve({ reference: 'attachment://att-test', isCurrent: () => true }); });
+      expect(attachMock).toHaveBeenCalledTimes(1); expect(configured.updateNote).not.toHaveBeenCalled();
+    } finally { cleanup(mounted.root, mounted.host); }
+  });
+
+  it('retains same-owner multi-file reference assembly and the existing single body update', async () => {
+    vi.stubEnv('VITE_ABSINTHE_RETURN_TO_USE_ATTACHMENT_ISOLATION', 'false');
+    publish('A'); const configured = params(); const mounted = renderActions(configured.params);
+    attachMock.mockResolvedValueOnce({ reference: 'attachment://one', isCurrent: () => true })
+      .mockResolvedValueOnce({ reference: 'attachment://two', isCurrent: () => true });
+    try {
+      await act(async () => mounted.actions.attachImageFilesToActiveNote([new File(['1'], 'one.png', { type: 'image/png' }), new File(['2'], 'two.png', { type: 'image/png' })]));
+      expect(attachMock).toHaveBeenCalledTimes(2);
+      expect(attachMock.mock.calls.every(([input]) => input.accountId === 'A' && input.currentBody === note.body)).toBe(true);
+      expect(configured.updateNote).toHaveBeenCalledExactlyOnceWith(note.id, { body: 'plain text\n\nattachment://one\n\nattachment://two' });
+    } finally { cleanup(mounted.root, mounted.host); }
+  });
   it('blocks editor image insertion and drag/drop attachment persistence while isolation is active', async () => {
     vi.stubEnv('VITE_ABSINTHE_RETURN_TO_USE_ATTACHMENT_ISOLATION', 'true');
     const configured = params();
