@@ -48,6 +48,7 @@ import type { NoteBase as Note, NoteFolderBase as NoteFolder } from '../noteUtil
 import { NoteEditorHeaderActions } from './NoteEditorHeaderActions';
 import { FindInNotePanel } from './FindInNotePanel';
 import { NoteImageAttachments } from './NoteImageAttachments';
+import { NoteLocalDocumentOriginals } from './NoteLocalDocumentOriginals';
 import { ProductEmptyState } from '../../common/ProductEmptyState';
 import { TagChip, TagChipRow } from '../features/knowledge/components/TagChip';
 import { NoteContextStrip } from '../features/knowledge/components/NoteContextStrip';
@@ -1039,6 +1040,7 @@ export function NoteViewEditorArea({ layout, data, handlers }: NoteViewEditorAre
                           {t('nvReadingModeHint')}
                         </div>
                       )}
+                      <NoteLocalDocumentOriginals note={activeNote} colors={c} />
                       {!attachmentIsolationEnabled ? (
                         <NoteImageAttachments
                           note={activeNote}

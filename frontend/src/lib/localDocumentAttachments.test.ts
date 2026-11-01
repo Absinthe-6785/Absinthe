@@ -10,10 +10,16 @@ import * as authority from './notesAccountAuthority';
 import { resetNotesPersistenceForTests } from './notePersistence';
 import { setRecoveryModeActiveForTest } from './recoverySafetyPolicy';
 import { NOTES_RUNTIME_SYNC_MODE_KEY } from './notesSyncClient';
+import type { AttachmentRepository } from './attachmentRepository';
 import { LocalAttachmentBlobAdapter } from './attachmentBlobIndexedDb';
 import { LocalAttachmentMetadataRepository } from './attachmentMetadataIndexedDb';
 import { LocalDocumentAttachmentWriteError } from './localImageAttachments';
-import { stageLocalDocumentOriginal, readLocalDocumentOriginal } from './localDocumentAttachments';
+import {
+  listPublishedLocalDocumentOriginals,
+  readLocalDocumentOriginal,
+  readPublishedLocalDocumentOriginal,
+  stageLocalDocumentOriginal,
+} from './localDocumentAttachments';
 
 const repo = new LocalAttachmentMetadataRepository(), blobs = new LocalAttachmentBlobAdapter();
 const original = { id: 'note', title: 'Note', body: 'authored', updatedAt: 1, folderId: null, deletedAt: null };
@@ -33,6 +39,14 @@ function input(id = 'att-doc', type = 'application/pdf', name = ' 원본.pdf') {
 }
 function read(staged?: Awaited<ReturnType<typeof stageLocalDocumentOriginal>>) {
   return readLocalDocumentOriginal({ accountId: 'A', noteId: 'note', attachmentId: 'att-doc', staged, repository: repo, blobAdapter: blobs });
+}
+async function publish(staged: Awaited<ReturnType<typeof stageLocalDocumentOriginal>>) {
+  const observation = observePublishedNotesHydration();
+  if (observation.status !== 'CURRENT') throw new Error('fixture');
+  const result = await useNotesStore.getState().persistAttachmentReferences(
+    observation.request, useNotesStore.getState().notes[0]!, [staged],
+  );
+  expect(result).toMatchObject({ status: 'REFERENCE_PERSISTED', write: 'COMMITTED', readback: 'MATCHED' });
 }
 async function failure(work: Promise<unknown>) {
   const error = await work.catch(e => e);
@@ -77,6 +91,93 @@ it('reuses the exact existing Note reference ACK and requires a current referenc
     .toEqual({ status: 'REFERENCE_PERSISTED', write: 'COMMITTED', readback: 'MATCHED' });
   expect((await read()).status).toBe('VERIFIED');
   expect((await read(staged)).status).toBe('DENIED'); // Old Note identity is not a reusable permit.
+  expect(authFetch).not.toHaveBeenCalled();
+});
+
+it('lists and downloads only referenced account-local documents through the read-only path while writes remain isolated', async () => {
+  const staged = await stageLocalDocumentOriginal(input());
+  await publish(staged);
+  vi.stubEnv('VITE_ABSINTHE_RETURN_TO_USE_ATTACHMENT_ISOLATION', 'true');
+
+  const blobRead = vi.spyOn(blobs, 'getBlob');
+  const listed = await listPublishedLocalDocumentOriginals({ accountId: 'A', noteId: 'note', repository: repo });
+  expect(listed.status).toBe('VERIFIED');
+  if (listed.status !== 'VERIFIED') throw new Error('fixture');
+  expect(listed.documents.map(({ attachmentId, fileName, mimeType, size, format }) => ({
+    attachmentId, fileName, mimeType, size, format,
+  }))).toEqual([{ attachmentId: 'att-doc', fileName: ' 원본.pdf', mimeType: 'application/pdf', size: bytes.length, format: 'pdf' }]);
+  expect(blobRead).not.toHaveBeenCalled();
+
+  const result = await readPublishedLocalDocumentOriginal({
+    accountId: 'A', noteId: 'note', candidate: listed.documents[0]!, repository: repo, blobAdapter: blobs,
+  });
+  expect(result).toMatchObject({ status: 'VERIFIED', integrity: 'SHA256_MATCHED', formatIntegrity: 'UNVERIFIED' });
+  if (result.status !== 'VERIFIED') throw new Error('fixture');
+  expect(new Uint8Array(await result.file.arrayBuffer())).toEqual(bytes);
+  expect(await read()).toMatchObject({ status: 'DENIED' });
+  await expect(stageLocalDocumentOriginal(input('other-doc'))).rejects.toThrow('Attachments are temporarily disabled');
+  expect(authFetch).not.toHaveBeenCalled();
+});
+
+it('preserves declared DOCX metadata and exact original bytes on the published read path', async () => {
+  const staged = await stageLocalDocumentOriginal(input('att-docx', docx, '契約.docx'));
+  await publish(staged);
+  const listed = await listPublishedLocalDocumentOriginals({ accountId: 'A', noteId: 'note', repository: repo });
+  expect(listed.status).toBe('VERIFIED');
+  if (listed.status !== 'VERIFIED') throw new Error('fixture');
+  expect(listed.documents[0]).toMatchObject({ attachmentId: 'att-docx', fileName: '契約.docx', format: 'docx', mimeType: docx });
+  const result = await readPublishedLocalDocumentOriginal({ accountId: 'A', noteId: 'note', candidate: listed.documents[0]!, repository: repo, blobAdapter: blobs });
+  expect(result.status).toBe('VERIFIED');
+  if (result.status !== 'VERIFIED') throw new Error('fixture');
+  expect(new Uint8Array(await result.file.arrayBuffer())).toEqual(bytes);
+  expect(result.formatIntegrity).toBe('UNVERIFIED');
+});
+
+it('denies listing for a foreign active account, inactive Note, or deleted Note', async () => {
+  await stageLocalDocumentOriginal(input());
+  expect(await listPublishedLocalDocumentOriginals({ accountId: 'A', noteId: 'note', repository: repo }))
+    .toEqual({ status: 'VERIFIED', documents: [] }); // A staged original without a Note reference is not published.
+  await seed('B');
+  expect(await listPublishedLocalDocumentOriginals({ accountId: 'A', noteId: 'note', repository: repo })).toMatchObject({ status: 'DENIED' });
+  await seed('A');
+  useNotesStore.getState().setActiveNoteId(null);
+  expect(await listPublishedLocalDocumentOriginals({ accountId: 'A', noteId: 'note', repository: repo })).toMatchObject({ status: 'DENIED' });
+  await seed('A');
+  useNotesStore.setState(state => ({ ...state, notes: state.notes.map(item => ({ ...item, deletedAt: '2026-01-01T00:00:00.000Z' })) }));
+  expect(await listPublishedLocalDocumentOriginals({ accountId: 'A', noteId: 'note', repository: repo })).toMatchObject({ status: 'DENIED' });
+});
+
+it('fails closed for foreign, remote, tombstoned, malformed and duplicate metadata while keeping the list read-only', async () => {
+  const stages = await Promise.all(['att-doc', 'att-foreign', 'att-remote', 'att-deleted', 'att-duplicate'].map(id =>
+    stageLocalDocumentOriginal(input(id))));
+  await publish(stages[0]!);
+  const observation = observePublishedNotesHydration();
+  if (observation.status !== 'CURRENT') throw new Error('fixture');
+  await useNotesStore.getState().persistAttachmentReferences(observation.request, useNotesStore.getState().notes[0]!, stages.slice(1));
+  const rows = await repo.listAttachmentsForAccountNote('A', 'note');
+  const malformed = { ...rows.find(item => item.id === 'att-doc')!, fileName: '../outside.pdf' };
+  const foreign = { ...rows.find(item => item.id === 'att-foreign')!, accountId: 'B', localBlobKey: 'local-document/B/att-foreign' };
+  const remote = { ...rows.find(item => item.id === 'att-remote')!, source: 'remote' as const };
+  const deleted = { ...rows.find(item => item.id === 'att-deleted')!, deletedAt: '2026-01-01T00:00:00.000Z', syncStatus: 'deleted' as const };
+  const duplicate = rows.find(item => item.id === 'att-duplicate')!;
+  const repository = Object.create(repo) as AttachmentRepository;
+  repository.listAttachmentsForAccountNote = async () => [malformed, foreign, remote, deleted, duplicate, duplicate];
+
+  const listed = await listPublishedLocalDocumentOriginals({ accountId: 'A', noteId: 'note', repository });
+  expect(listed).toEqual({ status: 'VERIFIED', documents: [] });
+  expect(authFetch).not.toHaveBeenCalled();
+});
+
+it('rejects an A/B/A stale listed candidate and returns no candidate after the Note reference is removed', async () => {
+  const staged = await stageLocalDocumentOriginal(input());
+  await publish(staged);
+  const listed = await listPublishedLocalDocumentOriginals({ accountId: 'A', noteId: 'note', repository: repo });
+  if (listed.status !== 'VERIFIED' || listed.documents.length !== 1) throw new Error('fixture');
+  await seed('B'); await seed('A');
+  expect(await readPublishedLocalDocumentOriginal({ accountId: 'A', noteId: 'note', candidate: listed.documents[0]!, repository: repo, blobAdapter: blobs }))
+    .toMatchObject({ status: 'DENIED' });
+  expect(await listPublishedLocalDocumentOriginals({ accountId: 'A', noteId: 'note', repository: repo }))
+    .toEqual({ status: 'VERIFIED', documents: [] });
   expect(authFetch).not.toHaveBeenCalled();
 });
 

@@ -27,6 +27,17 @@ export type LocalDocumentFileAdmission =
     }>
   | Readonly<{ status: 'REJECTED'; reason: LocalDocumentAdmissionReason }>;
 
+export type LocalDocumentDeclarationAdmission =
+  | Readonly<{
+      status: 'ELIGIBLE_BY_DECLARATION';
+      format: LocalDocumentFormat;
+      displayName: string;
+      declaredMimeType: string;
+      size: number;
+      contentIntegrity: 'UNVERIFIED';
+    }>
+  | Readonly<{ status: 'REJECTED'; reason: LocalDocumentAdmissionReason }>;
+
 const MIME_BY_EXTENSION: Readonly<Record<LocalDocumentFormat, string>> = Object.freeze({
   pdf: 'application/pdf',
   docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -44,11 +55,14 @@ function rejected(reason: LocalDocumentAdmissionReason): LocalDocumentFileAdmiss
  * It does not read, parse, convert, or establish the integrity/safety of bytes.
  * The exact immutable File is returned for a later scoped attachment operation.
  */
-export function admitLocalDocumentFile(file: File): LocalDocumentFileAdmission {
-  if (!file || typeof file !== 'object' || typeof file.name !== 'string' || typeof file.type !== 'string') {
+export function admitLocalDocumentDeclaration(
+  declaration: Pick<File, 'name' | 'type' | 'size'>,
+): LocalDocumentDeclarationAdmission {
+  if (!declaration || typeof declaration !== 'object'
+    || typeof declaration.name !== 'string' || typeof declaration.type !== 'string') {
     return rejected('invalid_file');
   }
-  const name = file.name;
+  const name = declaration.name;
   if (!name || UNSAFE_DISPLAY_NAME.test(name)) return rejected('unsafe_filename');
   if (!name.includes('.')) return rejected('unsupported_extension');
 
@@ -58,21 +72,26 @@ export function admitLocalDocumentFile(file: File): LocalDocumentFileAdmission {
   const extension = name.slice(name.lastIndexOf('.') + 1).toLowerCase();
   if (extension !== 'pdf' && extension !== 'docx') return rejected('unsupported_extension');
 
-  const mimeType = file.type.toLowerCase();
+  const mimeType = declaration.type.toLowerCase();
   if (!mimeType || !Object.values(MIME_BY_EXTENSION).includes(mimeType)) return rejected('invalid_mime');
   if (mimeType !== MIME_BY_EXTENSION[extension]) return rejected('mime_extension_mismatch');
 
-  if (!Number.isSafeInteger(file.size) || file.size < 0) return rejected('invalid_size');
-  if (file.size === 0) return rejected('empty_file');
-  if (file.size > LOCAL_DOCUMENT_ATTACHMENT_MAX_BYTES) return rejected('file_too_large');
+  if (!Number.isSafeInteger(declaration.size) || declaration.size < 0) return rejected('invalid_size');
+  if (declaration.size === 0) return rejected('empty_file');
+  if (declaration.size > LOCAL_DOCUMENT_ATTACHMENT_MAX_BYTES) return rejected('file_too_large');
 
   return Object.freeze({
     status: 'ELIGIBLE_BY_DECLARATION',
     format: extension,
-    file,
     displayName: name,
-    declaredMimeType: file.type,
-    size: file.size,
+    declaredMimeType: declaration.type,
+    size: declaration.size,
     contentIntegrity: 'UNVERIFIED',
   });
+}
+
+export function admitLocalDocumentFile(file: File): LocalDocumentFileAdmission {
+  const declaration = admitLocalDocumentDeclaration(file);
+  if (declaration.status !== 'ELIGIBLE_BY_DECLARATION') return declaration;
+  return Object.freeze({ ...declaration, file });
 }

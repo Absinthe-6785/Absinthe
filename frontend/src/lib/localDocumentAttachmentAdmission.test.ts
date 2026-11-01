@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { LOCAL_IMAGE_ATTACHMENT_MAX_BYTES, validateLocalImageFile } from './localImageAttachments';
 import {
+  admitLocalDocumentDeclaration,
   admitLocalDocumentFile,
   LOCAL_DOCUMENT_ATTACHMENT_MAX_BYTES,
 } from './localDocumentAttachmentAdmission';
@@ -12,6 +13,19 @@ function file(name: string, type: string, size = 4): File {
 }
 
 describe('local document attachment admission', () => {
+  it('validates stored filename, MIME and size declarations without constructing or reading a file', () => {
+    expect(admitLocalDocumentDeclaration({ name: 'scan.pdf', type: 'application/pdf', size: 4 })).toEqual({
+      status: 'ELIGIBLE_BY_DECLARATION', format: 'pdf', displayName: 'scan.pdf',
+      declaredMimeType: 'application/pdf', size: 4, contentIntegrity: 'UNVERIFIED',
+    });
+    expect(admitLocalDocumentDeclaration({ name: '../foreign.pdf', type: 'application/pdf', size: 4 }))
+      .toEqual({ status: 'REJECTED', reason: 'unsafe_filename' });
+    expect(admitLocalDocumentDeclaration({ name: 'scan.pdf', type: 'text/plain', size: 4 }))
+      .toEqual({ status: 'REJECTED', reason: 'invalid_mime' });
+    expect(admitLocalDocumentDeclaration({ name: 'scan.pdf', type: 'application/pdf', size: LOCAL_DOCUMENT_ATTACHMENT_MAX_BYTES + 1 }))
+      .toEqual({ status: 'REJECTED', reason: 'file_too_large' });
+  });
+
   it('admits only matching PDF and DOCX declarations without claiming content validation', () => {
     for (const [name, type, format] of [
       ['scan.pdf', 'application/pdf', 'pdf'],
