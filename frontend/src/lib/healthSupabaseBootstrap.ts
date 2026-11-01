@@ -8,6 +8,7 @@ import {
 } from './healthRecoveryExport';
 import {
   createLocalHealthDriver,
+  HealthBootstrapLocalPreservationError,
   type LocalHealthDriver,
 } from './healthLocalRepository';
 import { persistReadOnlyHealthBootstrap } from './healthRecoveryImport';
@@ -15,6 +16,7 @@ import { persistReadOnlyHealthBootstrap } from './healthRecoveryImport';
 export const HEALTH_LOCAL_BOOTSTRAP_COMPLETE_EVENT = 'absinthe-health-local-bootstrap-complete';
 export const HEALTH_BOOTSTRAP_INCOMPLETE_REMOTE_PRESERVED_LOCAL =
   'health_bootstrap_incomplete_remote_preserved_local';
+export const HEALTH_BOOTSTRAP_LOCAL_PRESERVED = 'health_bootstrap_local_preserved';
 
 type ReadOnlyFetch = (input: string, init?: RequestInit) => Promise<Pick<Response, 'ok' | 'status' | 'json' | 'headers'>>;
 
@@ -26,7 +28,7 @@ type HealthBootstrapSuccess = Awaited<ReturnType<typeof persistReadOnlyHealthBoo
 
 export type HealthSupabaseBootstrapResult = HealthBootstrapSuccess | {
   disposition: 'READY_FROM_PRESERVED_LOCAL';
-  reason: typeof HEALTH_BOOTSTRAP_INCOMPLETE_REMOTE_PRESERVED_LOCAL;
+  reason: typeof HEALTH_BOOTSTRAP_INCOMPLETE_REMOTE_PRESERVED_LOCAL | typeof HEALTH_BOOTSTRAP_LOCAL_PRESERVED;
   accountId: string;
   localDatasetCounts: HealthDatasetCounts;
   remoteDatasetCounts: HealthDatasetCounts;
@@ -125,12 +127,23 @@ export async function bootstrapHealthFromSupabase(input: {
     exportedAt: (input.now ?? (() => new Date().toISOString()))(),
     datasets: datasets as HealthRecoveryDatasets,
   });
-  const result = await persistReadOnlyHealthBootstrap({
-    export: recoveryExport,
-    driver: priorDriver,
-    accountId: input.accountId,
-    now: input.now,
-  });
+  let result: Awaited<ReturnType<typeof persistReadOnlyHealthBootstrap>>;
+  try {
+    result = await persistReadOnlyHealthBootstrap({
+      export: recoveryExport,
+      driver: priorDriver,
+      accountId: input.accountId,
+      now: input.now,
+    });
+  } catch (error) {
+    if (!(error instanceof HealthBootstrapLocalPreservationError)) throw error;
+    // Only a proven current local authority can turn a refused replacement
+    // into startup readiness. No merge, rollback, or automatic retry.
+    const localDatasetCounts = datasetCounts(await priorDriver.readAuthoritativeDatasets(input.accountId, { recoverPending: false }));
+    return { disposition: 'READY_FROM_PRESERVED_LOCAL', reason: HEALTH_BOOTSTRAP_LOCAL_PRESERVED,
+      accountId: input.accountId, localDatasetCounts, remoteDatasetCounts,
+      localTotalRows: totalRows(localDatasetCounts), remoteTotalRows: totalRows(remoteDatasetCounts) };
+  }
   if (typeof window !== 'undefined') window.dispatchEvent(new Event(HEALTH_LOCAL_BOOTSTRAP_COMPLETE_EVENT));
   return { ...result, disposition: 'READY_FROM_BOOTSTRAP' };
 }

@@ -358,6 +358,7 @@ export async function persistReadOnlyHealthBootstrap(input: {
     datasets: input.export.datasets,
     expectedImportState: priorImportState,
     pendingImportState,
+    bootstrapPriorDatasets: priorDatasets,
   });
   let readbackCounts: Record<HealthRecoveryDatasetName, number>;
   let relationships: HealthRecoveryExport['diagnostics']['relationships'];
