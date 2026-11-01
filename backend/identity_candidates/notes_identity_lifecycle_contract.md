@@ -72,3 +72,47 @@ Existing labelled, no-network disposable Docker PostgreSQL tests execute the SQL
 including observed lock barriers and transaction-failure rollback. They require
 K323_POSTGRES_INTEGRATION=1; skipped tests are NOT proof of atomicity. The existing
 backend-rel05g1 CI already enumerates this test module. No new harness/job is added.
+
+## Inactive private gateway extension (PRIVATE-GATEWAY-01)
+
+`notes_identity_private_gateway.sql` is a SEPARATE unapplied candidate, not a
+migration. Its shared login has only private prepare/apply EXECUTE, no Notes or
+ledger DML, signing-key read, owner membership or raw lifecycle EXECUTE. No public
+RPC/browser grant is provided; production schema exposure must still be verified.
+
+The Notes-only backend signer calls the existing SupabaseJWTVerifier itself. It
+never signs a caller's owner or generation. A separate, at-least-32-byte HMAC key
+attests exact owner/intent/payload/operation, audience and expiry to PostgreSQL;
+the DB login credential alone cannot create this proof. The signer and its key
+are a TRUSTED server boundary, not a claim of safety after backend compromise.
+Supabase's JWT signing key is not reused. Synthetic key provisioning is test-only.
+
+Prepare verifies that proof and durably captures the ACTIVE DB generation once,
+keyed by account/operation. Replays cannot refresh its generation, deadline or
+intent, including after A/B/A, expiry or execution failure. Apply verifies a new
+short-lived proof of the WHOLE immutable DB context. Existing fence checks run
+under locks in the same transaction as identity/Note/receipt changes. The only
+temporary login binding is inserted AND deleted inside that verified SQL call;
+an exception rolls it back. A transaction-scoped lock serializes calls on the
+shared login. No GUC, per-user login, pool-local user state or automatic retry is
+used. A new operation is new authenticated intent, not resurrection of an old one.
+Both assertion/context deadlines are rechecked after the shared-login lock and
+after lifecycle execution, before returning. Expiry during lower-level lock waits
+raises and rolls back identity, Note, receipt and temporary binding together.
+
+The Python transport uses fixed parameterized psycopg-3-compatible calls and
+acknowledges only after successful transaction AND connection-context exit. It
+accepts an injected trusted connection factory; it creates no DSN, credentials,
+pool, environment switch or runtime endpoint. Python and SQL both default OFF.
+Prepare admission and each apply have separate transactions; all state-changing
+identity effects of apply are one transaction. Inert admission rows are retained,
+not deleted/refreshed by callers. Retention/rotation are future deployment gates.
+
+The isolated psql tests verify the actual SQL privilege/MAC/JWT-to-assertion path,
+including reused/concurrent real connections, not a deployed psycopg/TLS/pool or
+Supabase authentication transport. Unit fake-driver tests are NOT DB proof. The
+existing verifier does not prove immediate JWT-session revocation; expiry and DB
+fence closure/generation changes are the tested denial boundaries. Real Auth
+session/account lifecycle integration, production key custody/rotation, direct
+connection role/grants/RLS, pgcrypto availability and all earlier legacy-bypass
+gates remain unverified. Do not turn readiness flags on because tests pass.
