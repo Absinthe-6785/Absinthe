@@ -2,7 +2,7 @@
 -- Reuses PR #847's identity/receipt algorithm, NOT its synthetic actor().
 -- Tests model the reported deployed Notes columns, not production integration.
 -- NO role creation, live grants, backfill, account deletion,
--- retention policy, issuer API, legacy adapter or activation is supplied here.
+-- retention policy, production issuer API, legacy adapter or activation is supplied here.
 -- Model gateway is a TRUSTED SERVER, never a browser role: p_owner must be bound
 -- by separately verified backend authentication. These model grants prove no
 -- production service-role/JWT properties. Owner/DBA bypass is out of scope.
@@ -52,6 +52,14 @@ create table notes_identity_candidate.account_fences (
   generation bigint not null check (generation > 0),
   state text not null check (state in ('ACTIVE', 'CLOSED'))
 );
+-- Private test model of server-authenticated database principals. Only the model
+-- owner provisions bindings; clients cannot set owner/generation through a GUC
+-- or SET ROLE. This is NOT a deployed Supabase JWT-to-DB-role adapter.
+create table notes_identity_candidate.principal_bindings (
+  login name primary key,
+  owner_id uuid not null,
+  generation bigint not null check (generation > 0)
+);
 create table notes_identity_candidate.identities (
   id text primary key check (btrim(id) <> ''),
   owner_id uuid not null,
@@ -61,7 +69,7 @@ create table notes_identity_candidate.identities (
 create table notes_identity_candidate.receipts (
   owner_id uuid not null,
   operation_id text not null check (btrim(operation_id) <> ''),
-  kind text not null check (kind in ('publish', 'retire')),
+  kind text not null check (kind in ('reserve', 'publish', 'retire')),
   note_id text not null references notes_identity_candidate.identities(id),
   digest text not null,
   payload jsonb not null,
@@ -101,6 +109,9 @@ begin
       and r.k323_enforcement and r.reset_restore and r.account_termination) then
     raise exception 'CANDIDATE_NOT_ACTIVATED';
   end if;
+  perform 1 from notes_identity_candidate.principal_bindings
+    where login=session_user and owner_id=p_owner and generation=p_generation for share;
+  if not found then raise exception 'ACCOUNT_AUTHORITY_UNAVAILABLE'; end if;
   -- Read-only safety gate, NOT a repair of deployed privileges. Runtime role
   -- binding and unguarded API/SECURITY DEFINER paths still require the separate
   -- default-false attestations above. Owner/DBA bypass is not covered here.
@@ -113,7 +124,8 @@ begin
         or pg_catalog.has_any_column_privilege(p.oid,'public.notes','INSERT,UPDATE'))) then
     raise exception 'CANDIDATE_DIRECT_WRITE_GRANTS_REMAIN';
   end if;
-  -- Fixed order: readiness -> account fence -> identity -> Note -> receipt.
+  -- Fixed order: readiness -> principal -> account fence -> operation (reserve)
+  -- -> identity -> Note -> receipt. All locks are transaction-scoped.
   perform 1 from notes_identity_candidate.account_fences
     where owner_id=p_owner and generation=p_generation and state='ACTIVE' for share;
   if not found then raise exception 'ACCOUNT_AUTHORITY_UNAVAILABLE'; end if;
@@ -130,6 +142,40 @@ exception when unique_violation then
   get stacked diagnostics constraint_id = constraint_name;
   if constraint_id = 'candidate_receipt_operation_key' then raise exception 'OPERATION_CONFLICT'; end if;
   raise;
+end $$;
+
+-- No requested Note ID, owner, provenance, timestamp or UUID is accepted.
+-- Only a private authenticated server principal can obtain a newly issued ID.
+create function notes_identity_candidate.reserve(p_operation text) returns text
+language plpgsql security definer set search_path = pg_catalog as $$
+declare principal notes_identity_candidate.principal_bindings%rowtype;
+  r notes_identity_candidate.receipts%rowtype;
+  issued text;
+begin
+  select * into principal from notes_identity_candidate.principal_bindings where login=session_user;
+  if not found then raise exception 'ACCOUNT_AUTHORITY_UNAVAILABLE'; end if;
+  perform notes_identity_candidate.require_ready(principal.owner_id,principal.generation);
+  if p_operation is null or btrim(p_operation)='' then raise exception 'INVALID_OPERATION'; end if;
+  -- Serialize concurrent reservation replays before generating another identity.
+  -- Hash collisions only serialize unrelated operations; they never authorize one.
+  perform pg_advisory_xact_lock(hashtextextended(principal.owner_id::text || ':' || p_operation,0));
+  select * into r from notes_identity_candidate.receipts
+    where owner_id=principal.owner_id and operation_id=p_operation;
+  if found then
+    if r.kind<>'reserve' or r.payload<>'{}'::jsonb
+      or r.digest<>encode(sha256(convert_to('{}','UTF8')),'hex')
+      or not exists (select 1 from notes_identity_candidate.identities
+        where id=r.note_id and owner_id=principal.owner_id) then
+      raise exception 'OPERATION_CONFLICT';
+    end if;
+    -- Replay returns historical issuance identity, NOT fresh publication authority.
+    return r.note_id;
+  end if;
+  issued := gen_random_uuid()::text;
+  if exists (select 1 from public.notes where id=issued) then raise exception 'IDENTITY_UNAVAILABLE'; end if;
+  insert into notes_identity_candidate.identities values(issued,principal.owner_id,'RESERVED');
+  perform notes_identity_candidate.record_receipt(principal.owner_id,issued,p_operation,'reserve','{}'::jsonb);
+  return issued;
 end $$;
 
 create function notes_identity_candidate.publish(
@@ -199,8 +245,14 @@ begin
     or r.digest<>encode(sha256(convert_to('{}','UTF8')),'hex')) then
     raise exception 'OPERATION_CONFLICT';
   end if;
-  if i.state='RETIRED' then return 'ALREADY_RETIRED'; end if;
+  if i.state='RETIRED' then
+    if found then return 'ALREADY_RETIRED'; end if;
+    raise exception 'IDENTITY_UNAVAILABLE';
+  end if;
   if found then raise exception 'RESULT_INDETERMINATE'; end if;
+  if exists (select 1 from public.notes where id=p_id and user_id<>p_owner) then
+    raise exception 'RESULT_INDETERMINATE';
+  end if;
   delete from public.notes where id=p_id and user_id=p_owner;
   get diagnostics affected = row_count;
   if (i.state='LIVE' and affected<>1) or (i.state='RESERVED' and affected<>0) then
@@ -213,9 +265,10 @@ end $$;
 
 revoke all on all functions in schema notes_identity_candidate from public;
 grant execute on function notes_identity_candidate.publish(uuid,bigint,text,text,jsonb),
-  notes_identity_candidate.retire(uuid,bigint,text,text) to notes_candidate_gateway;
--- There is deliberately no reservation/registration/configuration/account-close
--- RPC, no browser EXECUTE grant and no activation through an existing route.
+  notes_identity_candidate.retire(uuid,bigint,text,text),
+  notes_identity_candidate.reserve(text) to notes_candidate_gateway;
+-- Only the model server role can reserve. No arbitrary-ID registration,
+-- configuration/account-close RPC, browser grant or runtime route is supplied.
 reset role;
 do $$
 begin
