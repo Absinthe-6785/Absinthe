@@ -8,7 +8,7 @@ import translationKeys, { buildLocaleDictionary } from './i18n/keys';
 import type { TranslationKey } from './i18n';
 
 const PLANNER_STORAGE_KEY = 'planner-storage';
-const EXPECTED_KEY_COUNT = 2_224;
+const EXPECTED_KEY_COUNT = 2_238;
 type Locale = 'en' | 'ko' | 'ja';
 
 // Current independent canonical authority, including append-only Notes UI, Wiki-link accessibility, cloud comparison details, local document downloads, and PDF/DOCX preview.
@@ -16,9 +16,9 @@ type Locale = 'en' | 'ko' | 'ja';
 // translationKeys order, so it detects insertion, omission, reordering, and
 // substitution without using buildLocaleDictionary.
 const EXPECTED_LOCALE_INTEGRITY_SHA256: Record<Locale, string> = {
-  en: '7d237ea38c76e80fe5c769805cad49e277efd77b7feb18ab1aece66a96c92dbb',
-  ko: '17a53a8aee92cdd09c4b74be4ab3ce5464951bc4d4a883a1bd78231e426a90ab',
-  ja: '22365e84657d762049e03cca180ed29de2fe954bd6890f81f9ceeb02e5dd6a9e',
+  en: 'abbad7971eca1f34393dcf72891daed57f217ac41d74495e8dacb7b573da5d0d',
+  ko: '8a60d32101c24afa0ee443c411a097bbaf2a84cf4fd90809cb72de6c5893c135',
+  ja: '37fc3b52bf811da93bd7305f88d3c123ad9bc8256ae68856b067e5d4148bb23e',
 };
 
 const PRE_CLOUD_COMPARISON_LOCALE_SHA256: Record<Locale, string> = {
@@ -244,7 +244,7 @@ describe('i18n locale dictionaries', () => {
       expect(dictionary.notesCloudScope).toMatch(/does NOT enable|활성화하지 않습니다|有効になりません/);
     }
     expect(translationKeys.slice(2_187, 2_209)).toHaveLength(22);
-    expect(translationKeys.slice(2_209)).toEqual([
+    expect(translationKeys.slice(2_209, 2_224)).toEqual([
       'noteLocalDocumentsTitle', 'noteLocalDocumentDownload', 'noteLocalDocumentVerifying',
       'noteLocalDocumentDownloadStarted', 'noteLocalDocumentDownloadUnavailable', 'noteLocalDocumentsUnavailable',
       'noteLocalDocumentPreview', 'noteLocalDocumentPreviewTitle',
@@ -273,10 +273,10 @@ describe('i18n locale dictionaries', () => {
     missing.splice(1_000, 1);
 
     expect(() => buildLocaleDictionary(missing)).toThrow(
-      'Locale dictionary length mismatch: expected 2224, received 2223',
+      'Locale dictionary length mismatch: expected 2238, received 2237',
     );
     expect(() => assertLocaleValuesIntegrity('en', missing)).toThrow(
-      'Locale integrity length mismatch: expected 2224, received 2223',
+      'Locale integrity length mismatch: expected 2238, received 2237',
     );
   });
 
@@ -285,10 +285,10 @@ describe('i18n locale dictionaries', () => {
     extra.splice(1_000, 0, '__unexpected__');
 
     expect(() => buildLocaleDictionary(extra)).toThrow(
-      'Locale dictionary length mismatch: expected 2224, received 2225',
+      'Locale dictionary length mismatch: expected 2238, received 2239',
     );
     expect(() => assertLocaleValuesIntegrity('en', extra)).toThrow(
-      'Locale integrity length mismatch: expected 2224, received 2225',
+      'Locale integrity length mismatch: expected 2238, received 2239',
     );
   });
 
