@@ -59,3 +59,9 @@ it('reports failure without exposing raw errors or claiming success', async () =
   await click('Check local originals'); expect(host.querySelector('[role="alert"]')).not.toBeNull();
   expect(host.textContent).not.toContain('private storage path'); expect(host.textContent).not.toContain('Download requested');
 });
+it.each(['en', 'ko', 'ja'] as const)('discloses document originals and unchanged Vault scope in %s without enabling uploads', async language => {
+  await act(async () => useAppStore.getState().updateSetting('language', language));
+  expect(host.textContent).toContain('PDF/DOCX'); expect(host.textContent).toContain('SHA-256');
+  expect(host.textContent).toContain('Vault ZIP/JSON');
+  expect(host.querySelector('input[type="file"]')).toBeNull(); expect(owner.download).not.toHaveBeenCalled();
+});

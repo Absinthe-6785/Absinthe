@@ -16,15 +16,15 @@ type Locale = 'en' | 'ko' | 'ja';
 // translationKeys order, so it detects insertion, omission, reordering, and
 // substitution without using buildLocaleDictionary.
 const EXPECTED_LOCALE_INTEGRITY_SHA256: Record<Locale, string> = {
-  en: 'c5862625ea223e45dd20adbb67dd5260f2e049003998dc901f34a037f2b87acb',
-  ko: '7bc1985e63a8a3a9e79d452592a3c765448ac5ddebaf4241b291930045d9277b',
-  ja: '31ee89871436654e659307671d45a6d2edbfc91070d232c2dc939b6b62077db8',
+  en: '3db62ad6817bc7b498791f0c7696e28225df97065283ac770cd28e3226f85a13',
+  ko: '1ea462c09e4521b19aff674314f9291e7b46e0f4882cd4480dc8aae336ba0164',
+  ja: '51e51cccbc1d33c38ec686499077c3c3d21efcb0ea2963f8f56ed0a2d136e0e6',
 };
 
 const PRE_CLOUD_COMPARISON_LOCALE_SHA256: Record<Locale, string> = {
-  en: 'cc7f8fa676f28d054e3cc09af68257f8e2235e32f77cb93aa4aa4790a58db2e9',
-  ko: 'bff78c5fecb756afc977c4c911bd9ecc3f717202e2a1bf3fa98c7bb67ab8a4eb',
-  ja: 'bc3577c10feabe7c79dddb82f5173ac75fccea2056b323a6b7d5e11d5f1093db',
+  en: 'c8e9334d40b0b568cbd2eb19153f613eaa8e4a18c22d9afbdc2f77bae42ad4dd',
+  ko: 'e352867aa52a3e401e6a6eac605b2d4a8e38a42e5e51bd9d6f24bc1ceb6dd0bf',
+  ja: '40d914bee0c15cdd3a4b6bb4e3847610c459af355063b72ce297ecc893195c66',
 };
 
 const PRE_LOCAL_ORIGINALS_LOCALE_SHA256: Record<Locale, string> = {
@@ -225,6 +225,8 @@ describe('i18n locale dictionaries', () => {
       expect(localeIntegrityDigest(values.slice(0, 2_175), translationKeys.slice(0, 2_175)))
         .toBe(PRE_LOCAL_ORIGINALS_LOCALE_SHA256[locale]);
       expect(buildLocaleDictionary(values).localOriginalsScope).toContain('Vault ZIP/JSON');
+      expect(buildLocaleDictionary(values).localOriginalsScope).toContain('PDF/DOCX');
+      expect(buildLocaleDictionary(values).localOriginalsScope).toContain('SHA-256');
     }
     expect(translationKeys.slice(2_175, 2_187)).toEqual([
       'localOriginalsTitle', 'localOriginalsScope', 'localOriginalsCheck', 'localOriginalsChecking',

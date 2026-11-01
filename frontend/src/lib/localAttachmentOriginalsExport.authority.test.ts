@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { createHash, webcrypto } from 'node:crypto';
 import { NOTES_CORE_DOMAIN, NOTES_FOLDERS_DOMAIN, type NotesAuthorityRequest } from './notesAccountAuthority';
 import type { NotesPersistenceInitResult } from './notePersistence';
 const persistence = vi.hoisted(() => ({ initialize: vi.fn() }));
@@ -11,6 +12,7 @@ import { resetNotesPersistenceForTests } from './notePersistence';
 import { setRecoveryModeActiveForTest } from './recoverySafetyPolicy';
 import { NOTES_RUNTIME_SYNC_MODE_KEY } from './notesSyncClient';
 import { createLocalOriginalsExport } from './localAttachmentOriginalsExport';
+import { authFetch, authReadFetch } from './supabase';
 function hydrated(accountId: string, request: NotesAuthorityRequest): NotesPersistenceInitResult {
   const notes = [{ id: `note-${accountId}`, title: 'Note', body: '', updatedAt: 1, folderId: null, deletedAt: null }];
   const domain = (domainId: typeof NOTES_CORE_DOMAIN | typeof NOTES_FOLDERS_DOMAIN, count: number) => ({
@@ -25,7 +27,7 @@ beforeEach(() => {
   localStorage.clear(); localStorage.setItem(NOTES_RUNTIME_SYNC_MODE_KEY, 'local');
   persistence.initialize.mockImplementation(async (account: string, request: NotesAuthorityRequest) => hydrated(account, request));
 });
-afterEach(() => useNotesStore.getState().detachNotesStorage());
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); useNotesStore.getState().detachNotesStorage(); });
 async function publish(account: string) { await useNotesStore.getState().initNotesStorage(account); expect(observePublishedNotesHydration().status).toBe('CURRENT'); }
 it('revokes the exact real publication across A/B/A during metadata reads', async () => {
   await publish('A'); const download = vi.fn(); let resolve!: (value: []) => void;
@@ -38,4 +40,39 @@ it('rejects an unproven replacement array and a mismatched requesting account', 
   const owner = createLocalOriginalsExport('A', () => true, { repository: { listAttachmentsForAccount: async () => [] }, blobs: { getBlob: vi.fn() } });
   await owner.preflight(); useNotesStore.setState({ notes: [...useNotesStore.getState().notes] });
   expect(owner.isCurrent()).toBe(false); await expect(owner.download(true)).rejects.toThrow('cancelled');
+});
+
+it.each(['current', 'blob-aba', 'checksum-aba', 'zip-aba'])('exports documents through real publication authority, %s, without requiring/activating an editor', async stage => {
+  vi.stubGlobal('crypto', webcrypto);
+  persistence.initialize.mockImplementation(async (account: string, request: NotesAuthorityRequest) => {
+    const result = hydrated(account, request); result.notes[0].body = 'attachment://doc'; return result;
+  });
+  await publish('A'); useNotesStore.getState().setActiveNoteId(null);
+  const bytes = new Uint8Array([0, 255, 1]);
+  const checksum = `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+  const metadata = { id: 'doc', accountId: 'A', noteId: 'note-A', fileName: '원본.pdf', mimeType: 'application/pdf',
+    source: 'local' as const, size: bytes.length, checksum, localBlobKey: 'local-document/A/doc', deletedAt: null,
+    createdAt: '2026-10-01', updatedAt: '2026-10-01' };
+  const aba = async () => { await publish('B'); await publish('A'); };
+  const download = vi.fn(), write = vi.fn();
+  vi.mocked(authFetch).mockClear(); vi.mocked(authReadFetch).mockClear();
+  if (stage === 'checksum-aba') {
+    const digest = crypto.subtle.digest.bind(crypto.subtle);
+    vi.spyOn(crypto.subtle, 'digest').mockImplementation(async (...args) => { const result = await digest(...args); await aba(); return result; });
+  }
+  const owner = createLocalOriginalsExport('A', () => true, {
+    repository: { listAttachmentsForAccount: async () => [metadata], ...{ putAttachment: write, deleteAttachmentMetadata: write } },
+    blobs: { getBlob: async () => { if (stage === 'blob-aba') await aba();
+      return { key: metadata.localBlobKey, mimeType: metadata.mimeType, size: bytes.length, checksum, blob: new Blob([bytes], { type: metadata.mimeType }) };
+    }, ...{ putBlob: write, deleteBlob: write } },
+    buildZip: async () => { if (stage === 'zip-aba') await aba(); return new Blob(); }, download,
+  });
+  if (stage === 'blob-aba' || stage === 'checksum-aba') await expect(owner.preflight()).rejects.toThrow('cancelled');
+  else {
+    expect((await owner.preflight()).entries[0]).toMatchObject({ reason: 'included', integrity: 'sha256' });
+    if (stage === 'zip-aba') await expect(owner.download()).rejects.toThrow('cancelled');
+    else { await owner.download(); expect(download).toHaveBeenCalledOnce(); expect(useNotesStore.getState().activeNoteId).toBeNull(); }
+  }
+  if (stage !== 'current') expect(download).not.toHaveBeenCalled();
+  expect(authFetch).not.toHaveBeenCalled(); expect(authReadFetch).not.toHaveBeenCalled(); expect(write).not.toHaveBeenCalled();
 });
