@@ -2215,6 +2215,10 @@ const enTranslations = [
   "A download was requested in your browser. Check its downloads.",
   "This original is unavailable or this Note/account context changed. No file was downloaded.",
   "Local document originals are unavailable for this Note.",
+  "Preview PDF",
+  "PDF preview: {name}",
+  "If the PDF does not appear here, use Download original.",
+  "This PDF could not be previewed. You can still download the original.",
 ] as const;
 
 export default enTranslations;
