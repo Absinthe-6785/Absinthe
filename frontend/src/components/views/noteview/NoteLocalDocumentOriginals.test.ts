@@ -152,7 +152,7 @@ describe('NoteLocalDocumentOriginals', () => {
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click');
     const { host, root } = render();
     await flushAsync();
-    const button = host.querySelector('button');
+    const button = host.querySelector<HTMLButtonElement>('[aria-label="Download original CON.pdf"]');
     act(() => (button as HTMLButtonElement).click());
     await flushAsync();
     expect(click).not.toHaveBeenCalled();
@@ -170,7 +170,7 @@ describe('NoteLocalDocumentOriginals', () => {
     const { host, root } = render();
     await flushAsync();
     expect(host.textContent).toContain('CON.pdf');
-    const button = host.querySelector('button');
+    const button = host.querySelector<HTMLButtonElement>('[aria-label="Download original CON.pdf"]');
     act(() => (button as HTMLButtonElement).click());
     await flushAsync();
     expect(click).toHaveBeenCalledTimes(1);
@@ -207,6 +207,204 @@ describe('NoteLocalDocumentOriginals', () => {
     await flushAsync();
     expect(createObjectUrl).not.toHaveBeenCalled();
     expect(host.textContent).not.toContain(getTranslator('en')('noteLocalDocumentDownloadStarted'));
+    cleanup(root, host);
+  });
+
+  it('previews only a verified PDF, exposes the iframe to keyboard users, and provides a close path', async () => {
+    const file = new File(['%PDF-verified-bytes'], 'Quarterly.pdf', { type: 'application/pdf' });
+    createObjectUrl.mockReturnValue('about:blank');
+    services.read.mockResolvedValue({ status: 'VERIFIED', file });
+    const { host, root } = render();
+    await flushAsync();
+    const details = host.querySelector('details')!;
+    details.open = true;
+    const previewButton = host.querySelector<HTMLButtonElement>('[aria-label="Preview PDF Quarterly.pdf"]')!;
+    previewButton.focus();
+    act(() => previewButton.click());
+    await flushAsync();
+
+    const dialog = document.body.querySelector<HTMLElement>('[data-pdf-preview-dialog]')!;
+    const frame = dialog.querySelector<HTMLIFrameElement>('[data-pdf-preview-frame]')!;
+    const close = dialog.querySelector<HTMLButtonElement>('button[aria-label="Close"]')!;
+    expect(dialog.getAttribute('role')).toBe('dialog');
+    expect(dialog.getAttribute('aria-modal')).toBe('true');
+    expect(dialog.getAttribute('aria-labelledby')).toBe('note-local-document-preview-title');
+    expect(frame.src).toBe('about:blank');
+    expect(frame.title).toBe('PDF preview: Quarterly.pdf');
+    expect(frame.tabIndex).toBe(0);
+    expect(frame.hasAttribute('sandbox')).toBe(false);
+    expect(document.activeElement).toBe(close);
+    expect(dialog.querySelector('[aria-label="Download original Quarterly.pdf"]')).not.toBeNull();
+    expect(services.read).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ accountId: 'A', noteId: note.id }));
+    expect(createObjectUrl).toHaveBeenCalledExactlyOnceWith(file);
+    expect(services.blobAdapter.putBlob).not.toHaveBeenCalled();
+    expect(services.blobAdapter.deleteBlob).not.toHaveBeenCalled();
+
+    const tabFromClose = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    act(() => window.dispatchEvent(tabFromClose));
+    expect(tabFromClose.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(dialog.querySelector('[aria-label="Download original Quarterly.pdf"]'));
+    const tabIntoViewer = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    act(() => window.dispatchEvent(tabIntoViewer));
+    expect(tabIntoViewer.defaultPrevented).toBe(false);
+    frame.focus();
+    expect(document.activeElement).toBe(frame);
+    const tabBackToDownload = new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true });
+    act(() => window.dispatchEvent(tabBackToDownload));
+    expect(tabBackToDownload.defaultPrevented).toBe(false);
+    dialog.querySelector<HTMLButtonElement>('[aria-label="Download original Quarterly.pdf"]')!.focus();
+    const tabFromDownload = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    act(() => window.dispatchEvent(tabFromDownload));
+    expect(tabFromDownload.defaultPrevented).toBe(false);
+    frame.focus();
+    const tabToClose = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    act(() => window.dispatchEvent(tabToClose));
+    expect(tabToClose.defaultPrevented).toBe(false);
+    close.focus();
+    expect(document.activeElement).toBe(close);
+
+    const outside = document.createElement('button');
+    document.body.appendChild(outside);
+    frame.focus();
+    act(() => frame.dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: outside })));
+    expect(document.activeElement).toBe(close);
+    outside.remove();
+
+    act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })));
+    await flushAsync();
+    expect(document.body.querySelector('[data-pdf-preview-dialog]')).toBeNull();
+    expect(revokeObjectUrl).toHaveBeenCalledExactlyOnceWith('about:blank');
+    expect(document.activeElement).toBe(previewButton);
+    cleanup(root, host);
+    expect(revokeObjectUrl).toHaveBeenCalledExactlyOnceWith('about:blank');
+  });
+
+  it('keeps DOCX download-only and preserves the existing original download action', async () => {
+    const docxCandidate: PublishedLocalDocumentOriginal = Object.freeze({
+      ...candidate(authority.request!, 'Contract.docx'),
+      mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      format: 'docx',
+    });
+    services.list.mockResolvedValue({ status: 'VERIFIED', documents: [docxCandidate] });
+    const file = new File(['docx-bytes'], 'Contract.docx', { type: docxCandidate.mimeType });
+    services.read.mockResolvedValue({ status: 'VERIFIED', file });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+      expect(this.download).toBe('Contract.docx');
+    });
+    const { host, root } = render();
+    await flushAsync();
+    expect(host.querySelector('[aria-label="Preview PDF Contract.docx"]')).toBeNull();
+    const downloadButton = host.querySelector<HTMLButtonElement>('[aria-label="Download original Contract.docx"]')!;
+    act(() => downloadButton.click());
+    await flushAsync();
+    expect(services.read).toHaveBeenCalledOnce();
+    expect(createObjectUrl).toHaveBeenCalledExactlyOnceWith(file);
+    expect(click).toHaveBeenCalledOnce();
+    expect(document.body.querySelector('[data-pdf-preview-dialog]')).toBeNull();
+    cleanup(root, host);
+  });
+
+  it('does not create an object URL for missing or integrity-rejected PDF readback', async () => {
+    services.read.mockResolvedValue({ status: 'UNAVAILABLE', reason: 'document_integrity_mismatch' });
+    const { host, root } = render();
+    await flushAsync();
+    host.querySelector<HTMLButtonElement>('[aria-label="Preview PDF Quarterly.pdf"]')!.click();
+    await flushAsync();
+    expect(createObjectUrl).not.toHaveBeenCalled();
+    expect(document.body.querySelector('[data-pdf-preview-dialog]')).toBeNull();
+    expect(host.textContent).toContain(getTranslator('en')('noteLocalDocumentPreviewUnavailable'));
+    cleanup(root, host);
+  });
+
+  it('does not expose a late verified PDF after an A/B/A Notes authority transition', async () => {
+    const pending = deferred<any>();
+    services.read.mockReturnValueOnce(pending.promise);
+    const { host, root } = render();
+    await flushAsync();
+    const details = host.querySelector('details')!;
+    details.open = true;
+    host.querySelector<HTMLButtonElement>('[aria-label="Preview PDF Quarterly.pdf"]')!.click();
+    transition('B', [{ ...note, id: 'note-B' }], 'note-B', 2);
+    act(() => root.render(createElement(NoteLocalDocumentOriginals, { note: { ...note, id: 'note-B' }, colors })));
+    transition('A', [note], note.id, 3);
+    act(() => root.render(createElement(NoteLocalDocumentOriginals, { note, colors })));
+    pending.resolve({ status: 'VERIFIED', file: new File(['secret'], 'Quarterly.pdf', { type: 'application/pdf' }) });
+    await flushAsync();
+    expect(createObjectUrl).not.toHaveBeenCalled();
+    expect(document.body.querySelector('[data-pdf-preview-dialog]')).toBeNull();
+    expect(revokeObjectUrl).not.toHaveBeenCalled();
+    cleanup(root, host);
+  });
+
+  it.each(['account switch', 'publication replacement'] as const)('closes and revokes an open PDF preview on %s', async invalidation => {
+    createObjectUrl.mockReturnValue('about:blank');
+    const { host, root } = render();
+    await flushAsync();
+    const details = host.querySelector('details')!;
+    details.open = true;
+    host.querySelector<HTMLButtonElement>('[aria-label="Preview PDF Quarterly.pdf"]')!.click();
+    await flushAsync();
+    expect(document.body.querySelector('[data-pdf-preview-dialog]')).not.toBeNull();
+
+    if (invalidation === 'account switch') {
+      const nextNote = { ...note, id: 'note-B' };
+      transition('B', [nextNote], nextNote.id, 2);
+      act(() => root.render(createElement(NoteLocalDocumentOriginals, { note: nextNote, colors })));
+    } else {
+      transition('A', [note], note.id, 2);
+      act(() => root.render(createElement(NoteLocalDocumentOriginals, { note, colors })));
+    }
+
+    expect(document.body.querySelector('[data-pdf-preview-dialog]')).toBeNull();
+    expect(revokeObjectUrl).toHaveBeenCalledExactlyOnceWith('about:blank');
+    cleanup(root, host);
+    expect(revokeObjectUrl).toHaveBeenCalledExactlyOnceWith('about:blank');
+  });
+
+  it('revokes a verified preview URL when the component unmounts', async () => {
+    createObjectUrl.mockReturnValue('about:blank');
+    const { host, root } = render();
+    await flushAsync();
+    const details = host.querySelector('details')!;
+    details.open = true;
+    host.querySelector<HTMLButtonElement>('[aria-label="Preview PDF Quarterly.pdf"]')!.click();
+    await flushAsync();
+    expect(document.body.querySelector('[data-pdf-preview-frame]')).not.toBeNull();
+    cleanup(root, host);
+    expect(document.body.querySelector('[data-pdf-preview-dialog]')).toBeNull();
+    expect(revokeObjectUrl).toHaveBeenCalledExactlyOnceWith('about:blank');
+  });
+
+  it('closes and revokes the preview when the current Note is deleted', async () => {
+    createObjectUrl.mockReturnValue('about:blank');
+    const { host, root } = render();
+    await flushAsync();
+    const details = host.querySelector('details')!;
+    details.open = true;
+    host.querySelector<HTMLButtonElement>('[aria-label="Preview PDF Quarterly.pdf"]')!.click();
+    await flushAsync();
+
+    transition('A', [{ ...note, deletedAt: '2026-11-01T00:00:00.000Z' }], note.id, 2);
+    act(() => root.render(createElement(NoteLocalDocumentOriginals, { note, colors })));
+    expect(document.body.querySelector('[data-pdf-preview-dialog]')).toBeNull();
+    expect(revokeObjectUrl).toHaveBeenCalledExactlyOnceWith('about:blank');
+    cleanup(root, host);
+  });
+
+  it('allows only one rapid preview readback at a time', async () => {
+    createObjectUrl.mockReturnValue('about:blank');
+    const pending = deferred<any>();
+    services.read.mockReturnValueOnce(pending.promise);
+    const { host, root } = render();
+    await flushAsync();
+    const details = host.querySelector('details')!;
+    details.open = true;
+    const button = host.querySelector<HTMLButtonElement>('[aria-label="Preview PDF Quarterly.pdf"]')!;
+    act(() => { button.click(); button.click(); });
+    expect(services.read).toHaveBeenCalledOnce();
+    pending.resolve({ status: 'VERIFIED', file: new File(['data'], 'Quarterly.pdf', { type: 'application/pdf' }) });
+    await flushAsync();
+    expect(createObjectUrl).toHaveBeenCalledOnce();
     cleanup(root, host);
   });
 });

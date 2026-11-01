@@ -8,17 +8,17 @@ import translationKeys, { buildLocaleDictionary } from './i18n/keys';
 import type { TranslationKey } from './i18n';
 
 const PLANNER_STORAGE_KEY = 'planner-storage';
-const EXPECTED_KEY_COUNT = 2_215;
+const EXPECTED_KEY_COUNT = 2_219;
 type Locale = 'en' | 'ko' | 'ja';
 
-// Current independent canonical authority, including append-only Notes UI, Wiki-link accessibility, cloud comparison details, and local document downloads.
+// Current independent canonical authority, including append-only Notes UI, Wiki-link accessibility, cloud comparison details, local document downloads, and PDF preview.
 // The canonical serialization includes every key and exact locale value in
 // translationKeys order, so it detects insertion, omission, reordering, and
 // substitution without using buildLocaleDictionary.
 const EXPECTED_LOCALE_INTEGRITY_SHA256: Record<Locale, string> = {
-  en: '966098876c40d414b6513dc034c649f1cfffdd75b9cb186290bdb7b6bb5c80ca',
-  ko: 'e6fd05114d89371add3cfabd79a8481327ee56e487aa354a7920c13b6dfb959d',
-  ja: '45258ee2c0c304e1a83da64c859c01b229dda3b2310ab26aacc4bd869cacc8c8',
+  en: '077582d3f394bc102ee5eb19b04971f671310f07aa616d6f87a627c60516996e',
+  ko: '37ffe0c1c5ee16e579a431cc2f0b7ccc7afdcd0043674bf9bf5616549b0a76a3',
+  ja: '9fb78945fb045e5e3d267c7918c56c272acf838786453a2d557a978f92e53f4f',
 };
 
 const PRE_CLOUD_COMPARISON_LOCALE_SHA256: Record<Locale, string> = {
@@ -235,7 +235,7 @@ describe('i18n locale dictionaries', () => {
     ]);
   });
 
-  it('preserves all existing copy and appends only read-only cloud comparison labels', () => {
+  it('preserves existing copy and appends the local document and PDF preview labels', () => {
     for (const [locale, values] of [['en', enLocaleValues], ['ko', koLocaleValues], ['ja', jaLocaleValues]] as const) {
       expect(localeIntegrityDigest(values.slice(0, 2_187), translationKeys.slice(0, 2_187)))
         .toBe(PRE_CLOUD_COMPARISON_LOCALE_SHA256[locale]);
@@ -247,16 +247,18 @@ describe('i18n locale dictionaries', () => {
     expect(translationKeys.slice(2_209)).toEqual([
       'noteLocalDocumentsTitle', 'noteLocalDocumentDownload', 'noteLocalDocumentVerifying',
       'noteLocalDocumentDownloadStarted', 'noteLocalDocumentDownloadUnavailable', 'noteLocalDocumentsUnavailable',
+      'noteLocalDocumentPreview', 'noteLocalDocumentPreviewTitle',
+      'noteLocalDocumentPreviewFallback', 'noteLocalDocumentPreviewUnavailable',
     ]);
   });
 
-  it('provides localized labels and truthful readback/download feedback in all supported languages', () => {
+  it('provides localized labels and truthful readback/download/preview feedback in all supported languages', () => {
     const expected = {
-      en: ['Local document originals', 'Download original', 'Verifying original…', 'A download was requested in your browser. Check its downloads.', 'This original is unavailable or this Note/account context changed. No file was downloaded.'],
-      ko: ['노트의 로컬 문서 원본', '원본 다운로드', '원본 확인 중…', '브라우저에 다운로드를 요청했습니다. 다운로드 목록을 확인하세요.', '원본을 사용할 수 없거나 노트·계정 상태가 변경되었습니다. 파일을 다운로드하지 않았습니다.'],
-      ja: ['ノートのローカル文書原本', '原本をダウンロード', '原本を確認中…', 'ブラウザーにダウンロードを要求しました。ダウンロード一覧を確認してください。', '原本を利用できないか、ノートまたはアカウントの状態が変わりました。ファイルはダウンロードされていません。'],
+      en: ['Local document originals', 'Download original', 'Verifying original…', 'A download was requested in your browser. Check its downloads.', 'This original is unavailable or this Note/account context changed. No file was downloaded.', 'Preview PDF', 'PDF preview: {name}', 'If the PDF does not appear here, use Download original.', 'This PDF could not be previewed. You can still download the original.'],
+      ko: ['노트의 로컬 문서 원본', '원본 다운로드', '원본 확인 중…', '브라우저에 다운로드를 요청했습니다. 다운로드 목록을 확인하세요.', '원본을 사용할 수 없거나 노트·계정 상태가 변경되었습니다. 파일을 다운로드하지 않았습니다.', 'PDF 미리보기', 'PDF 미리보기: {name}', 'PDF가 여기에 표시되지 않으면 원본 다운로드를 사용하세요.', 'PDF를 미리 볼 수 없습니다. 원본은 계속 다운로드할 수 있습니다.'],
+      ja: ['ノートのローカル文書原本', '原本をダウンロード', '原本を確認中…', 'ブラウザーにダウンロードを要求しました。ダウンロード一覧を確認してください。', '原本を利用できないか、ノートまたはアカウントの状態が変わりました。ファイルはダウンロードされていません。', 'PDFをプレビュー', 'PDFプレビュー：{name}', 'PDFが表示されない場合は、原本をダウンロードしてください。', 'PDFをプレビューできません。原本は引き続きダウンロードできます。'],
     } as const;
-    const keys = ['noteLocalDocumentsTitle', 'noteLocalDocumentDownload', 'noteLocalDocumentVerifying', 'noteLocalDocumentDownloadStarted', 'noteLocalDocumentDownloadUnavailable'] as const;
+    const keys = ['noteLocalDocumentsTitle', 'noteLocalDocumentDownload', 'noteLocalDocumentVerifying', 'noteLocalDocumentDownloadStarted', 'noteLocalDocumentDownloadUnavailable', 'noteLocalDocumentPreview', 'noteLocalDocumentPreviewTitle', 'noteLocalDocumentPreviewFallback', 'noteLocalDocumentPreviewUnavailable'] as const;
     for (const [locale, values] of [['en', enLocaleValues], ['ko', koLocaleValues], ['ja', jaLocaleValues]] as const) {
       const dictionary = buildLocaleDictionary(values);
       expect(keys.map(key => dictionary[key]), locale).toEqual(expected[locale]);
@@ -269,10 +271,10 @@ describe('i18n locale dictionaries', () => {
     missing.splice(1_000, 1);
 
     expect(() => buildLocaleDictionary(missing)).toThrow(
-      'Locale dictionary length mismatch: expected 2215, received 2214',
+      'Locale dictionary length mismatch: expected 2219, received 2218',
     );
     expect(() => assertLocaleValuesIntegrity('en', missing)).toThrow(
-      'Locale integrity length mismatch: expected 2215, received 2214',
+      'Locale integrity length mismatch: expected 2219, received 2218',
     );
   });
 
@@ -281,10 +283,10 @@ describe('i18n locale dictionaries', () => {
     extra.splice(1_000, 0, '__unexpected__');
 
     expect(() => buildLocaleDictionary(extra)).toThrow(
-      'Locale dictionary length mismatch: expected 2215, received 2216',
+      'Locale dictionary length mismatch: expected 2219, received 2220',
     );
     expect(() => assertLocaleValuesIntegrity('en', extra)).toThrow(
-      'Locale integrity length mismatch: expected 2215, received 2216',
+      'Locale integrity length mismatch: expected 2219, received 2220',
     );
   });
 
