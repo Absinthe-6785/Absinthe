@@ -2256,6 +2256,14 @@ const enTranslations = [
   "Receipt outcome is uncertain. A local row may exist. Do not retry automatically; compare again. No rollback was attempted.",
   "One workout was received and verified locally. Automatic synchronization remains off.",
   "The operation result above still applies, but the comparison could not be refreshed (including snapshot limits). No rollback was attempted.",
+  "You may check and separately receive one missing exercise required by a cloud-only workout. Requires verified local Health data. The workout itself is not received automatically.",
+  "Check required exercise",
+  "Receive only this missing exercise on this device? Existing exercises will not be replaced. The workout needs a separate receipt.",
+  "Confirm single exercise receipt",
+  "Exercise not received. A missing supported exercise and current account/local authority could not be verified.",
+  "Exercise not received: this exact exercise ID already exists locally. Nothing was replaced.",
+  "Exercise receipt is uncertain. A local exercise may exist. Do not retry automatically; verify separately. No rollback was attempted.",
+  "One exercise was received and verified locally. The workout has not been received; compare and receive it separately. Automatic sync remains off.",
 ] as const;
 
 export default enTranslations;
