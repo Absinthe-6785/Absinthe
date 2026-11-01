@@ -2,7 +2,8 @@
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-const services = vi.hoisted(() => ({ create: vi.fn(), write: vi.fn(), receive: vi.fn(), mutate: vi.fn() }));
+const services = vi.hoisted(() => ({ create: vi.fn(), write: vi.fn(), receive: vi.fn(), block: vi.fn(), mutate: vi.fn() }));
+vi.mock('../../../../lib/healthExerciseBlockCloudSingleReceive', () => ({ createExerciseBlockCloudSingleReceive: services.block }));
 vi.mock('../../../../lib/healthWorkoutCloudSingleReceive', () => ({ createWorkoutCloudSingleReceive: services.receive }));
 vi.mock('../../../../lib/healthSupabaseBootstrap', () => ({ HEALTH_LOCAL_BOOTSTRAP_COMPLETE_EVENT: 'test-health-refresh' }));
 vi.mock('swr', () => ({ useSWRConfig: () => ({ mutate: services.mutate }) }));
@@ -28,12 +29,61 @@ beforeEach(() => {
   services.create.mockImplementation(() => ({ compare: vi.fn().mockResolvedValue(report()), cancel: vi.fn(), isCurrent: () => true, localOnlyRecord: (id: string) => ({ id }), remoteOnlyRecord: (id: string) => ({ id }) }));
   services.write.mockReturnValue({ transfer: vi.fn().mockResolvedValue('DENIED'), cancel: vi.fn() });
   services.receive.mockReturnValue({ receive: vi.fn().mockResolvedValue('DENIED'), cancel: vi.fn() });
+  services.block.mockReturnValue({ inspect: vi.fn().mockResolvedValue(null), receive: vi.fn().mockResolvedValue('DENIED'), cancel: vi.fn() });
 });
 afterEach(() => { act(() => root.unmount()); host.remove(); useAppStore.setState(state => ({ ...state, appSettings: { ...state.appSettings, language: originalLanguage } })); });
 const render = (id = 'A') => act(() => root.render(createElement(HealthWorkoutCloudComparisonPanel, { accountId: id })));
 const click = async () => { await act(async () => { host.querySelector<HTMLButtonElement>('button')!.click(); }); };
 
 describe('manual Health cloud comparison UI', () => {
+  it.each(['en', 'ko', 'ja'] as const)('offers only a proven missing exercise and requires separate confirmation in %s', async language => {
+    useAppStore.setState(state => ({ ...state, appSettings: { ...state.appSettings, language } }));
+    const t = getTranslator(language), receive = vi.fn().mockResolvedValue('LOCAL_CREATE_CONFIRMED');
+    services.block.mockReturnValue({ inspect: async () => ({ id: 'exact-block', name: '스쿼트' }), receive, cancel: vi.fn() });
+    render(); await click();
+    const inspect = Array.from(host.querySelectorAll('button')).find(button => button.textContent === t('healthCloudBlockCheck'))!;
+    expect(inspect.type).toBe('button'); expect(host.querySelector('[role="group"]')).toBeNull();
+    await act(async () => inspect.click());
+    expect(receive).not.toHaveBeenCalled(); expect(host.querySelector('[role="group"]')?.textContent).toContain('exact-block');
+    expect(host.querySelector('[role="group"]')?.getAttribute('aria-label')).toBe(t('healthCloudBlockConfirm'));
+    expect(services.block.mock.calls[0].slice(0, 2)).toEqual(['A', { id: 'cloud-id' }]);
+    await act(async () => { const confirm = host.querySelector<HTMLButtonElement>('[role="group"] button')!; confirm.click(); confirm.click(); });
+    expect(receive).toHaveBeenCalledOnce(); expect(services.receive).not.toHaveBeenCalled(); expect(services.write).not.toHaveBeenCalled();
+    expect(host.textContent).toContain(t('healthCloudBlockConfirmed')); expect(services.create).toHaveBeenCalledTimes(2); expect(services.mutate).toHaveBeenCalledOnce();
+    act(() => services.create.mock.calls[1][2]());
+    expect(host.textContent).toContain(t('healthCloudBlockConfirmed')); expect(host.textContent).toContain(t('healthCloudRefreshUnavailable'));
+    render('B'); render('A'); expect(host.textContent).not.toContain(t('healthCloudBlockConfirmed'));
+  });
+  it('does not offer receipt when unavailable and ignores late inspection after A/B/A', async () => {
+    render(); await click();
+    const inspect = () => Array.from(host.querySelectorAll('button')).find(button => button.textContent === getTranslator('en')('healthCloudBlockCheck'))!;
+    await act(async () => inspect().click());
+    expect(host.querySelector('[role="group"]')).toBeNull(); expect(host.textContent).toContain(getTranslator('en')('healthCloudBlockDenied'));
+    expect(services.block.mock.results[0].value.receive).not.toHaveBeenCalled();
+    let finish!: (value: unknown) => void;
+    const cancel = vi.fn(); services.block.mockReturnValue({ inspect: () => new Promise(done => { finish = done; }), receive: vi.fn(), cancel });
+    await act(async () => inspect().click()); render('B'); render('A');
+    await act(async () => finish({ id: 'old-block', name: 'private' }));
+    expect(host.textContent).not.toContain('private'); expect(host.querySelector('[role="group"]')).toBeNull(); expect(cancel).toHaveBeenCalled();
+  });
+  it('cancels a prepared block without writing and rejects an old confirmation', async () => {
+    const cancel = vi.fn(), receive = vi.fn(); services.block.mockReturnValue({ inspect: async () => ({ id: 'exact', name: 'exercise' }), receive, cancel });
+    render(); await click();
+    await act(async () => Array.from(host.querySelectorAll('button')).find(button => button.textContent === getTranslator('en')('healthCloudBlockCheck'))!.click());
+    const confirm = host.querySelector<HTMLButtonElement>('[role="group"] button')!;
+    await act(async () => host.querySelectorAll<HTMLButtonElement>('[role="group"] button')[1].click());
+    await act(async () => confirm.click());
+    expect(cancel).toHaveBeenCalled(); expect(receive).not.toHaveBeenCalled(); expect(services.mutate).not.toHaveBeenCalled();
+  });
+  it.each(['DENIED', 'CONFLICT', 'INDETERMINATE'] as const)('reports block %s without refresh, retry, or workout receive', async status => {
+    services.block.mockReturnValue({ inspect: async () => ({ id: 'block', name: 'exercise' }), receive: async () => status, cancel: vi.fn() });
+    render(); await click();
+    await act(async () => Array.from(host.querySelectorAll('button')).find(button => button.textContent === getTranslator('en')('healthCloudBlockCheck'))!.click());
+    await act(async () => host.querySelector<HTMLButtonElement>('[role="group"] button')!.click());
+    const key = { DENIED: 'healthCloudBlockDenied', CONFLICT: 'healthCloudBlockConflict', INDETERMINATE: 'healthCloudBlockIndeterminate' } as const;
+    expect(host.textContent).toContain(getTranslator('en')(key[status])); expect(services.create).toHaveBeenCalledOnce();
+    expect(services.receive).not.toHaveBeenCalled(); expect(services.mutate).not.toHaveBeenCalled();
+  });
   it.each(['en', 'ko', 'ja'] as const)('exposes a labelled native button, bounded details, and truthful scope in %s', async language => {
     useAppStore.setState(state => ({ ...state, appSettings: { ...state.appSettings, language } }));
     render(); const t = getTranslator(language);
@@ -47,7 +97,7 @@ describe('manual Health cloud comparison UI', () => {
     expect(host.textContent).toContain(t('healthCloudLocalDate') + ': 2026-10-28');
     expect(host.textContent).toContain(t('healthCloudRemoteDate') + ': 2026-10-27');
     expect(host.textContent).not.toContain('same-id');
-    expect(host.querySelectorAll('button')).toHaveLength(3);
+    expect(host.querySelectorAll('button')).toHaveLength(4);
     expect(services.write).not.toHaveBeenCalled();
   });
   it('keeps a long result limited to 30 detail rows and preserves summary counts', async () => {

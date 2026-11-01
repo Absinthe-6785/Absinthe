@@ -127,6 +127,15 @@ export type LocalWorkoutReceiveInput = {
 export type LocalWorkoutReceiveResult = { status: 'DENIED' | 'CONFLICT' }
   | { status: 'CREATED'; state: VerifiedLocalHealthImportState };
 
+export type LocalExerciseBlockReceiveInput = {
+  accountId: string;
+  record: HealthRecoveryRecord;
+  workout: HealthRecoveryRecord;
+  expectedImportState: VerifiedLocalHealthImportState;
+  isCurrent: () => boolean;
+  signal: AbortSignal;
+};
+
 export class LocalHealthWriteConflictError extends Error {
   readonly code = 'health_local_write_conflict';
 
@@ -150,6 +159,9 @@ export type LocalHealthSnapshot = {
 };
 
 export interface LocalHealthDriver {
+  createReceivedExerciseBlock(input: LocalExerciseBlockReceiveInput): Promise<LocalWorkoutReceiveResult>;
+  /** Without receivedState, prove absence; with it, prove exact committed content/counts. */
+  verifyExerciseBlockReceive(input: LocalExerciseBlockReceiveInput, receivedState?: VerifiedLocalHealthImportState): Promise<'ABSENT' | 'CONFLICT' | 'PRESENT'>;
   createReceivedWorkout(input: LocalWorkoutReceiveInput): Promise<LocalWorkoutReceiveResult>;
   verifyReceivedWorkout(input: LocalWorkoutReceiveInput, state: VerifiedLocalHealthImportState): Promise<void>;
   captureWorkoutAdoptionSource(accountId: string, onVerified?: (capture: HealthWorkoutAdoptionCapture) => void): Promise<HealthWorkoutAdoptionCapture>;
@@ -846,6 +858,60 @@ export class IndexedDbLocalHealthDriver implements LocalHealthDriver {
       throw new Error('health_local_write_integrity_failed');
     }
     return { state: current, datasets };
+  }
+
+  /** One existing-owner transaction; never replacement, restore, or implicit initialization. */
+  async createReceivedExerciseBlock(input: LocalExerciseBlockReceiveInput): Promise<LocalWorkoutReceiveResult> {
+    const { accountId } = input;
+    const row = cloneRecord(input.record), workout = cloneRecord(input.workout);
+    if (!supportedExerciseBlockContent(row, accountId) || !supportedWorkoutContent(workout, accountId)
+      || workout.block_id !== row.id || !assistedRepsMatchExerciseType(row.type, workout.sets as unknown[])) return { status: 'DENIED' };
+    const tx = this.db.transaction([...HEALTH_RECOVERY_DATASETS, HEALTH_LOCAL_IMPORT_STATE_STORE], 'readwrite');
+    const terminal = new Promise<boolean>(resolve => { tx.oncomplete = () => resolve(true); tx.onabort = () => resolve(false); });
+    const abort = () => abortTransactionSafely(tx);
+    input.signal.addEventListener('abort', abort, { once: true });
+    void terminal.then(() => input.signal.removeEventListener('abort', abort));
+    let nextState: VerifiedLocalHealthImportState | undefined;
+    let conflict = false;
+    try {
+      const { state, datasets } = await this.assertWritableState(tx, accountId, true);
+      conflict = datasets.exercise_blocks.some(value => value.id === row.id);
+      if (conflict) throw new Error('health_block_receive_conflict');
+      if (input.signal.aborted || !input.isCurrent() || stableRecoveryJson(state) !== stableRecoveryJson(input.expectedImportState)
+        || datasets.workout_logs.some(value => value.id === workout.id)) throw new Error('health_block_receive_stale');
+      assertDatasetsValid({ ...datasets, exercise_blocks: [...datasets.exercise_blocks, row] }, accountId, 'health_block_receive_invalid');
+      if (!input.isCurrent() || input.signal.aborted) throw new Error('health_block_receive_stale');
+      tx.objectStore('exercise_blocks').add({ storageKey: storageKey('exercise_blocks', accountId, row), accountId, record: row } satisfies StoredHealthRecord);
+      nextState = adjustVerifiedStateCount(state, 'exercise_blocks', 1);
+      tx.objectStore(HEALTH_LOCAL_IMPORT_STATE_STORE).put(cloneRecord(nextState));
+    } catch (error) {
+      abortTransactionSafely(tx);
+      if (!await terminal) return { status: conflict ? 'CONFLICT' : 'DENIED' };
+      throw error;
+    }
+    if (!await terminal) return { status: 'DENIED' };
+    return { status: 'CREATED', state: nextState! };
+  }
+
+  async verifyExerciseBlockReceive(input: LocalExerciseBlockReceiveInput, receivedState?: VerifiedLocalHealthImportState): Promise<'ABSENT' | 'CONFLICT' | 'PRESENT'> {
+    const tx = this.db.transaction([...HEALTH_RECOVERY_DATASETS, HEALTH_LOCAL_IMPORT_STATE_STORE], 'readonly');
+    const done = transactionDone(tx);
+    try {
+      const { state, datasets } = await this.assertWritableState(tx, input.accountId, true);
+      const rows = datasets.exercise_blocks.filter(row => row.id === input.record.id);
+      if (!receivedState && rows.length && input.isCurrent() && !input.signal.aborted) {
+        await done;
+        if (!input.isCurrent() || input.signal.aborted) throw new Error('health_block_receive_stale');
+        return 'CONFLICT';
+      }
+      if (!input.isCurrent() || input.signal.aborted || stableRecoveryJson(state) !== stableRecoveryJson(receivedState ?? input.expectedImportState)
+        || datasets.workout_logs.some(row => row.id === input.workout.id)) throw new Error('health_block_receive_readback_failed');
+      if (receivedState && (rows.length !== 1 || !supportedExerciseBlockContent(input.record, input.accountId)
+        || supportedExerciseBlockContent(rows[0], input.accountId) !== supportedExerciseBlockContent(input.record, input.accountId))) throw new Error('health_block_receive_readback_failed');
+      await done;
+      if (!input.isCurrent() || input.signal.aborted) throw new Error('health_block_receive_stale');
+      return receivedState ? 'PRESENT' : rows.length ? 'CONFLICT' : 'ABSENT';
+    } catch (error) { abortTransactionSafely(tx); await done.catch(() => undefined); throw error; }
   }
 
   /** One existing-owner transaction; never replacement, restore, or implicit initialization. */

@@ -6,6 +6,7 @@ import type { HealthRecoveryRecord } from '../../../../lib/healthRecoveryExport'
 import { createWorkoutCloudSingleReceive, type WorkoutCloudSingleReceive, type WorkoutReceiveStatus } from '../../../../lib/healthWorkoutCloudSingleReceive';
 import { HEALTH_LOCAL_BOOTSTRAP_COMPLETE_EVENT } from '../../../../lib/healthSupabaseBootstrap';
 import { useSWRConfig } from 'swr';
+import { createExerciseBlockCloudSingleReceive, type ExerciseBlockCloudSingleReceive } from '../../../../lib/healthExerciseBlockCloudSingleReceive';
 
 const labels = { localOnly: 'healthCloudLocalOnly', remoteOnly: 'healthCloudRemoteOnly', matching: 'healthCloudMatching', divergent: 'healthCloudDivergent', unverifiable: 'healthCloudUnverifiable' } as const;
 
@@ -17,10 +18,11 @@ export function HealthWorkoutCloudComparisonPanel({ accountId }: { accountId: st
   if (account.current.id !== accountId) account.current = { id: accountId };
   const active = useRef<WorkoutCloudComparison | null>(null);
   const pending = useRef(false);
-  const write = useRef<WorkoutCloudSingleCreate | WorkoutCloudSingleReceive | null>(null);
-  const [confirmation, setConfirmation] = useState<{ owner: WorkoutCloudComparison; record: HealthRecoveryRecord; receive?: boolean } | null>(null);
+  const write = useRef<WorkoutCloudSingleCreate | WorkoutCloudSingleReceive | ExerciseBlockCloudSingleReceive | null>(null);
+  const [confirmation, setConfirmation] = useState<{ owner: WorkoutCloudComparison; record: HealthRecoveryRecord; receive?: boolean; block?: HealthRecoveryRecord; blockOwner?: ExerciseBlockCloudSingleReceive } | null>(null);
   const [outcome, setOutcome] = useState<WorkoutCreateStatus | null>(null);
   const [receiveOutcome, setReceiveOutcome] = useState<WorkoutReceiveStatus | null>(null);
+  const [blockOutcome, setBlockOutcome] = useState<WorkoutReceiveStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
   const [refreshFailed, setRefreshFailed] = useState(false);
@@ -28,6 +30,7 @@ export function HealthWorkoutCloudComparisonPanel({ accountId }: { accountId: st
   useLayoutEffect(() => {
     setResult(null); setBusy(false); setFailed(false); setConfirmation(null); setOutcome(null); pending.current = false;
     setReceiveOutcome(null);
+    setBlockOutcome(null);
     setRefreshFailed(false);
     return () => { active.current?.cancel(); write.current?.cancel(); active.current = null; pending.current = false; };
   }, [accountId]);
@@ -36,7 +39,7 @@ export function HealthWorkoutCloudComparisonPanel({ accountId }: { accountId: st
     pending.current = true;
     setRefreshFailed(false);
     active.current?.cancel(); write.current?.cancel(); write.current = null; setResult(null); setFailed(false); setConfirmation(null);
-    if (!preserveOutcome) { setOutcome(null); setReceiveOutcome(null); }
+    if (!preserveOutcome) { setOutcome(null); setReceiveOutcome(null); setBlockOutcome(null); }
     const context = account.current;
     let owner: WorkoutCloudComparison | null = null;
     let invalidated = false;
@@ -51,7 +54,7 @@ export function HealthWorkoutCloudComparisonPanel({ accountId }: { accountId: st
           // An in-flight INSERT may have committed. Await its actual verdict;
           // never reuse the read-only "nothing changed" error for that case.
           setResult(null); setConfirmation(null);
-          if (!preserveOutcome) { setOutcome(null); setReceiveOutcome(null); }
+          if (!preserveOutcome) { setOutcome(null); setReceiveOutcome(null); setBlockOutcome(null); }
           setBusy(false); setFailed(!currentWrite && !preserveOutcome); pending.current = false;
           if (!currentWrite && preserveOutcome) setRefreshFailed(true);
         }
@@ -66,22 +69,37 @@ export function HealthWorkoutCloudComparisonPanel({ accountId }: { accountId: st
       }
     } finally { if ((!owner || active.current === owner) && account.current === context) { setBusy(false); pending.current = false; } }
   };
+  const inspectBlock = async (record: HealthRecoveryRecord, origin: WorkoutCloudComparison) => {
+    if (pending.current || origin !== active.current || !origin.isCurrent()) return;
+    pending.current = true; setBusy(true); setConfirmation(null); setOutcome(null); setReceiveOutcome(null); setBlockOutcome(null);
+    const context = account.current;
+    write.current?.cancel();
+    const owner = createExerciseBlockCloudSingleReceive(accountId, record, () => account.current === context && origin.isCurrent());
+    write.current = owner;
+    const block = await owner.inspect();
+    if (account.current !== context || active.current !== origin || write.current !== owner) return;
+    setBusy(false); pending.current = false;
+    if (block && origin.isCurrent()) setConfirmation({ owner: origin, record, block, blockOwner: owner });
+    else { owner.cancel(); write.current = null; setBlockOutcome('DENIED'); }
+  };
   const confirmCreate = async () => {
     if (pending.current || !confirmation || confirmation.owner !== active.current || !confirmation.owner.isCurrent()) return;
-    pending.current = true; setBusy(true); setOutcome(null); setReceiveOutcome(null);
+    pending.current = true; setBusy(true); setOutcome(null); setReceiveOutcome(null); setBlockOutcome(null);
     const context = account.current;
     const origin = confirmation.owner;
     const receiving = confirmation.receive === true;
     const current = () => account.current === context && origin.isCurrent();
-    const owner = receiving ? createWorkoutCloudSingleReceive(accountId, confirmation.record, current)
-      : createWorkoutCloudSingleCreate(accountId, confirmation.record, current);
+    const blockReceiving = !!confirmation.blockOwner;
+    const owner = confirmation.blockOwner ?? (receiving ? createWorkoutCloudSingleReceive(accountId, confirmation.record, current)
+      : createWorkoutCloudSingleCreate(accountId, confirmation.record, current));
     write.current = owner; setConfirmation(null);
     const status = await ('receive' in owner ? owner.receive() : owner.transfer());
     if (account.current !== context || write.current !== owner || active.current !== origin) return;
     const confirmed = status === 'REMOTE_INSERT_CONFIRMED' || status === 'LOCAL_CREATE_CONFIRMED';
     if (confirmed && !origin.isCurrent()) return;
     write.current = null;
-    if (receiving) setReceiveOutcome(status as WorkoutReceiveStatus);
+    if (blockReceiving) setBlockOutcome(status as WorkoutReceiveStatus);
+    else if (receiving) setReceiveOutcome(status as WorkoutReceiveStatus);
     else setOutcome(status as WorkoutCreateStatus);
     setResult(null); setBusy(false); pending.current = false;
     if (status === 'LOCAL_CREATE_CONFIRMED') {
@@ -98,15 +116,18 @@ export function HealthWorkoutCloudComparisonPanel({ accountId }: { accountId: st
     <p className="text-xs text-muted-foreground">{t('healthCloudScope')}</p>
     <p className="text-xs text-muted-foreground">{t('healthCloudCreateScope')}</p>
     <p className="text-xs text-muted-foreground">{t('healthCloudReceiveScope')}</p>
+    <p className="text-xs text-muted-foreground">{t('healthCloudBlockScope')}</p>
     <button type="button" disabled={!accountId || busy} onClick={() => { void check(); }} className="rounded-lg border border-border px-3 py-2 text-xs font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50">{t(busy ? 'healthCloudChecking' : 'healthCloudCheck')}</button>
     {failed ? <p role="alert" className="text-sm">{t('healthCloudUnavailable')}</p> : null}
     {refreshFailed ? <p role="alert" className="text-sm">{t('healthCloudRefreshUnavailable')}</p> : null}
     {outcome ? <p role="status">{t(({ DENIED: 'healthCloudCreateDenied', CONFLICT: 'healthCloudCreateConflict', INDETERMINATE: 'healthCloudCreateIndeterminate', REMOTE_INSERT_CONFIRMED: 'healthCloudCreateConfirmed' } as const)[outcome])}</p> : null}
     {receiveOutcome ? <p role="status">{t(({ DENIED: 'healthCloudReceiveDenied', CONFLICT: 'healthCloudReceiveConflict', INDETERMINATE: 'healthCloudReceiveIndeterminate', LOCAL_CREATE_CONFIRMED: 'healthCloudReceiveConfirmed' } as const)[receiveOutcome])}</p> : null}
-    {confirmation?.owner.isCurrent() ? <div className="space-y-2 rounded border border-border p-2" role="group" aria-label={t(confirmation.receive ? 'healthCloudReceiveConfirm' : 'healthCloudCreateConfirm')}>
-      <p>{t(confirmation.receive ? 'healthCloudReceiveConfirm' : 'healthCloudCreateConfirm')}</p><code className="break-all">{String(confirmation.record.id)}</code>
-      <button type="button" disabled={busy} onClick={() => { void confirmCreate(); }} className="rounded border border-border p-2 focus-visible:outline">{t(confirmation.receive ? 'healthCloudReceiveConfirmAction' : 'healthCloudCreateConfirmAction')}</button>
-      <button type="button" disabled={busy} onClick={() => setConfirmation(null)} className="rounded border border-border p-2 focus-visible:outline">{t('healthCloudCreateCancel')}</button>
+    {blockOutcome ? <p role="status">{t(({ DENIED: 'healthCloudBlockDenied', CONFLICT: 'healthCloudBlockConflict', INDETERMINATE: 'healthCloudBlockIndeterminate', LOCAL_CREATE_CONFIRMED: 'healthCloudBlockConfirmed' } as const)[blockOutcome])}</p> : null}
+    {confirmation?.owner.isCurrent() ? <div className="space-y-2 rounded border border-border p-2" role="group" aria-label={t(confirmation.block ? 'healthCloudBlockConfirm' : confirmation.receive ? 'healthCloudReceiveConfirm' : 'healthCloudCreateConfirm')}>
+      <p>{t(confirmation.block ? 'healthCloudBlockConfirm' : confirmation.receive ? 'healthCloudReceiveConfirm' : 'healthCloudCreateConfirm')}</p><code className="break-all">{String(confirmation.block?.id ?? confirmation.record.id)}</code>
+      {confirmation.block ? <p className="break-all">{String(confirmation.block.name)}</p> : null}
+      <button type="button" disabled={busy} onClick={() => { void confirmCreate(); }} className="rounded border border-border p-2 focus-visible:outline">{t(confirmation.block ? 'healthCloudBlockConfirmAction' : confirmation.receive ? 'healthCloudReceiveConfirmAction' : 'healthCloudCreateConfirmAction')}</button>
+      <button type="button" disabled={busy} onClick={() => { confirmation.blockOwner?.cancel(); write.current = null; setConfirmation(null); }} className="rounded border border-border p-2 focus-visible:outline">{t('healthCloudCreateCancel')}</button>
     </div> : null}
     {report ? <div className="space-y-2 text-xs">
       <p role="status">{t('healthCloudObserved')}</p>
@@ -120,13 +141,18 @@ export function HealthWorkoutCloudComparisonPanel({ accountId }: { accountId: st
           {key === 'localOnly' ? <button type="button" disabled={busy} onClick={() => {
             if (!result?.owner.isCurrent() || pending.current) return;
             const record = result.owner.localOnlyRecord(row.id);
-            if (record) { setOutcome(null); setConfirmation({ owner: result.owner, record }); }
+            if (record) { write.current?.cancel(); write.current = null; setOutcome(null); setBlockOutcome(null); setConfirmation({ owner: result.owner, record }); }
           }} className="mt-1 rounded border border-border p-2 focus-visible:outline">{t('healthCloudCreate')}</button> : null}
           {key === 'remoteOnly' ? <button type="button" disabled={busy} onClick={() => {
             if (!result?.owner.isCurrent() || pending.current) return;
             const record = result.owner.remoteOnlyRecord(row.id);
-            if (record) { setOutcome(null); setReceiveOutcome(null); setConfirmation({ owner: result.owner, record, receive: true }); }
+            if (record) { write.current?.cancel(); write.current = null; setOutcome(null); setReceiveOutcome(null); setBlockOutcome(null); setConfirmation({ owner: result.owner, record, receive: true }); }
           }} className="mt-1 rounded border border-border p-2 focus-visible:outline">{t('healthCloudReceive')}</button> : null}
+          {key === 'remoteOnly' ? <button type="button" disabled={busy} onClick={() => {
+            if (!result?.owner.isCurrent() || pending.current) return;
+            const record = result.owner.remoteOnlyRecord(row.id);
+            if (record) void inspectBlock(record, result.owner);
+          }} className="mt-1 ml-2 rounded border border-border p-2 focus-visible:outline">{t('healthCloudBlockCheck')}</button> : null}
         </li>)}</ul>
         {report.details[key].length > 30 ? <p>{t('healthCloudPreviewLimit')}</p> : null}
       </details>)}
