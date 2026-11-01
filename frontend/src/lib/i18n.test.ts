@@ -8,7 +8,7 @@ import translationKeys, { buildLocaleDictionary } from './i18n/keys';
 import type { TranslationKey } from './i18n';
 
 const PLANNER_STORAGE_KEY = 'planner-storage';
-const EXPECTED_KEY_COUNT = 2_247;
+const EXPECTED_KEY_COUNT = 2_256;
 type Locale = 'en' | 'ko' | 'ja';
 
 // Current independent canonical authority, including append-only Notes UI, Wiki-link accessibility, cloud comparison details, local document downloads, and PDF/DOCX preview.
@@ -16,9 +16,9 @@ type Locale = 'en' | 'ko' | 'ja';
 // translationKeys order, so it detects insertion, omission, reordering, and
 // substitution without using buildLocaleDictionary.
 const EXPECTED_LOCALE_INTEGRITY_SHA256: Record<Locale, string> = {
-  en: 'e4f51b38c1ad912e05fae4a940c791dc31898b1d676d916034125cf8d88d3065',
-  ko: '6cc1b78497c974c532df9509527a9da208f25d30c176d3e058694c4c26c88901',
-  ja: '9a46ffa90e607f438f2ccfb96a2f78ce03ee5801d51d5561275c06eb14772489',
+  en: '04fd1a8d5da4a3a9c57f7b7f0c5e95d6a8117cbf1dcda9eddfea119ff8c0d44b',
+  ko: '07f143506aee0f2829dd578a974c1f5f79e06ae763a89098c001e5f60bd6179a',
+  ja: 'b0a16a4ed1790c18032a0b0da844a10a76d00fb96874e8ca6a73997f82bc46dc',
 };
 
 const PRE_CLOUD_COMPARISON_LOCALE_SHA256: Record<Locale, string> = {
@@ -108,7 +108,13 @@ describe('i18n locale dictionaries', () => {
     for (const [locale, values] of [['en', enLocaleValues], ['ko', koLocaleValues], ['ja', jaLocaleValues]] as const) {
       expect(localeIntegrityDigest(values.slice(0, 2_238), translationKeys.slice(0, 2_238))).toBe(previous[locale]);
     }
-    expect(translationKeys.slice(2_238)).toEqual(['healthCloudCreateScope', 'healthCloudCreate', 'healthCloudCreateConfirm', 'healthCloudCreateConfirmAction', 'healthCloudCreateCancel', 'healthCloudCreateDenied', 'healthCloudCreateConflict', 'healthCloudCreateIndeterminate', 'healthCloudCreateConfirmed']);
+    expect(translationKeys.slice(2_238, 2_247)).toEqual(['healthCloudCreateScope', 'healthCloudCreate', 'healthCloudCreateConfirm', 'healthCloudCreateConfirmAction', 'healthCloudCreateCancel', 'healthCloudCreateDenied', 'healthCloudCreateConflict', 'healthCloudCreateIndeterminate', 'healthCloudCreateConfirmed']);
+  });
+  it('appends receive copy without changing any of the 2247 existing translations', () => {
+    const previous = { en: 'e4f51b38c1ad912e05fae4a940c791dc31898b1d676d916034125cf8d88d3065', ko: '6cc1b78497c974c532df9509527a9da208f25d30c176d3e058694c4c26c88901', ja: '9a46ffa90e607f438f2ccfb96a2f78ce03ee5801d51d5561275c06eb14772489' };
+    for (const [locale, values] of [['en', enLocaleValues], ['ko', koLocaleValues], ['ja', jaLocaleValues]] as const) {
+      expect(localeIntegrityDigest(values.slice(0, 2247), translationKeys.slice(0, 2247))).toBe(previous[locale]);
+    }
   });
   beforeEach(() => {
     localStorage.clear();
@@ -280,10 +286,10 @@ describe('i18n locale dictionaries', () => {
     missing.splice(1_000, 1);
 
     expect(() => buildLocaleDictionary(missing)).toThrow(
-      'Locale dictionary length mismatch: expected 2247, received 2246',
+      'Locale dictionary length mismatch: expected 2256, received 2255',
     );
     expect(() => assertLocaleValuesIntegrity('en', missing)).toThrow(
-      'Locale integrity length mismatch: expected 2247, received 2246',
+      'Locale integrity length mismatch: expected 2256, received 2255',
     );
   });
 
@@ -292,10 +298,10 @@ describe('i18n locale dictionaries', () => {
     extra.splice(1_000, 0, '__unexpected__');
 
     expect(() => buildLocaleDictionary(extra)).toThrow(
-      'Locale dictionary length mismatch: expected 2247, received 2248',
+      'Locale dictionary length mismatch: expected 2256, received 2257',
     );
     expect(() => assertLocaleValuesIntegrity('en', extra)).toThrow(
-      'Locale integrity length mismatch: expected 2247, received 2248',
+      'Locale integrity length mismatch: expected 2256, received 2257',
     );
   });
 
