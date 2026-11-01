@@ -127,6 +127,14 @@ export type LocalWorkoutReceiveInput = {
 export type LocalWorkoutReceiveResult = { status: 'DENIED' | 'CONFLICT' }
   | { status: 'CREATED'; state: VerifiedLocalHealthImportState };
 
+/** Automatic bootstrap may not discard local identities/content or a newer write. */
+export class HealthBootstrapLocalPreservationError extends Error {
+  constructor() {
+    super('health_bootstrap_local_preservation_required');
+    this.name = 'HealthBootstrapLocalPreservationError';
+  }
+}
+
 export type LocalExerciseBlockReceiveInput = {
   accountId: string;
   record: HealthRecoveryRecord;
@@ -167,7 +175,7 @@ export interface LocalHealthDriver {
   captureWorkoutAdoptionSource(accountId: string, onVerified?: (capture: HealthWorkoutAdoptionCapture) => void): Promise<HealthWorkoutAdoptionCapture>;
   readDatasets(accountId: string): Promise<HealthRecoveryDatasets>;
   readAccountSnapshot(accountId: string): Promise<LocalHealthAccountSnapshot>;
-  readAuthoritativeDatasets(accountId: string): Promise<HealthRecoveryDatasets>;
+  readAuthoritativeDatasets(accountId: string, options?: { recoverPending: false }): Promise<HealthRecoveryDatasets>;
   readImportState(accountId: string): Promise<LocalHealthImportState | null>;
   recoverPendingImport(accountId: string, expectedSnapshotId?: string): Promise<LocalHealthPendingRecoveryResult>;
   persistSnapshot(snapshot: LocalHealthSnapshot): Promise<void>;
@@ -177,6 +185,8 @@ export interface LocalHealthDriver {
     datasets: HealthRecoveryDatasets;
     expectedImportState: LocalHealthImportState | null;
     pendingImportState: PendingLocalHealthImportState;
+    /** Bootstrap only: bind the captured rows and require lossless local containment. */
+    bootstrapPriorDatasets?: HealthRecoveryDatasets;
   }): Promise<void>;
   restorePendingIfStillCurrent(input: {
     accountId: string;
@@ -661,8 +671,8 @@ export class IndexedDbLocalHealthDriver implements LocalHealthDriver {
     return 'RESTORED';
   }
 
-  async readAuthoritativeDatasets(accountId: string): Promise<HealthRecoveryDatasets> {
-    await this.recoverPendingImport(accountId);
+  async readAuthoritativeDatasets(accountId: string, options?: { recoverPending: false }): Promise<HealthRecoveryDatasets> {
+    if (options?.recoverPending !== false) await this.recoverPendingImport(accountId);
     const snapshot = await this.readAccountSnapshotInTransaction(
       accountId,
       this.hooks.onAuthoritativeReadTransactionCreated,
@@ -701,6 +711,7 @@ export class IndexedDbLocalHealthDriver implements LocalHealthDriver {
     datasets: HealthRecoveryDatasets;
     expectedImportState: LocalHealthImportState | null;
     pendingImportState: PendingLocalHealthImportState;
+    bootstrapPriorDatasets?: HealthRecoveryDatasets;
   }): Promise<void> {
     assertDatasetsValid(input.datasets, input.accountId, 'health_pending_import_content_malformed');
     if (input.expectedImportState !== null
@@ -723,7 +734,31 @@ export class IndexedDbLocalHealthDriver implements LocalHealthDriver {
       const currentState = await requestResult(stateStore.get(input.accountId));
       const normalizedCurrent = currentState ? cloneRecord(currentState as LocalHealthImportState) : null;
       if (stableRecoveryJson(normalizedCurrent) !== stableRecoveryJson(input.expectedImportState)) {
+        if (input.bootstrapPriorDatasets) throw new HealthBootstrapLocalPreservationError();
         throw new Error('health_import_start_state_changed');
+      }
+      if (input.bootstrapPriorDatasets) {
+        // All reads and the preservation decision share the replacement transaction.
+        // Marker/count equality alone cannot detect same-count content changes.
+        const current = emptyDatasets();
+        await Promise.all(HEALTH_RECOVERY_DATASETS.map(async dataset => {
+          const stored = await requestResult(tx.objectStore(dataset).index(ACCOUNT_INDEX).getAll(input.accountId)) as StoredHealthRecord[];
+          if (stored.some(item => item.accountId !== input.accountId || item.record.user_id !== input.accountId
+            || item.storageKey !== storageKey(dataset, input.accountId, item.record))) throw new Error('health_bootstrap_local_wrapper_invalid');
+          current[dataset] = stored.map(item => cloneRecord(item.record));
+        }));
+        assertDatasetsValid(current, input.accountId, 'health_bootstrap_local_data_invalid');
+        const counts = countsFor(current);
+        if (normalizedCurrent === null ? totalRows(counts) !== 0
+          : stableRecoveryJson(counts) !== stableRecoveryJson(normalizedCurrent.datasetCounts)
+            || totalRows(counts) !== normalizedCurrent.totalRowCount) throw new Error('health_bootstrap_local_authority_invalid');
+        if (!datasetsEqual(current, input.bootstrapPriorDatasets)) throw new HealthBootstrapLocalPreservationError();
+        for (const dataset of HEALTH_RECOVERY_DATASETS) {
+          const candidate = new Map(input.datasets[dataset].map(row => [recordIdentity(dataset, row), stableRecoveryJson(row)]));
+          if (current[dataset].some(row => candidate.get(recordIdentity(dataset, row)) !== stableRecoveryJson(row))) {
+            throw new HealthBootstrapLocalPreservationError();
+          }
+        }
       }
       await Promise.all(HEALTH_RECOVERY_DATASETS.map(dataset => deleteAccountRows(tx.objectStore(dataset), input.accountId)));
       for (const dataset of HEALTH_RECOVERY_DATASETS) {
