@@ -2176,7 +2176,7 @@ const enTranslations = [
   "Could not copy note link",
   "Linked note unavailable",
   "Export local Notes attachment originals",
-  "Separate ZIP of verified local images on active Notes only (up to 500 records / 100 MiB read). Remote files and unproven legacy ownership are excluded. Vault ZIP/JSON backups and restore support are unchanged.",
+  "Separate ZIP of account-proven local images and referenced PDF/DOCX originals on active Notes (up to 500 records / 100 MiB read). Documents require matched SHA-256, not format or safety validation. Remote files and unproven legacy ownership are excluded. Vault ZIP/JSON backups and restore support are unchanged.",
   "Check local originals",
   "Preparing…",
   "Included: {included}. Excluded: {excluded}.",
