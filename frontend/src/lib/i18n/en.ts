@@ -2209,6 +2209,12 @@ const enTranslations = [
   "Local title",
   "Cloud title",
   "Show {count} more notes",
+  "Local document originals",
+  "Download original",
+  "Verifying original…",
+  "A download was requested in your browser. Check its downloads.",
+  "This original is unavailable or this Note/account context changed. No file was downloaded.",
+  "Local document originals are unavailable for this Note.",
 ] as const;
 
 export default enTranslations;

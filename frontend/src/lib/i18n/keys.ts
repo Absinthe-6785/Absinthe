@@ -2209,6 +2209,12 @@ const translationKeys = [
   "notesCloudLocalTitle",
   "notesCloudRemoteTitle",
   "notesCloudShowMore",
+  "noteLocalDocumentsTitle",
+  "noteLocalDocumentDownload",
+  "noteLocalDocumentVerifying",
+  "noteLocalDocumentDownloadStarted",
+  "noteLocalDocumentDownloadUnavailable",
+  "noteLocalDocumentsUnavailable",
 ] as const;
 
 export type TranslationKey = (typeof translationKeys)[number];

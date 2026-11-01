@@ -24,6 +24,9 @@ vi.mock('./WorkspaceContextBanner', () => ({ WorkspaceContextBanner: () => null 
 vi.mock('./NoteImageAttachments', () => ({
   NoteImageAttachments: () => createElement('div', { 'data-note-image-attachments': true }),
 }));
+vi.mock('./NoteLocalDocumentOriginals', () => ({
+  NoteLocalDocumentOriginals: () => createElement('div', { 'data-note-local-document-originals': true }),
+}));
 vi.mock('../features/knowledge/components/NoteContextStrip', () => ({ NoteContextStrip: () => null }));
 vi.mock('./NoteGraphViewLazy', () => ({ NoteGraphViewLazy: () => null }));
 
@@ -204,6 +207,14 @@ function fireKey(target: EventTarget, key: string, options: KeyboardEventInit = 
 afterEach(() => vi.unstubAllEnvs());
 
 describe('NoteViewEditorArea Return-to-Use attachment isolation', () => {
+  it.each(['reading', 'edit'] as const)('keeps the read-only document-original section available in %s mode without restoring image controls', mode => {
+    vi.stubEnv('VITE_ABSINTHE_RETURN_TO_USE_ATTACHMENT_ISOLATION', 'true');
+    const mounted = renderModeEditor(mode);
+    expect(mounted.host.querySelector('[data-note-local-document-originals]')).not.toBeNull();
+    expect(mounted.host.querySelector('[data-note-image-attachments]')).toBeNull();
+    cleanup(mounted.root, mounted.host);
+  });
+
   it('presents retryable remote pending state as a compact controlled retry action', () => {
     const retrySync = vi.fn();
     const rawDiagnostic = 'TRANSPORT_AMBIGUOUS NOTE_ID_UNAVAILABLE database-detail';
