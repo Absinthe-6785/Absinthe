@@ -167,19 +167,23 @@ describe('K-296 Supabase usage quota traffic risk source facts audit', () => {
     expect(prevWorkout).toContain('createConcurrencyPool');
   });
 
-  it('asserts direct frontend Supabase table, storage, and realtime APIs are absent', () => {
+  it('allows only the bounded read-only Health comparison table query', () => {
     const source = collectSourceFiles(srcRoot)
       .map(path => ({ path: toRepoPath(path), text: read(path) }))
       .filter(file => !file.path.endsWith('.test.ts') && !file.path.endsWith('.test.tsx'));
 
-    const directPatterns = [
-      'supabase.from(',
-      'supabase.storage',
-      'storage.from(',
-      'supabase.channel(',
-    ];
+    const comparisonPath = 'src/lib/healthWorkoutCloudComparison.ts';
+    const tableQueryFiles = source.filter(file => file.text.includes('supabase.from('));
+    expect(tableQueryFiles.map(file => file.path)).toEqual([comparisonPath]);
 
-    for (const pattern of directPatterns) {
+    const comparison = tableQueryFiles[0].text;
+    expect(comparison).toContain("supabase.from('workout_logs').select('*', { count: 'exact' })");
+    expect(comparison).toContain(".eq('user_id', accountId).order('id').limit(WORKOUT_COMPARISON_LIMIT)");
+    expect(comparison).toContain('export const WORKOUT_COMPARISON_LIMIT = 500;');
+    expect(comparison.match(/supabase\.from\(/g)).toHaveLength(1);
+    expect(comparison).not.toMatch(/\.(?:insert|update|upsert|delete|rpc)\s*\(/);
+
+    for (const pattern of ['supabase.storage', 'storage.from(', 'supabase.channel(']) {
       const matches = source.filter(file => file.text.includes(pattern)).map(file => file.path);
       expect(matches, pattern).toEqual([]);
     }

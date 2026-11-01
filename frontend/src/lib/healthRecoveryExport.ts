@@ -224,6 +224,22 @@ function validateSet(dataset: HealthRecoveryDatasetName, rowIndex: number, value
   return out;
 }
 
+/** Row-local validation only. Catalog-dependent relationship checks remain in the full dataset validator. */
+export function validateHealthWorkoutRecord(row: unknown, userId: string, rowIndex = 0): HealthRecoveryValidationIssue[] {
+  const dataset = 'workout_logs';
+  if (!row || typeof row !== 'object' || Array.isArray(row)) return [issue(dataset, rowIndex, '$', 'record_object_required')];
+  const record = row as HealthRecoveryRecord;
+  const out: HealthRecoveryValidationIssue[] = [];
+  if (record.user_id !== userId) out.push(issue(dataset, rowIndex, 'user_id', 'source_owner_mismatch'));
+  if (!uuid(record.id)) out.push(issue(dataset, rowIndex, 'id', 'uuid_required'));
+  if (!date(record.date)) out.push(issue(dataset, rowIndex, 'date', 'iso_date_required'));
+  if (!nullableUuid(record.block_id)) out.push(issue(dataset, rowIndex, 'block_id', 'nullable_uuid_required'));
+  if (!Array.isArray(record.sets)) out.push(issue(dataset, rowIndex, 'sets', 'array_required'));
+  else record.sets.forEach((set, setIndex) => out.push(...validateSet(dataset, rowIndex, set, setIndex)));
+  if (!Number.isInteger(record.sort_order)) out.push(issue(dataset, rowIndex, 'sort_order', 'integer_required'));
+  return out;
+}
+
 export function validateHealthRecoveryDatasets(datasets: HealthRecoveryDatasets, userId: string): HealthRecoveryValidationIssue[] {
   const out: HealthRecoveryValidationIssue[] = [];
   for (const dataset of HEALTH_RECOVERY_DATASETS) {
@@ -233,6 +249,10 @@ export function validateHealthRecoveryDatasets(datasets: HealthRecoveryDatasets,
       continue;
     }
     rows.forEach((row, rowIndex) => {
+      if (dataset === 'workout_logs') {
+        out.push(...validateHealthWorkoutRecord(row, userId, rowIndex));
+        return;
+      }
       if (!row || typeof row !== 'object' || Array.isArray(row)) {
         out.push(issue(dataset, rowIndex, '$', 'record_object_required'));
         return;
@@ -245,12 +265,6 @@ export function validateHealthRecoveryDatasets(datasets: HealthRecoveryDatasets,
         if (!text(row.type)) out.push(issue(dataset, rowIndex, 'type', 'nonempty_string_required'));
         if (!Array.isArray(row.tags) || !row.tags.every(value => typeof value === 'string')) out.push(issue(dataset, rowIndex, 'tags', 'string_array_required'));
         if (!nullableText(row.cardio_mode)) out.push(issue(dataset, rowIndex, 'cardio_mode', 'nullable_string_required'));
-      } else if (dataset === 'workout_logs') {
-        if (!date(row.date)) out.push(issue(dataset, rowIndex, 'date', 'iso_date_required'));
-        if (!nullableUuid(row.block_id)) out.push(issue(dataset, rowIndex, 'block_id', 'nullable_uuid_required'));
-        if (!Array.isArray(row.sets)) out.push(issue(dataset, rowIndex, 'sets', 'array_required'));
-        else row.sets.forEach((set, setIndex) => out.push(...validateSet(dataset, rowIndex, set, setIndex)));
-        if (!Number.isInteger(row.sort_order)) out.push(issue(dataset, rowIndex, 'sort_order', 'integer_required'));
       } else if (dataset === 'inbody_logs') {
         if (!date(row.date)) out.push(issue(dataset, rowIndex, 'date', 'iso_date_required'));
         for (const field of ['weight', 'smm', 'pbf']) if (row[field] !== null && !finitePersisted(row[field])) out.push(issue(dataset, rowIndex, field, 'nullable_finite_numeric_required'));

@@ -2224,6 +2224,20 @@ const enTranslations = [
   "If the document does not appear here, use Download original.",
   "This DOCX could not be previewed. You can still download the original.",
   "Rendering DOCX preview…",
+"Cloud workout comparison",
+  "Read-only comparison of saved workout_logs only (up to 500 per source). Drafts and canonical sessions are excluded. No records are transferred or changed.",
+  "Compare cloud workouts",
+  "Comparing…",
+  "Comparison unavailable: authentication, verified local data, or a complete cloud response could not be confirmed. Nothing was changed.",
+  "Point-in-time observations, not a synchronized status. Missing records are not classified as deleted.",
+  "Local only",
+  "Cloud only",
+  "Same ID and content",
+  "Same ID, different content",
+  "Unverifiable",
+  "Showing the first 30 IDs in this group.",
+  "Local date",
+  "Cloud date",
 ] as const;
 
 export default enTranslations;

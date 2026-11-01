@@ -2224,6 +2224,20 @@ const translationKeys = [
   "noteLocalDocumentDocxPreviewFallback",
   "noteLocalDocumentDocxPreviewUnavailable",
   "noteLocalDocumentDocxPreviewRendering",
+"healthCloudTitle",
+  "healthCloudScope",
+  "healthCloudCheck",
+  "healthCloudChecking",
+  "healthCloudUnavailable",
+  "healthCloudObserved",
+  "healthCloudLocalOnly",
+  "healthCloudRemoteOnly",
+  "healthCloudMatching",
+  "healthCloudDivergent",
+  "healthCloudUnverifiable",
+  "healthCloudPreviewLimit",
+  "healthCloudLocalDate",
+  "healthCloudRemoteDate",
 ] as const;
 
 export type TranslationKey = (typeof translationKeys)[number];

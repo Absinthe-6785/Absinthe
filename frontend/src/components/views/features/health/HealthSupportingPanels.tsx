@@ -5,6 +5,7 @@ import { useElementVisible } from '../../../../hooks/useElementVisible';
 import { WorkspaceCardSkeleton } from '../../../common/WorkspaceCardSkeleton';
 import { WORKSPACE_CARD, WORKSPACE_CARD_SURFACE_COMPACT } from '../../../common/workspaceCardSizes';
 import { WorkoutMonthCalendar } from './WorkoutMonthCalendar';
+import { HealthWorkoutCloudComparisonPanel } from './HealthWorkoutCloudComparisonPanel';
 import { ProteinTracker } from './nutrition';
 import { K121_SKELETON_HEIGHT } from '../../../../lib/k121SkeletonHeights';
 import { useTranslation } from '../../../../lib/i18n';
@@ -135,6 +136,9 @@ export const HealthSupportingPanels = memo(function HealthSupportingPanels({
               showToast={showToast}
               onOpenFull={onOpenNutrition}
             />
+          </div>
+          <div className="order-4 min-w-0 lg:col-span-3">
+            <HealthWorkoutCloudComparisonPanel key={accountId} accountId={accountId} />
           </div>
         </>
       )}

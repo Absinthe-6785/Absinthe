@@ -205,10 +205,20 @@ function abortTransactionSafely(transaction: IDBTransaction): void {
   }
 }
 
-function openDatabase(factory: IDBFactory, databaseName: string): Promise<IDBDatabase> {
+function openDatabase(factory: IDBFactory, databaseName: string, existingOnly = false): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = factory.open(databaseName, HEALTH_LOCAL_DATABASE_VERSION);
+    let rejected = false;
+    let upgradeDenied = false;
     request.onupgradeneeded = () => {
+      // Abort before any schema operation. In particular, aborting an initial
+      // versionchange transaction leaves an absent database absent.
+      if (existingOnly) {
+        rejected = true;
+        upgradeDenied = true;
+        request.transaction!.abort();
+        return;
+      }
       const db = request.result;
       for (const dataset of HEALTH_RECOVERY_DATASETS) {
         if (db.objectStoreNames.contains(dataset)) continue;
@@ -223,9 +233,17 @@ function openDatabase(factory: IDBFactory, databaseName: string): Promise<IDBDat
         store.createIndex(ACCOUNT_INDEX, ACCOUNT_INDEX, { unique: false });
       }
     };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error ?? new Error('health_indexeddb_open_failed'));
-    request.onblocked = () => reject(new Error('health_indexeddb_open_blocked'));
+    request.onsuccess = () => {
+      if (rejected) { request.result.close(); return; }
+      resolve(request.result);
+    };
+    request.onerror = () => reject(upgradeDenied
+      ? new Error('health_indexeddb_existing_required')
+      : request.error ?? new Error('health_indexeddb_open_failed'));
+    request.onblocked = () => {
+      rejected = true;
+      reject(new Error('health_indexeddb_open_blocked'));
+    };
   });
 }
 
@@ -454,10 +472,12 @@ export class IndexedDbLocalHealthDriver implements LocalHealthDriver {
     indexedDBFactory?: IDBFactory;
     databaseName?: string;
     testHooks?: LocalHealthDriverTestHooks;
+    /** Never create or upgrade a database; unavailable sources fail closed. */
+    existingOnly?: boolean;
   } = {}): Promise<IndexedDbLocalHealthDriver> {
     const factory = options.indexedDBFactory ?? globalThis.indexedDB;
     if (!factory) throw new Error('health_indexeddb_unavailable');
-    const db = await openDatabase(factory, options.databaseName ?? HEALTH_LOCAL_DATABASE_NAME);
+    const db = await openDatabase(factory, options.databaseName ?? HEALTH_LOCAL_DATABASE_NAME, options.existingOnly);
     for (const store of ALL_STORES) {
       if (!db.objectStoreNames.contains(store)) {
         db.close();
@@ -1098,6 +1118,7 @@ export async function createLocalHealthDriver(options: {
   indexedDBFactory?: IDBFactory;
   databaseName?: string;
   testHooks?: LocalHealthDriverTestHooks;
+  existingOnly?: boolean;
 } = {}): Promise<IndexedDbLocalHealthDriver> {
   return IndexedDbLocalHealthDriver.open(options);
 }
