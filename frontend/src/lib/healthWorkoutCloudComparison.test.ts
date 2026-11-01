@@ -88,6 +88,17 @@ describe('exact saved-workout comparison', () => {
 });
 
 describe('manual read-only observation lifetime', () => {
+  it('offers only a cloned exact local-only intent while its comparison owner remains current', async () => {
+    mocks.limit.mockResolvedValue({ data: [], count: 0, error: null });
+    const owner = createWorkoutCloudComparison(A, () => true, vi.fn());
+    expect(owner.localOnlyRecord(ID)).toBeNull();
+    await owner.compare();
+    const intent = owner.localOnlyRecord(ID)!;
+    intent.sort_order = 99;
+    expect(owner.localOnlyRecord(ID)).toEqual(row());
+    expect(owner.localOnlyRecord(OTHER)).toBeNull();
+    owner.cancel(); expect(() => owner.localOnlyRecord(ID)).toThrow('stale');
+  });
   it('reads the owner capture and one complete authenticated SELECT; has no write/apply path', async () => {
     const owner = createWorkoutCloudComparison(A, () => true, vi.fn());
     expect((await owner.compare()).counts.matching).toBe(1);
@@ -131,7 +142,7 @@ describe('manual read-only observation lifetime', () => {
     authChanged('SIGNED_IN', { user: { id: B } }); authChanged('SIGNED_IN', { user: { id: A } });
     resolve({ data: [row()], count: 1, error: null });
     await expect(pending).rejects.toThrow('stale');
-    expect(owner.isCurrent()).toBe(false); expect(invalidated).toHaveBeenCalled();
+    expect(owner.isCurrent()).toBe(false); expect(invalidated).toHaveBeenCalledOnce();
   });
   it('rejects currentness lost while opening the local driver before capture', async () => {
     let current = true;

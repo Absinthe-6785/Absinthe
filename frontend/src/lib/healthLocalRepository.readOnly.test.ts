@@ -113,4 +113,29 @@ describe('existing-only local Health opening', () => {
     await expect(reader.captureWorkoutAdoptionSource(OWNER)).rejects.toThrow('source_unstable');
     expect(await seed.readAccountSnapshot(OWNER)).toEqual(before);
   });
+  it('runs synchronous dispatch before a queued competing writer can change the verified source', async () => {
+    const factory = new IDBFactory();
+    const seed = await createLocalHealthDriver({ indexedDBFactory: factory }); drivers.push(seed);
+    const original = { id: ID, user_id: OWNER, date: '2026-10-30', block_id: BLOCK, sort_order: 0, sets: [] };
+    await seed.putRecord('workout_logs', OWNER, original);
+    const db = await raw(factory);
+    await write(db, HEALTH_LOCAL_IMPORT_STATE_STORE, {
+      accountId: OWNER, status: 'VERIFIED_IMPORT_COMPLETE', importedAt: '', sourceFileSha256: '',
+      sourceContentSha256: '', sourceExportedAt: '', totalRowCount: 1, diagnostics: {},
+      datasetCounts: Object.fromEntries(HEALTH_RECOVERY_DATASETS.map(key => [key, key === 'workout_logs' ? 1 : 0])),
+    });
+    const events: string[] = [];
+    const pending = seed.captureWorkoutAdoptionSource(OWNER, source => {
+      expect(source.workouts[0].record).toEqual(original);
+      events.push('dispatch');
+    });
+    const tx = db.transaction('workout_logs', 'readwrite');
+    tx.objectStore('workout_logs').put({ storageKey: `${OWNER}:workout_logs:${ID}`, accountId: OWNER, record: { ...original, sort_order: 9 } });
+    await Promise.all([pending, new Promise<void>((resolve, reject) => {
+      tx.oncomplete = () => { events.push('newer-save'); resolve(); };
+      tx.onerror = () => reject(tx.error);
+    })]);
+    expect(events).toEqual(['dispatch', 'newer-save']);
+    expect((await seed.captureWorkoutAdoptionSource(OWNER)).workouts[0].record.sort_order).toBe(9);
+  });
 });

@@ -8,7 +8,7 @@ import translationKeys, { buildLocaleDictionary } from './i18n/keys';
 import type { TranslationKey } from './i18n';
 
 const PLANNER_STORAGE_KEY = 'planner-storage';
-const EXPECTED_KEY_COUNT = 2_238;
+const EXPECTED_KEY_COUNT = 2_247;
 type Locale = 'en' | 'ko' | 'ja';
 
 // Current independent canonical authority, including append-only Notes UI, Wiki-link accessibility, cloud comparison details, local document downloads, and PDF/DOCX preview.
@@ -16,9 +16,9 @@ type Locale = 'en' | 'ko' | 'ja';
 // translationKeys order, so it detects insertion, omission, reordering, and
 // substitution without using buildLocaleDictionary.
 const EXPECTED_LOCALE_INTEGRITY_SHA256: Record<Locale, string> = {
-  en: 'abbad7971eca1f34393dcf72891daed57f217ac41d74495e8dacb7b573da5d0d',
-  ko: '8a60d32101c24afa0ee443c411a097bbaf2a84cf4fd90809cb72de6c5893c135',
-  ja: '37fc3b52bf811da93bd7305f88d3c123ad9bc8256ae68856b067e5d4148bb23e',
+  en: 'e4f51b38c1ad912e05fae4a940c791dc31898b1d676d916034125cf8d88d3065',
+  ko: '6cc1b78497c974c532df9509527a9da208f25d30c176d3e058694c4c26c88901',
+  ja: '9a46ffa90e607f438f2ccfb96a2f78ce03ee5801d51d5561275c06eb14772489',
 };
 
 const PRE_CLOUD_COMPARISON_LOCALE_SHA256: Record<Locale, string> = {
@@ -103,6 +103,13 @@ async function loadFreshI18n(language?: unknown) {
 }
 
 describe('i18n locale dictionaries', () => {
+  it('appends single-create labels without changing any preexisting translation', () => {
+    const previous = { en: 'abbad7971eca1f34393dcf72891daed57f217ac41d74495e8dacb7b573da5d0d', ko: '8a60d32101c24afa0ee443c411a097bbaf2a84cf4fd90809cb72de6c5893c135', ja: '37fc3b52bf811da93bd7305f88d3c123ad9bc8256ae68856b067e5d4148bb23e' };
+    for (const [locale, values] of [['en', enLocaleValues], ['ko', koLocaleValues], ['ja', jaLocaleValues]] as const) {
+      expect(localeIntegrityDigest(values.slice(0, 2_238), translationKeys.slice(0, 2_238))).toBe(previous[locale]);
+    }
+    expect(translationKeys.slice(2_238)).toEqual(['healthCloudCreateScope', 'healthCloudCreate', 'healthCloudCreateConfirm', 'healthCloudCreateConfirmAction', 'healthCloudCreateCancel', 'healthCloudCreateDenied', 'healthCloudCreateConflict', 'healthCloudCreateIndeterminate', 'healthCloudCreateConfirmed']);
+  });
   beforeEach(() => {
     localStorage.clear();
   });
@@ -273,10 +280,10 @@ describe('i18n locale dictionaries', () => {
     missing.splice(1_000, 1);
 
     expect(() => buildLocaleDictionary(missing)).toThrow(
-      'Locale dictionary length mismatch: expected 2238, received 2237',
+      'Locale dictionary length mismatch: expected 2247, received 2246',
     );
     expect(() => assertLocaleValuesIntegrity('en', missing)).toThrow(
-      'Locale integrity length mismatch: expected 2238, received 2237',
+      'Locale integrity length mismatch: expected 2247, received 2246',
     );
   });
 
@@ -285,10 +292,10 @@ describe('i18n locale dictionaries', () => {
     extra.splice(1_000, 0, '__unexpected__');
 
     expect(() => buildLocaleDictionary(extra)).toThrow(
-      'Locale dictionary length mismatch: expected 2238, received 2239',
+      'Locale dictionary length mismatch: expected 2247, received 2248',
     );
     expect(() => assertLocaleValuesIntegrity('en', extra)).toThrow(
-      'Locale integrity length mismatch: expected 2238, received 2239',
+      'Locale integrity length mismatch: expected 2247, received 2248',
     );
   });
 

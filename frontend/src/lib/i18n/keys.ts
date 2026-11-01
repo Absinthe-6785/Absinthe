@@ -2238,6 +2238,15 @@ const translationKeys = [
   "healthCloudPreviewLimit",
   "healthCloudLocalDate",
   "healthCloudRemoteDate",
+  "healthCloudCreateScope",
+  "healthCloudCreate",
+  "healthCloudCreateConfirm",
+  "healthCloudCreateConfirmAction",
+  "healthCloudCreateCancel",
+  "healthCloudCreateDenied",
+  "healthCloudCreateConflict",
+  "healthCloudCreateIndeterminate",
+  "healthCloudCreateConfirmed",
 ] as const;
 
 export type TranslationKey = (typeof translationKeys)[number];
