@@ -2219,6 +2219,11 @@ const koTranslations = [
   "PDF 미리보기: {name}",
   "PDF가 여기에 표시되지 않으면 원본 다운로드를 사용하세요.",
   "PDF를 미리 볼 수 없습니다. 원본은 계속 다운로드할 수 있습니다.",
+  "DOCX 미리보기",
+  "DOCX 미리보기: {name}",
+  "문서가 여기에 표시되지 않으면 원본 다운로드를 사용하세요.",
+  "DOCX를 미리 볼 수 없습니다. 원본은 계속 다운로드할 수 있습니다.",
+  "DOCX 미리보기 렌더링 중…",
 ] as const;
 
 export default koTranslations;

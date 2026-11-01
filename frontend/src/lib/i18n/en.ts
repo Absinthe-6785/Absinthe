@@ -2219,6 +2219,11 @@ const enTranslations = [
   "PDF preview: {name}",
   "If the PDF does not appear here, use Download original.",
   "This PDF could not be previewed. You can still download the original.",
+  "Preview DOCX",
+  "DOCX preview: {name}",
+  "If the document does not appear here, use Download original.",
+  "This DOCX could not be previewed. You can still download the original.",
+  "Rendering DOCX preview…",
 ] as const;
 
 export default enTranslations;
