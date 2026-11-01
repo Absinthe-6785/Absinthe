@@ -162,4 +162,20 @@ describe('manual read-only observation lifetime', () => {
     expect((await createWorkoutCloudComparison(A, () => true, vi.fn()).compare()).counts.matching).toBe(1);
     expect(mocks.limit).toHaveBeenCalledTimes(2);
   });
+  it('exposes a cloned remoteOnly intent only after complete current comparison', async () => {
+    const other = { ...row(), id: '77777777-7777-4777-8777-777777777777' };
+    mocks.limit.mockResolvedValue({ data: [other], count: 1, error: null });
+    const owner = createWorkoutCloudComparison(A, () => true, vi.fn());
+    expect(owner.remoteOnlyRecord(other.id)).toBeNull();
+    expect(owner.localAuthority()).toBeNull();
+    await owner.compare();
+    const marker = owner.localAuthority()!; marker.importedAt = 'mutated';
+    expect(owner.localAuthority()!.importedAt).not.toBe('mutated');
+    const intended = owner.remoteOnlyRecord(other.id)!; intended.sort_order = 99;
+    expect(owner.remoteOnlyRecord(other.id)).toEqual(other);
+    expect(owner.remoteOnlyRecord(String(row().id))).toBeNull();
+    authChanged('SIGNED_OUT', null);
+    expect(() => owner.remoteOnlyRecord(other.id)).toThrow('stale');
+    expect(() => owner.localAuthority()).toThrow('stale');
+  });
 });

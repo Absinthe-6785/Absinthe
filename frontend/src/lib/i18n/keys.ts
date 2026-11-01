@@ -2247,6 +2247,15 @@ const translationKeys = [
   "healthCloudCreateConflict",
   "healthCloudCreateIndeterminate",
   "healthCloudCreateConfirmed",
+  "healthCloudReceiveScope",
+  "healthCloudReceive",
+  "healthCloudReceiveConfirm",
+  "healthCloudReceiveConfirmAction",
+  "healthCloudReceiveDenied",
+  "healthCloudReceiveConflict",
+  "healthCloudReceiveIndeterminate",
+  "healthCloudReceiveConfirmed",
+  "healthCloudRefreshUnavailable",
 ] as const;
 
 export type TranslationKey = (typeof translationKeys)[number];

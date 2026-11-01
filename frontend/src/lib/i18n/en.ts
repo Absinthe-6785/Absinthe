@@ -2247,6 +2247,15 @@ const enTranslations = [
   "CONFLICT — this ID already exists. Nothing was replaced.",
   "INDETERMINATE — the request may have committed. Do not retry; compare and verify separately.",
   "REMOTE_INSERT_CONFIRMED — the exact cloud record was read back. This is not synchronization.",
+  "Receive one cloud-only workout after individual confirmation. Requires verified local Health data and an identical exercise block. No replacement, automatic sync, or remote writes.",
+  "Receive on this device",
+  "Receive this exact workout on this device? Existing workouts will not be replaced.",
+  "Confirm single workout receipt",
+  "Not received. Authority, source content, or the existing local exercise block could not be verified.",
+  "Not received: a workout with this ID or date/exercise already exists.",
+  "Receipt outcome is uncertain. A local row may exist. Do not retry automatically; compare again. No rollback was attempted.",
+  "One workout was received and verified locally. Automatic synchronization remains off.",
+  "The operation result above still applies, but the comparison could not be refreshed (including snapshot limits). No rollback was attempted.",
 ] as const;
 
 export default enTranslations;

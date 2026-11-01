@@ -1,7 +1,8 @@
 import { supabase } from './supabase';
-import { createLocalHealthDriver, type HealthWorkoutAdoptionCapture } from './healthLocalRepository';
-import { validateHealthWorkoutRecord, type HealthRecoveryRecord } from './healthRecoveryExport';
-import { stableRecoveryJson } from './recoveryExportPackage';
+import { createLocalHealthDriver, type HealthWorkoutAdoptionCapture, type VerifiedLocalHealthImportState } from './healthLocalRepository';
+import type { HealthRecoveryRecord } from './healthRecoveryExport';
+import { supportedWorkoutContent } from './healthWorkoutCloudContent';
+export { supportedWorkoutContent } from './healthWorkoutCloudContent';
 
 // One remote statement only: never assemble a supposedly complete snapshot from changing pages.
 export const WORKOUT_COMPARISON_LIMIT = 500;
@@ -25,19 +26,6 @@ function indexRows(accountId: string, rows: readonly HealthRecoveryRecord[]) {
   }
   if (new TextEncoder().encode(JSON.stringify(rows)).byteLength > MAX_SNAPSHOT_BYTES) throw new Error('workout_comparison_limit');
   return result;
-}
-
-export function supportedWorkoutContent(row: HealthRecoveryRecord, accountId: string): string | null {
-  const fields = ['id', 'user_id', 'date', 'block_id', 'sets', 'sort_order'];
-  // Unknown metadata is not silently dropped or declared equivalent.
-  if (Object.keys(row).some(key => !fields.includes(key))) return null;
-  if (validateHealthWorkoutRecord(row, accountId).length) return null;
-  const setFields = ['type', 'set', 'done', 'kg', 'reps', 'is_dropset', 'assisted_reps', 'weight_source_value', 'weight_source_unit', 'time', 'distance', 'pace'];
-  if ((row.sets as HealthRecoveryRecord[]).some(set => Object.keys(set).some(key => !setFields.includes(key))
-    || Object.values(set).some(value => value !== null && !['string', 'number', 'boolean'].includes(typeof value)
-      || typeof value === 'number' && !Number.isFinite(value))
-    || 'is_dropset' in set && typeof set.is_dropset !== 'boolean')) return null;
-  return stableRecoveryJson(row);
 }
 
 /** Exact IDs and lossless supported content only; absence is never a deletion verdict. */
@@ -77,7 +65,7 @@ async function readLocalRows(accountId: string, assertCurrent: () => void) {
     assertCurrent();
     const capture = await driver.captureWorkoutAdoptionSource(accountId);
     assertCurrent();
-    return workoutRowsFromCapture(accountId, capture);
+    return { rows: workoutRowsFromCapture(accountId, capture), importState: capture.importState };
   }
   finally { driver.close(); }
 }
@@ -86,6 +74,8 @@ async function readLocalRows(accountId: string, assertCurrent: () => void) {
 export function createWorkoutCloudComparison(accountId: string, accountCurrent: () => boolean, onInvalidated: () => void) {
   let live = true, started = false;
   let localOnlyRecords = new Map<string, HealthRecoveryRecord>();
+  let remoteOnlyRecords = new Map<string, HealthRecoveryRecord>();
+  let comparedAuthority: VerifiedLocalHealthImportState | null = null;
   const cancel = () => { live = false; subscription.unsubscribe(); };
   const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
     if (!live) return;
@@ -104,7 +94,8 @@ export function createWorkoutCloudComparison(accountId: string, accountCurrent: 
     const session = first.data.session;
     if (first.error || !session?.access_token || session.user.id !== accountId
       || !session.expires_at || session.expires_at * 1000 <= Date.now()) throw new Error('workout_comparison_auth');
-    const local = await readLocalRows(accountId, assertCurrent);
+    const source = await readLocalRows(accountId, assertCurrent);
+    const local = source.rows;
     assertCurrent();
     const response = await supabase.from('workout_logs').select('*', { count: 'exact' })
       .eq('user_id', accountId).order('id').limit(WORKOUT_COMPARISON_LIMIT);
@@ -118,6 +109,8 @@ export function createWorkoutCloudComparison(accountId: string, accountCurrent: 
       || !last.data.session.expires_at || last.data.session.expires_at * 1000 <= Date.now()) throw new Error('workout_comparison_auth');
     const report = compareWorkoutSnapshots(accountId, local, response.data);
     localOnlyRecords = new Map(report.details.localOnly.map(({ id }) => [id, local.find(row => row.id === id)!]));
+    remoteOnlyRecords = new Map(report.details.remoteOnly.map(({ id }) => [id, structuredClone(response.data.find(row => row.id === id)!)]));
+    comparedAuthority = structuredClone(source.importState);
     return report;
   };
   const localOnlyRecord = (id: string) => {
@@ -125,6 +118,12 @@ export function createWorkoutCloudComparison(accountId: string, accountCurrent: 
     const row = localOnlyRecords.get(id);
     return row ? structuredClone(row) : null;
   };
-  return { compare, cancel, isCurrent, localOnlyRecord };
+  const remoteOnlyRecord = (id: string) => {
+    assertCurrent();
+    const row = remoteOnlyRecords.get(id);
+    return row ? structuredClone(row) : null;
+  };
+  const localAuthority = () => { assertCurrent(); return comparedAuthority ? structuredClone(comparedAuthority) : null; };
+  return { compare, cancel, isCurrent, localOnlyRecord, remoteOnlyRecord, localAuthority };
 }
 export type WorkoutCloudComparison = ReturnType<typeof createWorkoutCloudComparison>;
