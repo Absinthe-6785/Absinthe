@@ -15,6 +15,13 @@ import { createLocalAttachmentMetadataRepository } from '../../../lib/attachment
 import { createLocalAttachmentBlobAdapter } from '../../../lib/attachmentBlobIndexedDb';
 import { useTranslation } from '../../../lib/i18n';
 import { useModalA11y } from '../../../hooks/useModalA11y';
+import {
+  clearDocxPreviewDocument,
+  DOCX_PREVIEW_IFRAME_SANDBOX,
+  DOCX_PREVIEW_SRC_DOC,
+  isDocxArchiveWithinLimits,
+  renderVerifiedDocxPreview,
+} from './docxPreviewIsolation';
 
 const metadataRepository = createLocalAttachmentMetadataRepository();
 const blobAdapter = createLocalAttachmentBlobAdapter();
@@ -36,11 +43,30 @@ interface DocumentView {
   readonly message: string;
 }
 
-interface ActiveDocumentPreview {
+interface PdfDocumentPreview {
+  readonly kind: 'pdf';
   readonly owner: DocumentSession;
   readonly candidate: PublishedLocalDocumentOriginal;
   readonly url: string;
 }
+
+interface DocxDocumentPreview {
+  readonly kind: 'docx';
+  readonly owner: DocumentSession;
+  readonly candidate: PublishedLocalDocumentOriginal;
+  readonly token: number;
+  readonly status: 'loading' | 'ready' | 'failed';
+}
+
+type ActiveDocumentPreview = PdfDocumentPreview | DocxDocumentPreview;
+
+interface DocxRenderJob {
+  readonly preview: DocxDocumentPreview;
+  file: File | null;
+  started: boolean;
+}
+
+const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
 export interface NoteLocalDocumentOriginalsProps {
   note: Note;
@@ -94,6 +120,10 @@ export function NoteLocalDocumentOriginals({ note, colors: c }: NoteLocalDocumen
     && store.notes.find(item => item.id === note.id) === note && note.deletedAt === null && isCompleteLocalNote(note)
     ? observation.request : null;
   const sessionRef = useRef<DocumentSession | null>(null);
+  const previewRef = useRef<ActiveDocumentPreview | null>(null);
+  const docxRenderJobRef = useRef<DocxRenderJob | null>(null);
+  const docxFrameRef = useRef<HTMLIFrameElement | null>(null);
+  const previewTokenRef = useRef(0);
   const [view, setView] = useState<DocumentView>({
     owner: null, documents: [], unavailable: false, busyId: null, message: '',
   });
@@ -101,11 +131,31 @@ export function NoteLocalDocumentOriginals({ note, colors: c }: NoteLocalDocumen
   const previewPanelRef = useRef<HTMLDivElement>(null);
   const previewCloseRef = useRef<HTMLButtonElement>(null);
   const owns = (session: DocumentSession) => sessionRef.current === session && isCurrent(session);
-  const previewVisible = !!preview && owns(preview.owner) && preview.owner.urls.has(preview.url);
+  const publishPreview = (next: ActiveDocumentPreview | null) => {
+    previewRef.current = next;
+    setPreview(next);
+  };
+  const previewVisible = !!preview && previewRef.current === preview && owns(preview.owner)
+    && (preview.kind === 'docx' || preview.owner.urls.has(preview.url));
   const closePreview = () => {
-    if (!preview) return;
-    setPreview(current => current === preview ? null : current);
-    revokeSessionUrl(preview.owner, preview.url);
+    const active = previewRef.current;
+    if (!active) return;
+    publishPreview(null);
+    if (active.kind === 'pdf') {
+      revokeSessionUrl(active.owner, active.url);
+    } else {
+      const cancellingRender = docxRenderJobRef.current?.preview === active;
+      if (cancellingRender) {
+        docxRenderJobRef.current!.file = null;
+        docxRenderJobRef.current = null;
+      }
+      clearDocxPreviewDocument(docxFrameRef.current?.contentDocument);
+      docxFrameRef.current = null;
+      if (cancellingRender && active.owner.busyId === active.candidate.attachmentId) {
+        active.owner.busyId = null;
+        if (owns(active.owner)) setView(previous => ({ ...previous, busyId: null }));
+      }
+    }
   };
   useModalA11y({
     open: previewVisible,
@@ -143,6 +193,13 @@ export function NoteLocalDocumentOriginals({ note, colors: c }: NoteLocalDocumen
     return () => {
       loading = false;
       session.live = false;
+      if (previewRef.current?.owner === session) {
+        previewRef.current = null;
+        if (docxRenderJobRef.current) docxRenderJobRef.current.file = null;
+        docxRenderJobRef.current = null;
+        clearDocxPreviewDocument(docxFrameRef.current?.contentDocument);
+        docxFrameRef.current = null;
+      }
       if (sessionRef.current === session) sessionRef.current = null;
       revokeSessionUrls(session);
     };
@@ -234,7 +291,7 @@ export function NoteLocalDocumentOriginals({ note, colors: c }: NoteLocalDocumen
         pendingUrl = null;
         return;
       }
-      setPreview({ owner: session, candidate, url });
+      publishPreview({ kind: 'pdf', owner: session, candidate, url });
       pendingUrl = null;
     } catch {
       if (owns(session)) setView(previous => ({ ...previous, message: t('noteLocalDocumentPreviewUnavailable') }));
@@ -243,6 +300,86 @@ export function NoteLocalDocumentOriginals({ note, colors: c }: NoteLocalDocumen
       if (owns(session)) {
         session.busyId = null;
         setView(previous => ({ ...previous, busyId: null }));
+      }
+    }
+  };
+
+  const previewDocx = async (session: DocumentSession, candidate: PublishedLocalDocumentOriginal) => {
+    if (!owns(session) || session.busyId || candidate.format !== 'docx' || candidate.mimeType !== DOCX_MIME) return;
+    session.busyId = candidate.attachmentId;
+    setView(previous => ({ ...previous, busyId: candidate.attachmentId, message: '' }));
+    let rendering = false;
+    try {
+      const result = await readPublishedLocalDocumentOriginal({
+        accountId: session.request.accountId, noteId: session.note.id, candidate,
+        repository: metadataRepository, blobAdapter,
+      });
+      if (!owns(session)) return;
+      if (result.status !== 'VERIFIED' || result.file.type !== DOCX_MIME) {
+        setView(previous => ({ ...previous, message: t('noteLocalDocumentDocxPreviewUnavailable') }));
+        return;
+      }
+      const archiveWithinLimits = await isDocxArchiveWithinLimits(result.file, () => owns(session));
+      if (!owns(session)) return;
+      if (!archiveWithinLimits) {
+        setView(previous => ({ ...previous, message: t('noteLocalDocumentDocxPreviewUnavailable') }));
+        return;
+      }
+
+      const next: DocxDocumentPreview = {
+        kind: 'docx', owner: session, candidate, token: ++previewTokenRef.current, status: 'loading',
+      };
+      docxRenderJobRef.current = { preview: next, file: result.file, started: false };
+      publishPreview(next);
+      rendering = true;
+    } catch {
+      if (owns(session)) setView(previous => ({ ...previous, message: t('noteLocalDocumentDocxPreviewUnavailable') }));
+    } finally {
+      if (!rendering && owns(session)) {
+        session.busyId = null;
+        setView(previous => ({ ...previous, busyId: null }));
+      }
+    }
+  };
+
+  const renderDocxFrame = async (target: DocxDocumentPreview) => {
+    const job = docxRenderJobRef.current;
+    const frame = docxFrameRef.current;
+    if (!job || job.preview !== target || job.started || !job.file || !frame
+      || previewRef.current !== target || !owns(target.owner)) return;
+    const doc = frame.contentDocument;
+    if (!doc) {
+      job.file = null;
+      docxRenderJobRef.current = null;
+      setView(previous => ({ ...previous, message: t('noteLocalDocumentDocxPreviewUnavailable') }));
+      publishPreview({ ...target, status: 'failed' });
+      target.owner.busyId = null;
+      if (owns(target.owner)) setView(previous => ({ ...previous, busyId: null }));
+      return;
+    }
+    job.started = true;
+    const isRenderCurrent = () => docxRenderJobRef.current === job
+      && previewRef.current === target && owns(target.owner);
+    try {
+      const rendered = await renderVerifiedDocxPreview(job.file, doc, isRenderCurrent);
+      if (!rendered || !isRenderCurrent()) return;
+      job.file = null;
+      docxRenderJobRef.current = null;
+      publishPreview({ ...target, status: 'ready' });
+    } catch {
+      clearDocxPreviewDocument(doc);
+      if (isRenderCurrent()) {
+        job.file = null;
+        docxRenderJobRef.current = null;
+        setView(previous => ({ ...previous, message: t('noteLocalDocumentDocxPreviewUnavailable') }));
+        publishPreview({ ...target, status: 'failed' });
+      }
+    } finally {
+      const currentPreview = previewRef.current;
+      if (currentPreview?.kind === 'docx' && currentPreview.token === target.token
+        && target.owner.busyId === target.candidate.attachmentId) {
+        target.owner.busyId = null;
+        if (owns(target.owner)) setView(previous => ({ ...previous, busyId: null }));
       }
     }
   };
@@ -284,6 +421,16 @@ export function NoteLocalDocumentOriginals({ note, colors: c }: NoteLocalDocumen
                       >
                         {t('noteLocalDocumentPreview')}
                       </button>
+                    ) : candidate.format === 'docx' && candidate.mimeType === DOCX_MIME ? (
+                      <button
+                        type="button"
+                        aria-label={`${t('noteLocalDocumentDocxPreview')} ${candidate.fileName}`}
+                        disabled={view.busyId !== null}
+                        onClick={() => void previewDocx(owner, candidate)}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: c.text, background: c.input, border: `1px solid ${c.inputBdr}`, borderRadius: 6, padding: '5px 8px', cursor: view.busyId ? 'wait' : 'pointer' }}
+                      >
+                        {t('noteLocalDocumentDocxPreview')}
+                      </button>
                     ) : null}
                     <button
                       type="button"
@@ -307,7 +454,7 @@ export function NoteLocalDocumentOriginals({ note, colors: c }: NoteLocalDocumen
       {previewVisible && preview && typeof document !== 'undefined' ? createPortal(
         <div
           role="presentation"
-          data-pdf-preview-overlay
+          {...(preview.kind === 'pdf' ? { 'data-pdf-preview-overlay': '' } : { 'data-docx-preview-overlay': '' })}
           onClick={event => { if (event.target === event.currentTarget) closePreview(); }}
           style={{ position: 'fixed', inset: 0, zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 12, background: 'var(--color-overlay, rgba(0, 0, 0, 0.68))' }}
         >
@@ -315,15 +462,20 @@ export function NoteLocalDocumentOriginals({ note, colors: c }: NoteLocalDocumen
             ref={previewPanelRef}
             role="dialog"
             aria-modal="true"
-            aria-labelledby="note-local-document-preview-title"
+            aria-labelledby={preview.kind === 'pdf' ? 'note-local-document-preview-title' : 'note-local-document-docx-preview-title'}
             tabIndex={-1}
-            data-pdf-preview-dialog
+            {...(preview.kind === 'pdf' ? { 'data-pdf-preview-dialog': '' } : { 'data-docx-preview-dialog': '' })}
             style={{ display: 'flex', flexDirection: 'column', width: 'min(1100px, 100%)', height: 'min(900px, 94vh)', overflow: 'hidden', border: `1px solid ${c.sideBdr}`, borderRadius: 12, background: c.card, color: c.text, boxShadow: '0 20px 70px rgba(0,0,0,.4)' }}
             onClick={event => event.stopPropagation()}
           >
             <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, minHeight: 52, padding: '8px 12px', borderBottom: `1px solid ${c.sideBdr}` }}>
-              <h2 id="note-local-document-preview-title" style={{ margin: 0, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 14 }}>
-                {t('noteLocalDocumentPreviewTitle').replace('{name}', preview.candidate.fileName)}
+              <h2
+                id={preview.kind === 'pdf' ? 'note-local-document-preview-title' : 'note-local-document-docx-preview-title'}
+                style={{ margin: 0, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 14 }}
+              >
+                {preview.kind === 'pdf'
+                  ? t('noteLocalDocumentPreviewTitle').replace('{name}', preview.candidate.fileName)
+                  : t('noteLocalDocumentDocxPreviewTitle').replace('{name}', preview.candidate.fileName)}
               </h2>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: '0 0 auto' }}>
                 <button
@@ -337,22 +489,49 @@ export function NoteLocalDocumentOriginals({ note, colors: c }: NoteLocalDocumen
                 </button>
               </div>
             </header>
-            <iframe
-              data-pdf-preview-frame
-              src={preview.url}
-              title={t('noteLocalDocumentPreviewTitle').replace('{name}', preview.candidate.fileName)}
-              tabIndex={0}
-              style={{ display: 'block', flex: '1 1 auto', width: '100%', minHeight: 0, border: 0, background: '#444' }}
-              onBlur={event => {
-                const nextTarget = event.relatedTarget;
-                if (!(nextTarget instanceof Node) || !previewPanelRef.current?.contains(nextTarget)) {
-                  previewCloseRef.current?.focus();
-                }
-              }}
-            />
+            {preview.kind === 'pdf' ? (
+              <iframe
+                data-pdf-preview-frame
+                src={preview.url}
+                title={t('noteLocalDocumentPreviewTitle').replace('{name}', preview.candidate.fileName)}
+                tabIndex={0}
+                style={{ display: 'block', flex: '1 1 auto', width: '100%', minHeight: 0, border: 0, background: '#444' }}
+                onBlur={event => {
+                  const nextTarget = event.relatedTarget;
+                  if (!(nextTarget instanceof Node) || !previewPanelRef.current?.contains(nextTarget)) {
+                    previewCloseRef.current?.focus();
+                  }
+                }}
+              />
+            ) : (
+              <iframe
+                key={preview.token}
+                ref={docxFrameRef}
+                data-docx-preview-frame
+                sandbox={DOCX_PREVIEW_IFRAME_SANDBOX}
+                srcDoc={DOCX_PREVIEW_SRC_DOC}
+                title={t('noteLocalDocumentDocxPreviewTitle').replace('{name}', preview.candidate.fileName)}
+                tabIndex={0}
+                style={{ display: 'block', flex: '1 1 auto', width: '100%', minHeight: 0, border: 0, background: '#fff' }}
+                onLoad={() => { void renderDocxFrame(preview); }}
+                onBlur={event => {
+                  const nextTarget = event.relatedTarget;
+                  if (!(nextTarget instanceof Node) || !previewPanelRef.current?.contains(nextTarget)) {
+                    previewCloseRef.current?.focus();
+                  }
+                }}
+              />
+            )}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '7px 12px', borderTop: `1px solid ${c.sideBdr}` }}>
               <div>
-                <p style={{ margin: 0, color: c.textMuted, fontSize: 12 }}>{t('noteLocalDocumentPreviewFallback')}</p>
+                <p style={{ margin: 0, color: c.textMuted, fontSize: 12 }}>
+                  {preview.kind === 'pdf' ? t('noteLocalDocumentPreviewFallback') : t('noteLocalDocumentDocxPreviewFallback')}
+                </p>
+                {preview.kind === 'docx' && preview.status === 'loading' ? (
+                  <p role="status" aria-live="polite" style={{ margin: '4px 0 0', color: c.textMuted, fontSize: 12 }}>
+                    {t('noteLocalDocumentDocxPreviewRendering')}
+                  </p>
+                ) : null}
                 {view.message ? <p role="status" aria-live="polite" style={{ margin: '4px 0 0', color: c.textMuted, fontSize: 12 }}>{view.message}</p> : null}
               </div>
               <button

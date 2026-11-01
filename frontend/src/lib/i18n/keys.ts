@@ -2219,6 +2219,11 @@ const translationKeys = [
   "noteLocalDocumentPreviewTitle",
   "noteLocalDocumentPreviewFallback",
   "noteLocalDocumentPreviewUnavailable",
+  "noteLocalDocumentDocxPreview",
+  "noteLocalDocumentDocxPreviewTitle",
+  "noteLocalDocumentDocxPreviewFallback",
+  "noteLocalDocumentDocxPreviewUnavailable",
+  "noteLocalDocumentDocxPreviewRendering",
 ] as const;
 
 export type TranslationKey = (typeof translationKeys)[number];
