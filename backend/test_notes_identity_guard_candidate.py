@@ -28,7 +28,7 @@ def assess(**changes):
 def test_no_operation_can_be_activated_even_with_all_prerequisites(operation, monkeypatch):
     monkeypatch.setenv("K323_REMOTE_MUTATION_ENABLED", "enabled")
     monkeypatch.setenv("NOTES_IDENTITY_GUARD_ENABLED", "true")
-    verdict = assess(operation=operation)
+    verdict = assess(operation=operation, **({"note_id": None, "payload": None, "provenance": None} if operation == "reserve" else {}))
     assert verdict.allowed is False
     assert verdict.code == "CANDIDATE_NOT_ACTIVATED"
 
@@ -90,6 +90,21 @@ def test_incomplete_persistence_and_missing_operation_identity_are_denied():
     assert assess(note_id="").code == "INVALID_OPERATION_IDENTITY"
     assert assess(operation_id=" ").code == "INVALID_OPERATION_IDENTITY"
     assert assess(operation="unregistered").code == "UNSUPPORTED_OPERATION"
+
+
+def test_reservation_diagnostic_never_authorizes_caller_supplied_identity_or_provenance():
+    assert assess(operation="reserve").code == "CLIENT_RESERVATION_INPUT_FORBIDDEN"
+    result = assess(operation="reserve", note_id=None, payload=None, provenance=None)
+    assert result.code == "CANDIDATE_NOT_ACTIVATED" and not result.allowed
+
+
+def test_sql_reservation_has_no_caller_owner_or_note_identity_and_is_not_a_runtime_rpc():
+    source = SQL.read_text(encoding="utf-8")
+    reserve = source.split("create function notes_identity_candidate.reserve(p_operation text)")[1].split("create function notes_identity_candidate.publish(")[0]
+    assert "login=session_user" in reserve
+    assert "gen_random_uuid()" in reserve and "pg_advisory_xact_lock" in reserve
+    assert "record_receipt(principal.owner_id,issued,p_operation,'reserve'" in reserve
+    assert "principal_bindings" in source and "from public" in source
 
 
 def test_sql_is_unapplied_and_candidate_is_disconnected_from_live_modules():

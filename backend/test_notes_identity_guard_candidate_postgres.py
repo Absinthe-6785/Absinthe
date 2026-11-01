@@ -23,7 +23,7 @@ class CandidateDatabase(Database):
     def cmd(self, role):
         if role == "postgres":
             return command(self.docker, self.name, role)
-        if role not in {"notes_candidate_gateway", "notes_candidate_app"}:
+        if role not in {"notes_candidate_gateway", "notes_candidate_gateway_b", "notes_candidate_unbound", "notes_candidate_app"}:
             raise ValueError("unapproved candidate test login")
         result = command(self.docker, self.name, "proof_a")
         result[result.index("-U") + 1] = role
@@ -42,10 +42,9 @@ class CandidateDatabase(Database):
         return Session(self.cmd(role))
 
     def reserve(self, owner=OWNER_A):
-        # Explicit fixture-only trusted issuance. No issuer/freshness guarantee.
-        key = "model:" + uuid.uuid4().hex
-        self.sql(f"set role notes_candidate_owner;insert into {SCHEMA}.identities values ({quote(key)},{quote(owner)},'RESERVED');")
-        return key
+        # Real SQL issuance, never an INSERT of a test-selected Note identity.
+        role = "notes_candidate_gateway" if owner == OWNER_A else "notes_candidate_gateway_b"
+        return self.sql(reserve("s:" + uuid.uuid4().hex), role)
 
     def snapshot(self, key):
         key = quote(key)
@@ -63,6 +62,10 @@ def publish(key, operation=None, payload=None, owner=OWNER_A, generation=1):
     return f"select {SCHEMA}.publish({quote(owner)},{generation},{quote(key)},{quote(operation or 'p:'+key)},{quote(body)}::jsonb);"
 
 
+def reserve(operation):
+    return f"select {SCHEMA}.reserve({quote(operation)});"
+
+
 def retire(key, operation=None, owner=OWNER_A, generation=1):
     return f"select {SCHEMA}.retire({quote(owner)},{generation},{quote(key)},{quote(operation or 'r:'+key)});"
 
@@ -76,6 +79,9 @@ def model_db(proof_db):
     db.sql("""create role notes_candidate_owner nologin nosuperuser nobypassrls noinherit;
       create role notes_candidate_gateway login password 'synthetic-only' nosuperuser nobypassrls noinherit;
       create role notes_candidate_app login password 'synthetic-only' nosuperuser nobypassrls noinherit;
+      create role notes_candidate_gateway_b login password 'synthetic-only' nosuperuser nobypassrls inherit;
+      create role notes_candidate_unbound login password 'synthetic-only' nosuperuser nobypassrls inherit;
+      grant notes_candidate_gateway to notes_candidate_gateway_b,notes_candidate_unbound;
       create role anon nologin nosuperuser nobypassrls;
       create role authenticated nologin nosuperuser nobypassrls;
       create role service_role nologin nosuperuser bypassrls;
@@ -108,6 +114,11 @@ def ready(candidate):
       reset_restore=true,account_termination=true;
       insert into {SCHEMA}.account_fences values ('{OWNER_A}',1,'ACTIVE'),('{OWNER_B}',1,'ACTIVE')
       on conflict(owner_id) do update set generation=1,state='ACTIVE';""")
+    # Test-only trusted login bindings, NOT Supabase JWT/production admission.
+    # postgres binding exists solely for existing rollback/DDL fault injections.
+    candidate.sql(f"""insert into {SCHEMA}.principal_bindings values
+      ('notes_candidate_gateway','{OWNER_A}',1),('notes_candidate_gateway_b','{OWNER_B}',1),('postgres','{OWNER_A}',1)
+      on conflict(login) do update set owner_id=excluded.owner_id,generation=excluded.generation;""")
     return candidate
 
 
@@ -129,7 +140,7 @@ def test_each_unverified_integration_blocks_sql_before_mutation(ready, field):
 def test_exact_replay_retirement_and_unknown_ids(ready):
     key = ready.reserve()
     ready.sql(publish("historically-unknown"), "notes_candidate_gateway", "IDENTITY_UNAVAILABLE")
-    ready.sql(publish(key, owner=OWNER_B), "notes_candidate_gateway", "IDENTITY_UNAVAILABLE")
+    ready.sql(publish(key, owner=OWNER_B), "notes_candidate_gateway_b", "IDENTITY_UNAVAILABLE")
     assert ready.sql(publish(key), "notes_candidate_gateway") == "CREATED"
     assert ready.sql(publish(key), "notes_candidate_gateway") == "REPLAY_LIVE"
     before = ready.snapshot(key)
@@ -137,7 +148,7 @@ def test_exact_replay_retirement_and_unknown_ids(ready):
     assert ready.snapshot(key) == before
     assert ready.sql(retire(key), "notes_candidate_gateway") == "RETIRED"
     retired = ready.snapshot(key)
-    assert retired["state"] == "RETIRED" and retired["notes"] == 0 and retired["receipts"] == 2
+    assert retired["state"] == "RETIRED" and retired["notes"] == 0 and retired["receipts"] == 3
     assert ready.sql(retire(key), "notes_candidate_gateway") == "ALREADY_RETIRED"
     assert ready.sql(publish(key), "notes_candidate_gateway") == "APPLIED_THEN_RETIRED"
     ready.sql(publish(key, "other"), "notes_candidate_gateway", "IDENTITY_UNAVAILABLE")
@@ -215,7 +226,7 @@ def test_concurrent_publications_commit_only_one_initial_insert(ready, same_oper
         first.until("COMMITTED")
         second.finish(None if same_operation else "IDENTITY_UNAVAILABLE")
         actual = ready.snapshot(key)
-        assert actual["state"] == "LIVE" and actual["notes"] == actual["receipts"] == 1
+        assert actual["state"] == "LIVE" and actual["notes"] == 1 and actual["receipts"] == 2
         assert actual["payload"] == PAYLOAD
     finally:
         first.close()
@@ -264,7 +275,7 @@ def test_publication_retirement_race_reuses_observed_pg_lock_barriers(ready, pub
         second.finish(None if publication_first else "IDENTITY_UNAVAILABLE")
         actual = ready.snapshot(key)
         assert actual["state"] == "RETIRED" and actual["notes"] == 0
-        assert actual["receipts"] == (2 if publication_first else 1)
+        assert actual["receipts"] == (3 if publication_first else 2)
     finally:
         first.close()
         second.close()
@@ -333,5 +344,111 @@ def test_synthetic_auth_cascade_preserves_identity_without_inventing_termination
         'receipts',(select count(*) from {SCHEMA}.receipts where note_id={quote(key)}),
         'fence',(select state from {SCHEMA}.account_fences where owner_id='{OWNER_A}'));
       """ + publish(key) + "commit;", error="CANDIDATE_NOT_ACTIVATED")
-    assert json.loads(observed) == {"notes": 0, "identity": "LIVE", "receipts": 1, "fence": "ACTIVE"}
+    assert json.loads(observed) == {"notes": 0, "identity": "LIVE", "receipts": 2, "fence": "ACTIVE"}
     assert ready.snapshot(key) == before  # failed transaction did not persist deletion
+
+
+def test_server_issuance_preserves_exact_identity_and_terminal_history(ready):
+    operation = 'reserve:' + uuid.uuid4().hex
+    key = ready.sql(reserve(operation), 'notes_candidate_gateway')
+    assert str(uuid.UUID(key)) == key
+    reserved = ready.snapshot(key)
+    assert reserved == dict(state='RESERVED', owner=OWNER_A, notes=0, payload=None, receipts=1)
+    assert ready.sql(reserve(operation), 'notes_candidate_gateway') == key
+    assert ready.snapshot(key) == reserved
+    ready.sql(publish(key), 'notes_candidate_gateway')
+    assert ready.snapshot(key)['payload'] == PAYLOAD
+    ready.sql(retire(key), 'notes_candidate_gateway')
+    terminal = ready.snapshot(key)
+    assert terminal == dict(state='RETIRED', owner=OWNER_A, notes=0, payload=None, receipts=3)
+    assert ready.sql(reserve(operation), 'notes_candidate_gateway') == key  # historical replay only
+    ready.sql(publish(key, 'new-publication'), 'notes_candidate_gateway', 'IDENTITY_UNAVAILABLE')
+    ready.sql(retire(key, 'new-retirement'), 'notes_candidate_gateway', 'IDENTITY_UNAVAILABLE')
+    assert ready.snapshot(key) == terminal
+
+
+def test_no_adoption_of_absent_or_physically_deleted_historical_ids(ready):
+    key = 'unknown:' + uuid.uuid4().hex
+    ready.sql(f"insert into public.notes(id,user_id,title,body,updated_at) values({quote(key)},'{OWNER_A}','keep','original',1);")
+    ready.sql(f"delete from public.notes where id={quote(key)};")  # disposable historical deletion model
+    before = ready.snapshot(key)
+    assert before['state'] is None and before['receipts'] == before['notes'] == 0
+    ready.sql(publish(key), 'notes_candidate_gateway', 'IDENTITY_UNAVAILABLE')
+    ready.sql(retire(key), 'notes_candidate_gateway', 'IDENTITY_UNAVAILABLE')
+    # There is no overload accepting a requested ID or owner.
+    ready.sql(f"select {SCHEMA}.reserve('op',{quote(key)},'{OWNER_A}');", 'notes_candidate_gateway', '42883')
+    assert ready.snapshot(key) == before
+
+
+@pytest.mark.parametrize('role', ['notes_candidate_app', 'notes_candidate_unbound'])
+def test_untrusted_or_unbound_principal_cannot_reserve(candidate, ready, role):
+    expected = '42501' if role == 'notes_candidate_app' else 'ACCOUNT_AUTHORITY_UNAVAILABLE'
+    before = ready.sql(f'select count(*) from {SCHEMA}.identities;')
+    ready.sql(reserve('forbidden'), role, expected)
+    ready.sql(f"insert into {SCHEMA}.principal_bindings values(current_user,'{OWNER_A}',1);", role, '42501')
+    assert ready.sql(f'select count(*) from {SCHEMA}.identities;') == before
+
+
+def test_authenticated_login_not_caller_owner_or_role_selects_account(ready):
+    key = ready.reserve(OWNER_B)
+    before = ready.snapshot(key)
+    ready.sql(publish(key, owner=OWNER_B), 'notes_candidate_gateway', 'ACCOUNT_AUTHORITY_UNAVAILABLE')
+    ready.sql(publish(key, owner=OWNER_A), 'notes_candidate_gateway_b', 'ACCOUNT_AUTHORITY_UNAVAILABLE')
+    # Role membership grants function use, never changes session_user's binding.
+    assert ready.sql('set role notes_candidate_gateway;' + publish(key, owner=OWNER_B), 'notes_candidate_gateway_b') == 'CREATED'
+    ready.sql(f"set session authorization notes_candidate_gateway_b;" + publish(key, owner=OWNER_B),
+              'notes_candidate_gateway', '42501')
+    assert before['owner'] == ready.snapshot(key)['owner'] == OWNER_B
+
+
+def test_reservation_and_receipt_are_one_transaction_and_operation_namespace(ready):
+    before = ready.sql(f'select count(*) from {SCHEMA}.identities;')
+    ready.sql(reserve('test-fail-after-note'), 'notes_candidate_gateway', '23514')
+    assert ready.sql(f'select count(*) from {SCHEMA}.identities;') == before
+    operation = 'reservation:' + uuid.uuid4().hex
+    key = ready.sql(reserve(operation), 'notes_candidate_gateway')
+    before = ready.snapshot(key)
+    ready.sql(publish(key, operation), 'notes_candidate_gateway', 'OPERATION_CONFLICT')
+    ready.sql(retire(key, operation), 'notes_candidate_gateway', 'OPERATION_CONFLICT')
+    assert ready.snapshot(key) == before
+    ready.sql(publish(key), 'notes_candidate_gateway')
+    ready.sql(reserve('p:' + key), 'notes_candidate_gateway', 'OPERATION_CONFLICT')
+
+
+def test_concurrent_reservation_replays_return_one_identity_and_one_receipt(ready):
+    operation = 'concurrent-reserve:' + uuid.uuid4().hex
+    first, second = ready.connection(), ready.connection()
+    name = 'candidate_reserve_' + uuid.uuid4().hex
+    try:
+        first.send("begin;\nselect 'PID:'||pg_backend_pid();\n" + reserve(operation) + "\n\\echo HELD")
+        output = first.until('HELD')
+        pid = int(next(line[4:] for line in output if line.startswith('PID:')))
+        key = next(line for line in output if len(line) == 36)
+        second.send(f'set application_name={quote(name)};\n' + reserve(operation) + '\n\\q')
+        ready.wait_for_blocker(second, name, pid)
+        first.send('commit;\n\\echo COMMITTED'); first.until('COMMITTED')
+        second.finish()
+        assert key in second.log
+        assert ready.snapshot(key) == dict(state='RESERVED', owner=OWNER_A, notes=0, payload=None, receipts=1)
+    finally:
+        first.close(); second.close()
+
+
+def test_generation_changes_invalidate_old_bindings_and_captured_operations(ready):
+    key = ready.reserve()
+    before = ready.snapshot(key)
+    # Rolled-back model of A/B/A generation advancement, not a lifecycle API.
+    ready.sql(f"begin;update {SCHEMA}.account_fences set generation=3 where owner_id='{OWNER_A}';"
+              + reserve('stale-generation') + 'commit;', error='ACCOUNT_AUTHORITY_UNAVAILABLE')
+    ready.sql(f"begin;update {SCHEMA}.account_fences set generation=3 where owner_id='{OWNER_A}';"
+              f"update {SCHEMA}.principal_bindings set generation=3 where owner_id='{OWNER_A}';"
+              + publish(key) + 'commit;', error='ACCOUNT_AUTHORITY_UNAVAILABLE')
+    assert ready.snapshot(key) == before
+
+
+def test_retirement_does_not_accept_a_foreign_current_row_for_a_reserved_id(ready):
+    key = ready.reserve()
+    ready.sql(f"insert into public.notes(id,user_id,title,body,updated_at) values({quote(key)},'{OWNER_B}','foreign','keep',1);")
+    before = ready.snapshot(key)
+    ready.sql(retire(key), 'notes_candidate_gateway', 'RESULT_INDETERMINATE')
+    assert ready.snapshot(key) == before

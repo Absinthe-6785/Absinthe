@@ -13,7 +13,7 @@ from uuid import UUID
 
 
 Operation = Literal[
-    "publish", "retire", "legacy_post", "legacy_delete", "folder_detach",
+    "reserve", "publish", "retire", "legacy_post", "legacy_delete", "folder_detach",
     "reset", "restore", "k323", "account_termination",
 ]
 OPERATIONS = frozenset(Operation.__args__)
@@ -102,6 +102,10 @@ def assess_candidate(
     missing = tuple(f.name for f in fields(prerequisites) if getattr(prerequisites, f.name) is not True)
     if missing:
         return Denial("PREREQUISITES_UNVERIFIED", missing)
+    if operation == "reserve" and any(value is not None for value in (note_id, payload, provenance)):
+        # The SQL issuer derives owner from its private authenticated principal
+        # and generates an ID. Existing/local IDs are never admitted here.
+        return Denial("CLIENT_RESERVATION_INPUT_FORBIDDEN")
     if operation in {"publish", "retire"}:
         if type(note_id) is not str or not note_id.strip() or type(operation_id) is not str or not operation_id.strip():
             return Denial("INVALID_OPERATION_IDENTITY")
