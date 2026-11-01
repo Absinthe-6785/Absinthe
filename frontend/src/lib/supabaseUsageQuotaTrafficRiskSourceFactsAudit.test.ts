@@ -167,7 +167,7 @@ describe('K-296 Supabase usage quota traffic risk source facts audit', () => {
     expect(prevWorkout).toContain('createConcurrencyPool');
   });
 
-  it('allows only the bounded read-only Health comparison table query', () => {
+  it('allows only the bounded read-only Health comparison SDK table query', () => {
     const source = collectSourceFiles(srcRoot)
       .map(path => ({ path: toRepoPath(path), text: read(path) }))
       .filter(file => !file.path.endsWith('.test.ts') && !file.path.endsWith('.test.tsx'));
@@ -187,6 +187,18 @@ describe('K-296 Supabase usage quota traffic risk source facts audit', () => {
       const matches = source.filter(file => file.text.includes(pattern)).map(file => file.path);
       expect(matches, pattern).toEqual([]);
     }
+  });
+
+  it('constrains the separate one-record Data API boundary to authenticated GET and INSERT-only POST', () => {
+    const boundary = read(join(srcRoot, 'lib', 'healthWorkoutCloudSingleCreate.ts'));
+    expect(boundary).toContain("new URL('/rest/v1/workout_logs', base)");
+    expect(boundary).toContain("method: 'POST'");
+    expect(boundary).toContain("Prefer: 'return=minimal'");
+    expect(boundary).toContain('body: JSON.stringify(row)');
+    expect(boundary).toContain('Authorization: `Bearer ${token}`');
+    expect(boundary).toContain('supabase.auth.getUser(token)');
+    expect(boundary).not.toMatch(/method:\s*['"](?:DELETE|PUT|PATCH)['"]|resolution=|on_conflict|service_role|\/api\/workouts/);
+    expect(boundary.match(/method: 'POST'/g)).toHaveLength(1);
   });
 
   it('records storage/provider and monitoring gaps without implementing behavior', () => {

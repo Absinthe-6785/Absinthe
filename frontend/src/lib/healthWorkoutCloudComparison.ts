@@ -27,7 +27,7 @@ function indexRows(accountId: string, rows: readonly HealthRecoveryRecord[]) {
   return result;
 }
 
-function supportedContent(row: HealthRecoveryRecord, accountId: string): string | null {
+export function supportedWorkoutContent(row: HealthRecoveryRecord, accountId: string): string | null {
   const fields = ['id', 'user_id', 'date', 'block_id', 'sets', 'sort_order'];
   // Unknown metadata is not silently dropped or declared equivalent.
   if (Object.keys(row).some(key => !fields.includes(key))) return null;
@@ -48,7 +48,7 @@ export function compareWorkoutSnapshots(accountId: string, localRows: readonly H
   };
   for (const id of [...new Set([...local.keys(), ...remote.keys()])].sort()) {
     const left = local.get(id), right = remote.get(id);
-    const a = left ? supportedContent(left, accountId) : null, b = right ? supportedContent(right, accountId) : null;
+    const a = left ? supportedWorkoutContent(left, accountId) : null, b = right ? supportedWorkoutContent(right, accountId) : null;
     const category: WorkoutComparisonCategory = (left && a === null) || (right && b === null) ? 'unverifiable'
       : !left ? 'remoteOnly' : !right ? 'localOnly' : a === b ? 'matching' : 'divergent';
     details[category].push(Object.freeze({ id,
@@ -85,8 +85,10 @@ async function readLocalRows(accountId: string, assertCurrent: () => void) {
 /** Owns only a manual observation, never a Health bootstrap or write permit. */
 export function createWorkoutCloudComparison(accountId: string, accountCurrent: () => boolean, onInvalidated: () => void) {
   let live = true, started = false;
+  let localOnlyRecords = new Map<string, HealthRecoveryRecord>();
   const cancel = () => { live = false; subscription.unsubscribe(); };
   const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    if (!live) return;
     if (event === 'INITIAL_SESSION' && session?.user.id === accountId) return;
     live = false;
     onInvalidated();
@@ -114,8 +116,15 @@ export function createWorkoutCloudComparison(accountId: string, accountCurrent: 
     assertCurrent();
     if (last.error || last.data.session?.user.id !== accountId || last.data.session.access_token !== session.access_token
       || !last.data.session.expires_at || last.data.session.expires_at * 1000 <= Date.now()) throw new Error('workout_comparison_auth');
-    return compareWorkoutSnapshots(accountId, local, response.data);
+    const report = compareWorkoutSnapshots(accountId, local, response.data);
+    localOnlyRecords = new Map(report.details.localOnly.map(({ id }) => [id, local.find(row => row.id === id)!]));
+    return report;
   };
-  return { compare, cancel, isCurrent };
+  const localOnlyRecord = (id: string) => {
+    assertCurrent();
+    const row = localOnlyRecords.get(id);
+    return row ? structuredClone(row) : null;
+  };
+  return { compare, cancel, isCurrent, localOnlyRecord };
 }
 export type WorkoutCloudComparison = ReturnType<typeof createWorkoutCloudComparison>;

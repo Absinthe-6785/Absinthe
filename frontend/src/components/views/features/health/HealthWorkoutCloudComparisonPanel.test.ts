@@ -2,7 +2,8 @@
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-const services = vi.hoisted(() => ({ create: vi.fn() }));
+const services = vi.hoisted(() => ({ create: vi.fn(), write: vi.fn() }));
+vi.mock('../../../../lib/healthWorkoutCloudSingleCreate', () => ({ createWorkoutCloudSingleCreate: services.write }));
 vi.mock('../../../../lib/healthWorkoutCloudComparison', () => ({
   createWorkoutCloudComparison: services.create,
   WORKOUT_COMPARISON_CATEGORIES: ['localOnly', 'remoteOnly', 'matching', 'divergent', 'unverifiable'],
@@ -21,7 +22,8 @@ beforeEach(() => {
   vi.resetAllMocks();
   useAppStore.setState(state => ({ ...state, appSettings: { ...state.appSettings, language: 'en' } }));
   host = document.createElement('div'); document.body.appendChild(host); root = createRoot(host);
-  services.create.mockImplementation(() => ({ compare: vi.fn().mockResolvedValue(report()), cancel: vi.fn(), isCurrent: () => true }));
+  services.create.mockImplementation(() => ({ compare: vi.fn().mockResolvedValue(report()), cancel: vi.fn(), isCurrent: () => true, localOnlyRecord: (id: string) => ({ id }) }));
+  services.write.mockReturnValue({ transfer: vi.fn().mockResolvedValue('DENIED'), cancel: vi.fn() });
 });
 afterEach(() => { act(() => root.unmount()); host.remove(); useAppStore.setState(state => ({ ...state, appSettings: { ...state.appSettings, language: originalLanguage } })); });
 const render = (id = 'A') => act(() => root.render(createElement(HealthWorkoutCloudComparisonPanel, { accountId: id })));
@@ -41,7 +43,8 @@ describe('manual Health cloud comparison UI', () => {
     expect(host.textContent).toContain(t('healthCloudLocalDate') + ': 2026-10-28');
     expect(host.textContent).toContain(t('healthCloudRemoteDate') + ': 2026-10-27');
     expect(host.textContent).not.toContain('same-id');
-    expect(host.querySelectorAll('button')).toHaveLength(1);
+    expect(host.querySelectorAll('button')).toHaveLength(2);
+    expect(services.write).not.toHaveBeenCalled();
   });
   it('keeps a long result limited to 30 detail rows and preserves summary counts', async () => {
     const value = report();
@@ -78,5 +81,64 @@ describe('manual Health cloud comparison UI', () => {
     render();
     await act(async () => { const button = host.querySelector<HTMLButtonElement>('button')!; button.click(); button.click(); });
     expect(services.create).toHaveBeenCalledOnce();
+  });
+  it('requires individual confirmation and sends the exact selected ID once, then refreshes only on confirmed readback', async () => {
+    services.write.mockReturnValue({ transfer: vi.fn().mockResolvedValue('REMOTE_INSERT_CONFIRMED'), cancel: vi.fn() });
+    render(); await click();
+    await act(async () => host.querySelector('details button')?.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    expect(services.write).not.toHaveBeenCalled();
+    expect(host.querySelector('[role="group"]')?.textContent).toContain('local-id');
+    await act(async () => {
+      const confirm = host.querySelector<HTMLButtonElement>('[role="group"] button')!;
+      confirm.click(); confirm.click();
+    });
+    expect(services.write).toHaveBeenCalledOnce();
+    expect(services.write.mock.calls[0].slice(0, 2)).toEqual(['A', { id: 'local-id' }]);
+    expect(services.create).toHaveBeenCalledTimes(2);
+    expect(host.textContent).toContain(getTranslator('en')('healthCloudCreateConfirmed'));
+  });
+  it('clears confirmation on account changes and never starts a transfer from stale UI', async () => {
+    render(); await click();
+    await act(async () => host.querySelector('details button')?.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    const oldConfirm = host.querySelector<HTMLButtonElement>('[role="group"] button')!;
+    render('B'); render('A');
+    await act(async () => oldConfirm.click());
+    expect(services.write).not.toHaveBeenCalled();
+    expect(host.querySelector('[role="group"]')).toBeNull();
+  });
+  it('shows uncertainty without an automatic comparison or retry', async () => {
+    services.write.mockReturnValue({ transfer: vi.fn().mockResolvedValue('INDETERMINATE'), cancel: vi.fn() });
+    render(); await click();
+    await act(async () => host.querySelector('details button')?.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    await act(async () => host.querySelector<HTMLButtonElement>('[role="group"] button')!.click());
+    expect(host.textContent).toContain(getTranslator('en')('healthCloudCreateIndeterminate'));
+    expect(services.create).toHaveBeenCalledOnce(); expect(services.write).toHaveBeenCalledOnce();
+  });
+  it('does not let a stale write completion erase a newer same-account comparison', async () => {
+    let finish!: (status: string) => void;
+    services.write.mockReturnValue({ transfer: () => new Promise(done => { finish = done; }), cancel: vi.fn() });
+    render(); await click();
+    await act(async () => host.querySelector('details button')?.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    await act(async () => host.querySelector<HTMLButtonElement>('[role="group"] button')!.click());
+    act(() => services.create.mock.calls[0][2]());
+    await click(); expect(host.textContent).toContain('local-id');
+    await act(async () => finish('INDETERMINATE'));
+    expect(host.textContent).toContain('local-id');
+    expect(host.textContent).not.toContain(getTranslator('en')('healthCloudCreateIndeterminate'));
+  });
+  it('never claims nothing changed when auth invalidates an in-flight create', async () => {
+    let finish!: (status: string) => void;
+    services.write.mockReturnValue({ transfer: () => new Promise(done => { finish = done; }), cancel: vi.fn() });
+    render(); await click();
+    await act(async () => host.querySelector('details button')?.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    await act(async () => host.querySelector<HTMLButtonElement>('[role="group"] button')!.click());
+    act(() => services.create.mock.calls[0][2]());
+    expect(host.textContent).not.toContain(getTranslator('en')('healthCloudUnavailable'));
+    await act(async () => finish('INDETERMINATE'));
+    expect(host.textContent).toContain(getTranslator('en')('healthCloudCreateIndeterminate'));
+    expect(host.textContent).not.toContain(getTranslator('en')('healthCloudUnavailable'));
+    act(() => services.create.mock.calls[0][2]());
+    expect(host.textContent).toContain(getTranslator('en')('healthCloudCreateIndeterminate'));
+    expect(host.textContent).not.toContain(getTranslator('en')('healthCloudUnavailable'));
   });
 });

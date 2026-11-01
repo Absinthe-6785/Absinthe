@@ -137,7 +137,7 @@ export type LocalHealthSnapshot = {
 };
 
 export interface LocalHealthDriver {
-  captureWorkoutAdoptionSource(accountId: string): Promise<HealthWorkoutAdoptionCapture>;
+  captureWorkoutAdoptionSource(accountId: string, onVerified?: (capture: HealthWorkoutAdoptionCapture) => void): Promise<HealthWorkoutAdoptionCapture>;
   readDatasets(accountId: string): Promise<HealthRecoveryDatasets>;
   readAccountSnapshot(accountId: string): Promise<LocalHealthAccountSnapshot>;
   readAuthoritativeDatasets(accountId: string): Promise<HealthRecoveryDatasets>;
@@ -487,7 +487,7 @@ export class IndexedDbLocalHealthDriver implements LocalHealthDriver {
     return new IndexedDbLocalHealthDriver(db, options.testHooks ?? {});
   }
 
-  async captureWorkoutAdoptionSource(accountId: string): Promise<HealthWorkoutAdoptionCapture> {
+  async captureWorkoutAdoptionSource(accountId: string, onVerified?: (capture: HealthWorkoutAdoptionCapture) => void): Promise<HealthWorkoutAdoptionCapture> {
     if (!accountId) throw new Error('health_adoption_account_required');
     const tx = this.db.transaction(['workout_logs', 'exercise_blocks', HEALTH_LOCAL_IMPORT_STATE_STORE], 'readonly');
     const done = transactionDone(tx);
@@ -497,7 +497,6 @@ export class IndexedDbLocalHealthDriver implements LocalHealthDriver {
         requestResult(tx.objectStore('exercise_blocks').index(ACCOUNT_INDEX).getAll(accountId)) as Promise<StoredHealthRecord[]>,
         requestResult(tx.objectStore(HEALTH_LOCAL_IMPORT_STATE_STORE).get(accountId)) as Promise<LocalHealthImportState | undefined>,
       ]);
-      await done;
       if (workouts.length > MAX_WORKOUT_ADOPTION_ROWS) throw new Error('workout_adoption_row_limit');
       if (exerciseBlocks.length > MAX_WORKOUT_ADOPTION_BLOCKS) throw new Error('workout_adoption_block_count_limit');
       if (workouts.some(wrapper => Array.isArray(wrapper.record.sets)
@@ -509,13 +508,18 @@ export class IndexedDbLocalHealthDriver implements LocalHealthDriver {
         || importState.datasetCounts.exercise_blocks !== exerciseBlocks.length) {
         throw new Error('health_adoption_source_count_mismatch');
       }
-      return {
+      const capture: HealthWorkoutAdoptionCapture = {
         accountId,
         sourceSchemaVersion: HEALTH_LOCAL_DATABASE_VERSION,
         importState: cloneRecord(importState),
         workouts: cloneRecord(workouts),
         exerciseBlocks: cloneRecord(exerciseBlocks),
       };
+      // Synchronous dispatch may occur while this readonly transaction still
+      // excludes competing writers. Never await network work in this callback.
+      onVerified?.(capture);
+      await done;
+      return capture;
     } catch (error) {
       abortTransactionSafely(tx);
       await done.catch(() => undefined);

@@ -2238,6 +2238,15 @@ const enTranslations = [
   "Showing the first 30 IDs in this group.",
   "Local date",
   "Cloud date",
+  "A separate, confirmed action can create one local-only record in the cloud. No automatic synchronization or local changes.",
+  "Create cloud copy",
+  "Create this exact record in the cloud? Existing records will not be replaced.",
+  "Confirm single-record creation",
+  "Cancel",
+  "DENIED — no creation was confirmed. Recheck eligibility and account authority.",
+  "CONFLICT — this ID already exists. Nothing was replaced.",
+  "INDETERMINATE — the request may have committed. Do not retry; compare and verify separately.",
+  "REMOTE_INSERT_CONFIRMED — the exact cloud record was read back. This is not synchronization.",
 ] as const;
 
 export default enTranslations;
