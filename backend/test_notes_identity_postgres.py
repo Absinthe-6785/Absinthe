@@ -213,7 +213,7 @@ def cleanup_container(docker: str, name: str, original_error: BaseException | No
 
 
 @pytest.fixture(scope="module")
-def db():
+def db(request):
     if os.getenv("K323_POSTGRES_INTEGRATION") != "1":
         pytest.skip("real PostgreSQL proof: enable K323_POSTGRES_INTEGRATION=1 in existing CI")
     docker = shutil.which("docker")
@@ -225,7 +225,11 @@ def db():
             docker, "run", "--detach", "--name", name,
             "--label", "absinthe.test=notes-identity-proof", "--network", "none",
             "--tmpfs", "/var/lib/postgresql/data", "-e",
-            f"POSTGRES_PASSWORD={POSTGRES_TEST_PASSWORD}", "postgres:15-alpine",
+            f"POSTGRES_PASSWORD={POSTGRES_TEST_PASSWORD}",
+            # Only this dedicated module uses the prebuilt Python/driver image.
+            # All existing SQL proofs keep their original image and assertions.
+            "absinthe-notes-private-driver:test" if request.module.__name__.split(".")[-1]
+            == "test_notes_private_gateway_driver_harness" else "postgres:15-alpine",
         ], timeout=120)
         _assert_postgres_success(result, docker, name)
         _wait_for_postgres(docker, name)

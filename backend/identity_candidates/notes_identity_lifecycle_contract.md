@@ -116,3 +116,32 @@ fence closure/generation changes are the tested denial boundaries. Real Auth
 session/account lifecycle integration, production key custody/rotation, direct
 connection role/grants/RLS, pgcrypto availability and all earlier legacy-bypass
 gates remain unverified. Do not turn readiness flags on because tests pass.
+
+## Isolated real-driver test harness (ISOLATED-DRIVER-HARNESS-01)
+
+The dedicated test image pins PostgreSQL 15.19/Alpine 3.23 by digest, Python's
+package version and psycopg 3.2.13 plus hashed wheel dependencies. Only image
+BUILD retrieves dependencies. A Dockerfile-specific allowlist excludes unrelated
+files and credentials from the build context. Runtime reuses the original
+labelled/tmpfs PostgreSQL fixture with `--network none`, no host volumes and no
+published ports. Only the dedicated driver test module selects the new image;
+all previous SQL proofs retain their original image and assertions.
+
+Host psql fixtures still own disposable schema/setup/cleanup. The synthetic HMAC
+key reaches the driver process on stdin, not in arguments or logs. The actual
+PrivateGateway/PsycopgCalls code runs inside that container against loopback,
+using the restricted shared login. Admin readback is a TEST observer only.
+The runner requires all 19 driver cases to pass with zero skips and records
+image ID, PostgreSQL/psycopg/libpq versions and runtime isolation checks.
+
+An actual deferred constraint failure tests rollback at COMMIT, after SQL has
+returned. A synthetic connection-context failure AFTER a real commit/close tests
+an ambiguous caller outcome: no success is acknowledged, but independent readback
+can show committed data. DATABASE_DENIED is NOT proof of rollback. No automatic
+retry is added; an explicit exact replay must not duplicate a mutation. The
+reused single test connection is not a connection-pool implementation or proof.
+
+These tests are not evidence until their image build and real-driver execution
+complete successfully. They establish neither TLS, external pooling, production
+Supabase compatibility nor deployment readiness. All runtime/default-OFF and
+production authority gates above remain unchanged.
