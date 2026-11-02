@@ -5,7 +5,7 @@ import { openNote } from '../../../../lib/noteNavigation';
 import { observePublishedNotesHydration, useNotesStore } from '../../../../store/useNotesStore';
 import { createNotesCloudComparison, type NotesCloudComparison, type NotesCloudComparisonReport } from '../../../../lib/notesCloudComparison';
 import { NotesBootstrapDiagnosticError } from '../../../../lib/notesBootstrapDiagnostics';
-import { createNotesCloudCopy, notesCloudCopyUiEnabled, prepareNotesCloudCopy } from '../../../../lib/notesCloudCopy';
+import { createNotesCloudCopy, notesCloudCopyUiEnabled, prepareNotesCloudCopy, readNotesCloudCopyStatus, type NotesCloudCopyReadbackStatus } from '../../../../lib/notesCloudCopy';
 import type { NotesCloudCopyLocalPreflightResult } from '../../../../lib/notesCloudCopyLocalPreflight';
 
 const DETAIL_PREVIEW_LIMIT = 30;
@@ -16,6 +16,13 @@ const detailSections = [
   { key: 'incomparable', label: 'notesCloudIncomparable', canOpenLocal: true },
   { key: 'deleted', label: 'notesCloudDeleted', canOpenLocal: false },
 ] as const;
+const statusLabels: Record<NotesCloudCopyReadbackStatus, TranslationKey> = {
+  RESERVED: 'notesCloudCopyStatusReserved',
+  LIVE: 'notesCloudCopyStatusLive',
+  RETIRED: 'notesCloudCopyStatusRetired',
+  INDETERMINATE: 'notesCloudCopyStatusIndeterminate',
+  UNAVAILABLE: 'notesCloudCopyStatusUnavailable',
+};
 
 function eligibleLocalNote(notes: ReturnType<typeof useNotesStore.getState>['notes'], noteId: string) {
   const note = notes.find(candidate => candidate.id === noteId);
@@ -31,6 +38,9 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
   const active = useRef<NotesCloudComparison | null>(null);
   const [busy, setBusy] = useState(false);
   const [copyBusy, setCopyBusy] = useState(false);
+  const [statusBusy, setStatusBusy] = useState<{ owner: NotesCloudComparison; localNoteId: string } | null>(null);
+  const [statusResult, setStatusResult] = useState<{ owner: NotesCloudComparison; localNoteId: string; status: NotesCloudCopyReadbackStatus } | null>(null);
+  const statusRequest = useRef<symbol | null>(null);
   const [error, setError] = useState<TranslationKey | null>(null);
   const [copyFeedback, setCopyFeedback] = useState<TranslationKey | null>(null);
   const [copyCandidate, setCopyCandidate] = useState<{
@@ -43,12 +53,15 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
   const ready = !!accountId && observation.status === 'CURRENT' && observation.request.accountId === accountId;
   useLayoutEffect(() => {
     active.current?.cancel(); active.current = null;
-    setBusy(false); setCopyBusy(false); setResult(null); setError(null); setCopyFeedback(null); setCopyCandidate(null);
+    statusRequest.current = null;
+    setBusy(false); setCopyBusy(false); setStatusBusy(null); setStatusResult(null);
+    setResult(null); setError(null); setCopyFeedback(null); setCopyCandidate(null);
     return () => { active.current?.cancel(); active.current = null; };
   }, [accountId, notes, folders, ready]);
   const visible = result && result.owner === active.current && result.owner.isCurrent() ? result.report : null;
   const check = async () => {
     if (busy) return;
+    statusRequest.current = null; setStatusBusy(null); setStatusResult(null);
     active.current?.cancel(); setResult(null); setError(null);
     if (typeof navigator !== 'undefined' && navigator.onLine === false) { setError('notesCloudOffline'); return; }
     const context = account.current;
@@ -67,8 +80,9 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
     } finally { if (!owner || active.current === owner) setBusy(false); }
   };
   const cancel = () => {
+    statusRequest.current = null;
     active.current?.cancel(); active.current = null; setBusy(false); setCopyBusy(false);
-    setResult(null); setCopyCandidate(null); setCopyFeedback(null); setError('notesCloudStale');
+    setStatusBusy(null); setStatusResult(null); setResult(null); setCopyCandidate(null); setCopyFeedback(null); setError('notesCloudStale');
   };
   const button = 'border rounded-xl px-4 py-2 text-sm font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50';
   const copyOwnerIsCurrent = (owner: NotesCloudComparison, localNoteId: string): boolean => {
@@ -78,6 +92,40 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
       && currentState.activeAccountId === accountId && currentPublication.status === 'CURRENT'
       && currentPublication.request.accountId === accountId && owner.isCurrent()
       && !!eligibleLocalNote(currentState.notes, localNoteId);
+  };
+  const statusOwnerIsCurrent = (owner: NotesCloudComparison, localNoteId: string): boolean => {
+    const currentPublication = observePublishedNotesHydration();
+    const currentState = useNotesStore.getState();
+    const report = result?.owner === owner ? result.report : null;
+    const localSideHasIdentity = report && (['localOnly', 'divergent', 'incomparable', 'deleted'] as const)
+      .some(key => report.details[key].some(detail => detail.id === localNoteId));
+    return !!localSideHasIdentity && result?.owner === owner && active.current === owner
+      && account.current.id === accountId && currentState.activeAccountId === accountId
+      && currentPublication.status === 'CURRENT' && currentPublication.request.accountId === accountId
+      && owner.isCurrent() && currentState.notes.some(note => note.id === localNoteId);
+  };
+  const checkCloudCopyStatus = async (owner: NotesCloudComparison, localNoteId: string) => {
+    if (statusRequest.current || !statusOwnerIsCurrent(owner, localNoteId)) return;
+    const requestId = Symbol('cloud-copy-status');
+    statusRequest.current = requestId;
+    setStatusResult(null); setStatusBusy({ owner, localNoteId });
+    try {
+      const outcome = await readNotesCloudCopyStatus(
+        localNoteId, accountId ?? '', () => statusOwnerIsCurrent(owner, localNoteId),
+      );
+      if (statusRequest.current !== requestId || outcome.status === 'STALE_RESULT'
+        || !statusOwnerIsCurrent(owner, localNoteId)) return;
+      setStatusResult({ owner, localNoteId, status: outcome.status });
+    } catch {
+      if (statusRequest.current === requestId && statusOwnerIsCurrent(owner, localNoteId)) {
+        setStatusResult({ owner, localNoteId, status: 'UNAVAILABLE' });
+      }
+    } finally {
+      if (statusRequest.current === requestId) {
+        statusRequest.current = null;
+        setStatusBusy(null);
+      }
+    }
   };
   const beginCloudCopy = async (owner: NotesCloudComparison, localNoteId: string) => {
     if (copyBusy || !copyOwnerIsCurrent(owner, localNoteId)) { setCopyFeedback('notesCloudCopySourceChanged'); return; }
@@ -167,6 +215,17 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
                   {t(copyBusy ? 'notesCloudCopyWorking' : 'notesCloudCopyAction')}
                 </button>}
               </div> : null}
+              {key !== 'remoteOnly' && notesCloudCopyUiEnabled(accountId)
+                && notes.some(note => note.id === detail.id) && result?.owner === active.current ? <div className="mt-2 space-y-1">
+                  <button type="button" className={`${button} px-3 py-1`}
+                    disabled={!!statusBusy}
+                    onClick={() => { void checkCloudCopyStatus(result.owner, detail.id); }}>
+                    {statusBusy?.owner === result.owner && statusBusy.localNoteId === detail.id
+                      ? t('notesCloudCopyStatusWorking') : t('notesCloudCopyStatusAction')}
+                  </button>
+                  {statusResult?.owner === result.owner && statusResult.localNoteId === detail.id
+                    ? <p role="status" aria-live="polite">{t(statusLabels[statusResult.status])}</p> : null}
+                </div> : null}
             </li>)}
           </ul>;
           return <details key={key} className="rounded-lg border border-border px-3 py-2">
