@@ -335,6 +335,9 @@ def test_synthetic_auth_cascade_preserves_identity_without_inventing_termination
     before = ready.snapshot(key)
     # Synthetic, rolled-back Auth deletion, NOT an account retention/erasure
     # implementation. A cascade is not an authoritative account-close fence.
+    # Pre-fence control (no Cloud Copy alias/fence extension installed). Preserve
+    # the unsafe intermediate-state evidence; the optional fence's counterpart
+    # in test_notes_cloud_copy_legacy_write_fence asserts this outcome is denied.
     observed = ready.sql(f"""begin;
       update {SCHEMA}.readiness set account_termination=false;
       delete from auth.users where id='{OWNER_A}';
