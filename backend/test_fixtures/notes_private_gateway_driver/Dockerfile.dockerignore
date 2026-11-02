@@ -1,0 +1,15 @@
+**
+!auth.py
+!notes_identity_guard_candidate.py
+!test_notes_identity_private_gateway.py
+!identity_candidates/
+identity_candidates/**
+!identity_candidates/notes_private_gateway.py
+!test_fixtures/
+test_fixtures/**
+!test_fixtures/notes_private_gateway_driver/
+test_fixtures/notes_private_gateway_driver/**
+!test_fixtures/notes_private_gateway_driver/Dockerfile
+!test_fixtures/notes_private_gateway_driver/Dockerfile.dockerignore
+!test_fixtures/notes_private_gateway_driver/requirements.txt
+!test_fixtures/notes_private_gateway_driver/driver_cases.py
