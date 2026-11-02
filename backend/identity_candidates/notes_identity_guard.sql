@@ -76,6 +76,19 @@ create table notes_identity_candidate.receipts (
   constraint candidate_receipt_operation_key primary key (owner_id, operation_id),
   unique (note_id, kind)
 );
+-- Private, one-shot authorization for the exact Note effect of a validated
+-- lifecycle call. No client GUC/role/argument can create a permit. It is consumed
+-- by the optional fence, or cleared by the primitive when no fence is installed.
+create table notes_identity_candidate.note_write_permits (
+  backend_pid integer not null,
+  transaction_id bigint not null,
+  login name not null,
+  note_id text not null,
+  owner_id uuid not null,
+  kind text not null check (kind in ('INSERT','DELETE')),
+  payload jsonb not null,
+  primary key (backend_pid,transaction_id,note_id,kind)
+);
 revoke all on all tables in schema notes_identity_candidate from public;
 
 create function notes_identity_candidate.guard_identity() returns trigger
@@ -98,6 +111,25 @@ begin raise exception 'RECEIPT_IMMUTABLE'; end $$;
 create trigger candidate_receipt_guard before update or delete on notes_identity_candidate.receipts
 for each row execute function notes_identity_candidate.guard_receipt();
 
+-- The optional isolated fence replaces ONLY this admission proof. Without that
+-- extension the existing blanket effective-DML denial remains unchanged.
+create function notes_identity_candidate.assert_notes_write_boundary() returns void
+language plpgsql set search_path = pg_catalog as $$
+begin
+  -- Read-only safety gate, NOT a repair of deployed privileges. Runtime role
+  -- binding and unguarded API/SECURITY DEFINER paths still require the separate
+  -- default-false attestations above. Owner/DBA bypass is not covered here.
+  if (select count(*) from pg_roles where rolname in ('anon','authenticated','service_role')) <> 3 then
+    raise exception 'CANDIDATE_DEPLOYED_ROLES_UNVERIFIED';
+  end if;
+  if exists (select 1 from pg_roles p
+    where p.rolname in ('anon','authenticated','service_role','notes_candidate_app','notes_candidate_gateway')
+      and (pg_catalog.has_table_privilege(p.oid,'public.notes','INSERT,UPDATE,DELETE,TRUNCATE')
+        or pg_catalog.has_any_column_privilege(p.oid,'public.notes','INSERT,UPDATE'))) then
+    raise exception 'CANDIDATE_DIRECT_WRITE_GRANTS_REMAIN';
+  end if;
+end $$;
+
 create function notes_identity_candidate.require_ready(p_owner uuid, p_generation bigint) returns void
 language plpgsql set search_path = pg_catalog as $$
 declare r notes_identity_candidate.readiness%rowtype;
@@ -112,18 +144,7 @@ begin
   perform 1 from notes_identity_candidate.principal_bindings
     where login=session_user and owner_id=p_owner and generation=p_generation for share;
   if not found then raise exception 'ACCOUNT_AUTHORITY_UNAVAILABLE'; end if;
-  -- Read-only safety gate, NOT a repair of deployed privileges. Runtime role
-  -- binding and unguarded API/SECURITY DEFINER paths still require the separate
-  -- default-false attestations above. Owner/DBA bypass is not covered here.
-  if (select count(*) from pg_roles where rolname in ('anon','authenticated','service_role')) <> 3 then
-    raise exception 'CANDIDATE_DEPLOYED_ROLES_UNVERIFIED';
-  end if;
-  if exists (select 1 from pg_roles p
-    where p.rolname in ('anon','authenticated','service_role','notes_candidate_app','notes_candidate_gateway')
-      and (pg_catalog.has_table_privilege(p.oid,'public.notes','INSERT,UPDATE,DELETE,TRUNCATE')
-        or pg_catalog.has_any_column_privilege(p.oid,'public.notes','INSERT,UPDATE'))) then
-    raise exception 'CANDIDATE_DIRECT_WRITE_GRANTS_REMAIN';
-  end if;
+  perform notes_identity_candidate.assert_notes_write_boundary();
   -- Fixed order: readiness -> principal -> account fence -> operation (reserve)
   -- -> identity -> Note -> receipt. All locks are transaction-scoped.
   perform 1 from notes_identity_candidate.account_fences
@@ -172,6 +193,9 @@ begin
     return r.note_id;
   end if;
   issued := gen_random_uuid()::text;
+  -- The fence's INSERT path takes this same lock before checking the ledger.
+  -- A collision only serializes; it never grants identity or write authority.
+  perform pg_advisory_xact_lock(hashtextextended('notes-issued-id:' || issued,0));
   if exists (select 1 from public.notes where id=issued) then raise exception 'IDENTITY_UNAVAILABLE'; end if;
   insert into notes_identity_candidate.identities values(issued,principal.owner_id,'RESERVED');
   perform notes_identity_candidate.record_receipt(principal.owner_id,issued,p_operation,'reserve','{}'::jsonb);
@@ -221,10 +245,14 @@ begin
   end if;
   if i.state<>'RESERVED' then raise exception 'IDENTITY_UNAVAILABLE'; end if;
   update notes_identity_candidate.identities set state='LIVE' where id=p_id;
+  insert into notes_identity_candidate.note_write_permits values
+    (pg_backend_pid(),txid_current(),session_user,p_id,p_owner,'INSERT',p_payload);
   -- Plain INSERT, never upsert or a missing-column/drop-metadata fallback.
   insert into public.notes(id,user_id,title,body,updated_at,starred,folder_id,deleted_at)
     values(p_id,p_owner,p_payload->>'title',p_payload->>'body',(p_payload->>'updated_at')::bigint,
       (p_payload->>'starred')::boolean,null,null);
+  delete from notes_identity_candidate.note_write_permits
+    where backend_pid=pg_backend_pid() and transaction_id=txid_current() and note_id=p_id and kind='INSERT';
   perform notes_identity_candidate.record_receipt(p_owner,p_id,p_operation,'publish',p_payload);
   return 'CREATED';
 end $$;
@@ -253,8 +281,12 @@ begin
   if exists (select 1 from public.notes where id=p_id and user_id<>p_owner) then
     raise exception 'RESULT_INDETERMINATE';
   end if;
+  insert into notes_identity_candidate.note_write_permits values
+    (pg_backend_pid(),txid_current(),session_user,p_id,p_owner,'DELETE','{}'::jsonb);
   delete from public.notes where id=p_id and user_id=p_owner;
   get diagnostics affected = row_count;
+  delete from notes_identity_candidate.note_write_permits
+    where backend_pid=pg_backend_pid() and transaction_id=txid_current() and note_id=p_id and kind='DELETE';
   if (i.state='LIVE' and affected<>1) or (i.state='RESERVED' and affected<>0) then
     raise exception 'RESULT_INDETERMINATE';
   end if;
