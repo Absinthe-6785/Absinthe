@@ -14,7 +14,7 @@ import psycopg
 from psycopg.pq import TransactionStatus
 import pytest
 
-from identity_candidates.notes_private_gateway import CALLS, GatewayDenied, PrivateGateway, PsycopgCalls
+from identity_candidates.notes_private_gateway import CALLS, GatewayDenied, GatewayIndeterminate, PrivateGateway, PsycopgCalls
 from test_notes_identity_private_gateway import OWNER_A, OWNER_B, token, verifier
 
 SCHEMA = "notes_identity_candidate"
@@ -282,7 +282,7 @@ def test_postcommit_exit_failure_is_ambiguous_not_a_rollback_or_retry():
         assert c.closed
         raise ConnectionError("synthetic loss AFTER real commit and connection close")
 
-    with pytest.raises(GatewayDenied, match="DATABASE_DENIED"):
+    with pytest.raises(GatewayIndeterminate, match="RESULT_INDETERMINATE"):
         gateway(fail_after_real_commit_and_close).apply(token(), ctx)
     assert len(f.connections) == 1 and f.connections[0].dispatches == 1
     # Caller received no success. Independent readback proves this case committed.
@@ -330,6 +330,9 @@ def test_real_nonidle_connection_is_denied_before_candidate_dispatch():
     f"delete from {SCHEMA}.receipts",
     f"select signing_key from {SCHEMA}.private_gateway_config",
     "truncate public.notes",
+    f"select {SCHEMA}.reserve_cloud_copy('local',1,'bypass')",
+    f"select {SCHEMA}.read_cloud_copy('local',1)",
+    f"select * from {SCHEMA}.cloud_aliases",
 ])
 def test_real_restricted_principal_cannot_directly_mutate_or_read_keys(statement):
     before = (read("select count(*) from public.notes"), read(f"select count(*) from {SCHEMA}.identities"),
@@ -340,3 +343,159 @@ def test_real_restricted_principal_cannot_directly_mutate_or_read_keys(statement
     assert c.closed
     assert (read("select count(*) from public.notes"), read(f"select count(*) from {SCHEMA}.identities"),
             read(f"select count(*) from {SCHEMA}.receipts")) == before
+
+
+def copy(g, action, local, *, cloud=None, op=None, payload=None, owner=OWNER_A):
+    return g.run_cloud_copy(token(owner),action,op or operation(),local_note_id=local,cloud_id=cloud,payload=payload)
+
+
+def test_cloud_driver_explicit_copy_and_restart_reconciliation():
+    f,g,local=Factory(),gateway(),"local-"+operation()
+    cloud=copy(g,"reserve",local)
+    assert cloud != local and str(uuid.UUID(cloud)) == cloud
+    exact=dict(PAYLOAD,body="Original [[note:"+local+"|표시]]")
+    op=operation()
+    assert copy(g,"publish",local,cloud=cloud,op=op,payload=exact)=="CREATED"
+    result=copy(gateway(f),"read",local)
+    assert result["account_id"]==OWNER_A and result["local_note_id"]==local and result["cloud_note_id"]==cloud
+    assert result["state"]=="LIVE" and result["publication"]["payload"]==exact
+    assert result["publication"]["operation_id"]==op and snapshot(cloud)["payload"]==exact
+    assert len(f.connections)==2 and all(c.closed and c.dispatches==1 for c in f.connections)
+
+
+def test_cloud_driver_permanent_alias_and_retirement_without_resurrection():
+    g,local,reserve_op,publish_op=gateway(),operation(),operation(),operation()
+    cloud=copy(g,"reserve",local,op=reserve_op)
+    assert copy(g,"publish",local,cloud=cloud,op=publish_op,payload=PAYLOAD)=="CREATED"
+    assert copy(g,"retire",local,cloud=cloud)=="RETIRED"
+    assert copy(g,"reserve",local,op=reserve_op)==cloud
+    assert copy(g,"publish",local,cloud=cloud,op=publish_op,payload=PAYLOAD)=="APPLIED_THEN_RETIRED"
+    for action,kw in (("reserve",{}),("publish",dict(cloud=cloud,payload=PAYLOAD))):
+        with pytest.raises(GatewayDenied):
+            copy(g,action,local,**kw)
+    result=copy(g,"read",local)
+    assert result["state"]=="RETIRED" and result["cloud_note_id"]==cloud and snapshot(cloud)["payload"] is None
+    assert read(f"select count(*) from {SCHEMA}.cloud_aliases where owner_id=%s and local_note_id=%s",(OWNER_A,local))==1
+
+
+def test_cloud_driver_shared_connection_a_b_a_has_no_binding_leak():
+    conn=connect(cls=RecordingConnection)
+    conn.dispatches=0
+    @contextmanager
+    def borrow():
+        assert conn.info.transaction_status==TransactionStatus.IDLE
+        yield conn
+        assert conn.info.transaction_status==TransactionStatus.IDLE
+    try:
+        g,local=gateway(borrow),operation()
+        a=copy(g,"reserve",local)
+        b=copy(g,"reserve",local,owner=OWNER_B)
+        assert a!=b
+        for owner,cloud in ((OWNER_A,a),(OWNER_B,b),(OWNER_A,a)):
+            result=copy(g,"read",local,owner=owner)
+            assert result["account_id"]==owner and result["cloud_note_id"]==cloud
+            assert read(f"select count(*) from {SCHEMA}.principal_bindings where login=%s",(LOGIN,))==0
+        assert conn.dispatches==10
+    finally:
+        conn.close()
+
+
+def test_cloud_driver_concurrent_same_and_conflicting_reservations():
+    g,local,op=gateway(),operation(),operation()
+    ctx=g.prepare_cloud_copy(token(),"reserve",op,local_note_id=local)
+    same=g.prepare_cloud_copy(token(),"reserve",op,local_note_id=local)
+    assert same==ctx
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        keys=list(executor.map(lambda c:g.apply(token(),c),[ctx,same]))
+    assert keys[0]==keys[1]
+    with pytest.raises(GatewayDenied):
+        copy(g,"reserve",local)
+    assert read(f"select count(*) from {SCHEMA}.cloud_aliases where owner_id=%s and local_note_id=%s",(OWNER_A,local))==1
+    assert copy(g,"read",local)["cloud_note_id"]==keys[0]
+
+
+@pytest.mark.parametrize("exit_error",[ConnectionError,psycopg.errors.CheckViolation])
+def test_cloud_driver_lost_commit_ack_requires_readback_not_automatic_replay(exit_error):
+    g,local,op=gateway(),operation(),operation()
+    cloud=copy(g,"reserve",local)
+    ctx=g.prepare_cloud_copy(token(),"publish",op,local_note_id=local,cloud_id=cloud,payload=PAYLOAD)
+    f=Factory()
+    @contextmanager
+    def lost_ack():
+        with f() as c:
+            yield c
+        raise exit_error("synthetic response loss after commit and close")
+    with pytest.raises(GatewayIndeterminate,match="RESULT_INDETERMINATE"):
+        gateway(lost_ack).apply(token(),ctx)
+    assert len(f.connections)==1 and f.connections[0].dispatches==1 and f.connections[0].closed
+    assert receipts(op)==1
+    before=snapshot(cloud)
+    result=copy(gateway(),"read",local)
+    assert result["state"]=="LIVE" and result["publication"]["operation_id"]==op
+    assert result["publication"]["payload"]==PAYLOAD and snapshot(cloud)==before
+
+
+def test_cloud_driver_known_rollback_has_no_snapshot_receipt_or_binding():
+    g,local,op=gateway(),operation(),operation()
+    cloud=copy(g,"reserve",local)
+    before=snapshot(cloud)
+    with connect(admin=True) as c:
+        c.execute(f"alter table {SCHEMA}.receipts add constraint cloud_driver_rollback check(operation_id<>'{op}')")
+    try:
+        with pytest.raises(GatewayDenied) as error:
+            copy(g,"publish",local,cloud=cloud,op=op,payload=PAYLOAD)
+        assert not isinstance(error.value,GatewayIndeterminate)
+        assert snapshot(cloud)==before and receipts(op)==0
+    finally:
+        with connect(admin=True) as c:
+            c.execute(f"alter table {SCHEMA}.receipts drop constraint cloud_driver_rollback")
+
+
+def test_cloud_driver_readback_never_refreshes_old_generation_context():
+    g,local=gateway(),operation()
+    cloud=copy(g,"reserve",local)
+    ctx=g.prepare_cloud_copy(token(),"publish",operation(),local_note_id=local,cloud_id=cloud,payload=PAYLOAD)
+    try:
+        with connect(admin=True) as c:
+            c.execute(f"update {SCHEMA}.account_fences set generation=3 where owner_id=%s",(OWNER_A,))
+        assert copy(g,"read",local)["state"]=="RESERVED"
+        with pytest.raises(GatewayDenied):
+            g.apply(token(),ctx)
+        assert snapshot(cloud)["state"]=="RESERVED"
+    finally:
+        with connect(admin=True) as c:
+            c.execute(f"update {SCHEMA}.account_fences set generation=1 where owner_id=%s",(OWNER_A,))
+
+
+def test_cloud_driver_expiry_while_waiting_for_alias_rolls_back():
+    g,local=gateway(),operation()
+    cloud=copy(g,"reserve",local)
+    short=gateway(clock=lambda:time.time()-26)
+    ctx=short.prepare_cloud_copy(token(),"publish",operation(),local_note_id=local,cloud_id=cloud,payload=PAYLOAD)
+    name="cloud-lock-"+operation()
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        with connect(admin=True) as holder:
+            holder.execute("select pg_advisory_xact_lock(hashtextextended(%s,0))",("cloud-copy-v1:"+OWNER_A+":"+local,))
+            job=executor.submit(gateway(Factory(name)).apply,token(),ctx)
+            deadline=time.monotonic()+15
+            while not read("select count(*) from pg_stat_activity where application_name=%s and wait_event_type='Lock'",(name,)):
+                assert not job.done() and time.monotonic()<deadline
+                time.sleep(0.02)
+            holder.execute("select pg_sleep(greatest(0,%s-extract(epoch from clock_timestamp())+0.02))",(ctx["expires"],))
+            assert holder.execute("select extract(epoch from clock_timestamp())>=%s",(ctx["expires"],)).fetchone()==(True,)
+        with pytest.raises(GatewayDenied):
+            job.result(timeout=15)
+    assert snapshot(cloud)["state"]=="RESERVED" and receipts(ctx["intent"]["operation_id"])==0
+
+
+def test_cloud_driver_forged_context_and_wrong_cloud_id_are_denied():
+    g,local=gateway(),operation()
+    cloud=copy(g,"reserve",local)
+    ctx=g.prepare_cloud_copy(token(),"publish",operation(),local_note_id=local,cloud_id=cloud,payload=PAYLOAD)
+    for field,value in (("local_note_id","other"),("payload",dict(PAYLOAD,title="changed"))):
+        changed=dict(ctx,intent=dict(ctx["intent"],**{field:value}))
+        with pytest.raises(GatewayDenied):
+            g.apply(token(),changed)
+    with pytest.raises(GatewayDenied):
+        copy(g,"publish",local,cloud=str(uuid.uuid4()),payload=PAYLOAD)
+    assert snapshot(cloud)["state"]=="RESERVED"

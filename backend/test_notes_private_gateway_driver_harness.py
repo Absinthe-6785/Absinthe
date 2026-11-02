@@ -4,6 +4,7 @@ No Docker socket, host volume, published port or production DSN enters the image
 The ordinary Notes fixtures still own setup, synthetic roles and labelled cleanup.
 """
 import json
+import ast
 from pathlib import Path
 
 import pytest
@@ -81,6 +82,21 @@ def test_runtime_command_and_fixture_preserve_the_isolation_boundary():
     assert "absinthe-notes-private-driver:test" in source
 
 
+def test_nested_driver_case_manifest_matches_strict_terminal_count():
+    tree = ast.parse((IMAGE / "driver_cases.py").read_text(encoding="utf-8"))
+    count = 0
+    for node in tree.body:
+        if not isinstance(node, ast.FunctionDef) or not node.name.startswith("test_"):
+            continue
+        cases = 1
+        for decorator in node.decorator_list:
+            if (isinstance(decorator, ast.Call) and isinstance(decorator.func, ast.Attribute)
+                    and decorator.func.attr == "parametrize"):
+                cases *= len(decorator.args[1].elts)
+        count += cases
+    assert count == 32
+
+
 @pytest.mark.parametrize("violation", ["network", "published_port", "privileged", "bind", "volume", "missing_tmpfs"])
 def test_inspection_rejects_relaxed_runtime_isolation(violation):
     info = dict(HostConfig=dict(NetworkMode="none", PortBindings={}, PublishAllPorts=False,
@@ -110,6 +126,6 @@ def test_real_driver_inside_existing_disposable_fixture(private_ready):
     lines = [x for x in result.stdout.splitlines() if x.startswith("DRIVER_PROOF_RESULT=")]
     assert len(lines) == 1, "missing real-driver terminal result"
     proof = json.loads(lines[0].split("=", 1)[1])
-    assert proof == dict(collected=19, passed=19, failed=0, skipped=0, psycopg="3.2.13")
+    assert proof == dict(collected=32, passed=32, failed=0, skipped=0, psycopg="3.2.13")
     print("ISOLATED_DRIVER_IMAGE=" + info["Image"])
     print(result.stdout)

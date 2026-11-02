@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Callable
@@ -24,10 +25,22 @@ CALLS = {
     "prepare": f"select {SCHEMA}.private_prepare(%s, %s)",
     "apply": f"select {SCHEMA}.private_apply(%s, %s)",
 }
+CLOUD_ACTIONS = {name: "cloud_" + name for name in ("reserve", "publish", "retire", "read")}
+# Deliberately narrow Markdown snapshot, not a serializer for a complete local
+# Note. Reject binary-bearing syntax instead of silently dropping originals.
+BINARY_REFERENCE = r"(?i)(data:|blob:|attachment:|resource:|!\[|<(img|video|audio|object|embed|iframe)\b)"
+
+
+def cloud_snapshot_supported(payload: object) -> bool:
+    return supported_snapshot(payload) and re.search(BINARY_REFERENCE, payload["body"]) is None
 
 
 class GatewayDenied(RuntimeError):
     """Bounded error: never include tokens, signatures, DSNs or Note content."""
+
+
+class GatewayIndeterminate(GatewayDenied):
+    """Possible committed dispatch: reconcile explicitly, never auto-retry."""
 
 
 class PsycopgCalls:
@@ -44,19 +57,43 @@ class PsycopgCalls:
     def call(self, name: str, text: str, mac: bytes):
         if name not in CALLS:
             raise GatewayDenied("INVALID_CALL")
+        dispatched = False
+        rollback_confirmed = False
+        transaction_completed = False
         try:
             with self._connect() as conn:
                 if int(conn.info.transaction_status) != 0:
                     raise GatewayDenied("TRANSPORT_NOT_IDLE")
-                with conn.transaction():
-                    row = conn.execute(CALLS[name], (text, mac)).fetchone()
-                    if row is None:
-                        raise GatewayDenied("UNCONFIRMED_DATABASE_RESULT")
-                    result = row[0]
+                statement_error = None
+                try:
+                    with conn.transaction():
+                        try:
+                            dispatched = True
+                            row = conn.execute(CALLS[name], (text, mac)).fetchone()
+                            if row is None:
+                                raise GatewayDenied("UNCONFIRMED_DATABASE_RESULT")
+                            result = row[0]
+                        except Exception as exc:
+                            statement_error = exc
+                            raise
+                except Exception as exc:
+                    # Original exception survived the transaction's successful
+                    # rollback. A rollback/connection error replacing it is NOT
+                    # evidence of rollback or permission for another dispatch.
+                    rollback_confirmed = exc is statement_error
+                    raise
+                transaction_completed = True
             return result
-        except GatewayDenied:
-            raise
-        except Exception:
+        except Exception as exc:
+            state = getattr(exc, "sqlstate", None)
+            server_rejected = (type(state) is str and len(state) == 5
+                               and not state.startswith("08") and state != "40003")
+            # A later connection/pool cleanup exception cannot undo an already
+            # completed transaction, even when that exception has a SQLSTATE.
+            if dispatched and (transaction_completed or (not rollback_confirmed and not server_rejected)):
+                raise GatewayIndeterminate("RESULT_INDETERMINATE") from None
+            if isinstance(exc, GatewayDenied):
+                raise
             raise GatewayDenied("DATABASE_DENIED") from None
 
 
@@ -99,19 +136,30 @@ class PrivateGateway:
         return text, hmac.new(self.signing_key, text.encode("utf-8"), hashlib.sha256).digest()
 
     def prepare(self, token: str, action: str, operation_id: str, *,
-                note_id: str | None = None, payload: object = None) -> dict:
+                note_id: str | None = None, payload: object = None,
+                local_note_id: str | None = None) -> dict:
         owner, expiry = self._authenticate(token)
-        if (action not in {"reserve", "publish", "retire"}
+        cloud = action in CLOUD_ACTIONS.values()
+        if (action not in {"reserve", "publish", "retire", *CLOUD_ACTIONS.values()}
                 or type(operation_id) is not str or not operation_id.strip() or len(operation_id) > 200):
             raise GatewayDenied("INVALID_INTENT")
-        if action == "reserve":
+        if cloud:
+            if type(local_note_id) is not str or not local_note_id.strip():
+                raise GatewayDenied("INVALID_INTENT")
+        elif local_note_id is not None:
+            raise GatewayDenied("INVALID_INTENT")
+        if action in {"reserve", "cloud_reserve", "cloud_read"}:
             if note_id is not None or payload is not None:
                 raise GatewayDenied("INVALID_INTENT")
         elif type(note_id) is not str or not note_id.strip():
             raise GatewayDenied("INVALID_INTENT")
-        if (action == "publish" and not supported_snapshot(payload)) or (action != "publish" and payload is not None):
+        if ((action == "publish" and not supported_snapshot(payload))
+                or (action == "cloud_publish" and not cloud_snapshot_supported(payload))
+                or (action not in {"publish", "cloud_publish"} and payload is not None)):
             raise GatewayDenied("INVALID_INTENT")
         intent = dict(owner=owner, action=action, operation_id=operation_id, note_id=note_id, payload=payload)
+        if cloud:
+            intent["local_note_id"] = local_note_id
         text, mac = self._sign(dict(intent, aud=AUDIENCE + ".prepare", expires=expiry))
         context = self.calls.call("prepare", text, mac)
         if not self._valid_context(context, intent):
@@ -132,7 +180,7 @@ class PrivateGateway:
                 and type(context["intent"]) is dict
                 and (intent is None or context["intent"] == intent))
 
-    def apply(self, token: str, context: dict) -> str:
+    def apply(self, token: str, context: dict) -> str | dict:
         owner, expiry = self._authenticate(token)
         if not self._valid_context(context) or context["intent"].get("owner") != owner:
             raise GatewayDenied("CONTEXT_ACCOUNT_MISMATCH")
@@ -143,9 +191,63 @@ class PrivateGateway:
         text, mac = self._sign(dict(aud=AUDIENCE + ".apply", context=context,
                                    expires=min(expiry, context["expires"])))
         result = self.calls.call("apply", text, mac)
+        intent = context["intent"]
+        if intent.get("action") == "cloud_read":
+            return self._cloud_read_result(result, intent)
+        if intent.get("action") in CLOUD_ACTIONS.values():
+            allowed = {"cloud_publish": {"CREATED", "REPLAY_LIVE", "APPLIED_THEN_RETIRED"},
+                       "cloud_retire": {"RETIRED", "ALREADY_RETIRED"}}
+            try:
+                valid = (str(UUID(result)) == result and UUID(result).int != 0
+                         if intent["action"] == "cloud_reserve"
+                         else result in allowed[intent["action"]])
+            except (ValueError, TypeError, AttributeError):
+                valid = False
+            if not valid:
+                raise GatewayIndeterminate("UNCONFIRMED_DATABASE_RESULT")
         if type(result) is not str or not result:
-            raise GatewayDenied("UNCONFIRMED_DATABASE_RESULT")
+            raise GatewayIndeterminate("UNCONFIRMED_DATABASE_RESULT")
         return result
+
+    def prepare_cloud_copy(self, token: str, action: str, operation_id: str, *,
+                           local_note_id: str, cloud_id: str | None = None,
+                           payload: object = None) -> dict:
+        if action not in CLOUD_ACTIONS:
+            raise GatewayDenied("INVALID_INTENT")
+        return self.prepare(token, CLOUD_ACTIONS[action], operation_id,
+                            local_note_id=local_note_id, note_id=cloud_id, payload=payload)
+
+    def run_cloud_copy(self, token: str, action: str, operation_id: str, **kwargs) -> str | dict:
+        # One explicit dispatch only. 'read' issues no lifecycle mutation, receipt,
+        # or renewed mutation authority; it uses its own immutable read context.
+        return self.apply(token, self.prepare_cloud_copy(token, action, operation_id, **kwargs))
+
+    @staticmethod
+    def _cloud_read_result(result: object, intent: dict) -> dict:
+        try:
+            value = json.loads(result) if type(result) is str else None
+            if (type(value) is not dict or set(value) != {"account_id", "local_note_id", "cloud_note_id",
+                    "state", "reserve_operation_id", "publication", "retire_operation_id"}
+                    or value["account_id"] != intent["owner"]
+                    or value["local_note_id"] != intent["local_note_id"]
+                    or str(UUID(value["cloud_note_id"])) != value["cloud_note_id"]
+                    or type(value["reserve_operation_id"]) is not str or not value["reserve_operation_id"]):
+                raise ValueError()
+            publication, retirement = value["publication"], value["retire_operation_id"]
+            if publication is not None:
+                if (type(publication) is not dict or set(publication) != {"operation_id", "payload", "digest"}
+                        or type(publication["operation_id"]) is not str or not publication["operation_id"]
+                        or not cloud_snapshot_supported(publication["payload"])
+                        or re.fullmatch(r"[0-9a-f]{64}", publication["digest"]) is None):
+                    raise ValueError()
+            if ((value["state"] == "RESERVED" and (publication is not None or retirement is not None))
+                    or (value["state"] == "LIVE" and (publication is None or retirement is not None))
+                    or (value["state"] == "RETIRED" and (type(retirement) is not str or not retirement))
+                    or value["state"] not in {"RESERVED", "LIVE", "RETIRED"}):
+                raise ValueError()
+            return value
+        except (ValueError, TypeError, KeyError, AttributeError):
+            raise GatewayIndeterminate("UNCONFIRMED_CLOUD_READBACK") from None
 
     def run(self, token: str, action: str, operation_id: str, **kwargs) -> str:
         # A retry reuses prepare's immutable account/operation context. Neither
