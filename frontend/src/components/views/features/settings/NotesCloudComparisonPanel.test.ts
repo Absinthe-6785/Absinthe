@@ -8,6 +8,7 @@ import { getNoteReturnTab, registerAppTabSwitcher, registerNotesTabSwitcher, ret
 import { getNoteNavigationStack, pushNoteNavigation, resetNoteNavigationStack } from '../../../../lib/noteNavigationStack';
 const mock = vi.hoisted(() => ({
   create: vi.fn(),
+  prepareCloudCopy: vi.fn(), createCloudCopy: vi.fn(), cloudCopyEnabled: false,
   state: { notes: [] as any[], folders: [] as any[], revision: 0, activeAccountId: 'A' as string | null, activeNoteId: null as string | null, setActiveNoteId: vi.fn() },
   listeners: new Set<() => void>(), available: true, activeRequest: { accountId: 'A' },
   setActiveNoteId: vi.fn(), notesTabSwitch: vi.fn(), appTabSwitch: vi.fn(),
@@ -20,6 +21,11 @@ vi.mock('../../../../store/useNotesStore', () => ({
   observePublishedNotesHydration: () => mock.available ? { status: 'CURRENT', request: mock.activeRequest } : { status: 'UNAVAILABLE' },
 }));
 vi.mock('../../../../lib/notesCloudComparison', () => ({ createNotesCloudComparison: mock.create }));
+vi.mock('../../../../lib/notesCloudCopy', () => ({
+  prepareNotesCloudCopy: mock.prepareCloudCopy,
+  createNotesCloudCopy: mock.createCloudCopy,
+  notesCloudCopyUiEnabled: () => mock.cloudCopyEnabled,
+}));
 import { NotesCloudComparisonPanel } from './NotesCloudComparisonPanel';
 let root: Root, host: HTMLDivElement;
 const report = {
@@ -41,6 +47,15 @@ let unregisterNotesTab: () => void, unregisterAppTab: () => void;
 beforeEach(() => {
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true; useAppStore.getState().updateSetting('language', 'en');
   vi.clearAllMocks(); live = true; mock.available = true; mock.activeRequest = { accountId: 'A' };
+  mock.cloudCopyEnabled = false;
+  mock.prepareCloudCopy.mockResolvedValue({
+    status: 'ELIGIBLE_PREVIEW_ONLY', authority: 'NONE', localNoteId: 'local-id',
+    snapshot: { title: 'Local title', body: 'Local body', updated_at: 10, starred: false },
+    sourceRevision: { authorityGeneration: 1, vaultStructureVersion: 1, indexContentVersion: 1,
+      noteUpdatedAt: 10, durableReadback: 'MATCHED', attachmentMetadata: 'COMPLETE_EMPTY' },
+    isCurrentInMemory: () => true, isCurrent: async () => true,
+  });
+  mock.createCloudCopy.mockResolvedValue({ status: 'CREATED', cloudNoteId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' });
   mock.state = {
     notes: [
       localNote('local-id', 'Local title'), localNote('local-id-2', 'Second local'),
@@ -200,4 +215,52 @@ it('removes counts immediately on publication-only revocation with unchanged arr
   });
   expect(host.querySelectorAll('dd')).toHaveLength(0); expect(owner.cancel).toHaveBeenCalled();
   expect(host.querySelector('button')!.disabled).toBe(true);
+});
+
+it('requires a separate accessible confirmation and clears the pre-copy comparison after exact readback success', async () => {
+  mock.cloudCopyEnabled = true;
+  await render(); await check();
+  const localOnly = host.querySelector('details')!;
+  localOnly.querySelector('summary')!.click();
+  const create = [...host.querySelectorAll('button')].find(button => button.textContent === 'Create cloud copy')!;
+  await act(async () => { create.click(); await Promise.resolve(); });
+  expect(mock.prepareCloudCopy).toHaveBeenCalledWith('local-id');
+  expect(mock.createCloudCopy).not.toHaveBeenCalled();
+  const confirmation = host.querySelector('[role="group"][aria-label="Confirm copy"]')!;
+  expect(confirmation.textContent).toContain('last-updated timestamp, and starred state are copied');
+  expect(confirmation.textContent).toContain('local Note and its ID stay unchanged');
+  await act(async () => { confirmation.querySelector('button')!.click(); await Promise.resolve(); });
+  expect(mock.createCloudCopy).toHaveBeenCalledTimes(1);
+  expect(mock.createCloudCopy.mock.calls[0][0]).toBe('local-id');
+  expect(mock.createCloudCopy.mock.calls[0][1]).toBe('A');
+  expect(host.textContent).toContain('Cloud copy created and read back');
+  expect(host.querySelectorAll('dd')).toHaveLength(0);
+  expect(mock.state.activeNoteId).toBeNull();
+});
+
+it('does not dispatch a copy when the comparison/account becomes stale before confirmation', async () => {
+  mock.cloudCopyEnabled = true;
+  await render(); await check();
+  host.querySelector('details > summary')!.click();
+  await act(async () => {
+    [...host.querySelectorAll('button')].find(button => button.textContent === 'Create cloud copy')!.click();
+    await Promise.resolve();
+  });
+  const confirm = host.querySelector('[role="group"] button')!;
+  mock.activeRequest = { accountId: 'B' };
+  mock.state = { ...mock.state, activeAccountId: 'B' };
+  await act(async () => { confirm.click(); await Promise.resolve(); });
+  expect(mock.createCloudCopy).not.toHaveBeenCalled();
+  expect(mock.state.activeNoteId).toBeNull();
+  expect(host.querySelectorAll('dd')).toHaveLength(0);
+  expect(host.querySelector('[role="group"]')).toBeNull();
+});
+
+it('keeps the Cloud Copy action invisible unless its dedicated build flag is enabled', async () => {
+  mock.cloudCopyEnabled = false;
+  await render(); await check();
+  host.querySelector('details > summary')!.click();
+  expect([...host.querySelectorAll('button')].some(button => button.textContent === 'Create cloud copy')).toBe(false);
+  expect(mock.prepareCloudCopy).not.toHaveBeenCalled();
+  expect(mock.createCloudCopy).not.toHaveBeenCalled();
 });

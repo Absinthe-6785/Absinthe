@@ -15,10 +15,50 @@ function metadata(id = 'image-a', accountId = 'A', noteId = 'shared'): AccountSc
 function input(expected = metadata(), isCurrent = () => true) {
   return { accountId: 'A', noteId: 'shared', request: getActiveNotesAuthorityRequest()!, expected, isCurrent, deletedAt: removedAt };
 }
+function putRawMetadata(value: unknown): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(ATTACHMENT_METADATA_DB_NAME, ATTACHMENT_METADATA_DB_VERSION);
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const db = request.result;
+      const transaction = db.transaction('metadata', 'readwrite');
+      transaction.onerror = () => reject(transaction.error);
+      transaction.oncomplete = () => { db.close(); resolve(); };
+      transaction.objectStore('metadata').put(value);
+    };
+  });
+}
 beforeEach(() => { vi.stubGlobal('indexedDB', new IDBFactory()); activateNotesAccountAuthority('A'); });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); resetNotesAccountAuthorityForTests(); });
 
 describe('ordinary attachment account/Note access', () => {
+  it('does not create an attachment metadata database merely to establish absence', async () => {
+    const repo = new LocalAttachmentMetadataRepository();
+    const open = vi.spyOn(indexedDB, 'open');
+    expect(await indexedDB.databases()).toEqual([]);
+    expect(await repo.inspectAccountNoteMetadata('A', 'shared')).toEqual({ status: 'INCOMPLETE' });
+    expect(open).not.toHaveBeenCalled();
+    expect(await indexedDB.databases()).toEqual([]);
+  });
+
+  it('aborts an implicit database creation if the existing DB disappears before inspection opens it', async () => {
+    const repo = new LocalAttachmentMetadataRepository();
+    await repo.putAttachment(metadata('seed', 'A', 'seed-note'));
+    const priorInventory = await indexedDB.databases();
+    expect(priorInventory).toContainEqual({ name: ATTACHMENT_METADATA_DB_NAME, version: ATTACHMENT_METADATA_DB_VERSION });
+    await new Promise<void>((resolve, reject) => {
+      const request = indexedDB.deleteDatabase(ATTACHMENT_METADATA_DB_NAME);
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+    const inventory = vi.spyOn(indexedDB, 'databases').mockResolvedValue(priorInventory);
+
+    expect(await repo.inspectAccountNoteMetadata('A', 'shared')).toEqual({ status: 'INCOMPLETE' });
+
+    inventory.mockRestore();
+    expect(await indexedDB.databases()).toEqual([]);
+  });
+
   it('R01 separates accounts sharing a Note ID and preserves hidden legacy and other-Note records', async () => {
     const repo = new LocalAttachmentMetadataRepository();
     const a = metadata(); const b = metadata('image-b', 'B'); const other = metadata('other', 'A', 'other-note');
@@ -30,6 +70,33 @@ describe('ordinary attachment account/Note access', () => {
     expect(await repo.listAttachmentsForAccountNote('A', '')).toEqual([]);
     expect((await repo.listAttachmentsForNote('shared')).map(row => row.id).sort()).toEqual(['image-a', 'image-b', 'legacy']);
     expect(await repo.getAttachment('legacy')).toMatchObject({ id: 'legacy', deletedAt: null });
+  });
+
+  it('proves exact-Note metadata absence only from a complete account-scoped inventory', async () => {
+    const repo = new LocalAttachmentMetadataRepository();
+    await repo.putAttachment(metadata('other-a', 'A', 'other-note'));
+    await repo.putAttachment(metadata('target-b', 'B', 'shared'));
+    expect(await repo.inspectAccountNoteMetadata('A', 'shared')).toEqual({ status: 'COMPLETE', matchingRecords: 0 });
+    expect(await repo.inspectAccountNoteMetadata('B', 'shared')).toEqual({ status: 'COMPLETE', matchingRecords: 1 });
+
+    await repo.putAttachment(metadata('target-a', 'A', 'shared'));
+    expect(await repo.inspectAccountNoteMetadata('A', 'shared')).toEqual({ status: 'COMPLETE', matchingRecords: 1 });
+  });
+
+  it.each([
+    ['legacy unscoped metadata', { ...metadata('legacy', 'A', 'shared'), accountId: undefined }],
+    ['malformed metadata', { id: 'malformed', accountId: 'A', noteId: 'shared' }],
+  ])('fails closed for %s without writing metadata', async (_label, raw) => {
+    const repo = new LocalAttachmentMetadataRepository();
+    // Create the established metadata store/schema before inserting a raw
+    // legacy or malformed record that the public writer correctly rejects.
+    await repo.putAttachment(metadata('seed', 'A', 'seed-note'));
+    await putRawMetadata(raw);
+    const put = vi.spyOn(IDBObjectStore.prototype, 'put');
+    const deleteRecord = vi.spyOn(IDBObjectStore.prototype, 'delete');
+    expect(await repo.inspectAccountNoteMetadata('A', 'shared')).toEqual({ status: 'INCOMPLETE' });
+    expect(put).not.toHaveBeenCalled();
+    expect(deleteRecord).not.toHaveBeenCalled();
   });
 
   it.each(['account', 'note', 'record'])('R02 rejects a mismatching %s snapshot without changing either record', async kind => {

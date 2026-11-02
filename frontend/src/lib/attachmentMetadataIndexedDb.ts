@@ -4,6 +4,7 @@ import {
   type AccountScopedAttachmentMetadata,
   type AttachmentMetadata,
   type AttachmentRepository,
+  type AttachmentMetadataInspection,
   type AttachmentTimestamp,
   type ScopedAttachmentTombstoneInput,
   type ScopedAttachmentTombstoneResult,
@@ -45,6 +46,34 @@ function openAttachmentMetadataDb(): Promise<IDBDatabase> {
       if (!store.indexNames.contains('accountId')) store.createIndex('accountId', 'accountId', { unique: false });
     };
     request.onsuccess = () => resolve(request.result);
+  });
+}
+
+/** Opens only an already-existing metadata DB and never performs schema creation/upgrades. */
+async function openExistingAttachmentMetadataDb(): Promise<IDBDatabase | null> {
+  if (typeof indexedDB.databases !== 'function') return null;
+  let inventory: IDBDatabaseInfo[];
+  try { inventory = await indexedDB.databases(); } catch { return null; }
+  const existing = inventory.find(database => database.name === ATTACHMENT_METADATA_DB_NAME);
+  if (!existing || existing.version !== ATTACHMENT_METADATA_DB_VERSION) return null;
+  return new Promise((resolve, reject) => {
+    // Deliberately omit the version. If the DB was deleted between inventory
+    // and open, abort the implicit creation upgrade before adding any schema.
+    const request = indexedDB.open(ATTACHMENT_METADATA_DB_NAME);
+    request.onupgradeneeded = () => {
+      try { request.transaction?.abort(); } catch { /* report as unavailable below */ }
+    };
+    request.onerror = () => reject(request.error ?? new Error('Existing attachment metadata DB unavailable'));
+    request.onsuccess = () => {
+      const db = request.result;
+      if (db.version !== ATTACHMENT_METADATA_DB_VERSION
+        || !db.objectStoreNames.contains(ATTACHMENT_METADATA_STORE)) {
+        db.close();
+        resolve(null);
+        return;
+      }
+      resolve(db);
+    };
   });
 }
 
@@ -184,6 +213,43 @@ export class LocalAttachmentMetadataRepository implements AttachmentRepository {
           .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
       });
     } finally { db.close(); }
+  }
+
+  async inspectAccountNoteMetadata(accountId: string, noteId: string): Promise<AttachmentMetadataInspection> {
+    const unavailable = Object.freeze({ status: 'INCOMPLETE' as const });
+    if (!accountId || accountId !== accountId.trim() || !noteId || noteId !== noteId.trim()) return unavailable;
+    let db: IDBDatabase | null;
+    try { db = await openExistingAttachmentMetadataDb(); } catch { return unavailable; }
+    if (!db) return unavailable;
+    try {
+      const rawRecords = await new Promise<unknown[]>((resolve, reject) => {
+        const tx = db.transaction(ATTACHMENT_METADATA_STORE, 'readonly');
+        const request = tx.objectStore(ATTACHMENT_METADATA_STORE).getAll();
+        let records: unknown[] | null = null;
+        request.onerror = () => reject(request.error ?? new Error('Attachment metadata inspection failed'));
+        request.onsuccess = () => { records = Array.isArray(request.result) ? request.result : null; };
+        tx.onerror = () => reject(tx.error ?? new Error('Attachment metadata inspection transaction failed'));
+        tx.onabort = () => reject(tx.error ?? new Error('Attachment metadata inspection transaction aborted'));
+        tx.oncomplete = () => {
+          if (!records) reject(new Error('Attachment metadata inspection returned no complete inventory'));
+          else resolve(records);
+        };
+      });
+      let matchingRecords = 0;
+      for (const raw of rawRecords) {
+        const record = normalizeRecord(raw);
+        const rawRow = raw && typeof raw === 'object' ? raw as Partial<AccountScopedAttachmentMetadata> : null;
+        const rawAccountId = rawRow ? attachmentMetadataAccountId(raw as AttachmentMetadata) : null;
+        // Legacy/unscoped or malformed rows cannot establish that the selected
+        // Note has no attachment original, so fail closed for this inventory.
+        if (!record || !rawRow || !rawAccountId || typeof rawRow.accountId !== 'string'
+          || rawAccountId !== rawRow.accountId || typeof rawRow.noteId !== 'string'
+          || !rawRow.noteId.trim() || rawRow.noteId !== record.noteId) return unavailable;
+        if (rawRow.accountId === accountId && rawRow.noteId === noteId) matchingRecords += 1;
+      }
+      return Object.freeze({ status: 'COMPLETE' as const, matchingRecords });
+    } catch { return unavailable; }
+    finally { db.close(); }
   }
 
   async tombstoneAttachmentForAccountNote(input: ScopedAttachmentTombstoneInput): Promise<ScopedAttachmentTombstoneResult> {

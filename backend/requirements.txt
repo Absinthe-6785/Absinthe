@@ -4,5 +4,6 @@ supabase
 pydantic
 python-dotenv
 PyJWT[crypto]>=2.8.0
+psycopg[binary]==3.2.13
 pytest>=8.0.0
 pytest-asyncio>=1.0.0

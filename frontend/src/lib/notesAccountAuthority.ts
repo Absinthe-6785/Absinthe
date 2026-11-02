@@ -1657,6 +1657,42 @@ export async function loadAccountScopedNotes(accountId: string): Promise<NoteBas
   return notes;
 }
 
+export type AccountScopedNotesReadback =
+  | { readonly status: 'CURRENT'; readonly notes: readonly NoteBase[] }
+  | { readonly status: 'UNAVAILABLE'; readonly reason: 'STALE_REQUEST' | 'MALFORMED' | 'READ_FAILED' };
+
+/**
+ * Observes the durable account-scoped Notes snapshot without publishing load
+ * state, repairing malformed data, or writing storage. The existing account
+ * lock keeps ordinary Notes writers from interleaving with this readback.
+ */
+export async function observeAccountScopedNotesReadback(
+  request: NotesAuthorityRequest,
+  isCurrent: () => boolean = () => true,
+): Promise<AccountScopedNotesReadback> {
+  const current = () => {
+    try {
+      return getActiveNotesAuthorityRequest() === request
+        && isNotesAuthorityRequestActive(request) && isCurrent() === true;
+    } catch { return false; }
+  };
+  if (!current()) return Object.freeze({ status: 'UNAVAILABLE', reason: 'STALE_REQUEST' });
+  try {
+    return await runAccountMutationExclusive(request.accountId, async () => {
+      if (!current()) return Object.freeze({ status: 'UNAVAILABLE', reason: 'STALE_REQUEST' } as const);
+      const read = await readAccountNotes(request.accountId);
+      if (!current()) return Object.freeze({ status: 'UNAVAILABLE', reason: 'STALE_REQUEST' } as const);
+      if (read.kind === 'malformed') return Object.freeze({ status: 'UNAVAILABLE', reason: 'MALFORMED' } as const);
+      const notes = Object.freeze(read.kind === 'valid' ? [...read.records] : []);
+      return Object.freeze({ status: 'CURRENT', notes } as const);
+    });
+  } catch {
+    return Object.freeze({
+      status: 'UNAVAILABLE', reason: current() ? 'READ_FAILED' : 'STALE_REQUEST',
+    });
+  }
+}
+
 export async function saveAccountScopedNotes(
   accountId: string,
   notes: readonly NoteBase[],

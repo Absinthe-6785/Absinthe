@@ -1,7 +1,8 @@
 from fastapi import FastAPI, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -14,6 +15,7 @@ from backup_stream import fetch_backup_tables_sequential, iter_backup_zip_chunks
 from memory_watchdog import MemoryWatchdog
 from request_memory_watchdog import RequestMemoryWatchdog, should_profile_path
 from notes_sync import DEFAULT_BATCH_CHUNK_SIZE, build_notes_delta_or_filter
+from notes_cloud_copy_candidate import CloudCopyError, NotesCloudCopyService
 from memory_profile import MemoryProfiler
 from remote_mutation import (
     MAX_REQUEST_BYTES,
@@ -81,6 +83,7 @@ K323_REMOTE_MUTATION_ENABLED = os.getenv("K323_REMOTE_MUTATION_ENABLED", "disabl
 K323_V2_TRANSPORT_ENABLED = os.getenv("K323_V2_TRANSPORT_ENABLED", "disabled").strip().lower() == "enabled"
 HEALTH_ROUTINE_SYNC_ENABLED = os.getenv("HEALTH_ROUTINE_SYNC_ENABLED", "enabled").strip().lower() == "enabled"
 WORKOUT_REMOTE_FOUNDATION_ENABLED = os.getenv("WORKOUT_REMOTE_FOUNDATION_ENABLED", "disabled").strip().lower() == "enabled"
+NOTES_CLOUD_COPY_ENABLED = os.getenv("NOTES_CLOUD_COPY_ENABLED", "disabled").strip().lower() == "enabled"
 K323_PROJECT_SCOPE = os.getenv("K323_PROJECT_SCOPE", "").strip() or "absinthe-health-routines"
 
 DESTRUCTIVE_RECOVERY_INTENT_HEADER = "x-absinthe-recovery-intent"
@@ -1773,6 +1776,69 @@ async def upsert_notes_batch(
 ):
     """Keep the dormant legacy route explicit while preventing all mutation work."""
     raise HTTPException(status_code=410, detail="NOTES_BATCH_MUTATION_DISABLED")
+
+
+class NotesCloudCopyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    localNoteId: str = Field(min_length=1, max_length=512)
+    snapshot: dict
+
+
+def _notes_cloud_copy_service() -> NotesCloudCopyService:
+    if not NOTES_CLOUD_COPY_ENABLED:
+        raise HTTPException(status_code=423, detail="NOTES_CLOUD_COPY_DISABLED")
+    dsn = os.getenv("NOTES_PRIVATE_GATEWAY_DSN", "").strip()
+    signing_key_hex = os.getenv("NOTES_PRIVATE_GATEWAY_SIGNING_KEY_HEX", "").strip()
+    try:
+        if not dsn or not signing_key_hex:
+            raise ValueError("gateway configuration is incomplete")
+        from psycopg import connect
+        from psycopg.conninfo import conninfo_to_dict
+        from identity_candidates.notes_private_gateway import PrivateGateway, PsycopgCalls
+
+        if conninfo_to_dict(dsn).get("user") != "notes_candidate_private_gateway":
+            raise ValueError("restricted gateway role is required")
+        signing_key = bytes.fromhex(signing_key_hex)
+        if len(signing_key) < 32:
+            raise ValueError("gateway signing key is too short")
+        # Each fixed gateway call owns and closes one restricted connection.
+        # TLS server verification is mandatory; no pool/session binding exists.
+        calls = PsycopgCalls(lambda: connect(dsn, sslmode="verify-full", connect_timeout=5))
+        gateway = PrivateGateway(jwt_verifier, calls, signing_key, enabled=True)
+        return NotesCloudCopyService(gateway)
+    except Exception:
+        # Configuration and database details are intentionally not reflected.
+        raise HTTPException(status_code=503, detail="NOTES_CLOUD_COPY_UNAVAILABLE") from None
+
+
+@app.post("/api/notes/cloud-copy")
+async def create_notes_cloud_copy(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    _user_id: str = Depends(get_remote_mutation_user),
+):
+    """Create one explicitly confirmed, distinct-ID Note snapshot; never sync."""
+    if not NOTES_CLOUD_COPY_ENABLED:
+        raise HTTPException(status_code=423, detail="NOTES_CLOUD_COPY_DISABLED")
+    chunks: list[bytes] = []
+    size = 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > MAX_REQUEST_BYTES:
+            raise HTTPException(status_code=413, detail="INVALID_CLOUD_COPY_REQUEST")
+        chunks.append(chunk)
+    try:
+        payload = NotesCloudCopyRequest.model_validate_json(b"".join(chunks))
+    except ValidationError:
+        raise HTTPException(status_code=400, detail="INVALID_CLOUD_COPY_REQUEST") from None
+    try:
+        service = _notes_cloud_copy_service()
+        return await run_in_threadpool(
+            service.create_copy, credentials.credentials, payload.localNoteId, payload.snapshot,
+        )
+    except CloudCopyError as error:
+        raise HTTPException(status_code=error.status_code, detail=error.code) from None
 
 
 @app.get("/api/notes/{note_id}")
