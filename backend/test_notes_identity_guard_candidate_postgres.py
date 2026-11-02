@@ -452,3 +452,277 @@ def test_retirement_does_not_accept_a_foreign_current_row_for_a_reserved_id(read
     before = ready.snapshot(key)
     ready.sql(retire(key), 'notes_candidate_gateway', 'RESULT_INDETERMINATE')
     assert ready.snapshot(key) == before
+
+
+# A separately approved, default-off NEW-COPY contract. This is not local-ID
+# adoption, browser publication, native clipboard/navigation or production auth.
+# Reuse the existing registered, no-network disposable PostgreSQL module. No
+# Docker/psycopg installation, new container framework or production DSN is used.
+MAPPING_SQL = SQL.with_name("notes_cloud_identity_mapping.sql")
+
+
+def test_local_cloud_copy_candidate_stays_unapplied_and_explicitly_registered():
+    source = MAPPING_SQL.read_text(encoding="utf-8")
+    assert MAPPING_SQL.parent.name == "identity_candidates"
+    assert "enabled boolean not null default false" in source
+    assert "from public;" in source
+    workflow = (SQL.parents[2] / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    assert "test_notes_identity_guard_candidate_postgres.py" in workflow
+    assert "notes_cloud_identity_mapping.sql" not in workflow
+
+
+@pytest.fixture(scope="module")
+def mapping_db(model_db):
+    model_db.sql(MAPPING_SQL.read_text(encoding="utf-8"))
+    return model_db
+
+
+@pytest.fixture
+def mapping_candidate(mapping_db, candidate):
+    candidate.sql(f"update {SCHEMA}.cloud_copy_readiness set enabled=false;")
+    return candidate
+
+
+@pytest.fixture
+def mapping_ready(mapping_candidate, ready):
+    ready.sql(f"update {SCHEMA}.cloud_copy_readiness set enabled=true;")
+    return ready
+
+
+def cloud_reserve(local, operation, generation=1):
+    return f"select {SCHEMA}.reserve_cloud_copy({quote(local)},{generation},{quote(operation)});"
+
+
+def cloud_publish(local, cloud, operation, payload=None, generation=1):
+    body = json.dumps(PAYLOAD if payload is None else payload, ensure_ascii=False)
+    return (f"select {SCHEMA}.publish_cloud_copy({quote(local)},{quote(cloud)},"
+            f"{generation},{quote(operation)},{quote(body)}::jsonb);")
+
+
+def cloud_retire(local, cloud, operation, generation=1):
+    return (f"select {SCHEMA}.retire_cloud_copy({quote(local)},{quote(cloud)},"
+            f"{generation},{quote(operation)});")
+
+
+def cloud_read(local, generation=1):
+    return f"select {SCHEMA}.read_cloud_copy({quote(local)},{generation});"
+
+
+def copy_identity(db, local=None):
+    local = local or "note-local-" + uuid.uuid4().hex
+    operation = "copy-reserve:" + uuid.uuid4().hex
+    cloud = db.sql(cloud_reserve(local, operation), "notes_candidate_gateway")
+    return local, cloud, operation
+
+
+def copy_snapshot(db, local, role="notes_candidate_gateway", generation=1):
+    return json.loads(db.sql(cloud_read(local, generation), role))
+
+
+def test_cloud_copy_default_off_and_no_browser_or_helper_authority(mapping_candidate):
+    db = mapping_candidate
+    db.sql(cloud_reserve("local", "off"), "notes_candidate_gateway", "CLOUD_COPY_NOT_ACTIVATED")
+    db.sql(f"update {SCHEMA}.cloud_copy_readiness set enabled=true;", "notes_candidate_gateway", "42501")
+    for call in (cloud_reserve("local", "no"), cloud_read("local"),
+                 f"select {SCHEMA}.cloud_copy_scope('local',1);",
+                 f"select {SCHEMA}.require_cloud_alias('{OWNER_A}','local','cloud');"):
+        db.sql(call, "notes_candidate_app", "42501")
+    db.sql(f"select {SCHEMA}.cloud_copy_scope('local',1);", "notes_candidate_gateway", "42501")
+
+
+def test_cloud_copy_uses_distinct_uuid_and_preserves_authored_local_identity(mapping_ready):
+    db = mapping_ready
+    original = dict(id="note-" + uuid.uuid4().hex, title="같은 제목 日本語",
+                    body="[나 자신](absinthe-note:local-stable-id)\n#태그 $x$", updated_at=5, starred=True)
+    frozen = json.dumps(original, ensure_ascii=False, sort_keys=True)
+    payload = {key: value for key, value in original.items() if key != "id"}
+    local, cloud, operation = copy_identity(db, original["id"])
+    assert str(uuid.UUID(cloud)) == cloud and cloud != local
+    assert db.sql(cloud_publish(local, cloud, "copy-publish:" + cloud, payload), "notes_candidate_gateway") == "CREATED"
+    observed = copy_snapshot(db, local)
+    assert observed == dict(account_id=OWNER_A, local_note_id=local, cloud_note_id=cloud,
+                           state="LIVE", reserve_operation_id=operation,
+                           publication=dict(operation_id="copy-publish:" + cloud, payload=payload,
+                                            digest=observed["publication"]["digest"]), retire_operation_id=None)
+    assert db.snapshot(cloud)["payload"] == payload
+    assert db.sql(f"select count(*) from public.notes where id={quote(local)};") == "0"
+    assert json.dumps(original, ensure_ascii=False, sort_keys=True) == frozen
+
+
+def test_cloud_copy_restart_readback_and_exact_replay_never_allocate_again(mapping_ready):
+    db = mapping_ready
+    local, cloud, operation = copy_identity(db)
+    before = db.snapshot(cloud)
+    # Every db.sql opens a fresh process/connection. Model a discarded response,
+    # not a real network failure, and recover using only the account/local alias.
+    assert copy_snapshot(db, local)["cloud_note_id"] == cloud
+    assert db.sql(cloud_reserve(local, operation), "notes_candidate_gateway") == cloud
+    db.sql(cloud_reserve(local, "fresh-op:" + cloud), "notes_candidate_gateway", "CLOUD_ALIAS_ALREADY_BOUND")
+    assert db.snapshot(cloud) == before
+    publish_op = "lost-ack:" + cloud
+    db.sql(cloud_publish(local, cloud, publish_op), "notes_candidate_gateway")  # discard ACK
+    assert copy_snapshot(db, local)["publication"]["operation_id"] == publish_op
+    assert db.sql(cloud_publish(local, cloud, publish_op), "notes_candidate_gateway") == "REPLAY_LIVE"
+    assert db.snapshot(cloud)["notes"] == 1
+
+
+def test_cloud_copy_operation_cannot_adopt_a_reservation_or_another_alias(mapping_ready):
+    db = mapping_ready
+    local, cloud, operation = copy_identity(db)
+    before = db.snapshot(cloud)
+    db.sql(cloud_reserve("different:" + local, operation), "notes_candidate_gateway", "OPERATION_CONFLICT")
+    raw_op = "unmapped:" + uuid.uuid4().hex
+    raw = db.sql(reserve(raw_op), "notes_candidate_gateway")
+    db.sql(cloud_reserve("local:" + raw, raw_op), "notes_candidate_gateway", "OPERATION_CONFLICT")
+    assert db.snapshot(raw)["state"] == "RESERVED"
+    assert db.snapshot(cloud) == before
+
+
+@pytest.mark.parametrize("source_kind", ["legacy", "reserved", "retired"])
+def test_cloud_copy_does_not_adopt_known_remote_or_retired_source_ids(mapping_ready, source_kind):
+    db = mapping_ready
+    source = "legacy:" + uuid.uuid4().hex if source_kind == "legacy" else db.reserve()
+    if source_kind == "legacy":
+        db.sql(f"insert into public.notes(id,user_id,title,body,updated_at) values({quote(source)},'{OWNER_A}','keep','original',1);")
+    elif source_kind == "retired":
+        db.sql(retire(source), "notes_candidate_gateway")
+    before = db.snapshot(source)
+    db.sql(cloud_reserve(source, "new-copy:" + source), "notes_candidate_gateway", "SOURCE_ID_UNAVAILABLE")
+    assert db.snapshot(source) == before
+
+
+def test_cloud_copy_account_aliases_exact_targets_and_aba_generation(mapping_ready):
+    db = mapping_ready
+    local, a, _ = copy_identity(db)
+    b = db.sql(cloud_reserve(local, "b:" + a), "notes_candidate_gateway_b")
+    assert a != b
+    assert copy_snapshot(db, local)["cloud_note_id"] == a
+    assert copy_snapshot(db, local, "notes_candidate_gateway_b")["cloud_note_id"] == b
+    db.sql(cloud_publish(local, b, "foreign:" + a), "notes_candidate_gateway", "CLOUD_ALIAS_UNAVAILABLE")
+    other_local, _, _ = copy_identity(db)
+    db.sql(cloud_read(other_local), "notes_candidate_gateway_b", "CLOUD_ALIAS_UNAVAILABLE")
+    db.sql(f"update {SCHEMA}.account_fences set generation=3 where owner_id='{OWNER_A}';"
+           f"update {SCHEMA}.principal_bindings set generation=3 where owner_id='{OWNER_A}';")
+    db.sql(cloud_publish(local, a, "old:" + a), "notes_candidate_gateway", "ACCOUNT_AUTHORITY_UNAVAILABLE")
+    assert copy_snapshot(db, local, generation=3)["cloud_note_id"] == a
+    assert db.sql(cloud_publish(local, a, "new:" + a, generation=3), "notes_candidate_gateway") == "CREATED"
+    assert db.snapshot(b)["state"] == "RESERVED"
+
+
+def test_cloud_copy_closed_account_and_unavailable_scope_fail_closed(mapping_ready):
+    db = mapping_ready
+    local, cloud, _ = copy_identity(db)
+    before = db.snapshot(cloud)
+    db.sql(f"update {SCHEMA}.account_fences set state='CLOSED' where owner_id='{OWNER_A}';")
+    db.sql(cloud_read(local), "notes_candidate_gateway", "ACCOUNT_AUTHORITY_UNAVAILABLE")
+    db.sql(cloud_publish(local, cloud, "closed:" + cloud), "notes_candidate_gateway", "ACCOUNT_AUTHORITY_UNAVAILABLE")
+    assert db.snapshot(cloud) == before
+
+
+def test_cloud_copy_reservation_alias_and_receipt_rollback_together(mapping_ready):
+    db = mapping_ready
+    local = "fail-alias:" + uuid.uuid4().hex
+    before = db.sql(f"select count(*) from {SCHEMA}.identities;")
+    # The existing fixture binds postgres to A solely for transactional DDL fault injection.
+    db.sql(f"begin;alter table {SCHEMA}.cloud_aliases add check(local_note_id<>{quote(local)});"
+           + cloud_reserve(local, "after-issuance:" + local) + "commit;", "postgres", "23514")
+    assert db.sql(f"select count(*) from {SCHEMA}.identities;") == before
+    db.sql(cloud_read(local), "notes_candidate_gateway", "CLOUD_ALIAS_UNAVAILABLE")
+    local, cloud, _ = copy_identity(db)
+    before = copy_snapshot(db, local)
+    db.sql(cloud_publish(local, cloud, "test-fail-after-note"), "notes_candidate_gateway", "23514")
+    assert copy_snapshot(db, local) == before
+
+
+@pytest.mark.parametrize("extra", [{"properties": {}}, {"relations": {}}, {"folder_id": None},
+                                   {"attachmentOriginals": ["local"]}, {"history": []}, {"id": "local"}])
+def test_cloud_copy_unsupported_snapshot_is_denied_without_stripping(mapping_ready, extra):
+    db = mapping_ready
+    local, cloud, _ = copy_identity(db)
+    before = copy_snapshot(db, local)
+    db.sql(cloud_publish(local, cloud, "unsupported:" + cloud, PAYLOAD | extra), "notes_candidate_gateway", "UNSUPPORTED_PAYLOAD")
+    assert copy_snapshot(db, local) == before
+
+
+def test_cloud_copy_retirement_keeps_binding_and_never_resurrects(mapping_ready):
+    db = mapping_ready
+    local, cloud, reserve_op = copy_identity(db)
+    op = "published:" + cloud
+    db.sql(cloud_publish(local, cloud, op), "notes_candidate_gateway")
+    db.sql(cloud_retire(local, cloud, "retired:" + cloud), "notes_candidate_gateway")
+    before = copy_snapshot(db, local)
+    assert before["state"] == "RETIRED" and db.snapshot(cloud)["notes"] == 0
+    assert db.sql(cloud_reserve(local, reserve_op), "notes_candidate_gateway") == cloud
+    db.sql(cloud_reserve(local, "new-identity:" + cloud), "notes_candidate_gateway", "CLOUD_ALIAS_ALREADY_BOUND")
+    assert db.sql(cloud_publish(local, cloud, op), "notes_candidate_gateway") == "APPLIED_THEN_RETIRED"
+    db.sql(cloud_publish(local, cloud, "new-publish:" + cloud), "notes_candidate_gateway", "IDENTITY_UNAVAILABLE")
+    for change in (f"delete from {SCHEMA}.cloud_aliases where cloud_note_id={quote(cloud)};",
+                   f"update {SCHEMA}.cloud_aliases set local_note_id='changed' where cloud_note_id={quote(cloud)};"):
+        db.sql("set role notes_candidate_owner;" + change, error="CLOUD_ALIAS_IMMUTABLE")
+    assert copy_snapshot(db, local) == before
+
+
+@pytest.mark.parametrize("same_operation", [True, False])
+def test_cloud_copy_concurrent_reservation_has_one_permanent_binding(mapping_ready, same_operation):
+    db = mapping_ready
+    local, operation = "concurrent-local:" + uuid.uuid4().hex, "concurrent-op:" + uuid.uuid4().hex
+    first, second = db.connection(), db.connection()
+    name = "cloud_alias_" + uuid.uuid4().hex
+    try:
+        first.send("begin;\nselect 'PID:'||pg_backend_pid();\n" + cloud_reserve(local, operation) + "\n\\echo HELD")
+        output = first.until("HELD")
+        pid = int(next(line[4:] for line in output if line.startswith("PID:")))
+        cloud = next(line for line in output if len(line) == 36)
+        second.send(f"set application_name={quote(name)};\n" + cloud_reserve(local, operation if same_operation else "other:" + operation) + "\n\\q")
+        db.wait_for_blocker(second, name, pid)
+        first.send("commit;\n\\echo COMMITTED"); first.until("COMMITTED")
+        second.finish(None if same_operation else "CLOUD_ALIAS_ALREADY_BOUND")
+        assert copy_snapshot(db, local)["cloud_note_id"] == cloud
+        assert db.sql(f"select count(*) from {SCHEMA}.cloud_aliases where owner_id='{OWNER_A}' and local_note_id={quote(local)};") == "1"
+        assert db.snapshot(cloud)["receipts"] == 1
+    finally:
+        first.close(); second.close()
+
+
+@pytest.mark.parametrize("publication_first", [True, False])
+def test_cloud_copy_publication_and_retirement_race_preserves_terminal_binding(mapping_ready, publication_first):
+    db = mapping_ready
+    local, cloud, _ = copy_identity(db)
+    publication = cloud_publish(local, cloud, "race-publish:" + cloud)
+    retirement = cloud_retire(local, cloud, "race-retire:" + cloud)
+    first, second = db.connection(), db.connection()
+    name = "cloud_copy_race_" + uuid.uuid4().hex
+    try:
+        first.send("begin;\nselect 'PID:'||pg_backend_pid();\n" + (publication if publication_first else retirement) + "\n\\echo HELD")
+        output = first.until("HELD")
+        pid = int(next(line[4:] for line in output if line.startswith("PID:")))
+        second.send(f"set application_name={quote(name)};\n" + (retirement if publication_first else publication) + "\n\\q")
+        db.wait_for_blocker(second, name, pid)
+        first.send("commit;\n\\echo COMMITTED"); first.until("COMMITTED")
+        second.finish(None if publication_first else "IDENTITY_UNAVAILABLE")
+        assert copy_snapshot(db, local)["state"] == "RETIRED"
+        assert db.snapshot(cloud)["notes"] == 0
+    finally:
+        first.close(); second.close()
+
+
+@pytest.mark.parametrize("role", ["notes_candidate_app", "notes_candidate_gateway"])
+def test_cloud_copy_alias_dml_is_not_granted(mapping_ready, role):
+    db = mapping_ready
+    local, cloud, _ = copy_identity(db)
+    before = copy_snapshot(db, local)
+    for mutation in (f"delete from {SCHEMA}.cloud_aliases;", f"update {SCHEMA}.cloud_aliases set local_note_id='x';",
+                     f"truncate {SCHEMA}.cloud_aliases;", f"select * from {SCHEMA}.cloud_aliases;"):
+        db.sql(mutation, role, "42501")
+    assert copy_snapshot(db, local) == before
+
+
+def test_cloud_copy_readback_rejects_missing_or_changed_remote_effects(mapping_ready):
+    db = mapping_ready
+    local, cloud, _ = copy_identity(db)
+    db.sql(cloud_publish(local, cloud, "readback:" + cloud), "notes_candidate_gateway")
+    before = copy_snapshot(db, local)
+    for mutation in (f"update public.notes set body='changed' where id={quote(cloud)};",
+                     f"delete from public.notes where id={quote(cloud)};"):
+        db.sql("begin;" + mutation + cloud_read(local) + "commit;", error="RESULT_INDETERMINATE")
+    assert copy_snapshot(db, local) == before
