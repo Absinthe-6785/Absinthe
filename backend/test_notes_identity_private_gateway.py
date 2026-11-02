@@ -161,7 +161,7 @@ def test_cloud_copy_gateway_is_bound_only_to_the_default_off_route():
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
     }
     factory = functions["_notes_cloud_copy_service"]
-    route = functions["create_notes_cloud_copy"]
+    routes = [functions["create_notes_cloud_copy"], functions["read_notes_cloud_copy_status"]]
 
     def is_gateway_import(node):
         if isinstance(node, ast.ImportFrom):
@@ -187,10 +187,11 @@ def test_cloud_copy_gateway_is_bound_only_to_the_default_off_route():
         assert "NOTES_CLOUD_COPY_DISABLED" in ast.unparse(guard.body[0])
 
     assert_disabled_guard(factory)
-    assert_disabled_guard(route)
+    for route in routes:
+        assert_disabled_guard(route)
 
     factory_nodes = set(ast.walk(factory))
-    route_nodes = set(ast.walk(route))
+    route_nodes = [set(ast.walk(route)) for route in routes]
     gateway_imports = [node for node in ast.walk(tree) if is_gateway_import(node)]
     driver_imports = [node for node in ast.walk(tree)
                       if (isinstance(node, ast.ImportFrom)
@@ -221,12 +222,9 @@ def test_cloud_copy_gateway_is_bound_only_to_the_default_off_route():
                              if isinstance(node, ast.Call)
                              and isinstance(node.func, ast.Name)
                              and node.func.id == "_notes_cloud_copy_service"]
-    service_factory_references = [node for node in ast.walk(tree)
-                                  if isinstance(node, ast.Name)
-                                  and node.id == "_notes_cloud_copy_service"]
-    assert (len(service_factory_calls) == len(service_factory_references) == 1
-            and service_factory_calls[0] in route_nodes
-            and service_factory_references[0] is service_factory_calls[0].func)
+    assert (len(service_factory_calls) == 2
+            and all(any(call in route for route in route_nodes) for call in service_factory_calls)
+            and all(call.func.id == "_notes_cloud_copy_service" for call in service_factory_calls))
 
     for path in Path(__file__).parent.glob("*.py"):
         if path.name.startswith("test_"):

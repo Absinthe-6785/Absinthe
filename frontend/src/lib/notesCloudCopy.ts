@@ -23,6 +23,17 @@ export type NotesCloudCopyResult = Readonly<{
   cloudNoteId?: string;
 }>;
 
+export type NotesCloudCopyReadbackStatus =
+  | 'RESERVED'
+  | 'LIVE'
+  | 'RETIRED'
+  | 'INDETERMINATE'
+  | 'UNAVAILABLE';
+
+export type NotesCloudCopyReadbackResult = Readonly<{
+  status: NotesCloudCopyReadbackStatus | 'STALE_RESULT';
+}>;
+
 export interface NotesCloudCopyDependencies {
   readonly featureEnabled: () => boolean;
   readonly getRuntimeAccountId: () => string | null;
@@ -133,6 +144,71 @@ export async function createNotesCloudCopy(
     if (record.status !== 'created' && record.status !== 'already_copied') return { status: 'INDETERMINATE' };
     return { status: record.status === 'created' ? 'CREATED' : 'ALREADY_COPIED', cloudNoteId: record.cloudNoteId };
   } catch { return { status: 'INDETERMINATE' }; }
+}
+
+function statusRequestAllowed(expectedAccountId: string, isOwnerCurrent: () => boolean,
+  deps: NotesCloudCopyDependencies): boolean {
+  try {
+    return deps.featureEnabled() && deps.isTransportAvailable()
+      && deps.getRuntimeAccountId() === expectedAccountId && isOwnerCurrent();
+  } catch { return false; }
+}
+
+function statusOwnerCurrent(isOwnerCurrent: () => boolean): boolean {
+  try { return isOwnerCurrent(); } catch { return false; }
+}
+
+/** Manually reads an account-bound historical copy status; it never sends Note content. */
+export async function readNotesCloudCopyStatus(
+  localNoteId: string,
+  expectedAccountId: string,
+  isOwnerCurrent: () => boolean,
+  deps: NotesCloudCopyDependencies = dependencies,
+): Promise<NotesCloudCopyReadbackResult> {
+  if (typeof localNoteId !== 'string' || !localNoteId || localNoteId !== localNoteId.trim() || localNoteId.length > 512) {
+    return { status: 'UNAVAILABLE' };
+  }
+  if (!statusRequestAllowed(expectedAccountId, isOwnerCurrent, deps)) {
+    return { status: statusOwnerCurrent(isOwnerCurrent) ? 'UNAVAILABLE' : 'STALE_RESULT' };
+  }
+
+  let session: Awaited<ReturnType<NotesCloudCopyDependencies['getSession']>>;
+  try { session = await deps.getSession(); } catch { return { status: 'UNAVAILABLE' }; }
+  const accessToken = session.data.session?.access_token;
+  const sessionAccountId = session.data.session?.user?.id;
+  if (session.error || !accessToken || sessionAccountId !== expectedAccountId) return { status: 'UNAVAILABLE' };
+  if (!statusRequestAllowed(expectedAccountId, isOwnerCurrent, deps)) return { status: 'STALE_RESULT' };
+
+  const url = `${deps.apiUrl.replace(/\/$/, '')}/api/notes/cloud-copy/status`;
+  try {
+    if (remotePersistenceDomainForUrl(url) !== 'notes' || new URL(url).pathname !== '/api/notes/cloud-copy/status') {
+      return { status: 'UNAVAILABLE' };
+    }
+  } catch { return { status: 'UNAVAILABLE' }; }
+
+  let response: Response;
+  try {
+    if (!statusRequestAllowed(expectedAccountId, isOwnerCurrent, deps)) return { status: 'STALE_RESULT' };
+    response = await deps.fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ localNoteId }),
+    });
+  } catch {
+    return { status: statusOwnerCurrent(isOwnerCurrent) ? 'INDETERMINATE' : 'STALE_RESULT' };
+  }
+  if (!statusRequestAllowed(expectedAccountId, isOwnerCurrent, deps)) return { status: 'STALE_RESULT' };
+  if (!response.ok) return { status: 'UNAVAILABLE' };
+
+  try {
+    const value: unknown = await response.json();
+    if (!statusRequestAllowed(expectedAccountId, isOwnerCurrent, deps)) return { status: 'STALE_RESULT' };
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return { status: 'INDETERMINATE' };
+    const status = (value as Record<string, unknown>).status;
+    if (status !== 'RESERVED' && status !== 'LIVE' && status !== 'RETIRED'
+      && status !== 'INDETERMINATE' && status !== 'UNAVAILABLE') return { status: 'INDETERMINATE' };
+    return { status };
+  } catch { return { status: statusOwnerCurrent(isOwnerCurrent) ? 'INDETERMINATE' : 'STALE_RESULT' }; }
 }
 
 /** The explicit UI entry point is hidden unless separately enabled at build time. */

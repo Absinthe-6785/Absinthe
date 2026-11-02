@@ -138,6 +138,24 @@ class NotesCloudCopyService:
         except Exception:
             raise CloudCopyError("CLOUD_COPY_UNAVAILABLE", status_code=503) from None
 
+    def read_copy_status(self, token: str, local_note_id: object) -> dict:
+        """Read one account-bound alias without reserving or changing its lifecycle."""
+        if (type(local_note_id) is not str or not local_note_id or local_note_id != local_note_id.strip()
+                or len(local_note_id) > 512):
+            raise CloudCopyError("INVALID_CLOUD_COPY_STATUS_REQUEST", status_code=400)
+        try:
+            # The signed cloud_read admission may persist its short-lived private
+            # context. It does not mutate Notes, aliases, states, or receipts.
+            result = self._read(token, local_note_id)
+            return {"status": result["state"]}
+        except GatewayIndeterminate:
+            return {"status": "INDETERMINATE"}
+        except GatewayDenied:
+            # Missing and unauthorized aliases are intentionally indistinguishable.
+            return {"status": "UNAVAILABLE"}
+        except Exception:
+            return {"status": "UNAVAILABLE"}
+
     def _read(self, token: str, local_note_id: str) -> dict:
         result = self._gateway.run_cloud_copy(
             token, "read", f"notes-cloud-copy-read-v1:{uuid4().hex}", local_note_id=local_note_id,

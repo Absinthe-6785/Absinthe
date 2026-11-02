@@ -8,7 +8,7 @@ import { getNoteReturnTab, registerAppTabSwitcher, registerNotesTabSwitcher, ret
 import { getNoteNavigationStack, pushNoteNavigation, resetNoteNavigationStack } from '../../../../lib/noteNavigationStack';
 const mock = vi.hoisted(() => ({
   create: vi.fn(),
-  prepareCloudCopy: vi.fn(), createCloudCopy: vi.fn(), cloudCopyEnabled: false,
+  prepareCloudCopy: vi.fn(), createCloudCopy: vi.fn(), readCloudCopyStatus: vi.fn(), cloudCopyEnabled: false,
   state: { notes: [] as any[], folders: [] as any[], revision: 0, activeAccountId: 'A' as string | null, activeNoteId: null as string | null, setActiveNoteId: vi.fn() },
   listeners: new Set<() => void>(), available: true, activeRequest: { accountId: 'A' },
   setActiveNoteId: vi.fn(), notesTabSwitch: vi.fn(), appTabSwitch: vi.fn(),
@@ -24,6 +24,7 @@ vi.mock('../../../../lib/notesCloudComparison', () => ({ createNotesCloudCompari
 vi.mock('../../../../lib/notesCloudCopy', () => ({
   prepareNotesCloudCopy: mock.prepareCloudCopy,
   createNotesCloudCopy: mock.createCloudCopy,
+  readNotesCloudCopyStatus: mock.readCloudCopyStatus,
   notesCloudCopyUiEnabled: () => mock.cloudCopyEnabled,
 }));
 import { NotesCloudComparisonPanel } from './NotesCloudComparisonPanel';
@@ -56,6 +57,7 @@ beforeEach(() => {
     isCurrentInMemory: () => true, isCurrent: async () => true,
   });
   mock.createCloudCopy.mockResolvedValue({ status: 'CREATED', cloudNoteId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' });
+  mock.readCloudCopyStatus.mockResolvedValue({ status: 'LIVE' });
   mock.state = {
     notes: [
       localNote('local-id', 'Local title'), localNote('local-id-2', 'Second local'),
@@ -67,6 +69,7 @@ beforeEach(() => {
     mock.listeners.forEach(listener => listener());
   });
   mock.create.mockImplementation((accountId: string, isAccountCurrent: () => boolean) => {
+    live = true;
     const request = mock.activeRequest, notes = mock.state.notes, folders = mock.state.folders;
     return {
       compare: owner.compare, cancel: owner.cancel,
@@ -87,7 +90,7 @@ afterEach(async () => {
 async function render(account: string | null = 'A') { await act(async () => root.render(React.createElement(NotesCloudComparisonPanel, { accountId: account }))); }
 async function check() { await act(async () => host.querySelector('button')!.click()); }
 it('does no automatic fetch, exposes an accessible manual action and counts without private data', async () => {
-  await render(); expect(mock.create).not.toHaveBeenCalled(); host.querySelector('button')!.focus(); expect(document.activeElement).toBe(host.querySelector('button'));
+  await render(); expect(mock.create).not.toHaveBeenCalled(); expect(mock.readCloudCopyStatus).not.toHaveBeenCalled(); host.querySelector('button')!.focus(); expect(document.activeElement).toBe(host.querySelector('button'));
   await check(); expect(owner.compare).toHaveBeenCalledTimes(1); expect(host.textContent).toContain('Local-only active IDs'); expect(host.textContent).toContain('not an atomic');
   expect([...host.querySelectorAll('dd')].map(el => el.textContent)).toEqual(['2', '1', '3', '4', '1', '2']);
   const sections = [...host.querySelectorAll('details')]; expect(sections).toHaveLength(5); expect(sections.every(section => !section.open)).toBe(true);
@@ -261,6 +264,92 @@ it('keeps the Cloud Copy action invisible unless its dedicated build flag is ena
   await render(); await check();
   host.querySelector('details > summary')!.click();
   expect([...host.querySelectorAll('button')].some(button => button.textContent === 'Create cloud copy')).toBe(false);
+  expect([...host.querySelectorAll('button')].some(button => button.textContent === 'Check cloud copy status')).toBe(false);
   expect(mock.prepareCloudCopy).not.toHaveBeenCalled();
   expect(mock.createCloudCopy).not.toHaveBeenCalled();
+  expect(mock.readCloudCopyStatus).not.toHaveBeenCalled();
+});
+
+it('manually reads historical status by exact local ID without requiring the current Note payload to be copy-eligible', async () => {
+  mock.cloudCopyEnabled = true;
+  mock.state.notes = [localNote('local-id', 'Local title', { properties: { custom: 'unsupported for Cloud Copy' } })];
+  await render(); await check();
+  host.querySelector('details > summary')!.click();
+  const row = [...host.querySelectorAll('li')].find(item => item.querySelector('code')?.textContent === 'local-id')!;
+  const status = [...row.querySelectorAll('button')].find(button => button.textContent === 'Check cloud copy status')!;
+  await act(async () => { status.click(); await Promise.resolve(); });
+  expect(mock.readCloudCopyStatus).toHaveBeenCalledTimes(1);
+  expect(mock.readCloudCopyStatus.mock.calls[0][0]).toBe('local-id');
+  expect(mock.readCloudCopyStatus.mock.calls[0][1]).toBe('A');
+  expect(mock.prepareCloudCopy).not.toHaveBeenCalled();
+  expect(mock.createCloudCopy).not.toHaveBeenCalled();
+  expect(mock.state.activeNoteId).toBeNull();
+  expect(owner.cancel).not.toHaveBeenCalled();
+  expect(row.textContent).toContain('matched its publication receipt');
+  expect(host.querySelectorAll('dd')).toHaveLength(6);
+});
+
+it('offers status only for current local-side IDs and never for a remote-only ID', async () => {
+  mock.cloudCopyEnabled = true;
+  await render(); await check();
+  host.querySelector('details > summary')!.click();
+  host.querySelectorAll('details > summary')[1]!.click();
+  host.querySelectorAll('details > summary')[2]!.click();
+  for (const id of ['local-id', 'different-id']) {
+    const row = [...host.querySelectorAll('li')].find(item => item.querySelector('code')?.textContent === id)!;
+    expect([...row.querySelectorAll('button')].some(button => button.textContent === 'Check cloud copy status')).toBe(true);
+  }
+  const remote = [...host.querySelectorAll('li')].find(item => item.querySelector('code')?.textContent === 'cloud-id')!;
+  expect([...remote.querySelectorAll('button')].some(button => button.textContent === 'Check cloud copy status')).toBe(false);
+});
+
+it('suppresses a pending status result after the comparison account changes', async () => {
+  mock.cloudCopyEnabled = true;
+  let resolve!: (value: { status: string }) => void;
+  mock.readCloudCopyStatus.mockReturnValue(new Promise(yes => { resolve = yes; }));
+  await render(); await check();
+  host.querySelector('details > summary')!.click();
+  const row = [...host.querySelectorAll('li')].find(item => item.querySelector('code')?.textContent === 'local-id')!;
+  const button = [...row.querySelectorAll('button')].find(item => item.textContent === 'Check cloud copy status')!;
+  await act(async () => { button.click(); await Promise.resolve(); });
+  expect(mock.readCloudCopyStatus).toHaveBeenCalledTimes(1);
+  await render('B');
+  await act(async () => { resolve({ status: 'LIVE' }); await Promise.resolve(); });
+  expect(host.textContent).not.toContain('A live cloud copy was verified');
+  expect(host.querySelectorAll('dd')).toHaveLength(0);
+  expect(mock.state.activeNoteId).toBeNull();
+});
+
+it('does not dispatch a status request after the current account publication has changed', async () => {
+  mock.cloudCopyEnabled = true;
+  await render(); await check();
+  host.querySelector('details > summary')!.click();
+  const row = [...host.querySelectorAll('li')].find(item => item.querySelector('code')?.textContent === 'local-id')!;
+  const button = [...row.querySelectorAll('button')].find(item => item.textContent === 'Check cloud copy status')!;
+  mock.activeRequest = { accountId: 'B' };
+  mock.state = { ...mock.state, activeAccountId: 'B' };
+  await act(async () => { button.click(); await Promise.resolve(); });
+  expect(mock.readCloudCopyStatus).not.toHaveBeenCalled();
+  expect(mock.state.activeNoteId).toBeNull();
+});
+
+it('releases a superseded status request when the user starts a fresh comparison', async () => {
+  mock.cloudCopyEnabled = true;
+  let resolve!: (value: { status: string }) => void;
+  mock.readCloudCopyStatus.mockReturnValue(new Promise(yes => { resolve = yes; }));
+  await render(); await check();
+  host.querySelector('details > summary')!.click();
+  let row = [...host.querySelectorAll('li')].find(item => item.querySelector('code')?.textContent === 'local-id')!;
+  let statusButton = [...row.querySelectorAll('button')].find(button => button.textContent === 'Check cloud copy status')!;
+  await act(async () => { statusButton.click(); await Promise.resolve(); });
+  expect(statusButton.disabled).toBe(true);
+
+  await act(async () => { host.querySelector('button')!.click(); await Promise.resolve(); });
+  host.querySelector('details > summary')!.click();
+  row = [...host.querySelectorAll('li')].find(item => item.querySelector('code')?.textContent === 'local-id')!;
+  statusButton = [...row.querySelectorAll('button')].find(button => button.textContent === 'Check cloud copy status')!;
+  expect(statusButton.disabled).toBe(false);
+  await act(async () => { resolve({ status: 'LIVE' }); await Promise.resolve(); });
+  expect(row.textContent).not.toContain('matched its publication receipt');
+  expect(statusButton.disabled).toBe(false);
 });

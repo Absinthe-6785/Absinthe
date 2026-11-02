@@ -2276,6 +2276,13 @@ const enTranslations = [
   "A cloud identity already exists or is retired. Nothing was replaced.",
   "The copy result is uncertain. Do not retry automatically; compare again before deciding what to do.",
   "Cloud Copy is unavailable. No success was reported; the local Note is unchanged.",
+  "Check cloud copy status",
+  "Checking cloud copy status…",
+  "A reserved cloud identity was verified; no publication is recorded.",
+  "A live cloud copy matched its publication receipt. This does not compare it with current local content.",
+  "This cloud identity is retired and cannot be restored.",
+  "The status is indeterminate. No Note or identity change was requested.",
+  "Status is unavailable. This does not prove that no prior copy exists.",
 ] as const;
 
 export default enTranslations;

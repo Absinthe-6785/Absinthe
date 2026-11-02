@@ -1785,6 +1785,12 @@ class NotesCloudCopyRequest(BaseModel):
     snapshot: dict
 
 
+class NotesCloudCopyStatusRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    localNoteId: str = Field(min_length=1, max_length=512)
+
+
 def _notes_cloud_copy_service() -> NotesCloudCopyService:
     if not NOTES_CLOUD_COPY_ENABLED:
         raise HTTPException(status_code=423, detail="NOTES_CLOUD_COPY_DISABLED")
@@ -1836,6 +1842,35 @@ async def create_notes_cloud_copy(
         service = _notes_cloud_copy_service()
         return await run_in_threadpool(
             service.create_copy, credentials.credentials, payload.localNoteId, payload.snapshot,
+        )
+    except CloudCopyError as error:
+        raise HTTPException(status_code=error.status_code, detail=error.code) from None
+
+
+@app.post("/api/notes/cloud-copy/status")
+async def read_notes_cloud_copy_status(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    _user_id: str = Depends(get_remote_mutation_user),
+):
+    """Manually read the authenticated account's existing Cloud Copy lifecycle state."""
+    if not NOTES_CLOUD_COPY_ENABLED:
+        raise HTTPException(status_code=423, detail="NOTES_CLOUD_COPY_DISABLED")
+    chunks: list[bytes] = []
+    size = 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > MAX_REQUEST_BYTES:
+            raise HTTPException(status_code=413, detail="INVALID_CLOUD_COPY_STATUS_REQUEST")
+        chunks.append(chunk)
+    try:
+        payload = NotesCloudCopyStatusRequest.model_validate_json(b"".join(chunks))
+    except ValidationError:
+        raise HTTPException(status_code=400, detail="INVALID_CLOUD_COPY_STATUS_REQUEST") from None
+    try:
+        service = _notes_cloud_copy_service()
+        return await run_in_threadpool(
+            service.read_copy_status, credentials.credentials, payload.localNoteId,
         )
     except CloudCopyError as error:
         raise HTTPException(status_code=error.status_code, detail=error.code) from None

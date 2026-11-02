@@ -22,6 +22,7 @@ class FakeGateway:
         self.fail_after_reserve = False
         self.fail_after_publish = False
         self.fail_before_publish = False
+        self.fail_read = None
 
     def run_cloud_copy(self, token, action, operation_id, **kwargs):
         assert token == TOKEN
@@ -41,6 +42,10 @@ class FakeGateway:
                 raise GatewayIndeterminate("synthetic lost reserve response")
             return record["cloud_note_id"]
         if action == "read":
+            if self.fail_read == "indeterminate":
+                raise GatewayIndeterminate("synthetic uncertain read")
+            if self.fail_read == "denied":
+                raise GatewayDenied("synthetic unavailable read")
             if record is None:
                 raise GatewayDenied("CLOUD_ALIAS_UNAVAILABLE")
             return copy.deepcopy(record)
@@ -179,4 +184,54 @@ def test_invalid_local_identity_is_rejected_before_gateway():
     gateway = FakeGateway()
     with pytest.raises(CloudCopyError):
         NotesCloudCopyService(gateway).create_copy(TOKEN, "   ", SNAPSHOT)
+    assert gateway.calls == []
+
+
+@pytest.mark.parametrize("state", ["RESERVED", "LIVE", "RETIRED"])
+def test_status_readback_returns_only_verified_lifecycle_state_without_mutation(state):
+    gateway = FakeGateway()
+    service = NotesCloudCopyService(gateway)
+    if state == "RESERVED":
+        gateway.records[LOCAL_ID] = {
+            "account_id": OWNER, "local_note_id": LOCAL_ID, "cloud_note_id": str(uuid4()),
+            "state": "RESERVED", "reserve_operation_id": "reserve-1", "publication": None,
+            "retire_operation_id": None,
+        }
+    else:
+        service.create_copy(TOKEN, LOCAL_ID, SNAPSHOT)
+        if state == "RETIRED":
+            gateway.retire(LOCAL_ID)
+    before = copy.deepcopy(gateway.records)
+    calls_before = len(gateway.calls)
+
+    result = service.read_copy_status(TOKEN, LOCAL_ID)
+
+    assert result == {"status": state}
+    assert [call[0] for call in gateway.calls[calls_before:]] == ["read"]
+    assert gateway.records == before
+
+
+def test_missing_alias_is_unavailable_not_proof_of_never_published():
+    gateway = FakeGateway()
+    result = NotesCloudCopyService(gateway).read_copy_status(TOKEN, LOCAL_ID)
+    assert result == {"status": "UNAVAILABLE"}
+    assert [call[0] for call in gateway.calls] == ["read"]
+
+
+@pytest.mark.parametrize(("failure", "expected"), [
+    ("indeterminate", "INDETERMINATE"), ("denied", "UNAVAILABLE"),
+])
+def test_status_readback_fails_closed_without_exposing_gateway_errors(failure, expected):
+    gateway = FakeGateway()
+    gateway.fail_read = failure
+    result = NotesCloudCopyService(gateway).read_copy_status(TOKEN, LOCAL_ID)
+    assert result == {"status": expected}
+    assert [call[0] for call in gateway.calls] == ["read"]
+
+
+def test_invalid_status_identity_is_rejected_before_gateway():
+    gateway = FakeGateway()
+    with pytest.raises(CloudCopyError) as caught:
+        NotesCloudCopyService(gateway).read_copy_status(TOKEN, "  ")
+    assert caught.value.code == "INVALID_CLOUD_COPY_STATUS_REQUEST"
     assert gateway.calls == []

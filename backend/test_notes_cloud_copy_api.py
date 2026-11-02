@@ -104,3 +104,73 @@ def test_gateway_error_is_sanitized_at_http_boundary(http, monkeypatch):
     )
     assert response.status_code == 503
     assert response.json() == {"detail": "CLOUD_COPY_RESULT_INDETERMINATE"}
+
+
+def test_status_endpoint_is_default_off_and_does_not_construct_gateway(monkeypatch: pytest.MonkeyPatch):
+    main.app.dependency_overrides[main.get_remote_mutation_user] = lambda: OWNER
+    monkeypatch.setattr(main, "NOTES_CLOUD_COPY_ENABLED", False)
+    monkeypatch.setattr(main, "_notes_cloud_copy_service", lambda: pytest.fail("gateway constructed while disabled"))
+    try:
+        response = TestClient(main.app).post(
+            "/api/notes/cloud-copy/status", headers={"Authorization": f"Bearer {TOKEN}"},
+            json={"localNoteId": LOCAL_ID},
+        )
+    finally:
+        main.app.dependency_overrides.clear()
+    assert response.status_code == 423
+    assert response.json() == {"detail": "NOTES_CLOUD_COPY_DISABLED"}
+
+
+def test_authenticated_status_endpoint_passes_only_local_identity_and_returns_bounded_status(http, monkeypatch):
+    calls = []
+
+    class Service:
+        def read_copy_status(self, token, local_note_id):
+            calls.append((token, local_note_id))
+            return {"status": "LIVE"}
+
+    monkeypatch.setattr(main, "_notes_cloud_copy_service", lambda: Service())
+    response = http.post(
+        "/api/notes/cloud-copy/status", headers={"Authorization": f"Bearer {TOKEN}"},
+        json={"localNoteId": LOCAL_ID},
+    )
+    assert response.status_code == 200
+    assert response.json() == {"status": "LIVE"}
+    assert calls == [(TOKEN, LOCAL_ID)]
+
+
+@pytest.mark.parametrize("extra", [
+    {"accountId": OWNER}, {"cloudNoteId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"},
+    {"generation": 9}, {"previousStatus": "LIVE"},
+])
+def test_status_client_cannot_choose_owner_generation_cloud_id_or_prior_result(http, monkeypatch, extra):
+    monkeypatch.setattr(main, "_notes_cloud_copy_service", lambda: pytest.fail("invalid body reached service"))
+    response = http.post(
+        "/api/notes/cloud-copy/status", headers={"Authorization": f"Bearer {TOKEN}"},
+        json={"localNoteId": LOCAL_ID, **extra},
+    )
+    assert response.status_code == 400
+    assert response.json() == {"detail": "INVALID_CLOUD_COPY_STATUS_REQUEST"}
+
+
+def test_status_endpoint_rejects_missing_bearer_before_service(http, monkeypatch):
+    monkeypatch.setattr(main, "_notes_cloud_copy_service", lambda: pytest.fail("unauthenticated service call"))
+    response = http.post("/api/notes/cloud-copy/status", json={"localNoteId": LOCAL_ID})
+    assert response.status_code in {401, 403}
+
+
+def test_status_endpoint_bounds_body_before_gateway(monkeypatch: pytest.MonkeyPatch):
+    main.app.dependency_overrides.clear()
+    main.app.dependency_overrides[main.get_remote_mutation_user] = lambda: OWNER
+    monkeypatch.setattr(main, "NOTES_CLOUD_COPY_ENABLED", True)
+    monkeypatch.setattr(main, "MAX_REQUEST_BYTES", 20)
+    monkeypatch.setattr(main, "_notes_cloud_copy_service", lambda: pytest.fail("oversized body reached service"))
+    try:
+        response = TestClient(main.app).post(
+            "/api/notes/cloud-copy/status", headers={"Authorization": f"Bearer {TOKEN}"},
+            json={"localNoteId": "x" * 512},
+        )
+    finally:
+        main.app.dependency_overrides.clear()
+    assert response.status_code == 413
+    assert response.json() == {"detail": "INVALID_CLOUD_COPY_STATUS_REQUEST"}

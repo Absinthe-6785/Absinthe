@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createNotesCloudCopy, type NotesCloudCopyDependencies } from './notesCloudCopy';
+import { createNotesCloudCopy, readNotesCloudCopyStatus, type NotesCloudCopyDependencies } from './notesCloudCopy';
 import type { NotesCloudCopyLocalPreflightResult } from './notesCloudCopyLocalPreflight';
 
 const localNoteId = 'local-note-id';
@@ -132,5 +132,61 @@ describe('createNotesCloudCopy', () => {
       deps({ apiUrl: 'https://api.example.test/unexpected', fetch }));
     expect(result.status).toBe('UNAVAILABLE');
     expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe('readNotesCloudCopyStatus', () => {
+  it.each(['RESERVED', 'LIVE', 'RETIRED', 'INDETERMINATE', 'UNAVAILABLE'] as const)(
+    'returns the bounded %s status using only the exact local Note identity', async status => {
+      const fetch = vi.fn(async () => new Response(JSON.stringify({ status }), { status: 200 }));
+      const result = await readNotesCloudCopyStatus(localNoteId, accountId, () => true, deps({ fetch }));
+      expect(result).toEqual({ status });
+      expect(fetch).toHaveBeenCalledTimes(1);
+      const [url, request] = fetch.mock.calls[0];
+      expect(url).toBe('https://api.example.test/api/notes/cloud-copy/status');
+      expect(request.method).toBe('POST');
+      expect(request.headers).toEqual({ 'Content-Type': 'application/json', Authorization: 'Bearer user-token' });
+      expect(JSON.parse(request.body as string)).toEqual({ localNoteId });
+      expect(JSON.parse(request.body as string)).not.toHaveProperty('accountId');
+      expect(JSON.parse(request.body as string)).not.toHaveProperty('cloudNoteId');
+      expect(JSON.parse(request.body as string)).not.toHaveProperty('generation');
+    },
+  );
+
+  it('does not request a status when the feature, owner, or runtime account is unavailable', async () => {
+    const fetch = vi.fn();
+    expect((await readNotesCloudCopyStatus(localNoteId, accountId, () => true,
+      deps({ featureEnabled: () => false, fetch }))).status).toBe('UNAVAILABLE');
+    expect((await readNotesCloudCopyStatus(localNoteId, accountId, () => false,
+      deps({ fetch }))).status).toBe('STALE_RESULT');
+    expect((await readNotesCloudCopyStatus(localNoteId, accountId, () => true,
+      deps({ getRuntimeAccountId: () => 'account-B', fetch }))).status).toBe('UNAVAILABLE');
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('suppresses a delayed result after its owner changes and maps server failures to unavailable', async () => {
+    let current = true;
+    const pendingFetch = vi.fn(async () => {
+      current = false;
+      return new Response(JSON.stringify({ status: 'LIVE' }), { status: 200 });
+    });
+    expect((await readNotesCloudCopyStatus(localNoteId, accountId, () => current,
+      deps({ fetch: pendingFetch }))).status).toBe('STALE_RESULT');
+    const failedFetch = vi.fn(async () => new Response('opaque', { status: 503 }));
+    expect((await readNotesCloudCopyStatus(localNoteId, accountId, () => true,
+      deps({ fetch: failedFetch }))).status).toBe('UNAVAILABLE');
+  });
+
+  it('fails closed for malformed statuses, transport ambiguity, and a non-status endpoint', async () => {
+    const malformed = vi.fn(async () => new Response(JSON.stringify({ status: 'NOT_COPIED' }), { status: 200 }));
+    expect((await readNotesCloudCopyStatus(localNoteId, accountId, () => true,
+      deps({ fetch: malformed }))).status).toBe('INDETERMINATE');
+    const dropped = vi.fn(async () => { throw new Error('network failure'); });
+    expect((await readNotesCloudCopyStatus(localNoteId, accountId, () => true,
+      deps({ fetch: dropped }))).status).toBe('INDETERMINATE');
+    const wrongPath = vi.fn();
+    expect((await readNotesCloudCopyStatus(localNoteId, accountId, () => true,
+      deps({ apiUrl: 'https://api.example.test/unexpected', fetch: wrongPath }))).status).toBe('UNAVAILABLE');
+    expect(wrongPath).not.toHaveBeenCalled();
   });
 });
