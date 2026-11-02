@@ -108,6 +108,11 @@ declare principal notes_identity_candidate.principal_bindings%rowtype;
 begin
   principal := notes_identity_candidate.cloud_copy_scope(p_local,p_generation);
   perform notes_identity_candidate.require_cloud_alias(principal.owner_id,p_local,p_cloud);
+  -- Narrow cloud snapshots cannot carry original/binary references. Reject,
+  -- never strip them; the lifecycle below also rejects all extra metadata keys.
+  if p_payload->>'body' ~* '(data:|blob:|attachment:|resource:|!\[|<(img|video|audio|object|embed|iframe)\y)' then
+    raise exception 'UNSUPPORTED_PAYLOAD';
+  end if;
   -- Reuse strict payload validation, plain INSERT, terminal-state and exact-replay
   -- checks unchanged. Do not reuse a legacy metadata-stripping client serializer.
   return notes_identity_candidate.publish(principal.owner_id,p_generation,p_cloud,p_operation,p_payload);

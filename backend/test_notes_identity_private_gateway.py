@@ -13,7 +13,9 @@ import jwt
 import pytest
 
 from auth import SupabaseJWTVerifier
-from identity_candidates.notes_private_gateway import AUDIENCE, GatewayDenied, PrivateGateway, PsycopgCalls
+from identity_candidates.notes_private_gateway import (
+    AUDIENCE, GatewayDenied, GatewayIndeterminate, PrivateGateway, PsycopgCalls,
+)
 
 OWNER_A = "11111111-1111-4111-8111-111111111111"
 OWNER_B = "22222222-2222-4222-8222-222222222222"
@@ -161,3 +163,95 @@ def test_production_routes_remain_disconnected():
     assert "create role" not in sql.lower()
     assert "grant execute" in sql.lower()
     assert "to authenticated" not in sql.lower() and "to service_role" not in sql.lower()
+
+
+SNAPSHOT = dict(title="동명", body="원문 [[note:local-id|표시]]", updated_at=123, starred=False)
+
+
+@pytest.mark.parametrize("action", ["reserve", "publish", "retire", "read"])
+def test_cloud_intent_binds_verified_owner_exact_local_id_and_payload(action):
+    g = gateway(enabled=True)
+    cloud = str(uuid.uuid4()) if action in {"publish", "retire"} else None
+    payload = SNAPSHOT.copy() if action == "publish" else None
+    c = g.prepare_cloud_copy(token(), action, "cloud-op", local_note_id="local-id", cloud_id=cloud, payload=payload)
+    doc = json.loads(g.calls.seen[0][1])
+    assert doc["action"] == "cloud_" + action
+    assert doc["local_note_id"] == "local-id" and doc["note_id"] == cloud
+    assert doc["owner"] == OWNER_A and doc["payload"] == payload
+    assert c["intent"] == {k:v for k,v in doc.items() if k not in {"aud", "expires"}}
+    with pytest.raises(TypeError):
+        g.prepare_cloud_copy(token(), action, "x", local_note_id="local-id", owner=OWNER_B)
+
+
+@pytest.mark.parametrize("payload", [
+    {}, dict(SNAPSHOT, properties={}), dict(SNAPSHOT, relations=[]), dict(SNAPSHOT, folder_id="folder"),
+    dict(SNAPSHOT, attachments=[]), dict(SNAPSHOT, complete=False),
+    *[dict(SNAPSHOT, body=body) for body in ("![original](https://example.test/a)",
+       "[original](attachment://a)", "absinthe-resource://a", "data:image/png;base64,AA", "blob:a", "<img src='x'>")],
+])
+def test_cloud_unsupported_or_incomplete_content_is_not_dispatched(payload):
+    g = gateway(enabled=True)
+    before = json.dumps(payload, sort_keys=True)
+    with pytest.raises(GatewayDenied, match="INVALID_INTENT"):
+        g.prepare_cloud_copy(token(), "publish", "x", local_note_id="local", cloud_id=str(uuid.uuid4()), payload=payload)
+    assert not g.calls.seen and json.dumps(payload, sort_keys=True) == before
+
+
+@pytest.mark.parametrize("action,kwargs", [
+    ("reserve", dict(cloud_id="old")), ("read", dict(payload=SNAPSHOT)),
+    ("read", dict(cloud_id="old")), ("retire", dict(payload=SNAPSHOT)),
+])
+def test_cloud_read_and_reservation_never_accept_mutation_or_adoption_inputs(action, kwargs):
+    g = gateway(enabled=True)
+    with pytest.raises(GatewayDenied):
+        g.prepare_cloud_copy(token(), action, "x", local_note_id="local", **kwargs)
+    assert not g.calls.seen
+
+
+def test_cloud_readback_must_confirm_exact_account_alias_state_receipt_and_snapshot():
+    g = gateway(enabled=True)
+    c = g.prepare_cloud_copy(token(), "read", "read-op", local_note_id="local-id")
+    result = dict(account_id=OWNER_A, local_note_id="local-id", cloud_note_id=str(uuid.uuid4()),
+                  state="LIVE", reserve_operation_id="reserve-op", retire_operation_id=None,
+                  publication=dict(operation_id="publish-op", payload=SNAPSHOT, digest="a"*64))
+    g.calls.call = lambda *args: json.dumps(result)
+    assert g.apply(token(), c) == result
+    for change in (dict(account_id=OWNER_B), dict(local_note_id="another"), dict(publication=None),
+                   dict(retire_operation_id="retired"), dict(state="UNKNOWN")):
+        g.calls.call = lambda *args, change=change: json.dumps(dict(result, **change))
+        with pytest.raises(GatewayIndeterminate, match="UNCONFIRMED_CLOUD_READBACK"):
+            g.apply(token(), c)
+
+
+@pytest.mark.parametrize("stage", ["before_dispatch", "server_rollback", "unknown_commit", "after_commit", "after_commit_sqlstate"])
+def test_cloud_transport_distinguishes_rollback_from_indeterminate_without_retry(stage):
+    counts = []
+    class SqlError(Exception):
+        sqlstate = "23514"
+    class Connection:
+        info = SimpleNamespace(transaction_status=0)
+        @contextmanager
+        def transaction(self):
+            yield
+            if stage == "unknown_commit":
+                raise ConnectionError("synthetic ambiguous commit")
+        def execute(self, *args):
+            counts.append("dispatch")
+            if stage == "server_rollback":
+                raise SqlError("synthetic rollback")
+            return SimpleNamespace(fetchone=lambda: ("CREATED",))
+    @contextmanager
+    def connect():
+        if stage == "before_dispatch":
+            raise ConnectionError("synthetic connect failure")
+        yield Connection()
+        if stage == "after_commit":
+            raise ConnectionError("synthetic loss after commit")
+        if stage == "after_commit_sqlstate":
+            raise SqlError("synthetic cleanup error after successful commit")
+    uncertain = stage in {"unknown_commit", "after_commit", "after_commit_sqlstate"}
+    expected = GatewayIndeterminate if uncertain else GatewayDenied
+    with pytest.raises(expected) as caught:
+        PsycopgCalls(connect).call("apply", "synthetic", b"mac")
+    assert isinstance(caught.value, GatewayIndeterminate) == uncertain
+    assert counts == ([] if stage == "before_dispatch" else ["dispatch"])

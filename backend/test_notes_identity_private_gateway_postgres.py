@@ -55,6 +55,7 @@ def private_db(model_db):
     db = PrivateDatabase(model_db.docker, model_db.name)
     db.sql(f"create role {LOGIN} login password 'synthetic-only' nosuperuser nobypassrls noinherit nocreatedb nocreaterole noreplication;")
     db.sql(f"create extension pgcrypto with schema {SCHEMA};")
+    db.sql(SQL.with_name("notes_cloud_identity_mapping.sql").read_text(encoding="utf-8"))
     db.sql(SQL.read_text(encoding="utf-8"))
     db.signing_key = secrets.token_bytes(32)
     db.sql(f"update {SCHEMA}.private_gateway_config set signing_key=decode('{db.signing_key.hex()}','hex');")
@@ -63,9 +64,11 @@ def private_db(model_db):
 
 @pytest.fixture
 def private_ready(private_db, ready):
-    private_db.sql(f"update {SCHEMA}.private_gateway_config set enabled=true;")
+    private_db.sql(f"update {SCHEMA}.private_gateway_config set enabled=true;"
+                   f"update {SCHEMA}.cloud_copy_readiness set enabled=true;")
     yield private_db
-    private_db.sql(f"update {SCHEMA}.private_gateway_config set enabled=false;")
+    private_db.sql(f"update {SCHEMA}.private_gateway_config set enabled=false;"
+                   f"update {SCHEMA}.cloud_copy_readiness set enabled=false;")
 
 
 def client(db):
@@ -247,3 +250,131 @@ def test_browser_and_legacy_roles_have_no_private_execution(private_ready, role)
     db = private_ready
     assert db.sql(f"select has_function_privilege('{role}','{SCHEMA}.private_apply(text,bytea)','EXECUTE');") == "f"
     assert db.sql(f"select has_table_privilege('{role}','{SCHEMA}.private_gateway_config','SELECT');") == "f"
+
+
+def cloud_copy(g, action, local, *, cloud=None, op=None, payload=None, owner=OWNER_A):
+    return g.run_cloud_copy(token(owner), action, op or operation(), local_note_id=local,
+                            cloud_id=cloud, payload=payload)
+
+
+def test_private_cloud_lifecycle_exact_alias_payload_and_permanent_retirement(private_ready):
+    db, g, local, reserve_op, publish_op = private_ready, client(private_ready), operation(), operation(), operation()
+    cloud = cloud_copy(g, "reserve", local, op=reserve_op)
+    assert str(uuid.UUID(cloud)) == cloud and cloud != local
+    assert cloud_copy(g, "reserve", local, op=reserve_op) == cloud
+    assert cloud_copy(g, "publish", local, cloud=cloud, op=publish_op, payload=PAYLOAD) == "CREATED"
+    assert cloud_copy(g, "publish", local, cloud=cloud, op=publish_op, payload=PAYLOAD) == "REPLAY_LIVE"
+    before_read = db.snapshot(cloud)
+    result = cloud_copy(client(db), "read", local)
+    assert result["local_note_id"] == local and result["cloud_note_id"] == cloud
+    assert result["publication"]["payload"] == PAYLOAD and result["publication"]["operation_id"] == publish_op
+    assert db.snapshot(cloud) == before_read  # no lifecycle effects from reconciliation
+    assert cloud_copy(g, "retire", local, cloud=cloud) == "RETIRED"
+    assert cloud_copy(g, "reserve", local, op=reserve_op) == cloud  # historical issuance only
+    assert cloud_copy(g, "publish", local, cloud=cloud, op=publish_op, payload=PAYLOAD) == "APPLIED_THEN_RETIRED"
+    assert cloud_copy(g, "read", local)["state"] == "RETIRED"
+    ctx = g.prepare_cloud_copy(token(), "reserve", operation(), local_note_id=local)
+    db.sql(signed_apply(g, ctx), LOGIN, "CLOUD_ALIAS_ALREADY_BOUND")
+    ctx = g.prepare_cloud_copy(token(), "publish", operation(), local_note_id=local, cloud_id=cloud, payload=PAYLOAD)
+    db.sql(signed_apply(g, ctx), LOGIN, "IDENTITY_UNAVAILABLE")
+    assert db.snapshot(cloud)["notes"] == 0
+    assert db.sql(f"select count(*) from {SCHEMA}.cloud_aliases where cloud_note_id={quote(cloud)};") == "1"
+
+
+def test_private_cloud_a_b_a_and_foreign_cloud_ids(private_ready):
+    db, g, local = private_ready, client(private_ready), operation()
+    a = cloud_copy(g, "reserve", local)
+    b = cloud_copy(g, "reserve", local, owner=OWNER_B)
+    assert a != b
+    for owner, expected in ((OWNER_A,a),(OWNER_B,b),(OWNER_A,a)):
+        result = cloud_copy(g, "read", local, owner=owner)
+        assert result["account_id"] == owner and result["cloud_note_id"] == expected
+    ctx = g.prepare_cloud_copy(token(OWNER_B), "publish", operation(), local_note_id=local, cloud_id=a, payload=PAYLOAD)
+    db.sql(signed_apply(g,ctx,token(OWNER_B)),LOGIN,"CLOUD_ALIAS_UNAVAILABLE")
+    assert db.snapshot(a)["state"] == db.snapshot(b)["state"] == "RESERVED"
+
+
+@pytest.mark.parametrize("field,changed", [("local_note_id","foreign"),("note_id","foreign"),
+    ("payload",dict(PAYLOAD,title="substituted")),("action","cloud_retire")])
+def test_private_cloud_immutable_context_rejects_even_resigned_substitution(private_ready, field, changed):
+    db, g, local = private_ready, client(private_ready), operation()
+    cloud = cloud_copy(g,"reserve",local)
+    ctx = g.prepare_cloud_copy(token(),"publish",operation(),local_note_id=local,cloud_id=cloud,payload=PAYLOAD)
+    modified = dict(ctx,intent=dict(ctx["intent"],**{field:changed}))
+    db.sql(signed_apply(g,modified),LOGIN,"CONTEXT_DENIED")
+    assert db.snapshot(cloud)["state"] == "RESERVED"
+
+
+@pytest.mark.parametrize("payload", [dict(PAYLOAD,properties={}),dict(PAYLOAD,relations=[]),
+    dict(PAYLOAD,folder_id="f"),dict(PAYLOAD,attachments=[]), {"title":"incomplete"},
+    dict(PAYLOAD,body="![original](attachment://original)"),dict(PAYLOAD,body="data:application/pdf;base64,AA"),
+    dict(PAYLOAD,body="<img src='blob:x'>")])
+def test_private_cloud_sql_also_rejects_unsupported_snapshots(private_ready,payload):
+    db, g, local = private_ready, client(private_ready), operation()
+    cloud = cloud_copy(g,"reserve",local)
+    owner, expiry = g._authenticate(token())
+    text, mac = g._sign(dict(aud=AUDIENCE+".prepare",expires=expiry,owner=owner,action="cloud_publish",
+        operation_id=operation(),note_id=cloud,local_note_id=local,payload=payload))
+    ctx = db.call("prepare",text,mac)
+    db.sql(signed_apply(g,ctx),LOGIN,"UNSUPPORTED_PAYLOAD")
+    assert db.snapshot(cloud)["state"] == "RESERVED"
+
+
+def test_private_cloud_read_cannot_upgrade_stale_mutation_authority(private_ready):
+    db, g, local = private_ready, client(private_ready), operation()
+    cloud = cloud_copy(g,"reserve",local)
+    ctx = g.prepare_cloud_copy(token(),"publish",operation(),local_note_id=local,cloud_id=cloud,payload=PAYLOAD)
+    db.sql(f"update {SCHEMA}.account_fences set generation=3 where owner_id='{OWNER_A}';")
+    assert cloud_copy(g,"read",local)["state"] == "RESERVED"
+    assert g.prepare_cloud_copy(token(),"publish",ctx["intent"]["operation_id"],
+        local_note_id=local,cloud_id=cloud,payload=PAYLOAD) == ctx
+    db.sql(signed_apply(g,ctx),LOGIN,"ACCOUNT_AUTHORITY_UNAVAILABLE")
+    assert db.snapshot(cloud)["state"] == "RESERVED"
+
+
+def test_private_cloud_mapping_gate_and_raw_sql_remain_denied(private_ready):
+    db, g, local = private_ready, client(private_ready), operation()
+    db.sql(f"update {SCHEMA}.cloud_copy_readiness set enabled=false;")
+    ctx = g.prepare_cloud_copy(token(),"reserve",operation(),local_note_id=local)
+    db.sql(signed_apply(g,ctx),LOGIN,"CLOUD_COPY_NOT_ACTIVATED")
+    for statement in (f"select {SCHEMA}.reserve_cloud_copy('local',1,'op');",
+        f"select {SCHEMA}.publish_cloud_copy('local','cloud',1,'op','{{}}');",
+        f"select {SCHEMA}.retire_cloud_copy('local','cloud',1,'op');",
+        f"select {SCHEMA}.read_cloud_copy('local',1);", f"select * from {SCHEMA}.cloud_aliases;"):
+        db.sql(statement,LOGIN,"42501")
+    # An accidentally broadened raw grant must close the signed gateway too.
+    signature = f"{SCHEMA}.read_cloud_copy(text,bigint)"
+    db.sql(f"grant execute on function {signature} to {LOGIN};")
+    try:
+        db.sql(signed_apply(g,ctx),LOGIN,"PRIVATE_PRIVILEGES_UNVERIFIED")
+    finally:
+        db.sql(f"revoke execute on function {signature} from {LOGIN};")
+
+
+@pytest.mark.parametrize("action",["reserve","publish","read"])
+def test_private_cloud_alias_lock_wait_expiry_rolls_back(private_ready,action):
+    db, g, local = private_ready, client(private_ready), operation()
+    cloud = cloud_copy(g,"reserve",local) if action != "reserve" else None
+    before = db.sql(f"select count(*) from {SCHEMA}.cloud_aliases;")
+    g.clock = lambda: time.time()-24
+    ctx = g.prepare_cloud_copy(token(),action,operation(),local_note_id=local,
+        cloud_id=cloud if action=="publish" else None,payload=PAYLOAD if action=="publish" else None)
+    holder,waiter=db.connection("postgres"),db.connection(LOGIN)
+    name="cloud-expiry-"+operation()
+    try:
+        holder.send("begin;select 'PID:'||pg_backend_pid();select pg_advisory_xact_lock(hashtextextended("
+                    +quote("cloud-copy-v1:"+OWNER_A+":"+local)+",0));\\echo HELD")
+        pid=int(next(x[4:] for x in holder.until("HELD") if x.startswith("PID:")))
+        waiter.send(f"set application_name={quote(name)};"+signed_apply(g,ctx)+"\\q")
+        db.wait_for_blocker(waiter,name,pid)
+        holder.send(f"select pg_sleep(greatest(0,{ctx['expires']}-extract(epoch from clock_timestamp())+0.02));"
+                    f"select (extract(epoch from clock_timestamp())>={ctx['expires']})::text;commit;\\echo RELEASED")
+        assert "true" in holder.until("RELEASED")
+        waiter.finish("AUTHORITY_EXPIRED")
+        assert db.sql(f"select count(*) from {SCHEMA}.cloud_aliases;") == before
+        if cloud:
+            assert db.snapshot(cloud)["state"] == "RESERVED"
+        assert db.sql(f"select count(*) from {SCHEMA}.principal_bindings where login='{LOGIN}';") == "0"
+    finally:
+        holder.close()
+        waiter.close()
