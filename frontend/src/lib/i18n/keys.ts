@@ -2264,6 +2264,18 @@ const translationKeys = [
   "healthCloudBlockConflict",
   "healthCloudBlockIndeterminate",
   "healthCloudBlockConfirmed",
+  "notesCloudCopyAction",
+  "notesCloudCopyWorking",
+  "notesCloudCopyPrompt",
+  "notesCloudCopyConfirmAction",
+  "notesCloudCopyCreated",
+  "notesCloudCopyAlready",
+  "notesCloudCopyDisabled",
+  "notesCloudCopySourceChanged",
+  "notesCloudCopyIneligible",
+  "notesCloudCopyConflict",
+  "notesCloudCopyIndeterminate",
+  "notesCloudCopyUnavailable",
 ] as const;
 
 export type TranslationKey = (typeof translationKeys)[number];

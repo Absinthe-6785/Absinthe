@@ -6,6 +6,7 @@ import {
   NOTES_CORE_DOMAIN,
   NOTES_FOLDERS_DOMAIN,
   __testOnlyNotesAccountAuthorityHooks,
+  activateNotesAccountAuthority,
   detachNotesAccountAuthority,
   getNotesAuthorityState,
   initializeAccountScopedNotesAuthority,
@@ -18,6 +19,7 @@ import {
   saveAccountScopedFolders,
   saveAccountScopedNotes,
   runAccountScopedNotesMutation,
+  observeAccountScopedNotesReadback,
 } from './notesAccountAuthority';
 import { revalidateResolvedBootstrapNotes } from './notesBootstrapAuthority';
 import { setRecoveryModeActiveForTest } from './recoverySafetyPolicy';
@@ -1143,5 +1145,42 @@ describe('account-scoped Notes/Folders local authority', () => {
     await expect(logoutLoad).rejects.toThrow('notes_account_scope_inactive');
     expect(getNotesAuthorityState('account-a', NOTES_CORE_DOMAIN).state).not.toBe('RECOVERY_REQUIRED');
     hooks.setReadNotesOverride(null);
+  });
+
+  it('observes the current durable Notes snapshot under the account lock without publishing or writing', async () => {
+    const request = activateNotesAccountAuthority('account-a');
+    await initializeAccountScopedNotesAuthority('account-a', request);
+    const durable = { ...note(1), folderId: null, starred: false };
+    expect(await saveAccountScopedNotes('account-a', [durable])).toBe(true);
+    const beforeStorage = new Map(storage);
+    const beforeState = getNotesAuthorityState('account-a', NOTES_CORE_DOMAIN);
+    const put = vi.spyOn(IDBObjectStore.prototype, 'put');
+    const deleteRecord = vi.spyOn(IDBObjectStore.prototype, 'delete');
+
+    const result = await observeAccountScopedNotesReadback(request, () => true);
+
+    expect(result).toEqual({ status: 'CURRENT', notes: [durable] });
+    expect(storage).toEqual(beforeStorage);
+    expect(getNotesAuthorityState('account-a', NOTES_CORE_DOMAIN)).toEqual(beforeState);
+    expect(put).not.toHaveBeenCalled();
+    expect(deleteRecord).not.toHaveBeenCalled();
+  });
+
+  it('returns stale or malformed readback as unavailable without changing authority state', async () => {
+    const request = activateNotesAccountAuthority('account-a');
+    await initializeAccountScopedNotesAuthority('account-a', request);
+    expect(await activateNotesAccountAuthority('account-b')).toMatchObject({ accountId: 'account-b' });
+    expect(await observeAccountScopedNotesReadback(request)).toEqual({
+      status: 'UNAVAILABLE', reason: 'STALE_REQUEST',
+    });
+
+    const currentA = activateNotesAccountAuthority('account-a');
+    await initializeAccountScopedNotesAuthority('account-a', currentA);
+    await putRawScopedNote({ key: 'account-a\u0000bad', accountId: 'account-a', note: { id: 'bad' } });
+    const beforeState = getNotesAuthorityState('account-a', NOTES_CORE_DOMAIN);
+    expect(await observeAccountScopedNotesReadback(currentA)).toEqual({
+      status: 'UNAVAILABLE', reason: 'MALFORMED',
+    });
+    expect(getNotesAuthorityState('account-a', NOTES_CORE_DOMAIN)).toEqual(beforeState);
   });
 });

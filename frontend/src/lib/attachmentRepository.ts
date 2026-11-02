@@ -147,6 +147,7 @@ export interface AttachmentRepository {
   listAttachments(): Promise<AttachmentMetadata[]>;
   listAttachmentsForAccount?(accountId: string): Promise<AccountScopedAttachmentMetadata[]>;
   listAttachmentsForAccountNote?(accountId: string, noteId: string): Promise<AccountScopedAttachmentMetadata[]>;
+  inspectAccountNoteMetadata?(accountId: string, noteId: string): Promise<AttachmentMetadataInspection>;
   tombstoneAttachmentForAccountNote?(input: ScopedAttachmentTombstoneInput): Promise<ScopedAttachmentTombstoneResult>;
   listAttachmentsForNote(noteId: string): Promise<AttachmentMetadata[]>;
   getAttachment(id: string): Promise<AttachmentMetadata | null>;
@@ -160,6 +161,12 @@ export interface AttachmentRepository {
   listForNote(noteId: string): Promise<AttachmentMetadata[]>;
   markDeleted(id: string, deletedAt: AttachmentTimestamp): Promise<AttachmentMetadata | null>;
 }
+
+/** Read-only completeness result; incomplete ownership metadata is never treated as absence. */
+export type AttachmentMetadataInspection = Readonly<
+  | { status: 'COMPLETE'; matchingRecords: number }
+  | { status: 'INCOMPLETE' }
+>;
 
 const ATTACHMENT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const ATTACHMENT_ID_CHARACTER_PATTERN = /^[A-Za-z0-9._:-]$/;

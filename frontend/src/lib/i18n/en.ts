@@ -2264,6 +2264,18 @@ const enTranslations = [
   "Exercise not received: this exact exercise ID already exists locally. Nothing was replaced.",
   "Exercise receipt is uncertain. A local exercise may exist. Do not retry automatically; verify separately. No rollback was attempted.",
   "One exercise was received and verified locally. The workout has not been received; compare and receive it separately. Automatic sync remains off.",
+  "Create cloud copy",
+  "Preparing…",
+  "Create a separate cloud copy of this exact Note snapshot? Its supported title, body, last-updated timestamp, and starred state are copied. Attachments, folders, properties, and relations are excluded; the local Note and its ID stay unchanged.",
+  "Confirm copy",
+  "Cloud copy created and read back. Automatic synchronization remains off.",
+  "An exact cloud copy already exists. The local Note was not changed.",
+  "Cloud Copy is disabled or unavailable. No success was reported; the local Note is unchanged.",
+  "The local Note or account authority changed. No copy request was sent.",
+  "This Note contains content or metadata this copy flow cannot preserve. No copy was created.",
+  "A cloud identity already exists or is retired. Nothing was replaced.",
+  "The copy result is uncertain. Do not retry automatically; compare again before deciding what to do.",
+  "Cloud Copy is unavailable. No success was reported; the local Note is unchanged.",
 ] as const;
 
 export default enTranslations;

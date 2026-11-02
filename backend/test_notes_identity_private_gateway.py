@@ -146,18 +146,142 @@ def test_driver_does_not_acknowledge_before_successful_commit(failure):
         PsycopgCalls(connect).call("apply", "signed synthetic envelope", b"synthetic-mac")
 
 
-def test_production_routes_remain_disconnected():
-    main = (Path(__file__).parent/"main.py").read_text(encoding="utf-8")
-    assert "notes_private_gateway" not in main
+def test_cloud_copy_gateway_is_bound_only_to_the_default_off_route():
     import ast
+    main_path = Path(__file__).parent/"main.py"
+    main = main_path.read_text(encoding="utf-8")
+    tree = ast.parse(main)
+
+    # The feature remains opt-in even when the server has gateway settings.
+    assert ('NOTES_CLOUD_COPY_ENABLED = os.getenv("NOTES_CLOUD_COPY_ENABLED", "disabled")'
+            '.strip().lower() == "enabled"') in main
+
+    functions = {
+        node.name: node for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    factory = functions["_notes_cloud_copy_service"]
+    route = functions["create_notes_cloud_copy"]
+
+    def is_gateway_import(node):
+        if isinstance(node, ast.ImportFrom):
+            return (node.module == "identity_candidates.notes_private_gateway"
+                    or (node.module == "identity_candidates"
+                        and any(name.name == "notes_private_gateway" for name in node.names)))
+        return isinstance(node, ast.Import) and any(
+            name.name == "identity_candidates.notes_private_gateway" for name in node.names
+        )
+
+    def assert_disabled_guard(function):
+        statements = function.body
+        if (statements and isinstance(statements[0], ast.Expr)
+                and isinstance(statements[0].value, ast.Constant)
+                and isinstance(statements[0].value.value, str)):
+            statements = statements[1:]
+        guard = statements[0]
+        assert isinstance(guard, ast.If)
+        assert isinstance(guard.test, ast.UnaryOp) and isinstance(guard.test.op, ast.Not)
+        assert isinstance(guard.test.operand, ast.Name)
+        assert guard.test.operand.id == "NOTES_CLOUD_COPY_ENABLED"
+        assert isinstance(guard.body[0], ast.Raise)
+        assert "NOTES_CLOUD_COPY_DISABLED" in ast.unparse(guard.body[0])
+
+    assert_disabled_guard(factory)
+    assert_disabled_guard(route)
+
+    factory_nodes = set(ast.walk(factory))
+    route_nodes = set(ast.walk(route))
+    gateway_imports = [node for node in ast.walk(tree) if is_gateway_import(node)]
+    driver_imports = [node for node in ast.walk(tree)
+                      if (isinstance(node, ast.ImportFrom)
+                          and (node.module == "psycopg" or node.module.startswith("psycopg.")))
+                      or (isinstance(node, ast.Import)
+                          and any(name.name == "psycopg" or name.name.startswith("psycopg.")
+                                  for name in node.names))]
+    assert len(gateway_imports) == 1 and gateway_imports[0] in factory_nodes
+    assert len(driver_imports) == 2 and all(node in factory_nodes for node in driver_imports)
+    assert all(isinstance(node, ast.ImportFrom) for node in driver_imports)
+    assert (isinstance(gateway_imports[0], ast.ImportFrom)
+            and gateway_imports[0].module == "identity_candidates.notes_private_gateway"
+            and [(name.name, name.asname) for name in gateway_imports[0].names]
+            == [("PrivateGateway", None), ("PsycopgCalls", None)])
+    assert {(node.module, tuple((name.name, name.asname) for name in node.names))
+            for node in driver_imports} == {
+                ("psycopg", (("connect", None),)),
+                ("psycopg.conninfo", (("conninfo_to_dict", None),)),
+            }
+
+    for name in ("PrivateGateway", "PsycopgCalls", "connect", "conninfo_to_dict"):
+        calls = [node for node in ast.walk(tree)
+                 if isinstance(node, ast.Call)
+                 and ((isinstance(node.func, ast.Name) and node.func.id == name)
+                      or (isinstance(node.func, ast.Attribute) and node.func.attr == name))]
+        assert calls and all(node in factory_nodes for node in calls), name
+    service_factory_calls = [node for node in ast.walk(tree)
+                             if isinstance(node, ast.Call)
+                             and isinstance(node.func, ast.Name)
+                             and node.func.id == "_notes_cloud_copy_service"]
+    service_factory_references = [node for node in ast.walk(tree)
+                                  if isinstance(node, ast.Name)
+                                  and node.id == "_notes_cloud_copy_service"]
+    assert (len(service_factory_calls) == len(service_factory_references) == 1
+            and service_factory_calls[0] in route_nodes
+            and service_factory_references[0] is service_factory_calls[0].func)
+
     for path in Path(__file__).parent.glob("*.py"):
         if path.name.startswith("test_"):
             continue
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            if isinstance(node, ast.ImportFrom):
-                assert node.module != "identity_candidates.notes_private_gateway", path
-            elif isinstance(node, ast.Import):
-                assert all(n.name != "identity_candidates.notes_private_gateway" for n in node.names), path
+        if path == main_path:
+            continue
+        module = ast.parse(path.read_text(encoding="utf-8"))
+        if path.name == "notes_cloud_copy_candidate.py":
+            candidate_gateway_imports = [node for node in ast.walk(module) if is_gateway_import(node)]
+            assert (len(candidate_gateway_imports) == 1
+                    and isinstance(candidate_gateway_imports[0], ast.ImportFrom)
+                    and candidate_gateway_imports[0].module == "identity_candidates.notes_private_gateway"
+                    and [(name.name, name.asname) for name in candidate_gateway_imports[0].names]
+                    == [("GatewayDenied", None), ("GatewayIndeterminate", None),
+                        ("cloud_snapshot_supported", None)])
+            driver_imports = [node for node in ast.walk(module)
+                              if (isinstance(node, ast.ImportFrom)
+                                  and node.module.startswith("psycopg"))
+                              or (isinstance(node, ast.Import)
+                                  and any(name.name == "psycopg" or name.name.startswith("psycopg.")
+                                          for name in node.names))]
+            assert not driver_imports
+
+            class ModuleCalls(ast.NodeVisitor):
+                def __init__(self):
+                    self.calls = []
+
+                def visit_Call(self, node):
+                    name = (node.func.id if isinstance(node.func, ast.Name)
+                            else node.func.attr if isinstance(node.func, ast.Attribute) else None)
+                    if name in {"PrivateGateway", "PsycopgCalls", "connect"}:
+                        self.calls.append(node)
+                    self.generic_visit(node)
+
+                def visit_FunctionDef(self, node):
+                    self._visit_header(node)
+
+                def visit_AsyncFunctionDef(self, node):
+                    self._visit_header(node)
+
+                def visit_Lambda(self, node):
+                    for value in node.args.defaults + [value for value in node.args.kw_defaults if value]:
+                        self.visit(value)
+
+                def _visit_header(self, node):
+                    for value in node.decorator_list + node.args.defaults + [
+                        value for value in node.args.kw_defaults if value
+                    ]:
+                        self.visit(value)
+
+            module_calls = ModuleCalls()
+            module_calls.visit(module)
+            assert not module_calls.calls
+        else:
+            assert not any(is_gateway_import(node) for node in ast.walk(module)), path
     sql = (Path(__file__).parent/"identity_candidates"/"notes_identity_private_gateway.sql").read_text()
     assert "enabled boolean not null default false" in sql
     assert "create role" not in sql.lower()

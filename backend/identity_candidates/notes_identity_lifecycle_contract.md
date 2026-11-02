@@ -102,8 +102,17 @@ raises and rolls back identity, Note, receipt and temporary binding together.
 
 The Python transport uses fixed parameterized psycopg-3-compatible calls and
 acknowledges only after successful transaction AND connection-context exit. It
-accepts an injected trusted connection factory; it creates no DSN, credentials,
-pool, environment switch or runtime endpoint. Python and SQL both default OFF.
+accepts an injected trusted connection factory; the transport itself creates no
+DSN, credentials, pool, environment switch or runtime endpoint. The application
+now contains a separate default-off, authenticated `POST /api/notes/cloud-copy`
+adapter. It constructs this transport only when `NOTES_CLOUD_COPY_ENABLED` is
+`enabled`, a dedicated `notes_candidate_private_gateway` DSN and a separate
+hex-encoded HMAC key are configured, and it forces TLS `verify-full`. The browser
+action also requires the separately default-off `VITE_NOTES_CLOUD_COPY_ENABLED`
+build flag and an explicit per-Note confirmation. The mapping SQL's independent
+database readiness flag still defaults false. These code paths are not evidence
+of deployed schema, role grants, key custody, TLS configuration, or production
+readiness; neither flag has been enabled by this change.
 Prepare admission and each apply have separate transactions; all state-changing
 identity effects of apply are one transaction. Inert admission rows are retained,
 not deleted/refreshed by callers. Retention/rotation are future deployment gates.
