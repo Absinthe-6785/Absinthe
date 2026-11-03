@@ -212,8 +212,22 @@ def cleanup_container(docker: str, name: str, original_error: BaseException | No
         original_error.add_note(f"Additional disposable-container cleanup failure: {cleanup_error}")
 
 
+def proof_image(request) -> str:
+    """Only the focused provider proof may select its exact PostgreSQL release."""
+    module = request.module.__name__.split(".")[-1]
+    requested = getattr(request, "param", None)
+    if requested is not None:
+        if (module != "test_notes_cloud_copy_legacy_write_fence"
+                or requested != "postgres:17.6-alpine"):
+            raise ValueError("unapproved disposable PostgreSQL image")
+        return requested
+    return ("absinthe-notes-private-driver:test" if module == "test_notes_private_gateway_driver_harness"
+            else "postgres:15-alpine")
+
+
 @pytest.fixture(scope="module")
 def db(request):
+    image = proof_image(request)
     if os.getenv("K323_POSTGRES_INTEGRATION") != "1":
         pytest.skip("real PostgreSQL proof: enable K323_POSTGRES_INTEGRATION=1 in existing CI")
     docker = shutil.which("docker")
@@ -226,10 +240,9 @@ def db(request):
             "--label", "absinthe.test=notes-identity-proof", "--network", "none",
             "--tmpfs", "/var/lib/postgresql/data", "-e",
             f"POSTGRES_PASSWORD={POSTGRES_TEST_PASSWORD}",
-            # Only this dedicated module uses the prebuilt Python/driver image.
-            # All existing SQL proofs keep their original image and assertions.
-            "absinthe-notes-private-driver:test" if request.module.__name__.split(".")[-1]
-            == "test_notes_private_gateway_driver_harness" else "postgres:15-alpine",
+            # Existing proofs keep their original images. Only the focused
+            # provider proof can opt into the exact PG17 release via proof_image.
+            image,
         ], timeout=120)
         _assert_postgres_success(result, docker, name)
         _wait_for_postgres(docker, name)
