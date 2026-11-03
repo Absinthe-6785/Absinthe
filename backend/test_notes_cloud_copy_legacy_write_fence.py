@@ -987,12 +987,20 @@ def mapped_pgrst_sql(db):
     # Disposable catalogs allocate different object IDs. Remap ONLY the three
     # expected-OID declarations; NEVER replace version, hashes, owners or checks.
     # Production retains the exact observed IDs and has no caller parameters.
-    ids = json.loads(db.sql("""select json_build_array(e.oid,p.oid,h.oid)
+    raw_ids = json.loads(db.sql("""select json_build_array(e.oid,p.oid,h.oid)
       from pg_event_trigger e join pg_proc p on p.oid=e.evtfoid
       cross join pg_proc h where e.evtname='pgrst_ddl_watch'
         and p.oid='extensions.pgrst_ddl_watch()'::regprocedure
         and h.oid='pg_catalog.pg_event_trigger_ddl_commands()'::regprocedure;"""))
-    assert len(ids) == 3 and all(isinstance(oid, int) and oid > 0 for oid in ids)
+    assert len(raw_ids) == 3
+    ids = []
+    for oid in raw_ids:
+        # PostgreSQL's JSON output for the oid type is decimal text, whereas
+        # synthetic fixtures and some adapters may return JSON integers.
+        if isinstance(oid, str) and oid.isascii() and oid.isdecimal():
+            oid = int(oid)
+        assert isinstance(oid, int) and not isinstance(oid, bool) and oid > 0
+        ids.append(oid)
     sql = PGRST_TRIGGER_PRIVILEGE_CUTOVER_SQL
     for name, observed, synthetic in zip(('event', 'function', 'helper'), (16576, 16563, 4568), ids):
         old = f'expected_{name}_oid oid := {observed};'
@@ -1001,12 +1009,17 @@ def mapped_pgrst_sql(db):
     return sql
 
 
-def test_disposable_binding_remaps_only_expected_oids():
+@pytest.mark.parametrize("catalog_json", (
+    "[10001, 10002, 10003]",
+    '["10001", "10002", "4568"]',
+))
+def test_disposable_binding_remaps_only_expected_oids(catalog_json):
     class SyntheticCatalog:
         def sql(self, _):
-            return '[10001, 10002, 10003]'
+            return catalog_json
     sql = mapped_pgrst_sql(SyntheticCatalog())
-    for name, observed, synthetic in zip(('event', 'function', 'helper'), (16576, 16563, 4568), (10001, 10002, 10003)):
+    synthetic_ids = [int(oid) for oid in json.loads(catalog_json)]
+    for name, observed, synthetic in zip(('event', 'function', 'helper'), (16576, 16563, 4568), synthetic_ids):
         sql = sql.replace(f'expected_{name}_oid oid := {synthetic};', f'expected_{name}_oid oid := {observed};', 1)
     assert sql == PGRST_TRIGGER_PRIVILEGE_CUTOVER_SQL
 
