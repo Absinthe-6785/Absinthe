@@ -16,11 +16,147 @@ from test_notes_identity_guard_candidate_postgres import (
 from test_notes_identity_private_gateway_postgres import (
     private_db, private_ready, client, signed_apply, LOGIN,
 )
-from test_notes_identity_postgres import PAYLOAD, quote
+from test_notes_identity_postgres import PAYLOAD, quote, db as privilege_proof_db, OWNER_A, OWNER_B
 from test_notes_identity_private_gateway import token
 
 ROOT = Path(__file__).parent
 SQL = ROOT / "identity_candidates" / "notes_cloud_copy_legacy_write_fence.sql"
+
+# NOTES-DB-TRIGGER-PRIVILEGE-CUTOVER-01: reviewable FUTURE operation, not a
+# migration, installer, runtime import, or permission to execute in production.
+# Production requires fresh dependency approval and an exclusive administrative
+# permission/role/DDL change window. The relation lock does NOT serialize role
+# catalogs or guarantee that another administrator cannot regrant after COMMIT.
+# No Note content is inspected by this transaction; row preservation is checked
+# independently below, using synthetic data only.
+TRIGGER_PRIVILEGE_CUTOVER_SQL = r"""
+BEGIN ISOLATION LEVEL READ COMMITTED;
+SET LOCAL search_path = pg_catalog;
+DO $cutover$
+DECLARE
+  relation_oid oid := to_regclass('public.notes');
+  owner_oid oid;
+  targets oid[];
+  before_state jsonb;
+  after_state jsonb;
+  invariant_query text := $snapshot$
+    SELECT jsonb_build_object(
+      'relation', (SELECT jsonb_build_array(c.oid,c.relname,c.relnamespace,c.relowner,
+        c.relkind,c.relpersistence,c.relrowsecurity,c.relforcerowsecurity,
+        c.relispartition,c.reloptions) FROM pg_class c WHERE c.oid=$1),
+      'columns', (SELECT jsonb_agg(to_jsonb(a) ORDER BY a.attnum)
+        FROM pg_attribute a WHERE a.attrelid=$1),
+      'constraints', (SELECT jsonb_agg(to_jsonb(c) ORDER BY c.oid)
+        FROM pg_constraint c WHERE c.conrelid=$1 OR c.confrelid=$1),
+      'indexes', (SELECT jsonb_agg(to_jsonb(i) ORDER BY i.indexrelid)
+        FROM pg_index i WHERE i.indrelid=$1),
+      'policies', (SELECT jsonb_agg(to_jsonb(p) ORDER BY p.oid)
+        FROM pg_policy p WHERE p.polrelid=$1),
+      'triggers', (SELECT jsonb_agg(to_jsonb(t) ORDER BY t.oid)
+        FROM pg_trigger t WHERE t.tgrelid=$1),
+      'acl_except_target_trigger', (SELECT jsonb_agg(to_jsonb(a)
+          ORDER BY a.grantor,a.grantee,a.privilege_type,a.is_grantable)
+        FROM pg_class c CROSS JOIN LATERAL
+          aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) a
+        WHERE c.oid=$1 AND NOT (a.grantee=ANY($2) AND a.privilege_type='TRIGGER')),
+      'other_effective_privileges', (SELECT jsonb_agg(jsonb_build_array(r.oid,
+          p.privilege_type,has_table_privilege(r.oid,$1,p.privilege_type))
+          ORDER BY r.oid,p.privilege_type)
+        FROM pg_roles r CROSS JOIN pg_class c CROSS JOIN LATERAL
+          aclexplode(acldefault('r',c.relowner)) p
+        WHERE c.oid=$1 AND NOT (r.oid=ANY($2) AND p.privilege_type='TRIGGER')),
+      'roles', (SELECT jsonb_agg(jsonb_build_array(oid,rolname,rolsuper,rolinherit,
+          rolcreaterole,rolcreatedb,rolcanlogin,rolreplication,rolbypassrls) ORDER BY oid)
+        FROM pg_roles),
+      'memberships', (SELECT jsonb_agg(to_jsonb(m) ORDER BY m.roleid,m.member,m.grantor)
+        FROM pg_auth_members m),
+      'event_triggers', (SELECT jsonb_agg(to_jsonb(e) ORDER BY e.oid) FROM pg_event_trigger e),
+      'default_acl', (SELECT jsonb_agg(to_jsonb(d) ORDER BY d.oid) FROM pg_default_acl d)
+    )
+  $snapshot$;
+BEGIN
+  SELECT c.relowner INTO owner_oid FROM pg_class c
+    JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE c.oid=relation_oid AND n.nspname='public' AND c.relname='notes'
+      AND c.relkind='r' AND c.relpersistence='p' AND NOT c.relispartition
+      AND c.relowner=(SELECT oid FROM pg_roles WHERE rolname='postgres')
+      AND c.relrowsecurity AND NOT c.relforcerowsecurity;
+  IF NOT FOUND OR current_user<>'postgres' THEN
+    RAISE EXCEPTION 'NOTES_TRIGGER_RELATION_OR_EXECUTOR_DRIFT';
+  END IF;
+  LOCK TABLE public.notes IN ACCESS EXCLUSIVE MODE NOWAIT;
+  IF to_regclass('public.notes') IS DISTINCT FROM relation_oid
+    OR NOT EXISTS(SELECT 1 FROM pg_class WHERE oid=relation_oid AND relowner=owner_oid
+      AND relkind='r' AND relpersistence='p' AND relrowsecurity
+      AND NOT relforcerowsecurity AND NOT relispartition)
+    OR EXISTS(SELECT 1 FROM pg_inherits
+      WHERE inhrelid=relation_oid OR inhparent=relation_oid) THEN
+    RAISE EXCEPTION 'NOTES_TRIGGER_RELATION_DRIFT';
+  END IF;
+  SELECT array_agg(oid ORDER BY oid) INTO targets FROM pg_roles
+    WHERE rolname IN ('anon','authenticated','service_role');
+  IF cardinality(targets) IS DISTINCT FROM 3 THEN
+    RAISE EXCEPTION 'NOTES_TRIGGER_ROLES_MISSING';
+  END IF;
+  IF EXISTS(SELECT 1 FROM pg_roles root CROSS JOIN pg_roles reachable
+      WHERE root.oid=ANY(targets)
+        AND (root.oid=reachable.oid OR pg_has_role(root.oid,reachable.oid,'MEMBER'))
+        AND (reachable.oid=owner_oid OR reachable.rolsuper OR reachable.rolcreaterole
+          OR reachable.rolcreatedb OR reachable.rolreplication
+          OR (reachable.oid<>root.oid
+            AND has_table_privilege(reachable.oid,relation_oid,'TRIGGER')))) THEN
+    RAISE EXCEPTION 'NOTES_TRIGGER_ROLE_AUTHORITY_DRIFT';
+  END IF;
+  IF (SELECT count(*) FROM pg_class c CROSS JOIN LATERAL
+        aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) a
+      WHERE c.oid=relation_oid AND a.grantee=ANY(targets)
+        AND a.privilege_type='TRIGGER' AND a.grantor=owner_oid
+        AND NOT a.is_grantable) <> 3
+    OR EXISTS(SELECT 1 FROM pg_class c CROSS JOIN LATERAL
+        aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) a
+      WHERE c.oid=relation_oid AND a.privilege_type='TRIGGER'
+        AND (a.grantor<>owner_oid OR a.is_grantable
+          OR (a.grantee<>owner_oid AND NOT a.grantee=ANY(targets)))) THEN
+    RAISE EXCEPTION 'NOTES_TRIGGER_DIRECT_GRANT_DRIFT';
+  END IF;
+  IF EXISTS(SELECT 1 FROM pg_roles r CROSS JOIN
+      unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE']) p
+      WHERE r.oid=ANY(targets) AND NOT has_table_privilege(r.oid,relation_oid,p))
+    OR EXISTS(SELECT 1 FROM pg_roles r WHERE r.oid=ANY(targets)
+      AND has_table_privilege(r.oid,relation_oid,'TRUNCATE')) THEN
+    RAISE EXCEPTION 'NOTES_TRIGGER_OTHER_PRIVILEGE_DRIFT';
+  END IF;
+  -- REVOKE can fire DDL event triggers in this SAME transaction/session.
+  -- Catalog equality alone cannot detect their arbitrary user-data effects.
+  -- Conservatively reject origin/replica/always-enabled matching handlers,
+  -- regardless of this session's replication setting. Never disable a handler.
+  IF EXISTS(SELECT 1 FROM pg_event_trigger
+      WHERE evtenabled<>'D' AND evtevent IN ('ddl_command_start','ddl_command_end')
+        AND (evttags IS NULL OR 'REVOKE'=ANY(evttags))) THEN
+    RAISE EXCEPTION 'NOTES_TRIGGER_DDL_SIDE_EFFECT_UNPROVEN';
+  END IF;
+  EXECUTE invariant_query INTO before_state USING relation_oid,targets;
+
+  REVOKE TRIGGER ON TABLE public.notes FROM anon, authenticated, service_role RESTRICT;
+
+  IF EXISTS(SELECT 1 FROM pg_roles r WHERE r.oid=ANY(targets)
+      AND has_table_privilege(r.oid,relation_oid,'TRIGGER')) THEN
+    RAISE EXCEPTION 'NOTES_TRIGGER_AUTHORITY_REMAINS';
+  END IF;
+  IF EXISTS(SELECT 1 FROM pg_class c CROSS JOIN LATERAL
+      aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) a
+      WHERE c.oid=relation_oid AND a.grantee=ANY(targets)
+        AND a.privilege_type='TRIGGER') THEN
+    RAISE EXCEPTION 'NOTES_TRIGGER_ACL_REMAINS';
+  END IF;
+  EXECUTE invariant_query INTO after_state USING relation_oid,targets;
+  IF after_state IS DISTINCT FROM before_state THEN
+    RAISE EXCEPTION 'NOTES_TRIGGER_UNEXPECTED_EFFECT';
+  END IF;
+END
+$cutover$;
+COMMIT;
+"""
 
 
 def test_fence_is_unapplied_without_activation_or_application_grants():
@@ -455,3 +591,227 @@ def test_cascade_first_denies_without_waiting_on_retirements_identity_lock(fence
     finally:
         first.close()
         second.close()
+
+
+TRIGGER_REVOKE = "REVOKE TRIGGER ON TABLE public.notes FROM anon, authenticated, service_role RESTRICT;"
+TRIGGER_ROLES = ("anon", "authenticated", "service_role")
+
+
+def test_trigger_cutover_artifact_is_one_transaction_with_one_exact_revoke():
+    statements = "\n".join(line.split("--", 1)[0] for line in TRIGGER_PRIVILEGE_CUTOVER_SQL.splitlines())
+    assert statements.count(TRIGGER_REVOKE) == statements.count("REVOKE ") == 1
+    assert statements.strip().startswith("BEGIN ISOLATION LEVEL READ COMMITTED;")
+    assert statements.strip().endswith("COMMIT;")
+    assert "ACCESS EXCLUSIVE MODE NOWAIT" in statements
+    for forbidden in ("CASCADE", "GRANT ", "ALTER ", "CREATE ", "INSERT ", "UPDATE ", "DELETE ",
+                      "SET ROLE", "EXCEPTION WHEN", "notes_identity_candidate"):
+        assert forbidden not in statements
+    for check in ("DIRECT_GRANT_DRIFT", "ROLE_AUTHORITY_DRIFT", "OTHER_PRIVILEGE_DRIFT",
+                  "DDL_SIDE_EFFECT_UNPROVEN", "AUTHORITY_REMAINS", "ACL_REMAINS", "UNEXPECTED_EFFECT"):
+        assert "NOTES_TRIGGER_" + check in statements
+
+
+@pytest.fixture
+def trigger_privilege_case(privilege_proof_db):
+    # A separately named instance of the SAME existing disposable fixture.
+    # Never share the public.notes/roles installed by model_db/fenced_db.
+    db = privilege_proof_db
+    assert db.sql("select to_regclass('public.notes') is null "
+                  "and to_regnamespace('notes_identity_candidate') is null;") == "t"
+    assert db.sql("select count(*) from pg_roles where rolname in "
+                  "('anon','authenticated','service_role','trigger_cutover_parent','trigger_cutover_child');") == "0"
+    db.sql(f"""
+      create role anon nologin nosuperuser nobypassrls;
+      create role authenticated nologin nosuperuser nobypassrls;
+      create role service_role nologin nosuperuser bypassrls;
+      create role trigger_cutover_parent nologin;
+      create role trigger_cutover_child nologin;
+      create table public.notes(id text primary key,user_id uuid not null,
+        title text not null,body text not null);
+      alter table public.notes enable row level security;
+      create policy cutover_owner on public.notes for all
+        using(user_id=nullif(current_setting('test.owner',true),'')::uuid)
+        with check(user_id=nullif(current_setting('test.owner',true),'')::uuid);
+      insert into public.notes values
+        ('a','{OWNER_A}','Original A','Original body'),
+        ('b','{OWNER_B}','Original B','Other account');
+      grant select,insert,update,delete,references,trigger on public.notes
+        to anon,authenticated,service_role;
+      create function public.trigger_cutover_existing() returns trigger language plpgsql as $$
+        begin if new.title='blocked-by-existing-trigger' then
+          raise exception 'EXISTING_TRIGGER_STILL_ACTIVE'; end if; return new; end $$;
+      create trigger cutover_existing before insert or update on public.notes
+        for each row execute function public.trigger_cutover_existing();
+    """)
+    try:
+        yield db
+    finally:
+        # Only fixed synthetic objects inside the labelled disposable container.
+        # No production connection, arbitrary identifier, or host cleanup path.
+        db.sql("drop event trigger if exists cutover_ddl_effect;"
+               "drop function if exists public.trigger_cutover_ddl_effect();"
+               "drop table public.notes;drop function public.trigger_cutover_existing();"
+               "drop role if exists anon,authenticated,service_role,trigger_cutover_parent,trigger_cutover_child;")
+        assert db.sql("select to_regclass('public.notes') is null "
+                      "and to_regnamespace('notes_identity_candidate') is null;") == "t"
+
+
+def trigger_privilege_snapshot(db):
+    # Independent full ACL/data oracle: unlike the SQL's internal invariant
+    # snapshot, do NOT exclude the intended changes here.
+    return json.loads(db.sql("""select jsonb_build_object(
+      'acl',(select jsonb_agg(jsonb_build_array(pg_get_userbyid(a.grantee),
+        pg_get_userbyid(a.grantor),a.privilege_type,a.is_grantable)
+        order by a.grantee,a.grantor,a.privilege_type,a.is_grantable)
+        from pg_class c cross join lateral aclexplode(c.relacl) a
+        where c.oid='public.notes'::regclass),
+      'effective',(select jsonb_agg(jsonb_build_array(r.rolname,p,
+        has_table_privilege(r.oid,'public.notes',p)) order by r.rolname,p)
+        from pg_roles r cross join unnest(array['SELECT','INSERT','UPDATE','DELETE',
+          'TRUNCATE','REFERENCES','TRIGGER']) p),
+      'owner_rls',(select jsonb_build_array(relowner,relrowsecurity,relforcerowsecurity)
+        from pg_class where oid='public.notes'::regclass),
+      'columns',(select jsonb_agg(to_jsonb(a) order by attnum) from pg_attribute a
+        where attrelid='public.notes'::regclass),
+      'constraints',(select jsonb_agg(to_jsonb(c) order by oid) from pg_constraint c
+        where conrelid='public.notes'::regclass),
+      'policies',(select jsonb_agg(to_jsonb(p) order by oid) from pg_policy p
+        where polrelid='public.notes'::regclass),
+      'triggers',(select jsonb_agg(to_jsonb(t) order by oid) from pg_trigger t
+        where tgrelid='public.notes'::regclass),
+      'rows',(select jsonb_agg(to_jsonb(n) order by id) from public.notes n),
+      'roles',(select jsonb_agg(jsonb_build_array(oid,rolname,rolsuper,rolinherit,
+        rolcreaterole,rolcreatedb,rolcanlogin,rolreplication,rolbypassrls) order by oid) from pg_roles),
+      'memberships',(select jsonb_agg(to_jsonb(m) order by roleid,member,grantor) from pg_auth_members m),
+      'event_triggers',(select jsonb_agg(to_jsonb(e) order by oid) from pg_event_trigger e),
+      'default_acl',(select jsonb_agg(to_jsonb(d) order by oid) from pg_default_acl d));"""))
+
+
+def assert_trigger_only_delta(before, after):
+    expected = dict(before)
+    expected['acl'] = [a for a in before['acl'] if not (a[0] in TRIGGER_ROLES and a[2] == 'TRIGGER')]
+    expected['effective'] = [[r, p, False if r in TRIGGER_ROLES and p == 'TRIGGER' else value]
+                             for r, p, value in before['effective']]
+    assert after == expected
+
+
+def ordinary_notes_crud(db, role):
+    # SET ROLE is fixture-admin-only. The actual SQL permission check uses the
+    # affected current_user, with an independently existing RLS account scope.
+    return db.sql(f"""begin;set local role {role};set local test.owner='{OWNER_A}';
+      insert into public.notes values('new','{OWNER_A}','Created','New body');
+      update public.notes set title='Edited' where id='new' and user_id='{OWNER_A}';
+      select title from public.notes where id='new';
+      delete from public.notes where id='new' and user_id='{OWNER_A}';
+      select count(*) from public.notes where user_id='{OWNER_B}';
+      rollback;""").splitlines()
+
+
+@pytest.mark.parametrize('role', TRIGGER_ROLES)
+def test_trigger_only_cutover_preserves_crud_rls_data_and_existing_trigger(trigger_privilege_case, role):
+    db = trigger_privilege_case
+    before = trigger_privilege_snapshot(db)
+    # Positive control: CREATE TRIGGER really worked before the cutover.
+    db.sql(f"begin;set local role {role};create trigger cutover_can_create before insert on public.notes "
+           "for each row execute function public.trigger_cutover_existing();rollback;")
+    expected_crud = ['Edited', '1' if role == 'service_role' else '0']
+    assert ordinary_notes_crud(db, role) == expected_crud
+    db.sql(TRIGGER_PRIVILEGE_CUTOVER_SQL)
+    assert_trigger_only_delta(before, trigger_privilege_snapshot(db))
+    db.sql(f"begin;set local role {role};create trigger cutover_cannot_create before insert on public.notes "
+           "for each row execute function public.trigger_cutover_existing();commit;", error='42501')
+    assert ordinary_notes_crud(db, role) == expected_crud
+    db.sql(f"begin;set local role {role};set local test.owner='{OWNER_A}';"
+           "update public.notes set title='blocked-by-existing-trigger' where id='a';commit;",
+           error='EXISTING_TRIGGER_STILL_ACTIVE')
+    assert_trigger_only_delta(before, trigger_privilege_snapshot(db))
+
+
+@pytest.mark.parametrize('drift,error', [
+    ("revoke trigger on public.notes from anon;", 'DIRECT_GRANT_DRIFT'),
+    ("grant trigger on public.notes to PUBLIC;", 'DIRECT_GRANT_DRIFT'),
+    ("grant trigger on public.notes to trigger_cutover_parent;"
+     "grant trigger_cutover_parent to authenticated;", 'ROLE_AUTHORITY_DRIFT'),
+    ("alter role authenticated noinherit;grant trigger on public.notes to trigger_cutover_parent;"
+     "grant trigger_cutover_parent to authenticated;", 'ROLE_AUTHORITY_DRIFT'),
+    ("grant postgres to authenticated;", 'ROLE_AUTHORITY_DRIFT'),
+    ("alter table public.notes owner to anon;", 'RELATION_OR_EXECUTOR_DRIFT'),
+    ("alter role anon superuser;", 'ROLE_AUTHORITY_DRIFT'),
+    ("grant trigger on public.notes to anon with grant option;set role anon;"
+     "grant trigger on public.notes to trigger_cutover_child;reset role;", 'DIRECT_GRANT_DRIFT'),
+    ("grant trigger on public.notes to trigger_cutover_child;", 'DIRECT_GRANT_DRIFT'),
+    ("revoke all on public.notes from anon;drop role anon;", 'ROLES_MISSING'),
+    ("revoke update on public.notes from authenticated;", 'OTHER_PRIVILEGE_DRIFT'),
+    ("grant truncate on public.notes to service_role;", 'OTHER_PRIVILEGE_DRIFT'),
+    # Another inheriting role's effective TRIGGER cannot be silently removed.
+    ("grant authenticated to trigger_cutover_child;", 'UNEXPECTED_EFFECT'),
+])
+def test_trigger_cutover_drift_aborts_without_partial_revoke(trigger_privilege_case, drift, error):
+    db = trigger_privilege_case
+    db.sql(drift)
+    before = trigger_privilege_snapshot(db)
+    db.sql(TRIGGER_PRIVILEGE_CUTOVER_SQL, error='NOTES_TRIGGER_' + error)
+    assert trigger_privilege_snapshot(db) == before
+
+
+@pytest.mark.parametrize('fault', ('missing_revoke', 'forced_post_failure', 'extra_update_revoke'))
+def test_trigger_cutover_postcondition_faults_roll_back_all_acl_changes(trigger_privilege_case, fault):
+    db = trigger_privilege_case
+    before = trigger_privilege_snapshot(db)
+    if fault == 'missing_revoke':
+        broken = TRIGGER_PRIVILEGE_CUTOVER_SQL.replace(TRIGGER_REVOKE, '')
+        error = 'NOTES_TRIGGER_AUTHORITY_REMAINS'
+    elif fault == 'extra_update_revoke':
+        broken = TRIGGER_PRIVILEGE_CUTOVER_SQL.replace(TRIGGER_REVOKE,
+            TRIGGER_REVOKE + '\nREVOKE UPDATE ON TABLE public.notes FROM anon RESTRICT;')
+        error = 'NOTES_TRIGGER_UNEXPECTED_EFFECT'
+    else:
+        broken = TRIGGER_PRIVILEGE_CUTOVER_SQL.replace(TRIGGER_REVOKE,
+            TRIGGER_REVOKE + "\nRAISE EXCEPTION 'TEST_FORCED_POST_FAILURE';")
+        error = 'TEST_FORCED_POST_FAILURE'
+    assert broken != TRIGGER_PRIVILEGE_CUTOVER_SQL
+    db.sql(broken, error=error)
+    assert trigger_privilege_snapshot(db) == before
+
+
+def install_cutover_event_trigger(db, event, tags, enabled):
+    # Fixed synthetic DDL only; no arbitrary production identifier or function.
+    assert event in ('ddl_command_start', 'ddl_command_end')
+    assert tags in ('', "when tag in ('REVOKE')", "when tag in ('CREATE TABLE')")
+    assert enabled in ('enable', 'enable always', 'enable replica', 'disable')
+    db.sql("create function public.trigger_cutover_ddl_effect() returns event_trigger "
+           "language plpgsql as $$begin update public.notes set body='event-trigger-mutated';end $$;"
+           f"create event trigger cutover_ddl_effect on {event} {tags} "
+           "execute function public.trigger_cutover_ddl_effect();"
+           f"alter event trigger cutover_ddl_effect {enabled};")
+
+
+@pytest.mark.parametrize('event', ('ddl_command_start', 'ddl_command_end'))
+@pytest.mark.parametrize('tags', ('', "when tag in ('REVOKE')"))
+@pytest.mark.parametrize('enabled', ('enable', 'enable always', 'enable replica'))
+def test_trigger_cutover_rejects_ddl_event_side_effects_before_any_revoke(
+        trigger_privilege_case, event, tags, enabled):
+    db = trigger_privilege_case
+    install_cutover_event_trigger(db, event, tags, enabled)
+    before = trigger_privilege_snapshot(db)
+    # Real positive control: the exact bare revoke can mutate synthetic rows.
+    # Roll it back before testing the protected, UNMODIFIED transaction.
+    replica = "set local session_replication_role=replica;" if enabled == 'enable replica' else ''
+    result = db.sql(f"begin;{replica}{TRIGGER_REVOKE}"
+                    "select count(*) from public.notes where body='event-trigger-mutated';rollback;")
+    assert result == '2'
+    assert trigger_privilege_snapshot(db) == before
+    db.sql(TRIGGER_PRIVILEGE_CUTOVER_SQL, error='NOTES_TRIGGER_DDL_SIDE_EFFECT_UNPROVEN')
+    assert trigger_privilege_snapshot(db) == before
+
+
+@pytest.mark.parametrize('tags,enabled', [
+    ("when tag in ('REVOKE')", 'disable'),
+    ("when tag in ('CREATE TABLE')", 'enable'),
+])
+def test_trigger_cutover_preserves_non_firing_event_triggers(trigger_privilege_case, tags, enabled):
+    db = trigger_privilege_case
+    install_cutover_event_trigger(db, 'ddl_command_end', tags, enabled)
+    before = trigger_privilege_snapshot(db)
+    db.sql(TRIGGER_PRIVILEGE_CUTOVER_SQL)
+    assert_trigger_only_delta(before, trigger_privilege_snapshot(db))
