@@ -2283,6 +2283,7 @@ const enTranslations = [
   "This cloud identity is retired and cannot be restored.",
   "The status is indeterminate. No Note or identity change was requested.",
   "Status is unavailable. This does not prove that no prior copy exists.",
+  "Clear search and filters",
 ] as const;
 
 export default enTranslations;
