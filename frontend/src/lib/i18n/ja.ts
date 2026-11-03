@@ -2283,6 +2283,7 @@ const jaTranslations = [
   "このクラウドIDは退役済みで、復元できません。",
   "状態を確定できません。ノートやIDの変更は要求していません。",
   "状態を確認できません。過去のコピーが存在しないことを意味しません。",
+  "検索とフィルターをクリア",
 ] as const;
 
 export default jaTranslations;

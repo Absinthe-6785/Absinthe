@@ -463,14 +463,16 @@ describe('RecipeStudioView recovery surface', () => {
   });
 
   it.each([
-    ['en', 'No results', 'Try different keywords or clear the filter.'],
-    ['ko', '결과 없음', '다른 키워드를 시도하거나 필터를 지워보세요.'],
-    ['ja', '結果なし', '別のキーワードを試すか、フィルターをクリアしてください。'],
-  ])('shows localized filtered no-results feedback for an existing library (%s)', (language, title, description) => {
+    ['en', 'No results', 'Try different keywords or clear the filter.', 'Clear search and filters'],
+    ['ko', '결과 없음', '다른 키워드를 시도하거나 필터를 지워보세요.', '검색 및 필터 지우기'],
+    ['ja', '結果なし', '別のキーワードを試すか、フィルターをクリアしてください。', '検索とフィルターをクリア'],
+  ])('shows localized filtered no-results recovery for an existing library (%s)', (language, title, description, resetLabel) => {
     const onNewRecipe = vi.fn();
+    const recipes = [{ ...activeRecipe }];
+    const original = JSON.stringify(recipes);
     renderStudio(vi.fn(), {
       projection: populatedProjection,
-      recipes: [activeRecipe],
+      recipes,
       activeAvailability: 'READY_WITH_DATA',
       appSettings: { ...appSettings, language },
       onNewRecipe,
@@ -485,7 +487,13 @@ describe('RecipeStudioView recovery surface', () => {
     expect(noResults?.textContent).not.toContain('No recipes yet');
     expect(host!.querySelector('[data-k121-empty-state="recipe-list"]')).toBeNull();
     expect(host!.querySelector('[data-k110-recipe-studio]')?.getAttribute('data-recipe-empty')).toBe('false');
-    expect(noResults?.querySelector('button')).toBeNull();
+    const reset = noResults?.querySelector<HTMLButtonElement>('button');
+    expect(reset?.textContent).toBe(resetLabel);
+    act(() => reset?.click());
+    expect(host!.querySelector<HTMLInputElement>('[data-k110-recipe-search]')?.value).toBe('');
+    expect(visibleStudioRecipeIds()).toEqual(['recipe-active']);
+    expect(host!.querySelector('[data-k121-empty-state="recipe-filtered-no-results"]')).toBeNull();
+    expect(JSON.stringify(recipes)).toBe(original);
     expect(onNewRecipe).not.toHaveBeenCalled();
   });
 
@@ -501,7 +509,12 @@ describe('RecipeStudioView recovery surface', () => {
     expect(host!.querySelector('[data-k121-empty-state="recipe-filtered-no-results"]')).not.toBeNull();
     expect(host!.querySelector('[data-k121-empty-state="recipe-list"]')).toBeNull();
     expect(host!.querySelector('[data-k110-recipe-studio]')?.getAttribute('data-recipe-empty')).toBe('false');
-    expect(host!.querySelector('[data-k121-empty-state="recipe-filtered-no-results"] button')).toBeNull();
+    const noResults = host!.querySelector('[data-k121-empty-state="recipe-filtered-no-results"]');
+    const reset = noResults?.querySelector<HTMLButtonElement>('button');
+    expect(reset?.textContent).toBe('Clear search and filters');
+    act(() => reset?.click());
+    expect(visibleStudioRecipeIds()).toEqual(['recipe-active']);
+    expect(host!.querySelector('[data-k110-recipe-filters] button[data-selected="true"]')?.textContent?.trim()).toBe('All');
   });
 
   it('shows filtered no-results feedback when the starred-only filter excludes existing Recipes', () => {
@@ -516,30 +529,58 @@ describe('RecipeStudioView recovery surface', () => {
     expect(host!.querySelector('[data-k121-empty-state="recipe-filtered-no-results"]')).not.toBeNull();
     expect(host!.querySelector('[data-k121-empty-state="recipe-list"]')).toBeNull();
     expect(host!.querySelector('[data-k110-recipe-studio]')?.getAttribute('data-recipe-empty')).toBe('false');
-    expect(host!.querySelector('[data-k121-empty-state="recipe-filtered-no-results"] button')).toBeNull();
+    const noResults = host!.querySelector('[data-k121-empty-state="recipe-filtered-no-results"]');
+    const reset = noResults?.querySelector<HTMLButtonElement>('button');
+    expect(reset?.textContent).toBe('Clear search and filters');
+    act(() => reset?.click());
+    expect(visibleStudioRecipeIds()).toEqual(['recipe-active']);
+    expect(host!.querySelector<HTMLButtonElement>('.abs-recipe-star-filter')?.dataset.active).toBe('false');
   });
 
   it('combines filters, restores matching cards when cleared, and does not mutate source Recipes', () => {
     const recipes: Recipe[] = [
-      { ...activeRecipe, id: 'dessert-unstarred', title: 'Vanilla tart', category: 'Dessert', starred: false, memo: 'vanilla' },
-      { ...activeRecipe, id: 'other-starred', title: 'Roast vegetables', category: 'Other', starred: true, memo: 'herbs' },
+      { ...activeRecipe, id: 'dessert-unstarred', title: 'Vanilla tart', category: 'Dessert', starred: false, memo: 'vanilla', created_at: '2026-08-03T00:00:00Z' },
+      { ...activeRecipe, id: 'other-starred', title: 'Roast vegetables', category: 'Other', starred: true, memo: 'herbs', created_at: '2026-08-01T00:00:00Z' },
+      { ...activeRecipe, id: 'dessert-starred', title: 'Apple cake', category: 'Dessert', starred: true, memo: 'vanilla', created_at: '2026-08-02T00:00:00Z' },
     ];
     const original = JSON.stringify(recipes);
-    renderStudio(vi.fn(), { projection: populatedProjection, recipes, activeAvailability: 'READY_WITH_DATA' });
+    const onNewRecipe = vi.fn();
+    const onToggleExpand = vi.fn();
+    renderStudio(vi.fn(), {
+      projection: populatedProjection,
+      recipes,
+      activeAvailability: 'READY_WITH_DATA',
+      expandedId: 'dessert-unstarred',
+      onToggleExpand,
+      onNewRecipe,
+    });
 
-    setStudioSearch('vanilla');
+    setStudioSearch('vanilla tart');
     setStudioCategory('Dessert');
     toggleStudioStarredOnly();
+    const oldestSort = Array.from(host!.querySelectorAll<HTMLButtonElement>('.abs-recipe-sort-control button'))
+      .find(button => button.textContent?.trim() === '↑')!;
+    act(() => oldestSort.click());
+    act(() => host!.querySelector<HTMLButtonElement>('[data-k110-recipe-trash-toggle]')!.click());
+
     expect(visibleStudioRecipeIds()).toEqual([]);
     expect(host!.querySelector('[data-k121-empty-state="recipe-filtered-no-results"]')).not.toBeNull();
     expect(JSON.stringify(recipes)).toBe(original);
 
-    setStudioSearch('');
-    setStudioCategory('All');
-    toggleStudioStarredOnly();
-    expect(visibleStudioRecipeIds()).toEqual(['dessert-unstarred', 'other-starred']);
+    act(() => host!.querySelector<HTMLButtonElement>('[data-k121-empty-state="recipe-filtered-no-results"] button')!.click());
+
+    expect(visibleStudioRecipeIds()).toEqual(['other-starred', 'dessert-starred', 'dessert-unstarred']);
     expect(host!.querySelector('[data-k121-empty-state="recipe-filtered-no-results"]')).toBeNull();
+    expect(host!.querySelector<HTMLInputElement>('[data-k110-recipe-search]')?.value).toBe('');
+    expect(host!.querySelector('[data-k110-recipe-filters] button[data-selected="true"]')?.textContent?.trim()).toBe('All');
+    expect(host!.querySelector<HTMLButtonElement>('.abs-recipe-star-filter')?.dataset.active).toBe('false');
+    expect(oldestSort.getAttribute('data-selected')).toBe('true');
+    expect(host!.querySelector<HTMLButtonElement>('[data-k110-recipe-trash-toggle]')?.getAttribute('aria-expanded')).toBe('true');
+    expect(host!.querySelector('[data-k110-recipe-trash]')).not.toBeNull();
+    expect(host!.querySelector('[data-k110-recipe-card="dessert-unstarred"]')?.getAttribute('data-expanded')).toBe('true');
     expect(JSON.stringify(recipes)).toBe(original);
+    expect(onNewRecipe).not.toHaveBeenCalled();
+    expect(onToggleExpand).not.toHaveBeenCalled();
   });
 
   it('treats empty or missing textual fields as non-matching rather than throwing', () => {
@@ -611,11 +652,13 @@ describe('RecipeStudioView recovery surface', () => {
   it('does not render an empty library while active Recipes are loading', () => {
     renderStudio(vi.fn(), {
       activeAvailability: 'LOADING',
-      recipes: [],
+      recipes: [activeRecipe],
     });
+    setStudioSearch('no matching recipe');
 
     expect(host?.querySelector('[data-k121-empty-state="recipe-list"]')).toBeNull();
     expect(host?.querySelector('[data-k121-empty-state="recipe-filtered-no-results"]')).toBeNull();
+    expect(Array.from(host?.querySelectorAll<HTMLButtonElement>('button') ?? []).some(button => button.textContent?.trim() === 'Clear search and filters')).toBe(false);
     expect(host?.querySelector<HTMLButtonElement>('[data-k110-new-recipe]')?.disabled).toBe(true);
     expect(host?.querySelector('[data-k110-recipe-studio]')?.getAttribute('data-recipe-empty')).toBe('false');
     expandDerivedSections();
@@ -665,6 +708,7 @@ describe('RecipeStudioView recovery surface', () => {
     expect(host?.querySelector('[data-recipe-availability="active"][data-recipe-availability-stale="true"]')).not.toBeNull();
     expect(host?.querySelector('[data-k121-empty-state="recipe-list"]')).toBeNull();
     expect(host?.querySelector('[data-k121-empty-state="recipe-filtered-no-results"]')).toBeNull();
+    expect(Array.from(host?.querySelectorAll<HTMLButtonElement>('button') ?? []).some(button => button.textContent?.trim() === 'Clear search and filters')).toBe(false);
     expect(host?.querySelector<HTMLButtonElement>('[data-k110-new-recipe]')?.disabled).toBe(true);
   });
 
@@ -732,6 +776,7 @@ describe('RecipeStudioView recovery surface', () => {
     const emptyLibrary = host?.querySelector('[data-k121-empty-state="recipe-list"]');
     expect(emptyLibrary?.textContent).toContain('No recipes yet');
     expect(emptyLibrary?.querySelector('button')?.textContent).toContain('New Recipe');
+    expect(Array.from(emptyLibrary?.querySelectorAll<HTMLButtonElement>('button') ?? []).some(button => button.textContent?.trim() === 'Clear search and filters')).toBe(false);
     act(() => emptyLibrary?.querySelector<HTMLButtonElement>('button')?.click());
     expect(onNewRecipe).toHaveBeenCalledTimes(1);
   });

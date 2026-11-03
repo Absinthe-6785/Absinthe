@@ -8,14 +8,20 @@ import translationKeys, { buildLocaleDictionary } from './i18n/keys';
 import type { TranslationKey } from './i18n';
 
 const PLANNER_STORAGE_KEY = 'planner-storage';
-const EXPECTED_KEY_COUNT = 2_283;
+const EXPECTED_KEY_COUNT = 2_284;
 type Locale = 'en' | 'ko' | 'ja';
 
-// Current independent canonical authority, including append-only Notes UI, Wiki-link accessibility, cloud comparison and Cloud Copy status readback, local document downloads, and PDF/DOCX preview.
+// Current independent canonical authority, including append-only Notes UI, Wiki-link accessibility, cloud comparison and Cloud Copy status readback, local document downloads, PDF/DOCX preview, and Recipe filter reset.
 // The canonical serialization includes every key and exact locale value in
 // translationKeys order, so it detects insertion, omission, reordering, and
 // substitution without using buildLocaleDictionary.
 const EXPECTED_LOCALE_INTEGRITY_SHA256: Record<Locale, string> = {
+  en: '27cf1580060cf4f392a27d4f5c7cca918e90340963f167033ea4c26b6363693c',
+  ko: 'a5e84f10d9e98d84f6fcc2616d7f65cd1eec504b33c7f6cfe68bf0fbe51e2f4b',
+  ja: 'f7b7bca0a75a88a421663576dbc369f624d03cf1299a8ab8e00f3292b73ccc6e',
+};
+
+const PRE_RECIPE_FILTER_RESET_LOCALE_SHA256: Record<Locale, string> = {
   en: '7d91d5446bfb1916b84559b139d4b09baffc0ce476f52dc20b2d07bdb289f26f',
   ko: 'cf5f5266728609008ac93904799c623d9b2a1c18a89c89631d778e0b3984fa74',
   ja: '088486136a91e72bcabb3b76b094aed0fad1dd1399756377efaa5355d3080a67',
@@ -273,6 +279,20 @@ describe('i18n locale dictionaries', () => {
     ]);
   });
 
+  it('appends the Recipe filtered reset label without changing existing translations', () => {
+    const expected = {
+      en: 'Clear search and filters',
+      ko: '검색 및 필터 지우기',
+      ja: '検索とフィルターをクリア',
+    } as const;
+    for (const [locale, values] of [['en', enLocaleValues], ['ko', koLocaleValues], ['ja', jaLocaleValues]] as const) {
+      expect(localeIntegrityDigest(values.slice(0, 2_283), translationKeys.slice(0, 2_283)))
+        .toBe(PRE_RECIPE_FILTER_RESET_LOCALE_SHA256[locale]);
+      expect(buildLocaleDictionary(values).recipeClearSearchAndFilters).toBe(expected[locale]);
+    }
+    expect(translationKeys.slice(2_283)).toEqual(['recipeClearSearchAndFilters']);
+  });
+
   it('provides localized labels and truthful readback/download/preview feedback in all supported languages', () => {
     const expected = {
       en: ['Local document originals', 'Download original', 'Verifying original…', 'A download was requested in your browser. Check its downloads.', 'This original is unavailable or this Note/account context changed. No file was downloaded.', 'Local document originals are unavailable for this Note.', 'Preview PDF', 'PDF preview: {name}', 'If the PDF does not appear here, use Download original.', 'This PDF could not be previewed. You can still download the original.', 'Preview DOCX', 'DOCX preview: {name}', 'If the document does not appear here, use Download original.', 'This DOCX could not be previewed. You can still download the original.', 'Rendering DOCX preview…'],
@@ -292,10 +312,10 @@ describe('i18n locale dictionaries', () => {
     missing.splice(1_000, 1);
 
     expect(() => buildLocaleDictionary(missing)).toThrow(
-      'Locale dictionary length mismatch: expected 2283, received 2282',
+      'Locale dictionary length mismatch: expected 2284, received 2283',
     );
     expect(() => assertLocaleValuesIntegrity('en', missing)).toThrow(
-      'Locale integrity length mismatch: expected 2283, received 2282',
+      'Locale integrity length mismatch: expected 2284, received 2283',
     );
   });
 
@@ -304,10 +324,10 @@ describe('i18n locale dictionaries', () => {
     extra.splice(1_000, 0, '__unexpected__');
 
     expect(() => buildLocaleDictionary(extra)).toThrow(
-      'Locale dictionary length mismatch: expected 2283, received 2284',
+      'Locale dictionary length mismatch: expected 2284, received 2285',
     );
     expect(() => assertLocaleValuesIntegrity('en', extra)).toThrow(
-      'Locale integrity length mismatch: expected 2283, received 2284',
+      'Locale integrity length mismatch: expected 2284, received 2285',
     );
   });
 

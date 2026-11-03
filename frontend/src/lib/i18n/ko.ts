@@ -2283,6 +2283,7 @@ const koTranslations = [
   "이 클라우드 ID는 폐기되어 복원할 수 없습니다.",
   "상태를 확정할 수 없습니다. 노트나 ID 변경을 요청하지 않았습니다.",
   "상태를 확인할 수 없습니다. 과거 사본이 없다는 뜻은 아닙니다.",
+  "검색 및 필터 지우기",
 ] as const;
 
 export default koTranslations;

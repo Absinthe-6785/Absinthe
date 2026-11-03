@@ -272,6 +272,14 @@ export function RecipeStudioView({
                       icon={Search}
                       title={t('workspaceSearchNoResults')}
                       description={t('k99EmptySearchDesc')}
+                      primaryAction={{
+                        label: t('recipeClearSearchAndFilters'),
+                        onClick: () => {
+                          setSearchQuery('');
+                          setActiveCategory('All');
+                          setShowStarredOnly(false);
+                        },
+                      }}
                       dataHook="k121-recipe-filtered-no-results"
                       theme={theme}
                     />
