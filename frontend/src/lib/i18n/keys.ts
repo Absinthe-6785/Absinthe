@@ -2284,6 +2284,12 @@ const translationKeys = [
   "notesCloudCopyStatusIndeterminate",
   "notesCloudCopyStatusUnavailable",
   "recipeClearSearchAndFilters",
+  "refreshSchedules",
+  "refreshingSchedules",
+  "schedulesRefreshed",
+  "schedulesRefreshIncomplete",
+  "schedulesRefreshOffline",
+  "schedulesRefreshUnavailable",
 ] as const;
 
 export type TranslationKey = (typeof translationKeys)[number];

@@ -27,6 +27,7 @@ const mocks = vi.hoisted(() => {
     healthAsync: null as Promise<string> | null,
     workoutAuthorityStart: vi.fn(),
     workoutAuthorityCancel: vi.fn(),
+    selectedDayScheduleRefresh: vi.fn(),
   };
 });
 
@@ -79,6 +80,7 @@ vi.mock('../hooks/useDaily', () => ({
       schedules: [], todos: [], routines: [],
       workouts: mocks.dailyWorkoutOwner ? [{ id: `${mocks.dailyWorkoutOwner}-workout` }] : [], inbody: {},
       mutate: vi.fn(), mutateTodos: vi.fn(), mutateRoutines: vi.fn(), isLoading: mocks.dailyLoading,
+      revalidateSelectedDaySchedules: mocks.selectedDayScheduleRefresh,
     };
   },
 }));
@@ -109,6 +111,11 @@ vi.mock('./common/Sidebar', () => ({
       { type: 'button', 'data-testid': 'nav-recipe', onClick: () => setActiveTab('recipe') },
       'Recipe',
     ),
+    createElement(
+      'button',
+      { type: 'button', 'data-testid': 'nav-planner', onClick: () => setActiveTab('planner') },
+      'Planner',
+    ),
   ),
 }));
 vi.mock('./common/ViewLoadingFallback', () => ({
@@ -122,7 +129,15 @@ vi.mock('./views/HomeView', () => ({ HomeView: ({ onOpenRecipe }: { onOpenRecipe
     type: 'button', 'data-testid': 'home-open-recipe', onClick: () => onOpenRecipe?.('exact-recipe-id'),
   }, 'Open recipe'),
 ) }));
-vi.mock('./views/PlannerView', () => ({ PlannerView: () => null }));
+vi.mock('./views/PlannerView', () => ({ PlannerView: ({
+  revalidateSelectedDaySchedules,
+}: {
+  revalidateSelectedDaySchedules?: (accountId: string, dateKey: string, isStillCurrent: () => boolean) => void;
+}) => createElement('button', {
+  type: 'button',
+  'data-testid': 'planner-revalidation-prop',
+  onClick: () => revalidateSelectedDaySchedules?.('planner-prop-account', '2026-01-01', () => true),
+}, 'Refresh schedules') }));
 vi.mock('./views/HealthView', () => ({ HealthView: ({ user, workouts }: { user: { id: string }; workouts: Array<{ id: string }> }) => {
     const draft = useHealthWorkoutDraft({ accountId: user.id, dateKey: '2026-01-01' });
     const [transient, setTransient] = useState('');
@@ -217,6 +232,7 @@ describe('AppContent startup lifecycle integration', () => {
     mocks.healthAsync = null;
     mocks.workoutAuthorityStart.mockReset().mockResolvedValue({ kind: 'retry_later' });
     mocks.workoutAuthorityCancel.mockReset();
+    mocks.selectedDayScheduleRefresh.mockReset();
     container = document.createElement('div');
     document.body.appendChild(container);
   });
@@ -281,6 +297,25 @@ describe('AppContent startup lifecycle integration', () => {
     expect(recipeView?.getAttribute('data-recipe-id')).toBe('exact-recipe-id');
     expect(recipeView?.getAttribute('data-request-id')).not.toBe('');
     expect(recipeView?.getAttribute('data-consume-request')).toBe('available');
+  });
+
+  it('passes the selected-day Schedule revalidator from the daily owner to PlannerView unchanged', async () => {
+    const { AppContent } = await import('./AppContent');
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(createElement(AppContent, { authUser: user('schedule-refresh-account') }));
+    });
+    await flushStartup();
+
+    await act(async () => {
+      (container!.querySelector('[data-testid="nav-planner"]') as HTMLButtonElement).click();
+    });
+    const invokeRefresh = container!.querySelector<HTMLButtonElement>('[data-testid="planner-revalidation-prop"]');
+    expect(invokeRefresh).not.toBeNull();
+    await act(async () => invokeRefresh!.click());
+    expect(mocks.selectedDayScheduleRefresh).toHaveBeenCalledExactlyOnceWith(
+      'planner-prop-account', '2026-01-01', expect.any(Function),
+    );
   });
 
   it('does not replay an unconsumed Home recipe request after account A -> B -> A', async () => {
