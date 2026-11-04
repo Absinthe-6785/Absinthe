@@ -2284,6 +2284,12 @@ const enTranslations = [
   "The status is indeterminate. No Note or identity change was requested.",
   "Status is unavailable. This does not prove that no prior copy exists.",
   "Clear search and filters",
+  "Refresh schedules",
+  "Refreshing schedules…",
+  "Schedules refreshed.",
+  "Some schedule sources could not be refreshed. Their previous data was kept.",
+  "You're offline. Existing schedules were kept.",
+  "Schedule refresh is unavailable right now.",
 ] as const;
 
 export default enTranslations;

@@ -427,6 +427,7 @@ export function AppContent({ authUser }: { authUser: User }) {
   const {
     schedules, isScheduleLoading, todos, todosState, routines, workouts, inbody,
     mutate: mutateDaily,
+    revalidateSelectedDaySchedules,
     mutateTodos, mutateRoutines,
     isLoading: isDailyLoading,
   // AppContent owns the shell hook; only consumer-driven candidates are gated.
@@ -657,6 +658,7 @@ export function AppContent({ authUser }: { authUser: User }) {
             onOpenScheduleTarget={openScheduleFromHome} />}
           {activeTab === 'planner'   && <PlannerView key={authUser.id} {...globalProps}
             isScheduleLoading={isScheduleLoading}
+            revalidateSelectedDaySchedules={revalidateSelectedDaySchedules}
             scheduleNavigationRequest={
               scheduleNavigationRequest?.accountId === authUser.id
                 && scheduleNavigationRequest.accountGeneration === scheduleNavigationGeneration

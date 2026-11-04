@@ -1,8 +1,8 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
 import useSWR, { useSWRConfig } from 'swr';
 import { isLocalOnlyRemotePausedError } from '../lib/fetcher';
 import { API_URL } from '../lib/config';
-import { remoteSWRKey } from '../lib/remoteBoundary';
+import { remoteSWRKey, runtimeAccountSyncAccountId } from '../lib/remoteBoundary';
 import {
   accountBoundRemoteFetcher,
   accountBoundRemoteKey,
@@ -25,12 +25,20 @@ export interface UseDailyDataResult {
   mutate: () => void;
   /** Schedule-specific readiness for date-targeted navigation. */
   isScheduleLoading: boolean;
+  /** Explicit, account/date-fenced refresh of the selected-day Schedule snapshot. */
+  revalidateSelectedDaySchedules: SelectedDayScheduleRevalidator;
   /** todos만 optimistic 업데이트용 */
   mutateTodos: (updater: (cur: Todo[]) => Todo[], revalidate?: boolean) => void;
   /** routines만 optimistic 업데이트용 */
   mutateRoutines: (updater: (cur: Routine[]) => Routine[], revalidate?: boolean) => void;
   isLoading: boolean;
 }
+
+export type SelectedDayScheduleRevalidator = (
+  accountId: string,
+  dateKey: string,
+  isStillCurrent: () => boolean,
+) => Promise<void>;
 
 export type AccountBoundTodoKey = AccountBoundRemoteKey;
 
@@ -104,6 +112,19 @@ export const useDailyData = (
   const routinesKey = accountBoundRemoteKey(`${base}/routines_with_logs?date=${dateStr}`, accountId, 'planner_routines');
   const workoutsKey = accountBoundRemoteKey(`${base}/workouts?date=${dateStr}`, accountId, 'health_workouts', !localMode);
 
+  const scheduleContextRef = useRef({ accountId, dateStr, key: schedulesKey, generation: 0 });
+  const previousScheduleContext = scheduleContextRef.current;
+  if (previousScheduleContext.accountId !== accountId
+    || previousScheduleContext.dateStr !== dateStr
+    || previousScheduleContext.key !== schedulesKey) {
+    scheduleContextRef.current = {
+      accountId,
+      dateStr,
+      key: schedulesKey,
+      generation: previousScheduleContext.generation + 1,
+    };
+  }
+
   const { mutate: globalMutate } = useSWRConfig();
 
   // onError 콜백만 useMemo로 메모이제이션 (showToast는 useCallback으로 안정됨)
@@ -122,6 +143,33 @@ export const useDailyData = (
 
   const { data: schedules = [], mutate: mutateSchedules, isLoading: l1 } =
     useSWR<Schedule[], AccountBoundRemoteKey | null>(schedulesKey, accountBoundRemoteFetcher, swrOpts);
+
+  const revalidateSelectedDaySchedules = useCallback<SelectedDayScheduleRevalidator>(async (
+    expectedAccountId,
+    expectedDateKey,
+    isStillCurrent,
+  ) => {
+    const requestContext = scheduleContextRef.current;
+    if (requestContext.accountId !== expectedAccountId
+      || requestContext.dateStr !== expectedDateKey
+      || runtimeAccountSyncAccountId() !== expectedAccountId
+      || requestContext.key === null
+      || !isStillCurrent()) {
+      throw new Error('Selected-day Schedule refresh is no longer available.');
+    }
+
+    const freshSchedules = await accountBoundRemoteFetcher<Schedule[]>(requestContext.key);
+    if (!Array.isArray(freshSchedules)) throw new Error('Invalid selected-day Schedule response.');
+    if (scheduleContextRef.current !== requestContext
+      || runtimeAccountSyncAccountId() !== expectedAccountId
+      || !isStillCurrent()) {
+      throw new Error('Selected-day Schedule refresh became stale.');
+    }
+
+    // Publish only to this hook's account/date-bound SWR key after an
+    // authoritative GET succeeds; a failed or stale response leaves cache intact.
+    await mutateSchedules(freshSchedules, { revalidate: false });
+  }, [mutateSchedules]);
 
   const {
     data: todosData,
@@ -224,6 +272,7 @@ export const useDailyData = (
     inbody: localMode ? localHealth?.inbody ?? { weight: 0, smm: 0, pbf: 0 } : inbodyRaw?.[0] ?? { weight: 0, smm: 0, pbf: 0 },
     mutate,
     isScheduleLoading: l1,
+    revalidateSelectedDaySchedules,
     mutateTodos,
     mutateRoutines,
     // Search-deferred todo loading is intentionally excluded from the global

@@ -1,8 +1,9 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
-import useSWR from 'swr';
+import useSWR, { type KeyedMutator } from 'swr';
 import { API_URL } from '../../lib/config';
-import { accountBoundRemoteFetcher, accountBoundRemoteKey } from '../../lib/accountBoundRemote';
-import { X, Calendar } from 'lucide-react';
+import { accountBoundRemoteFetcher, accountBoundRemoteKey, type AccountBoundRemoteKey } from '../../lib/accountBoundRemote';
+import { runtimeAccountSyncAccountId } from '../../lib/remoteBoundary';
+import { X, Calendar, RefreshCw } from 'lucide-react';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useEscapeKey } from '../../hooks/useEscapeKey';
 import { useApiMutation } from '../../hooks/useApiMutation';
@@ -23,6 +24,7 @@ import { recordPlannerActivity, validPlannerEventDate } from './features/planner
 import { ScheduleEventDetailPanel } from './features/planner/calendar-ui/day/ScheduleEventDetailPanel';
 import { formatLongDateKey } from './k102DateFormat';
 import type { PlannerScheduleRow } from './features/planner/calendar';
+import type { SelectedDayScheduleRevalidator } from '../../hooks/useDaily';
 
 type ScheduleDday = Schedule & { date: string };
 
@@ -35,9 +37,25 @@ export interface ScheduleNavigationRequest {
 }
 
 type ScheduleDetailTarget = Readonly<{ id: string; eventDate?: string }>;
+type ScheduleRefreshStatus = 'refreshing' | 'success' | 'incomplete' | 'offline' | 'unavailable';
+type ScheduleRefreshContext = Readonly<{ accountId: string | undefined; dateKey: string; generation: number }>;
+type ScheduleRefreshFlight = Readonly<{ context: ScheduleRefreshContext }>;
+
+async function refreshScheduleCache<T>(
+  key: AccountBoundRemoteKey | null,
+  mutate: KeyedMutator<T>,
+  isCurrent: () => boolean,
+): Promise<void> {
+  if (!key || !isCurrent()) throw new Error('Schedule refresh source is unavailable.');
+  const freshData = await accountBoundRemoteFetcher<T>(key);
+  if (!Array.isArray(freshData)) throw new Error('Invalid Schedule refresh response.');
+  if (!isCurrent()) throw new Error('Schedule refresh source became stale.');
+  await mutate(freshData, { revalidate: false });
+}
 
 export type PlannerViewProps = PlannerProps & Readonly<{
   isScheduleLoading?: boolean;
+  revalidateSelectedDaySchedules?: SelectedDayScheduleRevalidator;
   scheduleNavigationRequest?: ScheduleNavigationRequest;
   scheduleNavigationGeneration?: number;
   onScheduleNavigationConsumed?: (requestId: number) => void;
@@ -74,12 +92,34 @@ export const PlannerView = ({
   appSettings, schedules, todos, weeklySchedules, theme, THEME_COLORS,
   user,
   isScheduleLoading = false,
+  revalidateSelectedDaySchedules,
   scheduleNavigationRequest,
   scheduleNavigationGeneration = 0,
   onScheduleNavigationConsumed,
 }: PlannerViewProps) => {
   const { t, lang } = useTranslation();
   const accountId = user?.id;
+  const selectedDateKey = formatDate(selectedDate);
+  const scheduleRefreshContextRef = useRef<ScheduleRefreshContext>({
+    accountId,
+    dateKey: selectedDateKey,
+    generation: 0,
+  });
+  const previousRefreshContext = scheduleRefreshContextRef.current;
+  if (previousRefreshContext.accountId !== accountId || previousRefreshContext.dateKey !== selectedDateKey) {
+    scheduleRefreshContextRef.current = {
+      accountId,
+      dateKey: selectedDateKey,
+      generation: previousRefreshContext.generation + 1,
+    };
+  }
+  const scheduleRefreshFlightRef = useRef<ScheduleRefreshFlight | null>(null);
+  const scheduleRefreshMountedRef = useRef(false);
+  const [scheduleRefreshFlight, setScheduleRefreshFlight] = useState<ScheduleRefreshFlight | null>(null);
+  const [scheduleRefreshState, setScheduleRefreshState] = useState<Readonly<{
+    context: ScheduleRefreshContext;
+    status: ScheduleRefreshStatus;
+  }> | null>(null);
   const { mutate: api } = useApiMutation(mutateDaily, mutateStatic, showToast);
   const { confirm, showConfirm, clearConfirm, handleConfirm } = useConfirm();
 
@@ -133,17 +173,82 @@ export const PlannerView = ({
     return d;
   }, [selectedDate]);
   const prevDateStr = useMemo(() => formatDate(prevDate), [prevDate, formatDate]);
-  const { data: prevSchedules = [] } = useSWR<Schedule[]>(
-    accountBoundRemoteKey(`${API_URL}/api/schedules?date=${prevDateStr}`, accountId, 'planner_events'),
+  const prevSchedulesKey = accountBoundRemoteKey(`${API_URL}/api/schedules?date=${prevDateStr}`, accountId, 'planner_events');
+  const { data: prevSchedules = [], mutate: mutatePreviousSchedules } = useSWR<Schedule[]>(
+    prevSchedulesKey,
     accountBoundRemoteFetcher,
     { revalidateOnFocus: false }
   );
+  const ddaySchedulesKey = accountBoundRemoteKey(`${API_URL}/api/schedules/ddays`, accountId, 'planner_ddays');
   const { data: ddayData, mutate: mutateDdaySchedules, isLoading: isDdayLoading } = useSWR<ScheduleDday[]>(
-    accountBoundRemoteKey(`${API_URL}/api/schedules/ddays`, accountId, 'planner_ddays'),
+    ddaySchedulesKey,
     accountBoundRemoteFetcher,
     { revalidateOnFocus: false },
   );
   const ddaySchedules = ddayData ?? [];
+
+  useEffect(() => {
+    scheduleRefreshMountedRef.current = true;
+    return () => {
+      scheduleRefreshMountedRef.current = false;
+      scheduleRefreshFlightRef.current = null;
+    };
+  }, []);
+
+  const refreshSchedules = useCallback(() => {
+    const context = scheduleRefreshContextRef.current;
+    if (scheduleRefreshFlightRef.current?.context === context) return;
+
+    const setStatus = (status: ScheduleRefreshStatus) => setScheduleRefreshState({ context, status });
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      setStatus('offline');
+      return;
+    }
+    if (!context.accountId || runtimeAccountSyncAccountId() !== context.accountId
+      || !revalidateSelectedDaySchedules || !prevSchedulesKey || !ddaySchedulesKey) {
+      setStatus('unavailable');
+      return;
+    }
+
+    const flight: ScheduleRefreshFlight = { context };
+    scheduleRefreshFlightRef.current = flight;
+    setScheduleRefreshFlight(flight);
+    const isCurrent = () => scheduleRefreshMountedRef.current
+      && runtimeAccountSyncAccountId() === context.accountId
+      && scheduleRefreshContextRef.current === context
+      && scheduleRefreshFlightRef.current === flight;
+    setStatus('refreshing');
+
+    void (async () => {
+      try {
+        const outcomes = await Promise.allSettled([
+          Promise.resolve().then(() => revalidateSelectedDaySchedules(context.accountId!, context.dateKey, isCurrent)),
+          refreshScheduleCache(prevSchedulesKey, mutatePreviousSchedules, isCurrent),
+          refreshScheduleCache(ddaySchedulesKey, mutateDdaySchedules, isCurrent),
+        ]);
+        if (!isCurrent()) return;
+        setStatus(outcomes.every(outcome => outcome.status === 'fulfilled') ? 'success' : 'incomplete');
+      } finally {
+        if (scheduleRefreshMountedRef.current && scheduleRefreshFlightRef.current === flight) {
+          scheduleRefreshFlightRef.current = null;
+          setScheduleRefreshFlight(null);
+        }
+      }
+    })();
+  }, [ddaySchedulesKey, mutateDdaySchedules, mutatePreviousSchedules, prevSchedulesKey, revalidateSelectedDaySchedules]);
+
+  const visibleRefreshStatus = scheduleRefreshState?.context === scheduleRefreshContextRef.current
+    && runtimeAccountSyncAccountId() === scheduleRefreshState.context.accountId
+    ? scheduleRefreshState.status
+    : null;
+  const isScheduleRefreshInFlight = scheduleRefreshFlight?.context === scheduleRefreshContextRef.current;
+  const refreshStatusMessageKey = visibleRefreshStatus ? ({
+    refreshing: 'refreshingSchedules',
+    success: 'schedulesRefreshed',
+    incomplete: 'schedulesRefreshIncomplete',
+    offline: 'schedulesRefreshOffline',
+    unavailable: 'schedulesRefreshUnavailable',
+  } as const)[visibleRefreshStatus] : null;
   // 전날 일정 — calendar projection carry-over
 
   useEscapeKey(() => {
@@ -373,7 +478,26 @@ export const PlannerView = ({
           icon={Calendar}
           theme={theme}
           dark={appSettings.darkMode}
+          trailing={(
+            <button
+              type="button"
+              onClick={refreshSchedules}
+              disabled={!accountId || !revalidateSelectedDaySchedules || isScheduleRefreshInFlight}
+              aria-label={t('refreshSchedules')}
+              aria-busy={visibleRefreshStatus === 'refreshing'}
+              data-schedule-manual-refresh
+              className={`inline-flex min-h-10 items-center gap-2 rounded-xl border px-3 text-sm font-semibold transition-colors ${theme.border} ${theme.text} ${theme.hoverBg} disabled:cursor-not-allowed disabled:opacity-60`}
+            >
+              <RefreshCw size={16} aria-hidden="true" className={visibleRefreshStatus === 'refreshing' ? 'animate-spin' : ''} />
+              <span>{t('refreshSchedules')}</span>
+            </button>
+          )}
         />
+        {refreshStatusMessageKey && (
+          <p role="status" aria-live="polite" aria-atomic="true" className={`mt-1 text-xs ${theme.textMuted}`} data-schedule-refresh-status={visibleRefreshStatus}>
+            {t(refreshStatusMessageKey)}
+          </p>
+        )}
       </div>
       <CalendarShell
         now={now}
