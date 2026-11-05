@@ -1,8 +1,11 @@
 // @vitest-environment happy-dom
 import { act, createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { createRoot } from 'react-dom/client';
 import { describe, expect, it, vi } from 'vitest';
 import { GoogleDriveManualConnectionPanel } from './GoogleDriveManualConnectionPanel';
+import { GoogleDriveRuntimeConnectionPanel } from './GoogleDriveRuntimeConnectionPanel';
+import { googleDriveSessionRuntime } from '../../../lib/googleDriveSessionRuntime';
 import type { GoogleDriveSessionConnectionController } from '../../../lib/googleDriveSessionConnectionController';
 import { resolveRemoteProviderConnectionBoundary } from '../../../lib/remoteProviderConnectionStatus';
 import type { NoteChromeColors } from '../noteEditorTheme';
@@ -37,6 +40,18 @@ function button(host: HTMLElement, label: string) {
   return [...host.querySelectorAll('button')].find(value => value.textContent === label)!;
 }
 describe('manual Drive UI lifecycle', () => {
+  it('uses a connection-free server snapshot during static rendering', () => {
+    const authenticatedSnapshot = {
+      ...googleDriveSessionRuntime.getSnapshot(), accountId: 'ssr-account', generation: 99, controller: controller(),
+    };
+    const clientSnapshot = vi.spyOn(googleDriveSessionRuntime, 'getSnapshot').mockReturnValue(authenticatedSnapshot);
+    try {
+      expect(renderToStaticMarkup(createElement(GoogleDriveRuntimeConnectionPanel, { accountId: 'ssr-account', colors }))).toBe('');
+    } finally {
+      clientSnapshot.mockRestore();
+    }
+  });
+
   it('does not expose late status results from the previous controller', async () => {
     const ui = setup();
     try {
