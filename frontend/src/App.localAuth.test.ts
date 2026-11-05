@@ -5,11 +5,28 @@ import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NOTES_RUNTIME_SYNC_MODE_KEY } from './lib/notesSyncClient';
 import { runtimeAccountSyncAvailability } from './lib/remoteBoundary';
+import { googleDriveSessionRuntime } from './lib/googleDriveSessionRuntime';
+import { GOOGLE_DRIVE_APP_DATA_SCOPE } from './lib/googleDriveOAuthAuthorization';
 import { createMockSupabaseAuthResponse } from './test-utils/auth/mockSupabaseAuthSession';
 
 const getSessionMock = vi.fn();
 const onAuthStateChangeMock = vi.fn();
 const signOutMock = vi.fn();
+
+vi.mock('./lib/googleDriveSessionRuntime', async importOriginal => {
+  const original = await importOriginal<typeof import('./lib/googleDriveSessionRuntime')>();
+  const redirectUri = 'https://qa.example/oauth/google-drive/callback.html';
+  const runtime = original.createGoogleDriveSessionRuntime({
+    clientId: 'test-client.apps.googleusercontent.com', redirectUri, allowedRedirectUris: [redirectUri],
+  }, async () => ({
+    ok: true, status: 200,
+    text: async () => JSON.stringify({
+      access_token: 'drive-test-token', token_type: 'Bearer', expires_in: 3600,
+      scope: 'https://www.googleapis.com/auth/drive.appdata',
+    }),
+  }));
+  return { ...original, googleDriveSessionRuntime: runtime, replaceGoogleDriveRuntimeAccount: (accountId: string | null) => runtime.replaceAccount(accountId) };
+});
 
 vi.mock('./lib/supabase', () => ({
   supabase: {
@@ -31,6 +48,40 @@ vi.mock('./components/views/LoginScreen', () => ({
 }));
 
 describe('App local-only auth gate', () => {
+  it('invalidates the Drive owner on actual same-account session replacement and A-B-A', async () => {
+    const { default: App } = await import('./App');
+    await act(async () => { root?.render(createElement(App)); });
+    const notify = onAuthStateChangeMock.mock.calls[0][0];
+    await act(async () => { notify('SIGNED_IN', { user: { id: 'A' }, access_token: 'session-A-1' }); });
+    const first = googleDriveSessionRuntime.getSnapshot();
+    expect(first.accountId).toBe('A');
+    await act(async () => { notify('TOKEN_REFRESHED', { user: { id: 'A' }, access_token: 'session-A-2' }); });
+    expect(googleDriveSessionRuntime.getSnapshot().generation).toBeGreaterThan(first.generation);
+    await act(async () => {
+      notify('SIGNED_IN', { user: { id: 'B' }, access_token: 'session-B-1' });
+      notify('SIGNED_IN', { user: { id: 'A' }, access_token: 'session-A-2' });
+    });
+    expect(googleDriveSessionRuntime.getSnapshot().generation).toBeGreaterThan(first.generation + 1);
+    await act(async () => { notify('SIGNED_OUT', null); });
+    expect(googleDriveSessionRuntime.getSnapshot()).toMatchObject({ accountId: null, controller: null });
+  });
+
+  it('preserves pending PKCE when tab return repeats SIGNED_IN for the same authenticated session', async () => {
+    const { default: App } = await import('./App');
+    await act(async () => { root?.render(createElement(App)); });
+    const notify = onAuthStateChangeMock.mock.calls[0][0];
+    const session = { user: { id: 'A' }, access_token: 'unchanged-absinthe-session' };
+    await act(async () => { notify('SIGNED_IN', session); });
+    const owner = googleDriveSessionRuntime.getSnapshot();
+    const pending = await owner.controller!.startAuthorization();
+    if (pending.status !== 'authorization_url_created') throw new Error('expected pending OAuth');
+    await act(async () => { notify('SIGNED_IN', { ...session, user: { id: 'A' } }); });
+    expect(googleDriveSessionRuntime.getSnapshot()).toBe(owner);
+    expect(await owner.controller!.completeCallback(
+      'https://qa.example/oauth/google-drive/callback.html?code=test-code&state=' + encodeURIComponent(pending.state)
+        + '&scope=' + encodeURIComponent(GOOGLE_DRIVE_APP_DATA_SCOPE),
+    )).toMatchObject({ status: 'connected', connectionStatus: { canUpload: false, canRecover: false } });
+  });
   let root: Root | null = null;
   let container: HTMLDivElement | null = null;
 

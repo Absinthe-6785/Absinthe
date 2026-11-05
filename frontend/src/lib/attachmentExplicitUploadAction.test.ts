@@ -13,6 +13,8 @@ import type {
   RemoteBlobUploadResult,
 } from './remoteBlobProvider';
 import { sanitizeRemoteBlobProviderError } from './remoteBlobProvider';
+import { checksumLocalAttachmentBytes } from './localImageAttachments';
+import { GoogleDriveBlobAdapter } from './googleDriveBlobAdapter';
 
 function metadata(overrides: Partial<AttachmentMetadata> = {}): AttachmentMetadata {
   return {
@@ -127,9 +129,7 @@ function remoteProvider(upload?: (input: RemoteBlobUploadInput) => Promise<Remot
       syncedAt: '2026-06-28T00:02:00.000Z',
     }))),
     async getBlobInfo() { return null; },
-    downloadBlob: vi.fn(async () => {
-      throw new Error('not used');
-    }),
+    downloadBlob: vi.fn(async () => new Blob(['hello'], { type: 'text/plain' })),
   };
 }
 
@@ -145,6 +145,189 @@ const fixedNow = (() => {
 });
 
 describe('explicit attachment upload action', () => {
+  it.each([401, 403])('classifies explicit session HTTP %s rejection before content upload as definitive', async status => {
+    const fetcher = vi.fn(async () => new Response(null, { status }));
+    const provider = new GoogleDriveBlobAdapter({
+      accessTokenProvider: { getAccessToken: async () => 'test-only-token' }, fetcher,
+    });
+    const repository = memoryRepository([metadata()]);
+    const input = {
+      attachmentRepository: repository, localBlobAdapter: memoryBlobAdapter({ 'local/att-1': new Blob(['hello']) }),
+      remoteProvider: provider, attachmentId: 'att-1',
+    };
+    expect(await uploadAttachmentBlobToRemote(input)).toMatchObject({
+      status: 'failed', outcome: 'definitive_failure',
+    });
+    expect(repository.records.get('att-1')?.remoteError).toContain('definitive_failure');
+    expect((await uploadAttachmentBlobToRemote(input)).status).toBe('blocked');
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher.mock.calls[0]).toBeDefined();
+  });
+
+  it.each(['match', 'different-bytes', 'lost-completion', 'readback-forbidden'])(
+    'executes the real Drive adapter with mocked transport: %s', async scenario => {
+      const calls: string[] = [];
+      const fetcher = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+        calls.push(init?.method ?? 'GET');
+        if (init?.method === 'POST') return new Response(null, { headers: { Location: 'https://www.googleapis.com/upload/drive/v3/files?upload_id=test' } });
+        if (init?.method === 'PUT') {
+          if (scenario === 'lost-completion') throw new Error('completion response lost');
+          return new Response(JSON.stringify({ id: 'drive-file-1', size: '5' }));
+        }
+        if (scenario === 'readback-forbidden') return new Response(null, { status: 403 });
+        return new Response(scenario === 'different-bytes' ? 'other' : 'hello');
+      });
+      const provider = new GoogleDriveBlobAdapter({
+        accessTokenProvider: { getAccessToken: async () => 'test-only-token' }, fetcher,
+      });
+      const repository = memoryRepository([metadata()]);
+      const blobs = memoryBlobAdapter({ 'local/att-1': new Blob(['hello']) });
+      const input = { attachmentRepository: repository, localBlobAdapter: blobs, remoteProvider: provider, attachmentId: 'att-1' };
+      const result = await uploadAttachmentBlobToRemote(input);
+      const expected = {
+        match: ['uploaded', 'verified_remote_content'],
+        'different-bytes': ['failed', 'definitive_failure'],
+        'lost-completion': ['failed', 'indeterminate'],
+        'readback-forbidden': ['failed', 'verification_unavailable'],
+      }[scenario]!;
+      expect([result.status, result.outcome]).toEqual(expected);
+      expect(calls).toEqual(scenario === 'lost-completion' ? ['POST', 'PUT'] : ['POST', 'PUT', 'GET']);
+      expect((await uploadAttachmentBlobToRemote(input)).status).toBe('blocked');
+      expect(await (await blobs.getBlob('local/att-1'))?.blob.text()).toBe('hello');
+      expect(blobs.deleteBlob).not.toHaveBeenCalled();
+    },
+  );
+
+  it('does not overwrite newer attachment state when readback fails', async () => {
+    const repository = memoryRepository([metadata()]);
+    const provider = remoteProvider();
+    provider.downloadBlob.mockImplementation(async () => {
+      await repository.updateAttachment('att-1', { localBlobKey: 'local/newer', updatedAt: 'newer' });
+      throw new Error('readback failed');
+    });
+    expect(await uploadAttachmentBlobToRemote({
+      attachmentRepository: repository, localBlobAdapter: memoryBlobAdapter({ 'local/att-1': new Blob(['hello']) }),
+      remoteProvider: provider, attachmentId: 'att-1',
+    })).toMatchObject({ status: 'failed', outcome: 'verification_unavailable' });
+    expect(repository.records.get('att-1')).toMatchObject({ localBlobKey: 'local/newer', updatedAt: 'newer' });
+  });
+
+  it.each(['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'])(
+    'requires independent SHA-256 readback for %s without changing original bytes', async mimeType => {
+      const original = new Blob(['hello'], { type: mimeType });
+      const checksum = await checksumLocalAttachmentBytes(await original.arrayBuffer());
+      const repository = memoryRepository([metadata({ mimeType, checksum })]);
+      const blobs = memoryBlobAdapter({ 'local/att-1': original });
+      const provider = remoteProvider();
+      const result = await uploadAttachmentBlobToRemote({
+        attachmentRepository: repository, localBlobAdapter: blobs, remoteProvider: provider, attachmentId: 'att-1',
+      });
+      expect(result).toMatchObject({
+        status: 'uploaded', outcome: 'verified_remote_content',
+        verification: { checksumAlgorithm: 'sha256', checksumVerified: true, sizeVerified: true },
+      });
+      expect(provider.downloadBlob).toHaveBeenCalledWith(expect.objectContaining({
+        remoteFileId: 'drive-file-1', attachmentId: 'att-1', expectedChecksum: checksum,
+      }));
+      expect(await original.text()).toBe('hello');
+      expect(blobs.deleteBlob).not.toHaveBeenCalled();
+      expect(repository.records.get('att-1')?.checksum).toBe(checksum);
+    },
+  );
+
+  it('rejects same-size different bytes despite successful upload metadata and blocks retry', async () => {
+    const repository = memoryRepository([metadata()]);
+    const blobs = memoryBlobAdapter({ 'local/att-1': new Blob(['hello']) });
+    const provider = remoteProvider();
+    provider.downloadBlob.mockResolvedValue(new Blob(['other']));
+    const input = { attachmentRepository: repository, localBlobAdapter: blobs, remoteProvider: provider, attachmentId: 'att-1' };
+    const result = await uploadAttachmentBlobToRemote(input);
+    expect(result).toMatchObject({ status: 'failed', outcome: 'definitive_failure', verification: {
+      sizeVerified: true, checksumVerified: false, checksumAlgorithm: 'sha256',
+    } });
+    expect(repository.records.get('att-1')?.remoteSyncStatus).toBe('failed');
+    expect((await uploadAttachmentBlobToRemote(input)).status).toBe('blocked');
+    expect(provider.uploadBlob).toHaveBeenCalledTimes(1);
+    expect(await (await blobs.getBlob('local/att-1'))?.blob.text()).toBe('hello');
+    expect(blobs.deleteBlob).not.toHaveBeenCalled();
+  });
+
+  it.each(['lost-response', 'missing-id'])('keeps %s indeterminate and prevents blind repetition', async scenario => {
+    const repository = memoryRepository([metadata()]);
+    const blobs = memoryBlobAdapter({ 'local/att-1': new Blob(['hello']) });
+    const provider = remoteProvider(async input => {
+      if (scenario === 'lost-response') throw new Error('connection lost after final upload');
+      return { providerType: 'googleDrive', attachmentId: input.attachmentId, syncedAt: '', remoteSize: 5 };
+    });
+    const input = { attachmentRepository: repository, localBlobAdapter: blobs, remoteProvider: provider, attachmentId: 'att-1' };
+    expect(await uploadAttachmentBlobToRemote(input)).toMatchObject({ status: 'failed', outcome: 'indeterminate' });
+    expect(repository.records.get('att-1')?.remoteError).toContain('indeterminate');
+    expect((await uploadAttachmentBlobToRemote(input)).status).toBe('blocked');
+    expect(provider.uploadBlob).toHaveBeenCalledTimes(1);
+    expect(provider.downloadBlob).not.toHaveBeenCalled();
+  });
+
+  it.each(['permission denied', 'token expired'])('reports unavailable verification on readback %s', async message => {
+    const repository = memoryRepository([metadata()]);
+    const blobs = memoryBlobAdapter({ 'local/att-1': new Blob(['hello']) });
+    const provider = remoteProvider();
+    provider.downloadBlob.mockRejectedValue(new Error(message));
+    const input = { attachmentRepository: repository, localBlobAdapter: blobs, remoteProvider: provider, attachmentId: 'att-1' };
+    expect(await uploadAttachmentBlobToRemote(input)).toMatchObject({
+      status: 'failed', outcome: 'verification_unavailable', remoteFileId: 'drive-file-1',
+    });
+    expect((await uploadAttachmentBlobToRemote(input)).status).toBe('blocked');
+    expect(blobs.deleteBlob).not.toHaveBeenCalled();
+  });
+
+  it('bounds a hanging readback without a second upload or late success', async () => {
+    vi.useFakeTimers();
+    try {
+      const repository = memoryRepository([metadata()]);
+      const provider = remoteProvider();
+      let resolve!: (blob: Blob) => void;
+      provider.downloadBlob.mockImplementation(() => new Promise<Blob>(done => { resolve = done; }));
+      const pending = uploadAttachmentBlobToRemote({
+        attachmentRepository: repository, localBlobAdapter: memoryBlobAdapter({ 'local/att-1': new Blob(['hello']) }),
+        remoteProvider: provider, attachmentId: 'att-1',
+      });
+      // SHA-256 uses the native asynchronous crypto engine.
+      await vi.waitFor(() => expect(provider.downloadBlob).toHaveBeenCalled());
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(await pending).toMatchObject({ status: 'failed', outcome: 'verification_unavailable' });
+      resolve(new Blob(['hello']));
+      await Promise.resolve();
+      expect(repository.records.get('att-1')?.remoteSyncStatus).toBe('failed');
+      expect(provider.uploadBlob).toHaveBeenCalledTimes(1);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('does not upload corrupt local originals', async () => {
+    const repository = memoryRepository([metadata({ checksum: 'sha256:' + '0'.repeat(64) })]);
+    const provider = remoteProvider();
+    const result = await uploadAttachmentBlobToRemote({
+      attachmentRepository: repository, localBlobAdapter: memoryBlobAdapter({ 'local/att-1': new Blob(['hello']) }),
+      remoteProvider: provider, attachmentId: 'att-1',
+    });
+    expect(result).toMatchObject({ status: 'failed', outcome: 'definitive_failure' });
+    expect(provider.uploadBlob).not.toHaveBeenCalled();
+    expect(repository.records.get('att-1')?.remoteSyncStatus).toBe('local_only');
+  });
+
+  it('classifies unavailable OAuth before any Drive request as definitive failure', async () => {
+    const fetcher = vi.fn();
+    const provider = new GoogleDriveBlobAdapter({
+      accessTokenProvider: { getAccessToken: async () => { throw new Error('expired'); } },
+      fetcher,
+    });
+    const repository = memoryRepository([metadata()]);
+    expect(await uploadAttachmentBlobToRemote({
+      attachmentRepository: repository, localBlobAdapter: memoryBlobAdapter({ 'local/att-1': new Blob(['hello']) }),
+      remoteProvider: provider, attachmentId: 'att-1',
+    })).toMatchObject({ status: 'failed', outcome: 'definitive_failure' });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
   it('uploads one local blob and updates only the selected attachment after verification', async () => {
     const repository = memoryRepository([
       metadata(),
@@ -181,7 +364,7 @@ describe('explicit attachment upload action', () => {
     expect(blobs.getBlob).toHaveBeenCalledTimes(1);
     expect(blobs.getBlob).toHaveBeenCalledWith('local/att-1');
     expect(blobs.deleteBlob).not.toHaveBeenCalled();
-    expect(provider.downloadBlob).not.toHaveBeenCalled();
+    expect(provider.downloadBlob).toHaveBeenCalledTimes(1);
     expect(repository.records.get('att-1')).toMatchObject({
       remoteProvider: 'googleDrive',
       remoteFileId: 'drive-file-1',

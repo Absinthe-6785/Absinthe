@@ -25,11 +25,13 @@ export interface GoogleDriveBlobAdapterOptions {
 
 export class GoogleDriveBlobUploadError extends Error {
   readonly sanitized: SanitizedRemoteBlobProviderError;
+  readonly uploadOutcome: 'definitive_failure' | 'indeterminate';
 
-  constructor(sanitized: SanitizedRemoteBlobProviderError) {
+  constructor(sanitized: SanitizedRemoteBlobProviderError, uploadOutcome: 'definitive_failure' | 'indeterminate' = 'indeterminate') {
     super(sanitized.message);
     this.name = 'GoogleDriveBlobUploadError';
     this.sanitized = sanitized;
+    this.uploadOutcome = uploadOutcome;
   }
 }
 
@@ -272,10 +274,12 @@ export class GoogleDriveBlobAdapter implements RemoteBlobProvider {
   }
 
   async uploadBlob(input: RemoteBlobUploadInput): Promise<RemoteBlobUploadResult> {
+    let requestStarted = false;
     try {
       const expectedSize = input.size ?? input.blob.size;
       const mimeType = input.mimeType || input.blob.type || 'application/octet-stream';
       const accessToken = await this.getAccessToken();
+      requestStarted = true;
       const sessionUri = await this.startResumableSession(input, mimeType, expectedSize, accessToken);
       const metadata = await this.uploadChunks(input.blob, sessionUri, expectedSize);
       const verification = buildVerification(input, metadata, expectedSize);
@@ -306,10 +310,11 @@ export class GoogleDriveBlobAdapter implements RemoteBlobProvider {
       };
     } catch (error) {
       if (error instanceof GoogleDriveBlobUploadError) {
-        throw error;
+        throw new GoogleDriveBlobUploadError(error.sanitized, requestStarted ? error.uploadOutcome : 'definitive_failure');
       }
 
-      throw sanitizeUploadError(error, 'network_failed');
+      const sanitized = sanitizeUploadError(error, 'network_failed');
+      throw new GoogleDriveBlobUploadError(sanitized.sanitized, requestStarted ? 'indeterminate' : 'definitive_failure');
     }
   }
 
@@ -399,7 +404,11 @@ export class GoogleDriveBlobAdapter implements RemoteBlobProvider {
     });
 
     if (!response.ok) {
-      throw driveUploadHttpError(response.status, 'session');
+      const error = driveUploadHttpError(response.status, 'session');
+      // Explicit authorization rejection before any content PUT is not a lost
+      // completion. Other/transport failures remain conservatively uncertain.
+      throw new GoogleDriveBlobUploadError(error.sanitized,
+        response.status === 401 || response.status === 403 ? 'definitive_failure' : 'indeterminate');
     }
 
     const sessionUri = response.headers.get('Location');

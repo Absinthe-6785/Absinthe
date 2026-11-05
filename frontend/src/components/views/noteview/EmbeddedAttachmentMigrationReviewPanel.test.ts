@@ -4010,6 +4010,9 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     ]);
     adapter.deleteBlob = deleteBlob;
     const fetcher = vi.fn<typeof fetch>(async (input, init) => {
+      if (init?.method === 'GET' && String(input).endsWith('/drive-upload-1?alt=media')) {
+        return new Response('hello', { headers: { 'Content-Type': 'text/plain' } });
+      }
       if (init?.method === 'POST' && String(input).includes('uploadType=resumable')) {
         return new Response(null, {
           status: 200,
@@ -4053,7 +4056,13 @@ describe('EmbeddedAttachmentMigrationReviewPanel', () => {
     await flushAsync();
     await flushAsync();
 
-    expect(fetcher).toHaveBeenCalledTimes(2);
+    await vi.waitFor(() => expect(records.get('att-uploadable')?.remoteSyncStatus).toBe('synced'));
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(String(fetcher.mock.calls[2][0])).toBe('https://www.googleapis.com/drive/v3/files/drive-upload-1?alt=media');
+    expect(fetcher.mock.calls[2][1]?.method).toBe('GET');
+    expect(records.get('att-uploadable')?.remoteVerification).toMatchObject({
+      sizeVerified: true, checksumVerified: true, checksumAlgorithm: 'sha256',
+    });
     expect(String(fetcher.mock.calls[0][0])).toContain('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable');
     expect(new Headers(fetcher.mock.calls[0][1]?.headers).get('Authorization')).toBe('Bearer access-token-secret');
     expect(records.get('att-uploadable')).toMatchObject({
