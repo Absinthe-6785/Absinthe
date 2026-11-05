@@ -47,6 +47,7 @@ vi.mock('../../hooks/useConfirm', () => ({
 vi.mock('../../hooks/useEscapeKey', () => ({ useEscapeKey: vi.fn() }));
 vi.mock('../../store/useNotesStore', () => ({ useNotesStore: (selector: (state: { notes: [] }) => unknown) => selector({ notes: [] }) }));
 vi.mock('../../lib/i18n', () => ({
+  resolveIntlLocale: () => 'en',
   useTranslation: () => ({
     lang: 'en',
     t: (key: string) => ({
@@ -72,17 +73,41 @@ vi.mock('./features/planner/hooks/usePlannerScheduleEventActions', () => ({
 }));
 vi.mock('./features/planner/calendar-ui', () => ({
   CalendarShell: ({
-    schedules = [], previousDaySchedules = [], ddaySchedules = [], onAddSchedule,
+    schedules = [], monthSchedules = [], previousDaySchedules = [], ddaySchedules = [], onAddSchedule, dayScheduleActions,
   }: {
     schedules: Array<{ id: string; text: string }>;
+    monthSchedules: Array<{ id: string; text: string; date: string }>;
     previousDaySchedules: Array<{ id: string; text: string }>;
     ddaySchedules: Array<{ id: string; text: string }>;
     onAddSchedule: () => void;
+    dayScheduleActions?: { onView?: (id: string) => void };
   }) => createElement('section', { 'data-testid': 'calendar' },
     createElement('div', { 'data-testid': 'selected-source' }, schedules.map(item => item.text).join('|')),
+    createElement('div', { 'data-testid': 'month-source' }, monthSchedules.map(item => item.text).join('|')),
+    ...monthSchedules.map(item => createElement('button', {
+      key: item.id,
+      type: 'button',
+      'data-month-schedule-id': item.id,
+      onClick: () => dayScheduleActions?.onView?.(item.id),
+    }, item.text)),
     createElement('div', { 'data-testid': 'previous-source' }, previousDaySchedules.map(item => item.text).join('|')),
     createElement('div', { 'data-testid': 'dday-source' }, ddaySchedules.map(item => item.text).join('|')),
     createElement('button', { type: 'button', 'data-testid': 'open-create-form', onClick: onAddSchedule }, 'Create'),
+  ),
+}));
+vi.mock('./features/planner/calendar-ui/day/ScheduleEventDetailPanel', () => ({
+  ScheduleEventDetailPanel: ({
+    block,
+    onEdit,
+    onClose,
+  }: {
+    block: { title: string };
+    onEdit: (titleDraft?: string) => void;
+    onClose: () => void;
+  }) => createElement('section', { 'data-testid': 'schedule-detail' },
+    createElement('span', null, block.title),
+    createElement('button', { type: 'button', 'data-testid': 'edit-month-schedule', onClick: () => onEdit() }, 'Edit'),
+    createElement('button', { type: 'button', onClick: onClose }, 'Close'),
   ),
 }));
 vi.mock('./features/knowledge/trace/EventNoteDialog', () => ({ EventNoteDialog: () => null }));
@@ -105,10 +130,32 @@ type ScheduleRow = {
 
 const datePath = (date: string) => `/api/schedules?date=${date}`;
 const ddayPath = '/api/schedules/ddays';
+const monthRange = (date: string) => ({
+  start_date: `${date.slice(0, 7)}-01`,
+  end_date: `${date.slice(0, 7)}-${String(new Date(Number(date.slice(0, 4)), Number(date.slice(5, 7)), 0).getDate()).padStart(2, '0')}`,
+});
+const monthRangePath = (date: string, cursor?: string) => {
+  const range = monthRange(date);
+  return `/api/schedules/range?start_date=${range.start_date}&end_date=${range.end_date}&page_size=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`;
+};
 const serverKey = (account: string, path: string) => `${account}|${path}`;
 const schedule = (id: string, text: string, date?: string, isDday = false): ScheduleRow => ({
   id, text, start_time: isDday ? '00:00' : '10:00', end_time: isDday ? '23:59' : '11:00',
   end_next_day: false, is_dday: isDday, category: 'Work', color: 'purple', ...(date ? { date } : {}),
+});
+const monthPage = (items: ScheduleRow[], date = '2026-09-18', cursor: string | null = null, remainingCount = items.length) => ({
+  protocol_version: 1,
+  ...monthRange(date),
+  page_size: 100,
+  order_by: 'id_ascending',
+  items,
+  remaining_count: remainingCount,
+  complete: remainingCount === items.length,
+  next_cursor: cursor,
+  completion_evidence: remainingCount === items.length
+    ? 'exact_count_equals_returned_items'
+    : 'exact_count_exceeds_returned_items',
+  snapshot_consistency: 'per_request_not_cross_page_snapshot',
 });
 const initialServerState = (account: string, date: string) => {
   const previousDate = new Date(`${date}T12:00:00`);
@@ -117,6 +164,9 @@ const initialServerState = (account: string, date: string) => {
   harness.server[serverKey(account, datePath(date))] = [schedule(`${account}-selected-old`, `${account} selected old`, date)];
   harness.server[serverKey(account, datePath(previousDateKey))] = [schedule(`${account}-previous-old`, `${account} previous old`, previousDateKey)];
   harness.server[serverKey(account, ddayPath)] = [schedule(`${account}-dday-old`, `${account} dday old`, '2026-09-20', true)];
+  harness.server[serverKey(account, monthRangePath(date))] = monthPage([
+    schedule(`${account}-month-old`, `${account} month old`, `${date.slice(0, 7)}-23`),
+  ], date);
   return previousDateKey;
 };
 
@@ -231,12 +281,30 @@ afterEach(() => {
 });
 
 describe('Schedule explicit cross-device refresh', () => {
-  it('refreshes only the selected day, previous day, and D-day and shows server changes without writes', async () => {
+  it('opens and edits a non-selected month Schedule by its exact ID and date', async () => {
+    const date = '2026-09-18';
+    initialServerState('account-a', date);
+    harness.server[serverKey('account-a', monthRangePath(date))] = monthPage([
+      schedule('month-event-id', 'Month event', '2026-09-21'),
+    ], date);
+    await render('account-a', date);
+    await flush();
+
+    await click('[data-month-schedule-id="month-event-id"]');
+    expect(host.querySelector('[data-testid="schedule-detail"]')?.textContent).toContain('Month event');
+    await click('[data-testid="edit-month-schedule"]');
+    expect(host.querySelector<HTMLInputElement>('input[type="text"]')?.value).toBe('Month event');
+    expect(host.querySelector<HTMLInputElement>('input[type="date"]')?.value).toBe('2026-09-21');
+    expect(harness.apiMutation).not.toHaveBeenCalled();
+  });
+
+  it('refreshes the selected day, previous day, D-day, and displayed month without writes', async () => {
     const date = '2026-09-18';
     const previousDate = initialServerState('account-a', date);
     await render('account-a', date);
     await flush();
     expect(host.querySelector('[data-testid="selected-source"]')?.textContent).toBe('account-a selected old');
+    expect(host.querySelector('[data-testid="month-source"]')?.textContent).toBe('account-a month old');
     expect(host.querySelector('[data-testid="previous-source"]')?.textContent).toBe('account-a previous old');
     expect(host.querySelector('[data-testid="dday-source"]')?.textContent).toBe('account-a dday old');
 
@@ -249,6 +317,9 @@ describe('Schedule explicit cross-device refresh', () => {
     harness.server[serverKey('account-a', datePath(date))] = [schedule('a-selected-new', 'account-a selected new', date)];
     harness.server[serverKey('account-a', datePath(previousDate))] = [schedule('a-previous-new', 'account-a previous new', previousDate)];
     harness.server[serverKey('account-a', ddayPath)] = [schedule('a-dday-new', 'account-a dday new', '2026-09-21', true)];
+    harness.server[serverKey('account-a', monthRangePath(date))] = monthPage([
+      schedule('a-month-new', 'account-a month new on another date', '2026-09-24'),
+    ]);
     harness.requests = [];
     const beforeStorage = storageSnapshot();
 
@@ -259,12 +330,13 @@ describe('Schedule explicit cross-device refresh', () => {
     await flush();
 
     expect(host.querySelector('[data-testid="selected-source"]')?.textContent).toBe('account-a selected new');
+    expect(host.querySelector('[data-testid="month-source"]')?.textContent).toBe('account-a month new on another date');
     expect(host.querySelector('[data-testid="previous-source"]')?.textContent).toBe('account-a previous new');
     expect(host.querySelector('[data-testid="dday-source"]')?.textContent).toBe('account-a dday new');
     expect(host.querySelector('[data-schedule-refresh-status]')?.getAttribute('data-schedule-refresh-status')).toBe('success');
-    expect(harness.requests).toHaveLength(3);
+    expect(harness.requests).toHaveLength(4);
     expect(harness.requests.map(request => request.path).sort()).toEqual([
-      datePath(date), datePath(previousDate), ddayPath,
+      datePath(date), datePath(previousDate), ddayPath, monthRangePath(date),
     ].sort());
     expect(harness.requests.every(request => request.account === 'account-a' && request.method === 'GET')).toBe(true);
     expect(Array.from(cache.keys()).filter(key => typeof key === 'string' && key.includes('/api/schedules'))
@@ -298,7 +370,7 @@ describe('Schedule explicit cross-device refresh', () => {
     const refreshButton = host.querySelector<HTMLButtonElement>('[data-schedule-manual-refresh]')!;
     expect(refreshButton.disabled).toBe(true);
     await click('[data-schedule-manual-refresh]');
-    expect(harness.requests).toHaveLength(3);
+    expect(harness.requests).toHaveLength(4);
     expect(titleInput?.value).toBe('Unsaved editor draft');
 
     gate.resolve([schedule('selected-refresh', 'selected refreshed', date)]);
@@ -307,9 +379,95 @@ describe('Schedule explicit cross-device refresh', () => {
     expect(host.querySelector('[data-testid="dday-source"]')?.textContent).toBe('account-a dday old');
     expect(host.querySelector('[data-testid="selected-source"]')?.textContent).toBe('selected refreshed');
     expect(host.querySelector<HTMLInputElement>('input[type="text"]')?.value).toBe('Unsaved editor draft');
-    expect(harness.requests).toHaveLength(3);
+    expect(harness.requests).toHaveLength(4);
     expect(harness.apiMutation).not.toHaveBeenCalled();
     expect(harness.requests.every(request => request.method === 'GET')).toBe(true);
+  });
+
+  it('keeps the prior complete month when a later page fails', async () => {
+    const date = '2026-09-18';
+    initialServerState('account-a', date);
+    await render('account-a', date);
+    await flush();
+    harness.server[serverKey('account-a', monthRangePath(date))] = monthPage([
+      schedule('partial-month-row', 'Partial page must not publish', '2026-09-24'),
+    ], date, 'after-first-page', 2);
+    harness.failNextPath = monthRangePath(date, 'after-first-page');
+    harness.requests = [];
+
+    await click('[data-schedule-manual-refresh]');
+    await flush();
+
+    expect(harness.requests.map(request => request.path)).toContain(monthRangePath(date));
+    expect(harness.requests.map(request => request.path)).toContain(monthRangePath(date, 'after-first-page'));
+    expect(host.querySelector('[data-testid="month-source"]')?.textContent).toBe('account-a month old');
+    expect(host.textContent).not.toContain('Partial page must not publish');
+    expect(host.querySelector('[data-schedule-refresh-status]')?.getAttribute('data-schedule-refresh-status')).toBe('incomplete');
+    expect(harness.apiMutation).not.toHaveBeenCalled();
+  });
+
+  it('does not publish a month refresh after navigating to another month', async () => {
+    const september = '2026-09-18';
+    const october = '2026-10-02';
+    initialServerState('account-a', september);
+    await render('account-a', september);
+    await flush();
+
+    const staleSeptember = deferred<unknown>();
+    harness.deferNextPath = monthRangePath(september);
+    harness.deferredResponse = staleSeptember.promise;
+    harness.requests = [];
+    await click('[data-schedule-manual-refresh]');
+    await flush();
+    expect(harness.requests.some(request => request.path === monthRangePath(september))).toBe(true);
+
+    harness.server[serverKey('account-a', monthRangePath(october))] = monthPage([
+      schedule('october-current', 'October current', '2026-10-18'),
+    ], october);
+    await render('account-a', october);
+    await flush();
+    expect(host.querySelector('[data-testid="month-source"]')?.textContent).toBe('October current');
+
+    staleSeptember.resolve(monthPage([
+      schedule('september-stale', 'Stale September result', '2026-09-24'),
+    ], september));
+    await flush();
+    expect(host.querySelector('[data-testid="month-source"]')?.textContent).toBe('October current');
+    expect(host.textContent).not.toContain('Stale September result');
+  });
+
+  it('rejects an old account-A month completion after an A/B/A transition', async () => {
+    const date = '2026-09-18';
+    initialServerState('account-a', date);
+    initialServerState('account-b', date);
+    await render('account-a', date);
+    await flush();
+
+    const staleAccountA = deferred<unknown>();
+    harness.deferNextPath = monthRangePath(date);
+    harness.deferredResponse = staleAccountA.promise;
+    harness.requests = [];
+    await click('[data-schedule-manual-refresh]');
+    await flush();
+
+    harness.server[serverKey('account-a', monthRangePath(date))] = monthPage([
+      schedule('account-a-current', 'Account A current', '2026-09-25'),
+    ], date);
+    await render('account-b', date);
+    await flush();
+    expect(host.querySelector('[data-testid="month-source"]')?.textContent).toBe('account-b month old');
+    await render('account-a', date);
+    await flush();
+    expect(host.querySelector('[data-testid="month-source"]')?.textContent).toBe('Account A current');
+
+    staleAccountA.resolve(monthPage([
+      schedule('account-a-stale', 'Stale account A result', '2026-09-26'),
+    ], date));
+    await flush();
+    expect(host.querySelector('[data-testid="month-source"]')?.textContent).toBe('Account A current');
+    expect(host.textContent).not.toContain('Stale account A result');
+    expect(harness.requests.filter(request => request.path === monthRangePath(date))
+      .every(request => request.account === 'account-a' || request.account === 'account-b')).toBe(true);
   });
 
   it('rejects stale A completion through A/B/A and date changes without exposing its data or status', async () => {
@@ -369,7 +527,7 @@ describe('Schedule explicit cross-device refresh', () => {
     await flush();
     expect(host.querySelector<HTMLButtonElement>('[data-schedule-manual-refresh]')?.disabled).toBe(true);
     expect(harness.requests.map(request => request.path).sort()).toEqual([
-      datePath(dateB), datePath('2026-09-18'), ddayPath,
+      datePath(dateB), datePath('2026-09-18'), ddayPath, monthRangePath(dateB),
     ].sort());
 
     staleDate.resolve([schedule('date-a-stale', 'STALE OLD DATE RESULT', dateA)]);

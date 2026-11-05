@@ -2290,6 +2290,8 @@ const translationKeys = [
   "schedulesRefreshIncomplete",
   "schedulesRefreshOffline",
   "schedulesRefreshUnavailable",
+  "scheduleMonthLoading",
+  "scheduleMonthUnavailable",
 ] as const;
 
 export type TranslationKey = (typeof translationKeys)[number];

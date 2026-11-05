@@ -8,6 +8,7 @@ import { PlannerView } from './PlannerView';
 
 const testState = vi.hoisted(() => ({
   apiMutate: vi.fn(),
+  mutateMonthSchedules: vi.fn(),
   showToast: vi.fn(),
   overlap: false,
   duplicateTitle: false,
@@ -24,7 +25,7 @@ vi.mock('../../lib/i18n', () => ({
   resolveIntlLocale: () => 'en-US',
 }));
 
-vi.mock('swr', () => ({ default: () => ({ data: [], mutate: vi.fn() }) }));
+vi.mock('swr', () => ({ default: () => ({ data: [], mutate: testState.mutateMonthSchedules }) }));
 
 vi.mock('./features/planner/calendar-ui', async () => {
   const { createElement } = await import('react');

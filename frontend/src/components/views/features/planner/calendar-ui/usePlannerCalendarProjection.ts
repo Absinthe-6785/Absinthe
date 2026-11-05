@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import type { DateTime } from 'luxon';
 import type { NoteBase } from '../../../noteUtils';
 import type { AppSettings, Schedule, Todo, WeeklySchedule } from '../../../../../types';
+import type { DatedSchedule } from '../../../../../lib/scheduleRangePagination';
 import { useNotesStore } from '../../../../../store/useNotesStore';
 import { useTranslation } from '../../../../../lib/i18n';
 import { buildRelativeDateLabels } from '../../../k102RelativeDateLabels';
@@ -24,6 +25,7 @@ export interface UsePlannerCalendarProjectionInput {
   now: DateTime;
   anchorDate: string;
   schedules: readonly Schedule[];
+  monthSchedules?: readonly DatedSchedule[];
   previousDaySchedules?: readonly Schedule[];
   previousDayDate?: string;
   todos?: readonly Todo[];
@@ -51,6 +53,26 @@ function toDatedSchedules(
   });
 }
 
+function toScheduleBlocksByIdentity(groups: readonly (readonly PlannerDatedSchedule[])[]): PlannerDatedSchedule[] {
+  const seen = new Set<string>();
+  const result: PlannerDatedSchedule[] = [];
+  for (const group of groups) {
+    for (const schedule of group) {
+      if (seen.has(schedule.id)) continue;
+      seen.add(schedule.id);
+      result.push(schedule);
+    }
+  }
+  return result;
+}
+
+function toDatedMonthSchedules(schedules: readonly DatedSchedule[] = []): PlannerDatedSchedule[] {
+  return schedules.map(schedule => ({
+    ...schedule,
+    end_next_day: schedule.end_next_day,
+  }));
+}
+
 type TodoWithDate = Todo & { date?: string };
 
 function toDatedTodos(
@@ -71,12 +93,13 @@ export function buildPlannerCalendarShellProjection(
   },
 ): UsePlannerCalendarProjectionResult {
   const eventCatalog = input.eventCatalog ?? buildPlannerEventCatalog(input.notes);
-  const scheduleBlocks = [
-    ...toDatedSchedules(input.schedules, input.anchorDate),
-    ...(input.previousDayDate
+  const scheduleBlocks = toScheduleBlocksByIdentity([
+    toDatedSchedules(input.schedules, input.anchorDate),
+    input.previousDayDate
       ? toDatedSchedules(input.previousDaySchedules ?? [], input.previousDayDate)
-      : []),
-  ];
+      : [],
+    toDatedMonthSchedules(input.monthSchedules),
+  ]);
 
   const projection = buildPlannerCalendarProjection({
     notes: input.notes,
@@ -117,13 +140,14 @@ export function usePlannerCalendarProjection(
   );
 
   const scheduleBlocks = useMemo(
-    () => [
-      ...toDatedSchedules(input.schedules, input.anchorDate),
-      ...(input.previousDayDate
+    () => toScheduleBlocksByIdentity([
+      toDatedSchedules(input.schedules, input.anchorDate),
+      input.previousDayDate
         ? toDatedSchedules(input.previousDaySchedules ?? [], input.previousDayDate)
-        : []),
-    ],
-    [input.schedules, input.anchorDate, input.previousDaySchedules, input.previousDayDate],
+        : [],
+      toDatedMonthSchedules(input.monthSchedules),
+    ]),
+    [input.schedules, input.anchorDate, input.previousDaySchedules, input.previousDayDate, input.monthSchedules],
   );
 
   const projection = useMemo(

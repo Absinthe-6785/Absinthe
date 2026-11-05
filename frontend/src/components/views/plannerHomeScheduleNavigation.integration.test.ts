@@ -9,6 +9,7 @@ import { PlannerView, type PlannerViewProps, type ScheduleNavigationRequest } fr
 
 const state = vi.hoisted(() => ({
   api: vi.fn(),
+  mutateMonthSchedules: vi.fn(),
   ddays: [] as Array<Schedule & { date: string }>,
   ddayLoading: false,
 }));
@@ -17,8 +18,28 @@ vi.mock('swr', () => ({
   default: (key: string | null) => ({
     data: key?.includes('/schedules/ddays') ? state.ddays : [],
     isLoading: key?.includes('/schedules/ddays') ? state.ddayLoading : false,
-    mutate: vi.fn(),
+    mutate: state.mutateMonthSchedules,
   }),
+}));
+vi.mock('../../lib/config', () => ({ API_URL: 'https://schedule-month-test.invalid' }));
+vi.mock('../../lib/fetcher', () => ({
+  fetcher: async <T,>(url: string): Promise<T> => {
+    const params = new URL(url).searchParams;
+    return {
+      protocol_version: 1,
+      start_date: params.get('start_date'),
+      end_date: params.get('end_date'),
+      page_size: Number(params.get('page_size')),
+      order_by: 'id_ascending',
+      items: [],
+      remaining_count: 0,
+      complete: true,
+      next_cursor: null,
+      completion_evidence: 'exact_count_equals_returned_items',
+      snapshot_consistency: 'per_request_not_cross_page_snapshot',
+    } as unknown as T;
+  },
+  isLocalOnlyRemotePausedError: () => false,
 }));
 vi.mock('../../hooks/useApiMutation', () => ({ useApiMutation: () => ({ mutate: state.api }) }));
 vi.mock('../../hooks/useConfirm', () => ({

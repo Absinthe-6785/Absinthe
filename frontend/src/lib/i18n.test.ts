@@ -8,7 +8,7 @@ import translationKeys, { buildLocaleDictionary } from './i18n/keys';
 import type { TranslationKey } from './i18n';
 
 const PLANNER_STORAGE_KEY = 'planner-storage';
-const EXPECTED_KEY_COUNT = 2_290;
+const EXPECTED_KEY_COUNT = 2_292;
 type Locale = 'en' | 'ko' | 'ja';
 
 // Current independent canonical authority, including append-only Notes UI, Wiki-link accessibility, cloud comparison and Cloud Copy status readback, local document downloads, PDF/DOCX preview, and Recipe filter reset.
@@ -16,9 +16,9 @@ type Locale = 'en' | 'ko' | 'ja';
 // translationKeys order, so it detects insertion, omission, reordering, and
 // substitution without using buildLocaleDictionary.
 const EXPECTED_LOCALE_INTEGRITY_SHA256: Record<Locale, string> = {
-  en: '8584dff02292a189f0a12f5b5301dfd432a0f3b2d6981ce9b1b9d1e7c95162a4',
-  ko: '2ca787fb7196a36af0cadf791867070c29580526a4fe5d4de998d849622677b7',
-  ja: '19ff32cc3a6eac86620030676c6d3f90bd8182400dcc694634577701821e91fd',
+  en: '3e2c311c98d83892d3ebd3e17b0c94ed516e34b238fc96b94938df5ccf772f81',
+  ko: 'd8c1bb7ff94fcbc89579768bfb47b144f42f82062a5b41ba4644136b273e3972',
+  ja: 'ea0915917764408caa25d2e024970aa1f3774c594a4325d8cb23240be5be9f3c',
 };
 
 const PRE_SCHEDULE_REFRESH_LOCALE_SHA256: Record<Locale, string> = {
@@ -303,17 +303,21 @@ describe('i18n locale dictionaries', () => {
     const expectedKeys = [
       'refreshSchedules', 'refreshingSchedules', 'schedulesRefreshed',
       'schedulesRefreshIncomplete', 'schedulesRefreshOffline', 'schedulesRefreshUnavailable',
+      'scheduleMonthLoading', 'scheduleMonthUnavailable',
     ] as const;
     const expected = {
       en: ['Refresh schedules', 'Refreshing schedules…', 'Schedules refreshed.',
         'Some schedule sources could not be refreshed. Their previous data was kept.',
-        "You're offline. Existing schedules were kept.", 'Schedule refresh is unavailable right now.'],
+        "You're offline. Existing schedules were kept.", 'Schedule refresh is unavailable right now.',
+        "Loading this month's schedules…", "This month's schedules could not be verified. Partial results are hidden; try Refresh schedules."],
       ko: ['일정 새로고침', '일정 새로고침 중…', '일정을 새로고침했습니다.',
         '일부 일정은 새로고침하지 못했습니다. 해당 일정의 기존 내용은 유지했습니다.',
-        '오프라인 상태입니다. 기존 일정은 유지했습니다.', '지금은 일정을 새로고침할 수 없습니다.'],
+        '오프라인 상태입니다. 기존 일정은 유지했습니다.', '지금은 일정을 새로고침할 수 없습니다.',
+        '이번 달 일정을 불러오는 중…', '이번 달 일정을 확인하지 못했습니다. 부분 결과는 표시하지 않습니다. 일정 새로고침을 시도해 주세요.'],
       ja: ['予定を再読み込み', '予定を再読み込み中…', '予定を再読み込みしました。',
         '一部の予定を再読み込みできませんでした。該当する予定の既存データは保持されています。',
-        'オフラインです。既存の予定は保持されています。', '現在、予定を再読み込みできません。'],
+        'オフラインです。既存の予定は保持されています。', '現在、予定を再読み込みできません。',
+        '今月の予定を読み込み中…', '今月の予定を確認できませんでした。不完全な結果は表示していません。予定を再読み込みしてください。'],
     } as const;
 
     expect(translationKeys.slice(2_284)).toEqual(expectedKeys);
@@ -344,10 +348,10 @@ describe('i18n locale dictionaries', () => {
     missing.splice(1_000, 1);
 
     expect(() => buildLocaleDictionary(missing)).toThrow(
-      'Locale dictionary length mismatch: expected 2290, received 2289',
+      'Locale dictionary length mismatch: expected 2292, received 2291',
     );
     expect(() => assertLocaleValuesIntegrity('en', missing)).toThrow(
-      'Locale integrity length mismatch: expected 2290, received 2289',
+      'Locale integrity length mismatch: expected 2292, received 2291',
     );
   });
 
@@ -356,10 +360,10 @@ describe('i18n locale dictionaries', () => {
     extra.splice(1_000, 0, '__unexpected__');
 
     expect(() => buildLocaleDictionary(extra)).toThrow(
-      'Locale dictionary length mismatch: expected 2290, received 2291',
+      'Locale dictionary length mismatch: expected 2292, received 2293',
     );
     expect(() => assertLocaleValuesIntegrity('en', extra)).toThrow(
-      'Locale integrity length mismatch: expected 2290, received 2291',
+      'Locale integrity length mismatch: expected 2292, received 2293',
     );
   });
 

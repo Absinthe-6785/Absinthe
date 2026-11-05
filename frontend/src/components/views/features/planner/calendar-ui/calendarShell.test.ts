@@ -154,6 +154,51 @@ describe('buildPlannerCalendarShellProjection', () => {
     expect(todos).toEqual(originalTodos);
   });
 
+  it('projects non-selected month Schedules, deduplicates only by Schedule ID, and keeps Notes events separate', () => {
+    const noteEvent = applyEventToNote(note('shared-domain-id', { title: 'Same title' }), {
+      title: 'Same title',
+      eventDate: '2027-02-20',
+    });
+    const monthSchedules = [
+      { id: 'selected-id', date: '2027-02-03', text: 'Range copy', start_time: '08:00', end_time: '09:00', is_dday: false, color: 'purple', category: 'Work' },
+      { id: 'previous-id', date: '2027-02-02', text: 'Range previous copy', start_time: '08:00', end_time: '09:00', is_dday: false, color: 'purple', category: 'Work' },
+      { id: 'shared-domain-id', date: '2027-02-20', text: 'Same title', start_time: '10:00', end_time: '11:00', is_dday: false, color: 'purple', category: 'Work' },
+      { id: 'different-id', date: '2027-02-28', text: 'Same title', start_time: '12:00', end_time: '13:00', is_dday: false, color: 'purple', category: 'Work' },
+    ];
+    const selectedSchedules = [{
+      id: 'selected-id', text: 'Selected source wins', start_time: '09:00', end_time: '10:00',
+      is_dday: false, color: 'purple', category: 'Work',
+    }];
+    const previousSchedules = [{
+      id: 'previous-id', text: 'Previous source wins', start_time: '10:00', end_time: '11:00',
+      is_dday: false, color: 'purple', category: 'Work',
+    }];
+
+    const result = buildPlannerCalendarShellProjection({
+      notes: [noteEvent],
+      now: NOW,
+      anchorDate: '2027-02-03',
+      schedules: selectedSchedules,
+      previousDaySchedules: previousSchedules,
+      previousDayDate: '2027-02-02',
+      monthSchedules,
+      weeklySchedules: [],
+      appSettings,
+    });
+
+    const blocks = result.projection.core.scheduleBlocks;
+    expect(blocks.map(block => [block.id, block.dateKey, block.title])).toEqual([
+      ['previous-id', '2027-02-02', 'Previous source wins'],
+      ['selected-id', '2027-02-03', 'Selected source wins'],
+      ['shared-domain-id', '2027-02-20', 'Same title'],
+      ['different-id', '2027-02-28', 'Same title'],
+    ]);
+    expect(result.projection.byDate.get('2027-02-20')?.events).toHaveLength(1);
+    expect(result.projection.byDate.get('2027-02-20')?.blocks).toHaveLength(1);
+    expect(monthSchedules).toHaveLength(4);
+    expect(selectedSchedules[0]?.text).toBe('Selected source wins');
+  });
+
   it('keeps an empty Todo collection empty in the calendar bundle', () => {
     const result = buildPlannerCalendarShellProjection({
       notes: [],

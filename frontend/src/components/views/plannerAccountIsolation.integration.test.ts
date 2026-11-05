@@ -28,7 +28,10 @@ const harness = vi.hoisted(() => ({
 }));
 
 vi.mock('../../lib/config', () => ({ API_URL: 'https://example.invalid' }));
-vi.mock('../../lib/remoteBoundary', () => ({ remoteSWRKey: (url: string) => url }));
+vi.mock('../../lib/remoteBoundary', () => ({
+  remoteSWRKey: (url: string) => url,
+  runtimeAccountSyncAccountId: () => harness.account,
+}));
 vi.mock('../../lib/fetcher', () => ({
   fetcher: (input: unknown) => {
     const url = String(input);
@@ -36,6 +39,21 @@ vi.mock('../../lib/fetcher', () => ({
     harness.requests.push({ url, account });
     const parsed = new URL(url);
     const date = parsed.searchParams.get('date') ?? '';
+    if (parsed.pathname.endsWith('/schedules/range')) {
+      return Promise.resolve({
+        protocol_version: 1,
+        start_date: parsed.searchParams.get('start_date'),
+        end_date: parsed.searchParams.get('end_date'),
+        page_size: Number(parsed.searchParams.get('page_size')),
+        order_by: 'id_ascending',
+        items: [],
+        remaining_count: 0,
+        complete: true,
+        next_cursor: null,
+        completion_evidence: 'exact_count_equals_returned_items',
+        snapshot_consistency: 'per_request_not_cross_page_snapshot',
+      });
+    }
     if (parsed.pathname.endsWith('/schedules/ddays')) {
       return Promise.resolve([{
         id: `dday-${account}`,
