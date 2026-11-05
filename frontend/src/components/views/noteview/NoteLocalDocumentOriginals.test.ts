@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DecompressionStream as NodeDecompressionStream } from 'node:stream/web';
 import JSZip from 'jszip';
@@ -26,7 +27,7 @@ vi.mock('../../../store/useNotesStore', async () => {
   return {
     useNotesStore: Object.assign(() => useSyncExternalStore(callback => {
       authority.listeners.add(callback); return () => { authority.listeners.delete(callback); };
-    }, () => authority.state), { getState: () => authority.state }),
+    }, () => authority.state, () => authority.state), { getState: () => authority.state }),
     observePublishedNotesHydration: () => authority.request
       ? { status: 'CURRENT', request: authority.request } : { status: 'UNAVAILABLE', reason: 'NO_PUBLICATION' },
   };
@@ -174,6 +175,153 @@ describe('NoteLocalDocumentOriginals', () => {
     expect(revokeObjectUrl).toHaveBeenCalledExactlyOnceWith('blob:verified-original');
   });
 
+  it.each([
+    { label: 'PDF', item: (request: NonNullable<typeof authority.request>) => candidate(request), fileName: 'Quarterly.pdf' },
+    { label: 'DOCX', item: (request: NonNullable<typeof authority.request>) => docxCandidate(request), fileName: 'Contract.docx' },
+  ])('explicitly verifies the exact published $label original using local SHA-256 readback', async ({ item, fileName }) => {
+    const currentRequest = authority.request!;
+    const original = item(currentRequest);
+    services.list.mockResolvedValue({ status: 'VERIFIED', documents: [original] });
+    services.read.mockResolvedValue({
+      status: 'VERIFIED', integrity: 'SHA256_MATCHED', checksum: `sha256:${'a'.repeat(64)}`,
+      file: new File(['same bytes'], fileName, { type: original.mimeType }),
+    });
+    const { host, root } = render();
+    await flushAsync();
+    host.querySelector<HTMLDetailsElement>('details')!.open = true;
+    const button = host.querySelector<HTMLButtonElement>(`button[aria-label="${getTranslator('en')('noteLocalDocumentVerifyOriginal')} ${fileName}"]`)!;
+    expect(button).toBeInstanceOf(HTMLButtonElement);
+    expect(host.querySelector('[data-local-original-verification="available"]')?.textContent)
+      .toBe(getTranslator('en')('noteLocalDocumentVerificationAvailable'));
+
+    act(() => button.click());
+    await flushAsync();
+
+    expect(services.read).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      accountId: 'A', noteId: note.id, candidate: original,
+    }));
+    expect(host.querySelector('[data-local-original-verification="verified"]')?.textContent)
+      .toBe(getTranslator('en')('noteLocalDocumentVerificationVerified'));
+    expect(host.querySelector('[data-drive-backup-status]')?.textContent)
+      .toBe(getTranslator('en')('noteLocalDocumentDriveBackupUnavailable'));
+    expect(host.textContent).not.toContain(original.attachmentId);
+    expect(host.querySelector('button[aria-label*="Upload"]')).toBeNull();
+    expect(services.blobAdapter.putBlob).not.toHaveBeenCalled();
+    expect(services.blobAdapter.deleteBlob).not.toHaveBeenCalled();
+    expect(services.metadataRepository.listAttachmentsForAccountNote).not.toHaveBeenCalled();
+    cleanup(root, host);
+  });
+
+  it('reports an empty eligible-original inventory without offering an upload action', async () => {
+    services.list.mockResolvedValue({ status: 'VERIFIED', documents: [] });
+    const { host, root } = render();
+    await flushAsync();
+
+    expect(host.textContent).toContain(getTranslator('en')('noteLocalDocumentsEmpty'));
+    expect(host.textContent).toContain(getTranslator('en')('noteLocalDocumentDriveBackupUnavailable'));
+    expect(host.querySelector('button')).toBeNull();
+    expect(services.read).not.toHaveBeenCalled();
+    expect(services.blobAdapter.putBlob).not.toHaveBeenCalled();
+    expect(services.blobAdapter.deleteBlob).not.toHaveBeenCalled();
+    cleanup(root, host);
+  });
+
+  it.each(['en', 'ko', 'ja'] as const)('localizes local verification and Drive-unavailable labels in %s', async language => {
+    useAppStore.setState(state => ({ ...state, appSettings: { ...state.appSettings, language } }));
+    const { host, root } = render();
+    await flushAsync();
+    host.querySelector<HTMLDetailsElement>('details')!.open = true;
+
+    expect([...host.querySelectorAll('button')].some(button => button.getAttribute('aria-label')
+      ?.startsWith(`${getTranslator(language)('noteLocalDocumentVerifyOriginal')} `))).toBe(true);
+    expect(host.textContent).toContain(getTranslator(language)('noteLocalDocumentVerificationAvailable'));
+    expect(host.textContent).toContain(getTranslator(language)('noteLocalDocumentDriveBackupUnavailable'));
+    cleanup(root, host);
+  });
+
+  it('reports same-size local corruption as unavailable and never as verified', async () => {
+    services.read.mockResolvedValue({ status: 'UNAVAILABLE', reason: 'document_integrity_mismatch' });
+    const { host, root } = render();
+    await flushAsync();
+    host.querySelector<HTMLDetailsElement>('details')!.open = true;
+    const button = host.querySelector<HTMLButtonElement>('[aria-label="Verify local original Quarterly.pdf"]')!;
+    act(() => button.click());
+    await flushAsync();
+
+    expect(host.querySelector('[data-local-original-verification="unavailable"]')?.textContent)
+      .toBe(getTranslator('en')('noteLocalDocumentVerificationUnavailable'));
+    expect(host.querySelector('[data-local-original-verification="verified"]')).toBeNull();
+    cleanup(root, host);
+  });
+
+  it('does not publish a delayed verified result after same-account authority replacement', async () => {
+    const pending = deferred<any>();
+    services.read.mockReturnValueOnce(pending.promise);
+    const { host, root } = render();
+    await flushAsync();
+    host.querySelector<HTMLDetailsElement>('details')!.open = true;
+    act(() => host.querySelector<HTMLButtonElement>('[aria-label="Verify local original Quarterly.pdf"]')!.click());
+
+    transition('A', [note], note.id, 2);
+    act(() => root.render(createElement(NoteLocalDocumentOriginals, { note, colors })));
+    await flushAsync();
+    pending.resolve({
+      status: 'VERIFIED', integrity: 'SHA256_MATCHED',
+      file: new File(['stale'], 'Quarterly.pdf', { type: 'application/pdf' }),
+    });
+    await flushAsync();
+
+    expect(host.textContent).toContain(getTranslator('en')('noteLocalDocumentVerificationInvalidated'));
+    expect(host.querySelector('[data-local-original-verification="verified"]')).toBeNull();
+    cleanup(root, host);
+  });
+
+  it('suppresses pending verification after account A-B-A and Note deletion', async () => {
+    const pending = deferred<any>();
+    services.read.mockReturnValueOnce(pending.promise);
+    const { host, root } = render();
+    await flushAsync();
+    host.querySelector<HTMLDetailsElement>('details')!.open = true;
+    act(() => host.querySelector<HTMLButtonElement>('[aria-label="Verify local original Quarterly.pdf"]')!.click());
+
+    const other = { ...note, id: 'note-B', body: 'attachment://doc-B' };
+    transition('B', [other], other.id, 2);
+    act(() => root.render(createElement(NoteLocalDocumentOriginals, { note: other, colors })));
+    transition('A', [note], note.id, 3);
+    act(() => root.render(createElement(NoteLocalDocumentOriginals, { note, colors })));
+    const deleted = { ...note, deletedAt: 10 };
+    transition('A', [deleted], note.id, 4);
+    act(() => root.render(createElement(NoteLocalDocumentOriginals, { note: deleted, colors })));
+    await flushAsync();
+    pending.resolve({ status: 'VERIFIED', integrity: 'SHA256_MATCHED', file: new File(['stale'], 'Quarterly.pdf') });
+    await flushAsync();
+
+    expect(host.textContent).toContain(getTranslator('en')('noteLocalDocumentVerificationInvalidated'));
+    expect(host.querySelector('[data-local-original-verification="verified"]')).toBeNull();
+    cleanup(root, host);
+  });
+
+  it('ignores a pending verification completion after unmount', async () => {
+    const pending = deferred<any>();
+    services.read.mockReturnValueOnce(pending.promise);
+    const { host, root } = render();
+    await flushAsync();
+    host.querySelector<HTMLDetailsElement>('details')!.open = true;
+    act(() => host.querySelector<HTMLButtonElement>('[aria-label="Verify local original Quarterly.pdf"]')!.click());
+    cleanup(root, host);
+
+    pending.resolve({ status: 'VERIFIED', integrity: 'SHA256_MATCHED', file: new File(['stale'], 'Quarterly.pdf') });
+    await flushAsync();
+    expect(host.isConnected).toBe(false);
+    expect(services.blobAdapter.putBlob).not.toHaveBeenCalled();
+    expect(services.blobAdapter.deleteBlob).not.toHaveBeenCalled();
+  });
+
+  it('is SSR-safe and does not expose local bytes or request metadata', () => {
+    expect(() => renderToStaticMarkup(createElement(NoteLocalDocumentOriginals, { note, colors }))).not.toThrow();
+    expect(renderToStaticMarkup(createElement(NoteLocalDocumentOriginals, { note, colors }))).toBe('');
+  });
+
   it('uses the localized list-level error when document metadata cannot be loaded', async () => {
     services.list.mockResolvedValue({ status: 'UNAVAILABLE', reason: 'document_metadata_unavailable' });
     const { host, root } = render();
@@ -227,7 +375,8 @@ describe('NoteLocalDocumentOriginals', () => {
     pending.resolve({ status: 'VERIFIED', documents: [candidate(initialRequest, 'foreign.pdf')] });
     await flushAsync();
     expect(host.textContent).not.toContain('foreign.pdf');
-    expect(host.querySelector('[data-local-document-originals]')).toBeNull();
+    expect(host.querySelector('[data-local-document-originals]')?.textContent)
+      .toContain(getTranslator('en')('noteLocalDocumentsEmpty'));
     cleanup(root, host);
   });
 

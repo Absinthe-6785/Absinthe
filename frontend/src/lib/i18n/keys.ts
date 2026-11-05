@@ -2292,6 +2292,13 @@ const translationKeys = [
   "schedulesRefreshUnavailable",
   "scheduleMonthLoading",
   "scheduleMonthUnavailable",
+  "noteLocalDocumentsEmpty",
+  "noteLocalDocumentVerifyOriginal",
+  "noteLocalDocumentVerificationAvailable",
+  "noteLocalDocumentVerificationVerified",
+  "noteLocalDocumentVerificationUnavailable",
+  "noteLocalDocumentVerificationInvalidated",
+  "noteLocalDocumentDriveBackupUnavailable",
 ] as const;
 
 export type TranslationKey = (typeof translationKeys)[number];

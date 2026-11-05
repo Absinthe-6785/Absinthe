@@ -8,14 +8,20 @@ import translationKeys, { buildLocaleDictionary } from './i18n/keys';
 import type { TranslationKey } from './i18n';
 
 const PLANNER_STORAGE_KEY = 'planner-storage';
-const EXPECTED_KEY_COUNT = 2_292;
+const EXPECTED_KEY_COUNT = 2_299;
 type Locale = 'en' | 'ko' | 'ja';
 
-// Current independent canonical authority, including append-only Notes UI, Wiki-link accessibility, cloud comparison and Cloud Copy status readback, local document downloads, PDF/DOCX preview, and Recipe filter reset.
+// Current independent canonical authority, including append-only Notes UI, Wiki-link accessibility, cloud comparison and Cloud Copy status readback, local document downloads, PDF/DOCX preview, Recipe filter reset, and local-original integrity preflight.
 // The canonical serialization includes every key and exact locale value in
 // translationKeys order, so it detects insertion, omission, reordering, and
 // substitution without using buildLocaleDictionary.
 const EXPECTED_LOCALE_INTEGRITY_SHA256: Record<Locale, string> = {
+  en: '88cef662d426ae8b6c65a8aa48bb6032d18a93d7e579850f741be7d5712a3ba4',
+  ko: '9c0ac7cb830f42900354fad86937c93f6592ea4b98547fca70f1371014329b8e',
+  ja: '512e9973ff1fa9217c77fab2be0f588516aae6f8317f4a2ed600b3c159c77503',
+};
+
+const PRE_LOCAL_ORIGINAL_VERIFICATION_LOCALE_SHA256: Record<Locale, string> = {
   en: '3e2c311c98d83892d3ebd3e17b0c94ed516e34b238fc96b94938df5ccf772f81',
   ko: 'd8c1bb7ff94fcbc89579768bfb47b144f42f82062a5b41ba4644136b273e3972',
   ja: 'ea0915917764408caa25d2e024970aa1f3774c594a4325d8cb23240be5be9f3c',
@@ -320,12 +326,45 @@ describe('i18n locale dictionaries', () => {
         '今月の予定を読み込み中…', '今月の予定を確認できませんでした。不完全な結果は表示していません。予定を再読み込みしてください。'],
     } as const;
 
-    expect(translationKeys.slice(2_284)).toEqual(expectedKeys);
+    expect(translationKeys.slice(2_284, 2_292)).toEqual(expectedKeys);
     for (const [locale, values] of [['en', enLocaleValues], ['ko', koLocaleValues], ['ja', jaLocaleValues]] as const) {
       expect(localeIntegrityDigest(values.slice(0, 2_284), translationKeys.slice(0, 2_284)))
         .toBe(PRE_SCHEDULE_REFRESH_LOCALE_SHA256[locale]);
       const dictionary = buildLocaleDictionary(values);
       expect(expectedKeys.map(key => dictionary[key]), locale).toEqual(expected[locale]);
+    }
+  });
+
+  it('appends local-original preflight labels without changing existing translations', () => {
+    const keys = [
+      'noteLocalDocumentsEmpty', 'noteLocalDocumentVerifyOriginal', 'noteLocalDocumentVerificationAvailable',
+      'noteLocalDocumentVerificationVerified', 'noteLocalDocumentVerificationUnavailable',
+      'noteLocalDocumentVerificationInvalidated', 'noteLocalDocumentDriveBackupUnavailable',
+    ] as const;
+    const expected = {
+      en: ['No eligible published PDF/DOCX originals for this Note.', 'Verify local original', 'Available for local verification.',
+        'Local original verified: SHA-256 matched at this moment. This does not confirm a Google Drive backup.',
+        'Local original unavailable or changed; verification did not complete.',
+        'Account or Note context changed. The local verification result was cleared.',
+        'Google Drive backup is not checked here; this is a local-only check.'],
+      ko: ['이 노트에 검증 가능한 게시 PDF/DOCX 원본이 없습니다.', '로컬 원본 확인', '로컬에서 확인할 수 있습니다.',
+        '로컬 원본의 SHA-256이 현재 일치합니다. Google Drive 백업을 확인한 것은 아닙니다.',
+        '로컬 원본을 사용할 수 없거나 변경되어 확인을 완료하지 못했습니다.',
+        '계정 또는 노트 문맥이 바뀌어 로컬 확인 결과를 지웠습니다.',
+        '이 화면은 Google Drive 백업을 확인하지 않습니다. 로컬 전용 확인입니다.'],
+      ja: ['このノートに確認可能な公開済みPDF/DOCX原本はありません。', 'ローカル原本を確認', 'ローカルで確認できます。',
+        'ローカル原本のSHA-256が現時点で一致しました。Google Driveのバックアップを確認したものではありません。',
+        'ローカル原本を利用できないか変更されており、確認を完了できませんでした。',
+        'アカウントまたはノートのコンテキストが変わったため、ローカル確認結果を消去しました。',
+        'この画面ではGoogle Driveバックアップを確認しません。ローカルのみの確認です。'],
+    } as const;
+
+    expect(translationKeys.slice(2_292)).toEqual(keys);
+    for (const [locale, values] of [['en', enLocaleValues], ['ko', koLocaleValues], ['ja', jaLocaleValues]] as const) {
+      expect(localeIntegrityDigest(values.slice(0, 2_292), translationKeys.slice(0, 2_292)))
+        .toBe(PRE_LOCAL_ORIGINAL_VERIFICATION_LOCALE_SHA256[locale]);
+      const dictionary = buildLocaleDictionary(values);
+      expect(keys.map(key => dictionary[key]), locale).toEqual(expected[locale]);
     }
   });
 
@@ -348,10 +387,10 @@ describe('i18n locale dictionaries', () => {
     missing.splice(1_000, 1);
 
     expect(() => buildLocaleDictionary(missing)).toThrow(
-      'Locale dictionary length mismatch: expected 2292, received 2291',
+      'Locale dictionary length mismatch: expected 2299, received 2298',
     );
     expect(() => assertLocaleValuesIntegrity('en', missing)).toThrow(
-      'Locale integrity length mismatch: expected 2292, received 2291',
+      'Locale integrity length mismatch: expected 2299, received 2298',
     );
   });
 
@@ -360,10 +399,10 @@ describe('i18n locale dictionaries', () => {
     extra.splice(1_000, 0, '__unexpected__');
 
     expect(() => buildLocaleDictionary(extra)).toThrow(
-      'Locale dictionary length mismatch: expected 2292, received 2293',
+      'Locale dictionary length mismatch: expected 2299, received 2300',
     );
     expect(() => assertLocaleValuesIntegrity('en', extra)).toThrow(
-      'Locale integrity length mismatch: expected 2292, received 2293',
+      'Locale integrity length mismatch: expected 2299, received 2300',
     );
   });
 

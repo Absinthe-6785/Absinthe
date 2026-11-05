@@ -31,9 +31,12 @@ interface DocumentSession {
   readonly note: Note;
   live: boolean;
   busyId: string | null;
+  verificationId: string | null;
   readonly urls: Set<string>;
   readonly revokeTimers: Map<string, number>;
 }
+
+type LocalVerificationStatus = 'verifying' | 'verified' | 'unavailable';
 
 interface DocumentView {
   readonly owner: DocumentSession | null;
@@ -41,6 +44,8 @@ interface DocumentView {
   readonly unavailable: boolean;
   readonly busyId: string | null;
   readonly message: string;
+  readonly verification: Readonly<{ attachmentId: string; status: LocalVerificationStatus }> | null;
+  readonly contextInvalidated: boolean;
 }
 
 interface PdfDocumentPreview {
@@ -120,12 +125,13 @@ export function NoteLocalDocumentOriginals({ note, colors: c }: NoteLocalDocumen
     && store.notes.find(item => item.id === note.id) === note && note.deletedAt === null && isCompleteLocalNote(note)
     ? observation.request : null;
   const sessionRef = useRef<DocumentSession | null>(null);
+  const verificationInvalidatedRef = useRef(false);
   const previewRef = useRef<ActiveDocumentPreview | null>(null);
   const docxRenderJobRef = useRef<DocxRenderJob | null>(null);
   const docxFrameRef = useRef<HTMLIFrameElement | null>(null);
   const previewTokenRef = useRef(0);
   const [view, setView] = useState<DocumentView>({
-    owner: null, documents: [], unavailable: false, busyId: null, message: '',
+    owner: null, documents: [], unavailable: false, busyId: null, message: '', verification: null, contextInvalidated: false,
   });
   const [preview, setPreview] = useState<ActiveDocumentPreview | null>(null);
   const previewPanelRef = useRef<HTMLDivElement>(null);
@@ -165,12 +171,18 @@ export function NoteLocalDocumentOriginals({ note, colors: c }: NoteLocalDocumen
   });
 
   useLayoutEffect(() => {
-    if (!request) return;
-    const session: DocumentSession = { request, note, live: true, busyId: null, urls: new Set(), revokeTimers: new Map() };
+    if (!request) {
+      if (verificationInvalidatedRef.current) {
+        setView({ owner: null, documents: [], unavailable: false, busyId: null, message: '', verification: null, contextInvalidated: true });
+      }
+      return;
+    }
+    const contextInvalidated = verificationInvalidatedRef.current;
+    const session: DocumentSession = { request, note, live: true, busyId: null, verificationId: null, urls: new Set(), revokeTimers: new Map() };
     sessionRef.current = session;
     let loading = true;
     const current = () => loading && owns(session);
-    setView({ owner: session, documents: [], unavailable: false, busyId: null, message: '' });
+    setView({ owner: session, documents: [], unavailable: false, busyId: null, message: '', verification: null, contextInvalidated });
     void (async () => {
       try {
         const listed = await listPublishedLocalDocumentOriginals({
@@ -179,19 +191,20 @@ export function NoteLocalDocumentOriginals({ note, colors: c }: NoteLocalDocumen
         if (!current()) return;
         if (listed.status === 'VERIFIED') {
           if (listed.documents.some(candidate => candidate.request !== request)) {
-            setView({ owner: session, documents: [], unavailable: true, busyId: null, message: '' });
+            setView(previous => ({ ...previous, owner: session, documents: [], unavailable: true, busyId: null, message: '' }));
           } else {
-            setView({ owner: session, documents: listed.documents, unavailable: false, busyId: null, message: '' });
+            setView(previous => ({ ...previous, owner: session, documents: listed.documents, unavailable: false, busyId: null, message: '' }));
           }
         } else if (listed.status === 'UNAVAILABLE') {
-          setView({ owner: session, documents: [], unavailable: true, busyId: null, message: '' });
+          setView(previous => ({ ...previous, owner: session, documents: [], unavailable: true, busyId: null, message: '' }));
         }
       } catch {
-        if (current()) setView({ owner: session, documents: [], unavailable: true, busyId: null, message: '' });
+        if (current()) setView(previous => ({ ...previous, owner: session, documents: [], unavailable: true, busyId: null, message: '' }));
       } finally { loading = false; }
     })();
     return () => {
       loading = false;
+      if (session.verificationId) verificationInvalidatedRef.current = true;
       session.live = false;
       if (previewRef.current?.owner === session) {
         previewRef.current = null;
@@ -204,6 +217,45 @@ export function NoteLocalDocumentOriginals({ note, colors: c }: NoteLocalDocumen
       revokeSessionUrls(session);
     };
   }, [note, request]);
+
+  const verifyLocalOriginal = async (session: DocumentSession, candidate: PublishedLocalDocumentOriginal) => {
+    if (!owns(session) || session.busyId) return;
+    session.busyId = candidate.attachmentId;
+    session.verificationId = candidate.attachmentId;
+    verificationInvalidatedRef.current = false;
+    setView(previous => ({
+      ...previous,
+      busyId: candidate.attachmentId,
+      message: '',
+      verification: { attachmentId: candidate.attachmentId, status: 'verifying' },
+      contextInvalidated: false,
+    }));
+    try {
+      const result = await readPublishedLocalDocumentOriginal({
+        accountId: session.request.accountId, noteId: session.note.id, candidate,
+        repository: metadataRepository, blobAdapter,
+      });
+      if (!owns(session)) return;
+      setView(previous => ({
+        ...previous,
+        verification: {
+          attachmentId: candidate.attachmentId,
+          status: result.status === 'VERIFIED' && result.integrity === 'SHA256_MATCHED' ? 'verified' : 'unavailable',
+        },
+      }));
+    } catch {
+      if (owns(session)) setView(previous => ({
+        ...previous,
+        verification: { attachmentId: candidate.attachmentId, status: 'unavailable' },
+      }));
+    } finally {
+      if (owns(session)) {
+        session.busyId = null;
+        session.verificationId = null;
+        setView(previous => ({ ...previous, busyId: null }));
+      }
+    }
+  };
 
   const download = async (session: DocumentSession, candidate: PublishedLocalDocumentOriginal) => {
     if (!owns(session) || session.busyId) return;
@@ -388,7 +440,13 @@ export function NoteLocalDocumentOriginals({ note, colors: c }: NoteLocalDocumen
   const visible = !!request && owner !== null && sessionRef.current === owner
     && owner.request === request && owner.note === note && owns(owner);
   const documents = visible ? view.documents : [];
-  if (!visible || (documents.length === 0 && !view.unavailable)) return null;
+  if (!visible) {
+    return view.contextInvalidated ? (
+      <section data-local-document-originals aria-label={t('noteLocalDocumentsTitle')}>
+        <p role="status" aria-live="polite" style={{ color: c.textMuted, margin: '8px 0' }}>{t('noteLocalDocumentVerificationInvalidated')}</p>
+      </section>
+    ) : null;
+  }
 
   return (
     <>
@@ -411,6 +469,17 @@ export function NoteLocalDocumentOriginals({ note, colors: c }: NoteLocalDocumen
                   </span>
                   <span style={{ color: c.textMuted, fontSize: 11, flex: '0 0 auto' }}>{candidate.format.toUpperCase()} · {formatSize(candidate.size)}</span>
                   <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, flex: '0 0 auto' }}>
+                    <button
+                      type="button"
+                      aria-label={`${t('noteLocalDocumentVerifyOriginal')} ${candidate.fileName}`}
+                      aria-busy={view.verification?.attachmentId === candidate.attachmentId && view.verification.status === 'verifying'}
+                      disabled={view.busyId !== null}
+                      onClick={() => void verifyLocalOriginal(owner, candidate)}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: c.text, background: c.input, border: `1px solid ${c.inputBdr}`, borderRadius: 6, padding: '5px 8px', cursor: view.busyId ? 'wait' : 'pointer' }}
+                    >
+                      {view.verification?.attachmentId === candidate.attachmentId && view.verification.status === 'verifying'
+                        ? t('noteLocalDocumentVerifying') : t('noteLocalDocumentVerifyOriginal')}
+                    </button>
                     {candidate.format === 'pdf' ? (
                       <button
                         type="button"
@@ -443,13 +512,30 @@ export function NoteLocalDocumentOriginals({ note, colors: c }: NoteLocalDocumen
                       {view.busyId === candidate.attachmentId ? t('noteLocalDocumentVerifying') : t('noteLocalDocumentDownload')}
                     </button>
                   </div>
+                  <span
+                    data-local-original-verification={view.verification?.attachmentId === candidate.attachmentId ? view.verification.status : 'available'}
+                    role={view.verification?.attachmentId === candidate.attachmentId ? 'status' : undefined}
+                    aria-live={view.verification?.attachmentId === candidate.attachmentId ? 'polite' : undefined}
+                    style={{ color: view.verification?.status === 'unavailable' && view.verification.attachmentId === candidate.attachmentId ? c.danger : c.textMuted, fontSize: 11, flex: '1 0 100%' }}
+                  >
+                    {view.verification?.attachmentId === candidate.attachmentId
+                      ? view.verification.status === 'verified' ? t('noteLocalDocumentVerificationVerified')
+                        : view.verification.status === 'unavailable' ? t('noteLocalDocumentVerificationUnavailable')
+                          : t('noteLocalDocumentVerifying')
+                      : t('noteLocalDocumentVerificationAvailable')}
+                  </span>
                 </li>
               ))}
             </ul>
           </details>
         ) : null}
+        {documents.length === 0 && !view.unavailable
+          ? <p role="status" aria-live="polite" style={{ color: c.textMuted, margin: 0 }}>{t('noteLocalDocumentsEmpty')}</p>
+          : null}
         {view.unavailable ? <p role="status" aria-live="polite" style={{ color: c.textMuted, margin: documents.length ? '8px 0 0' : 0 }}>{t('noteLocalDocumentsUnavailable')}</p> : null}
         {view.message ? <p role="status" aria-live="polite" style={{ color: c.textMuted, margin: '8px 0 0' }}>{view.message}</p> : null}
+        {view.contextInvalidated ? <p role="status" aria-live="polite" style={{ color: c.textMuted, margin: '8px 0 0' }}>{t('noteLocalDocumentVerificationInvalidated')}</p> : null}
+        <p data-drive-backup-status style={{ color: c.textMuted, fontSize: 11, margin: '8px 0 0' }}>{t('noteLocalDocumentDriveBackupUnavailable')}</p>
       </section>
       {previewVisible && preview && typeof document !== 'undefined' ? createPortal(
         <div

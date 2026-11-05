@@ -2292,6 +2292,13 @@ const enTranslations = [
   "Schedule refresh is unavailable right now.",
   "Loading this month's schedules…",
   "This month's schedules could not be verified. Partial results are hidden; try Refresh schedules.",
+  "No eligible published PDF/DOCX originals for this Note.",
+  "Verify local original",
+  "Available for local verification.",
+  "Local original verified: SHA-256 matched at this moment. This does not confirm a Google Drive backup.",
+  "Local original unavailable or changed; verification did not complete.",
+  "Account or Note context changed. The local verification result was cleared.",
+  "Google Drive backup is not checked here; this is a local-only check.",
 ] as const;
 
 export default enTranslations;
