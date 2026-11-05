@@ -65,7 +65,7 @@ class FakeScheduleQuery:
         if self.gateway.fail_reads:
             raise RuntimeError("synthetic read failure")
         matching = [row for row in self.gateway.rows
-            if row["user_id"] == self.filters.get("user_id")
+            if (self.gateway.ignore_user_filter or row["user_id"] == self.filters.get("user_id"))
             and self.filters.get("date_gte", "") <= row["date"] <= self.filters.get("date_lte", "")
             and row["id"] > self.filters.get("id_gt", "")]
         if self.ordered_by:
@@ -89,6 +89,7 @@ class FakeScheduleGateway:
         self.server_row_cap = server_row_cap
         self.count_available = True
         self.fail_reads = False
+        self.ignore_user_filter = False
         self.calls: list[dict] = []
 
     def table(self, name: str):
@@ -277,9 +278,20 @@ def test_unverified_or_nonprogressing_reads_fail_instead_of_claiming_empty(api, 
     assert response.json()["detail"] == "SCHEDULE_RANGE_READ_UNVERIFIED"
 
 
-def test_wrong_account_or_malformed_rows_never_become_authoritative(api) -> None:
+def test_wrong_account_rows_never_become_authoritative(api) -> None:
     client, gateway, _ = api
     gateway.rows = [schedule_row(1, "account-b")]
+    gateway.ignore_user_filter = True
+
+    response = client.get("/api/schedules/range", params=range_params(page_size=10))
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "SCHEDULE_RANGE_READ_UNVERIFIED"
+
+
+def test_malformed_rows_never_become_authoritative(api) -> None:
+    client, gateway, _ = api
+    gateway.rows = [schedule_row(1, date="2026-09-10-invalid")]
 
     response = client.get("/api/schedules/range", params=range_params(page_size=10))
 
