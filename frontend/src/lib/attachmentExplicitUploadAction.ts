@@ -12,6 +12,11 @@ import {
   type SanitizedRemoteBlobProviderError,
 } from './remoteBlobProvider';
 import { verifyAttachmentUploadResult } from './attachmentSyncQueue';
+import { checksumLocalAttachmentBytes } from './localImageAttachments';
+
+export type AttachmentUploadOutcome =
+  | 'verified_remote_content' | 'definitive_failure'
+  | 'indeterminate' | 'verification_unavailable';
 
 export type AttachmentExplicitUploadStatus = 'uploaded' | 'blocked' | 'failed' | 'skipped';
 
@@ -24,6 +29,8 @@ export interface AttachmentExplicitUploadResult {
   readonly remoteSize?: number;
   readonly remoteChecksum?: string;
   readonly status: AttachmentExplicitUploadStatus;
+  /** Point-in-time byte verification, not a restore or retention guarantee. */
+  readonly outcome?: AttachmentUploadOutcome;
   readonly verification?: RemoteBlobUploadVerification;
   readonly error?: string;
   readonly errorDetails?: SanitizedRemoteBlobProviderError;
@@ -114,6 +121,7 @@ export async function uploadAttachmentBlobToRemote(
   let failureCode = 'attachment_upload_failed';
   let completedUploadResult: RemoteBlobUploadResult | null = null;
   let completedUploadVerification: RemoteBlobUploadVerification | undefined;
+  let outcome: AttachmentUploadOutcome = 'definitive_failure';
   const complete = (
     result: Omit<AttachmentExplicitUploadResult, 'uploadId' | 'startedAt' | 'completedAt'>,
   ): AttachmentExplicitUploadResult => {
@@ -181,6 +189,16 @@ export async function uploadAttachmentBlobToRemote(
   }
 
   try {
+    // Verify the actual immutable upload Blob, not only its metadata.
+    const localChecksum = await checksumLocalAttachmentBytes(await blobRecord.blob.arrayBuffer());
+    if (!localChecksum) {
+      outcome = 'verification_unavailable';
+      throw new Error('Local SHA-256 verification is unavailable; upload not started.');
+    }
+    if (blobRecord.blob.size !== metadata.size
+      || (metadata.checksum?.startsWith('sha256:') && metadata.checksum !== localChecksum)) {
+      throw new Error('Local original integrity verification failed; upload not started.');
+    }
     failureCode = 'metadata_update_failed';
     await input.attachmentRepository.updateAttachment(metadata.id, {
       remoteProvider: input.remoteProvider.providerType,
@@ -192,6 +210,7 @@ export async function uploadAttachmentBlobToRemote(
     });
 
     failureCode = 'upload_failed';
+    outcome = 'indeterminate';
     const uploadResult = await input.remoteProvider.uploadBlob({
       attachmentId: metadata.id,
       localBlobKey,
@@ -203,16 +222,60 @@ export async function uploadAttachmentBlobToRemote(
     });
     completedUploadResult = uploadResult;
 
-    if (!uploadResult.remoteFileId && !uploadResult.remoteBlobKey) {
+    if (!uploadResult.remoteFileId?.trim()) {
       throw new Error('Remote upload completed without a remote file id.');
     }
+    if (uploadResult.attachmentId !== metadata.id || uploadResult.providerType !== input.remoteProvider.providerType) {
+      throw new Error('Remote upload identity could not be verified.');
+    }
 
+    outcome = 'definitive_failure';
     const verification = verifyAttachmentUploadResult(metadata, uploadResult);
     completedUploadVerification = verification;
     assertUploadVerification(verification);
 
+    outcome = 'verification_unavailable';
+    // Metadata, including a matching size/MD5, is not independent byte evidence.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let downloaded;
+    try {
+      downloaded = await Promise.race([
+        input.remoteProvider.downloadBlob({
+          attachmentId: metadata.id,
+          remoteFileId: uploadResult.remoteFileId,
+          expectedSize: blobRecord.blob.size,
+          expectedChecksum: localChecksum,
+          expectedMimeType: metadata.mimeType,
+        }),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error('Remote readback verification timed out.')), 30_000);
+        }),
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!(downloaded instanceof Blob)
+      && (downloaded.providerType !== input.remoteProvider.providerType
+        || downloaded.remoteFileId !== uploadResult.remoteFileId)) {
+      throw new Error('Remote readback identity could not be verified.');
+    }
+    const remoteBlob = downloaded instanceof Blob ? downloaded : downloaded.blob;
+    const remoteSha256 = await checksumLocalAttachmentBytes(await remoteBlob.arrayBuffer());
+    if (!remoteSha256) throw new Error('Remote SHA-256 verification is unavailable.');
+    outcome = 'definitive_failure';
+    const readbackVerification: RemoteBlobUploadVerification = {
+      sizeVerified: remoteBlob.size === blobRecord.blob.size,
+      checksumVerified: remoteSha256 === localChecksum,
+      checksumAlgorithm: 'sha256',
+    };
+    completedUploadVerification = readbackVerification;
+    assertUploadVerification(readbackVerification);
+    outcome = 'verified_remote_content';
+
     const latest = await input.attachmentRepository.getAttachment(metadata.id);
-    if (!latest || isDeleted(latest) || latest.localBlobKey !== localBlobKey || latest.updatedAt !== startedAt) {
+    if (!latest || isDeleted(latest) || latest.localBlobKey !== localBlobKey || latest.updatedAt !== startedAt
+      || latest.noteId !== metadata.noteId || latest.checksum !== metadata.checksum
+      || latest.size !== metadata.size || latest.mimeType !== metadata.mimeType) {
       return complete({
         attachmentId: metadata.id,
         localBlobKey,
@@ -220,8 +283,8 @@ export async function uploadAttachmentBlobToRemote(
         remoteFileId: uploadResult.remoteFileId,
         remoteSize: remoteSize(uploadResult),
         remoteChecksum: remoteChecksum(uploadResult),
-        verification,
-        warnings: verification.warnings,
+        verification: readbackVerification,
+        outcome,
         status: 'skipped',
         error: 'Attachment metadata changed during upload; success update skipped.',
       });
@@ -238,7 +301,7 @@ export async function uploadAttachmentBlobToRemote(
       remoteMimeType: uploadResult.remoteMimeType ?? uploadResult.mimeType,
       remoteSyncedAt: uploadResult.remoteSyncedAt ?? uploadResult.syncedAt ?? completedAt,
       remoteUpdatedAt: uploadResult.updatedAt,
-      remoteVerification: verification,
+      remoteVerification: readbackVerification,
       remoteSyncStatus: 'synced',
       remoteError: undefined,
       lastRemoteSyncAttemptAt: completedAt,
@@ -252,17 +315,25 @@ export async function uploadAttachmentBlobToRemote(
       remoteFileId: uploadResult.remoteFileId,
       remoteSize: remoteSize(uploadResult),
       remoteChecksum: remoteChecksum(uploadResult),
-      verification,
-      warnings: verification.warnings,
+      verification: readbackVerification,
+      outcome,
       status: 'uploaded',
     });
   } catch (error) {
+    if (outcome === 'indeterminate' && error && typeof error === 'object'
+      && 'uploadOutcome' in error && error.uploadOutcome === 'definitive_failure') {
+      outcome = 'definitive_failure';
+    }
     const completedAt = nowIso(input.now);
     const errorDetails = safeUploadError(error, failureCode);
     try {
-      await input.attachmentRepository.updateAttachment(metadata.id, {
+      const latest = await input.attachmentRepository.getAttachment(metadata.id);
+      if (latest && !isDeleted(latest) && latest.updatedAt === startedAt
+        && latest.localBlobKey === localBlobKey && latest.noteId === metadata.noteId
+        && latest.checksum === metadata.checksum && latest.size === metadata.size
+        && latest.mimeType === metadata.mimeType) await input.attachmentRepository.updateAttachment(metadata.id, {
         remoteSyncStatus: 'failed',
-        remoteError: errorDetails.message,
+        remoteError: `${outcome}: ${errorDetails.message}`,
         lastRemoteSyncAttemptAt: completedAt,
         updatedAt: completedAt,
       });
@@ -286,6 +357,7 @@ export async function uploadAttachmentBlobToRemote(
           ]
         : completedUploadVerification?.warnings,
       status: 'failed',
+      outcome,
       errorDetails,
     });
   }

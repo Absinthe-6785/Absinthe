@@ -45,6 +45,7 @@ import type { NoteBase as Note, NoteFolderBase as NoteFolder } from '../noteUtil
 import type { NoteChromeColors } from '../noteEditorTheme';
 import { NoteSidebarVirtualList } from './NoteSidebarVirtualList';
 import { EmbeddedAttachmentMigrationReviewPanel } from './EmbeddedAttachmentMigrationReviewPanel';
+import { GoogleDriveRuntimeConnectionPanel } from './GoogleDriveRuntimeConnectionPanel';
 import { NotesOverviewSignalPanelContainer } from '../../notes/NotesOverviewSignalPanelContainer';
 import { SIDEBAR_NOTE_SEARCH_ATTR } from '../searchFocusIsolation';
 import { useTranslation } from '../../../lib/i18n';
@@ -1140,6 +1141,7 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
             ) : null}
           </div>
         )}
+        {!isTrash && !isWorkspacePanelMode && <GoogleDriveRuntimeConnectionPanel accountId={accountId} colors={c} />}
         {!isTrash && !isWorkspacePanelMode && (
           <div
             data-k126c-notes-list-filters

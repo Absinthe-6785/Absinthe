@@ -11,6 +11,7 @@ import { supabase } from './lib/supabase';
 import { LoginScreen } from './components/views/LoginScreen';
 import { AppContent } from './components/AppContent';
 import { setRuntimeAccountSyncAccount } from './lib/remoteBoundary';
+import { replaceGoogleDriveRuntimeAccount } from './lib/googleDriveSessionRuntime';
 
 // ─── 폰트 글로벌 스타일 ────────────────────────────────────────────
 const GlobalStyle = () => (
@@ -27,10 +28,20 @@ export default function App() {
   useEffect(() => {
     let authRevision = 0;
     let disposed = false;
+    // Supabase may repeat SIGNED_IN on tab refocus without replacing the session.
+    // Compare only in memory; never log or persist the session token.
+    let driveOwner: { accountId: string; token: string } | null = null;
     setRuntimeAccountSyncAccount(null);
+    replaceGoogleDriveRuntimeAccount(null);
 
-    const applySession = (session: { user: User } | null) => {
+    const applySession = (session: { user: User; access_token?: string } | null) => {
       setRuntimeAccountSyncAccount(session?.user.id ?? null);
+      const nextOwner = session?.access_token
+        ? { accountId: session.user.id, token: session.access_token } : null;
+      if (!nextOwner || !driveOwner || nextOwner.accountId !== driveOwner.accountId || nextOwner.token !== driveOwner.token) {
+        replaceGoogleDriveRuntimeAccount(nextOwner?.accountId ?? null);
+      }
+      driveOwner = nextOwner;
       setAuthUser(session?.user ?? null);
     };
 
@@ -50,7 +61,9 @@ export default function App() {
       });
     return () => {
       disposed = true;
+      driveOwner = null;
       setRuntimeAccountSyncAccount(null);
+      replaceGoogleDriveRuntimeAccount(null);
       subscription.unsubscribe();
     };
   }, []);

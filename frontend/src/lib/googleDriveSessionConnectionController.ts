@@ -100,6 +100,7 @@ export interface GoogleDriveSessionConnectionController {
 }
 
 export interface CreateGoogleDriveSessionConnectionControllerInput {
+  readonly isCurrent?: () => boolean;
   readonly clientId: string;
   readonly redirectUri: string;
   readonly allowedRedirectUris: readonly string[];
@@ -193,6 +194,17 @@ export function createGoogleDriveSessionConnectionController(
   const pendingAuthByState = new Map<string, GoogleDriveOAuthPendingAuth>();
   const verifierByRef = new Map<string, string>();
   let tokenProvider: EphemeralGoogleDriveAccessTokenProvider | null = null;
+  let revision = 0;
+  const owned = () => input.isCurrent?.() !== false;
+  const current = (operation: number) => owned() && operation === revision;
+  const blockedStart = () => ({
+    providerType: 'googleDrive' as const, status: 'blocked' as const,
+    safeMessage: 'Google Drive session ownership changed. Start a new connection.',
+  });
+  const blockedCallback = async (): Promise<GoogleDriveCompleteCallbackResult> => ({
+    providerType: 'googleDrive', status: 'blocked', connectionStatus: await status(),
+    safeMessage: blockedStart().safeMessage,
+  });
 
   function clearPendingAuth(state: string): void {
     const pendingAuth = pendingAuthByState.get(state);
@@ -236,20 +248,27 @@ export function createGoogleDriveSessionConnectionController(
   };
 
   async function status(): Promise<RemoteProviderConnectionBoundary> {
+    if (!owned()) clearSession();
     return statusFromTokenProvider(tokenProvider, input);
   }
 
   function clearSession(): void {
+    revision += 1;
     for (const state of Array.from(pendingAuthByState.keys())) {
       clearPendingAuth(state);
     }
     tokenProvider?.clear();
     tokenProvider = null;
+    verifierByRef.clear();
   }
 
   return {
     providerType: 'googleDrive',
     async startAuthorization(startInput = {}) {
+      if (!owned()) return blockedStart();
+      const operation = ++revision;
+      clearAllPendingAuth();
+      verifierByRef.clear();
       try {
         const authorization = await buildGoogleDriveOAuthAuthorizationUrl({
           clientId: input.clientId,
@@ -263,6 +282,7 @@ export function createGoogleDriveSessionConnectionController(
           accessType: startInput.accessType,
           now: input.now,
         } satisfies GoogleDriveOAuthAuthorizationUrlInput);
+        if (!current(operation)) return blockedStart();
         const createdAt = new Date(authorization.createdAt);
         const expiresAt = new Date(createdAt.getTime() + (input.authorizationTtlMs ?? DEFAULT_AUTHORIZATION_TTL_MS)).toISOString();
         const codeVerifierRef = pendingAuthRef(authorization.state);
@@ -300,6 +320,8 @@ export function createGoogleDriveSessionConnectionController(
       }
     },
     async completeCallback(inputValue) {
+      if (!owned()) return blockedCallback();
+      const operation = revision;
       const callback = parseGoogleDriveOAuthCallback(callbackInput(inputValue));
       const attemptedState = callback.state;
       if (attemptedState && !pendingAuthByState.has(attemptedState) && pendingAuthByState.size > 0) {
@@ -318,6 +340,7 @@ export function createGoogleDriveSessionConnectionController(
         allowedRedirectUris: input.allowedRedirectUris,
         now: input.now,
       });
+      if (!current(operation)) return blockedCallback();
 
       if (validation.status !== 'valid_code') {
         if (validation.state) {
@@ -350,9 +373,22 @@ export function createGoogleDriveSessionConnectionController(
         clientId: input.clientId,
         expectedRedirectUri: input.redirectUri,
         allowedRedirectUris: input.allowedRedirectUris,
-        fetchToken: input.fetchToken,
+        fetchToken: async (url, init) => {
+          if (!current(operation)) throw new Error(blockedStart().safeMessage);
+          const response = await input.fetchToken(url, init);
+          if (!current(operation)) throw new Error(blockedStart().safeMessage);
+          return {
+            ok: response.ok, status: response.status,
+            async text() {
+              const text = await response.text();
+              if (!current(operation)) throw new Error(blockedStart().safeMessage);
+              return text;
+            },
+          };
+        },
         now: input.now,
       });
+      if (!current(operation)) return blockedCallback();
 
       if (exchange.status !== 'exchanged') {
         return {
@@ -390,6 +426,7 @@ export function createGoogleDriveSessionConnectionController(
       return status();
     },
     getAccessTokenProvider() {
+      if (!owned()) { clearSession(); return null; }
       return tokenProvider?.hasToken() && !tokenProvider.isExpired() ? tokenProvider : null;
     },
     async markReconnectRequired() {

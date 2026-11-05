@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { GoogleDriveSessionConnectionController } from '../../../lib/googleDriveSessionConnectionController';
 import { resolveRemoteProviderConnectionBoundary, type RemoteProviderConnectionBoundary } from '../../../lib/remoteProviderConnectionStatus';
 import { sanitizeRemoteBlobProviderErrorMessage } from '../../../lib/remoteBlobProvider';
@@ -36,11 +36,22 @@ function unconfiguredStatus(): RemoteProviderConnectionBoundary {
   };
 }
 
-export function GoogleDriveManualConnectionPanel({
+export function GoogleDriveManualConnectionPanel(props: GoogleDriveManualConnectionPanelProps) {
+  const owner = useRef({ controller: props.controller, generation: 0 });
+  if (owner.current.controller !== props.controller) {
+    owner.current = { controller: props.controller, generation: owner.current.generation + 1 };
+  }
+  return <ManualConnectionSession key={owner.current.generation} {...props} />;
+}
+
+function ManualConnectionSession({
   colors: c,
   controller,
   onConnectionStatusChange,
 }: GoogleDriveManualConnectionPanelProps) {
+  const mounted = useRef(false);
+  const operation = useRef(0);
+  const statusRequest = useRef(0);
   const [connectionStatus, setConnectionStatus] = useState<RemoteProviderConnectionBoundary>(() => unconfiguredStatus());
   const [startStatus, setStartStatus] = useState<ManualActionState>('idle');
   const [completeStatus, setCompleteStatus] = useState<ManualActionState>('idle');
@@ -55,6 +66,7 @@ export function GoogleDriveManualConnectionPanel({
   const connected = connectionStatus.status === 'available';
 
   const refreshStatus = async () => {
+    const request = ++statusRequest.current;
     let nextStatus: RemoteProviderConnectionBoundary;
     if (!controller) {
       nextStatus = unconfiguredStatus();
@@ -63,21 +75,26 @@ export function GoogleDriveManualConnectionPanel({
       return;
     }
     nextStatus = await controller.getConnectionStatus();
+    if (!mounted.current || request !== statusRequest.current) return;
     setConnectionStatus(nextStatus);
     onConnectionStatusChange?.(nextStatus);
   };
 
   useEffect(() => {
+    mounted.current = true;
     void refreshStatus();
+    return () => { mounted.current = false; operation.current += 1; statusRequest.current += 1; };
   }, [controller]);
 
   const startAuthorization = async () => {
     if (!controller || connected || startStatus === 'running') return;
+    const request = ++operation.current;
     setStartStatus('running');
     setLastError('');
     setLastResult('');
     try {
       const result = await controller.startAuthorization();
+      if (!mounted.current || request !== operation.current) return;
       if (result.status === 'authorization_url_created') {
         setAuthorizationUrl(result.authorizationUrl);
         setAuthorizationExpiresAt(result.expiresAt);
@@ -89,6 +106,7 @@ export function GoogleDriveManualConnectionPanel({
       }
       await refreshStatus();
     } catch (error) {
+      if (!mounted.current || request !== operation.current) return;
       setStartStatus('error');
       setLastError(safeText(error));
     }
@@ -96,6 +114,7 @@ export function GoogleDriveManualConnectionPanel({
 
   const completeConnection = async () => {
     if (!controller || !callbackUrl.trim() || completeStatus === 'running') return;
+    const request = ++operation.current;
     setCompleteStatus('running');
     setLastError('');
     setLastResult('');
@@ -103,6 +122,8 @@ export function GoogleDriveManualConnectionPanel({
     setCallbackUrl('');
     try {
       const result = await controller.completeCallback({ callbackUrl: submittedCallbackUrl });
+      if (!mounted.current || request !== operation.current) return;
+      statusRequest.current += 1;
       setConnectionStatus(result.connectionStatus);
       onConnectionStatusChange?.(result.connectionStatus);
       if (result.status === 'connected') {
@@ -115,6 +136,7 @@ export function GoogleDriveManualConnectionPanel({
         setLastError(safeText(result.error?.safeMessage ?? result.safeMessage));
       }
     } catch (error) {
+      if (!mounted.current || request !== operation.current) return;
       setCompleteStatus('error');
       setLastError(safeText(error));
       await refreshStatus();
@@ -123,10 +145,15 @@ export function GoogleDriveManualConnectionPanel({
 
   const disconnect = async () => {
     if (!controller || disconnectStatus === 'running') return;
+    const request = ++operation.current;
+    statusRequest.current += 1;
+    setStartStatus('idle');
+    setCompleteStatus('idle');
     setDisconnectStatus('running');
     setLastError('');
     try {
       const result = await controller.disconnect();
+      if (!mounted.current || request !== operation.current) return;
       setAuthorizationUrl('');
       setAuthorizationExpiresAt('');
       setCallbackUrl('');
@@ -134,6 +161,7 @@ export function GoogleDriveManualConnectionPanel({
       setDisconnectStatus('complete');
       await refreshStatus();
     } catch (error) {
+      if (!mounted.current || request !== operation.current) return;
       setDisconnectStatus('error');
       setLastError(safeText(error));
     }
