@@ -88,6 +88,28 @@ export type ScopedAttachmentTombstoneResult = Readonly<{
   status: 'TOMBSTONED' | 'DENIED' | 'NOT_STARTED' | 'ABORTED' | 'INDETERMINATE';
 }>;
 
+export type ScopedAttachmentBackupTransition = Readonly<
+  | { kind: 'reserve'; at: string }
+  | { kind: 'finish'; at: string; outcome: 'verified_remote_content'; remoteFileId: string; checksum: string; size: number }
+  | { kind: 'finish'; at: string; outcome: 'definitive_failure' | 'indeterminate' | 'verification_unavailable'; remoteFileId?: string }
+>;
+
+/** Storage-only CAS, NOT permission to upload or proof of remote byte verification. */
+export interface ScopedAttachmentBackupInput {
+  readonly accountId: string;
+  readonly noteId: string;
+  readonly request: NotesAuthorityRequest;
+  readonly expected: AccountScopedAttachmentMetadata;
+  /** Must bind the caller's published Note/original and current Drive session. */
+  readonly isCurrent: () => boolean;
+  readonly transition: ScopedAttachmentBackupTransition;
+}
+
+export type ScopedAttachmentBackupResult = Readonly<{
+  /** COMMITTED is emitted only after IDB complete with authority still current. */
+  status: 'COMMITTED' | 'DENIED' | 'NOT_STARTED' | 'ABORTED' | 'INDETERMINATE';
+}>;
+
 export interface ScopedAttachmentCreateContext {
   /** Omitted for existing image records; documents use a separate additive key space. */
   readonly namespace?: 'local-document';
@@ -149,6 +171,7 @@ export interface AttachmentRepository {
   listAttachmentsForAccountNote?(accountId: string, noteId: string): Promise<AccountScopedAttachmentMetadata[]>;
   inspectAccountNoteMetadata?(accountId: string, noteId: string): Promise<AttachmentMetadataInspection>;
   tombstoneAttachmentForAccountNote?(input: ScopedAttachmentTombstoneInput): Promise<ScopedAttachmentTombstoneResult>;
+  transitionBackupForAccountNote?(input: ScopedAttachmentBackupInput): Promise<ScopedAttachmentBackupResult>;
   listAttachmentsForNote(noteId: string): Promise<AttachmentMetadata[]>;
   getAttachment(id: string): Promise<AttachmentMetadata | null>;
   putAttachment(metadata: AttachmentMetadata): Promise<void>;

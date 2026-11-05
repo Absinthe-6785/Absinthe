@@ -10,9 +10,15 @@ import {
   type ScopedAttachmentTombstoneResult,
   type AttachmentCreateStage,
   type ScopedAttachmentCreateContext,
+  type ScopedAttachmentBackupInput,
+  type ScopedAttachmentBackupResult,
+  type ScopedAttachmentBackupTransition,
+  attachmentReference,
 } from './attachmentRepository';
 import { addScopedAttachmentRecord, isScopedAttachmentCreateCurrent, scopedAttachmentBlobKey } from './attachmentScopedCreate';
 import { getActiveNotesAuthorityRequest, isNotesAuthorityRequestActive } from './notesAccountAuthority';
+import { isReturnToUseAttachmentIsolationEnabled } from './returnToUseAttachmentIsolation';
+import { admitLocalDocumentDeclaration } from './localDocumentAttachmentAdmission';
 
 export const ATTACHMENT_METADATA_DB_NAME = 'absinthe.attachments.metadata';
 export const ATTACHMENT_METADATA_STORE = 'metadata';
@@ -179,7 +185,109 @@ function metadataSnapshot(metadata: AttachmentMetadata): string {
   return JSON.stringify(data(metadata));
 }
 
+function canonicalTimestamp(value: unknown): value is string {
+  try { return typeof value === 'string' && new Date(value).toISOString() === value; }
+  catch { return false; }
+}
+
+/** Restricted to existing, account-owned PDF/DOCX originals; never normalizes source fields. */
+function backupPatch(record: AccountScopedAttachmentMetadata, transition: ScopedAttachmentBackupTransition): Partial<AttachmentMetadata> | null {
+  if (record.source !== 'local' || record.deletedAt !== null || record.syncStatus === 'deleted'
+    || record.localBlobKey !== scopedAttachmentBlobKey({ ...record, namespace: 'local-document', attachmentId: record.id })
+    || typeof record.checksum !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(record.checksum)
+    || admitLocalDocumentDeclaration({ name: record.fileName, type: record.mimeType, size: record.size }).status !== 'ELIGIBLE_BY_DECLARATION'
+    || !canonicalTimestamp(record.createdAt) || !canonicalTimestamp(record.updatedAt)
+    || !canonicalTimestamp(transition.at) || transition.at < record.updatedAt) return null;
+  const hasReceipt = ['remoteFileId', 'remoteBlobKey', 'remoteChecksum', 'remoteSize', 'remoteMimeType',
+    'remoteSyncedAt', 'remoteUpdatedAt', 'remoteVerification', 'remoteError'].some(key => record[key as keyof AttachmentMetadata] !== undefined);
+  if (transition.kind === 'reserve') {
+    if (hasReceipt || record.remoteProvider !== undefined && record.remoteProvider !== 'googleDrive'
+      || ![undefined, 'local_only', 'not_configured'].includes(record.remoteSyncStatus)
+      || record.lastRemoteSyncAttemptAt !== undefined
+      || record.remoteSyncAttemptCount !== undefined && record.remoteSyncAttemptCount !== 0) return null;
+    return { remoteProvider: 'googleDrive', remoteSyncStatus: 'uploading', remoteSyncAttemptCount: 1,
+      lastRemoteSyncAttemptAt: transition.at, updatedAt: transition.at };
+  }
+  if (transition.kind !== 'finish' || hasReceipt || record.remoteProvider !== 'googleDrive'
+    || record.remoteSyncStatus !== 'uploading' || record.remoteSyncAttemptCount !== 1
+    || !canonicalTimestamp(record.lastRemoteSyncAttemptAt) || transition.at < record.lastRemoteSyncAttemptAt) return null;
+  const fileId = transition.remoteFileId;
+  if (fileId !== undefined && (typeof fileId !== 'string' || !/^[A-Za-z0-9_-]{1,256}$/.test(fileId))) return null;
+  if (transition.outcome === 'verified_remote_content') {
+    if (!fileId || transition.checksum !== record.checksum || transition.size !== record.size) return null;
+    return { remoteFileId: fileId, remoteChecksum: record.checksum, remoteSize: record.size, remoteMimeType: record.mimeType,
+      remoteSyncedAt: transition.at, remoteVerification: { sizeVerified: true, checksumVerified: true, checksumAlgorithm: 'sha256' },
+      remoteSyncStatus: 'synced', updatedAt: transition.at };
+  }
+  if (!['definitive_failure', 'indeterminate', 'verification_unavailable'].includes(transition.outcome)) return null;
+  // Fixed outcome code only: never persist raw provider errors/tokens. All failed states block retry.
+  return { ...(fileId ? { remoteFileId: fileId } : {}), remoteSyncStatus: 'failed', remoteError: transition.outcome, updatedAt: transition.at };
+}
+
 export class LocalAttachmentMetadataRepository implements AttachmentRepository {
+  async transitionBackupForAccountNote(input: ScopedAttachmentBackupInput): Promise<ScopedAttachmentBackupResult> {
+    const result = (status: ScopedAttachmentBackupResult['status']): ScopedAttachmentBackupResult => Object.freeze({ status });
+    const { accountId, noteId, request, isCurrent } = input;
+    const current = () => {
+      try {
+        return !isReturnToUseAttachmentIsolationEnabled() && !!accountId && accountId === accountId.trim()
+          && !!noteId && noteId === noteId.trim() && request.accountId === accountId
+          && getActiveNotesAuthorityRequest() === request && isNotesAuthorityRequestActive(request)
+          && isCurrent() === true && getActiveNotesAuthorityRequest() === request && isNotesAuthorityRequestActive(request)
+          && !isReturnToUseAttachmentIsolationEnabled();
+      } catch { return false; }
+    };
+    let expected: AccountScopedAttachmentMetadata;
+    let fingerprint: string;
+    let patch: Partial<AttachmentMetadata>;
+    try {
+      // Freeze the expected values before the first async boundary, not the caller's mutable objects.
+      expected = structuredClone(input.expected);
+      const transition = structuredClone(input.transition);
+      fingerprint = metadataSnapshot(expected);
+      if (!current() || expected.accountId !== accountId || expected.noteId !== noteId
+        || attachmentReference(expected.id) !== `attachment://${expected.id}`) return result('DENIED');
+      const allowed = backupPatch(expected, transition);
+      if (!allowed) return result('DENIED');
+      patch = allowed;
+    } catch { return result('DENIED'); }
+    let db: IDBDatabase | null;
+    try { db = await openExistingAttachmentMetadataDb(); } catch { return result('NOT_STARTED'); }
+    if (!db) return result('NOT_STARTED');
+    try {
+      if (!current()) return result('DENIED');
+      return await new Promise<ScopedAttachmentBackupResult>(resolve => {
+        let tx: IDBTransaction;
+        try { tx = db.transaction(ATTACHMENT_METADATA_STORE, 'readwrite'); }
+        catch { resolve(result('NOT_STARTED')); return; }
+        let settled = false, issued = false, written = false, failed = false;
+        const finish = (status: ScopedAttachmentBackupResult['status']) => {
+          if (!settled) { settled = true; resolve(result(status)); }
+        };
+        const abort = () => { try { tx.abort(); } catch { finish('INDETERMINATE'); } };
+        tx.addEventListener('abort', () => finish('ABORTED'));
+        tx.addEventListener('error', () => { failed = true; });
+        tx.addEventListener('complete', () => finish(!issued ? 'DENIED'
+          : written && !failed && current() ? 'COMMITTED' : 'INDETERMINATE'));
+        try {
+          const store = tx.objectStore(ATTACHMENT_METADATA_STORE);
+          const lookup = store.get(expected.id);
+          lookup.addEventListener('success', () => {
+            try {
+              const record = lookup.result as AccountScopedAttachmentMetadata | undefined;
+              if (!record || record.id !== expected.id || record.accountId !== accountId || record.noteId !== noteId
+                || metadataSnapshot(record) !== fingerprint || !current()) return;
+              // One transaction, no await between exact snapshot comparison, final guard and restricted put.
+              const write = store.put({ ...record, ...patch });
+              issued = true;
+              write.addEventListener('success', () => { written = true; if (!current()) abort(); });
+            } catch { abort(); }
+          });
+        } catch { abort(); }
+      });
+    } finally { db.close(); }
+  }
+
   async createAttachmentForAccountNote(context: ScopedAttachmentCreateContext, metadata: AccountScopedAttachmentMetadata): Promise<AttachmentCreateStage> {
     const scope = Object.freeze({ ...context });
     const current = () => isScopedAttachmentCreateCurrent(scope);
