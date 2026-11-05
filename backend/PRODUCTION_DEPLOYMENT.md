@@ -46,6 +46,12 @@ Verify only the presence, never the value, of required secret settings:
 
 - `SUPABASE_URL`: present
 - `SUPABASE_KEY`: present
+- `SCHEDULE_RANGE_CURSOR_SIGNING_KEY`: for paginated Schedule month reads, set a
+  dedicated cryptographically random value of at least 32 UTF-8 bytes. Keep the
+  same value across backend instances and restarts. Rotating it invalidates
+  in-flight pagination cursors, so clients must restart the read from page one.
+  If this setting is absent or too short, the opt-in paginated endpoint returns
+  HTTP 503; legacy unpaginated range responses are unaffected.
 
 `SUPABASE_JWT_SECRET` is needed only for a legacy HS256 project. The optional
 K-323 remote-mutation path additionally requires its already-defined service
@@ -60,7 +66,8 @@ it is an exact 40-character hexadecimal Git SHA; otherwise `gitCommit` is
 
 1. Record the exact `origin/main` SHA after the reviewed PR is merged.
 2. Verify every Render field above and save only if a field differs.
-3. Verify `CORS_ORIGINS` and required secret-setting presence.
+3. Verify `CORS_ORIGINS` and required secret-setting presence, including
+   `SCHEDULE_RANGE_CURSOR_SIGNING_KEY` when enabling the paginated month read.
 4. Deploy the recorded `main` commit, or allow the checks-pass trigger to do so.
 5. Confirm `/health` returns that exact SHA in `gitCommit`.
 6. Confirm the production frontend returns HTTP 200 and its built JavaScript

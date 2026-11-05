@@ -3,9 +3,15 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
+import base64
+import binascii
+import hashlib
+import hmac
+import json
 import os
+import re
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import date as date_type, datetime, timezone
 from dotenv import load_dotenv
 from jwt.exceptions import InvalidTokenError
 from supabase import create_client, Client
@@ -692,10 +698,172 @@ async def get_marked_dates(start_date: str, end_date: str, user_id: str = Depend
     res = supabase.table("schedules").select("date").eq("user_id", user_id).gte("date", start_date).lte("date", end_date).execute()
     return list(set(item['date'] for item in (res.data or [])))
 
+SCHEDULE_RANGE_MAX_PAGE_SIZE = 100
+SCHEDULE_RANGE_CURSOR_MAX_LENGTH = 2048
+SCHEDULE_RANGE_CURSOR_SIGNING_KEY = os.getenv("SCHEDULE_RANGE_CURSOR_SIGNING_KEY", "").strip()
+
+
+def _schedule_range_cursor_signing_key() -> bytes:
+    key = SCHEDULE_RANGE_CURSOR_SIGNING_KEY.encode("utf-8")
+    if len(key) < 32:
+        raise ValueError("schedule range cursor signing key is unavailable")
+    return key
+
+
+def _schedule_range_date(value: str) -> date_type | None:
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+        return None
+    try:
+        parsed = date_type.fromisoformat(value)
+    except ValueError:
+        return None
+    return parsed if parsed.isoformat() == value else None
+
+
+def _encode_schedule_range_cursor(
+    *, start_date: str, end_date: str, page_size: int, user_id: str, after_id: str,
+    signing_key: bytes,
+) -> str:
+    payload = json.dumps({
+        "v": 1,
+        "start_date": start_date,
+        "end_date": end_date,
+        "page_size": page_size,
+        "account_hash": hashlib.sha256(user_id.encode("utf-8")).hexdigest(),
+        "after_id": after_id,
+    }, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    signature = hmac.new(signing_key, payload, hashlib.sha256).digest()
+    encoded_payload = base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
+    encoded_signature = base64.urlsafe_b64encode(signature).decode("ascii").rstrip("=")
+    return f"{encoded_payload}.{encoded_signature}"
+
+
+def _decode_schedule_range_cursor(
+    cursor: str, *, start_date: str, end_date: str, page_size: int, user_id: str,
+    signing_key: bytes,
+) -> str:
+    if (not cursor or len(cursor) > SCHEDULE_RANGE_CURSOR_MAX_LENGTH
+            or not re.fullmatch(r"[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+", cursor)):
+        raise ValueError("invalid cursor encoding")
+    try:
+        encoded_payload, encoded_signature = cursor.split(".", maxsplit=1)
+        raw = base64.b64decode(encoded_payload + "=" * (-len(encoded_payload) % 4), altchars=b"-_", validate=True)
+        signature = base64.b64decode(encoded_signature + "=" * (-len(encoded_signature) % 4), altchars=b"-_", validate=True)
+        if (base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=") != encoded_payload
+                or base64.urlsafe_b64encode(signature).decode("ascii").rstrip("=") != encoded_signature):
+            raise ValueError("non-canonical cursor encoding")
+        expected_signature = hmac.new(signing_key, raw, hashlib.sha256).digest()
+        if not hmac.compare_digest(signature, expected_signature):
+            raise ValueError("invalid cursor signature")
+        payload = json.loads(raw.decode("utf-8"))
+    except (binascii.Error, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError("invalid cursor payload") from error
+    if not isinstance(payload, dict) or set(payload) != {
+        "v", "start_date", "end_date", "page_size", "account_hash", "after_id",
+    }:
+        raise ValueError("invalid cursor shape")
+    if (payload["v"] != 1 or payload["start_date"] != start_date
+            or payload["end_date"] != end_date or payload["page_size"] != page_size
+            or payload["account_hash"] != hashlib.sha256(user_id.encode("utf-8")).hexdigest()):
+        raise ValueError("cursor context mismatch")
+    after_id = payload["after_id"]
+    if (not isinstance(after_id, str) or not after_id or len(after_id) > 128
+            or any(ord(character) < 32 or ord(character) == 127 for character in after_id)):
+        raise ValueError("invalid cursor identity")
+    return after_id
+
+
 @app.get("/api/schedules/range")
-async def get_schedules_range(start_date: str, end_date: str, user_id: str = Depends(get_current_user)):
-    """Analytics 기간별 일정 조회"""
-    return supabase.table("schedules").select("*").eq("user_id", user_id).gte("date", start_date).lte("date", end_date).execute().data or []
+async def get_schedules_range(
+    start_date: str,
+    end_date: str,
+    page_size: int | None = Query(default=None, ge=1, le=SCHEDULE_RANGE_MAX_PAGE_SIZE),
+    cursor: str | None = Query(default=None, max_length=SCHEDULE_RANGE_CURSOR_MAX_LENGTH),
+    user_id: str = Depends(get_current_user),
+):
+    """Read a date range; pagination is opt-in and its pages are not one snapshot."""
+    if page_size is None:
+        if cursor is not None:
+            raise HTTPException(status_code=400, detail="INVALID_SCHEDULE_RANGE_CURSOR")
+        # Keep the original response and query contract for existing callers.
+        return supabase.table("schedules").select("*").eq("user_id", user_id).gte("date", start_date).lte("date", end_date).execute().data or []
+
+    start = _schedule_range_date(start_date)
+    end = _schedule_range_date(end_date)
+    if not start or not end or start > end:
+        raise HTTPException(status_code=400, detail="INVALID_SCHEDULE_RANGE")
+
+    try:
+        signing_key = _schedule_range_cursor_signing_key()
+    except ValueError:
+        raise HTTPException(status_code=503, detail="SCHEDULE_RANGE_PAGINATION_UNAVAILABLE") from None
+
+    after_id = None
+    if cursor is not None:
+        try:
+            after_id = _decode_schedule_range_cursor(
+                cursor, start_date=start_date, end_date=end_date, page_size=page_size,
+                user_id=user_id, signing_key=signing_key,
+            )
+        except ValueError:
+            raise HTTPException(status_code=400, detail="INVALID_SCHEDULE_RANGE_CURSOR") from None
+
+    query = (supabase.table("schedules").select("*", count="exact")
+        .eq("user_id", user_id).gte("date", start_date).lte("date", end_date))
+    if after_id is not None:
+        query = query.gt("id", after_id)
+    try:
+        response = query.order("id").limit(page_size).execute()
+    except Exception:
+        raise HTTPException(status_code=503, detail="SCHEDULE_RANGE_READ_UNVERIFIED") from None
+
+    rows = getattr(response, "data", None)
+    remaining_count = getattr(response, "count", None)
+    if (not isinstance(rows, list) or isinstance(remaining_count, bool)
+            or not isinstance(remaining_count, int) or remaining_count < 0
+            or remaining_count < len(rows) or len(rows) > page_size):
+        raise HTTPException(status_code=503, detail="SCHEDULE_RANGE_READ_UNVERIFIED")
+
+    seen_ids: set[str] = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            raise HTTPException(status_code=503, detail="SCHEDULE_RANGE_READ_UNVERIFIED")
+        row_id = row.get("id")
+        row_date = row.get("date")
+        if (not isinstance(row_id, str) or not row_id or len(row_id) > 128
+                or row_id in seen_ids or row.get("user_id") != user_id
+                or not isinstance(row_date, str) or not start_date <= row_date <= end_date
+                or _schedule_range_date(row_date) is None
+                or (after_id is not None and row_id <= after_id)):
+            raise HTTPException(status_code=503, detail="SCHEDULE_RANGE_READ_UNVERIFIED")
+        seen_ids.add(row_id)
+
+    complete = remaining_count == len(rows)
+    if not complete and not rows:
+        # A positive exact count without a progressing row cannot safely continue.
+        raise HTTPException(status_code=503, detail="SCHEDULE_RANGE_READ_UNVERIFIED")
+    next_cursor = None if complete else _encode_schedule_range_cursor(
+        start_date=start_date,
+        end_date=end_date,
+        page_size=page_size,
+        user_id=user_id,
+        after_id=rows[-1]["id"],
+        signing_key=signing_key,
+    )
+    return {
+        "protocol_version": 1,
+        "start_date": start_date,
+        "end_date": end_date,
+        "page_size": page_size,
+        "order_by": "id_ascending",
+        "items": rows,
+        # Exact count of rows remaining after the cursor, as observed by this request.
+        "remaining_count": remaining_count,
+        "complete": complete,
+        "next_cursor": next_cursor,
+        "completion_evidence": "exact_count_equals_returned_items" if complete else "exact_count_exceeds_returned_items",
+        "snapshot_consistency": "per_request_not_cross_page_snapshot",
+    }
 
 @app.get("/api/schedules/ddays")
 async def get_ddays(user_id: str = Depends(get_current_user)):

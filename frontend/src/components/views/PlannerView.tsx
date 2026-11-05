@@ -25,8 +25,21 @@ import { ScheduleEventDetailPanel } from './features/planner/calendar-ui/day/Sch
 import { formatLongDateKey } from './k102DateFormat';
 import type { PlannerScheduleRow } from './features/planner/calendar';
 import type { SelectedDayScheduleRevalidator } from '../../hooks/useDaily';
+import {
+  buildScheduleRangePageUrl,
+  collectCompleteScheduleRange,
+  getScheduleMonthRange,
+  type DatedSchedule,
+  type ScheduleDateRange,
+} from '../../lib/scheduleRangePagination';
 
 type ScheduleDday = Schedule & { date: string };
+type MonthScheduleContext = Readonly<{
+  accountId: string | undefined;
+  range: ScheduleDateRange | null;
+  generation: number;
+}>;
+type MonthScheduleReadStatus = 'loading' | 'loaded' | 'unavailable';
 
 export interface ScheduleNavigationRequest {
   accountId: string;
@@ -51,6 +64,24 @@ async function refreshScheduleCache<T>(
   if (!Array.isArray(freshData)) throw new Error('Invalid Schedule refresh response.');
   if (!isCurrent()) throw new Error('Schedule refresh source became stale.');
   await mutate(freshData, { revalidate: false });
+}
+
+async function readCompleteScheduleMonth(
+  context: MonthScheduleContext,
+  isCurrent: () => boolean,
+): Promise<DatedSchedule[]> {
+  if (!context.accountId || !context.range) throw new Error('Schedule month source is unavailable.');
+  return collectCompleteScheduleRange({
+    apiUrl: API_URL,
+    range: context.range,
+    accountId: context.accountId,
+    isCurrent,
+    fetchPage: async url => {
+      const key = accountBoundRemoteKey(url, context.accountId, 'planner_events');
+      if (!key) throw new Error('Schedule month account scope is unavailable.');
+      return accountBoundRemoteFetcher<unknown>(key);
+    },
+  });
 }
 
 export type PlannerViewProps = PlannerProps & Readonly<{
@@ -100,6 +131,25 @@ export const PlannerView = ({
   const { t, lang } = useTranslation();
   const accountId = user?.id;
   const selectedDateKey = formatDate(selectedDate);
+  const monthRange = getScheduleMonthRange(selectedDateKey);
+  const monthScheduleContextRef = useRef<MonthScheduleContext>({ accountId, range: monthRange, generation: 0 });
+  const previousMonthContext = monthScheduleContextRef.current;
+  if (previousMonthContext.accountId !== accountId
+      || previousMonthContext.range?.startDate !== monthRange?.startDate
+      || previousMonthContext.range?.endDate !== monthRange?.endDate) {
+    monthScheduleContextRef.current = {
+      accountId,
+      range: monthRange,
+      generation: previousMonthContext.generation + 1,
+    };
+  }
+  const monthScheduleContext = monthScheduleContextRef.current;
+  const monthRequestGenerationRef = useRef(0);
+  const [monthReadState, setMonthReadState] = useState<Readonly<{
+    context: MonthScheduleContext;
+    status: MonthScheduleReadStatus;
+  }> | null>(null);
+  const monthScheduleMountedRef = useRef(false);
   const scheduleRefreshContextRef = useRef<ScheduleRefreshContext>({
     accountId,
     dateKey: selectedDateKey,
@@ -179,6 +229,14 @@ export const PlannerView = ({
     accountBoundRemoteFetcher,
     { revalidateOnFocus: false }
   );
+  const monthSchedulesKey = monthScheduleContext.range && accountId
+    ? accountBoundRemoteKey(buildScheduleRangePageUrl(API_URL, monthScheduleContext.range), accountId, 'planner_events')
+    : null;
+  const { data: monthSchedules, mutate: mutateMonthSchedules } = useSWR<DatedSchedule[]>(
+    monthSchedulesKey,
+    null,
+    { revalidateOnFocus: false, revalidateOnReconnect: false, revalidateIfStale: false, revalidateOnMount: false },
+  );
   const ddaySchedulesKey = accountBoundRemoteKey(`${API_URL}/api/schedules/ddays`, accountId, 'planner_ddays');
   const { data: ddayData, mutate: mutateDdaySchedules, isLoading: isDdayLoading } = useSWR<ScheduleDday[]>(
     ddaySchedulesKey,
@@ -189,15 +247,55 @@ export const PlannerView = ({
 
   useEffect(() => {
     scheduleRefreshMountedRef.current = true;
+    monthScheduleMountedRef.current = true;
     return () => {
       scheduleRefreshMountedRef.current = false;
+      monthScheduleMountedRef.current = false;
+      monthRequestGenerationRef.current += 1;
       scheduleRefreshFlightRef.current = null;
     };
   }, []);
 
+  useEffect(() => {
+    const context = monthScheduleContext;
+    if (!context.accountId || !context.range || !monthSchedulesKey) {
+      if (context.accountId) setMonthReadState({ context, status: 'unavailable' });
+      return;
+    }
+    const requestGeneration = ++monthRequestGenerationRef.current;
+    const isCurrent = () => monthScheduleMountedRef.current
+      && runtimeAccountSyncAccountId() === context.accountId
+      && monthScheduleContextRef.current === context
+      && monthRequestGenerationRef.current === requestGeneration;
+    setMonthReadState({ context, status: 'loading' });
+
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      setMonthReadState({ context, status: 'unavailable' });
+      return () => {
+        if (monthRequestGenerationRef.current === requestGeneration) monthRequestGenerationRef.current += 1;
+      };
+    }
+
+    void (async () => {
+      try {
+        const freshSchedules = await readCompleteScheduleMonth(context, isCurrent);
+        if (!isCurrent()) return;
+        await mutateMonthSchedules(freshSchedules, { revalidate: false });
+        if (isCurrent()) setMonthReadState({ context, status: 'loaded' });
+      } catch {
+        if (isCurrent()) setMonthReadState({ context, status: 'unavailable' });
+      }
+    })();
+
+    return () => {
+      if (monthRequestGenerationRef.current === requestGeneration) monthRequestGenerationRef.current += 1;
+    };
+  }, [monthScheduleContext, monthSchedulesKey, mutateMonthSchedules]);
+
   const refreshSchedules = useCallback(() => {
     const context = scheduleRefreshContextRef.current;
     if (scheduleRefreshFlightRef.current?.context === context) return;
+    const monthContext = monthScheduleContextRef.current;
 
     const setStatus = (status: ScheduleRefreshStatus) => setScheduleRefreshState({ context, status });
     if (typeof navigator !== 'undefined' && navigator.onLine === false) {
@@ -205,19 +303,36 @@ export const PlannerView = ({
       return;
     }
     if (!context.accountId || runtimeAccountSyncAccountId() !== context.accountId
-      || !revalidateSelectedDaySchedules || !prevSchedulesKey || !ddaySchedulesKey) {
+      || !revalidateSelectedDaySchedules || !prevSchedulesKey || !ddaySchedulesKey
+      || !monthSchedulesKey || !monthContext.range || monthContext.accountId !== context.accountId) {
       setStatus('unavailable');
       return;
     }
 
+    const monthRequestGeneration = ++monthRequestGenerationRef.current;
     const flight: ScheduleRefreshFlight = { context };
     scheduleRefreshFlightRef.current = flight;
     setScheduleRefreshFlight(flight);
     const isCurrent = () => scheduleRefreshMountedRef.current
       && runtimeAccountSyncAccountId() === context.accountId
       && scheduleRefreshContextRef.current === context
-      && scheduleRefreshFlightRef.current === flight;
+      && scheduleRefreshFlightRef.current === flight
+      && monthScheduleContextRef.current === monthContext
+      && monthRequestGenerationRef.current === monthRequestGeneration;
     setStatus('refreshing');
+    setMonthReadState({ context: monthContext, status: 'loading' });
+
+    const refreshMonthSchedules = async () => {
+      try {
+        const freshSchedules = await readCompleteScheduleMonth(monthContext, isCurrent);
+        if (!isCurrent()) throw new Error('Schedule month refresh became stale.');
+        await mutateMonthSchedules(freshSchedules, { revalidate: false });
+        if (isCurrent()) setMonthReadState({ context: monthContext, status: 'loaded' });
+      } catch (error) {
+        if (isCurrent()) setMonthReadState({ context: monthContext, status: 'unavailable' });
+        throw error;
+      }
+    };
 
     void (async () => {
       try {
@@ -225,6 +340,7 @@ export const PlannerView = ({
           Promise.resolve().then(() => revalidateSelectedDaySchedules(context.accountId!, context.dateKey, isCurrent)),
           refreshScheduleCache(prevSchedulesKey, mutatePreviousSchedules, isCurrent),
           refreshScheduleCache(ddaySchedulesKey, mutateDdaySchedules, isCurrent),
+          refreshMonthSchedules(),
         ]);
         if (!isCurrent()) return;
         setStatus(outcomes.every(outcome => outcome.status === 'fulfilled') ? 'success' : 'incomplete');
@@ -235,7 +351,7 @@ export const PlannerView = ({
         }
       }
     })();
-  }, [ddaySchedulesKey, mutateDdaySchedules, mutatePreviousSchedules, prevSchedulesKey, revalidateSelectedDaySchedules]);
+  }, [ddaySchedulesKey, monthSchedulesKey, mutateDdaySchedules, mutateMonthSchedules, mutatePreviousSchedules, prevSchedulesKey, revalidateSelectedDaySchedules]);
 
   const visibleRefreshStatus = scheduleRefreshState?.context === scheduleRefreshContextRef.current
     && runtimeAccountSyncAccountId() === scheduleRefreshState.context.accountId
@@ -249,6 +365,16 @@ export const PlannerView = ({
     offline: 'schedulesRefreshOffline',
     unavailable: 'schedulesRefreshUnavailable',
   } as const)[visibleRefreshStatus] : null;
+  const visibleMonthReadStatus = monthReadState?.context === monthScheduleContext
+    && monthSchedules === undefined
+    && visibleRefreshStatus !== 'refreshing'
+    ? monthReadState.status
+    : null;
+  const monthReadStatusMessageKey = visibleMonthReadStatus === 'loading'
+    ? 'scheduleMonthLoading'
+    : visibleMonthReadStatus === 'unavailable'
+      ? 'scheduleMonthUnavailable'
+      : null;
   // 전날 일정 — calendar projection carry-over
 
   useEscapeKey(() => {
@@ -334,7 +460,9 @@ export const PlannerView = ({
     );
 
   const handleDuplicateSchedule = useCallback((id: string) => {
-    const sch = schedules.find(s => s.id === id);
+    const sch = schedules.find(s => s.id === id)
+      ?? monthSchedules?.find(s => s.id === id)
+      ?? prevSchedules.find(s => s.id === id);
     if (!sch) return;
     resetScheduleSession();
     setNewSch({
@@ -349,7 +477,7 @@ export const PlannerView = ({
     setEndNextDay(sch.end_next_day ?? false);
     setScheduleDateStr(formatDate(selectedDate));
     setShowForm(true);
-  }, [formatDate, schedules, selectedDate, resetScheduleSession]);
+  }, [formatDate, schedules, monthSchedules, prevSchedules, selectedDate, resetScheduleSession]);
 
   const scheduleDetailBlock = useMemo((): PlannerScheduleRow | null => {
     const target = scheduleDetailTarget;
@@ -372,10 +500,14 @@ export const PlannerView = ({
         schedule = ddaySchedules.find(item => item.id === target.id && item.is_dday === true
           && validPlannerEventDate(item.date) === targetDate);
       }
+      if (!schedule) {
+        schedule = monthSchedules?.find(item => item.id === target.id && item.date === targetDate);
+      }
       dateKey = targetDate;
     } else {
       const selectedDaySchedule = schedules.find(item => item.id === target.id);
-      schedule = selectedDaySchedule ?? prevSchedules.find(item => item.id === target.id);
+      schedule = selectedDaySchedule ?? prevSchedules.find(item => item.id === target.id)
+        ?? monthSchedules?.find(item => item.id === target.id);
       if (schedule) {
         dateKey = validPlannerEventDate('date' in schedule ? schedule.date : undefined)
           ?? validPlannerEventDate(selectedDaySchedule ? formatDate(selectedDate) : prevDateStr);
@@ -384,7 +516,7 @@ export const PlannerView = ({
 
     if (!schedule || !dateKey) return null;
     return toScheduleDetailRow(schedule, dateKey);
-  }, [scheduleDetailTarget, schedules, prevSchedules, ddaySchedules, selectedDate, formatDate, prevDateStr]);
+  }, [scheduleDetailTarget, schedules, prevSchedules, monthSchedules, ddaySchedules, selectedDate, formatDate, prevDateStr]);
 
   useEffect(() => {
     const request = scheduleNavigationRequest;
@@ -430,14 +562,15 @@ export const PlannerView = ({
 
   const openScheduleDetail = useCallback((id: string) => {
     const selectedDaySchedule = schedules.find(s => s.id === id);
-    const sch = selectedDaySchedule ?? prevSchedules.find(s => s.id === id);
+    const sch = selectedDaySchedule ?? prevSchedules.find(s => s.id === id)
+      ?? monthSchedules?.find(s => s.id === id);
     const eventDate = sch
       ? validPlannerEventDate('date' in sch ? sch.date : undefined)
         ?? validPlannerEventDate(selectedDaySchedule ? formatDate(selectedDate) : prevDateStr)
       : undefined;
     if (sch) recordPlannerActivity(accountId, 'schedule', id, sch.text, Date.now(), eventDate);
     setScheduleDetailTarget({ id, ...(eventDate ? { eventDate } : {}) });
-  }, [accountId, schedules, prevSchedules, selectedDate, formatDate, prevDateStr]);
+  }, [accountId, schedules, prevSchedules, monthSchedules, selectedDate, formatDate, prevDateStr]);
 
   useEffect(() => {
     return registerSearchDomainHandlers({
@@ -458,15 +591,18 @@ export const PlannerView = ({
     onView: openScheduleDetail,
     onEdit: (id: string) => {
       setScheduleDetailTarget(null);
-      const sch = schedules.find(s => s.id === id);
-      if (sch) openModal(sch, formatDate(selectedDate));
+      const sch = schedules.find(s => s.id === id) ?? monthSchedules?.find(s => s.id === id);
+      if (sch) openModal(
+        sch,
+        validPlannerEventDate('date' in sch ? sch.date : undefined) ?? formatDate(selectedDate),
+      );
     },
     onDelete: (id: string) => {
       setScheduleDetailTarget(null);
       handleDeleteSchedule(id);
     },
     onDuplicate: handleDuplicateSchedule,
-  }), [schedules, selectedDate, formatDate, openScheduleDetail, handleDeleteSchedule, handleDuplicateSchedule]);
+  }), [schedules, monthSchedules, selectedDate, formatDate, openScheduleDetail, handleDeleteSchedule, handleDuplicateSchedule]);
 
   return (
     <div className={`${WORKSPACE_PANE_ROOT_CLASS} abs-cosmos-planner flex flex-col animate-in fade-in duration-300 ${WORKSPACE_GAP_CLASS}`} data-workspace="planner" data-workspace-scroll-mode={WORKSPACE_SCROLL_MODE.pane} data-k134b-workspace-scroll>
@@ -498,11 +634,17 @@ export const PlannerView = ({
             {t(refreshStatusMessageKey)}
           </p>
         )}
+        {monthReadStatusMessageKey && (
+          <p role="status" aria-live="polite" aria-atomic="true" className={`mt-1 text-xs ${theme.textMuted}`} data-schedule-month-read-status={visibleMonthReadStatus}>
+            {t(monthReadStatusMessageKey)}
+          </p>
+        )}
       </div>
       <CalendarShell
         now={now}
         anchorDate={formatDate(selectedDate)}
         schedules={schedules}
+        monthSchedules={monthSchedules ?? []}
         previousDaySchedules={prevSchedules}
         previousDayDate={prevDateStr}
         todos={todos}
@@ -613,7 +755,8 @@ export const PlannerView = ({
                 : detailDate === prevDateStr
                   ? prevSchedules.find(item => item.id === scheduleDetailBlock.id
                     && scheduleMatchesDate(item, detailDate, prevDateStr))
-                  : undefined;
+                  : monthSchedules?.find(item => item.id === scheduleDetailBlock.id
+                    && item.date === detailDate);
             setScheduleDetailTarget(null);
             if (sch) openModal(
               titleDraft === undefined ? sch : { ...sch, text: titleDraft },

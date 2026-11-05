@@ -2290,6 +2290,8 @@ const enTranslations = [
   "Some schedule sources could not be refreshed. Their previous data was kept.",
   "You're offline. Existing schedules were kept.",
   "Schedule refresh is unavailable right now.",
+  "Loading this month's schedules…",
+  "This month's schedules could not be verified. Partial results are hidden; try Refresh schedules.",
 ] as const;
 
 export default enTranslations;
