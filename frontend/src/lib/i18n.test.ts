@@ -8,17 +8,17 @@ import translationKeys, { buildLocaleDictionary } from './i18n/keys';
 import type { TranslationKey } from './i18n';
 
 const PLANNER_STORAGE_KEY = 'planner-storage';
-const EXPECTED_KEY_COUNT = 2_320;
+const EXPECTED_KEY_COUNT = 2_324;
 type Locale = 'en' | 'ko' | 'ja';
 
-// Current independent canonical authority, including append-only Notes UI, Wiki-link accessibility, cloud comparison and Cloud Copy status readback, local document downloads, PDF/DOCX preview, Recipe filter reset, local-original integrity preflight, and cloud Note previews.
+// Current independent canonical authority, including append-only Notes UI, Wiki-link accessibility, cloud comparison and Cloud Copy status readback, local document downloads, PDF/DOCX preview, Recipe filter reset, local-original integrity preflight, cloud Note previews, and single-Note cloud text export.
 // The canonical serialization includes every key and exact locale value in
 // translationKeys order, so it detects insertion, omission, reordering, and
 // substitution without using buildLocaleDictionary.
 const EXPECTED_LOCALE_INTEGRITY_SHA256: Record<Locale, string> = {
-  en: 'd9a221b399f472ca1b0c7c9386a0e33be2ba3a4f98e576bceee7a553e8fb957f',
-  ko: 'f6b607d8ef132f0aa643377e96812ba3a90cdc88bc4e711ecf57d7bc22444546',
-  ja: '7ab23df45dd1dc03ed3ef78a0640e3a1fe833a46b6060c8c75c70ae5c49bcacd',
+  en: '0ba5e4d1f3d72736d245d240d6648fe5b9be3d5eb4e294f15201144554250a41',
+  ko: 'ddaad7e1bcb2450d4b21261d4af7c0de1fca641a72851d4f120ac40c41b74629',
+  ja: '8eef0b03928c13bd4364b362f06f8b139f6088a95e6e1b0e0781c81704fc8969',
 };
 
 const PRE_REMOTE_NOTE_PREVIEW_LOCALE_SHA256: Record<Locale, string> = {
@@ -391,7 +391,10 @@ describe('i18n locale dictionaries', () => {
         'Values from this manual comparison, not continuous synchronization or one atomic local/cloud transaction. The cloud version may have changed since it was read. Nothing is changed here.',
         'Attachment originals and Note history are outside this comparison.', 'Supported fields that differ', 'Local version', 'Cloud version',
         'These Note versions are unavailable in the current comparison. Run it again before comparing.',
-        'Title', 'Text body', 'Folder assignment', 'Starred state', 'Properties', 'Relations'],
+        'Title', 'Text body', 'Folder assignment', 'Starred state', 'Properties', 'Relations',
+        'Download cloud text', 'Downloads the complete cloud text from this manual comparison, not a synchronized local Note or a guarantee of currentness or durable backup. Attachment originals and Note history are excluded.',
+        'A Markdown download was requested. Check your browser downloads; this is not a durable backup.',
+        'The complete cloud text could not be prepared or downloaded. No partial Markdown file was created.'],
       ko: ['클라우드 노트 미리보기', '클라우드 전용 노트 미리보기',
         '검증된 클라우드 비교에서 가져온 텍스트입니다. 로컬 노트가 아니며 가져오지 않았습니다.',
         '첨부 원본은 이 미리보기에 포함되지 않습니다.',
@@ -402,7 +405,10 @@ describe('i18n locale dictionaries', () => {
         '이 수동 비교에서 포착한 값입니다. 지속 동기화나 로컬·클라우드의 원자적 단일 시점 스냅샷이 아니며, 읽은 뒤 클라우드 버전이 바뀌었을 수 있습니다. 이 화면에서는 아무것도 변경하지 않습니다.',
         '첨부 원본과 노트 기록은 이 비교 범위에 포함되지 않습니다.', '지원되는 차이 필드', '로컬 버전', '클라우드 버전',
         '현재 비교에서 두 노트 버전을 사용할 수 없습니다. 다시 비교한 뒤 확인해 주세요.',
-        '제목', '본문', '폴더 지정', '즐겨찾기 상태', '속성', '관계'],
+        '제목', '본문', '폴더 지정', '즐겨찾기 상태', '속성', '관계',
+        '클라우드 본문 다운로드', '이 수동 비교에서 포착한 클라우드 본문 전체를 다운로드합니다. 동기화된 로컬 노트가 아니며 최신성이나 영구 백업을 보장하지 않습니다. 첨부 원본과 노트 기록은 제외됩니다.',
+        'Markdown 다운로드를 브라우저에 요청했습니다. 다운로드 목록을 확인하세요. 영구 백업은 아닙니다.',
+        '클라우드 본문 전체를 준비하거나 다운로드하지 못했습니다. 일부만 담긴 Markdown 파일은 만들지 않았습니다.'],
       ja: ['クラウドノートをプレビュー', 'クラウドのみのノートプレビュー',
         '検証済みクラウド比較のテキストです。ローカルノートではなく、取り込みも行っていません。',
         '添付ファイルの原本はこのプレビューに含まれません。',
@@ -413,7 +419,10 @@ describe('i18n locale dictionaries', () => {
         'この手動比較で取得した値です。継続的な同期や、ローカルとクラウドを同時に取得した単一トランザクションではありません。取得後にクラウド版が変更されている可能性があります。この画面では何も変更しません。',
         '添付ファイルの原本とノートの履歴は比較対象外です。', '差異のある対応済みフィールド', 'ローカル版', 'クラウド版',
         '現在の比較では両方のノート版を利用できません。再比較してから確認してください。',
-        'タイトル', '本文', 'フォルダーの割り当て', 'スター状態', 'プロパティ', '関連付け'],
+        'タイトル', '本文', 'フォルダーの割り当て', 'スター状態', 'プロパティ', '関連付け',
+        'クラウド本文をダウンロード', 'この手動比較で取得したクラウド本文全体をダウンロードします。同期されたローカルノートではなく、最新性や永続的なバックアップを保証しません。添付ファイルの原本とノート履歴は含まれません。',
+        'Markdownのダウンロードをブラウザーに要求しました。ダウンロード一覧を確認してください。永続バックアップではありません。',
+        'クラウド本文全体を準備またはダウンロードできませんでした。一部だけのMarkdownファイルは作成していません。'],
     } as const;
     expect(translationKeys.slice(2_299)).toEqual([
       ...keys,
@@ -421,6 +430,7 @@ describe('i18n locale dictionaries', () => {
       'notesCloudDivergentFields', 'notesCloudDivergentLocal', 'notesCloudDivergentCloud', 'notesCloudDivergentUnavailable',
       'notesCloudDifferenceTitle', 'notesCloudDifferenceBody', 'notesCloudDifferenceFolder', 'notesCloudDifferenceStarred',
       'notesCloudDifferenceProperties', 'notesCloudDifferenceRelations',
+      'notesCloudTextDownloadAction', 'notesCloudTextDownloadScope', 'notesCloudTextDownloadStarted', 'notesCloudTextDownloadUnavailable',
     ]);
     for (const [locale, values] of [['en', enLocaleValues], ['ko', koLocaleValues], ['ja', jaLocaleValues]] as const) {
       expect(localeIntegrityDigest(values.slice(0, 2_299), translationKeys.slice(0, 2_299)))
@@ -449,10 +459,10 @@ describe('i18n locale dictionaries', () => {
     missing.splice(1_000, 1);
 
     expect(() => buildLocaleDictionary(missing)).toThrow(
-      'Locale dictionary length mismatch: expected 2320, received 2319',
+      'Locale dictionary length mismatch: expected 2324, received 2323',
     );
     expect(() => assertLocaleValuesIntegrity('en', missing)).toThrow(
-      'Locale integrity length mismatch: expected 2320, received 2319',
+      'Locale integrity length mismatch: expected 2324, received 2323',
     );
   });
 
@@ -461,10 +471,10 @@ describe('i18n locale dictionaries', () => {
     extra.splice(1_000, 0, '__unexpected__');
 
     expect(() => buildLocaleDictionary(extra)).toThrow(
-      'Locale dictionary length mismatch: expected 2320, received 2321',
+      'Locale dictionary length mismatch: expected 2324, received 2325',
     );
     expect(() => assertLocaleValuesIntegrity('en', extra)).toThrow(
-      'Locale integrity length mismatch: expected 2320, received 2321',
+      'Locale integrity length mismatch: expected 2324, received 2325',
     );
   });
 
