@@ -9,6 +9,7 @@ import { getNoteNavigationStack, pushNoteNavigation, resetNoteNavigationStack } 
 const mock = vi.hoisted(() => ({
   create: vi.fn(),
   getRemoteOnlyNote: vi.fn(),
+  getDivergentNotePair: vi.fn(),
   subscribeInvalidation: vi.fn(),
   invalidationListeners: new Set<() => void>(),
   prepareCloudCopy: vi.fn(), createCloudCopy: vi.fn(), readCloudCopyStatus: vi.fn(), cloudCopyEnabled: false,
@@ -43,7 +44,7 @@ const report = {
   },
 };
 let live = true;
-const owner = { compare: vi.fn(), getRemoteOnlyNote: mock.getRemoteOnlyNote, subscribeInvalidation: mock.subscribeInvalidation, cancel: vi.fn(() => { live = false; mock.invalidationListeners.clear(); }), isCurrent: () => live };
+const owner = { compare: vi.fn(), getRemoteOnlyNote: mock.getRemoteOnlyNote, getDivergentNotePair: mock.getDivergentNotePair, subscribeInvalidation: mock.subscribeInvalidation, cancel: vi.fn(() => { live = false; mock.invalidationListeners.clear(); }), isCurrent: () => live };
 const localNote = (id: string, title: string, overrides: Record<string, unknown> = {}) => ({
   id, title, body: 'Local body', folderId: null, updatedAt: 10, deletedAt: null, ...overrides,
 });
@@ -77,6 +78,7 @@ beforeEach(() => {
     return {
       compare: owner.compare, cancel: owner.cancel,
       getRemoteOnlyNote: owner.getRemoteOnlyNote,
+      getDivergentNotePair: owner.getDivergentNotePair,
       subscribeInvalidation: owner.subscribeInvalidation,
       isCurrent: () => live && mock.available && isAccountCurrent() && mock.activeRequest === request
         && mock.state.activeAccountId === accountId && mock.state.notes === notes && JSON.stringify(mock.state.notes) === notesIdentity
@@ -89,6 +91,13 @@ beforeEach(() => {
   });
   owner.getRemoteOnlyNote.mockImplementation((id: string) => live && id === 'cloud-id'
     ? { id, title: 'Cloud title', body: 'Cloud body\n<script>window.bad=true</script>\nattachment://remote-original' } : null);
+  owner.getDivergentNotePair.mockImplementation((id: string) => live && id === 'different-id'
+    ? {
+      id,
+      local: { title: 'Local version', body: 'Local body <script>bad()</script>' },
+      cloud: { title: 'Cloud version', body: 'Cloud body' },
+      differingFields: ['title', 'body'],
+    } : null);
   resetNoteNavigationStack(); sessionStorage.removeItem('absinthe.noteNav.returnTab');
   unregisterNotesTab = registerNotesTabSwitcher(mock.notesTabSwitch);
   unregisterAppTab = registerAppTabSwitcher(mock.appTabSwitch);
@@ -147,6 +156,105 @@ it('previews one exact cloud-only ID as inert text without creating or changing 
   expect(mock.readCloudCopyStatus).not.toHaveBeenCalled();
   expect(owner.compare).toHaveBeenCalledTimes(1);
   expect(host.textContent).toContain('not an atomic');
+});
+
+it('compares one exact-ID divergent pair side by side without mutation or navigation', async () => {
+  const before = JSON.stringify(mock.state.notes);
+  await render(); await check();
+  const divergentSection = host.querySelectorAll('details')[2]!;
+  divergentSection.querySelector('summary')!.click();
+  const row = [...divergentSection.querySelectorAll('li')].find(item => item.querySelector('code')?.textContent === 'different-id')!;
+  const action = [...row.querySelectorAll('button')].find(item => item.textContent === 'Compare local and cloud versions')!;
+  action.focus(); expect(document.activeElement).toBe(action);
+  await act(async () => { action.click(); });
+
+  const preview = host.querySelector<HTMLElement>('[data-divergent-note-preview]')!;
+  expect(mock.getDivergentNotePair).toHaveBeenCalledExactlyOnceWith('different-id');
+  expect(preview.textContent).toContain('Read-only comparison of Note versions');
+  expect(preview.textContent).toContain('not continuous synchronization');
+  expect(preview.textContent).toContain('one atomic local/cloud transaction');
+  expect(preview.textContent).toContain('Attachment originals and Note history');
+  expect(preview.textContent).toContain('Supported fields that differ');
+  expect(preview.textContent).toContain('Text body');
+  const localPanel = preview.querySelector('#notes-cloud-divergent-local-heading')?.parentElement!;
+  const cloudPanel = preview.querySelector('#notes-cloud-divergent-cloud-heading')?.parentElement!;
+  expect(localPanel.textContent).toContain('Local version');
+  expect(localPanel.textContent).toContain('Local body <script>bad()</script>');
+  expect(cloudPanel.textContent).toContain('Cloud version');
+  expect(cloudPanel.textContent).toContain('Cloud body');
+  expect(preview.querySelector('script')).toBeNull();
+  expect(mock.state.activeNoteId).toBeNull();
+  expect(mock.setActiveNoteId).not.toHaveBeenCalled();
+  expect(getNoteNavigationStack()).toEqual([]);
+  expect(getNoteReturnTab()).toBeNull();
+  expect(JSON.stringify(mock.state.notes)).toBe(before);
+  expect(owner.compare).toHaveBeenCalledTimes(1);
+  expect(mock.prepareCloudCopy).not.toHaveBeenCalled();
+  expect(mock.createCloudCopy).not.toHaveBeenCalled();
+  expect(mock.readCloudCopyStatus).not.toHaveBeenCalled();
+});
+
+it('bounds both divergent titles and bodies independently and labels each partial preview', async () => {
+  owner.getDivergentNotePair.mockImplementation((id: string) => id === 'different-id' ? {
+    id,
+    local: { title: 'L'.repeat(2_000), body: 'l'.repeat(15_000) },
+    cloud: { title: 'C'.repeat(1_800), body: 'c'.repeat(14_000) },
+    differingFields: ['body'],
+  } : null);
+  await render(); await check();
+  const section = host.querySelectorAll('details')[2]!;
+  section.querySelector('summary')!.click();
+  const action = [...section.querySelectorAll('button')].find(item => item.textContent === 'Compare local and cloud versions')!;
+  await act(async () => { action.click(); });
+  const preview = host.querySelector<HTMLElement>('[data-divergent-note-preview]')!;
+  const panels = [...preview.querySelectorAll('article')];
+  expect(panels).toHaveLength(2);
+  expect(panels[0]!.querySelector('p')?.textContent).toHaveLength('Local title: '.length + 512);
+  expect(panels[1]!.querySelector('p')?.textContent).toHaveLength('Cloud title: '.length + 512);
+  expect(panels[0]!.querySelector('pre')?.textContent).toHaveLength(12_000);
+  expect(panels[1]!.querySelector('pre')?.textContent).toHaveLength(12_000);
+  expect(panels.every(panel => [...panel.querySelectorAll('[role="status"]')].length === 2
+    && [...panel.querySelectorAll('[role="status"]')].every(status => status.textContent === 'Partial preview; the remaining text is omitted.'))).toBe(true);
+});
+
+it('does not render either version when the current comparison owner denies the divergent pair', async () => {
+  owner.getDivergentNotePair.mockReturnValue(null);
+  await render(); await check();
+  const section = host.querySelectorAll('details')[2]!;
+  section.querySelector('summary')!.click();
+  const row = [...section.querySelectorAll('li')].find(item => item.querySelector('code')?.textContent === 'different-id')!;
+  const action = [...row.querySelectorAll('button')].find(item => item.textContent === 'Compare local and cloud versions')!;
+  await act(async () => { action.click(); });
+  expect(host.querySelector('[data-divergent-note-preview]')).toBeNull();
+  expect(host.textContent).toContain('These Note versions are unavailable in the current comparison. Run it again before comparing.');
+  expect(host.textContent).not.toContain('Local body');
+  expect(host.textContent).not.toContain('Cloud body');
+});
+
+it('discards a displayed divergent pair across account A-B-A and synchronous owner invalidation', async () => {
+  await render(); await check();
+  const section = host.querySelectorAll('details')[2]!;
+  section.querySelector('summary')!.click();
+  const action = [...section.querySelectorAll('button')].find(item => item.textContent === 'Compare local and cloud versions')!;
+  await act(async () => { action.click(); });
+  expect(host.textContent).toContain('Local body');
+
+  await render('B'); await render('A');
+  expect(host.querySelector('[data-divergent-note-preview]')).toBeNull();
+
+  await check();
+  const currentSection = host.querySelectorAll('details')[2]!;
+  currentSection.querySelector('summary')!.click();
+  const currentAction = [...currentSection.querySelectorAll('button')].find(item => item.textContent === 'Compare local and cloud versions')!;
+  await act(async () => { currentAction.click(); });
+  expect(host.textContent).toContain('Local body');
+  const listeners = [...mock.invalidationListeners];
+  live = false;
+  mock.invalidationListeners.clear();
+  await act(async () => { listeners.forEach(listener => listener()); });
+  expect(host.querySelector('[data-divergent-note-preview]')).toBeNull();
+  expect(host.textContent).not.toContain('Local body <script>bad()</script>');
+  expect(host.textContent).toContain('Comparison cancelled or its account/Notes context changed. Run a new manual check.');
 });
 
 it('bounds large cloud text and labels it as a partial preview', async () => {
@@ -278,7 +386,7 @@ it('opens only eligible local IDs from local-only, divergent, and incomparable d
 
   for (const expectedId of ['local-exact-id', 'divergent-exact-id', 'incomparable-exact-id']) {
     const row = [...host.querySelectorAll('li')].find(item => item.querySelector('code')?.textContent === expectedId)!;
-    const button = row.querySelector('button')!;
+    const button = [...row.querySelectorAll('button')].find(candidate => candidate.textContent === 'Open note')!;
     expect(button.tagName).toBe('BUTTON');
     button.focus(); expect(document.activeElement).toBe(button);
     button.click();

@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation, type TranslationKey } from '../../../../lib/i18n';
-import { isCompleteLocalNote } from '../../../../lib/notesBootstrapAuthority';
+import { isCompleteLocalNote, type NotesSupportedContentDifferenceField } from '../../../../lib/notesBootstrapAuthority';
 import { openNote } from '../../../../lib/noteNavigation';
 import { observePublishedNotesHydration, useNotesStore } from '../../../../store/useNotesStore';
 import { createNotesCloudComparison, type NotesCloudComparison, type NotesCloudComparisonReport } from '../../../../lib/notesCloudComparison';
@@ -10,6 +10,7 @@ import type { NotesCloudCopyLocalPreflightResult } from '../../../../lib/notesCl
 
 const DETAIL_PREVIEW_LIMIT = 30;
 const REMOTE_NOTE_PREVIEW_LIMIT = 12_000;
+const DIVERGENT_TITLE_PREVIEW_LIMIT = 512;
 const detailSections = [
   { key: 'localOnly', label: 'notesCloudLocalOnly', canOpenLocal: true },
   { key: 'remoteOnly', label: 'notesCloudRemoteOnly', canOpenLocal: false },
@@ -24,6 +25,21 @@ const statusLabels: Record<NotesCloudCopyReadbackStatus, TranslationKey> = {
   INDETERMINATE: 'notesCloudCopyStatusIndeterminate',
   UNAVAILABLE: 'notesCloudCopyStatusUnavailable',
 };
+const divergentFieldLabels: Record<NotesSupportedContentDifferenceField, TranslationKey> = {
+  title: 'notesCloudDifferenceTitle',
+  body: 'notesCloudDifferenceBody',
+  folder: 'notesCloudDifferenceFolder',
+  starred: 'notesCloudDifferenceStarred',
+  properties: 'notesCloudDifferenceProperties',
+  relations: 'notesCloudDifferenceRelations',
+};
+
+function boundedPreviewText(value: string, limit: number) {
+  let text = value.slice(0, limit);
+  const partial = value.length > limit;
+  if (partial && /[\uD800-\uDBFF]$/.test(text)) text = text.slice(0, -1);
+  return { text, partial };
+}
 
 function eligibleLocalNote(notes: ReturnType<typeof useNotesStore.getState>['notes'], noteId: string) {
   const note = notes.find(candidate => candidate.id === noteId);
@@ -57,6 +73,19 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
     body: string;
     partial: boolean;
   } | null>(null);
+  const [divergentPreview, setDivergentPreview] = useState<{
+    owner: NotesCloudComparison;
+    id: string;
+    localTitle: string;
+    localTitlePartial: boolean;
+    localBody: string;
+    localPartial: boolean;
+    cloudTitle: string;
+    cloudTitlePartial: boolean;
+    cloudBody: string;
+    cloudPartial: boolean;
+    differingFields: readonly NotesSupportedContentDifferenceField[];
+  } | null>(null);
   const [remotePreviewFeedback, setRemotePreviewFeedback] = useState<TranslationKey | null>(null);
   const observation = observePublishedNotesHydration();
   const ready = !!accountId && observation.status === 'CURRENT' && observation.request.accountId === accountId;
@@ -65,12 +94,14 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
     statusRequest.current = null;
     setBusy(false); setCopyBusy(false); setStatusBusy(null); setStatusResult(null);
     setResult(null); setError(null); setCopyFeedback(null); setCopyCandidate(null);
-    setRemotePreview(null); setRemotePreviewFeedback(null);
+    setRemotePreview(null); setDivergentPreview(null); setRemotePreviewFeedback(null);
     return () => { active.current?.cancel(); active.current = null; };
   }, [accountId, notes, folders, ready]);
   const visible = result && result.owner === active.current && result.owner.isCurrent() ? result.report : null;
   const visibleRemotePreview = remotePreview && visible && result?.owner === remotePreview.owner
     && active.current === remotePreview.owner && remotePreview.owner.isCurrent() ? remotePreview : null;
+  const visibleDivergentPreview = divergentPreview && visible && result?.owner === divergentPreview.owner
+    && active.current === divergentPreview.owner && divergentPreview.owner.isCurrent() ? divergentPreview : null;
   useLayoutEffect(() => {
     if (remotePreview && (!visible || result?.owner !== remotePreview.owner || active.current !== remotePreview.owner)) {
       const staleOwner = result?.owner === remotePreview.owner && active.current === remotePreview.owner;
@@ -79,10 +110,18 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
       if (staleOwner) setRemotePreviewFeedback('notesCloudPreviewStale');
     }
   }, [remotePreview, result, visible]);
+  useLayoutEffect(() => {
+    if (divergentPreview && (!visible || result?.owner !== divergentPreview.owner || active.current !== divergentPreview.owner)) {
+      const staleOwner = result?.owner === divergentPreview.owner && active.current === divergentPreview.owner;
+      divergentPreview.owner.cancel();
+      setDivergentPreview(null);
+      if (staleOwner) setRemotePreviewFeedback('notesCloudPreviewStale');
+    }
+  }, [divergentPreview, result, visible]);
   const check = async () => {
     if (busy) return;
     statusRequest.current = null; setStatusBusy(null); setStatusResult(null);
-    active.current?.cancel(); setResult(null); setError(null); setRemotePreview(null); setRemotePreviewFeedback(null);
+    active.current?.cancel(); setResult(null); setError(null); setRemotePreview(null); setDivergentPreview(null); setRemotePreviewFeedback(null);
     if (typeof navigator !== 'undefined' && navigator.onLine === false) { setError('notesCloudOffline'); return; }
     const context = account.current;
     let owner: NotesCloudComparison | null = null;
@@ -92,7 +131,7 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
       owner.subscribeInvalidation(() => {
         if (active.current !== owner) return;
         active.current = null;
-        setBusy(false); setResult(null); setRemotePreview(null); setRemotePreviewFeedback(null);
+        setBusy(false); setResult(null); setRemotePreview(null); setDivergentPreview(null); setRemotePreviewFeedback(null);
         setError('notesCloudStale');
       });
       setBusy(true);
@@ -110,10 +149,10 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
     statusRequest.current = null;
     active.current?.cancel(); active.current = null; setBusy(false); setCopyBusy(false);
     setStatusBusy(null); setStatusResult(null); setResult(null); setCopyCandidate(null); setCopyFeedback(null); setError('notesCloudStale');
-    setRemotePreview(null); setRemotePreviewFeedback(null);
+    setRemotePreview(null); setDivergentPreview(null); setRemotePreviewFeedback(null);
   };
   const previewCloudOnlyNote = (owner: NotesCloudComparison, noteId: string) => {
-    setRemotePreview(null); setRemotePreviewFeedback(null);
+    setRemotePreview(null); setDivergentPreview(null); setRemotePreviewFeedback(null);
     const currentPublication = observePublishedNotesHydration();
     const currentState = useNotesStore.getState();
     const current = result?.owner === owner && active.current === owner && account.current.id === accountId
@@ -125,10 +164,39 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
       setRemotePreviewFeedback(owner.isCurrent() ? 'notesCloudPreviewUnavailable' : 'notesCloudPreviewStale');
       return;
     }
-    let body = remoteNote.body.slice(0, REMOTE_NOTE_PREVIEW_LIMIT);
-    const partial = remoteNote.body.length > REMOTE_NOTE_PREVIEW_LIMIT;
-    if (partial && /[\uD800-\uDBFF]$/.test(body)) body = body.slice(0, -1);
-    setRemotePreview({ owner, id: remoteNote.id, title: remoteNote.title, body, partial });
+    const body = boundedPreviewText(remoteNote.body, REMOTE_NOTE_PREVIEW_LIMIT);
+    setRemotePreview({ owner, id: remoteNote.id, title: remoteNote.title, body: body.text, partial: body.partial });
+  };
+  const previewDivergentNote = (owner: NotesCloudComparison, noteId: string) => {
+    setDivergentPreview(null); setRemotePreviewFeedback(null);
+    const currentPublication = observePublishedNotesHydration();
+    const currentState = useNotesStore.getState();
+    const current = result?.owner === owner && active.current === owner && account.current.id === accountId
+      && currentState.activeAccountId === accountId && currentPublication.status === 'CURRENT'
+      && currentPublication.request.accountId === accountId && owner.isCurrent();
+    if (!current) { setRemotePreviewFeedback('notesCloudPreviewStale'); return; }
+    const pair = owner.getDivergentNotePair(noteId);
+    if (!pair) {
+      setRemotePreviewFeedback(owner.isCurrent() ? 'notesCloudDivergentUnavailable' : 'notesCloudPreviewStale');
+      return;
+    }
+    const localTitle = boundedPreviewText(pair.local.title, DIVERGENT_TITLE_PREVIEW_LIMIT);
+    const localBody = boundedPreviewText(pair.local.body, REMOTE_NOTE_PREVIEW_LIMIT);
+    const cloudTitle = boundedPreviewText(pair.cloud.title, DIVERGENT_TITLE_PREVIEW_LIMIT);
+    const cloudBody = boundedPreviewText(pair.cloud.body, REMOTE_NOTE_PREVIEW_LIMIT);
+    setDivergentPreview({
+      owner,
+      id: pair.id,
+      localTitle: localTitle.text,
+      localTitlePartial: localTitle.partial,
+      localBody: localBody.text,
+      localPartial: localBody.partial,
+      cloudTitle: cloudTitle.text,
+      cloudTitlePartial: cloudTitle.partial,
+      cloudBody: cloudBody.text,
+      cloudPartial: cloudBody.partial,
+      differingFields: pair.differingFields,
+    });
   };
   const button = 'border rounded-xl px-4 py-2 text-sm font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50';
   const copyOwnerIsCurrent = (owner: NotesCloudComparison, localNoteId: string): boolean => {
@@ -240,6 +308,12 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
                 aria-label={`${t('notesCloudPreviewAction')} ${detail.id}`}
                 onClick={() => previewCloudOnlyNote(result.owner, detail.id)}
               >{t('notesCloudPreviewAction')}</button> : null}
+              {key === 'divergent' && result?.owner === active.current ? <button
+                type="button"
+                className={`${button} mt-1 px-3 py-1`}
+                aria-label={`${t('notesCloudDivergentAction')} ${detail.id}`}
+                onClick={() => previewDivergentNote(result.owner, detail.id)}
+              >{t('notesCloudDivergentAction')}</button> : null}
               {canOpenLocal && eligibleLocalNote(notes, detail.id) ? <button
                 type="button"
                 className={`${button} mt-1 px-3 py-1`}
@@ -299,6 +373,35 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
         {visibleRemotePreview.partial ? <p role="status" aria-live="polite" data-remote-note-preview-partial="true">{t('notesCloudPreviewPartial')}</p> : null}
         <pre dir="auto" className="max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/40 p-3 text-sm">{visibleRemotePreview.body}</pre>
         <button type="button" className={`${button} px-3 py-1`} onClick={() => setRemotePreview(null)}>{t('cancel')}</button>
+      </section> : null}
+      {visibleDivergentPreview ? <section data-divergent-note-preview aria-labelledby="notes-cloud-divergent-preview-heading" className="rounded-lg border border-border p-3 space-y-3">
+        <h4 id="notes-cloud-divergent-preview-heading" className="font-semibold">{t('notesCloudDivergentHeading')}</h4>
+        <p className="text-sm text-muted-foreground">{t('notesCloudDivergentSource')}</p>
+        <p className="text-sm text-muted-foreground">{t('notesCloudDivergentScope')}</p>
+        <code className="break-all">{visibleDivergentPreview.id}</code>
+        <div>
+          <p className="text-sm font-semibold">{t('notesCloudDivergentFields')}</p>
+          <ul className="list-disc pl-5 text-sm">
+            {visibleDivergentPreview.differingFields.map(field => <li key={field}>{t(divergentFieldLabels[field])}</li>)}
+          </ul>
+        </div>
+        <div className="grid gap-3 md:grid-cols-2">
+          <article aria-labelledby="notes-cloud-divergent-local-heading" className="min-w-0 rounded-md border border-border p-3 space-y-2">
+            <h5 id="notes-cloud-divergent-local-heading" className="font-semibold">{t('notesCloudDivergentLocal')}</h5>
+            <p className="break-words"><span className="text-muted-foreground">{t('notesCloudLocalTitle')}: </span>{visibleDivergentPreview.localTitle}</p>
+            {visibleDivergentPreview.localTitlePartial ? <p role="status" aria-live="polite">{t('notesCloudPreviewPartial')}</p> : null}
+            {visibleDivergentPreview.localPartial ? <p role="status" aria-live="polite">{t('notesCloudPreviewPartial')}</p> : null}
+            <pre dir="auto" className="max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/40 p-3 text-sm">{visibleDivergentPreview.localBody}</pre>
+          </article>
+          <article aria-labelledby="notes-cloud-divergent-cloud-heading" className="min-w-0 rounded-md border border-border p-3 space-y-2">
+            <h5 id="notes-cloud-divergent-cloud-heading" className="font-semibold">{t('notesCloudDivergentCloud')}</h5>
+            <p className="break-words"><span className="text-muted-foreground">{t('notesCloudRemoteTitle')}: </span>{visibleDivergentPreview.cloudTitle}</p>
+            {visibleDivergentPreview.cloudTitlePartial ? <p role="status" aria-live="polite">{t('notesCloudPreviewPartial')}</p> : null}
+            {visibleDivergentPreview.cloudPartial ? <p role="status" aria-live="polite">{t('notesCloudPreviewPartial')}</p> : null}
+            <pre dir="auto" className="max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/40 p-3 text-sm">{visibleDivergentPreview.cloudBody}</pre>
+          </article>
+        </div>
+        <button type="button" className={`${button} px-3 py-1`} onClick={() => setDivergentPreview(null)}>{t('cancel')}</button>
       </section> : null}
     </div> : null}
     {error ? <p role="alert">{t(error)}</p> : null}

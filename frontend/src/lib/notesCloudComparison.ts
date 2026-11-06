@@ -1,5 +1,11 @@
 import { observePublishedNotesHydration, useNotesStore } from '../store/useNotesStore';
-import { compareSupportedNoteContent, isCompleteLocalNote, isComparableRemoteNoteContent } from './notesBootstrapAuthority';
+import {
+  compareSupportedNoteContent,
+  getSupportedNoteContentDifferences,
+  isCompleteLocalNote,
+  isComparableRemoteNoteContent,
+  type NotesSupportedContentDifferenceField,
+} from './notesBootstrapAuthority';
 import { fetchCompleteNotesFoldersSnapshot, type CompleteNotesFoldersSnapshot } from './notesSyncClient';
 import type { NoteBase, NoteFolderBase } from '../components/views/noteUtils';
 import { observeAccountScopedFolders, subscribeNotesAuthorityRequestChange } from './notesAccountAuthority';
@@ -21,6 +27,12 @@ export interface NotesCloudRemoteOnlyNote {
   readonly id: string;
   readonly title?: string;
   readonly body: string;
+}
+export interface NotesCloudDivergentNotePair {
+  readonly id: string;
+  readonly local: Readonly<{ title: string; body: string }>;
+  readonly cloud: Readonly<{ title: string; body: string }>;
+  readonly differingFields: readonly NotesSupportedContentDifferenceField[];
 }
 
 const detailCategories: readonly NotesCloudComparisonDetailCategory[] = ['localOnly', 'remoteOnly', 'divergent', 'incomparable', 'deleted'];
@@ -145,11 +157,29 @@ export function createNotesCloudComparison(accountId: string | null, isAccountCu
       body: row.body,
     });
   };
+  const getDivergentNotePair = (noteId: string): NotesCloudDivergentNotePair | null => {
+    if (!noteId || !noteId.trim() || !started || !isCurrent() || !remoteSnapshot || !comparedReport
+      || !comparedReport.details.divergent.some(detail => detail.id === noteId)) return null;
+    const local = notes.find(note => note.id === noteId);
+    const row = remoteSnapshot.notes.find(note => note.id === noteId);
+    if (!local || local.id !== noteId || local.deletedAt !== null || !isCompleteLocalNote(local)
+      || !row || row.id !== noteId || row.user_id !== accountId || row.deleted_at !== null
+      || !isComparableRemoteNoteContent(accountId, row)
+      || compareSupportedNoteContent(accountId, local, row) !== 'DIVERGENT') return null;
+    const differingFields = getSupportedNoteContentDifferences(accountId, local, row);
+    if (!differingFields?.length || !isCurrent()) return null;
+    return Object.freeze({
+      id: noteId,
+      local: Object.freeze({ title: local.title, body: local.body }),
+      cloud: Object.freeze({ title: row.title, body: row.body }),
+      differingFields,
+    });
+  };
   const subscribeInvalidation = (listener: () => void) => {
     if (!live) { listener(); return () => {}; }
     invalidationListeners.add(listener);
     return () => invalidationListeners.delete(listener);
   };
-  return { compare, cancel, isCurrent, getRemoteOnlyNote, subscribeInvalidation };
+  return { compare, cancel, isCurrent, getRemoteOnlyNote, getDivergentNotePair, subscribeInvalidation };
 }
 export type NotesCloudComparison = ReturnType<typeof createNotesCloudComparison>;

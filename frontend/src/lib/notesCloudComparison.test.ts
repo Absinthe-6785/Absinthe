@@ -111,6 +111,83 @@ it('exposes one exact-ID remote-only Note from the verified comparison without t
   owner.cancel();
   expect(owner.getRemoteOnlyNote('cloud-exact-id')).toBeNull();
 });
+it('exposes immutable same-ID divergent title and body values without resolving duplicate titles', async () => {
+  fake.state.notes = [
+    note('divergent-id', { title: 'Local title', body: 'Local body' }),
+    note('different-id', { title: 'Local title', body: 'Another body' }),
+  ];
+  const cloudRows = [
+    row('divergent-id', { title: 'Cloud title', body: 'Cloud body' }),
+    row('another-cloud-id', { title: 'Local title', body: 'Cloud-only duplicate title' }),
+  ];
+  fake.read.mockImplementation(async (url: string, _init, control) => {
+    control?.onRequestStart?.(); return page(url.includes('note_folders') ? [] : cloudRows);
+  });
+  const owner = createNotesCloudComparison('A', () => true);
+  const report = await owner.compare();
+
+  expect(report.details.divergent.map(detail => detail.id)).toEqual(['divergent-id']);
+  const pair = owner.getDivergentNotePair('divergent-id');
+  expect(pair).toEqual({
+    id: 'divergent-id',
+    local: { title: 'Local title', body: 'Local body' },
+    cloud: { title: 'Cloud title', body: 'Cloud body' },
+    differingFields: ['title', 'body'],
+  });
+  expect(Object.isFrozen(pair)).toBe(true);
+  expect(Object.isFrozen(pair?.local)).toBe(true);
+  expect(Object.isFrozen(pair?.cloud)).toBe(true);
+  expect(Object.isFrozen(pair?.differingFields)).toBe(true);
+  expect(owner.getDivergentNotePair('different-id')).toBeNull();
+  expect(owner.getDivergentNotePair('another-cloud-id')).toBeNull();
+  expect(fake.read).toHaveBeenCalledTimes(2);
+  expect(fake.write).not.toHaveBeenCalled();
+  owner.cancel();
+  expect(owner.getDivergentNotePair('divergent-id')).toBeNull();
+});
+it('reports non-body supported field differences when the body is equal', async () => {
+  fake.state.notes = [note('metadata-diff', {
+    title: 'Same title', body: 'Same body', folderId: 'local-folder', starred: false,
+    properties: { color: 'blue' }, relations: { related: ['note-a'] },
+  })];
+  const cloud = row('metadata-diff', {
+    title: 'Same title', body: 'Same body', folder_id: 'cloud-folder', starred: true,
+    properties: { color: 'green' }, relations: { related: ['note-b'] },
+  });
+  fake.read.mockImplementation(async (url: string, _init, control) => {
+    control?.onRequestStart?.(); return page(url.includes('note_folders') ? [] : [cloud]);
+  });
+  const owner = createNotesCloudComparison('A', () => true);
+  const report = await owner.compare();
+  expect(report.details.divergent.map(detail => detail.id)).toEqual(['metadata-diff']);
+  expect(owner.getDivergentNotePair('metadata-diff')).toMatchObject({
+    local: { body: 'Same body' },
+    cloud: { body: 'Same body' },
+    differingFields: ['folder', 'starred', 'properties', 'relations'],
+  });
+  owner.cancel();
+});
+it('does not expose deleted, unsupported, or incomplete same-ID versions as a pair', async () => {
+  const incompleteLocal = { id: 'incomplete-local', title: 'Local title', updatedAt: 1, folderId: null, deletedAt: null } as any;
+  const cases = [
+    { local: note('deleted-local', { deletedAt: 2 }), remote: row('deleted-local', { title: 'Cloud title' }), category: 'deleted' },
+    { local: note('deleted-cloud'), remote: row('deleted-cloud', { deleted_at: 2 }), category: 'deleted' },
+    { local: note('unsupported-cloud'), remote: row('unsupported-cloud', { properties: { bad: [] } }), category: 'incomparable' },
+    { local: note('unsupported-local', { properties: { bad: 42 as any } }), remote: row('unsupported-local', { title: 'Cloud title' }), category: 'incomparable' },
+    { local: incompleteLocal, remote: row('incomplete-local', { title: 'Cloud title' }), category: 'incomparable' },
+  ] as const;
+  for (const item of cases) {
+    fake.state.notes = [item.local];
+    fake.read.mockImplementation(async (url: string, _init, control) => {
+      control?.onRequestStart?.(); return page(url.includes('note_folders') ? [] : [item.remote]);
+    });
+    const owner = createNotesCloudComparison('A', () => true);
+    const report = await owner.compare();
+    expect(report.details[item.category].map(detail => detail.id)).toContain(item.local.id);
+    expect(owner.getDivergentNotePair(item.local.id)).toBeNull();
+    owner.cancel();
+  }
+});
 it('does not expose deleted, unsupported, or incomparable remote rows to preview', async () => {
   fake.state.notes = [];
   const deleted = row('deleted-cloud', { deleted_at: 10 });
