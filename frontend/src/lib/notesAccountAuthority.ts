@@ -184,6 +184,21 @@ export type NotesSingleDeleteCommitResult =
   | { readonly status: 'CONFLICT'; readonly reason: NotesSingleDeleteConflictReason }
   | { readonly status: 'FAILED'; readonly reason: NotesSingleDeleteConflictReason };
 
+export interface NotesSingleReceiveInput {
+  readonly accountId: string;
+  readonly request: NotesAuthorityRequest;
+  readonly note: unknown;
+  readonly isCurrent: () => boolean;
+}
+
+/** Storage evidence only, never permission to receive/reuse a remote identity. */
+export interface NotesSingleInsertResult {
+  readonly status: 'INSERT_VERIFIED' | 'DENIED' | 'CONFLICT' | 'ABORTED' | 'INDETERMINATE' | 'STALE' | 'NOT_STARTED';
+  readonly write: 'NOT_STARTED' | 'ABORTED' | 'COMMITTED' | 'UNKNOWN';
+  readonly readback: 'NOT_RUN' | 'MATCHED' | 'MISMATCH' | 'UNAVAILABLE';
+  readonly reason?: string;
+}
+
 let activeRequest: NotesAuthorityRequest | null = null;
 const notesAuthorityRequestListeners = new Set<(request: NotesAuthorityRequest | null) => void>();
 let nextRequestGeneration = 0;
@@ -1735,6 +1750,154 @@ export async function saveAccountScopedNotes(
   });
 }
 
+function singleInsertResult(
+  status: NotesSingleInsertResult['status'],
+  write: NotesSingleInsertResult['write'] = 'NOT_STARTED',
+  readback: NotesSingleInsertResult['readback'] = 'NOT_RUN',
+  reason?: string,
+): NotesSingleInsertResult {
+  return Object.freeze({ status, write, readback, ...(reason ? { reason } : {}) });
+}
+
+/** Intentionally narrow: explicit core metadata, no folder/attachment/extended-data admission. */
+function singleReceiveCandidate(value: unknown): NoteBase | null {
+  try {
+    const plainData = (object: object) => {
+      const prototype = Object.getPrototypeOf(object);
+      return (prototype === Object.prototype || prototype === null)
+        && Reflect.ownKeys(object).every(key => typeof key === 'string'
+          && Object.getOwnPropertyDescriptor(object, key)?.enumerable === true
+          && 'value' in Object.getOwnPropertyDescriptor(object, key)!);
+    };
+    if (!value || typeof value !== 'object' || !plainData(value)) return null;
+    const keys = new Set(['id', 'title', 'body', 'updatedAt', 'folderId', 'deletedAt', 'starred', 'properties', 'relations', 'createdAt', 'lastOpenedAt']);
+    if (Object.keys(value).some(key => !keys.has(key))) return null;
+    if (['id', 'title', 'body', 'updatedAt', 'folderId', 'deletedAt', 'starred', 'properties', 'relations']
+      .some(key => !Object.prototype.hasOwnProperty.call(value, key))) return null;
+    const note = value as NoteBase;
+    const emptyMetadata = (metadata: unknown) => !!metadata && typeof metadata === 'object'
+      && plainData(metadata) && Reflect.ownKeys(metadata).length === 0;
+    const timestamp = (time: unknown) => Number.isSafeInteger(time) && (time as number) >= 0;
+    if (!validNote(note) || note.id !== note.id.trim() || /[\u0000-\u001f\u007f]/u.test(note.id)
+      || note.deletedAt !== null || note.folderId !== null || typeof note.starred !== 'boolean'
+      || !timestamp(note.updatedAt)
+      || !emptyMetadata(note.properties) || !emptyMetadata(note.relations)
+      || ('createdAt' in note && !timestamp(note.createdAt))
+      || ('lastOpenedAt' in note && !timestamp(note.lastOpenedAt))) return null;
+    // This slice has no original-byte authority. Reject even malformed/partial local
+    // attachment schemes and embedded media rather than silently admitting a dependency.
+    if (/(?:attachment|blob|data|file):|!\[|<\s*(?:img|audio|video|source|object|embed|iframe)\b/iu.test(note.body)) return null;
+    return JSON.parse(JSON.stringify(note)) as NoteBase;
+  } catch { return null; }
+}
+
+function singleReceiveIsCurrent(input: NotesSingleReceiveInput, epoch: number): boolean {
+  try {
+    return input.accountId === input.request.accountId && getActiveNotesAuthorityRequest() === input.request
+      && isNotesAuthorityRequestActive(input.request) && isOperationEpochCurrent(epoch) && input.isCurrent() === true;
+  } catch { return false; }
+}
+
+/**
+ * Production admission remains closed. No existing authority proves permanent
+ * retirement/reuse eligibility for an arbitrary cloud ID. In-memory/durable absence
+ * and a caller-supplied boolean must never stand in for that missing authority.
+ */
+export async function receiveAccountScopedNote(input: NotesSingleReceiveInput): Promise<NotesSingleInsertResult> {
+  const epoch = captureOperationEpoch();
+  if (!singleReceiveIsCurrent(input, epoch)) return singleInsertResult('STALE');
+  if (!singleReceiveCandidate(input.note)) return singleInsertResult('DENIED', 'NOT_STARTED', 'NOT_RUN', 'INELIGIBLE_CANDIDATE');
+  if (!singleReceiveIsCurrent(input, epoch)) return singleInsertResult('STALE');
+  return singleInsertResult('DENIED', 'NOT_STARTED', 'NOT_RUN', 'RETIREMENT_UNPROVEN');
+}
+
+/**
+ * Inactive storage mechanism, exposed ONLY by the existing test-mode seam below.
+ * Not a receive authorization: production callers cannot reach this function.
+ * It deliberately publishes no runtime arrays, active ID, folders or authority metadata.
+ */
+async function insertSingleNoteStorageForProof(input: NotesSingleReceiveInput): Promise<NotesSingleInsertResult> {
+  // Do not let a caller retarget a queued operation to another request/account.
+  input = { accountId: input.accountId, request: input.request, note: input.note, isCurrent: input.isCurrent };
+  const epoch = captureOperationEpoch();
+  const current = () => singleReceiveIsCurrent(input, epoch);
+  if (!current()) return singleInsertResult('STALE');
+  const note = singleReceiveCandidate(input.note);
+  if (!note) return singleInsertResult('DENIED', 'NOT_STARTED', 'NOT_RUN', 'INELIGIBLE_CANDIDATE');
+  let write: NotesSingleInsertResult['write'] = 'NOT_STARTED';
+  try {
+    return await runAccountMutationExclusive(input.accountId, async () => {
+      if (!current()) return singleInsertResult('STALE');
+      const admittedContext = () => {
+        const notesState = readState(input.accountId, NOTES_CORE_DOMAIN);
+        const foldersState = readState(input.accountId, NOTES_FOLDERS_DOMAIN);
+        return [notesState, foldersState].every(state => state?.state === 'LOADED_EMPTY' || state?.state === 'LOADED_POPULATED')
+          && readPendingBootstrapMarker(input.accountId).kind === 'absent';
+      };
+      if (!admittedContext()) return singleInsertResult('DENIED', write, 'NOT_RUN', 'LOCAL_AUTHORITY_UNAVAILABLE');
+      let database: IDBDatabase;
+      try { database = await openDatabase(); }
+      catch { return singleInsertResult('NOT_STARTED', write, 'NOT_RUN', 'DATABASE_UNAVAILABLE'); }
+      let outcome: NotesSingleInsertResult;
+      try {
+        if (!current()) return singleInsertResult('STALE');
+        outcome = await new Promise<NotesSingleInsertResult>((resolve, reject) => {
+          const transaction = database.transaction(NOTES_STORE, 'readwrite');
+          let issued = false;
+          let denial: NotesSingleInsertResult | null = null;
+          let constraint = false;
+          transaction.oncomplete = () => {
+            write = issued ? 'COMMITTED' : 'NOT_STARTED';
+            resolve(denial ?? singleInsertResult(issued ? 'INDETERMINATE' : 'NOT_STARTED', write));
+          };
+          transaction.onabort = () => {
+            write = 'ABORTED';
+            resolve(singleInsertResult(!current() ? 'STALE' : constraint ? 'CONFLICT' : 'ABORTED', write));
+          };
+          transaction.onerror = () => { /* Wait for actual abort/complete, never infer no-write here. */ };
+          const abort = () => { try { transaction.abort(); } catch { reject(new Error('single_insert_abort_unknown')); } };
+          try {
+            const store = transaction.objectStore(NOTES_STORE);
+            const read = store.getAll();
+            read.onsuccess = () => {
+              try {
+                if (!current()) { denial = singleInsertResult('STALE'); return; }
+                if (!admittedContext()) { denial = singleInsertResult('DENIED', 'NOT_STARTED', 'NOT_RUN', 'LOCAL_AUTHORITY_UNAVAILABLE'); return; }
+                const durable = parseAccountNotes(input.accountId, read.result);
+                if (durable.kind === 'malformed') { denial = singleInsertResult('DENIED', 'NOT_STARTED', 'NOT_RUN', 'MALFORMED_DURABLE_NOTES'); return; }
+                if (durable.kind === 'valid' && durable.records.some(row => row.id === note.id)) {
+                  denial = singleInsertResult('CONFLICT', 'NOT_STARTED', 'NOT_RUN', 'IDENTITY_EXISTS'); return;
+                }
+                if (readSingleDeleteMarker(input.accountId, note.id) !== null) {
+                  denial = singleInsertResult('DENIED', 'NOT_STARTED', 'NOT_RUN', 'DELETE_EVIDENCE'); return;
+                }
+                if (!current()) { denial = singleInsertResult('STALE'); return; }
+                write = 'UNKNOWN'; // From issuance until onabort/oncomplete, no definitive outcome.
+                const added = store.add({ key: noteKey(input.accountId, note.id), accountId: input.accountId, note } satisfies StoredScopedNote);
+                issued = true;
+                added.onerror = () => { constraint = added.error?.name === 'ConstraintError'; };
+              } catch { abort(); }
+            };
+          } catch { abort(); }
+        });
+      } catch {
+        return singleInsertResult(write === 'NOT_STARTED' ? 'NOT_STARTED' : 'INDETERMINATE', write, 'NOT_RUN', 'TRANSACTION_UNRESOLVED');
+      } finally { database.close(); }
+      if (write !== 'COMMITTED') return outcome;
+      if (!current()) return singleInsertResult('STALE', write, 'NOT_RUN', 'CONTEXT_CHANGED_AFTER_COMMIT');
+      let durable: ScopedReadResult<NoteBase>;
+      try { durable = await readAccountNotes(input.accountId); }
+      catch { return singleInsertResult('INDETERMINATE', write, 'UNAVAILABLE'); }
+      const target = durable.kind === 'valid' ? durable.records.filter(row => row.id === note.id) : [];
+      const matches = target.length === 1 && sameNotes(target, [note]);
+      if (!current()) return singleInsertResult('STALE', write, matches ? 'MATCHED' : 'MISMATCH');
+      return singleInsertResult(matches ? 'INSERT_VERIFIED' : 'INDETERMINATE', write, matches ? 'MATCHED' : 'MISMATCH');
+    });
+  } catch {
+    return singleInsertResult(!current() ? 'STALE' : write === 'NOT_STARTED' ? 'NOT_STARTED' : 'INDETERMINATE', write, 'NOT_RUN', 'LOCK_OR_OPERATION_UNAVAILABLE');
+  }
+}
+
 /** Target-only compare-and-write plus readback under the existing account lock. */
 export async function persistAccountScopedAttachmentReferences(input: NoteAttachmentReferenceWrite): Promise<NoteAttachmentReferenceAck> {
   const { request, isCurrent } = input;
@@ -2291,6 +2454,7 @@ export function resetNotesAccountAuthorityForTests(): void {
 /** Test-only scheduling seam for deterministic account-load race coverage. */
 export const __testOnlyNotesAccountAuthorityHooks = import.meta.env.MODE === 'test'
   ? Object.freeze({
+    insertSingleNoteStorageForProof,
     setReadNotesOverride(override: ((accountId: string) => Promise<ScopedReadResult<NoteBase>>) | null) {
       testReadNotesOverride = override;
     },
