@@ -11,6 +11,7 @@ const mock = vi.hoisted(() => ({
   create: vi.fn(),
   getRemoteOnlyNote: vi.fn(),
   getDivergentNotePair: vi.fn(),
+  searchCloudNotes: vi.fn(),
   subscribeInvalidation: vi.fn(),
   invalidationListeners: new Set<() => void>(),
   prepareCloudCopy: vi.fn(), createCloudCopy: vi.fn(), readCloudCopyStatus: vi.fn(), cloudCopyEnabled: false,
@@ -25,7 +26,11 @@ vi.mock('../../../../store/useNotesStore', () => ({
   ),
   observePublishedNotesHydration: () => mock.available ? { status: 'CURRENT', request: mock.activeRequest } : { status: 'UNAVAILABLE' },
 }));
-vi.mock('../../../../lib/notesCloudComparison', () => ({ createNotesCloudComparison: mock.create }));
+vi.mock('../../../../lib/notesCloudComparison', () => ({
+  createNotesCloudComparison: mock.create,
+  NOTES_CLOUD_SEARCH_QUERY_LIMIT: 120,
+  NOTES_COMPARISON_LIMIT: 500,
+}));
 vi.mock('../../../../lib/notesCloudCopy', () => ({
   prepareNotesCloudCopy: mock.prepareCloudCopy,
   createNotesCloudCopy: mock.createCloudCopy,
@@ -53,7 +58,7 @@ const report = {
   },
 };
 let live = true;
-const owner = { compare: vi.fn(), getRemoteOnlyNote: mock.getRemoteOnlyNote, getDivergentNotePair: mock.getDivergentNotePair, subscribeInvalidation: mock.subscribeInvalidation, cancel: vi.fn(() => { live = false; mock.invalidationListeners.clear(); }), isCurrent: () => live };
+const owner = { compare: vi.fn(), getRemoteOnlyNote: mock.getRemoteOnlyNote, getDivergentNotePair: mock.getDivergentNotePair, searchCloudNotes: mock.searchCloudNotes, subscribeInvalidation: mock.subscribeInvalidation, cancel: vi.fn(() => { live = false; mock.invalidationListeners.clear(); }), isCurrent: () => live };
 const localNote = (id: string, title: string, overrides: Record<string, unknown> = {}) => ({
   id, title, body: 'Local body', folderId: null, updatedAt: 10, deletedAt: null, ...overrides,
 });
@@ -98,6 +103,7 @@ beforeEach(() => {
       compare: owner.compare, cancel: owner.cancel,
       getRemoteOnlyNote: owner.getRemoteOnlyNote,
       getDivergentNotePair: owner.getDivergentNotePair,
+      searchCloudNotes: owner.searchCloudNotes,
       subscribeInvalidation: owner.subscribeInvalidation,
       isCurrent: () => live && mock.available && isAccountCurrent() && mock.activeRequest === request
         && mock.state.activeAccountId === accountId && mock.state.notes === notes && JSON.stringify(mock.state.notes) === notesIdentity
@@ -117,6 +123,12 @@ beforeEach(() => {
       cloud: { title: 'Cloud version', body: 'Cloud body' },
       differingFields: ['title', 'body'],
     } : null);
+  owner.searchCloudNotes.mockImplementation((query: string) => {
+    const normalized = query.normalize('NFKC').toLowerCase().trim();
+    const remoteOnly = !normalized || 'cloud title cloud body'.includes(normalized) ? ['cloud-id'] : [];
+    const divergent = !normalized || 'cloud version cloud body'.includes(normalized) ? ['different-id'] : [];
+    return { remoteOnly, divergent, total: 2 };
+  });
   resetNoteNavigationStack(); sessionStorage.removeItem('absinthe.noteNav.returnTab');
   unregisterNotesTab = registerNotesTabSwitcher(mock.notesTabSwitch);
   unregisterAppTab = registerAppTabSwitcher(mock.appTabSwitch);
@@ -132,6 +144,14 @@ afterEach(async () => {
 });
 async function render(account: string | null = 'A') { await act(async () => root.render(React.createElement(NotesCloudComparisonPanel, { accountId: account }))); }
 async function check() { await act(async () => host.querySelector('button')!.click()); }
+async function setComparisonSearch(value: string) {
+  await act(async () => {
+    const input = host.querySelector<HTMLInputElement>('#notes-cloud-comparison-search')!;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+    setter?.call(input, value);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+}
 async function openRemoteOnlyPreview() {
   await render(); await check();
   const section = host.querySelectorAll('details')[1]!;
@@ -162,6 +182,124 @@ it('does no automatic fetch, exposes an accessible manual action and counts with
   const eligibleCloudRow = [...host.querySelectorAll('li')].find(item => item.querySelector('code')?.textContent === 'cloud-id')!;
   expect(eligibleCloudRow.querySelector('button')?.textContent).toBe('Preview cloud Note');
   expect(host.textContent).not.toContain('account-A'); expect(host.textContent).toContain('NOT enable cloud synchronization');
+});
+
+it('searches the current cloud-only and divergent snapshot while preserving totals and exact-ID actions', async () => {
+  const notesBefore = JSON.stringify(mock.state.notes);
+  const storageBefore = JSON.stringify(Object.fromEntries(Object.keys(localStorage).map(key => [key, localStorage.getItem(key)])));
+  await render(); await check();
+  expect(mock.create).toHaveBeenCalledTimes(1);
+  expect(owner.compare).toHaveBeenCalledTimes(1);
+  const input = host.querySelector<HTMLInputElement>('#notes-cloud-comparison-search')!;
+  expect(input.type).toBe('search'); expect(input.maxLength).toBe(120);
+  expect(host.querySelector('label[for="notes-cloud-comparison-search"]')?.textContent).toBe('Search cloud-only and divergent Notes');
+
+  await setComparisonSearch('ＣＬＯＵＤ ＢＯＤＹ');
+  expect(host.textContent).toContain('2 matches among 2 searchable cloud-only and divergent Notes');
+  expect(host.textContent).toContain('comparison totals above are unchanged');
+  expect([...host.querySelectorAll('dd')].map(el => el.textContent)).toEqual(['2', '1', '3', '4', '1', '2']);
+  const ids = [...host.querySelectorAll('li code')].map(node => node.textContent);
+  expect(ids).toEqual(['cloud-id', 'different-id']);
+  expect(host.textContent).not.toContain('local-id');
+
+  const cloudOnlyRow = [...host.querySelectorAll('li')].find(item => item.querySelector('code')?.textContent === 'cloud-id')!;
+  await act(async () => { [...cloudOnlyRow.querySelectorAll('button')].find(button => button.textContent === 'Preview cloud Note')!.click(); });
+  expect(mock.getRemoteOnlyNote).toHaveBeenCalledWith('cloud-id');
+  const cloudPreview = host.querySelector<HTMLElement>('[data-remote-note-preview]')!;
+  expect(cloudPreview.querySelector('pre')?.textContent).toContain('Cloud body');
+  expect(cloudPreview.querySelector('script')).toBeNull();
+  await act(async () => { [...cloudPreview.querySelectorAll('button')].find(button => button.textContent === 'Download cloud text')!.click(); });
+  expect(createdCloudTextFiles).toHaveLength(1);
+  await act(async () => { [...cloudPreview.querySelectorAll('button')].find(button => button.textContent === 'Cancel')!.click(); });
+
+  const divergentRow = [...host.querySelectorAll('li')].find(item => item.querySelector('code')?.textContent === 'different-id')!;
+  await act(async () => { [...divergentRow.querySelectorAll('button')].find(button => button.textContent === 'Compare local and cloud versions')!.click(); });
+  expect(mock.getDivergentNotePair).toHaveBeenCalledWith('different-id');
+  const divergentPreview = host.querySelector<HTMLElement>('[data-divergent-note-preview]')!;
+  expect(divergentPreview.querySelectorAll('article')).toHaveLength(2);
+  await act(async () => { [...divergentPreview.querySelectorAll('button')].find(button => button.textContent === 'Download cloud text')!.click(); });
+  expect(createdCloudTextFiles).toHaveLength(2);
+
+  await setComparisonSearch('no such cloud text');
+  expect(host.textContent).toContain('No cloud-only or divergent Note matches');
+  expect(host.textContent).toContain('this does not mean the cloud is empty');
+  expect(host.querySelectorAll('li code')).toHaveLength(0);
+  expect([...host.querySelectorAll('dd')].map(el => el.textContent)).toEqual(['2', '1', '3', '4', '1', '2']);
+  expect(mock.create).toHaveBeenCalledTimes(1);
+  expect(owner.compare).toHaveBeenCalledTimes(1);
+  expect(mock.createCloudCopy).not.toHaveBeenCalled();
+  expect(mock.state.activeNoteId).toBeNull();
+  expect(JSON.stringify(mock.state.notes)).toBe(notesBefore);
+  expect(JSON.stringify(Object.fromEntries(Object.keys(localStorage).map(key => [key, localStorage.getItem(key)])))).toBe(storageBefore);
+});
+
+it('bounds matching-result rendering and reveals additional matches only on request', async () => {
+  const remoteOnly = Array.from({ length: 45 }, (_, index) => ({ id: `cloud-${index}`, remoteTitle: `Cloud ${index}` }));
+  owner.compare.mockResolvedValue({ ...report, remoteOnly: 45, details: { ...report.details, remoteOnly } });
+  owner.searchCloudNotes.mockReturnValue({ remoteOnly: remoteOnly.map(({ id }) => id), divergent: [], total: 45 });
+  await render(); await check(); await setComparisonSearch('cloud');
+  expect(host.querySelectorAll('li')).toHaveLength(30);
+  expect(host.textContent).toContain('45 matches among 45 searchable cloud-only and divergent Notes');
+  const more = [...host.querySelectorAll('button')].find(button => button.textContent === 'Show 15 more notes')!;
+  await act(async () => { more.click(); });
+  expect(host.querySelectorAll('li')).toHaveLength(45);
+});
+
+it('localizes the search control for English, Korean, and Japanese', async () => {
+  for (const [language, label] of [
+    ['en', 'Search cloud-only and divergent Notes'],
+    ['ko', '클라우드 전용·차이 있는 노트 검색'],
+    ['ja', 'クラウドのみ・差異のあるノートを検索'],
+  ] as const) {
+    useAppStore.getState().updateSetting('language', language);
+    await render(); await check();
+    expect(host.querySelector('label[for="notes-cloud-comparison-search"]')?.textContent).toBe(label);
+  }
+});
+
+it('discards an active search on account A/B/A, cancellation, and authority invalidation', async () => {
+  await render(); await check(); await setComparisonSearch('cloud body');
+  expect(host.querySelectorAll('li code')).toHaveLength(2);
+
+  await render('B'); await render('A');
+  expect(host.querySelector('#notes-cloud-comparison-search')).toBeNull();
+  expect(host.textContent).not.toContain('cloud-id');
+  expect(owner.cancel).toHaveBeenCalled();
+
+  await check(); await setComparisonSearch('cloud body');
+  await check();
+  expect(host.querySelector<HTMLInputElement>('#notes-cloud-comparison-search')?.value).toBe('');
+  await setComparisonSearch('cloud body');
+  await act(async () => { [...host.querySelectorAll('button')].find(button => button.textContent === 'Cancel')!.click(); });
+  expect(host.querySelector('#notes-cloud-comparison-search')).toBeNull();
+
+  await check(); await setComparisonSearch('cloud body');
+  mock.activeRequest = { accountId: 'A' };
+  await act(async () => { for (const listener of [...mock.invalidationListeners]) listener(); });
+  expect(host.querySelector('#notes-cloud-comparison-search')).toBeNull();
+  expect(host.textContent).not.toContain('different-id');
+});
+
+it('clears search immediately when the current local Notes publication changes', async () => {
+  await render(); await check(); await setComparisonSearch('cloud body');
+  expect(host.querySelectorAll('li code')).toHaveLength(2);
+  await act(async () => {
+    mock.state = { ...mock.state, notes: [...mock.state.notes] };
+    mock.listeners.forEach(listener => listener());
+  });
+  expect(host.querySelector('#notes-cloud-comparison-search')).toBeNull();
+  expect(host.textContent).not.toContain('cloud-id');
+  expect(owner.cancel).toHaveBeenCalled();
+});
+
+it('cancels the owner and discards the search on unmount', async () => {
+  await render(); await check(); await setComparisonSearch('cloud body');
+  expect(host.querySelectorAll('li code')).toHaveLength(2);
+  await act(async () => root.unmount());
+  rootMounted = false;
+  expect(host.querySelector('#notes-cloud-comparison-search')).toBeNull();
+  expect(host.textContent).not.toContain('cloud-id');
+  expect(owner.cancel).toHaveBeenCalled();
 });
 
 it('previews one exact cloud-only ID as inert text without creating or changing a local Note', async () => {

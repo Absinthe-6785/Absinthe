@@ -2324,6 +2324,11 @@ const enTranslations = [
   "Downloads the complete cloud text from this manual comparison, not a synchronized local Note or a guarantee of currentness or durable backup. Attachment originals and Note history are excluded.",
   "A Markdown download was requested. Check your browser downloads; this is not a durable backup.",
   "The complete cloud text could not be prepared or downloaded. No partial Markdown file was created.",
+  "Search cloud-only and divergent Notes",
+  "Search cloud title or body",
+  "Searches supported title and body text from this completed comparison only. It does not make another cloud request.",
+  "{matches} matches among {total} searchable cloud-only and divergent Notes. The comparison totals above are unchanged.",
+  "No cloud-only or divergent Note matches. The full comparison still contains {total} searchable Notes; this does not mean the cloud is empty.",
 ] as const;
 
 export default enTranslations;
