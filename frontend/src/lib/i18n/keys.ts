@@ -2306,6 +2306,20 @@ const translationKeys = [
   "notesCloudPreviewPartial",
   "notesCloudPreviewStale",
   "notesCloudPreviewUnavailable",
+  "notesCloudDivergentAction",
+  "notesCloudDivergentHeading",
+  "notesCloudDivergentSource",
+  "notesCloudDivergentScope",
+  "notesCloudDivergentFields",
+  "notesCloudDivergentLocal",
+  "notesCloudDivergentCloud",
+  "notesCloudDivergentUnavailable",
+  "notesCloudDifferenceTitle",
+  "notesCloudDifferenceBody",
+  "notesCloudDifferenceFolder",
+  "notesCloudDifferenceStarred",
+  "notesCloudDifferenceProperties",
+  "notesCloudDifferenceRelations",
 ] as const;
 
 export type TranslationKey = (typeof translationKeys)[number];

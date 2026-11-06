@@ -29,13 +29,38 @@ it('fails closed with real publication revocation across account A/B/A', async (
   await publish('B'); await publish('A'); resolve(new Response('{}'));
   await expect(work).rejects.toThrow(); expect(owner.isCurrent()).toBe(false); expect(persistence.write).not.toHaveBeenCalled(); owner.cancel();
 });
+it('does not revive a captured divergent pair after a real account A/B/A publication transition', async () => {
+  await publish('A');
+  persistence.read.mockImplementation(async (url: string) => {
+    const rows = url.includes('note_folders') ? [] : [{
+      id: 'n', user_id: 'A', title: 'Cloud title', body: 'Cloud body', updated_at: 1,
+      folder_id: null, deleted_at: null, starred: false, properties: null, relations: null,
+    }];
+    return new Response(JSON.stringify({ account_id: 'A', rows, total_count: rows.length, offset: 0, limit: 500, complete: true }));
+  });
+  const owner = createNotesCloudComparison('A', () => true);
+  const report = await owner.compare();
+  expect(report.details.divergent.map(detail => detail.id)).toEqual(['n']);
+  expect(owner.getDivergentNotePair('n')).not.toBeNull();
+
+  await publish('B'); await publish('A');
+
+  expect(owner.isCurrent()).toBe(false);
+  expect(owner.getDivergentNotePair('n')).toBeNull();
+  owner.cancel();
+});
 it('retires the compared snapshot on same-account authority rollover before any Store update', async () => {
   await publish('A');
-  persistence.read.mockImplementation(async () => new Response(JSON.stringify({
-    account_id: 'A', rows: [], total_count: 0, offset: 0, limit: 500, complete: true,
-  })));
+  persistence.read.mockImplementation(async (url: string) => {
+    const rows = url.includes('note_folders') ? [] : [{
+      id: 'n', user_id: 'A', title: 'Cloud title', body: 'Cloud body', updated_at: 1,
+      folder_id: null, deleted_at: null, starred: false, properties: null, relations: null,
+    }];
+    return new Response(JSON.stringify({ account_id: 'A', rows, total_count: rows.length, offset: 0, limit: 500, complete: true }));
+  });
   const owner = createNotesCloudComparison('A', () => true);
   await owner.compare();
+  expect(owner.getDivergentNotePair('n')).not.toBeNull();
   let invalidations = 0;
   owner.subscribeInvalidation(() => { invalidations += 1; });
   const storeBefore = useNotesStore.getState();
@@ -45,6 +70,7 @@ it('retires the compared snapshot on same-account authority rollover before any 
   expect(useNotesStore.getState()).toBe(storeBefore);
   expect(invalidations).toBe(1);
   expect(owner.isCurrent()).toBe(false);
+  expect(owner.getDivergentNotePair('n')).toBeNull();
   expect(owner.getRemoteOnlyNote('missing')).toBeNull();
   owner.cancel();
 });

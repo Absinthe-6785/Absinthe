@@ -2306,6 +2306,20 @@ const enTranslations = [
   "Partial preview; the remaining text is omitted.",
   "This comparison is no longer current. Run it again before previewing.",
   "Cloud-only text is unavailable in the current comparison.",
+  "Compare local and cloud versions",
+  "Read-only comparison of Note versions",
+  "Values from this manual comparison, not continuous synchronization or one atomic local/cloud transaction. The cloud version may have changed since it was read. Nothing is changed here.",
+  "Attachment originals and Note history are outside this comparison.",
+  "Supported fields that differ",
+  "Local version",
+  "Cloud version",
+  "These Note versions are unavailable in the current comparison. Run it again before comparing.",
+  "Title",
+  "Text body",
+  "Folder assignment",
+  "Starred state",
+  "Properties",
+  "Relations",
 ] as const;
 
 export default enTranslations;

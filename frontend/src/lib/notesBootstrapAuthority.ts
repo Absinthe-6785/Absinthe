@@ -166,7 +166,7 @@ function sortedRelationRecord(
   return Object.fromEntries(Object.entries(record).sort(([left], [right]) => left.localeCompare(right)));
 }
 
-function canonicalSyncablePayloadIdentity(note: NoteBase): string {
+function canonicalSyncablePayload(note: NoteBase) {
   const normalizedProperties = normalizeNoteProperties(note.properties);
   const normalizedRelations = normalizeNoteRelations(note.relations);
   const payload = noteSyncPayload({
@@ -179,7 +179,7 @@ function canonicalSyncablePayloadIdentity(note: NoteBase): string {
     properties: normalizedProperties,
     relations: normalizedRelations,
   });
-  return JSON.stringify({
+  return {
     id: payload.id,
     title: payload.title,
     body: payload.body,
@@ -188,7 +188,11 @@ function canonicalSyncablePayloadIdentity(note: NoteBase): string {
     starred: payload.starred,
     properties: sortedStringRecord(normalizedProperties),
     relations: sortedRelationRecord(normalizedRelations),
-  });
+  };
+}
+
+function canonicalSyncablePayloadIdentity(note: NoteBase): string {
+  return JSON.stringify(canonicalSyncablePayload(note));
 }
 
 function effectiveRevision(note: { updatedAt: number; deletedAt: number | null }): number {
@@ -314,6 +318,36 @@ export function compareSupportedNoteContent(accountId: string, local: NoteBase, 
   );
   if (local.id !== remote.id || !isCompleteLocalNote(local) || !normalized) return 'INCOMPARABLE';
   return canonicalSyncablePayloadIdentity(local) === canonicalSyncablePayloadIdentity(normalized) ? 'MATCHING' : 'DIVERGENT';
+}
+
+export type NotesSupportedContentDifferenceField = 'title' | 'body' | 'folder' | 'starred' | 'properties' | 'relations';
+
+/** Returns only fields in the existing canonical comparison when a live same-ID pair is divergent. */
+export function getSupportedNoteContentDifferences(
+  accountId: string,
+  local: NoteBase,
+  remote: DbNoteRow,
+): readonly NotesSupportedContentDifferenceField[] | null {
+  const normalized = normalizeAuthoritativeRemoteBootstrapNote(
+    projectLegacyOptionalRemoteFieldsForAuthorityComparison(remote), accountId,
+  );
+  if (local.id !== remote.id || !isCompleteLocalNote(local) || local.deletedAt !== null
+    || !normalized || normalized.deletedAt !== null
+    || compareSupportedNoteContent(accountId, local, remote) !== 'DIVERGENT') return null;
+
+  const localPayload = canonicalSyncablePayload(local);
+  const remotePayload = canonicalSyncablePayload(normalized);
+  const fields: readonly [NotesSupportedContentDifferenceField, keyof typeof localPayload][] = [
+    ['title', 'title'],
+    ['body', 'body'],
+    ['folder', 'folder_id'],
+    ['starred', 'starred'],
+    ['properties', 'properties'],
+    ['relations', 'relations'],
+  ];
+  return Object.freeze(fields
+    .filter(([, key]) => JSON.stringify(localPayload[key]) !== JSON.stringify(remotePayload[key]))
+    .map(([field]) => field));
 }
 
 export function isComparableRemoteNoteContent(accountId: string, remote: DbNoteRow): boolean {
