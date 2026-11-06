@@ -1,11 +1,17 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-const fake = vi.hoisted(() => ({ state: { notes: [] as any[], folders: [] as any[] }, request: { accountId: 'A' }, listeners: new Set<() => void>(), read: vi.fn(), write: vi.fn() }));
+const fake = vi.hoisted(() => ({ state: { notes: [] as any[], folders: [] as any[] }, request: { accountId: 'A' }, listeners: new Set<() => void>(), authorityListeners: new Set<(request: any) => void>(), read: vi.fn(), write: vi.fn() }));
 vi.mock('../store/useNotesStore', () => ({
   observePublishedNotesHydration: () => ({ status: 'CURRENT', request: fake.request }),
   useNotesStore: { getState: () => fake.state, subscribe: (listener: () => void) => { fake.listeners.add(listener); return () => fake.listeners.delete(listener); } },
 }));
-vi.mock('./notesAccountAuthority', async original => ({ ...await original<typeof import('./notesAccountAuthority')>(), observeAccountScopedFolders: () => [] }));
+vi.mock('./notesAccountAuthority', async original => ({
+  ...await original<typeof import('./notesAccountAuthority')>(),
+  observeAccountScopedFolders: () => [],
+  subscribeNotesAuthorityRequestChange: (listener: (request: any) => void) => {
+    fake.authorityListeners.add(listener); return () => fake.authorityListeners.delete(listener);
+  },
+}));
 vi.mock('./supabase', () => ({ authReadFetch: fake.read, authFetch: fake.write }));
 import { compareNotesCloudSnapshot, createNotesCloudComparison } from './notesCloudComparison';
 import { fetchCompleteNotesFoldersSnapshot } from './notesSyncClient';
@@ -14,7 +20,7 @@ const row = (id = 'n', extra = {}) => ({ id, user_id: 'A', title: 'same title', 
 const snapshot = (notes = [row()], folders: any[] = []) => ({ notes, folders });
 function page(rows: unknown[], extra = {}) { return new Response(JSON.stringify({ account_id: 'A', rows, total_count: rows.length, offset: 0, limit: 500, complete: true, ...extra })); }
 beforeEach(() => {
-  fake.state = { notes: [note()], folders: [] }; fake.request = { accountId: 'A' }; fake.read.mockReset(); fake.write.mockReset(); fake.listeners.clear();
+  fake.state = { notes: [note()], folders: [] }; fake.request = { accountId: 'A' }; fake.read.mockReset(); fake.write.mockReset(); fake.listeners.clear(); fake.authorityListeners.clear();
   fake.read.mockImplementation(async (url: string, _init, control) => { control?.onRequestStart?.(); return page(url.includes('note_folders') ? [] : [row()]); });
 });
 afterEach(() => { fake.listeners.clear(); });
@@ -87,6 +93,58 @@ it('reads only GET snapshots and leaves local state, legacy data and mode unchan
   expect(fake.read).toHaveBeenCalledTimes(2); expect(fake.read.mock.calls.every(([, init]) => init.method === 'GET')).toBe(true);
   expect(fake.write).not.toHaveBeenCalled(); expect(JSON.stringify(fake.state)).toBe(before); expect({ ...localStorage }).toEqual(keys);
 });
+it('exposes one exact-ID remote-only Note from the verified comparison without title matching', async () => {
+  fake.state.notes = [note('local-duplicate-title', { title: 'Same title' })];
+  fake.read.mockImplementation(async (url: string, _init, control) => {
+    control?.onRequestStart?.();
+    return page(url.includes('note_folders') ? [] : [row('cloud-exact-id', { title: 'Same title', body: 'Cloud text' })]);
+  });
+  const owner = createNotesCloudComparison('A', () => true);
+  const report = await owner.compare();
+  expect(report.details.remoteOnly.map(detail => detail.id)).toEqual(['cloud-exact-id']);
+  expect(owner.getRemoteOnlyNote('cloud-exact-id')).toEqual({ id: 'cloud-exact-id', title: 'Same title', body: 'Cloud text' });
+  expect(owner.getRemoteOnlyNote('local-duplicate-title')).toBeNull();
+  expect(fake.read).toHaveBeenCalledTimes(2);
+  expect(fake.read.mock.calls.every(([, init]) => init.method === 'GET')).toBe(true);
+  expect(fake.write).not.toHaveBeenCalled();
+  expect(fake.state.notes).toHaveLength(1);
+  owner.cancel();
+  expect(owner.getRemoteOnlyNote('cloud-exact-id')).toBeNull();
+});
+it('does not expose deleted, unsupported, or incomparable remote rows to preview', async () => {
+  fake.state.notes = [];
+  const deleted = row('deleted-cloud', { deleted_at: 10 });
+  const unsupported = row('unsupported-cloud', { properties: { invalid: [] } });
+  fake.read.mockImplementation(async (url: string, _init, control) => {
+    control?.onRequestStart?.(); return page(url.includes('note_folders') ? [] : [deleted, unsupported]);
+  });
+  const owner = createNotesCloudComparison('A', () => true);
+  const report = await owner.compare();
+  expect(report.details.deleted.map(detail => detail.id)).toContain('deleted-cloud');
+  expect(report.details.incomparable.map(detail => detail.id)).toContain('unsupported-cloud');
+  expect(report.details.remoteOnly).toHaveLength(0);
+  expect(owner.getRemoteOnlyNote('deleted-cloud')).toBeNull();
+  expect(owner.getRemoteOnlyNote('unsupported-cloud')).toBeNull();
+  owner.cancel();
+});
+it.each(['account', 'publication', 'local-note-edit', 'local-id-added'] as const)(
+  'discards remote preview access after %s changes', async change => {
+    fake.state.notes = [note('local')];
+    fake.read.mockImplementation(async (url: string, _init, control) => {
+      control?.onRequestStart?.(); return page(url.includes('note_folders') ? [] : [row('cloud-only', { body: 'secret body' })]);
+    });
+    let accountCurrent = true;
+    const owner = createNotesCloudComparison('A', () => accountCurrent);
+    await owner.compare();
+    expect(owner.getRemoteOnlyNote('cloud-only')?.body).toBe('secret body');
+    if (change === 'account') accountCurrent = false;
+    if (change === 'publication') fake.request = { accountId: 'A' };
+    if (change === 'local-note-edit') fake.state.notes[0]!.body = 'changed in place';
+    if (change === 'local-id-added') fake.state.notes.push(note('cloud-only'));
+    expect(owner.getRemoteOnlyNote('cloud-only')).toBeNull();
+    owner.cancel();
+  },
+);
 it('distinguishes a proven empty remote from request rejection', async () => {
   fake.read.mockImplementation(async () => page([])); const owner = createNotesCloudComparison('A', () => true);
   expect(await owner.compare()).toMatchObject({ localOnly: 1, remoteOnly: 0, matching: 0 }); owner.cancel();

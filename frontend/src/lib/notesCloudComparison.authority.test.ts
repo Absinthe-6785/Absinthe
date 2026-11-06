@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { NOTES_CORE_DOMAIN, NOTES_FOLDERS_DOMAIN, getActiveNotesAuthorityRequest, observeAccountScopedFolders, type NotesAuthorityRequest } from './notesAccountAuthority';
+import { activateNotesAccountAuthority, NOTES_CORE_DOMAIN, NOTES_FOLDERS_DOMAIN, getActiveNotesAuthorityRequest, observeAccountScopedFolders, type NotesAuthorityRequest } from './notesAccountAuthority';
 import type { NotesPersistenceInitResult } from './notePersistence';
 const persistence = vi.hoisted(() => ({ initialize: vi.fn(), read: vi.fn(), write: vi.fn() }));
 vi.mock('./notePersistence', async original => ({ ...await original<typeof import('./notePersistence')>(), initNotesPersistence: persistence.initialize }));
@@ -28,6 +28,25 @@ it('fails closed with real publication revocation across account A/B/A', async (
   const owner = createNotesCloudComparison('A', () => true); const work = owner.compare();
   await publish('B'); await publish('A'); resolve(new Response('{}'));
   await expect(work).rejects.toThrow(); expect(owner.isCurrent()).toBe(false); expect(persistence.write).not.toHaveBeenCalled(); owner.cancel();
+});
+it('retires the compared snapshot on same-account authority rollover before any Store update', async () => {
+  await publish('A');
+  persistence.read.mockImplementation(async () => new Response(JSON.stringify({
+    account_id: 'A', rows: [], total_count: 0, offset: 0, limit: 500, complete: true,
+  })));
+  const owner = createNotesCloudComparison('A', () => true);
+  await owner.compare();
+  let invalidations = 0;
+  owner.subscribeInvalidation(() => { invalidations += 1; });
+  const storeBefore = useNotesStore.getState();
+
+  activateNotesAccountAuthority('A');
+
+  expect(useNotesStore.getState()).toBe(storeBefore);
+  expect(invalidations).toBe(1);
+  expect(owner.isCurrent()).toBe(false);
+  expect(owner.getRemoteOnlyNote('missing')).toBeNull();
+  owner.cancel();
 });
 it('rejects an unproven Notes replacement and an unowned folder array', async () => {
   await publish('A'); const owner = createNotesCloudComparison('A', () => true);

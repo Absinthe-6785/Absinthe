@@ -2,7 +2,7 @@ import { observePublishedNotesHydration, useNotesStore } from '../store/useNotes
 import { compareSupportedNoteContent, isCompleteLocalNote, isComparableRemoteNoteContent } from './notesBootstrapAuthority';
 import { fetchCompleteNotesFoldersSnapshot, type CompleteNotesFoldersSnapshot } from './notesSyncClient';
 import type { NoteBase, NoteFolderBase } from '../components/views/noteUtils';
-import { observeAccountScopedFolders } from './notesAccountAuthority';
+import { observeAccountScopedFolders, subscribeNotesAuthorityRequestChange } from './notesAccountAuthority';
 
 export const NOTES_COMPARISON_LIMIT = 500;
 export type NotesCloudComparisonDetailCategory = 'localOnly' | 'remoteOnly' | 'divergent' | 'incomparable' | 'deleted';
@@ -16,6 +16,11 @@ export interface NotesCloudComparisonReport {
   localOnly: number; remoteOnly: number; matching: number; divergent: number; incomparable: number; deleted: number;
   localFoldersOnly: number; remoteFoldersOnly: number; folderDifferences: number; unresolvedFolders: number;
   details: NotesCloudComparisonDetails;
+}
+export interface NotesCloudRemoteOnlyNote {
+  readonly id: string;
+  readonly title?: string;
+  readonly body: string;
 }
 
 const detailCategories: readonly NotesCloudComparisonDetailCategory[] = ['localOnly', 'remoteOnly', 'divergent', 'incomparable', 'deleted'];
@@ -83,28 +88,68 @@ export function createNotesCloudComparison(accountId: string | null, isAccountCu
   if (!accountId || !isAccountCurrent() || observation.status !== 'CURRENT' || observation.request.accountId !== accountId) throw new Error('notes_comparison_source_unavailable');
   const request = observation.request;
   const { notes, folders } = useNotesStore.getState();
+  const notesIdentity = JSON.stringify(notes);
   const folderIdentity = JSON.stringify(folders);
   if (JSON.stringify(observeAccountScopedFolders(request)) !== folderIdentity) throw new Error('notes_comparison_source_unavailable');
   let live = true, started = false;
+  let remoteSnapshot: CompleteNotesFoldersSnapshot | null = null;
+  let comparedReport: NotesCloudComparisonReport | null = null;
   let unsubscribe = () => {};
-  const cancel = () => { live = false; unsubscribe(); };
+  let unsubscribeAuthority = () => {};
+  const invalidationListeners = new Set<() => void>();
+  const discardRemoteAccess = () => { remoteSnapshot = null; comparedReport = null; };
+  const cancel = () => { live = false; discardRemoteAccess(); unsubscribe(); unsubscribeAuthority(); invalidationListeners.clear(); };
+  const invalidate = () => {
+    if (!live) return;
+    live = false; discardRemoteAccess(); unsubscribe(); unsubscribeAuthority();
+    const listeners = [...invalidationListeners]; invalidationListeners.clear();
+    for (const listener of listeners) { try { listener(); } catch { /* UI observers cannot restore stale authority. */ } }
+  };
   const isCurrent = () => {
     try {
       const current = observePublishedNotesHydration();
       const state = useNotesStore.getState();
-      return live && isAccountCurrent() && current.status === 'CURRENT' && current.request === request && state.notes === notes && state.folders === folders
+      const currentNow = live && isAccountCurrent() && current.status === 'CURRENT' && current.request === request && state.notes === notes
+        && JSON.stringify(state.notes) === notesIdentity && state.folders === folders
         && JSON.stringify(folders) === folderIdentity && JSON.stringify(observeAccountScopedFolders(request)) === folderIdentity;
-    } catch { return false; }
+      if (!currentNow) discardRemoteAccess();
+      return currentNow;
+    } catch { discardRemoteAccess(); return false; }
   };
-  unsubscribe = useNotesStore.subscribe(() => { if (!isCurrent()) cancel(); });
+  unsubscribe = useNotesStore.subscribe(() => { if (!isCurrent()) invalidate(); });
+  unsubscribeAuthority = subscribeNotesAuthorityRequestChange(currentRequest => {
+    if (currentRequest !== request) invalidate();
+  });
   const compare = async () => {
     if (started || !isCurrent()) throw new Error('notes_comparison_stale');
     started = true;
     if (notes.length > NOTES_COMPARISON_LIMIT || folders.length > NOTES_COMPARISON_LIMIT) throw new Error('notes_comparison_limit');
     const remote = await fetchCompleteNotesFoldersSnapshot(accountId, { singlePageLimit: NOTES_COMPARISON_LIMIT, isCurrent });
     if (!isCurrent()) throw new Error('notes_comparison_stale');
-    return compareNotesCloudSnapshot(accountId, notes, folders, remote);
+    const report = compareNotesCloudSnapshot(accountId, notes, folders, remote);
+    if (!isCurrent()) throw new Error('notes_comparison_stale');
+    remoteSnapshot = remote;
+    comparedReport = report;
+    return report;
   };
-  return { compare, cancel, isCurrent };
+  const getRemoteOnlyNote = (noteId: string): NotesCloudRemoteOnlyNote | null => {
+    if (!noteId || !noteId.trim() || !started || !isCurrent() || !remoteSnapshot || !comparedReport
+      || notes.some(note => note.id === noteId)
+      || !comparedReport.details.remoteOnly.some(detail => detail.id === noteId)) return null;
+    const row = remoteSnapshot.notes.find(note => note.id === noteId);
+    if (!row || row.id !== noteId || row.user_id !== accountId || row.deleted_at !== null
+      || !isComparableRemoteNoteContent(accountId, row)) return null;
+    return Object.freeze({
+      id: row.id,
+      ...(typeof row.title === 'string' && row.title.trim() ? { title: row.title } : {}),
+      body: row.body,
+    });
+  };
+  const subscribeInvalidation = (listener: () => void) => {
+    if (!live) { listener(); return () => {}; }
+    invalidationListeners.add(listener);
+    return () => invalidationListeners.delete(listener);
+  };
+  return { compare, cancel, isCurrent, getRemoteOnlyNote, subscribeInvalidation };
 }
 export type NotesCloudComparison = ReturnType<typeof createNotesCloudComparison>;

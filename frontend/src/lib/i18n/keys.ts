@@ -2299,6 +2299,13 @@ const translationKeys = [
   "noteLocalDocumentVerificationUnavailable",
   "noteLocalDocumentVerificationInvalidated",
   "noteLocalDocumentDriveBackupUnavailable",
+  "notesCloudPreviewAction",
+  "notesCloudPreviewHeading",
+  "notesCloudPreviewSource",
+  "notesCloudPreviewAttachmentWarning",
+  "notesCloudPreviewPartial",
+  "notesCloudPreviewStale",
+  "notesCloudPreviewUnavailable",
 ] as const;
 
 export type TranslationKey = (typeof translationKeys)[number];
