@@ -185,6 +185,7 @@ export type NotesSingleDeleteCommitResult =
   | { readonly status: 'FAILED'; readonly reason: NotesSingleDeleteConflictReason };
 
 let activeRequest: NotesAuthorityRequest | null = null;
+const notesAuthorityRequestListeners = new Set<(request: NotesAuthorityRequest | null) => void>();
 let nextRequestGeneration = 0;
 let nextRecoveryOperation = 0;
 let nextFolderRemoteMutation = 0;
@@ -915,12 +916,28 @@ export function activateNotesAccountAuthority(accountId: string): NotesAuthority
     accountId: normalizedAccountId(accountId),
     generation: ++nextRequestGeneration,
   });
+  notifyNotesAuthorityRequestChange();
   return activeRequest;
 }
 
 export function detachNotesAccountAuthority(): void {
   nextRequestGeneration += 1;
   activeRequest = null;
+  notifyNotesAuthorityRequestChange();
+}
+
+/** Read-only notification for in-memory consumers that must retire stale snapshots immediately. */
+export function subscribeNotesAuthorityRequestChange(
+  listener: (request: NotesAuthorityRequest | null) => void,
+): () => void {
+  notesAuthorityRequestListeners.add(listener);
+  return () => notesAuthorityRequestListeners.delete(listener);
+}
+
+function notifyNotesAuthorityRequestChange(): void {
+  for (const listener of [...notesAuthorityRequestListeners]) {
+    try { listener(activeRequest); } catch { /* Observers must not affect authority transitions. */ }
+  }
 }
 
 export function getActiveNotesAuthorityAccountId(): string | null {
@@ -2263,6 +2280,7 @@ export async function resetAccountScopedNotes(
 
 export function resetNotesAccountAuthorityForTests(): void {
   activeRequest = null;
+  notifyNotesAuthorityRequestChange();
   nextRequestGeneration = 0;
   nextRecoveryOperation = 0;
   nextFolderRemoteMutation = 0;

@@ -8,6 +8,9 @@ import { getNoteReturnTab, registerAppTabSwitcher, registerNotesTabSwitcher, ret
 import { getNoteNavigationStack, pushNoteNavigation, resetNoteNavigationStack } from '../../../../lib/noteNavigationStack';
 const mock = vi.hoisted(() => ({
   create: vi.fn(),
+  getRemoteOnlyNote: vi.fn(),
+  subscribeInvalidation: vi.fn(),
+  invalidationListeners: new Set<() => void>(),
   prepareCloudCopy: vi.fn(), createCloudCopy: vi.fn(), readCloudCopyStatus: vi.fn(), cloudCopyEnabled: false,
   state: { notes: [] as any[], folders: [] as any[], revision: 0, activeAccountId: 'A' as string | null, activeNoteId: null as string | null, setActiveNoteId: vi.fn() },
   listeners: new Set<() => void>(), available: true, activeRequest: { accountId: 'A' },
@@ -40,14 +43,14 @@ const report = {
   },
 };
 let live = true;
-const owner = { compare: vi.fn(), cancel: vi.fn(() => { live = false; }), isCurrent: () => live };
+const owner = { compare: vi.fn(), getRemoteOnlyNote: mock.getRemoteOnlyNote, subscribeInvalidation: mock.subscribeInvalidation, cancel: vi.fn(() => { live = false; mock.invalidationListeners.clear(); }), isCurrent: () => live };
 const localNote = (id: string, title: string, overrides: Record<string, unknown> = {}) => ({
   id, title, body: 'Local body', folderId: null, updatedAt: 10, deletedAt: null, ...overrides,
 });
 let unregisterNotesTab: () => void, unregisterAppTab: () => void;
 beforeEach(() => {
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true; useAppStore.getState().updateSetting('language', 'en');
-  vi.clearAllMocks(); live = true; mock.available = true; mock.activeRequest = { accountId: 'A' };
+  vi.clearAllMocks(); live = true; mock.available = true; mock.activeRequest = { accountId: 'A' }; mock.invalidationListeners.clear();
   mock.cloudCopyEnabled = false;
   mock.prepareCloudCopy.mockResolvedValue({
     status: 'ELIGIBLE_PREVIEW_ONLY', authority: 'NONE', localNoteId: 'local-id',
@@ -70,14 +73,22 @@ beforeEach(() => {
   });
   mock.create.mockImplementation((accountId: string, isAccountCurrent: () => boolean) => {
     live = true;
-    const request = mock.activeRequest, notes = mock.state.notes, folders = mock.state.folders;
+    const request = mock.activeRequest, notes = mock.state.notes, notesIdentity = JSON.stringify(notes), folders = mock.state.folders;
     return {
       compare: owner.compare, cancel: owner.cancel,
+      getRemoteOnlyNote: owner.getRemoteOnlyNote,
+      subscribeInvalidation: owner.subscribeInvalidation,
       isCurrent: () => live && mock.available && isAccountCurrent() && mock.activeRequest === request
-        && mock.state.activeAccountId === accountId && mock.state.notes === notes && mock.state.folders === folders,
+        && mock.state.activeAccountId === accountId && mock.state.notes === notes && JSON.stringify(mock.state.notes) === notesIdentity
+        && mock.state.folders === folders,
     };
   });
-  owner.compare.mockResolvedValue(report); owner.cancel.mockImplementation(() => { live = false; });
+  owner.compare.mockResolvedValue(report); owner.cancel.mockImplementation(() => { live = false; mock.invalidationListeners.clear(); });
+  owner.subscribeInvalidation.mockImplementation((listener: () => void) => {
+    mock.invalidationListeners.add(listener); return () => mock.invalidationListeners.delete(listener);
+  });
+  owner.getRemoteOnlyNote.mockImplementation((id: string) => live && id === 'cloud-id'
+    ? { id, title: 'Cloud title', body: 'Cloud body\n<script>window.bad=true</script>\nattachment://remote-original' } : null);
   resetNoteNavigationStack(); sessionStorage.removeItem('absinthe.noteNav.returnTab');
   unregisterNotesTab = registerNotesTabSwitcher(mock.notesTabSwitch);
   unregisterAppTab = registerAppTabSwitcher(mock.appTabSwitch);
@@ -98,12 +109,155 @@ it('does no automatic fetch, exposes an accessible manual action and counts with
   localSummary.click(); expect(sections[0].open).toBe(true); expect(sections[0].textContent).toContain('local-id'); expect(sections[0].textContent).toContain('Local title');
   expect(sections[1].textContent).toContain('Cloud title'); expect(sections[2].textContent).toContain('Local version'); expect(sections[2].textContent).toContain('Cloud version');
   expect([...host.querySelectorAll('button')].filter(button => button.textContent === 'Open note')).toHaveLength(3);
-  for (const deniedId of ['cloud-id', 'unknown-id', 'deleted-id']) {
+  for (const deniedId of ['unknown-id', 'deleted-id']) {
     const row = [...host.querySelectorAll('li')].find(item => item.querySelector('code')?.textContent === deniedId)!;
     expect(row.querySelector('button')).toBeNull();
   }
+  const eligibleCloudRow = [...host.querySelectorAll('li')].find(item => item.querySelector('code')?.textContent === 'cloud-id')!;
+  expect(eligibleCloudRow.querySelector('button')?.textContent).toBe('Preview cloud Note');
   expect(host.textContent).not.toContain('account-A'); expect(host.textContent).toContain('NOT enable cloud synchronization');
 });
+
+it('previews one exact cloud-only ID as inert text without creating or changing a local Note', async () => {
+  mock.state.notes = [...mock.state.notes, localNote('duplicate-title-local-id', 'Cloud title')];
+  const before = JSON.stringify(mock.state.notes);
+  await render(); await check();
+  const remoteSection = host.querySelectorAll('details')[1]!;
+  remoteSection.querySelector('summary')!.click();
+  const row = [...remoteSection.querySelectorAll('li')].find(item => item.querySelector('code')?.textContent === 'cloud-id')!;
+  const button = [...row.querySelectorAll('button')].find(item => item.textContent === 'Preview cloud Note')!;
+  button.focus(); expect(document.activeElement).toBe(button);
+  expect(host.querySelector('[data-remote-note-preview]')).toBeNull();
+  await act(async () => { button.click(); });
+
+  const preview = host.querySelector<HTMLElement>('[data-remote-note-preview]')!;
+  expect(owner.getRemoteOnlyNote).toHaveBeenCalledExactlyOnceWith('cloud-id');
+  expect(preview.textContent).toContain('Cloud-only Note preview');
+  expect(preview.textContent).toContain('This content is not a local Note and has not been imported.');
+  expect(preview.textContent).toContain('Attachment originals are not included in this preview.');
+  expect(preview.querySelector('script')).toBeNull();
+  expect(preview.querySelector('pre')?.textContent).toContain('<script>window.bad=true</script>');
+  expect(preview.querySelector('pre')?.textContent).toContain('attachment://remote-original');
+  expect(mock.state.notes.some((note: any) => note.id === 'cloud-id')).toBe(false);
+  expect(JSON.stringify(mock.state.notes)).toBe(before);
+  expect(mock.state.activeNoteId).toBeNull();
+  expect(getNoteNavigationStack()).toEqual([]);
+  expect(mock.createCloudCopy).not.toHaveBeenCalled();
+  expect(mock.prepareCloudCopy).not.toHaveBeenCalled();
+  expect(mock.readCloudCopyStatus).not.toHaveBeenCalled();
+  expect(owner.compare).toHaveBeenCalledTimes(1);
+  expect(host.textContent).toContain('not an atomic');
+});
+
+it('bounds large cloud text and labels it as a partial preview', async () => {
+  owner.getRemoteOnlyNote.mockImplementation((id: string) => id === 'cloud-id'
+    ? { id, title: 'Cloud title', body: 'x'.repeat(15_000) } : null);
+  await render(); await check();
+  const section = host.querySelectorAll('details')[1]!;
+  section.querySelector('summary')!.click();
+  const button = [...section.querySelectorAll('button')].find(item => item.textContent === 'Preview cloud Note')!;
+  await act(async () => { button.click(); });
+  expect(host.querySelector('[data-remote-note-preview-partial="true"]')?.textContent).toContain('Partial preview');
+  expect(host.querySelector('[data-remote-note-preview] pre')?.textContent).toHaveLength(12_000);
+});
+
+it('reports an unavailable exact remote record without displaying a body', async () => {
+  owner.getRemoteOnlyNote.mockReturnValue(null);
+  await render(); await check();
+  const section = host.querySelectorAll('details')[1]!;
+  section.querySelector('summary')!.click();
+  const button = [...section.querySelectorAll('button')].find(item => item.textContent === 'Preview cloud Note')!;
+  await act(async () => { button.click(); });
+  expect(host.textContent).toContain('Cloud-only text is unavailable in the current comparison.');
+  expect(host.querySelector('[data-remote-note-preview]')).toBeNull();
+});
+
+it('clears displayed remote text after account A-B-A, Notes publication change, cancellation, and unmount', async () => {
+  await render(); await check();
+  let section = host.querySelectorAll('details')[1]!;
+  section.querySelector('summary')!.click();
+  let button = [...section.querySelectorAll('button')].find(item => item.textContent === 'Preview cloud Note')!;
+  await act(async () => { button.click(); });
+  expect(host.textContent).toContain('Cloud body');
+
+  await render('B'); await render('A');
+  expect(host.querySelector('[data-remote-note-preview]')).toBeNull();
+  expect(host.textContent).not.toContain('<script>window.bad=true</script>');
+  expect(owner.cancel).toHaveBeenCalled();
+
+  await check();
+  section = host.querySelectorAll('details')[1]!;
+  section.querySelector('summary')!.click();
+  button = [...section.querySelectorAll('button')].find(item => item.textContent === 'Preview cloud Note')!;
+  await act(async () => { button.click(); });
+  mock.state = { ...mock.state, notes: [...mock.state.notes] };
+  await render('A');
+  expect(host.querySelector('[data-remote-note-preview]')).toBeNull();
+
+  await check();
+  section = host.querySelectorAll('details')[1]!;
+  section.querySelector('summary')!.click();
+  button = [...section.querySelectorAll('button')].find(item => item.textContent === 'Preview cloud Note')!;
+  await act(async () => { button.click(); });
+  const cancel = [...host.querySelectorAll('button')].find(item => item.textContent === 'Cancel')!;
+  await act(async () => { cancel.click(); });
+  expect(host.querySelector('[data-remote-note-preview]')).toBeNull();
+
+  await check();
+  section = host.querySelectorAll('details')[1]!;
+  section.querySelector('summary')!.click();
+  button = [...section.querySelectorAll('button')].find(item => item.textContent === 'Preview cloud Note')!;
+  await act(async () => { button.click(); });
+  await act(async () => { root.unmount(); });
+  expect(host.textContent).not.toContain('Cloud body');
+  expect(owner.cancel).toHaveBeenCalled();
+});
+
+it('rejects a stale comparison at preview activation and reports that a new comparison is needed', async () => {
+  await render(); await check();
+  const section = host.querySelectorAll('details')[1]!;
+  section.querySelector('summary')!.click();
+  const button = [...section.querySelectorAll('button')].find(item => item.textContent === 'Preview cloud Note')!;
+  mock.activeRequest = { accountId: 'A' };
+  await act(async () => { button.click(); });
+  expect(host.textContent).toContain('This comparison is no longer current. Run it again before previewing.');
+  expect(host.querySelector('[data-remote-note-preview]')).toBeNull();
+});
+
+it('clears preview content immediately when owner authority rolls over without a Store notification', async () => {
+  await render(); await check();
+  const section = host.querySelectorAll('details')[1]!;
+  section.querySelector('summary')!.click();
+  const button = [...section.querySelectorAll('button')].find(item => item.textContent === 'Preview cloud Note')!;
+  await act(async () => { button.click(); });
+  expect(host.textContent).toContain('Cloud body');
+
+  const listeners = [...mock.invalidationListeners];
+  live = false;
+  mock.invalidationListeners.clear();
+  await act(async () => { listeners.forEach(listener => listener()); });
+
+  expect(host.querySelector('[data-remote-note-preview]')).toBeNull();
+  expect(host.querySelector('[role="alert"]')).not.toBeNull();
+});
+
+it.each(['same-account publication invalidation', 'in-place local Note change'] as const)(
+  'discards displayed remote text after %s', async change => {
+    await render(); await check();
+    const section = host.querySelectorAll('details')[1]!;
+    section.querySelector('summary')!.click();
+    const button = [...section.querySelectorAll('button')].find(item => item.textContent === 'Preview cloud Note')!;
+    await act(async () => { button.click(); });
+    expect(host.textContent).toContain('Cloud body');
+
+    if (change === 'same-account publication invalidation') mock.activeRequest = { accountId: 'A' };
+    else mock.state.notes[0]!.body = 'changed in place';
+    mock.state = { ...mock.state };
+    await act(async () => { mock.listeners.forEach(listener => listener()); });
+    expect(host.querySelector('[data-remote-note-preview]')).toBeNull();
+    if (change === 'same-account publication invalidation') expect(owner.cancel).toHaveBeenCalled();
+  },
+);
 
 it('opens only eligible local IDs from local-only, divergent, and incomparable details and returns to Settings', async () => {
   const duplicateTitle = 'Same title';

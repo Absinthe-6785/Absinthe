@@ -2299,6 +2299,13 @@ const enTranslations = [
   "Local original unavailable or changed; verification did not complete.",
   "Account or Note context changed. The local verification result was cleared.",
   "Google Drive backup is not checked here; this is a local-only check.",
+  "Preview cloud Note",
+  "Cloud-only Note preview",
+  "Text from the verified cloud comparison. This content is not a local Note and has not been imported.",
+  "Attachment originals are not included in this preview.",
+  "Partial preview; the remaining text is omitted.",
+  "This comparison is no longer current. Run it again before previewing.",
+  "Cloud-only text is unavailable in the current comparison.",
 ] as const;
 
 export default enTranslations;

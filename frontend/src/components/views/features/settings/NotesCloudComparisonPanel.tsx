@@ -9,6 +9,7 @@ import { createNotesCloudCopy, notesCloudCopyUiEnabled, prepareNotesCloudCopy, r
 import type { NotesCloudCopyLocalPreflightResult } from '../../../../lib/notesCloudCopyLocalPreflight';
 
 const DETAIL_PREVIEW_LIMIT = 30;
+const REMOTE_NOTE_PREVIEW_LIMIT = 12_000;
 const detailSections = [
   { key: 'localOnly', label: 'notesCloudLocalOnly', canOpenLocal: true },
   { key: 'remoteOnly', label: 'notesCloudRemoteOnly', canOpenLocal: false },
@@ -49,6 +50,14 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
     preview: Extract<NotesCloudCopyLocalPreflightResult, { status: 'ELIGIBLE_PREVIEW_ONLY' }>;
   } | null>(null);
   const [result, setResult] = useState<{ owner: NotesCloudComparison; report: NotesCloudComparisonReport } | null>(null);
+  const [remotePreview, setRemotePreview] = useState<{
+    owner: NotesCloudComparison;
+    id: string;
+    title?: string;
+    body: string;
+    partial: boolean;
+  } | null>(null);
+  const [remotePreviewFeedback, setRemotePreviewFeedback] = useState<TranslationKey | null>(null);
   const observation = observePublishedNotesHydration();
   const ready = !!accountId && observation.status === 'CURRENT' && observation.request.accountId === accountId;
   useLayoutEffect(() => {
@@ -56,19 +65,37 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
     statusRequest.current = null;
     setBusy(false); setCopyBusy(false); setStatusBusy(null); setStatusResult(null);
     setResult(null); setError(null); setCopyFeedback(null); setCopyCandidate(null);
+    setRemotePreview(null); setRemotePreviewFeedback(null);
     return () => { active.current?.cancel(); active.current = null; };
   }, [accountId, notes, folders, ready]);
   const visible = result && result.owner === active.current && result.owner.isCurrent() ? result.report : null;
+  const visibleRemotePreview = remotePreview && visible && result?.owner === remotePreview.owner
+    && active.current === remotePreview.owner && remotePreview.owner.isCurrent() ? remotePreview : null;
+  useLayoutEffect(() => {
+    if (remotePreview && (!visible || result?.owner !== remotePreview.owner || active.current !== remotePreview.owner)) {
+      const staleOwner = result?.owner === remotePreview.owner && active.current === remotePreview.owner;
+      remotePreview.owner.cancel();
+      setRemotePreview(null);
+      if (staleOwner) setRemotePreviewFeedback('notesCloudPreviewStale');
+    }
+  }, [remotePreview, result, visible]);
   const check = async () => {
     if (busy) return;
     statusRequest.current = null; setStatusBusy(null); setStatusResult(null);
-    active.current?.cancel(); setResult(null); setError(null);
+    active.current?.cancel(); setResult(null); setError(null); setRemotePreview(null); setRemotePreviewFeedback(null);
     if (typeof navigator !== 'undefined' && navigator.onLine === false) { setError('notesCloudOffline'); return; }
     const context = account.current;
     let owner: NotesCloudComparison | null = null;
     try {
       owner = createNotesCloudComparison(accountId, () => account.current === context);
-      active.current = owner; setBusy(true);
+      active.current = owner;
+      owner.subscribeInvalidation(() => {
+        if (active.current !== owner) return;
+        active.current = null;
+        setBusy(false); setResult(null); setRemotePreview(null); setRemotePreviewFeedback(null);
+        setError('notesCloudStale');
+      });
+      setBusy(true);
       const report = await owner.compare();
       if (active.current === owner && owner.isCurrent()) setResult({ owner, report });
     } catch (failure) {
@@ -83,6 +110,25 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
     statusRequest.current = null;
     active.current?.cancel(); active.current = null; setBusy(false); setCopyBusy(false);
     setStatusBusy(null); setStatusResult(null); setResult(null); setCopyCandidate(null); setCopyFeedback(null); setError('notesCloudStale');
+    setRemotePreview(null); setRemotePreviewFeedback(null);
+  };
+  const previewCloudOnlyNote = (owner: NotesCloudComparison, noteId: string) => {
+    setRemotePreview(null); setRemotePreviewFeedback(null);
+    const currentPublication = observePublishedNotesHydration();
+    const currentState = useNotesStore.getState();
+    const current = result?.owner === owner && active.current === owner && account.current.id === accountId
+      && currentState.activeAccountId === accountId && currentPublication.status === 'CURRENT'
+      && currentPublication.request.accountId === accountId && owner.isCurrent();
+    if (!current) { setRemotePreviewFeedback('notesCloudPreviewStale'); return; }
+    const remoteNote = owner.getRemoteOnlyNote(noteId);
+    if (!remoteNote) {
+      setRemotePreviewFeedback(owner.isCurrent() ? 'notesCloudPreviewUnavailable' : 'notesCloudPreviewStale');
+      return;
+    }
+    let body = remoteNote.body.slice(0, REMOTE_NOTE_PREVIEW_LIMIT);
+    const partial = remoteNote.body.length > REMOTE_NOTE_PREVIEW_LIMIT;
+    if (partial && /[\uD800-\uDBFF]$/.test(body)) body = body.slice(0, -1);
+    setRemotePreview({ owner, id: remoteNote.id, title: remoteNote.title, body, partial });
   };
   const button = 'border rounded-xl px-4 py-2 text-sm font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50';
   const copyOwnerIsCurrent = (owner: NotesCloudComparison, localNoteId: string): boolean => {
@@ -188,6 +234,12 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
               <code className="break-all">{detail.id}</code>
               {detail.localTitle ? <p><span className="text-muted-foreground">{t('notesCloudLocalTitle')}: </span>{detail.localTitle}</p> : null}
               {detail.remoteTitle ? <p><span className="text-muted-foreground">{t('notesCloudRemoteTitle')}: </span>{detail.remoteTitle}</p> : null}
+              {key === 'remoteOnly' && result?.owner === active.current ? <button
+                type="button"
+                className={`${button} mt-1 px-3 py-1`}
+                aria-label={`${t('notesCloudPreviewAction')} ${detail.id}`}
+                onClick={() => previewCloudOnlyNote(result.owner, detail.id)}
+              >{t('notesCloudPreviewAction')}</button> : null}
               {canOpenLocal && eligibleLocalNote(notes, detail.id) ? <button
                 type="button"
                 className={`${button} mt-1 px-3 py-1`}
@@ -238,8 +290,19 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
           </details>;
         })}
       </div>
+      {visibleRemotePreview ? <section data-remote-note-preview aria-labelledby="notes-cloud-remote-preview-heading" className="rounded-lg border border-border p-3 space-y-2">
+        <h4 id="notes-cloud-remote-preview-heading" className="font-semibold">{t('notesCloudPreviewHeading')}</h4>
+        <p className="text-sm text-muted-foreground">{t('notesCloudPreviewSource')}</p>
+        <code className="break-all">{visibleRemotePreview.id}</code>
+        {visibleRemotePreview.title ? <p><span className="text-muted-foreground">{t('notesCloudRemoteTitle')}: </span>{visibleRemotePreview.title}</p> : null}
+        <p className="text-sm text-muted-foreground">{t('notesCloudPreviewAttachmentWarning')}</p>
+        {visibleRemotePreview.partial ? <p role="status" aria-live="polite" data-remote-note-preview-partial="true">{t('notesCloudPreviewPartial')}</p> : null}
+        <pre dir="auto" className="max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/40 p-3 text-sm">{visibleRemotePreview.body}</pre>
+        <button type="button" className={`${button} px-3 py-1`} onClick={() => setRemotePreview(null)}>{t('cancel')}</button>
+      </section> : null}
     </div> : null}
     {error ? <p role="alert">{t(error)}</p> : null}
     {copyFeedback ? <p role="status" aria-live="polite">{t(copyFeedback)}</p> : null}
+    {remotePreviewFeedback ? <p role="status" aria-live="polite">{t(remotePreviewFeedback)}</p> : null}
   </section>;
 }
