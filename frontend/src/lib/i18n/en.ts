@@ -2320,6 +2320,10 @@ const enTranslations = [
   "Starred state",
   "Properties",
   "Relations",
+  "Download cloud text",
+  "Downloads the complete cloud text from this manual comparison, not a synchronized local Note or a guarantee of currentness or durable backup. Attachment originals and Note history are excluded.",
+  "A Markdown download was requested. Check your browser downloads; this is not a durable backup.",
+  "The complete cloud text could not be prepared or downloaded. No partial Markdown file was created.",
 ] as const;
 
 export default enTranslations;

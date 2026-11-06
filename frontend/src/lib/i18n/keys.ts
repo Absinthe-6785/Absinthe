@@ -2320,6 +2320,10 @@ const translationKeys = [
   "notesCloudDifferenceStarred",
   "notesCloudDifferenceProperties",
   "notesCloudDifferenceRelations",
+  "notesCloudTextDownloadAction",
+  "notesCloudTextDownloadScope",
+  "notesCloudTextDownloadStarted",
+  "notesCloudTextDownloadUnavailable",
 ] as const;
 
 export type TranslationKey = (typeof translationKeys)[number];

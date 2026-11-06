@@ -7,10 +7,13 @@ import { createNotesCloudComparison, type NotesCloudComparison, type NotesCloudC
 import { NotesBootstrapDiagnosticError } from '../../../../lib/notesBootstrapDiagnostics';
 import { createNotesCloudCopy, notesCloudCopyUiEnabled, prepareNotesCloudCopy, readNotesCloudCopyStatus, type NotesCloudCopyReadbackStatus } from '../../../../lib/notesCloudCopy';
 import type { NotesCloudCopyLocalPreflightResult } from '../../../../lib/notesCloudCopyLocalPreflight';
+import { createNotesCloudTextDownload } from '../../../../lib/notesCloudTextExport';
 
 const DETAIL_PREVIEW_LIMIT = 30;
 const REMOTE_NOTE_PREVIEW_LIMIT = 12_000;
 const DIVERGENT_TITLE_PREVIEW_LIMIT = 512;
+const CLOUD_TEXT_DOWNLOAD_URL_TTL_MS = 30_000;
+type CloudTextDownloadSource = 'remoteOnly' | 'divergent';
 const detailSections = [
   { key: 'localOnly', label: 'notesCloudLocalOnly', canOpenLocal: true },
   { key: 'remoteOnly', label: 'notesCloudRemoteOnly', canOpenLocal: false },
@@ -53,6 +56,7 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
   const account = useRef({ id: accountId, generation: 0 });
   if (account.current.id !== accountId) account.current = { id: accountId, generation: account.current.generation + 1 };
   const active = useRef<NotesCloudComparison | null>(null);
+  const downloadUrls = useRef(new Map<string, number>());
   const [busy, setBusy] = useState(false);
   const [copyBusy, setCopyBusy] = useState(false);
   const [statusBusy, setStatusBusy] = useState<{ owner: NotesCloudComparison; localNoteId: string } | null>(null);
@@ -87,15 +91,28 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
     differingFields: readonly NotesSupportedContentDifferenceField[];
   } | null>(null);
   const [remotePreviewFeedback, setRemotePreviewFeedback] = useState<TranslationKey | null>(null);
+  const releaseCloudTextDownloadUrl = (url: string) => {
+    const timer = downloadUrls.current.get(url);
+    if (timer !== undefined && typeof window !== 'undefined') window.clearTimeout(timer);
+    downloadUrls.current.delete(url);
+    try {
+      if (typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function') URL.revokeObjectURL(url);
+    } catch { /* URL cleanup must not restore stale preview authority. */ }
+  };
+  const releaseAllCloudTextDownloadUrls = () => {
+    for (const url of [...downloadUrls.current.keys()]) releaseCloudTextDownloadUrl(url);
+  };
   const observation = observePublishedNotesHydration();
   const ready = !!accountId && observation.status === 'CURRENT' && observation.request.accountId === accountId;
   useLayoutEffect(() => {
+    releaseAllCloudTextDownloadUrls();
     active.current?.cancel(); active.current = null;
     statusRequest.current = null;
     setBusy(false); setCopyBusy(false); setStatusBusy(null); setStatusResult(null);
     setResult(null); setError(null); setCopyFeedback(null); setCopyCandidate(null);
-    setRemotePreview(null); setDivergentPreview(null); setRemotePreviewFeedback(null);
-    return () => { active.current?.cancel(); active.current = null; };
+    setRemotePreview(null); setDivergentPreview(null);
+    setRemotePreviewFeedback(current => current === 'notesCloudPreviewStale' ? current : null);
+    return () => { active.current?.cancel(); active.current = null; releaseAllCloudTextDownloadUrls(); };
   }, [accountId, notes, folders, ready]);
   const visible = result && result.owner === active.current && result.owner.isCurrent() ? result.report : null;
   const visibleRemotePreview = remotePreview && visible && result?.owner === remotePreview.owner
@@ -120,6 +137,7 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
   }, [divergentPreview, result, visible]);
   const check = async () => {
     if (busy) return;
+    releaseAllCloudTextDownloadUrls();
     statusRequest.current = null; setStatusBusy(null); setStatusResult(null);
     active.current?.cancel(); setResult(null); setError(null); setRemotePreview(null); setDivergentPreview(null); setRemotePreviewFeedback(null);
     if (typeof navigator !== 'undefined' && navigator.onLine === false) { setError('notesCloudOffline'); return; }
@@ -131,6 +149,7 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
       owner.subscribeInvalidation(() => {
         if (active.current !== owner) return;
         active.current = null;
+        releaseAllCloudTextDownloadUrls();
         setBusy(false); setResult(null); setRemotePreview(null); setDivergentPreview(null); setRemotePreviewFeedback(null);
         setError('notesCloudStale');
       });
@@ -146,12 +165,14 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
     } finally { if (!owner || active.current === owner) setBusy(false); }
   };
   const cancel = () => {
+    releaseAllCloudTextDownloadUrls();
     statusRequest.current = null;
     active.current?.cancel(); active.current = null; setBusy(false); setCopyBusy(false);
     setStatusBusy(null); setStatusResult(null); setResult(null); setCopyCandidate(null); setCopyFeedback(null); setError('notesCloudStale');
     setRemotePreview(null); setDivergentPreview(null); setRemotePreviewFeedback(null);
   };
   const previewCloudOnlyNote = (owner: NotesCloudComparison, noteId: string) => {
+    releaseAllCloudTextDownloadUrls();
     setRemotePreview(null); setDivergentPreview(null); setRemotePreviewFeedback(null);
     const currentPublication = observePublishedNotesHydration();
     const currentState = useNotesStore.getState();
@@ -168,6 +189,7 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
     setRemotePreview({ owner, id: remoteNote.id, title: remoteNote.title, body: body.text, partial: body.partial });
   };
   const previewDivergentNote = (owner: NotesCloudComparison, noteId: string) => {
+    releaseAllCloudTextDownloadUrls();
     setDivergentPreview(null); setRemotePreviewFeedback(null);
     const currentPublication = observePublishedNotesHydration();
     const currentState = useNotesStore.getState();
@@ -197,6 +219,73 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
       cloudPartial: cloudBody.partial,
       differingFields: pair.differingFields,
     });
+  };
+  const readCurrentCloudText = (owner: NotesCloudComparison, noteId: string, source: CloudTextDownloadSource) => {
+    const currentPublication = observePublishedNotesHydration();
+    const currentState = useNotesStore.getState();
+    const currentResult = result?.owner === owner ? result : null;
+    const current = !!currentResult && active.current === owner && account.current.id === accountId
+      && currentState.activeAccountId === accountId && currentPublication.status === 'CURRENT'
+      && currentPublication.request.accountId === accountId && owner.isCurrent();
+    if (!current) return { status: 'stale' } as const;
+    const category = source === 'remoteOnly' ? currentResult.report.details.remoteOnly : currentResult.report.details.divergent;
+    if (!category.some(detail => detail.id === noteId)) return { status: 'unavailable' } as const;
+    const record = source === 'remoteOnly'
+      ? owner.getRemoteOnlyNote(noteId)
+      : (() => {
+        const pair = owner.getDivergentNotePair(noteId);
+        return pair?.id === noteId ? { id: pair.id, ...pair.cloud } : null;
+      })();
+    if (!record || record.id !== noteId || typeof record.body !== 'string') {
+      return owner.isCurrent() ? { status: 'unavailable' } as const : { status: 'stale' } as const;
+    }
+    if (!owner.isCurrent()) return { status: 'stale' } as const;
+    return { status: 'ready', title: record.title, body: record.body } as const;
+  };
+  const downloadCloudText = (owner: NotesCloudComparison, noteId: string, source: CloudTextDownloadSource) => {
+    setRemotePreviewFeedback(null);
+    const reportUnavailable = (status: 'stale' | 'unavailable') => {
+      if (status === 'stale') { setRemotePreview(null); setDivergentPreview(null); }
+      setRemotePreviewFeedback(status === 'stale' ? 'notesCloudPreviewStale' : 'notesCloudTextDownloadUnavailable');
+    };
+    const record = readCurrentCloudText(owner, noteId, source);
+    if (record.status !== 'ready') { reportUnavailable(record.status); return; }
+    const download = createNotesCloudTextDownload(record.body, record.title, noteId);
+    if (!download || typeof document === 'undefined' || typeof window === 'undefined'
+      || typeof URL.createObjectURL !== 'function') {
+      setRemotePreviewFeedback('notesCloudTextDownloadUnavailable');
+      return;
+    }
+
+    let pendingUrl: string | null = null;
+    let anchor: HTMLAnchorElement | null = null;
+    try {
+      pendingUrl = URL.createObjectURL(download.file);
+      anchor = document.createElement('a');
+      anchor.href = pendingUrl;
+      anchor.download = download.filename;
+      anchor.rel = 'noopener';
+      anchor.style.display = 'none';
+      document.body.append(anchor);
+
+      // Re-read the exact owner-bound record immediately before invoking the browser download.
+      const current = readCurrentCloudText(owner, noteId, source);
+      if (current.status !== 'ready' || current.body !== record.body || current.title !== record.title) {
+        reportUnavailable(current.status === 'stale' ? 'stale' : 'unavailable');
+        return;
+      }
+      anchor.click();
+      const url = pendingUrl;
+      const timer = window.setTimeout(() => releaseCloudTextDownloadUrl(url), CLOUD_TEXT_DOWNLOAD_URL_TTL_MS);
+      downloadUrls.current.set(url, timer);
+      pendingUrl = null;
+      setRemotePreviewFeedback('notesCloudTextDownloadStarted');
+    } catch {
+      setRemotePreviewFeedback('notesCloudTextDownloadUnavailable');
+    } finally {
+      anchor?.remove();
+      if (pendingUrl) releaseCloudTextDownloadUrl(pendingUrl);
+    }
   };
   const button = 'border rounded-xl px-4 py-2 text-sm font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50';
   const copyOwnerIsCurrent = (owner: NotesCloudComparison, localNoteId: string): boolean => {
@@ -367,17 +456,21 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
       {visibleRemotePreview ? <section data-remote-note-preview aria-labelledby="notes-cloud-remote-preview-heading" className="rounded-lg border border-border p-3 space-y-2">
         <h4 id="notes-cloud-remote-preview-heading" className="font-semibold">{t('notesCloudPreviewHeading')}</h4>
         <p className="text-sm text-muted-foreground">{t('notesCloudPreviewSource')}</p>
+        <p className="text-sm text-muted-foreground">{t('notesCloudTextDownloadScope')}</p>
         <code className="break-all">{visibleRemotePreview.id}</code>
         {visibleRemotePreview.title ? <p><span className="text-muted-foreground">{t('notesCloudRemoteTitle')}: </span>{visibleRemotePreview.title}</p> : null}
         <p className="text-sm text-muted-foreground">{t('notesCloudPreviewAttachmentWarning')}</p>
         {visibleRemotePreview.partial ? <p role="status" aria-live="polite" data-remote-note-preview-partial="true">{t('notesCloudPreviewPartial')}</p> : null}
         <pre dir="auto" className="max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/40 p-3 text-sm">{visibleRemotePreview.body}</pre>
-        <button type="button" className={`${button} px-3 py-1`} onClick={() => setRemotePreview(null)}>{t('cancel')}</button>
+        <button type="button" className={`${button} px-3 py-1`} aria-label={`${t('notesCloudTextDownloadAction')} ${visibleRemotePreview.id}`}
+          onClick={() => downloadCloudText(visibleRemotePreview.owner, visibleRemotePreview.id, 'remoteOnly')}>{t('notesCloudTextDownloadAction')}</button>
+        <button type="button" className={`${button} px-3 py-1`} onClick={() => { releaseAllCloudTextDownloadUrls(); setRemotePreview(null); }}>{t('cancel')}</button>
       </section> : null}
       {visibleDivergentPreview ? <section data-divergent-note-preview aria-labelledby="notes-cloud-divergent-preview-heading" className="rounded-lg border border-border p-3 space-y-3">
         <h4 id="notes-cloud-divergent-preview-heading" className="font-semibold">{t('notesCloudDivergentHeading')}</h4>
         <p className="text-sm text-muted-foreground">{t('notesCloudDivergentSource')}</p>
         <p className="text-sm text-muted-foreground">{t('notesCloudDivergentScope')}</p>
+        <p className="text-sm text-muted-foreground">{t('notesCloudTextDownloadScope')}</p>
         <code className="break-all">{visibleDivergentPreview.id}</code>
         <div>
           <p className="text-sm font-semibold">{t('notesCloudDivergentFields')}</p>
@@ -401,7 +494,9 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
             <pre dir="auto" className="max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/40 p-3 text-sm">{visibleDivergentPreview.cloudBody}</pre>
           </article>
         </div>
-        <button type="button" className={`${button} px-3 py-1`} onClick={() => setDivergentPreview(null)}>{t('cancel')}</button>
+        <button type="button" className={`${button} px-3 py-1`} aria-label={`${t('notesCloudTextDownloadAction')} ${visibleDivergentPreview.id}`}
+          onClick={() => downloadCloudText(visibleDivergentPreview.owner, visibleDivergentPreview.id, 'divergent')}>{t('notesCloudTextDownloadAction')}</button>
+        <button type="button" className={`${button} px-3 py-1`} onClick={() => { releaseAllCloudTextDownloadUrls(); setDivergentPreview(null); }}>{t('cancel')}</button>
       </section> : null}
     </div> : null}
     {error ? <p role="alert">{t(error)}</p> : null}

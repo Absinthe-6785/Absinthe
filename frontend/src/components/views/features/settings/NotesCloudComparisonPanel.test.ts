@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import React, { act, useSyncExternalStore } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { renderToString } from 'react-dom/server';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { useAppStore } from '../../../../store/useAppStore';
 import { NotesBootstrapDiagnosticError } from '../../../../lib/notesBootstrapDiagnostics';
@@ -19,7 +20,7 @@ const mock = vi.hoisted(() => ({
 }));
 vi.mock('../../../../store/useNotesStore', () => ({
   useNotesStore: Object.assign(
-    (select: any) => useSyncExternalStore(listener => { mock.listeners.add(listener); return () => { mock.listeners.delete(listener); }; }, () => select(mock.state)),
+    (select: any) => useSyncExternalStore(listener => { mock.listeners.add(listener); return () => { mock.listeners.delete(listener); }; }, () => select(mock.state), () => select(mock.state)),
     { getState: () => mock.state },
   ),
   observePublishedNotesHydration: () => mock.available ? { status: 'CURRENT', request: mock.activeRequest } : { status: 'UNAVAILABLE' },
@@ -33,6 +34,14 @@ vi.mock('../../../../lib/notesCloudCopy', () => ({
 }));
 import { NotesCloudComparisonPanel } from './NotesCloudComparisonPanel';
 let root: Root, host: HTMLDivElement;
+let originalCreateObjectURL: PropertyDescriptor | undefined;
+let originalRevokeObjectURL: PropertyDescriptor | undefined;
+let originalAnchorClick: PropertyDescriptor | undefined;
+let createdCloudTextFiles: Blob[];
+let revokedObjectUrls: string[];
+let requestedDownloads: Array<{ filename: string; href: string }>;
+let createObjectUrl: ReturnType<typeof vi.fn>;
+let rootMounted = true;
 const report = {
   localOnly: 2, remoteOnly: 1, matching: 3, divergent: 4, incomparable: 1, deleted: 2,
   localFoldersOnly: 1, remoteFoldersOnly: 0, folderDifferences: 2, unresolvedFolders: 1,
@@ -51,6 +60,16 @@ const localNote = (id: string, title: string, overrides: Record<string, unknown>
 let unregisterNotesTab: () => void, unregisterAppTab: () => void;
 beforeEach(() => {
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true; useAppStore.getState().updateSetting('language', 'en');
+  originalCreateObjectURL = Object.getOwnPropertyDescriptor(URL, 'createObjectURL');
+  originalRevokeObjectURL = Object.getOwnPropertyDescriptor(URL, 'revokeObjectURL');
+  originalAnchorClick = Object.getOwnPropertyDescriptor(HTMLAnchorElement.prototype, 'click');
+  createdCloudTextFiles = []; revokedObjectUrls = []; requestedDownloads = [];
+  createObjectUrl = vi.fn((file: Blob) => { createdCloudTextFiles.push(file); return `blob:cloud-text-${createdCloudTextFiles.length}`; });
+  Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: createObjectUrl });
+  Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn((url: string) => { revokedObjectUrls.push(url); }) });
+  Object.defineProperty(HTMLAnchorElement.prototype, 'click', { configurable: true, value: function(this: HTMLAnchorElement) {
+    requestedDownloads.push({ filename: this.download, href: this.href });
+  } });
   vi.clearAllMocks(); live = true; mock.available = true; mock.activeRequest = { accountId: 'A' }; mock.invalidationListeners.clear();
   mock.cloudCopyEnabled = false;
   mock.prepareCloudCopy.mockResolvedValue({
@@ -101,14 +120,32 @@ beforeEach(() => {
   resetNoteNavigationStack(); sessionStorage.removeItem('absinthe.noteNav.returnTab');
   unregisterNotesTab = registerNotesTabSwitcher(mock.notesTabSwitch);
   unregisterAppTab = registerAppTabSwitcher(mock.appTabSwitch);
-  host = document.createElement('div'); document.body.append(host); root = createRoot(host);
+  host = document.createElement('div'); document.body.append(host); root = createRoot(host); rootMounted = true;
 });
 afterEach(async () => {
-  await act(async () => root.unmount()); host.remove(); unregisterNotesTab(); unregisterAppTab();
+  if (rootMounted) await act(async () => root.unmount());
+  host.remove(); unregisterNotesTab(); unregisterAppTab();
   resetNoteNavigationStack(); sessionStorage.removeItem('absinthe.noteNav.returnTab'); vi.restoreAllMocks();
+  if (originalCreateObjectURL) Object.defineProperty(URL, 'createObjectURL', originalCreateObjectURL); else Reflect.deleteProperty(URL, 'createObjectURL');
+  if (originalRevokeObjectURL) Object.defineProperty(URL, 'revokeObjectURL', originalRevokeObjectURL); else Reflect.deleteProperty(URL, 'revokeObjectURL');
+  if (originalAnchorClick) Object.defineProperty(HTMLAnchorElement.prototype, 'click', originalAnchorClick); else Reflect.deleteProperty(HTMLAnchorElement.prototype, 'click');
 });
 async function render(account: string | null = 'A') { await act(async () => root.render(React.createElement(NotesCloudComparisonPanel, { accountId: account }))); }
 async function check() { await act(async () => host.querySelector('button')!.click()); }
+async function openRemoteOnlyPreview() {
+  await render(); await check();
+  const section = host.querySelectorAll('details')[1]!;
+  section.querySelector('summary')!.click();
+  const action = [...section.querySelectorAll('button')].find(item => item.textContent === 'Preview cloud Note')!;
+  await act(async () => { action.click(); });
+}
+async function openDivergentPreview() {
+  await render(); await check();
+  const section = host.querySelectorAll('details')[2]!;
+  section.querySelector('summary')!.click();
+  const action = [...section.querySelectorAll('button')].find(item => item.textContent === 'Compare local and cloud versions')!;
+  await act(async () => { action.click(); });
+}
 it('does no automatic fetch, exposes an accessible manual action and counts without private data', async () => {
   await render(); expect(mock.create).not.toHaveBeenCalled(); expect(mock.readCloudCopyStatus).not.toHaveBeenCalled(); host.querySelector('button')!.focus(); expect(document.activeElement).toBe(host.querySelector('button'));
   await check(); expect(owner.compare).toHaveBeenCalledTimes(1); expect(host.textContent).toContain('Local-only active IDs'); expect(host.textContent).toContain('not an atomic');
@@ -156,6 +193,122 @@ it('previews one exact cloud-only ID as inert text without creating or changing 
   expect(mock.readCloudCopyStatus).not.toHaveBeenCalled();
   expect(owner.compare).toHaveBeenCalledTimes(1);
   expect(host.textContent).toContain('not an atomic');
+});
+
+it('downloads the full cloud-only body, not the truncated preview, without importing or mutating Notes', async () => {
+  const body = `# 雲 ☁️\r\n\r\n${'café 🧪\n'.repeat(2_000)}  `;
+  mock.state.notes = [...mock.state.notes, localNote('duplicate-cloud-title', 'Cloud title')];
+  mock.getRemoteOnlyNote.mockImplementation((id: string) => id === 'cloud-id' ? { id, title: 'Cloud title', body } : null);
+  const before = JSON.stringify(mock.state.notes);
+  await openRemoteOnlyPreview();
+  const preview = host.querySelector<HTMLElement>('[data-remote-note-preview]')!;
+  const previewText = preview.querySelector('pre')?.textContent ?? '';
+  expect(previewText.length).toBeLessThanOrEqual(12_000);
+  expect(previewText).not.toMatch(/[\uD800-\uDBFF]$/u);
+  expect(preview.textContent).toContain('not a synchronized local Note');
+  const download = [...preview.querySelectorAll('button')].find(button => button.textContent === 'Download cloud text')!;
+  download.focus(); expect(document.activeElement).toBe(download);
+  mock.getRemoteOnlyNote.mockClear();
+  await act(async () => { download.click(); });
+
+  expect(mock.getRemoteOnlyNote.mock.calls.map(([id]) => id)).toEqual(['cloud-id', 'cloud-id']);
+  expect(createdCloudTextFiles).toHaveLength(1);
+  expect(new Uint8Array(await createdCloudTextFiles[0]!.arrayBuffer())).toEqual(new TextEncoder().encode(body));
+  expect(requestedDownloads).toHaveLength(1);
+  expect(requestedDownloads[0]!.filename).toContain('Cloud title-0063006c006f00750064002d00690064.md');
+  expect(requestedDownloads[0]!.href).toBe('blob:cloud-text-1');
+  expect(host.textContent).toContain('A Markdown download was requested. Check your browser downloads; this is not a durable backup.');
+  expect(JSON.stringify(mock.state.notes)).toBe(before);
+  expect(mock.state.activeNoteId).toBeNull(); expect(mock.setActiveNoteId).not.toHaveBeenCalled();
+  expect(getNoteNavigationStack()).toEqual([]); expect(getNoteReturnTab()).toBeNull();
+  expect(mock.createCloudCopy).not.toHaveBeenCalled(); expect(mock.prepareCloudCopy).not.toHaveBeenCalled();
+  expect(mock.readCloudCopyStatus).not.toHaveBeenCalled(); expect(owner.compare).toHaveBeenCalledTimes(1);
+
+  const close = [...preview.querySelectorAll('button')].find(button => button.textContent === 'Cancel')!;
+  await act(async () => { close.click(); });
+  expect(revokedObjectUrls).toEqual(['blob:cloud-text-1']);
+});
+
+it('downloads only the cloud side of an exact-ID divergent pair', async () => {
+  const cloudBody = `Cloud Ω\n${'remote text 🧭\n'.repeat(1_200)}`;
+  mock.getDivergentNotePair.mockImplementation((id: string) => id === 'different-id' ? {
+    id,
+    local: { title: 'Local version', body: 'LOCAL SOURCE MUST NOT BE EXPORTED' },
+    cloud: { title: 'Cloud version', body: cloudBody },
+    differingFields: ['body'],
+  } : null);
+  await openDivergentPreview();
+  const preview = host.querySelector<HTMLElement>('[data-divergent-note-preview]')!;
+  expect(preview.querySelectorAll('article')[1]?.querySelector('pre')?.textContent).toHaveLength(12_000);
+  const download = [...preview.querySelectorAll('button')].find(button => button.textContent === 'Download cloud text')!;
+  mock.getDivergentNotePair.mockClear();
+  await act(async () => { download.click(); });
+
+  expect(createdCloudTextFiles).toHaveLength(1);
+  expect(requestedDownloads).toHaveLength(1);
+  expect(mock.getDivergentNotePair.mock.calls.map(([id]) => id)).toEqual(['different-id', 'different-id']);
+  expect(await createdCloudTextFiles[0]!.text()).toBe(cloudBody);
+  expect(await createdCloudTextFiles[0]!.text()).not.toContain('LOCAL SOURCE MUST NOT BE EXPORTED');
+  expect(requestedDownloads[0]!.filename).toContain('Cloud version-');
+  expect(requestedDownloads[0]!.filename.endsWith('.md')).toBe(true);
+  expect(mock.createCloudCopy).not.toHaveBeenCalled(); expect(mock.state.activeNoteId).toBeNull();
+});
+
+it('refuses a divergent cloud body when the comparison pair has a different identity', async () => {
+  await openDivergentPreview();
+  const preview = host.querySelector<HTMLElement>('[data-divergent-note-preview]')!;
+  const download = [...preview.querySelectorAll('button')].find(button => button.textContent === 'Download cloud text')!;
+  mock.getDivergentNotePair.mockReturnValue({
+    id: 'another-note-id',
+    local: { title: 'Local version', body: 'local' },
+    cloud: { title: 'Cloud version', body: 'must not be exported' },
+    differingFields: ['body'],
+  });
+  await act(async () => { download.click(); });
+  expect(createdCloudTextFiles).toHaveLength(0);
+  expect(requestedDownloads).toHaveLength(0);
+  expect(host.textContent).toContain('The complete cloud text could not be prepared or downloaded. No partial Markdown file was created.');
+});
+
+it.each(['same-account authority replacement', 'local publication change', 'account switch'])('refuses a cloud-text download after %s', async change => {
+  await openRemoteOnlyPreview();
+  const preview = host.querySelector<HTMLElement>('[data-remote-note-preview]')!;
+  const download = [...preview.querySelectorAll('button')].find(button => button.textContent === 'Download cloud text')!;
+  if (change === 'same-account authority replacement') mock.activeRequest = { accountId: 'A' };
+  if (change === 'local publication change') mock.state = { ...mock.state, notes: [...mock.state.notes] };
+  if (change === 'account switch') mock.state = { ...mock.state, activeAccountId: 'B' };
+  await act(async () => { download.click(); });
+  expect(createdCloudTextFiles).toHaveLength(0);
+  expect(requestedDownloads).toHaveLength(0);
+  expect(host.textContent).toContain('This comparison is no longer current. Run it again before previewing.');
+});
+
+it('reports unavailable full content and does not create a partial file', async () => {
+  await openRemoteOnlyPreview();
+  const preview = host.querySelector<HTMLElement>('[data-remote-note-preview]')!;
+  const download = [...preview.querySelectorAll('button')].find(button => button.textContent === 'Download cloud text')!;
+  mock.getRemoteOnlyNote.mockReturnValue(null);
+  await act(async () => { download.click(); });
+  expect(createdCloudTextFiles).toHaveLength(0);
+  expect(requestedDownloads).toHaveLength(0);
+  expect(host.textContent).toContain('The complete cloud text could not be prepared or downloaded. No partial Markdown file was created.');
+});
+
+it('revokes cloud text object URLs when the comparison panel unmounts', async () => {
+  await openRemoteOnlyPreview();
+  const preview = host.querySelector<HTMLElement>('[data-remote-note-preview]')!;
+  const download = [...preview.querySelectorAll('button')].find(button => button.textContent === 'Download cloud text')!;
+  await act(async () => { download.click(); });
+  expect(revokedObjectUrls).toEqual([]);
+  await act(async () => root.unmount()); rootMounted = false;
+  expect(revokedObjectUrls).toEqual(['blob:cloud-text-1']);
+});
+
+it('renders the comparison panel during SSR without invoking a download', () => {
+  const html = renderToString(React.createElement(NotesCloudComparisonPanel, { accountId: 'A' }));
+  expect(html).toContain('notes-cloud-comparison-heading');
+  expect(createObjectUrl).not.toHaveBeenCalled();
+  expect(requestedDownloads).toHaveLength(0);
 });
 
 it('compares one exact-ID divergent pair side by side without mutation or navigation', async () => {
