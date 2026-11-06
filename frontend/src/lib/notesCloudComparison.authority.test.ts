@@ -47,6 +47,7 @@ it('does not revive a captured divergent pair after a real account A/B/A publica
 
   expect(owner.isCurrent()).toBe(false);
   expect(owner.getDivergentNotePair('n')).toBeNull();
+  expect(owner.searchCloudNotes('Cloud body')).toBeNull();
   owner.cancel();
 });
 it('retires the compared snapshot on same-account authority rollover before any Store update', async () => {
@@ -72,6 +73,7 @@ it('retires the compared snapshot on same-account authority rollover before any 
   expect(owner.isCurrent()).toBe(false);
   expect(owner.getDivergentNotePair('n')).toBeNull();
   expect(owner.getRemoteOnlyNote('missing')).toBeNull();
+  expect(owner.searchCloudNotes('Cloud body')).toBeNull();
   owner.cancel();
 });
 it('rejects an unproven Notes replacement and an unowned folder array', async () => {

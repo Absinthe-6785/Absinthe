@@ -11,6 +11,7 @@ import type { NoteBase, NoteFolderBase } from '../components/views/noteUtils';
 import { observeAccountScopedFolders, subscribeNotesAuthorityRequestChange } from './notesAccountAuthority';
 
 export const NOTES_COMPARISON_LIMIT = 500;
+export const NOTES_CLOUD_SEARCH_QUERY_LIMIT = 120;
 export type NotesCloudComparisonDetailCategory = 'localOnly' | 'remoteOnly' | 'divergent' | 'incomparable' | 'deleted';
 export interface NotesCloudComparisonDetail {
   readonly id: string;
@@ -33,6 +34,22 @@ export interface NotesCloudDivergentNotePair {
   readonly local: Readonly<{ title: string; body: string }>;
   readonly cloud: Readonly<{ title: string; body: string }>;
   readonly differingFields: readonly NotesSupportedContentDifferenceField[];
+}
+export interface NotesCloudSearchMatches {
+  readonly remoteOnly: readonly string[];
+  readonly divergent: readonly string[];
+  readonly total: number;
+}
+
+type NotesCloudSearchIndexEntry = Readonly<{
+  category: 'remoteOnly' | 'divergent';
+  id: string;
+  title: string;
+  body: string;
+}>;
+
+function normalizeCloudSearchText(value: string): string {
+  return value.normalize('NFKC').toLowerCase();
 }
 
 const detailCategories: readonly NotesCloudComparisonDetailCategory[] = ['localOnly', 'remoteOnly', 'divergent', 'incomparable', 'deleted'];
@@ -106,10 +123,11 @@ export function createNotesCloudComparison(accountId: string | null, isAccountCu
   let live = true, started = false;
   let remoteSnapshot: CompleteNotesFoldersSnapshot | null = null;
   let comparedReport: NotesCloudComparisonReport | null = null;
+  let cloudSearchIndex: readonly NotesCloudSearchIndexEntry[] | null = null;
   let unsubscribe = () => {};
   let unsubscribeAuthority = () => {};
   const invalidationListeners = new Set<() => void>();
-  const discardRemoteAccess = () => { remoteSnapshot = null; comparedReport = null; };
+  const discardRemoteAccess = () => { remoteSnapshot = null; comparedReport = null; cloudSearchIndex = null; };
   const cancel = () => { live = false; discardRemoteAccess(); unsubscribe(); unsubscribeAuthority(); invalidationListeners.clear(); };
   const invalidate = () => {
     if (!live) return;
@@ -140,9 +158,29 @@ export function createNotesCloudComparison(accountId: string | null, isAccountCu
     if (!isCurrent()) throw new Error('notes_comparison_stale');
     const report = compareNotesCloudSnapshot(accountId, notes, folders, remote);
     if (!isCurrent()) throw new Error('notes_comparison_stale');
+    const remoteById = new Map(remote.notes.map(row => [row.id, row] as const));
+    cloudSearchIndex = (['remoteOnly', 'divergent'] as const).flatMap(category => report.details[category].flatMap(({ id }) => {
+      const row = remoteById.get(id);
+      if (!row || row.id !== id || row.user_id !== accountId || row.deleted_at !== null
+        || !isComparableRemoteNoteContent(accountId, row)) return [];
+      return [Object.freeze({ category, id, title: normalizeCloudSearchText(row.title), body: normalizeCloudSearchText(row.body) })];
+    }));
     remoteSnapshot = remote;
     comparedReport = report;
     return report;
+  };
+  const searchCloudNotes = (query: string): NotesCloudSearchMatches | null => {
+    if (typeof query !== 'string' || query.length > NOTES_CLOUD_SEARCH_QUERY_LIMIT || !started || !isCurrent()
+      || !remoteSnapshot || !comparedReport || !cloudSearchIndex) return null;
+    const normalizedQuery = normalizeCloudSearchText(query).trim();
+    const matches = normalizedQuery
+      ? cloudSearchIndex.filter(entry => entry.title.includes(normalizedQuery) || entry.body.includes(normalizedQuery))
+      : [...cloudSearchIndex];
+    return Object.freeze({
+      remoteOnly: Object.freeze(matches.filter(entry => entry.category === 'remoteOnly').map(entry => entry.id)),
+      divergent: Object.freeze(matches.filter(entry => entry.category === 'divergent').map(entry => entry.id)),
+      total: cloudSearchIndex.length,
+    });
   };
   const getRemoteOnlyNote = (noteId: string): NotesCloudRemoteOnlyNote | null => {
     if (!noteId || !noteId.trim() || !started || !isCurrent() || !remoteSnapshot || !comparedReport
@@ -180,6 +218,6 @@ export function createNotesCloudComparison(accountId: string | null, isAccountCu
     invalidationListeners.add(listener);
     return () => invalidationListeners.delete(listener);
   };
-  return { compare, cancel, isCurrent, getRemoteOnlyNote, getDivergentNotePair, subscribeInvalidation };
+  return { compare, cancel, isCurrent, getRemoteOnlyNote, getDivergentNotePair, searchCloudNotes, subscribeInvalidation };
 }
 export type NotesCloudComparison = ReturnType<typeof createNotesCloudComparison>;

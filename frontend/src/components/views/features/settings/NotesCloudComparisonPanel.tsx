@@ -1,9 +1,9 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation, type TranslationKey } from '../../../../lib/i18n';
 import { isCompleteLocalNote, type NotesSupportedContentDifferenceField } from '../../../../lib/notesBootstrapAuthority';
 import { openNote } from '../../../../lib/noteNavigation';
 import { observePublishedNotesHydration, useNotesStore } from '../../../../store/useNotesStore';
-import { createNotesCloudComparison, type NotesCloudComparison, type NotesCloudComparisonReport } from '../../../../lib/notesCloudComparison';
+import { createNotesCloudComparison, NOTES_CLOUD_SEARCH_QUERY_LIMIT, NOTES_COMPARISON_LIMIT, type NotesCloudComparison, type NotesCloudComparisonReport } from '../../../../lib/notesCloudComparison';
 import { NotesBootstrapDiagnosticError } from '../../../../lib/notesBootstrapDiagnostics';
 import { createNotesCloudCopy, notesCloudCopyUiEnabled, prepareNotesCloudCopy, readNotesCloudCopyStatus, type NotesCloudCopyReadbackStatus } from '../../../../lib/notesCloudCopy';
 import type { NotesCloudCopyLocalPreflightResult } from '../../../../lib/notesCloudCopyLocalPreflight';
@@ -70,6 +70,8 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
     preview: Extract<NotesCloudCopyLocalPreflightResult, { status: 'ELIGIBLE_PREVIEW_ONLY' }>;
   } | null>(null);
   const [result, setResult] = useState<{ owner: NotesCloudComparison; report: NotesCloudComparisonReport } | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResultLimit, setSearchResultLimit] = useState(DETAIL_PREVIEW_LIMIT);
   const [remotePreview, setRemotePreview] = useState<{
     owner: NotesCloudComparison;
     id: string;
@@ -110,11 +112,20 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
     statusRequest.current = null;
     setBusy(false); setCopyBusy(false); setStatusBusy(null); setStatusResult(null);
     setResult(null); setError(null); setCopyFeedback(null); setCopyCandidate(null);
+    setSearchQuery(''); setSearchResultLimit(DETAIL_PREVIEW_LIMIT);
     setRemotePreview(null); setDivergentPreview(null);
     setRemotePreviewFeedback(current => current === 'notesCloudPreviewStale' ? current : null);
     return () => { active.current?.cancel(); active.current = null; releaseAllCloudTextDownloadUrls(); };
   }, [accountId, notes, folders, ready]);
   const visible = result && result.owner === active.current && result.owner.isCurrent() ? result.report : null;
+  const normalizedSearchQuery = searchQuery.normalize('NFKC').trim();
+  const searchActive = normalizedSearchQuery.length > 0;
+  const searchMatches = useMemo(() => {
+    if (!searchActive || !visible || !result) return null;
+    return result.owner.searchCloudNotes(searchQuery);
+  }, [result, searchActive, searchQuery, visible]);
+  const remoteOnlyMatchIds = useMemo(() => new Set(searchMatches?.remoteOnly ?? []), [searchMatches]);
+  const divergentMatchIds = useMemo(() => new Set(searchMatches?.divergent ?? []), [searchMatches]);
   const visibleRemotePreview = remotePreview && visible && result?.owner === remotePreview.owner
     && active.current === remotePreview.owner && remotePreview.owner.isCurrent() ? remotePreview : null;
   const visibleDivergentPreview = divergentPreview && visible && result?.owner === divergentPreview.owner
@@ -139,7 +150,8 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
     if (busy) return;
     releaseAllCloudTextDownloadUrls();
     statusRequest.current = null; setStatusBusy(null); setStatusResult(null);
-    active.current?.cancel(); setResult(null); setError(null); setRemotePreview(null); setDivergentPreview(null); setRemotePreviewFeedback(null);
+    active.current?.cancel(); setResult(null); setSearchQuery(''); setSearchResultLimit(DETAIL_PREVIEW_LIMIT);
+    setError(null); setRemotePreview(null); setDivergentPreview(null); setRemotePreviewFeedback(null);
     if (typeof navigator !== 'undefined' && navigator.onLine === false) { setError('notesCloudOffline'); return; }
     const context = account.current;
     let owner: NotesCloudComparison | null = null;
@@ -150,7 +162,8 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
         if (active.current !== owner) return;
         active.current = null;
         releaseAllCloudTextDownloadUrls();
-        setBusy(false); setResult(null); setRemotePreview(null); setDivergentPreview(null); setRemotePreviewFeedback(null);
+        setBusy(false); setResult(null); setSearchQuery(''); setSearchResultLimit(DETAIL_PREVIEW_LIMIT);
+        setRemotePreview(null); setDivergentPreview(null); setRemotePreviewFeedback(null);
         setError('notesCloudStale');
       });
       setBusy(true);
@@ -168,7 +181,8 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
     releaseAllCloudTextDownloadUrls();
     statusRequest.current = null;
     active.current?.cancel(); active.current = null; setBusy(false); setCopyBusy(false);
-    setStatusBusy(null); setStatusResult(null); setResult(null); setCopyCandidate(null); setCopyFeedback(null); setError('notesCloudStale');
+    setStatusBusy(null); setStatusResult(null); setResult(null); setSearchQuery(''); setSearchResultLimit(DETAIL_PREVIEW_LIMIT);
+    setCopyCandidate(null); setCopyFeedback(null); setError('notesCloudStale');
     setRemotePreview(null); setDivergentPreview(null); setRemotePreviewFeedback(null);
   };
   const previewCloudOnlyNote = (owner: NotesCloudComparison, noteId: string) => {
@@ -382,9 +396,39 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
         {(['localOnly', 'remoteOnly', 'matching', 'divergent', 'incomparable', 'deleted'] as const).map(key => <div key={key}><dt>{t(({ localOnly: 'notesCloudLocalOnly', remoteOnly: 'notesCloudRemoteOnly', matching: 'notesCloudMatching', divergent: 'notesCloudDivergent', incomparable: 'notesCloudIncomparable', deleted: 'notesCloudDeleted' } as const)[key])}</dt><dd className="font-semibold">{visible[key]}</dd></div>)}
       </dl>
       <p>{t('notesCloudFolders').replace('{local}', String(visible.localFoldersOnly)).replace('{remote}', String(visible.remoteFoldersOnly)).replace('{different}', String(visible.folderDifferences)).replace('{unresolved}', String(visible.unresolvedFolders))}</p>
+      {visible.details.remoteOnly.length + visible.details.divergent.length > 0 ? <div className="space-y-1">
+        <label htmlFor="notes-cloud-comparison-search" className="block font-semibold">{t('notesCloudSearchLabel')}</label>
+        <input
+          id="notes-cloud-comparison-search"
+          type="search"
+          className="w-full rounded-lg border border-border bg-surface px-3 py-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+          aria-describedby="notes-cloud-comparison-search-help"
+          placeholder={t('notesCloudSearchPlaceholder')}
+          maxLength={NOTES_CLOUD_SEARCH_QUERY_LIMIT}
+          autoComplete="off"
+          spellCheck={false}
+          value={searchQuery}
+          onChange={event => {
+            setSearchQuery(event.currentTarget.value.slice(0, NOTES_CLOUD_SEARCH_QUERY_LIMIT));
+            setSearchResultLimit(DETAIL_PREVIEW_LIMIT);
+          }}
+        />
+        <p id="notes-cloud-comparison-search-help" className="text-xs text-muted-foreground">{t('notesCloudSearchHelp')}</p>
+        {searchActive && searchMatches ? <p role="status" aria-live="polite" className="text-sm">
+          {searchMatches.remoteOnly.length + searchMatches.divergent.length > 0
+            ? t('notesCloudSearchMatches').replace('{matches}', String(searchMatches.remoteOnly.length + searchMatches.divergent.length)).replace('{total}', String(searchMatches.total))
+            : t('notesCloudSearchNoMatches').replace('{total}', String(searchMatches.total))}
+        </p> : null}
+      </div> : null}
       <div className="space-y-2">
         {detailSections.map(({ key, label, canOpenLocal }) => {
-          const details = visible.details[key];
+          if (searchActive && key !== 'remoteOnly' && key !== 'divergent') return null;
+          const allDetails = visible.details[key];
+          const details = searchActive
+            ? allDetails.filter(detail => key === 'remoteOnly'
+              ? remoteOnlyMatchIds.has(detail.id)
+              : key === 'divergent' && divergentMatchIds.has(detail.id))
+            : allDetails;
           if (details.length === 0) return null;
           const renderRows = (rows: typeof details) => <ul className="mt-2 list-disc space-y-2 pl-5">
             {rows.map(detail => <li key={detail.id} className="break-words">
@@ -444,9 +488,15 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
             </li>)}
           </ul>;
           return <details key={key} className="rounded-lg border border-border px-3 py-2">
-            <summary className="cursor-pointer rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">{t(label)} ({details.length})</summary>
-            {renderRows(details.slice(0, DETAIL_PREVIEW_LIMIT))}
-            {details.length > DETAIL_PREVIEW_LIMIT ? <details className="ml-4 mt-2 rounded-lg border border-border px-3 py-2">
+            <summary className="cursor-pointer rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
+              {t(label)} ({searchActive ? `${details.length} / ${allDetails.length}` : details.length})
+            </summary>
+            {renderRows(details.slice(0, searchActive ? searchResultLimit : DETAIL_PREVIEW_LIMIT))}
+            {searchActive && details.length > searchResultLimit ? <button type="button" className={`${button} mt-2 px-3 py-1`}
+              onClick={() => setSearchResultLimit(limit => Math.min(limit + DETAIL_PREVIEW_LIMIT, NOTES_COMPARISON_LIMIT))}>
+              {t('notesCloudShowMore').replace('{count}', String(details.length - searchResultLimit))}
+            </button> : null}
+            {!searchActive && details.length > DETAIL_PREVIEW_LIMIT ? <details className="ml-4 mt-2 rounded-lg border border-border px-3 py-2">
               <summary className="cursor-pointer rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">{t('notesCloudShowMore').replace('{count}', String(details.length - DETAIL_PREVIEW_LIMIT))}</summary>
               {renderRows(details.slice(DETAIL_PREVIEW_LIMIT))}
             </details> : null}

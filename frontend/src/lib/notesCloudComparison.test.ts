@@ -111,6 +111,41 @@ it('exposes one exact-ID remote-only Note from the verified comparison without t
   owner.cancel();
   expect(owner.getRemoteOnlyNote('cloud-exact-id')).toBeNull();
 });
+it('searches only complete, supported cloud-only and divergent text and returns exact IDs', async () => {
+  fake.state.notes = [
+    note('local-duplicate', { title: 'Same title' }),
+    note('divergent-id', { title: 'Local title', body: 'Local version' }),
+  ];
+  const rows = [
+    row('cloud-a', { title: 'Same title', body: 'Résumé ☁️ body text' }),
+    row('cloud-b', { title: 'Same title', body: 'Another cloud body' }),
+    row('divergent-id', { title: 'Cloud version', body: 'Unique divergent Ω body' }),
+    row('deleted-cloud', { deleted_at: 2, body: 'retired searchable text' }),
+    row('unsupported-cloud', { properties: { invalid: [] }, body: 'unsupported searchable text' }),
+  ];
+  fake.read.mockImplementation(async (url: string, _init, control) => {
+    control?.onRequestStart?.(); return page(url.includes('note_folders') ? [] : rows);
+  });
+  const owner = createNotesCloudComparison('A', () => true);
+  const report = await owner.compare();
+  expect(report.details.remoteOnly.map(({ id }) => id)).toEqual(['cloud-a', 'cloud-b']);
+  expect(report.details.divergent.map(({ id }) => id)).toEqual(['divergent-id']);
+
+  expect(owner.searchCloudNotes('ＳＡＭＥ ＴＩＴＬＥ')).toEqual({
+    remoteOnly: ['cloud-a', 'cloud-b'], divergent: [], total: 3,
+  });
+  expect(owner.searchCloudNotes('rÉsumé')).toEqual({ remoteOnly: ['cloud-a'], divergent: [], total: 3 });
+  expect(owner.searchCloudNotes('Ω BODY')).toEqual({ remoteOnly: [], divergent: ['divergent-id'], total: 3 });
+  expect(owner.searchCloudNotes('not present')).toEqual({ remoteOnly: [], divergent: [], total: 3 });
+  expect(owner.searchCloudNotes('')).toEqual({ remoteOnly: ['cloud-a', 'cloud-b'], divergent: ['divergent-id'], total: 3 });
+  expect(owner.searchCloudNotes('x'.repeat(121))).toBeNull();
+  expect(owner.searchCloudNotes('deleted searchable')).toEqual({ remoteOnly: [], divergent: [], total: 3 });
+  expect(owner.searchCloudNotes('unsupported searchable')).toEqual({ remoteOnly: [], divergent: [], total: 3 });
+  expect(fake.read).toHaveBeenCalledTimes(2);
+  expect(fake.write).not.toHaveBeenCalled();
+  owner.cancel();
+  expect(owner.searchCloudNotes('body')).toBeNull();
+});
 it('exposes immutable same-ID divergent title and body values without resolving duplicate titles', async () => {
   fake.state.notes = [
     note('divergent-id', { title: 'Local title', body: 'Local body' }),
@@ -214,11 +249,13 @@ it.each(['account', 'publication', 'local-note-edit', 'local-id-added'] as const
     const owner = createNotesCloudComparison('A', () => accountCurrent);
     await owner.compare();
     expect(owner.getRemoteOnlyNote('cloud-only')?.body).toBe('secret body');
+    expect(owner.searchCloudNotes('secret body')?.remoteOnly).toEqual(['cloud-only']);
     if (change === 'account') accountCurrent = false;
     if (change === 'publication') fake.request = { accountId: 'A' };
     if (change === 'local-note-edit') fake.state.notes[0]!.body = 'changed in place';
     if (change === 'local-id-added') fake.state.notes.push(note('cloud-only'));
     expect(owner.getRemoteOnlyNote('cloud-only')).toBeNull();
+    expect(owner.searchCloudNotes('secret body')).toBeNull();
     owner.cancel();
   },
 );
