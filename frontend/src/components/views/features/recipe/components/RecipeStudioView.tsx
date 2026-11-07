@@ -15,6 +15,7 @@ import { UI_INTERACTION } from '../../../../../lib/uiInteractionTokens';
 import { WORKSPACE_GAP_CLASS } from '../../../../../lib/uiSpacingTokens';
 import type { RecipeProjection } from '../recipeProjectionModels';
 import type { Recipe, RecipeCategory } from '../recipeTypes';
+import type { RecipeCopyMode, RecipeCopyResult } from '../recipeCopyContent';
 import { RECIPE_CATEGORIES } from '../recipeTypes';
 import { useRecipeSectionPrefs } from '../hooks/useRecipeSectionPrefs';
 import { RecipeHomeSection } from './RecipeHomeSection';
@@ -43,6 +44,8 @@ export interface RecipeStudioViewProps {
   pendingStarRecipeIds?: ReadonlySet<string>;
   onEdit: (recipe: Recipe) => void;
   onDelete: (id: string, title: string) => void;
+  onCopyRecipe: (recipeId: string, mode: RecipeCopyMode, expectedContextKey: object) => Promise<RecipeCopyResult>;
+  copyContextKey: object;
   deletedRecipes: readonly Recipe[];
   trashAvailability: RecipeAvailability;
   trashValidating: boolean;
@@ -67,6 +70,8 @@ export function RecipeStudioView({
   pendingStarRecipeIds = new Set(),
   onEdit,
   onDelete,
+  onCopyRecipe,
+  copyContextKey,
   deletedRecipes,
   trashAvailability,
   trashValidating,
@@ -297,6 +302,8 @@ export function RecipeStudioView({
                     pendingStarRecipeIds={pendingStarRecipeIds}
                     onEdit={onEdit}
                     onDelete={onDelete}
+                    onCopyRecipe={onCopyRecipe}
+                    copyContextKey={copyContextKey}
                     mutationsDisabled={!activeReady}
                   />
                 )}

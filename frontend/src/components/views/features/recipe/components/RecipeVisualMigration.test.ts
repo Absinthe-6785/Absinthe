@@ -112,6 +112,8 @@ describe('VIS-08 Recipe visual migration', () => {
       onToggleStar: () => undefined,
       onEdit: () => undefined,
       onDelete: () => undefined,
+      onCopyRecipe: async () => 'unavailable' as const,
+      copyContextKey: {},
     }));
 
     const card = host.querySelector('[data-k110-recipe-card]')!;

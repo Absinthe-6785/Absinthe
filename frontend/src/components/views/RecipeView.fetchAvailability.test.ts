@@ -113,6 +113,19 @@ function editDraft(remote: ReturnType<typeof recipe>): RecipeDraftEnvelope {
 
 let root: Root;
 let host: HTMLDivElement;
+const originalClipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+
+function installClipboard(writeText: ReturnType<typeof vi.fn>) {
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+}
+
+function copyFromStudio() {
+  return harness.studioProps?.onCopyRecipe as (
+    recipeId: string,
+    mode: 'ingredients' | 'full',
+    expectedContextKey: object,
+  ) => Promise<string>;
+}
 
 function render(
   accountId = 'account-a',
@@ -154,9 +167,121 @@ afterEach(() => {
   act(() => root.unmount());
   host.remove();
   localStorage.clear();
+  if (originalClipboardDescriptor) Object.defineProperty(navigator, 'clipboard', originalClipboardDescriptor);
+  else Reflect.deleteProperty(navigator, 'clipboard');
 });
 
 describe('Recipe fetch availability production wiring', () => {
+  it('copies exact ingredients and deterministic full text from the current active source without writes', async () => {
+    const saved = { ...recipe('same-id', 'duplicate title'), ingredients: '파 1대\r\n간장 2큰술\n\n마지막 한 줄 ', steps: '끓인다.\n불을 끈다.', memo: '기호에 따라 고춧가루' };
+    harness.active = { data: [saved, recipe('other-id', 'duplicate title')], isLoading: false, isValidating: false };
+    render(); await flush();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    installClipboard(writeText);
+    const contextKey = harness.studioProps?.copyContextKey as object;
+
+    await act(async () => {
+      expect(await copyFromStudio()(saved.id, 'ingredients', contextKey)).toBe('copied');
+    });
+    expect(writeText).toHaveBeenNthCalledWith(1, saved.ingredients);
+
+    await act(async () => {
+      expect(await copyFromStudio()(saved.id, 'full', contextKey)).toBe('copied');
+    });
+    expect(writeText).toHaveBeenNthCalledWith(2,
+      `title\nduplicate title\n\ningredients\n${saved.ingredients}\n\nsteps\n${saved.steps}\n\nrecipeMemo\n${saved.memo}`,
+    );
+    expect(harness.authFetch).not.toHaveBeenCalled();
+    expect(harness.activeMutates.get('account-a')).not.toHaveBeenCalled();
+  });
+
+  it('fails closed for stale card context, unavailable authority, missing IDs, and deleted rows', async () => {
+    const saved = recipe('same-id');
+    harness.active = { data: [saved], isLoading: false, isValidating: false };
+    render(); await flush();
+    const staleAction = copyFromStudio();
+    const staleContext = harness.studioProps?.copyContextKey as object;
+    harness.active = { data: [{ ...saved, ingredients: 'new current content' }], isLoading: false, isValidating: false };
+    render(); await flush();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    installClipboard(writeText);
+    await act(async () => {
+      expect(await staleAction(saved.id, 'ingredients', staleContext)).toBe('stale');
+    });
+    expect(writeText).not.toHaveBeenCalled();
+
+    const currentContext = harness.studioProps?.copyContextKey as object;
+    harness.active = { data: [saved], isLoading: false, isValidating: true };
+    render(); await flush();
+    await act(async () => {
+      expect(await copyFromStudio()(saved.id, 'ingredients', harness.studioProps?.copyContextKey)).toBe('unavailable');
+    });
+    expect(writeText).not.toHaveBeenCalled();
+    expect(currentContext).not.toBe(harness.studioProps?.copyContextKey);
+
+    harness.active = { data: [{ ...saved, deleted_at: '2026-11-01T00:00:00Z' }], isLoading: false, isValidating: false };
+    render(); await flush();
+    await act(async () => {
+      expect(await copyFromStudio()(saved.id, 'full', harness.studioProps?.copyContextKey)).toBe('unavailable');
+    });
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
+  it('reports missing clipboard support and permission rejection without false success', async () => {
+    const saved = recipe();
+    harness.active = { data: [saved], isLoading: false, isValidating: false };
+    render(); await flush();
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined });
+    await act(async () => {
+      expect(await copyFromStudio()(saved.id, 'full', harness.studioProps?.copyContextKey)).toBe('unsupported');
+    });
+
+    const writeText = vi.fn().mockRejectedValue(new DOMException('denied', 'NotAllowedError'));
+    installClipboard(writeText);
+    await act(async () => {
+      expect(await copyFromStudio()(saved.id, 'full', harness.studioProps?.copyContextKey)).toBe('failed');
+    });
+    expect(writeText).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not report a pending clipboard operation as successful after an account change', async () => {
+    const savedA = recipe('shared-id', 'Account A recipe');
+    harness.active = { data: [savedA], isLoading: false, isValidating: false };
+    render('account-a'); await flush();
+    let complete!: () => void;
+    const writeText = vi.fn(() => new Promise<void>(resolve => { complete = resolve; }));
+    installClipboard(writeText);
+    const oldAction = copyFromStudio();
+    const oldContext = harness.studioProps?.copyContextKey as object;
+    const pending = oldAction(savedA.id, 'full', oldContext);
+    expect(writeText).toHaveBeenCalledTimes(1);
+
+    harness.active = { data: [recipe('shared-id', 'Account B recipe')], isLoading: false, isValidating: false };
+    render('account-b'); await flush();
+    await act(async () => { complete(); });
+    expect(await pending).toBe('stale');
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(harness.authFetch).not.toHaveBeenCalled();
+  });
+
+  it('rejects an Account A callback after an A-B-A transition', async () => {
+    harness.active = { data: [recipe('same-id', 'Account A')], isLoading: false, isValidating: false };
+    render('account-a'); await flush();
+    const oldAction = copyFromStudio();
+    const oldContext = harness.studioProps?.copyContextKey as object;
+    harness.active = { data: [recipe('same-id', 'Account B')], isLoading: false, isValidating: false };
+    render('account-b'); await flush();
+    harness.active = { data: [recipe('same-id', 'Account A refreshed')], isLoading: false, isValidating: false };
+    render('account-a'); await flush();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    installClipboard(writeText);
+
+    await act(async () => {
+      expect(await oldAction('same-id', 'full', oldContext)).toBe('stale');
+    });
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
   it('waits for account-scoped authoritative recipe data before expanding a Home deep link', async () => {
     const request = { accountId: 'account-a', accountGeneration: 0, requestId: 11, recipeId: 'target-recipe' };
     harness.active = { data: undefined, isLoading: true, isValidating: true };

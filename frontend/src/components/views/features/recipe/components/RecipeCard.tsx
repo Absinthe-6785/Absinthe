@@ -1,9 +1,11 @@
-import { Star, Pencil, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Star, Pencil, Trash2, ChevronDown, ChevronUp, Copy } from 'lucide-react';
 import type { Theme } from '../../../../../types';
 import type { TranslationKey } from '../../../../../lib/i18n';
 import type { Recipe } from '../recipeTypes';
 import { RECIPE_CATEGORY_COLORS } from '../recipeTypes';
 import { UI_INTERACTION } from '../../../../../lib/uiInteractionTokens';
+import type { RecipeCopyMode, RecipeCopyResult } from '../recipeCopyContent';
 
 export interface RecipeCardProps {
   recipe: Recipe;
@@ -15,6 +17,8 @@ export interface RecipeCardProps {
   onToggleStar: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onCopyRecipe: (recipeId: string, mode: RecipeCopyMode, expectedContextKey: object) => Promise<RecipeCopyResult>;
+  copyContextKey: object;
   compact?: boolean;
   mutationsDisabled?: boolean;
   starPending?: boolean;
@@ -30,10 +34,86 @@ export function RecipeCard({
   onToggleStar,
   onEdit,
   onDelete,
+  onCopyRecipe,
+  copyContextKey,
   compact = false,
   mutationsDisabled = false,
   starPending = false,
 }: RecipeCardProps) {
+  const [copyFeedbackState, setCopyFeedbackState] = useState<{
+    mode: RecipeCopyMode;
+    result: RecipeCopyResult;
+    recipeId: string;
+    copyContextKey: object;
+    requestSequence: number;
+  } | null>(null);
+  const [copyPendingState, setCopyPendingState] = useState<{
+    recipeId: string;
+    copyContextKey: object;
+    requestSequence: number;
+  } | null>(null);
+  const mountedRef = useRef(false);
+  const requestSequenceRef = useRef(0);
+  const contextRef = useRef({ recipeId: recipe.id, copyContextKey, expanded });
+  useLayoutEffect(() => {
+    const previous = contextRef.current;
+    if (previous.recipeId !== recipe.id || previous.copyContextKey !== copyContextKey || previous.expanded !== expanded) {
+      requestSequenceRef.current += 1;
+    }
+    contextRef.current = { recipeId: recipe.id, copyContextKey, expanded };
+  }, [copyContextKey, expanded, recipe.id]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      requestSequenceRef.current += 1;
+    };
+  }, []);
+
+  const copyPending = Boolean(copyPendingState
+    && copyPendingState.requestSequence === requestSequenceRef.current
+    && copyPendingState.recipeId === recipe.id
+    && copyPendingState.copyContextKey === copyContextKey
+    && expanded);
+  const copyFeedback = copyFeedbackState
+    && copyFeedbackState.requestSequence === requestSequenceRef.current
+    && copyFeedbackState.recipeId === recipe.id
+    && copyFeedbackState.copyContextKey === copyContextKey
+    && expanded
+    ? copyFeedbackState
+    : null;
+
+  const requestCopy = async (mode: RecipeCopyMode) => {
+    const context = contextRef.current;
+    const requestSequence = ++requestSequenceRef.current;
+    setCopyFeedbackState(null);
+    setCopyPendingState({ ...context, requestSequence });
+    let result: RecipeCopyResult;
+    try {
+      result = await onCopyRecipe(recipe.id, mode, copyContextKey);
+    } catch {
+      result = 'failed';
+    }
+    const current = contextRef.current;
+    if (!mountedRef.current
+      || requestSequenceRef.current !== requestSequence
+      || !current.expanded
+      || current.recipeId !== context.recipeId
+      || current.copyContextKey !== context.copyContextKey) return;
+    setCopyPendingState(null);
+    setCopyFeedbackState({ mode, result, ...context, requestSequence });
+  };
+
+  const feedbackKey = copyFeedback?.result === 'copied'
+    ? 'recipeCopySuccess'
+    : copyFeedback?.result === 'unsupported'
+      ? 'recipeCopyUnsupported'
+      : copyFeedback?.result === 'failed'
+        ? 'recipeCopyFailed'
+        : copyFeedback
+          ? 'recipeCopyUnavailable'
+          : null;
   const ingredients = (recipe.ingredients ?? '').split('\n').filter(Boolean);
   const steps = (recipe.steps ?? '').split('\n').filter(Boolean);
   const pad = compact ? 'p-2.5' : 'p-3 lg:p-3.5';
@@ -89,6 +169,33 @@ export function RecipeCard({
 
       {expanded && (
         <div className={`abs-cosmos-recipe-expanded px-3 pb-3 lg:px-3.5 lg:pb-3.5 border-t ${theme.border} space-y-3 pt-3`}>
+          <div className="flex flex-wrap gap-2" data-recipe-copy-actions>
+            <button
+              type="button"
+              disabled={copyPending || !(recipe.ingredients ?? '').length}
+              onClick={event => { event.stopPropagation(); void requestCopy('ingredients'); }}
+              className={`${UI_INTERACTION.focusRingClass} inline-flex min-h-[40px] items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:text-disabled ${theme.border} ${dark ? 'hover:bg-white/10' : 'hover:bg-gray-100'}`}
+              data-recipe-copy-ingredients
+              aria-busy={copyPending}
+            >
+              <Copy size={13} /> {t('recipeCopyIngredients')}
+            </button>
+            <button
+              type="button"
+              disabled={copyPending}
+              onClick={event => { event.stopPropagation(); void requestCopy('full'); }}
+              className={`${UI_INTERACTION.focusRingClass} inline-flex min-h-[40px] items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:text-disabled ${theme.border} ${dark ? 'hover:bg-white/10' : 'hover:bg-gray-100'}`}
+              data-recipe-copy-full
+              aria-busy={copyPending}
+            >
+              <Copy size={13} /> {t('recipeCopyFull')}
+            </button>
+          </div>
+          {feedbackKey && (
+            <p className={`text-xs ${theme.textMuted}`} role="status" aria-live="polite" data-recipe-copy-feedback={copyFeedback?.result}>
+              {t(feedbackKey)}
+            </p>
+          )}
           {ingredients.length > 0 && (
             <div>
               <p className={`text-[10px] font-bold uppercase tracking-wider mb-1.5 ${theme.textMuted}`}>{t('ingredients')}</p>

@@ -451,6 +451,8 @@ describe('Recipe star mutation production path', () => {
       onToggleStar: vi.fn(),
       onEdit: vi.fn(),
       onDelete: vi.fn(),
+      onCopyRecipe: async () => 'unavailable' as const,
+      copyContextKey: {},
       starPending: true,
     })));
 
