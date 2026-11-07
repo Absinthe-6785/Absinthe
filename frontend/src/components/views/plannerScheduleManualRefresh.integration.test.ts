@@ -16,6 +16,7 @@ const harness = vi.hoisted(() => ({
   deferNextPath: null as string | null,
   deferredResponse: null as Promise<unknown> | null,
   apiMutation: vi.fn(),
+  confirmAction: null as (() => unknown) | null,
 }));
 
 vi.mock('../../lib/config', () => ({ API_URL: 'https://example.invalid' }));
@@ -42,7 +43,12 @@ vi.mock('../../hooks/useApiMutation', () => ({
   useApiMutation: () => ({ mutate: harness.apiMutation }),
 }));
 vi.mock('../../hooks/useConfirm', () => ({
-  useConfirm: () => ({ confirm: null, showConfirm: vi.fn(), clearConfirm: vi.fn(), handleConfirm: vi.fn() }),
+  useConfirm: () => ({
+    confirm: null,
+    showConfirm: (_message: string, action: () => unknown) => { harness.confirmAction = action; },
+    clearConfirm: vi.fn(),
+    handleConfirm: vi.fn(),
+  }),
 }));
 vi.mock('../../hooks/useEscapeKey', () => ({ useEscapeKey: vi.fn() }));
 vi.mock('../../store/useNotesStore', () => ({ useNotesStore: (selector: (state: { notes: [] }) => unknown) => selector({ notes: [] }) }));
@@ -59,6 +65,9 @@ vi.mock('../../lib/i18n', () => ({
       schedulesRefreshIncomplete: 'Some schedule sources could not be refreshed. Their previous data was kept.',
       schedulesRefreshOffline: "You're offline. Existing schedules were kept.",
       schedulesRefreshUnavailable: 'Schedule refresh is unavailable right now.',
+      scheduleMonthMutationRefreshing: "Refreshing this month's schedules after the change…",
+      scheduleMonthMutationRefreshed: "This month's Schedule view was refreshed.",
+      scheduleMonthMutationRefreshIncomplete: "The Schedule change succeeded, but this month's list could not be verified. Previous complete data is still shown.",
     }[key] ?? key),
   }),
 }));
@@ -99,14 +108,17 @@ vi.mock('./features/planner/calendar-ui/day/ScheduleEventDetailPanel', () => ({
   ScheduleEventDetailPanel: ({
     block,
     onEdit,
+    onDelete,
     onClose,
   }: {
     block: { title: string };
     onEdit: (titleDraft?: string) => void;
+    onDelete: () => void;
     onClose: () => void;
   }) => createElement('section', { 'data-testid': 'schedule-detail' },
     createElement('span', null, block.title),
     createElement('button', { type: 'button', 'data-testid': 'edit-month-schedule', onClick: () => onEdit() }, 'Edit'),
+    createElement('button', { type: 'button', 'data-testid': 'delete-month-schedule', onClick: onDelete }, 'Delete'),
     createElement('button', { type: 'button', onClick: onClose }, 'Close'),
   ),
 }));
@@ -247,6 +259,23 @@ async function click(selector: string): Promise<void> {
   await act(async () => button.click());
 }
 
+async function setInputValue(selector: string, value: string): Promise<void> {
+  const input = host.querySelector<HTMLInputElement>(selector);
+  if (!input) throw new Error(`Missing Schedule input: ${selector}`);
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, value);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+}
+
+async function clickSaveSchedule(): Promise<void> {
+  const button = Array.from(host.querySelectorAll<HTMLButtonElement>('button'))
+    .find(candidate => candidate.textContent?.trim() === 'saveSchedule');
+  if (!button) throw new Error('Missing Schedule save button.');
+  await act(async () => button.click());
+}
+
 function storageSnapshot(): string {
   return JSON.stringify(Array.from({ length: localStorage.length }, (_, index) => {
     const key = localStorage.key(index)!;
@@ -264,6 +293,7 @@ beforeEach(() => {
   harness.deferNextPath = null;
   harness.deferredResponse = null;
   harness.apiMutation.mockReset();
+  harness.confirmAction = null;
   setRuntimeAccountSyncAccount('account-a');
   cache = new Map();
   localStorage.clear();
@@ -296,6 +326,253 @@ describe('Schedule explicit cross-device refresh', () => {
     expect(host.querySelector<HTMLInputElement>('input[type="text"]')?.value).toBe('Month event');
     expect(host.querySelector<HTMLInputElement>('input[type="date"]')?.value).toBe('2026-09-21');
     expect(harness.apiMutation).not.toHaveBeenCalled();
+  });
+
+  it('refreshes the complete displayed month after a successful create without optimistic publication', async () => {
+    const date = '2026-09-18';
+    initialServerState('account-a', date);
+    await render('account-a', date);
+    await flush();
+    await click('[data-testid="open-create-form"]');
+    await setInputValue('input[type="text"]', 'Created Schedule');
+    await setInputValue('input[type="date"]', '2026-09-19');
+
+    const monthResponse = deferred<unknown>();
+    harness.deferNextPath = monthRangePath(date);
+    harness.deferredResponse = monthResponse.promise;
+    harness.server[serverKey('account-a', monthRangePath(date))] = monthPage([
+      schedule('created-event', 'Created Schedule', '2026-09-19'),
+    ], date);
+    harness.requests = [];
+    harness.apiMutation.mockResolvedValue(true);
+
+    await clickSaveSchedule();
+    await flush();
+
+    expect(harness.apiMutation).toHaveBeenCalledWith('POST', '/api/schedules', expect.objectContaining({
+      text: 'Created Schedule', date: '2026-09-19',
+    }), expect.any(Object));
+    expect(harness.requests.filter(request => request.path === monthRangePath(date))).toHaveLength(1);
+    expect(harness.requests.some(request => request.path === datePath(date) || request.path === datePath('2026-09-17'))).toBe(false);
+    expect(host.querySelector('[data-testid="month-source"]')?.textContent).toBe('account-a month old');
+    expect(host.querySelector('[data-schedule-month-mutation-status]')?.getAttribute('data-schedule-month-mutation-status')).toBe('refreshing');
+
+    monthResponse.resolve(harness.server[serverKey('account-a', monthRangePath(date))]);
+    await flush();
+
+    expect(host.querySelector('[data-testid="month-source"]')?.textContent).toBe('Created Schedule');
+    expect(host.querySelector('[data-schedule-month-mutation-status]')?.getAttribute('data-schedule-month-mutation-status')).toBe('success');
+    expect(harness.requests.every(request => request.account === 'account-a' && request.method === 'GET')).toBe(true);
+  });
+
+  it('refreshes after an edit moves a Schedule out of the displayed month', async () => {
+    const date = '2026-09-18';
+    initialServerState('account-a', date);
+    harness.server[serverKey('account-a', monthRangePath(date))] = monthPage([
+      schedule('moving-event', 'Moving Schedule', '2026-09-23'),
+    ], date);
+    await render('account-a', date);
+    await flush();
+    await click('[data-month-schedule-id="moving-event"]');
+    await click('[data-testid="edit-month-schedule"]');
+    await setInputValue('input[type="date"]', '2026-10-03');
+
+    harness.server[serverKey('account-a', monthRangePath(date))] = monthPage([], date);
+    harness.requests = [];
+    harness.apiMutation.mockResolvedValue(true);
+    await clickSaveSchedule();
+    await flush();
+
+    expect(harness.apiMutation).toHaveBeenCalledWith('PUT', '/api/schedules/moving-event', expect.objectContaining({
+      date: '2026-10-03',
+    }), expect.any(Object));
+    expect(harness.requests.map(request => request.path)).toContain(monthRangePath(date));
+    expect(host.querySelector('[data-testid="month-source"]')?.textContent).toBe('');
+    expect(host.textContent).not.toContain('Moving Schedule');
+    expect(host.querySelector('[data-schedule-month-mutation-status]')?.getAttribute('data-schedule-month-mutation-status')).toBe('success');
+  });
+
+  it('refreshes the displayed month after a confirmed delete', async () => {
+    const date = '2026-09-18';
+    initialServerState('account-a', date);
+    harness.server[serverKey('account-a', monthRangePath(date))] = monthPage([
+      schedule('deleted-event', 'Deleted Schedule', '2026-09-23'),
+    ], date);
+    await render('account-a', date);
+    await flush();
+    await click('[data-month-schedule-id="deleted-event"]');
+    await click('[data-testid="delete-month-schedule"]');
+    harness.server[serverKey('account-a', monthRangePath(date))] = monthPage([], date);
+    harness.requests = [];
+    harness.apiMutation.mockResolvedValue(true);
+    expect(harness.confirmAction).not.toBeNull();
+    await act(async () => { await harness.confirmAction?.(); });
+    await flush();
+
+    expect(harness.apiMutation).toHaveBeenCalledWith('DELETE', '/api/schedules/deleted-event', undefined, expect.any(Object));
+    expect(harness.requests.map(request => request.path)).toContain(monthRangePath(date));
+    expect(host.querySelector('[data-testid="month-source"]')?.textContent).toBe('');
+    expect(host.querySelector('[data-schedule-month-mutation-status]')?.getAttribute('data-schedule-month-mutation-status')).toBe('success');
+  });
+
+  it('keeps the previous complete month cache when the post-save read fails', async () => {
+    const date = '2026-09-18';
+    initialServerState('account-a', date);
+    await render('account-a', date);
+    await flush();
+    await click('[data-testid="open-create-form"]');
+    await setInputValue('input[type="text"]', 'Will save but refresh fails');
+    await setInputValue('input[type="date"]', '2026-09-19');
+    harness.failNextPath = monthRangePath(date);
+    harness.apiMutation.mockResolvedValue(true);
+    await clickSaveSchedule();
+    await flush();
+
+    expect(host.querySelector('[data-testid="month-source"]')?.textContent).toBe('account-a month old');
+    expect(host.querySelector('[data-schedule-month-mutation-status]')?.getAttribute('data-schedule-month-mutation-status')).toBe('incomplete');
+    expect(host.textContent).toContain("The Schedule change succeeded, but this month's list could not be verified.");
+    expect(host.textContent).not.toContain('Will save but refresh fails');
+  });
+
+  it('supersedes a pre-mutation manual month read and reuses the verified post-mutation result', async () => {
+    const date = '2026-09-18';
+    initialServerState('account-a', date);
+    await render('account-a', date);
+    await flush();
+    await click('[data-testid="open-create-form"]');
+    await setInputValue('input[type="text"]', 'Overlap mutation');
+    await setInputValue('input[type="date"]', '2026-09-19');
+
+    const staleMonth = deferred<unknown>();
+    harness.deferNextPath = monthRangePath(date);
+    harness.deferredResponse = staleMonth.promise;
+    harness.requests = [];
+    await click('[data-schedule-manual-refresh]');
+    await flush();
+    expect(harness.requests.filter(request => request.path === monthRangePath(date))).toHaveLength(1);
+
+    harness.server[serverKey('account-a', monthRangePath(date))] = monthPage([
+      schedule('post-mutation-event', 'Post mutation Schedule', '2026-09-26'),
+    ], date);
+    harness.apiMutation.mockResolvedValue(true);
+    await clickSaveSchedule();
+    await flush();
+    expect(harness.requests.filter(request => request.path === monthRangePath(date))).toHaveLength(2);
+    expect(host.querySelector('[data-testid="month-source"]')?.textContent).toBe('Post mutation Schedule');
+
+    staleMonth.resolve(monthPage([
+      schedule('stale-event', 'Stale pre-mutation Schedule', '2026-09-25'),
+    ], date));
+    await flush();
+
+    expect(host.querySelector('[data-testid="month-source"]')?.textContent).toBe('Post mutation Schedule');
+    expect(host.textContent).not.toContain('Stale pre-mutation Schedule');
+    expect(harness.requests.filter(request => request.path === monthRangePath(date))).toHaveLength(2);
+    expect(host.querySelector('[data-schedule-month-mutation-status]')?.getAttribute('data-schedule-month-mutation-status')).toBe('success');
+    expect(host.querySelector('[data-schedule-refresh-status]')?.getAttribute('data-schedule-refresh-status')).toBe('success');
+  });
+
+  it('shares a safe in-flight post-mutation month read with a later manual refresh', async () => {
+    const date = '2026-09-18';
+    initialServerState('account-a', date);
+    await render('account-a', date);
+    await flush();
+    await click('[data-testid="open-create-form"]');
+    await setInputValue('input[type="text"]', 'Saved before shared refresh');
+    await setInputValue('input[type="date"]', '2026-09-19');
+
+    const monthResponse = deferred<unknown>();
+    harness.deferNextPath = monthRangePath(date);
+    harness.deferredResponse = monthResponse.promise;
+    harness.server[serverKey('account-a', monthRangePath(date))] = monthPage([
+      schedule('shared-refresh-event', 'Shared post-mutation result', '2026-09-19'),
+    ], date);
+    harness.requests = [];
+    harness.apiMutation.mockResolvedValue(true);
+    await clickSaveSchedule();
+    await flush();
+    expect(harness.requests.filter(request => request.path === monthRangePath(date))).toHaveLength(1);
+
+    await click('[data-schedule-manual-refresh]');
+    await flush();
+    expect(harness.requests.filter(request => request.path === monthRangePath(date))).toHaveLength(1);
+
+    monthResponse.resolve(harness.server[serverKey('account-a', monthRangePath(date))]);
+    await flush();
+    expect(host.querySelector('[data-testid="month-source"]')?.textContent).toBe('Shared post-mutation result');
+    expect(host.querySelector('[data-schedule-month-mutation-status]')?.getAttribute('data-schedule-month-mutation-status')).toBe('success');
+    expect(host.querySelector('[data-schedule-refresh-status]')?.getAttribute('data-schedule-refresh-status')).toBe('success');
+  });
+
+  it('uses the currently displayed month when a save completes after month navigation', async () => {
+    const september = '2026-09-18';
+    const october = '2026-10-02';
+    initialServerState('account-a', september);
+    initialServerState('account-a', october);
+    await render('account-a', september);
+    await flush();
+    await click('[data-testid="open-create-form"]');
+    await setInputValue('input[type="text"]', 'Pending September save');
+    await setInputValue('input[type="date"]', '2026-09-19');
+    const saveResult = deferred<boolean>();
+    harness.apiMutation.mockReturnValue(saveResult.promise);
+    await clickSaveSchedule();
+    await flush();
+
+    harness.server[serverKey('account-a', monthRangePath(october))] = monthPage([
+      schedule('october-after-save', 'October after save', '2026-10-12'),
+    ], october);
+    await render('account-a', october);
+    await flush();
+    expect(host.querySelector('[data-testid="month-source"]')?.textContent).toBe('October after save');
+    harness.requests = [];
+
+    saveResult.resolve(true);
+    await flush();
+
+    expect(harness.requests.filter(request => request.path === monthRangePath(october))).toHaveLength(1);
+    expect(harness.requests.some(request => request.path === monthRangePath(september))).toBe(false);
+    expect(host.querySelector('[data-testid="month-source"]')?.textContent).toBe('October after save');
+    expect(host.querySelector('[data-schedule-month-mutation-status]')?.getAttribute('data-schedule-month-mutation-status')).toBe('success');
+  });
+
+  it('does not refresh a stale mutation after account A-B-A or after unmount', async () => {
+    const date = '2026-09-18';
+    initialServerState('account-a', date);
+    initialServerState('account-b', date);
+    await render('account-a', date);
+    await flush();
+    await click('[data-testid="open-create-form"]');
+    await setInputValue('input[type="text"]', 'Account A pending save');
+    await setInputValue('input[type="date"]', '2026-09-19');
+    const accountAResult = deferred<boolean>();
+    harness.apiMutation.mockReturnValue(accountAResult.promise);
+    await clickSaveSchedule();
+    await flush();
+
+    await render('account-b', date);
+    await flush();
+    await render('account-a', date);
+    await flush();
+    harness.requests = [];
+    accountAResult.resolve(true);
+    await flush();
+    expect(harness.requests.some(request => request.path === monthRangePath(date))).toBe(false);
+    expect(host.querySelector('[data-schedule-month-mutation-status]')).toBeNull();
+    expect(host.textContent).not.toContain('Account A pending save');
+
+    await click('[data-testid="open-create-form"]');
+    await setInputValue('input[type="text"]', 'Unmount pending save');
+    await setInputValue('input[type="date"]', '2026-09-19');
+    const unmountedResult = deferred<boolean>();
+    harness.apiMutation.mockReturnValue(unmountedResult.promise);
+    await clickSaveSchedule();
+    await flush();
+    await act(async () => { root.render(createElement('div', null, 'Unmounted Planner')); });
+    harness.requests = [];
+    unmountedResult.resolve(true);
+    await flush();
+    expect(harness.requests.some(request => request.path === monthRangePath(date))).toBe(false);
   });
 
   it('refreshes the selected day, previous day, D-day, and displayed month without writes', async () => {
@@ -343,6 +620,32 @@ describe('Schedule explicit cross-device refresh', () => {
       .every(key => key.includes('\u0000absinthe-account=account-a'))).toBe(true);
     expect(harness.apiMutation).not.toHaveBeenCalled();
     expect(storageSnapshot()).toBe(beforeStorage);
+  });
+
+  it('does not mistake a pre-existing mount read for a newly requested manual month refresh', async () => {
+    const date = '2026-09-18';
+    initialServerState('account-a', date);
+    const mountResponse = deferred<unknown>();
+    harness.deferNextPath = monthRangePath(date);
+    harness.deferredResponse = mountResponse.promise;
+    await render('account-a', date);
+    await flush();
+    expect(harness.requests.filter(request => request.path === monthRangePath(date))).toHaveLength(1);
+
+    harness.server[serverKey('account-a', monthRangePath(date))] = monthPage([
+      schedule('fresh-manual-row', 'Fresh manual month', '2026-09-24'),
+    ], date);
+    await click('[data-schedule-manual-refresh]');
+    await flush();
+    expect(harness.requests.filter(request => request.path === monthRangePath(date))).toHaveLength(2);
+    expect(host.querySelector('[data-testid="month-source"]')?.textContent).toBe('Fresh manual month');
+
+    mountResponse.resolve(monthPage([
+      schedule('stale-mount-row', 'Stale mount month', '2026-09-25'),
+    ], date));
+    await flush();
+    expect(host.querySelector('[data-testid="month-source"]')?.textContent).toBe('Fresh manual month');
+    expect(host.textContent).not.toContain('Stale mount month');
   });
 
   it('coalesces duplicate clicks, preserves an open editor draft, and leaves prior data for a failed source', async () => {

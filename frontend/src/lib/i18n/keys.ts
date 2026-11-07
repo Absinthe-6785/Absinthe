@@ -2338,6 +2338,9 @@ const translationKeys = [
   "recipeExpandCard",
   "recipeCollapseCard",
   "recipeRemoveStarred",
+  "scheduleMonthMutationRefreshing",
+  "scheduleMonthMutationRefreshed",
+  "scheduleMonthMutationRefreshIncomplete",
 ] as const;
 
 export type TranslationKey = (typeof translationKeys)[number];
