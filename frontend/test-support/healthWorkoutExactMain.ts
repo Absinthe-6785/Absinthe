@@ -295,6 +295,22 @@ const BASELINE_REVERSE_HUNKS = [
   {
     "candidate": "        if (localMode) mutateStatic();\n        if (isMobile) {\n          requestAnimationFrame(() => {\n            if (!currentWorkoutOperation(operationScope)) return;\n            inbodyQuickRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });\n          });\n        }",
     "baseline": "        if (localMode) mutateStatic();\n        if (isMobile) {\n          requestAnimationFrame(() => {\n            inbodyQuickRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });\n          });\n        }"
+  },
+  {
+    candidate: "import { useWorkoutSummaryCopy } from './features/health/useWorkoutSummaryCopy';\n",
+    baseline: '',
+  },
+  {
+    candidate: "  const [healthSection, setHealthSection] = useState<HealthWorkspaceSection>('workout');\n",
+    baseline: "  const [healthSection, setHealthSection] = useState<HealthWorkspaceSection>('workout');\n  const [copied, setCopied] = useState(false);\n",
+  },
+  {
+    candidate: "  const workoutSummaryText = useMemo(\n    () => buildWorkoutSummary(formatDate(selectedDate), localWorkouts, workoutMemo),\n    [buildWorkoutSummary, formatDate, selectedDate, localWorkouts, workoutMemo],\n  );\n  const summaryCopyContext = useMemo(() => ({\n    accountId: user.id,\n    generation: accountGenerationRef.current,\n    dateKey: selectedDateDraftKey,\n    summaryText: workoutSummaryText,\n  }), [user.id, selectedDateDraftKey, workoutSummaryText]);\n  const { status: copySummaryStatus, copy: handleCopySummary } = useWorkoutSummaryCopy(\n    summaryCopyContext,\n    currentAccountOperation,\n  );",
+    baseline: "  const handleCopySummary = useCallback(async () => {\n    const text = buildWorkoutSummary(formatDate(selectedDate), localWorkouts, workoutMemo);\n    try {\n      await navigator.clipboard.writeText(text);\n      setCopied(true);\n      setTimeout(() => setCopied(false), 2000);\n    } catch {\n      // clipboard API 미지원 시 fallback\n      const ta = document.createElement('textarea');\n      ta.value = text;\n      ta.style.position = 'fixed';\n      ta.style.opacity  = '0';\n      document.body.appendChild(ta);\n      ta.select();\n      document.execCommand('copy');\n      document.body.removeChild(ta);\n      setCopied(true);\n      setTimeout(() => setCopied(false), 2000);\n    }\n  }, [buildWorkoutSummary, formatDate, selectedDate, localWorkouts, workoutMemo]);",
+  },
+  {
+    candidate: "                  <button\n                    onClick={handleCopySummary}\n                    title={t('healthCopyWorkoutSummary')}\n                    aria-live=\"polite\"\n                    aria-atomic=\"true\"\n                    className={`flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl font-bold text-sm shadow-lg active:scale-[0.97] transition-all\n                      ${copySummaryStatus === 'copied'\n                        ? (appSettings.darkMode ? 'bg-green-800/60 text-green-300' : 'bg-green-100 text-green-700')\n                        : (appSettings.darkMode ? 'bg-surface-alt text-gray-200 hover:bg-[#48484A]' : 'bg-gray-100 text-gray-700 hover:bg-gray-200')\n                      }`}>\n                    {copySummaryStatus === 'copied' ? <><Check size={13}/> {t('copiedBtn')}</> : <><ClipboardCopy size={13}/> {t('copyBtn')}</>}\n                  </button>\n                  {copySummaryStatus === 'failed' && (\n                    <span role=\"status\" aria-live=\"polite\" aria-atomic=\"true\" className={`text-xs ${appSettings.darkMode ? 'text-red-300' : 'text-red-700'}`}>\n                      {t('healthWorkoutSummaryCopyFailed')}\n                    </span>\n                  )}",
+    baseline: "                  <button\n                    onClick={handleCopySummary}\n                    title={t('healthCopyWorkoutSummary')}\n                    className={`flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl font-bold text-sm shadow-lg active:scale-[0.97] transition-all\n                      ${copied\n                        ? (appSettings.darkMode ? 'bg-green-800/60 text-green-300' : 'bg-green-100 text-green-700')\n                        : (appSettings.darkMode ? 'bg-surface-alt text-gray-200 hover:bg-[#48484A]' : 'bg-gray-100 text-gray-700 hover:bg-gray-200')\n                      }`}>\n                    {copied ? <><Check size={13}/> {t('copiedBtn')}</> : <><ClipboardCopy size={13}/> {t('copyBtn')}</>}\n                  </button>",
   }
 ];
 const BASELINE_SCOPE_SOURCE = "import type { HealthAccountGenerationToken } from '../../../../lib/healthBackfillUiSafety';\n\nexport interface HealthWorkoutOperationScope {\n  accountOperation: HealthAccountGenerationToken;\n  dateKey: string;\n}\n\nexport function isCurrentHealthWorkoutOperationScope(\n  scope: HealthWorkoutOperationScope,\n  currentDateKey: string,\n  isCurrentAccountOperation: (token: HealthAccountGenerationToken) => boolean,\n): boolean {\n  return scope.dateKey === currentDateKey && isCurrentAccountOperation(scope.accountOperation);\n}\n";
@@ -334,7 +350,7 @@ export async function loadExactMainHealthView(importer: (specifier: string) => P
 export async function loadCandidateHealthView(importer: (specifier: string) => Promise<unknown>) {
   const source = readFileSync('src/components/views/HealthView.tsx', 'utf8').replace(/\r\n/g, '\n');
   const healthBlob = createHash('sha1').update('blob ' + Buffer.byteLength(source) + '\0').update(source).digest('hex');
-  if (healthBlob !== '6f957f441779656317253d3d47773d73a6c92bc7') throw new Error('CANDIDATE_PRODUCTION_BLOB_CHANGED');
+  if (healthBlob !== 'b335c30fc54b6b2bd00488bd46247b6504d76898') throw new Error('CANDIDATE_PRODUCTION_BLOB_CHANGED');
   const candidateFault: string | null = null; // bounded in-memory child transform only
   let observedSource = source;
   if (candidateFault === 'reset-saving') observedSource = source.replaceAll('setIsSaving(false);', 'setIsSaving(true);');
