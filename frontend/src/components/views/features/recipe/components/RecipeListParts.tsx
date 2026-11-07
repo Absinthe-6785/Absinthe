@@ -8,6 +8,7 @@ import { RECIPE_CATEGORIES, EMPTY_RECIPE_FORM } from '../recipeTypes';
 import { useViewportLayout } from '../../../../../hooks/useViewportLayout';
 import { UI_INTERACTION } from '../../../../../lib/uiInteractionTokens';
 import { RecipeCard } from './RecipeCard';
+import type { RecipeCopyMode, RecipeCopyResult } from '../recipeCopyContent';
 
 const VIRTUALIZE_THRESHOLD = 40;
 const ROW_HEIGHT = 72;
@@ -268,6 +269,8 @@ export interface RecipeVirtualListProps {
   pendingStarRecipeIds?: ReadonlySet<string>;
   onEdit: (recipe: Recipe) => void;
   onDelete: (id: string, title: string) => void;
+  onCopyRecipe: (recipeId: string, mode: RecipeCopyMode, expectedContextKey: object) => Promise<RecipeCopyResult>;
+  copyContextKey: object;
   mutationsDisabled?: boolean;
 }
 
@@ -282,6 +285,8 @@ export function RecipeVirtualList({
   pendingStarRecipeIds = new Set(),
   onEdit,
   onDelete,
+  onCopyRecipe,
+  copyContextKey,
   mutationsDisabled = false,
 }: RecipeVirtualListProps) {
   const parentRef = useRef<HTMLDivElement>(null);
@@ -318,6 +323,8 @@ export function RecipeVirtualList({
       onToggleStar={() => onToggleStar(recipe)}
       onEdit={() => onEdit(recipe)}
       onDelete={() => onDelete(recipe.id, recipe.title)}
+      onCopyRecipe={onCopyRecipe}
+      copyContextKey={copyContextKey}
       mutationsDisabled={mutationsDisabled}
       starPending={pendingStarRecipeIds.has(recipe.id)}
     />

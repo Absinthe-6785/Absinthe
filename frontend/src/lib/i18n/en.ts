@@ -2329,6 +2329,12 @@ const enTranslations = [
   "Searches supported title and body text from this completed comparison only. It does not make another cloud request.",
   "{matches} matches among {total} searchable cloud-only and divergent Notes. The comparison totals above are unchanged.",
   "No cloud-only or divergent Note matches. The full comparison still contains {total} searchable Notes; this does not mean the cloud is empty.",
+  "Copy ingredients",
+  "Copy full recipe",
+  "Recipe copied to clipboard.",
+  "Clipboard access is not available in this browser.",
+  "Could not copy the recipe. Check clipboard permission and try again.",
+  "This Recipe is no longer available in the current account. Reopen it and try again.",
 ] as const;
 
 export default enTranslations;

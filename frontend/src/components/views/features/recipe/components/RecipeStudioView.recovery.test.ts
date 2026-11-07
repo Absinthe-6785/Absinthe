@@ -146,9 +146,11 @@ function renderStudio(
   onRestore: (id: string) => void,
   overrides: Partial<RecipeStudioViewProps> = {},
 ) {
-  host = document.createElement('div');
-  document.body.appendChild(host);
-  root = createRoot(host);
+  if (!host) {
+    host = document.createElement('div');
+    document.body.appendChild(host);
+    root = createRoot(host);
+  }
   act(() => {
     root?.render(createElement(RecipeStudioView, {
       projection: emptyProjection,
@@ -163,6 +165,8 @@ function renderStudio(
       onToggleStar: vi.fn(),
       onEdit: vi.fn(),
       onDelete: vi.fn(),
+      onCopyRecipe: async () => 'unavailable' as const,
+      copyContextKey: {},
       deletedRecipes: [deletedRecipe],
       trashAvailability: 'READY_WITH_DATA',
       trashValidating: false,
@@ -262,6 +266,99 @@ afterEach(() => {
 });
 
 describe('UI-07 production Recipe composition hierarchy', () => {
+  it('exposes accessible copy actions on an expanded non-virtualized card without toggling or mutating it', async () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
+    const onCopyRecipe = vi.fn(async () => 'copied' as const);
+    const onToggleExpand = vi.fn();
+    const contextKey = {};
+    renderStudio(vi.fn(), {
+      recipes: [activeRecipe],
+      activeAvailability: 'READY_WITH_DATA',
+      expandedId: activeRecipe.id,
+      onCopyRecipe,
+      onToggleExpand,
+      copyContextKey: contextKey,
+    });
+
+    const ingredients = host!.querySelector<HTMLButtonElement>('[data-recipe-copy-ingredients]')!;
+    const full = host!.querySelector<HTMLButtonElement>('[data-recipe-copy-full]')!;
+    expect(ingredients.type).toBe('button');
+    expect(ingredients.tabIndex).toBe(0);
+    expect(ingredients.textContent).toContain('Copy ingredients');
+    expect(full.textContent).toContain('Copy full recipe');
+
+    await act(async () => { ingredients.click(); });
+    expect(onCopyRecipe).toHaveBeenCalledWith(activeRecipe.id, 'ingredients', contextKey);
+    expect(onToggleExpand).not.toHaveBeenCalled();
+    expect(host!.querySelector('[role="status"]')?.textContent).toContain('Recipe copied to clipboard.');
+  });
+
+  it('does not show a success claim after clipboard failure or a source change during a pending copy', async () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
+    const failedCopy = vi.fn(async () => 'failed' as const);
+    renderStudio(vi.fn(), {
+      recipes: [activeRecipe], activeAvailability: 'READY_WITH_DATA', expandedId: activeRecipe.id,
+      onCopyRecipe: failedCopy,
+    });
+    await act(async () => { host!.querySelector<HTMLButtonElement>('[data-recipe-copy-full]')!.click(); });
+    expect(host!.querySelector('[data-recipe-copy-feedback]')?.textContent).toContain('Could not copy the recipe');
+    expect(host!.querySelector('[data-recipe-copy-feedback]')?.textContent).not.toContain('copied');
+
+    let complete!: () => void;
+    const pendingCopy = vi.fn(() => new Promise<'copied'>(resolve => { complete = () => resolve('copied'); }));
+    renderStudio(vi.fn(), {
+      recipes: [activeRecipe], activeAvailability: 'READY_WITH_DATA', expandedId: activeRecipe.id,
+      onCopyRecipe: pendingCopy,
+      copyContextKey: {},
+    });
+    act(() => { host!.querySelector<HTMLButtonElement>('[data-recipe-copy-ingredients]')!.click(); });
+    expect(pendingCopy).toHaveBeenCalledTimes(1);
+    renderStudio(vi.fn(), {
+      recipes: [activeRecipe], activeAvailability: 'READY_WITH_DATA', expandedId: activeRecipe.id,
+      onCopyRecipe: pendingCopy,
+      copyContextKey: {},
+    });
+    await act(async () => { complete(); await Promise.resolve(); });
+    expect(host!.querySelector('[data-recipe-copy-feedback]')).toBeNull();
+  });
+
+  it('suppresses completion feedback when an expanded card unmounts during clipboard completion', async () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
+    let complete!: () => void;
+    const onCopyRecipe = vi.fn(() => new Promise<'copied'>(resolve => { complete = () => resolve('copied'); }));
+    renderStudio(vi.fn(), {
+      recipes: [activeRecipe], activeAvailability: 'READY_WITH_DATA', expandedId: activeRecipe.id,
+      onCopyRecipe,
+    });
+    const detachedHost = host!;
+    act(() => { detachedHost.querySelector<HTMLButtonElement>('[data-recipe-copy-ingredients]')!.click(); });
+    expect(onCopyRecipe).toHaveBeenCalledTimes(1);
+
+    act(() => root!.unmount());
+    root = null;
+    complete();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(detachedHost.querySelector('[data-recipe-copy-feedback]')).toBeNull();
+  });
+
+  it('keeps copy controls available through the existing virtualized card renderer', () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1440 });
+    const recipes = Array.from({ length: 45 }, (_, index) => ({
+      ...activeRecipe,
+      id: `copy-virtual-${index + 1}`,
+    }));
+    renderStudio(vi.fn(), {
+      recipes,
+      activeAvailability: 'READY_WITH_DATA',
+      expandedId: recipes[2]!.id,
+      onCopyRecipe: vi.fn(async () => 'copied' as const),
+    });
+
+    expect(host!.querySelector('[data-k110-recipe-virtual-list]')).not.toBeNull();
+    expect(host!.querySelector(`[data-k110-recipe-card="${recipes[2]!.id}"] [data-recipe-copy-ingredients]`)).not.toBeNull();
+  });
+
   it('scrolls an expanded off-screen recipe into the virtualized list window', () => {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1440 });
     const recipes = Array.from({ length: 60 }, (_, index) => ({

@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import useSWR from 'swr';
 import { authFetch } from '../../lib/supabase';
 import { API_URL } from '../../lib/config';
@@ -13,6 +13,7 @@ import {
   useRecipeProjection,
 } from './features/recipe';
 import { RecipeStudioView } from './features/recipe/components/RecipeStudioView';
+import { buildRecipeCopyText, type RecipeCopyMode, type RecipeCopyResult } from './features/recipe/recipeCopyContent';
 import { WorkspaceErrorBoundary } from '../common/WorkspaceErrorBoundary';
 import { RecipeFormModal, type RecipeFormState } from './features/recipe/components/RecipeListParts';
 import { registerSearchDomainHandlers } from './features/search/searchDomainNavigation';
@@ -177,8 +178,73 @@ export const RecipeView = ({
   activeAvailabilityRef.current = activeAvailability;
   trashAvailabilityRef.current = trashAvailability;
 
+  const accountGeneration = accountGenerationRef.current;
+  const copyContextKey = useMemo(() => ({}), [
+    accountId,
+    accountGeneration,
+    activeRecipeData,
+    activeAvailability,
+    activeRecipeValidating,
+  ]);
+  const copyAuthorityRef = useRef({
+    accountId: accountIdRef.current,
+    accountGeneration,
+    data: activeRecipeData,
+    availability: activeAvailability,
+    validating: activeRecipeValidating,
+    contextKey: copyContextKey,
+  });
+  useLayoutEffect(() => {
+    copyAuthorityRef.current = {
+      accountId: accountIdRef.current,
+      accountGeneration,
+      data: activeRecipeData,
+      availability: activeAvailability,
+      validating: activeRecipeValidating,
+      contextKey: copyContextKey,
+    };
+  }, [accountGeneration, accountId, activeRecipeData, activeAvailability, activeRecipeValidating, copyContextKey]);
+
   const locale = resolveAppLanguage(appSettings.language);
   const projection = useRecipeProjection(recipes, { locale });
+  const handleCopyRecipe = useCallback(async (
+    recipeId: string,
+    mode: RecipeCopyMode,
+    expectedContextKey: object,
+  ): Promise<RecipeCopyResult> => {
+    const source = copyAuthorityRef.current;
+    const accountSnapshot = { accountId: source.accountId, generation: source.accountGeneration };
+    if (!source.accountId || !isCurrentAccountGeneration(accountSnapshot)) return 'stale';
+    if (expectedContextKey !== source.contextKey) return 'stale';
+    if (source.availability !== 'READY_WITH_DATA' || source.validating || !Array.isArray(source.data)) {
+      return 'unavailable';
+    }
+    const recipe = source.data.find(candidate => candidate.id === recipeId && candidate.deleted_at == null);
+    if (!recipe) return 'unavailable';
+    if (typeof navigator === 'undefined' || !navigator.clipboard
+      || typeof navigator.clipboard.writeText !== 'function') return 'unsupported';
+
+    const text = buildRecipeCopyText(recipe, mode, {
+      title: t('title'),
+      ingredients: t('ingredients'),
+      steps: t('steps'),
+      memo: t('recipeMemo'),
+    });
+    const sourceData = source.data;
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      return 'failed';
+    }
+    const current = copyAuthorityRef.current;
+    if (!isCurrentAccountGeneration(accountSnapshot)
+      || current.contextKey !== source.contextKey
+      || current.accountId !== source.accountId
+      || current.data !== sourceData
+      || current.availability !== 'READY_WITH_DATA'
+      || current.validating) return 'stale';
+    return 'copied';
+  }, [isCurrentAccountGeneration, t]);
 
   const beginFormSession = useCallback(() => {
     const generation = formSessionGenerationRef.current + 1;
@@ -736,6 +802,8 @@ export const RecipeView = ({
         pendingStarRecipeIds={pendingStarRecipeIds}
         onEdit={openEdit}
         onDelete={handleDelete}
+        onCopyRecipe={handleCopyRecipe}
+        copyContextKey={copyContextKey}
         deletedRecipes={deletedRecipes}
         trashAvailability={trashAvailability}
         trashValidating={deletedRecipeValidating}

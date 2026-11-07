@@ -2329,6 +2329,12 @@ const translationKeys = [
   "notesCloudSearchHelp",
   "notesCloudSearchMatches",
   "notesCloudSearchNoMatches",
+  "recipeCopyIngredients",
+  "recipeCopyFull",
+  "recipeCopySuccess",
+  "recipeCopyUnsupported",
+  "recipeCopyFailed",
+  "recipeCopyUnavailable",
 ] as const;
 
 export type TranslationKey = (typeof translationKeys)[number];

@@ -8,7 +8,7 @@ import translationKeys, { buildLocaleDictionary } from './i18n/keys';
 import type { TranslationKey } from './i18n';
 
 const PLANNER_STORAGE_KEY = 'planner-storage';
-const EXPECTED_KEY_COUNT = 2_329;
+const EXPECTED_KEY_COUNT = 2_335;
 type Locale = 'en' | 'ko' | 'ja';
 
 // Current independent canonical authority, including append-only Notes UI, Wiki-link accessibility, cloud comparison and search, Cloud Copy status readback, local document downloads, PDF/DOCX preview, Recipe filter reset, local-original integrity preflight, cloud Note previews, and single-Note cloud text export.
@@ -16,6 +16,12 @@ type Locale = 'en' | 'ko' | 'ja';
 // translationKeys order, so it detects insertion, omission, reordering, and
 // substitution without using buildLocaleDictionary.
 const EXPECTED_LOCALE_INTEGRITY_SHA256: Record<Locale, string> = {
+  en: '9a193cd865fc47b942d4ba5823181afeca7266d0157d30851f3405fee7fc3f88',
+  ko: 'fd046983f8f63946d354a03207919ec4328341f019cb987abd3055c51cd3ba73',
+  ja: '564e9db1d3af04343168b379d442297852c3507679fd26984bb02c26fce1dc30',
+};
+
+const PRE_RECIPE_COPY_LOCALE_SHA256: Record<Locale, string> = {
   en: 'dced00956e096fc705d299e70ad671f9a05c7a17ab7d93080ead00cb0a6dc398',
   ko: 'c56b2cb1c9d421790e5f4d11e25f53fa2a3a0b144eed0d873d40d457c2c31c19',
   ja: '6fdae56e5ab67006895849261457fc5ad18c0189441af3bbcce61d0c73f4076f',
@@ -172,6 +178,19 @@ describe('i18n locale dictionaries', () => {
     expect(() => assertLocaleValuesIntegrity('en', enLocaleValues)).not.toThrow();
     expect(() => assertLocaleValuesIntegrity('ko', koLocaleValues)).not.toThrow();
     expect(() => assertLocaleValuesIntegrity('ja', jaLocaleValues)).not.toThrow();
+  });
+
+  it('appends localized Recipe copy actions without changing the existing 2329 translations', () => {
+    for (const [locale, values] of [['en', enLocaleValues], ['ko', koLocaleValues], ['ja', jaLocaleValues]] as const) {
+      expect(localeIntegrityDigest(values.slice(0, 2_329), translationKeys.slice(0, 2_329)))
+        .toBe(PRE_RECIPE_COPY_LOCALE_SHA256[locale]);
+    }
+    expect(enTranslations.recipeCopyIngredients).toBe('Copy ingredients');
+    expect(koTranslations.recipeCopyIngredients).toBe('재료 복사');
+    expect(jaTranslations.recipeCopyIngredients).toBe('材料をコピー');
+    expect(enTranslations.recipeCopySuccess).toContain('clipboard');
+    expect(koTranslations.recipeCopyFailed).toContain('복사하지 못했습니다');
+    expect(jaTranslations.recipeCopyUnavailable).toContain('現在のアカウント');
   });
 
   it('keeps backup success and coverage copy explicit about supported data and excluded attachment originals', () => {
@@ -398,7 +417,9 @@ describe('i18n locale dictionaries', () => {
         'Search cloud-only and divergent Notes', 'Search cloud title or body',
         'Searches supported title and body text from this completed comparison only. It does not make another cloud request.',
         '{matches} matches among {total} searchable cloud-only and divergent Notes. The comparison totals above are unchanged.',
-        'No cloud-only or divergent Note matches. The full comparison still contains {total} searchable Notes; this does not mean the cloud is empty.'],
+        'No cloud-only or divergent Note matches. The full comparison still contains {total} searchable Notes; this does not mean the cloud is empty.',
+        'Copy ingredients', 'Copy full recipe', 'Recipe copied to clipboard.', 'Clipboard access is not available in this browser.',
+        'Could not copy the recipe. Check clipboard permission and try again.', 'This Recipe is no longer available in the current account. Reopen it and try again.'],
       ko: ['클라우드 노트 미리보기', '클라우드 전용 노트 미리보기',
         '검증된 클라우드 비교에서 가져온 텍스트입니다. 로컬 노트가 아니며 가져오지 않았습니다.',
         '첨부 원본은 이 미리보기에 포함되지 않습니다.',
@@ -416,7 +437,9 @@ describe('i18n locale dictionaries', () => {
         '클라우드 전용·차이 있는 노트 검색', '클라우드 제목 또는 본문 검색',
         '완료된 현재 비교의 지원되는 제목과 본문만 검색합니다. 클라우드에 새 요청을 보내지 않습니다.',
         '검색 가능한 클라우드 전용·차이 노트 {total}개 중 {matches}개가 일치합니다. 위 비교 수치는 필터링되지 않았습니다.',
-        '일치하는 클라우드 전용·차이 노트가 없습니다. 전체 비교에는 검색 가능한 노트 {total}개가 있습니다. 검색 결과가 없다고 클라우드가 비어 있다는 뜻은 아닙니다.'],
+        '일치하는 클라우드 전용·차이 노트가 없습니다. 전체 비교에는 검색 가능한 노트 {total}개가 있습니다. 검색 결과가 없다고 클라우드가 비어 있다는 뜻은 아닙니다.',
+        '재료 복사', '레시피 전체 복사', '레시피를 클립보드에 복사했습니다.', '이 브라우저에서는 클립보드를 사용할 수 없습니다.',
+        '레시피를 복사하지 못했습니다. 클립보드 권한을 확인하고 다시 시도하세요.', '현재 계정에서 이 레시피를 사용할 수 없습니다. 다시 열고 시도하세요.'],
       ja: ['クラウドノートをプレビュー', 'クラウドのみのノートプレビュー',
         '検証済みクラウド比較のテキストです。ローカルノートではなく、取り込みも行っていません。',
         '添付ファイルの原本はこのプレビューに含まれません。',
@@ -434,7 +457,9 @@ describe('i18n locale dictionaries', () => {
         'クラウドのみ・差異のあるノートを検索', 'クラウドのタイトルまたは本文を検索',
         '完了済みの現在の比較に含まれる対応済みのタイトルと本文だけを検索します。クラウドへの追加リクエストは行いません。',
         '検索可能なクラウドのみ・差異のあるノート{total}件中、{matches}件が一致しました。上の比較件数は絞り込まれていません。',
-        '一致するクラウドのみ・差異のあるノートはありません。比較全体には検索可能なノートが{total}件あります。検索結果がないことはクラウドが空であることを意味しません。'],
+        '一致するクラウドのみ・差異のあるノートはありません。比較全体には検索可能なノートが{total}件あります。検索結果がないことはクラウドが空であることを意味しません。',
+        '材料をコピー', 'レシピ全体をコピー', 'レシピをクリップボードにコピーしました。', 'このブラウザーではクリップボードを利用できません。',
+        'レシピをコピーできませんでした。クリップボードの権限を確認して、もう一度お試しください。', '現在のアカウントではこのレシピを利用できません。開き直してからお試しください。'],
     } as const;
     expect(translationKeys.slice(2_299)).toEqual([
       ...keys,
@@ -444,6 +469,7 @@ describe('i18n locale dictionaries', () => {
       'notesCloudDifferenceProperties', 'notesCloudDifferenceRelations',
       'notesCloudTextDownloadAction', 'notesCloudTextDownloadScope', 'notesCloudTextDownloadStarted', 'notesCloudTextDownloadUnavailable',
       'notesCloudSearchLabel', 'notesCloudSearchPlaceholder', 'notesCloudSearchHelp', 'notesCloudSearchMatches', 'notesCloudSearchNoMatches',
+      'recipeCopyIngredients', 'recipeCopyFull', 'recipeCopySuccess', 'recipeCopyUnsupported', 'recipeCopyFailed', 'recipeCopyUnavailable',
     ]);
     for (const [locale, values] of [['en', enLocaleValues], ['ko', koLocaleValues], ['ja', jaLocaleValues]] as const) {
       expect(localeIntegrityDigest(values.slice(0, 2_299), translationKeys.slice(0, 2_299)))
@@ -472,10 +498,10 @@ describe('i18n locale dictionaries', () => {
     missing.splice(1_000, 1);
 
     expect(() => buildLocaleDictionary(missing)).toThrow(
-      'Locale dictionary length mismatch: expected 2329, received 2328',
+      'Locale dictionary length mismatch: expected 2335, received 2334',
     );
     expect(() => assertLocaleValuesIntegrity('en', missing)).toThrow(
-      'Locale integrity length mismatch: expected 2329, received 2328',
+      'Locale integrity length mismatch: expected 2335, received 2334',
     );
   });
 
@@ -484,10 +510,10 @@ describe('i18n locale dictionaries', () => {
     extra.splice(1_000, 0, '__unexpected__');
 
     expect(() => buildLocaleDictionary(extra)).toThrow(
-      'Locale dictionary length mismatch: expected 2329, received 2330',
+      'Locale dictionary length mismatch: expected 2335, received 2336',
     );
     expect(() => assertLocaleValuesIntegrity('en', extra)).toThrow(
-      'Locale integrity length mismatch: expected 2329, received 2330',
+      'Locale integrity length mismatch: expected 2335, received 2336',
     );
   });
 
