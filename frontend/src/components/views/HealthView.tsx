@@ -25,6 +25,7 @@ import { HealthProps, Workout, WorkoutSet, StrengthSet, CardioSet, ExerciseBlock
 import { HealthWorkspaceNav, HEALTH_WORKSPACE_SECTIONS, type HealthWorkspaceSection } from './features/health/HealthWorkspaceNav';
 import { ProteinTracker } from './features/health/nutrition';
 import { getRecoveryEntry } from './features/health/recovery/recoveryNotes';
+import { useWorkoutSummaryCopy } from './features/health/useWorkoutSummaryCopy';
 import { WORKSPACE_CARD, WORKSPACE_CARD_RADIUS_CLASS, WORKSPACE_CARD_SURFACE, WORKSPACE_MODAL_SURFACE } from '../common/workspaceCardSizes';
 import { formatAbsoluteDateKey, formatLongDate } from './k102DateFormat';
 import { buildHealthProjection } from './features/health/buildHealthProjection';
@@ -227,7 +228,6 @@ export const HealthView = ({
   const [isPreviousSheetOpen, setIsPreviousSheetOpen] = useState(false);
   const [selectedPreviousDate, setSelectedPreviousDate] = useState<string | null>(null);
   const [healthSection, setHealthSection] = useState<HealthWorkspaceSection>('workout');
-  const [copied, setCopied] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isWorkoutLocked, setIsWorkoutLocked] = useState(false);
   const [workoutOverflowIndex, setWorkoutOverflowIndex] = useState<number | null>(null);
@@ -478,26 +478,20 @@ export const HealthView = ({
     onDraftRestored: () => showToast(t('draftRestored')),
   });
 
-  const handleCopySummary = useCallback(async () => {
-    const text = buildWorkoutSummary(formatDate(selectedDate), localWorkouts, workoutMemo);
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // clipboard API 미지원 시 fallback
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      ta.style.position = 'fixed';
-      ta.style.opacity  = '0';
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand('copy');
-      document.body.removeChild(ta);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
-  }, [buildWorkoutSummary, formatDate, selectedDate, localWorkouts, workoutMemo]);
+  const workoutSummaryText = useMemo(
+    () => buildWorkoutSummary(formatDate(selectedDate), localWorkouts, workoutMemo),
+    [buildWorkoutSummary, formatDate, selectedDate, localWorkouts, workoutMemo],
+  );
+  const summaryCopyContext = useMemo(() => ({
+    accountId: user.id,
+    generation: accountGenerationRef.current,
+    dateKey: selectedDateDraftKey,
+    summaryText: workoutSummaryText,
+  }), [user.id, selectedDateDraftKey, workoutSummaryText]);
+  const { status: copySummaryStatus, copy: handleCopySummary } = useWorkoutSummaryCopy(
+    summaryCopyContext,
+    currentAccountOperation,
+  );
 
   const ensurePrevData = useCallback(async (blockIds: readonly string[], source: string) => {
     if (previousEnabled) {
@@ -2276,13 +2270,20 @@ export const HealthView = ({
                   <button
                     onClick={handleCopySummary}
                     title={t('healthCopyWorkoutSummary')}
+                    aria-live="polite"
+                    aria-atomic="true"
                     className={`flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl font-bold text-sm shadow-lg active:scale-[0.97] transition-all
-                      ${copied
+                      ${copySummaryStatus === 'copied'
                         ? (appSettings.darkMode ? 'bg-green-800/60 text-green-300' : 'bg-green-100 text-green-700')
                         : (appSettings.darkMode ? 'bg-surface-alt text-gray-200 hover:bg-[#48484A]' : 'bg-gray-100 text-gray-700 hover:bg-gray-200')
                       }`}>
-                    {copied ? <><Check size={13}/> {t('copiedBtn')}</> : <><ClipboardCopy size={13}/> {t('copyBtn')}</>}
+                    {copySummaryStatus === 'copied' ? <><Check size={13}/> {t('copiedBtn')}</> : <><ClipboardCopy size={13}/> {t('copyBtn')}</>}
                   </button>
+                  {copySummaryStatus === 'failed' && (
+                    <span role="status" aria-live="polite" aria-atomic="true" className={`text-xs ${appSettings.darkMode ? 'text-red-300' : 'text-red-700'}`}>
+                      {t('healthWorkoutSummaryCopyFailed')}
+                    </span>
+                  )}
                   <button onClick={() => { setIsWorkoutLocked(false); setIsDirty(true); }}
                     className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-primary text-primary-foreground font-bold text-sm shadow-lg hover:bg-gray-800 active:scale-[0.97] transition-all">
                     <Pencil size={14}/> {t('editBtn')}

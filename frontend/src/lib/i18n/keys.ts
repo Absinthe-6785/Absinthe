@@ -2341,6 +2341,7 @@ const translationKeys = [
   "scheduleMonthMutationRefreshing",
   "scheduleMonthMutationRefreshed",
   "scheduleMonthMutationRefreshIncomplete",
+  "healthWorkoutSummaryCopyFailed",
 ] as const;
 
 export type TranslationKey = (typeof translationKeys)[number];
