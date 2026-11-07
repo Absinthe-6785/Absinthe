@@ -8,7 +8,7 @@ import translationKeys, { buildLocaleDictionary } from './i18n/keys';
 import type { TranslationKey } from './i18n';
 
 const PLANNER_STORAGE_KEY = 'planner-storage';
-const EXPECTED_KEY_COUNT = 2_338;
+const EXPECTED_KEY_COUNT = 2_341;
 type Locale = 'en' | 'ko' | 'ja';
 
 // Current independent canonical authority, including append-only Notes UI, Wiki-link accessibility, cloud comparison and search, Cloud Copy status readback, local document downloads, PDF/DOCX preview, Recipe filter reset, local-original integrity preflight, cloud Note previews, and single-Note cloud text export.
@@ -16,6 +16,12 @@ type Locale = 'en' | 'ko' | 'ja';
 // translationKeys order, so it detects insertion, omission, reordering, and
 // substitution without using buildLocaleDictionary.
 const EXPECTED_LOCALE_INTEGRITY_SHA256: Record<Locale, string> = {
+  en: 'e42afe38f51f8da3b50624f5e34f8f5e980b63d71c5cbaa7df3a8121b42fcb71',
+  ko: 'd2e1987ab0c52e60e7702f49b45611302169a79869d954f1d26686ff0de93be3',
+  ja: '437d9608294ecfad39add9cecea7ba548fb7bd34881b51e1d79c7b922b0bfac4',
+};
+
+const PRE_SCHEDULE_MONTH_MUTATION_REFRESH_LOCALE_SHA256: Record<Locale, string> = {
   en: '0891c4cccc03650cb2ad60b621f382e8616cf3ad85d4281e89b3a941c3667195',
   ko: '035512679516ee86b2984d7e07dab899e1f7112f73d70358bb5c7cbf675d735f',
   ja: 'bafa5fe434dbcad6548a57e5899ea35e672a5f1dd8ebdbc29dbaf7bc888d106d',
@@ -360,6 +366,39 @@ describe('i18n locale dictionaries', () => {
     }
   });
 
+  it('appends truthful post-mutation month refresh statuses without changing prior translations', () => {
+    const keys = [
+      'scheduleMonthMutationRefreshing',
+      'scheduleMonthMutationRefreshed',
+      'scheduleMonthMutationRefreshIncomplete',
+    ] as const;
+    const expected = {
+      en: [
+        "Refreshing this month's schedules after the change…",
+        "This month's Schedule view was refreshed.",
+        "The Schedule change succeeded, but this month's list could not be verified. Previous complete data is still shown.",
+      ],
+      ko: [
+        '변경 후 이번 달 일정을 새로고침하는 중…',
+        '이번 달 일정 화면을 새로고침했습니다.',
+        '일정 변경은 완료됐지만 이번 달 목록을 확인하지 못했습니다. 이전의 완전한 데이터를 계속 표시합니다.',
+      ],
+      ja: [
+        '変更後、今月の予定を再読み込み中…',
+        '今月の予定一覧を再読み込みしました。',
+        '予定の変更は完了しましたが、今月の一覧を確認できませんでした。以前の完全なデータを表示しています。',
+      ],
+    } as const;
+    const previousKeyCount = translationKeys.length - keys.length;
+    expect(translationKeys.slice(previousKeyCount)).toEqual(keys);
+    for (const [locale, values] of [['en', enLocaleValues], ['ko', koLocaleValues], ['ja', jaLocaleValues]] as const) {
+      expect(localeIntegrityDigest(values.slice(0, previousKeyCount), translationKeys.slice(0, previousKeyCount)))
+        .toBe(PRE_SCHEDULE_MONTH_MUTATION_REFRESH_LOCALE_SHA256[locale]);
+      const dictionary = buildLocaleDictionary(values);
+      expect(keys.map(key => dictionary[key]), locale).toEqual(expected[locale]);
+    }
+  });
+
   it('appends local-original preflight labels without changing existing translations', () => {
     const keys = [
       'noteLocalDocumentsEmpty', 'noteLocalDocumentVerifyOriginal', 'noteLocalDocumentVerificationAvailable',
@@ -420,7 +459,9 @@ describe('i18n locale dictionaries', () => {
         'No cloud-only or divergent Note matches. The full comparison still contains {total} searchable Notes; this does not mean the cloud is empty.',
         'Copy ingredients', 'Copy full recipe', 'Recipe copied to clipboard.', 'Clipboard access is not available in this browser.',
         'Could not copy the recipe. Check clipboard permission and try again.', 'This Recipe is no longer available in the current account. Reopen it and try again.',
-        'Expand recipe', 'Collapse recipe', 'Remove from Starred'],
+        'Expand recipe', 'Collapse recipe', 'Remove from Starred',
+        "Refreshing this month's schedules after the change…", "This month's Schedule view was refreshed.",
+        "The Schedule change succeeded, but this month's list could not be verified. Previous complete data is still shown."],
       ko: ['클라우드 노트 미리보기', '클라우드 전용 노트 미리보기',
         '검증된 클라우드 비교에서 가져온 텍스트입니다. 로컬 노트가 아니며 가져오지 않았습니다.',
         '첨부 원본은 이 미리보기에 포함되지 않습니다.',
@@ -441,7 +482,9 @@ describe('i18n locale dictionaries', () => {
         '일치하는 클라우드 전용·차이 노트가 없습니다. 전체 비교에는 검색 가능한 노트 {total}개가 있습니다. 검색 결과가 없다고 클라우드가 비어 있다는 뜻은 아닙니다.',
         '재료 복사', '레시피 전체 복사', '레시피를 클립보드에 복사했습니다.', '이 브라우저에서는 클립보드를 사용할 수 없습니다.',
         '레시피를 복사하지 못했습니다. 클립보드 권한을 확인하고 다시 시도하세요.', '현재 계정에서 이 레시피를 사용할 수 없습니다. 다시 열고 시도하세요.',
-        '레시피 펼치기', '레시피 접기', '즐겨찾기에서 제거'],
+        '레시피 펼치기', '레시피 접기', '즐겨찾기에서 제거',
+        '변경 후 이번 달 일정을 새로고침하는 중…', '이번 달 일정 화면을 새로고침했습니다.',
+        '일정 변경은 완료됐지만 이번 달 목록을 확인하지 못했습니다. 이전의 완전한 데이터를 계속 표시합니다.'],
       ja: ['クラウドノートをプレビュー', 'クラウドのみのノートプレビュー',
         '検証済みクラウド比較のテキストです。ローカルノートではなく、取り込みも行っていません。',
         '添付ファイルの原本はこのプレビューに含まれません。',
@@ -462,7 +505,9 @@ describe('i18n locale dictionaries', () => {
         '一致するクラウドのみ・差異のあるノートはありません。比較全体には検索可能なノートが{total}件あります。検索結果がないことはクラウドが空であることを意味しません。',
         '材料をコピー', 'レシピ全体をコピー', 'レシピをクリップボードにコピーしました。', 'このブラウザーではクリップボードを利用できません。',
         'レシピをコピーできませんでした。クリップボードの権限を確認して、もう一度お試しください。', '現在のアカウントではこのレシピを利用できません。開き直してからお試しください。',
-        'レシピを展開', 'レシピを折りたたむ', 'お気に入りから削除'],
+        'レシピを展開', 'レシピを折りたたむ', 'お気に入りから削除',
+        '変更後、今月の予定を再読み込み中…', '今月の予定一覧を再読み込みしました。',
+        '予定の変更は完了しましたが、今月の一覧を確認できませんでした。以前の完全なデータを表示しています。'],
     } as const;
     expect(translationKeys.slice(2_299)).toEqual([
       ...keys,
@@ -474,6 +519,7 @@ describe('i18n locale dictionaries', () => {
       'notesCloudSearchLabel', 'notesCloudSearchPlaceholder', 'notesCloudSearchHelp', 'notesCloudSearchMatches', 'notesCloudSearchNoMatches',
       'recipeCopyIngredients', 'recipeCopyFull', 'recipeCopySuccess', 'recipeCopyUnsupported', 'recipeCopyFailed', 'recipeCopyUnavailable',
       'recipeExpandCard', 'recipeCollapseCard', 'recipeRemoveStarred',
+      'scheduleMonthMutationRefreshing', 'scheduleMonthMutationRefreshed', 'scheduleMonthMutationRefreshIncomplete',
     ]);
     for (const [locale, values] of [['en', enLocaleValues], ['ko', koLocaleValues], ['ja', jaLocaleValues]] as const) {
       expect(localeIntegrityDigest(values.slice(0, 2_299), translationKeys.slice(0, 2_299)))
@@ -502,10 +548,10 @@ describe('i18n locale dictionaries', () => {
     missing.splice(1_000, 1);
 
     expect(() => buildLocaleDictionary(missing)).toThrow(
-      'Locale dictionary length mismatch: expected 2338, received 2337',
+      'Locale dictionary length mismatch: expected 2341, received 2340',
     );
     expect(() => assertLocaleValuesIntegrity('en', missing)).toThrow(
-      'Locale integrity length mismatch: expected 2338, received 2337',
+      'Locale integrity length mismatch: expected 2341, received 2340',
     );
   });
 
@@ -514,10 +560,10 @@ describe('i18n locale dictionaries', () => {
     extra.splice(1_000, 0, '__unexpected__');
 
     expect(() => buildLocaleDictionary(extra)).toThrow(
-      'Locale dictionary length mismatch: expected 2338, received 2339',
+      'Locale dictionary length mismatch: expected 2341, received 2342',
     );
     expect(() => assertLocaleValuesIntegrity('en', extra)).toThrow(
-      'Locale integrity length mismatch: expected 2338, received 2339',
+      'Locale integrity length mismatch: expected 2341, received 2342',
     );
   });
 

@@ -2338,6 +2338,9 @@ const enTranslations = [
   "Expand recipe",
   "Collapse recipe",
   "Remove from Starred",
+  "Refreshing this month's schedules after the change…",
+  "This month's Schedule view was refreshed.",
+  "The Schedule change succeeded, but this month's list could not be verified. Previous complete data is still shown.",
 ] as const;
 
 export default enTranslations;

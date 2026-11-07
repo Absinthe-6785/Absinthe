@@ -40,6 +40,26 @@ type MonthScheduleContext = Readonly<{
   generation: number;
 }>;
 type MonthScheduleReadStatus = 'loading' | 'loaded' | 'unavailable';
+type MonthMutationRefreshStatus = 'refreshing' | 'success' | 'incomplete';
+type MonthScheduleReadFlight = Readonly<{
+  context: MonthScheduleContext;
+  accountGeneration: number;
+  mutationRevision: number;
+  requestGeneration: number;
+  reason: 'mount' | 'manual' | 'mutation';
+  promise: Promise<DatedSchedule[]>;
+}>;
+type VerifiedMonthScheduleRead = Readonly<{
+  context: MonthScheduleContext;
+  accountGeneration: number;
+  mutationRevision: number;
+  schedules: DatedSchedule[];
+}>;
+type MonthMutationRefreshFlight = Readonly<{
+  context: MonthScheduleContext;
+  accountGeneration: number;
+  promise: Promise<void>;
+}>;
 
 export interface ScheduleNavigationRequest {
   accountId: string;
@@ -145,9 +165,18 @@ export const PlannerView = ({
   }
   const monthScheduleContext = monthScheduleContextRef.current;
   const monthRequestGenerationRef = useRef(0);
+  const monthMutationRevisionRef = useRef(0);
+  const monthScheduleReadFlightRef = useRef<MonthScheduleReadFlight | null>(null);
+  const verifiedMonthScheduleReadRef = useRef<VerifiedMonthScheduleRead | null>(null);
+  const monthMutationRefreshFlightRef = useRef<MonthMutationRefreshFlight | null>(null);
   const [monthReadState, setMonthReadState] = useState<Readonly<{
     context: MonthScheduleContext;
     status: MonthScheduleReadStatus;
+  }> | null>(null);
+  const [monthMutationRefreshState, setMonthMutationRefreshState] = useState<Readonly<{
+    context: MonthScheduleContext;
+    accountGeneration: number;
+    status: MonthMutationRefreshStatus;
   }> | null>(null);
   const monthScheduleMountedRef = useRef(false);
   const scheduleRefreshContextRef = useRef<ScheduleRefreshContext>({
@@ -191,7 +220,11 @@ export const PlannerView = ({
   const formSessionRef = useRef(0);
   const pendingSaveSessionRef = useRef<number | null>(null);
   const accountIdRef = useRef(accountId);
-  accountIdRef.current = accountId;
+  const accountGenerationRef = useRef(0);
+  if (accountIdRef.current !== accountId) {
+    accountIdRef.current = accountId;
+    accountGenerationRef.current += 1;
+  }
   const resetScheduleSession = useCallback(() => {
     formSessionRef.current += 1;
     pendingSaveSessionRef.current = null;
@@ -245,6 +278,109 @@ export const PlannerView = ({
   );
   const ddaySchedules = ddayData ?? [];
 
+  const readAndPublishMonth = useCallback((
+    context: MonthScheduleContext,
+    accountGeneration: number,
+    mutationRevision: number,
+    reuseVerifiedResult = false,
+    reason: MonthScheduleReadFlight['reason'] = 'mount',
+  ): Promise<DatedSchedule[]> => {
+    const verified = verifiedMonthScheduleReadRef.current;
+    if (reuseVerifiedResult && verified?.context === context
+      && verified.accountGeneration === accountGeneration
+      && verified.mutationRevision === mutationRevision
+      && monthScheduleContextRef.current === context
+      && accountGenerationRef.current === accountGeneration
+      && monthMutationRevisionRef.current === mutationRevision
+      && runtimeAccountSyncAccountId() === context.accountId) {
+      return Promise.resolve(verified.schedules);
+    }
+    const existing = monthScheduleReadFlightRef.current;
+    if (existing?.context === context
+      && existing.accountGeneration === accountGeneration
+      && existing.mutationRevision === mutationRevision
+      && existing.requestGeneration === monthRequestGenerationRef.current
+      && !(reason === 'manual' && existing.reason !== 'mutation')) {
+      return existing.promise;
+    }
+
+    const requestGeneration = ++monthRequestGenerationRef.current;
+    const isCurrent = () => monthScheduleMountedRef.current
+      && accountIdRef.current === context.accountId
+      && accountGenerationRef.current === accountGeneration
+      && runtimeAccountSyncAccountId() === context.accountId
+      && monthScheduleContextRef.current === context
+      && monthMutationRevisionRef.current === mutationRevision
+      && monthRequestGenerationRef.current === requestGeneration;
+    setMonthReadState({ context, status: 'loading' });
+
+    let flight!: MonthScheduleReadFlight;
+    const promise = Promise.resolve().then(async () => {
+      if (!context.accountId || !context.range || typeof navigator !== 'undefined' && navigator.onLine === false) {
+        throw new Error('Schedule month source is unavailable.');
+      }
+      const freshSchedules = await readCompleteScheduleMonth(context, isCurrent);
+      if (!isCurrent()) throw new Error('Schedule month refresh became stale.');
+      await mutateMonthSchedules(freshSchedules, { revalidate: false });
+      if (!isCurrent()) throw new Error('Schedule month refresh became stale.');
+      verifiedMonthScheduleReadRef.current = { context, accountGeneration, mutationRevision, schedules: freshSchedules };
+      setMonthReadState({ context, status: 'loaded' });
+      return freshSchedules;
+    }).catch(error => {
+      if (isCurrent()) setMonthReadState({ context, status: 'unavailable' });
+      throw error;
+    }).finally(() => {
+      if (monthScheduleReadFlightRef.current === flight) monthScheduleReadFlightRef.current = null;
+    });
+    flight = { context, accountGeneration, mutationRevision, requestGeneration, reason, promise };
+    monthScheduleReadFlightRef.current = flight;
+    return promise;
+  }, [mutateMonthSchedules]);
+
+  const refreshMonthAfterScheduleMutation = useCallback((
+    expectedAccountId: string | undefined,
+    expectedAccountGeneration: number,
+  ): Promise<void> => {
+    const context = monthScheduleContextRef.current;
+    const isAccountCurrent = () => monthScheduleMountedRef.current
+      && Boolean(expectedAccountId)
+      && accountIdRef.current === expectedAccountId
+      && accountGenerationRef.current === expectedAccountGeneration
+      && runtimeAccountSyncAccountId() === expectedAccountId;
+    if (!isAccountCurrent() || context.accountId !== expectedAccountId || !context.range) return Promise.resolve();
+
+    monthMutationRevisionRef.current += 1;
+    setMonthMutationRefreshState({ context, accountGeneration: expectedAccountGeneration, status: 'refreshing' });
+    const existing = monthMutationRefreshFlightRef.current;
+    if (existing?.context === context && existing.accountGeneration === expectedAccountGeneration) {
+      return existing.promise;
+    }
+
+    let flight!: MonthMutationRefreshFlight;
+    const promise = (async () => {
+      while (isAccountCurrent() && monthScheduleContextRef.current === context) {
+        const revision = monthMutationRevisionRef.current;
+        try {
+          await readAndPublishMonth(context, expectedAccountGeneration, revision, false, 'mutation');
+          if (!isAccountCurrent() || monthScheduleContextRef.current !== context) return;
+          if (monthMutationRevisionRef.current !== revision) continue;
+          setMonthMutationRefreshState({ context, accountGeneration: expectedAccountGeneration, status: 'success' });
+          return;
+        } catch {
+          if (!isAccountCurrent() || monthScheduleContextRef.current !== context) return;
+          if (monthMutationRevisionRef.current !== revision) continue;
+          setMonthMutationRefreshState({ context, accountGeneration: expectedAccountGeneration, status: 'incomplete' });
+          return;
+        }
+      }
+    })().finally(() => {
+      if (monthMutationRefreshFlightRef.current === flight) monthMutationRefreshFlightRef.current = null;
+    });
+    flight = { context, accountGeneration: expectedAccountGeneration, promise };
+    monthMutationRefreshFlightRef.current = flight;
+    return promise;
+  }, [readAndPublishMonth]);
+
   useEffect(() => {
     scheduleRefreshMountedRef.current = true;
     monthScheduleMountedRef.current = true;
@@ -252,6 +388,10 @@ export const PlannerView = ({
       scheduleRefreshMountedRef.current = false;
       monthScheduleMountedRef.current = false;
       monthRequestGenerationRef.current += 1;
+      monthMutationRevisionRef.current += 1;
+      monthScheduleReadFlightRef.current = null;
+      verifiedMonthScheduleReadRef.current = null;
+      monthMutationRefreshFlightRef.current = null;
       scheduleRefreshFlightRef.current = null;
     };
   }, []);
@@ -262,35 +402,8 @@ export const PlannerView = ({
       if (context.accountId) setMonthReadState({ context, status: 'unavailable' });
       return;
     }
-    const requestGeneration = ++monthRequestGenerationRef.current;
-    const isCurrent = () => monthScheduleMountedRef.current
-      && runtimeAccountSyncAccountId() === context.accountId
-      && monthScheduleContextRef.current === context
-      && monthRequestGenerationRef.current === requestGeneration;
-    setMonthReadState({ context, status: 'loading' });
-
-    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-      setMonthReadState({ context, status: 'unavailable' });
-      return () => {
-        if (monthRequestGenerationRef.current === requestGeneration) monthRequestGenerationRef.current += 1;
-      };
-    }
-
-    void (async () => {
-      try {
-        const freshSchedules = await readCompleteScheduleMonth(context, isCurrent);
-        if (!isCurrent()) return;
-        await mutateMonthSchedules(freshSchedules, { revalidate: false });
-        if (isCurrent()) setMonthReadState({ context, status: 'loaded' });
-      } catch {
-        if (isCurrent()) setMonthReadState({ context, status: 'unavailable' });
-      }
-    })();
-
-    return () => {
-      if (monthRequestGenerationRef.current === requestGeneration) monthRequestGenerationRef.current += 1;
-    };
-  }, [monthScheduleContext, monthSchedulesKey, mutateMonthSchedules]);
+    void readAndPublishMonth(context, accountGenerationRef.current, monthMutationRevisionRef.current, false, 'mount').catch(() => undefined);
+  }, [monthScheduleContext, monthSchedulesKey, readAndPublishMonth]);
 
   const refreshSchedules = useCallback(() => {
     const context = scheduleRefreshContextRef.current;
@@ -309,7 +422,7 @@ export const PlannerView = ({
       return;
     }
 
-    const monthRequestGeneration = ++monthRequestGenerationRef.current;
+    const accountGeneration = accountGenerationRef.current;
     const flight: ScheduleRefreshFlight = { context };
     scheduleRefreshFlightRef.current = flight;
     setScheduleRefreshFlight(flight);
@@ -318,20 +431,30 @@ export const PlannerView = ({
       && scheduleRefreshContextRef.current === context
       && scheduleRefreshFlightRef.current === flight
       && monthScheduleContextRef.current === monthContext
-      && monthRequestGenerationRef.current === monthRequestGeneration;
+      && accountGenerationRef.current === accountGeneration;
     setStatus('refreshing');
     setMonthReadState({ context: monthContext, status: 'loading' });
 
     const refreshMonthSchedules = async () => {
-      try {
-        const freshSchedules = await readCompleteScheduleMonth(monthContext, isCurrent);
-        if (!isCurrent()) throw new Error('Schedule month refresh became stale.');
-        await mutateMonthSchedules(freshSchedules, { revalidate: false });
-        if (isCurrent()) setMonthReadState({ context: monthContext, status: 'loaded' });
-      } catch (error) {
-        if (isCurrent()) setMonthReadState({ context: monthContext, status: 'unavailable' });
-        throw error;
+      let revision = monthMutationRevisionRef.current;
+      let reuseVerifiedResult = false;
+      while (isCurrent()) {
+        try {
+          await readAndPublishMonth(monthContext, accountGeneration, revision, reuseVerifiedResult, 'manual');
+          if (!isCurrent()) throw new Error('Schedule refresh became stale.');
+          return;
+        } catch (error) {
+          if (!isCurrent()) throw error;
+          const latestRevision = monthMutationRevisionRef.current;
+          if (latestRevision !== revision) {
+            revision = latestRevision;
+            reuseVerifiedResult = true;
+            continue;
+          }
+          throw error;
+        }
       }
+      throw new Error('Schedule refresh became stale.');
     };
 
     void (async () => {
@@ -351,7 +474,7 @@ export const PlannerView = ({
         }
       }
     })();
-  }, [ddaySchedulesKey, monthSchedulesKey, mutateDdaySchedules, mutateMonthSchedules, mutatePreviousSchedules, prevSchedulesKey, revalidateSelectedDaySchedules]);
+  }, [ddaySchedulesKey, monthSchedulesKey, mutateDdaySchedules, mutatePreviousSchedules, prevSchedulesKey, readAndPublishMonth, revalidateSelectedDaySchedules]);
 
   const visibleRefreshStatus = scheduleRefreshState?.context === scheduleRefreshContextRef.current
     && runtimeAccountSyncAccountId() === scheduleRefreshState.context.accountId
@@ -375,6 +498,16 @@ export const PlannerView = ({
     : visibleMonthReadStatus === 'unavailable'
       ? 'scheduleMonthUnavailable'
       : null;
+  const visibleMonthMutationRefreshStatus = monthMutationRefreshState?.context === monthScheduleContext
+    && monthMutationRefreshState.accountGeneration === accountGenerationRef.current
+    && runtimeAccountSyncAccountId() === monthMutationRefreshState.context.accountId
+    ? monthMutationRefreshState.status
+    : null;
+  const monthMutationRefreshMessageKey = visibleMonthMutationRefreshStatus ? ({
+    refreshing: 'scheduleMonthMutationRefreshing',
+    success: 'scheduleMonthMutationRefreshed',
+    incomplete: 'scheduleMonthMutationRefreshIncomplete',
+  } as const)[visibleMonthMutationRefreshStatus] : null;
   // 전날 일정 — calendar projection carry-over
 
   useEscapeKey(() => {
@@ -425,7 +558,10 @@ export const PlannerView = ({
       end_time: isDday ? '23:59' : newSch.end_time,
     };
     const session = formSessionRef.current;
-    const isCurrentSession = () => session === formSessionRef.current && accountId === accountIdRef.current;
+    const accountGeneration = accountGenerationRef.current;
+    const isCurrentSession = () => session === formSessionRef.current
+      && accountId === accountIdRef.current
+      && accountGeneration === accountGenerationRef.current;
     const doSave = async () => {
       if (!isCurrentSession() || pendingSaveSessionRef.current !== null) return;
       pendingSaveSessionRef.current = session;
@@ -437,9 +573,10 @@ export const PlannerView = ({
           { ...payload, date: scheduleDateStr, end_next_day: isDday ? false : endNextDay },
           { revalidate: 'both', successMsg: t('scheduleSaved') },
         );
-        if (ok) {
+        if (ok && isCurrentSession()) {
           void mutateDdaySchedules();
-          if (isCurrentSession()) closeScheduleForm();
+          void refreshMonthAfterScheduleMutation(accountId, accountGeneration);
+          closeScheduleForm();
         }
       } finally {
         if (isCurrentSession() && pendingSaveSessionRef.current === session) {
@@ -453,8 +590,16 @@ export const PlannerView = ({
   };
   const handleDeleteSchedule = (id: string) =>
     showConfirm(t('deleteSchedule'), async () => {
+      const expectedAccountId = accountIdRef.current;
+      const expectedAccountGeneration = accountGenerationRef.current;
       const ok = await api('DELETE', `/api/schedules/${id}`, undefined, { revalidate: 'both', successMsg: t('deleted') });
-      if (ok) void mutateDdaySchedules();
+      if (ok && monthScheduleMountedRef.current
+        && accountIdRef.current === expectedAccountId
+        && accountGenerationRef.current === expectedAccountGeneration
+        && runtimeAccountSyncAccountId() === expectedAccountId) {
+        void mutateDdaySchedules();
+        void refreshMonthAfterScheduleMutation(expectedAccountId, expectedAccountGeneration);
+      }
     },
       { confirmLabel: t('deleteLabel') },
     );
@@ -637,6 +782,11 @@ export const PlannerView = ({
         {monthReadStatusMessageKey && (
           <p role="status" aria-live="polite" aria-atomic="true" className={`mt-1 text-xs ${theme.textMuted}`} data-schedule-month-read-status={visibleMonthReadStatus}>
             {t(monthReadStatusMessageKey)}
+          </p>
+        )}
+        {monthMutationRefreshMessageKey && (
+          <p role="status" aria-live="polite" aria-atomic="true" className={`mt-1 text-xs ${theme.textMuted}`} data-schedule-month-mutation-status={visibleMonthMutationRefreshStatus}>
+            {t(monthMutationRefreshMessageKey)}
           </p>
         )}
       </div>
