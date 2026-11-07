@@ -2335,6 +2335,9 @@ const enTranslations = [
   "Clipboard access is not available in this browser.",
   "Could not copy the recipe. Check clipboard permission and try again.",
   "This Recipe is no longer available in the current account. Reopen it and try again.",
+  "Expand recipe",
+  "Collapse recipe",
+  "Remove from Starred",
 ] as const;
 
 export default enTranslations;

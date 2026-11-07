@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { Star, Pencil, Trash2, ChevronDown, ChevronUp, Copy } from 'lucide-react';
 import type { Theme } from '../../../../../types';
 import type { TranslationKey } from '../../../../../lib/i18n';
@@ -40,6 +40,7 @@ export function RecipeCard({
   mutationsDisabled = false,
   starPending = false,
 }: RecipeCardProps) {
+  const detailsId = useId();
   const [copyFeedbackState, setCopyFeedbackState] = useState<{
     mode: RecipeCopyMode;
     result: RecipeCopyResult;
@@ -125,23 +126,35 @@ export function RecipeCard({
       data-k110-recipe-card={recipe.id}
       data-expanded={expanded ? 'true' : 'false'}
     >
-      <div className={`flex items-center gap-2.5 ${pad} cursor-pointer`} onClick={onToggleExpand}>
-        <div className={`w-2 h-2 rounded-full shrink-0 ${RECIPE_CATEGORY_COLORS[recipe.category] ?? 'bg-gray-400'}`} />
-        <div className="flex-1 min-w-0">
-          <p className="font-bold text-sm truncate">{recipe.title}</p>
-          <p className={`text-[11px] ${theme.textMuted}`}>
-            {recipe.category}
-            {ingredients.length > 0 && ` · ${ingredients.length}`}
-            {steps.length > 0 && ` · ${steps.length}`}
-          </p>
-        </div>
+      <div className={`flex items-center gap-2.5 ${pad}`}>
+        <button
+          type="button"
+          aria-label={`${t(expanded ? 'recipeCollapseCard' : 'recipeExpandCard')}: ${recipe.title}`}
+          aria-expanded={expanded}
+          aria-controls={expanded ? detailsId : undefined}
+          onClick={onToggleExpand}
+          className={`${UI_INTERACTION.focusRingClass} flex min-w-0 flex-1 items-center gap-2.5 rounded-lg text-left`}
+          data-recipe-expand-toggle
+        >
+          <span className={`w-2 h-2 rounded-full shrink-0 ${RECIPE_CATEGORY_COLORS[recipe.category] ?? 'bg-gray-400'}`} />
+          <span className="flex-1 min-w-0">
+            <span className="block font-bold text-sm truncate">{recipe.title}</span>
+            <span className={`block text-[11px] ${theme.textMuted}`}>
+              {recipe.category}
+              {ingredients.length > 0 && ` · ${ingredients.length}`}
+              {steps.length > 0 && ` · ${steps.length}`}
+            </span>
+          </span>
+          {expanded ? <ChevronUp size={14} className={`${theme.textMuted} shrink-0`} /> : <ChevronDown size={14} className={`${theme.textMuted} shrink-0`} />}
+        </button>
         <div className="flex items-center gap-0.5 shrink-0">
           <button
             type="button"
             disabled={mutationsDisabled || starPending}
             onClick={e => { e.stopPropagation(); onToggleStar(); }}
             className={`abs-recipe-favorite-action ${UI_INTERACTION.focusRingClass} p-1.5 rounded-lg transition-colors min-h-[44px] min-w-[44px] lg:min-h-0 lg:min-w-0 flex items-center justify-center disabled:cursor-not-allowed disabled:text-disabled`}
-            aria-label={t('recipeStarred')}
+            aria-label={`${t(recipe.starred ? 'recipeRemoveStarred' : 'addStarred')}: ${recipe.title}`}
+            aria-pressed={recipe.starred}
             aria-busy={starPending}
             data-starred={recipe.starred ? 'true' : 'false'}
           >
@@ -152,6 +165,7 @@ export function RecipeCard({
             disabled={mutationsDisabled || starPending}
             onClick={e => { e.stopPropagation(); onEdit(); }}
             className={`${UI_INTERACTION.focusRingClass} p-1.5 rounded-lg transition-colors min-h-[44px] min-w-[44px] lg:min-h-0 lg:min-w-0 flex items-center justify-center disabled:cursor-not-allowed disabled:text-disabled ${dark ? 'hover:bg-white/10' : 'hover:bg-gray-100'}`}
+            aria-label={`${t('editRecipe')}: ${recipe.title}`}
           >
             <Pencil size={12} className={theme.textMuted} />
           </button>
@@ -160,15 +174,15 @@ export function RecipeCard({
             disabled={mutationsDisabled}
             onClick={e => { e.stopPropagation(); onDelete(); }}
             className={`abs-recipe-danger-action ${UI_INTERACTION.focusRingClass} p-1.5 rounded-lg transition-colors min-h-[44px] min-w-[44px] lg:min-h-0 lg:min-w-0 flex items-center justify-center disabled:cursor-not-allowed disabled:text-disabled`}
+            aria-label={`${t('delete')}: ${recipe.title}`}
           >
             <Trash2 size={12} />
           </button>
-          {expanded ? <ChevronUp size={14} className={theme.textMuted} /> : <ChevronDown size={14} className={theme.textMuted} />}
         </div>
       </div>
 
       {expanded && (
-        <div className={`abs-cosmos-recipe-expanded px-3 pb-3 lg:px-3.5 lg:pb-3.5 border-t ${theme.border} space-y-3 pt-3`}>
+        <div id={detailsId} className={`abs-cosmos-recipe-expanded px-3 pb-3 lg:px-3.5 lg:pb-3.5 border-t ${theme.border} space-y-3 pt-3`}>
           <div className="flex flex-wrap gap-2" data-recipe-copy-actions>
             <button
               type="button"
