@@ -179,6 +179,44 @@ function renderStudio(
   });
 }
 
+function renderInteractiveStudio(overrides: Partial<RecipeStudioViewProps> = {}) {
+  const initialExpandedId = overrides.expandedId ?? null;
+  function InteractiveHarness() {
+    const [expandedId, setExpandedId] = useState<string | null>(initialExpandedId);
+    return createElement(RecipeStudioView, {
+      projection: emptyProjection,
+      recipes: [activeRecipe],
+      theme,
+      appSettings,
+      activeAvailability: 'READY_WITH_DATA',
+      activeValidating: false,
+      onRetryActive: vi.fn(),
+      onToggleStar: vi.fn(),
+      onEdit: vi.fn(),
+      onDelete: vi.fn(),
+      onCopyRecipe: async () => 'unavailable' as const,
+      copyContextKey: {},
+      deletedRecipes: [],
+      trashAvailability: 'READY_EMPTY',
+      trashValidating: false,
+      onRetryTrash: vi.fn(),
+      onRestore: vi.fn(),
+      onNewRecipe: vi.fn(),
+      onScrollToRecipe: vi.fn(),
+      ...overrides,
+      expandedId,
+      onToggleExpand: id => setExpandedId(current => current === id ? null : id),
+    });
+  }
+
+  if (!host) {
+    host = document.createElement('div');
+    document.body.appendChild(host);
+    root = createRoot(host);
+  }
+  act(() => root?.render(createElement(InteractiveHarness)));
+}
+
 function setStudioSearch(query: string) {
   const search = host!.querySelector<HTMLInputElement>('[data-k110-recipe-search]')!;
   const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
@@ -266,6 +304,96 @@ afterEach(() => {
 });
 
 describe('UI-07 production Recipe composition hierarchy', () => {
+  it('exposes a native disclosure button and keeps focus through expansion, copy, separate actions, and collapse', async () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
+    const onCopyRecipe = vi.fn(async () => 'copied' as const);
+    const onToggleStar = vi.fn();
+    const onEdit = vi.fn();
+    const onDelete = vi.fn();
+    renderInteractiveStudio({
+      recipes: [activeRecipe],
+      onCopyRecipe,
+      onToggleStar,
+      onEdit,
+      onDelete,
+    });
+
+    const expand = host!.querySelector<HTMLButtonElement>('[data-recipe-expand-toggle]')!;
+    expect(expand.tagName).toBe('BUTTON');
+    expect(expand.type).toBe('button');
+    expect(expand.tabIndex).toBe(0);
+    expect(expand.querySelector('button')).toBeNull();
+    expect(expand.getAttribute('aria-expanded')).toBe('false');
+    expect(expand.getAttribute('aria-label')).toBe('Expand recipe: Cached recipe');
+    expand.focus();
+    expect(document.activeElement).toBe(expand);
+
+    // Native buttons provide Enter/Space activation; the component adds no parallel key handler.
+    expect(expand.onkeydown).toBeNull();
+    act(() => expand.click());
+    const expandedButton = host!.querySelector<HTMLButtonElement>('[data-recipe-expand-toggle]')!;
+    expect(expandedButton).toBe(expand);
+    expect(expandedButton.getAttribute('aria-expanded')).toBe('true');
+    expect(expandedButton.getAttribute('aria-label')).toBe('Collapse recipe: Cached recipe');
+    const expandedDetailsId = expandedButton.getAttribute('aria-controls');
+    expect(expandedDetailsId).toBeTruthy();
+    expect(document.getElementById(expandedDetailsId!)).not.toBeNull();
+    expect(document.activeElement).toBe(expandedButton);
+
+    const copy = host!.querySelector<HTMLButtonElement>('[data-recipe-copy-full]')!;
+    expect(copy.tabIndex).toBe(0);
+    copy.focus();
+    await act(async () => { copy.click(); });
+    expect(onCopyRecipe).toHaveBeenCalledWith(activeRecipe.id, 'full', expect.any(Object));
+    expect(host!.querySelector<HTMLButtonElement>('[data-recipe-expand-toggle]')?.getAttribute('aria-expanded')).toBe('true');
+
+    const star = host!.querySelector<HTMLButtonElement>('.abs-recipe-favorite-action')!;
+    const edit = host!.querySelector<HTMLButtonElement>(`button[aria-label="Edit Recipe: ${activeRecipe.title}"]`)!;
+    const remove = host!.querySelector<HTMLButtonElement>(`button[aria-label="Delete: ${activeRecipe.title}"]`)!;
+    expect(star.getAttribute('aria-label')).toBe('Add to Starred: Cached recipe');
+    expect(star.getAttribute('aria-pressed')).toBe('false');
+    expect(expandedButton.parentElement).toBe(star.parentElement?.parentElement);
+    expect(edit).not.toBeNull();
+    expect(remove).not.toBeNull();
+    act(() => { star.click(); edit.click(); remove.click(); });
+    expect(onToggleStar).toHaveBeenCalledTimes(1);
+    expect(onEdit).toHaveBeenCalledTimes(1);
+    expect(onDelete).toHaveBeenCalledTimes(1);
+    expect(host!.querySelector<HTMLButtonElement>('[data-recipe-expand-toggle]')?.getAttribute('aria-expanded')).toBe('true');
+
+    expandedButton.focus();
+    act(() => expandedButton.click());
+    expect(host!.querySelector<HTMLButtonElement>('[data-recipe-expand-toggle]')).toBe(expandedButton);
+    expect(expandedButton.getAttribute('aria-expanded')).toBe('false');
+    expect(expandedButton.getAttribute('aria-controls')).toBeNull();
+    expect(document.activeElement).toBe(expandedButton);
+
+    renderInteractiveStudio({ recipes: [{ ...activeRecipe, starred: true }] });
+    const starredAction = host!.querySelector<HTMLButtonElement>('.abs-recipe-favorite-action')!;
+    expect(starredAction.getAttribute('aria-label')).toBe('Remove from Starred: Cached recipe');
+    expect(starredAction.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('keeps recipe reading and expansion available while mutation controls are disabled', () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
+    renderInteractiveStudio({
+      recipes: [activeRecipe],
+      activeAvailability: 'STALE_WITH_DATA',
+    });
+
+    const expand = host!.querySelector<HTMLButtonElement>('[data-recipe-expand-toggle]')!;
+    const star = host!.querySelector<HTMLButtonElement>('.abs-recipe-favorite-action')!;
+    const edit = host!.querySelector<HTMLButtonElement>(`button[aria-label="Edit Recipe: ${activeRecipe.title}"]`)!;
+    const remove = host!.querySelector<HTMLButtonElement>(`button[aria-label="Delete: ${activeRecipe.title}"]`)!;
+    expect(expand.disabled).toBe(false);
+    expect(star.disabled).toBe(true);
+    expect(edit.disabled).toBe(true);
+    expect(remove.disabled).toBe(true);
+    act(() => expand.click());
+    expect(host!.querySelector('[data-recipe-expand-toggle]')?.getAttribute('aria-expanded')).toBe('true');
+    expect(host!.querySelector('[data-recipe-copy-full]')).not.toBeNull();
+  });
+
   it('exposes accessible copy actions on an expanded non-virtualized card without toggling or mutating it', async () => {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
     const onCopyRecipe = vi.fn(async () => 'copied' as const);
@@ -356,7 +484,13 @@ describe('UI-07 production Recipe composition hierarchy', () => {
     });
 
     expect(host!.querySelector('[data-k110-recipe-virtual-list]')).not.toBeNull();
-    expect(host!.querySelector(`[data-k110-recipe-card="${recipes[2]!.id}"] [data-recipe-copy-ingredients]`)).not.toBeNull();
+    const card = host!.querySelector(`[data-k110-recipe-card="${recipes[2]!.id}"]`)!;
+    const expansion = card.querySelector<HTMLButtonElement>('[data-recipe-expand-toggle]')!;
+    expect(expansion.tagName).toBe('BUTTON');
+    expect(expansion.tabIndex).toBe(0);
+    expansion.focus();
+    expect(document.activeElement).toBe(expansion);
+    expect(card.querySelector('[data-recipe-copy-ingredients]')).not.toBeNull();
   });
 
   it('scrolls an expanded off-screen recipe into the virtualized list window', () => {
@@ -482,7 +616,7 @@ describe('UI-07 production Recipe composition hierarchy', () => {
     expect(firstRow.querySelector('ol')).not.toBeNull();
     expect(virtualizerHarness.measureElement.mock.calls.some(([node]) => node === firstRow)).toBe(true);
 
-    act(() => firstCard.querySelector<HTMLElement>('.cursor-pointer')!.click());
+    act(() => firstCard.querySelector<HTMLButtonElement>('[data-recipe-expand-toggle]')!.click());
     expect(onToggleExpand).toHaveBeenCalledWith('wide-recipe-45');
   });
 });
@@ -739,7 +873,7 @@ describe('RecipeStudioView recovery surface', () => {
     const card = host.querySelector<HTMLElement>(`[data-k110-recipe-card="${activeRecipe.id}"]`)!;
     expect(card.getAttribute('data-expanded')).toBe('true');
 
-    act(() => card.querySelector<HTMLElement>('.cursor-pointer')?.click());
+    act(() => card.querySelector<HTMLButtonElement>('[data-recipe-expand-toggle]')?.click());
     expect(host.querySelector(`[data-k110-recipe-card="${activeRecipe.id}"]`)?.getAttribute('data-expanded')).toBe('false');
 
     act(() => host.querySelector<HTMLElement>('[data-k110-favorite-row="recipe-active"]')?.click());
@@ -791,7 +925,8 @@ describe('RecipeStudioView recovery surface', () => {
     expect(card).not.toBeNull();
     expect(host?.querySelector('[data-recipe-availability="active"][data-recipe-availability-stale="true"]')).not.toBeNull();
     expect(host?.querySelector('[data-k121-empty-state="recipe-list"]')).toBeNull();
-    expect(Array.from(card?.querySelectorAll<HTMLButtonElement>('button') ?? []).slice(0, 3).every(button => button.disabled)).toBe(true);
+    expect(card?.querySelector<HTMLButtonElement>('[data-recipe-expand-toggle]')?.disabled).toBe(false);
+    expect(Array.from(card?.querySelectorAll<HTMLButtonElement>('.abs-recipe-favorite-action, button[aria-label^="Edit Recipe:"], button[aria-label^="Delete:"]') ?? []).every(button => button.disabled)).toBe(true);
   });
 
   it('does not treat filtered stale cached data as an authoritative no-results state', () => {

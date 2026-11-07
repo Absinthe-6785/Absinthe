@@ -2335,6 +2335,9 @@ const translationKeys = [
   "recipeCopyUnsupported",
   "recipeCopyFailed",
   "recipeCopyUnavailable",
+  "recipeExpandCard",
+  "recipeCollapseCard",
+  "recipeRemoveStarred",
 ] as const;
 
 export type TranslationKey = (typeof translationKeys)[number];

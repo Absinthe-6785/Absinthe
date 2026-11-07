@@ -456,10 +456,14 @@ describe('Recipe star mutation production path', () => {
       starPending: true,
     })));
 
-    const buttons = [...host.querySelectorAll('button')];
-    expect(buttons[0].getAttribute('aria-busy')).toBe('true');
-    expect(buttons[0].disabled).toBe(true);
-    expect(buttons[1].disabled).toBe(true);
-    expect(buttons[2].disabled).toBe(false);
+    const expand = host.querySelector<HTMLButtonElement>('[data-recipe-expand-toggle]')!;
+    const star = host.querySelector<HTMLButtonElement>('.abs-recipe-favorite-action')!;
+    const edit = host.querySelector<HTMLButtonElement>('button[aria-label^="editRecipe:"]')!;
+    const remove = host.querySelector<HTMLButtonElement>('button[aria-label^="delete:"]')!;
+    expect(expand.disabled).toBe(false);
+    expect(star.getAttribute('aria-busy')).toBe('true');
+    expect(star.disabled).toBe(true);
+    expect(edit.disabled).toBe(true);
+    expect(remove.disabled).toBe(false);
   });
 });

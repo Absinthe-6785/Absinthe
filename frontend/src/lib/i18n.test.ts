@@ -8,7 +8,7 @@ import translationKeys, { buildLocaleDictionary } from './i18n/keys';
 import type { TranslationKey } from './i18n';
 
 const PLANNER_STORAGE_KEY = 'planner-storage';
-const EXPECTED_KEY_COUNT = 2_335;
+const EXPECTED_KEY_COUNT = 2_338;
 type Locale = 'en' | 'ko' | 'ja';
 
 // Current independent canonical authority, including append-only Notes UI, Wiki-link accessibility, cloud comparison and search, Cloud Copy status readback, local document downloads, PDF/DOCX preview, Recipe filter reset, local-original integrity preflight, cloud Note previews, and single-Note cloud text export.
@@ -16,9 +16,9 @@ type Locale = 'en' | 'ko' | 'ja';
 // translationKeys order, so it detects insertion, omission, reordering, and
 // substitution without using buildLocaleDictionary.
 const EXPECTED_LOCALE_INTEGRITY_SHA256: Record<Locale, string> = {
-  en: '9a193cd865fc47b942d4ba5823181afeca7266d0157d30851f3405fee7fc3f88',
-  ko: 'fd046983f8f63946d354a03207919ec4328341f019cb987abd3055c51cd3ba73',
-  ja: '564e9db1d3af04343168b379d442297852c3507679fd26984bb02c26fce1dc30',
+  en: '0891c4cccc03650cb2ad60b621f382e8616cf3ad85d4281e89b3a941c3667195',
+  ko: '035512679516ee86b2984d7e07dab899e1f7112f73d70358bb5c7cbf675d735f',
+  ja: 'bafa5fe434dbcad6548a57e5899ea35e672a5f1dd8ebdbc29dbaf7bc888d106d',
 };
 
 const PRE_RECIPE_COPY_LOCALE_SHA256: Record<Locale, string> = {
@@ -419,7 +419,8 @@ describe('i18n locale dictionaries', () => {
         '{matches} matches among {total} searchable cloud-only and divergent Notes. The comparison totals above are unchanged.',
         'No cloud-only or divergent Note matches. The full comparison still contains {total} searchable Notes; this does not mean the cloud is empty.',
         'Copy ingredients', 'Copy full recipe', 'Recipe copied to clipboard.', 'Clipboard access is not available in this browser.',
-        'Could not copy the recipe. Check clipboard permission and try again.', 'This Recipe is no longer available in the current account. Reopen it and try again.'],
+        'Could not copy the recipe. Check clipboard permission and try again.', 'This Recipe is no longer available in the current account. Reopen it and try again.',
+        'Expand recipe', 'Collapse recipe', 'Remove from Starred'],
       ko: ['클라우드 노트 미리보기', '클라우드 전용 노트 미리보기',
         '검증된 클라우드 비교에서 가져온 텍스트입니다. 로컬 노트가 아니며 가져오지 않았습니다.',
         '첨부 원본은 이 미리보기에 포함되지 않습니다.',
@@ -439,7 +440,8 @@ describe('i18n locale dictionaries', () => {
         '검색 가능한 클라우드 전용·차이 노트 {total}개 중 {matches}개가 일치합니다. 위 비교 수치는 필터링되지 않았습니다.',
         '일치하는 클라우드 전용·차이 노트가 없습니다. 전체 비교에는 검색 가능한 노트 {total}개가 있습니다. 검색 결과가 없다고 클라우드가 비어 있다는 뜻은 아닙니다.',
         '재료 복사', '레시피 전체 복사', '레시피를 클립보드에 복사했습니다.', '이 브라우저에서는 클립보드를 사용할 수 없습니다.',
-        '레시피를 복사하지 못했습니다. 클립보드 권한을 확인하고 다시 시도하세요.', '현재 계정에서 이 레시피를 사용할 수 없습니다. 다시 열고 시도하세요.'],
+        '레시피를 복사하지 못했습니다. 클립보드 권한을 확인하고 다시 시도하세요.', '현재 계정에서 이 레시피를 사용할 수 없습니다. 다시 열고 시도하세요.',
+        '레시피 펼치기', '레시피 접기', '즐겨찾기에서 제거'],
       ja: ['クラウドノートをプレビュー', 'クラウドのみのノートプレビュー',
         '検証済みクラウド比較のテキストです。ローカルノートではなく、取り込みも行っていません。',
         '添付ファイルの原本はこのプレビューに含まれません。',
@@ -459,7 +461,8 @@ describe('i18n locale dictionaries', () => {
         '検索可能なクラウドのみ・差異のあるノート{total}件中、{matches}件が一致しました。上の比較件数は絞り込まれていません。',
         '一致するクラウドのみ・差異のあるノートはありません。比較全体には検索可能なノートが{total}件あります。検索結果がないことはクラウドが空であることを意味しません。',
         '材料をコピー', 'レシピ全体をコピー', 'レシピをクリップボードにコピーしました。', 'このブラウザーではクリップボードを利用できません。',
-        'レシピをコピーできませんでした。クリップボードの権限を確認して、もう一度お試しください。', '現在のアカウントではこのレシピを利用できません。開き直してからお試しください。'],
+        'レシピをコピーできませんでした。クリップボードの権限を確認して、もう一度お試しください。', '現在のアカウントではこのレシピを利用できません。開き直してからお試しください。',
+        'レシピを展開', 'レシピを折りたたむ', 'お気に入りから削除'],
     } as const;
     expect(translationKeys.slice(2_299)).toEqual([
       ...keys,
@@ -470,6 +473,7 @@ describe('i18n locale dictionaries', () => {
       'notesCloudTextDownloadAction', 'notesCloudTextDownloadScope', 'notesCloudTextDownloadStarted', 'notesCloudTextDownloadUnavailable',
       'notesCloudSearchLabel', 'notesCloudSearchPlaceholder', 'notesCloudSearchHelp', 'notesCloudSearchMatches', 'notesCloudSearchNoMatches',
       'recipeCopyIngredients', 'recipeCopyFull', 'recipeCopySuccess', 'recipeCopyUnsupported', 'recipeCopyFailed', 'recipeCopyUnavailable',
+      'recipeExpandCard', 'recipeCollapseCard', 'recipeRemoveStarred',
     ]);
     for (const [locale, values] of [['en', enLocaleValues], ['ko', koLocaleValues], ['ja', jaLocaleValues]] as const) {
       expect(localeIntegrityDigest(values.slice(0, 2_299), translationKeys.slice(0, 2_299)))
@@ -498,10 +502,10 @@ describe('i18n locale dictionaries', () => {
     missing.splice(1_000, 1);
 
     expect(() => buildLocaleDictionary(missing)).toThrow(
-      'Locale dictionary length mismatch: expected 2335, received 2334',
+      'Locale dictionary length mismatch: expected 2338, received 2337',
     );
     expect(() => assertLocaleValuesIntegrity('en', missing)).toThrow(
-      'Locale integrity length mismatch: expected 2335, received 2334',
+      'Locale integrity length mismatch: expected 2338, received 2337',
     );
   });
 
@@ -510,10 +514,10 @@ describe('i18n locale dictionaries', () => {
     extra.splice(1_000, 0, '__unexpected__');
 
     expect(() => buildLocaleDictionary(extra)).toThrow(
-      'Locale dictionary length mismatch: expected 2335, received 2336',
+      'Locale dictionary length mismatch: expected 2338, received 2339',
     );
     expect(() => assertLocaleValuesIntegrity('en', extra)).toThrow(
-      'Locale integrity length mismatch: expected 2335, received 2336',
+      'Locale integrity length mismatch: expected 2338, received 2339',
     );
   });
 
