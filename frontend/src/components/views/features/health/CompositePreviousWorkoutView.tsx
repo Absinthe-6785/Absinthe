@@ -13,6 +13,7 @@ export interface CompositePreviousWorkoutViewProps {
   formatCompactDate: (date: string) => string;
   onRetry: () => void;
   onSelectDate: (date: string) => void;
+  onOpenDay?: () => void;
   scrollMode?: 'contained' | 'inherited';
 }
 
@@ -98,6 +99,7 @@ export function CompositePreviousWorkoutView({
   formatCompactDate,
   onRetry,
   onSelectDate,
+  onOpenDay,
   scrollMode = 'contained',
 }: CompositePreviousWorkoutViewProps) {
   if (projection.phase === 'loading') {
@@ -139,6 +141,11 @@ export function CompositePreviousWorkoutView({
     <div className={`rounded-2xl border px-4 py-3 ${theme.border} ${darkMode ? 'bg-surface/40' : 'bg-gray-50/70'}`}>
       <p className="font-heading text-lg font-bold">{t('previousWorkout')}</p>
       <p className={`mt-1 text-xs font-medium ${theme.textMuted}`}>{formatDate(bucket.localDate)}</p>
+      {onOpenDay && projection.phase === 'settled' && projection.status === 'complete'
+        && projection.effectiveDate === bucket.localDate && <button type="button" onClick={onOpenDay}
+        className={`mt-3 min-h-[40px] rounded-xl border px-3 py-2 text-xs font-bold ${theme.border} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary`} data-health-open-previous-day>
+        {t('healthOpenPreviousDay')}
+      </button>}
       <p className={`mt-1 text-[11px] ${theme.textMuted}`}>{t('workoutCompositeLegacyComparisonScope')}</p>
     </div>
     {bucket.legacyGroup && <section className="space-y-2" data-composite-legacy-group={bucket.legacyGroup.presentationKey}>

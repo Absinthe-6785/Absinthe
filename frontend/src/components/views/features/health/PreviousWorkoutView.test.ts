@@ -1,6 +1,16 @@
-import { describe, expect, it } from 'vitest';
+// @vitest-environment happy-dom
+import { act, createElement } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StrengthSet } from '../../../../types';
-import { formatPreviousStrengthReps, formatPreviousStrengthWeight } from './PreviousWorkoutView';
+import type { PreviousWorkoutViewProps } from './PreviousWorkoutView';
+import { formatPreviousStrengthReps, formatPreviousStrengthWeight, PreviousWorkoutView } from './PreviousWorkoutView';
+import { getTranslator } from '../../../../lib/i18n';
+
+let root: Root | null = null;
+let host: HTMLDivElement;
+beforeEach(() => { host = document.createElement('div'); document.body.appendChild(host); root = createRoot(host); });
+afterEach(() => { act(() => root?.unmount()); root = null; host.remove(); });
 
 const formatWeight = (value: number | string): string => {
   if (value === '') return '';
@@ -55,5 +65,47 @@ describe('Previous Workout strength/bodyweight display', () => {
       .toBe('8 + 4 assisted');
     expect(formatPreviousStrengthReps(strength({ reps: 8 }), 'reps', '{unassisted} + {assisted} assisted'))
       .toBe('8 reps');
+  });
+});
+
+function previousProps(overrides: Partial<PreviousWorkoutViewProps> = {}): PreviousWorkoutViewProps {
+  const session = { date: '2026-08-20', rows: [], matchStrategy: 'date' as const };
+  return {
+    session, sessions: [session], selectedDate: session.date, isLoading: false, hasError: false,
+    theme: { card: '', border: '', input: '', textMuted: '' } as never, darkMode: false,
+    t: key => key, formatDate: value => value, formatCompactDate: value => value,
+    formatWeight: value => String(value), weightUnit: () => 'kg', onRetry: vi.fn(),
+    onSelectDate: vi.fn(), ...overrides,
+  };
+}
+
+describe('Previous Workout open-day action', () => {
+  async function renderView(props: PreviousWorkoutViewProps) {
+    await act(async () => root!.render(createElement(PreviousWorkoutView, props)));
+  }
+
+  it('shows an accessible native button only for the selected loaded session and calls its owner', async () => {
+    const onOpenDay = vi.fn();
+    await renderView(previousProps({ onOpenDay }));
+    const button = host.querySelector<HTMLButtonElement>('[data-health-open-previous-day]');
+    expect(button?.tagName).toBe('BUTTON');
+    expect(button?.textContent).toBe('healthOpenPreviousDay');
+    await act(async () => button!.click());
+    expect(onOpenDay).toHaveBeenCalledTimes(1);
+
+    await renderView(previousProps({ onOpenDay, selectedDate: '2026-08-13' }));
+    expect(host.querySelector('[data-health-open-previous-day]')).toBeNull();
+    await renderView(previousProps({ onOpenDay, isLoading: true }));
+    expect(host.querySelector('[data-health-open-previous-day]')).toBeNull();
+    await renderView(previousProps({ onOpenDay, hasError: true }));
+    expect(host.querySelector('[data-health-open-previous-day]')).toBeNull();
+  });
+
+  it.each([
+    ['en', 'Open this day'],
+    ['ko', '이 날짜 열기'],
+    ['ja', 'この日を開く'],
+  ] as const)('has a localized accessible action label for %s', (language, expected) => {
+    expect(getTranslator(language)('healthOpenPreviousDay')).toBe(expected);
   });
 });
