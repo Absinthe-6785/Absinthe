@@ -1,7 +1,8 @@
 import type { StrengthSet, Theme, WorkoutSet } from '../../../../types';
 import { isCardioSet, isStrengthSet } from '../../../../types';
-import type { TranslationKey } from '../../../../lib/i18n';
+import type { Language, TranslationKey } from '../../../../lib/i18n';
 import type { PreviousWorkoutSession } from './previousWorkoutSession';
+import { PreviousWorkoutDateBrowser } from './PreviousWorkoutDateBrowser';
 import { formatSavedWeight } from './healthWeight';
 import { fillAssistedRepsTemplate, getAssistedRepsBreakdown } from '../../../../lib/healthAssistedReps';
 
@@ -13,6 +14,7 @@ export interface PreviousWorkoutViewProps {
   hasError: boolean;
   theme: Theme;
   darkMode: boolean;
+  language: Language;
   t: (key: TranslationKey) => string;
   formatDate: (date: string) => string;
   formatCompactDate: (date: string) => string;
@@ -103,6 +105,7 @@ export function PreviousWorkoutView({
   hasError,
   theme,
   darkMode,
+  language,
   t,
   formatDate,
   formatCompactDate,
@@ -130,25 +133,15 @@ export function PreviousWorkoutView({
 
   const dateSelector = sessions.length > 0 ? (
     <section className={`shrink-0 rounded-2xl border px-3 py-3 ${theme.border} ${theme.input}`} data-health-previous-date-browser>
-      <p className={`mb-2 text-xs font-bold ${theme.textMuted}`}>{t('previousWorkoutDates')}</p>
-      <div className="flex max-w-full gap-2 overflow-x-auto pb-1" role="group" aria-label={t('previousWorkoutDates')}>
-        {sessions.map(candidate => {
-          const isSelected = candidate.date === selectedDate;
-          return (
-            <button
-              key={candidate.date}
-              type="button"
-              aria-pressed={isSelected}
-              onClick={() => onSelectDate(candidate.date)}
-              className={`min-h-[42px] shrink-0 rounded-xl border px-3 py-2 text-xs font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
-                isSelected ? 'border-primary bg-primary text-primary-foreground' : `${theme.border} ${theme.card} ${theme.textMuted}`
-              }`}
-            >
-              {formatCompactDate(candidate.date)}
-            </button>
-          );
-        })}
-      </div>
+      <PreviousWorkoutDateBrowser
+        dates={sessions.map(candidate => candidate.date)}
+        selectedDate={selectedDate}
+        language={language}
+        theme={theme}
+        t={t}
+        formatCompactDate={formatCompactDate}
+        onSelectDate={onSelectDate}
+      />
     </section>
   ) : null;
 

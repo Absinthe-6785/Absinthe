@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CompositePreviousWorkoutProjection } from './compositePreviousWorkoutProjection';
 import { CompositePreviousWorkoutView } from './CompositePreviousWorkoutView';
+import type { Language } from '../../../../lib/i18n';
 
 const canonicalId = '11111111-1111-4111-8111-111111111111';
 const bucket: CompositePreviousWorkoutProjection['dateBuckets'][number] = {
@@ -36,11 +37,17 @@ const t = (key: string) => key;
 beforeEach(() => { host = document.createElement('div'); document.body.appendChild(host); root = createRoot(host); });
 afterEach(() => { act(() => root?.unmount()); root = null; host.remove(); });
 
-async function renderProjection(value: CompositePreviousWorkoutProjection, onRetry = vi.fn(), onOpenDay?: () => void) {
+async function renderProjection(
+  value: CompositePreviousWorkoutProjection,
+  onRetry = vi.fn(),
+  onOpenDay?: () => void,
+  onSelectDate = vi.fn(),
+  language: Language = 'en',
+) {
   await act(async () => root!.render(createElement(CompositePreviousWorkoutView, {
-    projection: value, theme: { border: 'border', input: 'input', card: 'card', textMuted: 'muted' } as never,
-    darkMode: false, t: t as never, formatDate: (date: string) => date,
-    formatCompactDate: (date: string) => date, onRetry, onSelectDate: vi.fn(), onOpenDay,
+    projection: value, theme: { border: 'border', input: 'input', card: 'card', textMuted: 'muted', text: 'text' } as never,
+    darkMode: false, language, t: t as never, formatDate: (date: string) => date,
+    formatCompactDate: (date: string) => date, onRetry, onSelectDate, onOpenDay,
   })));
   return onRetry;
 }
@@ -180,5 +187,72 @@ describe('Composite Previous workout view', () => {
     expect(content).toContain('workoutCompositeWeightKg: —');
     expect(content).toContain('workoutCompositeReps: —');
     expect(content).not.toContain('workoutCompositeWeightKg: 0');
+  });
+
+  it('uses the selected date month and sends the latest known date for a selected month', async () => {
+    const dates = ['2026-09-22', '2026-08-30', '2026-08-04', '2025-12-31'];
+    const buckets = dates.map(localDate => ({ ...bucket, localDate }));
+    const source = {
+      ...projection,
+      dateBuckets: buckets,
+      effectiveDate: '2026-09-22',
+      selectedBucket: buckets[0]!,
+    };
+    const onSelectDate = vi.fn();
+    await renderProjection(source, vi.fn(), undefined, onSelectDate);
+
+    const selector = host.querySelector<HTMLSelectElement>('[data-health-previous-month-selector]')!;
+    expect(selector.value).toBe('2026-09');
+    selector.focus();
+    expect(document.activeElement).toBe(selector);
+    expect(Array.from(selector.options, option => option.value)).toEqual(['2026-09', '2026-08', '2025-12']);
+    expect(Array.from(host.querySelectorAll<HTMLButtonElement>('[data-health-previous-date]'), button => button.dataset.healthPreviousDate))
+      .toEqual(['2026-09-22']);
+    const dateButton = host.querySelector<HTMLButtonElement>('[data-health-previous-date="2026-09-22"]')!;
+    dateButton.focus();
+    expect(document.activeElement).toBe(dateButton);
+
+    await act(async () => {
+      selector.value = '2026-08';
+      selector.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(onSelectDate).toHaveBeenCalledWith('2026-08-30');
+
+    await renderProjection({ ...source, effectiveDate: '2026-08-30', selectedBucket: buckets[1]! }, vi.fn(), undefined, onSelectDate);
+    expect(host.querySelector<HTMLSelectElement>('[data-health-previous-month-selector]')?.value).toBe('2026-08');
+    expect(Array.from(host.querySelectorAll<HTMLButtonElement>('[data-health-previous-date]'), button => button.dataset.healthPreviousDate))
+      .toEqual(['2026-08-30', '2026-08-04']);
+  });
+
+  it('limits partial-source month choices to represented records and keeps the incomplete warning', async () => {
+    const partialBuckets = [
+      { ...bucket, localDate: '2026-09-22' },
+      { ...bucket, localDate: '2026-08-30' },
+    ];
+    await renderProjection({
+      ...projection,
+      status: 'partial_data',
+      dateBuckets: partialBuckets,
+      effectiveDate: '2026-09-22',
+      selectedBucket: partialBuckets[0]!,
+    });
+
+    expect(Array.from(host.querySelectorAll<HTMLSelectElement>('[data-health-previous-month-selector] option'), option => option.value))
+      .toEqual(['2026-09', '2026-08']);
+    expect(host.querySelector('[data-health-composite-previous-incomplete]')).not.toBeNull();
+    expect(host.textContent).not.toContain('2026-07');
+  });
+
+  it('falls back to a represented month when the selected date disappears from the source', async () => {
+    const replacementBuckets = [{ ...bucket, localDate: '2025-12-22' }];
+    await renderProjection({
+      ...projection,
+      dateBuckets: replacementBuckets,
+      effectiveDate: '2025-12-22',
+      selectedBucket: replacementBuckets[0]!,
+    });
+    expect(host.querySelector<HTMLSelectElement>('[data-health-previous-month-selector]')?.value).toBe('2025-12');
+    expect(Array.from(host.querySelectorAll<HTMLButtonElement>('[data-health-previous-date]'), button => button.dataset.healthPreviousDate))
+      .toEqual(['2025-12-22']);
   });
 });

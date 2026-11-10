@@ -1,13 +1,15 @@
-import type { TranslationKey } from '../../../../lib/i18n';
+import type { Language, TranslationKey } from '../../../../lib/i18n';
 import type { Theme, WorkoutSet } from '../../../../types';
 import type {
   CompositePreviousWorkoutProjection,
 } from './compositePreviousWorkoutProjection';
+import { PreviousWorkoutDateBrowser } from './PreviousWorkoutDateBrowser';
 
 export interface CompositePreviousWorkoutViewProps {
   projection: CompositePreviousWorkoutProjection;
   theme: Theme;
   darkMode: boolean;
+  language: Language;
   t: (key: TranslationKey) => string;
   formatDate: (date: string) => string;
   formatCompactDate: (date: string) => string;
@@ -94,6 +96,7 @@ export function CompositePreviousWorkoutView({
   projection,
   theme,
   darkMode,
+  language,
   t,
   formatDate,
   formatCompactDate,
@@ -113,15 +116,15 @@ export function CompositePreviousWorkoutView({
   }
 
   const browser = projection.dateBuckets.length > 0 ? <section className={`shrink-0 rounded-2xl border px-3 py-3 ${theme.border} ${theme.input}`} data-health-composite-previous-date-browser>
-    <p className={`mb-2 text-xs font-bold ${theme.textMuted}`}>{t('previousWorkoutDates')}</p>
-    <div className="flex max-w-full gap-2 overflow-x-auto pb-1" role="group" aria-label={t('previousWorkoutDates')}>
-      {projection.dateBuckets.map(bucket => <button key={bucket.localDate} type="button"
-        aria-pressed={bucket.localDate === projection.effectiveDate}
-        onClick={() => onSelectDate(bucket.localDate)}
-        className={`min-h-[42px] shrink-0 rounded-xl border px-3 py-2 text-xs font-bold ${bucket.localDate === projection.effectiveDate ? 'border-primary bg-primary text-primary-foreground' : `${theme.border} ${theme.card} ${theme.textMuted}`}`}>
-        {formatCompactDate(bucket.localDate)}
-      </button>)}
-    </div>
+    <PreviousWorkoutDateBrowser
+      dates={projection.dateBuckets.map(bucket => bucket.localDate)}
+      selectedDate={projection.effectiveDate}
+      language={language}
+      theme={theme}
+      t={t}
+      formatCompactDate={formatCompactDate}
+      onSelectDate={onSelectDate}
+    />
   </section> : null;
 
   const warning = projection.status === 'partial_data' ? <div role="status" className={`flex items-center justify-between gap-3 rounded-xl border px-3 py-2 text-xs ${theme.border}`} data-health-composite-previous-incomplete>
