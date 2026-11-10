@@ -387,6 +387,7 @@ export const CosmosNodeLayer = memo(function CosmosNodeLayer({
             key={node.id}
             style={{ cursor: 'pointer', opacity: nodeOpacity }}
             role="button"
+            data-cosmos-graph-node="true"
             tabIndex={0}
             aria-label={ariaLabel}
             onClick={e => { e.stopPropagation(); onPreview(node.id); }}
