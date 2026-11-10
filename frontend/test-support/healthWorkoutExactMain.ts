@@ -265,6 +265,22 @@ export async function runCandidateStateFault(
 }
 const BASELINE_REVERSE_HUNKS = [
   {
+    candidate: "  const workoutSaveFlightRef = useRef<HealthWorkoutOperationScope | null>(null);\n",
+    baseline: '',
+  },
+  {
+    candidate: "    if (workoutSaveFlightRef.current?.dateLifetime === operationScope.dateLifetime) return;\n",
+    baseline: '',
+  },
+  {
+    candidate: "    workoutSaveFlightRef.current = operationScope;\n",
+    baseline: '',
+  },
+  {
+    candidate: "    } finally {\n      if (workoutSaveFlightRef.current === operationScope) {\n        workoutSaveFlightRef.current = null;\n        if (currentWorkoutOperation(operationScope)) setIsSaving(false);\n      }\n    }",
+    baseline: '    }',
+  },
+  {
     candidate: "                  <WorkoutPrBadge\n                    badge={prBadgeMap[w.block_id] ?? null}\n                    darkMode={appSettings.darkMode}\n                    legacyScopeLabel={t('healthWorkoutBadgeLegacyScope')}\n                    prDescription={t('healthWorkoutBadgePrDescription')}\n                    diffDescription={t('healthWorkoutBadgeDiffDescription')}\n                  />",
     baseline: "                  <WorkoutPrBadge badge={prBadgeMap[w.block_id] ?? null} darkMode={appSettings.darkMode} />",
   },
@@ -350,7 +366,7 @@ export async function loadExactMainHealthView(importer: (specifier: string) => P
 export async function loadCandidateHealthView(importer: (specifier: string) => Promise<unknown>) {
   const source = readFileSync('src/components/views/HealthView.tsx', 'utf8').replace(/\r\n/g, '\n');
   const healthBlob = createHash('sha1').update('blob ' + Buffer.byteLength(source) + '\0').update(source).digest('hex');
-  if (healthBlob !== 'b335c30fc54b6b2bd00488bd46247b6504d76898') throw new Error('CANDIDATE_PRODUCTION_BLOB_CHANGED');
+  if (healthBlob !== 'e1405c0371d85f65fc40b810602a0d7968488096') throw new Error('CANDIDATE_PRODUCTION_BLOB_CHANGED');
   const candidateFault: string | null = null; // bounded in-memory child transform only
   let observedSource = source;
   if (candidateFault === 'reset-saving') observedSource = source.replaceAll('setIsSaving(false);', 'setIsSaving(true);');

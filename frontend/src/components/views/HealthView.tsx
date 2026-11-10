@@ -439,6 +439,7 @@ export const HealthView = ({
   const workoutLifetime = useHealthWorkoutOperationLifetime(
     workoutAccountOperation.accountId, workoutAccountOperation.generation, selectedDateDraftKey,
   );
+  const workoutSaveFlightRef = useRef<HealthWorkoutOperationScope | null>(null);
   const captureWorkoutOperation = () => captureHealthWorkoutOperationScope(
     workoutLifetime.publication, workoutAccountOperation, selectedDateDraftKey,
     workoutLifetime.getCurrent(), currentAccountOperation,
@@ -1213,8 +1214,10 @@ export const HealthView = ({
   const handleSaveWorkouts = async () => {
     const operationScope = captureWorkoutOperation();
     if (!operationScope) return;
+    if (workoutSaveFlightRef.current?.dateLifetime === operationScope.dateLifetime) return;
     if (localWorkouts.filter(w => w.block_id !== '__session__').length === 0)
       return showToast(t('noWorkouts'), 'error');
+    workoutSaveFlightRef.current = operationScope;
     setIsSaving(true);
 
     try {
@@ -1295,6 +1298,11 @@ export const HealthView = ({
         'error',
       );
       return;
+    } finally {
+      if (workoutSaveFlightRef.current === operationScope) {
+        workoutSaveFlightRef.current = null;
+        if (currentWorkoutOperation(operationScope)) setIsSaving(false);
+      }
     }
   };
   // ── 드래그 정렬 핸들러 ────────────────────────────────────────────

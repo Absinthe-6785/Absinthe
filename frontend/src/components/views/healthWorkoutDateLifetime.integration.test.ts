@@ -462,6 +462,67 @@ beforeEach(() => {
 afterEach(() => { if (root) act(() => root!.unmount()); host.remove(); vi.unstubAllGlobals(); });
 
 describe('shared date lifetime real mounted Save/Delete', () => {
+  it('admits only one save before rerender and while that same lifetime is pending', async () => {
+    seed(); await render();
+    const gate = deferred<any>(); mocks.saveHealthWorkouts.mockReturnValue(gate.promise);
+    const callback = mocks.saveCallback!;
+    await invoke(() => { void callback(); void callback(); });
+    await invoke(() => mocks.saveCallback!());
+    expect(mocks.saveHealthWorkouts).toHaveBeenCalledTimes(1);
+    expect(mocks.normalize).toHaveBeenCalledTimes(1);
+    await act(async () => gate.release({ status: 'success', total: 1, succeeded: 1, failed: 0 }));
+    expect(mocks.showToast.mock.calls.filter(call => call[0] === 'workoutSaved')).toHaveLength(1);
+  });
+  it.each(['date', 'account', 'date-roundtrip', 'account-roundtrip'] as const)(
+    'admits a new %s lifetime while the old flight is unresolved; stale finally cannot release it', async transition => {
+      seed(); await render();
+      const old = deferred<any>(), current = deferred<any>();
+      mocks.saveHealthWorkouts.mockReturnValueOnce(old.promise).mockReturnValueOnce(current.promise);
+      await invoke(() => mocks.saveCallback!());
+      if (transition.startsWith('date')) {
+        await render({ selectedDate: date(Y) });
+        if (transition === 'date-roundtrip') await render({ selectedDate: date(X) });
+      } else {
+        await render({ user: { id: B, name: 'B' }, selectedDate: date(Z) });
+        if (transition === 'account-roundtrip') await render({ user: { id: A, name: 'A2' }, selectedDate: date(X) });
+      }
+      await invoke(() => mocks.saveCallback!());
+      expect(mocks.saveHealthWorkouts).toHaveBeenCalledTimes(2);
+      const before = snapshot();
+      await act(async () => old.release({ status: 'success', total: 1, succeeded: 1, failed: 0 }));
+      expect(snapshot()).toEqual(before);
+      await invoke(() => mocks.saveCallback!());
+      expect(mocks.saveHealthWorkouts).toHaveBeenCalledTimes(2);
+      await act(async () => current.release({ status: 'success', total: 1, succeeded: 1, failed: 0 }));
+      expect(snapshot()).toMatchObject({ saving: false, locked: true, dirty: false });
+    });
+  it('old completion after newer success preserves acknowledgement and permits a subsequent save', async () => {
+    seed(); await render();
+    const old = deferred<any>(); mocks.saveHealthWorkouts.mockReturnValueOnce(old.promise);
+    await invoke(() => mocks.saveCallback!()); await navigateABA(); await save();
+    const acknowledged = snapshot();
+    await act(async () => old.release({ status: 'success', total: 1, succeeded: 1, failed: 0 }));
+    expect(snapshot()).toEqual(acknowledged);
+    await save(); expect(mocks.saveHealthWorkouts).toHaveBeenCalledTimes(3);
+  });
+  it.each(['failure', 'aborted', 'reject'] as const)('releases a current %s flight for retry without losing its draft', async outcome => {
+    seed(); await render();
+    if (outcome === 'reject') mocks.saveHealthWorkouts.mockRejectedValueOnce(new Error('local write failed'));
+    else mocks.saveHealthWorkouts.mockResolvedValueOnce({ status: outcome, total: 1, succeeded: 0, failed: 1 });
+    await save();
+    expect(snapshot()).toMatchObject({ saving: false, locked: false, dirty: true });
+    expect(snapshot().bytes).not.toBeNull();
+    await save(); expect(mocks.saveHealthWorkouts).toHaveBeenCalledTimes(2);
+    expect(snapshot()).toMatchObject({ saving: false, locked: true, dirty: false });
+  });
+  it('releases the guard after normalization throws and after empty validation', async () => {
+    await render(); await save(); expect(mocks.saveHealthWorkouts).not.toHaveBeenCalled();
+    seed(); await navigateABA();
+    mocks.onNormalize = () => { mocks.onNormalize = null; throw new Error('invalid set'); };
+    await save(); expect(mocks.saveHealthWorkouts).not.toHaveBeenCalled();
+    expect(snapshot()).toMatchObject({ saving: false, dirty: true, locked: false });
+    await save(); expect(mocks.saveHealthWorkouts).toHaveBeenCalledTimes(1);
+  });
   it('S01 valid same-lifetime Save normalizes/reconciles; same-date rerender is admitted', async () => {
     seed(); await render(); await render({ appSettings: { ...props.appSettings, darkMode: true } });
     expect(snapshot().saving).toBe(false); await save();
