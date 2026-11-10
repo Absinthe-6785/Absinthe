@@ -2343,6 +2343,8 @@ const enTranslations = [
   "The Schedule change succeeded, but this month's list could not be verified. Previous complete data is still shown.",
   "Couldn’t copy the workout summary. Check clipboard access and try again.",
   "Open this day",
+  "{count} matching notes are hidden by the isolated-node filter",
+  "Show isolated notes",
 ] as const;
 
 export default enTranslations;

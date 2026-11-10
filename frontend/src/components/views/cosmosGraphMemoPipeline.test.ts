@@ -3,6 +3,7 @@ import {
   buildGalaxyVisualTopology,
   buildOrbitPathTopology,
   buildVisibleGraphSnapshot,
+  countHiddenGraphSearchMatches,
   resolveGalaxyVisualsFromTopology,
   resolveOrbitPathsFromTopology,
 } from './cosmosGraphMemoPipeline';
@@ -75,6 +76,16 @@ describe('cosmosGraphMemoPipeline', () => {
     expect(hidden.visibleNodes.map(n => n.id)).toEqual(['a', 'b']);
     const shown = buildVisibleGraphSnapshot(nodes, edges, true);
     expect(shown.visibleNodes.map(n => n.id)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('distinguishes hidden-only, visible-only, mixed, empty, and cleared search matches', () => {
+    const visibleIds = new Set(buildVisibleGraphSnapshot(nodes, edges, false).visibleNodes.map(node => node.id));
+    expect(countHiddenGraphSearchMatches(new Set(['c']), visibleIds)).toBe(1);
+    expect(countHiddenGraphSearchMatches(new Set(['a']), visibleIds)).toBe(0);
+    expect(countHiddenGraphSearchMatches(new Set(['a', 'c']), visibleIds)).toBe(1);
+    expect(countHiddenGraphSearchMatches(new Set(), visibleIds)).toBe(0);
+    expect(countHiddenGraphSearchMatches(null, visibleIds)).toBe(0);
+    expect(countHiddenGraphSearchMatches(new Set(['c']), new Set(['a', 'b', 'c']))).toBe(0);
   });
 
   it('builds stable galaxy topology independent of moved positions', () => {

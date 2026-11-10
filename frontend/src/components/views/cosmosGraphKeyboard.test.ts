@@ -24,6 +24,15 @@ describe('Cosmos graph-wide keyboard scope', () => {
     expect(shouldHandleCosmosGraphKeyboardEvent(keyEvent(link, 'Enter'))).toBe(false);
   });
 
+  it('does not intercept keyboard activation on controls nested in the graph surface', () => {
+    const surface = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    surface.dataset.cosmosGraphSurface = 'true';
+    const control = document.createElement('button');
+    surface.appendChild(control);
+    expect(shouldHandleCosmosGraphKeyboardEvent(keyEvent(control, 'Enter'))).toBe(false);
+    expect(shouldHandleCosmosGraphKeyboardEvent(keyEvent(control, 'Escape'))).toBe(false);
+  });
+
   it('leaves graph-node activation to the node handler but permits graph arrows and dismissal', () => {
     const surface = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     surface.dataset.cosmosGraphSurface = 'true';
