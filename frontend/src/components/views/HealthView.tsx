@@ -499,16 +499,17 @@ export const HealthView = ({
       if (previousCurrentness.current) await previousOwner.ensure(blockIds);
       return;
     }
-    const accountOperation = { accountId: user.id, generation: accountGenerationRef.current };
+    const operationScope = captureWorkoutOperation();
+    if (!operationScope) return;
     const missing = [...new Set(blockIds.filter(id => id && id !== '__session__'))]
       .filter(id => prevDataRef.current[id] === undefined);
     if (missing.length === 0) return;
     const fetched = await fetchPrevWorkoutForBlocks(missing, formatDate(selectedDate), source, user.id);
-    if (currentAccountOperation(accountOperation) && Object.keys(fetched).length > 0) {
-      setPrevData(prev => ({ ...prev, ...fetched }));
+    if (currentWorkoutOperation(operationScope) && Object.keys(fetched).length > 0) {
+      setPrevData(prev => currentWorkoutOperation(operationScope) ? { ...prev, ...fetched } : prev);
     }
   }, [formatDate, selectedDate, user.id, previousEnabled, previousCurrentness.current, previousOwner,
-    previousParentIdentity, previousRejected]);
+    previousParentIdentity, previousRejected, workoutLifetime.publication]);
 
   // localWorkouts가 세팅될 때 각 블록의 이전 세션 + PR fetch (max 4 concurrent)
   useEffect(() => {
@@ -525,7 +526,8 @@ export const HealthView = ({
       return { sets: evidence?.payload?.prev_sets, evidence,
         allowed: !!evidence && previousOwner.qualified(evidence) };
     }
-    const accountOperation = { accountId: user.id, generation: accountGenerationRef.current };
+    const operationScope = captureWorkoutOperation();
+    if (!operationScope) return { allowed: false };
     if (prevData[blockId]?.prev_sets) return { sets: prevData[blockId].prev_sets, allowed: true };
     const result = await fetchPrevWorkoutForBlocks(
       [blockId],
@@ -533,12 +535,13 @@ export const HealthView = ({
       'HealthView.fetchPrevForBlock',
       user.id,
     );
-    if (!currentAccountOperation(accountOperation)) return { allowed: false };
+    if (!currentWorkoutOperation(operationScope)) return { allowed: false };
     const data = result[blockId];
     if (!data) return { allowed: true, sets: undefined };
-    setPrevData(prev => ({ ...prev, [blockId]: data }));
+    setPrevData(prev => currentWorkoutOperation(operationScope) ? { ...prev, [blockId]: data } : prev);
     return { sets: data.prev_sets, allowed: true };
-  }, [prevData, selectedDate, formatDate, user.id, previousEnabled, previousOwner, previousCurrentness.current]);
+  }, [prevData, selectedDate, formatDate, user.id, previousEnabled, previousOwner, previousCurrentness.current,
+    workoutLifetime.publication]);
 
   const planningAllowed = (value: { allowed: boolean; evidence?: PreviousEvidence }) => value.allowed
     && (!previousEnabled || (!!value.evidence && previousOwner.qualified(value.evidence)));
@@ -835,10 +838,11 @@ export const HealthView = ({
   useLayoutEffect(() => () => { routineLoadIntentRef.current = null; }, []);
   const handleLoadRoutine = async (e: ChangeEvent<HTMLSelectElement>) => {
     if (selectedDayComposite && !routinePresetAccountReady) return;
-    const accountOperation = { accountId: user.id, generation: accountGenerationRef.current };
+    const operationScope = captureWorkoutOperation();
+    if (!operationScope) return;
     const dayName = e.target.value;
     const intent = { context: routineLoadContext, removed: new Set<string>() };
-    if (previousEnabled) routineLoadIntentRef.current = intent;
+    routineLoadIntentRef.current = intent;
     if (!dayName || dayName === '__load__') return;
     const routine = selectedHealthRoutines.find((r: HealthRoutine) => r.day_name === dayName);
     if (!routine?.blocks?.length) { showToast(t('noBlocks'), 'error'); e.target.value = '__load__'; return; }
@@ -847,7 +851,8 @@ export const HealthView = ({
     const currentPreviousOperation = previousOwner.captureOperation();
     const usedEvidence: PreviousEvidence[] = [];
     const capturedDraftIds = new Set(localWorkouts.map(row => row.block_id));
-    const currentLoad = () => currentAccountOperation(accountOperation) && currentPreviousOperation()
+    const currentLoad = () => currentWorkoutOperation(operationScope)
+      && (!previousEnabled || currentPreviousOperation())
       && routineLoadContextRef.current === intent.context && routineLoadIntentRef.current === intent
       && usedEvidence.every(value => previousOwner.qualified(value));
     // Qualify all history-dependent routine IDs in one batch, not one full
@@ -856,6 +861,7 @@ export const HealthView = ({
       const b = healthBlocks.find(block => block.id === id);
       return b && !localWorkouts.some(w => w.block_id === id) && !explicitRoutineCount(dayName, id, b.type);
     }));
+    if (!currentLoad()) return;
     for (const id of routine.blocks) {
       const existing = localWorkouts.find(w => w.block_id === id);
       if (existing) {
@@ -866,8 +872,7 @@ export const HealthView = ({
       if (!b) continue;
       const previous = previousEnabled && explicitRoutineCount(dayName, id, b.type)
         ? { allowed: true, sets: undefined } : await fetchPrevForBlock(id);
-      if (!currentAccountOperation(accountOperation)) return;
-      if (previousEnabled && !currentLoad()) return;
+      if (!currentLoad()) return;
       if (previousEnabled && !explicitRoutineCount(dayName, id, b.type) && !planningAllowed(previous))
         return showToast(t('healthPreviousSuppressed'), 'info');
       if ('evidence' in previous && previous.evidence) usedEvidence.push(previous.evidence);
@@ -880,10 +885,8 @@ export const HealthView = ({
       });
     }
 
-    if (!currentAccountOperation(accountOperation)) return;
-    if (previousEnabled && !currentLoad()) return;
-    const unrelated = localWorkouts.filter(w => !routine.blocks.includes(w.block_id));
-    if (previousEnabled) setLocalWorkouts(current => currentLoad() ? [
+    if (!currentLoad()) return;
+    setLocalWorkouts(current => currentLoad() ? [
       ...routineOrdered.flatMap(row => {
         const existing = current.find(workout => workout.block_id === row.block_id);
         if (existing) return [existing]; // Latest edits/re-additions remain draft authority.
@@ -891,8 +894,7 @@ export const HealthView = ({
       }),
       ...current.filter(w => !routine.blocks.includes(w.block_id)),
     ] : current);
-    else setLocalWorkouts([...routineOrdered, ...unrelated]);
-    setIsDirty(true);
+    setIsDirty(current => currentLoad() ? true : current);
     e.target.value = '__load__';
     showToast(t('loaded'));
   };
@@ -970,25 +972,29 @@ export const HealthView = ({
   };
 
   const handleAddWorkoutToToday = async (block: ExerciseBlock) => {
+    const operationScope = captureWorkoutOperation();
+    if (!operationScope) return;
     if (localWorkouts.find(w => w.block_id === block.id)) return showToast(t('alreadyAdded'), 'error');
-    const accountOperation = { accountId: user.id, generation: accountGenerationRef.current };
     const previous = await fetchPrevForBlock(block.id);
-    if (!currentAccountOperation(accountOperation)) return;
+    if (!currentWorkoutOperation(operationScope)) return;
     if (!planningAllowed(previous)) return showToast(t('healthPreviousSuppressed'), 'info');
-    setIsDirty(true);
-    pendingLatestWorkoutIndexRef.current = localWorkouts.length;
+    const currentAddition = () => currentWorkoutOperation(operationScope) && planningAllowed(previous);
     const added: Workout = {
-      id: `temp-${Date.now()}`,
+      id: `temp-${Date.now()}-${block.id}`,
       block_id: block.id,
       exercise_blocks: block,
       sets: buildSetsFromPrevCount(block.type, previous.sets),
     };
-    if (previousEnabled) setLocalWorkouts(current => current.some(w => w.block_id === block.id) ? current : [...current, added]);
-    else setLocalWorkouts([...localWorkouts, added]);
+    setLocalWorkouts(current => {
+      if (!currentAddition() || current.some(w => w.block_id === block.id)) return current;
+      pendingLatestWorkoutIndexRef.current = current.length;
+      return [...current, added];
+    });
+    setIsDirty(current => currentAddition() ? true : current);
   };
 
   const handleQuickPresetChange = async (presetId: string) => {
-    if (previousEnabled) routineLoadIntentRef.current = null;
+    routineLoadIntentRef.current = null;
     const result = await selectPreset(presetId);
     if (!currentAccountOperation(result.accountOperation)) return;
     if (!result.ok) {
@@ -1023,10 +1029,8 @@ export const HealthView = ({
   const handleRemoveWorkout = async (index: number, dbId: string) => {
     const operationScope = captureWorkoutOperation();
     if (!operationScope) return;
-    if (previousEnabled) {
-      const blockId = localWorkouts[index]?.block_id;
-      if (blockId) routineLoadIntentRef.current?.removed.add(blockId);
-    }
+    const blockId = localWorkouts[index]?.block_id;
+    if (blockId) routineLoadIntentRef.current?.removed.add(blockId);
     try {
       // 세션 구분선은 DB에 없으므로 API 호출 없이 바로 제거
       if (dbId !== 'session' && !dbId.startsWith('session-') && !dbId.startsWith('temp')) {
