@@ -76,6 +76,7 @@ import {
   buildGalaxyVisualTopology,
   buildOrbitPathTopology,
   buildVisibleGraphSnapshot,
+  countHiddenGraphSearchMatches,
   resolveGalaxyVisualsFromTopology,
   resolveOrbitPathsFromTopology,
 } from './cosmosGraphMemoPipeline';
@@ -639,6 +640,8 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
     [graphTopologySignature, showIsolated],
   );
   const { visibleNodes, visibleEdges } = visibleGraph;
+  const visibleNodeIds = useMemo(() => new Set(visibleNodes.map(node => node.id)), [visibleNodes]);
+  const hiddenSearchMatchCount = countHiddenGraphSearchMatches(matchedIds, visibleNodeIds);
 
   const isolatedCount = ns.filter(n => n.links === 0).length;
   const graphNodeCount = ns.length;
@@ -1400,6 +1403,21 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
             {t('nvClearQuery')}
           </span>
         </button>
+      )}
+      {hiddenSearchMatchCount > 0 && (
+        <div role="status" style={{
+          position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+          display: 'flex', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center', gap: 8,
+          maxWidth: 'calc(100% - 24px)', padding: '8px 12px', borderRadius: 8,
+          color: colors.toolTxt, background: colors.toolbar, border: `1px solid ${colors.toolbarB}`,
+          fontSize: 12, pointerEvents: 'all',
+        }}>
+          <span>{t('graphSearchHiddenMatches').replace('{count}', String(hiddenSearchMatchCount))}</span>
+          {!showIsolated && <button type="button" onClick={() => setShowIsolated(true)} style={{
+            color: colors.act, background: 'transparent', border: 0, cursor: 'pointer',
+            font: 'inherit', textDecoration: 'underline', whiteSpace: 'nowrap',
+          }}>{t('graphSearchRevealIsolated')}</button>}
+        </div>
       )}
       <style>{`
         @keyframes ku-star-pulse {

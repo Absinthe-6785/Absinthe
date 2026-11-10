@@ -40,6 +40,17 @@ export interface CosmosVisibleGraphSnapshot {
   visibleEdges: CosmosVisibleEdgeRef[];
 }
 
+/** Counts current search matches excluded from the visible graph snapshot. */
+export function countHiddenGraphSearchMatches(
+  matchedIds: ReadonlySet<string> | null,
+  visibleNodeIds: ReadonlySet<string>,
+): number {
+  if (matchedIds === null) return 0;
+  let hiddenCount = 0;
+  matchedIds.forEach(id => { if (!visibleNodeIds.has(id)) hiddenCount += 1; });
+  return hiddenCount;
+}
+
 /** P1 — Filter visible nodes/edges from refs; stable until topology or isolate toggle changes. */
 export function buildVisibleGraphSnapshot(
   nodes: readonly CosmosVisibleNodeRef[],

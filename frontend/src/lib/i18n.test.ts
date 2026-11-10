@@ -8,7 +8,7 @@ import translationKeys, { buildLocaleDictionary } from './i18n/keys';
 import type { TranslationKey } from './i18n';
 
 const PLANNER_STORAGE_KEY = 'planner-storage';
-const EXPECTED_KEY_COUNT = 2_343;
+const EXPECTED_KEY_COUNT = 2_345;
 type Locale = 'en' | 'ko' | 'ja';
 
 // Current independent canonical authority, including append-only Notes UI, Wiki-link accessibility, cloud comparison and search, Cloud Copy status readback, local document downloads, PDF/DOCX preview, Recipe filter reset, local-original integrity preflight, cloud Note previews, and single-Note cloud text export.
@@ -16,9 +16,9 @@ type Locale = 'en' | 'ko' | 'ja';
 // translationKeys order, so it detects insertion, omission, reordering, and
 // substitution without using buildLocaleDictionary.
 const EXPECTED_LOCALE_INTEGRITY_SHA256: Record<Locale, string> = {
-  en: 'b8634820b276449966e62ec37e6f64b4ededdb99499ea1042cee0da922b372f1',
-  ko: '8f98fbf2e0c821a63d2c52856dd72c9d43cc47add194d2e413e2fdda74338f0f',
-  ja: '962a6dd2c20e3d236a8109ea0780a230460fecb9eb897615e1f8fd85f5dd6e28',
+  en: '1322ce496585c955fc774125cdf0884d2b5f982bd0636123ccec213e5987d4a4',
+  ko: '32aef75e93b0cef16537653c45bfd61c77f666ec753ad5124e0d6ac887dab9b8',
+  ja: '3c070c7879bd225fbd396556a628be8d5f40c33361de4353f4ad092dce6917f6',
 };
 
 const PRE_SCHEDULE_MONTH_MUTATION_REFRESH_LOCALE_SHA256: Record<Locale, string> = {
@@ -389,9 +389,11 @@ describe('i18n locale dictionaries', () => {
         '予定の変更は完了しましたが、今月の一覧を確認できませんでした。以前の完全なデータを表示しています。',
       ],
     } as const;
-    const previousKeyCount = translationKeys.length - keys.length - 2;
+    const previousKeyCount = translationKeys.length - keys.length - 4;
     expect(translationKeys.slice(previousKeyCount, previousKeyCount + keys.length)).toEqual(keys);
-    expect(translationKeys.slice(-2)).toEqual(['healthWorkoutSummaryCopyFailed', 'healthOpenPreviousDay']);
+    expect(translationKeys.slice(previousKeyCount + keys.length)).toEqual([
+      'healthWorkoutSummaryCopyFailed', 'healthOpenPreviousDay', 'graphSearchHiddenMatches', 'graphSearchRevealIsolated',
+    ]);
     for (const [locale, values] of [['en', enLocaleValues], ['ko', koLocaleValues], ['ja', jaLocaleValues]] as const) {
       expect(localeIntegrityDigest(values.slice(0, previousKeyCount), translationKeys.slice(0, previousKeyCount)))
         .toBe(PRE_SCHEDULE_MONTH_MUTATION_REFRESH_LOCALE_SHA256[locale]);
@@ -463,7 +465,8 @@ describe('i18n locale dictionaries', () => {
         'Expand recipe', 'Collapse recipe', 'Remove from Starred',
         "Refreshing this month's schedules after the change…", "This month's Schedule view was refreshed.",
         "The Schedule change succeeded, but this month's list could not be verified. Previous complete data is still shown.",
-        'Couldn’t copy the workout summary. Check clipboard access and try again.', 'Open this day'],
+        'Couldn’t copy the workout summary. Check clipboard access and try again.', 'Open this day',
+        '{count} matching notes are hidden by the isolated-node filter', 'Show isolated notes'],
       ko: ['클라우드 노트 미리보기', '클라우드 전용 노트 미리보기',
         '검증된 클라우드 비교에서 가져온 텍스트입니다. 로컬 노트가 아니며 가져오지 않았습니다.',
         '첨부 원본은 이 미리보기에 포함되지 않습니다.',
@@ -487,7 +490,8 @@ describe('i18n locale dictionaries', () => {
         '레시피 펼치기', '레시피 접기', '즐겨찾기에서 제거',
         '변경 후 이번 달 일정을 새로고침하는 중…', '이번 달 일정 화면을 새로고침했습니다.',
         '일정 변경은 완료됐지만 이번 달 목록을 확인하지 못했습니다. 이전의 완전한 데이터를 계속 표시합니다.',
-        '운동 요약을 복사하지 못했습니다. 클립보드 권한을 확인하고 다시 시도해 주세요.', '이 날짜 열기'],
+        '운동 요약을 복사하지 못했습니다. 클립보드 권한을 확인하고 다시 시도해 주세요.', '이 날짜 열기',
+        '검색어와 일치하는 노트 {count}개가 고립 노드 필터로 숨겨져 있습니다', '고립 노트 표시'],
       ja: ['クラウドノートをプレビュー', 'クラウドのみのノートプレビュー',
         '検証済みクラウド比較のテキストです。ローカルノートではなく、取り込みも行っていません。',
         '添付ファイルの原本はこのプレビューに含まれません。',
@@ -511,7 +515,8 @@ describe('i18n locale dictionaries', () => {
         'レシピを展開', 'レシピを折りたたむ', 'お気に入りから削除',
         '変更後、今月の予定を再読み込み中…', '今月の予定一覧を再読み込みしました。',
         '予定の変更は完了しましたが、今月の一覧を確認できませんでした。以前の完全なデータを表示しています。',
-        'ワークアウトの概要をコピーできませんでした。クリップボードへのアクセスを確認して、もう一度お試しください。', 'この日を開く'],
+        'ワークアウトの概要をコピーできませんでした。クリップボードへのアクセスを確認して、もう一度お試しください。', 'この日を開く',
+        '検索に一致するノート{count}件が孤立ノードのフィルターで非表示です', '孤立ノートを表示'],
     } as const;
     expect(translationKeys.slice(2_299)).toEqual([
       ...keys,
@@ -525,6 +530,7 @@ describe('i18n locale dictionaries', () => {
       'recipeExpandCard', 'recipeCollapseCard', 'recipeRemoveStarred',
       'scheduleMonthMutationRefreshing', 'scheduleMonthMutationRefreshed', 'scheduleMonthMutationRefreshIncomplete',
       'healthWorkoutSummaryCopyFailed', 'healthOpenPreviousDay',
+      'graphSearchHiddenMatches', 'graphSearchRevealIsolated',
     ]);
     for (const [locale, values] of [['en', enLocaleValues], ['ko', koLocaleValues], ['ja', jaLocaleValues]] as const) {
       expect(localeIntegrityDigest(values.slice(0, 2_299), translationKeys.slice(0, 2_299)))
@@ -553,10 +559,10 @@ describe('i18n locale dictionaries', () => {
     missing.splice(1_000, 1);
 
     expect(() => buildLocaleDictionary(missing)).toThrow(
-      'Locale dictionary length mismatch: expected 2343, received 2342',
+      'Locale dictionary length mismatch: expected 2345, received 2344',
     );
     expect(() => assertLocaleValuesIntegrity('en', missing)).toThrow(
-      'Locale integrity length mismatch: expected 2343, received 2342',
+      'Locale integrity length mismatch: expected 2345, received 2344',
     );
   });
 
@@ -565,10 +571,10 @@ describe('i18n locale dictionaries', () => {
     extra.splice(1_000, 0, '__unexpected__');
 
     expect(() => buildLocaleDictionary(extra)).toThrow(
-      'Locale dictionary length mismatch: expected 2343, received 2344',
+      'Locale dictionary length mismatch: expected 2345, received 2346',
     );
     expect(() => assertLocaleValuesIntegrity('en', extra)).toThrow(
-      'Locale integrity length mismatch: expected 2343, received 2344',
+      'Locale integrity length mismatch: expected 2345, received 2346',
     );
   });
 
