@@ -19,6 +19,7 @@ const translate = ((key: string) => key) as PreviousWorkoutSheetProps['t'];
 const sessions: PreviousWorkoutSession[] = [
   { date: '2026-08-20', rows: [], matchStrategy: 'date' },
   { date: '2026-08-13', rows: [], matchStrategy: 'date' },
+  { date: '2026-07-30', rows: [], matchStrategy: 'date' },
 ];
 
 function sheetProps(overrides: Partial<PreviousWorkoutSheetProps> = {}): Omit<PreviousWorkoutSheetProps, 'open' | 'onOpenChange'> {
@@ -30,6 +31,7 @@ function sheetProps(overrides: Partial<PreviousWorkoutSheetProps> = {}): Omit<Pr
     hasError: false,
     theme,
     darkMode: false,
+    language: 'en',
     t: translate,
     formatDate: date => date,
     formatCompactDate: date => date,
@@ -117,6 +119,25 @@ describe('PreviousWorkoutSheet', () => {
     const selected = Array.from(document.querySelectorAll('[data-health-previous-date-browser] button'))
       .find(button => button.getAttribute('aria-pressed') === 'true');
     expect(selected?.textContent).toBe(sessions[1]!.date);
+    unmount();
+  });
+
+  it('preserves a month chosen in the sheet after close and reopen without owning month state', () => {
+    const { container, unmount } = mount(createElement(Harness));
+    const trigger = container.querySelector('[data-test-trigger]') as HTMLButtonElement;
+
+    act(() => { trigger.click(); });
+    const month = document.querySelector<HTMLSelectElement>('[data-health-previous-month-selector]')!;
+    act(() => {
+      month.value = '2026-07';
+      month.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(document.querySelector('[data-health-previous-date="2026-07-30"]')?.getAttribute('aria-pressed')).toBe('true');
+
+    act(() => { (document.querySelector('[data-health-previous-sheet-close]') as HTMLButtonElement).click(); });
+    act(() => { trigger.click(); });
+    expect(document.querySelector<HTMLSelectElement>('[data-health-previous-month-selector]')?.value).toBe('2026-07');
+    expect(document.querySelector('[data-health-previous-date="2026-07-30"]')?.getAttribute('aria-pressed')).toBe('true');
     unmount();
   });
 

@@ -1881,6 +1881,7 @@ export const HealthView = ({
               projection={compositePreviousProjection}
               theme={theme}
               darkMode={appSettings.darkMode}
+              language={lang}
               t={t}
               formatDate={date => formatLongDate(new Date(`${date}T12:00:00`), lang)}
               formatCompactDate={date => formatAbsoluteDateKey(date, lang)}
@@ -1895,6 +1896,7 @@ export const HealthView = ({
               hasError={!!previousWorkoutError}
               theme={theme}
               darkMode={appSettings.darkMode}
+              language={lang}
               t={t}
               formatDate={date => formatLongDate(new Date(`${date}T12:00:00`), lang)}
               formatCompactDate={date => formatAbsoluteDateKey(date, lang)}
@@ -2583,6 +2585,7 @@ export const HealthView = ({
         hasError={!!previousWorkoutError}
         theme={theme}
         darkMode={appSettings.darkMode}
+        language={lang}
         t={t}
         formatDate={date => formatLongDate(new Date(`${date}T12:00:00`), lang)}
         formatCompactDate={date => formatAbsoluteDateKey(date, lang)}
@@ -2597,6 +2600,7 @@ export const HealthView = ({
           projection: compositePreviousProjection,
           theme,
           darkMode: appSettings.darkMode,
+          language: lang,
           t,
           formatDate: date => formatLongDate(new Date(`${date}T12:00:00`), lang),
           formatCompactDate: date => formatAbsoluteDateKey(date, lang),
