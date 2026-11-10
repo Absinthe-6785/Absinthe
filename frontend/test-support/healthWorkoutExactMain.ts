@@ -488,6 +488,22 @@ const BASELINE_REVERSE_HUNKS = [
     candidate: "        onOpenDay={openLegacyPreviousDay}\n",
     baseline: '',
   },
+  {
+    candidate: "              language={lang}\n",
+    baseline: '',
+  },
+  {
+    candidate: "              language={lang}\n",
+    baseline: '',
+  },
+  {
+    candidate: "        language={lang}\n",
+    baseline: '',
+  },
+  {
+    candidate: "          language: lang,\n",
+    baseline: '',
+  },
 ];
 const BASELINE_SCOPE_SOURCE = "import type { HealthAccountGenerationToken } from '../../../../lib/healthBackfillUiSafety';\n\nexport interface HealthWorkoutOperationScope {\n  accountOperation: HealthAccountGenerationToken;\n  dateKey: string;\n}\n\nexport function isCurrentHealthWorkoutOperationScope(\n  scope: HealthWorkoutOperationScope,\n  currentDateKey: string,\n  isCurrentAccountOperation: (token: HealthAccountGenerationToken) => boolean,\n): boolean {\n  return scope.dateKey === currentDateKey && isCurrentAccountOperation(scope.accountOperation);\n}\n";
 
@@ -526,7 +542,7 @@ export async function loadExactMainHealthView(importer: (specifier: string) => P
 export async function loadCandidateHealthView(importer: (specifier: string) => Promise<unknown>) {
   const source = readFileSync('src/components/views/HealthView.tsx', 'utf8').replace(/\r\n/g, '\n');
   const healthBlob = createHash('sha1').update('blob ' + Buffer.byteLength(source) + '\0').update(source).digest('hex');
-  if (healthBlob !== '6b0ea79b720e398295b753733535e9f5b1950cad') throw new Error('CANDIDATE_PRODUCTION_BLOB_CHANGED');
+  if (healthBlob !== '1ea28f812760c17cb32c235778253246b902715e') throw new Error('CANDIDATE_PRODUCTION_BLOB_CHANGED');
   const candidateFault: string | null = null; // bounded in-memory child transform only
   let observedSource = source;
   if (candidateFault === 'reset-saving') observedSource = source.replaceAll('setIsSaving(false);', 'setIsSaving(true);');
