@@ -265,6 +265,98 @@ export async function runCandidateStateFault(
 }
 const BASELINE_REVERSE_HUNKS = [
   {
+    candidate: "\n  const {\n    localWorkouts,\n    setLocalWorkouts: setWorkoutRows,\n    isDirty,\n    setIsDirty: setDraftDirty,\n    isDirtyRef,\n    rawKgInput,\n    setRawKgInput: setDraftRawKgInput,\n    replaceFromHydration,\n    clearStoredDraft,\n    clearDirtyAfterSave,\n",
+    baseline: "\n  const {\n    localWorkouts,\n    setLocalWorkouts,\n    isDirty,\n    setIsDirty,\n    isDirtyRef,\n    rawKgInput,\n    setRawKgInput,\n    replaceFromHydration,\n    clearStoredDraft,\n    clearDirtyAfterSave,\n",
+  },
+  {
+    candidate: "    onDraftRestored: () => showToast(t('draftRestored')),\n  });\n\n  const currentWorkoutEdit = (scope: HealthWorkoutOperationScope) => currentWorkoutOperation(scope)\n    && workoutSaveFlightRef.current?.dateLifetime !== scope.dateLifetime;\n  const captureWorkoutEdit = () => {\n    const scope = captureWorkoutOperation();\n    return scope && currentWorkoutEdit(scope) ? scope : null;\n  };\n  const workoutSavePending = isSaving && !!workoutLifetime.publication\n    && workoutSaveFlightRef.current?.dateLifetime === workoutLifetime.publication.dateLifetime;\n  const setLocalWorkouts: typeof setWorkoutRows = action => {\n    const scope = captureWorkoutEdit();\n    if (scope) setWorkoutRows(previous => !currentWorkoutEdit(scope) ? previous\n      : typeof action === 'function' ? action(previous) : action);\n  };\n  const setIsDirty: typeof setDraftDirty = action => {\n    const scope = captureWorkoutEdit();\n    if (scope) setDraftDirty(previous => !currentWorkoutEdit(scope) ? previous\n      : typeof action === 'function' ? action(previous) : action);\n  };\n  const setRawKgInput: typeof setDraftRawKgInput = action => {\n    const scope = captureWorkoutEdit();\n    if (scope) setDraftRawKgInput(previous => !currentWorkoutEdit(scope) ? previous\n      : typeof action === 'function' ? action(previous) : action);\n  };\n\n  const workoutSummaryText = useMemo(\n    () => buildWorkoutSummary(formatDate(selectedDate), localWorkouts, workoutMemo),\n    [buildWorkoutSummary, formatDate, selectedDate, localWorkouts, workoutMemo],\n",
+    baseline: "    onDraftRestored: () => showToast(t('draftRestored')),\n  });\n\n  const workoutSummaryText = useMemo(\n    () => buildWorkoutSummary(formatDate(selectedDate), localWorkouts, workoutMemo),\n    [buildWorkoutSummary, formatDate, selectedDate, localWorkouts, workoutMemo],\n",
+  },
+  {
+    candidate: "  }, [routineLoadContext]);\n  useLayoutEffect(() => () => { routineLoadIntentRef.current = null; }, []);\n  const handleLoadRoutine = async (e: ChangeEvent<HTMLSelectElement>) => {\n    if (!captureWorkoutEdit()) return;\n    if (selectedDayComposite && !routinePresetAccountReady) return;\n    const operationScope = captureWorkoutOperation();\n    if (!operationScope) return;\n",
+    baseline: "  }, [routineLoadContext]);\n  useLayoutEffect(() => () => { routineLoadIntentRef.current = null; }, []);\n  const handleLoadRoutine = async (e: ChangeEvent<HTMLSelectElement>) => {\n    if (selectedDayComposite && !routinePresetAccountReady) return;\n    const operationScope = captureWorkoutOperation();\n    if (!operationScope) return;\n",
+  },
+  {
+    candidate: "    const currentPreviousOperation = previousOwner.captureOperation();\n    const usedEvidence: PreviousEvidence[] = [];\n    const capturedDraftIds = new Set(localWorkouts.map(row => row.block_id));\n    const currentLoad = () => currentWorkoutEdit(operationScope)\n      && (!previousEnabled || currentPreviousOperation())\n      && routineLoadContextRef.current === intent.context && routineLoadIntentRef.current === intent\n      && usedEvidence.every(value => previousOwner.qualified(value));\n",
+    baseline: "    const currentPreviousOperation = previousOwner.captureOperation();\n    const usedEvidence: PreviousEvidence[] = [];\n    const capturedDraftIds = new Set(localWorkouts.map(row => row.block_id));\n    const currentLoad = () => currentWorkoutOperation(operationScope)\n      && (!previousEnabled || currentPreviousOperation())\n      && routineLoadContextRef.current === intent.context && routineLoadIntentRef.current === intent\n      && usedEvidence.every(value => previousOwner.qualified(value));\n",
+  },
+  {
+    candidate: "  };\n\n  const handleAddWorkoutToToday = async (block: ExerciseBlock) => {\n    if (!captureWorkoutEdit()) return;\n    const operationScope = captureWorkoutOperation();\n    if (!operationScope) return;\n    if (localWorkouts.find(w => w.block_id === block.id)) return showToast(t('alreadyAdded'), 'error');\n    const previous = await fetchPrevForBlock(block.id);\n    if (!currentWorkoutEdit(operationScope)) return;\n    if (!planningAllowed(previous)) return showToast(t('healthPreviousSuppressed'), 'info');\n    const currentAddition = () => currentWorkoutEdit(operationScope) && planningAllowed(previous);\n    const added: Workout = {\n      id: `temp-${Date.now()}-${block.id}`,\n      block_id: block.id,\n",
+    baseline: "  };\n\n  const handleAddWorkoutToToday = async (block: ExerciseBlock) => {\n    const operationScope = captureWorkoutOperation();\n    if (!operationScope) return;\n    if (localWorkouts.find(w => w.block_id === block.id)) return showToast(t('alreadyAdded'), 'error');\n    const previous = await fetchPrevForBlock(block.id);\n    if (!currentWorkoutOperation(operationScope)) return;\n    if (!planningAllowed(previous)) return showToast(t('healthPreviousSuppressed'), 'info');\n    const currentAddition = () => currentWorkoutOperation(operationScope) && planningAllowed(previous);\n    const added: Workout = {\n      id: `temp-${Date.now()}-${block.id}`,\n      block_id: block.id,\n",
+  },
+  {
+    candidate: "  // ── 세션 구분선 ───────────────────────────────────────────────────\n  const SESSION_KEYS = ['sessionMorning', 'sessionAfternoon', 'sessionEvening'] as const;\n  const handleAddSessionBreak = (labelKey: typeof SESSION_KEYS[number]) => {\n    if (!captureWorkoutEdit()) return;\n    const label = t(labelKey);\n    setIsDirty(true);\n    pendingLatestWorkoutIndexRef.current = localWorkouts.length;\n",
+    baseline: "  // ── 세션 구분선 ───────────────────────────────────────────────────\n  const SESSION_KEYS = ['sessionMorning', 'sessionAfternoon', 'sessionEvening'] as const;\n  const handleAddSessionBreak = (labelKey: typeof SESSION_KEYS[number]) => {\n    const label = t(labelKey);\n    setIsDirty(true);\n    pendingLatestWorkoutIndexRef.current = localWorkouts.length;\n",
+  },
+  {
+    candidate: "      }\n      const next = localWorkouts.filter((_, i) => i !== index);\n      if (!currentWorkoutOperation(operationScope)) return;\n      setWorkoutRows(next);\n      if (next.length === 0) { setDraftDirty(false); clearStoredDraft(); }\n    } catch (error) {\n      if (!currentWorkoutOperation(operationScope)) return;\n      const failure = localHealthWriteFailureDisposition(error);\n",
+    baseline: "      }\n      const next = localWorkouts.filter((_, i) => i !== index);\n      if (!currentWorkoutOperation(operationScope)) return;\n      setLocalWorkouts(next);\n      if (next.length === 0) { setIsDirty(false); clearStoredDraft(); }\n    } catch (error) {\n      if (!currentWorkoutOperation(operationScope)) return;\n      const failure = localHealthWriteFailureDisposition(error);\n",
+  },
+  {
+    candidate: "    }\n  };\n  const handleAddSet = (wIdx: number, asDropset = false) => {\n    if (!captureWorkoutEdit()) return;\n    if (isWorkoutLocked) return;\n    setIsDirty(true);\n    pendingLatestWorkoutIndexRef.current = wIdx;\n",
+    baseline: "    }\n  };\n  const handleAddSet = (wIdx: number, asDropset = false) => {\n    if (isWorkoutLocked) return;\n    setIsDirty(true);\n    pendingLatestWorkoutIndexRef.current = wIdx;\n",
+  },
+  {
+    candidate: "    });\n  };\n  const handleCompleteSetAndAdd = (wIdx: number, sIdx: number) => {\n    if (!captureWorkoutEdit()) return;\n    if (isWorkoutLocked) return;\n    setIsDirty(true);\n    pendingLatestWorkoutIndexRef.current = wIdx;\n",
+    baseline: "    });\n  };\n  const handleCompleteSetAndAdd = (wIdx: number, sIdx: number) => {\n    if (isWorkoutLocked) return;\n    setIsDirty(true);\n    pendingLatestWorkoutIndexRef.current = wIdx;\n",
+  },
+  {
+    candidate: "  };\n\n  const handleRemoveSet = (wIdx: number, sIdx: number) => {\n    if (!captureWorkoutEdit()) return;\n    if (isWorkoutLocked) return;\n    const setCount = localWorkouts[wIdx]?.sets.length ?? 0;\n    pendingFocusSetRef.current = { wIdx, sIdx: Math.max(0, Math.min(sIdx, setCount - 2)) };\n",
+    baseline: "  };\n\n  const handleRemoveSet = (wIdx: number, sIdx: number) => {\n    if (isWorkoutLocked) return;\n    const setCount = localWorkouts[wIdx]?.sets.length ?? 0;\n    pendingFocusSetRef.current = { wIdx, sIdx: Math.max(0, Math.min(sIdx, setCount - 2)) };\n",
+  },
+  {
+    candidate: "    });\n  };\n  const handleUpdateSet = (wIdx: number, sIdx: number, field: Exclude<keyof StrengthSet | keyof CardioSet, 'type' | 'set' | 'pace'>, value: string | number | boolean) => {\n    if (!captureWorkoutEdit()) return;\n    if (isWorkoutLocked) return;\n    setIsDirty(true);\n    setLocalWorkouts(prev => {\n",
+    baseline: "    });\n  };\n  const handleUpdateSet = (wIdx: number, sIdx: number, field: Exclude<keyof StrengthSet | keyof CardioSet, 'type' | 'set' | 'pace'>, value: string | number | boolean) => {\n    if (isWorkoutLocked) return;\n    setIsDirty(true);\n    setLocalWorkouts(prev => {\n",
+  },
+  {
+    candidate: "    });\n  };\n  const handleAddAssistedReps = (wIdx: number, sIdx: number) => {\n    if (!captureWorkoutEdit()) return;\n    if (isWorkoutLocked) return;\n    pendingAssistedFocusRef.current = { wIdx, sIdx };\n    handleUpdateSet(wIdx, sIdx, 'assisted_reps', '');\n  };\n  const handleRemoveAssistedReps = (wIdx: number, sIdx: number) => {\n    if (!captureWorkoutEdit()) return;\n    if (isWorkoutLocked) return;\n    setIsDirty(true);\n    setLocalWorkouts(prev => prev.map((workout, workoutIndex) => {\n",
+    baseline: "    });\n  };\n  const handleAddAssistedReps = (wIdx: number, sIdx: number) => {\n    if (isWorkoutLocked) return;\n    pendingAssistedFocusRef.current = { wIdx, sIdx };\n    handleUpdateSet(wIdx, sIdx, 'assisted_reps', '');\n  };\n  const handleRemoveAssistedReps = (wIdx: number, sIdx: number) => {\n    if (isWorkoutLocked) return;\n    setIsDirty(true);\n    setLocalWorkouts(prev => prev.map((workout, workoutIndex) => {\n",
+  },
+  {
+    candidate: "    if (value.trim() === '' || Number(value) === 0) handleRemoveAssistedReps(wIdx, sIdx);\n  };\n  const handleWeightInput = (wIdx: number, sIdx: number, raw: string) => {\n    if (!captureWorkoutEdit()) return;\n    const workout = localWorkouts[wIdx];\n    if (!workout) return;\n    const unit = getUnit(workout.block_id);\n",
+    baseline: "    if (value.trim() === '' || Number(value) === 0) handleRemoveAssistedReps(wIdx, sIdx);\n  };\n  const handleWeightInput = (wIdx: number, sIdx: number, raw: string) => {\n    const workout = localWorkouts[wIdx];\n    if (!workout) return;\n    const unit = getUnit(workout.block_id);\n",
+  },
+  {
+    candidate: "    });\n  };\n  const handleToggleWeightUnit = (blockId: string) => {\n    if (!captureWorkoutEdit()) return;\n    setRawKgInput(previous => {\n      const next = { ...previous };\n      localWorkouts.forEach((workout, wIdx) => {\n",
+    baseline: "    });\n  };\n  const handleToggleWeightUnit = (blockId: string) => {\n    setRawKgInput(previous => {\n      const next = { ...previous };\n      localWorkouts.forEach((workout, wIdx) => {\n",
+  },
+  {
+    candidate: "      if (localMode) {\n        const results = persistence.localResults ?? [];\n        let resultIndex = 0;\n        setWorkoutRows(normalizedWorkouts.map(workout => {\n          if (workout.block_id === '__session__') return workout;\n          const result = results[resultIndex++];\n          return result ? { ...workout, id: result.id, local_version: result.version } : workout;\n",
+    baseline: "      if (localMode) {\n        const results = persistence.localResults ?? [];\n        let resultIndex = 0;\n        setLocalWorkouts(normalizedWorkouts.map(workout => {\n          if (workout.block_id === '__session__') return workout;\n          const result = results[resultIndex++];\n          return result ? { ...workout, id: result.id, local_version: result.version } : workout;\n",
+  },
+  {
+    candidate: "\n      setIsSaving(false);\n      if (persistence.status === 'success') {\n        setWorkoutRows(normalizedWorkouts);\n        showToast(t('workoutSaved'));\n        clearDirtyAfterSave();\n        setIsWorkoutLocked(true);\n",
+    baseline: "\n      setIsSaving(false);\n      if (persistence.status === 'success') {\n        setLocalWorkouts(normalizedWorkouts);\n        showToast(t('workoutSaved'));\n        clearDirtyAfterSave();\n        setIsWorkoutLocked(true);\n",
+  },
+  {
+    candidate: "  };\n  // ── 드래그 정렬 핸들러 ────────────────────────────────────────────\n  const handleDragStart = (e: React.MouseEvent<HTMLDivElement>, index: number) => {\n    if (!captureWorkoutEdit()) return;\n    if (isWorkoutLocked) return;\n    setDragIndex(index);\n    dragNodeRef.current = e.currentTarget;\n",
+    baseline: "  };\n  // ── 드래그 정렬 핸들러 ────────────────────────────────────────────\n  const handleDragStart = (e: React.MouseEvent<HTMLDivElement>, index: number) => {\n    if (isWorkoutLocked) return;\n    setDragIndex(index);\n    dragNodeRef.current = e.currentTarget;\n",
+  },
+  {
+    candidate: "  };\n\n  const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>, index: number) => {\n    if (!captureWorkoutEdit()) return;\n    if (isWorkoutLocked) return;\n    setDragIndex(index);\n    dragNodeRef.current = e.currentTarget;\n",
+    baseline: "  };\n\n  const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>, index: number) => {\n    if (isWorkoutLocked) return;\n    setDragIndex(index);\n    dragNodeRef.current = e.currentTarget;\n",
+  },
+  {
+    candidate: "  };\n\n  const handleDragEnter = (index: number) => {\n    if (!captureWorkoutEdit()) return;\n    if (dragIndex === null || dragIndex === index) return;\n    setDragOverIndex(index);\n  };\n\n  const handleDragEnd = () => {\n    if (captureWorkoutEdit() && dragIndex !== null && dragOverIndex !== null && dragIndex !== dragOverIndex) {\n      setLocalWorkouts(prev => {\n        const next = [...prev];\n        const [moved] = next.splice(dragIndex, 1);\n",
+    baseline: "  };\n\n  const handleDragEnter = (index: number) => {\n    if (dragIndex === null || dragIndex === index) return;\n    setDragOverIndex(index);\n  };\n\n  const handleDragEnd = () => {\n    if (dragIndex !== null && dragOverIndex !== null && dragIndex !== dragOverIndex) {\n      setLocalWorkouts(prev => {\n        const next = [...prev];\n        const [moved] = next.splice(dragIndex, 1);\n",
+  },
+  {
+    candidate: "\n      {/* ── Primary execution: Today's Workout ── */}\n      <HealthExecutionColumn showOnCompact={mobileHealthTab === 'workout' || isDesktopPrevious}>\n      <fieldset disabled={workoutSavePending} aria-busy={workoutSavePending} className=\"min-w-0 min-h-0 xl:h-full m-0 border-0 p-0\">\n        <div\n          className={`${WORKSPACE_CARD_SURFACE} abs-cosmos-health-today flex min-h-0 flex-col overflow-visible xl:overflow-hidden transition-colors ${WORKSPACE_CARD.workoutHero} lg:min-h-[280px] xl:min-h-0 xl:h-full`}\n          data-k129b-today-workout-primary\n",
+    baseline: "\n      {/* ── Primary execution: Today's Workout ── */}\n      <HealthExecutionColumn showOnCompact={mobileHealthTab === 'workout' || isDesktopPrevious}>\n        <div\n          className={`${WORKSPACE_CARD_SURFACE} abs-cosmos-health-today flex min-h-0 flex-col overflow-visible xl:overflow-hidden transition-colors ${WORKSPACE_CARD.workoutHero} lg:min-h-[280px] xl:min-h-0 xl:h-full`}\n          data-k129b-today-workout-primary\n",
+  },
+  {
+    candidate: "                data-health-workout-memo\n                value={workoutMemo}\n                onChange={e => {\n                  if (!captureWorkoutEdit()) return;\n                  setWorkoutMemo(e.target.value);\n                  localStorage.setItem(memoKey, e.target.value);\n                }}\n",
+    baseline: "                data-health-workout-memo\n                value={workoutMemo}\n                onChange={e => {\n                  setWorkoutMemo(e.target.value);\n                  localStorage.setItem(memoKey, e.target.value);\n                }}\n",
+  },
+  {
+    candidate: "        )}\n        </div>\n\n      </fieldset>\n      </HealthExecutionColumn>\n\n      {/* ── Setup support: Routine + Blocks ── */}\n",
+    baseline: "        )}\n        </div>\n\n      </HealthExecutionColumn>\n\n      {/* ── Setup support: Routine + Blocks ── */}\n",
+  },
+  {
+    candidate: "          theme={theme}\n          darkMode={appSettings.darkMode}\n          onAddToToday={handleAddWorkoutToToday}\n          addDisabled={workoutSavePending}\n          onEditBlock={openBlockModal}\n          onDeleteBlock={handleDeleteBlock}\n          onNewBlock={() => openBlockModal()}\n",
+    baseline: "          theme={theme}\n          darkMode={appSettings.darkMode}\n          onAddToToday={handleAddWorkoutToToday}\n          onEditBlock={openBlockModal}\n          onDeleteBlock={handleDeleteBlock}\n          onNewBlock={() => openBlockModal()}\n",
+  },
+  {
     candidate: "      if (previousCurrentness.current) await previousOwner.ensure(blockIds);\n      return;\n    }\n    const operationScope = captureWorkoutOperation();\n    if (!operationScope) return;\n    const missing = [...new Set(blockIds.filter(id => id && id !== '__session__'))]\n      .filter(id => prevDataRef.current[id] === undefined);\n    if (missing.length === 0) return;\n    const fetched = await fetchPrevWorkoutForBlocks(missing, formatDate(selectedDate), source, user.id);\n    if (currentWorkoutOperation(operationScope) && Object.keys(fetched).length > 0) {\n      setPrevData(prev => currentWorkoutOperation(operationScope) ? { ...prev, ...fetched } : prev);\n    }\n  }, [formatDate, selectedDate, user.id, previousEnabled, previousCurrentness.current, previousOwner,\n    previousParentIdentity, previousRejected, workoutLifetime.publication]);\n\n  // localWorkouts가 세팅될 때 각 블록의 이전 세션 + PR fetch (max 4 concurrent)\n  useEffect(() => {\n",
     baseline: "      if (previousCurrentness.current) await previousOwner.ensure(blockIds);\n      return;\n    }\n    const accountOperation = { accountId: user.id, generation: accountGenerationRef.current };\n    const missing = [...new Set(blockIds.filter(id => id && id !== '__session__'))]\n      .filter(id => prevDataRef.current[id] === undefined);\n    if (missing.length === 0) return;\n    const fetched = await fetchPrevWorkoutForBlocks(missing, formatDate(selectedDate), source, user.id);\n    if (currentAccountOperation(accountOperation) && Object.keys(fetched).length > 0) {\n      setPrevData(prev => ({ ...prev, ...fetched }));\n    }\n  }, [formatDate, selectedDate, user.id, previousEnabled, previousCurrentness.current, previousOwner,\n    previousParentIdentity, previousRejected]);\n\n  // localWorkouts가 세팅될 때 각 블록의 이전 세션 + PR fetch (max 4 concurrent)\n  useEffect(() => {\n",
   },
@@ -410,7 +502,7 @@ export async function loadExactMainHealthView(importer: (specifier: string) => P
 export async function loadCandidateHealthView(importer: (specifier: string) => Promise<unknown>) {
   const source = readFileSync('src/components/views/HealthView.tsx', 'utf8').replace(/\r\n/g, '\n');
   const healthBlob = createHash('sha1').update('blob ' + Buffer.byteLength(source) + '\0').update(source).digest('hex');
-  if (healthBlob !== '309f6224513eb534754afa1e6e383823fe9c07da') throw new Error('CANDIDATE_PRODUCTION_BLOB_CHANGED');
+  if (healthBlob !== '254e8b3f05e956ea13fa2687ff12d536b436a9b2') throw new Error('CANDIDATE_PRODUCTION_BLOB_CHANGED');
   const candidateFault: string | null = null; // bounded in-memory child transform only
   let observedSource = source;
   if (candidateFault === 'reset-saving') observedSource = source.replaceAll('setIsSaving(false);', 'setIsSaving(true);');

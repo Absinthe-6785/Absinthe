@@ -464,12 +464,12 @@ export const HealthView = ({
 
   const {
     localWorkouts,
-    setLocalWorkouts,
+    setLocalWorkouts: setWorkoutRows,
     isDirty,
-    setIsDirty,
+    setIsDirty: setDraftDirty,
     isDirtyRef,
     rawKgInput,
-    setRawKgInput,
+    setRawKgInput: setDraftRawKgInput,
     replaceFromHydration,
     clearStoredDraft,
     clearDirtyAfterSave,
@@ -478,6 +478,30 @@ export const HealthView = ({
     dateKey: selectedDateDraftKey,
     onDraftRestored: () => showToast(t('draftRestored')),
   });
+
+  const currentWorkoutEdit = (scope: HealthWorkoutOperationScope) => currentWorkoutOperation(scope)
+    && workoutSaveFlightRef.current?.dateLifetime !== scope.dateLifetime;
+  const captureWorkoutEdit = () => {
+    const scope = captureWorkoutOperation();
+    return scope && currentWorkoutEdit(scope) ? scope : null;
+  };
+  const workoutSavePending = isSaving && !!workoutLifetime.publication
+    && workoutSaveFlightRef.current?.dateLifetime === workoutLifetime.publication.dateLifetime;
+  const setLocalWorkouts: typeof setWorkoutRows = action => {
+    const scope = captureWorkoutEdit();
+    if (scope) setWorkoutRows(previous => !currentWorkoutEdit(scope) ? previous
+      : typeof action === 'function' ? action(previous) : action);
+  };
+  const setIsDirty: typeof setDraftDirty = action => {
+    const scope = captureWorkoutEdit();
+    if (scope) setDraftDirty(previous => !currentWorkoutEdit(scope) ? previous
+      : typeof action === 'function' ? action(previous) : action);
+  };
+  const setRawKgInput: typeof setDraftRawKgInput = action => {
+    const scope = captureWorkoutEdit();
+    if (scope) setDraftRawKgInput(previous => !currentWorkoutEdit(scope) ? previous
+      : typeof action === 'function' ? action(previous) : action);
+  };
 
   const workoutSummaryText = useMemo(
     () => buildWorkoutSummary(formatDate(selectedDate), localWorkouts, workoutMemo),
@@ -837,6 +861,7 @@ export const HealthView = ({
   }, [routineLoadContext]);
   useLayoutEffect(() => () => { routineLoadIntentRef.current = null; }, []);
   const handleLoadRoutine = async (e: ChangeEvent<HTMLSelectElement>) => {
+    if (!captureWorkoutEdit()) return;
     if (selectedDayComposite && !routinePresetAccountReady) return;
     const operationScope = captureWorkoutOperation();
     if (!operationScope) return;
@@ -851,7 +876,7 @@ export const HealthView = ({
     const currentPreviousOperation = previousOwner.captureOperation();
     const usedEvidence: PreviousEvidence[] = [];
     const capturedDraftIds = new Set(localWorkouts.map(row => row.block_id));
-    const currentLoad = () => currentWorkoutOperation(operationScope)
+    const currentLoad = () => currentWorkoutEdit(operationScope)
       && (!previousEnabled || currentPreviousOperation())
       && routineLoadContextRef.current === intent.context && routineLoadIntentRef.current === intent
       && usedEvidence.every(value => previousOwner.qualified(value));
@@ -972,13 +997,14 @@ export const HealthView = ({
   };
 
   const handleAddWorkoutToToday = async (block: ExerciseBlock) => {
+    if (!captureWorkoutEdit()) return;
     const operationScope = captureWorkoutOperation();
     if (!operationScope) return;
     if (localWorkouts.find(w => w.block_id === block.id)) return showToast(t('alreadyAdded'), 'error');
     const previous = await fetchPrevForBlock(block.id);
-    if (!currentWorkoutOperation(operationScope)) return;
+    if (!currentWorkoutEdit(operationScope)) return;
     if (!planningAllowed(previous)) return showToast(t('healthPreviousSuppressed'), 'info');
-    const currentAddition = () => currentWorkoutOperation(operationScope) && planningAllowed(previous);
+    const currentAddition = () => currentWorkoutEdit(operationScope) && planningAllowed(previous);
     const added: Workout = {
       id: `temp-${Date.now()}-${block.id}`,
       block_id: block.id,
@@ -1015,6 +1041,7 @@ export const HealthView = ({
   // ── 세션 구분선 ───────────────────────────────────────────────────
   const SESSION_KEYS = ['sessionMorning', 'sessionAfternoon', 'sessionEvening'] as const;
   const handleAddSessionBreak = (labelKey: typeof SESSION_KEYS[number]) => {
+    if (!captureWorkoutEdit()) return;
     const label = t(labelKey);
     setIsDirty(true);
     pendingLatestWorkoutIndexRef.current = localWorkouts.length;
@@ -1058,8 +1085,8 @@ export const HealthView = ({
       }
       const next = localWorkouts.filter((_, i) => i !== index);
       if (!currentWorkoutOperation(operationScope)) return;
-      setLocalWorkouts(next);
-      if (next.length === 0) { setIsDirty(false); clearStoredDraft(); }
+      setWorkoutRows(next);
+      if (next.length === 0) { setDraftDirty(false); clearStoredDraft(); }
     } catch (error) {
       if (!currentWorkoutOperation(operationScope)) return;
       const failure = localHealthWriteFailureDisposition(error);
@@ -1067,6 +1094,7 @@ export const HealthView = ({
     }
   };
   const handleAddSet = (wIdx: number, asDropset = false) => {
+    if (!captureWorkoutEdit()) return;
     if (isWorkoutLocked) return;
     setIsDirty(true);
     pendingLatestWorkoutIndexRef.current = wIdx;
@@ -1082,6 +1110,7 @@ export const HealthView = ({
     });
   };
   const handleCompleteSetAndAdd = (wIdx: number, sIdx: number) => {
+    if (!captureWorkoutEdit()) return;
     if (isWorkoutLocked) return;
     setIsDirty(true);
     pendingLatestWorkoutIndexRef.current = wIdx;
@@ -1137,6 +1166,7 @@ export const HealthView = ({
   };
 
   const handleRemoveSet = (wIdx: number, sIdx: number) => {
+    if (!captureWorkoutEdit()) return;
     if (isWorkoutLocked) return;
     const setCount = localWorkouts[wIdx]?.sets.length ?? 0;
     pendingFocusSetRef.current = { wIdx, sIdx: Math.max(0, Math.min(sIdx, setCount - 2)) };
@@ -1150,6 +1180,7 @@ export const HealthView = ({
     });
   };
   const handleUpdateSet = (wIdx: number, sIdx: number, field: Exclude<keyof StrengthSet | keyof CardioSet, 'type' | 'set' | 'pace'>, value: string | number | boolean) => {
+    if (!captureWorkoutEdit()) return;
     if (isWorkoutLocked) return;
     setIsDirty(true);
     setLocalWorkouts(prev => {
@@ -1159,11 +1190,13 @@ export const HealthView = ({
     });
   };
   const handleAddAssistedReps = (wIdx: number, sIdx: number) => {
+    if (!captureWorkoutEdit()) return;
     if (isWorkoutLocked) return;
     pendingAssistedFocusRef.current = { wIdx, sIdx };
     handleUpdateSet(wIdx, sIdx, 'assisted_reps', '');
   };
   const handleRemoveAssistedReps = (wIdx: number, sIdx: number) => {
+    if (!captureWorkoutEdit()) return;
     if (isWorkoutLocked) return;
     setIsDirty(true);
     setLocalWorkouts(prev => prev.map((workout, workoutIndex) => {
@@ -1182,6 +1215,7 @@ export const HealthView = ({
     if (value.trim() === '' || Number(value) === 0) handleRemoveAssistedReps(wIdx, sIdx);
   };
   const handleWeightInput = (wIdx: number, sIdx: number, raw: string) => {
+    if (!captureWorkoutEdit()) return;
     const workout = localWorkouts[wIdx];
     if (!workout) return;
     const unit = getUnit(workout.block_id);
@@ -1204,6 +1238,7 @@ export const HealthView = ({
     });
   };
   const handleToggleWeightUnit = (blockId: string) => {
+    if (!captureWorkoutEdit()) return;
     setRawKgInput(previous => {
       const next = { ...previous };
       localWorkouts.forEach((workout, wIdx) => {
@@ -1247,7 +1282,7 @@ export const HealthView = ({
       if (localMode) {
         const results = persistence.localResults ?? [];
         let resultIndex = 0;
-        setLocalWorkouts(normalizedWorkouts.map(workout => {
+        setWorkoutRows(normalizedWorkouts.map(workout => {
           if (workout.block_id === '__session__') return workout;
           const result = results[resultIndex++];
           return result ? { ...workout, id: result.id, local_version: result.version } : workout;
@@ -1264,7 +1299,7 @@ export const HealthView = ({
 
       setIsSaving(false);
       if (persistence.status === 'success') {
-        setLocalWorkouts(normalizedWorkouts);
+        setWorkoutRows(normalizedWorkouts);
         showToast(t('workoutSaved'));
         clearDirtyAfterSave();
         setIsWorkoutLocked(true);
@@ -1311,6 +1346,7 @@ export const HealthView = ({
   };
   // ── 드래그 정렬 핸들러 ────────────────────────────────────────────
   const handleDragStart = (e: React.MouseEvent<HTMLDivElement>, index: number) => {
+    if (!captureWorkoutEdit()) return;
     if (isWorkoutLocked) return;
     setDragIndex(index);
     dragNodeRef.current = e.currentTarget;
@@ -1318,6 +1354,7 @@ export const HealthView = ({
   };
 
   const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>, index: number) => {
+    if (!captureWorkoutEdit()) return;
     if (isWorkoutLocked) return;
     setDragIndex(index);
     dragNodeRef.current = e.currentTarget;
@@ -1325,12 +1362,13 @@ export const HealthView = ({
   };
 
   const handleDragEnter = (index: number) => {
+    if (!captureWorkoutEdit()) return;
     if (dragIndex === null || dragIndex === index) return;
     setDragOverIndex(index);
   };
 
   const handleDragEnd = () => {
-    if (dragIndex !== null && dragOverIndex !== null && dragIndex !== dragOverIndex) {
+    if (captureWorkoutEdit() && dragIndex !== null && dragOverIndex !== null && dragIndex !== dragOverIndex) {
       setLocalWorkouts(prev => {
         const next = [...prev];
         const [moved] = next.splice(dragIndex, 1);
@@ -1667,6 +1705,7 @@ export const HealthView = ({
 
       {/* ── Primary execution: Today's Workout ── */}
       <HealthExecutionColumn showOnCompact={mobileHealthTab === 'workout' || isDesktopPrevious}>
+      <fieldset disabled={workoutSavePending} aria-busy={workoutSavePending} className="min-w-0 min-h-0 xl:h-full m-0 border-0 p-0">
         <div
           className={`${WORKSPACE_CARD_SURFACE} abs-cosmos-health-today flex min-h-0 flex-col overflow-visible xl:overflow-hidden transition-colors ${WORKSPACE_CARD.workoutHero} lg:min-h-[280px] xl:min-h-0 xl:h-full`}
           data-k129b-today-workout-primary
@@ -2243,6 +2282,7 @@ export const HealthView = ({
                 data-health-workout-memo
                 value={workoutMemo}
                 onChange={e => {
+                  if (!captureWorkoutEdit()) return;
                   setWorkoutMemo(e.target.value);
                   localStorage.setItem(memoKey, e.target.value);
                 }}
@@ -2321,6 +2361,7 @@ export const HealthView = ({
         )}
         </div>
 
+      </fieldset>
       </HealthExecutionColumn>
 
       {/* ── Setup support: Routine + Blocks ── */}
@@ -2332,6 +2373,7 @@ export const HealthView = ({
           theme={theme}
           darkMode={appSettings.darkMode}
           onAddToToday={handleAddWorkoutToToday}
+          addDisabled={workoutSavePending}
           onEditBlock={openBlockModal}
           onDeleteBlock={handleDeleteBlock}
           onNewBlock={() => openBlockModal()}

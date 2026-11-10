@@ -10,6 +10,7 @@ export interface WorkoutBlockCardProps {
   theme: Theme;
   compact?: boolean;
   onAdd: () => void;
+  addDisabled?: boolean;
   onEdit: (e: React.MouseEvent) => void;
   onDelete: (e: React.MouseEvent) => void;
 }
@@ -20,6 +21,7 @@ export const WorkoutBlockCard = memo(function WorkoutBlockCard({
   theme,
   compact = false,
   onAdd,
+  addDisabled = false,
   onEdit,
   onDelete,
 }: WorkoutBlockCardProps) {
@@ -32,15 +34,18 @@ export const WorkoutBlockCard = memo(function WorkoutBlockCard({
 
   return (
     <div
-      onClick={onAdd}
+      onClick={() => { if (!addDisabled) onAdd(); }}
       className={`group relative isolate z-0 max-w-full text-xs font-semibold ${compact ? 'px-2.5 py-1.5' : 'px-2.5 py-1.5'} rounded-lg border border-transparent hover:border-primary active:border-primary cursor-pointer transition-colors ${theme.input}`}
       data-k126-workout-block-card
       data-k129d-quick-capture-block
     >
-      <div className="flex items-center gap-1.5 min-w-0 pr-6">
+      <button type="button" disabled={addDisabled} aria-busy={addDisabled}
+        aria-label={`${t('addExercise')}: ${b.name}`}
+        onClick={e => { e.stopPropagation(); if (!addDisabled) onAdd(); }}
+        className={`flex items-center gap-1.5 min-w-0 pr-6 text-left disabled:opacity-50 disabled:cursor-wait ${UI_INTERACTION.focusRingClass}`}>
         <div className={`w-2 h-2 rounded-full shrink-0 ${typeColor}`} />
         <span className="min-w-0 max-w-[118px] truncate">{b.name}</span>
-      </div>
+      </button>
 
       {isMobile ? (
         <div className="absolute top-1 right-1 z-10" ref={menuRef}>

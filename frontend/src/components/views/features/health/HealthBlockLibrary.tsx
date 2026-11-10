@@ -16,6 +16,7 @@ export interface HealthBlockLibraryProps {
   theme: Theme;
   darkMode: boolean;
   onAddToToday: (block: ExerciseBlock) => void | Promise<void>;
+  addDisabled?: boolean;
   onEditBlock: (block: ExerciseBlock) => void;
   onDeleteBlock: (id: string, e: React.MouseEvent) => void;
   onNewBlock: () => void;
@@ -68,6 +69,7 @@ export const HealthBlockLibrary = memo(function HealthBlockLibrary({
   theme,
   darkMode,
   onAddToToday,
+  addDisabled = false,
   onEditBlock,
   onDeleteBlock,
   onNewBlock,
@@ -103,6 +105,7 @@ export const HealthBlockLibrary = memo(function HealthBlockLibrary({
       block={block}
       theme={theme}
       onAdd={() => void onAddToToday(block)}
+      addDisabled={addDisabled}
       onEdit={e => { e.stopPropagation(); onEditBlock(block); }}
       onDelete={e => onDeleteBlock(block.id, e)}
     />
