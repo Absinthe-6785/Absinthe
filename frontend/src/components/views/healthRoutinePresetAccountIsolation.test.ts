@@ -119,6 +119,7 @@ vi.mock('./features/health/previousMicroCue', () => ({
 }));
 vi.mock('./features/health/healthSectionPrefs', () => ({ readHealthSectionPrefs: () => ({}) }));
 vi.mock('../../lib/i18n', () => ({
+  resolveIntlLocale: () => 'en-US',
   useTranslation: () => ({
     t: (key: string) => key === 'healthPresetDeleteConfirm' ? 'Delete {name}' : key,
     lang: 'en',
