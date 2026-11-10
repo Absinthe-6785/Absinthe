@@ -470,6 +470,57 @@ beforeEach(() => {
 });
 afterEach(() => { if (root) act(() => root!.unmount()); host.remove(); vi.unstubAllGlobals(); });
 
+describe('editing admission while a local save is pending', () => {
+  it('rejects a retained input handler immediately before the saving rerender', async () => {
+    seed(); await render(); const gate = deferred<any>(); mocks.saveHealthWorkouts.mockReturnValue(gate.promise);
+    const input = host.querySelector<HTMLInputElement>('input[inputmode="decimal"]')!;
+    const key = Object.getOwnPropertyNames(input).find(key => key.startsWith('__reactProps$'))!;
+    const onChange = (input as any)[key].onChange;
+    const before = snapshot();
+    await invoke(() => { void mocks.saveCallback!(); onChange({ target: { value: '31' } }); });
+    expect(snapshot().rows).toEqual(before.rows); expect(snapshot().bytes).toBe(before.bytes);
+    expect(input.closest('fieldset')?.disabled).toBe(true);
+    expect(input.closest('fieldset')?.getAttribute('aria-busy')).toBe('true');
+    await act(async () => gate.release({ status: 'success', total: 1, succeeded: 1, failed: 0 }));
+  });
+  it('failure preserves draft bytes and releases editing for retry', async () => {
+    seed(); await render(); const gate = deferred<any>(); mocks.saveHealthWorkouts.mockReturnValueOnce(gate.promise);
+    await invoke(() => mocks.saveCallback!()); const before = snapshot(); await editKg('31');
+    expect(snapshot().rows).toEqual(before.rows); expect(snapshot().bytes).toBe(before.bytes);
+    await act(async () => gate.reject(new Error('definite failure')));
+    expect(snapshot()).toMatchObject({ dirty: true, locked: false, saving: false });
+    await editKg('31'); expect(snapshot().rows[0]!.sets[0]!.kg).toBe('31'); await save();
+    expect(snapshot()).toMatchObject({ dirty: false, locked: true });
+  });
+  it.each(['date', 'account'] as const)('new %s roundtrip lifetime admits edits while the old save is unresolved', async transition => {
+    seed(); await render(); const gate = deferred<any>(); mocks.saveHealthWorkouts.mockReturnValueOnce(gate.promise);
+    await invoke(() => mocks.saveCallback!());
+    if (transition === 'date') await navigateABA();
+    else { await render({ user: { id: B, name: 'B' }, selectedDate: date(Z) }); await render({ user: { id: A, name: 'A' }, selectedDate: date(X) }); }
+    await editKg('31'); expect(snapshot().rows[0]!.sets[0]!.kg).toBe('31');
+    const before = snapshot(); await act(async () => gate.release({ status: 'success', total: 1, succeeded: 1, failed: 0 }));
+    expect(snapshot()).toEqual(before);
+  });
+  it('does not admit a pending exercise addition across the save boundary', async () => {
+    seed(); await render(); const previous = deferred<any>(), saved = deferred<any>();
+    mocks.fetchPrevious.mockImplementation((_ids, _date, source) => source === 'HealthView.fetchPrevForBlock' ? previous.promise : Promise.resolve({}));
+    await invoke(() => mocks.addCallback!(blocks[1]!)); mocks.saveHealthWorkouts.mockReturnValue(saved.promise);
+    await invoke(() => mocks.saveCallback!()); const before = snapshot();
+    await act(async () => previous.release({})); expect(snapshot()).toEqual(before);
+    await act(async () => saved.release({ status: 'success', total: 1, succeeded: 1, failed: 0 }));
+  });
+  it('does not accept a weight edit that the save acknowledgement would discard', async () => {
+    seed(); mocks.remoteMode = false; mocks.realPersistence = true; mocks.commitGate = deferred<void>();
+    await render(); await invoke(() => mocks.saveCallback!());
+    expect(mocks.dispatches).toHaveLength(1);
+    await editKg('31'); const pendingKg = snapshot().rows[0]!.sets[0]!.kg;
+    await act(async () => mocks.commitGate!.release());
+    expect({ pendingKg, acknowledgedKg: snapshot().rows[0]!.sets[0]!.kg }).toEqual({ pendingKg: '20', acknowledgedKg: '20' });
+    expect(snapshot()).toMatchObject({ dirty: false, locked: true, bytes: null });
+    expect(snapshot().rows[0]!.local_version).toBe('v2');
+  });
+});
+
 describe('async draft additions', () => {
   const routines = [{ id: 'routine', day_name: 'Day 1', blocks: ['pull', 'push'] }];
   const previous = { pull: { prev_sets: [

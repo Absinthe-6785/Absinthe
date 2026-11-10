@@ -28,6 +28,26 @@ const catalog: CatalogExerciseBlock[] = [
 ];
 
 describe('Health exercise catalog ordering', () => {
+  it('disables only Add during a workout save, preserving library management and resuming afterward', async () => {
+    const { HealthBlockLibrary } = await import('./HealthBlockLibrary');
+    const host = document.createElement('div'); document.body.appendChild(host); const root = createRoot(host);
+    const onAddToToday = vi.fn(), onEditBlock = vi.fn();
+    const props = { blocks: catalog.slice(0, 1), activeTagFilter: null, setActiveTagFilter: vi.fn(),
+      theme: { card: 'card', input: 'input', border: 'border', text: 'text', textMuted: 'muted', hoverBg: 'hover' },
+      darkMode: false, onAddToToday, onEditBlock, onDeleteBlock: vi.fn(), onNewBlock: vi.fn(), mobileVisible: true };
+    try {
+      act(() => root.render(createElement(HealthBlockLibrary, { ...props, addDisabled: true })));
+      const add = host.querySelector<HTMLButtonElement>('button[aria-label="addExercise: Press"]')!;
+      expect(add.disabled).toBe(true); expect(add.getAttribute('aria-busy')).toBe('true');
+      act(() => { add.click(); host.querySelector<HTMLElement>('[data-k126-workout-block-card]')!.click(); });
+      expect(onAddToToday).not.toHaveBeenCalled();
+      act(() => host.querySelector<HTMLButtonElement>('[data-health-block-edit]')!.click());
+      expect(onEditBlock).toHaveBeenCalledTimes(1);
+      act(() => root.render(createElement(HealthBlockLibrary, { ...props, addDisabled: false })));
+      act(() => host.querySelector<HTMLButtonElement>('button[aria-label="addExercise: Press"]')!.click());
+      expect(onAddToToday).toHaveBeenCalledTimes(1);
+    } finally { act(() => root.unmount()); host.remove(); }
+  });
   it('uses deterministic name then ID order without mutating static source data', () => {
     const sourceBefore = structuredClone(catalog);
 
