@@ -67,6 +67,8 @@ const mocks = vi.hoisted(() => ({
   saving: undefined as boolean | undefined,
   locked: undefined as boolean | undefined,
   saveCallback: null as null | (() => Promise<void>),
+  addCallback: null as null | ((block: any) => Promise<void>),
+  fetchPrevious: vi.fn(),
   invokeBeforePublication: false,
   events: [] as any[],
   inputs: [] as any[],
@@ -209,7 +211,9 @@ vi.mock('./k102DateFormat', () => ({
 }));
 vi.mock('./features/health/buildHealthProjection', () => ({ buildHealthProjection: () => ({ workoutDates: [] }) }));
 vi.mock('./features/health/computeWorkoutPrBadge', () => ({ computeWorkoutPrBadgeMap: () => ({}) }));
-vi.mock('./features/health/prevWorkoutFetch', () => ({ fetchPrevWorkoutForBlocks: vi.fn(async () => ({})) }));
+vi.mock('./features/health/prevWorkoutFetch', () => ({
+  fetchPrevWorkoutForBlocks: (...args: unknown[]) => mocks.fetchPrevious(...args),
+}));
 vi.mock('./features/health/previousWorkoutSession', () => ({
   normalizePreviousWorkoutRows: (rows: unknown[]) => rows,
   previousWorkoutRange: () => ({ startDate: '2026-01-01', endDate: '2026-01-10' }),
@@ -287,7 +291,7 @@ vi.mock('./features/health/HealthBlockLibrary', () => ({
   HealthBlockLibrary: ({ blocks, onAddToToday }: {
     blocks: Array<{ id: string; name: string }>;
     onAddToToday: (block: { id: string; name: string }) => void;
-  }) => createElement(
+  }) => { mocks.addCallback = onAddToToday as (block: any) => Promise<void>; return createElement(
     'section',
     { 'data-health-test-region': 'library' },
     ...blocks.map(block => createElement('button', {
@@ -295,7 +299,7 @@ vi.mock('./features/health/HealthBlockLibrary', () => ({
       type: 'button',
       onClick: () => onAddToToday(block),
     }, block.name)),
-  ),
+  ); },
 }));
 vi.mock('./features/health/HealthSupportingPanels', () => ({
   HealthSupportingPanels: () => createElement(
@@ -406,6 +410,10 @@ function button(text: string) {
   if (!value) throw new Error('Missing button: ' + text);
   return value;
 }
+async function startRoutine() {
+  const select = [...host.querySelectorAll('select')].find(node => node.querySelector('option[value="__load__"]'))!;
+  await act(async () => { select.value = 'Day 1'; select.dispatchEvent(new Event('change', { bubbles: true })); });
+}
 async function editKg(value = '31') {
   const input = host.querySelector<HTMLInputElement>('[data-k126-workout-exercise-card] input[inputmode="decimal"]');
   if (!input) throw new Error('Real weight input absent');
@@ -435,6 +443,7 @@ beforeEach(() => {
   raf = []; vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { raf.push(callback); return raf.length; });
   mocks.remoteMode = true; mocks.mobile = false; mocks.realPersistence = false; mocks.fault = '';
   mocks.draft = null; mocks.owner = null; mocks.saving = undefined; mocks.locked = undefined; mocks.saveCallback = null;
+  mocks.addCallback = null; mocks.fetchPrevious.mockReset().mockResolvedValue({});
   mocks.invokeBeforePublication = false; mocks.events.length = 0; mocks.inputs.length = 0;
   mocks.dispatches.length = 0; mocks.commits.length = 0; mocks.factoryGate = null; mocks.commitGate = null;
   mocks.authFetch.mockReset().mockResolvedValue(new Response(null, { status: 201 }));
@@ -460,6 +469,102 @@ beforeEach(() => {
   host = document.createElement('div'); document.body.appendChild(host); root = null; props = undefined as unknown as HealthProps;
 });
 afterEach(() => { if (root) act(() => root!.unmount()); host.remove(); vi.unstubAllGlobals(); });
+
+describe('async draft additions', () => {
+  const routines = [{ id: 'routine', day_name: 'Day 1', blocks: ['pull', 'push'] }];
+  const previous = { pull: { prev_sets: [
+    { type: 'strength', set: 1, kg: '88', reps: '8' },
+    { type: 'strength', set: 2, kg: '88', reps: '8' },
+  ] } };
+  for (const action of ['manual', 'routine'] as const) {
+    it.each(['date', 'date-roundtrip', 'account-roundtrip', 'clean-date', 'unmount'] as const)(
+      `does not apply an old ${action} completion after %s`, async transition => {
+        const bytes = seed(); await render({ healthRoutines: routines });
+        const gate = deferred<any>();
+        mocks.fetchPrevious.mockImplementation((_ids, _date, source) => source === 'HealthView.fetchPrevForBlock'
+          ? gate.promise : Promise.resolve({}));
+        if (action === 'manual') await invoke(() => mocks.addCallback!(blocks[1]!));
+        else await startRoutine();
+        expect(mocks.fetchPrevious.mock.calls.some(call => call[2] === 'HealthView.fetchPrevForBlock')).toBe(true);
+        if (transition === 'account-roundtrip') {
+          await render({ user: { id: B, name: 'B' }, selectedDate: date(Z) });
+          await render({ user: { id: A, name: 'A2' }, selectedDate: date(X) });
+        } else if (transition === 'unmount') {
+          await act(async () => root!.unmount()); root = null;
+        } else {
+          await render({ selectedDate: date(transition === 'clean-date' ? Z : Y) });
+          if (transition === 'date-roundtrip') await render({ selectedDate: date(X) });
+        }
+        const before = snapshot(), frames = raf.length; storage.history.length = 0;
+        await act(async () => gate.release(previous));
+        expect(snapshot()).toEqual(before);
+        expect(raf).toHaveLength(frames);
+        expect(storage.history.filter(event => event.op !== 'get')).toEqual([]);
+        assertBytes(bytes);
+      });
+  }
+  it('same-lifetime addition keeps edits and initializes the Previous set count without copying historical values', async () => {
+    seed(); await render(); const gate = deferred<any>();
+    mocks.fetchPrevious.mockImplementation((_ids, _date, source) => source === 'HealthView.fetchPrevForBlock'
+      ? gate.promise : Promise.resolve({}));
+    await invoke(() => mocks.addCallback!(blocks[1]!)); await editKg('31');
+    await act(async () => gate.release(previous));
+    expect(snapshot().rows.map(row => row.block_id)).toEqual(['push', 'pull']);
+    expect(snapshot().rows[0]!.sets[0]!.kg).toBe('31');
+    expect(snapshot().rows[1]!.sets).toHaveLength(2);
+    expect(snapshot().rows[1]!.sets.every(set => set.type === 'strength' && set.kg === '' && !set.done)).toBe(true);
+    expect(snapshot().dirty).toBe(true);
+  });
+  it.each([false, true])('concurrent additions preserve rows and reject duplicate block identities (duplicate=%s)', async duplicate => {
+    await render(); const gates = [deferred<any>(), deferred<any>()]; let calls = 0;
+    mocks.fetchPrevious.mockImplementation((_ids, _date, source) => source === 'HealthView.fetchPrevForBlock'
+      ? gates[calls++]!.promise : Promise.resolve({}));
+    const add = mocks.addCallback!;
+    await invoke(() => { void add(blocks[0]!); void add(blocks[duplicate ? 0 : 1]!); });
+    await act(async () => gates[1]!.release({}));
+    await act(async () => gates[0]!.release({}));
+    expect(snapshot().rows.map(row => row.block_id)).toEqual(duplicate ? ['push'] : ['pull', 'push']);
+    expect(new Set(snapshot().rows.map(row => row.id)).size).toBe(snapshot().rows.length);
+  });
+  it('routine load uses the latest edited rows and retains session separators and additions', async () => {
+    seed(); await render({ healthRoutines: routines }); const gate = deferred<any>();
+    mocks.fetchPrevious.mockImplementation((_ids, _date, source) => source === 'HealthView.fetchPrevForBlock'
+      ? gate.promise : Promise.resolve({}));
+    await startRoutine(); await editKg('31');
+    const select = [...host.querySelectorAll('select')].find(node => [...node.options].some(option => option.text === 'addSession'))!;
+    await act(async () => { select.selectedIndex = 1; select.dispatchEvent(new Event('change', { bubbles: true })); });
+    await act(async () => gate.release(previous));
+    expect(snapshot().rows.map(row => row.block_id)).toEqual(['pull', 'push', '__session__']);
+    expect(snapshot().rows[1]!.sets[0]!.kg).toBe('31');
+    expect(mocks.showToast).toHaveBeenCalledWith('loaded');
+  });
+  it('ignores a retained Add callback from an old committed date lifetime before fetching', async () => {
+    await render(); const add = mocks.addCallback!; await navigateABA();
+    mocks.fetchPrevious.mockClear(); const before = snapshot();
+    await invoke(() => add(blocks[0]!));
+    expect(mocks.fetchPrevious).not.toHaveBeenCalled(); expect(snapshot()).toEqual(before);
+  });
+  it('does not reuse an old-date Previous cache entry for a current-date addition', async () => {
+    await render(); const gate = deferred<any>();
+    mocks.fetchPrevious.mockImplementation((_ids, _date, source) => source === 'HealthView.fetchPrevForBlock'
+      ? gate.promise : Promise.resolve({}));
+    await invoke(() => mocks.addCallback!(blocks[1]!)); await render({ selectedDate: date(Y) });
+    await act(async () => gate.release(previous));
+    mocks.fetchPrevious.mockReset().mockResolvedValue({});
+    await invoke(() => mocks.addCallback!(blocks[1]!));
+    expect(mocks.fetchPrevious).toHaveBeenCalledWith(['pull'], Y, 'HealthView.fetchPrevForBlock', A);
+    expect(snapshot().rows[0]!.sets).toHaveLength(1);
+  });
+  it('a delayed routine cannot restore a row removed while it was awaiting Previous', async () => {
+    seed(); await render({ healthRoutines: routines }); const gate = deferred<any>();
+    mocks.fetchPrevious.mockImplementation((_ids, _date, source) => source === 'HealthView.fetchPrevForBlock'
+      ? gate.promise : Promise.resolve({}));
+    await startRoutine(); await invoke(removeCallback());
+    expect(snapshot().rows).toEqual([]);
+    await act(async () => gate.release(previous));
+    expect(snapshot().rows.map(row => row.block_id)).toEqual(['pull']);
+  });
+});
 
 describe('shared date lifetime real mounted Save/Delete', () => {
   it('admits only one save before rerender and while that same lifetime is pending', async () => {
