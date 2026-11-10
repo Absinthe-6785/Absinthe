@@ -20,6 +20,7 @@ export interface PreviousWorkoutViewProps {
   weightUnit: (blockId: string) => 'kg' | 'lbs';
   onRetry: () => void;
   onSelectDate: (date: string) => void;
+  onOpenDay?: () => void;
   /** The parent owns scrolling when Previous is rendered inside a sheet. */
   scrollMode?: 'contained' | 'inherited';
 }
@@ -109,6 +110,7 @@ export function PreviousWorkoutView({
   weightUnit,
   onRetry,
   onSelectDate,
+  onOpenDay,
   scrollMode = 'contained',
 }: PreviousWorkoutViewProps) {
   if (isLoading) {
@@ -163,6 +165,10 @@ export function PreviousWorkoutView({
       <div className={`rounded-2xl border px-4 py-3 ${theme.border} ${darkMode ? 'bg-surface/40' : 'bg-gray-50/70'}`}>
         <p className="font-heading text-lg font-bold">{t('previousWorkout')}</p>
         <p className={`mt-1 text-xs font-medium ${theme.textMuted}`}>{formatDate(session.date)}</p>
+        {onOpenDay && selectedDate === session.date && <button type="button"
+          onClick={onOpenDay} className={`mt-3 min-h-[40px] rounded-xl border px-3 py-2 text-xs font-bold ${theme.border} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary`} data-health-open-previous-day>
+          {t('healthOpenPreviousDay')}
+        </button>}
       </div>
       {session.rows.map(row => (
         <article key={`${row.date}-${row.blockId}-${row.rowId ?? row.sortOrder}`} className={`rounded-2xl border p-3 ${theme.border} ${theme.card}`}>

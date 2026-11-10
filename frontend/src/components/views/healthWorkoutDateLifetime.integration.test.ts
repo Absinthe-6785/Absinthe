@@ -80,6 +80,8 @@ const mocks = vi.hoisted(() => ({
   mobile: false,
   authFetch: vi.fn(),
   showToast: vi.fn(),
+  previousProjection: null as any,
+  previousActionCallback: null as null | (() => void),
   mutateDaily: vi.fn(),
   mutateStatic: vi.fn(),
   deleteHealthWorkout: vi.fn(),
@@ -220,7 +222,8 @@ vi.mock('./features/health/previousWorkoutSession', () => ({
   defaultPreviousWorkoutDateFromDates: (dates: string[]) => [...dates].sort().at(-1) ?? null,
 }));
 vi.mock('./features/health/previousWorkoutProjection', () => ({
-  buildPreviousWorkoutHistoryProjection: () => ({ sessions: [], automaticDate: null, effectiveDate: null, session: null }),
+  buildPreviousWorkoutHistoryProjection: () => mocks.previousProjection
+    ?? ({ sessions: [], automaticDate: null, effectiveDate: null, session: null }),
 }));
 vi.mock('./features/health/previousMicroCue', () => ({
   formatPreviousBestCue: () => '',
@@ -311,12 +314,21 @@ vi.mock('./features/health/HealthSupportingPanels', () => ({
   ),
 }));
 vi.mock('./features/health/WorkoutPrBadge', () => ({ WorkoutPrBadge: () => null }));
-vi.mock('./features/health/PreviousWorkoutView', () => ({ PreviousWorkoutView: () => null }));
-vi.mock('./features/health/PreviousWorkoutSheet', () => ({ PreviousWorkoutSheet: () => null }));
+vi.mock('./features/health/PreviousWorkoutView', () => ({ PreviousWorkoutView: ({ onOpenDay }: { onOpenDay?: () => void }) => {
+  mocks.previousActionCallback = onOpenDay ?? null;
+  return onOpenDay ? createElement('button', { type: 'button', onClick: onOpenDay, 'data-test-open-history-day': true }, 'open-history-day') : null;
+} }));
+vi.mock('./features/health/PreviousWorkoutSheet', () => ({ PreviousWorkoutSheet: ({ open, onOpenDay, composite }: {
+  open: boolean; onOpenDay?: () => void; composite?: { onOpenDay?: () => void };
+}) => {
+  const action = composite?.onOpenDay ?? onOpenDay;
+  mocks.previousActionCallback = action ?? null;
+  return open && action ? createElement('button', { type: 'button', onClick: action, 'data-test-open-history-day': true }, 'open-history-day') : null;
+} }));
 vi.mock('./features/health/HealthMobileWorkoutActions', () => ({
-  HealthMobileWorkoutActions: ({ isWorkoutLocked }: { isWorkoutLocked: boolean }) => {
+  HealthMobileWorkoutActions: ({ isWorkoutLocked, onPrevious }: { isWorkoutLocked: boolean; onPrevious: () => void }) => {
     mocks.locked = isWorkoutLocked;
-    return null;
+    return createElement('button', { type: 'button', onClick: onPrevious, 'data-test-open-previous': true }, 'open-previous');
   },
 }));
 
@@ -448,6 +460,7 @@ beforeEach(() => {
   mocks.dispatches.length = 0; mocks.commits.length = 0; mocks.factoryGate = null; mocks.commitGate = null;
   mocks.authFetch.mockReset().mockResolvedValue(new Response(null, { status: 201 }));
   mocks.showToast.mockReset(); mocks.mutateDaily.mockReset(); mocks.mutateStatic.mockReset();
+  mocks.previousProjection = null; mocks.previousActionCallback = null;
   mocks.saveHealthWorkouts.mockReset().mockResolvedValue({ status: 'success', total: 1, succeeded: 1, failed: 0 });
   mocks.deleteHealthWorkout.mockReset().mockResolvedValue({ status: 'success' });
   mocks.repositoryFactory.mockReset().mockImplementation(async (accountId: string) => {
@@ -518,6 +531,98 @@ describe('editing admission while a local save is pending', () => {
     expect({ pendingKg, acknowledgedKg: snapshot().rows[0]!.sets[0]!.kg }).toEqual({ pendingKg: '20', acknowledgedKg: '20' });
     expect(snapshot()).toMatchObject({ dirty: false, locked: true, bytes: null });
     expect(snapshot().rows[0]!.local_version).toBe('v2');
+  });
+});
+
+describe('opening a selected Previous workout day', () => {
+  const historicalDate = '2025-12-30';
+  function publishLegacyHistory(dateKey = historicalDate) {
+    const session = { date: dateKey, rows: [], matchStrategy: 'date' as const };
+    mocks.previousProjection = { sessions: [session], automaticDate: dateKey, effectiveDate: dateKey, session };
+  }
+  async function enterDesktopPrevious() {
+    await act(async () => button('tabPrevious').click());
+    const action = host.querySelector<HTMLButtonElement>('[data-test-open-history-day]');
+    if (!action) throw new Error('Verified Previous day action absent');
+    return action;
+  }
+
+  it('opens the exact local date, aligns its month, and leaves both date drafts untouched', async () => {
+    const bytes = seed();
+    storage.setItem(localHealthDraftKey(A, historicalDate), JSON.stringify(DRAFT_Z));
+    storage.history.length = 0;
+    publishLegacyHistory();
+    const setDate = vi.fn(), setMonth = vi.fn();
+    await render({ setSelectedDate: setDate, setCurrentDate: setMonth });
+    const action = await enterDesktopPrevious();
+    storage.history.length = 0;
+    await act(async () => action.click());
+
+    expect(setDate).toHaveBeenCalledTimes(1);
+    const destination = setDate.mock.calls[0]![0] as Date;
+    expect([destination.getFullYear(), destination.getMonth(), destination.getDate()]).toEqual([2025, 11, 30]);
+    expect(setMonth).toHaveBeenCalledTimes(1);
+    const month = setMonth.mock.calls[0]![0] as Date;
+    expect([month.getFullYear(), month.getMonth(), month.getDate()]).toEqual([2025, 11, 1]);
+    expect(host.textContent).toContain('todayWorkout');
+    expect(storage.getItem(localHealthDraftKey(A, historicalDate))).toBe(JSON.stringify(DRAFT_Z));
+    expect(storage.history.filter(event => event.op !== 'get')).toEqual([]);
+    expect(mocks.inputs).toHaveLength(0);
+    assertBytes(bytes);
+
+    await render({ selectedDate: destination, currentDate: month, setSelectedDate: setDate, setCurrentDate: setMonth });
+    expect(mocks.draft.localWorkouts).toEqual(DRAFT_Z);
+    expect(storage.getItem(localHealthDraftKey(A, historicalDate))).toBe(JSON.stringify(DRAFT_Z));
+  });
+
+  it('closes the mobile Previous sheet after accepted navigation', async () => {
+    mocks.mobile = true;
+    publishLegacyHistory();
+    const setDate = vi.fn(), setMonth = vi.fn();
+    await render({ setSelectedDate: setDate, setCurrentDate: setMonth });
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-test-open-previous]')!.click());
+    const action = host.querySelector<HTMLButtonElement>('[data-test-open-history-day]');
+    expect(action).not.toBeNull();
+    await act(async () => action!.click());
+    expect(setDate).toHaveBeenCalledTimes(1);
+    expect(host.querySelector('[data-test-open-history-day]')).toBeNull();
+    expect(setMonth).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a retained callback after account A-B-A', async () => {
+    publishLegacyHistory();
+    const setDate = vi.fn(), setMonth = vi.fn();
+    await render({ setSelectedDate: setDate, setCurrentDate: setMonth });
+    const oldAccountAction = await enterDesktopPrevious();
+    const staleAccountCallback = mocks.previousActionCallback!;
+    await render({ user: { id: B, name: 'B' }, setSelectedDate: setDate, setCurrentDate: setMonth });
+    await render({ user: { id: A, name: 'A2' }, setSelectedDate: setDate, setCurrentDate: setMonth });
+    await act(async () => staleAccountCallback());
+    expect(setDate).not.toHaveBeenCalled();
+    expect(setMonth).not.toHaveBeenCalled();
+    expect(oldAccountAction.isConnected).toBe(false);
+
+  });
+
+  it('rejects a retained callback after Previous source replacement', async () => {
+    publishLegacyHistory();
+    const setDate = vi.fn(), setMonth = vi.fn();
+    await render({ setSelectedDate: setDate, setCurrentDate: setMonth });
+    const currentAction = await enterDesktopPrevious();
+    const staleSourceCallback = mocks.previousActionCallback!;
+    publishLegacyHistory('2025-12-29');
+    await render({ selectedDate: date(Y), setSelectedDate: setDate, setCurrentDate: setMonth });
+    await act(async () => staleSourceCallback());
+    expect(setDate).not.toHaveBeenCalled();
+    expect(setMonth).not.toHaveBeenCalled();
+    expect(currentAction.isConnected).toBe(false);
+  });
+
+  it('does not expose an action for an invalid historical date', async () => {
+    publishLegacyHistory('2025-02-29');
+    await render();
+    await act(async () => button('tabPrevious').click());
+    expect(host.querySelector('[data-test-open-history-day]')).toBeNull();
   });
 });
 

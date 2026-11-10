@@ -52,6 +52,7 @@ import { deleteHealthWorkout, saveHealthWorkouts } from './features/health/healt
 import { HealthSelectedDayCompositePanel } from './features/health/HealthSelectedDayCompositePanel';
 import { CompositePreviousWorkoutView } from './features/health/CompositePreviousWorkoutView';
 import { buildCompositePreviousWorkoutProjection } from './features/health/compositePreviousWorkoutProjection';
+import { parseHealthLocalDateKey, startOfHealthLocalMonth } from './features/health/healthPreviousWorkoutNavigation';
 import { buildWorkoutCalendarActivity } from './features/health/workoutCalendarActivity';
 import {
   normalizePreviousWorkoutRows,
@@ -1527,6 +1528,58 @@ export const HealthView = ({
       : automaticPreviousDate);
   }, [automaticPreviousDate, compositePreviousProjection, previousWorkoutSessions]);
 
+  const previousOpenDayContext = useMemo(() => ({}), [
+    user.id, workoutAccountOperation.generation, selectedDateDraftKey, selectedPreviousDate,
+    effectivePreviousDate, previousWorkoutProjection, compositePreviousProjection,
+    previousWorkoutKey, isPreviousWorkoutLoading, previousWorkoutError, rangeRecovered,
+    isPreviousContextOpen,
+  ]);
+  const previousOpenDayContextRef = useRef<object | null>(null);
+  useLayoutEffect(() => { previousOpenDayContextRef.current = previousOpenDayContext; }, [previousOpenDayContext]);
+
+  const openPreviousDay = (source: 'legacy' | 'composite', dateKey: string) => {
+    const context = previousOpenDayContext;
+    const operation = captureWorkoutOperation();
+    const destination = parseHealthLocalDateKey(dateKey);
+    if (!operation || !destination || !currentWorkoutOperation(operation)
+      || previousOpenDayContextRef.current !== context
+      || !isPreviousContextOpen || selectedPreviousDate !== dateKey || effectivePreviousDate !== dateKey) return;
+
+    if (source === 'legacy') {
+      if (compositePreviousProjection || previousWorkoutKey === null || isPreviousWorkoutLoading
+        || !!previousWorkoutError || previousWorkoutSession?.date !== dateKey
+        || !previousWorkoutSessions.some(session => session.date === dateKey)) return;
+    } else {
+      const selectedBucket = compositePreviousProjection?.selectedBucket;
+      if (!rangeRecovered || compositePreviousProjection?.phase !== 'settled'
+        || compositePreviousProjection.status !== 'complete'
+        || compositePreviousProjection.effectiveDate !== dateKey
+        || selectedBucket?.localDate !== dateKey) return;
+    }
+
+    setCurrentDate(startOfHealthLocalMonth(destination));
+    setSelectedDate(destination);
+    setMobileHealthTab('workout');
+    setIsPreviousSheetOpen(false);
+  };
+
+  const openLegacyPreviousDay = isPreviousContextOpen && !compositePreviousProjection
+    && previousWorkoutKey !== null && !isPreviousWorkoutLoading && !previousWorkoutError
+    && !!effectivePreviousDate && !!parseHealthLocalDateKey(effectivePreviousDate)
+    && selectedPreviousDate !== null && selectedPreviousDate === effectivePreviousDate
+    && previousWorkoutSession?.date === effectivePreviousDate
+    && previousWorkoutSessions.some(session => session.date === effectivePreviousDate)
+    ? () => openPreviousDay('legacy', effectivePreviousDate)
+    : undefined;
+  const openCompositePreviousDay = isPreviousContextOpen && !!compositePreviousProjection
+    && rangeRecovered && compositePreviousProjection.phase === 'settled'
+    && compositePreviousProjection.status === 'complete'
+    && !!compositePreviousProjection.effectiveDate && !!parseHealthLocalDateKey(compositePreviousProjection.effectiveDate)
+    && selectedPreviousDate !== null && selectedPreviousDate === compositePreviousProjection.effectiveDate
+    && compositePreviousProjection.selectedBucket?.localDate === compositePreviousProjection.effectiveDate
+    ? () => openPreviousDay('composite', compositePreviousProjection.effectiveDate!)
+    : undefined;
+
   const healthProjection = useMemo(() => buildHealthProjection({
     rangeWorkouts: monthWorkoutRows,
     selectedDateKey,
@@ -1833,6 +1886,7 @@ export const HealthView = ({
               formatCompactDate={date => formatAbsoluteDateKey(date, lang)}
               onRetry={workoutRangeComposite!.retry}
               onSelectDate={setSelectedPreviousDate}
+              onOpenDay={openCompositePreviousDay}
             />
           ) : (
             <PreviousWorkoutView
@@ -1850,6 +1904,7 @@ export const HealthView = ({
               sessions={previousWorkoutSessions}
               selectedDate={effectivePreviousDate}
               onSelectDate={setSelectedPreviousDate}
+              onOpenDay={openLegacyPreviousDay}
             />
           ))}
           <div className={isDesktopPrevious ? 'hidden' : 'contents'}>
@@ -2537,6 +2592,7 @@ export const HealthView = ({
         sessions={previousWorkoutSessions}
         selectedDate={effectivePreviousDate}
         onSelectDate={setSelectedPreviousDate}
+        onOpenDay={openLegacyPreviousDay}
         composite={compositePreviousProjection ? {
           projection: compositePreviousProjection,
           theme,
@@ -2546,6 +2602,7 @@ export const HealthView = ({
           formatCompactDate: date => formatAbsoluteDateKey(date, lang),
           onRetry: workoutRangeComposite!.retry,
           onSelectDate: setSelectedPreviousDate,
+          onOpenDay: openCompositePreviousDay,
         } : undefined}
       />
 

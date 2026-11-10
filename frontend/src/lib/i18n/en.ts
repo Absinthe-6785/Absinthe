@@ -2342,6 +2342,7 @@ const enTranslations = [
   "This month's Schedule view was refreshed.",
   "The Schedule change succeeded, but this month's list could not be verified. Previous complete data is still shown.",
   "Couldn’t copy the workout summary. Check clipboard access and try again.",
+  "Open this day",
 ] as const;
 
 export default enTranslations;

@@ -463,7 +463,31 @@ const BASELINE_REVERSE_HUNKS = [
   {
     candidate: "                  <button\n                    onClick={handleCopySummary}\n                    title={t('healthCopyWorkoutSummary')}\n                    aria-live=\"polite\"\n                    aria-atomic=\"true\"\n                    className={`flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl font-bold text-sm shadow-lg active:scale-[0.97] transition-all\n                      ${copySummaryStatus === 'copied'\n                        ? (appSettings.darkMode ? 'bg-green-800/60 text-green-300' : 'bg-green-100 text-green-700')\n                        : (appSettings.darkMode ? 'bg-surface-alt text-gray-200 hover:bg-[#48484A]' : 'bg-gray-100 text-gray-700 hover:bg-gray-200')\n                      }`}>\n                    {copySummaryStatus === 'copied' ? <><Check size={13}/> {t('copiedBtn')}</> : <><ClipboardCopy size={13}/> {t('copyBtn')}</>}\n                  </button>\n                  {copySummaryStatus === 'failed' && (\n                    <span role=\"status\" aria-live=\"polite\" aria-atomic=\"true\" className={`text-xs ${appSettings.darkMode ? 'text-red-300' : 'text-red-700'}`}>\n                      {t('healthWorkoutSummaryCopyFailed')}\n                    </span>\n                  )}",
     baseline: "                  <button\n                    onClick={handleCopySummary}\n                    title={t('healthCopyWorkoutSummary')}\n                    className={`flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl font-bold text-sm shadow-lg active:scale-[0.97] transition-all\n                      ${copied\n                        ? (appSettings.darkMode ? 'bg-green-800/60 text-green-300' : 'bg-green-100 text-green-700')\n                        : (appSettings.darkMode ? 'bg-surface-alt text-gray-200 hover:bg-[#48484A]' : 'bg-gray-100 text-gray-700 hover:bg-gray-200')\n                      }`}>\n                    {copied ? <><Check size={13}/> {t('copiedBtn')}</> : <><ClipboardCopy size={13}/> {t('copyBtn')}</>}\n                  </button>",
-  }
+  },
+  {
+    candidate: "import { parseHealthLocalDateKey, startOfHealthLocalMonth } from './features/health/healthPreviousWorkoutNavigation';\n",
+    baseline: '',
+  },
+  {
+    candidate: "\n\n  const previousOpenDayContext = useMemo(() => ({}), [\n    user.id, workoutAccountOperation.generation, selectedDateDraftKey, selectedPreviousDate,\n    effectivePreviousDate, previousWorkoutProjection, compositePreviousProjection,\n    previousWorkoutKey, isPreviousWorkoutLoading, previousWorkoutError, rangeRecovered,\n    isPreviousContextOpen,\n  ]);\n  const previousOpenDayContextRef = useRef<object | null>(null);\n  useLayoutEffect(() => { previousOpenDayContextRef.current = previousOpenDayContext; }, [previousOpenDayContext]);\n\n  const openPreviousDay = (source: 'legacy' | 'composite', dateKey: string) => {\n    const context = previousOpenDayContext;\n    const operation = captureWorkoutOperation();\n    const destination = parseHealthLocalDateKey(dateKey);\n    if (!operation || !destination || !currentWorkoutOperation(operation)\n      || previousOpenDayContextRef.current !== context\n      || !isPreviousContextOpen || selectedPreviousDate !== dateKey || effectivePreviousDate !== dateKey) return;\n\n    if (source === 'legacy') {\n      if (compositePreviousProjection || previousWorkoutKey === null || isPreviousWorkoutLoading\n        || !!previousWorkoutError || previousWorkoutSession?.date !== dateKey\n        || !previousWorkoutSessions.some(session => session.date === dateKey)) return;\n    } else {\n      const selectedBucket = compositePreviousProjection?.selectedBucket;\n      if (!rangeRecovered || compositePreviousProjection?.phase !== 'settled'\n        || compositePreviousProjection.status !== 'complete'\n        || compositePreviousProjection.effectiveDate !== dateKey\n        || selectedBucket?.localDate !== dateKey) return;\n    }\n\n    setCurrentDate(startOfHealthLocalMonth(destination));\n    setSelectedDate(destination);\n    setMobileHealthTab('workout');\n    setIsPreviousSheetOpen(false);\n  };\n\n  const openLegacyPreviousDay = isPreviousContextOpen && !compositePreviousProjection\n    && previousWorkoutKey !== null && !isPreviousWorkoutLoading && !previousWorkoutError\n    && !!effectivePreviousDate && !!parseHealthLocalDateKey(effectivePreviousDate)\n    && selectedPreviousDate !== null && selectedPreviousDate === effectivePreviousDate\n    && previousWorkoutSession?.date === effectivePreviousDate\n    && previousWorkoutSessions.some(session => session.date === effectivePreviousDate)\n    ? () => openPreviousDay('legacy', effectivePreviousDate)\n    : undefined;\n  const openCompositePreviousDay = isPreviousContextOpen && !!compositePreviousProjection\n    && rangeRecovered && compositePreviousProjection.phase === 'settled'\n    && compositePreviousProjection.status === 'complete'\n    && !!compositePreviousProjection.effectiveDate && !!parseHealthLocalDateKey(compositePreviousProjection.effectiveDate)\n    && selectedPreviousDate !== null && selectedPreviousDate === compositePreviousProjection.effectiveDate\n    && compositePreviousProjection.selectedBucket?.localDate === compositePreviousProjection.effectiveDate\n    ? () => openPreviousDay('composite', compositePreviousProjection.effectiveDate!)\n    : undefined;\n\n",
+    baseline: '\n\n',
+  },
+  {
+    candidate: "              onOpenDay={openCompositePreviousDay}\n",
+    baseline: '',
+  },
+  {
+    candidate: "          onOpenDay: openCompositePreviousDay,\n",
+    baseline: '',
+  },
+  {
+    candidate: "              onOpenDay={openLegacyPreviousDay}\n",
+    baseline: '',
+  },
+  {
+    candidate: "        onOpenDay={openLegacyPreviousDay}\n",
+    baseline: '',
+  },
 ];
 const BASELINE_SCOPE_SOURCE = "import type { HealthAccountGenerationToken } from '../../../../lib/healthBackfillUiSafety';\n\nexport interface HealthWorkoutOperationScope {\n  accountOperation: HealthAccountGenerationToken;\n  dateKey: string;\n}\n\nexport function isCurrentHealthWorkoutOperationScope(\n  scope: HealthWorkoutOperationScope,\n  currentDateKey: string,\n  isCurrentAccountOperation: (token: HealthAccountGenerationToken) => boolean,\n): boolean {\n  return scope.dateKey === currentDateKey && isCurrentAccountOperation(scope.accountOperation);\n}\n";
 
@@ -502,7 +526,7 @@ export async function loadExactMainHealthView(importer: (specifier: string) => P
 export async function loadCandidateHealthView(importer: (specifier: string) => Promise<unknown>) {
   const source = readFileSync('src/components/views/HealthView.tsx', 'utf8').replace(/\r\n/g, '\n');
   const healthBlob = createHash('sha1').update('blob ' + Buffer.byteLength(source) + '\0').update(source).digest('hex');
-  if (healthBlob !== '254e8b3f05e956ea13fa2687ff12d536b436a9b2') throw new Error('CANDIDATE_PRODUCTION_BLOB_CHANGED');
+  if (healthBlob !== '6b0ea79b720e398295b753733535e9f5b1950cad') throw new Error('CANDIDATE_PRODUCTION_BLOB_CHANGED');
   const candidateFault: string | null = null; // bounded in-memory child transform only
   let observedSource = source;
   if (candidateFault === 'reset-saving') observedSource = source.replaceAll('setIsSaving(false);', 'setIsSaving(true);');

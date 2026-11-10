@@ -36,11 +36,11 @@ const t = (key: string) => key;
 beforeEach(() => { host = document.createElement('div'); document.body.appendChild(host); root = createRoot(host); });
 afterEach(() => { act(() => root?.unmount()); root = null; host.remove(); });
 
-async function renderProjection(value: CompositePreviousWorkoutProjection, onRetry = vi.fn()) {
+async function renderProjection(value: CompositePreviousWorkoutProjection, onRetry = vi.fn(), onOpenDay?: () => void) {
   await act(async () => root!.render(createElement(CompositePreviousWorkoutView, {
     projection: value, theme: { border: 'border', input: 'input', card: 'card', textMuted: 'muted' } as never,
     darkMode: false, t: t as never, formatDate: (date: string) => date,
-    formatCompactDate: (date: string) => date, onRetry, onSelectDate: vi.fn(),
+    formatCompactDate: (date: string) => date, onRetry, onSelectDate: vi.fn(), onOpenDay,
   })));
   return onRetry;
 }
@@ -103,6 +103,22 @@ describe('Composite Previous workout view', () => {
     expect(host.textContent).toContain('previousWorkoutEmpty');
     expect(host.textContent).not.toContain('workoutCompositePartialNoRecords');
     expect(host.querySelector('[data-health-composite-previous-incomplete]')).toBeNull();
+  });
+
+  it('offers the open-day action only for a complete selected bucket', async () => {
+    const onOpenDay = vi.fn();
+    await renderProjection(projection, vi.fn(), onOpenDay);
+    const button = host.querySelector<HTMLButtonElement>('[data-health-open-previous-day]');
+    expect(button?.textContent).toBe('healthOpenPreviousDay');
+    await act(async () => button!.click());
+    expect(onOpenDay).toHaveBeenCalledTimes(1);
+
+    await renderProjection({ ...projection, effectiveDate: '2026-09-21' }, vi.fn(), onOpenDay);
+    expect(host.querySelector('[data-health-open-previous-day]')).toBeNull();
+    await renderProjection({ ...projection, status: 'partial_data' }, vi.fn(), onOpenDay);
+    expect(host.querySelector('[data-health-open-previous-day]')).toBeNull();
+    await renderProjection({ ...projection, phase: 'loading', status: 'loading' }, vi.fn(), onOpenDay);
+    expect(host.querySelector('[data-health-open-previous-day]')).toBeNull();
   });
 
   it('renders persisted legacy set facts and canonical technical identities without fabricating nulls', async () => {
