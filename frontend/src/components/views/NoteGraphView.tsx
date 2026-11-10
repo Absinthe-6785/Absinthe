@@ -55,6 +55,7 @@ import {
   type CosmosSimContextSnapshot,
 } from './cosmosSimReheat';
 import { buildGraphTopologySignatureFromGraphData } from './cosmosGraphSignature';
+import { shouldHandleCosmosGraphKeyboardEvent } from './cosmosGraphKeyboard';
 import {
   isCosmosSimNodeActive,
   resolveCosmosLocalReheatPlan,
@@ -750,6 +751,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      if (!shouldHandleCosmosGraphKeyboardEvent(e)) return;
       if (e.key === 'Enter' && previewNodeId) {
         e.preventDefault();
         onSelect(previewNodeId);
@@ -1023,6 +1025,7 @@ export function NoteGraphView({ notes, folders = [], activeNoteId, onSelect, dar
       {/* ── SVG ─────────────────────────────────────────────────── */}
       <svg
         ref={svgRef}
+        data-cosmos-graph-surface="true"
         width="100%" height="100%"
         style={{ display: 'block', cursor: panning ? 'grabbing' : 'grab' }}
         onMouseDown={onSvgMouseDown}
