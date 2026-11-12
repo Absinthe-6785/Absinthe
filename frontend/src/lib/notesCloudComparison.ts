@@ -173,8 +173,9 @@ export function createNotesCloudComparison(accountId: string | null, isAccountCu
     if (typeof query !== 'string' || query.length > NOTES_CLOUD_SEARCH_QUERY_LIMIT || !started || !isCurrent()
       || !remoteSnapshot || !comparedReport || !cloudSearchIndex) return null;
     const normalizedQuery = normalizeCloudSearchText(query).trim();
+    const exactIdQuery = query.trim();
     const matches = normalizedQuery
-      ? cloudSearchIndex.filter(entry => entry.title.includes(normalizedQuery) || entry.body.includes(normalizedQuery))
+      ? cloudSearchIndex.filter(entry => entry.id === exactIdQuery || entry.title.includes(normalizedQuery) || entry.body.includes(normalizedQuery))
       : [...cloudSearchIndex];
     return Object.freeze({
       remoteOnly: Object.freeze(matches.filter(entry => entry.category === 'remoteOnly').map(entry => entry.id)),

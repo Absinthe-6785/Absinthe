@@ -2348,6 +2348,7 @@ const enTranslations = [
   "Local original (unchanged)",
   "Saved cloud copy ID",
   "On another device signed in to this account, run Notes cloud comparison and preview this cloud copy ID. This does not import a local Note or enable synchronization.",
+  "You can also search by the exact server-issued Cloud Copy ID. Choose Preview to view the matched Note.",
 ] as const;
 
 export default enTranslations;

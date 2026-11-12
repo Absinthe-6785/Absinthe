@@ -2348,6 +2348,7 @@ const translationKeys = [
   "notesCloudCopyLocalIdentity",
   "notesCloudCopyCloudIdentity",
   "notesCloudCopyNextDevice",
+  "notesCloudSearchIdHelp",
 ] as const;
 
 export type TranslationKey = (typeof translationKeys)[number];

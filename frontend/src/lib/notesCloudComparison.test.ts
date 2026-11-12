@@ -134,6 +134,11 @@ it('searches only complete, supported cloud-only and divergent text and returns 
   expect(owner.searchCloudNotes('ＳＡＭＥ ＴＩＴＬＥ')).toEqual({
     remoteOnly: ['cloud-a', 'cloud-b'], divergent: [], total: 3,
   });
+  // Exact IDs are an additional lookup path over admitted records only; ID fragments are not identity matches.
+  expect(owner.searchCloudNotes('cloud-a')).toEqual({ remoteOnly: ['cloud-a'], divergent: [], total: 3 });
+  expect(owner.searchCloudNotes('cloud-')).toEqual({ remoteOnly: [], divergent: [], total: 3 });
+  expect(owner.searchCloudNotes('oud-a')).toEqual({ remoteOnly: [], divergent: [], total: 3 });
+  expect(owner.searchCloudNotes('divergent-id')).toEqual({ remoteOnly: [], divergent: ['divergent-id'], total: 3 });
   expect(owner.searchCloudNotes('rÉsumé')).toEqual({ remoteOnly: ['cloud-a'], divergent: [], total: 3 });
   expect(owner.searchCloudNotes('Ω BODY')).toEqual({ remoteOnly: [], divergent: ['divergent-id'], total: 3 });
   expect(owner.searchCloudNotes('not present')).toEqual({ remoteOnly: [], divergent: [], total: 3 });

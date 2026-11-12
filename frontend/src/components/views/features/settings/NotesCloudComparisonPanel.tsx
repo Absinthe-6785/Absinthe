@@ -450,7 +450,7 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
             setSearchResultLimit(DETAIL_PREVIEW_LIMIT);
           }}
         />
-        <p id="notes-cloud-comparison-search-help" className="text-xs text-muted-foreground">{t('notesCloudSearchHelp')}</p>
+        <p id="notes-cloud-comparison-search-help" className="text-xs text-muted-foreground">{t('notesCloudSearchIdHelp')}</p>
         {searchActive && searchMatches ? <p role="status" aria-live="polite" className="text-sm">
           {searchMatches.remoteOnly.length + searchMatches.divergent.length > 0
             ? t('notesCloudSearchMatches').replace('{matches}', String(searchMatches.remoteOnly.length + searchMatches.divergent.length)).replace('{total}', String(searchMatches.total))
