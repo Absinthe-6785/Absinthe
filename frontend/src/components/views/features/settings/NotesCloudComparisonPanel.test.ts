@@ -829,6 +829,65 @@ it('confirms one write at a time and shows the existing cloud identity without m
   expect(mock.appTabSwitch).not.toHaveBeenCalled();
 });
 
+it('stitches explicit Device A Cloud Copy to Device B exact-ID search and explicit read-only preview', async () => {
+  const cloudNoteId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const deviceANotes = mock.state.notes;
+  const deviceAData = JSON.stringify(deviceANotes);
+  mock.createCloudCopy.mockResolvedValue({ status: 'CREATED', cloudNoteId });
+
+  // Device A: the user confirms one copy; the local identity and authored data remain unchanged.
+  await confirmOneCloudCopy();
+  expect(mock.createCloudCopy).toHaveBeenCalledTimes(1);
+  expect(mock.createCloudCopy.mock.calls[0].slice(0, 2)).toEqual(['local-id', 'A']);
+  expect(JSON.stringify(deviceANotes)).toBe(deviceAData);
+  expect(deviceANotes[0].id).toBe('local-id');
+
+  // Device B has separate local state, but the same account-scoped cloud snapshot.
+  mock.state = { ...mock.state, notes: [], activeAccountId: 'A', activeNoteId: null };
+  mock.activeRequest = { accountId: 'A', device: 'B' };
+  const deviceBNotes = mock.state.notes;
+  const deviceBData = JSON.stringify(deviceBNotes);
+  owner.compare.mockResolvedValue({
+    ...report,
+    remoteOnly: 1,
+    details: { ...report.details, remoteOnly: [{ id: cloudNoteId, remoteTitle: 'Local title' }] },
+  });
+  owner.getRemoteOnlyNote.mockImplementation((id: string) => live && id === cloudNoteId
+    ? { id, title: 'Local title', body: 'Cloud body from Device A' } : null);
+  owner.searchCloudNotes.mockImplementation((query: string) => query.trim() === cloudNoteId
+    ? { remoteOnly: [cloudNoteId], divergent: [], total: 1 }
+    : { remoteOnly: [], divergent: [], total: 1 });
+  await render('A');
+  await check();
+  await setComparisonSearch(cloudNoteId);
+
+  const result = [...host.querySelectorAll('li')].find(item => item.querySelector('code')?.textContent === cloudNoteId)!;
+  expect(result).toBeTruthy();
+  expect(mock.getRemoteOnlyNote).not.toHaveBeenCalled();
+  expect(host.querySelector('[data-remote-note-preview]')).toBeNull();
+  const preview = [...result.querySelectorAll('button')].find(button => button.textContent === 'Preview cloud Note')!;
+  await act(async () => { preview.click(); });
+  expect(mock.getRemoteOnlyNote).toHaveBeenCalledWith(cloudNoteId);
+  expect(host.querySelector('[data-remote-note-preview] pre')?.textContent).toContain('Cloud body from Device A');
+  expect(mock.state.notes).toBe(deviceBNotes);
+  expect(JSON.stringify(deviceBNotes)).toBe(deviceBData);
+  expect(mock.createCloudCopy).toHaveBeenCalledTimes(1);
+  expect(mock.state.activeNoteId).toBeNull();
+  const previewCallsBeforeOtherAccount = mock.getRemoteOnlyNote.mock.calls.length;
+
+  // A different account's complete comparison does not contain or resolve this identity.
+  owner.compare.mockResolvedValue({ ...report, remoteOnly: 0, details: { ...report.details, remoteOnly: [] } });
+  owner.searchCloudNotes.mockReturnValue({ remoteOnly: [], divergent: [], total: 0 });
+  owner.getRemoteOnlyNote.mockReturnValue(null);
+  mock.state = { ...mock.state, notes: [], activeAccountId: 'B' };
+  mock.activeRequest = { accountId: 'B', device: 'B' };
+  await render('B');
+  await check();
+  await setComparisonSearch(cloudNoteId);
+  expect(host.querySelectorAll('li code')).toHaveLength(0);
+  expect(mock.getRemoteOnlyNote).toHaveBeenCalledTimes(previewCallsBeforeOtherAccount);
+});
+
 it('does not display a cloud identity for indeterminate completion', async () => {
   mock.createCloudCopy.mockResolvedValue({ status: 'INDETERMINATE' });
   await confirmOneCloudCopy();
