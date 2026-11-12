@@ -2345,6 +2345,9 @@ const translationKeys = [
   "healthOpenPreviousDay",
   "graphSearchHiddenMatches",
   "graphSearchRevealIsolated",
+  "notesCloudCopyLocalIdentity",
+  "notesCloudCopyCloudIdentity",
+  "notesCloudCopyNextDevice",
 ] as const;
 
 export type TranslationKey = (typeof translationKeys)[number];

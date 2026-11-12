@@ -8,7 +8,7 @@ import translationKeys, { buildLocaleDictionary } from './i18n/keys';
 import type { TranslationKey } from './i18n';
 
 const PLANNER_STORAGE_KEY = 'planner-storage';
-const EXPECTED_KEY_COUNT = 2_345;
+const EXPECTED_KEY_COUNT = 2_348;
 type Locale = 'en' | 'ko' | 'ja';
 
 // Current independent canonical authority, including append-only Notes UI, Wiki-link accessibility, cloud comparison and search, Cloud Copy status readback, local document downloads, PDF/DOCX preview, Recipe filter reset, local-original integrity preflight, cloud Note previews, and single-Note cloud text export.
@@ -16,9 +16,9 @@ type Locale = 'en' | 'ko' | 'ja';
 // translationKeys order, so it detects insertion, omission, reordering, and
 // substitution without using buildLocaleDictionary.
 const EXPECTED_LOCALE_INTEGRITY_SHA256: Record<Locale, string> = {
-  en: '1322ce496585c955fc774125cdf0884d2b5f982bd0636123ccec213e5987d4a4',
-  ko: '32aef75e93b0cef16537653c45bfd61c77f666ec753ad5124e0d6ac887dab9b8',
-  ja: '3c070c7879bd225fbd396556a628be8d5f40c33361de4353f4ad092dce6917f6',
+  en: '2086af1d00e956f5fd02610e09d38523dac02414f56c74ff6f6bee949d4b8913',
+  ko: '085cce3b93b90ef5c2d1787f27122d106f8927ee4fed329d3f7549542ba14ed5',
+  ja: '3c721869ec2f10f6c8b9ec0f8a56c7448a0e0c30216a55e58f4dc89c1b9c934d',
 };
 
 const PRE_SCHEDULE_MONTH_MUTATION_REFRESH_LOCALE_SHA256: Record<Locale, string> = {
@@ -139,6 +139,23 @@ async function loadFreshI18n(language?: unknown) {
 }
 
 describe('i18n locale dictionaries', () => {
+  it('appends single-copy identity guidance without changing any of the 2345 existing translations', () => {
+    const previous = {
+      en: '1322ce496585c955fc774125cdf0884d2b5f982bd0636123ccec213e5987d4a4',
+      ko: '32aef75e93b0cef16537653c45bfd61c77f666ec753ad5124e0d6ac887dab9b8',
+      ja: '3c070c7879bd225fbd396556a628be8d5f40c33361de4353f4ad092dce6917f6',
+    };
+    const expected = {
+      en: ['Local original (unchanged)', 'Saved cloud copy ID', 'On another device signed in to this account, run Notes cloud comparison and preview this cloud copy ID. This does not import a local Note or enable synchronization.'],
+      ko: ['로컬 원본 (변경 없음)', '저장된 클라우드 사본 ID', '다른 기기에서 같은 계정으로 로그인한 뒤 Notes 클라우드 비교를 실행하고 이 사본 ID를 미리보세요. 로컬 Note를 가져오거나 동기화를 켜는 기능은 아닙니다.'],
+      ja: ['ローカル原本（変更なし）', '保存済みクラウドコピーのID', '別の端末で同じアカウントにログインし、Notesのクラウド比較を実行してこのコピーIDをプレビューしてください。ローカルノートの取り込みや同期は行いません。'],
+    };
+    expect(translationKeys.slice(2_345)).toEqual(['notesCloudCopyLocalIdentity', 'notesCloudCopyCloudIdentity', 'notesCloudCopyNextDevice']);
+    for (const [locale, values] of [['en', enLocaleValues], ['ko', koLocaleValues], ['ja', jaLocaleValues]] as const) {
+      expect(localeIntegrityDigest(values.slice(0, 2_345), translationKeys.slice(0, 2_345))).toBe(previous[locale]);
+      expect(values.slice(2_345)).toEqual(expected[locale]);
+    }
+  });
   it('appends exercise-only receipt labels without changing any existing translation', () => {
     const previous = { en: '04fd1a8d5da4a3a9c57f7b7f0c5e95d6a8117cbf1dcda9eddfea119ff8c0d44b', ko: '07f143506aee0f2829dd578a974c1f5f79e06ae763a89098c001e5f60bd6179a', ja: 'b0a16a4ed1790c18032a0b0da844a10a76d00fb96874e8ca6a73997f82bc46dc' };
     for (const [locale, values] of [['en', enLocaleValues], ['ko', koLocaleValues], ['ja', jaLocaleValues]] as const) {
@@ -389,9 +406,9 @@ describe('i18n locale dictionaries', () => {
         '予定の変更は完了しましたが、今月の一覧を確認できませんでした。以前の完全なデータを表示しています。',
       ],
     } as const;
-    const previousKeyCount = translationKeys.length - keys.length - 4;
+    const previousKeyCount = 2_338;
     expect(translationKeys.slice(previousKeyCount, previousKeyCount + keys.length)).toEqual(keys);
-    expect(translationKeys.slice(previousKeyCount + keys.length)).toEqual([
+    expect(translationKeys.slice(previousKeyCount + keys.length, 2_345)).toEqual([
       'healthWorkoutSummaryCopyFailed', 'healthOpenPreviousDay', 'graphSearchHiddenMatches', 'graphSearchRevealIsolated',
     ]);
     for (const [locale, values] of [['en', enLocaleValues], ['ko', koLocaleValues], ['ja', jaLocaleValues]] as const) {
@@ -518,7 +535,7 @@ describe('i18n locale dictionaries', () => {
         'ワークアウトの概要をコピーできませんでした。クリップボードへのアクセスを確認して、もう一度お試しください。', 'この日を開く',
         '検索に一致するノート{count}件が孤立ノードのフィルターで非表示です', '孤立ノートを表示'],
     } as const;
-    expect(translationKeys.slice(2_299)).toEqual([
+    expect(translationKeys.slice(2_299, 2_345)).toEqual([
       ...keys,
       'notesCloudDivergentAction', 'notesCloudDivergentHeading', 'notesCloudDivergentSource', 'notesCloudDivergentScope',
       'notesCloudDivergentFields', 'notesCloudDivergentLocal', 'notesCloudDivergentCloud', 'notesCloudDivergentUnavailable',
@@ -536,7 +553,7 @@ describe('i18n locale dictionaries', () => {
       expect(localeIntegrityDigest(values.slice(0, 2_299), translationKeys.slice(0, 2_299)))
         .toBe(PRE_REMOTE_NOTE_PREVIEW_LOCALE_SHA256[locale]);
       const dictionary = buildLocaleDictionary(values);
-      expect(translationKeys.slice(2_299).map(key => dictionary[key]), locale).toEqual(expected[locale]);
+      expect(translationKeys.slice(2_299, 2_345).map(key => dictionary[key]), locale).toEqual(expected[locale]);
     }
   });
 
@@ -559,10 +576,10 @@ describe('i18n locale dictionaries', () => {
     missing.splice(1_000, 1);
 
     expect(() => buildLocaleDictionary(missing)).toThrow(
-      'Locale dictionary length mismatch: expected 2345, received 2344',
+      'Locale dictionary length mismatch: expected 2348, received 2347',
     );
     expect(() => assertLocaleValuesIntegrity('en', missing)).toThrow(
-      'Locale integrity length mismatch: expected 2345, received 2344',
+      'Locale integrity length mismatch: expected 2348, received 2347',
     );
   });
 
@@ -571,10 +588,10 @@ describe('i18n locale dictionaries', () => {
     extra.splice(1_000, 0, '__unexpected__');
 
     expect(() => buildLocaleDictionary(extra)).toThrow(
-      'Locale dictionary length mismatch: expected 2345, received 2346',
+      'Locale dictionary length mismatch: expected 2348, received 2349',
     );
     expect(() => assertLocaleValuesIntegrity('en', extra)).toThrow(
-      'Locale integrity length mismatch: expected 2345, received 2346',
+      'Locale integrity length mismatch: expected 2348, received 2349',
     );
   });
 
