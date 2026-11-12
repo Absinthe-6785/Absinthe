@@ -14,6 +14,7 @@ const mock = vi.hoisted(() => ({
   searchCloudNotes: vi.fn(),
   subscribeInvalidation: vi.fn(),
   invalidationListeners: new Set<() => void>(),
+  authorityListeners: new Set<(request: object | null) => void>(),
   prepareCloudCopy: vi.fn(), createCloudCopy: vi.fn(), readCloudCopyStatus: vi.fn(), cloudCopyEnabled: false,
   state: { notes: [] as any[], folders: [] as any[], revision: 0, activeAccountId: 'A' as string | null, activeNoteId: null as string | null, setActiveNoteId: vi.fn() },
   listeners: new Set<() => void>(), available: true, activeRequest: { accountId: 'A' },
@@ -36,6 +37,12 @@ vi.mock('../../../../lib/notesCloudCopy', () => ({
   createNotesCloudCopy: mock.createCloudCopy,
   readNotesCloudCopyStatus: mock.readCloudCopyStatus,
   notesCloudCopyUiEnabled: () => mock.cloudCopyEnabled,
+}));
+vi.mock('../../../../lib/notesAccountAuthority', async importOriginal => ({
+  ...await importOriginal<typeof import('../../../../lib/notesAccountAuthority')>(),
+  subscribeNotesAuthorityRequestChange: (listener: (request: object | null) => void) => {
+    mock.authorityListeners.add(listener); return () => { mock.authorityListeners.delete(listener); };
+  },
 }));
 import { NotesCloudComparisonPanel } from './NotesCloudComparisonPanel';
 let root: Root, host: HTMLDivElement;
@@ -77,6 +84,7 @@ beforeEach(() => {
   } });
   vi.clearAllMocks(); live = true; mock.available = true; mock.activeRequest = { accountId: 'A' }; mock.invalidationListeners.clear();
   mock.cloudCopyEnabled = false;
+  mock.authorityListeners.clear();
   mock.prepareCloudCopy.mockResolvedValue({
     status: 'ELIGIBLE_PREVIEW_ONLY', authority: 'NONE', localNoteId: 'local-id',
     snapshot: { title: 'Local title', body: 'Local body', updated_at: 10, starred: false },
@@ -790,8 +798,106 @@ it('requires a separate accessible confirmation and clears the pre-copy comparis
   expect(mock.createCloudCopy.mock.calls[0][0]).toBe('local-id');
   expect(mock.createCloudCopy.mock.calls[0][1]).toBe('A');
   expect(host.textContent).toContain('Cloud copy created and read back');
-  expect(host.querySelectorAll('dd')).toHaveLength(0);
+  const receipt = host.querySelector('[data-cloud-copy-receipt]')!;
+  expect([...receipt.querySelectorAll('code')].map(code => code.textContent))
+    .toEqual(['local-id', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa']);
+  expect(receipt.textContent).toContain('another device signed in to this account');
+  expect(host.querySelectorAll('details')).toHaveLength(0);
   expect(mock.state.activeNoteId).toBeNull();
+});
+
+async function confirmOneCloudCopy() {
+  mock.cloudCopyEnabled = true;
+  await render(); await check();
+  host.querySelector('details > summary')!.click();
+  await act(async () => {
+    [...host.querySelectorAll('button')].find(button => button.textContent === 'Create cloud copy')!.click();
+    await Promise.resolve();
+  });
+  const confirm = host.querySelector<HTMLButtonElement>('[role="group"] button')!;
+  await act(async () => { confirm.click(); confirm.click(); await Promise.resolve(); });
+}
+
+it('confirms one write at a time and shows the existing cloud identity without mutating local Notes', async () => {
+  const originalNotes = mock.state.notes;
+  mock.createCloudCopy.mockResolvedValue({ status: 'ALREADY_COPIED', cloudNoteId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' });
+  await confirmOneCloudCopy();
+  expect(mock.createCloudCopy).toHaveBeenCalledTimes(1);
+  expect(host.querySelector('[data-cloud-copy-receipt]')!.textContent).toContain('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb');
+  expect(mock.state.notes).toBe(originalNotes);
+  expect(mock.state.notes[0].id).toBe('local-id');
+  expect(mock.appTabSwitch).not.toHaveBeenCalled();
+});
+
+it('does not display a cloud identity for indeterminate completion', async () => {
+  mock.createCloudCopy.mockResolvedValue({ status: 'INDETERMINATE' });
+  await confirmOneCloudCopy();
+  expect(mock.createCloudCopy).toHaveBeenCalledTimes(1);
+  expect(host.querySelector('[data-cloud-copy-receipt]')).toBeNull();
+  expect(host.textContent).not.toContain('Saved cloud copy ID');
+});
+
+it('clears the completed identity receipt on authority replacement and account A-B-A', async () => {
+  await confirmOneCloudCopy();
+  expect(host.querySelector('[data-cloud-copy-receipt]')).not.toBeNull();
+  await act(async () => {
+    mock.activeRequest = { accountId: 'A' };
+    mock.authorityListeners.forEach(listener => listener(mock.activeRequest));
+  });
+  expect(host.querySelector('[data-cloud-copy-receipt]')).toBeNull();
+  expect(host.textContent).not.toContain('Cloud copy created and read back');
+  await render('B'); await render('A');
+  expect(host.querySelector('[data-cloud-copy-receipt]')).toBeNull();
+});
+
+it('suppresses pending completion after authority replacement without redispatching', async () => {
+  let finish!: (result: unknown) => void;
+  mock.createCloudCopy.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  await confirmOneCloudCopy();
+  await act(async () => {
+    mock.activeRequest = { accountId: 'A' };
+    mock.authorityListeners.forEach(listener => listener(mock.activeRequest));
+    finish({ status: 'CREATED', cloudNoteId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' });
+    await Promise.resolve();
+  });
+  expect(mock.createCloudCopy).toHaveBeenCalledTimes(1);
+  expect(host.querySelector('[data-cloud-copy-receipt]')).toBeNull();
+  expect(host.textContent).not.toContain('Cloud copy created and read back');
+});
+
+it('suppresses pending copy completion after local source replacement', async () => {
+  let finish!: (result: unknown) => void;
+  mock.createCloudCopy.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  await confirmOneCloudCopy();
+  await act(async () => {
+    mock.state = { ...mock.state, notes: [...mock.state.notes] };
+    mock.listeners.forEach(listener => listener());
+  });
+  await act(async () => { finish({ status: 'CREATED', cloudNoteId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }); await Promise.resolve(); });
+  expect(host.querySelector('[data-cloud-copy-receipt]')).toBeNull();
+  expect(host.textContent).not.toContain('Cloud copy created and read back');
+});
+
+it('does not revive a pending copy result after account A-B-A', async () => {
+  let finish!: (result: unknown) => void;
+  mock.createCloudCopy.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  await confirmOneCloudCopy();
+  await render('B'); await render('A');
+  await act(async () => { finish({ status: 'CREATED', cloudNoteId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }); await Promise.resolve(); });
+  expect(host.querySelector('[data-cloud-copy-receipt]')).toBeNull();
+  expect(host.textContent).not.toContain('Cloud copy created and read back');
+  expect(mock.createCloudCopy).toHaveBeenCalledTimes(1);
+});
+
+it('releases authority observers and ignores copy completion after unmount', async () => {
+  let finish!: (result: unknown) => void;
+  mock.createCloudCopy.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  await confirmOneCloudCopy();
+  await act(async () => { root.unmount(); }); rootMounted = false;
+  expect(mock.authorityListeners.size).toBe(0);
+  await act(async () => { finish({ status: 'CREATED', cloudNoteId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }); await Promise.resolve(); });
+  expect(host.textContent).toBe('');
+  expect(mock.createCloudCopy).toHaveBeenCalledTimes(1);
 });
 
 it('does not dispatch a copy when the comparison/account becomes stale before confirmation', async () => {

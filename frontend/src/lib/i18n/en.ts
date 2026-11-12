@@ -2345,6 +2345,9 @@ const enTranslations = [
   "Open this day",
   "{count} matching notes are hidden by the isolated-node filter",
   "Show isolated notes",
+  "Local original (unchanged)",
+  "Saved cloud copy ID",
+  "On another device signed in to this account, run Notes cloud comparison and preview this cloud copy ID. This does not import a local Note or enable synchronization.",
 ] as const;
 
 export default enTranslations;

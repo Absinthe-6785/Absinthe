@@ -8,6 +8,7 @@ import { NotesBootstrapDiagnosticError } from '../../../../lib/notesBootstrapDia
 import { createNotesCloudCopy, notesCloudCopyUiEnabled, prepareNotesCloudCopy, readNotesCloudCopyStatus, type NotesCloudCopyReadbackStatus } from '../../../../lib/notesCloudCopy';
 import type { NotesCloudCopyLocalPreflightResult } from '../../../../lib/notesCloudCopyLocalPreflight';
 import { createNotesCloudTextDownload } from '../../../../lib/notesCloudTextExport';
+import { subscribeNotesAuthorityRequestChange } from '../../../../lib/notesAccountAuthority';
 
 const DETAIL_PREVIEW_LIMIT = 30;
 const REMOTE_NOTE_PREVIEW_LIMIT = 12_000;
@@ -64,6 +65,14 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
   const statusRequest = useRef<symbol | null>(null);
   const [error, setError] = useState<TranslationKey | null>(null);
   const [copyFeedback, setCopyFeedback] = useState<TranslationKey | null>(null);
+  const copyRequest = useRef<symbol | null>(null);
+  const [copyReceipt, setCopyReceipt] = useState<{
+    context: typeof account.current;
+    request: object;
+    notes: typeof notes;
+    localNoteId: string;
+    cloudNoteId: string;
+  } | null>(null);
   const [copyCandidate, setCopyCandidate] = useState<{
     owner: NotesCloudComparison;
     localNoteId: string;
@@ -106,16 +115,25 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
   };
   const observation = observePublishedNotesHydration();
   const ready = !!accountId && observation.status === 'CURRENT' && observation.request.accountId === accountId;
+  const visibleCopyReceipt = copyReceipt && ready && copyReceipt.context === account.current
+    && observation.status === 'CURRENT' && copyReceipt.request === observation.request
+    && copyReceipt.notes === notes ? copyReceipt : null;
+  useLayoutEffect(() => subscribeNotesAuthorityRequestChange(() => {
+    copyRequest.current = null;
+    setCopyBusy(false); setCopyCandidate(null); setCopyFeedback(null); setCopyReceipt(null);
+  }), []);
   useLayoutEffect(() => {
     releaseAllCloudTextDownloadUrls();
     active.current?.cancel(); active.current = null;
     statusRequest.current = null;
+    copyRequest.current = null;
+    setCopyReceipt(null);
     setBusy(false); setCopyBusy(false); setStatusBusy(null); setStatusResult(null);
     setResult(null); setError(null); setCopyFeedback(null); setCopyCandidate(null);
     setSearchQuery(''); setSearchResultLimit(DETAIL_PREVIEW_LIMIT);
     setRemotePreview(null); setDivergentPreview(null);
     setRemotePreviewFeedback(current => current === 'notesCloudPreviewStale' ? current : null);
-    return () => { active.current?.cancel(); active.current = null; releaseAllCloudTextDownloadUrls(); };
+    return () => { copyRequest.current = null; active.current?.cancel(); active.current = null; releaseAllCloudTextDownloadUrls(); };
   }, [accountId, notes, folders, ready]);
   const visible = result && result.owner === active.current && result.owner.isCurrent() ? result.report : null;
   const normalizedSearchQuery = searchQuery.normalize('NFKC').trim();
@@ -148,6 +166,7 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
   }, [divergentPreview, result, visible]);
   const check = async () => {
     if (busy) return;
+    copyRequest.current = null; setCopyBusy(false); setCopyCandidate(null); setCopyFeedback(null); setCopyReceipt(null);
     releaseAllCloudTextDownloadUrls();
     statusRequest.current = null; setStatusBusy(null); setStatusResult(null);
     active.current?.cancel(); setResult(null); setSearchQuery(''); setSearchResultLimit(DETAIL_PREVIEW_LIMIT);
@@ -161,6 +180,8 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
       owner.subscribeInvalidation(() => {
         if (active.current !== owner) return;
         active.current = null;
+        copyRequest.current = null;
+        setCopyBusy(false); setCopyCandidate(null); setCopyFeedback(null); setCopyReceipt(null);
         releaseAllCloudTextDownloadUrls();
         setBusy(false); setResult(null); setSearchQuery(''); setSearchResultLimit(DETAIL_PREVIEW_LIMIT);
         setRemotePreview(null); setDivergentPreview(null); setRemotePreviewFeedback(null);
@@ -180,6 +201,7 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
   const cancel = () => {
     releaseAllCloudTextDownloadUrls();
     statusRequest.current = null;
+    copyRequest.current = null; setCopyReceipt(null);
     active.current?.cancel(); active.current = null; setBusy(false); setCopyBusy(false);
     setStatusBusy(null); setStatusResult(null); setResult(null); setSearchQuery(''); setSearchResultLimit(DETAIL_PREVIEW_LIMIT);
     setCopyCandidate(null); setCopyFeedback(null); setError('notesCloudStale');
@@ -345,27 +367,32 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
     }
   };
   const beginCloudCopy = async (owner: NotesCloudComparison, localNoteId: string) => {
-    if (copyBusy || !copyOwnerIsCurrent(owner, localNoteId)) { setCopyFeedback('notesCloudCopySourceChanged'); return; }
-    setCopyFeedback(null); setCopyCandidate(null);
+    if (copyBusy || !copyOwnerIsCurrent(owner, localNoteId)) return;
+    setCopyFeedback(null); setCopyCandidate(null); setCopyReceipt(null);
     try {
       const preview = await prepareNotesCloudCopy(localNoteId);
-      if (!copyOwnerIsCurrent(owner, localNoteId)) { setCopyFeedback('notesCloudCopySourceChanged'); return; }
+      if (!copyOwnerIsCurrent(owner, localNoteId)) return;
       if (preview.status !== 'ELIGIBLE_PREVIEW_ONLY' || !await preview.isCurrent()) {
         setCopyFeedback('notesCloudCopyIneligible'); return;
       }
       setCopyCandidate({ owner, localNoteId, preview });
-    } catch { setCopyFeedback('notesCloudCopyIneligible'); }
+    } catch { if (copyOwnerIsCurrent(owner, localNoteId)) setCopyFeedback('notesCloudCopyIneligible'); }
   };
   const confirmCloudCopy = async (candidate: NonNullable<typeof copyCandidate>) => {
+    if (copyRequest.current) return;
     if (copyBusy || !copyOwnerIsCurrent(candidate.owner, candidate.localNoteId)) {
       setCopyCandidate(null); setCopyFeedback('notesCloudCopySourceChanged'); return;
     }
+    const token = Symbol('cloud-copy');
+    copyRequest.current = token;
+    const context = account.current;
     setCopyBusy(true); setCopyFeedback(null);
     try {
       const outcome = await createNotesCloudCopy(
         candidate.localNoteId, accountId ?? '', candidate.preview,
         () => copyOwnerIsCurrent(candidate.owner, candidate.localNoteId),
       );
+      if (copyRequest.current !== token || !copyOwnerIsCurrent(candidate.owner, candidate.localNoteId)) return;
       if (outcome.status === 'STALE_RESULT') { setCopyCandidate(null); return; }
       const feedback: Partial<Record<typeof outcome.status, TranslationKey>> = {
         CREATED: 'notesCloudCopyCreated', ALREADY_COPIED: 'notesCloudCopyAlready',
@@ -376,12 +403,22 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
       setCopyFeedback(feedback[outcome.status] ?? 'notesCloudCopyUnavailable');
       setCopyCandidate(null);
       if (outcome.status === 'CREATED' || outcome.status === 'ALREADY_COPIED') {
-        candidate.owner.cancel();
+        const publication = observePublishedNotesHydration();
+        if (publication.status === 'CURRENT' && outcome.cloudNoteId) {
+          setCopyReceipt({ context, request: publication.request, notes: useNotesStore.getState().notes,
+            localNoteId: candidate.localNoteId, cloudNoteId: outcome.cloudNoteId });
+        }
         if (active.current === candidate.owner) active.current = null;
+        candidate.owner.cancel();
         setResult(null); // The comparison predates the explicit remote write.
       }
-    } catch { setCopyCandidate(null); setCopyFeedback('notesCloudCopyUnavailable'); }
-    finally { setCopyBusy(false); }
+    } catch {
+      if (copyRequest.current === token && copyOwnerIsCurrent(candidate.owner, candidate.localNoteId)) {
+        setCopyCandidate(null); setCopyFeedback('notesCloudCopyUnavailable');
+      }
+    } finally {
+      if (copyRequest.current === token) { copyRequest.current = null; setCopyBusy(false); }
+    }
   };
   return <section className="border border-border rounded-2xl bg-surface p-4 mt-4 space-y-3" aria-labelledby="notes-cloud-comparison-heading">
     <h3 id="notes-cloud-comparison-heading" className="font-bold">{t('notesCloudTitle')}</h3>
@@ -551,6 +588,13 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
     </div> : null}
     {error ? <p role="alert">{t(error)}</p> : null}
     {copyFeedback ? <p role="status" aria-live="polite">{t(copyFeedback)}</p> : null}
+    {visibleCopyReceipt ? <section data-cloud-copy-receipt className="rounded-lg border border-border p-3 space-y-2">
+      <dl className="text-sm space-y-2">
+        <div><dt>{t('notesCloudCopyLocalIdentity')}</dt><dd><code className="break-all">{visibleCopyReceipt.localNoteId}</code></dd></div>
+        <div><dt>{t('notesCloudCopyCloudIdentity')}</dt><dd><code className="break-all">{visibleCopyReceipt.cloudNoteId}</code></dd></div>
+      </dl>
+      <p className="text-sm text-muted-foreground">{t('notesCloudCopyNextDevice')}</p>
+    </section> : null}
     {remotePreviewFeedback ? <p role="status" aria-live="polite">{t(remotePreviewFeedback)}</p> : null}
   </section>;
 }

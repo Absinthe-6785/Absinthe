@@ -2345,6 +2345,9 @@ const koTranslations = [
   "이 날짜 열기",
   "검색어와 일치하는 노트 {count}개가 고립 노드 필터로 숨겨져 있습니다",
   "고립 노트 표시",
+  "로컬 원본 (변경 없음)",
+  "저장된 클라우드 사본 ID",
+  "다른 기기에서 같은 계정으로 로그인한 뒤 Notes 클라우드 비교를 실행하고 이 사본 ID를 미리보세요. 로컬 Note를 가져오거나 동기화를 켜는 기능은 아닙니다.",
 ] as const;
 
 export default koTranslations;
