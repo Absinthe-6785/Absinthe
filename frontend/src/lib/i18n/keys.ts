@@ -2349,6 +2349,17 @@ const translationKeys = [
   "notesCloudCopyCloudIdentity",
   "notesCloudCopyNextDevice",
   "notesCloudSearchIdHelp",
+  "notesCloudReadOnlyTitle",
+  "notesCloudReadOnlyScope",
+  "notesCloudReadOnlySearchLabel",
+  "notesCloudReadOnlySearchHelp",
+  "notesCloudReadOnlySnapshotCount",
+  "notesCloudReadOnlyEmpty",
+  "notesCloudReadOnlyNoEligible",
+  "notesCloudReadOnlyNoMatches",
+  "notesCloudReadOnlyPreviewHeading",
+  "notesCloudReadOnlyPreviewSource",
+  "notesCloudReadOnlyExit",
 ] as const;
 
 export type TranslationKey = (typeof translationKeys)[number];

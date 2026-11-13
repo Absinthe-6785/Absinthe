@@ -8,7 +8,7 @@ import translationKeys, { buildLocaleDictionary } from './i18n/keys';
 import type { TranslationKey } from './i18n';
 
 const PLANNER_STORAGE_KEY = 'planner-storage';
-const EXPECTED_KEY_COUNT = 2_349;
+const EXPECTED_KEY_COUNT = 2_360;
 type Locale = 'en' | 'ko' | 'ja';
 
 // Current independent canonical authority, including append-only Notes UI, Wiki-link accessibility, cloud comparison and search, Cloud Copy status readback, local document downloads, PDF/DOCX preview, Recipe filter reset, local-original integrity preflight, cloud Note previews, and single-Note cloud text export.
@@ -16,9 +16,9 @@ type Locale = 'en' | 'ko' | 'ja';
 // translationKeys order, so it detects insertion, omission, reordering, and
 // substitution without using buildLocaleDictionary.
 const EXPECTED_LOCALE_INTEGRITY_SHA256: Record<Locale, string> = {
-  en: 'c86ce24736ee2b1778756ec83c27e2a9c13bdfa779f7eb48396a98340f3466f4',
-  ko: '82dc0e07df3a2477f1a7a0466f1203707daa82ead6a1221e684b18f2f5ebd1ea',
-  ja: '4f0a0da74c0472d75207c3612e86453720f4ffe4b13c0447d683723ba0fa414e',
+  en: 'd291a15815bcdb60aea17057fe069e38e224b9463f02defe6c8e7e41a169aec3',
+  ko: '99269b306b6805309f44636cb9bb0fffe053c8a7116b425eda7f53860fb0facf',
+  ja: 'e08568eaba82ceef1108f120d49cd4ee40be86c103071bf9c09d838b2dc1ad99',
 };
 
 const PRE_SCHEDULE_MONTH_MUTATION_REFRESH_LOCALE_SHA256: Record<Locale, string> = {
@@ -37,6 +37,12 @@ const PRE_REMOTE_NOTE_PREVIEW_LOCALE_SHA256: Record<Locale, string> = {
   en: '88cef662d426ae8b6c65a8aa48bb6032d18a93d7e579850f741be7d5712a3ba4',
   ko: '9c0ac7cb830f42900354fad86937c93f6592ea4b98547fca70f1371014329b8e',
   ja: '512e9973ff1fa9217c77fab2be0f588516aae6f8317f4a2ed600b3c159c77503',
+};
+
+const PRE_READONLY_CLOUD_ENTRY_LOCALE_SHA256: Record<Locale, string> = {
+  en: 'c86ce24736ee2b1778756ec83c27e2a9c13bdfa779f7eb48396a98340f3466f4',
+  ko: '82dc0e07df3a2477f1a7a0466f1203707daa82ead6a1221e684b18f2f5ebd1ea',
+  ja: '4f0a0da74c0472d75207c3612e86453720f4ffe4b13c0447d683723ba0fa414e',
 };
 
 const PRE_LOCAL_ORIGINAL_VERIFICATION_LOCALE_SHA256: Record<Locale, string> = {
@@ -151,19 +157,38 @@ describe('i18n locale dictionaries', () => {
       ja: ['ローカル原本（変更なし）', '保存済みクラウドコピーのID', '別の端末で同じアカウントにログインし、Notesのクラウド比較を実行してこのコピーIDをプレビューしてください。ローカルノートの取り込みや同期は行いません。'],
     };
     expect(translationKeys.slice(2_345, 2_348)).toEqual(['notesCloudCopyLocalIdentity', 'notesCloudCopyCloudIdentity', 'notesCloudCopyNextDevice']);
-    expect(translationKeys.slice(2_348)).toEqual(['notesCloudSearchIdHelp']);
+    expect(translationKeys.slice(2_348, 2_349)).toEqual(['notesCloudSearchIdHelp']);
     for (const [locale, values] of [['en', enLocaleValues], ['ko', koLocaleValues], ['ja', jaLocaleValues]] as const) {
       expect(localeIntegrityDigest(values.slice(0, 2_345), translationKeys.slice(0, 2_345))).toBe(previous[locale]);
       expect(values.slice(2_345, 2_348)).toEqual(expected[locale]);
     }
   });
   it('appends exact Cloud Copy ID search guidance after the existing copy-identity suffix', () => {
-    expect(translationKeys.slice(-4)).toEqual([
+    expect(translationKeys.slice(2_345, 2_349)).toEqual([
       'notesCloudCopyLocalIdentity', 'notesCloudCopyCloudIdentity', 'notesCloudCopyNextDevice', 'notesCloudSearchIdHelp',
     ]);
-    expect(enLocaleValues.at(-1)).toContain('exact server-issued Cloud Copy ID');
-    expect(koLocaleValues.at(-1)).toContain('Cloud Copy ID');
-    expect(jaLocaleValues.at(-1)).toContain('Cloud Copy ID');
+    expect(enLocaleValues[2_348]).toContain('exact server-issued Cloud Copy ID');
+    expect(koLocaleValues[2_348]).toContain('Cloud Copy ID');
+    expect(jaLocaleValues[2_348]).toContain('Cloud Copy ID');
+  });
+
+  it('appends the read-only cloud entry labels without changing any existing locale value', () => {
+    const keys = [
+      'notesCloudReadOnlyTitle', 'notesCloudReadOnlyScope', 'notesCloudReadOnlySearchLabel', 'notesCloudReadOnlySearchHelp',
+      'notesCloudReadOnlySnapshotCount', 'notesCloudReadOnlyEmpty', 'notesCloudReadOnlyNoEligible', 'notesCloudReadOnlyNoMatches',
+      'notesCloudReadOnlyPreviewHeading', 'notesCloudReadOnlyPreviewSource', 'notesCloudReadOnlyExit',
+    ] as const;
+    const expected = {
+      en: ['Read cloud Notes', 'This optional route reads a complete snapshot for the signed-in account. It does not initialize local Notes storage, import Notes, or synchronize. Attachment originals and history are not included.', 'Search remote Notes by title or exact Note ID', 'Search only this verified snapshot. Preview is explicit and does not make another request.', 'Complete snapshot: {eligible} eligible Notes from {total} cloud records.', 'This complete cloud snapshot contains no Notes. This does not mean local Notes were synchronized.', 'The complete snapshot contains records, but none are active supported text Notes eligible for preview.', 'No Note in this complete snapshot matches. This does not mean the cloud is empty.', 'Cloud Note preview', 'Text from this complete account-scoped cloud snapshot. It is not a local Note and has not been imported. Remote content may change after this read.', 'Return to the regular app'],
+      ko: ['클라우드 Notes 읽기', '현재 계정으로 완전한 스냅샷을 읽는 선택적 경로입니다. 로컬 Notes 저장소를 초기화하거나 Note를 가져오거나 동기화하지 않습니다. 첨부 원본과 기록은 포함되지 않습니다.', '제목 또는 정확한 Note ID로 원격 Notes 검색', '현재 검증된 스냅샷만 검색합니다. 미리보기는 직접 선택해야 하며 추가 요청을 보내지 않습니다.', '완전한 스냅샷: 클라우드 레코드 {total}개 중 미리보기 가능한 Note {eligible}개.', '완전한 클라우드 스냅샷에 Note가 없습니다. 로컬 Notes가 동기화되었다는 뜻은 아닙니다.', '완전한 스냅샷에 레코드는 있지만 미리볼 수 있는 활성 지원 텍스트 Note는 없습니다.', '완전한 현재 스냅샷에서 일치하는 Note를 찾지 못했습니다. 클라우드가 비어 있다는 뜻은 아닙니다.', '클라우드 Note 미리보기', '현재 계정의 완전한 클라우드 스냅샷에서 읽은 텍스트입니다. 로컬 Note가 아니며 가져오지 않았습니다. 원격 내용은 읽은 뒤 바뀔 수 있습니다.', '일반 앱으로 돌아가기'],
+      ja: ['クラウドのNotesを読む', 'サインイン中のアカウントの完全なスナップショットを読む任意の画面です。ローカルNotesの保存先を初期化したり、ノートを取り込んだり、同期したりしません。添付ファイルの原本と履歴は含まれません。', 'タイトルまたは完全一致のNote IDでクラウドNotesを検索', '現在の検証済みスナップショットのみを検索します。プレビューは明示的に選択し、追加リクエストは行いません。', '完全なスナップショット：クラウドレコード{total}件中、プレビュー可能なNotesは{eligible}件です。', 'この完全なクラウドスナップショットにNotesはありません。ローカルNotesが同期されたことを意味しません。', '完全なスナップショットにレコードはありますが、プレビュー可能な有効な対応テキストNoteはありません。', 'この完全なスナップショットに一致するNoteはありません。クラウドが空であることを意味しません。', 'クラウドNoteのプレビュー', '現在のアカウントの完全なクラウドスナップショットから読み取ったテキストです。ローカルNoteではなく、取り込みも行っていません。リモート内容は読み取り後に変わる場合があります。', '通常のアプリに戻る'],
+    } as const;
+    expect(translationKeys.slice(-keys.length)).toEqual(keys);
+    for (const [locale, values] of [['en', enLocaleValues], ['ko', koLocaleValues], ['ja', jaLocaleValues]] as const) {
+      expect(localeIntegrityDigest(values.slice(0, 2_349), translationKeys.slice(0, 2_349)))
+        .toBe(PRE_READONLY_CLOUD_ENTRY_LOCALE_SHA256[locale]);
+      expect(values.slice(2_349), locale).toEqual(expected[locale]);
+    }
   });
   it('appends exercise-only receipt labels without changing any existing translation', () => {
     const previous = { en: '04fd1a8d5da4a3a9c57f7b7f0c5e95d6a8117cbf1dcda9eddfea119ff8c0d44b', ko: '07f143506aee0f2829dd578a974c1f5f79e06ae763a89098c001e5f60bd6179a', ja: 'b0a16a4ed1790c18032a0b0da844a10a76d00fb96874e8ca6a73997f82bc46dc' };
@@ -585,10 +610,10 @@ describe('i18n locale dictionaries', () => {
     missing.splice(1_000, 1);
 
     expect(() => buildLocaleDictionary(missing)).toThrow(
-      'Locale dictionary length mismatch: expected 2349, received 2348',
+      'Locale dictionary length mismatch: expected 2360, received 2359',
     );
     expect(() => assertLocaleValuesIntegrity('en', missing)).toThrow(
-      'Locale integrity length mismatch: expected 2349, received 2348',
+      'Locale integrity length mismatch: expected 2360, received 2359',
     );
   });
 
@@ -597,10 +622,10 @@ describe('i18n locale dictionaries', () => {
     extra.splice(1_000, 0, '__unexpected__');
 
     expect(() => buildLocaleDictionary(extra)).toThrow(
-      'Locale dictionary length mismatch: expected 2349, received 2350',
+      'Locale dictionary length mismatch: expected 2360, received 2361',
     );
     expect(() => assertLocaleValuesIntegrity('en', extra)).toThrow(
-      'Locale integrity length mismatch: expected 2349, received 2350',
+      'Locale integrity length mismatch: expected 2360, received 2361',
     );
   });
 

@@ -12,6 +12,7 @@ import { createMockSupabaseAuthResponse } from './test-utils/auth/mockSupabaseAu
 const getSessionMock = vi.fn();
 const onAuthStateChangeMock = vi.fn();
 const signOutMock = vi.fn();
+const appContentImportMock = vi.hoisted(() => vi.fn());
 
 vi.mock('./lib/googleDriveSessionRuntime', async importOriginal => {
   const original = await importOriginal<typeof import('./lib/googleDriveSessionRuntime')>();
@@ -38,9 +39,17 @@ vi.mock('./lib/supabase', () => ({
   },
 }));
 
-vi.mock('./components/AppContent', () => ({
-  AppContent: ({ authUser }: { authUser: { email?: string } }) =>
-    createElement('div', { 'data-testid': 'app-shell' }, authUser.email),
+vi.mock('./components/AppContent', () => {
+  appContentImportMock();
+  return {
+    AppContent: ({ authUser }: { authUser: { email?: string } }) =>
+      createElement('div', { 'data-testid': 'app-shell' }, authUser.email),
+  };
+});
+
+vi.mock('./components/views/NotesReadOnlyCloudView', () => ({
+  NotesReadOnlyCloudView: ({ accountId, authGeneration }: { accountId: string; authGeneration: number }) =>
+    createElement('div', { 'data-testid': 'readonly-cloud', 'data-account': accountId, 'data-generation': authGeneration }),
 }));
 
 vi.mock('./components/views/LoginScreen', () => ({
@@ -48,6 +57,37 @@ vi.mock('./components/views/LoginScreen', () => ({
 }));
 
 describe('App local-only auth gate', () => {
+  it('mounts the optional cloud reader before AppContent only for the explicit authenticated route', async () => {
+    vi.resetModules();
+    appContentImportMock.mockClear();
+    window.history.replaceState(null, '', '/?notesReadOnly=1');
+    getSessionMock.mockResolvedValueOnce(createMockSupabaseAuthResponse({ userId: 'account-a', email: 'a@example.com' }));
+    const { default: App } = await import('./App');
+    await act(async () => { root?.render(createElement(App)); });
+    expect(container?.querySelector('[data-testid="readonly-cloud"]')?.getAttribute('data-account')).toBe('account-a');
+    expect(container?.querySelector('[data-testid="app-shell"]')).toBeNull();
+    expect(appContentImportMock).not.toHaveBeenCalled();
+
+    const notify = onAuthStateChangeMock.mock.calls[0][0];
+    const firstGeneration = Number(container?.querySelector('[data-testid="readonly-cloud"]')?.getAttribute('data-generation'));
+    await act(async () => {
+      notify('SIGNED_IN', { user: { id: 'account-b' }, access_token: 'token-b', refresh_token: 'refresh-b' });
+    });
+    const second = container?.querySelector('[data-testid="readonly-cloud"]');
+    expect(second?.getAttribute('data-account')).toBe('account-b');
+    expect(Number(second?.getAttribute('data-generation'))).toBeGreaterThan(firstGeneration);
+    await act(async () => {
+      notify('SIGNED_IN', { user: { id: 'account-a' }, access_token: 'token-a-2', refresh_token: 'refresh-a-2' });
+    });
+    const third = container?.querySelector('[data-testid="readonly-cloud"]');
+    expect(third?.getAttribute('data-account')).toBe('account-a');
+    expect(Number(third?.getAttribute('data-generation'))).toBeGreaterThan(Number(second?.getAttribute('data-generation')));
+    await act(async () => { notify('SIGNED_OUT', null); });
+    expect(container?.querySelector('[data-testid="readonly-cloud"]')).toBeNull();
+    expect(container?.querySelector('[data-testid="app-shell"]')).toBeNull();
+    expect(container?.querySelector('[data-testid="login-screen"]')).not.toBeNull();
+  });
+
   it('invalidates the Drive owner on actual same-account session replacement and A-B-A', async () => {
     const { default: App } = await import('./App');
     await act(async () => { root?.render(createElement(App)); });
@@ -87,6 +127,7 @@ describe('App local-only auth gate', () => {
 
   beforeEach(() => {
     localStorage.clear();
+    window.history.replaceState(null, '', '/');
     container = document.createElement('div');
     document.body.appendChild(container);
     root = createRoot(container);
@@ -149,6 +190,14 @@ describe('App local-only auth gate', () => {
     expect(container?.querySelector('[data-testid="login-screen"]')).toBeNull();
     expect(getSessionMock).toHaveBeenCalledTimes(1);
     expect(onAuthStateChangeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the normal authenticated startup path unchanged when the opt-in route is absent', async () => {
+    getSessionMock.mockResolvedValueOnce(createMockSupabaseAuthResponse({ userId: 'normal-account', email: 'normal@example.com' }));
+    const { default: App } = await import('./App');
+    await act(async () => { root?.render(createElement(App)); });
+    expect(container?.querySelector('[data-testid="app-shell"]')?.textContent).toBe('normal@example.com');
+    expect(container?.querySelector('[data-testid="readonly-cloud"]')).toBeNull();
   });
 
   it('keeps protected content hidden while the Supabase session is loading', async () => {
