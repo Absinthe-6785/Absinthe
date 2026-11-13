@@ -17,10 +17,11 @@ from test_notes_identity_guard_candidate_postgres import (
     model_db, candidate, ready, proof_db, SCHEMA,
 )
 from test_notes_identity_private_gateway_postgres import (
-    private_db, private_ready, client, signed_apply, LOGIN,
+    private_db, private_ready, client, signed_apply, LOGIN, PrivateDatabase,
 )
 from test_notes_identity_postgres import (
-    PAYLOAD, quote, db as privilege_proof_db, db as pgrst_proof_db, proof_image, OWNER_A, OWNER_B,
+    PAYLOAD, quote, db as privilege_proof_db, db as pgrst_proof_db,
+    db as compatibility_proof_db, proof_image, OWNER_A, OWNER_B,
 )
 from test_notes_identity_private_gateway import token
 
@@ -1166,3 +1167,227 @@ def test_pgrst_deployed_body_on_pg15_is_not_treated_as_pg17_proof(trigger_privil
         before = trigger_privilege_snapshot(db)
         db.sql(mapped_pgrst_sql(db), error='NOTES_TRIGGER_PGRST_PIN_DRIFT')
         assert trigger_privilege_snapshot(db) == before
+
+
+# Local-only HMAC/RLS compatibility, using the SAME labelled/no-network harness.
+# This alias gets its own disposable container; the provider cutover fixtures and
+# their existing negative assertions above are not modified or reused as RLS proof.
+COMPAT = ROOT / "identity_candidates" / "notes_private_rls_compatibility.sql"
+PG17_COMPAT = pytest.mark.parametrize(
+    'compatibility_proof_db', ['postgres:17.6-alpine'], indirect=True)
+
+
+def test_private_compatibility_is_inactive_and_keeps_all_existing_algorithms():
+    source = COMPAT.read_text(encoding="utf-8")
+    assert COMPAT.parent.name == "identity_candidates"
+    assert source.count("begin isolation level read committed;") == 1
+    assert source.count("commit;") == 1
+    assert "extensions.hmac($1,$2,$3)" in source
+    assert "security definer" not in source.lower()
+    assert source.count("as restrictive") == 3
+    assert "request.jwt." not in source.split("as $scope$")[1].split("$scope$")[0]
+    assert "for select to notes_candidate_owner using (true)" in source
+    for forbidden in ("create extension", "alter extension", "create role",
+                      "enable row level", "disable row level", "bypassrls;",
+                      "update notes_identity_candidate", "delete from public.notes"):
+        assert forbidden not in source.lower()
+    hashes = {
+        "notes_identity_guard.sql": "c857cbf826e09e22507316f61ce4f8957458a3d996b469376a418144d619a36e",
+        "notes_cloud_identity_mapping.sql": "681bf1ae1a1c9db9d89f73ec30598d2b051e17757e8351b52f9dbaa47b281ec4",
+        "notes_identity_private_gateway.sql": "5036ded852d72582c3341823cba4c562e184d7e461c26cb4ea55d514e993c68e",
+        "notes_cloud_copy_legacy_write_fence.sql": "3d6fa2fb70c6b28fa3765cbd353c9b12db1f6400debd0830ad05a9bdac40fcf7",
+    }
+    for name, expected in hashes.items():
+        assert hashlib.sha256(COMPAT.with_name(name).read_text(encoding="utf-8").encode()).hexdigest() == expected
+
+
+@pytest.fixture(scope="module")
+def compatibility_db(compatibility_proof_db):
+    db = PrivateDatabase(compatibility_proof_db.docker, compatibility_proof_db.name)
+    assert db.sql("select current_setting('server_version_num');") == "170006"
+    # Synthetic model of the inspected public policy and extensions placement.
+    # No production roles, credentials, accounts, or Note bodies are used.
+    db.sql(f"""
+      create role notes_candidate_owner nologin nosuperuser nobypassrls noinherit;
+      create role notes_candidate_gateway login password 'synthetic-only' nosuperuser nobypassrls noinherit;
+      create role notes_candidate_app login password 'synthetic-only' nosuperuser nobypassrls noinherit;
+      create role {LOGIN} login password 'synthetic-only' nosuperuser nobypassrls noinherit;
+      create role anon nologin nosuperuser nobypassrls;
+      create role authenticated nologin nosuperuser nobypassrls;
+      create role service_role nologin nosuperuser bypassrls;
+      create schema auth;
+      create table auth.users(id uuid primary key);
+      insert into auth.users values ('{OWNER_A}'),('{OWNER_B}');
+      create function auth.uid() returns uuid language sql stable as $uid$
+        select coalesce(nullif(current_setting('request.jwt.claim.sub',true),''),
+          nullif(current_setting('request.jwt.claims',true),'')::jsonb->>'sub')::uuid
+      $uid$;
+      create table public.notes(id text primary key,
+        user_id uuid not null references auth.users(id) on delete cascade,
+        title text not null,body text not null,updated_at bigint not null,
+        created_at timestamptz,folder_id text,deleted_at bigint,starred boolean not null default false);
+      insert into public.notes(id,user_id,title,body,updated_at) values
+        ('compat-legacy-a','{OWNER_A}','같은 제목','원본 A',1),
+        ('compat-legacy-b','{OWNER_B}','같은 제목','원본 B',2);
+      create table public.note_folders(id text primary key,name text);
+      insert into public.note_folders values('legacy-folder','unchanged');
+      alter table public.notes enable row level security;
+      create policy notes_owner on public.notes for all to public using(auth.uid()=user_id);
+      grant usage on schema auth,public to anon,authenticated,service_role;
+      grant usage on schema public to notes_candidate_owner;
+      grant select,insert,update,delete on public.notes to anon,authenticated,service_role;
+      create schema extensions;
+      create extension pgcrypto with schema extensions;
+      grant usage on schema extensions to anon,authenticated,service_role;
+    """)
+    db.sql(COMPAT.with_name("notes_identity_guard.sql").read_text(encoding="utf-8"))
+    return db  # Only the existing container ownership/label teardown removes it.
+
+
+def compatibility_snapshot(db):
+    return json.loads(db.sql(f"""select jsonb_build_object(
+      'notes',(select jsonb_agg(to_jsonb(n) order by id) from public.notes n),
+      'folders',(select jsonb_agg(to_jsonb(f) order by id) from public.note_folders f),
+      'policy',(select jsonb_agg(to_jsonb(p) order by oid) from pg_policy p
+        where polrelid='public.notes'::regclass),
+      'functions',(select jsonb_agg(to_jsonb(p) order by oid) from pg_proc p
+        where pronamespace='notes_identity_candidate'::regnamespace
+          or oid='extensions.hmac(bytea,bytea,text)'::regprocedure),
+      'extension_acl',(select nspacl from pg_namespace where nspname='extensions'),
+      'notes_acl',(select relacl from pg_class where oid='public.notes'::regclass),
+      'readiness',(select to_jsonb(r) from {SCHEMA}.readiness r));"""))
+
+
+@PG17_COMPAT
+def test_pg17_private_hmac_rls_installation_and_account_bound_lifecycle(compatibility_db):
+    import hmac
+    db = compatibility_db
+    sql = COMPAT.read_text(encoding="utf-8")
+    original = compatibility_snapshot(db)
+    # Initial catalog/role/provider drift is rejected without partial grants.
+    for drift, restore, error in [
+        ("alter table public.notes disable row level security;",
+         "alter table public.notes enable row level security;", "CATALOG_UNVERIFIED"),
+        ("grant notes_candidate_owner to notes_candidate_app;",
+         "revoke notes_candidate_owner from notes_candidate_app;", "OWNER_UNVERIFIED"),
+        ("alter function extensions.hmac(bytea,bytea,text) owner to notes_candidate_owner;",
+         "alter function extensions.hmac(bytea,bytea,text) owner to postgres;", "HMAC_UNVERIFIED"),
+        ("create policy unexpected on public.notes as restrictive using(true);",
+         "drop policy unexpected on public.notes;", "LEGACY_POLICY_UNVERIFIED"),
+    ]:
+        db.sql(drift)
+        before = compatibility_snapshot(db)
+        db.sql(sql, error="PRIVATE_COMPAT_" + error)
+        assert compatibility_snapshot(db) == before
+        db.sql(restore)
+    # Failure after ALL policy/grant creation rolls the entire adapter back.
+    before = compatibility_snapshot(db)
+    faulty = sql.replace("commit;", "do $$begin raise exception 'COMPAT_TEST_ABORT';end $$;commit;")
+    assert faulty != sql
+    db.sql(faulty, error="COMPAT_TEST_ABORT")
+    assert compatibility_snapshot(db) == before
+    db.sql(sql)
+    db.sql(sql, error="PRIVATE_COMPAT_LEGACY_POLICY_UNVERIFIED")  # no overwrite/reinstall
+    assert db.sql("select count(*) from pg_policy where polrelid='public.notes'::regclass;") == "7"
+    assert db.sql("select pg_get_expr(polqual,polrelid) from pg_policy where polname='notes_owner';") == "(auth.uid() = user_id)"
+    assert db.sql(f"select bool_or(value='true'::jsonb) from {SCHEMA}.readiness r,"
+                  "lateral jsonb_each(to_jsonb(r)-'singleton');") == "f"
+    assert db.sql("select count(*) from pg_roles where rolname='notes_candidate_owner' and "
+                  "(rolcanlogin or rolbypassrls or rolsuper);") == "0"
+    assert db.sql("select count(*) from pg_proc where oid='notes_identity_candidate.hmac(bytea,bytea,text)'::regprocedure "
+                  "and not prosecdef and proconfig=array['search_path=pg_catalog'];") == "1"
+    assert db.sql("begin;set local role notes_candidate_owner;select count(*) from public.notes;rollback;") == "2"
+    # Compare exact synthetic bytes with the real extension and Python HMAC.
+    expected = hmac.new(b"synthetic-key", "원본 / 原本".encode(), "sha256").hexdigest()
+    assert db.sql("begin;set local role notes_candidate_owner;select encode("
+                  "notes_identity_candidate.hmac(convert_to('원본 / 原本','UTF8'),"
+                  "convert_to('synthetic-key','UTF8'),'sha256'),'hex');rollback;") == expected
+    db.sql("begin;set local role anon;select notes_identity_candidate.hmac('a'::bytea,'b'::bytea,'sha256');",
+           error="42501")
+    # Existing sources are installed unchanged. No readiness or credentials
+    # are supplied by the compatibility artifact.
+    db.sql(COMPAT.with_name("notes_cloud_identity_mapping.sql").read_text(encoding="utf-8"))
+    db.sql(COMPAT.with_name("notes_identity_private_gateway.sql").read_text(encoding="utf-8"))
+    db.sql(SQL.read_text(encoding="utf-8"))
+    assert db.sql(f"select enabled from {SCHEMA}.private_gateway_config;") == "f"
+    assert db.sql(f"select enabled from {SCHEMA}.cloud_copy_readiness;") == "f"
+    db.sql("select id from public.notes;", LOGIN, error="42501")
+    db.sql(f"select {SCHEMA}.hmac('a'::bytea,'b'::bytea,'sha256');", LOGIN, error="42501")
+    db.sql(f"select {SCHEMA}.private_notes_write_scope('{OWNER_A}');", LOGIN, error="42501")
+    after = compatibility_snapshot(db)
+    assert after["notes"] == original["notes"]
+    assert after["folders"] == original["folders"]
+    assert after["notes_acl"] == original["notes_acl"]
+    db.sql(f"select {SCHEMA}.private_prepare('{{}}',decode(repeat('00',32),'hex'));", LOGIN,
+           error="CANDIDATE_NOT_ACTIVATED")
+    # Legacy JWT-scoped CRUD still works, without exposing the other account.
+    assert db.sql(f"""begin;set local role authenticated;
+      set local request.jwt.claim.sub='{OWNER_A}';
+      insert into public.notes(id,user_id,title,body,updated_at)
+        values('compat-crud','{OWNER_A}','new','body',3);
+      update public.notes set title='edited' where id='compat-crud';
+      select title from public.notes where id='compat-crud';
+      select count(*) from public.notes where user_id='{OWNER_B}';
+      delete from public.notes where id='compat-crud';rollback;""").splitlines() == ["edited", "0"]
+    # TEST-ONLY activation and signing bytes, contained in this disposable DB.
+    db.signing_key = bytes(range(32))
+    db.sql(f"""update {SCHEMA}.readiness set enabled=true,authenticated_owner_binding=true,
+      deployed_schema=true,deployed_roles=true,existing_identity_registration=true,
+      legacy_mutations=true,k323_enforcement=true,reset_restore=true,account_termination=true;
+      update {SCHEMA}.private_gateway_config set enabled=true,signing_key=decode('{db.signing_key.hex()}','hex');
+      update {SCHEMA}.cloud_copy_readiness set enabled=true;
+      insert into {SCHEMA}.account_fences values('{OWNER_A}',1,'ACTIVE'),('{OWNER_B}',1,'ACTIVE');""")
+    g = client(db)
+    # An A request must see a conflicting B-owned legacy ID, not RLS-hidden absence.
+    ctx = g.prepare(token(OWNER_A), "cloud_reserve", op(), local_note_id="compat-legacy-b")
+    db.sql(signed_apply(g, ctx, token(OWNER_A)), LOGIN, error="SOURCE_ID_UNAVAILABLE")
+    local = "compat-local-" + op()
+    cloud = g.run(token(OWNER_A), "cloud_reserve", op(), local_note_id=local)
+    assert cloud != local
+    assert g.run(token(OWNER_A), "cloud_publish", op(), local_note_id=local, note_id=cloud, payload=PAYLOAD) == "CREATED"
+    read = g.run(token(OWNER_A), "cloud_read", op(), local_note_id=local)
+    assert read["cloud_note_id"] == cloud and read["publication"]["payload"] == PAYLOAD
+    for action in ("cloud_read", "cloud_publish"):
+        ctx = g.prepare(token(OWNER_B), action, op(), local_note_id=local,
+                        **({"note_id": cloud, "payload": PAYLOAD} if action == "cloud_publish" else {}))
+        db.sql(signed_apply(g, ctx, token(OWNER_B)), LOGIN, error="CLOUD_ALIAS_UNAVAILABLE")
+    # A/B/A generation changes do not revive a captured operation.
+    ctx = g.prepare(token(OWNER_A), "cloud_read", op(), local_note_id=local)
+    db.sql(f"update {SCHEMA}.account_fences set generation=3 where owner_id='{OWNER_A}';")
+    db.sql(signed_apply(g, ctx, token(OWNER_A)), LOGIN, error="ACCOUNT_AUTHORITY_UNAVAILABLE")
+    db.sql(f"begin;set local role service_role;delete from public.notes where id={quote(cloud)};",
+           error="PROTECTED_NOTE_MUTATION")
+    assert g.run(token(OWNER_A), "cloud_retire", op(), local_note_id=local, note_id=cloud) == "RETIRED"
+    ctx = g.prepare(token(OWNER_A), "cloud_publish", op(), local_note_id=local, note_id=cloud, payload=PAYLOAD)
+    db.sql(signed_apply(g, ctx, token(OWNER_A)), LOGIN, error="IDENTITY_UNAVAILABLE")
+    assert db.sql(f"select state from {SCHEMA}.identities where id={quote(cloud)};") == "RETIRED"
+    assert db.sql(f"select count(*) from {SCHEMA}.principal_bindings;") == "0"
+    # An intentionally unsafe TEST hook isolates policy behavior from the signed
+    # RPC. It is NOT in any candidate artifact and is never used as auth proof.
+    db.sql(f"""set role notes_candidate_owner;
+      create function {SCHEMA}.compat_test_probe(bound uuid,target uuid,gen bigint) returns void
+      language plpgsql security definer set search_path=pg_catalog as $probe$
+      begin
+        if bound is not null then
+          insert into notes_identity_candidate.principal_bindings values(session_user,bound,gen);
+        end if;
+        insert into public.notes(id,user_id,title,body,updated_at)
+          values('compat-probe',target,'probe','probe',1);
+      end $probe$;reset role;
+      revoke all on function {SCHEMA}.compat_test_probe(uuid,uuid,bigint) from public;
+      grant execute on function {SCHEMA}.compat_test_probe(uuid,uuid,bigint) to {LOGIN};""")
+    try:
+        for bound, target, gen in [("null", OWNER_A, 3), (quote(OWNER_A), OWNER_B, 3), (quote(OWNER_A), OWNER_A, 1)]:
+            db.sql(f"begin;set local request.jwt.claim.sub='{target}';"
+                   f"select {SCHEMA}.compat_test_probe({bound},'{target}',{gen});commit;", LOGIN, error="42501")
+        assert db.sql("select count(*) from public.notes where id='compat-probe';") == "0"
+        assert db.sql(f"select count(*) from {SCHEMA}.principal_bindings;") == "0"
+    finally:
+        db.sql(f"drop function {SCHEMA}.compat_test_probe(uuid,uuid,bigint);")
+        db.sql(f"update {SCHEMA}.readiness set enabled=false;"
+               f"update {SCHEMA}.private_gateway_config set enabled=false,signing_key=null;"
+               f"update {SCHEMA}.cloud_copy_readiness set enabled=false;")
+    # No rollback/uninstall removes the retired ledger, aliases or receipts.
+    assert db.sql(f"select state from {SCHEMA}.identities where id={quote(cloud)};") == "RETIRED"
+    final = compatibility_snapshot(db)
+    assert final["notes"] == original["notes"] and final["folders"] == original["folders"]
