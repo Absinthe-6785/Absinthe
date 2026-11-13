@@ -2360,6 +2360,21 @@ const translationKeys = [
   "notesCloudReadOnlyPreviewHeading",
   "notesCloudReadOnlyPreviewSource",
   "notesCloudReadOnlyExit",
+  "notesLaptopPublishAction",
+  "notesLaptopPublishScope",
+  "notesLaptopPublishApprovalId",
+  "notesLaptopPublishConfirm",
+  "notesLaptopPublishPrompt",
+  "notesLaptopPublishWorking",
+  "notesLaptopPublishReadback",
+  "notesLaptopPublishVerified",
+  "notesLaptopPublishDisabled",
+  "notesLaptopPublishConflict",
+  "notesLaptopPublishBadRequest",
+  "notesLaptopPublishIndeterminate",
+  "notesLaptopPublishUnavailable",
+  "notesLaptopPublishSourceChanged",
+  "notesLaptopPublishRepeatBlocked",
 ] as const;
 
 export type TranslationKey = (typeof translationKeys)[number];

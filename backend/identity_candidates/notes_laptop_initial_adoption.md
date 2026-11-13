@@ -76,3 +76,26 @@ and legacy-writer enforcement, plus isolated SQL evidence and independent review
 Production schema installation, activation and publishing even one real Note
 each require explicit approval. Do not automatically delete ledger/approval/
 receipt evidence or regrant legacy write authority as a rollback.
+
+## Default-OFF application integration
+
+The application now supplies a separate laptop publication/status route over the
+existing HMAC Gateway. No HTTP route issues, refreshes or edits approvals.
+The operator must approve the exact one-Note manifest using the private owner
+path above, independently of browser confirmation. The browser supplies only the
+lookup operation ID and the current supported snapshot; those inputs are not
+trusted attestations and cannot create approval or deletion history.
+
+The existing private Gateway is extended with laptop_publish and laptop_read;
+its restricted login gains no raw function/table grants. SQL rebinds the verified
+account/generation inside each invocation and clears it before returning.
+The publish route ignores pre-commit snapshots and performs a separately signed
+read in a fresh committed transaction. Lost writes/readbacks remain indeterminate
+and are not automatically retried. Manual status is readback only.
+
+Backend NOTES_LAPTOP_PUBLISH_ENABLED and frontend VITE_NOTES_LAPTOP_PUBLISH_ENABLED
+are both OFF unless explicitly enabled. No configuration is changed by this
+implementation. The existing database readiness/private Gateway gates also remain
+required and OFF. This does not authorize production installation or a workaround
+for legacy-writer/RLS/Reset/Restore/account-lifecycle protections. All original
+adoption/retirement contracts remain unchanged.

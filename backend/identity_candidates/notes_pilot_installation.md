@@ -16,10 +16,17 @@ execution. Do not regenerate, combine, or edit SQL at execution time.
 | 1 notes_identity_guard.sql | c857cbf826e09e22507316f61ce4f8957458a3d996b469376a418144d619a36e |
 | 2 notes_private_rls_compatibility.sql | d07ff1bce8fc4ba727688cc9ad28e602c798ff6f8787b0936e0d8b966e29b5a1 |
 | 3 notes_cloud_identity_mapping.sql | 681bf1ae1a1c9db9d89f73ec30598d2b051e17757e8351b52f9dbaa47b281ec4 |
-| 4 notes_identity_private_gateway.sql | 5036ded852d72582c3341823cba4c562e184d7e461c26cb4ea55d514e993c68e |
+| 4 notes_identity_private_gateway.sql | b5ebd57dcc705442812a8fe08209cc1182e9b7d8fd7ee76b4b21a6a8ecb2b73b |
 | 5 notes_cloud_copy_legacy_write_fence.sql | 3d6fa2fb70c6b28fa3765cbd353c9b12db1f6400debd0830ad05a9bdac40fcf7 |
 
-The five existing implementations are unchanged. Step 0 creates four restricted
+The laptop vertical integration revises only step 4 to add bounded laptop
+publication/readback commands. This invalidates the previous step-4 approval
+(5036ded852d72582c3341823cba4c562e184d7e461c26cb4ea55d514e993c68e);
+no installation or activation is authorized by this revision. The operator-only
+laptop adoption contract is still a separate prerequisite for those two commands,
+not a new step silently inserted into this six-file sequence.
+
+The other implementations are unchanged. Step 0 creates four restricted
 roles, grants only public schema USAGE to the non-login owner and explicit
 INHERIT/SET membership to the trusted postgres installer. The existing SQL reads
 the private schema before SET ROLE; granting SET alone is insufficient. No provider grants

@@ -9,6 +9,8 @@ import { createNotesCloudCopy, notesCloudCopyUiEnabled, prepareNotesCloudCopy, r
 import type { NotesCloudCopyLocalPreflightResult } from '../../../../lib/notesCloudCopyLocalPreflight';
 import { createNotesCloudTextDownload } from '../../../../lib/notesCloudTextExport';
 import { subscribeNotesAuthorityRequestChange } from '../../../../lib/notesAccountAuthority';
+import { notesLaptopPublicationUiEnabled, type LaptopPublicationPayload } from '../../../../lib/notesLaptopPublication';
+import { NotesLaptopPublicationAction } from './NotesLaptopPublicationAction';
 
 const DETAIL_PREVIEW_LIMIT = 30;
 const REMOTE_NOTE_PREVIEW_LIMIT = 12_000;
@@ -57,6 +59,8 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
   const account = useRef({ id: accountId, generation: 0 });
   if (account.current.id !== accountId) account.current = { id: accountId, generation: account.current.generation + 1 };
   const active = useRef<NotesCloudComparison | null>(null);
+  const laptopPublicationLedger = useRef(new Map<string, LaptopPublicationPayload>());
+  const [laptopPublicationFeedback, setLaptopPublicationFeedback] = useState<TranslationKey | null>(null);
   const downloadUrls = useRef(new Map<string, number>());
   const [busy, setBusy] = useState(false);
   const [copyBusy, setCopyBusy] = useState(false);
@@ -120,6 +124,7 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
     && copyReceipt.notes === notes ? copyReceipt : null;
   useLayoutEffect(() => subscribeNotesAuthorityRequestChange(() => {
     copyRequest.current = null;
+    setLaptopPublicationFeedback(null);
     setCopyBusy(false); setCopyCandidate(null); setCopyFeedback(null); setCopyReceipt(null);
   }), []);
   useLayoutEffect(() => {
@@ -128,6 +133,7 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
     statusRequest.current = null;
     copyRequest.current = null;
     setCopyReceipt(null);
+    setLaptopPublicationFeedback(null);
     setBusy(false); setCopyBusy(false); setStatusBusy(null); setStatusResult(null);
     setResult(null); setError(null); setCopyFeedback(null); setCopyCandidate(null);
     setSearchQuery(''); setSearchResultLimit(DETAIL_PREVIEW_LIMIT);
@@ -166,6 +172,7 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
   }, [divergentPreview, result, visible]);
   const check = async () => {
     if (busy) return;
+    setLaptopPublicationFeedback(null);
     copyRequest.current = null; setCopyBusy(false); setCopyCandidate(null); setCopyFeedback(null); setCopyReceipt(null);
     releaseAllCloudTextDownloadUrls();
     statusRequest.current = null; setStatusBusy(null); setStatusResult(null);
@@ -180,6 +187,7 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
       owner.subscribeInvalidation(() => {
         if (active.current !== owner) return;
         active.current = null;
+        setLaptopPublicationFeedback(null);
         copyRequest.current = null;
         setCopyBusy(false); setCopyCandidate(null); setCopyFeedback(null); setCopyReceipt(null);
         releaseAllCloudTextDownloadUrls();
@@ -199,6 +207,7 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
     } finally { if (!owner || active.current === owner) setBusy(false); }
   };
   const cancel = () => {
+    setLaptopPublicationFeedback(null);
     releaseAllCloudTextDownloadUrls();
     statusRequest.current = null;
     copyRequest.current = null; setCopyReceipt(null);
@@ -511,6 +520,19 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
                   {t(copyBusy ? 'notesCloudCopyWorking' : 'notesCloudCopyAction')}
                 </button>}
               </div> : null}
+              {key === 'localOnly' && accountId && notesLaptopPublicationUiEnabled(accountId)
+                && eligibleLocalNote(notes, detail.id) && result?.owner === active.current ? <NotesLaptopPublicationAction
+                  accountId={accountId} noteId={detail.id} ledger={laptopPublicationLedger.current}
+                  isOwnerCurrent={() => copyOwnerIsCurrent(result.owner, detail.id)}
+                  onVerified={() => {
+                    if (!copyOwnerIsCurrent(result.owner, detail.id)) return;
+                    active.current = null;
+                    result.owner.cancel();
+                    setResult(null); setCopyCandidate(null); setCopyReceipt(null);
+                    setRemotePreview(null); setDivergentPreview(null); releaseAllCloudTextDownloadUrls();
+                    setLaptopPublicationFeedback('notesLaptopPublishVerified');
+                  }}
+                /> : null}
               {key !== 'remoteOnly' && notesCloudCopyUiEnabled(accountId)
                 && notes.some(note => note.id === detail.id) && result?.owner === active.current ? <div className="mt-2 space-y-1">
                   <button type="button" className={`${button} px-3 py-1`}
@@ -587,6 +609,7 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
       </section> : null}
     </div> : null}
     {error ? <p role="alert">{t(error)}</p> : null}
+    {laptopPublicationFeedback ? <p role="status" aria-live="polite">{t(laptopPublicationFeedback)}</p> : null}
     {copyFeedback ? <p role="status" aria-live="polite">{t(copyFeedback)}</p> : null}
     {visibleCopyReceipt ? <section data-cloud-copy-receipt className="rounded-lg border border-border p-3 space-y-2">
       <dl className="text-sm space-y-2">

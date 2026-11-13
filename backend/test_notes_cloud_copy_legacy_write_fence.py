@@ -1194,7 +1194,7 @@ def test_private_compatibility_is_inactive_and_keeps_all_existing_algorithms():
     hashes = {
         "notes_identity_guard.sql": "c857cbf826e09e22507316f61ce4f8957458a3d996b469376a418144d619a36e",
         "notes_cloud_identity_mapping.sql": "681bf1ae1a1c9db9d89f73ec30598d2b051e17757e8351b52f9dbaa47b281ec4",
-        "notes_identity_private_gateway.sql": "5036ded852d72582c3341823cba4c562e184d7e461c26cb4ea55d514e993c68e",
+        "notes_identity_private_gateway.sql": "b5ebd57dcc705442812a8fe08209cc1182e9b7d8fd7ee76b4b21a6a8ecb2b73b",
         "notes_cloud_copy_legacy_write_fence.sql": "3d6fa2fb70c6b28fa3765cbd353c9b12db1f6400debd0830ad05a9bdac40fcf7",
     }
     for name, expected in hashes.items():
