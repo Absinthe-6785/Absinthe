@@ -21,7 +21,7 @@ from test_notes_identity_private_gateway_postgres import (
 )
 from test_notes_identity_postgres import (
     PAYLOAD, quote, db as privilege_proof_db, db as pgrst_proof_db,
-    db as compatibility_proof_db, proof_image, OWNER_A, OWNER_B,
+    db as compatibility_proof_db, db as pilot_proof_db, proof_image, OWNER_A, OWNER_B,
 )
 from test_notes_identity_private_gateway import token
 
@@ -1212,6 +1212,16 @@ def compatibility_db(compatibility_proof_db):
       create role notes_candidate_gateway login password 'synthetic-only' nosuperuser nobypassrls noinherit;
       create role notes_candidate_app login password 'synthetic-only' nosuperuser nobypassrls noinherit;
       create role {LOGIN} login password 'synthetic-only' nosuperuser nobypassrls noinherit;
+      grant usage on schema public to notes_candidate_owner;
+    """)
+    db.sql(compatibility_source_sql())
+    db.sql(COMPAT.with_name("notes_identity_guard.sql").read_text(encoding="utf-8"))
+    return db  # Only the existing container ownership/label teardown removes it.
+
+
+def compatibility_source_sql():
+    """Same synthetic observed source, independently reusable before provisioning."""
+    return f"""
       create role anon nologin nosuperuser nobypassrls;
       create role authenticated nologin nosuperuser nobypassrls;
       create role service_role nologin nosuperuser bypassrls;
@@ -1234,14 +1244,11 @@ def compatibility_db(compatibility_proof_db):
       alter table public.notes enable row level security;
       create policy notes_owner on public.notes for all to public using(auth.uid()=user_id);
       grant usage on schema auth,public to anon,authenticated,service_role;
-      grant usage on schema public to notes_candidate_owner;
       grant select,insert,update,delete on public.notes to anon,authenticated,service_role;
       create schema extensions;
       create extension pgcrypto with schema extensions;
       grant usage on schema extensions to anon,authenticated,service_role;
-    """)
-    db.sql(COMPAT.with_name("notes_identity_guard.sql").read_text(encoding="utf-8"))
-    return db  # Only the existing container ownership/label teardown removes it.
+    """
 
 
 def compatibility_snapshot(db):
@@ -1264,6 +1271,8 @@ def test_pg17_private_hmac_rls_installation_and_account_bound_lifecycle(compatib
     db = compatibility_db
     sql = COMPAT.read_text(encoding="utf-8")
     original = compatibility_snapshot(db)
+    # Drift injection is DBA work, not part of the candidate install authority.
+    drift_sql = getattr(db, "catalog_drift_sql", db.sql)
     # Initial catalog/role/provider drift is rejected without partial grants.
     for drift, restore, error in [
         ("alter table public.notes disable row level security;",
@@ -1275,11 +1284,11 @@ def test_pg17_private_hmac_rls_installation_and_account_bound_lifecycle(compatib
         ("create policy unexpected on public.notes as restrictive using(true);",
          "drop policy unexpected on public.notes;", "LEGACY_POLICY_UNVERIFIED"),
     ]:
-        db.sql(drift)
+        drift_sql(drift)
         before = compatibility_snapshot(db)
         db.sql(sql, error="PRIVATE_COMPAT_" + error)
         assert compatibility_snapshot(db) == before
-        db.sql(restore)
+        drift_sql(restore)
     # Failure after ALL policy/grant creation rolls the entire adapter back.
     before = compatibility_snapshot(db)
     faulty = sql.replace("commit;", "do $$begin raise exception 'COMPAT_TEST_ABORT';end $$;commit;")
@@ -1311,6 +1320,10 @@ def test_pg17_private_hmac_rls_installation_and_account_bound_lifecycle(compatib
     db.sql(SQL.read_text(encoding="utf-8"))
     assert db.sql(f"select enabled from {SCHEMA}.private_gateway_config;") == "f"
     assert db.sql(f"select enabled from {SCHEMA}.cloud_copy_readiness;") == "f"
+    assert db.sql(f"select signing_key is null from {SCHEMA}.private_gateway_config;") == "t"
+    for table in ("account_fences", "principal_bindings", "identities", "receipts",
+                  "cloud_aliases", "private_contexts", "note_write_permits"):
+        assert db.sql(f"select count(*) from {SCHEMA}.{table};") == "0"
     db.sql("select id from public.notes;", LOGIN, error="42501")
     db.sql(f"select {SCHEMA}.hmac('a'::bytea,'b'::bytea,'sha256');", LOGIN, error="42501")
     db.sql(f"select {SCHEMA}.private_notes_write_scope('{OWNER_A}');", LOGIN, error="42501")
@@ -1355,7 +1368,7 @@ def test_pg17_private_hmac_rls_installation_and_account_bound_lifecycle(compatib
     ctx = g.prepare(token(OWNER_A), "cloud_read", op(), local_note_id=local)
     db.sql(f"update {SCHEMA}.account_fences set generation=3 where owner_id='{OWNER_A}';")
     db.sql(signed_apply(g, ctx, token(OWNER_A)), LOGIN, error="ACCOUNT_AUTHORITY_UNAVAILABLE")
-    db.sql(f"begin;set local role service_role;delete from public.notes where id={quote(cloud)};",
+    drift_sql(f"begin;set local role service_role;delete from public.notes where id={quote(cloud)};",
            error="PROTECTED_NOTE_MUTATION")
     assert g.run(token(OWNER_A), "cloud_retire", op(), local_note_id=local, note_id=cloud) == "RETIRED"
     ctx = g.prepare(token(OWNER_A), "cloud_publish", op(), local_note_id=local, note_id=cloud, payload=PAYLOAD)
@@ -1391,3 +1404,92 @@ def test_pg17_private_hmac_rls_installation_and_account_bound_lifecycle(compatib
     assert db.sql(f"select state from {SCHEMA}.identities where id={quote(cloud)};") == "RETIRED"
     final = compatibility_snapshot(db)
     assert final["notes"] == original["notes"] and final["folders"] == original["folders"]
+
+
+PROVISION = COMPAT.with_name("notes_pilot_role_provisioning.sql")
+
+
+def test_pilot_provisioning_has_no_activation_or_credential_material():
+    source = PROVISION.read_text(encoding="utf-8")
+    assert "login connection limit 0" in source
+    assert source.count("password null") == 4
+    assert "with inherit true, set true" in source
+    assert "update " not in source.lower()
+    for forbidden in ("drop ", "bypassrls;", "to anon", "to authenticated", "to service_role"):
+        assert forbidden not in source.lower()
+    handoff = PROVISION.with_name("notes_pilot_installation.md").read_text(encoding="utf-8")
+    rows = [line.split("|") for line in handoff.splitlines() if line.startswith("| ") and ".sql |" in line]
+    assert len(rows) == 6
+    for index, row in enumerate(rows):
+        number, filename = row[1].strip().split(" ", 1)
+        assert int(number) == index
+        actual = hashlib.sha256(PROVISION.with_name(filename).read_text(encoding="utf-8").encode()).hexdigest()
+        assert actual == row[2].strip()
+
+
+@pytest.mark.parametrize('pilot_proof_db', ['postgres:17.6-alpine'], indirect=True)
+def test_pg17_pilot_unprovisioned_to_complete_default_off_package(pilot_proof_db):
+    db = PrivateDatabase(pilot_proof_db.docker, pilot_proof_db.name)
+    db.sql(compatibility_source_sql())
+    # Disposable fixture only: PG forbids demoting its bootstrap superuser.
+    # Model the inspected catalog with a separate bootstrap DBA and a managed
+    # non-superuser postgres installer; no production catalog is touched.
+    from test_remote_mutation_v2_postgres import POSTGRES_TEST_PASSWORD
+    db.sql("alter role proof_issuer superuser;")
+    pilot_proof_db.sql(f"""
+      alter role postgres rename to bootstrap_postgres;
+      create role postgres login createrole createdb password {quote(POSTGRES_TEST_PASSWORD)};
+      alter database postgres owner to postgres;
+      alter table public.notes owner to postgres;
+      alter table public.note_folders owner to postgres;
+      alter schema extensions owner to postgres;
+      update pg_extension set extowner='postgres'::regrole where extname='pgcrypto';
+      alter function extensions.hmac(bytea,bytea,text) owner to postgres;
+      grant authenticated,service_role to postgres;
+    """, "proof_issuer")
+    assert db.sql("select count(*) from pg_roles where rolname like 'notes_candidate_%';") == "0"
+    sql = PROVISION.read_text(encoding="utf-8")
+    # An existing name is never adopted/altered. No partial roles survive failure.
+    db.sql("create role notes_candidate_app nologin;")
+    db.sql(sql, error="PILOT_ROLE_PREREQUISITES_UNVERIFIED")
+    assert db.sql("select count(*) from pg_roles where rolname like 'notes_candidate_%';") == "1"
+    db.sql("drop role notes_candidate_app;")  # synthetic test-created conflict only
+    db.sql(sql.replace("commit;", "select 1/0;commit;"), error="22012")
+    assert db.sql("select count(*) from pg_roles where rolname like 'notes_candidate_%';") == "0"
+    # PUBLIC privileges cannot silently flow into new roles, even NOINHERIT roles.
+    db.sql("grant select on public.notes to public;")
+    db.sql(sql, error="PILOT_ROLE_EFFECTIVE_AUTHORITY_UNVERIFIED")
+    assert db.sql("select count(*) from pg_roles where rolname like 'notes_candidate_%';") == "0"
+    db.sql("revoke select on public.notes from public;")
+    # Model a managed, non-superuser postgres installer with database CREATE and
+    # CREATEROLE. Provider membership is test-only to exercise existing CRUD probes.
+    db.sql(sql)
+    assert db.sql("select rolsuper from pg_roles where rolname='postgres';") == "f"
+    db.sql(f"alter role {LOGIN} password 'synthetic-only';")  # disposable authentication only
+    assert db.sql(f"select rolconnlimit from pg_roles where rolname='{LOGIN}';") == "0"
+    db.sql("select 1;", LOGIN, error=f'too many connections for role "{LOGIN}"')
+    assert db.sql("select count(*) from pg_auth_members m join pg_roles r on r.oid=m.roleid "
+                  "where r.rolname like 'notes_candidate_%' and m.member<>'postgres'::regrole;") == "0"
+    db.sql(sql, error="PILOT_ROLE_PREREQUISITES_UNVERIFIED")
+    db.sql(COMPAT.with_name("notes_identity_guard.sql").read_text(encoding="utf-8"))
+    # Wrong order fails, preserving the already committed guard/empty history.
+    db.sql(COMPAT.with_name("notes_identity_private_gateway.sql").read_text(encoding="utf-8"),
+           error="PRIVATE_GATEWAY_PREREQUISITES_UNVERIFIED")
+    assert db.sql(f"select count(*) from {SCHEMA}.identities;") == "0"
+    assert db.sql(f"select enabled from {SCHEMA}.readiness;") == "f"
+    assert db.sql(f"select to_regclass('{SCHEMA}.private_gateway_config') is null;") == "t"
+    # TEST ONLY: allow synthetic loopback sessions; the candidate never does so.
+    db.sql(f"alter role {LOGIN} connection limit -1;")
+    # Reuse the exact existing real-SQL assertions: compatibility -> mapping ->
+    # private gateway -> always-on fence, rollback, CRUD, RLS, account/generation,
+    # signed lifecycle, protected writes, retirement, retained originals/history.
+    db.catalog_drift_sql = lambda sql, **kwargs: pilot_proof_db.sql(sql, "proof_issuer", **kwargs)
+    test_pg17_private_hmac_rls_installation_and_account_bound_lifecycle(db)
+    db.sql("set role notes_candidate_owner;", LOGIN, error="42501")
+    db.sql(f"grant notes_candidate_owner to {LOGIN};", LOGIN, error="42501")
+    db.sql("delete from public.notes;", LOGIN, error="42501")
+    db.sql(f"alter role {LOGIN} connection limit 0;")
+    assert db.sql(f"select count(*) from {SCHEMA}.principal_bindings;") == "0"
+    assert db.sql(f"select count(*) from {SCHEMA}.private_gateway_config where enabled or signing_key is not null;") == "0"
+    assert db.sql(f"select enabled from {SCHEMA}.cloud_copy_readiness;") == "f"
+    db.sql("select 1;", LOGIN, error=f'too many connections for role "{LOGIN}"')
