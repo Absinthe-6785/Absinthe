@@ -2349,6 +2349,17 @@ const enTranslations = [
   "Saved cloud copy ID",
   "On another device signed in to this account, run Notes cloud comparison and preview this cloud copy ID. This does not import a local Note or enable synchronization.",
   "You can also search by the exact server-issued Cloud Copy ID. Choose Preview to view the matched Note.",
+  "Read cloud Notes",
+  "This optional route reads a complete snapshot for the signed-in account. It does not initialize local Notes storage, import Notes, or synchronize. Attachment originals and history are not included.",
+  "Search remote Notes by title or exact Note ID",
+  "Search only this verified snapshot. Preview is explicit and does not make another request.",
+  "Complete snapshot: {eligible} eligible Notes from {total} cloud records.",
+  "This complete cloud snapshot contains no Notes. This does not mean local Notes were synchronized.",
+  "The complete snapshot contains records, but none are active supported text Notes eligible for preview.",
+  "No Note in this complete snapshot matches. This does not mean the cloud is empty.",
+  "Cloud Note preview",
+  "Text from this complete account-scoped cloud snapshot. It is not a local Note and has not been imported. Remote content may change after this read.",
+  "Return to the regular app",
 ] as const;
 
 export default enTranslations;
