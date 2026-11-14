@@ -62,7 +62,10 @@ begin
     'notes_identity_candidate.reserve_cloud_copy(text,bigint,text)',
     'notes_identity_candidate.publish_cloud_copy(text,text,bigint,text,jsonb)',
     'notes_identity_candidate.retire_cloud_copy(text,text,bigint,text)',
-    'notes_identity_candidate.read_cloud_copy(text,bigint)'
+    'notes_identity_candidate.read_cloud_copy(text,bigint)',
+    'notes_identity_candidate.publish_laptop_note(uuid,bigint,text,text,jsonb)',
+    'notes_identity_candidate.read_laptop_publication(uuid,bigint,text,text,jsonb)',
+    'notes_identity_candidate.approve_laptop_adoption(uuid,bigint,text,text,jsonb,text,text[],timestamptz,jsonb,text)'
   ] loop
     if to_regprocedure(signature) is not null
       and has_function_privilege(session_user,to_regprocedure(signature),'EXECUTE') then
@@ -92,30 +95,37 @@ $$;
 
 create function notes_identity_candidate.private_prepare(p_text text,p_mac bytea)
 returns jsonb language plpgsql security definer set search_path=pg_catalog as $$
-declare doc jsonb; intent jsonb; v_owner uuid; gen bigint; required text[]; is_cloud boolean;
+declare doc jsonb; intent jsonb; v_owner uuid; gen bigint; required text[]; is_cloud boolean; is_laptop boolean;
   c notes_identity_candidate.private_contexts%rowtype;
 begin
   doc:=notes_identity_candidate.private_check(p_text,p_mac,'absinthe.notes.private-gateway.candidate.v1.prepare');
   is_cloud:=doc->>'action' in ('cloud_reserve','cloud_publish','cloud_retire','cloud_read');
+  is_laptop:=doc->>'action' in ('laptop_publish','laptop_read');
   required:=array['aud','expires','owner','action','operation_id','note_id','payload'];
   if is_cloud then required:=array_append(required,'local_note_id'); end if;
+  if is_laptop then required:=array_append(required,'approval_operation_id'); end if;
   if not (doc ?& required) or doc-required<>'{}'::jsonb
     or jsonb_typeof(doc->'owner') is distinct from 'string'
     or jsonb_typeof(doc->'action') is distinct from 'string'
     or jsonb_typeof(doc->'operation_id') is distinct from 'string'
     or btrim(doc->>'operation_id')='' or length(doc->>'operation_id')>200
-    or doc->>'action' not in ('reserve','publish','retire','cloud_reserve','cloud_publish','cloud_retire','cloud_read')
+    or doc->>'action' not in ('reserve','publish','retire','cloud_reserve','cloud_publish','cloud_retire','cloud_read','laptop_publish','laptop_read')
     then raise exception 'INVALID_INTENT'; end if;
   v_owner:=(doc->>'owner')::uuid;
   if v_owner='00000000-0000-0000-0000-000000000000' then raise exception 'INVALID_INTENT'; end if;
+  if is_laptop and (
+    jsonb_typeof(doc->'approval_operation_id') is distinct from 'string'
+    or length(btrim(doc->>'approval_operation_id')) not between 1 and 512
+    or jsonb_typeof(doc->'payload') is distinct from 'object'
+    or length(doc->>'note_id') not between 1 and 512) then raise exception 'INVALID_INTENT'; end if;
   if (is_cloud and (jsonb_typeof(doc->'local_note_id') is distinct from 'string'
                    or btrim(doc->>'local_note_id')=''))
     or (doc->>'action' in ('reserve','cloud_reserve','cloud_read')
         and (doc->'note_id'<>'null'::jsonb or doc->'payload'<>'null'::jsonb))
     or (doc->>'action' not in ('reserve','cloud_reserve','cloud_read') and
        (jsonb_typeof(doc->'note_id') is distinct from 'string' or btrim(doc->>'note_id')=''))
-    or (doc->>'action' not in ('publish','cloud_publish') and doc->'payload'<>'null'::jsonb)
-    or (doc->>'action' in ('publish','cloud_publish') and jsonb_typeof(doc->'payload') is distinct from 'object') then
+    or (doc->>'action' not in ('publish','cloud_publish','laptop_publish','laptop_read') and doc->'payload'<>'null'::jsonb)
+    or (doc->>'action' in ('publish','cloud_publish','laptop_publish','laptop_read') and jsonb_typeof(doc->'payload') is distinct from 'object') then
     raise exception 'INVALID_INTENT';
   end if;
   intent:=doc-array['aud','expires'];
@@ -180,6 +190,14 @@ begin
     -- This immutable read context cannot dispatch a mutation or refresh any
     -- mutation context/receipt. The mapping/receipt/snapshot are checked in SQL.
     result:=notes_identity_candidate.read_cloud_copy(c.intent->>'local_note_id',c.generation)::text;
+  elsif c.intent->>'action'='laptop_publish' then
+    -- No approval or adoption happens here. Only an exact owner-preapproved
+    -- historical ID can pass the existing immutable approval boundary.
+    result:=notes_identity_candidate.publish_laptop_note(c.owner_id,c.generation,
+      c.intent->>'note_id',c.intent->>'approval_operation_id',c.intent->'payload')::text;
+  elsif c.intent->>'action'='laptop_read' then
+    result:=notes_identity_candidate.read_laptop_publication(c.owner_id,c.generation,
+      c.intent->>'note_id',c.intent->>'approval_operation_id',c.intent->'payload')::text;
   else
     raise exception 'INVALID_CONTEXT';
   end if;

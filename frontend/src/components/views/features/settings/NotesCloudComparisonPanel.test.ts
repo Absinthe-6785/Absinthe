@@ -16,6 +16,7 @@ const mock = vi.hoisted(() => ({
   invalidationListeners: new Set<() => void>(),
   authorityListeners: new Set<(request: object | null) => void>(),
   prepareCloudCopy: vi.fn(), createCloudCopy: vi.fn(), readCloudCopyStatus: vi.fn(), cloudCopyEnabled: false,
+  preflightLaptop: vi.fn(), requestLaptop: vi.fn(), laptopEnabled: false,
   state: { notes: [] as any[], folders: [] as any[], revision: 0, activeAccountId: 'A' as string | null, activeNoteId: null as string | null, setActiveNoteId: vi.fn() },
   listeners: new Set<() => void>(), available: true, activeRequest: { accountId: 'A' },
   setActiveNoteId: vi.fn(), notesTabSwitch: vi.fn(), appTabSwitch: vi.fn(),
@@ -37,6 +38,14 @@ vi.mock('../../../../lib/notesCloudCopy', () => ({
   createNotesCloudCopy: mock.createCloudCopy,
   readNotesCloudCopyStatus: mock.readCloudCopyStatus,
   notesCloudCopyUiEnabled: () => mock.cloudCopyEnabled,
+}));
+vi.mock('../../../../lib/notesCloudCopyLocalPreflight', () => ({
+  preflightLocalNoteForCloudCopy: mock.preflightLaptop,
+}));
+vi.mock('../../../../lib/notesLaptopPublication', async importOriginal => ({
+  ...await importOriginal<typeof import('../../../../lib/notesLaptopPublication')>(),
+  notesLaptopPublicationUiEnabled: () => mock.laptopEnabled,
+  requestLaptopPublication: mock.requestLaptop,
 }));
 vi.mock('../../../../lib/notesAccountAuthority', async importOriginal => ({
   ...await importOriginal<typeof import('../../../../lib/notesAccountAuthority')>(),
@@ -84,6 +93,7 @@ beforeEach(() => {
   } });
   vi.clearAllMocks(); live = true; mock.available = true; mock.activeRequest = { accountId: 'A' }; mock.invalidationListeners.clear();
   mock.cloudCopyEnabled = false;
+  mock.laptopEnabled = false;
   mock.authorityListeners.clear();
   mock.prepareCloudCopy.mockResolvedValue({
     status: 'ELIGIBLE_PREVIEW_ONLY', authority: 'NONE', localNoteId: 'local-id',
@@ -94,6 +104,9 @@ beforeEach(() => {
   });
   mock.createCloudCopy.mockResolvedValue({ status: 'CREATED', cloudNoteId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' });
   mock.readCloudCopyStatus.mockResolvedValue({ status: 'LIVE' });
+  mock.preflightLaptop.mockImplementation(async () => mock.prepareCloudCopy());
+  mock.requestLaptop.mockImplementation(async (_mode, _payload, _account, _preview, current, dispatch) =>
+    current() && dispatch() ? 'VERIFIED' : 'STALE_RESULT');
   mock.state = {
     notes: [
       localNote('local-id', 'Local title'), localNote('local-id-2', 'Second local'),
@@ -1070,4 +1083,189 @@ it('releases a superseded status request when the user starts a fresh comparison
   await act(async () => { resolve({ status: 'LIVE' }); await Promise.resolve(); });
   expect(row.textContent).not.toContain('matched its publication receipt');
   expect(statusButton.disabled).toBe(false);
+});
+
+const laptopRow = () => [...host.querySelectorAll('li')].find(item => item.querySelector('code')?.textContent === 'local-id')!;
+const laptopAction = (text: string) => [...laptopRow().querySelectorAll('button')].find(button => button.textContent === text)!;
+async function fillLaptopApproval(value = 'operator-operation') {
+  await act(async () => {
+    const input = laptopRow().querySelector<HTMLInputElement>('[data-laptop-publication] input')!;
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+}
+async function prepareLaptopPublication() {
+  mock.laptopEnabled = true;
+  await render(); await check();
+  host.querySelector('details > summary')!.click();
+  await fillLaptopApproval();
+  await act(async () => laptopAction('Prepare original Note publication').click());
+}
+
+it('keeps laptop publication default off and independent of enabled Cloud Copy controls', async () => {
+  mock.cloudCopyEnabled = true;
+  await render(); await check();
+  expect(host.querySelector('[data-laptop-publication]')).toBeNull();
+  expect(mock.preflightLaptop).not.toHaveBeenCalled(); expect(mock.requestLaptop).not.toHaveBeenCalled();
+});
+
+it('requires operator ID then separate exact-original confirmation; performs no unrequested actions or local mutation', async () => {
+  const notesBefore = JSON.stringify(mock.state.notes);
+  const storageBefore = JSON.stringify(Object.fromEntries(Object.keys(localStorage).map(key => [key, localStorage.getItem(key)])));
+  mock.laptopEnabled = true;
+  await render(); await check();
+  expect(mock.preflightLaptop).not.toHaveBeenCalled(); expect(mock.requestLaptop).not.toHaveBeenCalled();
+  expect(host.querySelectorAll('[data-laptop-publication]')).toHaveLength(2);
+  expect(host.querySelector('details:nth-of-type(2) [data-laptop-publication]')).toBeNull();
+  host.querySelector('details > summary')!.click();
+  const input = laptopRow().querySelector<HTMLInputElement>('[data-laptop-publication] input')!;
+  expect(host.querySelector(`label[for="${input.id}"]`)?.textContent).toBe('Operator-issued approval operation ID');
+  expect(input.getAttribute('aria-describedby')).toBeTruthy();
+  expect(laptopAction('Prepare original Note publication').disabled).toBe(true);
+  expect(laptopRow().textContent).toContain('this input does not grant approval');
+  await fillLaptopApproval();
+  laptopAction('Prepare original Note publication').focus(); expect(document.activeElement).toBe(laptopAction('Prepare original Note publication'));
+  await act(async () => laptopAction('Prepare original Note publication').click());
+  expect(mock.preflightLaptop).toHaveBeenCalledWith('local-id');
+  expect(mock.requestLaptop).not.toHaveBeenCalled();
+  const confirmation = laptopRow().querySelector('[role="group"][aria-label="Confirm publication of this original ID"]')!;
+  expect(confirmation.querySelector('code')?.textContent).toBe('local-id');
+  expect(confirmation.textContent).not.toContain('Local title');
+  await act(async () => laptopAction('Confirm publication of this original ID').click());
+  expect(mock.requestLaptop).toHaveBeenCalledTimes(1);
+  expect(mock.requestLaptop.mock.calls[0].slice(0, 3)).toEqual(['publish', {
+    noteId: 'local-id', approvalOperationId: 'operator-operation',
+    snapshot: { title: 'Local title', body: 'Local body', updated_at: 10, starred: false },
+  }, 'A']);
+  expect(host.textContent).toContain('Publication verified for the exact original Note ID');
+  expect(host.querySelector('details')).toBeNull();
+  expect(JSON.stringify(mock.state.notes)).toBe(notesBefore);
+  expect(JSON.stringify(Object.fromEntries(Object.keys(localStorage).map(key => [key, localStorage.getItem(key)])))).toBe(storageBefore);
+  expect(mock.createCloudCopy).not.toHaveBeenCalled(); expect(mock.readCloudCopyStatus).not.toHaveBeenCalled();
+  expect(mock.getRemoteOnlyNote).not.toHaveBeenCalled(); expect(mock.getDivergentNotePair).not.toHaveBeenCalled();
+  expect(requestedDownloads).toEqual([]);
+});
+
+it('cancels a laptop confirmation without a publication or status request', async () => {
+  await prepareLaptopPublication();
+  const confirmation = laptopRow().querySelector('[role="group"][aria-label="Confirm publication of this original ID"]')!;
+  await act(async () => [...confirmation.querySelectorAll('button')].find(button => button.textContent === 'Cancel')!.click());
+  expect(mock.requestLaptop).not.toHaveBeenCalled();
+  expect(laptopAction('Prepare original Note publication')).toBeTruthy();
+});
+
+it.each(['same-account authority replacement', 'new comparison'] as const)(
+  'clears prior laptop publication success after %s without permitting another write',
+  async change => {
+    await prepareLaptopPublication();
+    await act(async () => laptopAction('Confirm publication of this original ID').click());
+    expect(host.textContent).toContain('Publication verified for the exact original Note ID');
+    const notes = mock.state.notes, folders = mock.state.folders;
+    if (change === 'same-account authority replacement') {
+      await act(async () => {
+        mock.activeRequest = { accountId: 'A' };
+        mock.authorityListeners.forEach(listener => listener(mock.activeRequest));
+      });
+    } else {
+      await check();
+    }
+    expect(host.textContent).not.toContain('Publication verified for the exact original Note ID');
+    expect(mock.state.notes).toBe(notes); expect(mock.state.folders).toBe(folders);
+    expect(mock.requestLaptop).toHaveBeenCalledTimes(1);
+    if (change === 'same-account authority replacement') await check();
+    host.querySelector('details > summary')!.click();
+    expect(laptopRow().textContent).toContain('Repeat writes are blocked');
+    expect(mock.requestLaptop).toHaveBeenCalledTimes(1);
+  },
+);
+
+it.each(['INDETERMINATE', 'UNAVAILABLE', 'DISABLED', 'CONFLICT', 'BAD_REQUEST'] as const)('blocks repeat publication after any %s dispatch, including recomparison; readback is manual only', async outcome => {
+  mock.requestLaptop.mockImplementation(async (_mode, _payload, _account, _preview, current, dispatch) =>
+    current() && dispatch() ? outcome : 'STALE_RESULT');
+  await prepareLaptopPublication();
+  const confirm = laptopAction('Confirm publication of this original ID');
+  await act(async () => { confirm.click(); confirm.click(); });
+  expect(mock.requestLaptop).toHaveBeenCalledTimes(1);
+  expect(laptopRow().textContent).toContain('Repeat writes are blocked');
+  expect(laptopRow().querySelector('input')).toBeNull();
+  expect(mock.requestLaptop.mock.calls.every(call => call[0] === 'publish')).toBe(true);
+  await check(); host.querySelector('details > summary')!.click();
+  expect(laptopRow().textContent).toContain('Repeat writes are blocked');
+  expect(mock.requestLaptop).toHaveBeenCalledTimes(1);
+  mock.requestLaptop.mockImplementation(async (_mode, _payload, _account, _preview, current, dispatch) =>
+    current() && dispatch() ? 'VERIFIED' : 'STALE_RESULT');
+  await act(async () => laptopAction('Read publication status (manual)').click());
+  expect(mock.requestLaptop).toHaveBeenCalledTimes(2);
+  expect(mock.requestLaptop.mock.calls[1][0]).toBe('status');
+  expect(mock.requestLaptop.mock.calls[1][1]).toEqual(mock.requestLaptop.mock.calls[0][1]);
+  expect(host.textContent).toContain('Publication verified for the exact original Note ID');
+  expect(host.querySelector('details')).toBeNull();
+});
+
+it('rejects ineligible durable preflight without opening confirmation or dispatching', async () => {
+  mock.preflightLaptop.mockResolvedValue({ status: 'INELIGIBLE', reasons: ['LOCAL_PERSISTENCE_UNVERIFIED'] });
+  await prepareLaptopPublication();
+  expect(host.textContent).toContain('durable storage, or account request changed');
+  expect(host.textContent).not.toContain('Publish exactly this one'); expect(mock.requestLaptop).not.toHaveBeenCalled();
+});
+
+it('does not publish a source changed after confirmation, even before React renders', async () => {
+  await prepareLaptopPublication();
+  const confirm = laptopAction('Confirm publication of this original ID');
+  mock.state.notes[0].body = 'changed in place';
+  await act(async () => confirm.click());
+  expect(mock.requestLaptop).not.toHaveBeenCalled();
+});
+
+it('fences pending preparation across authority A-B-A without array changes', async () => {
+  let finish!: (value: unknown) => void;
+  mock.preflightLaptop.mockReturnValue(new Promise(resolve => { finish = resolve; }));
+  await prepareLaptopPublication();
+  await act(async () => {
+    for (const accountId of ['B', 'A']) {
+      mock.activeRequest = { accountId };
+      mock.authorityListeners.forEach(listener => listener(mock.activeRequest));
+    }
+    finish(await mock.prepareCloudCopy());
+  });
+  expect(mock.requestLaptop).not.toHaveBeenCalled();
+  expect(host.textContent).not.toContain('Publish exactly this one');
+});
+
+it('preserves the dispatch ledger through account A-B-A and suppresses a late result', async () => {
+  let finish!: (value: string) => void;
+  mock.requestLaptop.mockImplementation((_mode, _payload, _account, _preview, current, dispatch) => {
+    expect(current()).toBe(true); expect(dispatch()).toBe(true);
+    return new Promise(resolve => { finish = resolve; });
+  });
+  await prepareLaptopPublication();
+  await act(async () => laptopAction('Confirm publication of this original ID').click());
+  await render('B'); await render('A');
+  await act(async () => finish('VERIFIED'));
+  expect(host.textContent).not.toContain('Publication verified');
+  await check(); host.querySelector('details > summary')!.click();
+  expect(laptopRow().textContent).toContain('Repeat writes are blocked');
+  expect(mock.requestLaptop).toHaveBeenCalledTimes(1);
+});
+
+it('blocks manual readback if the newly durable-validated snapshot no longer matches the dispatched one', async () => {
+  mock.requestLaptop.mockImplementation(async (_mode, _payload, _account, _preview, _current, dispatch) => {
+    dispatch(); return 'INDETERMINATE';
+  });
+  await prepareLaptopPublication();
+  await act(async () => laptopAction('Confirm publication of this original ID').click());
+  await check(); host.querySelector('details > summary')!.click();
+  mock.preflightLaptop.mockResolvedValue({ ...await mock.prepareCloudCopy(), snapshot: { title: 'changed', body: 'Local body', updated_at: 10, starred: false } });
+  await act(async () => laptopAction('Read publication status (manual)').click());
+  expect(mock.requestLaptop).toHaveBeenCalledTimes(1);
+  expect(laptopRow().textContent).toContain('durable storage, or account request changed');
+});
+
+it('does not dispatch after preparation unmounts', async () => {
+  let finish!: (value: unknown) => void;
+  mock.preflightLaptop.mockReturnValue(new Promise(resolve => { finish = resolve; }));
+  await prepareLaptopPublication();
+  await act(async () => { root.unmount(); rootMounted = false; });
+  await act(async () => finish(await mock.prepareCloudCopy()));
+  expect(mock.requestLaptop).not.toHaveBeenCalled();
 });

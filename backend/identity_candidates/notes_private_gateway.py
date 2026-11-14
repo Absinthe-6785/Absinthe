@@ -26,6 +26,7 @@ CALLS = {
     "apply": f"select {SCHEMA}.private_apply(%s, %s)",
 }
 CLOUD_ACTIONS = {name: "cloud_" + name for name in ("reserve", "publish", "retire", "read")}
+LAPTOP_ACTIONS = {name: "laptop_" + name for name in ("publish", "read")}
 # Deliberately narrow Markdown snapshot, not a serializer for a complete local
 # Note. Reject binary-bearing syntax instead of silently dropping originals.
 BINARY_REFERENCE = r"(?i)(data:|blob:|attachment:|resource:|!\[|<(img|video|audio|object|embed|iframe)\b)"
@@ -137,11 +138,21 @@ class PrivateGateway:
 
     def prepare(self, token: str, action: str, operation_id: str, *,
                 note_id: str | None = None, payload: object = None,
-                local_note_id: str | None = None) -> dict:
+                local_note_id: str | None = None,
+                approval_operation_id: str | None = None) -> dict:
         owner, expiry = self._authenticate(token)
         cloud = action in CLOUD_ACTIONS.values()
-        if (action not in {"reserve", "publish", "retire", *CLOUD_ACTIONS.values()}
+        laptop = action in LAPTOP_ACTIONS.values()
+        if (action not in {"reserve", "publish", "retire", *CLOUD_ACTIONS.values(), *LAPTOP_ACTIONS.values()}
                 or type(operation_id) is not str or not operation_id.strip() or len(operation_id) > 200):
+            raise GatewayDenied("INVALID_INTENT")
+        if laptop:
+            if (type(approval_operation_id) is not str or not approval_operation_id.strip()
+                    or len(approval_operation_id) > 512
+                    or type(note_id) is not str or note_id != note_id.strip() or not 1 <= len(note_id) <= 512
+                    or not cloud_snapshot_supported(payload) or "[[" in payload["body"]):
+                raise GatewayDenied("INVALID_INTENT")
+        elif approval_operation_id is not None:
             raise GatewayDenied("INVALID_INTENT")
         if cloud:
             if type(local_note_id) is not str or not local_note_id.strip():
@@ -155,11 +166,13 @@ class PrivateGateway:
             raise GatewayDenied("INVALID_INTENT")
         if ((action == "publish" and not supported_snapshot(payload))
                 or (action == "cloud_publish" and not cloud_snapshot_supported(payload))
-                or (action not in {"publish", "cloud_publish"} and payload is not None)):
+                or (action not in {"publish", "cloud_publish", *LAPTOP_ACTIONS.values()} and payload is not None)):
             raise GatewayDenied("INVALID_INTENT")
         intent = dict(owner=owner, action=action, operation_id=operation_id, note_id=note_id, payload=payload)
         if cloud:
             intent["local_note_id"] = local_note_id
+        if laptop:
+            intent["approval_operation_id"] = approval_operation_id
         text, mac = self._sign(dict(intent, aud=AUDIENCE + ".prepare", expires=expiry))
         context = self.calls.call("prepare", text, mac)
         if not self._valid_context(context, intent):
@@ -192,6 +205,30 @@ class PrivateGateway:
                                    expires=min(expiry, context["expires"])))
         result = self.calls.call("apply", text, mac)
         intent = context["intent"]
+        if intent.get("action") in LAPTOP_ACTIONS.values():
+            try:
+                value = json.loads(result) if type(result) is str else None
+                if intent["action"] == "laptop_publish":
+                    if (type(value) is not dict or set(value) != {"effect", "requires_post_commit_readback", "snapshot"}
+                            or value["effect"] not in {"CREATED", "REPLAY_LIVE"}
+                            or value["requires_post_commit_readback"] is not True):
+                        raise ValueError()
+                    value = value["snapshot"]
+                if (type(value) is not dict or set(value) != {"account_id", "generation", "note_id",
+                        "operation_id", "payload", "capture_sha256", "policy"}
+                        or value["account_id"] != owner or value["generation"] != context["generation"]
+                        or type(value["generation"]) is not int
+                        or value["note_id"] != intent["note_id"]
+                        or value["operation_id"] != intent["approval_operation_id"]
+                        or not cloud_snapshot_supported(value["payload"])
+                        or value["payload"] != intent["payload"]
+                        or value["policy"] != "OWNER_APPROVED_HISTORICAL_ADOPTION"
+                        or type(value["capture_sha256"]) is not str
+                        or re.fullmatch(r"[0-9a-f]{64}", value["capture_sha256"]) is None):
+                    raise ValueError()
+                return value
+            except (ValueError, TypeError, KeyError):
+                raise GatewayIndeterminate("UNCONFIRMED_LAPTOP_READBACK") from None
         if intent.get("action") == "cloud_read":
             return self._cloud_read_result(result, intent)
         if intent.get("action") in CLOUD_ACTIONS.values():
@@ -221,6 +258,14 @@ class PrivateGateway:
         # One explicit dispatch only. 'read' issues no lifecycle mutation, receipt,
         # or renewed mutation authority; it uses its own immutable read context.
         return self.apply(token, self.prepare_cloud_copy(token, action, operation_id, **kwargs))
+
+    def run_laptop(self, token: str, action: str, context_operation_id: str, *,
+                   note_id: str, approval_operation_id: str, payload: object) -> dict:
+        if action not in LAPTOP_ACTIONS:
+            raise GatewayDenied("INVALID_INTENT")
+        return self.apply(token, self.prepare(
+            token, LAPTOP_ACTIONS[action], context_operation_id, note_id=note_id,
+            payload=payload, approval_operation_id=approval_operation_id))
 
     @staticmethod
     def _cloud_read_result(result: object, intent: dict) -> dict:

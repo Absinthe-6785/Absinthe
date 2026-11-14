@@ -172,7 +172,7 @@ def test_cloud_copy_gateway_is_bound_only_to_the_default_off_route():
             name.name == "identity_candidates.notes_private_gateway" for name in node.names
         )
 
-    def assert_disabled_guard(function):
+    def assert_disabled_guard(function, flag="NOTES_CLOUD_COPY_ENABLED"):
         statements = function.body
         if (statements and isinstance(statements[0], ast.Expr)
                 and isinstance(statements[0].value, ast.Constant)
@@ -182,15 +182,19 @@ def test_cloud_copy_gateway_is_bound_only_to_the_default_off_route():
         assert isinstance(guard, ast.If)
         assert isinstance(guard.test, ast.UnaryOp) and isinstance(guard.test.op, ast.Not)
         assert isinstance(guard.test.operand, ast.Name)
-        assert guard.test.operand.id == "NOTES_CLOUD_COPY_ENABLED"
+        assert guard.test.operand.id == flag
         assert isinstance(guard.body[0], ast.Raise)
-        assert "NOTES_CLOUD_COPY_DISABLED" in ast.unparse(guard.body[0])
+        assert ("NOTES_CLOUD_COPY_DISABLED" if flag == "NOTES_CLOUD_COPY_ENABLED"
+                else "NOTES_LAPTOP_PUBLISH_DISABLED") in ast.unparse(guard.body[0])
 
     assert_disabled_guard(factory)
     for route in routes:
         assert_disabled_guard(route)
 
-    factory_nodes = set(ast.walk(factory))
+    laptop_factory = functions["_notes_laptop_publication_service"]
+    assert_disabled_guard(laptop_factory, "NOTES_LAPTOP_PUBLISH_ENABLED")
+    assert_disabled_guard(functions["_handle_laptop_publication"], "NOTES_LAPTOP_PUBLISH_ENABLED")
+    factory_nodes = set(ast.walk(factory)) | set(ast.walk(laptop_factory))
     route_nodes = [set(ast.walk(route)) for route in routes]
     gateway_imports = [node for node in ast.walk(tree) if is_gateway_import(node)]
     driver_imports = [node for node in ast.walk(tree)
@@ -199,8 +203,12 @@ def test_cloud_copy_gateway_is_bound_only_to_the_default_off_route():
                       or (isinstance(node, ast.Import)
                           and any(name.name == "psycopg" or name.name.startswith("psycopg.")
                                   for name in node.names))]
-    assert len(gateway_imports) == 1 and gateway_imports[0] in factory_nodes
-    assert len(driver_imports) == 2 and all(node in factory_nodes for node in driver_imports)
+    assert len(gateway_imports) == 2 and all(node in factory_nodes for node in gateway_imports)
+    assert len(driver_imports) == 4 and all(node in factory_nodes for node in driver_imports)
+    for candidate_factory in (factory, laptop_factory):
+        nodes = set(ast.walk(candidate_factory))
+        assert sum(node in nodes for node in gateway_imports) == 1
+        assert sum(node in nodes for node in driver_imports) == 2
     assert all(isinstance(node, ast.ImportFrom) for node in driver_imports)
     assert (isinstance(gateway_imports[0], ast.ImportFrom)
             and gateway_imports[0].module == "identity_candidates.notes_private_gateway"
@@ -232,7 +240,7 @@ def test_cloud_copy_gateway_is_bound_only_to_the_default_off_route():
         if path == main_path:
             continue
         module = ast.parse(path.read_text(encoding="utf-8"))
-        if path.name == "notes_cloud_copy_candidate.py":
+        if path.name in {"notes_cloud_copy_candidate.py", "notes_laptop_publication.py"}:
             candidate_gateway_imports = [node for node in ast.walk(module) if is_gateway_import(node)]
             assert (len(candidate_gateway_imports) == 1
                     and isinstance(candidate_gateway_imports[0], ast.ImportFrom)

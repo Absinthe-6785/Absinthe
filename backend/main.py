@@ -90,6 +90,7 @@ K323_V2_TRANSPORT_ENABLED = os.getenv("K323_V2_TRANSPORT_ENABLED", "disabled").s
 HEALTH_ROUTINE_SYNC_ENABLED = os.getenv("HEALTH_ROUTINE_SYNC_ENABLED", "enabled").strip().lower() == "enabled"
 WORKOUT_REMOTE_FOUNDATION_ENABLED = os.getenv("WORKOUT_REMOTE_FOUNDATION_ENABLED", "disabled").strip().lower() == "enabled"
 NOTES_CLOUD_COPY_ENABLED = os.getenv("NOTES_CLOUD_COPY_ENABLED", "disabled").strip().lower() == "enabled"
+NOTES_LAPTOP_PUBLISH_ENABLED = os.getenv("NOTES_LAPTOP_PUBLISH_ENABLED", "disabled").strip().lower() == "enabled"
 K323_PROJECT_SCOPE = os.getenv("K323_PROJECT_SCOPE", "").strip() or "absinthe-health-routines"
 
 DESTRUCTIVE_RECOVERY_INTENT_HEADER = "x-absinthe-recovery-intent"
@@ -2042,6 +2043,68 @@ async def read_notes_cloud_copy_status(
         )
     except CloudCopyError as error:
         raise HTTPException(status_code=error.status_code, detail=error.code) from None
+
+
+class NotesLaptopPublicationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    noteId: str = Field(min_length=1, max_length=512)
+    approvalOperationId: str = Field(min_length=1, max_length=512)
+    snapshot: dict
+
+
+def _notes_laptop_publication_service():
+    if not NOTES_LAPTOP_PUBLISH_ENABLED:
+        raise HTTPException(status_code=423, detail="NOTES_LAPTOP_PUBLISH_DISABLED")
+    try:
+        from psycopg import connect
+        from psycopg.conninfo import conninfo_to_dict
+        from identity_candidates.notes_private_gateway import PrivateGateway, PsycopgCalls
+        from notes_laptop_publication import NotesLaptopPublicationService
+        dsn = os.getenv("NOTES_PRIVATE_GATEWAY_DSN", "").strip()
+        key = bytes.fromhex(os.getenv("NOTES_PRIVATE_GATEWAY_SIGNING_KEY_HEX", "").strip())
+        if not dsn or conninfo_to_dict(dsn).get("user") != "notes_candidate_private_gateway" or len(key) < 32:
+            raise ValueError()
+        gateway = PrivateGateway(jwt_verifier,
+            PsycopgCalls(lambda: connect(dsn, sslmode="verify-full", connect_timeout=5)), key, enabled=True)
+        return NotesLaptopPublicationService(gateway)
+    except Exception:
+        raise HTTPException(status_code=503, detail="LAPTOP_PUBLICATION_UNAVAILABLE") from None
+
+
+async def _handle_laptop_publication(request, credentials, user_id, *, read_only):
+    if not NOTES_LAPTOP_PUBLISH_ENABLED:
+        raise HTTPException(status_code=423, detail="NOTES_LAPTOP_PUBLISH_DISABLED")
+    chunks, size = [], 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > MAX_REQUEST_BYTES:
+            raise HTTPException(status_code=413, detail="INVALID_LAPTOP_PUBLICATION_REQUEST")
+        chunks.append(chunk)
+    try:
+        payload = NotesLaptopPublicationRequest.model_validate_json(b"".join(chunks))
+    except ValidationError:
+        raise HTTPException(status_code=400, detail="INVALID_LAPTOP_PUBLICATION_REQUEST") from None
+    from notes_laptop_publication import LaptopPublicationError
+    try:
+        service = _notes_laptop_publication_service()
+        return await run_in_threadpool(service.readback if read_only else service.publish,
+            credentials.credentials, user_id, payload.noteId, payload.approvalOperationId, payload.snapshot)
+    except LaptopPublicationError as error:
+        raise HTTPException(status_code=error.status_code, detail=error.code) from None
+
+
+@app.post("/api/notes/laptop-publication")
+async def publish_laptop_note(request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    user_id: str = Depends(get_remote_mutation_user)):
+    return await _handle_laptop_publication(request, credentials, user_id, read_only=False)
+
+
+@app.post("/api/notes/laptop-publication/status")
+async def read_laptop_publication(request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    user_id: str = Depends(get_remote_mutation_user)):
+    return await _handle_laptop_publication(request, credentials, user_id, read_only=True)
 
 
 @app.get("/api/notes/{note_id}")

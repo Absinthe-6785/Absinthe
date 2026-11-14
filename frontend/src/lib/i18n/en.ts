@@ -2360,6 +2360,21 @@ const enTranslations = [
   "Cloud Note preview",
   "Text from this complete account-scoped cloud snapshot. It is not a local Note and has not been imported. Remote content may change after this read.",
   "Return to the regular app",
+  "Prepare original Note publication",
+  "Requires a pre-existing operator approval in the database. Enter the operation ID issued by the operator; this input does not grant approval. Publishes only this original ID and supported text snapshot. Local data stays unchanged; no Cloud Copy, import, preview, or download is started.",
+  "Operator-issued approval operation ID",
+  "Confirm publication of this original ID",
+  "Publish exactly this one original local Note ID to this account? The server must verify the existing operator approval.",
+  "Checking publication…",
+  "Read publication status (manual)",
+  "Publication verified for the exact original Note ID. Local data is unchanged. Run a new comparison to refresh the results.",
+  "Original Note publication is disabled.",
+  "Publication conflicts with the approval or cloud identity. No automatic retry.",
+  "The publication request was rejected as invalid.",
+  "Publication could not be verified; it may have committed. Do not repeat the write. Use manual status readback.",
+  "Publication service is unavailable. No automatic retry.",
+  "The local source, durable storage, or account request changed. Run a new comparison before continuing.",
+  "A publication was already dispatched for this account and Note. Repeat writes are blocked for this panel session; only explicit status readback is available.",
 ] as const;
 
 export default enTranslations;

@@ -8,7 +8,7 @@ import translationKeys, { buildLocaleDictionary } from './i18n/keys';
 import type { TranslationKey } from './i18n';
 
 const PLANNER_STORAGE_KEY = 'planner-storage';
-const EXPECTED_KEY_COUNT = 2_360;
+const EXPECTED_KEY_COUNT = 2_375;
 type Locale = 'en' | 'ko' | 'ja';
 
 // Current independent canonical authority, including append-only Notes UI, Wiki-link accessibility, cloud comparison and search, Cloud Copy status readback, local document downloads, PDF/DOCX preview, Recipe filter reset, local-original integrity preflight, cloud Note previews, and single-Note cloud text export.
@@ -16,9 +16,9 @@ type Locale = 'en' | 'ko' | 'ja';
 // translationKeys order, so it detects insertion, omission, reordering, and
 // substitution without using buildLocaleDictionary.
 const EXPECTED_LOCALE_INTEGRITY_SHA256: Record<Locale, string> = {
-  en: 'd291a15815bcdb60aea17057fe069e38e224b9463f02defe6c8e7e41a169aec3',
-  ko: '99269b306b6805309f44636cb9bb0fffe053c8a7116b425eda7f53860fb0facf',
-  ja: 'e08568eaba82ceef1108f120d49cd4ee40be86c103071bf9c09d838b2dc1ad99',
+  en: 'ccf7de055bac5d7b3a8b117179fc82e05301fde5b7a4fe573b15281334e94a31',
+  ko: '256b0974a49831ff36b116fa9bb01bb1b61ad2baf1b0db3ae82080ea7914e165',
+  ja: 'ec335ff70809a76955da1b960e9a2d829689600d04958ed2a67b0976a1e481d8',
 };
 
 const PRE_SCHEDULE_MONTH_MUTATION_REFRESH_LOCALE_SHA256: Record<Locale, string> = {
@@ -145,6 +145,25 @@ async function loadFreshI18n(language?: unknown) {
 }
 
 describe('i18n locale dictionaries', () => {
+  it('appends publication labels while preserving all 2360 existing key/value pairs', () => {
+    const previous = {
+      en: 'd291a15815bcdb60aea17057fe069e38e224b9463f02defe6c8e7e41a169aec3',
+      ko: '99269b306b6805309f44636cb9bb0fffe053c8a7116b425eda7f53860fb0facf',
+      ja: 'e08568eaba82ceef1108f120d49cd4ee40be86c103071bf9c09d838b2dc1ad99',
+    };
+    expect(translationKeys.slice(2_360)).toEqual([
+      'notesLaptopPublishAction', 'notesLaptopPublishScope', 'notesLaptopPublishApprovalId',
+      'notesLaptopPublishConfirm', 'notesLaptopPublishPrompt', 'notesLaptopPublishWorking',
+      'notesLaptopPublishReadback', 'notesLaptopPublishVerified', 'notesLaptopPublishDisabled',
+      'notesLaptopPublishConflict', 'notesLaptopPublishBadRequest', 'notesLaptopPublishIndeterminate',
+      'notesLaptopPublishUnavailable', 'notesLaptopPublishSourceChanged', 'notesLaptopPublishRepeatBlocked',
+    ]);
+    for (const [locale, values] of [['en', enLocaleValues], ['ko', koLocaleValues], ['ja', jaLocaleValues]] as const) {
+      expect(localeIntegrityDigest(values.slice(0, 2_360), translationKeys.slice(0, 2_360))).toBe(previous[locale]);
+      expect(values.slice(2_360)).toHaveLength(15);
+      expect(values.slice(2_360).every(value => value.length > 0)).toBe(true);
+    }
+  });
   it('appends single-copy identity guidance without changing any of the 2345 existing translations', () => {
     const previous = {
       en: '1322ce496585c955fc774125cdf0884d2b5f982bd0636123ccec213e5987d4a4',
@@ -183,11 +202,11 @@ describe('i18n locale dictionaries', () => {
       ko: ['클라우드 Notes 읽기', '현재 계정으로 완전한 스냅샷을 읽는 선택적 경로입니다. 로컬 Notes 저장소를 초기화하거나 Note를 가져오거나 동기화하지 않습니다. 첨부 원본과 기록은 포함되지 않습니다.', '제목 또는 정확한 Note ID로 원격 Notes 검색', '현재 검증된 스냅샷만 검색합니다. 미리보기는 직접 선택해야 하며 추가 요청을 보내지 않습니다.', '완전한 스냅샷: 클라우드 레코드 {total}개 중 미리보기 가능한 Note {eligible}개.', '완전한 클라우드 스냅샷에 Note가 없습니다. 로컬 Notes가 동기화되었다는 뜻은 아닙니다.', '완전한 스냅샷에 레코드는 있지만 미리볼 수 있는 활성 지원 텍스트 Note는 없습니다.', '완전한 현재 스냅샷에서 일치하는 Note를 찾지 못했습니다. 클라우드가 비어 있다는 뜻은 아닙니다.', '클라우드 Note 미리보기', '현재 계정의 완전한 클라우드 스냅샷에서 읽은 텍스트입니다. 로컬 Note가 아니며 가져오지 않았습니다. 원격 내용은 읽은 뒤 바뀔 수 있습니다.', '일반 앱으로 돌아가기'],
       ja: ['クラウドのNotesを読む', 'サインイン中のアカウントの完全なスナップショットを読む任意の画面です。ローカルNotesの保存先を初期化したり、ノートを取り込んだり、同期したりしません。添付ファイルの原本と履歴は含まれません。', 'タイトルまたは完全一致のNote IDでクラウドNotesを検索', '現在の検証済みスナップショットのみを検索します。プレビューは明示的に選択し、追加リクエストは行いません。', '完全なスナップショット：クラウドレコード{total}件中、プレビュー可能なNotesは{eligible}件です。', 'この完全なクラウドスナップショットにNotesはありません。ローカルNotesが同期されたことを意味しません。', '完全なスナップショットにレコードはありますが、プレビュー可能な有効な対応テキストNoteはありません。', 'この完全なスナップショットに一致するNoteはありません。クラウドが空であることを意味しません。', 'クラウドNoteのプレビュー', '現在のアカウントの完全なクラウドスナップショットから読み取ったテキストです。ローカルNoteではなく、取り込みも行っていません。リモート内容は読み取り後に変わる場合があります。', '通常のアプリに戻る'],
     } as const;
-    expect(translationKeys.slice(-keys.length)).toEqual(keys);
+    expect(translationKeys.slice(2_349, 2_360)).toEqual(keys);
     for (const [locale, values] of [['en', enLocaleValues], ['ko', koLocaleValues], ['ja', jaLocaleValues]] as const) {
       expect(localeIntegrityDigest(values.slice(0, 2_349), translationKeys.slice(0, 2_349)))
         .toBe(PRE_READONLY_CLOUD_ENTRY_LOCALE_SHA256[locale]);
-      expect(values.slice(2_349), locale).toEqual(expected[locale]);
+      expect(values.slice(2_349, 2_360), locale).toEqual(expected[locale]);
     }
   });
   it('appends exercise-only receipt labels without changing any existing translation', () => {
@@ -610,10 +629,10 @@ describe('i18n locale dictionaries', () => {
     missing.splice(1_000, 1);
 
     expect(() => buildLocaleDictionary(missing)).toThrow(
-      'Locale dictionary length mismatch: expected 2360, received 2359',
+      'Locale dictionary length mismatch: expected 2375, received 2374',
     );
     expect(() => assertLocaleValuesIntegrity('en', missing)).toThrow(
-      'Locale integrity length mismatch: expected 2360, received 2359',
+      'Locale integrity length mismatch: expected 2375, received 2374',
     );
   });
 
@@ -622,10 +641,10 @@ describe('i18n locale dictionaries', () => {
     extra.splice(1_000, 0, '__unexpected__');
 
     expect(() => buildLocaleDictionary(extra)).toThrow(
-      'Locale dictionary length mismatch: expected 2360, received 2361',
+      'Locale dictionary length mismatch: expected 2375, received 2376',
     );
     expect(() => assertLocaleValuesIntegrity('en', extra)).toThrow(
-      'Locale integrity length mismatch: expected 2360, received 2361',
+      'Locale integrity length mismatch: expected 2375, received 2376',
     );
   });
 
