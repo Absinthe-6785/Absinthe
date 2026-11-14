@@ -1,6 +1,6 @@
 import { useId, useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation, type TranslationKey } from '../../../../lib/i18n';
-import { preflightLocalNoteForCloudCopy } from '../../../../lib/notesCloudCopyLocalPreflight';
+import { preflightLocalNoteForCloudCopy, type NotesCloudCopyPreflightReason } from '../../../../lib/notesCloudCopyLocalPreflight';
 import { requestLaptopPublication, requestInitialLaptopPublication, INITIAL_PUBLICATION_POLICY, sameLaptopPublicationSnapshot, type LaptopPublicationPayload,
   type LaptopPublicationPreview, type LaptopPublicationStatus } from '../../../../lib/notesLaptopPublication';
 import { subscribeNotesAuthorityRequestChange } from '../../../../lib/notesAccountAuthority';
@@ -11,6 +11,27 @@ const feedbackKeys: Record<Exclude<LaptopPublicationStatus, 'STALE_RESULT'>, Tra
   INDETERMINATE: 'notesLaptopPublishIndeterminate', UNAVAILABLE: 'notesLaptopPublishUnavailable',
   SOURCE_CHANGED: 'notesLaptopPublishSourceChanged', REPEAT_BLOCKED: 'notesLaptopPublishRepeatBlocked',
 };
+
+const preflightDiagnosticKeys: Record<NotesCloudCopyPreflightReason, TranslationKey> = {
+  INVALID_LOCAL_NOTE_ID: 'notesInitialPublishBlockedEligibility',
+  NOTES_AUTHORITY_UNAVAILABLE: 'notesInitialPublishBlockedAuthority',
+  NOTE_NOT_FOUND: 'notesInitialPublishBlockedEligibility',
+  NOTE_ID_AMBIGUOUS: 'notesInitialPublishBlockedEligibility',
+  NOTE_INCOMPLETE: 'notesInitialPublishBlockedEligibility',
+  NOTE_NOT_ACTIVE: 'notesInitialPublishBlockedEligibility',
+  FOLDER_UNSUPPORTED: 'notesInitialPublishBlockedEligibility',
+  PROPERTIES_UNSUPPORTED: 'notesInitialPublishBlockedEligibility',
+  RELATIONS_UNSUPPORTED: 'notesInitialPublishBlockedEligibility',
+  ATTACHMENT_CONTENT_UNSUPPORTED: 'notesInitialPublishBlockedEligibility',
+  ATTACHMENT_METADATA_INCOMPLETE: 'notesInitialPublishBlockedAttachments',
+  ATTACHMENT_ORIGINALS_PRESENT: 'notesInitialPublishBlockedAttachments',
+  LOCAL_PERSISTENCE_UNVERIFIED: 'notesInitialPublishBlockedDurability',
+  SOURCE_CHANGED: 'notesInitialPublishBlockedSource',
+};
+
+function diagnosticsForPreflight(reasons: readonly NotesCloudCopyPreflightReason[]): TranslationKey[] {
+  return [...new Set(reasons.map(reason => preflightDiagnosticKeys[reason]))];
+}
 
 export function NotesLaptopPublicationAction({ accountId, noteId, ledger, isOwnerCurrent, onVerified, initialAdoption = false, knownDeletedIds = [] }: {
   accountId: string;
@@ -28,7 +49,7 @@ export function NotesLaptopPublicationAction({ accountId, noteId, ledger, isOwne
   const [acknowledged, setAcknowledged] = useState(false);
   const [candidate, setCandidate] = useState<LaptopPublicationPreview | null>(null);
   const [busy, setBusy] = useState(false);
-  const [feedback, setFeedback] = useState<TranslationKey | null>(null);
+  const [feedback, setFeedback] = useState<readonly TranslationKey[] | null>(null);
   const [dispatched, setDispatched] = useState(() => ledger.has(key));
   const lifetime = useRef<object | null>(null);
   const pending = useRef<symbol | null>(null);
@@ -38,7 +59,7 @@ export function NotesLaptopPublicationAction({ accountId, noteId, ledger, isOwne
     const unsubscribe = subscribeNotesAuthorityRequestChange(() => {
       // A-B-A cannot revive an in-flight preparation or confirmation.
       lifetime.current = null; pending.current = null;
-      setCandidate(null); setBusy(false); setFeedback('notesLaptopPublishSourceChanged');
+      setCandidate(null); setBusy(false); setFeedback(['notesLaptopPublishSourceChanged']);
     });
     return () => { lifetime.current = null; pending.current = null; unsubscribe(); };
   }, []);
@@ -58,14 +79,20 @@ export function NotesLaptopPublicationAction({ accountId, noteId, ledger, isOwne
     try {
       const preview = mode === 'publish' ? candidate! : await preflightLocalNoteForCloudCopy(noteId);
       if (!owned()) return;
-      if (preview.status !== 'ELIGIBLE_PREVIEW_ONLY' || preview.localNoteId !== noteId
-        || !await preview.isCurrent() || !owned()) {
-        if (owned()) { setCandidate(null); setFeedback('notesLaptopPublishSourceChanged'); }
+      if (preview.status !== 'ELIGIBLE_PREVIEW_ONLY') {
+        if (owned()) { setCandidate(null); setFeedback(diagnosticsForPreflight(preview.reasons)); }
+        return;
+      }
+      const currentIssue = preview.localNoteId === noteId
+        ? await preview.checkCurrent()
+        : 'SOURCE_CHANGED';
+      if (currentIssue || !owned()) {
+        if (owned()) { setCandidate(null); setFeedback(diagnosticsForPreflight([currentIssue ?? 'SOURCE_CHANGED'])); }
         return;
       }
       if (mode === 'prepare') { setCandidate(preview); return; }
       if (prior && !sameLaptopPublicationSnapshot(prior.snapshot, preview.snapshot)) {
-        setFeedback('notesLaptopPublishSourceChanged'); return;
+        setFeedback(['notesLaptopPublishSourceChanged']); return;
       }
       const payload = prior ?? Object.freeze({ noteId, approvalOperationId, snapshot: preview.snapshot,
         ...(initialAdoption ? { knownDeletedIds } : {}) });
@@ -80,10 +107,10 @@ export function NotesLaptopPublicationAction({ accountId, noteId, ledger, isOwne
         return true;
       });
       if (!owned() || outcome === 'STALE_RESULT') return;
-      setCandidate(null); setFeedback(feedbackKeys[outcome]);
+      setCandidate(null); setFeedback([feedbackKeys[outcome]]);
       if (outcome === 'VERIFIED') onVerified();
     } catch {
-      if (owned()) { setCandidate(null); setFeedback(ledger.has(key) ? 'notesLaptopPublishIndeterminate' : 'notesLaptopPublishUnavailable'); }
+      if (owned()) { setCandidate(null); setFeedback([ledger.has(key) ? 'notesLaptopPublishIndeterminate' : 'notesLaptopPublishUnavailable']); }
     } finally {
       if (pending.current === request && current(token)) { pending.current = null; setBusy(false); }
     }
@@ -114,6 +141,8 @@ export function NotesLaptopPublicationAction({ accountId, noteId, ledger, isOwne
       </div> : <button type="button" className={button} disabled={busy || (initialAdoption && !acknowledged) || !approvalOperationId.trim() || approvalOperationId !== approvalOperationId.trim()}
         onClick={() => { void run('prepare'); }}>{t(busy ? 'notesLaptopPublishWorking' : initialAdoption ? 'notesInitialPublishAction' : 'notesLaptopPublishAction')}</button>}
     </>}
-    {feedback ? <p role="status" aria-live="polite">{t(feedback)}</p> : null}
+    {feedback ? <div role="status" aria-live="polite">
+      {feedback.length === 1 ? <p>{t(feedback[0])}</p> : <ul>{feedback.map(key => <li key={key}>{t(key)}</li>)}</ul>}
+    </div> : null}
   </div>;
 }

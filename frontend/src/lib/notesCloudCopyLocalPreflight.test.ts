@@ -102,9 +102,10 @@ describe('read-only local Note cloud-copy preflight', () => {
     expect(Object.keys(result.snapshot).sort()).toEqual(['body', 'starred', 'title', 'updated_at']);
     expect(result.sourceRevision).toMatchObject({ durableReadback: 'MATCHED', attachmentMetadata: 'COMPLETE_EMPTY' });
     expect(await result.isCurrent()).toBe(true);
+    expect(await result.checkCurrent()).toBeNull();
     expect(h.source).toEqual(before);
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(h.metadataRead).toHaveBeenCalledTimes(3);
+    expect(h.metadataRead).toHaveBeenCalledTimes(4);
   });
 
   it('fails closed for invalid, missing, duplicated, and malformed Note identities', async () => {
@@ -228,8 +229,43 @@ describe('read-only local Note cloud-copy preflight', () => {
 
     h.metadata = { status: 'COMPLETE', matchingRecords: 1 };
     expect(await result.isCurrent()).toBe(false);
+    expect(await result.checkCurrent()).toBe('ATTACHMENT_ORIGINALS_PRESENT');
     h.metadata = { status: 'COMPLETE', matchingRecords: 0 };
     h.persistedNotes = [{ ...h.source, title: 'changed durably elsewhere' }];
     expect(await result.isCurrent()).toBe(false);
+    expect(await result.checkCurrent()).toBe('LOCAL_PERSISTENCE_UNVERIFIED');
+  });
+
+  it('distinguishes changed in-memory authority from unreadable durable state during revalidation', async () => {
+    const changed = harness();
+    const changedResult = await preflightLocalNoteForCloudCopy('local-note-1', changed.deps);
+    expect(changedResult.status).toBe('ELIGIBLE_PREVIEW_ONLY');
+    if (changedResult.status !== 'ELIGIBLE_PREVIEW_ONLY') return;
+    changed.request = Object.freeze({ accountId: 'account-b', generation: 2 });
+    changed.accountId = 'account-b';
+    expect(await changedResult.checkCurrent()).toBe('SOURCE_CHANGED');
+
+    const unavailable = harness();
+    const unavailableResult = await preflightLocalNoteForCloudCopy('local-note-1', unavailable.deps);
+    expect(unavailableResult.status).toBe('ELIGIBLE_PREVIEW_ONLY');
+    if (unavailableResult.status !== 'ELIGIBLE_PREVIEW_ONLY') return;
+    unavailable.persistedStatus = 'UNAVAILABLE';
+    expect(await unavailableResult.checkCurrent()).toBe('LOCAL_PERSISTENCE_UNVERIFIED');
+  });
+
+  it('reports attachment metadata and durable readback failures independently', async () => {
+    const metadataFailure = harness();
+    const metadataResult = await preflightLocalNoteForCloudCopy('local-note-1', metadataFailure.deps);
+    expect(metadataResult.status).toBe('ELIGIBLE_PREVIEW_ONLY');
+    if (metadataResult.status !== 'ELIGIBLE_PREVIEW_ONLY') return;
+    metadataFailure.metadataRead.mockRejectedValueOnce(new Error('metadata read failed'));
+    expect(await metadataResult.checkCurrent()).toBe('ATTACHMENT_METADATA_INCOMPLETE');
+
+    const readbackFailure = harness();
+    const readbackResult = await preflightLocalNoteForCloudCopy('local-note-1', readbackFailure.deps);
+    expect(readbackResult.status).toBe('ELIGIBLE_PREVIEW_ONLY');
+    if (readbackResult.status !== 'ELIGIBLE_PREVIEW_ONLY') return;
+    readbackFailure.persistedRead.mockRejectedValueOnce(new Error('durable readback failed'));
+    expect(await readbackResult.checkCurrent()).toBe('LOCAL_PERSISTENCE_UNVERIFIED');
   });
 });
