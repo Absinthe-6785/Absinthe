@@ -2375,6 +2375,9 @@ const translationKeys = [
   "notesLaptopPublishUnavailable",
   "notesLaptopPublishSourceChanged",
   "notesLaptopPublishRepeatBlocked",
+  "notesInitialPublishAction",
+  "notesInitialPublishScope",
+  "notesInitialPublishAcknowledge",
 ] as const;
 
 export type TranslationKey = (typeof translationKeys)[number];

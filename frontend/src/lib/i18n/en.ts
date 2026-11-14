@@ -2375,6 +2375,9 @@ const enTranslations = [
   "Publication service is unavailable. No automatic retry.",
   "The local source, durable storage, or account request changed. Run a new comparison before continuing.",
   "A publication was already dispatched for this account and Note. Repeat writes are blocked for this panel session; only explicit status readback is available.",
+"Prepare initial laptop publication",
+"Publishes one original ID and supported text only, without replacing cloud or local Notes. This initial-adoption exception cannot prove whether an absent ID was deleted historically. Known deleted IDs are excluded. This is not a complete backup or automatic synchronization.",
+"I acknowledge the historical-deletion uncertainty and explicitly choose initial adoption of this one original Note ID into my account.",
 ] as const;
 
 export default enTranslations;
