@@ -9,7 +9,7 @@ import { createNotesCloudCopy, notesCloudCopyUiEnabled, prepareNotesCloudCopy, r
 import type { NotesCloudCopyLocalPreflightResult } from '../../../../lib/notesCloudCopyLocalPreflight';
 import { createNotesCloudTextDownload } from '../../../../lib/notesCloudTextExport';
 import { subscribeNotesAuthorityRequestChange } from '../../../../lib/notesAccountAuthority';
-import { notesLaptopPublicationUiEnabled, type LaptopPublicationPayload } from '../../../../lib/notesLaptopPublication';
+import { notesLaptopPublicationUiEnabled, notesInitialPublicationUiEnabled, type LaptopPublicationPayload } from '../../../../lib/notesLaptopPublication';
 import { NotesLaptopPublicationAction } from './NotesLaptopPublicationAction';
 
 const DETAIL_PREVIEW_LIMIT = 30;
@@ -520,9 +520,11 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
                   {t(copyBusy ? 'notesCloudCopyWorking' : 'notesCloudCopyAction')}
                 </button>}
               </div> : null}
-              {key === 'localOnly' && accountId && notesLaptopPublicationUiEnabled(accountId)
+              {key === 'localOnly' && accountId && (notesInitialPublicationUiEnabled(accountId) || notesLaptopPublicationUiEnabled(accountId))
                 && eligibleLocalNote(notes, detail.id) && result?.owner === active.current ? <NotesLaptopPublicationAction
                   accountId={accountId} noteId={detail.id} ledger={laptopPublicationLedger.current}
+                  initialAdoption={notesInitialPublicationUiEnabled(accountId)}
+                  knownDeletedIds={visible.details.deleted.map(item => item.id)}
                   isOwnerCurrent={() => copyOwnerIsCurrent(result.owner, detail.id)}
                   onVerified={() => {
                     if (!copyOwnerIsCurrent(result.owner, detail.id)) return;

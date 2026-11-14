@@ -2,12 +2,17 @@ import { API_URL } from './config';
 import { remotePersistenceDomainForUrl, runtimeAccountSyncAccountId, runtimeAccountSyncAvailability } from './remoteBoundary';
 import { supabase } from './supabase';
 import type { NotesCloudCopyLocalPreflightResult, NotesCloudCopySnapshot } from './notesCloudCopyLocalPreflight';
+import { getNotesSingleDeleteMarkerNoteIds } from './notesAccountAuthority';
+import { useNotesStore } from '../store/useNotesStore';
+
+export const INITIAL_PUBLICATION_POLICY = 'OWNER_ACKNOWLEDGED_INITIAL_ADOPTION_V1';
 
 export type LaptopPublicationPreview = Extract<NotesCloudCopyLocalPreflightResult, { status: 'ELIGIBLE_PREVIEW_ONLY' }>;
 export type LaptopPublicationPayload = Readonly<{
   noteId: string;
   approvalOperationId: string;
   snapshot: NotesCloudCopySnapshot;
+  knownDeletedIds?: readonly string[];
 }>;
 export type LaptopPublicationStatus = 'VERIFIED' | 'DISABLED' | 'CONFLICT' | 'BAD_REQUEST'
   | 'INDETERMINATE' | 'UNAVAILABLE' | 'SOURCE_CHANGED' | 'STALE_RESULT' | 'REPEAT_BLOCKED';
@@ -19,6 +24,7 @@ export interface LaptopPublicationDependencies {
   getSession: () => ReturnType<typeof supabase.auth.getSession>;
   fetch: typeof fetch;
   apiUrl: string;
+  getKnownDeletedIds?: (accountId: string) => readonly string[];
 }
 const dependencies: LaptopPublicationDependencies = {
   featureEnabled: () => import.meta.env.VITE_NOTES_LAPTOP_PUBLISH_ENABLED === 'true'
@@ -29,6 +35,27 @@ const dependencies: LaptopPublicationDependencies = {
   fetch: (...args) => fetch(...args),
   apiUrl: API_URL,
 };
+const initialDependencies: LaptopPublicationDependencies = {
+  ...dependencies,
+  featureEnabled: () => import.meta.env.VITE_NOTES_INITIAL_PUBLISH_ENABLED === 'true',
+  getKnownDeletedIds: accountId => [...new Set([
+    ...getNotesSingleDeleteMarkerNoteIds(accountId),
+    ...useNotesStore.getState().notes.filter(note => note.deletedAt !== null).map(note => note.id),
+  ])],
+};
+
+export function notesInitialPublicationUiEnabled(accountId: string | null): boolean {
+  return !!accountId && initialDependencies.featureEnabled() && dependencies.isTransportAvailable()
+    && dependencies.getRuntimeAccountId() === accountId;
+}
+
+export function requestInitialLaptopPublication(
+  mode: 'publish' | 'status', payload: LaptopPublicationPayload, accountId: string,
+  preview: LaptopPublicationPreview, isCurrent: () => boolean, onDispatch: () => boolean,
+  deps: LaptopPublicationDependencies = initialDependencies,
+): Promise<LaptopPublicationStatus> {
+  return requestLaptopPublication(mode, payload, accountId, preview, isCurrent, onDispatch, deps, true);
+}
 
 export function notesLaptopPublicationUiEnabled(accountId: string | null): boolean {
   return !!accountId && dependencies.featureEnabled() && dependencies.isTransportAvailable()
@@ -51,14 +78,18 @@ export async function requestLaptopPublication(
   isOwnerCurrent: () => boolean,
   onDispatch: () => boolean,
   deps: LaptopPublicationDependencies = dependencies,
+  initialAdoption = false,
 ): Promise<LaptopPublicationStatus> {
   const current = () => {
     try {
       return isOwnerCurrent() && preview.isCurrentInMemory()
-        && deps.getRuntimeAccountId() === expectedAccountId;
+        && deps.getRuntimeAccountId() === expectedAccountId
+        && (!initialAdoption || (!!deps.getKnownDeletedIds
+          && !deps.getKnownDeletedIds(expectedAccountId).includes(payload.noteId)));
     } catch { return false; }
   };
   if (!deps.featureEnabled()) return 'DISABLED';
+  if (initialAdoption && payload.approvalOperationId !== INITIAL_PUBLICATION_POLICY) return 'BAD_REQUEST';
   if (!payload.noteId || payload.noteId !== preview.localNoteId
     || payload.noteId !== payload.noteId.trim() || payload.noteId.length > 512
     || !payload.approvalOperationId || payload.approvalOperationId !== payload.approvalOperationId.trim()
@@ -77,7 +108,7 @@ export async function requestLaptopPublication(
   try {
     if (!await preview.isCurrent() || !current()) return 'SOURCE_CHANGED';
   } catch { return 'SOURCE_CHANGED'; }
-  const path = `/api/notes/laptop-publication${mode === 'status' ? '/status' : ''}`;
+  const path = `/api/notes/${initialAdoption ? 'initial-publication' : 'laptop-publication'}${mode === 'status' ? '/status' : ''}`;
   const url = `${deps.apiUrl.replace(/\/$/, '')}${path}`;
   try {
     if (new URL(url).pathname !== path || remotePersistenceDomainForUrl(url) !== 'notes') return 'UNAVAILABLE';
@@ -87,7 +118,12 @@ export async function requestLaptopPublication(
     if (!deps.featureEnabled()) return 'DISABLED';
     if (!deps.isTransportAvailable() || !current()) return 'SOURCE_CHANGED';
     // Serialize only the contracted fields, never authority/sourceRevision or user attestations.
-    const body = JSON.stringify({ noteId: payload.noteId, approvalOperationId: payload.approvalOperationId,
+    const identity = initialAdoption ? { policy: INITIAL_PUBLICATION_POLICY,
+      knownDeletedIds: [...new Set([...(payload.knownDeletedIds ?? []), ...deps.getKnownDeletedIds!(expectedAccountId)])] }
+      : { approvalOperationId: payload.approvalOperationId };
+    if (initialAdoption && ('knownDeletedIds' in identity)
+      && (identity.knownDeletedIds!.length > 500 || identity.knownDeletedIds!.includes(payload.noteId))) return 'SOURCE_CHANGED';
+    const body = JSON.stringify({ noteId: payload.noteId, ...identity,
       snapshot: { title: preview.snapshot.title, body: preview.snapshot.body,
         updated_at: preview.snapshot.updated_at, starred: preview.snapshot.starred } });
     if (!current()) return 'SOURCE_CHANGED';
@@ -107,11 +143,12 @@ export async function requestLaptopPublication(
       ? value as Record<string, unknown> : null;
     if (response.status === 503) {
       // Distinguish ONLY exact bounded server details; never expose arbitrary error text.
-      if (record?.detail === 'LAPTOP_PUBLICATION_UNAVAILABLE') return 'UNAVAILABLE';
+      if (record?.detail === 'LAPTOP_PUBLICATION_UNAVAILABLE' || record?.detail === 'INITIAL_PUBLICATION_UNAVAILABLE') return 'UNAVAILABLE';
       return 'INDETERMINATE';
     }
     if (!response.ok) return response.status >= 500 ? 'INDETERMINATE' : 'UNAVAILABLE';
     return record?.status === 'VERIFIED' && record.noteId === payload.noteId
-      && record.approvalOperationId === payload.approvalOperationId ? 'VERIFIED' : 'INDETERMINATE';
+      && (initialAdoption ? record.policy === INITIAL_PUBLICATION_POLICY
+        : record.approvalOperationId === payload.approvalOperationId) ? 'VERIFIED' : 'INDETERMINATE';
   } catch { return current() ? 'INDETERMINATE' : 'STALE_RESULT'; }
 }

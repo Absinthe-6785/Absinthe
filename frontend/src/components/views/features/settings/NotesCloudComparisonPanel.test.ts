@@ -16,7 +16,7 @@ const mock = vi.hoisted(() => ({
   invalidationListeners: new Set<() => void>(),
   authorityListeners: new Set<(request: object | null) => void>(),
   prepareCloudCopy: vi.fn(), createCloudCopy: vi.fn(), readCloudCopyStatus: vi.fn(), cloudCopyEnabled: false,
-  preflightLaptop: vi.fn(), requestLaptop: vi.fn(), laptopEnabled: false,
+  preflightLaptop: vi.fn(), requestLaptop: vi.fn(), laptopEnabled: false, initialEnabled: false,
   state: { notes: [] as any[], folders: [] as any[], revision: 0, activeAccountId: 'A' as string | null, activeNoteId: null as string | null, setActiveNoteId: vi.fn() },
   listeners: new Set<() => void>(), available: true, activeRequest: { accountId: 'A' },
   setActiveNoteId: vi.fn(), notesTabSwitch: vi.fn(), appTabSwitch: vi.fn(),
@@ -45,7 +45,9 @@ vi.mock('../../../../lib/notesCloudCopyLocalPreflight', () => ({
 vi.mock('../../../../lib/notesLaptopPublication', async importOriginal => ({
   ...await importOriginal<typeof import('../../../../lib/notesLaptopPublication')>(),
   notesLaptopPublicationUiEnabled: () => mock.laptopEnabled,
+  notesInitialPublicationUiEnabled: () => mock.initialEnabled,
   requestLaptopPublication: mock.requestLaptop,
+  requestInitialLaptopPublication: mock.requestLaptop,
 }));
 vi.mock('../../../../lib/notesAccountAuthority', async importOriginal => ({
   ...await importOriginal<typeof import('../../../../lib/notesAccountAuthority')>(),
@@ -94,6 +96,7 @@ beforeEach(() => {
   vi.clearAllMocks(); live = true; mock.available = true; mock.activeRequest = { accountId: 'A' }; mock.invalidationListeners.clear();
   mock.cloudCopyEnabled = false;
   mock.laptopEnabled = false;
+  mock.initialEnabled = false;
   mock.authorityListeners.clear();
   mock.prepareCloudCopy.mockResolvedValue({
     status: 'ELIGIBLE_PREVIEW_ONLY', authority: 'NONE', localNoteId: 'local-id',
@@ -1087,6 +1090,35 @@ it('releases a superseded status request when the user starts a fresh comparison
 
 const laptopRow = () => [...host.querySelectorAll('li')].find(item => item.querySelector('code')?.textContent === 'local-id')!;
 const laptopAction = (text: string) => [...laptopRow().querySelectorAll('button')].find(button => button.textContent === text)!;
+
+it.each(['VERIFIED', 'INDETERMINATE'] as const)('initial publication requires historical-policy acknowledgment and explicit confirmation: %s', async outcome => {
+  mock.initialEnabled = true;
+  mock.requestLaptop.mockImplementation(async (_mode, _payload, _account, _preview, current, dispatch) =>
+    current() && dispatch() ? outcome : 'STALE_RESULT');
+  const before = JSON.stringify(mock.state.notes);
+  await render(); await check();
+  host.querySelector('details > summary')!.click();
+  expect(laptopRow().querySelector('input[type=text]')).toBeNull();
+  expect(laptopRow().textContent).toContain('cannot prove whether an absent ID was deleted historically');
+  expect(laptopAction('Prepare initial laptop publication').disabled).toBe(true);
+  await act(async () => laptopRow().querySelector<HTMLInputElement>('input[type=checkbox]')!.click());
+  await act(async () => laptopAction('Prepare initial laptop publication').click());
+  expect(mock.requestLaptop).not.toHaveBeenCalled();
+  laptopAction('Confirm publication of this original ID').focus();
+  expect(document.activeElement).toBe(laptopAction('Confirm publication of this original ID'));
+  await act(async () => laptopAction('Confirm publication of this original ID').click());
+  expect(mock.requestLaptop).toHaveBeenCalledTimes(1);
+  expect(mock.requestLaptop.mock.calls[0][1]).toMatchObject({
+    noteId: 'local-id', approvalOperationId: 'OWNER_ACKNOWLEDGED_INITIAL_ADOPTION_V1', knownDeletedIds: ['deleted-id'],
+  });
+  expect(JSON.stringify(mock.state.notes)).toBe(before);
+  expect(mock.createCloudCopy).not.toHaveBeenCalled();
+  expect(requestedDownloads).toEqual([]);
+  if (outcome === 'INDETERMINATE') {
+    expect(laptopRow().textContent).toContain('Repeat writes are blocked');
+    expect(mock.requestLaptop.mock.calls.every(call => call[0] === 'publish')).toBe(true);
+  }
+});
 async function fillLaptopApproval(value = 'operator-operation') {
   await act(async () => {
     const input = laptopRow().querySelector<HTMLInputElement>('[data-laptop-publication] input')!;

@@ -1,7 +1,7 @@
 import { useId, useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation, type TranslationKey } from '../../../../lib/i18n';
 import { preflightLocalNoteForCloudCopy } from '../../../../lib/notesCloudCopyLocalPreflight';
-import { requestLaptopPublication, sameLaptopPublicationSnapshot, type LaptopPublicationPayload,
+import { requestLaptopPublication, requestInitialLaptopPublication, INITIAL_PUBLICATION_POLICY, sameLaptopPublicationSnapshot, type LaptopPublicationPayload,
   type LaptopPublicationPreview, type LaptopPublicationStatus } from '../../../../lib/notesLaptopPublication';
 import { subscribeNotesAuthorityRequestChange } from '../../../../lib/notesAccountAuthority';
 
@@ -12,17 +12,20 @@ const feedbackKeys: Record<Exclude<LaptopPublicationStatus, 'STALE_RESULT'>, Tra
   SOURCE_CHANGED: 'notesLaptopPublishSourceChanged', REPEAT_BLOCKED: 'notesLaptopPublishRepeatBlocked',
 };
 
-export function NotesLaptopPublicationAction({ accountId, noteId, ledger, isOwnerCurrent, onVerified }: {
+export function NotesLaptopPublicationAction({ accountId, noteId, ledger, isOwnerCurrent, onVerified, initialAdoption = false, knownDeletedIds = [] }: {
   accountId: string;
   noteId: string;
   ledger: Map<string, LaptopPublicationPayload>;
   isOwnerCurrent: () => boolean;
   onVerified: () => void;
+  initialAdoption?: boolean;
+  knownDeletedIds?: readonly string[];
 }) {
   const { t } = useTranslation();
   const id = useId();
   const key = JSON.stringify([accountId, noteId]);
-  const [approvalOperationId, setApprovalOperationId] = useState('');
+  const [approvalOperationId, setApprovalOperationId] = useState(initialAdoption ? INITIAL_PUBLICATION_POLICY : '');
+  const [acknowledged, setAcknowledged] = useState(false);
   const [candidate, setCandidate] = useState<LaptopPublicationPreview | null>(null);
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<TranslationKey | null>(null);
@@ -42,6 +45,7 @@ export function NotesLaptopPublicationAction({ accountId, noteId, ledger, isOwne
   const current = (token: object | null) => !!token && lifetime.current === token && isOwnerCurrent();
   const run = async (mode: 'prepare' | 'publish' | 'status') => {
     if (pending.current || !lifetime.current || !isOwnerCurrent()) return;
+    if (initialAdoption && mode !== 'status' && (!acknowledged || knownDeletedIds.includes(noteId))) return;
     if (mode !== 'status' && ledger.has(key)) { setDispatched(true); setCandidate(null); return; }
     const prior = ledger.get(key);
     if (mode === 'status' && !prior) return;
@@ -63,8 +67,10 @@ export function NotesLaptopPublicationAction({ accountId, noteId, ledger, isOwne
       if (prior && !sameLaptopPublicationSnapshot(prior.snapshot, preview.snapshot)) {
         setFeedback('notesLaptopPublishSourceChanged'); return;
       }
-      const payload = prior ?? Object.freeze({ noteId, approvalOperationId, snapshot: preview.snapshot });
-      const outcome = await requestLaptopPublication(mode, payload, accountId, preview, owned, () => {
+      const payload = prior ?? Object.freeze({ noteId, approvalOperationId, snapshot: preview.snapshot,
+        ...(initialAdoption ? { knownDeletedIds } : {}) });
+      const requestPublication = initialAdoption ? requestInitialLaptopPublication : requestLaptopPublication;
+      const outcome = await requestPublication(mode, payload, accountId, preview, owned, () => {
         if (!owned()) return false;
         if (mode === 'publish') {
           if (ledger.has(key)) return false;
@@ -84,27 +90,29 @@ export function NotesLaptopPublicationAction({ accountId, noteId, ledger, isOwne
   };
   const button = 'border rounded-xl px-3 py-1 text-sm font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50';
   return <div data-laptop-publication className="mt-2 space-y-2" role="group" aria-label={`${t('notesLaptopPublishAction')} ${noteId}`}>
-    <p className="text-sm text-muted-foreground" id={`${id}-scope`}>{t('notesLaptopPublishScope')}</p>
+    <p className="text-sm text-muted-foreground" id={`${id}-scope`}>{t(initialAdoption ? 'notesInitialPublishScope' : 'notesLaptopPublishScope')}</p>
     {dispatched || ledger.has(key) ? <>
       <p>{t('notesLaptopPublishRepeatBlocked')}</p>
       <button type="button" className={button} disabled={busy} onClick={() => { void run('status'); }}>
         {t(busy ? 'notesLaptopPublishWorking' : 'notesLaptopPublishReadback')}
       </button>
     </> : <>
+      {initialAdoption ? <label className="block"><input type="checkbox" checked={acknowledged}
+        disabled={busy || !!candidate} onChange={event => setAcknowledged(event.currentTarget.checked)} /> {t('notesInitialPublishAcknowledge')}</label> : <>
       <label htmlFor={`${id}-approval`} className="block">{t('notesLaptopPublishApprovalId')}</label>
       <input id={`${id}-approval`} type="text" maxLength={512} autoComplete="off" spellCheck={false}
         className="w-full rounded-lg border border-border bg-surface px-3 py-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
         aria-describedby={`${id}-scope`} value={approvalOperationId} disabled={busy || !!candidate}
-        onChange={event => { setApprovalOperationId(event.currentTarget.value); setCandidate(null); }} />
+        onChange={event => { setApprovalOperationId(event.currentTarget.value); setCandidate(null); }} /></>}
       {candidate ? <div role="group" aria-label={t('notesLaptopPublishConfirm')}>
-        <p>{t('notesLaptopPublishPrompt')}</p>
+        <p>{t(initialAdoption ? 'notesInitialPublishAcknowledge' : 'notesLaptopPublishPrompt')}</p>
         <code className="break-all">{noteId}</code>
         <button type="button" className={button} disabled={busy} onClick={() => { void run('publish'); }}>
           {t(busy ? 'notesLaptopPublishWorking' : 'notesLaptopPublishConfirm')}
         </button>
         <button type="button" className={`${button} ml-2`} disabled={busy} onClick={() => { setCandidate(null); setFeedback(null); }}>{t('cancel')}</button>
-      </div> : <button type="button" className={button} disabled={busy || !approvalOperationId.trim() || approvalOperationId !== approvalOperationId.trim()}
-        onClick={() => { void run('prepare'); }}>{t(busy ? 'notesLaptopPublishWorking' : 'notesLaptopPublishAction')}</button>}
+      </div> : <button type="button" className={button} disabled={busy || (initialAdoption && !acknowledged) || !approvalOperationId.trim() || approvalOperationId !== approvalOperationId.trim()}
+        onClick={() => { void run('prepare'); }}>{t(busy ? 'notesLaptopPublishWorking' : initialAdoption ? 'notesInitialPublishAction' : 'notesLaptopPublishAction')}</button>}
     </>}
     {feedback ? <p role="status" aria-live="polite">{t(feedback)}</p> : null}
   </div>;

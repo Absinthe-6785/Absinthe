@@ -2107,6 +2107,58 @@ async def read_laptop_publication(request: Request,
     return await _handle_laptop_publication(request, credentials, user_id, read_only=True)
 
 
+class NotesInitialPublicationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    noteId: str = Field(min_length=1, max_length=512, strict=True)
+    policy: str = Field(strict=True)
+    snapshot: dict
+    knownDeletedIds: list[str] = Field(max_length=500, strict=True)
+
+
+def _notes_initial_publication_service():
+    from notes_initial_publication import InitialPublicationService, AUTHORITY
+    if os.getenv("NOTES_INITIAL_PUBLISH_ENABLED", "disabled") != "enabled":
+        raise HTTPException(status_code=423, detail="INITIAL_PUBLICATION_DISABLED")
+    account = os.getenv("NOTES_INITIAL_PUBLISH_ACCOUNT_ID", "").strip()
+    if not account or os.getenv("NOTES_INITIAL_PUBLISH_AUTHORITY", "") != AUTHORITY:
+        raise HTTPException(status_code=503, detail="INITIAL_PUBLICATION_UNAVAILABLE")
+    return InitialPublicationService(SUPABASE_URL, SUPABASE_KEY, jwt_verifier, account)
+
+
+async def _handle_initial_publication(request, credentials, user_id, *, read_only):
+    service = _notes_initial_publication_service()  # Fail closed before reading a body or DB access.
+    chunks, size = [], 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > MAX_REQUEST_BYTES:
+            raise HTTPException(status_code=413, detail="INVALID_INITIAL_PUBLICATION_REQUEST")
+        chunks.append(chunk)
+    try:
+        payload = NotesInitialPublicationRequest.model_validate_json(b"".join(chunks))
+    except ValidationError:
+        raise HTTPException(status_code=400, detail="INVALID_INITIAL_PUBLICATION_REQUEST") from None
+    from notes_laptop_publication import LaptopPublicationError
+    try:
+        return await run_in_threadpool(service.request, credentials.credentials, user_id,
+                                       payload, read_only=read_only)
+    except LaptopPublicationError as error:
+        raise HTTPException(status_code=error.status_code, detail=error.code) from None
+
+
+@app.post("/api/notes/initial-publication")
+async def initial_publish_note(request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    user_id: str = Depends(get_remote_mutation_user)):
+    return await _handle_initial_publication(request, credentials, user_id, read_only=False)
+
+
+@app.post("/api/notes/initial-publication/status")
+async def initial_publish_note_status(request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    user_id: str = Depends(get_remote_mutation_user)):
+    return await _handle_initial_publication(request, credentials, user_id, read_only=True)
+
+
 @app.get("/api/notes/{note_id}")
 async def get_note(note_id: str, user_id: str = Depends(get_current_user)):
     def execute(columns: str):

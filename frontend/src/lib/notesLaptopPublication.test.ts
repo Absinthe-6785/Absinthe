@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { notesLaptopPublicationUiEnabled, requestLaptopPublication,
+  requestInitialLaptopPublication, INITIAL_PUBLICATION_POLICY, notesInitialPublicationUiEnabled,
   type LaptopPublicationDependencies, type LaptopPublicationPayload, type LaptopPublicationPreview } from './notesLaptopPublication';
 
 const accountId = 'A';
@@ -20,6 +21,41 @@ function deps(overrides: Partial<LaptopPublicationDependencies> = {}): LaptopPub
   };
 }
 afterEach(() => vi.unstubAllEnvs());
+
+it('keeps initial adoption independently default OFF', () => {
+  vi.stubEnv('VITE_NOTES_INITIAL_PUBLISH_ENABLED', undefined);
+  vi.stubEnv('VITE_NOTES_LAPTOP_PUBLISH_ENABLED', 'true');
+  expect(notesInitialPublicationUiEnabled(accountId)).toBe(false);
+});
+
+it.each(['publish', 'status'] as const)('initial %s preserves exact original ID, serializes policy and known deletions, and requires readback evidence', async mode => {
+  const input = { ...payload, approvalOperationId: INITIAL_PUBLICATION_POLICY, knownDeletedIds: ['remote-deleted'] };
+  const d = deps({ getKnownDeletedIds: () => ['local-deleted'],
+    fetch: vi.fn(async () => new Response(JSON.stringify({ status: 'VERIFIED', noteId: input.noteId, policy: INITIAL_PUBLICATION_POLICY }))) });
+  expect(await requestInitialLaptopPublication(mode, input, accountId, preview, () => true, () => true, d)).toBe('VERIFIED');
+  expect(d.fetch).toHaveBeenCalledTimes(1);
+  const [url, init] = vi.mocked(d.fetch).mock.calls[0];
+  expect(url).toBe('https://api.example.test/api/notes/initial-publication' + (mode === 'status' ? '/status' : ''));
+  expect(JSON.parse(init!.body as string)).toEqual({ noteId: payload.noteId, snapshot,
+    policy: INITIAL_PUBLICATION_POLICY, knownDeletedIds: ['remote-deleted', 'local-deleted'] });
+  expect(init!.body).not.toContain('approvalOperationId');
+});
+
+it.each(['known-deleted', 'malformed-history', 'remote-deleted', 'source', 'account', 'unconfirmed', 'lost-response'] as const)(
+  'initial adoption fails closed for %s without retry', async kind => {
+    const input = { ...payload, approvalOperationId: INITIAL_PUBLICATION_POLICY, knownDeletedIds: kind === 'remote-deleted' ? [payload.noteId] : [] };
+    const d = deps({ getKnownDeletedIds: () => {
+      if (kind === 'malformed-history') throw Error('malformed');
+      return kind === 'known-deleted' ? [payload.noteId] : [];
+    } });
+    if (kind === 'source') d.getRuntimeAccountId = () => 'B';
+    if (kind === 'unconfirmed') d.fetch = vi.fn(async () => new Response(JSON.stringify(verified)));
+    if (kind === 'lost-response') d.fetch = vi.fn(async () => { throw Error('lost'); });
+    const result = await requestInitialLaptopPublication('publish', input, accountId, preview, () => kind !== 'account', () => true, d);
+    expect(result).not.toBe('VERIFIED');
+    expect(vi.mocked(d.fetch).mock.calls.length).toBe(kind === 'unconfirmed' || kind === 'lost-response' ? 1 : 0);
+  },
+);
 
 it('defaults OFF independently of all Cloud Copy flags and makes no request', async () => {
   vi.stubEnv('VITE_NOTES_LAPTOP_PUBLISH_ENABLED', undefined);
