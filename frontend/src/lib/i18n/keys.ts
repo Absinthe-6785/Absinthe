@@ -2378,6 +2378,11 @@ const translationKeys = [
   "notesInitialPublishAction",
   "notesInitialPublishScope",
   "notesInitialPublishAcknowledge",
+  "notesInitialPublishBlockedAuthority",
+  "notesInitialPublishBlockedSource",
+  "notesInitialPublishBlockedDurability",
+  "notesInitialPublishBlockedAttachments",
+  "notesInitialPublishBlockedEligibility",
 ] as const;
 
 export type TranslationKey = (typeof translationKeys)[number];

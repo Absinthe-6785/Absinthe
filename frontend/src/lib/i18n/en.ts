@@ -2378,6 +2378,11 @@ const enTranslations = [
 "Prepare initial laptop publication",
 "Publishes one original ID and supported text only, without replacing cloud or local Notes. This initial-adoption exception cannot prove whether an absent ID was deleted historically. Known deleted IDs are excluded. This is not a complete backup or automatic synchronization.",
 "I acknowledge the historical-deletion uncertainty and explicitly choose initial adoption of this one original Note ID into my account.",
+"The current Notes account authorization is unavailable or changed. Sign in again and run a new comparison.",
+"The selected local Note or Notes source changed during verification. Run a new comparison and prepare again.",
+"The local save could not be confirmed by a fresh durable readback. Save the Note and retry preparation; no publication was sent.",
+"This Note has attachment originals or their ownership metadata is incomplete. This text-only publication cannot use it.",
+"This Note is missing, ambiguous, incomplete, inactive, or uses a folder, property, relation, or content type this flow does not support.",
 ] as const;
 
 export default enTranslations;

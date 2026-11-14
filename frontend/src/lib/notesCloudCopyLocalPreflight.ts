@@ -61,6 +61,8 @@ export type NotesCloudCopyLocalPreflightResult =
     isCurrentInMemory: () => boolean;
     /** Revalidates the in-memory publication and both durable local owner surfaces. */
     isCurrent: () => Promise<boolean>;
+    /** Returns the first safe diagnostic when the prepared source is no longer eligible. */
+    checkCurrent: () => Promise<NotesCloudCopyPreflightReason | null>;
   }>;
 
 interface NotesPreflightStoreState {
@@ -262,7 +264,7 @@ export async function preflightLocalNoteForCloudCopy(
   }
   const finalMatches = finalPersisted.notes.filter(item => item.id === localNoteId);
   if (finalMatches.length !== 1 || !matchesCapturedSource(finalMatches[0], capturedSource)) {
-    return ineligible('SOURCE_CHANGED');
+    return ineligible('LOCAL_PERSISTENCE_UNVERIFIED');
   }
 
   const snapshot = Object.freeze({
@@ -279,20 +281,29 @@ export async function preflightLocalNoteForCloudCopy(
     durableReadback: 'MATCHED' as const,
     attachmentMetadata: 'COMPLETE_EMPTY' as const,
   });
-  const isCurrent = async (): Promise<boolean> => {
-    if (!sourceIsCurrent()) return false;
-    try {
-      const [latestMetadata, latestPersisted] = await Promise.all([
-        dependencies.inspectAttachmentMetadata(request.accountId, localNoteId),
-        dependencies.observePersistedNotes(request, sourceIsCurrent),
-      ]);
-      if (!sourceIsCurrent() || latestMetadata.status !== 'COMPLETE' || latestMetadata.matchingRecords !== 0
-        || latestPersisted.status !== 'CURRENT') return false;
-      const latestMatches = latestPersisted.notes.filter(item => item.id === localNoteId);
-      return latestMatches.length === 1 && matchesCapturedSource(latestMatches[0], capturedSource)
-        && sourceIsCurrent();
-    } catch { return false; }
+  const checkCurrent = async (): Promise<NotesCloudCopyPreflightReason | null> => {
+    if (!sourceIsCurrent()) return 'SOURCE_CHANGED';
+    const [metadataResult, persistedResult] = await Promise.allSettled([
+      dependencies.inspectAttachmentMetadata(request.accountId, localNoteId),
+      dependencies.observePersistedNotes(request, sourceIsCurrent),
+    ]);
+    if (!sourceIsCurrent()) return 'SOURCE_CHANGED';
+    if (metadataResult.status === 'rejected') return 'ATTACHMENT_METADATA_INCOMPLETE';
+    if (persistedResult.status === 'rejected') return 'LOCAL_PERSISTENCE_UNVERIFIED';
+    const latestMetadata: AttachmentMetadataInspection = metadataResult.value;
+    const latestPersisted: AccountScopedNotesReadback = persistedResult.value;
+    if (latestMetadata.status !== 'COMPLETE') return 'ATTACHMENT_METADATA_INCOMPLETE';
+    if (latestMetadata.matchingRecords !== 0) return 'ATTACHMENT_ORIGINALS_PRESENT';
+    if (latestPersisted.status !== 'CURRENT') {
+      return latestPersisted.reason === 'STALE_REQUEST' ? 'SOURCE_CHANGED' : 'LOCAL_PERSISTENCE_UNVERIFIED';
+    }
+    const latestMatches = latestPersisted.notes.filter(item => item.id === localNoteId);
+    if (latestMatches.length !== 1 || !matchesCapturedSource(latestMatches[0], capturedSource)) {
+      return 'LOCAL_PERSISTENCE_UNVERIFIED';
+    }
+    return sourceIsCurrent() ? null : 'SOURCE_CHANGED';
   };
+  const isCurrent = async (): Promise<boolean> => (await checkCurrent()) === null;
   if (!sourceIsCurrent()) return ineligible('SOURCE_CHANGED');
   return Object.freeze({
     status: 'ELIGIBLE_PREVIEW_ONLY',
@@ -302,5 +313,6 @@ export async function preflightLocalNoteForCloudCopy(
     sourceRevision,
     isCurrentInMemory: sourceIsCurrent,
     isCurrent,
+    checkCurrent,
   });
 }

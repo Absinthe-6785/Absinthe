@@ -8,7 +8,7 @@ import translationKeys, { buildLocaleDictionary } from './i18n/keys';
 import type { TranslationKey } from './i18n';
 
 const PLANNER_STORAGE_KEY = 'planner-storage';
-const EXPECTED_KEY_COUNT = 2_378;
+const EXPECTED_KEY_COUNT = 2_383;
 type Locale = 'en' | 'ko' | 'ja';
 
 // Current independent canonical authority, including append-only Notes UI, Wiki-link accessibility, cloud comparison and search, Cloud Copy status readback, local document downloads, PDF/DOCX preview, Recipe filter reset, local-original integrity preflight, cloud Note previews, and single-Note cloud text export.
@@ -16,6 +16,12 @@ type Locale = 'en' | 'ko' | 'ja';
 // translationKeys order, so it detects insertion, omission, reordering, and
 // substitution without using buildLocaleDictionary.
 const EXPECTED_LOCALE_INTEGRITY_SHA256: Record<Locale, string> = {
+  en: '9699c9fb0fba61abf18cbd7bac37cd19cd153d8c9f8ad162104aad2796454aa8',
+  ko: '700fa0da2beae616f6a6081243fe376b6a81768f93931ce78e1490f24536ed13',
+  ja: 'fd0bfcbadb7c0749608302b1306e83ec34be806b4f28b1bcd3dbf9e9fc3d74b2',
+};
+
+const PRE_INITIAL_PUBLISH_DIAGNOSTIC_LOCALE_SHA256: Record<Locale, string> = {
   en: 'ae6e52d9ecf69394086efa0f5943a350ad907b343557de797ba44043e040dd51',
   ko: '1579ccd995770aeb9ffac8f7bab3325f568f94240790f5bf421ad142451ac896',
   ja: '72e0de1f85ab6dd68cc2dc92aa6cbf29222d81fe34eabb884c934ed5ada67284',
@@ -145,13 +151,48 @@ async function loadFreshI18n(language?: unknown) {
 }
 
 describe('i18n locale dictionaries', () => {
+  it('appends initial-publication diagnostics without changing existing translations', () => {
+    const expected = {
+      en: [
+        'The current Notes account authorization is unavailable or changed. Sign in again and run a new comparison.',
+        'The selected local Note or Notes source changed during verification. Run a new comparison and prepare again.',
+        'The local save could not be confirmed by a fresh durable readback. Save the Note and retry preparation; no publication was sent.',
+        'This Note has attachment originals or their ownership metadata is incomplete. This text-only publication cannot use it.',
+        'This Note is missing, ambiguous, incomplete, inactive, or uses a folder, property, relation, or content type this flow does not support.',
+      ],
+      ko: [
+        '현재 Notes 계정 권한을 확인할 수 없거나 요청이 변경되었습니다. 다시 로그인하고 비교를 새로 실행하세요.',
+        '검증 중 선택한 로컬 Note 또는 Notes 원본이 변경되었습니다. 비교를 새로 실행한 뒤 다시 준비하세요.',
+        '로컬 저장 내용을 새로 읽어 확인하지 못했습니다. Note를 저장한 뒤 준비를 다시 시도하세요. 게시 요청은 전송되지 않았습니다.',
+        '이 Note에는 첨부 원본이 있거나 첨부 소유권 정보를 확인할 수 없습니다. 텍스트 전용 게시 대상이 아닙니다.',
+        'Note가 없거나 ID가 중복되었거나, 불완전·비활성 상태이거나, 이 경로가 지원하지 않는 폴더·속성·관계·콘텐츠를 포함합니다.',
+      ],
+      ja: [
+        '現在のNotesアカウント権限を確認できないか、リクエストが変更されました。再度サインインして比較を実行してください。',
+        '確認中に選択したローカルNoteまたはNotesソースが変更されました。比較を再実行してから、もう一度準備してください。',
+        'ローカル保存内容を新しい永続データの読み戻しで確認できませんでした。Noteを保存してから再準備してください。公開リクエストは送信されていません。',
+        'このNoteには添付ファイルの原本があるか、添付所有情報が不完全です。このテキスト専用公開では使用できません。',
+        'Noteが見つからない、IDが重複している、不完全または無効、あるいはこの機能が対応しないフォルダー・プロパティ・関係・コンテンツを含みます。',
+      ],
+    } as const;
+    expect(translationKeys.slice(2_378)).toEqual([
+      'notesInitialPublishBlockedAuthority', 'notesInitialPublishBlockedSource',
+      'notesInitialPublishBlockedDurability', 'notesInitialPublishBlockedAttachments',
+      'notesInitialPublishBlockedEligibility',
+    ]);
+    for (const [locale, values] of [['en', enLocaleValues], ['ko', koLocaleValues], ['ja', jaLocaleValues]] as const) {
+      expect(localeIntegrityDigest(values.slice(0, 2_378), translationKeys.slice(0, 2_378)))
+        .toBe(PRE_INITIAL_PUBLISH_DIAGNOSTIC_LOCALE_SHA256[locale]);
+      expect(values.slice(2_378)).toEqual(expected[locale]);
+    }
+  });
   it('appends initial-adoption consent without changing the existing 2375 translations', () => {
     const previous = {
       en: 'ccf7de055bac5d7b3a8b117179fc82e05301fde5b7a4fe573b15281334e94a31',
       ko: '256b0974a49831ff36b116fa9bb01bb1b61ad2baf1b0db3ae82080ea7914e165',
       ja: 'ec335ff70809a76955da1b960e9a2d829689600d04958ed2a67b0976a1e481d8',
     };
-    expect(translationKeys.slice(2375)).toEqual(['notesInitialPublishAction', 'notesInitialPublishScope', 'notesInitialPublishAcknowledge']);
+    expect(translationKeys.slice(2375, 2378)).toEqual(['notesInitialPublishAction', 'notesInitialPublishScope', 'notesInitialPublishAcknowledge']);
     for (const [locale, values] of [['en', enLocaleValues], ['ko', koLocaleValues], ['ja', jaLocaleValues]] as const) {
       expect(localeIntegrityDigest(values.slice(0, 2375), translationKeys.slice(0, 2375))).toBe(previous[locale]);
       expect(values.slice(2375).every(value => value.length > 0)).toBe(true);
@@ -641,10 +682,10 @@ describe('i18n locale dictionaries', () => {
     missing.splice(1_000, 1);
 
     expect(() => buildLocaleDictionary(missing)).toThrow(
-      'Locale dictionary length mismatch: expected 2378, received 2377',
+      'Locale dictionary length mismatch: expected 2383, received 2382',
     );
     expect(() => assertLocaleValuesIntegrity('en', missing)).toThrow(
-      'Locale integrity length mismatch: expected 2378, received 2377',
+      'Locale integrity length mismatch: expected 2383, received 2382',
     );
   });
 
@@ -653,10 +694,10 @@ describe('i18n locale dictionaries', () => {
     extra.splice(1_000, 0, '__unexpected__');
 
     expect(() => buildLocaleDictionary(extra)).toThrow(
-      'Locale dictionary length mismatch: expected 2378, received 2379',
+      'Locale dictionary length mismatch: expected 2383, received 2384',
     );
     expect(() => assertLocaleValuesIntegrity('en', extra)).toThrow(
-      'Locale integrity length mismatch: expected 2378, received 2379',
+      'Locale integrity length mismatch: expected 2383, received 2384',
     );
   });
 

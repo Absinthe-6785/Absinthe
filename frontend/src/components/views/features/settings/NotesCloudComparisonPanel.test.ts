@@ -103,7 +103,7 @@ beforeEach(() => {
     snapshot: { title: 'Local title', body: 'Local body', updated_at: 10, starred: false },
     sourceRevision: { authorityGeneration: 1, vaultStructureVersion: 1, indexContentVersion: 1,
       noteUpdatedAt: 10, durableReadback: 'MATCHED', attachmentMetadata: 'COMPLETE_EMPTY' },
-    isCurrentInMemory: () => true, isCurrent: async () => true,
+    isCurrentInMemory: () => true, isCurrent: async () => true, checkCurrent: async () => null,
   });
   mock.createCloudCopy.mockResolvedValue({ status: 'CREATED', cloudNoteId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' });
   mock.readCloudCopyStatus.mockResolvedValue({ status: 'LIVE' });
@@ -1237,8 +1237,41 @@ it.each(['INDETERMINATE', 'UNAVAILABLE', 'DISABLED', 'CONFLICT', 'BAD_REQUEST'] 
 it('rejects ineligible durable preflight without opening confirmation or dispatching', async () => {
   mock.preflightLaptop.mockResolvedValue({ status: 'INELIGIBLE', reasons: ['LOCAL_PERSISTENCE_UNVERIFIED'] });
   await prepareLaptopPublication();
-  expect(host.textContent).toContain('durable storage, or account request changed');
+  expect(host.textContent).toContain('local save could not be confirmed by a fresh durable readback');
   expect(host.textContent).not.toContain('Publish exactly this one'); expect(mock.requestLaptop).not.toHaveBeenCalled();
+});
+
+async function prepareInitialLaptopPublication() {
+  mock.initialEnabled = true;
+  await render(); await check();
+  host.querySelector('details > summary')!.click();
+  await act(async () => laptopRow().querySelector<HTMLInputElement>('input[type=checkbox]')!.click());
+  await act(async () => laptopAction('Prepare initial laptop publication').click());
+}
+
+it.each([
+  ['NOTES_AUTHORITY_UNAVAILABLE', 'current Notes account authorization is unavailable'],
+  ['SOURCE_CHANGED', 'local Note or Notes source changed during verification'],
+  ['LOCAL_PERSISTENCE_UNVERIFIED', 'local save could not be confirmed by a fresh durable readback'],
+  ['ATTACHMENT_METADATA_INCOMPLETE', 'attachment originals or their ownership metadata is incomplete'],
+  ['FOLDER_UNSUPPORTED', 'folder, property, relation, or content type this flow does not support'],
+] as const)('shows the precise safe initial-publication preflight reason (%s)', async (reason, expectedText) => {
+  mock.preflightLaptop.mockResolvedValue({ status: 'INELIGIBLE', reasons: [reason] });
+  await prepareInitialLaptopPublication();
+  expect(laptopRow().textContent).toContain(expectedText);
+  expect(laptopRow().querySelector('[aria-label="Confirm publication of this original ID"]')).toBeNull();
+  expect(mock.requestLaptop).not.toHaveBeenCalled();
+});
+
+it('reports the durable recheck stage when a prepared Note stops matching local readback', async () => {
+  mock.preflightLaptop.mockImplementation(async () => ({
+    ...await mock.prepareCloudCopy(),
+    checkCurrent: async () => 'LOCAL_PERSISTENCE_UNVERIFIED',
+  }));
+  await prepareInitialLaptopPublication();
+  expect(laptopRow().textContent).toContain('local save could not be confirmed by a fresh durable readback');
+  expect(laptopRow().querySelector('[aria-label="Confirm publication of this original ID"]')).toBeNull();
+  expect(mock.requestLaptop).not.toHaveBeenCalled();
 });
 
 it('does not publish a source changed after confirmation, even before React renders', async () => {
