@@ -217,14 +217,29 @@ def test_sql_foreign_stale_changed_content_and_retired_denied(laptop_ready):
 def test_sql_replay_and_retirement_do_not_resurrect(laptop_ready):
     db = laptop_ready
     note_id, op, _ = approved(db)
-    svc = NotesLaptopPublicationService(client(db))
+    class ExpectedSqlDenial:
+        def call(self, name, text, mac):
+            try:
+                return db.call(name, text, mac)
+            except pytest.fail.Exception as exc:
+                # The psql-only disposable adapter reports SQLSTATE errors as
+                # pytest failures. Normalize only the exact terminal-identity
+                # rejection as the Gateway's PsycopgCalls adapter does.
+                if "P0001: IDENTITY_RETIRED" not in str(exc):
+                    raise
+                raise GatewayDenied("DATABASE_DENIED") from None
+
+    gateway = PrivateGateway(verifier(), ExpectedSqlDenial(), db.signing_key, enabled=True)
+    svc = NotesLaptopPublicationService(gateway)
     svc.publish(token(), OWNER_A, note_id, op, PAYLOAD)
     before = db.snapshot(note_id)
     svc.publish(token(), OWNER_A, note_id, op, PAYLOAD)
     assert db.snapshot(note_id) == before
     svc.gateway.run(token(), "retire", uuid.uuid4().hex, note_id=note_id)
-    with pytest.raises(LaptopPublicationError):
+    with pytest.raises(LaptopPublicationError) as caught:
         svc.publish(token(), OWNER_A, note_id, op, PAYLOAD)
+    assert caught.value.code == "LAPTOP_PUBLICATION_APPROVAL_REQUIRED"
+    assert caught.value.status_code == 409
     assert db.snapshot(note_id)["state"] == "RETIRED" and db.snapshot(note_id)["notes"] == 0
 
 
