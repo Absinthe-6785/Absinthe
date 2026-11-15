@@ -8,7 +8,7 @@ import translationKeys, { buildLocaleDictionary } from './i18n/keys';
 import type { TranslationKey } from './i18n';
 
 const PLANNER_STORAGE_KEY = 'planner-storage';
-const EXPECTED_KEY_COUNT = 2_383;
+const EXPECTED_KEY_COUNT = 2_394;
 type Locale = 'en' | 'ko' | 'ja';
 
 // Current independent canonical authority, including append-only Notes UI, Wiki-link accessibility, cloud comparison and search, Cloud Copy status readback, local document downloads, PDF/DOCX preview, Recipe filter reset, local-original integrity preflight, cloud Note previews, and single-Note cloud text export.
@@ -16,6 +16,12 @@ type Locale = 'en' | 'ko' | 'ja';
 // translationKeys order, so it detects insertion, omission, reordering, and
 // substitution without using buildLocaleDictionary.
 const EXPECTED_LOCALE_INTEGRITY_SHA256: Record<Locale, string> = {
+  en: 'fb493fcac851bf60f7f669505358ed0e91010c332cc13d8bd84e1a93861d4554',
+  ko: '217ceb83da062c013aa46eb0bfaf170ea61d6a39bb3ccdf8f46730ddd63e8fe4',
+  ja: '50584c2e06cf1a491af77462af447cb481287a5d3b1189709736fdbef0e20f70',
+};
+
+const PRE_DETAILED_PREFLIGHT_DIAGNOSTIC_LOCALE_SHA256: Record<Locale, string> = {
   en: '9699c9fb0fba61abf18cbd7bac37cd19cd153d8c9f8ad162104aad2796454aa8',
   ko: '700fa0da2beae616f6a6081243fe376b6a81768f93931ce78e1490f24536ed13',
   ja: 'fd0bfcbadb7c0749608302b1306e83ec34be806b4f28b1bcd3dbf9e9fc3d74b2',
@@ -151,6 +157,31 @@ async function loadFreshI18n(language?: unknown) {
 }
 
 describe('i18n locale dictionaries', () => {
+  it('appends distinct preflight reasons while preserving all 2383 existing translations', () => {
+    expect(translationKeys.slice(2_383)).toEqual([
+      'notesInitialPublishBlockedInvalidId', 'notesInitialPublishBlockedMissing',
+      'notesInitialPublishBlockedAmbiguous', 'notesInitialPublishBlockedIncomplete',
+      'notesInitialPublishBlockedInactive', 'notesInitialPublishBlockedFolder',
+      'notesInitialPublishBlockedProperties', 'notesInitialPublishBlockedRelations',
+      'notesInitialPublishBlockedContent', 'notesInitialPublishBlockedAttachmentMetadata',
+      'notesInitialPublishBlockedAttachmentOriginals',
+    ]);
+    for (const [locale, values] of [['en', enLocaleValues], ['ko', koLocaleValues], ['ja', jaLocaleValues]] as const) {
+      expect(localeIntegrityDigest(values.slice(0, 2_383), translationKeys.slice(0, 2_383)))
+        .toBe(PRE_DETAILED_PREFLIGHT_DIAGNOSTIC_LOCALE_SHA256[locale]);
+      const appended = values.slice(2_383);
+      expect(appended).toHaveLength(11);
+      expect(appended.every(value => value.trim().length > 0)).toBe(true);
+      expect(new Set(appended).size).toBe(11);
+    }
+    expect(enTranslations.notesInitialPublishBlockedFolder).toContain('original Note and folder remain unchanged');
+    expect(koTranslations.notesInitialPublishBlockedFolder).toContain('원본 Note와 폴더는 변경되지 않습니다');
+    expect(jaTranslations.notesInitialPublishBlockedFolder).toContain('元のNoteとフォルダーは変更されません');
+    for (const translations of [enTranslations, koTranslations, jaTranslations]) {
+      expect(translations.notesInitialPublishBlockedProperties).not.toBe(translations.notesInitialPublishBlockedRelations);
+      expect(translations.notesInitialPublishBlockedAttachmentMetadata).not.toBe(translations.notesInitialPublishBlockedAttachmentOriginals);
+    }
+  });
   it('appends initial-publication diagnostics without changing existing translations', () => {
     const expected = {
       en: [
@@ -175,7 +206,7 @@ describe('i18n locale dictionaries', () => {
         'Noteが見つからない、IDが重複している、不完全または無効、あるいはこの機能が対応しないフォルダー・プロパティ・関係・コンテンツを含みます。',
       ],
     } as const;
-    expect(translationKeys.slice(2_378)).toEqual([
+    expect(translationKeys.slice(2_378, 2_383)).toEqual([
       'notesInitialPublishBlockedAuthority', 'notesInitialPublishBlockedSource',
       'notesInitialPublishBlockedDurability', 'notesInitialPublishBlockedAttachments',
       'notesInitialPublishBlockedEligibility',
@@ -183,7 +214,7 @@ describe('i18n locale dictionaries', () => {
     for (const [locale, values] of [['en', enLocaleValues], ['ko', koLocaleValues], ['ja', jaLocaleValues]] as const) {
       expect(localeIntegrityDigest(values.slice(0, 2_378), translationKeys.slice(0, 2_378)))
         .toBe(PRE_INITIAL_PUBLISH_DIAGNOSTIC_LOCALE_SHA256[locale]);
-      expect(values.slice(2_378)).toEqual(expected[locale]);
+      expect(values.slice(2_378, 2_383)).toEqual(expected[locale]);
     }
   });
   it('appends initial-adoption consent without changing the existing 2375 translations', () => {
@@ -682,10 +713,10 @@ describe('i18n locale dictionaries', () => {
     missing.splice(1_000, 1);
 
     expect(() => buildLocaleDictionary(missing)).toThrow(
-      'Locale dictionary length mismatch: expected 2383, received 2382',
+      'Locale dictionary length mismatch: expected 2394, received 2393',
     );
     expect(() => assertLocaleValuesIntegrity('en', missing)).toThrow(
-      'Locale integrity length mismatch: expected 2383, received 2382',
+      'Locale integrity length mismatch: expected 2394, received 2393',
     );
   });
 
@@ -694,10 +725,10 @@ describe('i18n locale dictionaries', () => {
     extra.splice(1_000, 0, '__unexpected__');
 
     expect(() => buildLocaleDictionary(extra)).toThrow(
-      'Locale dictionary length mismatch: expected 2383, received 2384',
+      'Locale dictionary length mismatch: expected 2394, received 2395',
     );
     expect(() => assertLocaleValuesIntegrity('en', extra)).toThrow(
-      'Locale integrity length mismatch: expected 2383, received 2384',
+      'Locale integrity length mismatch: expected 2394, received 2395',
     );
   });
 

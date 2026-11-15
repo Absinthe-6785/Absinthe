@@ -2383,6 +2383,17 @@ const enTranslations = [
 "The local save could not be confirmed by a fresh durable readback. Save the Note and retry preparation; no publication was sent.",
 "This Note has attachment originals or their ownership metadata is incomplete. This text-only publication cannot use it.",
 "This Note is missing, ambiguous, incomplete, inactive, or uses a folder, property, relation, or content type this flow does not support.",
+"The selected Note ID is invalid. Publication preparation is blocked.",
+"The selected Note is missing from the current authorized local source. Publication preparation is blocked.",
+"More than one local Note uses this exact ID. Publication preparation is blocked.",
+"The selected Note is incomplete or has unsupported fields or field types. Publication preparation is blocked.",
+"The selected Note is deleted or inactive. Publication preparation is blocked.",
+"The selected Note belongs to a folder. This publication flow does not support folder membership; the original Note and folder remain unchanged.",
+"The selected Note has a properties field, even if empty. This publication flow does not support properties; the original remains unchanged.",
+"The selected Note has a relations field, even if empty. This publication flow does not support relations; the original remains unchanged.",
+"The selected Note contains unsupported attachment references, embedded media, or binary content. Text-only publication is blocked.",
+"Attachment ownership metadata could not be verified as complete for this Note. Publication preparation is blocked.",
+"Attachment metadata records exist for this Note. This text-only flow cannot publish attachment originals.",
 ] as const;
 
 export default enTranslations;
