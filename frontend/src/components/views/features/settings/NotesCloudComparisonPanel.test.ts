@@ -1250,16 +1250,84 @@ async function prepareInitialLaptopPublication() {
 }
 
 it.each([
+  ['INVALID_LOCAL_NOTE_ID', 'selected Note ID is invalid'],
   ['NOTES_AUTHORITY_UNAVAILABLE', 'current Notes account authorization is unavailable'],
+  ['NOTE_NOT_FOUND', 'missing from the current authorized local source'],
+  ['NOTE_ID_AMBIGUOUS', 'More than one local Note uses this exact ID'],
+  ['NOTE_INCOMPLETE', 'incomplete or has unsupported fields or field types'],
+  ['NOTE_NOT_ACTIVE', 'deleted or inactive'],
+  ['FOLDER_UNSUPPORTED', 'belongs to a folder'],
+  ['PROPERTIES_UNSUPPORTED', 'has a properties field, even if empty'],
+  ['RELATIONS_UNSUPPORTED', 'has a relations field, even if empty'],
+  ['ATTACHMENT_CONTENT_UNSUPPORTED', 'contains unsupported attachment references'],
+  ['ATTACHMENT_METADATA_INCOMPLETE', 'Attachment ownership metadata could not be verified as complete'],
+  ['ATTACHMENT_ORIGINALS_PRESENT', 'Attachment metadata records exist'],
   ['SOURCE_CHANGED', 'local Note or Notes source changed during verification'],
   ['LOCAL_PERSISTENCE_UNVERIFIED', 'local save could not be confirmed by a fresh durable readback'],
-  ['ATTACHMENT_METADATA_INCOMPLETE', 'attachment originals or their ownership metadata is incomplete'],
-  ['FOLDER_UNSUPPORTED', 'folder, property, relation, or content type this flow does not support'],
 ] as const)('shows the precise safe initial-publication preflight reason (%s)', async (reason, expectedText) => {
+  const notes = mock.state.notes, folders = mock.state.folders;
+  const sourceBefore = JSON.stringify({ notes, folders });
   mock.preflightLaptop.mockResolvedValue({ status: 'INELIGIBLE', reasons: [reason] });
   await prepareInitialLaptopPublication();
   expect(laptopRow().textContent).toContain(expectedText);
+  expect(laptopRow().querySelector('[role="status"]')).not.toBeNull();
   expect(laptopRow().querySelector('[aria-label="Confirm publication of this original ID"]')).toBeNull();
+  expect(mock.requestLaptop).not.toHaveBeenCalled();
+  expect(mock.createCloudCopy).not.toHaveBeenCalled();
+  expect(mock.state.notes).toBe(notes); expect(mock.state.folders).toBe(folders);
+  expect(JSON.stringify({ notes, folders })).toBe(sourceBefore);
+  expect(mock.setActiveNoteId).not.toHaveBeenCalled();
+});
+
+it('shows each distinct rejection without duplicating repeated reasons or exposing source content', async () => {
+  mock.preflightLaptop.mockResolvedValue({ status: 'INELIGIBLE', reasons: [
+    'FOLDER_UNSUPPORTED', 'PROPERTIES_UNSUPPORTED', 'RELATIONS_UNSUPPORTED', 'FOLDER_UNSUPPORTED',
+  ] });
+  await prepareInitialLaptopPublication();
+  const status = laptopRow().querySelector('[role="status"]')!;
+  expect(status.querySelectorAll('li')).toHaveLength(3);
+  expect(status.textContent).toContain('belongs to a folder');
+  expect(status.textContent).toContain('has a properties field, even if empty');
+  expect(status.textContent).toContain('has a relations field, even if empty');
+  expect(status.textContent).not.toContain('Local title');
+  expect(status.textContent).not.toContain('Local body');
+  expect(mock.requestLaptop).not.toHaveBeenCalled();
+  expect(laptopRow().querySelector('[aria-label="Confirm publication of this original ID"]')).toBeNull();
+});
+
+it.each([
+  ['en', 'belongs to a folder', 'has a properties field', 'has a relations field', 'incomplete or has unsupported fields'],
+  ['ko', '폴더에 속해 있습니다', '속성 필드가 있습니다', '관계 필드가 있습니다', '불완전하거나 지원하지 않는 필드'],
+  ['ja', 'フォルダーに属しています', 'プロパティフィールドがあります', '関係フィールドがあります', '不完全、または未対応のフィールド'],
+] as const)('localizes distinct metadata diagnostics in %s', async (language, ...messages) => {
+  useAppStore.getState().updateSetting('language', language);
+  mock.preflightLaptop.mockResolvedValue({ status: 'INELIGIBLE', reasons: [
+    'FOLDER_UNSUPPORTED', 'PROPERTIES_UNSUPPORTED', 'RELATIONS_UNSUPPORTED', 'NOTE_INCOMPLETE',
+  ] });
+  mock.initialEnabled = true;
+  await render(); await check();
+  await act(async () => host.querySelector('details > summary')!.click());
+  await act(async () => laptopRow().querySelector<HTMLInputElement>('input[type=checkbox]')!.click());
+  await act(async () => laptopRow().querySelector<HTMLButtonElement>('[data-laptop-publication] button')!.click());
+  const status = laptopRow().querySelector('[role="status"]')!;
+  expect(status.querySelectorAll('li')).toHaveLength(4);
+  for (const message of messages) expect(status.textContent).toContain(message);
+  expect(mock.requestLaptop).not.toHaveBeenCalled();
+});
+
+it('suppresses late detailed rejection feedback after authority A-B-A', async () => {
+  let finish!: (value: unknown) => void;
+  mock.preflightLaptop.mockReturnValue(new Promise(resolve => { finish = resolve; }));
+  await prepareInitialLaptopPublication();
+  await act(async () => {
+    for (const accountId of ['B', 'A']) {
+      mock.activeRequest = { accountId };
+      mock.authorityListeners.forEach(listener => listener(mock.activeRequest));
+    }
+    finish({ status: 'INELIGIBLE', reasons: ['FOLDER_UNSUPPORTED', 'PROPERTIES_UNSUPPORTED'] });
+  });
+  expect(host.textContent).not.toContain('belongs to a folder');
+  expect(host.textContent).not.toContain('has a properties field');
   expect(mock.requestLaptop).not.toHaveBeenCalled();
 });
 
