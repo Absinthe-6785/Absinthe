@@ -8,7 +8,7 @@ import translationKeys, { buildLocaleDictionary } from './i18n/keys';
 import type { TranslationKey } from './i18n';
 
 const PLANNER_STORAGE_KEY = 'planner-storage';
-const EXPECTED_KEY_COUNT = 2_396;
+const EXPECTED_KEY_COUNT = 2_401;
 type Locale = 'en' | 'ko' | 'ja';
 
 // Current independent canonical authority, including append-only Notes UI, Wiki-link accessibility, cloud comparison and search, Cloud Copy status readback, local document downloads, PDF/DOCX preview, Recipe filter reset, local-original integrity preflight, cloud Note previews, and single-Note cloud text export.
@@ -16,6 +16,12 @@ type Locale = 'en' | 'ko' | 'ja';
 // translationKeys order, so it detects insertion, omission, reordering, and
 // substitution without using buildLocaleDictionary.
 const EXPECTED_LOCALE_INTEGRITY_SHA256: Record<Locale, string> = {
+  en: '79e296d815f128a4b9ac161ce8858187ad61d06f5d84e16f98d9a51000aed716',
+  ko: 'c521f65411a618d4daf2e087056c97703791893f89c5f1a3568549274ff9748d',
+  ja: '3f52ca93b9c3051c073e0a25865b0b5fcf437dfd3363ba1b0e3679c36037beae',
+};
+
+const PRE_HEALTH_CLOUD_FILTER_LOCALE_SHA256: Record<Locale, string> = {
   en: '1a68d23520bbd9ea391016140cd09f91e33ca3da83b1fbb108ffeb1fdf911396',
   ko: 'c9f5ee5d823158f3ff7089a38ce866b17d9abe6bc01eeaacbee327ec7937ce10',
   ja: '9231c251059e888497ab324f63ee169feacba9e3200d7d81041da99b061b7b77',
@@ -164,13 +170,13 @@ async function loadFreshI18n(language?: unknown) {
 
 describe('i18n locale dictionaries', () => {
   it('appends text-only publication scope while preserving every existing translation', () => {
-    expect(translationKeys.slice(2_394)).toEqual([
+    expect(translationKeys.slice(2_394, 2_396)).toEqual([
       'notesInitialPublishFolderOmission', 'notesInitialPublishEmptyPropertiesScope',
     ]);
     for (const [locale, values] of [['en', enLocaleValues], ['ko', koLocaleValues], ['ja', jaLocaleValues]] as const) {
       expect(localeIntegrityDigest(values.slice(0, 2_394), translationKeys.slice(0, 2_394)))
         .toBe(PRE_TEXT_ONLY_PUBLICATION_LOCALE_SHA256[locale]);
-      expect(values.slice(2_394).every(value => value.trim().length > 0)).toBe(true);
+      expect(values.slice(2_394, 2_396).every(value => value.trim().length > 0)).toBe(true);
     }
     expect(enTranslations.notesInitialPublishEmptyPropertiesScope).toContain('even with an empty value');
     expect(koTranslations.notesInitialPublishEmptyPropertiesScope).toContain('값이 비어 있어도');
@@ -357,6 +363,40 @@ describe('i18n locale dictionaries', () => {
     expect(() => assertLocaleValuesIntegrity('en', enLocaleValues)).not.toThrow();
     expect(() => assertLocaleValuesIntegrity('ko', koLocaleValues)).not.toThrow();
     expect(() => assertLocaleValuesIntegrity('ja', jaLocaleValues)).not.toThrow();
+  });
+
+  it('appends exact Health comparison filter labels without changing existing locale values', () => {
+    const previousKeyCount = 2_396;
+    const keys = [
+      'healthCloudFilterLabel', 'healthCloudFilterHelp', 'healthCloudClearFilter',
+      'healthCloudFilterMatchCount', 'healthCloudFilterNoMatches',
+    ];
+    expect(translationKeys.slice(previousKeyCount)).toEqual(keys);
+    for (const [locale, values] of [['en', enLocaleValues], ['ko', koLocaleValues], ['ja', jaLocaleValues]] as const) {
+      expect(localeIntegrityDigest(values.slice(0, previousKeyCount), translationKeys.slice(0, previousKeyCount)))
+        .toBe(PRE_HEALTH_CLOUD_FILTER_LOCALE_SHA256[locale]);
+    }
+    expect(keys.map(key => enTranslations[key as TranslationKey])).toEqual([
+      'Filter by exact workout date or full ID',
+      'Only this verified comparison is searched. A date matches either local or remote date; category totals above remain unchanged.',
+      'Clear filter',
+      'Exact matching records in this comparison:',
+      'No exact match in this verified comparison. This does not mean cloud data or full workout history is empty.',
+    ]);
+    expect(keys.map(key => koTranslations[key as TranslationKey])).toEqual([
+      '운동 날짜 또는 전체 ID로 정확히 필터링',
+      '이 확인된 비교 결과만 검색합니다. 날짜는 로컬 또는 원격 날짜와 일치하며 위 범주별 합계는 바뀌지 않습니다.',
+      '필터 지우기',
+      '이 비교에서 정확히 일치하는 기록:',
+      '확인된 비교에서 정확히 일치하는 기록이 없습니다. 클라우드 데이터나 전체 운동 이력이 비어 있다는 뜻은 아닙니다.',
+    ]);
+    expect(keys.map(key => jaTranslations[key as TranslationKey])).toEqual([
+      'トレーニング日または完全なIDで完全一致検索',
+      'この確認済み比較結果だけを検索します。日付はローカルまたはリモートの日付に一致し、上のカテゴリ合計は変わりません。',
+      'フィルターをクリア',
+      'この比較で完全一致した記録:',
+      'この確認済み比較に完全一致する記録はありません。クラウドデータや全トレーニング履歴が空という意味ではありません。',
+    ]);
   });
 
   it('appends localized Recipe copy actions without changing the existing 2329 translations', () => {
@@ -732,10 +772,10 @@ describe('i18n locale dictionaries', () => {
     missing.splice(1_000, 1);
 
     expect(() => buildLocaleDictionary(missing)).toThrow(
-      'Locale dictionary length mismatch: expected 2396, received 2395',
+      `Locale dictionary length mismatch: expected ${EXPECTED_KEY_COUNT}, received ${EXPECTED_KEY_COUNT - 1}`,
     );
     expect(() => assertLocaleValuesIntegrity('en', missing)).toThrow(
-      'Locale integrity length mismatch: expected 2396, received 2395',
+      `Locale integrity length mismatch: expected ${EXPECTED_KEY_COUNT}, received ${EXPECTED_KEY_COUNT - 1}`,
     );
   });
 
@@ -744,10 +784,10 @@ describe('i18n locale dictionaries', () => {
     extra.splice(1_000, 0, '__unexpected__');
 
     expect(() => buildLocaleDictionary(extra)).toThrow(
-      'Locale dictionary length mismatch: expected 2396, received 2397',
+      `Locale dictionary length mismatch: expected ${EXPECTED_KEY_COUNT}, received ${EXPECTED_KEY_COUNT + 1}`,
     );
     expect(() => assertLocaleValuesIntegrity('en', extra)).toThrow(
-      'Locale integrity length mismatch: expected 2396, received 2397',
+      `Locale integrity length mismatch: expected ${EXPECTED_KEY_COUNT}, received ${EXPECTED_KEY_COUNT + 1}`,
     );
   });
 

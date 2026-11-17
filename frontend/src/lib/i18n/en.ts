@@ -2396,6 +2396,11 @@ const enTranslations = [
 "Attachment metadata records exist for this Note. This text-only flow cannot publish attachment originals.",
 "I explicitly choose text-only publication without the folder. The original Note, its ID, and its folder on this device will remain unchanged.",
 "Only a verified empty properties record is omitted from the text payload. Any property entry, even with an empty value, blocks publication; local properties remain unchanged.",
+"Filter by exact workout date or full ID",
+"Only this verified comparison is searched. A date matches either local or remote date; category totals above remain unchanged.",
+"Clear filter",
+"Exact matching records in this comparison:",
+"No exact match in this verified comparison. This does not mean cloud data or full workout history is empty.",
 ] as const;
 
 export default enTranslations;
