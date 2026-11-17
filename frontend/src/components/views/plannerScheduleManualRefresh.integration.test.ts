@@ -235,6 +235,10 @@ let root: Root;
 let host: HTMLDivElement;
 let cache: Map<unknown, unknown>;
 let onlineDescriptor: PropertyDescriptor | undefined;
+let visibilityDescriptor: PropertyDescriptor | undefined;
+let hasFocusDescriptor: PropertyDescriptor | undefined;
+let testVisibility: DocumentVisibilityState;
+let testDocumentFocused: boolean;
 const swrConfig = {
   provider: () => cache,
   dedupingInterval: 0,
@@ -251,6 +255,33 @@ async function render(account: string | null, date = '2026-09-18') {
 
 async function flush(): Promise<void> {
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+}
+
+async function backgroundPlanner(): Promise<void> {
+  await act(async () => {
+    testDocumentFocused = false;
+    window.dispatchEvent(new Event('blur'));
+    testVisibility = 'hidden';
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+}
+
+async function foregroundPlanner(afterEvents?: () => void): Promise<void> {
+  await act(async () => {
+    testDocumentFocused = true;
+    testVisibility = 'visible';
+    window.dispatchEvent(new Event('focus'));
+    document.dispatchEvent(new Event('visibilitychange'));
+    afterEvents?.();
+  });
+}
+
+async function returnAfter(milliseconds: number): Promise<void> {
+  const startedAt = Date.now();
+  const now = vi.spyOn(Date, 'now').mockReturnValue(startedAt);
+  await backgroundPlanner();
+  now.mockReturnValue(startedAt + milliseconds);
+  await foregroundPlanner(() => now.mockRestore());
 }
 
 async function click(selector: string): Promise<void> {
@@ -285,7 +316,13 @@ function storageSnapshot(): string {
 
 beforeEach(() => {
   onlineDescriptor = Object.getOwnPropertyDescriptor(window.navigator, 'onLine');
+  visibilityDescriptor = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+  hasFocusDescriptor = Object.getOwnPropertyDescriptor(document, 'hasFocus');
+  testVisibility = 'visible';
+  testDocumentFocused = true;
   Object.defineProperty(window.navigator, 'onLine', { configurable: true, value: true });
+  Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => testVisibility });
+  Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => testDocumentFocused });
   harness.activeAccount = 'account-a';
   harness.server = {};
   harness.requests = [];
@@ -308,6 +345,10 @@ afterEach(() => {
   setRuntimeAccountSyncAccount(null);
   if (onlineDescriptor) Object.defineProperty(window.navigator, 'onLine', onlineDescriptor);
   else Reflect.deleteProperty(window.navigator, 'onLine');
+  if (visibilityDescriptor) Object.defineProperty(document, 'visibilityState', visibilityDescriptor);
+  else Reflect.deleteProperty(document, 'visibilityState');
+  if (hasFocusDescriptor) Object.defineProperty(document, 'hasFocus', hasFocusDescriptor);
+  else Reflect.deleteProperty(document, 'hasFocus');
 });
 
 describe('Schedule explicit cross-device refresh', () => {
@@ -846,6 +887,221 @@ describe('Schedule explicit cross-device refresh', () => {
     expect(host.textContent).not.toContain('STALE OLD DATE RESULT');
     expect(harness.requests.every(request => request.account === 'account-a' || request.account === 'account-b')).toBe(true);
     expect(previousA).toBe('2026-09-17');
+  });
+
+  it('refreshes visible Schedule sources only after a 60-second foreground return and leaves manual refresh unrestricted', async () => {
+    const date = '2026-09-18';
+    const previousDate = initialServerState('account-a', date);
+    await render('account-a', date);
+    await flush();
+    harness.server[serverKey('account-a', datePath(date))] = [schedule('foreground-selected', 'Foreground selected', date)];
+    harness.server[serverKey('account-a', datePath(previousDate))] = [schedule('foreground-previous', 'Foreground previous', previousDate)];
+    harness.server[serverKey('account-a', ddayPath)] = [schedule('foreground-dday', 'Foreground D-day', '2026-09-22', true)];
+    harness.server[serverKey('account-a', monthRangePath(date))] = monthPage([
+      schedule('foreground-month', 'Foreground month', '2026-09-24'),
+    ], date);
+    harness.requests = [];
+    const beforeStorage = storageSnapshot();
+
+    await returnAfter(59_999);
+    await flush();
+    expect(harness.requests).toHaveLength(0);
+    expect(host.querySelector('[data-testid="month-source"]')?.textContent).toBe('account-a month old');
+
+    await returnAfter(60_000);
+    await flush();
+    expect(harness.requests).toHaveLength(4);
+    expect(harness.requests.map(request => request.path).sort()).toEqual([
+      datePath(date), datePath(previousDate), ddayPath, monthRangePath(date),
+    ].sort());
+    expect(harness.requests.every(request => request.account === 'account-a' && request.method === 'GET'
+      && request.path.startsWith('/api/schedules'))).toBe(true);
+    expect(host.querySelector('[data-testid="selected-source"]')?.textContent).toBe('Foreground selected');
+    expect(host.querySelector('[data-testid="previous-source"]')?.textContent).toBe('Foreground previous');
+    expect(host.querySelector('[data-testid="dday-source"]')?.textContent).toBe('Foreground D-day');
+    expect(host.querySelector('[data-testid="month-source"]')?.textContent).toBe('Foreground month');
+    expect(host.querySelector('[data-schedule-refresh-status]')?.getAttribute('data-schedule-refresh-status')).toBe('success');
+    expect(harness.apiMutation).not.toHaveBeenCalled();
+    expect(storageSnapshot()).toBe(beforeStorage);
+
+    harness.requests = [];
+    const manualButton = host.querySelector<HTMLButtonElement>('[data-schedule-manual-refresh]')!;
+    expect(manualButton.disabled).toBe(false);
+    await click('[data-schedule-manual-refresh]');
+    await flush();
+    expect(harness.requests).toHaveLength(4);
+    expect(manualButton.disabled).toBe(false);
+  });
+
+  it('coalesces focus and visibility return events and does not read until both are foregrounded', async () => {
+    const date = '2026-09-18';
+    initialServerState('account-a', date);
+    await render('account-a', date);
+    await flush();
+    harness.requests = [];
+    const startedAt = Date.now();
+    const now = vi.spyOn(Date, 'now').mockReturnValue(startedAt);
+    await backgroundPlanner();
+    now.mockReturnValue(startedAt + 60_000);
+
+    await act(async () => {
+      testDocumentFocused = true;
+      window.dispatchEvent(new Event('focus'));
+    });
+    expect(harness.requests).toHaveLength(0);
+
+    await act(async () => {
+      testVisibility = 'visible';
+      document.dispatchEvent(new Event('visibilitychange'));
+      window.dispatchEvent(new Event('focus'));
+      document.dispatchEvent(new Event('visibilitychange'));
+      now.mockRestore();
+    });
+    await flush();
+
+    expect(harness.requests).toHaveLength(4);
+    expect(harness.requests.filter(request => request.path === monthRangePath(date))).toHaveLength(1);
+  });
+
+  it('reports offline and partial-source foreground refreshes without discarding prior verified data', async () => {
+    const date = '2026-09-18';
+    const previousDate = initialServerState('account-a', date);
+    await render('account-a', date);
+    await flush();
+    expect(host.querySelector('[data-testid="month-source"]')?.textContent).toBe('account-a month old');
+    harness.requests = [];
+    Object.defineProperty(window.navigator, 'onLine', { configurable: true, value: false });
+    await returnAfter(60_000);
+    expect(host.querySelector('[data-schedule-refresh-status]')).toBeNull();
+    expect(harness.requests).toHaveLength(0);
+    expect(host.querySelector('[data-testid="month-source"]')?.textContent).toBe('account-a month old');
+    expect(host.querySelector('[data-testid="previous-source"]')?.textContent).toBe('account-a previous old');
+
+    Object.defineProperty(window.navigator, 'onLine', { configurable: true, value: true });
+    harness.failNextPath = datePath(previousDate);
+    harness.requests = [];
+    await returnAfter(60_000);
+    await flush();
+    expect(host.querySelector('[data-schedule-refresh-status]')?.getAttribute('data-schedule-refresh-status')).toBe('incomplete');
+    expect(harness.requests.map(request => request.path)).toContain(datePath(previousDate));
+    expect(host.querySelector('[data-testid="previous-source"]')?.textContent).toBe('account-a previous old');
+    expect(harness.requests.every(request => request.method === 'GET')).toBe(true);
+    expect(harness.apiMutation).not.toHaveBeenCalled();
+  });
+
+  it('keeps the prior complete month when foreground pagination is incomplete', async () => {
+    const date = '2026-09-18';
+    initialServerState('account-a', date);
+    await render('account-a', date);
+    await flush();
+    harness.server[serverKey('account-a', monthRangePath(date))] = monthPage([
+      schedule('foreground-partial', 'Incomplete foreground row', '2026-09-24'),
+    ], date, 'foreground-next-page', 2);
+    harness.failNextPath = monthRangePath(date, 'foreground-next-page');
+    harness.requests = [];
+
+    await returnAfter(60_000);
+    await flush();
+
+    expect(harness.requests.map(request => request.path)).toContain(monthRangePath(date));
+    expect(harness.requests.map(request => request.path)).toContain(monthRangePath(date, 'foreground-next-page'));
+    expect(host.querySelector('[data-testid="month-source"]')?.textContent).toBe('account-a month old');
+    expect(host.textContent).not.toContain('Incomplete foreground row');
+    expect(host.querySelector('[data-schedule-refresh-status]')?.getAttribute('data-schedule-refresh-status')).toBe('incomplete');
+    expect(harness.apiMutation).not.toHaveBeenCalled();
+  });
+
+  it('fences foreground refresh completions across A-B-A, selected-date changes, and unmount', async () => {
+    const dateA = '2026-09-18';
+    const dateB = '2026-09-19';
+    initialServerState('account-a', dateA);
+    initialServerState('account-b', dateA);
+    harness.server[serverKey('account-a', datePath(dateA))] = [schedule('a-current', 'A current', dateA)];
+    await render('account-a', dateA);
+    await flush();
+
+    const staleA = deferred<unknown>();
+    harness.deferNextPath = datePath(dateA);
+    harness.deferredResponse = staleA.promise;
+    harness.requests = [];
+    await returnAfter(60_000);
+    await flush();
+    expect(harness.requests.some(request => request.account === 'account-a' && request.path === datePath(dateA))).toBe(true);
+    await render('account-b', dateA);
+    await flush();
+    await render('account-a', dateA);
+    await flush();
+    staleA.resolve([schedule('a-stale', 'STALE foreground A', dateA)]);
+    await flush();
+    expect(host.querySelector('[data-testid="selected-source"]')?.textContent).toBe('A current');
+    expect(host.textContent).not.toContain('STALE foreground A');
+
+    initialServerState('account-a', dateB);
+    harness.server[serverKey('account-a', datePath(dateB))] = [schedule('date-b-current', 'Date B current', dateB)];
+    const staleDate = deferred<unknown>();
+    harness.deferNextPath = datePath(dateA);
+    harness.deferredResponse = staleDate.promise;
+    harness.requests = [];
+    await returnAfter(60_000);
+    await flush();
+    await render('account-a', dateB);
+    await flush();
+    staleDate.resolve([schedule('date-a-stale', 'STALE foreground date A', dateA)]);
+    await flush();
+    expect(host.querySelector('[data-testid="selected-source"]')?.textContent).toBe('Date B current');
+    expect(host.textContent).not.toContain('STALE foreground date A');
+
+    const unmounted = deferred<unknown>();
+    harness.deferNextPath = datePath(dateB);
+    harness.deferredResponse = unmounted.promise;
+    harness.requests = [];
+    await returnAfter(60_000);
+    await flush();
+    expect(harness.requests.some(request => request.path === datePath(dateB))).toBe(true);
+    await act(async () => { root.render(createElement('div', null, 'Planner unmounted')); });
+    const requestCountAtUnmount = harness.requests.length;
+    unmounted.resolve([schedule('unmounted-stale', 'STALE after unmount', dateB)]);
+    await flush();
+    expect(harness.requests).toHaveLength(requestCountAtUnmount);
+    expect(harness.apiMutation).not.toHaveBeenCalled();
+  });
+
+  it('joins the existing post-mutation month read when the foreground refresh returns', async () => {
+    const date = '2026-09-18';
+    initialServerState('account-a', date);
+    await render('account-a', date);
+    await flush();
+    await click('[data-testid="open-create-form"]');
+    await setInputValue('input[type="text"]', 'Mutation in flight');
+    await setInputValue('input[type="date"]', '2026-09-19');
+
+    const mutationMonth = deferred<unknown>();
+    harness.deferNextPath = monthRangePath(date);
+    harness.deferredResponse = mutationMonth.promise;
+    harness.server[serverKey('account-a', monthRangePath(date))] = monthPage([
+      schedule('mutation-row', 'Mutation result', '2026-09-19'),
+    ], date);
+    harness.apiMutation.mockResolvedValue(true);
+    harness.requests = [];
+    await clickSaveSchedule();
+    await flush();
+    expect(harness.requests.filter(request => request.path === monthRangePath(date))).toHaveLength(1);
+    expect(host.querySelector('[data-schedule-month-mutation-status]')?.getAttribute('data-schedule-month-mutation-status')).toBe('refreshing');
+
+    await returnAfter(60_000);
+    await flush();
+    expect(harness.requests.filter(request => request.path === monthRangePath(date))).toHaveLength(1);
+    expect(harness.requests.some(request => request.path === datePath(date))).toBe(true);
+    expect(harness.requests.some(request => request.path === datePath('2026-09-17'))).toBe(true);
+    expect(harness.requests.some(request => request.path === ddayPath)).toBe(true);
+
+    mutationMonth.resolve(harness.server[serverKey('account-a', monthRangePath(date))]);
+    await flush();
+    expect(host.querySelector('[data-testid="month-source"]')?.textContent).toBe('Mutation result');
+    expect(host.querySelector('[data-schedule-month-mutation-status]')?.getAttribute('data-schedule-month-mutation-status')).toBe('success');
+    expect(host.querySelector('[data-schedule-refresh-status]')?.getAttribute('data-schedule-refresh-status')).toBe('success');
+    expect(harness.apiMutation).toHaveBeenCalledTimes(1);
+    expect(harness.requests.every(request => request.method === 'GET')).toBe(true);
   });
 
   it('keeps the button accessible and performs no read while offline or unauthenticated', async () => {
