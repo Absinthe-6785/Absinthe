@@ -2394,6 +2394,8 @@ const translationKeys = [
   "notesInitialPublishBlockedContent",
   "notesInitialPublishBlockedAttachmentMetadata",
   "notesInitialPublishBlockedAttachmentOriginals",
+  "notesInitialPublishFolderOmission",
+  "notesInitialPublishEmptyPropertiesScope",
 ] as const;
 
 export type TranslationKey = (typeof translationKeys)[number];

@@ -33,9 +33,10 @@ function diagnosticsForPreflight(reasons: readonly NotesCloudCopyPreflightReason
   return [...new Set(reasons.map(reason => preflightDiagnosticKeys[reason]))];
 }
 
-export function NotesLaptopPublicationAction({ accountId, noteId, ledger, isOwnerCurrent, onVerified, initialAdoption = false, knownDeletedIds = [] }: {
+export function NotesLaptopPublicationAction({ accountId, noteId, folderId, ledger, isOwnerCurrent, onVerified, initialAdoption = false, knownDeletedIds = [] }: {
   accountId: string;
   noteId: string;
+  folderId: string | null;
   ledger: Map<string, LaptopPublicationPayload>;
   isOwnerCurrent: () => boolean;
   onVerified: () => void;
@@ -47,26 +48,33 @@ export function NotesLaptopPublicationAction({ accountId, noteId, ledger, isOwne
   const key = JSON.stringify([accountId, noteId]);
   const [approvalOperationId, setApprovalOperationId] = useState(initialAdoption ? INITIAL_PUBLICATION_POLICY : '');
   const [acknowledged, setAcknowledged] = useState(false);
+  const [folderAcknowledged, setFolderAcknowledged] = useState(false);
   const [candidate, setCandidate] = useState<LaptopPublicationPreview | null>(null);
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<readonly TranslationKey[] | null>(null);
   const [dispatched, setDispatched] = useState(() => ledger.has(key));
   const lifetime = useRef<object | null>(null);
   const pending = useRef<symbol | null>(null);
+  const folderOmissionRequired = initialAdoption && folderId !== null;
   useLayoutEffect(() => {
     const token = {};
     lifetime.current = token;
+    pending.current = null;
+    setAcknowledged(false); setFolderAcknowledged(false); setCandidate(null); setFeedback(null);
+    setBusy(false); setDispatched(ledger.has(key));
     const unsubscribe = subscribeNotesAuthorityRequestChange(() => {
       // A-B-A cannot revive an in-flight preparation or confirmation.
       lifetime.current = null; pending.current = null;
-      setCandidate(null); setBusy(false); setFeedback(['notesLaptopPublishSourceChanged']);
+      setAcknowledged(false); setFolderAcknowledged(false); setCandidate(null); setBusy(false);
+      setFeedback(['notesLaptopPublishSourceChanged']);
     });
     return () => { lifetime.current = null; pending.current = null; unsubscribe(); };
-  }, []);
+  }, [accountId, noteId, folderId, initialAdoption, ledger, key]);
   const current = (token: object | null) => !!token && lifetime.current === token && isOwnerCurrent();
   const run = async (mode: 'prepare' | 'publish' | 'status') => {
     if (pending.current || !lifetime.current || !isOwnerCurrent()) return;
-    if (initialAdoption && mode !== 'status' && (!acknowledged || knownDeletedIds.includes(noteId))) return;
+    if (initialAdoption && mode !== 'status' && (!acknowledged || knownDeletedIds.includes(noteId)
+      || (folderOmissionRequired && !folderAcknowledged))) return;
     if (mode !== 'status' && ledger.has(key)) { setDispatched(true); setCandidate(null); return; }
     const prior = ledger.get(key);
     if (mode === 'status' && !prior) return;
@@ -77,7 +85,15 @@ export function NotesLaptopPublicationAction({ accountId, noteId, ledger, isOwne
     pending.current = request; setBusy(true); setFeedback(null);
     const owned = () => pending.current === request && current(token);
     try {
-      const preview = mode === 'publish' ? candidate! : await preflightLocalNoteForCloudCopy(noteId);
+      const preview = mode === 'publish' ? candidate! : initialAdoption
+        ? await preflightLocalNoteForCloudCopy(noteId, undefined, {
+          // A recorded dispatch permits read-only status validation after remount,
+          // not a second write. Publish/prepare still require fresh visible consent.
+          ...(folderOmissionRequired && (folderAcknowledged || (mode === 'status' && !!prior))
+            ? { folderDisposition: 'omit-from-cloud-text' as const } : {}),
+          omitEmptyProperties: true,
+        })
+        : await preflightLocalNoteForCloudCopy(noteId);
       if (!owned()) return;
       if (preview.status !== 'ELIGIBLE_PREVIEW_ONLY') {
         if (owned()) { setCandidate(null); setFeedback(diagnosticsForPreflight(preview.reasons)); }
@@ -118,14 +134,20 @@ export function NotesLaptopPublicationAction({ accountId, noteId, ledger, isOwne
   const button = 'border rounded-xl px-3 py-1 text-sm font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50';
   return <div data-laptop-publication className="mt-2 space-y-2" role="group" aria-label={`${t('notesLaptopPublishAction')} ${noteId}`}>
     <p className="text-sm text-muted-foreground" id={`${id}-scope`}>{t(initialAdoption ? 'notesInitialPublishScope' : 'notesLaptopPublishScope')}</p>
+    {initialAdoption ? <p className="text-sm text-muted-foreground">{t('notesInitialPublishEmptyPropertiesScope')}</p> : null}
     {dispatched || ledger.has(key) ? <>
       <p>{t('notesLaptopPublishRepeatBlocked')}</p>
       <button type="button" className={button} disabled={busy} onClick={() => { void run('status'); }}>
         {t(busy ? 'notesLaptopPublishWorking' : 'notesLaptopPublishReadback')}
       </button>
     </> : <>
-      {initialAdoption ? <label className="block"><input type="checkbox" checked={acknowledged}
-        disabled={busy || !!candidate} onChange={event => setAcknowledged(event.currentTarget.checked)} /> {t('notesInitialPublishAcknowledge')}</label> : <>
+      {initialAdoption ? <>
+      <label className="block"><input type="checkbox" checked={acknowledged}
+        disabled={busy || !!candidate} onChange={event => setAcknowledged(event.currentTarget.checked)} /> {t('notesInitialPublishAcknowledge')}</label>
+      {folderOmissionRequired ? <label className="block"><input type="checkbox" checked={folderAcknowledged}
+        disabled={busy || !!candidate} onChange={event => setFolderAcknowledged(event.currentTarget.checked)} />
+        {t('notesInitialPublishFolderOmission')}</label> : null}
+      </> : <>
       <label htmlFor={`${id}-approval`} className="block">{t('notesLaptopPublishApprovalId')}</label>
       <input id={`${id}-approval`} type="text" maxLength={512} autoComplete="off" spellCheck={false}
         className="w-full rounded-lg border border-border bg-surface px-3 py-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
@@ -133,12 +155,13 @@ export function NotesLaptopPublicationAction({ accountId, noteId, ledger, isOwne
         onChange={event => { setApprovalOperationId(event.currentTarget.value); setCandidate(null); }} /></>}
       {candidate ? <div role="group" aria-label={t('notesLaptopPublishConfirm')}>
         <p>{t(initialAdoption ? 'notesInitialPublishAcknowledge' : 'notesLaptopPublishPrompt')}</p>
+        {candidate.folderExcludedFromSnapshot ? <p className="text-sm text-muted-foreground">{t('notesInitialPublishFolderOmission')}</p> : null}
         <code className="break-all">{noteId}</code>
         <button type="button" className={button} disabled={busy} onClick={() => { void run('publish'); }}>
           {t(busy ? 'notesLaptopPublishWorking' : 'notesLaptopPublishConfirm')}
         </button>
         <button type="button" className={`${button} ml-2`} disabled={busy} onClick={() => { setCandidate(null); setFeedback(null); }}>{t('cancel')}</button>
-      </div> : <button type="button" className={button} disabled={busy || (initialAdoption && !acknowledged) || !approvalOperationId.trim() || approvalOperationId !== approvalOperationId.trim()}
+      </div> : <button type="button" className={button} disabled={busy || (initialAdoption && (!acknowledged || (folderOmissionRequired && !folderAcknowledged))) || !approvalOperationId.trim() || approvalOperationId !== approvalOperationId.trim()}
         onClick={() => { void run('prepare'); }}>{t(busy ? 'notesLaptopPublishWorking' : initialAdoption ? 'notesInitialPublishAction' : 'notesLaptopPublishAction')}</button>}
     </>}
     {feedback ? <div role="status" aria-live="polite">

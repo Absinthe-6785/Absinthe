@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { NoteBase } from '../components/views/noteUtils';
+import type { NoteBase, NoteFolderBase } from '../components/views/noteUtils';
 import type { NotesAuthorityRequest } from './notesAccountAuthority';
+import { requestInitialLaptopPublication, INITIAL_PUBLICATION_POLICY } from './notesLaptopPublication';
 import {
   preflightLocalNoteForCloudCopy,
   type NotesCloudCopyLocalPreflightDependencies,
@@ -17,17 +18,21 @@ const baseNote = (): NoteBase => ({
   starred: false,
 });
 
-function harness(overrides: Partial<NoteBase> = {}) {
+function harness(overrides: Partial<NoteBase> = {}, folderOverrides?: readonly NoteFolderBase[]) {
   const requestA: NotesAuthorityRequest = Object.freeze({ accountId: 'account-a', generation: 1 });
   let request: NotesAuthorityRequest | null = requestA;
   let accountId: string | null = 'account-a';
   const source = { ...baseNote(), ...overrides };
   let notes: NoteBase[] = [source];
+  let folders: NoteFolderBase[] = folderOverrides ? [...folderOverrides] : source.folderId === null ? [] : [
+    { id: source.folderId, name: 'Original local folder', createdAt: 5 },
+  ];
   let state = {
     notes,
+    folders,
     activeAccountId: 'account-a',
     notesAuthorityState: 'LOADED_POPULATED',
-    foldersAuthorityState: 'LOADED_EMPTY',
+    foldersAuthorityState: folders.length > 0 ? 'LOADED_POPULATED' : 'LOADED_EMPTY',
     vaultStructureVersion: 4,
     indexContentVersion: 9,
   };
@@ -62,6 +67,7 @@ function harness(overrides: Partial<NoteBase> = {}) {
     deps,
     source,
     get notes() { return notes; },
+    get folders() { return folders; },
     get request() { return request; },
     get metadata() { return metadata; },
     set metadata(value) { metadata = value; },
@@ -69,9 +75,13 @@ function harness(overrides: Partial<NoteBase> = {}) {
     set persistedStatus(value) { persistedStatus = value; },
     set persistedReason(value) { persistedReason = value; },
     set notes(value) { notes = value; state = { ...state, notes }; },
+    set folders(value) {
+      folders = value;
+      state = { ...state, folders, foldersAuthorityState: folders.length > 0 ? 'LOADED_POPULATED' : 'LOADED_EMPTY' };
+    },
     set request(value) { request = value; },
     set accountId(value) { accountId = value; },
-    set state(value) { state = value; notes = value.notes; },
+    set state(value) { state = value; notes = value.notes; folders = value.folders; },
     metadataRead,
     persistedRead,
   };
@@ -134,6 +144,153 @@ describe('read-only local Note cloud-copy preflight', () => {
     }
     const restored = harness({ deletedAt: null });
     expect((await preflightLocalNoteForCloudCopy('local-note-1', restored.deps)).status).toBe('ELIGIBLE_PREVIEW_ONLY');
+  });
+
+  it('omits a verified local folder only with explicit folder disposition and preserves the Note and folder', async () => {
+    const folder = { id: 'folder-1', name: 'Original local folder', createdAt: 5 };
+    const h = harness({ folderId: folder.id }, [folder]);
+    const noteBefore = structuredClone(h.source);
+    const foldersBefore = structuredClone(h.folders);
+
+    expect(reasons(await preflightLocalNoteForCloudCopy('local-note-1', h.deps))).toContain('FOLDER_UNSUPPORTED');
+    const result = await preflightLocalNoteForCloudCopy('local-note-1', h.deps, {
+      folderDisposition: 'omit-from-cloud-text',
+    });
+
+    expect(result.status).toBe('ELIGIBLE_PREVIEW_ONLY');
+    if (result.status !== 'ELIGIBLE_PREVIEW_ONLY') return;
+    expect(result.localNoteId).toBe(noteBefore.id);
+    expect(result.folderExcludedFromSnapshot).toBe(true);
+    expect(result.snapshot).toEqual({
+      title: noteBefore.title, body: noteBefore.body, updated_at: noteBefore.updatedAt, starred: noteBefore.starred,
+    });
+    expect(result.snapshot).not.toHaveProperty('folderId');
+    expect(h.source).toEqual(noteBefore);
+    expect(h.folders).toEqual(foldersBefore);
+    expect(await result.checkCurrent()).toBeNull();
+
+    folder.name = 'Changed while prepared';
+    expect(await result.checkCurrent()).toBe('SOURCE_CHANGED');
+    expect(h.source.folderId).toBe(noteBefore.folderId);
+  });
+
+  it('fails closed for omitted folders that are missing, duplicated, or not under loaded folder authority', async () => {
+    const option = { folderDisposition: 'omit-from-cloud-text' } as const;
+    const missing = harness({ folderId: 'folder-1' }, []);
+    expect(reasons(await preflightLocalNoteForCloudCopy('local-note-1', missing.deps, option)))
+      .toContain('FOLDER_UNSUPPORTED');
+
+    const duplicate = harness({ folderId: 'folder-1' }, [
+      { id: 'folder-1', name: 'First', createdAt: 1 },
+      { id: 'folder-1', name: 'Second', createdAt: 2 },
+    ]);
+    expect(reasons(await preflightLocalNoteForCloudCopy('local-note-1', duplicate.deps, option)))
+      .toContain('FOLDER_UNSUPPORTED');
+
+    const unavailable = harness({ folderId: 'folder-1' });
+    unavailable.state = { ...unavailable.deps.getStoreState(), foldersAuthorityState: 'UNAVAILABLE' };
+    expect(reasons(await preflightLocalNoteForCloudCopy('local-note-1', unavailable.deps, option)))
+      .toContain('NOTES_AUTHORITY_UNAVAILABLE');
+  });
+
+  it('allows only explicitly opted-in empty properties and preserves the entire original', async () => {
+    const folder = { id: 'folder-1', name: 'Original folder', createdAt: 1 };
+    const h = harness({ folderId: folder.id, properties: {} }, [folder]);
+    const before = structuredClone(h.source);
+    const options = { folderDisposition: 'omit-from-cloud-text', omitEmptyProperties: true } as const;
+    const result = await preflightLocalNoteForCloudCopy(h.source.id, h.deps, options);
+    expect(result.status).toBe('ELIGIBLE_PREVIEW_ONLY');
+    if (result.status !== 'ELIGIBLE_PREVIEW_ONLY') return;
+    expect(result.snapshot).toEqual({ title: before.title, body: before.body, updated_at: before.updatedAt, starred: false });
+    expect(h.source).toEqual(before);
+    expect(h.source.properties).toBeDefined();
+    expect(await result.checkCurrent()).toBeNull(); // cloned durable {} must match by shape
+    h.source.properties!.newKey = '';
+    expect(result.isCurrentInMemory()).toBe(false);
+    expect(await result.checkCurrent()).toBe('SOURCE_CHANGED');
+  });
+
+  it('keeps default Cloud Copy strict, and rejects nonempty or malformed properties under the opt-in', async () => {
+    const empty = harness({ properties: {} });
+    expect(reasons(await preflightLocalNoteForCloudCopy(empty.source.id, empty.deps))).toContain('PROPERTIES_UNSUPPORTED');
+    for (const properties of [{ tags: 'private' }, { tags: '' }, null, [], '', Object.create({ inherited: 'value' }),
+      Object.defineProperty({}, 'hidden', { value: '' }), { [Symbol('hidden')]: '' }]) {
+      const h = harness();
+      Object.assign(h.source, { properties });
+      const result = await preflightLocalNoteForCloudCopy(h.source.id, h.deps, { omitEmptyProperties: true });
+      expect(result.status).toBe('INELIGIBLE');
+      expect(reasons(result).some(reason => reason === 'PROPERTIES_UNSUPPORTED' || reason === 'NOTE_INCOMPLETE')).toBe(true);
+    }
+  });
+
+  it('serializes only unchanged text and original identity after the real opt-in preflight', async () => {
+    const h = harness({ folderId: 'folder-1', properties: {} });
+    const before = structuredClone(h.source);
+    const preview = await preflightLocalNoteForCloudCopy(h.source.id, h.deps, {
+      folderDisposition: 'omit-from-cloud-text', omitEmptyProperties: true,
+    });
+    expect(preview.status).toBe('ELIGIBLE_PREVIEW_ONLY');
+    if (preview.status !== 'ELIGIBLE_PREVIEW_ONLY') return;
+    const fetch = vi.fn(async () => new Response(JSON.stringify({
+      status: 'VERIFIED', noteId: h.source.id, policy: INITIAL_PUBLICATION_POLICY,
+    })));
+    const payload = { noteId: h.source.id, approvalOperationId: INITIAL_PUBLICATION_POLICY, snapshot: preview.snapshot };
+    const deps = {
+      featureEnabled: () => true, isTransportAvailable: () => true, getRuntimeAccountId: () => 'account-a',
+      getSession: vi.fn(async () => ({ data: { session: { access_token: 'synthetic', user: { id: 'account-a' } } }, error: null })) as any,
+      getKnownDeletedIds: () => [], fetch, apiUrl: 'https://example.test',
+    };
+    expect(await requestInitialLaptopPublication('publish', payload, 'account-a', preview, () => true, () => true, deps)).toBe('VERIFIED');
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse((vi.mocked(fetch).mock.calls as any)[0][1].body);
+    expect(body).toEqual({
+      noteId: before.id, policy: INITIAL_PUBLICATION_POLICY, knownDeletedIds: [],
+      snapshot: { title: before.title, body: before.body, updated_at: before.updatedAt, starred: before.starred },
+    });
+    expect(h.source).toEqual(before);
+    h.source.properties!.entry = 'new authored property';
+    fetch.mockClear();
+    expect(await requestInitialLaptopPublication('publish', payload, 'account-a', preview, () => true, () => true, deps)).toBe('SOURCE_CHANGED');
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('rejects durable property or folder differences rather than comparing only the text snapshot', async () => {
+    const options = { folderDisposition: 'omit-from-cloud-text', omitEmptyProperties: true } as const;
+    for (const change of [{ properties: { entry: '' } }, { properties: undefined }, { folderId: null }]) {
+      const h = harness({ folderId: 'folder-1', properties: {} });
+      h.persistedNotes = [{ ...h.source, ...change }];
+      expect(reasons(await preflightLocalNoteForCloudCopy(h.source.id, h.deps, options)))
+        .toContain('LOCAL_PERSISTENCE_UNVERIFIED');
+    }
+    const h = harness({ properties: {} });
+    const result = await preflightLocalNoteForCloudCopy(h.source.id, h.deps, options);
+    expect(result.status).toBe('ELIGIBLE_PREVIEW_ONLY');
+    if (result.status !== 'ELIGIBLE_PREVIEW_ONLY') return;
+    h.persistedNotes = [{ ...h.source, properties: { value: '' } }];
+    expect(await result.checkCurrent()).toBe('LOCAL_PERSISTENCE_UNVERIFIED');
+  });
+
+  it('retains attachment, relation, deleted, and stale-account denials for the text-only opt-in', async () => {
+    const options = { folderDisposition: 'omit-from-cloud-text', omitEmptyProperties: true } as const;
+    for (const [overrides, reason] of [
+      [{ relations: {} }, 'RELATIONS_UNSUPPORTED'], [{ deletedAt: 30 }, 'NOTE_NOT_ACTIVE'],
+      [{ body: 'attachment://asset' }, 'ATTACHMENT_CONTENT_UNSUPPORTED'],
+    ] as const) {
+      const h = harness({ properties: {}, ...overrides });
+      expect(reasons(await preflightLocalNoteForCloudCopy(h.source.id, h.deps, options))).toContain(reason);
+    }
+    const h = harness({ properties: {} });
+    h.metadata = { status: 'INCOMPLETE' };
+    expect(reasons(await preflightLocalNoteForCloudCopy(h.source.id, h.deps, options))).toContain('ATTACHMENT_METADATA_INCOMPLETE');
+    h.metadata = { status: 'COMPLETE', matchingRecords: 1 };
+    expect(reasons(await preflightLocalNoteForCloudCopy(h.source.id, h.deps, options))).toContain('ATTACHMENT_ORIGINALS_PRESENT');
+    h.metadata = { status: 'COMPLETE', matchingRecords: 0 };
+    const result = await preflightLocalNoteForCloudCopy(h.source.id, h.deps, options);
+    expect(result.status).toBe('ELIGIBLE_PREVIEW_ONLY');
+    if (result.status !== 'ELIGIBLE_PREVIEW_ONLY') return;
+    h.request = { accountId: 'account-b', generation: 2 };
+    h.request = { accountId: 'account-a', generation: 3 };
+    expect(await result.checkCurrent()).toBe('SOURCE_CHANGED');
   });
 
   it('requires complete attachment ownership metadata and an empty exact-Note inventory', async () => {

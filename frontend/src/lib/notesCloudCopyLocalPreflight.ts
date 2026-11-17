@@ -12,7 +12,7 @@ import {
 import type { AttachmentMetadataInspection } from './attachmentRepository';
 import { findAttachmentReferencesInText, noteBodyContainsRawBlob } from './attachmentRepository';
 import { observePublishedNotesHydration, useNotesStore } from '../store/useNotesStore';
-import type { NoteBase } from '../components/views/noteUtils';
+import type { NoteBase, NoteFolderBase } from '../components/views/noteUtils';
 
 export type NotesCloudCopyPreflightReason =
   | 'INVALID_LOCAL_NOTE_ID'
@@ -55,6 +55,8 @@ export type NotesCloudCopyLocalPreflightResult =
     status: 'ELIGIBLE_PREVIEW_ONLY';
     authority: 'NONE';
     localNoteId: string;
+    /** True only when a verified local folder is intentionally omitted from the cloud text snapshot. */
+    folderExcludedFromSnapshot: boolean;
     snapshot: NotesCloudCopySnapshot;
     sourceRevision: NotesCloudCopySourceRevision;
     /** Synchronous fence for the final authenticated request-start callback. */
@@ -67,6 +69,7 @@ export type NotesCloudCopyLocalPreflightResult =
 
 interface NotesPreflightStoreState {
   readonly notes: NoteBase[];
+  readonly folders: NoteFolderBase[];
   readonly activeAccountId: string | null;
   readonly notesAuthorityState: string;
   readonly foldersAuthorityState: string;
@@ -84,6 +87,13 @@ export interface NotesCloudCopyLocalPreflightDependencies {
     isCurrent: () => boolean,
   ) => Promise<AccountScopedNotesReadback>;
   readonly inspectAttachmentMetadata: (accountId: string, noteId: string) => Promise<AttachmentMetadataInspection>;
+}
+
+export interface NotesCloudCopyLocalPreflightOptions {
+  /** Opt-in for initial laptop text publication after explicit UI confirmation of folder omission. */
+  readonly folderDisposition?: 'omit-from-cloud-text';
+  /** Initial laptop text publication only: omit a proven empty plain properties record. */
+  readonly omitEmptyProperties?: true;
 }
 
 const metadataRepository = createLocalAttachmentMetadataRepository();
@@ -110,6 +120,47 @@ const SUPPORTED_NOTE_KEYS = new Set([
 const UNSUPPORTED_CLOUD_BODY = /(data:|blob:|attachment:|resource:|!\[|<(?:img|video|audio|object|embed|iframe)\b)/i;
 
 type CapturedSource = Readonly<{ keys: readonly string[]; values: Readonly<Record<string, unknown>> }>;
+const EMPTY_PROPERTIES = Object.freeze({});
+
+function isEmptyProperties(value: unknown): boolean {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+    && Object.getPrototypeOf(value) === Object.prototype && Reflect.ownKeys(value).length === 0;
+}
+type CapturedFolderSource = Readonly<{
+  folder: NoteFolderBase;
+  id: string;
+  name: string;
+  createdAt: number;
+}>;
+
+function captureFolderSource(folders: unknown, folderId: string): CapturedFolderSource | null {
+  try {
+    if (!Array.isArray(folders)) return null;
+    const matches = folders.filter(folder => {
+      if (!folder || typeof folder !== 'object' || Array.isArray(folder)
+        || Object.getPrototypeOf(folder) !== Object.prototype) return false;
+      const candidateId = Object.getOwnPropertyDescriptor(folder, 'id');
+      return !!candidateId && 'value' in candidateId && candidateId.value === folderId;
+    });
+    if (matches.length !== 1) return null;
+    const folder = matches[0] as NoteFolderBase;
+    if (Object.getPrototypeOf(folder) !== Object.prototype) return null;
+    const id = Object.getOwnPropertyDescriptor(folder, 'id');
+    const name = Object.getOwnPropertyDescriptor(folder, 'name');
+    const createdAt = Object.getOwnPropertyDescriptor(folder, 'createdAt');
+    if (!id || !('value' in id) || id.value !== folderId
+      || !name || !('value' in name) || typeof name.value !== 'string'
+      || !createdAt || !('value' in createdAt) || typeof createdAt.value !== 'number'
+      || !Number.isFinite(createdAt.value)) return null;
+    return Object.freeze({ folder, id: id.value, name: name.value, createdAt: createdAt.value });
+  } catch { return null; }
+}
+
+function matchesCapturedFolder(value: unknown, captured: CapturedFolderSource): boolean {
+  const next = captureFolderSource(value, captured.id);
+  return !!next && next.folder === captured.folder && next.id === captured.id
+    && next.name === captured.name && Object.is(next.createdAt, captured.createdAt);
+}
 
 function captureSource(value: unknown): CapturedSource | null {
   try {
@@ -124,7 +175,9 @@ function captureSource(value: unknown): CapturedSource | null {
       // These unsupported metadata domains are rejected by validation before
       // captureSource is retained or any source value is returned.
       if ((key === 'properties' || key === 'relations') && item !== undefined) {
-        values[key] = item;
+        // Compare empty records by shape across JSON readback, not object identity.
+        // Re-evaluate this on every source check so adding any property invalidates it.
+        values[key] = key === 'properties' && isEmptyProperties(item) ? EMPTY_PROPERTIES : item;
         continue;
       }
       // JSON persistence omits optional undefined fields. Treat that as the
@@ -144,7 +197,11 @@ function matchesCapturedSource(value: unknown, captured: CapturedSource): boolea
   return next.keys.every(key => Object.is(next.values[key], captured.values[key]));
 }
 
-function validateSelectedNote(note: unknown, localNoteId: string): NotesCloudCopyPreflightReason[] {
+function validateSelectedNote(
+  note: unknown,
+  localNoteId: string,
+  options: NotesCloudCopyLocalPreflightOptions,
+): NotesCloudCopyPreflightReason[] {
   const reasons: NotesCloudCopyPreflightReason[] = [];
   if (!captureSource(note) || !isCompleteLocalNote(note as NoteBase)
     || (note as NoteBase).id !== localNoteId || typeof (note as NoteBase).starred !== 'boolean') {
@@ -153,8 +210,9 @@ function validateSelectedNote(note: unknown, localNoteId: string): NotesCloudCop
   }
   const source = note as NoteBase;
   if (source.deletedAt !== null) reasons.push('NOTE_NOT_ACTIVE');
-  if (source.folderId !== null) reasons.push('FOLDER_UNSUPPORTED');
-  if (source.properties !== undefined) reasons.push('PROPERTIES_UNSUPPORTED');
+  if (source.folderId !== null && options.folderDisposition !== 'omit-from-cloud-text') reasons.push('FOLDER_UNSUPPORTED');
+  if (source.properties !== undefined
+    && !(options.omitEmptyProperties === true && isEmptyProperties(source.properties))) reasons.push('PROPERTIES_UNSUPPORTED');
   if (source.relations !== undefined) reasons.push('RELATIONS_UNSUPPORTED');
   if (typeof source.body !== 'string' || noteBodyContainsRawBlob(source.body)
     || findAttachmentReferencesInText(source.body).length > 0 || UNSUPPORTED_CLOUD_BODY.test(source.body)) {
@@ -175,6 +233,7 @@ function ineligible(...reasons: NotesCloudCopyPreflightReason[]): NotesCloudCopy
 export async function preflightLocalNoteForCloudCopy(
   localNoteId: unknown,
   dependencies: NotesCloudCopyLocalPreflightDependencies = defaultDependencies,
+  options: NotesCloudCopyLocalPreflightOptions = {},
 ): Promise<NotesCloudCopyLocalPreflightResult> {
   if (typeof localNoteId !== 'string' || localNoteId.length === 0 || localNoteId !== localNoteId.trim()) {
     return ineligible('INVALID_LOCAL_NOTE_ID');
@@ -190,7 +249,7 @@ export async function preflightLocalNoteForCloudCopy(
   const request = publication.request;
   if (dependencies.getActiveRequest() !== request || dependencies.getActiveAccountId() !== request.accountId
     || state.activeAccountId !== request.accountId || state.notesAuthorityState !== 'LOADED_POPULATED'
-    || !Array.isArray(state.notes) || !Number.isSafeInteger(state.vaultStructureVersion)
+    || !Array.isArray(state.notes) || !Array.isArray(state.folders) || !Number.isSafeInteger(state.vaultStructureVersion)
     || !Number.isSafeInteger(state.indexContentVersion)
     || !['LOADED_EMPTY', 'LOADED_POPULATED'].includes(state.foldersAuthorityState)) {
     return ineligible('NOTES_AUTHORITY_UNAVAILABLE');
@@ -200,8 +259,19 @@ export async function preflightLocalNoteForCloudCopy(
   if (matches.length === 0) return ineligible('NOTE_NOT_FOUND');
   if (matches.length !== 1) return ineligible('NOTE_ID_AMBIGUOUS');
   const note = matches[0];
-  const reasons = validateSelectedNote(note, localNoteId);
+  const reasons = validateSelectedNote(note, localNoteId, options);
   if (reasons.length) return ineligible(...reasons);
+  const sourceFolderId = note.folderId;
+  const foldersArray = state.folders;
+  let capturedFolder: CapturedFolderSource | null = null;
+  if (sourceFolderId !== null) {
+    if (options.folderDisposition !== 'omit-from-cloud-text' || state.foldersAuthorityState !== 'LOADED_POPULATED') {
+      return ineligible('FOLDER_UNSUPPORTED');
+    }
+    capturedFolder = captureFolderSource(foldersArray, sourceFolderId);
+    if (!capturedFolder) return ineligible('FOLDER_UNSUPPORTED');
+  }
+  const folderExcludedFromSnapshot = capturedFolder !== null;
   const capturedSource = captureSource(note);
   if (!capturedSource) return ineligible('NOTE_INCOMPLETE');
   const notesArray = state.notes;
@@ -217,6 +287,7 @@ export async function preflightLocalNoteForCloudCopy(
         && latest.notesAuthorityState === 'LOADED_POPULATED'
         && latest.foldersAuthorityState === state.foldersAuthorityState
         && ['LOADED_EMPTY', 'LOADED_POPULATED'].includes(latest.foldersAuthorityState)
+        && (!capturedFolder || (latest.folders === foldersArray && matchesCapturedFolder(latest.folders, capturedFolder)))
         && latest.vaultStructureVersion === state.vaultStructureVersion
         && latest.indexContentVersion === state.indexContentVersion
         && latest.notes === notesArray
@@ -309,6 +380,7 @@ export async function preflightLocalNoteForCloudCopy(
     status: 'ELIGIBLE_PREVIEW_ONLY',
     authority: 'NONE',
     localNoteId,
+    folderExcludedFromSnapshot,
     snapshot,
     sourceRevision,
     isCurrentInMemory: sourceIsCurrent,
