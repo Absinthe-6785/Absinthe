@@ -523,6 +523,7 @@ export function NotesCloudComparisonPanel({ accountId }: { accountId: string | n
               {key === 'localOnly' && accountId && (notesInitialPublicationUiEnabled(accountId) || notesLaptopPublicationUiEnabled(accountId))
                 && eligibleLocalNote(notes, detail.id) && result?.owner === active.current ? <NotesLaptopPublicationAction
                   accountId={accountId} noteId={detail.id} ledger={laptopPublicationLedger.current}
+                  folderId={eligibleLocalNote(notes, detail.id)?.folderId ?? null}
                   initialAdoption={notesInitialPublicationUiEnabled(accountId)}
                   knownDeletedIds={visible.details.deleted.map(item => item.id)}
                   isOwnerCurrent={() => copyOwnerIsCurrent(result.owner, detail.id)}

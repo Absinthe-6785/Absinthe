@@ -2394,6 +2394,8 @@ const enTranslations = [
 "The selected Note contains unsupported attachment references, embedded media, or binary content. Text-only publication is blocked.",
 "Attachment ownership metadata could not be verified as complete for this Note. Publication preparation is blocked.",
 "Attachment metadata records exist for this Note. This text-only flow cannot publish attachment originals.",
+"I explicitly choose text-only publication without the folder. The original Note, its ID, and its folder on this device will remain unchanged.",
+"Only a verified empty properties record is omitted from the text payload. Any property entry, even with an empty value, blocks publication; local properties remain unchanged.",
 ] as const;
 
 export default enTranslations;

@@ -1119,6 +1119,54 @@ it.each(['VERIFIED', 'INDETERMINATE'] as const)('initial publication requires hi
     expect(mock.requestLaptop.mock.calls.every(call => call[0] === 'publish')).toBe(true);
   }
 });
+
+it('requires separate folder-omission consent and preserves the local original Note and folder', async () => {
+  mock.initialEnabled = true;
+  const folder = { id: 'local-folder', name: 'Private local folder', createdAt: 7 };
+  const note = mock.state.notes.find((entry: any) => entry.id === 'local-id');
+  note.folderId = folder.id;
+  note.properties = {};
+  mock.state = { ...mock.state, folders: [folder] };
+  const notesBefore = JSON.stringify(mock.state.notes);
+  const foldersBefore = mock.state.folders;
+  mock.preflightLaptop.mockImplementation(async (_id, _dependencies, options) => ({
+    ...await mock.prepareCloudCopy(),
+    folderExcludedFromSnapshot: options?.folderDisposition === 'omit-from-cloud-text',
+  }));
+
+  await render(); await check(); host.querySelector('details > summary')!.click();
+  const checkboxes = [...laptopRow().querySelectorAll<HTMLInputElement>('input[type=checkbox]')];
+  expect(checkboxes).toHaveLength(2);
+  const prepare = laptopAction('Prepare initial laptop publication');
+  expect(prepare.disabled).toBe(true);
+  await act(async () => checkboxes[0].click());
+  expect(prepare.disabled).toBe(true);
+  expect(mock.preflightLaptop).not.toHaveBeenCalled();
+  await act(async () => checkboxes[1].click());
+  expect(prepare.disabled).toBe(false);
+  await act(async () => prepare.click());
+
+  expect(mock.preflightLaptop).toHaveBeenCalledWith('local-id', undefined, {
+    folderDisposition: 'omit-from-cloud-text',
+    omitEmptyProperties: true,
+  });
+  const confirmation = laptopRow().querySelector('[role="group"][aria-label="Confirm publication of this original ID"]')!;
+  expect(confirmation.textContent).toContain('text-only publication without the folder');
+  expect(confirmation.textContent).toContain('folder on this device will remain unchanged');
+  expect(JSON.stringify(mock.state.notes)).toBe(notesBefore);
+  expect(mock.state.folders).toBe(foldersBefore);
+
+  await act(async () => laptopAction('Confirm publication of this original ID').click());
+  expect(mock.requestLaptop).toHaveBeenCalledTimes(1);
+  expect(mock.requestLaptop.mock.calls[0][1]).toMatchObject({
+    noteId: 'local-id', snapshot: { title: 'Local title', body: 'Local body', updated_at: 10, starred: false },
+  });
+  expect(mock.requestLaptop.mock.calls[0][1]).not.toHaveProperty('folderId');
+  expect(mock.requestLaptop.mock.calls[0][1].snapshot).not.toHaveProperty('properties');
+  expect(mock.state.notes[0].folderId).toBe(folder.id);
+  expect(mock.state.folders).toBe(foldersBefore);
+  expect(mock.createCloudCopy).not.toHaveBeenCalled();
+});
 async function fillLaptopApproval(value = 'operator-operation') {
   await act(async () => {
     const input = laptopRow().querySelector<HTMLInputElement>('[data-laptop-publication] input')!;
@@ -1126,6 +1174,37 @@ async function fillLaptopApproval(value = 'operator-operation') {
     input.dispatchEvent(new Event('input', { bubbles: true }));
   });
 }
+
+it('preserves manual folder publication readback after an indeterminate dispatch and recomparison', async () => {
+  mock.initialEnabled = true;
+  mock.state.notes[0].folderId = 'folder-1';
+  mock.state.notes[0].properties = {};
+  mock.state.folders = [{ id: 'folder-1', name: 'Local folder', createdAt: 1 }];
+  const original = JSON.stringify({ notes: mock.state.notes, folders: mock.state.folders });
+  mock.preflightLaptop.mockImplementation(async (_id, _dependencies, options) => (
+    options?.folderDisposition === 'omit-from-cloud-text' && options?.omitEmptyProperties
+      ? { ...await mock.prepareCloudCopy(), folderExcludedFromSnapshot: true }
+      : { status: 'INELIGIBLE', reasons: ['FOLDER_UNSUPPORTED'] }
+  ));
+  mock.requestLaptop.mockImplementation(async (_mode, _payload, _account, _preview, current, dispatch) =>
+    current() && dispatch() ? 'INDETERMINATE' : 'STALE_RESULT');
+  await render(); await check(); host.querySelector('details > summary')!.click();
+  for (const checkbox of laptopRow().querySelectorAll<HTMLInputElement>('input[type=checkbox]')) {
+    await act(async () => checkbox.click());
+  }
+  await act(async () => laptopAction('Prepare initial laptop publication').click());
+  expect(mock.requestLaptop).not.toHaveBeenCalled();
+  await act(async () => laptopAction('Confirm publication of this original ID').click());
+  expect(mock.requestLaptop).toHaveBeenCalledTimes(1);
+  await check(); host.querySelector('details > summary')!.click();
+  expect(laptopRow().querySelector('input')).toBeNull();
+  expect(mock.requestLaptop).toHaveBeenCalledTimes(1); // no automatic retry/read
+  await act(async () => laptopAction('Read publication status (manual)').click());
+  expect(mock.requestLaptop.mock.calls.map(call => call[0])).toEqual(['publish', 'status']);
+  expect(mock.requestLaptop.mock.calls[1][1]).toEqual(mock.requestLaptop.mock.calls[0][1]);
+  expect(laptopRow().textContent).toContain('Repeat writes are blocked');
+  expect(JSON.stringify({ notes: mock.state.notes, folders: mock.state.folders })).toBe(original);
+});
 async function prepareLaptopPublication() {
   mock.laptopEnabled = true;
   await render(); await check();
