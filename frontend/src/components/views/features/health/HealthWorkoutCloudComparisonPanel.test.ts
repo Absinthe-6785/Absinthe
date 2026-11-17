@@ -34,6 +34,11 @@ beforeEach(() => {
 afterEach(() => { act(() => root.unmount()); host.remove(); useAppStore.setState(state => ({ ...state, appSettings: { ...state.appSettings, language: originalLanguage } })); });
 const render = (id = 'A') => act(() => root.render(createElement(HealthWorkoutCloudComparisonPanel, { accountId: id })));
 const click = async () => { await act(async () => { host.querySelector<HTMLButtonElement>('button')!.click(); }); };
+const setFilter = async (value: string) => await act(async () => {
+  const input = host.querySelector<HTMLInputElement>('input[type="search"]')!;
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+});
 
 describe('manual Health cloud comparison UI', () => {
   it.each(['en', 'ko', 'ja'] as const)('offers only a proven missing exercise and requires separate confirmation in %s', async language => {
@@ -107,6 +112,103 @@ describe('manual Health cloud comparison UI', () => {
     expect(host.querySelector('details ul')?.children).toHaveLength(30);
     expect(host.querySelector('details summary')?.textContent).toContain('40');
     expect(host.textContent).toContain(getTranslator('en')('healthCloudPreviewLimit'));
+  });
+  it.each(['en', 'ko', 'ja'] as const)('localizes an accessible exact comparison filter in %s without starting more reads or writes', async language => {
+    useAppStore.setState(state => ({ ...state, appSettings: { ...state.appSettings, language } }));
+    render(); await click();
+    const t = getTranslator(language), input = host.querySelector<HTMLInputElement>('input[type="search"]')!;
+    expect(input.maxLength).toBe(64);
+    expect(host.querySelector(`label[for="${input.id}"]`)?.textContent).toBe(t('healthCloudFilterLabel'));
+    expect(input.getAttribute('aria-describedby')).toBeTruthy();
+    expect(host.textContent).toContain(t('healthCloudFilterHelp'));
+    await setFilter('2026-10-29');
+    expect(host.textContent).toContain('cloud-id');
+    expect(host.textContent).not.toContain('local-id');
+    expect(host.textContent).toContain(t('healthCloudFilterMatchCount'));
+    expect(Array.from(host.querySelectorAll('details summary')).find(item => item.textContent?.startsWith(t('healthCloudRemoteOnly')))?.textContent).toContain('(1)');
+    expect(services.create).toHaveBeenCalledOnce();
+    expect(services.write).not.toHaveBeenCalled(); expect(services.receive).not.toHaveBeenCalled(); expect(services.mutate).not.toHaveBeenCalled();
+  });
+  it('matches exact local and remote dates and keeps divergent records searchable by either date', async () => {
+    render(); await click();
+    await setFilter('2026-10-28');
+    expect(host.textContent).toContain('different-id');
+    expect(host.textContent).not.toContain('cloud-id');
+    await setFilter('2026-10-27');
+    expect(host.textContent).toContain('different-id');
+    expect(host.textContent).not.toContain('local-id');
+    await setFilter('2026-10');
+    expect(host.textContent).toContain(getTranslator('en')('healthCloudFilterNoMatches'));
+    expect(services.create).toHaveBeenCalledOnce();
+  });
+  it('matches exact full IDs only, reveals a matching row only when filtered, and clears the filter', async () => {
+    render(); await click();
+    await setFilter('cloud');
+    expect(host.textContent).toContain(getTranslator('en')('healthCloudFilterNoMatches'));
+    expect(host.textContent).not.toContain('cloud-id');
+    expect(host.textContent).not.toContain(getTranslator('en')('healthCloudUnavailable'));
+    await setFilter('oud-i');
+    expect(host.textContent).toContain(getTranslator('en')('healthCloudFilterNoMatches'));
+    expect(host.textContent).not.toContain('cloud-id');
+    await setFilter('same-id');
+    expect(host.textContent).toContain('same-id');
+    expect(Array.from(host.querySelectorAll('details summary')).some(item => item.textContent?.startsWith(getTranslator('en')('healthCloudMatching')))).toBe(true);
+    expect(services.create).toHaveBeenCalledOnce();
+    const clear = Array.from(host.querySelectorAll('button')).find(button => button.textContent === getTranslator('en')('healthCloudClearFilter'))!;
+    await act(async () => clear.click());
+    expect(host.querySelector<HTMLInputElement>('input[type="search"]')?.value).toBe('');
+    expect(host.textContent).not.toContain(getTranslator('en')('healthCloudFilterNoMatches'));
+    expect(host.querySelectorAll('details summary')).toHaveLength(4);
+  });
+  it('filters before the 30-row limit while keeping complete category totals unchanged', async () => {
+    const value = report();
+    const rows = Array.from({ length: 40 }, (_, index) => ({ id: `workout-${index}`, localDate: '2026-11-01' }));
+    services.create.mockReturnValue({ compare: async () => ({ ...value, counts: { ...value.counts, localOnly: 40 }, details: { ...value.details, localOnly: rows } }), cancel: vi.fn(), isCurrent: () => true });
+    render(); await click();
+    expect(host.querySelector('details ul')?.children).toHaveLength(30);
+    expect(host.textContent).not.toContain('workout-35');
+    await setFilter('workout-35');
+    expect(host.textContent).toContain('workout-35');
+    expect(host.querySelector('details ul')?.children).toHaveLength(1);
+    expect(host.querySelector('details summary')?.textContent).toContain('40');
+    expect(host.textContent).toContain('Exact matching records in this comparison: 1');
+    expect(host.textContent).not.toContain(getTranslator('en')('healthCloudPreviewLimit'));
+    expect(services.create).toHaveBeenCalledOnce(); expect(services.write).not.toHaveBeenCalled(); expect(services.receive).not.toHaveBeenCalled();
+  });
+  it('uses the exact filtered remote ID for the existing explicitly confirmed receive action', async () => {
+    const receive = vi.fn().mockResolvedValue('DENIED');
+    services.receive.mockReturnValue({ receive, cancel: vi.fn() });
+    render(); await click(); await setFilter('cloud-id');
+    const button = Array.from(host.querySelectorAll('button')).find(item => item.textContent === getTranslator('en')('healthCloudReceive'))!;
+    expect(button).toBeTruthy();
+    await act(async () => button.click());
+    expect(receive).not.toHaveBeenCalled();
+    expect(host.querySelector('[role="group"]')?.textContent).toContain('cloud-id');
+    await act(async () => host.querySelector<HTMLButtonElement>('[role="group"] button')!.click());
+    expect(receive).toHaveBeenCalledOnce();
+    expect(services.receive.mock.calls[0].slice(0, 2)).toEqual(['A', { id: 'cloud-id' }]);
+    expect(services.create).toHaveBeenCalledOnce();
+  });
+  it('clears filtered results on source invalidation and account replacement', async () => {
+    render(); await click(); await setFilter('cloud-id');
+    expect(host.textContent).toContain('cloud-id');
+    act(() => services.create.mock.calls[0][2]());
+    expect(host.querySelector<HTMLInputElement>('input[type="search"]')).toBeNull();
+    expect(host.textContent).not.toContain('cloud-id');
+    await click(); expect(host.querySelector<HTMLInputElement>('input[type="search"]')?.value).toBe('');
+    await setFilter('cloud-id'); render('B'); render('A');
+    expect(host.textContent).not.toContain('cloud-id');
+  });
+  it('distinguishes no exact filter match from an unavailable comparison', async () => {
+    render(); await click(); await setFilter('not-a-workout-id');
+    expect(host.textContent).toContain(getTranslator('en')('healthCloudFilterNoMatches'));
+    expect(host.querySelector('[role="alert"]')).toBeNull();
+    services.create.mockReturnValue({ compare: async () => { throw new Error('unavailable'); }, cancel: vi.fn(), isCurrent: () => true });
+    const check = Array.from(host.querySelectorAll('button')).find(button => button.textContent === getTranslator('en')('healthCloudCheck'))!;
+    await act(async () => check.click());
+    expect(host.textContent).toContain(getTranslator('en')('healthCloudUnavailable'));
+    expect(host.textContent).not.toContain(getTranslator('en')('healthCloudFilterNoMatches'));
+    expect(host.querySelector('dl')).toBeNull();
   });
   it('discards a late A result after A/B/A, cancels on unmount, and allows a fresh manual request', async () => {
     let resolve!: (value: WorkoutComparisonReport) => void;

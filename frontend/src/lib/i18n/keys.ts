@@ -2396,6 +2396,11 @@ const translationKeys = [
   "notesInitialPublishBlockedAttachmentOriginals",
   "notesInitialPublishFolderOmission",
   "notesInitialPublishEmptyPropertiesScope",
+  "healthCloudFilterLabel",
+  "healthCloudFilterHelp",
+  "healthCloudClearFilter",
+  "healthCloudFilterMatchCount",
+  "healthCloudFilterNoMatches",
 ] as const;
 
 export type TranslationKey = (typeof translationKeys)[number];

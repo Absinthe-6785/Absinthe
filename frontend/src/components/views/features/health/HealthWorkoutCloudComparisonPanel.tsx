@@ -1,4 +1,4 @@
-import { useId, useLayoutEffect, useRef, useState } from 'react';
+import { useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from '../../../../lib/i18n';
 import { createWorkoutCloudComparison, WORKOUT_COMPARISON_CATEGORIES, type WorkoutCloudComparison, type WorkoutComparisonReport } from '../../../../lib/healthWorkoutCloudComparison';
 import { createWorkoutCloudSingleCreate, type WorkoutCloudSingleCreate, type WorkoutCreateStatus } from '../../../../lib/healthWorkoutCloudSingleCreate';
@@ -10,10 +10,38 @@ import { createExerciseBlockCloudSingleReceive, type ExerciseBlockCloudSingleRec
 
 const labels = { localOnly: 'healthCloudLocalOnly', remoteOnly: 'healthCloudRemoteOnly', matching: 'healthCloudMatching', divergent: 'healthCloudDivergent', unverifiable: 'healthCloudUnverifiable' } as const;
 
+function isExactCalendarDate(value: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return false;
+  const year = Number(match[1]), month = Number(match[2]), day = Number(match[3]);
+  if (month < 1 || month > 12) return false;
+  const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const daysInMonth = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1]!;
+  return day >= 1 && day <= daysInMonth;
+}
+
+function filterComparisonDetails(report: WorkoutComparisonReport, rawQuery: string) {
+  const query = rawQuery.trim();
+  if (!query) return report.details;
+  const dateQuery = isExactCalendarDate(query);
+  const matches = (row: WorkoutComparisonReport['details'][keyof WorkoutComparisonReport['details']][number]) => dateQuery
+    ? row.localDate === query || row.remoteDate === query
+    : row.id === query;
+  return {
+    localOnly: report.details.localOnly.filter(matches),
+    remoteOnly: report.details.remoteOnly.filter(matches),
+    matching: report.details.matching.filter(matches),
+    divergent: report.details.divergent.filter(matches),
+    unverifiable: report.details.unverifiable.filter(matches),
+  };
+}
+
 export function HealthWorkoutCloudComparisonPanel({ accountId }: { accountId: string }) {
   const { t } = useTranslation();
   const { mutate } = useSWRConfig();
   const heading = useId();
+  const filterInput = useId();
+  const filterHelp = useId();
   const account = useRef({ id: accountId });
   if (account.current.id !== accountId) account.current = { id: accountId };
   const active = useRef<WorkoutCloudComparison | null>(null);
@@ -27,8 +55,9 @@ export function HealthWorkoutCloudComparisonPanel({ accountId }: { accountId: st
   const [failed, setFailed] = useState(false);
   const [refreshFailed, setRefreshFailed] = useState(false);
   const [result, setResult] = useState<{ owner: WorkoutCloudComparison; report: WorkoutComparisonReport } | null>(null);
+  const [filterQuery, setFilterQuery] = useState('');
   useLayoutEffect(() => {
-    setResult(null); setBusy(false); setFailed(false); setConfirmation(null); setOutcome(null); pending.current = false;
+    setResult(null); setFilterQuery(''); setBusy(false); setFailed(false); setConfirmation(null); setOutcome(null); pending.current = false;
     setReceiveOutcome(null);
     setBlockOutcome(null);
     setRefreshFailed(false);
@@ -38,7 +67,7 @@ export function HealthWorkoutCloudComparisonPanel({ accountId }: { accountId: st
     if (pending.current) return;
     pending.current = true;
     setRefreshFailed(false);
-    active.current?.cancel(); write.current?.cancel(); write.current = null; setResult(null); setFailed(false); setConfirmation(null);
+    active.current?.cancel(); write.current?.cancel(); write.current = null; setResult(null); setFilterQuery(''); setFailed(false); setConfirmation(null);
     if (!preserveOutcome) { setOutcome(null); setReceiveOutcome(null); setBlockOutcome(null); }
     const context = account.current;
     let owner: WorkoutCloudComparison | null = null;
@@ -53,7 +82,7 @@ export function HealthWorkoutCloudComparisonPanel({ accountId }: { accountId: st
           currentWrite?.cancel();
           // An in-flight INSERT may have committed. Await its actual verdict;
           // never reuse the read-only "nothing changed" error for that case.
-          setResult(null); setConfirmation(null);
+          setResult(null); setFilterQuery(''); setConfirmation(null);
           if (!preserveOutcome) { setOutcome(null); setReceiveOutcome(null); setBlockOutcome(null); }
           setBusy(false); setFailed(!currentWrite && !preserveOutcome); pending.current = false;
           if (!currentWrite && preserveOutcome) setRefreshFailed(true);
@@ -111,6 +140,11 @@ export function HealthWorkoutCloudComparisonPanel({ accountId }: { accountId: st
     if (confirmed) await check(true);
   };
   const report = result?.owner === active.current && result?.owner.isCurrent() ? result.report : null;
+  const filteredDetails = useMemo(() => report ? filterComparisonDetails(report, filterQuery) : null, [report, filterQuery]);
+  const filterActive = filterQuery.trim().length > 0;
+  const filteredMatchCount = filteredDetails
+    ? WORKOUT_COMPARISON_CATEGORIES.reduce((total, category) => total + filteredDetails[category].length, 0)
+    : 0;
   return <section aria-labelledby={heading} className="rounded-xl border border-border bg-surface p-3 text-foreground space-y-2" data-health-cloud-comparison>
     <h3 id={heading} className="text-sm font-bold">{t('healthCloudTitle')}</h3>
     <p className="text-xs text-muted-foreground">{t('healthCloudScope')}</p>
@@ -131,10 +165,23 @@ export function HealthWorkoutCloudComparisonPanel({ accountId }: { accountId: st
     </div> : null}
     {report ? <div className="space-y-2 text-xs">
       <p role="status">{t('healthCloudObserved')}</p>
+      <div className="space-y-1 rounded border border-border p-2">
+        <label htmlFor={filterInput} className="font-semibold">{t('healthCloudFilterLabel')}</label>
+        <input id={filterInput} type="search" maxLength={64} value={filterQuery} aria-describedby={filterHelp}
+          onChange={event => setFilterQuery(event.currentTarget.value)}
+          className="block w-full rounded border border-border bg-surface px-2 py-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" />
+        <p id={filterHelp} className="text-muted-foreground">{t('healthCloudFilterHelp')}</p>
+        {filterActive ? <div className="flex flex-wrap items-center gap-2">
+          <button type="button" onClick={() => setFilterQuery('')} className="rounded border border-border px-2 py-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">{t('healthCloudClearFilter')}</button>
+          {filteredMatchCount === 0
+            ? <p role="status">{t('healthCloudFilterNoMatches')}</p>
+            : <p role="status">{t('healthCloudFilterMatchCount')} <strong>{filteredMatchCount}</strong></p>}
+        </div> : null}
+      </div>
       <dl className="flex flex-wrap gap-3">{WORKOUT_COMPARISON_CATEGORIES.map(key => <div key={key}><dt>{t(labels[key])}</dt><dd className="font-semibold">{report.counts[key]}</dd></div>)}</dl>
-      {WORKOUT_COMPARISON_CATEGORIES.filter(key => key !== 'matching' && report.details[key].length > 0).map(key => <details key={key} className="rounded border border-border p-2">
+      {WORKOUT_COMPARISON_CATEGORIES.filter(key => (filterActive || key !== 'matching') && (filteredDetails?.[key].length ?? 0) > 0).map(key => <details key={key} className="rounded border border-border p-2">
         <summary className="cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">{t(labels[key])} ({report.counts[key]})</summary>
-        <ul className="mt-2 max-h-60 overflow-y-auto space-y-2">{report.details[key].slice(0, 30).map(row => <li key={row.id}>
+        <ul className="mt-2 max-h-60 overflow-y-auto space-y-2">{filteredDetails![key].slice(0, 30).map(row => <li key={row.id}>
           <code className="break-all">{row.id}</code>
           {row.localDate ? <p>{t('healthCloudLocalDate')}: {row.localDate}</p> : null}
           {row.remoteDate ? <p>{t('healthCloudRemoteDate')}: {row.remoteDate}</p> : null}
@@ -154,7 +201,7 @@ export function HealthWorkoutCloudComparisonPanel({ accountId }: { accountId: st
             if (record) void inspectBlock(record, result.owner);
           }} className="mt-1 ml-2 rounded border border-border p-2 focus-visible:outline">{t('healthCloudBlockCheck')}</button> : null}
         </li>)}</ul>
-        {report.details[key].length > 30 ? <p>{t('healthCloudPreviewLimit')}</p> : null}
+        {filteredDetails![key].length > 30 ? <p>{t('healthCloudPreviewLimit')}</p> : null}
       </details>)}
     </div> : null}
   </section>;
