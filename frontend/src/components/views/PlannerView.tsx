@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import { useState, useCallback, useMemo, useEffect, useLayoutEffect, useRef } from 'react';
 import useSWR, { type KeyedMutator } from 'swr';
 import { API_URL } from '../../lib/config';
 import { accountBoundRemoteFetcher, accountBoundRemoteKey, type AccountBoundRemoteKey } from '../../lib/accountBoundRemote';
@@ -73,6 +73,7 @@ type ScheduleDetailTarget = Readonly<{ id: string; eventDate?: string }>;
 type ScheduleRefreshStatus = 'refreshing' | 'success' | 'incomplete' | 'offline' | 'unavailable';
 type ScheduleRefreshContext = Readonly<{ accountId: string | undefined; dateKey: string; generation: number }>;
 type ScheduleRefreshFlight = Readonly<{ context: ScheduleRefreshContext }>;
+const FOREGROUND_REFRESH_MIN_ABSENCE_MS = 60_000;
 
 async function refreshScheduleCache<T>(
   key: AccountBoundRemoteKey | null,
@@ -194,6 +195,7 @@ export const PlannerView = ({
   }
   const scheduleRefreshFlightRef = useRef<ScheduleRefreshFlight | null>(null);
   const scheduleRefreshMountedRef = useRef(false);
+  const foregroundRefreshActionRef = useRef<() => void>(() => undefined);
   const [scheduleRefreshFlight, setScheduleRefreshFlight] = useState<ScheduleRefreshFlight | null>(null);
   const [scheduleRefreshState, setScheduleRefreshState] = useState<Readonly<{
     context: ScheduleRefreshContext;
@@ -475,6 +477,52 @@ export const PlannerView = ({
       }
     })();
   }, [ddaySchedulesKey, monthSchedulesKey, mutateDdaySchedules, mutatePreviousSchedules, prevSchedulesKey, readAndPublishMonth, revalidateSelectedDaySchedules]);
+
+  useLayoutEffect(() => {
+    foregroundRefreshActionRef.current = refreshSchedules;
+  }, [refreshSchedules]);
+
+  useEffect(() => {
+    const isVisible = () => document.visibilityState !== 'hidden';
+    let windowFocused = typeof document.hasFocus === 'function' ? document.hasFocus() : true;
+    let awaySince = isVisible() && windowFocused ? null : Date.now();
+
+    const markAway = () => {
+      if (awaySince === null) awaySince = Date.now();
+    };
+    const refreshAfterReturn = () => {
+      if (!isVisible() || !windowFocused || awaySince === null) return;
+      const absenceDuration = Date.now() - awaySince;
+      awaySince = null;
+      // Offline account-bound SWR keys are intentionally unavailable. Avoid a
+      // status-only render that would hide their previously verified cache.
+      if (absenceDuration >= FOREGROUND_REFRESH_MIN_ABSENCE_MS
+        && (typeof navigator === 'undefined' || navigator.onLine !== false)) {
+        foregroundRefreshActionRef.current();
+      }
+    };
+    const handleWindowBlur = () => {
+      windowFocused = false;
+      markAway();
+    };
+    const handleWindowFocus = () => {
+      windowFocused = true;
+      refreshAfterReturn();
+    };
+    const handleVisibilityChange = () => {
+      if (!isVisible()) markAway();
+      else refreshAfterReturn();
+    };
+
+    window.addEventListener('blur', handleWindowBlur);
+    window.addEventListener('focus', handleWindowFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.removeEventListener('blur', handleWindowBlur);
+      window.removeEventListener('focus', handleWindowFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
 
   const visibleRefreshStatus = scheduleRefreshState?.context === scheduleRefreshContextRef.current
     && runtimeAccountSyncAccountId() === scheduleRefreshState.context.accountId
