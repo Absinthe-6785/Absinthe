@@ -524,6 +524,18 @@ const BASELINE_REVERSE_HUNKS = [
     candidate: "          comparisonActive={cloudComparisonActive}\n          comparisonRequest={cloudComparisonRequest}\n          isComparisonRequestCurrent={isCloudComparisonRequestCurrent}\n          onComparisonRequestSettled={settleCloudComparisonRequest}\n",
     baseline: '',
   },
+  {
+    candidate: "  formatPreviousBestCue,\n  formatPreviousSetReference,\n  createPreviousSetReferenceMatcher,\n",
+    baseline: "  formatPreviousBestCue,\n  formatPreviousSetReference,\n  matchPreviousSetReference,\n",
+  },
+  {
+    candidate: "              const previousSetMatcher = createPreviousSetReferenceMatcher(\n                prevData[w.block_id]?.prev_sets,\n                w.sets || [],\n                w.exercise_blocks?.type,\n              );\n",
+    baseline: '',
+  },
+  {
+    candidate: "                    const previousSet = previousSetMatcher.match(s);",
+    baseline: "                    const previousSet = matchPreviousSetReference(\n                      s,\n                      prevData[w.block_id]?.prev_sets,\n                      w.exercise_blocks?.type,\n                      w.sets,\n                    );",
+  },
 ];
 const BASELINE_SCOPE_SOURCE = "import type { HealthAccountGenerationToken } from '../../../../lib/healthBackfillUiSafety';\n\nexport interface HealthWorkoutOperationScope {\n  accountOperation: HealthAccountGenerationToken;\n  dateKey: string;\n}\n\nexport function isCurrentHealthWorkoutOperationScope(\n  scope: HealthWorkoutOperationScope,\n  currentDateKey: string,\n  isCurrentAccountOperation: (token: HealthAccountGenerationToken) => boolean,\n): boolean {\n  return scope.dateKey === currentDateKey && isCurrentAccountOperation(scope.accountOperation);\n}\n";
 
@@ -646,7 +658,7 @@ export async function loadExactMainHealthView(importer: (specifier: string) => P
 export async function loadCandidateHealthView(importer: (specifier: string) => Promise<unknown>) {
   const source = readFileSync('src/components/views/HealthView.tsx', 'utf8').replace(/\r\n/g, '\n');
   const healthBlob = createHash('sha1').update('blob ' + Buffer.byteLength(source) + '\0').update(source).digest('hex');
-  if (healthBlob !== '85dd8d2dc4251aee2813d94ff447adb7b0a93255') throw new Error('CANDIDATE_PRODUCTION_BLOB_CHANGED');
+  if (healthBlob !== '622a8dbe39f8d05010d8d4af49de21aecd629fab') throw new Error('CANDIDATE_PRODUCTION_BLOB_CHANGED');
   const candidateFault: string | null = null; // bounded in-memory child transform only
   let observedSource = source;
   if (candidateFault === 'reset-saving') observedSource = source.replaceAll('setIsSaving(false);', 'setIsSaving(true);');

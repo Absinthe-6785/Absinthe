@@ -226,6 +226,7 @@ vi.mock('./features/health/previousWorkoutProjection', () => ({
     ?? ({ sessions: [], automaticDate: null, effectiveDate: null, session: null }),
 }));
 vi.mock('./features/health/previousMicroCue', () => ({
+  createPreviousSetReferenceMatcher: () => ({ match: () => null }),
   formatPreviousBestCue: () => '',
   formatPreviousSetReference: () => '',
   matchPreviousSetReference: () => null,

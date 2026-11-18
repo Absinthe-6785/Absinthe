@@ -185,6 +185,105 @@ export function matchPreviousSetReference(
   return usablePrevious[currentIndex] ?? null;
 }
 
+type SetNumberIndex = { unique: boolean; byNumber: Map<number, StrengthSet> };
+
+type PreviousSetReferenceGroup = {
+  previousNumbers: SetNumberIndex;
+  currentNumbersUnique: boolean;
+  usablePrevious: StrengthSet[];
+  semanticUsablePreviousSet: Set<StrengthSet>;
+  currentIndex: Map<StrengthSet, number>;
+};
+
+function indexUniqueSetNumbers(sets: readonly StrengthSet[]): SetNumberIndex {
+  const byNumber = new Map<number, StrengthSet>();
+  let unique = true;
+  for (const set of sets) {
+    const number = validSetNumber(set);
+    if (number === null || byNumber.has(number)) unique = false;
+    else byNumber.set(number, set);
+  }
+  return { unique, byNumber };
+}
+
+function compatibilityKey(set: StrengthSet, blockType: string): string {
+  return `${isBodyweightSet(set, blockType) ? 'bodyweight' : 'strength'}:${isDropSet(set) ? 'drop' : 'normal'}`;
+}
+
+/**
+ * Build a render-lifetime lookup for all set rows in one current exercise.
+ * This preserves matchPreviousSetReference semantics while moving compatible
+ * filtering and uniqueness work out of the per-row render callback.
+ */
+export function createPreviousSetReferenceMatcher(
+  prevSets: readonly WorkoutSet[] | undefined,
+  currentSets: readonly WorkoutSet[],
+  blockType = 'strength',
+): { match: (currentSet: WorkoutSet) => StrengthSet | null } {
+  if (!prevSets?.length) return { match: () => null };
+
+  const previousGroups = new Map<string, StrengthSet[]>();
+  for (const set of prevSets) {
+    if (!isStrengthSet(set)) continue;
+    const key = compatibilityKey(set, blockType);
+    const group = previousGroups.get(key);
+    if (group) group.push(set);
+    else previousGroups.set(key, [set]);
+  }
+
+  const currentGroups = new Map<string, StrengthSet[]>();
+  for (const set of currentSets) {
+    if (!isStrengthSet(set)) continue;
+    const key = compatibilityKey(set, blockType);
+    const group = currentGroups.get(key);
+    if (group) group.push(set);
+    else currentGroups.set(key, [set]);
+  }
+
+  const indexes = new Map<string, PreviousSetReferenceGroup>();
+  for (const [key, compatiblePrevious] of previousGroups) {
+    const compatibleCurrent = currentGroups.get(key) ?? [];
+    const previousNumbers = indexUniqueSetNumbers(compatiblePrevious);
+    const currentNumbers = indexUniqueSetNumbers(compatibleCurrent);
+    const usablePrevious: StrengthSet[] = [];
+    const semanticUsablePreviousSet = new Set<StrengthSet>();
+    for (const set of compatiblePrevious) {
+      const usable = hasUsableReferenceValue(set, blockType);
+      if (usable) semanticUsablePreviousSet.add(set);
+      if (set.done && usable) usablePrevious.push(set);
+    }
+    const currentIndex = new Map<StrengthSet, number>();
+    compatibleCurrent.forEach((set, index) => {
+      if (!currentIndex.has(set)) currentIndex.set(set, index);
+    });
+    indexes.set(key, {
+      previousNumbers,
+      currentNumbersUnique: currentNumbers.unique,
+      usablePrevious,
+      semanticUsablePreviousSet,
+      currentIndex,
+    });
+  }
+
+  return {
+    match(currentSet) {
+      if (!isStrengthSet(currentSet)) return null;
+      const group = indexes.get(compatibilityKey(currentSet, blockType));
+      if (!group) return null;
+
+      const currentNumber = validSetNumber(currentSet);
+      if (currentNumber !== null && group.currentNumbersUnique && group.previousNumbers.unique) {
+        const semanticMatch = group.previousNumbers.byNumber.get(currentNumber);
+        if (semanticMatch) return group.semanticUsablePreviousSet.has(semanticMatch) ? semanticMatch : null;
+      }
+
+      const currentIndex = group.currentIndex.get(currentSet);
+      if (currentIndex === undefined) return null;
+      return group.usablePrevious[currentIndex] ?? null;
+    },
+  };
+}
+
 export function formatPreviousSetReference(
   previousSet: StrengthSet | null,
   displayUnit: WeightUnit,

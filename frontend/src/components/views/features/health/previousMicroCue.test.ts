@@ -1,11 +1,57 @@
 import { describe, expect, it } from 'vitest';
 import type { CardioSet, StrengthSet, WorkoutSet } from '../../../../types';
 import {
+  createPreviousSetReferenceMatcher,
   formatPreviousBestCue,
   formatPreviousSetReference,
   matchPreviousSetReference,
   selectPreviousBestSet,
 } from './previousMicroCue';
+
+type MatchWork = { previousSlots: number; currentSlots: number; setReads: number; compatibilityReads: number };
+
+function instrumentMatchInputs(sets: StrengthSet[], work: MatchWork, kind: 'previous' | 'current') {
+  const rows = sets.map(set => new Proxy(set, {
+    get(target, property, receiver) {
+      if (property === 'set') work.setReads += 1;
+      if (property === 'type' || property === 'is_dropset') work.compatibilityReads += 1;
+      return Reflect.get(target, property, receiver);
+    },
+  }));
+  return new Proxy(rows, {
+    get(target, property, receiver) {
+      if (typeof property === 'string' && /^\d+$/.test(property)) {
+        if (kind === 'previous') work.previousSlots += 1;
+        else work.currentSlots += 1;
+      }
+      return Reflect.get(target, property, receiver);
+    },
+  });
+}
+
+function measureMatcher(mode: 'scan' | 'indexed') {
+  const work: MatchWork = { previousSlots: 0, currentSlots: 0, setReads: 0, compatibilityReads: 0 };
+  const matches: Array<number | null> = [];
+  const exerciseCounts = [3, 4, 5, 6, 4, 5, 3, 4];
+  for (const count of exerciseCounts) {
+    const current = instrumentMatchInputs(Array.from({ length: count }, (_, i) => strength({ set: i + 1 })), work, 'current');
+    const previous = instrumentMatchInputs(Array.from({ length: count }, (_, i) => strength({ set: count - i, kg: 40 + i, reps: 8 })), work, 'previous');
+    const matcher = mode === 'indexed' ? createPreviousSetReferenceMatcher(previous, current, 'strength') : null;
+    for (const row of current) {
+      const match = matcher ? matcher.match(row) : matchPreviousSetReference(row, previous, 'strength', current);
+      matches.push(match?.set ?? null);
+    }
+  }
+  const count = 64;
+  const current = instrumentMatchInputs(Array.from({ length: count }, (_, i) => strength({ set: i + 1 })), work, 'current');
+  const previous = instrumentMatchInputs(Array.from({ length: count }, (_, i) => strength({ set: count - i, kg: 40 + i, reps: 8 })), work, 'previous');
+  const matcher = mode === 'indexed' ? createPreviousSetReferenceMatcher(previous, current, 'strength') : null;
+  for (const row of current) {
+    const match = matcher ? matcher.match(row) : matchPreviousSetReference(row, previous, 'strength', current);
+    matches.push(match?.set ?? null);
+  }
+  return { work, matches };
+}
 
 const strength = (overrides: Partial<StrengthSet> = {}): StrengthSet => ({
   type: 'strength', set: 1, kg: '', reps: '', done: true, ...overrides,
@@ -20,6 +66,17 @@ const cardio: CardioSet = {
 };
 
 describe('Health previous set references', () => {
+  it('reduces repeated scan work for multi-exercise and large set groups with identical results', () => {
+    const baseline = measureMatcher('scan');
+    const optimized = measureMatcher('indexed');
+    expect(optimized.matches).toEqual(baseline.matches);
+    expect(baseline.work).toEqual({ previousSlots: 4248, currentSlots: 4346, setReads: 32399, compatibilityReads: 42676 });
+    expect(optimized.work).toEqual({ previousSlots: 98, currentSlots: 196, setReads: 980, compatibilityReads: 980 });
+    expect(optimized.work.previousSlots).toBeLessThan(baseline.work.previousSlots);
+    expect(optimized.work.currentSlots).toBeLessThan(baseline.work.currentSlots);
+    expect(optimized.work.setReads).toBeLessThan(baseline.work.setReads);
+    expect(optimized.work.compatibilityReads).toBeLessThan(baseline.work.compatibilityReads);
+  });
   it('selects the heaviest completed weighted set by canonical kg', () => {
     const kg = strength({ kg: 100, reps: 8, weight_source_value: 100, weight_source_unit: 'kg' });
     const lbs = strength({ set: 2, kg: 102.37, reps: 6, weight_source_value: 225.68, weight_source_unit: 'lbs' });
@@ -89,6 +146,57 @@ describe('Health previous set references', () => {
     expect(matchPreviousSetReference(current[0], previous, 'strength', current)?.set).toBe(1);
     expect(matchPreviousSetReference(current[1], previous, 'strength', current)?.set).toBe(2);
     expect(matchPreviousSetReference(current[2], previous, 'strength', current)?.set).toBe(3);
+  });
+
+  it('keeps indexed matching equivalent to the scan matcher across semantic and fallback boundaries', () => {
+    const scenarios: Array<{ current: WorkoutSet[]; previous: WorkoutSet[]; blockType?: string }> = [
+      {
+        current: [strength({ set: 1 }), strength({ set: 2 }), strength({ set: 3 })],
+        previous: [strength({ set: 3, kg: 100, reps: 8 }), strength({ set: 1, kg: 80, reps: 12 }), strength({ set: 2, kg: 90, reps: 10 })],
+      },
+      {
+        current: [strength({ set: 1 }), strength({ set: 1 }), strength({ set: 0 })],
+        previous: [strength({ set: 1, kg: 70, reps: 8 }), strength({ set: 1, kg: 80, reps: 9 }), strength({ set: 0, kg: 90, reps: 10 })],
+      },
+      {
+        current: [strength({ set: 1 }), strength({ set: 2 })],
+        previous: [strength({ set: 1, kg: 0, reps: 8 }), strength({ set: 2, kg: 90, reps: 10 })],
+      },
+      {
+        current: [strength({ set: 1 }), strength({ set: 2 })],
+        previous: [strength({ set: 1, kg: 80, reps: 8, done: false }), strength({ set: 2, kg: 90, reps: 10 })],
+      },
+      {
+        current: [strength({ set: 1 }), strength({ set: 2 }), strength({ set: 3, is_dropset: true }), bodyweight({ set: 1 })],
+        previous: [
+          strength({ set: 1, kg: 80, reps: 8 }), strength({ set: 2, kg: 0, reps: 10 }),
+          strength({ set: 3, kg: 50, reps: 12, is_dropset: true }), bodyweight({ set: 1, reps: 14 }),
+        ],
+      },
+      {
+        current: [strength({ set: 1, reps: 10, assisted_reps: 2, weight_source_unit: 'kg' })],
+        previous: [strength({ set: 1, kg: 100, reps: 12, assisted_reps: 4, weight_source_unit: 'lbs', weight_source_value: 225 })],
+      },
+      { current: [cardio], previous: [strength({ set: 1, kg: 80, reps: 8 })] },
+    ];
+
+    for (const scenario of scenarios) {
+      const matcher = createPreviousSetReferenceMatcher(scenario.previous, scenario.current, scenario.blockType);
+      const expected = scenario.current.map(set => matchPreviousSetReference(set, scenario.previous, scenario.blockType, scenario.current));
+      expect(scenario.current.map(set => matcher.match(set))).toEqual(expected);
+    }
+  });
+
+  it('creates fresh indexes when current sets or previous-history sources change', () => {
+    const current = [strength({ set: 1 })];
+    const firstPrevious = [strength({ set: 1, kg: 80, reps: 8 })];
+    const nextPrevious = [strength({ set: 1, kg: 100, reps: 8 })];
+    const firstMatcher = createPreviousSetReferenceMatcher(firstPrevious, current, 'strength');
+    const nextMatcher = createPreviousSetReferenceMatcher(nextPrevious, current, 'strength');
+
+    expect(firstMatcher.match(current[0])).toBe(firstPrevious[0]);
+    expect(nextMatcher.match(current[0])).toBe(nextPrevious[0]);
+    expect(createPreviousSetReferenceMatcher(undefined, current, 'strength').match(current[0])).toBeNull();
   });
 
   it('falls back to compatible historical order and skips an incomplete leading set', () => {
