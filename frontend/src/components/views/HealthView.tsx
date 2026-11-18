@@ -75,7 +75,7 @@ import { fetchPrevWorkoutForBlocks } from './features/health/prevWorkoutFetch';
 import {
   formatPreviousBestCue,
   formatPreviousSetReference,
-  matchPreviousSetReference,
+  createPreviousSetReferenceMatcher,
 } from './features/health/previousMicroCue';
 import {
   editableWeightValue as editableWeightInput,
@@ -2119,6 +2119,11 @@ export const HealthView = ({
               }
 
               /* ── 일반 운동 카드 렌더링 ── */
+              const previousSetMatcher = createPreviousSetReferenceMatcher(
+                prevData[w.block_id]?.prev_sets,
+                w.sets || [],
+                w.exercise_blocks?.type,
+              );
               const previousBestCue = formatPreviousBestCue(
                 prevData[w.block_id]?.prev_sets,
                 getUnit(w.block_id),
@@ -2269,12 +2274,7 @@ export const HealthView = ({
                 <div className="space-y-2.5" data-k129c-set-group>
                   {(w.sets || []).map((s: WorkoutSet, sIdx: number) => {
                     const isDS = isStrengthSet(s) && s.is_dropset;
-                    const previousSet = matchPreviousSetReference(
-                      s,
-                      prevData[w.block_id]?.prev_sets,
-                      w.exercise_blocks?.type,
-                      w.sets,
-                    );
+                    const previousSet = previousSetMatcher.match(s);
                     const previousSetCue = formatPreviousSetReference(
                       previousSet,
                       getUnit(w.block_id),
