@@ -2414,6 +2414,12 @@ const enTranslations = [
 "No sets are stored for this workout.",
 "Showing {shown} of {total} sets; remaining sets are not displayed.",
 "Long set values are shortened for display.",
+  "Refresh Recipes",
+  "Refreshing Recipes…",
+  "Recipe list refreshed from your account.",
+  "Some Recipe data could not be refreshed. Previously verified data was kept for those lists.",
+  "You're offline. Existing Recipe data was kept.",
+  "Recipe refresh is unavailable right now. Existing data was kept.",
 ] as const;
 
 export default enTranslations;

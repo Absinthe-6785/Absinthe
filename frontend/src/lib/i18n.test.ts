@@ -8,7 +8,7 @@ import translationKeys, { buildLocaleDictionary } from './i18n/keys';
 import type { TranslationKey } from './i18n';
 
 const PLANNER_STORAGE_KEY = 'planner-storage';
-const EXPECTED_KEY_COUNT = 2_414;
+const EXPECTED_KEY_COUNT = 2_420;
 type Locale = 'en' | 'ko' | 'ja';
 
 // Current independent canonical authority, including append-only Notes UI, Wiki-link accessibility, cloud comparison and search, Cloud Copy status readback, local document downloads, PDF/DOCX preview, Recipe filter reset, local-original integrity preflight, cloud Note previews, and single-Note cloud text export.
@@ -16,6 +16,12 @@ type Locale = 'en' | 'ko' | 'ja';
 // translationKeys order, so it detects insertion, omission, reordering, and
 // substitution without using buildLocaleDictionary.
 const EXPECTED_LOCALE_INTEGRITY_SHA256: Record<Locale, string> = {
+  en: 'c1795ef4d0398ccab5eed1e48ee3eacf5264400b4af7cbdb63b0677bbe04cee1',
+  ko: '4c55c8bae34f21dfacf02028844b771d805f0299250b4ef9b4d956e898331f3c',
+  ja: '5a3fc0755d3d4ba73d2238c52df3a7c65cbde38cc2c68ec022ab62bfc8c6dd49',
+};
+
+const PRE_RECIPE_MANUAL_REFRESH_LOCALE_SHA256: Record<Locale, string> = {
   en: '18a06c77328f1d1a3ae2f5073c57c1db2babeadce530aa535b20545c4e756ceb',
   ko: '0abd023db377344336c460c361ab8b4a77f7b1dcbdc05563b30100fd4312ab70',
   ja: 'e159c305df4ddeeb195f1acb9447b8950e7776061485ebe63345ff819dd19684',
@@ -175,6 +181,43 @@ async function loadFreshI18n(language?: unknown) {
 }
 
 describe('i18n locale dictionaries', () => {
+  it('appends Recipe manual refresh labels without changing existing translations', () => {
+    const previousKeyCount = 2_414;
+    const keys = [
+      'recipeManualRefresh', 'recipeManualRefreshing', 'recipeManualRefreshed',
+      'recipeManualRefreshPartial', 'recipeManualRefreshOffline', 'recipeManualRefreshUnavailable',
+    ];
+    expect(translationKeys.slice(previousKeyCount)).toEqual(keys);
+    for (const [locale, values] of [['en', enLocaleValues], ['ko', koLocaleValues], ['ja', jaLocaleValues]] as const) {
+      expect(localeIntegrityDigest(values.slice(0, previousKeyCount), translationKeys.slice(0, previousKeyCount)))
+        .toBe(PRE_RECIPE_MANUAL_REFRESH_LOCALE_SHA256[locale]);
+    }
+    expect(keys.map(key => enTranslations[key as TranslationKey])).toEqual([
+      'Refresh Recipes',
+      'Refreshing Recipes…',
+      'Recipe list refreshed from your account.',
+      'Some Recipe data could not be refreshed. Previously verified data was kept for those lists.',
+      "You're offline. Existing Recipe data was kept.",
+      'Recipe refresh is unavailable right now. Existing data was kept.',
+    ]);
+    expect(keys.map(key => koTranslations[key as TranslationKey])).toEqual([
+      '레시피 새로고침',
+      '레시피를 새로고치는 중…',
+      '계정에서 레시피 목록을 다시 가져왔습니다.',
+      '일부 레시피 데이터를 새로고치지 못했습니다. 해당 목록의 이전 확인 데이터는 유지했습니다.',
+      '오프라인입니다. 기존 레시피 데이터를 유지했습니다.',
+      '지금은 레시피를 새로고칠 수 없습니다. 기존 데이터는 유지했습니다.',
+    ]);
+    expect(keys.map(key => jaTranslations[key as TranslationKey])).toEqual([
+      'レシピを更新',
+      'レシピを更新しています…',
+      'アカウントからレシピ一覧を再取得しました。',
+      '一部のレシピデータを更新できませんでした。該当リストの確認済みデータは保持されています。',
+      'オフラインです。既存のレシピデータを保持しました。',
+      '現在レシピを更新できません。既存データは保持されています。',
+    ]);
+  });
+
   it('appends text-only publication scope while preserving every existing translation', () => {
     expect(translationKeys.slice(2_394, 2_396)).toEqual([
       'notesInitialPublishFolderOmission', 'notesInitialPublishEmptyPropertiesScope',
@@ -414,7 +457,11 @@ describe('i18n locale dictionaries', () => {
       'healthCloudWorkoutPreviewCompletion', 'healthCloudWorkoutPreviewNoSets', 'healthCloudWorkoutPreviewSetLimit',
       'healthCloudWorkoutPreviewValuesTruncated',
     ];
-    expect(translationKeys.slice(previousKeyCount)).toEqual(keys);
+    expect(translationKeys.slice(previousKeyCount, 2_414)).toEqual(keys);
+    expect(translationKeys.slice(2_414)).toEqual([
+      'recipeManualRefresh', 'recipeManualRefreshing', 'recipeManualRefreshed',
+      'recipeManualRefreshPartial', 'recipeManualRefreshOffline', 'recipeManualRefreshUnavailable',
+    ]);
     for (const [locale, values] of [['en', enLocaleValues], ['ko', koLocaleValues], ['ja', jaLocaleValues]] as const) {
       expect(localeIntegrityDigest(values.slice(0, previousKeyCount), translationKeys.slice(0, previousKeyCount)))
         .toBe(PRE_HEALTH_CLOUD_WORKOUT_PREVIEW_LOCALE_SHA256[locale]);

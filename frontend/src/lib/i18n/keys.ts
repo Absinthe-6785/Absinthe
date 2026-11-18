@@ -2414,6 +2414,12 @@ const translationKeys = [
   "healthCloudWorkoutPreviewNoSets",
   "healthCloudWorkoutPreviewSetLimit",
   "healthCloudWorkoutPreviewValuesTruncated",
+  "recipeManualRefresh",
+  "recipeManualRefreshing",
+  "recipeManualRefreshed",
+  "recipeManualRefreshPartial",
+  "recipeManualRefreshOffline",
+  "recipeManualRefreshUnavailable",
 ] as const;
 
 export type TranslationKey = (typeof translationKeys)[number];
