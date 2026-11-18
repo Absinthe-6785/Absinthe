@@ -10,6 +10,9 @@ vi.mock('swr', () => ({ useSWRConfig: () => ({ mutate: services.mutate }) }));
 vi.mock('../../../../lib/healthWorkoutCloudSingleCreate', () => ({ createWorkoutCloudSingleCreate: services.write }));
 vi.mock('../../../../lib/healthWorkoutCloudComparison', () => ({
   createWorkoutCloudComparison: services.create,
+  supportedWorkoutContent: (record: Record<string, unknown>, accountId: string) => record?.user_id === accountId
+    && Array.isArray(record.sets) && Object.keys(record).every(key => ['id', 'user_id', 'date', 'block_id', 'sets', 'sort_order'].includes(key))
+    ? JSON.stringify(record) : null,
   WORKOUT_COMPARISON_CATEGORIES: ['localOnly', 'remoteOnly', 'matching', 'divergent', 'unverifiable'],
 }));
 import { HealthWorkoutCloudComparisonPanel } from './HealthWorkoutCloudComparisonPanel';
@@ -20,6 +23,9 @@ import type { WorkoutComparisonReport } from '../../../../lib/healthWorkoutCloud
 const report = (): WorkoutComparisonReport => ({ counts: { localOnly: 1, remoteOnly: 1, matching: 1, divergent: 1, unverifiable: 1 }, details: {
   localOnly: [{ id: 'local-id', localDate: '2026-10-30' }], remoteOnly: [{ id: 'cloud-id', remoteDate: '2026-10-29' }], matching: [{ id: 'same-id' }], divergent: [{ id: 'different-id', localDate: '2026-10-28', remoteDate: '2026-10-27' }], unverifiable: [{ id: 'unknown-id' }],
 } });
+const remoteWorkout = (id = 'cloud-id', sets: unknown[] = [{ set: 1, type: 'strength', kg: 50, reps: 5, done: true }]) => ({
+  id, user_id: 'A', date: '2026-10-29', block_id: 'exercise-block-id', sort_order: 0, sets,
+});
 let host: HTMLElement, root: ReturnType<typeof createRoot>;
 const originalLanguage = useAppStore.getState().appSettings.language;
 beforeEach(() => {
@@ -102,7 +108,7 @@ describe('manual Health cloud comparison UI', () => {
     expect(host.textContent).toContain(t('healthCloudLocalDate') + ': 2026-10-28');
     expect(host.textContent).toContain(t('healthCloudRemoteDate') + ': 2026-10-27');
     expect(host.textContent).not.toContain('same-id');
-    expect(host.querySelectorAll('button')).toHaveLength(4);
+    expect(host.querySelectorAll('button')).toHaveLength(5);
     expect(services.write).not.toHaveBeenCalled();
   });
   it('keeps a long result limited to 30 detail rows and preserves summary counts', async () => {
@@ -174,6 +180,114 @@ describe('manual Health cloud comparison UI', () => {
     expect(host.textContent).toContain('Exact matching records in this comparison: 1');
     expect(host.textContent).not.toContain(getTranslator('en')('healthCloudPreviewLimit'));
     expect(services.create).toHaveBeenCalledOnce(); expect(services.write).not.toHaveBeenCalled(); expect(services.receive).not.toHaveBeenCalled();
+  });
+  it.each(['en', 'ko', 'ja'] as const)('previews an exact remote-only workout as inert text in %s without invoking receive', async language => {
+    useAppStore.setState(state => ({ ...state, appSettings: { ...state.appSettings, language } }));
+    const t = getTranslator(language);
+    const hostileText = '<img src=x onerror=alert(1)>';
+    const record = remoteWorkout('cloud-id', [
+      { set: 3, type: 'strength', kg: 50, reps: 5, done: false, assisted_reps: 1, is_dropset: true, weight_source_value: 45, weight_source_unit: 'lbs' },
+      { set: 4, type: 'bodyweight', kg: '', reps: 8, done: true, assisted_reps: null },
+      { set: 5, type: 'cardio', time: '10:00', distance: 2.5, pace: hostileText, done: false },
+    ]);
+    const compare = vi.fn().mockResolvedValue(report());
+    const remoteOnlyRecord = vi.fn((id: string) => id === record.id ? structuredClone(record) : null);
+    services.create.mockReturnValue({ compare, cancel: vi.fn(), isCurrent: () => true, localOnlyRecord: vi.fn(), remoteOnlyRecord });
+    render(); await click();
+    const action = Array.from(host.querySelectorAll('button')).find(button => button.textContent === t('healthCloudWorkoutPreviewAction'))!;
+    expect(action.type).toBe('button');
+    expect(action.getAttribute('aria-expanded')).toBe('false');
+    await act(async () => action.click());
+    const preview = host.querySelector<HTMLElement>('[data-health-cloud-workout-preview]')!;
+    expect(action.getAttribute('aria-expanded')).toBe('true');
+    expect(action.getAttribute('aria-controls')).toBe(preview.id);
+    expect(preview.getAttribute('role')).toBe('region');
+    expect(preview.getAttribute('aria-labelledby')).toBeTruthy();
+    expect(preview.querySelector('h4')?.textContent).toBe(t('healthCloudWorkoutPreviewTitle'));
+    expect(preview.textContent).toContain('2026-10-29');
+    expect(preview.textContent).toContain('cloud-id');
+    expect(preview.textContent).toContain('exercise-block-id');
+    expect(preview.textContent).toContain('lbs');
+    expect(preview.textContent).toContain('2.5');
+    expect(preview.textContent).toContain('10:00');
+    expect(preview.textContent).toContain('false');
+    expect(preview.textContent).toContain('null');
+    expect(preview.textContent).toContain(hostileText);
+    expect(preview.querySelector('img, svg, script')).toBeNull();
+    expect(preview.querySelectorAll('ol > li')).toHaveLength(3);
+    expect(remoteOnlyRecord).toHaveBeenCalledWith('cloud-id');
+    expect(compare).toHaveBeenCalledOnce();
+    expect(services.create).toHaveBeenCalledOnce();
+    expect(services.receive).not.toHaveBeenCalled(); expect(services.block).not.toHaveBeenCalled();
+    expect(services.write).not.toHaveBeenCalled(); expect(services.mutate).not.toHaveBeenCalled();
+    expect(host.querySelector('[role="group"]')).toBeNull();
+    const close = Array.from(preview.querySelectorAll('button')).find(button => button.textContent === t('healthCloudWorkoutPreviewClose'))!;
+    expect(close.type).toBe('button');
+    close.focus();
+    await act(async () => close.click());
+    expect(host.querySelector('[data-health-cloud-workout-preview]')).toBeNull();
+    expect(action.getAttribute('aria-expanded')).toBe('false');
+    expect(document.activeElement).toBe(action);
+  });
+  it('bounds set and field presentation and labels every truncation', async () => {
+    const longPace = 'p'.repeat(501);
+    const sets = Array.from({ length: 25 }, (_, index) => index === 0
+      ? { set: 1, type: 'cardio', time: '10:00', distance: 1, pace: longPace, done: true }
+      : { set: index + 1, type: 'strength', kg: index, reps: 5, done: true });
+    const record = remoteWorkout('cloud-id', sets);
+    services.create.mockReturnValue({ compare: async () => report(), cancel: vi.fn(), isCurrent: () => true,
+      remoteOnlyRecord: (id: string) => id === record.id ? structuredClone(record) : null, localOnlyRecord: vi.fn() });
+    render(); await click();
+    await act(async () => Array.from(host.querySelectorAll('button')).find(button => button.textContent === getTranslator('en')('healthCloudWorkoutPreviewAction'))!.click());
+    const preview = host.querySelector<HTMLElement>('[data-health-cloud-workout-preview]')!;
+    expect(preview.querySelectorAll('ol > li')).toHaveLength(20);
+    expect(preview.textContent).toContain(getTranslator('en')('healthCloudWorkoutPreviewSetLimit').replace('{shown}', '20').replace('{total}', '25'));
+    expect(preview.textContent).toContain(getTranslator('en')('healthCloudWorkoutPreviewValuesTruncated'));
+    expect(preview.textContent).not.toContain(longPace);
+  });
+  it('can preview an exact remote ID beyond the initial 30 rows after filtering', async () => {
+    const ids = Array.from({ length: 35 }, (_, index) => `cloud-workout-${index}`);
+    const target = ids[34]!;
+    const value = report();
+    const remoteRows = ids.map(id => ({ id, remoteDate: '2026-11-01' }));
+    const record = remoteWorkout(target);
+    const remoteOnlyRecord = vi.fn((id: string) => id === target ? structuredClone(record) : null);
+    services.create.mockReturnValue({ compare: async () => ({ ...value, counts: { ...value.counts, remoteOnly: 35 }, details: { ...value.details, remoteOnly: remoteRows } }),
+      cancel: vi.fn(), isCurrent: () => true, remoteOnlyRecord, localOnlyRecord: vi.fn() });
+    render(); await click();
+    expect(host.textContent).not.toContain(target);
+    await setFilter(target);
+    expect(host.textContent).toContain(target);
+    const action = Array.from(host.querySelectorAll('button')).find(button => button.textContent === getTranslator('en')('healthCloudWorkoutPreviewAction'))!;
+    await act(async () => action.click());
+    expect(host.querySelector('[data-health-cloud-workout-preview]')?.textContent).toContain(target);
+    expect(remoteOnlyRecord).toHaveBeenCalledWith(target);
+  });
+  it('rejects an invalid exact record and clears preview on session invalidation, account replacement, and comparison rerun', async () => {
+    let current = true;
+    const record = remoteWorkout();
+    const owner = { compare: vi.fn().mockResolvedValue(report()), cancel: vi.fn(), isCurrent: () => current,
+      remoteOnlyRecord: vi.fn((id: string) => id === 'cloud-id' ? { ...structuredClone(record), user_id: 'foreign' } : null), localOnlyRecord: vi.fn() };
+    services.create.mockReturnValue(owner);
+    render(); await click();
+    await act(async () => Array.from(host.querySelectorAll('button')).find(button => button.textContent === getTranslator('en')('healthCloudWorkoutPreviewAction'))!.click());
+    expect(host.querySelector('[data-health-cloud-workout-preview]')).toBeNull();
+    owner.remoteOnlyRecord.mockImplementation(id => id === 'cloud-id' ? structuredClone(record) : null);
+    await act(async () => Array.from(host.querySelectorAll('button')).find(button => button.textContent === getTranslator('en')('healthCloudWorkoutPreviewAction'))!.click());
+    expect(host.querySelector('[data-health-cloud-workout-preview]')).not.toBeNull();
+    current = false;
+    act(() => services.create.mock.calls[0]![2]());
+    expect(host.querySelector('[data-health-cloud-workout-preview]')).toBeNull();
+    expect(host.textContent).not.toContain('exercise-block-id');
+    current = true;
+    render('B'); render('A');
+    expect(host.querySelector('[data-health-cloud-workout-preview]')).toBeNull();
+    await click();
+    await act(async () => Array.from(host.querySelectorAll('button')).find(button => button.textContent === getTranslator('en')('healthCloudWorkoutPreviewAction'))!.click());
+    expect(host.querySelector('[data-health-cloud-workout-preview]')).not.toBeNull();
+    const check = Array.from(host.querySelectorAll('button')).find(button => button.textContent === getTranslator('en')('healthCloudCheck'))!;
+    await act(async () => check.click());
+    expect(host.querySelector('[data-health-cloud-workout-preview]')).toBeNull();
   });
   it('uses the exact filtered remote ID for the existing explicitly confirmed receive action', async () => {
     const receive = vi.fn().mockResolvedValue('DENIED');

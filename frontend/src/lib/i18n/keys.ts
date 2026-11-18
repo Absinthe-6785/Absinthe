@@ -2401,6 +2401,19 @@ const translationKeys = [
   "healthCloudClearFilter",
   "healthCloudFilterMatchCount",
   "healthCloudFilterNoMatches",
+  "healthCloudWorkoutPreviewAction",
+  "healthCloudWorkoutPreviewTitle",
+  "healthCloudWorkoutPreviewClose",
+  "healthCloudWorkoutPreviewDate",
+  "healthCloudWorkoutPreviewId",
+  "healthCloudWorkoutPreviewBlockId",
+  "healthCloudWorkoutPreviewSets",
+  "healthCloudWorkoutPreviewSetNumber",
+  "healthCloudWorkoutPreviewSetType",
+  "healthCloudWorkoutPreviewCompletion",
+  "healthCloudWorkoutPreviewNoSets",
+  "healthCloudWorkoutPreviewSetLimit",
+  "healthCloudWorkoutPreviewValuesTruncated",
 ] as const;
 
 export type TranslationKey = (typeof translationKeys)[number];
