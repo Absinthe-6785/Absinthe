@@ -527,9 +527,93 @@ const BASELINE_REVERSE_HUNKS = [
 ];
 const BASELINE_SCOPE_SOURCE = "import type { HealthAccountGenerationToken } from '../../../../lib/healthBackfillUiSafety';\n\nexport interface HealthWorkoutOperationScope {\n  accountOperation: HealthAccountGenerationToken;\n  dateKey: string;\n}\n\nexport function isCurrentHealthWorkoutOperationScope(\n  scope: HealthWorkoutOperationScope,\n  currentDateKey: string,\n  isCurrentAccountOperation: (token: HealthAccountGenerationToken) => boolean,\n): boolean {\n  return scope.dateKey === currentDateKey && isCurrentAccountOperation(scope.accountOperation);\n}\n";
 
+function reverseQuickAddMobileImprovements(source: string): string {
+  const replaceBetween = (startMarker: string, endMarker: string, replacement: string) => {
+    const start = source.indexOf(startMarker);
+    const end = source.indexOf(endMarker, start + startMarker.length);
+    if (start < 0 || end < 0) throw new Error('Quick Add baseline reconstruction marker missing');
+    source = source.slice(0, start) + replacement + source.slice(end);
+  };
+
+  const importMarker = "import { useModalA11y } from '../../hooks/useModalA11y';\n";
+  if (!source.includes(importMarker)) throw new Error('Quick Add modal import missing');
+  source = source.replace(importMarker, '');
+  replaceBetween(
+    '  const [showQuickAddExercise, setShowQuickAddExercise] = useState(false);',
+    '  const [isPreviousSheetOpen, setIsPreviousSheetOpen] = useState(false);',
+    "  const [showQuickAddExercise, setShowQuickAddExercise] = useState(false);\n  const [quickAddQuery, setQuickAddQuery] = useState('');\n",
+  );
+  replaceBetween(
+    '                onAddExercise={() => {',
+    '\n              />',
+    "                onAddExercise={() => { setQuickAddQuery(''); setShowQuickAddExercise(true); }}",
+  );
+
+  const originalQuickAdd = [
+    '      {showQuickAddExercise && isMobile && (',
+    '        <div',
+    '          className="fixed inset-0 z-[90] flex items-end justify-center bg-black/60 p-3 backdrop-blur-sm"',
+    '          role="presentation"',
+    '          onClick={() => setShowQuickAddExercise(false)}',
+    '          data-health-quick-add-overlay',
+    '        >',
+    '          <div',
+    '            className={`${WORKSPACE_MODAL_SURFACE} w-full max-w-lg max-h-[78dvh]`}',
+    '            role="dialog"',
+    '            aria-modal="true"',
+    '            aria-labelledby="health-quick-add-title"',
+    '            onClick={event => event.stopPropagation()}',
+    '          >',
+    '            <div className="flex items-center justify-between gap-3 mb-3">',
+    '              <h2 id="health-quick-add-title" className="font-heading text-lg font-bold">{t(\'addExercise\')}</h2>',
+    '              <button type="button" onClick={() => setShowQuickAddExercise(false)} className={`rounded-xl p-2 ${theme.hoverBg}`} aria-label={t(\'close\')}>',
+    '                <X size={18} aria-hidden />',
+    '              </button>',
+    '            </div>',
+    '            <input',
+    '              autoFocus',
+    '              type="search"',
+    '              value={quickAddQuery}',
+    '              onChange={event => setQuickAddQuery(event.target.value)}',
+    '              placeholder={t(\'healthExerciseSearchPlaceholder\')}',
+    '              className={`mb-3 w-full rounded-xl border px-3 py-2.5 text-sm font-semibold outline-none ${theme.input} ${theme.border}`}',
+    '              data-health-quick-add-search',
+    '            />',
+    '            <div className="min-h-0 max-h-[52dvh] space-y-2 overflow-y-auto overscroll-contain" data-health-quick-add-list>',
+    '              {quickAddBlocks.length === 0 ? (',
+    '                <p className={`py-6 text-center text-sm font-semibold ${theme.textMuted}`}>{t(\'healthExerciseSearchEmpty\')}</p>',
+    '              ) : quickAddBlocks.map(block => (',
+    '                <button',
+    '                  key={block.id}',
+    '                  type="button"',
+    '                  onClick={() => {',
+    '                    void handleAddWorkoutToToday(block);',
+    '                    setShowQuickAddExercise(false);',
+    '                  }}',
+    '                  className={`flex min-h-[48px] w-full items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left ${theme.border} ${theme.hoverBg}`}',
+    '                  data-health-quick-add-block={block.id}',
+    '                >',
+    '                  <span className="min-w-0 truncate text-sm font-bold">{block.name}</span>',
+    '                  <Plus size={16} className="shrink-0 text-primary" aria-hidden />',
+    '                </button>',
+    '              ))}',
+    '            </div>',
+    '          </div>',
+    '        </div>',
+    '      )}',
+  ].join('\n');
+  replaceBetween(
+    '      {showQuickAddExercise && isMobile && (',
+    '\n\n      {/* ── 블록 생성/수정 모달 ── */}',
+    originalQuickAdd,
+  );
+  return source;
+}
+
 export async function loadExactMainHealthView(importer: (specifier: string) => Promise<unknown>) {
   const blob = (text: string) => createHash('sha1').update('blob ' + Buffer.byteLength(text) + '\0').update(text).digest('hex');
   let source = readFileSync('src/components/views/HealthView.tsx', 'utf8').replace(/\r\n/g, '\n');
+  source = reverseQuickAddMobileImprovements(source);
   for (const [index, hunk] of BASELINE_REVERSE_HUNKS.entries()) {
     if (!source.includes(hunk.candidate)) throw new Error(`Exact-main reconstruction hunk ${index} missing`);
     source = source.replace(hunk.candidate, hunk.baseline);
@@ -562,7 +646,7 @@ export async function loadExactMainHealthView(importer: (specifier: string) => P
 export async function loadCandidateHealthView(importer: (specifier: string) => Promise<unknown>) {
   const source = readFileSync('src/components/views/HealthView.tsx', 'utf8').replace(/\r\n/g, '\n');
   const healthBlob = createHash('sha1').update('blob ' + Buffer.byteLength(source) + '\0').update(source).digest('hex');
-  if (healthBlob !== '6a5cb32361bb131efe318b9dfcabd156f7132b80') throw new Error('CANDIDATE_PRODUCTION_BLOB_CHANGED');
+  if (healthBlob !== '85dd8d2dc4251aee2813d94ff447adb7b0a93255') throw new Error('CANDIDATE_PRODUCTION_BLOB_CHANGED');
   const candidateFault: string | null = null; // bounded in-memory child transform only
   let observedSource = source;
   if (candidateFault === 'reset-saving') observedSource = source.replaceAll('setIsSaving(false);', 'setIsSaving(true);');

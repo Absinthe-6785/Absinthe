@@ -4,6 +4,7 @@ import { API_URL } from '../../lib/config';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useAppStore } from '../../store/useAppStore';
 import { useEscapeKey } from '../../hooks/useEscapeKey';
+import { useModalA11y } from '../../hooks/useModalA11y';
 import { useApiMutation } from '../../hooks/useApiMutation';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { WorkspaceCardSkeleton } from '../common/WorkspaceCardSkeleton';
@@ -227,6 +228,42 @@ export const HealthView = ({
   const [setupSection, setSetupSection] = useState<HealthSetupSection>('routine');
   const [showQuickAddExercise, setShowQuickAddExercise] = useState(false);
   const [quickAddQuery, setQuickAddQuery] = useState('');
+  const [quickAddViewport, setQuickAddViewport] = useState<{ top: number; height: number } | null>(null);
+  const quickAddDialogRef = useRef<HTMLDivElement>(null);
+  const closeQuickAddExercise = useCallback(() => setShowQuickAddExercise(false), []);
+  useModalA11y({
+    open: showQuickAddExercise && isMobile,
+    onClose: closeQuickAddExercise,
+    containerRef: quickAddDialogRef,
+  });
+  const quickAddDateKeyRef = useRef(formatDate(selectedDate));
+  useLayoutEffect(() => {
+    const currentDateKey = formatDate(selectedDate);
+    if (quickAddDateKeyRef.current === currentDateKey) return;
+    quickAddDateKeyRef.current = currentDateKey;
+    setShowQuickAddExercise(false);
+    setQuickAddQuery('');
+  }, [formatDate, selectedDate]);
+  useLayoutEffect(() => {
+    if (!showQuickAddExercise || !isMobile) return;
+    const visualViewport = window.visualViewport;
+    const updateVisibleViewport = () => {
+      const next = {
+        top: Math.max(0, visualViewport?.offsetTop ?? 0),
+        height: Math.max(0, visualViewport?.height ?? window.innerHeight),
+      };
+      setQuickAddViewport(current => current?.top === next.top && current.height === next.height ? current : next);
+    };
+    updateVisibleViewport();
+    window.addEventListener('resize', updateVisibleViewport);
+    visualViewport?.addEventListener('resize', updateVisibleViewport);
+    visualViewport?.addEventListener('scroll', updateVisibleViewport);
+    return () => {
+      window.removeEventListener('resize', updateVisibleViewport);
+      visualViewport?.removeEventListener('resize', updateVisibleViewport);
+      visualViewport?.removeEventListener('scroll', updateVisibleViewport);
+    };
+  }, [showQuickAddExercise, isMobile]);
   const [isPreviousSheetOpen, setIsPreviousSheetOpen] = useState(false);
   const [selectedPreviousDate, setSelectedPreviousDate] = useState<string | null>(null);
   const [healthSection, setHealthSection] = useState<HealthWorkspaceSection>('workout');
@@ -1869,7 +1906,16 @@ export const HealthView = ({
                 addExerciseLabel={t('addExercise')}
                 theme={theme}
                 onPrevious={() => setIsPreviousSheetOpen(true)}
-                onAddExercise={() => { setQuickAddQuery(''); setShowQuickAddExercise(true); }}
+                onAddExercise={() => {
+                  const active = document.activeElement;
+                  const trigger = active instanceof HTMLButtonElement && active.matches('[data-health-quick-add-exercise]')
+                    ? active
+                    : document.querySelector<HTMLButtonElement>('[data-health-quick-add-exercise]');
+                  trigger?.focus({ preventScroll: true });
+                  setQuickAddViewport(null);
+                  setQuickAddQuery('');
+                  setShowQuickAddExercise(true);
+                }}
               />
               {!isDesktopPrevious && mobileHealthTab === 'workout' && (
                 <div className="flex min-w-0 flex-col items-start gap-1" data-health-workout-cloud-entry>
@@ -2696,33 +2742,36 @@ export const HealthView = ({
       {showQuickAddExercise && isMobile && (
         <div
           className="fixed inset-0 z-[90] flex items-end justify-center bg-black/60 p-3 backdrop-blur-sm"
+          style={quickAddViewport ? { top: `${quickAddViewport.top}px`, height: `${quickAddViewport.height}px`, bottom: 'auto' } : undefined}
           role="presentation"
-          onClick={() => setShowQuickAddExercise(false)}
+          onClick={closeQuickAddExercise}
           data-health-quick-add-overlay
         >
           <div
-            className={`${WORKSPACE_MODAL_SURFACE} w-full max-w-lg max-h-[78dvh]`}
+            ref={quickAddDialogRef}
+            className={`${WORKSPACE_MODAL_SURFACE} flex min-h-0 w-full max-w-lg flex-col overflow-hidden`}
+            style={quickAddViewport ? { maxHeight: `${Math.max(0, quickAddViewport.height - 24)}px` } : { maxHeight: '78dvh' }}
             role="dialog"
             aria-modal="true"
             aria-labelledby="health-quick-add-title"
             onClick={event => event.stopPropagation()}
           >
-            <div className="flex items-center justify-between gap-3 mb-3">
+            <div className="mb-3 flex shrink-0 items-center justify-between gap-3">
               <h2 id="health-quick-add-title" className="font-heading text-lg font-bold">{t('addExercise')}</h2>
-              <button type="button" onClick={() => setShowQuickAddExercise(false)} className={`rounded-xl p-2 ${theme.hoverBg}`} aria-label={t('close')}>
+              <button type="button" onClick={closeQuickAddExercise} className={`min-h-11 min-w-11 rounded-xl p-2 ${theme.hoverBg}`} aria-label={t('close')}>
                 <X size={18} aria-hidden />
               </button>
             </div>
             <input
-              autoFocus
               type="search"
               value={quickAddQuery}
               onChange={event => setQuickAddQuery(event.target.value)}
+              aria-label={t('healthExerciseSearchPlaceholder')}
               placeholder={t('healthExerciseSearchPlaceholder')}
-              className={`mb-3 w-full rounded-xl border px-3 py-2.5 text-sm font-semibold outline-none ${theme.input} ${theme.border}`}
+              className={`mb-3 min-h-11 w-full shrink-0 rounded-xl border px-3 py-2.5 text-sm font-semibold outline-none ${theme.input} ${theme.border}`}
               data-health-quick-add-search
             />
-            <div className="min-h-0 max-h-[52dvh] space-y-2 overflow-y-auto overscroll-contain" data-health-quick-add-list>
+            <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain" data-health-quick-add-list>
               {quickAddBlocks.length === 0 ? (
                 <p className={`py-6 text-center text-sm font-semibold ${theme.textMuted}`}>{t('healthExerciseSearchEmpty')}</p>
               ) : quickAddBlocks.map(block => (
@@ -2731,13 +2780,13 @@ export const HealthView = ({
                   type="button"
                   onClick={() => {
                     void handleAddWorkoutToToday(block);
-                    setShowQuickAddExercise(false);
+                    closeQuickAddExercise();
                   }}
-                  className={`flex min-h-[48px] w-full items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left ${theme.border} ${theme.hoverBg}`}
+                  className={`flex min-h-[48px] w-full items-start justify-between gap-3 rounded-xl border px-3 py-2.5 text-left ${theme.border} ${theme.hoverBg}`}
                   data-health-quick-add-block={block.id}
                 >
-                  <span className="min-w-0 truncate text-sm font-bold">{block.name}</span>
-                  <Plus size={16} className="shrink-0 text-primary" aria-hidden />
+                  <span className="min-w-0 whitespace-normal break-words text-sm font-bold leading-snug [overflow-wrap:anywhere]">{block.name}</span>
+                  <Plus size={16} className="mt-0.5 shrink-0 text-primary" aria-hidden />
                 </button>
               ))}
             </div>
