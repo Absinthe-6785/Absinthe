@@ -953,6 +953,7 @@ export const RecipeView = ({
         dark={dark}
         t={t}
         onClose={closeForm}
+        confirmationOpen={Boolean(confirm)}
         onSave={handleSave}
         onDiscard={draftConflict ? handleDiscardLocalConflict : handleDiscardDraft}
         onUseLocal={draftConflict?.kind === 'remote-changed' ? handleUseLocalDraft : undefined}

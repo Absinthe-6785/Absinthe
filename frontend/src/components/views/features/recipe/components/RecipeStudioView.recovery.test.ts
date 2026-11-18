@@ -23,6 +23,7 @@ import type { AppSettings, Theme } from '../../../../../types';
 import { useAppStore } from '../../../../../store/useAppStore';
 import { RecipeStudioView, type RecipeStudioViewProps } from './RecipeStudioView';
 import { RecipeFormModal, type RecipeFormModalProps } from './RecipeListParts';
+import { ConfirmModal } from '../../../../common/ConfirmModal';
 import type { RecipeProjection } from '../recipeProjectionModels';
 import type { Recipe } from '../recipeTypes';
 
@@ -1157,5 +1158,210 @@ describe('RecipeFormModal authority presentation', () => {
     renderForm({ conflict: 'remote-missing' });
     expect(host?.querySelector('[data-recipe-draft-conflict="remote-missing"]')).not.toBeNull();
     expect(host?.querySelector('[data-recipe-save]')).toBeNull();
+    expect(host?.querySelector<HTMLButtonElement>('.abs-cosmos-recipe-form [data-recipe-draft-discard]')?.disabled).toBe(false);
+  });
+});
+
+describe('RecipeFormModal mobile layout and lifecycle', () => {
+  it.each([320, 375, 430])('keeps the form scroll region and action footer bounded at %i CSS pixels', width => {
+    const originalWidth = Object.getOwnPropertyDescriptor(window, 'innerWidth');
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: width });
+    const onSave = vi.fn();
+    const onDiscard = vi.fn();
+    const longForm: RecipeFormModalProps['form'] = {
+      title: 'A long recipe title that must remain unchanged',
+      category: 'Other',
+      ingredients: Array.from({ length: 24 }, (_, index) => `Ingredient ${index + 1}`).join('\n'),
+      steps: Array.from({ length: 18 }, (_, index) => `Step ${index + 1}`).join('\n'),
+      memo: 'A detailed memo that remains available while the form scrolls.',
+      starred: false,
+    };
+
+    try {
+      renderForm({ form: longForm, onSave, onDiscard });
+      const dialog = host!.querySelector<HTMLElement>('[role="dialog"]')!;
+      const scrollRegion = host!.querySelector<HTMLElement>('[data-recipe-form-scroll-region]')!;
+      const footer = dialog.lastElementChild as HTMLElement;
+
+      expect(dialog.getAttribute('aria-modal')).toBe('true');
+      expect(dialog.getAttribute('aria-labelledby')).toBe(dialog.querySelector('h2')?.id);
+      expect(dialog.className).toContain('lg:max-h-[90vh]');
+      expect(scrollRegion.className).toContain('overflow-y-auto');
+      expect(scrollRegion.className).toContain('min-h-0');
+      expect(footer.className).toContain('shrink-0');
+      expect(dialog.querySelector<HTMLInputElement>('input')?.value).toBe(longForm.title);
+      expect(dialog.querySelector<HTMLTextAreaElement>('[id$="-ingredients"]')?.value).toBe(longForm.ingredients);
+      expect(dialog.querySelector<HTMLTextAreaElement>('[id$="-steps"]')?.value).toBe(longForm.steps);
+      expect(dialog.querySelector<HTMLTextAreaElement>('[id$="-memo"]')?.value).toBe(longForm.memo);
+      expect(dialog.querySelector<HTMLButtonElement>('[data-recipe-save]')?.disabled).toBe(false);
+      expect(dialog.querySelector<HTMLButtonElement>('.abs-recipe-danger-action')?.textContent).toContain('recipeDraftDiscard');
+      expect(onSave).not.toHaveBeenCalled();
+      expect(onDiscard).not.toHaveBeenCalled();
+    } finally {
+      if (originalWidth) Object.defineProperty(window, 'innerWidth', originalWidth);
+      else delete (window as Window & { innerWidth?: number }).innerWidth;
+    }
+  });
+
+  it.each([
+    { editingId: null, heading: 'newRecipe', saveLabel: 'saveRecipe' },
+    { editingId: 'recipe-existing', heading: 'editRecipe', saveLabel: 'updateRecipe' },
+  ])('preserves form values and explicit actions in $heading mode', ({ editingId, heading, saveLabel }) => {
+    const onSave = vi.fn();
+    const onDiscard = vi.fn();
+    const onClose = vi.fn();
+    renderForm({ editingId, onSave, onDiscard, onClose });
+
+    const dialog = host!.querySelector<HTMLElement>('[role="dialog"]')!;
+    expect(dialog.querySelector('h2')?.textContent).toBe(heading);
+    expect(dialog.querySelector<HTMLInputElement>('input')?.value).toBe(recipeForm.title);
+    expect(dialog.querySelector<HTMLTextAreaElement>('[id$="-ingredients"]')?.value).toBe(recipeForm.ingredients);
+    expect(dialog.querySelector<HTMLTextAreaElement>('[id$="-steps"]')?.value).toBe(recipeForm.steps);
+    expect(dialog.querySelector<HTMLTextAreaElement>('[id$="-memo"]')?.value).toBe(recipeForm.memo);
+    expect(dialog.querySelector<HTMLButtonElement>('[data-recipe-save]')?.textContent).toContain(saveLabel);
+
+    act(() => dialog.querySelector<HTMLButtonElement>('[data-recipe-save]')!.click());
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(onDiscard).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('tracks VisualViewport resize and scroll, then removes listeners when closed', () => {
+    const originalViewport = Object.getOwnPropertyDescriptor(window, 'visualViewport');
+    let height = 690;
+    let offsetTop = 0;
+    const viewportTarget = new EventTarget();
+    Object.defineProperties(viewportTarget, {
+      height: { configurable: true, get: () => height },
+      offsetTop: { configurable: true, get: () => offsetTop },
+    });
+    const viewport = viewportTarget as unknown as VisualViewport;
+    const removeListener = vi.spyOn(viewportTarget, 'removeEventListener');
+    Object.defineProperty(window, 'visualViewport', { configurable: true, value: viewport });
+
+    try {
+      renderForm();
+      const backdrop = host!.querySelector<HTMLElement>('[data-recipe-form-backdrop]')!;
+      expect(backdrop.style.height).toBe('690px');
+
+      height = 276;
+      offsetTop = 42;
+      act(() => viewport.dispatchEvent(new Event('resize')));
+      expect(backdrop.style.height).toBe('276px');
+      expect(backdrop.style.top).toBe('42px');
+
+      offsetTop = 76;
+      act(() => viewport.dispatchEvent(new Event('scroll')));
+      expect(backdrop.style.top).toBe('76px');
+
+      renderForm({ show: false });
+      expect(removeListener).toHaveBeenCalledWith('resize', expect.any(Function));
+      expect(removeListener).toHaveBeenCalledWith('scroll', expect.any(Function));
+      expect(host!.querySelector('[data-recipe-form-backdrop]')).toBeNull();
+    } finally {
+      if (originalViewport) Object.defineProperty(window, 'visualViewport', originalViewport);
+      else delete (window as Window & { visualViewport?: VisualViewport }).visualViewport;
+    }
+  });
+
+  it('uses a named dialog, contains keyboard focus, and restores focus through the existing close path', () => {
+    const opener = document.createElement('button');
+    document.body.appendChild(opener);
+    opener.focus();
+    const onClose = vi.fn();
+
+    try {
+      renderForm({ onClose });
+      const dialog = host!.querySelector<HTMLElement>('[role="dialog"]')!;
+      const closeButton = dialog.querySelector<HTMLButtonElement>('button[aria-label="close"]')!;
+      const saveButton = dialog.querySelector<HTMLButtonElement>('[data-recipe-save]')!;
+      expect(document.activeElement).toBe(closeButton);
+      expect(dialog.getAttribute('aria-labelledby')).toBe(dialog.querySelector('h2')?.id);
+
+      saveButton.focus();
+      act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true })));
+      expect(document.activeElement).toBe(closeButton);
+
+      act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })));
+      expect(onClose).toHaveBeenCalledTimes(1);
+
+      renderForm({ show: false, onClose });
+      expect(document.activeElement).toBe(opener);
+    } finally {
+      opener.remove();
+    }
+  });
+
+  it('routes close-button and outside clicks to the parent close confirmation path only', () => {
+    const onClose = vi.fn();
+    const onSave = vi.fn();
+    const onDiscard = vi.fn();
+    renderForm({ onClose, onSave, onDiscard });
+    const backdrop = host!.querySelector<HTMLElement>('[data-recipe-form-backdrop]')!;
+    const dialog = host!.querySelector<HTMLElement>('[role="dialog"]')!;
+
+    act(() => dialog.querySelector<HTMLButtonElement>('button[aria-label="close"]')!.click());
+    expect(onClose).toHaveBeenCalledTimes(1);
+    act(() => dialog.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    act(() => backdrop.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    expect(onClose).toHaveBeenCalledTimes(2);
+    expect(onSave).not.toHaveBeenCalled();
+    expect(onDiscard).not.toHaveBeenCalled();
+  });
+
+  it('lets a stacked discard confirmation own Escape without closing the Recipe form', () => {
+    const onClose = vi.fn();
+    function ConfirmationHarness() {
+      const [confirmationOpen, setConfirmationOpen] = useState(false);
+      return createElement('div', null,
+        createElement(RecipeFormModal, {
+          show: true,
+          editingId: null,
+          form: recipeForm,
+          setForm: vi.fn(),
+          theme,
+          dark: true,
+          t: key => key,
+          onClose,
+          confirmationOpen,
+          onSave: vi.fn(),
+          onDiscard: () => setConfirmationOpen(true),
+          saving: false,
+          conflict: null,
+          storageWarning: false,
+          authorityReady: true,
+          authorityUnavailable: false,
+          authorityValidating: false,
+          onRetryAuthority: vi.fn(),
+        }),
+        confirmationOpen ? createElement(ConfirmModal, {
+          message: 'Discard this draft?',
+          onConfirm: () => setConfirmationOpen(false),
+          onCancel: () => setConfirmationOpen(false),
+        }) : null,
+      );
+    }
+
+    if (!host) {
+      host = document.createElement('div');
+      document.body.appendChild(host);
+      root = createRoot(host);
+    }
+    act(() => root?.render(createElement(ConfirmationHarness)));
+    const discard = host!.querySelector<HTMLButtonElement>('[data-recipe-draft-discard]')!;
+    act(() => discard.focus());
+    act(() => discard.click());
+
+    const formDialog = host!.querySelector<HTMLElement>('[data-k110-recipe-form]')!;
+    const confirmationDialog = Array.from(host!.querySelectorAll<HTMLElement>('[role="dialog"]'))
+      .find(dialog => dialog !== formDialog)!;
+    expect(confirmationDialog.textContent).toContain('Discard this draft?');
+    expect(document.activeElement).toBe(confirmationDialog.querySelector('button'));
+
+    act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })));
+    expect(host!.querySelector('[role="dialog"]')).toBe(formDialog);
+    expect(host!.querySelector('[data-recipe-form-backdrop]')?.hasAttribute('aria-hidden')).toBe(false);
+    expect(onClose).not.toHaveBeenCalled();
   });
 });
