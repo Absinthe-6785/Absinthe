@@ -666,7 +666,7 @@ export const RecipeView = ({
         mutateRecipes(prev => (prev ?? []).filter(r => r.id !== id), false);
         void mutateRecipes();
         void mutateDeletedRecipes();
-        if (expandedId === id) setExpandedId(null);
+        setExpandedId(current => current === id ? null : current);
         showToast(t('recipeDeleted'));
       } catch {
         if (!isCurrentAccountGeneration(accountSnapshot)) return;
@@ -675,7 +675,7 @@ export const RecipeView = ({
         finishRecipeMutation();
       }
     }, { confirmLabel: 'Delete' });
-  }, [beginRecipeMutation, captureAccountGeneration, expandedId, isCurrentAccountGeneration, showConfirm, showToast, mutateRecipes, mutateDeletedRecipes, t]);
+  }, [beginRecipeMutation, captureAccountGeneration, isCurrentAccountGeneration, showConfirm, showToast, mutateRecipes, mutateDeletedRecipes, t]);
 
   const handleRestore = useCallback(async (id: string) => {
     if (!recipeAuthorityIsReady(activeAvailabilityRef.current) || !recipeAuthorityIsReady(trashAvailabilityRef.current)) return;

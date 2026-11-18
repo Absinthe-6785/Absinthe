@@ -1,4 +1,4 @@
-import { useRef, useEffect, useId, useState } from 'react';
+import { memo, useCallback, useRef, useEffect, useId, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { X, Check, Star, AlertTriangle, Trash2, RefreshCw } from 'lucide-react';
 import type { Theme } from '../../../../../types';
@@ -8,11 +8,58 @@ import { RECIPE_CATEGORIES, EMPTY_RECIPE_FORM } from '../recipeTypes';
 import { useViewportLayout } from '../../../../../hooks/useViewportLayout';
 import { UI_INTERACTION } from '../../../../../lib/uiInteractionTokens';
 import { useModalA11y } from '../../../../../hooks/useModalA11y';
-import { RecipeCard } from './RecipeCard';
+import { RecipeCard, type RecipeCardProps } from './RecipeCard';
 import type { RecipeCopyMode, RecipeCopyResult } from '../recipeCopyContent';
 
 const VIRTUALIZE_THRESHOLD = 40;
 const ROW_HEIGHT = 72;
+
+interface RecipeCardRowProps extends Omit<RecipeCardProps, 'onToggleExpand' | 'onToggleStar' | 'onEdit' | 'onDelete' | 'compact'> {
+  onToggleExpand: (id: string) => void;
+  onToggleStar: (recipe: Recipe) => void;
+  onEdit: (recipe: Recipe) => void;
+  onDelete: (id: string, title: string) => void;
+}
+
+const RecipeCardRow = memo(function RecipeCardRow({
+  recipe,
+  theme,
+  dark,
+  expanded,
+  t,
+  onToggleExpand,
+  onToggleStar,
+  onEdit,
+  onDelete,
+  onCopyRecipe,
+  copyContextKey,
+  mutationsDisabled,
+  starPending,
+}: RecipeCardRowProps) {
+  const handleToggleExpand = useCallback(() => onToggleExpand(recipe.id), [onToggleExpand, recipe.id]);
+  const handleToggleStar = useCallback(() => onToggleStar(recipe), [onToggleStar, recipe]);
+  const handleEdit = useCallback(() => onEdit(recipe), [onEdit, recipe]);
+  const handleDelete = useCallback(() => onDelete(recipe.id, recipe.title), [onDelete, recipe.id, recipe.title]);
+
+  return (
+    <RecipeCard
+      recipe={recipe}
+      theme={theme}
+      dark={dark}
+      expanded={expanded}
+      t={t}
+      compact
+      onToggleExpand={handleToggleExpand}
+      onToggleStar={handleToggleStar}
+      onEdit={handleEdit}
+      onDelete={handleDelete}
+      onCopyRecipe={onCopyRecipe}
+      copyContextKey={copyContextKey}
+      mutationsDisabled={mutationsDisabled}
+      starPending={starPending}
+    />
+  );
+});
 
 export interface RecipeFormState {
   title: string;
@@ -354,18 +401,17 @@ export function RecipeVirtualList({
   }, [expandedIndex, useVirtual, virtualizer]);
 
   const renderCard = (recipe: Recipe) => (
-    <RecipeCard
+    <RecipeCardRow
       key={recipe.id}
       recipe={recipe}
       theme={theme}
       dark={dark}
       expanded={expandedId === recipe.id}
       t={t}
-      compact
-      onToggleExpand={() => onToggleExpand(recipe.id)}
-      onToggleStar={() => onToggleStar(recipe)}
-      onEdit={() => onEdit(recipe)}
-      onDelete={() => onDelete(recipe.id, recipe.title)}
+      onToggleExpand={onToggleExpand}
+      onToggleStar={onToggleStar}
+      onEdit={onEdit}
+      onDelete={onDelete}
       onCopyRecipe={onCopyRecipe}
       copyContextKey={copyContextKey}
       mutationsDisabled={mutationsDisabled}
