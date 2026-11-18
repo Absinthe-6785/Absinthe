@@ -504,14 +504,34 @@ const BASELINE_REVERSE_HUNKS = [
     candidate: "          language: lang,\n",
     baseline: '',
   },
+  {
+    candidate: "import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback, useId, MouseEvent, ChangeEvent, TouchEvent } from 'react';\n",
+    baseline: "import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback, MouseEvent, ChangeEvent, TouchEvent } from 'react';\n",
+  },
+  {
+    candidate: "import type { HealthWorkoutCloudComparisonRequest } from './features/health/HealthWorkoutCloudComparisonPanel';\n",
+    baseline: '',
+  },
+  {
+    candidate: "  const cloudComparisonHelpId = useId();\n  const [cloudComparisonRequestState, setCloudComparisonRequestState] = useState<HealthWorkoutCloudComparisonRequest | null>(null);\n  const cloudComparisonRequestRef = useRef<HealthWorkoutCloudComparisonRequest | null>(null);\n  const cloudComparisonSequenceRef = useRef(0);\n  const cloudComparisonContext = {\n    accountId: user.id,\n    accountGeneration: accountGenerationRef.current,\n    section: healthSection,\n    mobileSurface: mobileHealthTab,\n  } as const;\n  const cloudComparisonContextRef = useRef(cloudComparisonContext);\n  if (cloudComparisonContextRef.current.accountId !== cloudComparisonContext.accountId\n    || cloudComparisonContextRef.current.accountGeneration !== cloudComparisonContext.accountGeneration\n    || cloudComparisonContextRef.current.section !== cloudComparisonContext.section\n    || cloudComparisonContextRef.current.mobileSurface !== cloudComparisonContext.mobileSurface) {\n    // Invalidate synchronously so an A-B-A render or leaving the Workout\n    // surface cannot publish or later start a queued comparison.\n    cloudComparisonContextRef.current = cloudComparisonContext;\n    cloudComparisonRequestRef.current = null;\n  }\n  const isCloudComparisonRequestCurrent = (request: HealthWorkoutCloudComparisonRequest) => {\n    const context = cloudComparisonContextRef.current;\n    return cloudComparisonRequestRef.current === request\n      && activeAccountIdRef.current === request.accountId\n      && accountGenerationRef.current === request.accountGeneration\n      && context.accountId === request.accountId\n      && context.accountGeneration === request.accountGeneration\n      && context.section === 'workout'\n      && context.mobileSurface === 'workout';\n  };\n  const cloudComparisonRequest = cloudComparisonRequestState\n    && cloudComparisonRequestRef.current === cloudComparisonRequestState\n    && isCloudComparisonRequestCurrent(cloudComparisonRequestState)\n    ? cloudComparisonRequestState : null;\n  const cloudComparisonActive = healthSection === 'workout' && mobileHealthTab === 'workout';\n  const requestCloudComparison = () => {\n    if (!user.id || !cloudComparisonActive) return;\n    const existing = cloudComparisonRequestRef.current;\n    if (existing && isCloudComparisonRequestCurrent(existing)) return;\n    const request: HealthWorkoutCloudComparisonRequest = {\n      requestId: ++cloudComparisonSequenceRef.current,\n      accountId: user.id,\n      accountGeneration: accountGenerationRef.current,\n    };\n    cloudComparisonRequestRef.current = request;\n    setCloudComparisonRequestState(request);\n    // The existing comparison panel is the last supporting card. Scrolling\n    // to the support region's end both triggers its visibility-aware mount\n    // and puts the result/unavailable status in view on compact layouts.\n    inbodyQuickRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'end' });\n  };\n  const settleCloudComparisonRequest = (requestId: number) => {\n    const request = cloudComparisonRequestRef.current;\n    if (!request || request.requestId !== requestId || !isCloudComparisonRequestCurrent(request)) return;\n    cloudComparisonRequestRef.current = null;\n    setCloudComparisonRequestState(current => current?.requestId === requestId ? null : current);\n  };\n",
+    baseline: '',
+  },
+  {
+    candidate: "              {!isDesktopPrevious && mobileHealthTab === 'workout' && (\n                <div className=\"flex min-w-0 flex-col items-start gap-1\" data-health-workout-cloud-entry>\n                  <button\n                    type=\"button\"\n                    data-health-workout-cloud-check\n                    disabled={!user.id || !!cloudComparisonRequest}\n                    aria-busy={!!cloudComparisonRequest}\n                    aria-describedby={cloudComparisonHelpId}\n                    onClick={requestCloudComparison}\n                    className=\"min-h-[40px] rounded-xl border border-primary px-3 py-2 text-xs font-bold text-primary transition-colors hover:bg-primary/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-wait disabled:opacity-60\"\n                  >\n                    {t(cloudComparisonRequest ? 'healthCloudHeaderChecking' : 'healthCloudHeaderCheck')}\n                  </button>\n                  <span id={cloudComparisonHelpId} className={`max-w-xs text-[10px] leading-snug ${theme.textMuted}`}>\n                    {t('healthCloudScope')}\n                  </span>\n                  <span role=\"status\" aria-live=\"polite\" className=\"sr-only\">\n                    {cloudComparisonRequest ? t('healthCloudChecking') : ''}\n                  </span>\n                </div>\n              )}\n",
+    baseline: '',
+  },
+  {
+    candidate: "          comparisonActive={cloudComparisonActive}\n          comparisonRequest={cloudComparisonRequest}\n          isComparisonRequestCurrent={isCloudComparisonRequestCurrent}\n          onComparisonRequestSettled={settleCloudComparisonRequest}\n",
+    baseline: '',
+  },
 ];
 const BASELINE_SCOPE_SOURCE = "import type { HealthAccountGenerationToken } from '../../../../lib/healthBackfillUiSafety';\n\nexport interface HealthWorkoutOperationScope {\n  accountOperation: HealthAccountGenerationToken;\n  dateKey: string;\n}\n\nexport function isCurrentHealthWorkoutOperationScope(\n  scope: HealthWorkoutOperationScope,\n  currentDateKey: string,\n  isCurrentAccountOperation: (token: HealthAccountGenerationToken) => boolean,\n): boolean {\n  return scope.dateKey === currentDateKey && isCurrentAccountOperation(scope.accountOperation);\n}\n";
 
 export async function loadExactMainHealthView(importer: (specifier: string) => Promise<unknown>) {
   const blob = (text: string) => createHash('sha1').update('blob ' + Buffer.byteLength(text) + '\0').update(text).digest('hex');
   let source = readFileSync('src/components/views/HealthView.tsx', 'utf8').replace(/\r\n/g, '\n');
-  for (const hunk of BASELINE_REVERSE_HUNKS) {
-    if (!source.includes(hunk.candidate)) throw new Error('Exact-main reconstruction hunk missing');
+  for (const [index, hunk] of BASELINE_REVERSE_HUNKS.entries()) {
+    if (!source.includes(hunk.candidate)) throw new Error(`Exact-main reconstruction hunk ${index} missing`);
     source = source.replace(hunk.candidate, hunk.baseline);
   }
   if (blob(source) !== BASELINE_HEALTH_BLOB || blob(BASELINE_SCOPE_SOURCE) !== BASELINE_SCOPE_BLOB)
@@ -542,7 +562,7 @@ export async function loadExactMainHealthView(importer: (specifier: string) => P
 export async function loadCandidateHealthView(importer: (specifier: string) => Promise<unknown>) {
   const source = readFileSync('src/components/views/HealthView.tsx', 'utf8').replace(/\r\n/g, '\n');
   const healthBlob = createHash('sha1').update('blob ' + Buffer.byteLength(source) + '\0').update(source).digest('hex');
-  if (healthBlob !== '1ea28f812760c17cb32c235778253246b902715e') throw new Error('CANDIDATE_PRODUCTION_BLOB_CHANGED');
+  if (healthBlob !== '6a5cb32361bb131efe318b9dfcabd156f7132b80') throw new Error('CANDIDATE_PRODUCTION_BLOB_CHANGED');
   const candidateFault: string | null = null; // bounded in-memory child transform only
   let observedSource = source;
   if (candidateFault === 'reset-saving') observedSource = source.replaceAll('setIsSaving(false);', 'setIsSaving(true);');

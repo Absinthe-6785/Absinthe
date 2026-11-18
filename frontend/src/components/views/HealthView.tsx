@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback, MouseEvent, ChangeEvent, TouchEvent } from 'react';
+import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback, useId, MouseEvent, ChangeEvent, TouchEvent } from 'react';
 import { Plus, X, Trash2, Save, Dumbbell, Activity, ChevronLeft, ChevronRight, Lock, Pencil, GripVertical, Loader2, ClipboardCopy, Check, FileText, MoreHorizontal } from 'lucide-react';
 import { API_URL } from '../../lib/config';
 import { useConfirm } from '../../hooks/useConfirm';
@@ -33,6 +33,7 @@ import type { RangeWorkoutRow } from './features/health/workout/workoutMetrics';
 import { computeWorkoutPrBadgeMap } from './features/health/computeWorkoutPrBadge';
 import { HealthBlockLibrary } from './features/health/HealthBlockLibrary';
 import { HealthSupportingPanels } from './features/health/HealthSupportingPanels';
+import type { HealthWorkoutCloudComparisonRequest } from './features/health/HealthWorkoutCloudComparisonPanel';
 import { WorkoutPrBadge } from './features/health/WorkoutPrBadge';
 import { HealthExerciseComparisonPreview } from './features/health/HealthExerciseComparisonPreview';
 import { PreviousWorkoutView } from './features/health/PreviousWorkoutView';
@@ -233,6 +234,63 @@ export const HealthView = ({
   const [isWorkoutLocked, setIsWorkoutLocked] = useState(false);
   const [workoutOverflowIndex, setWorkoutOverflowIndex] = useState<number | null>(null);
   const inbodyQuickRef = useRef<HTMLDivElement>(null);
+  const cloudComparisonHelpId = useId();
+  const [cloudComparisonRequestState, setCloudComparisonRequestState] = useState<HealthWorkoutCloudComparisonRequest | null>(null);
+  const cloudComparisonRequestRef = useRef<HealthWorkoutCloudComparisonRequest | null>(null);
+  const cloudComparisonSequenceRef = useRef(0);
+  const cloudComparisonContext = {
+    accountId: user.id,
+    accountGeneration: accountGenerationRef.current,
+    section: healthSection,
+    mobileSurface: mobileHealthTab,
+  } as const;
+  const cloudComparisonContextRef = useRef(cloudComparisonContext);
+  if (cloudComparisonContextRef.current.accountId !== cloudComparisonContext.accountId
+    || cloudComparisonContextRef.current.accountGeneration !== cloudComparisonContext.accountGeneration
+    || cloudComparisonContextRef.current.section !== cloudComparisonContext.section
+    || cloudComparisonContextRef.current.mobileSurface !== cloudComparisonContext.mobileSurface) {
+    // Invalidate synchronously so an A-B-A render or leaving the Workout
+    // surface cannot publish or later start a queued comparison.
+    cloudComparisonContextRef.current = cloudComparisonContext;
+    cloudComparisonRequestRef.current = null;
+  }
+  const isCloudComparisonRequestCurrent = (request: HealthWorkoutCloudComparisonRequest) => {
+    const context = cloudComparisonContextRef.current;
+    return cloudComparisonRequestRef.current === request
+      && activeAccountIdRef.current === request.accountId
+      && accountGenerationRef.current === request.accountGeneration
+      && context.accountId === request.accountId
+      && context.accountGeneration === request.accountGeneration
+      && context.section === 'workout'
+      && context.mobileSurface === 'workout';
+  };
+  const cloudComparisonRequest = cloudComparisonRequestState
+    && cloudComparisonRequestRef.current === cloudComparisonRequestState
+    && isCloudComparisonRequestCurrent(cloudComparisonRequestState)
+    ? cloudComparisonRequestState : null;
+  const cloudComparisonActive = healthSection === 'workout' && mobileHealthTab === 'workout';
+  const requestCloudComparison = () => {
+    if (!user.id || !cloudComparisonActive) return;
+    const existing = cloudComparisonRequestRef.current;
+    if (existing && isCloudComparisonRequestCurrent(existing)) return;
+    const request: HealthWorkoutCloudComparisonRequest = {
+      requestId: ++cloudComparisonSequenceRef.current,
+      accountId: user.id,
+      accountGeneration: accountGenerationRef.current,
+    };
+    cloudComparisonRequestRef.current = request;
+    setCloudComparisonRequestState(request);
+    // The existing comparison panel is the last supporting card. Scrolling
+    // to the support region's end both triggers its visibility-aware mount
+    // and puts the result/unavailable status in view on compact layouts.
+    inbodyQuickRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'end' });
+  };
+  const settleCloudComparisonRequest = (requestId: number) => {
+    const request = cloudComparisonRequestRef.current;
+    if (!request || request.requestId !== requestId || !isCloudComparisonRequestCurrent(request)) return;
+    cloudComparisonRequestRef.current = null;
+    setCloudComparisonRequestState(current => current?.requestId === requestId ? null : current);
+  };
   const wasMobileRef = useRef(isMobile);
   const latestWorkoutRecordRef = useRef<HTMLDivElement>(null);
   const pendingLatestWorkoutIndexRef = useRef<number | null>(null);
@@ -1813,6 +1871,27 @@ export const HealthView = ({
                 onPrevious={() => setIsPreviousSheetOpen(true)}
                 onAddExercise={() => { setQuickAddQuery(''); setShowQuickAddExercise(true); }}
               />
+              {!isDesktopPrevious && mobileHealthTab === 'workout' && (
+                <div className="flex min-w-0 flex-col items-start gap-1" data-health-workout-cloud-entry>
+                  <button
+                    type="button"
+                    data-health-workout-cloud-check
+                    disabled={!user.id || !!cloudComparisonRequest}
+                    aria-busy={!!cloudComparisonRequest}
+                    aria-describedby={cloudComparisonHelpId}
+                    onClick={requestCloudComparison}
+                    className="min-h-[40px] rounded-xl border border-primary px-3 py-2 text-xs font-bold text-primary transition-colors hover:bg-primary/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-wait disabled:opacity-60"
+                  >
+                    {t(cloudComparisonRequest ? 'healthCloudHeaderChecking' : 'healthCloudHeaderCheck')}
+                  </button>
+                  <span id={cloudComparisonHelpId} className={`max-w-xs text-[10px] leading-snug ${theme.textMuted}`}>
+                    {t('healthCloudScope')}
+                  </span>
+                  <span role="status" aria-live="polite" className="sr-only">
+                    {cloudComparisonRequest ? t('healthCloudChecking') : ''}
+                  </span>
+                </div>
+              )}
               <div className={`hidden lg:flex items-center rounded-xl border p-0.5 ${theme.border} ${theme.input}`} role="group" aria-label={t('previousWorkoutToggle')}>
                 <button
                   type="button"
@@ -2570,6 +2649,10 @@ export const HealthView = ({
           showToast={showToast}
           onOpenNutrition={() => setHealthSection('nutrition')}
           inbodyHistoryCollapsed={healthSectionPrefs.inbodyHistoryCollapsed}
+          comparisonActive={cloudComparisonActive}
+          comparisonRequest={cloudComparisonRequest}
+          isComparisonRequestCurrent={isCloudComparisonRequestCurrent}
+          onComparisonRequestSettled={settleCloudComparisonRequest}
         />
       </HealthSupportRegion>
     </HealthWorkoutComposition>

@@ -8,7 +8,7 @@ import translationKeys, { buildLocaleDictionary } from './i18n/keys';
 import type { TranslationKey } from './i18n';
 
 const PLANNER_STORAGE_KEY = 'planner-storage';
-const EXPECTED_KEY_COUNT = 2_420;
+const EXPECTED_KEY_COUNT = 2_422;
 type Locale = 'en' | 'ko' | 'ja';
 
 // Current independent canonical authority, including append-only Notes UI, Wiki-link accessibility, cloud comparison and search, Cloud Copy status readback, local document downloads, PDF/DOCX preview, Recipe filter reset, local-original integrity preflight, cloud Note previews, and single-Note cloud text export.
@@ -16,6 +16,12 @@ type Locale = 'en' | 'ko' | 'ja';
 // translationKeys order, so it detects insertion, omission, reordering, and
 // substitution without using buildLocaleDictionary.
 const EXPECTED_LOCALE_INTEGRITY_SHA256: Record<Locale, string> = {
+  en: '9520b945a76f28a75cf9241c5750e978b3405137ea7b48b038816d7a3e58b6a2',
+  ko: 'a2456cf29e401ece67fc1edc99cbd86b9347679b9759b6f2824b2b9c6fe7852e',
+  ja: 'bec5ba598e1965ebcb2c1b78faac7b815697c345f7c89a7deda6e0533584f909',
+};
+
+const PRE_HEALTH_MANUAL_CLOUD_ENTRY_LOCALE_SHA256: Record<Locale, string> = {
   en: 'c1795ef4d0398ccab5eed1e48ee3eacf5264400b4af7cbdb63b0677bbe04cee1',
   ko: '4c55c8bae34f21dfacf02028844b771d805f0299250b4ef9b4d956e898331f3c',
   ja: '5a3fc0755d3d4ba73d2238c52df3a7c65cbde38cc2c68ec022ab62bfc8c6dd49',
@@ -187,7 +193,7 @@ describe('i18n locale dictionaries', () => {
       'recipeManualRefresh', 'recipeManualRefreshing', 'recipeManualRefreshed',
       'recipeManualRefreshPartial', 'recipeManualRefreshOffline', 'recipeManualRefreshUnavailable',
     ];
-    expect(translationKeys.slice(previousKeyCount)).toEqual(keys);
+    expect(translationKeys.slice(previousKeyCount, previousKeyCount + keys.length)).toEqual(keys);
     for (const [locale, values] of [['en', enLocaleValues], ['ko', koLocaleValues], ['ja', jaLocaleValues]] as const) {
       expect(localeIntegrityDigest(values.slice(0, previousKeyCount), translationKeys.slice(0, previousKeyCount)))
         .toBe(PRE_RECIPE_MANUAL_REFRESH_LOCALE_SHA256[locale]);
@@ -414,6 +420,25 @@ describe('i18n locale dictionaries', () => {
     expect(() => assertLocaleValuesIntegrity('ja', jaLocaleValues)).not.toThrow();
   });
 
+  it('appends localized Health Workout cloud comparison entry labels without changing prior translations', () => {
+    const previousKeyCount = 2_420;
+    const keys = ['healthCloudHeaderCheck', 'healthCloudHeaderChecking'];
+    expect(translationKeys.slice(previousKeyCount)).toEqual(keys);
+    for (const [locale, values] of [['en', enLocaleValues], ['ko', koLocaleValues], ['ja', jaLocaleValues]] as const) {
+      expect(localeIntegrityDigest(values.slice(0, previousKeyCount), translationKeys.slice(0, previousKeyCount)))
+        .toBe(PRE_HEALTH_MANUAL_CLOUD_ENTRY_LOCALE_SHA256[locale]);
+    }
+    expect(keys.map(key => enTranslations[key as TranslationKey])).toEqual([
+      'Check cloud changes', 'Checking cloud changes…',
+    ]);
+    expect(keys.map(key => koTranslations[key as TranslationKey])).toEqual([
+      '클라우드 변경사항 확인', '클라우드 변경사항 확인 중…',
+    ]);
+    expect(keys.map(key => jaTranslations[key as TranslationKey])).toEqual([
+      'クラウドの変更を確認', 'クラウドの変更を確認中…',
+    ]);
+  });
+
   it('appends exact Health comparison filter labels without changing existing locale values', () => {
     const previousKeyCount = 2_396;
     const keys = [
@@ -458,7 +483,7 @@ describe('i18n locale dictionaries', () => {
       'healthCloudWorkoutPreviewValuesTruncated',
     ];
     expect(translationKeys.slice(previousKeyCount, 2_414)).toEqual(keys);
-    expect(translationKeys.slice(2_414)).toEqual([
+    expect(translationKeys.slice(2_414, 2_420)).toEqual([
       'recipeManualRefresh', 'recipeManualRefreshing', 'recipeManualRefreshed',
       'recipeManualRefreshPartial', 'recipeManualRefreshOffline', 'recipeManualRefreshUnavailable',
     ]);
