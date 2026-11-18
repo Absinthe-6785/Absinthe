@@ -178,7 +178,7 @@ describe('VIS-08 Recipe visual migration', () => {
     }
   });
 
-  it('gives compact Recipe sort actions localized names, selected state, 24px targets, and focus authority', () => {
+  it('gives Recipe sort actions localized names, selected state, responsive targets, and focus authority', () => {
     const props: RecipeStudioViewProps = {
       projection: emptyProjection,
       recipes: [],
@@ -221,8 +221,10 @@ describe('VIS-08 Recipe visual migration', () => {
     expect(controls.map(control => control.getAttribute('aria-pressed'))).toEqual(['true', 'false', 'false']);
     expect(controls[0]?.classList.contains('abs-recipe-selected-control')).toBe(true);
     for (const control of controls) {
-      expect(control.classList.contains('min-h-[24px]')).toBe(true);
-      expect(control.classList.contains('min-w-[24px]')).toBe(true);
+      expect(control.classList.contains('min-h-11')).toBe(true);
+      expect(control.classList.contains('min-w-11')).toBe(true);
+      expect(control.classList.contains('lg:min-h-[24px]')).toBe(true);
+      expect(control.classList.contains('lg:min-w-[24px]')).toBe(true);
       expect(control.classList.contains('focus-visible:outline-focus')).toBe(true);
     }
     expect(controls[1]?.classList.contains('text-muted-foreground')).toBe(true);

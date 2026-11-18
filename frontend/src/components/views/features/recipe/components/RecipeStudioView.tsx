@@ -225,65 +225,87 @@ export function RecipeStudioView({
                     value={searchQuery}
                     onChange={e => setSearchQuery(e.target.value)}
                     placeholder={t('searchRecipe')}
+                    aria-label={t('searchRecipe')}
                     className={`flex-1 bg-transparent outline-none text-sm ${UI_INTERACTION.focusRingClass}`}
                     data-k110-recipe-search
                   />
                   {searchQuery && (
-                    <button type="button" onClick={() => setSearchQuery('')} className={UI_INTERACTION.focusRingClass}>
+                    <button
+                      type="button"
+                      onClick={() => setSearchQuery('')}
+                      aria-label={t('nvClearQuery')}
+                      className={`${UI_INTERACTION.focusRingClass} min-h-11 min-w-11 inline-flex items-center justify-center`}
+                    >
                       <X size={14} className={theme.textMuted} />
                     </button>
                   )}
                 </div>
 
-                <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 scrollbar-hide" data-k110-recipe-filters>
-                  {RECIPE_CATEGORIES.map(cat => (
-                    <button
-                      key={cat}
-                      type="button"
-                      onClick={() => setActiveCategory(cat)}
-                      className={`abs-recipe-filter ${UI_INTERACTION.focusRingClass} shrink-0 px-2.5 py-1 ${UI_INTERACTION.sectionChipRadiusClass} text-[11px] font-bold transition-all min-h-[44px] ${
-                        activeCategory === cat
-                          ? 'abs-recipe-selected-control text-primary-foreground'
-                          : `${dark ? 'bg-surface text-gray-400' : 'bg-white text-gray-500'}`
-                      }`}
-                      data-selected={activeCategory === cat ? 'true' : 'false'}
-                    >
-                      {cat}
-                    </button>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={() => setShowStarredOnly(p => !p)}
-                    className={`abs-recipe-star-filter ${UI_INTERACTION.focusRingClass} shrink-0 flex items-center gap-1 px-2.5 py-1 ${UI_INTERACTION.sectionChipRadiusClass} text-[11px] font-bold min-h-[44px] ${dark ? 'bg-surface text-gray-400' : 'bg-white text-gray-500'}`}
-                    data-active={showStarredOnly ? 'true' : 'false'}
+                <div className="flex flex-col gap-1.5 lg:flex-row lg:items-center" data-k110-recipe-filter-layout>
+                  <div
+                    className="flex min-w-0 w-full items-center gap-1.5 overflow-x-auto pb-0.5 scrollbar-hide lg:flex-1"
+                    data-k110-recipe-filters
+                    role="group"
+                    aria-label={t('category')}
                   >
-                    <Star size={10} fill={showStarredOnly ? 'currentColor' : 'none'} />
-                    {t('recipeStarred')}
-                  </button>
-                  <div className={`abs-recipe-sort-control shrink-0 flex items-center gap-0.5 p-0.5 rounded-lg ${dark ? 'bg-surface' : 'bg-white'}`}>
-                    {(['newest', 'oldest', 'title'] as const).map(s => {
-                      const sortLabel = s === 'newest'
-                        ? `${t('nvSortCreated')}: ${t('nvSortDesc')}`
-                        : s === 'oldest'
-                          ? `${t('nvSortCreated')}: ${t('nvSortAsc')}`
-                          : t('nvSortTitle');
-                      return (
-                        <button
-                          key={s}
-                          type="button"
-                          aria-label={sortLabel}
-                          title={sortLabel}
-                          aria-pressed={sortOrder === s}
-                          onClick={() => setSortOrder(s)}
-                          className={`abs-recipe-sort-option ${UI_INTERACTION.focusRingClass} min-h-[24px] min-w-[24px] px-2 py-0.5 rounded-md text-[10px] font-bold ${
-                            sortOrder === s ? 'abs-recipe-selected-control text-primary-foreground' : 'text-muted-foreground'
-                          }`}
-                          data-selected={sortOrder === s ? 'true' : 'false'}
-                        >
-                          {s === 'newest' ? '↓' : s === 'oldest' ? '↑' : 'A-Z'}
-                        </button>
-                      );
-                    })}
+                    {RECIPE_CATEGORIES.map(cat => (
+                      <button
+                        key={cat}
+                        type="button"
+                        onClick={() => setActiveCategory(cat)}
+                        aria-pressed={activeCategory === cat}
+                        className={`abs-recipe-filter ${UI_INTERACTION.focusRingClass} shrink-0 px-2.5 py-1 ${UI_INTERACTION.sectionChipRadiusClass} text-[11px] font-bold transition-all min-h-[44px] min-w-[44px] lg:min-w-0 ${
+                          activeCategory === cat
+                            ? 'abs-recipe-selected-control text-primary-foreground'
+                            : `${dark ? 'bg-surface text-gray-400' : 'bg-white text-gray-500'}`
+                        }`}
+                        data-selected={activeCategory === cat ? 'true' : 'false'}
+                      >
+                        {cat}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="flex shrink-0 items-center justify-between gap-2 lg:justify-start" data-k110-recipe-filter-options>
+                    <button
+                      type="button"
+                      onClick={() => setShowStarredOnly(p => !p)}
+                      aria-pressed={showStarredOnly}
+                      className={`abs-recipe-star-filter ${UI_INTERACTION.focusRingClass} shrink-0 flex items-center gap-1 px-2.5 py-1 ${UI_INTERACTION.sectionChipRadiusClass} text-[11px] font-bold min-h-[44px] min-w-[44px] lg:min-w-0 ${dark ? 'bg-surface text-gray-400' : 'bg-white text-gray-500'}`}
+                      data-active={showStarredOnly ? 'true' : 'false'}
+                    >
+                      <Star size={10} fill={showStarredOnly ? 'currentColor' : 'none'} />
+                      {t('recipeStarred')}
+                    </button>
+                    <div
+                      className={`abs-recipe-sort-control shrink-0 flex items-center gap-0.5 p-0.5 rounded-lg ${dark ? 'bg-surface' : 'bg-white'}`}
+                      role="group"
+                      aria-label={t('nvSort')}
+                    >
+                      {(['newest', 'oldest', 'title'] as const).map(s => {
+                        const sortLabel = s === 'newest'
+                          ? `${t('nvSortCreated')}: ${t('nvSortDesc')}`
+                          : s === 'oldest'
+                            ? `${t('nvSortCreated')}: ${t('nvSortAsc')}`
+                            : t('nvSortTitle');
+                        return (
+                          <button
+                            key={s}
+                            type="button"
+                            aria-label={sortLabel}
+                            title={sortLabel}
+                            aria-pressed={sortOrder === s}
+                            onClick={() => setSortOrder(s)}
+                            className={`abs-recipe-sort-option ${UI_INTERACTION.focusRingClass} min-h-11 min-w-11 px-2 py-0.5 rounded-md text-[10px] font-bold lg:min-h-[24px] lg:min-w-[24px] ${
+                              sortOrder === s ? 'abs-recipe-selected-control text-primary-foreground' : 'text-muted-foreground'
+                            }`}
+                            data-selected={sortOrder === s ? 'true' : 'false'}
+                          >
+                            {s === 'newest' ? '↓' : s === 'oldest' ? '↑' : 'A-Z'}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
               </div>
