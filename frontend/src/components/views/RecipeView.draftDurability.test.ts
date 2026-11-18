@@ -21,6 +21,7 @@ const harness = vi.hoisted(() => ({
   formProps: null as Record<string, any> | null,
   confirmAction: null as (() => void | Promise<void>) | null,
   confirmMessage: null as string | null,
+  activeConfirm: null as { message: string } | null,
 }));
 
 vi.mock('swr', () => ({
@@ -42,12 +43,13 @@ vi.mock('../../lib/i18n', () => ({
 }));
 vi.mock('../../hooks/useConfirm', () => ({
   useConfirm: () => ({
-    confirm: null,
+    confirm: harness.activeConfirm,
     showConfirm: (message: string, action: () => void | Promise<void>) => {
       harness.confirmMessage = message;
       harness.confirmAction = action;
+      harness.activeConfirm = { message };
     },
-    clearConfirm: vi.fn(),
+    clearConfirm: () => { harness.activeConfirm = null; },
     handleConfirm: vi.fn(),
   }),
 }));
@@ -141,6 +143,7 @@ beforeEach(() => {
   harness.formProps = null;
   harness.confirmAction = null;
   harness.confirmMessage = null;
+  harness.activeConfirm = null;
   host = document.createElement('div');
   document.body.appendChild(host);
   root = createRoot(host);
@@ -320,6 +323,28 @@ describe('Recipe draft durability production path', () => {
     await act(async () => { await harness.confirmAction?.(); }); await flush();
     expect(readRecipeDraft('account-a').draft).toBeNull();
     expect(readRecipeDraft('account-b').draft?.form.title).toBe('B draft');
+    expect(harness.authFetch).not.toHaveBeenCalled();
+  });
+
+  it('marks the Recipe dialog inactive while a dirty-draft confirmation is open, then restores it on cancel', async () => {
+    render('account-a'); await flush();
+    act(() => harness.studioProps?.onNewRecipe()); await flush();
+    await setForm(draftForm);
+    expect(harness.formProps?.confirmationOpen).toBe(false);
+
+    act(() => harness.formProps?.onDiscard()); await flush();
+    expect(harness.confirmMessage).toBe('recipeDraftDiscardConfirm');
+    expect(readRecipeDraft('account-a').draft?.form).toEqual(draftForm);
+
+    render('account-a'); await flush();
+    expect(harness.formProps?.confirmationOpen).toBe(true);
+    expect(harness.formProps?.show).toBe(true);
+
+    harness.activeConfirm = null;
+    render('account-a'); await flush();
+    expect(harness.formProps?.confirmationOpen).toBe(false);
+    expect(harness.formProps?.show).toBe(true);
+    expect(readRecipeDraft('account-a').draft?.form).toEqual(draftForm);
     expect(harness.authFetch).not.toHaveBeenCalled();
   });
 

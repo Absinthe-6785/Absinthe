@@ -1,4 +1,4 @@
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useId, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { X, Check, Star, AlertTriangle, Trash2, RefreshCw } from 'lucide-react';
 import type { Theme } from '../../../../../types';
@@ -7,6 +7,7 @@ import type { Recipe } from '../recipeTypes';
 import { RECIPE_CATEGORIES, EMPTY_RECIPE_FORM } from '../recipeTypes';
 import { useViewportLayout } from '../../../../../hooks/useViewportLayout';
 import { UI_INTERACTION } from '../../../../../lib/uiInteractionTokens';
+import { useModalA11y } from '../../../../../hooks/useModalA11y';
 import { RecipeCard } from './RecipeCard';
 import type { RecipeCopyMode, RecipeCopyResult } from '../recipeCopyContent';
 
@@ -31,6 +32,7 @@ export interface RecipeFormModalProps {
   dark: boolean;
   t: (key: TranslationKey) => string;
   onClose: () => void;
+  confirmationOpen?: boolean;
   onSave: () => void;
   onDiscard: () => void;
   onUseLocal?: () => void;
@@ -52,6 +54,7 @@ export function RecipeFormModal({
   dark,
   t,
   onClose,
+  confirmationOpen = false,
   onSave,
   onDiscard,
   onUseLocal,
@@ -63,31 +66,69 @@ export function RecipeFormModal({
   authorityValidating,
   onRetryAuthority,
 }: RecipeFormModalProps) {
-  const titleRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const dialogTitleId = useId();
+  const [visibleViewport, setVisibleViewport] = useState({ top: 0, height: 0 });
 
   useEffect(() => {
-    if (show) setTimeout(() => titleRef.current?.focus(), 50);
+    if (!show) return;
+
+    const viewport = window.visualViewport;
+    const updateVisibleViewport = () => {
+      const next = {
+        top: Math.max(0, viewport?.offsetTop ?? 0),
+        height: Math.max(0, viewport?.height ?? window.innerHeight),
+      };
+      setVisibleViewport(current => current.top === next.top && current.height === next.height ? current : next);
+    };
+
+    updateVisibleViewport();
+    window.addEventListener('resize', updateVisibleViewport);
+    viewport?.addEventListener('resize', updateVisibleViewport);
+    viewport?.addEventListener('scroll', updateVisibleViewport);
+    return () => {
+      window.removeEventListener('resize', updateVisibleViewport);
+      viewport?.removeEventListener('resize', updateVisibleViewport);
+      viewport?.removeEventListener('scroll', updateVisibleViewport);
+    };
   }, [show]);
+
+  useModalA11y({
+    open: show && !confirmationOpen,
+    onClose,
+    containerRef: dialogRef,
+    initialFocusRef: closeButtonRef,
+  });
 
   if (!show) return null;
 
   return (
     <div
-      className="fixed inset-0 bg-black/60 flex items-end lg:items-center justify-center z-[100] backdrop-blur-sm"
+      className="fixed inset-x-0 z-[100] flex items-end justify-center bg-black/60 backdrop-blur-sm lg:items-center"
+      style={{ top: visibleViewport.top, height: visibleViewport.height ? `${visibleViewport.height}px` : '100dvh' }}
       onClick={onClose}
+      aria-hidden={confirmationOpen || undefined}
+      data-recipe-form-backdrop
     >
       <div
-        className="abs-cosmos-recipe-form w-full lg:max-w-lg rounded-t-[32px] lg:rounded-[32px] p-6 shadow-2xl max-h-[90vh] overflow-y-auto bg-surface"
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={dialogTitleId}
+        tabIndex={-1}
+        className="abs-cosmos-recipe-form flex h-full max-h-full w-full flex-col overflow-hidden rounded-t-[32px] bg-surface shadow-2xl lg:block lg:h-auto lg:max-h-[90vh] lg:max-w-lg lg:overflow-y-auto lg:rounded-[32px] lg:p-6"
         onClick={e => e.stopPropagation()}
         data-k110-recipe-form
       >
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="font-heading text-xl font-bold">{editingId ? t('editRecipe') : t('newRecipe')}</h2>
-          <button type="button" onClick={onClose} className={`${UI_INTERACTION.focusRingClass} p-2 rounded-full ${theme.textMuted} ${dark ? 'hover:bg-white/10' : 'hover:bg-gray-100'}`}>
+        <div className="flex shrink-0 items-center justify-between px-6 pb-3 pt-5 lg:mb-5 lg:p-0">
+          <h2 id={dialogTitleId} className="font-heading text-xl font-bold">{editingId ? t('editRecipe') : t('newRecipe')}</h2>
+          <button ref={closeButtonRef} type="button" onClick={onClose} aria-label={t('close')} className={`${UI_INTERACTION.focusRingClass} min-h-11 min-w-11 rounded-full p-2 ${theme.textMuted} ${dark ? 'hover:bg-white/10' : 'hover:bg-gray-100'}`}>
             <X size={18} />
           </button>
         </div>
 
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 pb-4 lg:contents" data-recipe-form-scroll-region>
         {storageWarning && (
           <div className="abs-recipe-warning-panel mb-4 flex items-start gap-2 rounded-2xl border px-4 py-3 text-sm" role="status" data-recipe-draft-storage-warning>
             <AlertTriangle size={16} className="mt-0.5 shrink-0" />
@@ -125,9 +166,6 @@ export function RecipeFormModal({
                   {t('startupRetry')}
                 </button>
               )}
-              <button type="button" onClick={onDiscard} className={`abs-recipe-warning-action ${UI_INTERACTION.focusRingClass} rounded-xl border px-3 py-2 text-xs font-bold`}>
-                {t('recipeDraftDiscard')}
-              </button>
             </div>
           </div>
         )}
@@ -147,9 +185,9 @@ export function RecipeFormModal({
 
         <fieldset className="space-y-4" disabled={saving} aria-disabled={conflict || !authorityReady ? true : undefined}>
           <div>
-            <label className={`block text-xs font-semibold mb-1.5 ${theme.textMuted}`}>{t('title')} *</label>
+            <label htmlFor={`${dialogTitleId}-title`} className={`block text-xs font-semibold mb-1.5 ${theme.textMuted}`}>{t('title')} *</label>
             <input
-              ref={titleRef}
+              id={`${dialogTitleId}-title`}
               value={form.title}
               onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
               readOnly={Boolean(conflict) || (Boolean(editingId) && !authorityReady)}
@@ -160,7 +198,7 @@ export function RecipeFormModal({
 
           <div>
             <label className={`block text-xs font-semibold mb-1.5 ${theme.textMuted}`}>{t('category')}</label>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2" role="group" aria-label={t('category')}>
               {RECIPE_CATEGORIES.filter(c => c !== 'All').map(cat => (
                 <button
                   key={cat}
@@ -181,10 +219,11 @@ export function RecipeFormModal({
           </div>
 
           <div>
-            <label className={`block text-xs font-semibold mb-1.5 ${theme.textMuted}`}>
+            <label htmlFor={`${dialogTitleId}-ingredients`} className={`block text-xs font-semibold mb-1.5 ${theme.textMuted}`}>
               {t('ingredients')} <span className={`font-normal ${theme.textMuted}`}>({t('onePerLine')})</span>
             </label>
             <textarea
+              id={`${dialogTitleId}-ingredients`}
               value={form.ingredients}
               onChange={e => setForm(f => ({ ...f, ingredients: e.target.value }))}
               readOnly={Boolean(conflict) || (Boolean(editingId) && !authorityReady)}
@@ -195,10 +234,11 @@ export function RecipeFormModal({
           </div>
 
           <div>
-            <label className={`block text-xs font-semibold mb-1.5 ${theme.textMuted}`}>
+            <label htmlFor={`${dialogTitleId}-steps`} className={`block text-xs font-semibold mb-1.5 ${theme.textMuted}`}>
               {t('steps')} <span className={`font-normal ${theme.textMuted}`}>({t('onePerLine')})</span>
             </label>
             <textarea
+              id={`${dialogTitleId}-steps`}
               value={form.steps}
               onChange={e => setForm(f => ({ ...f, steps: e.target.value }))}
               readOnly={Boolean(conflict) || (Boolean(editingId) && !authorityReady)}
@@ -209,8 +249,9 @@ export function RecipeFormModal({
           </div>
 
           <div>
-            <label className={`block text-xs font-semibold mb-1.5 ${theme.textMuted}`}>{t('recipeMemo')}</label>
+            <label htmlFor={`${dialogTitleId}-memo`} className={`block text-xs font-semibold mb-1.5 ${theme.textMuted}`}>{t('recipeMemo')}</label>
             <textarea
+              id={`${dialogTitleId}-memo`}
               value={form.memo}
               onChange={e => setForm(f => ({ ...f, memo: e.target.value }))}
               readOnly={Boolean(conflict) || (Boolean(editingId) && !authorityReady)}
@@ -231,17 +272,19 @@ export function RecipeFormModal({
             {form.starred ? t('recipeStarred') : t('addStarred')}
           </button>
         </fieldset>
+        </div>
 
-        {!conflict && (
-          <div className="mt-6 flex gap-2">
-            <button
-              type="button"
-              onClick={onDiscard}
-              disabled={saving || !authorityReady}
-              className={`abs-recipe-danger-action ${UI_INTERACTION.focusRingClass} flex items-center justify-center gap-2 rounded-2xl px-4 py-3.5 text-sm font-bold disabled:cursor-not-allowed disabled:text-disabled ${dark ? 'bg-white/5' : 'bg-gray-100'}`}
-            >
-              <Trash2 size={15} /> {t('recipeDraftDiscard')}
-            </button>
+        <div className={`${conflict ? 'grid-cols-1' : 'grid-cols-2'} grid shrink-0 gap-2 border-t px-6 pt-3 pb-[max(1.5rem,env(safe-area-inset-bottom))] lg:mt-6 lg:flex lg:border-0 lg:p-0`}>
+          <button
+            type="button"
+            onClick={onDiscard}
+            disabled={!conflict && (saving || !authorityReady)}
+            data-recipe-draft-discard
+            className={`abs-recipe-danger-action ${UI_INTERACTION.focusRingClass} flex min-h-12 items-center justify-center gap-2 rounded-2xl px-3 py-3 text-sm font-bold disabled:cursor-not-allowed disabled:text-disabled lg:px-4 lg:py-3.5 ${dark ? 'bg-white/5' : 'bg-gray-100'}`}
+          >
+            <Trash2 size={15} /> {t('recipeDraftDiscard')}
+          </button>
+          {!conflict && (
             <button
               type="button"
               onClick={onSave}
@@ -251,8 +294,8 @@ export function RecipeFormModal({
             >
               <Check size={16} /> {editingId ? t('updateRecipe') : t('saveRecipe')}
             </button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );
