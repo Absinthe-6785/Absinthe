@@ -87,7 +87,8 @@ export function RecipeStudioView({
   onScrollToRecipe,
   navigationRequestId = null,
 }: RecipeStudioViewProps) {
-  const t = getTranslator(resolveAppLanguage(appSettings.language));
+  const language = resolveAppLanguage(appSettings.language);
+  const t = useMemo(() => getTranslator(language), [language]);
   const dark = appSettings.darkMode;
   const { prefs, toggle } = useRecipeSectionPrefs();
 

@@ -9,6 +9,7 @@
 import enTranslations from './i18n/en';
 import koTranslations from './i18n/ko';
 import jaTranslations from './i18n/ja';
+import { useMemo } from 'react';
 import { buildLocaleDictionary, type TranslationKey as LocaleTranslationKey } from './i18n/keys';
 import { useAppStore } from '../store/useAppStore';
 
@@ -58,5 +59,6 @@ export function getTranslator(lang: Language) {
 // ── React 훅 ─────────────────────────────────────────────────────────
 export function useTranslation() {
   const lang = resolveAppLanguage(useAppStore(s => s.appSettings.language));
-  return { t: getTranslator(lang), lang };
+  const t = useMemo(() => getTranslator(lang), [lang]);
+  return { t, lang };
 }
