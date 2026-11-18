@@ -110,20 +110,28 @@ export function RecipeStudioView({
     setShowTrash(false);
   }, [navigationRequestId]);
 
+  const searchableRecipes = useMemo(() => recipes.map(recipe => ({
+    recipe,
+    searchableFields: [recipe.title, recipe.ingredients, recipe.steps, recipe.memo]
+      .map(text => (text ?? '').toLowerCase()),
+    createdAtMs: new Date(recipe.created_at).getTime(),
+  })), [recipes]);
+
   const visible = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
-    const filtered = recipes.filter(r => {
+    const filtered = searchableRecipes.filter(({ recipe, searchableFields }) => {
+      const r = recipe;
       if (showStarredOnly && !r.starred) return false;
       if (activeCategory !== 'All' && r.category !== activeCategory) return false;
-      if (q && ![r.title, r.ingredients, r.steps, r.memo].some(text => (text ?? '').toLowerCase().includes(q))) return false;
+      if (q && !searchableFields.some(text => text.includes(q))) return false;
       return true;
     });
-    return [...filtered].sort((a, b) => {
-      if (sortOrder === 'title') return (a.title ?? '').localeCompare(b.title ?? '');
-      if (sortOrder === 'oldest') return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
-      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-    });
-  }, [recipes, searchQuery, activeCategory, showStarredOnly, sortOrder]);
+    return filtered.sort((a, b) => {
+      if (sortOrder === 'title') return (a.recipe.title ?? '').localeCompare(b.recipe.title ?? '');
+      if (sortOrder === 'oldest') return a.createdAtMs - b.createdAtMs;
+      return b.createdAtMs - a.createdAtMs;
+    }).map(({ recipe }) => recipe);
+  }, [searchableRecipes, searchQuery, activeCategory, showStarredOnly, sortOrder]);
 
   const handleRecipeNav = (id: string) => {
     onScrollToRecipe(id);
