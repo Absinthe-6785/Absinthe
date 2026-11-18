@@ -628,7 +628,7 @@ describe('RecipeStudioView recovery surface', () => {
     renderInteractiveStudio({ onManualRefresh, manualRefreshStatus: 'success' });
 
     setStudioSearch('cached');
-    setStudioCategory('All');
+    setStudioCategory('Other');
     toggleStudioStarredOnly();
     const titleSort = Array.from(host!.querySelectorAll<HTMLButtonElement>('.abs-recipe-sort-control button'))
       .find(button => button.textContent?.trim() === 'A-Z')!;
@@ -643,12 +643,111 @@ describe('RecipeStudioView recovery surface', () => {
     expect(onManualRefresh).toHaveBeenCalledWith(true);
     expect(host!.querySelector<HTMLInputElement>('[data-k110-recipe-search]')?.value).toBe('cached');
     expect(Array.from(host!.querySelectorAll<HTMLButtonElement>('[data-k110-recipe-filters] .abs-recipe-filter'))
-      .find(button => button.textContent?.trim() === 'All')?.dataset.selected).toBe('true');
+      .find(button => button.textContent?.trim() === 'Other')?.dataset.selected).toBe('true');
     expect(host!.querySelector<HTMLButtonElement>('.abs-recipe-star-filter')?.dataset.active).toBe('true');
     expect(host!.querySelector<HTMLButtonElement>('.abs-recipe-sort-control button[data-selected="true"]')?.textContent?.trim()).toBe('A-Z');
     expect(host!.querySelector<HTMLButtonElement>('[data-k110-recipe-trash-toggle]')?.dataset.active).toBe('true');
     expect(host!.querySelector('[role="status"][data-recipe-manual-refresh-status="success"]')?.textContent)
       .toBe('Recipe list refreshed from your account.');
+  });
+
+  it.each([320, 375, 430])('keeps category scrolling separate from visible mobile options at %i CSS pixels', width => {
+    const originalWidth = Object.getOwnPropertyDescriptor(window, 'innerWidth');
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: width });
+
+    try {
+      renderInteractiveStudio();
+      const layout = host!.querySelector<HTMLElement>('[data-k110-recipe-filter-layout]')!;
+      const categories = host!.querySelector<HTMLElement>('[data-k110-recipe-filters]')!;
+      const options = host!.querySelector<HTMLElement>('[data-k110-recipe-filter-options]')!;
+      const starred = options.querySelector<HTMLButtonElement>('.abs-recipe-star-filter')!;
+      const sortGroup = options.querySelector<HTMLElement>('.abs-recipe-sort-control')!;
+
+      expect(window.innerWidth).toBe(width);
+      expect(layout.className).toContain('flex-col');
+      expect(layout.className).toContain('lg:flex-row');
+      expect(layout.className).not.toContain('overflow-y');
+      expect(categories.className).toContain('w-full');
+      expect(categories.className).toContain('min-w-0');
+      expect(categories.className).toContain('overflow-x-auto');
+      expect(categories.parentElement).toBe(layout);
+      expect(options.parentElement).toBe(layout);
+      expect(categories.nextElementSibling).toBe(options);
+      expect(options.querySelectorAll('.abs-recipe-star-filter')).toHaveLength(1);
+      expect(options.querySelectorAll('.abs-recipe-sort-control')).toHaveLength(1);
+      expect(starred.getAttribute('aria-pressed')).toBe('false');
+      expect(starred.textContent).toContain('Starred');
+      expect(starred.className).toContain('min-w-[44px]');
+      expect(starred.className).toContain('lg:min-w-0');
+      expect(sortGroup.getAttribute('role')).toBe('group');
+      expect(sortGroup.getAttribute('aria-label')).toBe('Sort');
+      expect(sortGroup.querySelectorAll<HTMLButtonElement>('button')).toHaveLength(3);
+      expect(Array.from(sortGroup.querySelectorAll<HTMLButtonElement>('button'))
+        .filter(button => button.getAttribute('aria-pressed') === 'true')).toHaveLength(1);
+      expect(Array.from(sortGroup.querySelectorAll<HTMLButtonElement>('button'))
+        .every(button => button.className.includes('min-h-11') && button.className.includes('min-w-11'))).toBe(true);
+
+      setStudioSearch('cached');
+      const search = host!.querySelector<HTMLInputElement>('[data-k110-recipe-search]')!;
+      const clearSearch = search.parentElement!.querySelector<HTMLButtonElement>('button')!;
+      const categoryButton = categories.querySelector<HTMLButtonElement>('.abs-recipe-filter')!;
+      search.focus();
+      expect(document.activeElement).toBe(search);
+      starred.focus();
+      expect(document.activeElement).toBe(starred);
+      categoryButton.focus();
+      expect(document.activeElement).toBe(categoryButton);
+      expect(categoryButton.getAttribute('aria-pressed')).toBe('true');
+      expect(categoryButton.className).toContain('min-w-[44px]');
+      expect(categoryButton.className).toContain('lg:min-w-0');
+      expect(search.getAttribute('aria-label')).toBe(search.placeholder);
+      expect(clearSearch.getAttribute('aria-label')).toBeTruthy();
+      expect(clearSearch.tabIndex).toBe(0);
+    } finally {
+      if (originalWidth) Object.defineProperty(window, 'innerWidth', originalWidth);
+      else delete (window as Window & { innerWidth?: number }).innerWidth;
+    }
+  });
+
+  it('keeps the controls in one desktop row and preserves filter/sort behavior', () => {
+    const originalWidth = Object.getOwnPropertyDescriptor(window, 'innerWidth');
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1280 });
+    const recipes: Recipe[] = [
+      { ...activeRecipe, id: 'dessert-z-old', title: 'Zesty oats', category: 'Dessert', starred: true, created_at: '2026-08-01T00:00:00Z' },
+      { ...activeRecipe, id: 'dessert-a-new', title: 'Apple tart', category: 'Dessert', starred: true, created_at: '2026-08-03T00:00:00Z' },
+      { ...activeRecipe, id: 'dessert-unstarred', title: 'Berry cake', category: 'Dessert', starred: false, created_at: '2026-08-02T00:00:00Z' },
+      { ...activeRecipe, id: 'other-starred', title: 'Carrot soup', category: 'Other', starred: true, created_at: '2026-08-04T00:00:00Z' },
+    ];
+
+    try {
+      renderStudio(vi.fn(), { recipes, activeAvailability: 'READY_WITH_DATA' });
+      const layout = host!.querySelector<HTMLElement>('[data-k110-recipe-filter-layout]')!;
+      const categories = host!.querySelector<HTMLElement>('[data-k110-recipe-filters]')!;
+      const options = host!.querySelector<HTMLElement>('[data-k110-recipe-filter-options]')!;
+      expect(layout.className).toContain('lg:flex-row');
+      expect(categories.className).toContain('lg:flex-1');
+      expect(categories.nextElementSibling).toBe(options);
+      expect(host!.querySelectorAll('.abs-recipe-star-filter')).toHaveLength(1);
+      expect(host!.querySelectorAll('.abs-recipe-sort-control')).toHaveLength(1);
+
+      setStudioCategory('Dessert');
+      expect(visibleStudioRecipeIds()).toEqual(['dessert-a-new', 'dessert-unstarred', 'dessert-z-old']);
+      toggleStudioStarredOnly();
+      expect(visibleStudioRecipeIds()).toEqual(['dessert-a-new', 'dessert-z-old']);
+
+      const oldest = Array.from(host!.querySelectorAll<HTMLButtonElement>('.abs-recipe-sort-control button'))
+        .find(button => button.textContent?.trim() === '↑')!;
+      act(() => oldest.click());
+      expect(visibleStudioRecipeIds()).toEqual(['dessert-z-old', 'dessert-a-new']);
+      const titleSort = Array.from(host!.querySelectorAll<HTMLButtonElement>('.abs-recipe-sort-control button'))
+        .find(button => button.textContent?.trim() === 'A-Z')!;
+      act(() => titleSort.click());
+      expect(visibleStudioRecipeIds()).toEqual(['dessert-a-new', 'dessert-z-old']);
+      expect(host!.querySelector<HTMLButtonElement>('.abs-recipe-star-filter')?.getAttribute('aria-pressed')).toBe('true');
+    } finally {
+      if (originalWidth) Object.defineProperty(window, 'innerWidth', originalWidth);
+      else delete (window as Window & { innerWidth?: number }).innerWidth;
+    }
   });
 
   it.each([
