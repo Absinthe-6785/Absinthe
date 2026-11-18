@@ -326,9 +326,16 @@ vi.mock('./features/health/WorkoutPrBadge', () => ({ WorkoutPrBadge: () => null 
 vi.mock('./features/health/PreviousWorkoutView', () => ({ PreviousWorkoutView: () => null }));
 vi.mock('./features/health/PreviousWorkoutSheet', () => ({ PreviousWorkoutSheet: () => null }));
 vi.mock('./features/health/HealthMobileWorkoutActions', () => ({
-  HealthMobileWorkoutActions: ({ isWorkoutLocked }: { isWorkoutLocked: boolean }) => {
+  HealthMobileWorkoutActions: ({ isWorkoutLocked, isMobile, isDesktopPrevious, onAddExercise }: {
+    isWorkoutLocked: boolean; isMobile: boolean; isDesktopPrevious: boolean; onAddExercise: () => void;
+  }) => {
     mocks.locked = isWorkoutLocked;
-    return null;
+    return isMobile && !isDesktopPrevious ? createElement('div', {},
+      createElement('button', { type: 'button', 'data-health-previous-trigger': true }, 'Previous'),
+      !isWorkoutLocked && createElement('button', {
+        type: 'button', 'data-health-quick-add-exercise': true, onClick: onAddExercise,
+      }, 'Add Exercise'),
+    ) : null;
   },
 }));
 
@@ -378,6 +385,7 @@ function deferred<T = void>() {
 let storage: ByteStorage, root: Root | null, host: HTMLDivElement, props: HealthProps;
 let raf: Array<FrameRequestCallback>;
 let strictMode = false;
+const initialInnerWidthDescriptor = Object.getOwnPropertyDescriptor(window, 'innerWidth');
 function healthProps(overrides: Partial<HealthProps> = {}): HealthProps {
   return { now: {} as HealthProps['now'], currentDate: date(X), selectedDate: date(X),
     setCurrentDate: vi.fn(), setSelectedDate: vi.fn(),
@@ -519,7 +527,167 @@ function resetFixture() {
   host = document.createElement('div'); document.body.appendChild(host); root = null; props = undefined as unknown as HealthProps;
 }
 beforeEach(resetFixture);
-afterEach(() => { if (root) act(() => root!.unmount()); host.remove(); vi.unstubAllGlobals(); });
+afterEach(() => {
+  if (root) act(() => root!.unmount());
+  host.remove();
+  if (initialInnerWidthDescriptor) Object.defineProperty(window, 'innerWidth', initialInnerWidthDescriptor);
+  else delete (window as Window & { innerWidth: number }).innerWidth;
+  vi.unstubAllGlobals();
+});
+
+describe('Health mobile Quick Add Exercise sheet', () => {
+  it.each([320, 375, 430])('renders the narrow-viewport Quick Add structure at %s CSS px', async width => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: width });
+    mocks.mobile = true;
+    const longName = 'Single-arm cable row with a deliberately long exercise name for narrow screens';
+    await render({ healthBlocks: [
+      ...blocks,
+      { id: 'cable-row', name: longName, type: 'strength', tags: ['upper-back'], cardio_mode: 'both' },
+    ] });
+    const writesBefore = storage.history.filter(event => event.op !== 'get');
+    const requestsBefore = mocks.authFetch.mock.calls.length;
+
+    await act(async () => { host.querySelector<HTMLButtonElement>('[data-health-quick-add-exercise]')!.click(); });
+
+    const dialog = host.querySelector<HTMLElement>('[role="dialog"]')!;
+    const search = host.querySelector<HTMLInputElement>('[data-health-quick-add-search]')!;
+    const close = dialog.querySelector<HTMLButtonElement>('button[aria-label="close"]')!;
+    const list = host.querySelector<HTMLElement>('[data-health-quick-add-list]')!;
+    const result = host.querySelector<HTMLButtonElement>('[data-health-quick-add-block="cable-row"]')!;
+    expect(dialog.getAttribute('aria-modal')).toBe('true');
+    expect(search.getAttribute('aria-label')).toBe('healthExerciseSearchPlaceholder');
+    expect(close.className).toContain('min-w-11');
+    expect(list.className).toContain('overflow-y-auto');
+    expect(result.className).toContain('min-h-[48px]');
+    expect(result.querySelector('span')?.className).toContain('break-words');
+    expect(result.textContent).toContain(longName);
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+    await act(async () => {
+      setter.call(search, 'upper-back');
+      search.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(host.querySelector('[data-health-quick-add-block="cable-row"]')).not.toBeNull();
+    expect(host.querySelector('[data-health-quick-add-block="push"]')).toBeNull();
+    await act(async () => {
+      setter.call(search, 'single-arm');
+      search.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(host.querySelector('[data-health-quick-add-block="cable-row"]')).not.toBeNull();
+    expect(storage.history.filter(event => event.op !== 'get')).toEqual(writesBefore);
+    expect(mocks.authFetch).toHaveBeenCalledTimes(requestsBefore);
+  });
+
+  it('traps keyboard focus, closes on Escape, and restores focus to the initiating control', async () => {
+    mocks.mobile = true;
+    await render();
+    const trigger = host.querySelector<HTMLButtonElement>('[data-health-quick-add-exercise]')!;
+    await act(async () => { trigger.click(); });
+    const dialog = host.querySelector<HTMLElement>('[role="dialog"]')!;
+    const close = dialog.querySelector<HTMLButtonElement>('button[aria-label="close"]')!;
+    const lastResult = host.querySelector<HTMLButtonElement>('[data-health-quick-add-block="pull"]')!;
+    expect(document.activeElement).toBe(close);
+
+    lastResult.focus();
+    await act(async () => { lastResult.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true })); });
+    expect(document.activeElement).toBe(close);
+    await act(async () => { close.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true })); });
+    expect(document.activeElement).toBe(lastResult);
+
+    await act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); });
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it('closes on outside interaction and restores the opener, while selection uses the existing add action', async () => {
+    mocks.mobile = true;
+    mocks.authFetch.mockResolvedValue(new Response(JSON.stringify({ prev_sets: [], prev_date: null, pr_kg: null }), { status: 200 }));
+    await render();
+    const trigger = host.querySelector<HTMLButtonElement>('[data-health-quick-add-exercise]')!;
+    await act(async () => { trigger.click(); });
+    const overlay = host.querySelector<HTMLElement>('[data-health-quick-add-overlay]')!;
+    await act(async () => { overlay.click(); });
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+
+    await act(async () => { trigger.click(); });
+    const search = host.querySelector<HTMLInputElement>('[data-health-quick-add-search]')!;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+    await act(async () => {
+      setter.call(search, 'pull');
+      search.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(host.querySelector('[data-health-quick-add-block="push"]')).toBeNull();
+    const requestsBefore = mocks.authFetch.mock.calls.length;
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('[data-health-quick-add-block="pull"]')!.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    expect(snapshot().rows.some(workout => workout.block_id === 'pull')).toBe(true);
+    expect(mocks.authFetch.mock.calls.slice(requestsBefore).every(([, init]) => !init?.method || init.method === 'GET')).toBe(true);
+    expect(mocks.inputs).toEqual([]);
+    expect(mocks.deleteHealthWorkout).not.toHaveBeenCalled();
+  });
+
+  it('closes on account/date replacement and cleans up when unmounted while open', async () => {
+    mocks.mobile = true;
+    await render();
+    await act(async () => { host.querySelector<HTMLButtonElement>('[data-health-quick-add-exercise]')!.click(); });
+    expect(host.querySelector('[role="dialog"]')).not.toBeNull();
+    await render({ user: { id: B, name: 'B' } });
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+
+    await act(async () => { host.querySelector<HTMLButtonElement>('[data-health-quick-add-exercise]')!.click(); });
+    await render({ selectedDate: date(Y) });
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+
+    await act(async () => { host.querySelector<HTMLButtonElement>('[data-health-quick-add-exercise]')!.click(); });
+    expect(host.querySelector('[role="dialog"]')).not.toBeNull();
+    await act(async () => { root!.unmount(); root = null; });
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it('adapts its fixed sheet to visual viewport resize and removes listeners on close', async () => {
+    mocks.mobile = true;
+    const originalDescriptor = Object.getOwnPropertyDescriptor(window, 'visualViewport');
+    const listeners = new Map<string, EventListener>();
+    let viewportHeight = 700;
+    let viewportOffsetTop = 0;
+    const viewport = {
+      get offsetTop() { return viewportOffsetTop; },
+      get height() { return viewportHeight; },
+      addEventListener: (type: string, listener: EventListener) => listeners.set(type, listener),
+      removeEventListener: (type: string, listener: EventListener) => { if (listeners.get(type) === listener) listeners.delete(type); },
+    } as unknown as VisualViewport;
+    Object.defineProperty(window, 'visualViewport', { configurable: true, value: viewport });
+    try {
+      await render();
+      await act(async () => { host.querySelector<HTMLButtonElement>('[data-health-quick-add-exercise]')!.click(); });
+      viewportHeight = 260;
+      viewportOffsetTop = 44;
+      await act(async () => { listeners.get('resize')?.(new Event('resize')); });
+      expect(host.querySelector<HTMLElement>('[data-health-quick-add-overlay]')!.style.height).toBe('260px');
+      expect(host.querySelector<HTMLElement>('[data-health-quick-add-overlay]')!.style.top).toBe('44px');
+      expect(host.querySelector<HTMLElement>('[role="dialog"]')!.style.maxHeight).toBe('236px');
+      viewportOffsetTop = 80;
+      await act(async () => { listeners.get('scroll')?.(new Event('scroll')); });
+      expect(host.querySelector<HTMLElement>('[data-health-quick-add-overlay]')!.style.top).toBe('80px');
+      await act(async () => { host.querySelector<HTMLButtonElement>('button[aria-label="close"]')!.click(); });
+      expect(listeners.size).toBe(0);
+    } finally {
+      if (originalDescriptor) Object.defineProperty(window, 'visualViewport', originalDescriptor);
+      else delete (window as Window & { visualViewport?: VisualViewport }).visualViewport;
+    }
+  });
+
+  it('keeps the desktop layout free of the mobile Quick Add sheet', async () => {
+    mocks.mobile = false;
+    await render();
+    expect(host.querySelector('[data-health-quick-add-exercise]')).toBeNull();
+    expect(host.querySelector('[data-health-quick-add-overlay]')).toBeNull();
+  });
+});
 
 describe('Health Workout cloud comparison header entry', () => {
   it.each([false, true])('routes one explicit read-only comparison request on %s mobile mode', async mobile => {
