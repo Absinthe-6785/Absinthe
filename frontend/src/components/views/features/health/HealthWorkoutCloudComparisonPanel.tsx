@@ -1,4 +1,4 @@
-import { useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from '../../../../lib/i18n';
 import { createWorkoutCloudComparison, supportedWorkoutContent, WORKOUT_COMPARISON_CATEGORIES, type WorkoutCloudComparison, type WorkoutComparisonReport } from '../../../../lib/healthWorkoutCloudComparison';
 import { createWorkoutCloudSingleCreate, type WorkoutCloudSingleCreate, type WorkoutCreateStatus } from '../../../../lib/healthWorkoutCloudSingleCreate';
@@ -15,6 +15,20 @@ const WORKOUT_PREVIEW_SET_FIELDS = ['set', 'type', 'done', 'kg', 'reps', 'assist
 
 type WorkoutPreviewSelection = { owner: WorkoutCloudComparison; id: string };
 type WorkoutPreviewField = { key: typeof WORKOUT_PREVIEW_SET_FIELDS[number]; value: string; truncated: boolean };
+
+export type HealthWorkoutCloudComparisonRequest = Readonly<{
+  requestId: number;
+  accountId: string;
+  accountGeneration: number;
+}>;
+
+export type HealthWorkoutCloudComparisonPanelProps = {
+  accountId: string;
+  comparisonActive: boolean;
+  comparisonRequest: HealthWorkoutCloudComparisonRequest | null;
+  isComparisonRequestCurrent: (request: HealthWorkoutCloudComparisonRequest) => boolean;
+  onComparisonRequestSettled: (requestId: number) => void;
+};
 
 function currentRemoteOnlyRecord(owner: WorkoutCloudComparison, id: string, report: WorkoutComparisonReport, accountId: string): HealthRecoveryRecord | null {
   if (!owner.isCurrent() || !report.details.remoteOnly.some(row => row.id === id)) return null;
@@ -63,7 +77,13 @@ function filterComparisonDetails(report: WorkoutComparisonReport, rawQuery: stri
   };
 }
 
-export function HealthWorkoutCloudComparisonPanel({ accountId }: { accountId: string }) {
+export function HealthWorkoutCloudComparisonPanel({
+  accountId,
+  comparisonActive,
+  comparisonRequest,
+  isComparisonRequestCurrent,
+  onComparisonRequestSettled,
+}: HealthWorkoutCloudComparisonPanelProps) {
   const { t } = useTranslation();
   const { mutate } = useSWRConfig();
   const heading = useId();
@@ -74,6 +94,16 @@ export function HealthWorkoutCloudComparisonPanel({ accountId }: { accountId: st
   const account = useRef({ id: accountId });
   if (account.current.id !== accountId) account.current = { id: accountId };
   const active = useRef<WorkoutCloudComparison | null>(null);
+  const comparisonFlight = useRef<Promise<void> | null>(null);
+  const comparisonRequestRef = useRef(comparisonRequest);
+  comparisonRequestRef.current = comparisonRequest;
+  const comparisonRequestCurrentRef = useRef(isComparisonRequestCurrent);
+  comparisonRequestCurrentRef.current = isComparisonRequestCurrent;
+  const comparisonRequestSettledRef = useRef(onComparisonRequestSettled);
+  comparisonRequestSettledRef.current = onComparisonRequestSettled;
+  const shortcutRequestId = useRef<number | null>(null);
+  const handledRequestId = useRef<number | null>(null);
+  const checkRef = useRef<((preserveOutcome?: boolean) => Promise<void>) | null>(null);
   const previewTrigger = useRef<HTMLButtonElement | null>(null);
   const pending = useRef(false);
   const write = useRef<WorkoutCloudSingleCreate | WorkoutCloudSingleReceive | ExerciseBlockCloudSingleReceive | null>(null);
@@ -94,41 +124,89 @@ export function HealthWorkoutCloudComparisonPanel({ accountId }: { accountId: st
     setRefreshFailed(false);
     return () => { active.current?.cancel(); write.current?.cancel(); active.current = null; pending.current = false; };
   }, [accountId]);
-  const check = async (preserveOutcome = false) => {
-    if (pending.current) return;
+  const check = (preserveOutcome = false): Promise<void> => {
+    if (pending.current) return comparisonFlight.current ?? Promise.resolve();
     pending.current = true;
     setRefreshFailed(false);
     active.current?.cancel(); write.current?.cancel(); write.current = null; setResult(null); setFilterQuery(''); setPreview(null); setFailed(false); setConfirmation(null);
     if (!preserveOutcome) { setOutcome(null); setReceiveOutcome(null); setBlockOutcome(null); }
     const context = account.current;
+    const expectedShortcutRequestId = shortcutRequestId.current;
+    const operationCurrent = () => {
+      if (account.current !== context) return false;
+      const requestId = expectedShortcutRequestId;
+      if (requestId === null) return true;
+      const request = comparisonRequestRef.current;
+      return !!request && request.requestId === requestId && comparisonRequestCurrentRef.current(request);
+    };
     let owner: WorkoutCloudComparison | null = null;
     let invalidated = false;
     setBusy(true);
-    try {
-      owner = createWorkoutCloudComparison(accountId, () => account.current === context, () => {
-        if (invalidated) return;
-        invalidated = true;
-        if (owner && active.current === owner && account.current === context) {
-          const currentWrite = write.current;
-          currentWrite?.cancel();
-          // An in-flight INSERT may have committed. Await its actual verdict;
-          // never reuse the read-only "nothing changed" error for that case.
-          setResult(null); setFilterQuery(''); setPreview(null); setConfirmation(null);
-          if (!preserveOutcome) { setOutcome(null); setReceiveOutcome(null); setBlockOutcome(null); }
-          setBusy(false); setFailed(!currentWrite && !preserveOutcome); pending.current = false;
-          if (!currentWrite && preserveOutcome) setRefreshFailed(true);
+    const flight = Promise.resolve().then(async () => {
+      try {
+        owner = createWorkoutCloudComparison(accountId, operationCurrent, () => {
+          if (invalidated) return;
+          invalidated = true;
+          if (owner && active.current === owner && operationCurrent()) {
+            const currentWrite = write.current;
+            currentWrite?.cancel();
+            // An in-flight INSERT may have committed. Await its actual verdict;
+            // never reuse the read-only "nothing changed" error for that case.
+            setResult(null); setFilterQuery(''); setPreview(null); setConfirmation(null);
+            if (!preserveOutcome) { setOutcome(null); setReceiveOutcome(null); setBlockOutcome(null); }
+            setBusy(false); setFailed(!currentWrite && !preserveOutcome); pending.current = false;
+            if (!currentWrite && preserveOutcome) setRefreshFailed(true);
+          }
+        });
+        active.current = owner;
+        const report = await owner.compare();
+        if (active.current === owner && owner.isCurrent() && operationCurrent()) setResult({ owner, report });
+      } catch {
+        if ((!owner || active.current === owner) && operationCurrent()) {
+          if (preserveOutcome) setRefreshFailed(true);
+          else setFailed(true);
         }
-      });
-      active.current = owner;
-      const report = await owner.compare();
-      if (active.current === owner && owner.isCurrent()) setResult({ owner, report });
-    } catch {
-      if ((!owner || active.current === owner) && account.current === context) {
-        if (preserveOutcome) setRefreshFailed(true);
-        else setFailed(true);
+      } finally {
+        if ((!owner || active.current === owner) && operationCurrent()) { setBusy(false); pending.current = false; }
       }
-    } finally { if ((!owner || active.current === owner) && account.current === context) { setBusy(false); pending.current = false; } }
+    });
+    comparisonFlight.current = flight;
+    const clearFlight = () => { if (comparisonFlight.current === flight) comparisonFlight.current = null; };
+    void flight.then(clearFlight, clearFlight);
+    return flight;
   };
+  checkRef.current = check;
+  useEffect(() => {
+    const request = comparisonRequest;
+    if (!request || !comparisonActive || request.accountId !== accountId
+      || !comparisonRequestCurrentRef.current(request) || handledRequestId.current === request.requestId) return;
+    let effectActive = true;
+    // Defer consuming the request until the effect survives React StrictMode's
+    // setup/cleanup replay. The replayed first setup is cancelled before this
+    // microtask; the second setup performs the one real comparison.
+    void Promise.resolve().then(() => {
+      if (!effectActive || !comparisonRequestCurrentRef.current(request)
+        || handledRequestId.current === request.requestId) return;
+      handledRequestId.current = request.requestId;
+      shortcutRequestId.current = request.requestId;
+      const flight = checkRef.current?.() ?? Promise.resolve();
+      void flight.then(() => {
+        if (shortcutRequestId.current !== request.requestId) return;
+        shortcutRequestId.current = null;
+        if (comparisonRequestCurrentRef.current(request)) comparisonRequestSettledRef.current(request.requestId);
+      });
+    });
+    return () => {
+      effectActive = false;
+      if (shortcutRequestId.current !== request.requestId || comparisonRequestCurrentRef.current(request)) return;
+      shortcutRequestId.current = null;
+      active.current?.cancel(); active.current = null;
+      comparisonFlight.current = null;
+      pending.current = false;
+      setResult(null); setFilterQuery(''); setPreview(null); setConfirmation(null);
+      setOutcome(null); setReceiveOutcome(null); setBlockOutcome(null); setRefreshFailed(false); setFailed(false); setBusy(false);
+    };
+  }, [accountId, comparisonActive, comparisonRequest?.accountId, comparisonRequest?.requestId]);
   const inspectBlock = async (record: HealthRecoveryRecord, origin: WorkoutCloudComparison) => {
     if (pending.current || origin !== active.current || !origin.isCurrent()) return;
     pending.current = true; setBusy(true); setConfirmation(null); setOutcome(null); setReceiveOutcome(null); setBlockOutcome(null);

@@ -1,11 +1,14 @@
-import { memo } from 'react';
+import { memo, useEffect, useRef } from 'react';
 import { Target } from 'lucide-react';
 import type { HealthProps, Inbody, Theme } from '../../../../types';
 import { useElementVisible } from '../../../../hooks/useElementVisible';
 import { WorkspaceCardSkeleton } from '../../../common/WorkspaceCardSkeleton';
 import { WORKSPACE_CARD, WORKSPACE_CARD_SURFACE_COMPACT } from '../../../common/workspaceCardSizes';
 import { WorkoutMonthCalendar } from './WorkoutMonthCalendar';
-import { HealthWorkoutCloudComparisonPanel } from './HealthWorkoutCloudComparisonPanel';
+import {
+  HealthWorkoutCloudComparisonPanel,
+  type HealthWorkoutCloudComparisonRequest,
+} from './HealthWorkoutCloudComparisonPanel';
 import { ProteinTracker } from './nutrition';
 import { K121_SKELETON_HEIGHT } from '../../../../lib/k121SkeletonHeights';
 import { useTranslation } from '../../../../lib/i18n';
@@ -31,6 +34,10 @@ export interface HealthSupportingPanelsProps {
   showToast: HealthProps['showToast'];
   onOpenNutrition: () => void;
   inbodyHistoryCollapsed: boolean;
+  comparisonActive: boolean;
+  comparisonRequest: HealthWorkoutCloudComparisonRequest | null;
+  isComparisonRequestCurrent: (request: HealthWorkoutCloudComparisonRequest) => boolean;
+  onComparisonRequestSettled: (requestId: number) => void;
   layout?: 'grid' | 'stack';
 }
 
@@ -53,10 +60,24 @@ export const HealthSupportingPanels = memo(function HealthSupportingPanels({
   appSettings,
   showToast,
   onOpenNutrition,
+  comparisonActive,
+  comparisonRequest,
+  isComparisonRequestCurrent,
+  onComparisonRequestSettled,
   layout = 'grid',
 }: HealthSupportingPanelsProps) {
   const { t } = useTranslation();
   const { ref, visible } = useElementVisible('160px');
+  const cloudComparisonRegion = useRef<HTMLDivElement>(null);
+  const revealedComparisonRequest = useRef<number | null>(null);
+  useEffect(() => {
+    if (!visible || !comparisonActive || !comparisonRequest
+      || revealedComparisonRequest.current === comparisonRequest.requestId
+      || !isComparisonRequestCurrent(comparisonRequest)) return;
+    const requestId = comparisonRequest.requestId;
+    revealedComparisonRequest.current = requestId;
+    cloudComparisonRegion.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+  }, [visible, comparisonActive, comparisonRequest, isComparisonRequestCurrent]);
 
   return (
     <div
@@ -137,8 +158,15 @@ export const HealthSupportingPanels = memo(function HealthSupportingPanels({
               onOpenFull={onOpenNutrition}
             />
           </div>
-          <div className="order-4 min-w-0 lg:col-span-3">
-            <HealthWorkoutCloudComparisonPanel key={accountId} accountId={accountId} />
+          <div ref={cloudComparisonRegion} className="order-4 min-w-0 lg:col-span-3" data-health-workout-cloud-comparison-entry>
+            <HealthWorkoutCloudComparisonPanel
+              key={accountId}
+              accountId={accountId}
+              comparisonActive={comparisonActive}
+              comparisonRequest={comparisonRequest}
+              isComparisonRequestCurrent={isComparisonRequestCurrent}
+              onComparisonRequestSettled={onComparisonRequestSettled}
+            />
           </div>
         </>
       )}

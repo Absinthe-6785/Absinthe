@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, createElement } from 'react';
+import { act, createElement, StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const services = vi.hoisted(() => ({ create: vi.fn(), write: vi.fn(), receive: vi.fn(), block: vi.fn(), mutate: vi.fn() }));
@@ -15,7 +15,11 @@ vi.mock('../../../../lib/healthWorkoutCloudComparison', () => ({
     ? JSON.stringify(record) : null,
   WORKOUT_COMPARISON_CATEGORIES: ['localOnly', 'remoteOnly', 'matching', 'divergent', 'unverifiable'],
 }));
-import { HealthWorkoutCloudComparisonPanel } from './HealthWorkoutCloudComparisonPanel';
+vi.mock('./WorkoutMonthCalendar', () => ({ WorkoutMonthCalendar: () => null }));
+vi.mock('./nutrition', () => ({ ProteinTracker: () => null }));
+vi.mock('../../../common/WorkspaceCardSkeleton', () => ({ WorkspaceCardSkeleton: () => null }));
+import { HealthWorkoutCloudComparisonPanel, type HealthWorkoutCloudComparisonPanelProps } from './HealthWorkoutCloudComparisonPanel';
+import { HealthSupportingPanels, type HealthSupportingPanelsProps } from './HealthSupportingPanels';
 import { useAppStore } from '../../../../store/useAppStore';
 import { getTranslator } from '../../../../lib/i18n';
 import type { WorkoutComparisonReport } from '../../../../lib/healthWorkoutCloudComparison';
@@ -23,13 +27,20 @@ import type { WorkoutComparisonReport } from '../../../../lib/healthWorkoutCloud
 const report = (): WorkoutComparisonReport => ({ counts: { localOnly: 1, remoteOnly: 1, matching: 1, divergent: 1, unverifiable: 1 }, details: {
   localOnly: [{ id: 'local-id', localDate: '2026-10-30' }], remoteOnly: [{ id: 'cloud-id', remoteDate: '2026-10-29' }], matching: [{ id: 'same-id' }], divergent: [{ id: 'different-id', localDate: '2026-10-28', remoteDate: '2026-10-27' }], unverifiable: [{ id: 'unknown-id' }],
 } });
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(done => { resolve = done; });
+  return { promise, resolve };
+}
 const remoteWorkout = (id = 'cloud-id', sets: unknown[] = [{ set: 1, type: 'strength', kg: 50, reps: 5, done: true }]) => ({
   id, user_id: 'A', date: '2026-10-29', block_id: 'exercise-block-id', sort_order: 0, sets,
 });
-let host: HTMLElement, root: ReturnType<typeof createRoot>;
+let host: HTMLElement, root: ReturnType<typeof createRoot>, settled: ReturnType<typeof vi.fn>;
+let originalScrollIntoView: PropertyDescriptor | undefined;
 const originalLanguage = useAppStore.getState().appSettings.language;
 beforeEach(() => {
   vi.resetAllMocks();
+  settled = vi.fn();
   useAppStore.setState(state => ({ ...state, appSettings: { ...state.appSettings, language: 'en' } }));
   host = document.createElement('div'); document.body.appendChild(host); root = createRoot(host);
   services.create.mockImplementation(() => ({ compare: vi.fn().mockResolvedValue(report()), cancel: vi.fn(), isCurrent: () => true, localOnlyRecord: (id: string) => ({ id }), remoteOnlyRecord: (id: string) => ({ id }) }));
@@ -37,8 +48,22 @@ beforeEach(() => {
   services.receive.mockReturnValue({ receive: vi.fn().mockResolvedValue('DENIED'), cancel: vi.fn() });
   services.block.mockReturnValue({ inspect: vi.fn().mockResolvedValue(null), receive: vi.fn().mockResolvedValue('DENIED'), cancel: vi.fn() });
 });
-afterEach(() => { act(() => root.unmount()); host.remove(); useAppStore.setState(state => ({ ...state, appSettings: { ...state.appSettings, language: originalLanguage } })); });
-const render = (id = 'A') => act(() => root.render(createElement(HealthWorkoutCloudComparisonPanel, { accountId: id })));
+afterEach(() => {
+  act(() => root.unmount()); host.remove();
+  if (originalScrollIntoView) Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', originalScrollIntoView);
+  else Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView');
+  originalScrollIntoView = undefined;
+  useAppStore.setState(state => ({ ...state, appSettings: { ...state.appSettings, language: originalLanguage } }));
+});
+const comparisonPanelProps = (id = 'A', overrides: Partial<HealthWorkoutCloudComparisonPanelProps> = {}): HealthWorkoutCloudComparisonPanelProps => ({
+  accountId: id,
+  comparisonActive: true,
+  comparisonRequest: null,
+  isComparisonRequestCurrent: () => true,
+  onComparisonRequestSettled: settled,
+  ...overrides,
+});
+const render = (id = 'A', overrides: Partial<HealthWorkoutCloudComparisonPanelProps> = {}) => act(() => root.render(createElement(HealthWorkoutCloudComparisonPanel, comparisonPanelProps(id, overrides))));
 const click = async () => { await act(async () => { host.querySelector<HTMLButtonElement>('button')!.click(); }); };
 const setFilter = async (value: string) => await act(async () => {
   const input = host.querySelector<HTMLInputElement>('input[type="search"]')!;
@@ -47,6 +72,95 @@ const setFilter = async (value: string) => await act(async () => {
 });
 
 describe('manual Health cloud comparison UI', () => {
+  it('runs one explicit shortcut comparison under StrictMode and preserves all mutation boundaries', async () => {
+    const request = { requestId: 41, accountId: 'A', accountGeneration: 3 };
+    act(() => root.render(createElement(StrictMode, null, createElement(
+      HealthWorkoutCloudComparisonPanel,
+      comparisonPanelProps('A', { comparisonRequest: request, isComparisonRequestCurrent: candidate => candidate === request }),
+    ))));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); });
+    expect(services.create).toHaveBeenCalledOnce();
+    expect(host.textContent).toContain(getTranslator('en')('healthCloudObserved'));
+    expect(settled).toHaveBeenCalledOnce();
+    expect(settled).toHaveBeenCalledWith(41);
+    expect(services.write).not.toHaveBeenCalled();
+    expect(services.receive).not.toHaveBeenCalled();
+    expect(services.block).not.toHaveBeenCalled();
+    expect(services.mutate).not.toHaveBeenCalled();
+  });
+  it('waits for the visibility-aware supporting mount, then exposes the requested result once', async () => {
+    const request = { requestId: 44, accountId: 'A', accountGeneration: 6 };
+    const observers: Array<{ callback: IntersectionObserverCallback; observe: ReturnType<typeof vi.fn>; disconnect: ReturnType<typeof vi.fn> }> = [];
+    class TestIntersectionObserver {
+      callback: IntersectionObserverCallback;
+      observe = vi.fn();
+      disconnect = vi.fn();
+      constructor(callback: IntersectionObserverCallback) { this.callback = callback; observers.push(this); }
+      unobserve = vi.fn();
+      takeRecords = () => [];
+    }
+    vi.stubGlobal('IntersectionObserver', TestIntersectionObserver);
+    originalScrollIntoView = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollIntoView');
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: scrollIntoView });
+    const props = {
+      accountId: 'A', selectedDate: new Date('2026-10-29T12:00:00'), currentDate: new Date('2026-10-01T12:00:00'),
+      setCurrentDate: vi.fn(), setSelectedDate: vi.fn(), formatDate: (value: Date) => value.toISOString().slice(0, 10),
+      isToday: () => false, theme: { card: '', input: '', border: '', text: '', textMuted: '', hoverBg: '' }, lang: 'en',
+      localInbody: { weight: null, smm: null, pbf: null }, setLocalInbody: vi.fn(), setIsInbodyDirty: vi.fn(),
+      onSaveInbody: vi.fn(), appSettings: { darkMode: false }, showToast: vi.fn(), onOpenNutrition: vi.fn(),
+      inbodyHistoryCollapsed: false, comparisonActive: true, comparisonRequest: request,
+      isComparisonRequestCurrent: (candidate: typeof request) => candidate === request,
+      onComparisonRequestSettled: settled,
+    } as unknown as HealthSupportingPanelsProps;
+    act(() => root.render(createElement(StrictMode, null, createElement(HealthSupportingPanels, props))));
+    expect(observers.length).toBeGreaterThanOrEqual(1);
+    expect(services.create).not.toHaveBeenCalled();
+    expect(host.querySelector('[data-health-cloud-comparison]')).toBeNull();
+    const activeObserver = observers.at(-1)!;
+    await act(async () => activeObserver.callback([
+      { isIntersecting: true, target: host.querySelector('[data-workspace-zone="supporting"]')! } as IntersectionObserverEntry,
+    ], activeObserver as unknown as IntersectionObserver));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); });
+    expect(activeObserver.disconnect).toHaveBeenCalled();
+    expect(services.create).toHaveBeenCalledOnce();
+    expect(host.querySelector('[data-health-cloud-comparison]')).not.toBeNull();
+    expect(host.textContent).toContain(getTranslator('en')('healthCloudObserved'));
+    expect(scrollIntoView).toHaveBeenCalledOnce();
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' });
+    expect(settled).toHaveBeenCalledOnce();
+    expect(settled).toHaveBeenCalledWith(44);
+    expect(services.write).not.toHaveBeenCalled(); expect(services.receive).not.toHaveBeenCalled();
+    expect(services.block).not.toHaveBeenCalled(); expect(services.mutate).not.toHaveBeenCalled();
+  });
+  it('does not start a stale or inactive shortcut request', async () => {
+    const request = { requestId: 42, accountId: 'A', accountGeneration: 4 };
+    render('A', { comparisonActive: false, comparisonRequest: request, isComparisonRequestCurrent: () => false });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(services.create).not.toHaveBeenCalled();
+    expect(settled).not.toHaveBeenCalled();
+  });
+  it('cancels an in-flight shortcut comparison and never exposes an A-B-A stale result', async () => {
+    const request = { requestId: 43, accountId: 'A', accountGeneration: 5 };
+    let current = true;
+    const comparison = deferred<WorkoutComparisonReport>();
+    const cancel = vi.fn();
+    services.create.mockReturnValue({ compare: () => comparison.promise, cancel, isCurrent: () => true });
+    render('A', { comparisonRequest: request, isComparisonRequestCurrent: candidate => current && candidate === request });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(services.create).toHaveBeenCalledOnce();
+    current = false;
+    render('A', { comparisonRequest: null, isComparisonRequestCurrent: candidate => current && candidate === request });
+    expect(cancel).toHaveBeenCalledOnce();
+    await act(async () => comparison.resolve(report()));
+    expect(host.textContent).not.toContain(getTranslator('en')('healthCloudObserved'));
+    expect(settled).not.toHaveBeenCalled();
+    render('B'); render('A');
+    expect(host.textContent).not.toContain(getTranslator('en')('healthCloudObserved'));
+    expect(services.write).not.toHaveBeenCalled();
+    expect(services.receive).not.toHaveBeenCalled();
+    expect(services.mutate).not.toHaveBeenCalled();
+  });
   it.each(['en', 'ko', 'ja'] as const)('offers only a proven missing exercise and requires separate confirmation in %s', async language => {
     useAppStore.setState(state => ({ ...state, appSettings: { ...state.appSettings, language } }));
     const t = getTranslator(language), receive = vi.fn().mockResolvedValue('LOCAL_CREATE_CONFIRMED');

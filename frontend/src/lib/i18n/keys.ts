@@ -2420,6 +2420,8 @@ const translationKeys = [
   "recipeManualRefreshPartial",
   "recipeManualRefreshOffline",
   "recipeManualRefreshUnavailable",
+  "healthCloudHeaderCheck",
+  "healthCloudHeaderChecking",
 ] as const;
 
 export type TranslationKey = (typeof translationKeys)[number];

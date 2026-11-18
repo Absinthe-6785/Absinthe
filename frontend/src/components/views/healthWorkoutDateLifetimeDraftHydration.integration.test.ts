@@ -102,6 +102,8 @@ const mocks = vi.hoisted(() => ({
     createNote: vi.fn(),
     updateNote: vi.fn(),
   },
+  supportingProps: null as any,
+  changeHealthSection: null as null | ((section: 'workout' | 'nutrition') => void),
 }));
 
 vi.mock('../../lib/config', () => ({ API_URL: 'https://example.test' }));
@@ -287,8 +289,11 @@ vi.mock('../common/WorkspaceToolbar', () => ({
   },
 }));
 vi.mock('./features/health/HealthWorkspaceNav', () => ({
-  HEALTH_WORKSPACE_SECTIONS: [{ id: 'workout' }],
-  HealthWorkspaceNav: () => null,
+  HEALTH_WORKSPACE_SECTIONS: [{ id: 'workout' }, { id: 'nutrition' }],
+  HealthWorkspaceNav: ({ onChange }: { onChange: (section: 'workout' | 'nutrition') => void }) => {
+    mocks.changeHealthSection = onChange;
+    return null;
+  },
 }));
 vi.mock('./features/health/nutrition', () => ({ ProteinTracker: () => null }));
 vi.mock('./features/health/HealthBlockLibrary', () => ({
@@ -306,13 +311,16 @@ vi.mock('./features/health/HealthBlockLibrary', () => ({
   ),
 }));
 vi.mock('./features/health/HealthSupportingPanels', () => ({
-  HealthSupportingPanels: () => createElement(
+  HealthSupportingPanels: (supportingProps: any) => {
+    mocks.supportingProps = supportingProps;
+    return createElement(
     'div',
     { 'data-health-test-region': 'support-panels' },
     createElement('section', {}, 'Calendar'),
     createElement('section', {}, 'InBody'),
     createElement('section', {}, 'Protein'),
-  ),
+    );
+  },
 }));
 vi.mock('./features/health/WorkoutPrBadge', () => ({ WorkoutPrBadge: () => null }));
 vi.mock('./features/health/PreviousWorkoutView', () => ({ PreviousWorkoutView: () => null }));
@@ -480,6 +488,7 @@ function resetFixture() {
   mocks.dispatches.length = 0; mocks.commits.length = 0; mocks.factoryGate = null; mocks.commitGate = null;
   mocks.authFetch.mockReset().mockResolvedValue(new Response(null, { status: 201 }));
   mocks.showToast.mockReset(); mocks.mutateDaily.mockReset(); mocks.mutateStatic.mockReset();
+  mocks.supportingProps = null; mocks.changeHealthSection = null;
   mocks.swrMutators.clear(); mocks.cacheEffects.length = 0;
   mocks.mutateDaily.mockImplementation((...args: unknown[]) => {
     mocks.cacheEffects.push({ sequence: mocks.cacheEffects.length + 1,
@@ -511,6 +520,76 @@ function resetFixture() {
 }
 beforeEach(resetFixture);
 afterEach(() => { if (root) act(() => root!.unmount()); host.remove(); vi.unstubAllGlobals(); });
+
+describe('Health Workout cloud comparison header entry', () => {
+  it.each([false, true])('routes one explicit read-only comparison request on %s mobile mode', async mobile => {
+    mocks.mobile = mobile;
+    await render();
+    const before = snapshot();
+    const storageWritesBefore = storage.history.filter(event => event.op !== 'get');
+    const authCallsBefore = mocks.authFetch.mock.calls.length;
+    const support = host.querySelector<HTMLElement>('[data-health-scroll-owner="wide-support"]')!;
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(support, 'scrollIntoView', { configurable: true, value: scrollIntoView });
+
+    const button = host.querySelector<HTMLButtonElement>('[data-health-workout-cloud-check]')!;
+    expect(button).toBeTruthy();
+    expect(button.textContent).toBe('healthCloudHeaderCheck');
+    expect(button.getAttribute('aria-describedby')).toBeTruthy();
+    expect(document.getElementById(button.getAttribute('aria-describedby')!)?.textContent).toContain('healthCloudScope');
+    await act(async () => { button.click(); button.click(); });
+
+    const request = mocks.supportingProps.comparisonRequest;
+    expect(request).toMatchObject({ requestId: 1, accountId: A, accountGeneration: 0 });
+    expect(mocks.supportingProps.comparisonActive).toBe(true);
+    expect(mocks.supportingProps.isComparisonRequestCurrent(request)).toBe(true);
+    expect(scrollIntoView).toHaveBeenCalledOnce();
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'end' });
+    expect(host.querySelector<HTMLButtonElement>('[data-health-workout-cloud-check]')?.disabled).toBe(true);
+    expect(mocks.authFetch).toHaveBeenCalledTimes(authCallsBefore);
+    expect(mocks.dispatches).toEqual([]); expect(mocks.commits).toEqual([]); expect(mocks.inputs).toEqual([]);
+    expect(mocks.cacheEffects).toEqual([]);
+    expect(snapshot()).toMatchObject({ rows: before.rows, dirty: before.dirty, dirtyRef: before.dirtyRef,
+      saving: before.saving, locked: before.locked, bytes: before.bytes });
+    expect(storage.history.filter(event => event.op !== 'get')).toEqual(storageWritesBefore);
+
+    await act(async () => mocks.supportingProps.onComparisonRequestSettled(request.requestId));
+    expect(mocks.supportingProps.comparisonRequest).toBeNull();
+    expect(host.querySelector<HTMLButtonElement>('[data-health-workout-cloud-check]')?.disabled).toBe(false);
+  });
+
+  it('drops a queued request when leaving the mobile Workout surface and does not replay it on return', async () => {
+    mocks.mobile = true;
+    await render();
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-health-workout-cloud-check]')!.click());
+    const oldProps = mocks.supportingProps;
+    const oldRequest = oldProps.comparisonRequest;
+    expect(oldRequest).toBeTruthy();
+
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-health-mobile-tab="setup"]')!.click());
+    expect(oldProps.isComparisonRequestCurrent(oldRequest)).toBe(false);
+    expect(mocks.supportingProps.comparisonActive).toBe(false);
+    expect(mocks.supportingProps.comparisonRequest).toBeNull();
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-health-mobile-tab="workout"]')!.click());
+    expect(mocks.supportingProps.comparisonActive).toBe(true);
+    expect(mocks.supportingProps.comparisonRequest).toBeNull();
+    expect(host.querySelector<HTMLButtonElement>('[data-health-workout-cloud-check]')?.disabled).toBe(false);
+  });
+
+  it('invalidates a pending request across account A-B-A transitions', async () => {
+    await render();
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-health-workout-cloud-check]')!.click());
+    const oldProps = mocks.supportingProps;
+    const oldRequest = oldProps.comparisonRequest;
+    await render({ user: { id: B, name: 'B' } });
+    expect(oldProps.isComparisonRequestCurrent(oldRequest)).toBe(false);
+    expect(mocks.supportingProps.comparisonRequest).toBeNull();
+    await render({ user: { id: A, name: 'A' } });
+    expect(oldProps.isComparisonRequestCurrent(oldRequest)).toBe(false);
+    expect(mocks.supportingProps.comparisonRequest).toBeNull();
+    expect(host.querySelector<HTMLButtonElement>('[data-health-workout-cloud-check]')?.disabled).toBe(false);
+  });
+});
 
 /**
  * Gate-OFF differential oracle executes the exact main HealthView, not a fake

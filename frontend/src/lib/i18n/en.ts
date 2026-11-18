@@ -2420,6 +2420,8 @@ const enTranslations = [
   "Some Recipe data could not be refreshed. Previously verified data was kept for those lists.",
   "You're offline. Existing Recipe data was kept.",
   "Recipe refresh is unavailable right now. Existing data was kept.",
+  "Check cloud changes",
+  "Checking cloud changes…",
 ] as const;
 
 export default enTranslations;
