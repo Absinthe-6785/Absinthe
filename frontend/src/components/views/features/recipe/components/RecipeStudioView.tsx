@@ -38,6 +38,9 @@ export interface RecipeStudioViewProps {
   activeAvailability: RecipeAvailability;
   activeValidating: boolean;
   onRetryActive: () => void;
+  onManualRefresh?: (includeTrash: boolean) => void;
+  manualRefreshStatus?: 'refreshing' | 'success' | 'partial' | 'offline' | 'unavailable' | null;
+  manualRefreshDisabled?: boolean;
   expandedId: string | null;
   onToggleExpand: (id: string) => void;
   onToggleStar: (recipe: Recipe) => void;
@@ -64,6 +67,9 @@ export function RecipeStudioView({
   activeAvailability,
   activeValidating,
   onRetryActive,
+  onManualRefresh,
+  manualRefreshStatus = null,
+  manualRefreshDisabled = false,
   expandedId,
   onToggleExpand,
   onToggleStar,
@@ -130,40 +136,67 @@ export function RecipeStudioView({
     >
       <RecipeCompositionLayout
         header={(
-          <WorkspaceToolbar workspace="recipe" className="!mb-0 !pb-0 bg-transparent" legacyDataHook="data-k110-recipe-header">
-            <WorkspacePageHeader
-              workspace="recipe"
-              title={t('k110StudioTitle')}
-              subtitle={t('k110StudioSubtitle')}
-              icon={BookMarked}
-              theme={theme}
-              dark={dark}
-              className="flex-col sm:flex-row"
-              trailing={(
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowTrash(value => !value)}
-                    className={`abs-recipe-trash-toggle ${UI_INTERACTION.focusRingClass} inline-flex items-center gap-1.5 min-h-[40px] shrink-0 rounded-xl border px-3 text-xs font-bold transition-colors ${theme.border}`}
-                    data-k110-recipe-trash-toggle
-                    data-active={showTrash ? 'true' : 'false'}
-                    aria-expanded={showTrash}
-                  >
-                    <Trash2 size={14} />
-                    {t('trash')} {deletedRecipes.length > 0 ? `(${deletedRecipes.length})` : ''}
-                  </button>
-                  <WorkspaceToolbarPrimary
-                    label={t('newRecipe')}
-                    icon={<Plus size={UI_INTERACTION.toolbarIconSizePx} />}
-                    onClick={onNewRecipe}
-                    disabled={!activeReady}
-                    className="!w-auto shrink-0 px-4"
-                    dataHook="data-k110-new-recipe"
-                  />
-                </div>
-              )}
-            />
-          </WorkspaceToolbar>
+          <>
+            <WorkspaceToolbar workspace="recipe" className="!mb-0 !pb-0 bg-transparent" legacyDataHook="data-k110-recipe-header">
+              <WorkspacePageHeader
+                workspace="recipe"
+                title={t('k110StudioTitle')}
+                subtitle={t('k110StudioSubtitle')}
+                icon={BookMarked}
+                theme={theme}
+                dark={dark}
+                className="flex-col sm:flex-row"
+                trailing={(
+                  <div className="flex flex-wrap items-center gap-2">
+                    {onManualRefresh && (
+                      <button
+                        type="button"
+                        onClick={() => onManualRefresh(showTrash)}
+                        disabled={manualRefreshDisabled || activeValidating || (showTrash && trashValidating) || manualRefreshStatus === 'refreshing'}
+                        aria-label={t('recipeManualRefresh')}
+                        aria-busy={manualRefreshStatus === 'refreshing'}
+                        data-recipe-manual-refresh
+                        className={`inline-flex min-h-[40px] shrink-0 items-center gap-1.5 rounded-xl border px-3 text-xs font-bold transition-colors ${theme.border} ${UI_INTERACTION.focusRingClass} disabled:cursor-not-allowed disabled:opacity-60`}
+                      >
+                        <RefreshCw size={14} aria-hidden="true" className={manualRefreshStatus === 'refreshing' ? 'animate-spin' : ''} />
+                        {t('recipeManualRefresh')}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setShowTrash(value => !value)}
+                      className={`abs-recipe-trash-toggle ${UI_INTERACTION.focusRingClass} inline-flex items-center gap-1.5 min-h-[40px] shrink-0 rounded-xl border px-3 text-xs font-bold transition-colors ${theme.border}`}
+                      data-k110-recipe-trash-toggle
+                      data-active={showTrash ? 'true' : 'false'}
+                      aria-expanded={showTrash}
+                    >
+                      <Trash2 size={14} />
+                      {t('trash')} {deletedRecipes.length > 0 ? `(${deletedRecipes.length})` : ''}
+                    </button>
+                    <WorkspaceToolbarPrimary
+                      label={t('newRecipe')}
+                      icon={<Plus size={UI_INTERACTION.toolbarIconSizePx} />}
+                      onClick={onNewRecipe}
+                      disabled={!activeReady}
+                      className="!w-auto shrink-0 px-4"
+                      dataHook="data-k110-new-recipe"
+                    />
+                  </div>
+                )}
+              />
+            </WorkspaceToolbar>
+            {manualRefreshStatus && (
+              <p
+                role="status"
+                aria-live="polite"
+                aria-atomic="true"
+                data-recipe-manual-refresh-status={manualRefreshStatus}
+                className={`mt-1 text-xs ${theme.textMuted}`}
+              >
+                {t(({ refreshing: 'recipeManualRefreshing', success: 'recipeManualRefreshed', partial: 'recipeManualRefreshPartial', offline: 'recipeManualRefreshOffline', unavailable: 'recipeManualRefreshUnavailable' } as const)[manualRefreshStatus])}
+              </p>
+            )}
+          </>
         )}
         primary={(
           <div className={`flex flex-col ${WORKSPACE_GAP_CLASS} min-h-0 flex-1`} data-k110-recipe-primary>

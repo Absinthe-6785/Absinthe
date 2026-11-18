@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, createElement } from 'react';
+import { act, createElement, StrictMode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -24,6 +24,7 @@ const harness = vi.hoisted(() => ({
   activeMutates: new Map<string, ReturnType<typeof vi.fn>>(),
   trashMutates: new Map<string, ReturnType<typeof vi.fn>>(),
   authFetch: vi.fn(),
+  remoteRead: vi.fn(),
   studioProps: null as Record<string, any> | null,
   formProps: null as Record<string, any> | null,
   navigationConsumed: vi.fn(),
@@ -54,6 +55,10 @@ vi.mock('../../lib/config', () => ({ API_URL: 'https://api.example.test' }));
 vi.mock('../../lib/remoteBoundary', () => ({
   remoteSWRKey: (key: string) => key,
   assertRemoteMutationAllowed: vi.fn(),
+}));
+vi.mock('../../lib/accountBoundRemote', () => ({
+  accountBoundRemoteKey: (url: string, accountId?: string) => accountId ? `${url}::${accountId}` : null,
+  accountBoundRemoteFetcher: (key: string) => harness.remoteRead(key),
 }));
 vi.mock('../../lib/i18n', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -127,17 +132,24 @@ function copyFromStudio() {
   ) => Promise<string>;
 }
 
+function refreshFromStudio() {
+  return harness.studioProps?.onManualRefresh as (includeTrash: boolean) => Promise<void>;
+}
+
 function render(
   accountId = 'account-a',
   recipeNavigationRequest?: { accountId: string; accountGeneration: number; requestId: number; recipeId: string },
+  keyByAccount = true,
+  strictMode = false,
 ) {
   harness.account = accountId;
-  act(() => root.render(createElement(RecipeView, {
-    key: accountId, accountId, showToast: vi.fn(), appSettings: settings,
+  const view = createElement(RecipeView, {
+    key: keyByAccount ? accountId : undefined, accountId, showToast: vi.fn(), appSettings: settings,
     updateSetting: vi.fn(), theme, THEME_COLORS: [],
     recipeNavigationRequest,
     onRecipeNavigationConsumed: harness.navigationConsumed,
-  })));
+  });
+  act(() => root.render(strictMode ? createElement(StrictMode, null, view) : view));
 }
 
 async function flush() {
@@ -154,6 +166,7 @@ beforeEach(() => {
   harness.activeMutates.clear();
   harness.trashMutates.clear();
   harness.authFetch.mockReset();
+  harness.remoteRead.mockReset();
   harness.studioProps = null;
   harness.formProps = null;
   harness.navigationConsumed.mockReset();
@@ -522,5 +535,199 @@ describe('Recipe fetch availability production wiring', () => {
     expect(harness.activeMutates.get('account-a')).toHaveBeenCalledTimes(1);
     expect(harness.studioProps?.activeAvailability).toBe('UNAVAILABLE_NO_DATA');
     expect(harness.studioProps?.recipes).toEqual([]);
+  });
+
+  it('manually refreshes only the active account-bound list and reports verified read success without writes', async () => {
+    const cached = recipe('cached');
+    const fresh = recipe('fresh', 'Updated remotely');
+    harness.active = { data: [cached], isLoading: false, isValidating: false };
+    harness.remoteRead.mockResolvedValue([fresh]);
+    render(); await flush();
+
+    let refresh!: Promise<void>;
+    act(() => { refresh = refreshFromStudio()(false); });
+    expect(harness.studioProps?.manualRefreshStatus).toBe('refreshing');
+    await act(async () => { await refresh; });
+
+    expect(harness.remoteRead).toHaveBeenCalledTimes(1);
+    expect(harness.remoteRead).toHaveBeenCalledWith('https://api.example.test/api/recipes::account-a');
+    expect(harness.activeMutates.get('account-a')).toHaveBeenCalledWith([fresh], false);
+    expect(harness.trashMutates.get('account-a')).not.toHaveBeenCalled();
+    expect(harness.studioProps?.manualRefreshStatus).toBe('success');
+    expect(harness.authFetch).not.toHaveBeenCalled();
+  });
+
+  it('completes a manual refresh after the application StrictMode effect replay', async () => {
+    harness.remoteRead.mockResolvedValue([recipe('strict-refresh')]);
+    render('account-a', undefined, true, true); await flush();
+
+    let refresh!: Promise<void>;
+    act(() => { refresh = refreshFromStudio()(false); });
+    await act(async () => { await refresh; });
+
+    expect(harness.remoteRead).toHaveBeenCalledTimes(1);
+    expect(harness.activeMutates.get('account-a')).toHaveBeenCalledWith([recipe('strict-refresh')], false);
+    expect(harness.studioProps?.manualRefreshStatus).toBe('success');
+  });
+
+  it('refreshes trash only while requested and reports a partial result while preserving the failed cache', async () => {
+    const fresh = recipe('fresh');
+    harness.remoteRead.mockImplementation((key: string) => (
+      key.includes('/trash') ? Promise.reject(new Error('offline')) : Promise.resolve([fresh])
+    ));
+    render(); await flush();
+
+    let refresh!: Promise<void>;
+    act(() => { refresh = refreshFromStudio()(true); });
+    await act(async () => { await refresh; });
+
+    expect(harness.remoteRead).toHaveBeenCalledTimes(2);
+    expect(harness.remoteRead).toHaveBeenCalledWith('https://api.example.test/api/recipes::account-a');
+    expect(harness.remoteRead).toHaveBeenCalledWith('https://api.example.test/api/recipes/trash::account-a');
+    expect(harness.activeMutates.get('account-a')).toHaveBeenCalledWith([fresh], false);
+    expect(harness.trashMutates.get('account-a')).not.toHaveBeenCalled();
+    expect(harness.studioProps?.manualRefreshStatus).toBe('partial');
+  });
+
+  it('reports offline and failed active reads without replacing existing cache data', async () => {
+    harness.active = { data: [recipe('cached')], isLoading: false, isValidating: false };
+    render(); await flush();
+    const originalOnline = Object.getOwnPropertyDescriptor(navigator, 'onLine');
+    try {
+      Object.defineProperty(navigator, 'onLine', { configurable: true, value: false });
+      let offlineRefresh!: Promise<void>;
+      act(() => { offlineRefresh = refreshFromStudio()(false); });
+      await act(async () => { await offlineRefresh; });
+      expect(harness.studioProps?.manualRefreshStatus).toBe('offline');
+      expect(harness.remoteRead).not.toHaveBeenCalled();
+
+      if (originalOnline) Object.defineProperty(navigator, 'onLine', originalOnline);
+      else Reflect.deleteProperty(navigator, 'onLine');
+      harness.remoteRead.mockRejectedValueOnce(new Error('network failure'));
+      let failedRefresh!: Promise<void>;
+      act(() => { failedRefresh = refreshFromStudio()(false); });
+      await act(async () => { await failedRefresh; });
+      expect(harness.studioProps?.manualRefreshStatus).toBe('unavailable');
+      expect(harness.activeMutates.get('account-a')).not.toHaveBeenCalled();
+    } finally {
+      if (originalOnline) Object.defineProperty(navigator, 'onLine', originalOnline);
+      else Reflect.deleteProperty(navigator, 'onLine');
+    }
+  });
+
+  it('coalesces repeated refresh clicks into one read flight', async () => {
+    let resolveRead!: (rows: unknown) => void;
+    const remoteRead = new Promise<unknown>(resolve => { resolveRead = resolve; });
+    harness.remoteRead.mockReturnValue(remoteRead);
+    render(); await flush();
+
+    let first!: Promise<void>;
+    let second!: Promise<void>;
+    act(() => {
+      first = refreshFromStudio()(false);
+      second = refreshFromStudio()(false);
+    });
+    await act(async () => { await Promise.resolve(); });
+    expect(first).toBe(second);
+    expect(harness.remoteRead).toHaveBeenCalledTimes(1);
+    await act(async () => { resolveRead([recipe('fresh')]); await first; });
+    expect(harness.studioProps?.manualRefreshStatus).toBe('success');
+  });
+
+  it('discards an A-B-A stale completion before publishing cache or status', async () => {
+    let resolveRead!: (rows: unknown) => void;
+    const remoteRead = new Promise<unknown>(resolve => { resolveRead = resolve; });
+    harness.remoteRead.mockReturnValue(remoteRead);
+    render('account-a', undefined, false); await flush();
+    let refresh!: Promise<void>;
+    act(() => { refresh = refreshFromStudio()(false); });
+    await act(async () => { await Promise.resolve(); });
+
+    render('account-b', undefined, false);
+    render('account-a', undefined, false);
+    await act(async () => { resolveRead([recipe('stale-a')]); await refresh; });
+
+    expect(harness.activeMutates.get('account-a')).not.toHaveBeenCalled();
+    expect(harness.studioProps?.manualRefreshStatus).toBeNull();
+  });
+
+  it('discards a manual read when a Recipe mutation starts before the read completes', async () => {
+    const saved = recipe('starred');
+    const fresh = recipe('fresh-from-cloud');
+    harness.active = { data: [saved], isLoading: false, isValidating: false };
+    let resolveRead!: (rows: unknown) => void;
+    let resolveWrite!: (response: unknown) => void;
+    harness.remoteRead.mockReturnValue(new Promise<unknown>(resolve => { resolveRead = resolve; }));
+    harness.authFetch.mockReturnValue(new Promise<unknown>(resolve => { resolveWrite = resolve; }));
+    render(); await flush();
+
+    let refresh!: Promise<void>;
+    act(() => { refresh = refreshFromStudio()(false); });
+    await act(async () => { await Promise.resolve(); });
+    let star!: Promise<void>;
+    act(() => { star = harness.studioProps?.onToggleStar(saved); });
+    resolveRead([fresh]);
+    await act(async () => { await refresh; });
+
+    expect(harness.activeMutates.get('account-a')?.mock.calls.some(([value, revalidate]) => (
+      Array.isArray(value) && value[0]?.id === fresh.id && revalidate === false
+    ))).toBe(false);
+    expect(harness.studioProps?.manualRefreshStatus).toBe('unavailable');
+    await act(async () => {
+      resolveWrite({ ok: true, json: async () => ({ ...saved, user_id: 'account-a', deleted_at: null, starred: true }) });
+      await star;
+    });
+  });
+
+  it('does not publish a pending cloud result after the Recipe view unmounts', async () => {
+    let resolveRead!: (rows: unknown) => void;
+    harness.remoteRead.mockReturnValue(new Promise<unknown>(resolve => { resolveRead = resolve; }));
+    render(); await flush();
+    let refresh!: Promise<void>;
+    act(() => { refresh = refreshFromStudio()(false); });
+    await act(async () => { await Promise.resolve(); });
+    act(() => root.unmount());
+    await act(async () => { resolveRead([recipe('stale-after-unmount')]); await refresh; });
+    expect(harness.activeMutates.get('account-a')).not.toHaveBeenCalled();
+  });
+
+  it('does not start a cloud refresh during a pending Recipe mutation', async () => {
+    const saved = recipe('starred');
+    harness.active = { data: [saved], isLoading: false, isValidating: false };
+    let resolveWrite!: (response: unknown) => void;
+    const write = new Promise<unknown>(resolve => { resolveWrite = resolve; });
+    harness.authFetch.mockReturnValue(write);
+    render(); await flush();
+
+    let star!: Promise<void>;
+    act(() => { star = harness.studioProps?.onToggleStar(saved); });
+    let refresh!: Promise<void>;
+    act(() => { refresh = refreshFromStudio()(false); });
+    await act(async () => { await refresh; });
+    expect(harness.remoteRead).not.toHaveBeenCalled();
+    expect(harness.studioProps?.manualRefreshStatus).toBe('unavailable');
+
+    await act(async () => {
+      resolveWrite({ ok: true, json: async () => ({ ...saved, user_id: 'account-a', deleted_at: null, starred: true }) });
+      await star;
+    });
+  });
+
+  it('preserves a recovered unsaved Recipe draft during a successful manual read', async () => {
+    const remote = recipe();
+    writeRecipeDraft(editDraft(remote));
+    const previousDraft = readRecipeDraft('account-a').draft;
+    harness.active = { data: [remote], isLoading: false, isValidating: false };
+    harness.remoteRead.mockResolvedValue([remote]);
+    render(); await flush();
+    const previousForm = harness.formProps?.form;
+
+    let refresh!: Promise<void>;
+    act(() => { refresh = refreshFromStudio()(false); });
+    await act(async () => { await refresh; });
+
+    expect(readRecipeDraft('account-a').draft).toEqual(previousDraft);
+    expect(harness.formProps?.form).toEqual(previousForm);
+    expect(harness.authFetch).not.toHaveBeenCalled();
   });
 });

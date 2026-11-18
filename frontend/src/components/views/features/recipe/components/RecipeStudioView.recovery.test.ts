@@ -622,6 +622,34 @@ describe('UI-07 production Recipe composition hierarchy', () => {
 });
 
 describe('RecipeStudioView recovery surface', () => {
+  it('exposes an accessible manual refresh action and preserves filters and the trash choice', () => {
+    const onManualRefresh = vi.fn();
+    renderInteractiveStudio({ onManualRefresh, manualRefreshStatus: 'success' });
+
+    setStudioSearch('cached');
+    setStudioCategory('All');
+    toggleStudioStarredOnly();
+    const titleSort = Array.from(host!.querySelectorAll<HTMLButtonElement>('.abs-recipe-sort-control button'))
+      .find(button => button.textContent?.trim() === 'A-Z')!;
+    act(() => titleSort.click());
+    act(() => host!.querySelector<HTMLButtonElement>('[data-k110-recipe-trash-toggle]')!.click());
+
+    const refresh = host!.querySelector<HTMLButtonElement>('[data-recipe-manual-refresh]')!;
+    expect(refresh.getAttribute('aria-label')).toBe('Refresh Recipes');
+    expect(refresh.disabled).toBe(false);
+    act(() => refresh.click());
+
+    expect(onManualRefresh).toHaveBeenCalledWith(true);
+    expect(host!.querySelector<HTMLInputElement>('[data-k110-recipe-search]')?.value).toBe('cached');
+    expect(Array.from(host!.querySelectorAll<HTMLButtonElement>('[data-k110-recipe-filters] .abs-recipe-filter'))
+      .find(button => button.textContent?.trim() === 'All')?.dataset.selected).toBe('true');
+    expect(host!.querySelector<HTMLButtonElement>('.abs-recipe-star-filter')?.dataset.active).toBe('true');
+    expect(host!.querySelector<HTMLButtonElement>('.abs-recipe-sort-control button[data-selected="true"]')?.textContent?.trim()).toBe('A-Z');
+    expect(host!.querySelector<HTMLButtonElement>('[data-k110-recipe-trash-toggle]')?.dataset.active).toBe('true');
+    expect(host!.querySelector('[role="status"][data-recipe-manual-refresh-status="success"]')?.textContent)
+      .toBe('Recipe list refreshed from your account.');
+  });
+
   it.each([
     ['steps', 'saffron simmer'],
     ['memo', 'star anise note'],

@@ -55,6 +55,14 @@ type DraftConflict =
   | { kind: 'remote-unavailable' }
   | { kind: 'remote-missing' };
 
+export type RecipeManualRefreshStatus = 'refreshing' | 'success' | 'partial' | 'offline' | 'unavailable';
+
+type RecipeManualRefreshFlight = {
+  accountId?: string;
+  generation: number;
+  promise: Promise<void>;
+};
+
 const recipeStarMutationKey = (accountId: string, recipeId: string) => (
   JSON.stringify([accountId, recipeId])
 );
@@ -97,9 +105,18 @@ export const RecipeView = ({
   const [saving, setSaving] = useState(false);
   const [formSession, setFormSession] = useState<number | null>(null);
   const [pendingStarRecipeIds, setPendingStarRecipeIds] = useState<ReadonlySet<string>>(() => new Set());
+  const [pendingRecipeMutationCount, setPendingRecipeMutationCount] = useState(0);
+  const [manualRefreshState, setManualRefreshState] = useState<{
+    accountId?: string;
+    generation: number;
+    status: RecipeManualRefreshStatus;
+  } | null>(null);
   const accountIdRef = useRef(accountId);
   const accountGenerationRef = useRef(0);
   const mountedRef = useRef(true);
+  const pendingRecipeMutationCountRef = useRef(0);
+  const recipeMutationGenerationRef = useRef(0);
+  const manualRefreshFlightRef = useRef<RecipeManualRefreshFlight | null>(null);
   const draftGenerationRef = useRef(0);
   const formSessionGenerationRef = useRef(0);
   const activeFormSessionRef = useRef<number | null>(null);
@@ -125,6 +142,20 @@ export const RecipeView = ({
       && accountGenerationRef.current === snapshot.generation
   ), []);
 
+  const beginRecipeMutation = useCallback(() => {
+    pendingRecipeMutationCountRef.current += 1;
+    recipeMutationGenerationRef.current += 1;
+    if (mountedRef.current) setPendingRecipeMutationCount(pendingRecipeMutationCountRef.current);
+    let finished = false;
+    return () => {
+      if (finished) return;
+      finished = true;
+      pendingRecipeMutationCountRef.current = Math.max(0, pendingRecipeMutationCountRef.current - 1);
+      recipeMutationGenerationRef.current += 1;
+      if (mountedRef.current) setPendingRecipeMutationCount(pendingRecipeMutationCountRef.current);
+    };
+  }, []);
+
   useEffect(() => {
     mountedRef.current = true;
 
@@ -134,6 +165,8 @@ export const RecipeView = ({
     };
   }, []);
 
+  const activeRecipeKey = accountBoundRemoteKey(`${API_URL}/api/recipes`, accountId, 'recipes');
+  const deletedRecipeKey = accountBoundRemoteKey(`${API_URL}/api/recipes/trash`, accountId, 'recipes');
   const {
     data: activeRecipeData,
     error: activeRecipeError,
@@ -141,7 +174,7 @@ export const RecipeView = ({
     isValidating: activeRecipeValidating,
     mutate: mutateRecipes,
   } = useSWR<Recipe[]>(
-    accountBoundRemoteKey(`${API_URL}/api/recipes`, accountId, 'recipes'),
+    activeRecipeKey,
     accountBoundRemoteFetcher,
     { onError: () => showToast(t('failLoadRecipes'), 'error') },
   );
@@ -152,7 +185,7 @@ export const RecipeView = ({
     isValidating: deletedRecipeValidating,
     mutate: mutateDeletedRecipes,
   } = useSWR<Recipe[]>(
-    accountBoundRemoteKey(`${API_URL}/api/recipes/trash`, accountId, 'recipes'),
+    deletedRecipeKey,
     accountBoundRemoteFetcher,
     { onError: () => showToast(t('failLoadDeletedRecipes'), 'error') },
   );
@@ -431,6 +464,85 @@ export const RecipeView = ({
     void mutateDeletedRecipes().catch(() => undefined);
   }, [mutateDeletedRecipes]);
 
+  const refreshRecipesManually = useCallback((includeTrash: boolean): Promise<void> => {
+    const accountSnapshot = captureAccountGeneration();
+    const existingFlight = manualRefreshFlightRef.current;
+    if (existingFlight && existingFlight.accountId === accountSnapshot.accountId
+      && existingFlight.generation === accountSnapshot.generation) return existingFlight.promise;
+
+    const setStatus = (status: RecipeManualRefreshStatus) => {
+      if (mountedRef.current && isCurrentAccountGeneration(accountSnapshot)) {
+        setManualRefreshState({ ...accountSnapshot, status });
+      }
+    };
+    if (!accountSnapshot.accountId || !activeRecipeKey) {
+      setStatus('unavailable');
+      return Promise.resolve();
+    }
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      setStatus('offline');
+      return Promise.resolve();
+    }
+    if (pendingRecipeMutationCountRef.current > 0 || activeRecipeValidating
+      || (includeTrash && (!deletedRecipeKey || deletedRecipeValidating))) {
+      setStatus('unavailable');
+      return Promise.resolve();
+    }
+
+    const mutationGeneration = recipeMutationGenerationRef.current;
+    const flight: RecipeManualRefreshFlight = { ...accountSnapshot, promise: Promise.resolve() };
+    const isCurrentContext = () => mountedRef.current
+      && isCurrentAccountGeneration(accountSnapshot)
+      && manualRefreshFlightRef.current === flight;
+    const isCurrentRead = () => isCurrentContext()
+      && recipeMutationGenerationRef.current === mutationGeneration
+      && pendingRecipeMutationCountRef.current === 0;
+    const readRows = async (key: string): Promise<{ ok: true; rows: Recipe[] } | { ok: false }> => {
+      try {
+        const rows = await accountBoundRemoteFetcher<Recipe[]>(key);
+        return Array.isArray(rows) ? { ok: true, rows } : { ok: false };
+      } catch {
+        return { ok: false };
+      }
+    };
+
+    setStatus('refreshing');
+    const promise = Promise.resolve().then(async () => {
+      try {
+        const [activeRead, trashRead] = await Promise.all([
+          readRows(activeRecipeKey),
+          includeTrash && deletedRecipeKey ? readRows(deletedRecipeKey) : Promise.resolve(null),
+        ]);
+        if (!isCurrentContext()) return;
+        if (!isCurrentRead()) {
+          setStatus('unavailable');
+          return;
+        }
+
+        const publications: Promise<unknown>[] = [];
+        if (activeRead.ok) publications.push(mutateRecipes(activeRead.rows, false));
+        if (trashRead?.ok) publications.push(mutateDeletedRecipes(trashRead.rows, false));
+        const published = await Promise.allSettled(publications);
+        if (!isCurrentContext()) return;
+        const successes = published.filter(result => result.status === 'fulfilled').length;
+        const expectedReads = includeTrash ? 2 : 1;
+        const readsSucceeded = Number(activeRead.ok) + Number(trashRead?.ok ?? false);
+        const totalSuccesses = Math.min(successes, readsSucceeded);
+        setStatus(totalSuccesses === expectedReads
+          ? 'success'
+          : totalSuccesses > 0 ? 'partial' : 'unavailable');
+      } catch {
+        if (isCurrentContext()) setStatus('unavailable');
+      }
+    }).finally(() => {
+      if (manualRefreshFlightRef.current === flight) manualRefreshFlightRef.current = null;
+    });
+    flight.promise = promise;
+    manualRefreshFlightRef.current = flight;
+    return promise;
+  }, [activeRecipeKey, activeRecipeValidating, captureAccountGeneration, deletedRecipeKey,
+    deletedRecipeValidating, isCurrentAccountGeneration, mutateDeletedRecipes, mutateRecipes]);
+
   const handleToggleExpand = useCallback((id: string) => {
     setExpandedId(prev => {
       const next = prev === id ? null : id;
@@ -483,6 +595,7 @@ export const RecipeView = ({
     const submittedGeneration = draftGenerationRef.current;
     const submittedEditingId = editingId;
     const payload = normalizeRecipeDraftForm({ ...form, title: form.title.trim() });
+    const finishRecipeMutation = beginRecipeMutation();
     savingRef.current = true;
     setSaving(true);
     try {
@@ -531,12 +644,13 @@ export const RecipeView = ({
       if (!isCurrentAccountGeneration(accountSnapshot)) return;
       showToast(t('failSaveRecipe'), 'error');
     } finally {
+      finishRecipeMutation();
       if (isCurrentAccountGeneration(accountSnapshot)) {
         savingRef.current = false;
         setSaving(false);
       }
     }
-  }, [captureAccountGeneration, draftConflict, editingId, form, invalidateFormSession, isCurrentAccountGeneration, mutateRecipes, showToast, t]);
+  }, [beginRecipeMutation, captureAccountGeneration, draftConflict, editingId, form, invalidateFormSession, isCurrentAccountGeneration, mutateRecipes, showToast, t]);
 
   const handleDelete = useCallback((id: string) => {
     if (!recipeAuthorityIsReady(activeAvailabilityRef.current)) return;
@@ -544,6 +658,7 @@ export const RecipeView = ({
       if (!recipeAuthorityIsReady(activeAvailabilityRef.current)) return;
       const accountSnapshot = captureAccountGeneration();
       if (!accountSnapshot.accountId) return;
+      const finishRecipeMutation = beginRecipeMutation();
       try {
         const res = await authFetch(`${API_URL}/api/recipes/${id}`, { method: 'DELETE' });
         if (!res.ok) throw new Error();
@@ -556,14 +671,17 @@ export const RecipeView = ({
       } catch {
         if (!isCurrentAccountGeneration(accountSnapshot)) return;
         showToast(t('failDeleteRecipe'), 'error');
+      } finally {
+        finishRecipeMutation();
       }
     }, { confirmLabel: 'Delete' });
-  }, [captureAccountGeneration, expandedId, isCurrentAccountGeneration, showConfirm, showToast, mutateRecipes, mutateDeletedRecipes, t]);
+  }, [beginRecipeMutation, captureAccountGeneration, expandedId, isCurrentAccountGeneration, showConfirm, showToast, mutateRecipes, mutateDeletedRecipes, t]);
 
   const handleRestore = useCallback(async (id: string) => {
     if (!recipeAuthorityIsReady(activeAvailabilityRef.current) || !recipeAuthorityIsReady(trashAvailabilityRef.current)) return;
     const accountSnapshot = captureAccountGeneration();
     if (!accountSnapshot.accountId) return;
+    const finishRecipeMutation = beginRecipeMutation();
     try {
       const res = await authFetch(`${API_URL}/api/recipes/${id}/restore`, { method: 'POST' });
       if (!res.ok) throw new Error();
@@ -585,8 +703,10 @@ export const RecipeView = ({
     } catch {
       if (!isCurrentAccountGeneration(accountSnapshot)) return;
       showToast(t('failRestoreRecipe'), 'error');
+    } finally {
+      finishRecipeMutation();
     }
-  }, [accountId, captureAccountGeneration, deletedRecipes, isCurrentAccountGeneration, mutateDeletedRecipes, mutateRecipes, showToast, t]);
+  }, [accountId, beginRecipeMutation, captureAccountGeneration, deletedRecipes, isCurrentAccountGeneration, mutateDeletedRecipes, mutateRecipes, showToast, t]);
 
   const handleToggleStar = useCallback(async (recipe: Recipe) => {
     if (!recipeAuthorityIsReady(activeAvailabilityRef.current)) return;
@@ -599,62 +719,66 @@ export const RecipeView = ({
     ) return;
 
     pendingStarMutationKeysRef.current.add(pendingKey);
-    setPendingStarRecipeIds(previous => new Set(previous).add(recipe.id));
-    const target = !recipe.starred;
-    mutateRecipes(
-      prev => (prev ?? []).map(r => r.id === recipe.id ? { ...r, starred: target } : r),
-      false,
-    );
-
-    let confirmed = false;
-    let retainPendingUntilAuthorityChanges = false;
+    const finishRecipeMutation = beginRecipeMutation();
     try {
-      const res = await authFetch(`${API_URL}/api/recipes/${recipe.id}/star`, {
-        method: 'PUT',
-        body: JSON.stringify({ starred: target }),
-      });
-      if (!res.ok) throw new Error();
-      const updated: unknown = await res.json();
-      if (!isCurrentAccountGeneration(accountSnapshot)) return;
-      if (!isConfirmedRecipeStarResponse(updated, recipe.id, accountSnapshot.accountId, target)) {
-        throw new Error();
-      }
+      setPendingStarRecipeIds(previous => new Set(previous).add(recipe.id));
+      const target = !recipe.starred;
       mutateRecipes(
-        prev => (prev ?? []).map(r => r.id === recipe.id ? { ...r, starred: updated.starred } : r),
+        prev => (prev ?? []).map(r => r.id === recipe.id ? { ...r, starred: target } : r),
         false,
       );
-      confirmed = true;
-    } catch {
-      // A transport or response-validation failure is ambiguous. The server may
-      // have committed, so never restore a captured local Recipe snapshot.
-    }
-
-    if (isCurrentAccountGeneration(accountSnapshot)) {
+      let confirmed = false;
+      let retainPendingUntilAuthorityChanges = false;
       try {
-        await mutateRecipes();
+        const res = await authFetch(`${API_URL}/api/recipes/${recipe.id}/star`, {
+          method: 'PUT',
+          body: JSON.stringify({ starred: target }),
+        });
+        if (!res.ok) throw new Error();
+        const updated: unknown = await res.json();
+        if (!isCurrentAccountGeneration(accountSnapshot)) return;
+        if (!isConfirmedRecipeStarResponse(updated, recipe.id, accountSnapshot.accountId, target)) {
+          throw new Error();
+        }
+        mutateRecipes(
+          prev => (prev ?? []).map(r => r.id === recipe.id ? { ...r, starred: updated.starred } : r),
+          false,
+        );
+        confirmed = true;
       } catch {
-        if (isCurrentAccountGeneration(accountSnapshot) && recipeAuthorityIsReady(activeAvailabilityRef.current)) {
-          unresolvedStarMutationKeysRef.current.add(pendingKey);
-          retainPendingUntilAuthorityChanges = true;
+        // A transport or response-validation failure is ambiguous. The server may
+        // have committed, so never restore a captured local Recipe snapshot.
+      }
+
+      if (isCurrentAccountGeneration(accountSnapshot)) {
+        try {
+          await mutateRecipes();
+        } catch {
+          if (isCurrentAccountGeneration(accountSnapshot) && recipeAuthorityIsReady(activeAvailabilityRef.current)) {
+            unresolvedStarMutationKeysRef.current.add(pendingKey);
+            retainPendingUntilAuthorityChanges = true;
+          }
+        }
+        if (!confirmed && isCurrentAccountGeneration(accountSnapshot)) {
+          showToast(t('failSaveRecipe'), 'error');
         }
       }
-      if (!confirmed && isCurrentAccountGeneration(accountSnapshot)) {
-        showToast(t('failSaveRecipe'), 'error');
-      }
-    }
 
-    if (!isCurrentAccountGeneration(accountSnapshot) || !retainPendingUntilAuthorityChanges) {
-      unresolvedStarMutationKeysRef.current.delete(pendingKey);
-      pendingStarMutationKeysRef.current.delete(pendingKey);
-      if (isCurrentAccountGeneration(accountSnapshot)) {
-        setPendingStarRecipeIds(previous => {
-          const next = new Set(previous);
-          next.delete(recipe.id);
-          return next;
-        });
+      if (!isCurrentAccountGeneration(accountSnapshot) || !retainPendingUntilAuthorityChanges) {
+        unresolvedStarMutationKeysRef.current.delete(pendingKey);
+        pendingStarMutationKeysRef.current.delete(pendingKey);
+        if (isCurrentAccountGeneration(accountSnapshot)) {
+          setPendingStarRecipeIds(previous => {
+            const next = new Set(previous);
+            next.delete(recipe.id);
+            return next;
+          });
+        }
       }
+    } finally {
+      finishRecipeMutation();
     }
-  }, [captureAccountGeneration, isCurrentAccountGeneration, showToast, mutateRecipes, t]);
+  }, [beginRecipeMutation, captureAccountGeneration, isCurrentAccountGeneration, showToast, mutateRecipes, t]);
 
   const discardCurrentDraft = useCallback((): boolean => {
     if (!accountId) return false;
@@ -796,6 +920,11 @@ export const RecipeView = ({
         activeAvailability={activeAvailability}
         activeValidating={activeRecipeValidating}
         onRetryActive={retryActiveRecipes}
+        onManualRefresh={refreshRecipesManually}
+        manualRefreshStatus={manualRefreshState
+          && manualRefreshState.accountId === accountId
+          && manualRefreshState.generation === accountGeneration ? manualRefreshState.status : null}
+        manualRefreshDisabled={!activeRecipeKey || pendingRecipeMutationCount > 0}
         expandedId={expandedId}
         onToggleExpand={handleToggleExpand}
         onToggleStar={handleToggleStar}
