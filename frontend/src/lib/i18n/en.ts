@@ -2401,6 +2401,19 @@ const enTranslations = [
 "Clear filter",
 "Exact matching records in this comparison:",
 "No exact match in this verified comparison. This does not mean cloud data or full workout history is empty.",
+"Preview details",
+"Cloud workout details",
+"Close preview",
+"Workout date",
+"Workout ID",
+"Exercise block ID",
+"Recorded sets",
+"Set number",
+"Set type",
+"Recorded completion flag",
+"No sets are stored for this workout.",
+"Showing {shown} of {total} sets; remaining sets are not displayed.",
+"Long set values are shortened for display.",
 ] as const;
 
 export default enTranslations;

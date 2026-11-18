@@ -8,7 +8,7 @@ import translationKeys, { buildLocaleDictionary } from './i18n/keys';
 import type { TranslationKey } from './i18n';
 
 const PLANNER_STORAGE_KEY = 'planner-storage';
-const EXPECTED_KEY_COUNT = 2_401;
+const EXPECTED_KEY_COUNT = 2_414;
 type Locale = 'en' | 'ko' | 'ja';
 
 // Current independent canonical authority, including append-only Notes UI, Wiki-link accessibility, cloud comparison and search, Cloud Copy status readback, local document downloads, PDF/DOCX preview, Recipe filter reset, local-original integrity preflight, cloud Note previews, and single-Note cloud text export.
@@ -16,15 +16,21 @@ type Locale = 'en' | 'ko' | 'ja';
 // translationKeys order, so it detects insertion, omission, reordering, and
 // substitution without using buildLocaleDictionary.
 const EXPECTED_LOCALE_INTEGRITY_SHA256: Record<Locale, string> = {
-  en: '79e296d815f128a4b9ac161ce8858187ad61d06f5d84e16f98d9a51000aed716',
-  ko: 'c521f65411a618d4daf2e087056c97703791893f89c5f1a3568549274ff9748d',
-  ja: '3f52ca93b9c3051c073e0a25865b0b5fcf437dfd3363ba1b0e3679c36037beae',
+  en: '18a06c77328f1d1a3ae2f5073c57c1db2babeadce530aa535b20545c4e756ceb',
+  ko: '0abd023db377344336c460c361ab8b4a77f7b1dcbdc05563b30100fd4312ab70',
+  ja: 'e159c305df4ddeeb195f1acb9447b8950e7776061485ebe63345ff819dd19684',
 };
 
 const PRE_HEALTH_CLOUD_FILTER_LOCALE_SHA256: Record<Locale, string> = {
   en: '1a68d23520bbd9ea391016140cd09f91e33ca3da83b1fbb108ffeb1fdf911396',
   ko: 'c9f5ee5d823158f3ff7089a38ce866b17d9abe6bc01eeaacbee327ec7937ce10',
   ja: '9231c251059e888497ab324f63ee169feacba9e3200d7d81041da99b061b7b77',
+};
+
+const PRE_HEALTH_CLOUD_WORKOUT_PREVIEW_LOCALE_SHA256: Record<Locale, string> = {
+  en: '79e296d815f128a4b9ac161ce8858187ad61d06f5d84e16f98d9a51000aed716',
+  ko: 'c521f65411a618d4daf2e087056c97703791893f89c5f1a3568549274ff9748d',
+  ja: '3f52ca93b9c3051c073e0a25865b0b5fcf437dfd3363ba1b0e3679c36037beae',
 };
 
 const PRE_TEXT_ONLY_PUBLICATION_LOCALE_SHA256: Record<Locale, string> = {
@@ -371,7 +377,7 @@ describe('i18n locale dictionaries', () => {
       'healthCloudFilterLabel', 'healthCloudFilterHelp', 'healthCloudClearFilter',
       'healthCloudFilterMatchCount', 'healthCloudFilterNoMatches',
     ];
-    expect(translationKeys.slice(previousKeyCount)).toEqual(keys);
+    expect(translationKeys.slice(previousKeyCount, previousKeyCount + keys.length)).toEqual(keys);
     for (const [locale, values] of [['en', enLocaleValues], ['ko', koLocaleValues], ['ja', jaLocaleValues]] as const) {
       expect(localeIntegrityDigest(values.slice(0, previousKeyCount), translationKeys.slice(0, previousKeyCount)))
         .toBe(PRE_HEALTH_CLOUD_FILTER_LOCALE_SHA256[locale]);
@@ -396,6 +402,37 @@ describe('i18n locale dictionaries', () => {
       'フィルターをクリア',
       'この比較で完全一致した記録:',
       'この確認済み比較に完全一致する記録はありません。クラウドデータや全トレーニング履歴が空という意味ではありません。',
+    ]);
+  });
+
+  it('appends localized read-only cloud workout preview labels without changing existing translations', () => {
+    const previousKeyCount = 2_401;
+    const keys = [
+      'healthCloudWorkoutPreviewAction', 'healthCloudWorkoutPreviewTitle', 'healthCloudWorkoutPreviewClose',
+      'healthCloudWorkoutPreviewDate', 'healthCloudWorkoutPreviewId', 'healthCloudWorkoutPreviewBlockId',
+      'healthCloudWorkoutPreviewSets', 'healthCloudWorkoutPreviewSetNumber', 'healthCloudWorkoutPreviewSetType',
+      'healthCloudWorkoutPreviewCompletion', 'healthCloudWorkoutPreviewNoSets', 'healthCloudWorkoutPreviewSetLimit',
+      'healthCloudWorkoutPreviewValuesTruncated',
+    ];
+    expect(translationKeys.slice(previousKeyCount)).toEqual(keys);
+    for (const [locale, values] of [['en', enLocaleValues], ['ko', koLocaleValues], ['ja', jaLocaleValues]] as const) {
+      expect(localeIntegrityDigest(values.slice(0, previousKeyCount), translationKeys.slice(0, previousKeyCount)))
+        .toBe(PRE_HEALTH_CLOUD_WORKOUT_PREVIEW_LOCALE_SHA256[locale]);
+    }
+    expect(keys.map(key => enTranslations[key as TranslationKey])).toEqual([
+      'Preview details', 'Cloud workout details', 'Close preview', 'Workout date', 'Workout ID', 'Exercise block ID',
+      'Recorded sets', 'Set number', 'Set type', 'Recorded completion flag', 'No sets are stored for this workout.',
+      'Showing {shown} of {total} sets; remaining sets are not displayed.', 'Long set values are shortened for display.',
+    ]);
+    expect(keys.map(key => koTranslations[key as TranslationKey])).toEqual([
+      '세부 정보 미리보기', '클라우드 운동 기록 세부 정보', '미리보기 닫기', '운동 날짜', '운동 ID', '운동 블록 ID',
+      '기록된 세트', '세트 번호', '세트 유형', '기록된 완료 플래그', '이 운동에는 저장된 세트가 없습니다.',
+      '전체 {total}개 세트 중 {shown}개만 표시하며 나머지는 표시하지 않습니다.', '긴 세트 값은 화면 표시를 위해 줄였습니다.',
+    ]);
+    expect(keys.map(key => jaTranslations[key as TranslationKey])).toEqual([
+      '詳細をプレビュー', 'クラウド運動記録の詳細', 'プレビューを閉じる', 'トレーニング日', 'トレーニングID', '種目ブロックID',
+      '記録されたセット', 'セット番号', 'セット種別', '記録された完了フラグ', 'このトレーニングに保存されたセットはありません。',
+      '{total}セット中{shown}セットを表示しています。残りのセットは表示されません。', '長いセット値は表示用に短縮しています。',
     ]);
   });
 

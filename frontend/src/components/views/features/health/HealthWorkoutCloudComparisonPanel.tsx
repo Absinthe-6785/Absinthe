@@ -1,6 +1,6 @@
 import { useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from '../../../../lib/i18n';
-import { createWorkoutCloudComparison, WORKOUT_COMPARISON_CATEGORIES, type WorkoutCloudComparison, type WorkoutComparisonReport } from '../../../../lib/healthWorkoutCloudComparison';
+import { createWorkoutCloudComparison, supportedWorkoutContent, WORKOUT_COMPARISON_CATEGORIES, type WorkoutCloudComparison, type WorkoutComparisonReport } from '../../../../lib/healthWorkoutCloudComparison';
 import { createWorkoutCloudSingleCreate, type WorkoutCloudSingleCreate, type WorkoutCreateStatus } from '../../../../lib/healthWorkoutCloudSingleCreate';
 import type { HealthRecoveryRecord } from '../../../../lib/healthRecoveryExport';
 import { createWorkoutCloudSingleReceive, type WorkoutCloudSingleReceive, type WorkoutReceiveStatus } from '../../../../lib/healthWorkoutCloudSingleReceive';
@@ -9,6 +9,33 @@ import { useSWRConfig } from 'swr';
 import { createExerciseBlockCloudSingleReceive, type ExerciseBlockCloudSingleReceive } from '../../../../lib/healthExerciseBlockCloudSingleReceive';
 
 const labels = { localOnly: 'healthCloudLocalOnly', remoteOnly: 'healthCloudRemoteOnly', matching: 'healthCloudMatching', divergent: 'healthCloudDivergent', unverifiable: 'healthCloudUnverifiable' } as const;
+const MAX_WORKOUT_PREVIEW_SETS = 20;
+const MAX_WORKOUT_PREVIEW_FIELD_CHARS = 500;
+const WORKOUT_PREVIEW_SET_FIELDS = ['set', 'type', 'done', 'kg', 'reps', 'assisted_reps', 'is_dropset', 'weight_source_value', 'weight_source_unit', 'time', 'distance', 'pace'] as const;
+
+type WorkoutPreviewSelection = { owner: WorkoutCloudComparison; id: string };
+type WorkoutPreviewField = { key: typeof WORKOUT_PREVIEW_SET_FIELDS[number]; value: string; truncated: boolean };
+
+function currentRemoteOnlyRecord(owner: WorkoutCloudComparison, id: string, report: WorkoutComparisonReport, accountId: string): HealthRecoveryRecord | null {
+  if (!owner.isCurrent() || !report.details.remoteOnly.some(row => row.id === id)) return null;
+  try {
+    const record = owner.remoteOnlyRecord(id);
+    return record && record.id === id && record.user_id === accountId && supportedWorkoutContent(record, accountId) !== null
+      ? record : null;
+  } catch { return null; }
+}
+
+function workoutPreviewFields(value: unknown): WorkoutPreviewField[] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
+  const set = value as Record<string, unknown>;
+  return WORKOUT_PREVIEW_SET_FIELDS.flatMap(key => {
+    if (!Object.prototype.hasOwnProperty.call(set, key)) return [];
+    const raw = set[key];
+    if (raw !== null && !['string', 'number', 'boolean'].includes(typeof raw)) return [];
+    const text = raw === null ? 'null' : String(raw);
+    return [{ key, value: text.slice(0, MAX_WORKOUT_PREVIEW_FIELD_CHARS), truncated: text.length > MAX_WORKOUT_PREVIEW_FIELD_CHARS }];
+  });
+}
 
 function isExactCalendarDate(value: string) {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
@@ -42,9 +69,12 @@ export function HealthWorkoutCloudComparisonPanel({ accountId }: { accountId: st
   const heading = useId();
   const filterInput = useId();
   const filterHelp = useId();
+  const previewHeading = useId();
+  const previewRegion = useId();
   const account = useRef({ id: accountId });
   if (account.current.id !== accountId) account.current = { id: accountId };
   const active = useRef<WorkoutCloudComparison | null>(null);
+  const previewTrigger = useRef<HTMLButtonElement | null>(null);
   const pending = useRef(false);
   const write = useRef<WorkoutCloudSingleCreate | WorkoutCloudSingleReceive | ExerciseBlockCloudSingleReceive | null>(null);
   const [confirmation, setConfirmation] = useState<{ owner: WorkoutCloudComparison; record: HealthRecoveryRecord; receive?: boolean; block?: HealthRecoveryRecord; blockOwner?: ExerciseBlockCloudSingleReceive } | null>(null);
@@ -56,8 +86,9 @@ export function HealthWorkoutCloudComparisonPanel({ accountId }: { accountId: st
   const [refreshFailed, setRefreshFailed] = useState(false);
   const [result, setResult] = useState<{ owner: WorkoutCloudComparison; report: WorkoutComparisonReport } | null>(null);
   const [filterQuery, setFilterQuery] = useState('');
+  const [preview, setPreview] = useState<WorkoutPreviewSelection | null>(null);
   useLayoutEffect(() => {
-    setResult(null); setFilterQuery(''); setBusy(false); setFailed(false); setConfirmation(null); setOutcome(null); pending.current = false;
+    setResult(null); setFilterQuery(''); setPreview(null); setBusy(false); setFailed(false); setConfirmation(null); setOutcome(null); pending.current = false;
     setReceiveOutcome(null);
     setBlockOutcome(null);
     setRefreshFailed(false);
@@ -67,7 +98,7 @@ export function HealthWorkoutCloudComparisonPanel({ accountId }: { accountId: st
     if (pending.current) return;
     pending.current = true;
     setRefreshFailed(false);
-    active.current?.cancel(); write.current?.cancel(); write.current = null; setResult(null); setFilterQuery(''); setFailed(false); setConfirmation(null);
+    active.current?.cancel(); write.current?.cancel(); write.current = null; setResult(null); setFilterQuery(''); setPreview(null); setFailed(false); setConfirmation(null);
     if (!preserveOutcome) { setOutcome(null); setReceiveOutcome(null); setBlockOutcome(null); }
     const context = account.current;
     let owner: WorkoutCloudComparison | null = null;
@@ -82,7 +113,7 @@ export function HealthWorkoutCloudComparisonPanel({ accountId }: { accountId: st
           currentWrite?.cancel();
           // An in-flight INSERT may have committed. Await its actual verdict;
           // never reuse the read-only "nothing changed" error for that case.
-          setResult(null); setFilterQuery(''); setConfirmation(null);
+          setResult(null); setFilterQuery(''); setPreview(null); setConfirmation(null);
           if (!preserveOutcome) { setOutcome(null); setReceiveOutcome(null); setBlockOutcome(null); }
           setBusy(false); setFailed(!currentWrite && !preserveOutcome); pending.current = false;
           if (!currentWrite && preserveOutcome) setRefreshFailed(true);
@@ -130,7 +161,7 @@ export function HealthWorkoutCloudComparisonPanel({ accountId }: { accountId: st
     if (blockReceiving) setBlockOutcome(status as WorkoutReceiveStatus);
     else if (receiving) setReceiveOutcome(status as WorkoutReceiveStatus);
     else setOutcome(status as WorkoutCreateStatus);
-    setResult(null); setBusy(false); pending.current = false;
+    setResult(null); setPreview(null); setBusy(false); pending.current = false;
     if (status === 'LOCAL_CREATE_CONFIRMED') {
       // Existing refresh paths re-read persisted projections; draft ownership is unchanged.
       window.dispatchEvent(new Event(HEALTH_LOCAL_BOOTSTRAP_COMPLETE_EVENT));
@@ -141,6 +172,12 @@ export function HealthWorkoutCloudComparisonPanel({ accountId }: { accountId: st
   };
   const report = result?.owner === active.current && result?.owner.isCurrent() ? result.report : null;
   const filteredDetails = useMemo(() => report ? filterComparisonDetails(report, filterQuery) : null, [report, filterQuery]);
+  const previewRecord = useMemo(() => preview && result?.owner === preview.owner && report
+    ? currentRemoteOnlyRecord(preview.owner, preview.id, report, accountId) : null, [preview, result, report, accountId]);
+  const previewSets = useMemo(() => previewRecord && Array.isArray(previewRecord.sets)
+    ? previewRecord.sets.slice(0, MAX_WORKOUT_PREVIEW_SETS).map(workoutPreviewFields) : [], [previewRecord]);
+  const previewTotalSets = previewRecord && Array.isArray(previewRecord.sets) ? previewRecord.sets.length : 0;
+  const previewHasTruncatedValues = previewSets.some(set => set.some(field => field.truncated));
   const filterActive = filterQuery.trim().length > 0;
   const filteredMatchCount = filteredDetails
     ? WORKOUT_COMPARISON_CATEGORIES.reduce((total, category) => total + filteredDetails[category].length, 0)
@@ -168,11 +205,11 @@ export function HealthWorkoutCloudComparisonPanel({ accountId }: { accountId: st
       <div className="space-y-1 rounded border border-border p-2">
         <label htmlFor={filterInput} className="font-semibold">{t('healthCloudFilterLabel')}</label>
         <input id={filterInput} type="search" maxLength={64} value={filterQuery} aria-describedby={filterHelp}
-          onChange={event => setFilterQuery(event.currentTarget.value)}
+          onChange={event => { setPreview(null); setFilterQuery(event.currentTarget.value); }}
           className="block w-full rounded border border-border bg-surface px-2 py-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" />
         <p id={filterHelp} className="text-muted-foreground">{t('healthCloudFilterHelp')}</p>
         {filterActive ? <div className="flex flex-wrap items-center gap-2">
-          <button type="button" onClick={() => setFilterQuery('')} className="rounded border border-border px-2 py-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">{t('healthCloudClearFilter')}</button>
+          <button type="button" onClick={() => { setPreview(null); setFilterQuery(''); }} className="rounded border border-border px-2 py-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">{t('healthCloudClearFilter')}</button>
           {filteredMatchCount === 0
             ? <p role="status">{t('healthCloudFilterNoMatches')}</p>
             : <p role="status">{t('healthCloudFilterMatchCount')} <strong>{filteredMatchCount}</strong></p>}
@@ -195,6 +232,17 @@ export function HealthWorkoutCloudComparisonPanel({ accountId }: { accountId: st
             const record = result.owner.remoteOnlyRecord(row.id);
             if (record) { write.current?.cancel(); write.current = null; setOutcome(null); setReceiveOutcome(null); setBlockOutcome(null); setConfirmation({ owner: result.owner, record, receive: true }); }
           }} className="mt-1 rounded border border-border p-2 focus-visible:outline">{t('healthCloudReceive')}</button> : null}
+          {key === 'remoteOnly' ? <button type="button" disabled={busy}
+            aria-expanded={!!result && preview?.owner === result.owner && preview.id === row.id && previewRecord !== null}
+            aria-controls={result && preview?.owner === result.owner && preview.id === row.id && previewRecord !== null ? previewRegion : undefined}
+            onClick={event => {
+            const current = result;
+            if (!current || current.owner !== active.current || pending.current) return;
+            if (currentRemoteOnlyRecord(current.owner, row.id, current.report, accountId)) {
+              previewTrigger.current = event.currentTarget;
+              setPreview({ owner: current.owner, id: row.id });
+            }
+          }} className="mt-1 ml-2 rounded border border-border p-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">{t('healthCloudWorkoutPreviewAction')}</button> : null}
           {key === 'remoteOnly' ? <button type="button" disabled={busy} onClick={() => {
             if (!result?.owner.isCurrent() || pending.current) return;
             const record = result.owner.remoteOnlyRecord(row.id);
@@ -203,6 +251,33 @@ export function HealthWorkoutCloudComparisonPanel({ accountId }: { accountId: st
         </li>)}</ul>
         {filteredDetails![key].length > 30 ? <p>{t('healthCloudPreviewLimit')}</p> : null}
       </details>)}
+      {preview && previewRecord ? <section id={previewRegion} role="region" aria-labelledby={previewHeading} data-health-cloud-workout-preview className="space-y-2 rounded border border-border p-3">
+        <header className="flex flex-wrap items-center justify-between gap-2">
+          <h4 id={previewHeading} className="font-semibold">{t('healthCloudWorkoutPreviewTitle')}</h4>
+          <button type="button" onClick={() => {
+            setPreview(null);
+            if (previewTrigger.current?.isConnected) previewTrigger.current.focus();
+          }} className="rounded border border-border px-2 py-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">{t('healthCloudWorkoutPreviewClose')}</button>
+        </header>
+        <dl className="grid gap-2 sm:grid-cols-2">
+          <div><dt className="font-semibold">{t('healthCloudWorkoutPreviewDate')}</dt><dd><code className="break-all">{String(previewRecord.date)}</code></dd></div>
+          <div><dt className="font-semibold">{t('healthCloudWorkoutPreviewId')}</dt><dd><code className="break-all">{String(previewRecord.id)}</code></dd></div>
+          {typeof previewRecord.block_id === 'string' ? <div><dt className="font-semibold">{t('healthCloudWorkoutPreviewBlockId')}</dt><dd><code className="break-all">{previewRecord.block_id}</code></dd></div> : null}
+        </dl>
+        <h5 className="font-semibold">{t('healthCloudWorkoutPreviewSets')}</h5>
+        {previewTotalSets > 0 ? <ol className="max-h-72 list-decimal space-y-2 overflow-y-auto pl-6">
+          {previewSets.map((fields, index) => <li key={index} className="rounded border border-border p-2">
+            <dl className="grid gap-x-4 gap-y-1 sm:grid-cols-2">
+              {fields.map(field => <div key={field.key} className="min-w-0">
+                <dt className="text-muted-foreground">{field.key === 'set' ? t('healthCloudWorkoutPreviewSetNumber') : field.key === 'type' ? t('healthCloudWorkoutPreviewSetType') : field.key === 'done' ? t('healthCloudWorkoutPreviewCompletion') : <code>{field.key}</code>}</dt>
+                <dd className="break-all"><code>{field.value}{field.truncated ? '…' : ''}</code></dd>
+              </div>)}
+            </dl>
+          </li>)}
+        </ol> : <p>{t('healthCloudWorkoutPreviewNoSets')}</p>}
+        {previewTotalSets > previewSets.length ? <p role="status">{t('healthCloudWorkoutPreviewSetLimit').replace('{shown}', String(previewSets.length)).replace('{total}', String(previewTotalSets))}</p> : null}
+        {previewHasTruncatedValues ? <p role="status">{t('healthCloudWorkoutPreviewValuesTruncated')}</p> : null}
+      </section> : null}
     </div> : null}
   </section>;
 }
