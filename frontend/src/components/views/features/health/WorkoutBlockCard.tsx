@@ -9,10 +9,10 @@ export interface WorkoutBlockCardProps {
   block: ExerciseBlock;
   theme: Theme;
   compact?: boolean;
-  onAdd: () => void;
+  onAdd: (block: ExerciseBlock) => void;
   addDisabled?: boolean;
-  onEdit: (e: React.MouseEvent) => void;
-  onDelete: (e: React.MouseEvent) => void;
+  onEdit: (block: ExerciseBlock, e: React.MouseEvent) => void;
+  onDelete: (id: string, e: React.MouseEvent) => void;
 }
 
 /** K-126A — block library card; mobile edit/delete live in overflow menu. */
@@ -34,14 +34,14 @@ export const WorkoutBlockCard = memo(function WorkoutBlockCard({
 
   return (
     <div
-      onClick={() => { if (!addDisabled) onAdd(); }}
+      onClick={() => { if (!addDisabled) onAdd(b); }}
       className={`group relative isolate z-0 max-w-full text-xs font-semibold ${compact ? 'px-2.5 py-1.5' : 'px-2.5 py-1.5'} rounded-lg border border-transparent hover:border-primary active:border-primary cursor-pointer transition-colors ${theme.input}`}
       data-k126-workout-block-card
       data-k129d-quick-capture-block
     >
       <button type="button" disabled={addDisabled} aria-busy={addDisabled}
         aria-label={`${t('addExercise')}: ${b.name}`}
-        onClick={e => { e.stopPropagation(); if (!addDisabled) onAdd(); }}
+        onClick={e => { e.stopPropagation(); if (!addDisabled) onAdd(b); }}
         className={`flex items-center gap-1.5 min-w-0 pr-6 text-left disabled:opacity-50 disabled:cursor-wait ${UI_INTERACTION.focusRingClass}`}>
         <div className={`w-2 h-2 rounded-full shrink-0 ${typeColor}`} />
         <span className="min-w-0 max-w-[118px] truncate">{b.name}</span>
@@ -69,7 +69,7 @@ export const WorkoutBlockCard = memo(function WorkoutBlockCard({
                 type="button"
                 aria-label={`${t('editBtn')}: ${b.name}`}
                 className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold hover:bg-muted/50 min-h-[44px]"
-                onClick={e => { setMenuOpen(false); onEdit(e); }}
+                onClick={e => { setMenuOpen(false); onEdit(b, e); }}
               >
                 <Pencil size={12} /> {t('editBtn')}
               </button>
@@ -77,7 +77,7 @@ export const WorkoutBlockCard = memo(function WorkoutBlockCard({
                 type="button"
                 aria-label={`${t('delete')}: ${b.name}`}
                 className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold text-red-500 hover:bg-red-500/10 min-h-[44px]"
-                onClick={e => { setMenuOpen(false); onDelete(e); }}
+                onClick={e => { setMenuOpen(false); onDelete(b.id, e); }}
               >
                 <X size={12} /> {t('delete')}
               </button>
@@ -89,7 +89,7 @@ export const WorkoutBlockCard = memo(function WorkoutBlockCard({
           <button
             type="button"
             aria-label={`${t('editBtn')}: ${b.name}`}
-            onClick={onEdit}
+            onClick={e => onEdit(b, e)}
             className={`absolute top-1.5 left-1.5 inline-flex h-6 w-6 items-center justify-center bg-blue-500 text-white rounded-full opacity-0 lg:group-hover:opacity-100 focus-visible:opacity-100 active:scale-90 transition-all z-10 ${UI_INTERACTION.focusRingClass}`}
             data-health-block-edit={b.id}
           >
@@ -98,7 +98,7 @@ export const WorkoutBlockCard = memo(function WorkoutBlockCard({
           <button
             type="button"
             aria-label={`${t('delete')}: ${b.name}`}
-            onClick={onDelete}
+            onClick={e => onDelete(b.id, e)}
             className={`absolute top-1.5 right-1.5 inline-flex h-6 w-6 items-center justify-center bg-red-500 text-white rounded-full opacity-0 lg:group-hover:opacity-100 focus-visible:opacity-100 active:scale-90 transition-all z-10 ${UI_INTERACTION.focusRingClass}`}
             data-health-block-delete={b.id}
           >

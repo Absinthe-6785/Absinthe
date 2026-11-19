@@ -1,4 +1,4 @@
-import { memo, useMemo, useState } from 'react';
+import { memo, useCallback, useMemo, useState } from 'react';
 import { Plus, Dumbbell, Search } from 'lucide-react';
 import type { ExerciseBlock, Theme } from '../../../../types';
 import { ProductEmptyState } from '../../../common/ProductEmptyState';
@@ -6,8 +6,15 @@ import { WORKSPACE_CARD, WORKSPACE_CARD_SURFACE_COMPACT } from '../../../common/
 import { useTranslation } from '../../../../lib/i18n';
 import { UI_INTERACTION } from '../../../../lib/uiInteractionTokens';
 import { WorkoutBlockCard } from './WorkoutBlockCard';
+import {
+  buildHealthBlockLibraryGroups,
+  createHealthBlockLibrarySearchIndex,
+  filterHealthBlockLibrarySearchIndex,
+  type CatalogExerciseBlock,
+} from './healthBlockLibraryProjection';
 
-export type CatalogExerciseBlock = ExerciseBlock & { recentRank?: number };
+export { sortExerciseBlocksForCatalog } from './healthBlockLibraryProjection';
+export type { CatalogExerciseBlock } from './healthBlockLibraryProjection';
 
 export interface HealthBlockLibraryProps {
   blocks: CatalogExerciseBlock[];
@@ -23,44 +30,6 @@ export interface HealthBlockLibraryProps {
   mobileVisible: boolean;
 }
 
-interface FlatBlockRow {
-  tag?: string;
-  blocks: ExerciseBlock[];
-  key: string;
-}
-
-/**
- * Exercise blocks are account-global reference data.  Keep their library
- * ordering independent from workout-history mutations and API row order.
- */
-export function sortExerciseBlocksForCatalog(blocks: readonly CatalogExerciseBlock[]): CatalogExerciseBlock[] {
-  return [...blocks].sort((left, right) => {
-    const byName = left.name.localeCompare(right.name);
-    return byName !== 0 ? byName : left.id.localeCompare(right.id);
-  });
-}
-
-function buildBlockGroups(
-  blocks: ExerciseBlock[],
-  activeTagFilter: string | null,
-  otherLabel: string,
-): FlatBlockRow[] {
-  const allTags = Array.from(new Set(blocks.flatMap(b => b.tags ?? [])));
-  const rows: FlatBlockRow[] = [];
-  for (const tag of allTags) {
-    if (activeTagFilter && tag !== activeTagFilter) continue;
-    const items = blocks.filter(b => (b.tags ?? []).includes(tag));
-    if (items.length === 0) continue;
-    rows.push({ tag, blocks: items, key: `h-${tag}` });
-  }
-  if (!activeTagFilter) {
-    const untagged = blocks.filter(b => (b.tags ?? []).length === 0);
-    if (untagged.length > 0) {
-      rows.push({ tag: allTags.length > 0 ? otherLabel : undefined, blocks: untagged, key: 'h-other' });
-    }
-  }
-  return rows;
-}
 
 export const HealthBlockLibrary = memo(function HealthBlockLibrary({
   blocks,
@@ -83,31 +52,34 @@ export const HealthBlockLibrary = memo(function HealthBlockLibrary({
     [blocks],
   );
 
-  const rankedBlocks = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return sortExerciseBlocksForCatalog(
-      blocks.filter(block => {
-        if (!q) return true;
-        const haystack = [block.name, ...(block.tags ?? [])].join(' ').toLowerCase();
-        return haystack.includes(q);
-      }),
-    );
-  }, [blocks, query]);
+  const searchIndex = useMemo(() => createHealthBlockLibrarySearchIndex(blocks), [blocks]);
+
+  const rankedBlocks = useMemo(
+    () => filterHealthBlockLibrarySearchIndex(searchIndex, query),
+    [searchIndex, query],
+  );
 
   const blockGroups = useMemo(
-    () => buildBlockGroups(rankedBlocks, activeTagFilter, t('other')),
+    () => buildHealthBlockLibraryGroups(rankedBlocks, activeTagFilter, t('other')),
     [rankedBlocks, activeTagFilter, t],
   );
+
+  const handleAdd = useCallback((block: ExerciseBlock) => { void onAddToToday(block); }, [onAddToToday]);
+  const handleEdit = useCallback((block: ExerciseBlock, event: React.MouseEvent) => {
+    event.stopPropagation();
+    onEditBlock(block);
+  }, [onEditBlock]);
+  const handleDelete = useCallback((id: string, event: React.MouseEvent) => onDeleteBlock(id, event), [onDeleteBlock]);
 
   const renderBlock = (block: ExerciseBlock) => (
     <WorkoutBlockCard
       key={block.id}
       block={block}
       theme={theme}
-      onAdd={() => void onAddToToday(block)}
+      onAdd={handleAdd}
       addDisabled={addDisabled}
-      onEdit={e => { e.stopPropagation(); onEditBlock(block); }}
-      onDelete={e => onDeleteBlock(block.id, e)}
+      onEdit={handleEdit}
+      onDelete={handleDelete}
     />
   );
 
