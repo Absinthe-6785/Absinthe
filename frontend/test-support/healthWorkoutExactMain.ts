@@ -703,7 +703,7 @@ export async function loadExactMainHealthView(importer: (specifier: string) => P
 export async function loadCandidateHealthView(importer: (specifier: string) => Promise<unknown>) {
   const source = readFileSync('src/components/views/HealthView.tsx', 'utf8').replace(/\r\n/g, '\n');
   const healthBlob = createHash('sha1').update('blob ' + Buffer.byteLength(source) + '\0').update(source).digest('hex');
-  if (healthBlob !== 'bc84413feb0193ef77ce4dc01d977b01748b60e0') throw new Error('CANDIDATE_PRODUCTION_BLOB_CHANGED');
+  if (healthBlob !== 'cf5f7d583b43f7a98ea95f0b51240734fbb4f80d') throw new Error('CANDIDATE_PRODUCTION_BLOB_CHANGED');
   const candidateFault: string | null = null; // bounded in-memory child transform only
   let observedSource = source;
   if (candidateFault === 'reset-saving') observedSource = source.replaceAll('setIsSaving(false);', 'setIsSaving(true);');
