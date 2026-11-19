@@ -7,6 +7,7 @@ export { MonthCalendarCell } from './MonthCalendarCell';
 export {
   MONTH_CELL_MAX_VISIBLE_EVENTS,
   buildMonthCellDisplayModel,
+  buildMonthCellDisplayModels,
   chunkMonthCells,
   formatMonthOverflowLabel,
   monthGridHasAnchors,

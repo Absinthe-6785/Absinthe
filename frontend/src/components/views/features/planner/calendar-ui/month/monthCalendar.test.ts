@@ -16,6 +16,7 @@ import { resolveUpcomingRelativeLabel } from '../agenda/buildUpcomingTierGroups'
 import { MonthCalendarView } from './MonthCalendarView';
 import {
   buildMonthCellDisplayModel,
+  buildMonthCellDisplayModels,
   chunkMonthCells,
   formatMonthOverflowLabel,
   monthGridHasAnchors,
@@ -158,6 +159,113 @@ describe('monthCalendarPresentation', () => {
     const countdown = projection.core.countdowns.find(c => c.title === 'JLPT');
     expect(countdown?.source).toBe('note-event');
     expect(countdown?.targetDate).toBe('2027-02-20');
+  });
+
+  it('keeps the first eligible same-date countdown after event-backed exclusions', () => {
+    const exam = applyEventToNote(note('exam', { title: 'JLPT' }), {
+      title: 'JLPT',
+      eventDate: '2027-02-20',
+    });
+    const { month } = buildMonthFixture({ notes: [exam] });
+    const cell = month.cells.find(candidate => candidate.dateKey === '2027-02-20')!;
+    const countdowns = [
+      { id: 'event-countdown', title: 'JLPT', targetDate: cell.dateKey, daysUntil: 17, source: 'note-event' as const, sourceRefId: 'exam' },
+      { id: 'first', title: 'First', targetDate: cell.dateKey, daysUntil: 18, source: 'schedule-dday' as const, sourceRefId: 'block-1' },
+      { id: 'duplicate-source', title: 'Duplicate source', targetDate: cell.dateKey, daysUntil: 19, source: 'schedule-dday' as const, sourceRefId: 'block-1' },
+    ];
+
+    const single = buildMonthCellDisplayModel(cell, countdowns, days => `D-${days}`);
+    const batched = buildMonthCellDisplayModels(month.cells, countdowns, days => `D-${days}`)
+      .find(model => model.dateKey === cell.dateKey);
+
+    expect(batched).toEqual(single);
+    expect(batched?.countdownRows.map(row => row.countdown.id)).toEqual(['first']);
+    expect(batched?.countdownRows[0]?.label).toBe('D-18');
+  });
+
+  it('rebuilds date candidates for a navigated month and replacement source', () => {
+    const february = buildMonthFixture();
+    const march = buildMonthFixture({ anchorDate: '2027-03-03' });
+    const countdowns = [
+      { id: 'february', title: 'February item', targetDate: '2027-02-03', daysUntil: 0, source: 'schedule-dday' as const, sourceRefId: 'block-feb' },
+      { id: 'march', title: 'March item', targetDate: '2027-03-03', daysUntil: 28, source: 'schedule-dday' as const, sourceRefId: 'block-mar' },
+    ];
+
+    const februaryModels = buildMonthCellDisplayModels(february.month.cells, countdowns);
+    const marchModels = buildMonthCellDisplayModels(march.month.cells, countdowns);
+    const februaryAnchor = februaryModels.find(model => model.dateKey === '2027-02-03');
+    const marchAnchor = marchModels.find(model => model.dateKey === '2027-03-03');
+
+    expect(februaryModels.map(model => model.dateKey)).toEqual(february.month.cells.map(cell => cell.dateKey));
+    expect(marchModels.map(model => model.dateKey)).toEqual(march.month.cells.map(cell => cell.dateKey));
+    expect(februaryAnchor?.countdownRows[0]?.countdown.id).toBe('february');
+    expect(marchAnchor?.countdownRows[0]?.countdown.id).toBe('march');
+    expect(februaryAnchor).toMatchObject({ isToday: true, isAnchorSelected: true });
+    expect(marchAnchor).toMatchObject({ isToday: false, isAnchorSelected: true });
+  });
+
+  it.each([12, 240])('matches the single-cell output while reducing countdown scans for %i rows', rowCount => {
+    const { month } = buildMonthFixture();
+    const cellDateKeys = month.cells.map(cell => cell.dateKey);
+    const fixture = Array.from({ length: rowCount }, (_, index) => ({
+      id: `countdown-${index}`,
+      title: `Countdown ${index}`,
+      targetDate: index % 4 === 0 ? '2027-03-15' : cellDateKeys[index % cellDateKeys.length]!,
+      daysUntil: index,
+      source: index % 2 === 0 ? 'note-event' as const : 'schedule-dday' as const,
+      sourceRefId: `source-${index}`,
+    }));
+
+    const measureReads = () => {
+      let targetDateReads = 0;
+      let sourceRefIdReads = 0;
+      const rows = fixture.map(row => {
+        const instrumented = { ...row };
+        Object.defineProperties(instrumented, {
+          targetDate: {
+            enumerable: true,
+            get: () => {
+              targetDateReads += 1;
+              return row.targetDate;
+            },
+          },
+          sourceRefId: {
+            enumerable: true,
+            get: () => {
+              sourceRefIdReads += 1;
+              return row.sourceRefId;
+            },
+          },
+        });
+        return instrumented;
+      });
+      return {
+        rows,
+        targetDateReads: () => targetDateReads,
+        sourceRefIdReads: () => sourceRefIdReads,
+      };
+    };
+
+    const baselineRows = measureReads();
+    const baseline = month.cells.map(cell => buildMonthCellDisplayModel(cell, baselineRows.rows));
+    const baselineOperations = {
+      targetDateReads: baselineRows.targetDateReads(),
+      sourceRefIdReads: baselineRows.sourceRefIdReads(),
+    };
+    const optimizedRows = measureReads();
+    const optimized = buildMonthCellDisplayModels(month.cells, optimizedRows.rows);
+    const optimizedOperations = {
+      targetDateReads: optimizedRows.targetDateReads(),
+      sourceRefIdReads: optimizedRows.sourceRefIdReads(),
+    };
+    const matchingRowCount = fixture.filter(row => cellDateKeys.includes(row.targetDate)).length;
+
+    expect(month.cells).toHaveLength(42);
+    expect(optimized).toEqual(baseline);
+    expect(baselineOperations.targetDateReads).toBe(42 * rowCount);
+    expect(optimizedOperations.targetDateReads).toBe(rowCount);
+    expect(baselineOperations.sourceRefIdReads).toBe(matchingRowCount);
+    expect(optimizedOperations.sourceRefIdReads).toBe(matchingRowCount);
   });
 
   it('detects empty months without collapsing grid eligibility', () => {
