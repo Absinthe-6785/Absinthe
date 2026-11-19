@@ -102,7 +102,11 @@ vi.mock('./k102DateFormat', () => ({
   formatLongDate: (value: Date) => value.toISOString().slice(0, 10),
 }));
 vi.mock('./features/health/buildHealthProjection', () => ({ buildHealthProjection: () => ({ workoutDates: [] }) }));
-vi.mock('./features/health/computeWorkoutPrBadge', () => ({ computeWorkoutPrBadgeMap: () => ({}) }));
+vi.mock('./features/health/computeWorkoutPrBadge', () => ({
+  computeWorkoutPrBadge: () => null,
+  computeWorkoutPrBadgeMap: () => ({}),
+  createWorkoutPrBadgeMapCache: () => () => ({}),
+}));
 vi.mock('./features/health/prevWorkoutFetch', () => ({ fetchPrevWorkoutForBlocks: vi.fn(async () => ({})) }));
 vi.mock('./features/health/previousWorkoutSession', () => ({
   normalizePreviousWorkoutRows: (rows: unknown[]) => rows,
@@ -113,6 +117,10 @@ vi.mock('./features/health/previousWorkoutProjection', () => ({
   buildPreviousWorkoutHistoryProjection: () => ({ sessions: [], automaticDate: null, effectiveDate: null, session: null }),
 }));
 vi.mock('./features/health/previousMicroCue', () => ({
+  createWorkoutPreviousCueCache: () => (workout: { sets: unknown[] }) => ({
+    previousBest: null,
+    previousSets: workout.sets.map(() => null),
+  }),
   createPreviousSetReferenceMatcher: () => ({ match: () => null }),
   formatPreviousBestCue: () => '',
   formatPreviousSetReference: () => '',

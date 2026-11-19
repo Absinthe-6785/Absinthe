@@ -169,7 +169,11 @@ vi.mock('./views/features/health/prevWorkoutFetch', () => ({ fetchPrevWorkoutFor
 vi.mock('./views/features/health/recovery/recoveryNotes', () => ({ getRecoveryEntry: () => null }));
 vi.mock('./views/features/health/healthSectionPrefs', () => ({ readHealthSectionPrefs: () => ({}) }));
 vi.mock('./views/features/health/buildHealthProjection', () => ({ buildHealthProjection: () => ({ workoutDates: [] }) }));
-vi.mock('./views/features/health/computeWorkoutPrBadge', () => ({ computeWorkoutPrBadgeMap: () => ({}) }));
+vi.mock('./views/features/health/computeWorkoutPrBadge', () => ({
+  computeWorkoutPrBadge: () => null,
+  computeWorkoutPrBadgeMap: () => ({}),
+  createWorkoutPrBadgeMapCache: () => () => ({}),
+}));
 vi.mock('./views/k102DateFormat', () => ({ formatAbsoluteDateKey: (value: Date | string) => value instanceof Date ? value.toISOString().slice(0, 10) : value,
   formatLongDate: (value: Date) => value.toISOString().slice(0, 10) }));
 vi.mock('../lib/healthRoutineSync', () => ({ productionHealthRoutinePersistence: {
