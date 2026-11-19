@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, createElement, memo, useMemo, useState, type ComponentType } from 'react';
+import { act, createElement, memo, useCallback, useMemo, useState, type ComponentType } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { DateTime } from 'luxon';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -23,8 +23,12 @@ vi.mock('./monthCalendarPresentation', async importOriginal => {
   return {
     ...original,
     buildMonthCellDisplayModels: (...args: Parameters<typeof original.buildMonthCellDisplayModels>) => {
-      measurements.displayModelsBuilt += args[0].length;
-      return original.buildMonthCellDisplayModels(...args);
+      const models = original.buildMonthCellDisplayModels(...args);
+      const previousModels = args[3];
+      measurements.displayModelsBuilt += previousModels
+        ? models.reduce((count, model, index) => count + Number(model !== previousModels[index]), 0)
+        : models.length;
+      return models;
     },
   };
 });
@@ -95,14 +99,18 @@ function MeasuredWorkspace({
   onEventNoteClick = NOOP,
   onScheduleBlockClick = NOOP,
 }: MeasuredWorkspaceProps) {
-  const [anchorDate, setAnchorDate] = useState(TODAY_KEY);
+  const [anchorDate, setAnchorDate] = useState(() => DateTime.fromISO(TODAY_KEY));
+  const anchorDateKey = anchorDate.toFormat('yyyy-MM-dd');
+  const handleDateSelect = useCallback((dateKey: string) => {
+    setAnchorDate(DateTime.fromISO(dateKey));
+  }, []);
   const calendarProjection = useMemo(() => buildPlannerCalendarProjection({
     notes,
     scheduleBlocks,
     weeklySchedules: [],
     todos: [],
     routines: [],
-    anchorDate,
+    anchorDate: anchorDateKey,
     viewMode: 'month',
     now: NOW,
   }), [notes, scheduleBlocks, anchorDate]);
@@ -122,14 +130,14 @@ function MeasuredWorkspace({
     createElement('button', {
       type: 'button',
       'data-perf-next-month': true,
-      onClick: () => setAnchorDate(current => DateTime.fromISO(current).plus({ months: 1 }).toFormat('yyyy-MM-dd')),
+      onClick: () => setAnchorDate(current => current.plus({ months: 1 })),
     }, 'Next month'),
     createElement(MonthCalendarView, {
       plannerProjection,
       presentation,
       theme: activeTheme,
       todayKey: TODAY_KEY,
-      onDateSelect: setAnchorDate,
+      onDateSelect: handleDateSelect,
       onEventNoteClick,
       scheduleActions: { onView: onScheduleBlockClick },
       ddaySchedules,
@@ -215,6 +223,12 @@ describe('mounted Schedule month-cell work measurement', () => {
     expect(host.querySelector('[data-planner-month-cell="2027-02-04"]')?.className).toContain('bg-primary/12');
     expect(host.querySelector('[data-planner-month-cell="2027-02-03"]')?.className).not.toContain('bg-primary/12');
 
+    await act(async () => {
+      host.querySelector<HTMLElement>('[data-planner-month-cell="2027-02-04"]')!.click();
+    });
+    const repeatSelection = takeMeasurements();
+    expect(repeatSelection).toEqual({ displayModelsBuilt: 0, cellRenders: 0 });
+
     await act(async () => host.querySelector<HTMLButtonElement>('[data-perf-next-month]')!.click());
     const monthNavigation = takeMeasurements();
     expect(host.querySelectorAll('[data-planner-month-cell]')).toHaveLength(42);
@@ -236,7 +250,7 @@ describe('mounted Schedule month-cell work measurement', () => {
       text: 'March block',
       start_time: '09:00',
       end_time: '10:00',
-      is_dday: true,
+      is_dday: false,
       color: 'blue',
       category: 'Work',
     };
@@ -249,22 +263,90 @@ describe('mounted Schedule month-cell work measurement', () => {
     const sourceReplacement = takeMeasurements();
     const afterSourceReplacement = visibleCellSignatures();
     const changedVisibleDates = [...afterSourceReplacement].filter(([date, signature]) => beforeSourceReplacement.get(date) !== signature).map(([date]) => date);
+    expect(host.querySelector('[data-planner-month-block="block-1"]')).not.toBeNull();
+
+    const countdownBlock = {
+      id: 'countdown-1',
+      date: '2027-03-20',
+      text: 'Countdown block',
+      start_time: '09:00',
+      end_time: '10:00',
+      is_dday: true,
+      color: 'blue',
+      category: 'Work',
+    };
+    await act(async () => root.render(createElement(MeasuredWorkspace, {
+      ...baseProps,
+      ddaySchedules: [dday],
+      notes: [noteWithEvent],
+      scheduleBlocks: [block, countdownBlock],
+    })));
+    const countdownAddition = takeMeasurements();
+    expect(host.querySelector('[data-planner-month-countdown="schedule-dday:countdown-1"]')).not.toBeNull();
+
+    const changedNoteWithEvent = applyEventToNote({
+      ...eventNote,
+      title: 'March event changed',
+    }, { title: 'March event changed', eventDate: '2027-03-12' });
+    const changedBlock = {
+      ...block,
+      text: 'March block changed',
+      start_time: '10:00',
+      category: 'Personal',
+      color: 'green',
+    };
+    await act(async () => root.render(createElement(MeasuredWorkspace, {
+      ...baseProps,
+      ddaySchedules: [dday],
+      notes: [changedNoteWithEvent],
+      scheduleBlocks: [changedBlock, countdownBlock],
+    })));
+    const visibleSourceChange = takeMeasurements();
+    expect(host.querySelector('[data-planner-month-event="event-1"]')?.textContent).toContain('March event changed');
+    expect(host.querySelector('[data-planner-month-block="block-1"]')?.textContent).toContain('March block changed');
+
+    await act(async () => root.render(createElement(MeasuredWorkspace, {
+      ...baseProps,
+      ddaySchedules: [dday],
+      notes: [changedNoteWithEvent],
+      scheduleBlocks: [changedBlock],
+    })));
+    const countdownChange = takeMeasurements();
+    expect(host.querySelector('[data-planner-month-countdown="schedule-dday:countdown-1"]')).toBeNull();
+
+    await act(async () => root.render(createElement(MeasuredWorkspace, {
+      ...baseProps,
+      ddaySchedules: [dday],
+    })));
+    const sourceAReplacement = takeMeasurements();
+    expect(host.querySelector('[data-planner-month-event="event-1"]')).toBeNull();
+    expect(host.querySelector('[data-planner-month-block="block-1"]')).toBeNull();
 
     console.info('[SCHEDULE-MONTH-CELL-BASELINE]', JSON.stringify({
       initial,
       supportUpdate,
       sameMonthSelection,
+      repeatSelection,
       monthNavigation,
       sourceReplacement,
+      countdownAddition,
+      visibleSourceChange,
+      countdownChange,
+      sourceAReplacement,
       changedSelectionDates,
       changedVisibleDates,
     }));
 
     expect(initial).toEqual({ displayModelsBuilt: 42, cellRenders: 42 });
     expect(supportUpdate).toEqual({ displayModelsBuilt: 0, cellRenders: 0 });
-    expect(sameMonthSelection).toEqual({ displayModelsBuilt: 42, cellRenders: 42 });
+    expect(sameMonthSelection).toEqual({ displayModelsBuilt: 2, cellRenders: 2 });
+    expect(repeatSelection).toEqual({ displayModelsBuilt: 0, cellRenders: 0 });
     expect(monthNavigation).toEqual({ displayModelsBuilt: 42, cellRenders: 42 });
-    expect(sourceReplacement).toEqual({ displayModelsBuilt: 42, cellRenders: 42 });
+    expect(sourceReplacement).toEqual({ displayModelsBuilt: 2, cellRenders: 2 });
+    expect(countdownAddition).toEqual({ displayModelsBuilt: 1, cellRenders: 1 });
+    expect(visibleSourceChange).toEqual({ displayModelsBuilt: 2, cellRenders: 2 });
+    expect(countdownChange).toEqual({ displayModelsBuilt: 1, cellRenders: 1 });
+    expect(sourceAReplacement).toEqual({ displayModelsBuilt: 2, cellRenders: 2 });
     expect(changedSelectionDates).toEqual(['2027-02-03', '2027-02-04']);
     expect(changedVisibleDates).toEqual(['2027-03-12', '2027-03-13']);
   });
@@ -343,6 +425,7 @@ describe('mounted Schedule month-cell work measurement', () => {
     })));
     const localeUpdate = takeMeasurements();
     expect(host.querySelector('[data-planner-month-weekday-header="0"]')?.textContent).not.toBe('Sun');
-    expect(localeUpdate).toEqual({ displayModelsBuilt: 42, cellRenders: 42 });
+    expect(host.querySelector('[data-planner-month-block="block-callback"]')).not.toBeNull();
+    expect(localeUpdate).toEqual({ displayModelsBuilt: 0, cellRenders: 0 });
   });
 });
