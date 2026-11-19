@@ -1,13 +1,22 @@
-import { useMemo } from 'react';
+import { useLayoutEffect, useMemo, useRef } from 'react';
 import type { Theme } from '@/types';
 import type { PlannerCountdownRow } from '../../calendar';
 import { formatPlannerCountdownLabel } from '../../calendar/plannerCalendarPresentation';
 import type { PlannerCalendarPresentation } from '../../calendar';
 import type { PlannerMonthViewPayload } from '../../calendar';
 import { MonthCalendarCell } from './MonthCalendarCell';
-import { buildMonthCellDisplayModels, chunkMonthCells } from './monthCalendarPresentation';
+import {
+  buildMonthCellDisplayModels,
+  chunkMonthCells,
+  type MonthCellDisplayModel,
+} from './monthCalendarPresentation';
 
 const EMPTY_COUNTDOWNS: readonly PlannerCountdownRow[] = [];
+
+interface MonthCellModelSnapshot {
+  gridKey: string;
+  models: readonly MonthCellDisplayModel[];
+}
 
 export interface MonthCalendarGridProps {
   month: PlannerMonthViewPayload;
@@ -31,14 +40,25 @@ export function MonthCalendarGrid({
   onScheduleBlockClick,
 }: MonthCalendarGridProps) {
   const locale = presentation?.locale ?? 'en';
-  const weeks = useMemo(() => chunkMonthCells(
-    buildMonthCellDisplayModels(
+  const gridKey = `${month.year}:${month.month}:${month.gridStartDate}:${month.gridEndDate}`;
+  const previousModelsRef = useRef<MonthCellModelSnapshot | null>(null);
+  const models = useMemo(() => {
+    const previousModels = previousModelsRef.current?.gridKey === gridKey
+      ? previousModelsRef.current.models
+      : undefined;
+    return buildMonthCellDisplayModels(
       month.cells,
       countdowns,
       daysUntil => formatPlannerCountdownLabel(daysUntil, locale),
-    ),
-    7,
-  ), [month.cells, countdowns, locale]);
+      previousModels,
+    );
+  }, [month.cells, countdowns, locale, gridKey]);
+
+  useLayoutEffect(() => {
+    previousModelsRef.current = { gridKey, models };
+  }, [gridKey, models]);
+
+  const weeks = useMemo(() => chunkMonthCells(models, 7), [models]);
 
   return (
     <div className="h-full min-h-0 flex flex-col" data-planner-month-grid>
