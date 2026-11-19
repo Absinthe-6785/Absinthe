@@ -1,4 +1,5 @@
-import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback, useId, MouseEvent, ChangeEvent, TouchEvent } from 'react';
+import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback, useId, memo, MouseEvent, ChangeEvent, TouchEvent } from 'react';
+import type { ComponentProps, Dispatch, RefObject, SetStateAction } from 'react';
 import { Plus, X, Trash2, Save, Dumbbell, Activity, ChevronLeft, ChevronRight, Lock, Pencil, GripVertical, Loader2, ClipboardCopy, Check, FileText, MoreHorizontal } from 'lucide-react';
 import { API_URL } from '../../lib/config';
 import { useConfirm } from '../../hooks/useConfirm';
@@ -66,6 +67,7 @@ import { useHealthWorkoutDraft } from './features/health/useHealthWorkoutDraft';
 import {
   captureHealthWorkoutOperationScope,
   isCurrentHealthWorkoutOperationScope,
+  type CommittedWorkoutAuthority,
   type HealthWorkoutOperationScope,
 } from './features/health/healthWorkoutOperationScope';
 import { useHealthWorkoutOperationLifetime } from './features/health/useHealthWorkoutOperationLifetime';
@@ -74,6 +76,7 @@ import { buildSetsFromPlannedCount, buildSetsFromPrevCount } from './features/he
 import { fetchPrevWorkoutForBlocks } from './features/health/prevWorkoutFetch';
 import {
   createWorkoutPreviousCueCache,
+  type WorkoutPreviousCueProjection,
 } from './features/health/previousMicroCue';
 import {
   editableWeightValue as editableWeightInput,
@@ -115,6 +118,87 @@ type PreviousWorkoutSWRKey =
   | readonly ['local', string, string, string]
   | readonly ['remote', string, string];
 
+type WorkoutCardEditableField = Exclude<keyof StrengthSet | keyof CardioSet, 'type' | 'set' | 'pace'>;
+type WorkoutCardAction =
+  | { type: 'remove-workout' }
+  | { type: 'toggle-weight-unit' }
+  | { type: 'add-set'; asDropSet: boolean }
+  | { type: 'complete-set-and-add'; setIndex: number; expectedSet: WorkoutSet }
+  | { type: 'remove-set'; setIndex: number; expectedSet: WorkoutSet }
+  | { type: 'update-set'; setIndex: number; expectedSet: WorkoutSet; field: WorkoutCardEditableField; value: string | number | boolean }
+  | { type: 'weight-input'; setIndex: number; expectedSet: WorkoutSet; raw: string }
+  | { type: 'set-raw-weight'; setIndex: number; expectedSet: WorkoutSet; value: string }
+  | { type: 'clear-raw-weight'; setIndex: number; expectedSet: WorkoutSet }
+  | { type: 'add-assisted-reps'; setIndex: number; expectedSet: WorkoutSet }
+  | { type: 'remove-assisted-reps'; setIndex: number; expectedSet: WorkoutSet }
+  | { type: 'time-input'; setIndex: number; expectedSet: WorkoutSet; raw: string }
+  | { type: 'time-blur'; setIndex: number; expectedSet: WorkoutSet; raw: string }
+  | { type: 'assisted-reps-blur'; setIndex: number; expectedSet: WorkoutSet; value: string }
+  | { type: 'drag-start'; event: React.MouseEvent<HTMLDivElement> }
+  | { type: 'touch-start'; event: React.TouchEvent<HTMLDivElement> }
+  | { type: 'drag-enter' }
+  | { type: 'drag-end' }
+  | { type: 'touch-move'; event: React.TouchEvent<HTMLDivElement> }
+  | { type: 'toggle-overflow' }
+  | { type: 'close-overflow' };
+
+type WorkoutCardActionDispatcher = (
+  authority: CommittedWorkoutAuthority | null,
+  workoutId: string,
+  workoutIndex: number,
+  action: WorkoutCardAction,
+) => void;
+
+type WorkoutCardActionHandlers = {
+  removeWorkout: (index: number, dbId: string) => void | Promise<void>;
+  toggleWeightUnit: (blockId: string) => void;
+  addSet: (index: number, asDropSet?: boolean) => void;
+  completeSetAndAdd: (index: number, setIndex: number) => void;
+  removeSet: (index: number, setIndex: number) => void;
+  updateSet: (index: number, setIndex: number, field: WorkoutCardEditableField, value: string | number | boolean) => void;
+  weightInput: (index: number, setIndex: number, raw: string) => void;
+  setRawKgInput: (action: SetStateAction<Record<string, string>>) => void;
+  addAssistedReps: (index: number, setIndex: number) => void;
+  removeAssistedReps: (index: number, setIndex: number) => void;
+  timeInput: (index: number, setIndex: number, raw: string) => void;
+  timeBlur: (index: number, setIndex: number, raw: string) => void;
+  assistedRepsBlur: (index: number, setIndex: number, value: string) => void;
+  dragStart: (event: React.MouseEvent<HTMLDivElement>, index: number) => void;
+  touchStart: (event: React.TouchEvent<HTMLDivElement>, index: number) => void;
+  dragEnter: (index: number) => void;
+  dragEnd: () => void;
+  touchMove: (event: React.TouchEvent<HTMLDivElement>) => void;
+  setWorkoutOverflowIndex: Dispatch<SetStateAction<number | null>>;
+};
+
+type HealthWorkoutExerciseCardProps = {
+  workout: Workout;
+  workoutIndex: number;
+  authority: CommittedWorkoutAuthority | null;
+  dispatchAction: WorkoutCardActionDispatcher;
+  isLatestTarget: boolean;
+  isWorkoutLocked: boolean;
+  isMobile: boolean;
+  darkMode: boolean;
+  theme: Theme;
+  translate: ReturnType<typeof useTranslation>['t'];
+  dragOver: boolean;
+  overflowOpen: boolean;
+  weightUnit: 'kg' | 'lbs';
+  rawWeightValues: string;
+  previousCueProjection: WorkoutPreviousCueProjection;
+  previousBestLabel: string | null;
+  previousEnabled: boolean;
+  previousState: ComponentProps<typeof LegacyPreviousStatus>['state'];
+  prBadge: ComponentProps<typeof WorkoutPrBadge>['badge'];
+  comparison: ComponentProps<typeof HealthExerciseComparisonPreview>['read'] | null;
+  latestWorkoutRecordRef: RefObject<HTMLDivElement | null>;
+  pendingFocusSetRef: RefObject<{ wIdx: number; sIdx: number } | null>;
+  quickCaptureInputRef: RefObject<HTMLInputElement | null>;
+  assistedInputRef: RefObject<HTMLInputElement | null>;
+  pendingAssistedFocusRef: RefObject<{ wIdx: number; sIdx: number } | null>;
+};
+
 export const HealthView = ({
   currentDate, setCurrentDate, selectedDate, setSelectedDate,
   formatDate, isToday, showToast, mutateDaily, mutateStatic,
@@ -144,12 +228,12 @@ export const HealthView = ({
     activeAccountIdRef.current = user.id;
     accountGenerationRef.current += 1;
   }
-  const currentAccountOperation = (token: HealthAccountGenerationToken): boolean =>
+  const currentAccountOperation = useCallback((token: HealthAccountGenerationToken): boolean =>
     mountedRef.current && isCurrentHealthAccountGeneration(
       token,
       activeAccountIdRef.current,
       accountGenerationRef.current,
-    );
+    ), []);
 
   const routineSourceReady = !selectedDayComposite
     || healthRoutinesState?.status === 'READY_EMPTY'
@@ -1494,6 +1578,79 @@ export const HealthView = ({
     }
   };
 
+  const latestWorkoutRowsRef = useRef(localWorkouts);
+  const workoutCardActionHandlersRef = useRef<WorkoutCardActionHandlers | null>(null);
+  useLayoutEffect(() => {
+    latestWorkoutRowsRef.current = localWorkouts;
+    workoutCardActionHandlersRef.current = {
+      removeWorkout: handleRemoveWorkout,
+      toggleWeightUnit: handleToggleWeightUnit,
+      addSet: handleAddSet,
+      completeSetAndAdd: handleCompleteSetAndAdd,
+      removeSet: handleRemoveSet,
+      updateSet: handleUpdateSet,
+      weightInput: handleWeightInput,
+      setRawKgInput,
+      addAssistedReps: handleAddAssistedReps,
+      removeAssistedReps: handleRemoveAssistedReps,
+      timeInput: handleTimeInput,
+      timeBlur: handleTimeBlur,
+      assistedRepsBlur: handleAssistedRepsBlur,
+      dragStart: handleDragStart,
+      touchStart: handleTouchStart,
+      dragEnter: handleDragEnter,
+      dragEnd: handleDragEnd,
+      touchMove: handleTouchMove,
+      setWorkoutOverflowIndex,
+    };
+  });
+  const dispatchWorkoutCardAction = useCallback<WorkoutCardActionDispatcher>(
+    (authority, workoutId, workoutIndex, action) => {
+      if (!authority || !isCurrentHealthWorkoutOperationScope(
+        authority,
+        workoutLifetime.getCurrent(),
+        currentAccountOperation,
+      )) return;
+      const currentWorkout = latestWorkoutRowsRef.current[workoutIndex];
+      if (!currentWorkout || currentWorkout.id !== workoutId) return;
+      if ('expectedSet' in action
+        && (!action.expectedSet || currentWorkout.sets[action.setIndex] !== action.expectedSet)) return;
+      const handlers = workoutCardActionHandlersRef.current;
+      if (!handlers) return;
+
+      switch (action.type) {
+        case 'remove-workout': void handlers.removeWorkout(workoutIndex, workoutId); break;
+        case 'toggle-weight-unit': handlers.toggleWeightUnit(currentWorkout.block_id); break;
+        case 'add-set': handlers.addSet(workoutIndex, action.asDropSet); break;
+        case 'complete-set-and-add': handlers.completeSetAndAdd(workoutIndex, action.setIndex); break;
+        case 'remove-set': handlers.removeSet(workoutIndex, action.setIndex); break;
+        case 'update-set': handlers.updateSet(workoutIndex, action.setIndex, action.field, action.value); break;
+        case 'weight-input': handlers.weightInput(workoutIndex, action.setIndex, action.raw); break;
+        case 'set-raw-weight': handlers.setRawKgInput(previous => ({
+          ...previous,
+          [`${workoutIndex}-${action.setIndex}`]: action.value,
+        })); break;
+        case 'clear-raw-weight': handlers.setRawKgInput(previous => {
+          const next = { ...previous };
+          delete next[`${workoutIndex}-${action.setIndex}`];
+          return next;
+        }); break;
+        case 'add-assisted-reps': handlers.addAssistedReps(workoutIndex, action.setIndex); break;
+        case 'remove-assisted-reps': handlers.removeAssistedReps(workoutIndex, action.setIndex); break;
+        case 'time-input': handlers.timeInput(workoutIndex, action.setIndex, action.raw); break;
+        case 'time-blur': handlers.timeBlur(workoutIndex, action.setIndex, action.raw); break;
+        case 'assisted-reps-blur': handlers.assistedRepsBlur(workoutIndex, action.setIndex, action.value); break;
+        case 'drag-start': handlers.dragStart(action.event, workoutIndex); break;
+        case 'touch-start': handlers.touchStart(action.event, workoutIndex); break;
+        case 'drag-enter': handlers.dragEnter(workoutIndex); break;
+        case 'drag-end': handlers.dragEnd(); break;
+        case 'touch-move': handlers.touchMove(action.event); break;
+        case 'toggle-overflow': handlers.setWorkoutOverflowIndex(current => current === workoutIndex ? null : workoutIndex); break;
+        case 'close-overflow': handlers.setWorkoutOverflowIndex(null); break;
+      }
+    }, [workoutLifetime.getCurrent, currentAccountOperation],
+  );
+
   const handleSaveInbody = async () => {
     if ([localInbody.weight, localInbody.smm, localInbody.pbf]
       .some(value => value !== null && value < 0))
@@ -2124,7 +2281,7 @@ export const HealthView = ({
                 );
               }
 
-              /* ── 일반 운동 카드 렌더링 ── */
+              /* ── Memoized normal exercise card ── */
               const previousCueProjection = workoutPreviousCueCache(
                 w,
                 prevData[w.block_id]?.prev_sets,
@@ -2152,307 +2309,35 @@ export const HealthView = ({
                       .replace('{weight}', previousBestCue.weight)
                       .replace('{unit}', previousBestCue.unit);
               return (
-                <div
-                key={w.id}
-                ref={isLatestTarget ? latestWorkoutRecordRef : undefined}
-                data-workout-index={wIdx}
-                draggable={!isWorkoutLocked}
-                onDragStart={e => handleDragStart(e, wIdx)}
-                onDragEnter={() => handleDragEnter(wIdx)}
-                onDragEnd={handleDragEnd}
-                onDragOver={e => e.preventDefault()}
-                onTouchStart={e => handleTouchStart(e, wIdx)}
-                onTouchMove={handleTouchMove}
-                onTouchEnd={handleDragEnd}
-                className={`border ${WORKSPACE_CARD_RADIUS_CLASS} p-5 lg:p-6 relative isolate z-0 group shadow-sm transition-all duration-150 ${theme.border} ${
-                  dragOverIndex === wIdx && dragIndex !== wIdx
-                    ? appSettings.darkMode ? 'border-primary bg-primary/5 scale-[1.01]' : 'border-primary bg-yellow-50/50 scale-[1.01]'
-                    : ''
-                } ${!isWorkoutLocked ? 'cursor-grab active:cursor-grabbing' : ''}`}
-                data-k126-workout-exercise-card
-                data-k129c-exercise-card
-              >
-                {!isWorkoutLocked && (
-                  isMobile ? (
-                    <div className="absolute top-3 right-3 z-10">
-                      <button
-                        type="button"
-                        aria-label={t('k126WorkoutActions')}
-                        onClick={e => { e.stopPropagation(); setWorkoutOverflowIndex(workoutOverflowIndex === wIdx ? null : wIdx); }}
-                        className={`inline-flex items-center justify-center rounded-lg p-2 ${theme.textMuted} hover:bg-muted/60`}
-                        style={{ minWidth: UI_INTERACTION.touchTargetMinPx, minHeight: UI_INTERACTION.touchTargetMinPx }}
-                        data-k126-workout-overflow-trigger
-                      >
-                        <MoreHorizontal size={18} />
-                      </button>
-                      {workoutOverflowIndex === wIdx ? (
-                        <div
-                          className={`absolute right-0 top-full mt-1 min-w-[120px] rounded-xl shadow-lg border p-1 z-20 ${theme.card} ${theme.border}`}
-                          data-k126-workout-overflow-menu
-                        >
-                          <button
-                            type="button"
-                            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold text-red-500 hover:bg-red-500/10 min-h-[44px]"
-                            onClick={() => { setWorkoutOverflowIndex(null); handleRemoveWorkout(wIdx, w.id); }}
-                          >
-                            <Trash2 size={12} /> {t('delete')}
-                          </button>
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : (
-                    <button onClick={() => handleRemoveWorkout(wIdx, w.id)}
-                      className="absolute top-4 right-4 p-2 rounded-full text-gray-400 hover:text-red-500 active:scale-95 transition-colors">
-                      <Trash2 size={18}/>
-                    </button>
-                  )
-                )}
-                <div className={`flex items-center gap-3 mb-4 pb-3 border-b ${theme.border}`}>
-                  {!isWorkoutLocked && (
-                    <GripVertical size={18} className={`shrink-0 ${appSettings.darkMode ? 'text-gray-600' : 'text-gray-300'} cursor-grab active:cursor-grabbing`}/>
-                  )}
-                  <div className={`w-3 h-3 rounded-full shrink-0 ${w.exercise_blocks?.type === 'cardio' ? 'bg-green-500' : w.exercise_blocks?.type === 'bodyweight' ? 'bg-purple-500' : 'bg-blue-500'}`}/>
-                  <div className="min-w-0 flex-1">
-                    <h3 className="font-heading text-lg font-bold truncate">{w.exercise_blocks?.name || 'Unknown'}</h3>
-                    <p className={`text-[11px] font-bold mt-0.5 ${theme.textMuted}`}>
-                      {t('healthExerciseSetSummary').replace('{count}', String(w.sets.length))}
-                    </p>
-                    {previousBestLabel && (
-                      <p
-                        className={`mt-1 truncate text-[11px] font-semibold ${theme.textMuted}`}
-                        data-health-previous-micro-cue
-                        title={previousBestLabel}
-                      >
-                        {previousBestLabel}
-                      </p>
-                    )}
-                    {previousEnabled && <LegacyPreviousStatus state={previousState(w.block_id)} />}
-                  </div>
-                  <WorkoutPrBadge
-                    badge={prBadgeMap[w.block_id] ?? null}
-                    darkMode={appSettings.darkMode}
-                    legacyScopeLabel={t('healthWorkoutBadgeLegacyScope')}
-                    prDescription={t('healthWorkoutBadgePrDescription')}
-                    diffDescription={t('healthWorkoutBadgeDiffDescription')}
-                  />
-                </div>
-                {workoutRangeComposite?.exerciseComparison ? <HealthExerciseComparisonPreview
-                  read={workoutRangeComposite.exerciseComparison}
-                  exerciseId={w.block_id}
-                  exerciseName={w.exercise_blocks?.name ?? null}
-                  exerciseType={w.exercise_blocks?.type ?? null}
-                /> : null}
-                {/* 컬럼 헤더 — cardio */}
-                {isCardioSet(w.sets?.[0] ?? makeDefaultSet(w.exercise_blocks?.type ?? 'strength')) && (() => {
-                  const mode = w.exercise_blocks?.cardio_mode ?? 'both';
-                  return (
-                    <div className={`flex gap-1.5 px-2 mb-1 text-[11px] font-bold ${theme.textMuted}`}>
-                      <div className="w-7 text-center shrink-0 opacity-50" title={t('healthSetActionsTitle')}>#</div>
-                      {(mode === 'time' || mode === 'both') && <div className="flex-1 text-center">{t('colMmss')}</div>}
-                      {(mode === 'distance' || mode === 'both') && <div className="flex-1 text-center">km</div>}
-                      <div className="w-9 text-center shrink-0">✓</div>
-                    </div>
-                  );
-                })()}
-                {/* 컬럼 헤더 — strength/bodyweight만 */}
-                {isStrengthSet(w.sets?.[0] ?? makeDefaultSet(w.exercise_blocks?.type ?? 'strength')) && (
-                  <div className={`flex gap-1.5 px-2 mb-1 text-[11px] font-bold ${theme.textMuted}`}>
-                    <div className="w-7 text-center shrink-0 opacity-50" title={t('healthSetActionsTitle')}>#</div>
-                    {w.exercise_blocks?.type !== 'bodyweight' && (
-                      <div className="flex-1 flex items-center justify-center">
-                        <button
-                          onClick={() => handleToggleWeightUnit(w.block_id)}
-                          className={`flex items-center gap-0.5 px-2 py-0.5 rounded-lg transition-colors text-[11px] font-bold
-                            ${appSettings.darkMode ? 'bg-surface-alt hover:bg-[#48484A]' : 'bg-gray-100 hover:bg-gray-200'}`}>
-                          <span className={getUnit(w.block_id) === 'kg' ? 'text-primary' : theme.textMuted}>kg</span>
-                          <span className={`mx-0.5 ${theme.textMuted}`}>/</span>
-                          <span className={getUnit(w.block_id) === 'lbs' ? 'text-primary' : theme.textMuted}>lbs</span>
-                        </button>
-                      </div>
-                    )}
-                    <div className="flex-1 text-center">reps</div>
-                    <div className="w-9 text-center shrink-0">✓</div>
-                  </div>
-                )}
-                <div className="space-y-2.5" data-k129c-set-group>
-                  {(w.sets || []).map((s: WorkoutSet, sIdx: number) => {
-                    const isDS = isStrengthSet(s) && s.is_dropset;
-                    const previousSetCue = previousCueProjection.previousSets[sIdx] ?? null;
-                    const previousSetReps = previousSetCue?.assistedReps
-                      ? t('healthAssistedBreakdown')
-                        .replace('{unassisted}', previousSetCue.reps ?? '')
-                        .replace('{assisted}', previousSetCue.assistedReps)
-                      : previousSetCue?.reps;
-                    const previousSetLabel = !previousSetCue
-                      ? null
-                      : previousSetCue.kind === 'bodyweight'
-                        ? t(previousSetCue.assistedReps ? 'previousSetReferenceBodyweightAssisted' : 'previousSetReferenceBodyweight')
-                          .replace('{bodyweight}', t('previousBodyweight'))
-                          .replace('{reps}', previousSetReps ?? '')
-                        : previousSetReps
-                          ? t('previousSetReferenceWeightReps')
-                            .replace('{weight}', previousSetCue.weight)
-                            .replace('{unit}', previousSetCue.unit)
-                            .replace('{reps}', previousSetReps)
-                          : t('previousSetReferenceWeightOnly')
-                            .replace('{weight}', previousSetCue.weight)
-                            .replace('{unit}', previousSetCue.unit);
-                    const assistedEligible = supportsAssistedReps(s)
-                      && exerciseTypeSupportsAssistedReps(w.exercise_blocks?.type);
-                    const assistedActive = assistedEligible && hasAssistedRepsField(s);
-                    return (
-                      <div key={sIdx} className={`rounded-xl overflow-hidden transition-opacity ${s.done ? 'opacity-55' : ''}`}>
-                        {/* 드랍세트 구분선 */}
-                        {isDS && (
-                          <div className="flex items-center gap-1 px-3 pt-1.5 pb-0.5">
-                            <div className="h-px flex-1 bg-orange-400/50"/>
-                            <span className="text-[10px] font-bold text-orange-400 shrink-0">{t('dropSet')}</span>
-                            <div className="h-px flex-1 bg-orange-400/50"/>
-                          </div>
-                        )}
-                        <div
-                          ref={isLatestTarget && sIdx === w.sets.length - 1 ? latestWorkoutRecordRef : undefined}
-                          className={`flex gap-2 px-2.5 py-3 items-center border rounded-xl
-                          ${isDS ? 'bg-orange-400/10 border-orange-400/30' : `${theme.input} ${theme.border}`}`}
-                        >
-
-                          <HealthSetActions
-                            setNumber={sIdx + 1}
-                            eligible={assistedEligible}
-                            assistedActive={assistedActive}
-                            canDelete={w.sets.length > 1}
-                            locked={isWorkoutLocked}
-                            isMobile={isMobile}
-                            theme={theme}
-                            labels={{
-                              trigger: t('healthSetActions').replace('{set}', String(sIdx + 1)),
-                              title: t('healthSetActionsTitle'),
-                              addAssisted: t('healthAddAssistedReps'),
-                              removeAssisted: t('healthRemoveAssistedReps'),
-                              deleteSet: t('healthDeleteSet'),
-                            }}
-                            onAddAssisted={() => handleAddAssistedReps(wIdx, sIdx)}
-                            onRemoveAssisted={() => handleRemoveAssistedReps(wIdx, sIdx)}
-                            onDelete={() => handleRemoveSet(wIdx, sIdx)}
-                          />
-
-                          {/* Strength 입력 (카드별 kg/lbs 단위 변환) */}
-                          {isStrengthSet(s) && w.exercise_blocks?.type !== 'bodyweight' && (
-                            <input type="number" inputMode="decimal" min="0"
-                              ref={pendingFocusSetRef.current?.wIdx === wIdx && pendingFocusSetRef.current?.sIdx === sIdx ? quickCaptureInputRef : undefined}
-                              step={getUnit(w.block_id) === 'lbs' ? '10' : '5'}
-                              value={rawKgInput[`${wIdx}-${sIdx}`] ?? editableWeightInput(s, getUnit(w.block_id))}
-                              placeholder="—"
-                              onChange={e => {
-                                const raw = e.target.value;
-                                setRawKgInput(prev => ({ ...prev, [`${wIdx}-${sIdx}`]: raw }));
-                                handleWeightInput(wIdx, sIdx, raw);
-                              }}
-                              onFocus={() => {
-                                setRawKgInput(prev => ({ ...prev, [`${wIdx}-${sIdx}`]: editableWeightInput(s, getUnit(w.block_id)) }));
-                              }}
-                              onBlur={() => {
-                                setRawKgInput(prev => { const n = { ...prev }; delete n[`${wIdx}-${sIdx}`]; return n; });
-                              }}
-                              className={`flex-1 min-w-0 text-[16px] font-bold text-center rounded-xl py-3 outline-none focus:ring-2 focus:ring-blue-400 ${theme.card}`}/>
-                          )}
-                          {/* Bodyweight / Strength reps */}
-                          {isStrengthSet(s) && (
-                            <input type="number" inputMode="numeric" min="0"
-                              ref={w.exercise_blocks?.type === 'bodyweight' && pendingFocusSetRef.current?.wIdx === wIdx && pendingFocusSetRef.current?.sIdx === sIdx ? quickCaptureInputRef : undefined}
-                              value={s.reps} placeholder="—"
-                              onChange={e => handleUpdateSet(wIdx, sIdx, 'reps', e.target.value)}
-                              className={`flex-1 min-w-0 text-[16px] font-bold text-center rounded-xl py-3 outline-none focus:ring-2 focus:ring-blue-400 ${theme.card}`}/>
-                          )}
-
-                          {/* Cardio 입력 */}
-                          {isCardioSet(s) && (() => {
-                            const mode = w.exercise_blocks?.cardio_mode ?? 'both';
-                            return (
-                              <>
-                                {(mode === 'time' || mode === 'both') && (
-                                  <input type="text" inputMode="numeric"
-                                    ref={pendingFocusSetRef.current?.wIdx === wIdx && pendingFocusSetRef.current?.sIdx === sIdx ? quickCaptureInputRef : undefined}
-                                    value={s.time}
-                                    placeholder="0:00"
-                                    onChange={e => handleTimeInput(wIdx, sIdx, e.target.value)}
-                                    onBlur={e => handleTimeBlur(wIdx, sIdx, e.target.value)}
-                                    className={`flex-1 min-w-0 text-[16px] font-bold text-center rounded-xl py-3 outline-none focus:ring-2 focus:ring-blue-400 ${theme.card}`}/>
-                                )}
-                                {(mode === 'distance' || mode === 'both') && (
-                                  <input type="text" inputMode="decimal" value={s.distance} placeholder="km"
-                                    ref={mode === 'distance' && pendingFocusSetRef.current?.wIdx === wIdx && pendingFocusSetRef.current?.sIdx === sIdx ? quickCaptureInputRef : undefined}
-                                    onChange={e => handleUpdateSet(wIdx, sIdx, 'distance', e.target.value)}
-                                    className={`flex-1 min-w-0 text-[16px] font-bold text-center rounded-xl py-3 outline-none focus:ring-2 focus:ring-blue-400 ${theme.card}`}/>
-                                )}
-                              </>
-                            );
-                          })()}
-
-                          {/* 완료 체크 — 큰 탭 버튼 */}
-                          <button
-                            onClick={() => handleUpdateSet(wIdx, sIdx, 'done', !s.done)}
-                            className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 transition-all active:scale-90
-                              ${s.done ? 'bg-green-500 text-white' : `${theme.card} ${theme.textMuted}`}`}>
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                              <polyline points="20 6 9 17 4 12"/>
-                            </svg>
-                          </button>
-                        </div>
-                        {assistedActive && isStrengthSet(s) && (
-                          <HealthAssistedRepsInput
-                            set={s}
-                            inputId={`health-assisted-${wIdx}-${sIdx}`}
-                            inputRef={pendingAssistedFocusRef.current?.wIdx === wIdx && pendingAssistedFocusRef.current?.sIdx === sIdx
-                              ? assistedInputRef
-                              : undefined}
-                            locked={isWorkoutLocked}
-                            theme={theme}
-                            label={t('healthAssistedReps')}
-                            compactTemplate={t('healthAssistedCompact')}
-                            invalidMessage={t('healthAssistedRepsInvalid')}
-                            onChange={value => handleUpdateSet(wIdx, sIdx, 'assisted_reps', value)}
-                            onBlur={value => handleAssistedRepsBlur(wIdx, sIdx, value)}
-                          />
-                        )}
-                        {previousSetLabel && (
-                          <p
-                            className={`px-3 pt-1 text-[11px] font-semibold ${theme.textMuted}`}
-                            data-health-previous-set-reference
-                            title={previousSetLabel}
-                          >
-                            {previousSetLabel}
-                          </p>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* Add Set / Drop Set 버튼 — 잠금 시 숨김 */}
-                {!isWorkoutLocked && (
-                  <div className={`mt-4 flex gap-2 rounded-2xl border p-2 ${theme.border} ${theme.card}`} data-health-exercise-controls>
-                    <button
-                      onClick={() => handleCompleteSetAndAdd(wIdx, Math.max(0, w.sets.length - 1))}
-                      disabled={w.sets.length === 0}
-                      className={`flex-1 text-sm font-bold py-2.5 rounded-xl active:scale-[0.98] transition-all ${appSettings.darkMode ? 'bg-surface-alt text-gray-100' : 'bg-gray-100 text-gray-700'} disabled:opacity-50`}
-                    >
-                      {t('healthDoneNextShort')}
-                    </button>
-                    <button onClick={() => handleAddSet(wIdx)}
-                      className="flex-1 text-sm font-bold py-2.5 rounded-xl bg-primary text-primary-foreground active:scale-[0.98] transition-all">
-                      {isCardioSet(w.sets?.[0] ?? makeDefaultSet(w.exercise_blocks?.type ?? 'strength')) ? t('addRound') : t('addSet')}
-                    </button>
-                    {isStrengthSet(w.sets?.[0] ?? makeDefaultSet(w.exercise_blocks?.type ?? 'strength')) && (
-                      <button onClick={() => handleAddSet(wIdx, true)}
-                        className="flex-1 text-sm font-bold py-2.5 rounded-xl bg-orange-400/20 text-orange-400 border border-orange-400/40 active:scale-[0.98] transition-all">
-                        {t('addDropSet')}
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
+                <HealthWorkoutExerciseCard
+                  key={w.id}
+                  workout={w}
+                  workoutIndex={wIdx}
+                  authority={workoutLifetime.publication}
+                  dispatchAction={dispatchWorkoutCardAction}
+                  isLatestTarget={isLatestTarget}
+                  isWorkoutLocked={isWorkoutLocked}
+                  isMobile={isMobile}
+                  darkMode={appSettings.darkMode}
+                  theme={theme}
+                  translate={t}
+                  dragOver={dragOverIndex === wIdx && dragIndex !== wIdx}
+                  overflowOpen={workoutOverflowIndex === wIdx}
+                  weightUnit={getUnit(w.block_id)}
+                  rawWeightValues={JSON.stringify(w.sets.map((_, sIdx) => rawKgInput[`${wIdx}-${sIdx}`] ?? null))}
+                  previousCueProjection={previousCueProjection}
+                  previousBestLabel={previousBestLabel}
+                  previousEnabled={previousEnabled}
+                  previousState={previousEnabled ? previousState(w.block_id) : 'CURRENT'}
+                  prBadge={prBadgeMap[w.block_id] ?? null}
+                  comparison={workoutRangeComposite?.exerciseComparison ?? null}
+                  latestWorkoutRecordRef={latestWorkoutRecordRef}
+                  pendingFocusSetRef={pendingFocusSetRef}
+                  quickCaptureInputRef={quickCaptureInputRef}
+                  assistedInputRef={assistedInputRef}
+                  pendingAssistedFocusRef={pendingAssistedFocusRef}
+                />
+              );
             })}
             {/* The memo/note tail belongs to the scrollable workout workflow. */}
             <div className="mt-2 rounded-xl p-2 bg-surface-alt" data-k104-health-workout-footer data-health-workout-scroll-tail>
@@ -3033,3 +2918,322 @@ export const HealthView = ({
     </WorkspaceErrorBoundary>
   );
 };
+
+const HealthWorkoutExerciseCard = memo(function HealthWorkoutExerciseCard({
+  workout: w,
+  workoutIndex: wIdx,
+  authority,
+  dispatchAction,
+  isLatestTarget,
+  isWorkoutLocked,
+  isMobile,
+  darkMode,
+  theme,
+  translate: t,
+  dragOver,
+  overflowOpen,
+  weightUnit,
+  rawWeightValues,
+  previousCueProjection,
+  previousBestLabel,
+  previousEnabled,
+  previousState,
+  prBadge,
+  comparison,
+  latestWorkoutRecordRef,
+  pendingFocusSetRef,
+  quickCaptureInputRef,
+  assistedInputRef,
+  pendingAssistedFocusRef,
+}: HealthWorkoutExerciseCardProps) {
+  let rawWeights: (string | null)[] = [];
+  try {
+    rawWeights = JSON.parse(rawWeightValues) as (string | null)[];
+  } catch {
+    // Malformed transient presentation data falls back to the canonical set value.
+  }
+  const send = (action: WorkoutCardAction) => dispatchAction(authority, w.id, wIdx, action);
+
+  return (
+    <div
+      ref={isLatestTarget ? latestWorkoutRecordRef : undefined}
+      data-workout-index={wIdx}
+      draggable={!isWorkoutLocked}
+      onDragStart={e => send({ type: 'drag-start', event: e })}
+      onDragEnter={() => send({ type: 'drag-enter' })}
+      onDragEnd={() => send({ type: 'drag-end' })}
+      onDragOver={e => e.preventDefault()}
+      onTouchStart={e => send({ type: 'touch-start', event: e })}
+      onTouchMove={e => send({ type: 'touch-move', event: e })}
+      onTouchEnd={() => send({ type: 'drag-end' })}
+      className={`border ${WORKSPACE_CARD_RADIUS_CLASS} p-5 lg:p-6 relative isolate z-0 group shadow-sm transition-all duration-150 ${theme.border} ${
+        dragOver
+          ? darkMode ? 'border-primary bg-primary/5 scale-[1.01]' : 'border-primary bg-yellow-50/50 scale-[1.01]'
+          : ''
+      } ${!isWorkoutLocked ? 'cursor-grab active:cursor-grabbing' : ''}`}
+      data-k126-workout-exercise-card
+      data-k129c-exercise-card
+    >
+      {!isWorkoutLocked && (
+        isMobile ? (
+          <div className="absolute top-3 right-3 z-10">
+            <button
+              type="button"
+              aria-label={t('k126WorkoutActions')}
+              onClick={e => { e.stopPropagation(); send({ type: 'toggle-overflow' }); }}
+              className={`inline-flex items-center justify-center rounded-lg p-2 ${theme.textMuted} hover:bg-muted/60`}
+              style={{ minWidth: UI_INTERACTION.touchTargetMinPx, minHeight: UI_INTERACTION.touchTargetMinPx }}
+              data-k126-workout-overflow-trigger
+            >
+              <MoreHorizontal size={18} />
+            </button>
+            {overflowOpen ? (
+              <div
+                className={`absolute right-0 top-full mt-1 min-w-[120px] rounded-xl shadow-lg border p-1 z-20 ${theme.card} ${theme.border}`}
+                data-k126-workout-overflow-menu
+              >
+                <button
+                  type="button"
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold text-red-500 hover:bg-red-500/10 min-h-[44px]"
+                  onClick={() => { send({ type: 'close-overflow' }); send({ type: 'remove-workout' }); }}
+                >
+                  <Trash2 size={12} /> {t('delete')}
+                </button>
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <button onClick={() => send({ type: 'remove-workout' })}
+            className="absolute top-4 right-4 p-2 rounded-full text-gray-400 hover:text-red-500 active:scale-95 transition-colors">
+            <Trash2 size={18}/>
+          </button>
+        )
+      )}
+      <div className={`flex items-center gap-3 mb-4 pb-3 border-b ${theme.border}`}>
+        {!isWorkoutLocked && (
+          <GripVertical size={18} className={`shrink-0 ${darkMode ? 'text-gray-600' : 'text-gray-300'} cursor-grab active:cursor-grabbing`}/>
+        )}
+        <div className={`w-3 h-3 rounded-full shrink-0 ${w.exercise_blocks?.type === 'cardio' ? 'bg-green-500' : w.exercise_blocks?.type === 'bodyweight' ? 'bg-purple-500' : 'bg-blue-500'}`}/>
+        <div className="min-w-0 flex-1">
+          <h3 className="font-heading text-lg font-bold truncate">{w.exercise_blocks?.name || 'Unknown'}</h3>
+          <p className={`text-[11px] font-bold mt-0.5 ${theme.textMuted}`}>
+            {t('healthExerciseSetSummary').replace('{count}', String(w.sets.length))}
+          </p>
+          {previousBestLabel && (
+            <p className={`mt-1 truncate text-[11px] font-semibold ${theme.textMuted}`}
+              data-health-previous-micro-cue title={previousBestLabel}>
+              {previousBestLabel}
+            </p>
+          )}
+          {previousEnabled && <LegacyPreviousStatus state={previousState} />}
+        </div>
+        <WorkoutPrBadge
+          badge={prBadge}
+          darkMode={darkMode}
+          legacyScopeLabel={t('healthWorkoutBadgeLegacyScope')}
+          prDescription={t('healthWorkoutBadgePrDescription')}
+          diffDescription={t('healthWorkoutBadgeDiffDescription')}
+        />
+      </div>
+      {comparison ? <HealthExerciseComparisonPreview
+        read={comparison}
+        exerciseId={w.block_id}
+        exerciseName={w.exercise_blocks?.name ?? null}
+        exerciseType={w.exercise_blocks?.type ?? null}
+      /> : null}
+      {isCardioSet(w.sets?.[0] ?? makeDefaultSet(w.exercise_blocks?.type ?? 'strength')) && (() => {
+        const mode = w.exercise_blocks?.cardio_mode ?? 'both';
+        return (
+          <div className={`flex gap-1.5 px-2 mb-1 text-[11px] font-bold ${theme.textMuted}`}>
+            <div className="w-7 text-center shrink-0 opacity-50" title={t('healthSetActionsTitle')}>#</div>
+            {(mode === 'time' || mode === 'both') && <div className="flex-1 text-center">{t('colMmss')}</div>}
+            {(mode === 'distance' || mode === 'both') && <div className="flex-1 text-center">km</div>}
+            <div className="w-9 text-center shrink-0">✓</div>
+          </div>
+        );
+      })()}
+      {isStrengthSet(w.sets?.[0] ?? makeDefaultSet(w.exercise_blocks?.type ?? 'strength')) && (
+        <div className={`flex gap-1.5 px-2 mb-1 text-[11px] font-bold ${theme.textMuted}`}>
+          <div className="w-7 text-center shrink-0 opacity-50" title={t('healthSetActionsTitle')}>#</div>
+          {w.exercise_blocks?.type !== 'bodyweight' && (
+            <div className="flex-1 flex items-center justify-center">
+              <button
+                onClick={() => send({ type: 'toggle-weight-unit' })}
+                className={`flex items-center gap-0.5 px-2 py-0.5 rounded-lg transition-colors text-[11px] font-bold
+                  ${darkMode ? 'bg-surface-alt hover:bg-[#48484A]' : 'bg-gray-100 hover:bg-gray-200'}`}>
+                <span className={weightUnit === 'kg' ? 'text-primary' : theme.textMuted}>kg</span>
+                <span className={`mx-0.5 ${theme.textMuted}`}>/</span>
+                <span className={weightUnit === 'lbs' ? 'text-primary' : theme.textMuted}>lbs</span>
+              </button>
+            </div>
+          )}
+          <div className="flex-1 text-center">reps</div>
+          <div className="w-9 text-center shrink-0">✓</div>
+        </div>
+      )}
+      <div className="space-y-2.5" data-k129c-set-group>
+        {(w.sets || []).map((s: WorkoutSet, sIdx: number) => {
+          const isDS = isStrengthSet(s) && s.is_dropset;
+          const previousSetCue = previousCueProjection.previousSets[sIdx] ?? null;
+          const previousSetReps = previousSetCue?.assistedReps
+            ? t('healthAssistedBreakdown')
+              .replace('{unassisted}', previousSetCue.reps ?? '')
+              .replace('{assisted}', previousSetCue.assistedReps)
+            : previousSetCue?.reps;
+          const previousSetLabel = !previousSetCue
+            ? null
+            : previousSetCue.kind === 'bodyweight'
+              ? t(previousSetCue.assistedReps ? 'previousSetReferenceBodyweightAssisted' : 'previousSetReferenceBodyweight')
+                .replace('{bodyweight}', t('previousBodyweight'))
+                .replace('{reps}', previousSetReps ?? '')
+              : previousSetReps
+                ? t('previousSetReferenceWeightReps')
+                  .replace('{weight}', previousSetCue.weight)
+                  .replace('{unit}', previousSetCue.unit)
+                  .replace('{reps}', previousSetReps)
+                : t('previousSetReferenceWeightOnly')
+                  .replace('{weight}', previousSetCue.weight)
+                  .replace('{unit}', previousSetCue.unit);
+          const assistedEligible = supportsAssistedReps(s)
+            && exerciseTypeSupportsAssistedReps(w.exercise_blocks?.type);
+          const assistedActive = assistedEligible && hasAssistedRepsField(s);
+          return (
+            <div key={sIdx} className={`rounded-xl overflow-hidden transition-opacity ${s.done ? 'opacity-55' : ''}`}>
+              {isDS && (
+                <div className="flex items-center gap-1 px-3 pt-1.5 pb-0.5">
+                  <div className="h-px flex-1 bg-orange-400/50"/>
+                  <span className="text-[10px] font-bold text-orange-400 shrink-0">{t('dropSet')}</span>
+                  <div className="h-px flex-1 bg-orange-400/50"/>
+                </div>
+              )}
+              <div
+                ref={isLatestTarget && sIdx === w.sets.length - 1 ? latestWorkoutRecordRef : undefined}
+                className={`flex gap-2 px-2.5 py-3 items-center border rounded-xl
+                ${isDS ? 'bg-orange-400/10 border-orange-400/30' : `${theme.input} ${theme.border}`}`}
+              >
+                <HealthSetActions
+                  setNumber={sIdx + 1}
+                  eligible={assistedEligible}
+                  assistedActive={assistedActive}
+                  canDelete={w.sets.length > 1}
+                  locked={isWorkoutLocked}
+                  isMobile={isMobile}
+                  theme={theme}
+                  labels={{
+                    trigger: t('healthSetActions').replace('{set}', String(sIdx + 1)),
+                    title: t('healthSetActionsTitle'),
+                    addAssisted: t('healthAddAssistedReps'),
+                    removeAssisted: t('healthRemoveAssistedReps'),
+                    deleteSet: t('healthDeleteSet'),
+                  }}
+                  onAddAssisted={() => send({ type: 'add-assisted-reps', setIndex: sIdx, expectedSet: s })}
+                  onRemoveAssisted={() => send({ type: 'remove-assisted-reps', setIndex: sIdx, expectedSet: s })}
+                  onDelete={() => send({ type: 'remove-set', setIndex: sIdx, expectedSet: s })}
+                />
+                {isStrengthSet(s) && w.exercise_blocks?.type !== 'bodyweight' && (
+                  <input type="number" inputMode="decimal" min="0"
+                    ref={pendingFocusSetRef.current?.wIdx === wIdx && pendingFocusSetRef.current?.sIdx === sIdx ? quickCaptureInputRef : undefined}
+                    step={weightUnit === 'lbs' ? '10' : '5'}
+                    value={rawWeights[sIdx] ?? editableWeightInput(s, weightUnit)}
+                    placeholder="—"
+                    onChange={e => {
+                      const raw = e.target.value;
+                      send({ type: 'set-raw-weight', setIndex: sIdx, expectedSet: s, value: raw });
+                      send({ type: 'weight-input', setIndex: sIdx, expectedSet: s, raw });
+                    }}
+                    onFocus={() => send({ type: 'set-raw-weight', setIndex: sIdx, expectedSet: s, value: editableWeightInput(s, weightUnit) })}
+                    onBlur={() => send({ type: 'clear-raw-weight', setIndex: sIdx, expectedSet: s })}
+                    className={`flex-1 min-w-0 text-[16px] font-bold text-center rounded-xl py-3 outline-none focus:ring-2 focus:ring-blue-400 ${theme.card}`}/>
+                )}
+                {isStrengthSet(s) && (
+                  <input type="number" inputMode="numeric" min="0"
+                    ref={w.exercise_blocks?.type === 'bodyweight' && pendingFocusSetRef.current?.wIdx === wIdx && pendingFocusSetRef.current?.sIdx === sIdx ? quickCaptureInputRef : undefined}
+                    value={s.reps} placeholder="—"
+                    onChange={e => send({ type: 'update-set', setIndex: sIdx, expectedSet: s, field: 'reps', value: e.target.value })}
+                    className={`flex-1 min-w-0 text-[16px] font-bold text-center rounded-xl py-3 outline-none focus:ring-2 focus:ring-blue-400 ${theme.card}`}/>
+                )}
+                {isCardioSet(s) && (() => {
+                  const mode = w.exercise_blocks?.cardio_mode ?? 'both';
+                  return (
+                    <>
+                      {(mode === 'time' || mode === 'both') && (
+                        <input type="text" inputMode="numeric"
+                          ref={pendingFocusSetRef.current?.wIdx === wIdx && pendingFocusSetRef.current?.sIdx === sIdx ? quickCaptureInputRef : undefined}
+                          value={s.time}
+                          placeholder="0:00"
+                          onChange={e => send({ type: 'time-input', setIndex: sIdx, expectedSet: s, raw: e.target.value })}
+                          onBlur={e => send({ type: 'time-blur', setIndex: sIdx, expectedSet: s, raw: e.target.value })}
+                          className={`flex-1 min-w-0 text-[16px] font-bold text-center rounded-xl py-3 outline-none focus:ring-2 focus:ring-blue-400 ${theme.card}`}/>
+                      )}
+                      {(mode === 'distance' || mode === 'both') && (
+                        <input type="text" inputMode="decimal" value={s.distance} placeholder="km"
+                          ref={mode === 'distance' && pendingFocusSetRef.current?.wIdx === wIdx && pendingFocusSetRef.current?.sIdx === sIdx ? quickCaptureInputRef : undefined}
+                          onChange={e => send({ type: 'update-set', setIndex: sIdx, expectedSet: s, field: 'distance', value: e.target.value })}
+                          className={`flex-1 min-w-0 text-[16px] font-bold text-center rounded-xl py-3 outline-none focus:ring-2 focus:ring-blue-400 ${theme.card}`}/>
+                      )}
+                    </>
+                  );
+                })()}
+                <button
+                  onClick={() => send({ type: 'update-set', setIndex: sIdx, expectedSet: s, field: 'done', value: !s.done })}
+                  className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 transition-all active:scale-90
+                    ${s.done ? 'bg-green-500 text-white' : `${theme.card} ${theme.textMuted}`}`}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12"/>
+                  </svg>
+                </button>
+              </div>
+              {assistedActive && isStrengthSet(s) && (
+                <HealthAssistedRepsInput
+                  set={s}
+                  inputId={`health-assisted-${wIdx}-${sIdx}`}
+                  inputRef={pendingAssistedFocusRef.current?.wIdx === wIdx && pendingAssistedFocusRef.current?.sIdx === sIdx
+                    ? assistedInputRef
+                    : undefined}
+                  locked={isWorkoutLocked}
+                  theme={theme}
+                  label={t('healthAssistedReps')}
+                  compactTemplate={t('healthAssistedCompact')}
+                  invalidMessage={t('healthAssistedRepsInvalid')}
+                  onChange={value => send({ type: 'update-set', setIndex: sIdx, expectedSet: s, field: 'assisted_reps', value })}
+                  onBlur={value => send({ type: 'assisted-reps-blur', setIndex: sIdx, expectedSet: s, value })}
+                />
+              )}
+              {previousSetLabel && (
+                <p className={`px-3 pt-1 text-[11px] font-semibold ${theme.textMuted}`}
+                  data-health-previous-set-reference title={previousSetLabel}>
+                  {previousSetLabel}
+                </p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {!isWorkoutLocked && (
+        <div className={`mt-4 flex gap-2 rounded-2xl border p-2 ${theme.border} ${theme.card}`} data-health-exercise-controls>
+          <button
+            onClick={() => {
+              const setIndex = Math.max(0, w.sets.length - 1);
+              const expectedSet = w.sets[setIndex];
+              if (expectedSet) send({ type: 'complete-set-and-add', setIndex, expectedSet });
+            }}
+            disabled={w.sets.length === 0}
+            className={`flex-1 text-sm font-bold py-2.5 rounded-xl active:scale-[0.98] transition-all ${darkMode ? 'bg-surface-alt text-gray-100' : 'bg-gray-100 text-gray-700'} disabled:opacity-50`}
+          >
+            {t('healthDoneNextShort')}
+          </button>
+          <button onClick={() => send({ type: 'add-set', asDropSet: false })}
+            className="flex-1 text-sm font-bold py-2.5 rounded-xl bg-primary text-primary-foreground active:scale-[0.98] transition-all">
+            {isCardioSet(w.sets?.[0] ?? makeDefaultSet(w.exercise_blocks?.type ?? 'strength')) ? t('addRound') : t('addSet')}
+          </button>
+          {isStrengthSet(w.sets?.[0] ?? makeDefaultSet(w.exercise_blocks?.type ?? 'strength')) && (
+            <button onClick={() => send({ type: 'add-set', asDropSet: true })}
+              className="flex-1 text-sm font-bold py-2.5 rounded-xl bg-orange-400/20 text-orange-400 border border-orange-400/40 active:scale-[0.98] transition-all">
+              {t('addDropSet')}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+});

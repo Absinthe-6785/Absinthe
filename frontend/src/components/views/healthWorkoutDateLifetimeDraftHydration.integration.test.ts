@@ -245,12 +245,10 @@ vi.mock('./features/health/previousMicroCue', () => ({
   matchPreviousSetReference: () => null,
 }));
 vi.mock('./features/health/healthSectionPrefs', () => ({ readHealthSectionPrefs: () => ({}) }));
-vi.mock('../../lib/i18n', () => ({
-  useTranslation: () => ({
-    t: (key: string) => key === 'healthPresetDeleteConfirm' ? 'Delete {name}' : key,
-    lang: 'en',
-  }),
-}));
+vi.mock('../../lib/i18n', () => {
+  const t = (key: string) => key === 'healthPresetDeleteConfirm' ? 'Delete {name}' : key;
+  return { useTranslation: () => ({ t, lang: 'en' }) };
+});
 vi.mock('../common/ConfirmModal', () => ({
   ConfirmModal: ({
     message,

@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { createElement, useEffect, useLayoutEffect } from 'react';
+import { createElement, Profiler, useEffect, useLayoutEffect } from 'react';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { flushSync } from 'react-dom';
@@ -22,6 +22,15 @@ vi.mock('react', async importOriginal => {
   const savingLine = source.findIndex(line => line.includes('const [isSaving, setIsSaving] = useState')) + 1;
   const lockedLine = source.findIndex(line => line.includes('const [isWorkoutLocked, setIsWorkoutLocked] = useState')) + 1;
   return { ...real,
+    memo: ((Component: any, compare?: any) => {
+      if (!Component.name.startsWith('HealthWorkoutExerciseCard')) return real.memo(Component, compare);
+      const CountedCard = (props: any) => {
+        mocks.renderMeasurements.exerciseCardRenders += 1;
+        return real.createElement(Component, props);
+      };
+      CountedCard.displayName = 'CountedHealthWorkoutExerciseCard';
+      return real.memo(CountedCard, compare);
+    }) as typeof real.memo,
     useState: ((...args: any[]) => {
       const value = (real.useState as any)(...args);
       const line = new Error().stack?.match(/HealthView\.tsx:(\d+):/)?.[1];
@@ -110,6 +119,10 @@ const mocks = vi.hoisted(() => ({
     prBadgeComputations: 0,
     prCurrentSetVisits: 0,
     prPreviousSetVisits: 0,
+  },
+  renderMeasurements: {
+    exerciseCardRenders: 0,
+    profilerCommits: 0,
   },
 }));
 
@@ -299,12 +312,10 @@ vi.mock('./features/health/previousMicroCue', async importOriginal => {
   };
 });
 vi.mock('./features/health/healthSectionPrefs', () => ({ readHealthSectionPrefs: () => ({}) }));
-vi.mock('../../lib/i18n', () => ({
-  useTranslation: () => ({
-    t: (key: string) => key === 'healthPresetDeleteConfirm' ? 'Delete {name}' : key,
-    lang: 'en',
-  }),
-}));
+vi.mock('../../lib/i18n', () => {
+  const t = (key: string) => key === 'healthPresetDeleteConfirm' ? 'Delete {name}' : key;
+  return { useTranslation: () => ({ t, lang: 'en' }) };
+});
 vi.mock('../common/ConfirmModal', () => ({
   ConfirmModal: ({
     message,
@@ -394,9 +405,16 @@ vi.mock('./features/health/PreviousWorkoutSheet', () => ({ PreviousWorkoutSheet:
   return open && action ? createElement('button', { type: 'button', onClick: action, 'data-test-open-history-day': true }, 'open-history-day') : null;
 } }));
 vi.mock('./features/health/HealthMobileWorkoutActions', () => ({
-  HealthMobileWorkoutActions: ({ isWorkoutLocked, onPrevious }: { isWorkoutLocked: boolean; onPrevious: () => void }) => {
+  HealthMobileWorkoutActions: ({ isWorkoutLocked, isMobile, onPrevious, onAddExercise }: {
+    isWorkoutLocked: boolean; isMobile: boolean; onPrevious: () => void; onAddExercise: () => void;
+  }) => {
     mocks.locked = isWorkoutLocked;
-    return createElement('button', { type: 'button', onClick: onPrevious, 'data-test-open-previous': true }, 'open-previous');
+    return createElement('div', {},
+      createElement('button', { type: 'button', onClick: onPrevious, 'data-test-open-previous': true }, 'open-previous'),
+      isMobile && !isWorkoutLocked
+        ? createElement('button', { type: 'button', onClick: onAddExercise, 'data-health-quick-add-exercise': true }, 'add-exercise')
+        : null,
+    );
   },
 }));
 
@@ -468,7 +486,12 @@ function healthProps(overrides: Partial<HealthProps> = {}): HealthProps {
 async function render(overrides: Partial<HealthProps> = {}) {
   props = props ? { ...props, ...overrides } : healthProps(overrides);
   if (!root) root = createRoot(host);
-  await act(async () => { root!.render(createElement(HealthView, props)); });
+  await act(async () => {
+    root!.render(createElement(Profiler, {
+      id: 'health-workout',
+      onRender: () => { mocks.renderMeasurements.profilerCommits += 1; },
+    }, createElement(HealthView, props)));
+  });
 }
 function seed() {
   for (const [key, value] of [[localHealthDraftKey(A, X), DRAFT_X], [localHealthDraftKey(A, Y), DRAFT_Y], [localHealthDraftKey(B, Z), DRAFT_Z]] as const)
@@ -545,6 +568,7 @@ beforeEach(() => {
     matcherBuilds: 0, matcherLookups: 0, previousBestFormats: 0, previousSetFormats: 0,
     prBadgeComputations: 0, prCurrentSetVisits: 0, prPreviousSetVisits: 0,
   });
+  Object.assign(mocks.renderMeasurements, { exerciseCardRenders: 0, profilerCommits: 0 });
   mocks.saveHealthWorkouts.mockReset().mockResolvedValue({ status: 'success', total: 1, succeeded: 1, failed: 0 });
   mocks.deleteHealthWorkout.mockReset().mockResolvedValue({ status: 'success' });
   mocks.repositoryFactory.mockReset().mockImplementation(async (accountId: string) => {
@@ -1146,5 +1170,181 @@ describe('Health workout read-only projection cost', () => {
     expect(mocks.fetchPrevious).toHaveBeenCalledTimes(previousReadCalls);
     expect(mocks.authFetch).toHaveBeenCalledTimes(remoteCalls);
     expect(mocks.inputs).toHaveLength(persistenceCalls);
+  }, 15_000);
+});
+
+// Baseline captured before the memoized card boundary at 1f3700a17ad69a3db21b74969e735f489bf81c1d.
+// These are the same mounted fixtures and reps-input action exercised below: each parent commit
+// rebuilt every inline card root, producing 2 commits × 8/40 cards. Keep the source SHA beside the
+// recorded counts so future comparisons do not silently use a different pre-optimization baseline.
+const HEALTH_WORKOUT_CARD_RENDER_BASELINE = {
+  sourceSha: '1f3700a17ad69a3db21b74969e735f489bf81c1d',
+  repsEdit: [
+    { exercises: 8, sets: 5, cardRenders: 16, label: 'moderate' },
+    { exercises: 40, sets: 8, cardRenders: 80, label: 'stress' },
+  ],
+} as const;
+
+describe('Health workout memoized exercise-card rendering', () => {
+  async function mountFixture(exerciseCount: number, setsPerExercise: number, mobile = false) {
+    seed();
+    mocks.mobile = mobile;
+    const rows = renderCostFixture(exerciseCount, setsPerExercise);
+    storage.setItem(localHealthDraftKey(A, X), JSON.stringify(rows));
+    mocks.fetchPrevious.mockResolvedValue({});
+    await render();
+    await vi.waitFor(() => expect(host.querySelectorAll('[data-k126-workout-exercise-card]')).toHaveLength(exerciseCount));
+    expect(mocks.renderMeasurements.exerciseCardRenders).toBeGreaterThanOrEqual(exerciseCount);
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+    mocks.renderMeasurements.exerciseCardRenders = 0;
+    mocks.renderMeasurements.profilerCommits = 0;
+    return rows;
+  }
+
+  function resetCounts() {
+    mocks.renderMeasurements.exerciseCardRenders = 0;
+    mocks.renderMeasurements.profilerCommits = 0;
+  }
+
+  it.each(HEALTH_WORKOUT_CARD_RENDER_BASELINE.repsEdit)(
+    'edits one reps field without rendering unchanged cards in the $label fixture (baseline $cardRenders at ${HEALTH_WORKOUT_CARD_RENDER_BASELINE.sourceSha})',
+    async ({ exercises, sets, cardRenders: baselineCardRenders }) => {
+    await mountFixture(exercises, sets);
+    const firstCard = host.querySelector<HTMLElement>('[data-k126-workout-exercise-card][data-workout-index="0"]')!;
+    const input = firstCard.querySelector<HTMLInputElement>('input[inputmode="numeric"]')!;
+    input.focus();
+    resetCounts();
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '9');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+
+    expect(input.value).toBe('9');
+    expect(mocks.draft.localWorkouts[0]!.sets[0]!.reps).toBe('9');
+    expect(document.activeElement).toBe(input);
+    expect(mocks.renderMeasurements.exerciseCardRenders).toBe(1);
+    expect(mocks.renderMeasurements.profilerCommits).toBe(2);
+    expect(mocks.renderMeasurements.exerciseCardRenders).toBeLessThan(baselineCardRenders);
+    }, 15_000,
+  );
+
+  it('limits weight-entry and completion rerenders to the changed exercise and preserves focus', async () => {
+    await mountFixture(8, 5);
+    const firstCard = host.querySelector<HTMLElement>('[data-k126-workout-exercise-card][data-workout-index="0"]')!;
+    const weightInput = firstCard.querySelector<HTMLInputElement>('input[inputmode="decimal"]')!;
+    await act(async () => { weightInput.focus(); });
+    resetCounts();
+    await act(async () => { await Promise.resolve(); });
+    expect(document.activeElement).toBe(weightInput);
+    resetCounts();
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(weightInput, '37');
+      weightInput.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(weightInput.value).toBe('37');
+    expect(document.activeElement).toBe(weightInput);
+    expect(mocks.renderMeasurements.exerciseCardRenders).toBe(1);
+    expect(mocks.renderMeasurements.profilerCommits).toBe(2);
+
+    resetCounts();
+    const complete = firstCard.querySelector<HTMLButtonElement>('button.w-11.h-11')!;
+    await act(async () => complete.click());
+    expect(mocks.draft.localWorkouts[0]!.sets[0]!.done).toBe(true);
+    expect(mocks.renderMeasurements.exerciseCardRenders).toBe(1);
+    expect(mocks.renderMeasurements.profilerCommits).toBe(2);
+  }, 15_000);
+
+  it('updates only the mobile card whose overflow state changed', async () => {
+    await mountFixture(8, 5, true);
+    const overflow = host.querySelector<HTMLButtonElement>('[data-workout-index="3"] [data-k126-workout-overflow-trigger]')!;
+    resetCounts();
+    await act(async () => overflow.click());
+    expect(host.querySelector('[data-workout-index="3"] [data-k126-workout-overflow-menu]')).not.toBeNull();
+    expect(mocks.renderMeasurements.exerciseCardRenders).toBe(1);
+    expect(mocks.renderMeasurements.profilerCommits).toBeGreaterThan(0);
+  }, 15_000);
+
+  it('does not rerender exercise cards when the independent mobile Quick Add UI opens', async () => {
+    await mountFixture(8, 5, true);
+    const reads = mocks.authFetch.mock.calls.length;
+    const writes = mocks.inputs.length;
+    const addExercise = host.querySelector<HTMLButtonElement>('[data-health-quick-add-exercise]')!;
+    resetCounts();
+    await act(async () => addExercise.click());
+    expect(host.querySelector('[data-health-quick-add-overlay] [role="dialog"]')).not.toBeNull();
+    expect(mocks.renderMeasurements.exerciseCardRenders).toBe(0);
+    expect(mocks.renderMeasurements.profilerCommits).toBe(3);
+    expect(mocks.authFetch).toHaveBeenCalledTimes(reads);
+    expect(mocks.inputs).toHaveLength(writes);
+  }, 15_000);
+
+  it('updates only the matching exercise card when its unit or previous-history source changes', async () => {
+    const rows = await mountFixture(8, 5);
+    mocks.weightUnits = { [rows[3]!.block_id]: 'lbs' };
+    resetCounts();
+    await render();
+    expect(mocks.renderMeasurements.exerciseCardRenders).toBe(1);
+    expect(mocks.renderMeasurements.profilerCommits).toBe(1);
+    const thirdCardButtons = [...host.querySelectorAll<HTMLButtonElement>('[data-workout-index="3"] button')];
+    expect(thirdCardButtons.some(button => button.textContent?.includes('lbs'))).toBe(true);
+
+    await act(async () => { root!.unmount(); });
+    root = null;
+    host.replaceChildren();
+    mocks.weightUnits = {};
+    seed();
+    const historyRows = renderCostFixture(8, 5);
+    storage.setItem(localHealthDraftKey(A, X), JSON.stringify(historyRows));
+    const history = deferred<Record<string, any>>();
+    mocks.fetchPrevious.mockReturnValue(history.promise);
+    await render();
+    await vi.waitFor(() => expect(mocks.fetchPrevious).toHaveBeenCalled());
+    resetCounts();
+    await act(async () => history.release({
+      [historyRows[2]!.block_id]: {
+        prev_sets: [{ type: 'strength', set: 1, kg: '52', reps: '8', done: true }],
+        prev_date: '2026-01-09',
+        pr_kg: 52,
+      },
+    }));
+    expect(mocks.renderMeasurements.exerciseCardRenders).toBe(1);
+    expect(mocks.renderMeasurements.profilerCommits).toBe(2);
+    expect(host.querySelector('[data-workout-index="2"] [data-health-previous-micro-cue]')).not.toBeNull();
+  }, 15_000);
+
+  it('routes a retained sibling Delete callback through the latest committed workout rows', async () => {
+    await mountFixture(2, 1);
+    const firstCard = host.querySelector<HTMLElement>('[data-workout-index="0"]')!;
+    const secondCard = host.querySelector<HTMLElement>('[data-workout-index="1"]')!;
+    const retainedDelete = secondCard.querySelector<HTMLButtonElement>('button.absolute')!;
+    const reps = firstCard.querySelector<HTMLInputElement>('input[inputmode="numeric"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(reps, '11');
+      reps.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => { retainedDelete.click(); await Promise.resolve(); });
+
+    expect(mocks.deleteHealthWorkout).toHaveBeenCalledWith(expect.objectContaining({ workoutId: 'render-cost-workout-1' }));
+    expect(mocks.draft.localWorkouts).toHaveLength(1);
+    expect(mocks.draft.localWorkouts[0]!.sets[0]!.reps).toBe('11');
+  }, 15_000);
+
+  it.each(['date A-B-A', 'account A-B-A'] as const)('rejects a retained input callback after %s authority changes', async transition => {
+    await mountFixture(2, 1);
+    const input = host.querySelector<HTMLInputElement>('[data-workout-index="0"] input[inputmode="numeric"]')!;
+    const reactPropsKey = Object.keys(input).find(key => key.startsWith('__reactProps$'));
+    const staleChange = reactPropsKey
+      && (input as unknown as Record<string, { onChange?: (event: unknown) => void }>)[reactPropsKey].onChange;
+    if (!staleChange) throw new Error('Retained exercise input callback unavailable');
+
+    if (transition === 'date A-B-A') await navigateABA();
+    else {
+      await render({ user: { id: B, name: 'B' }, selectedDate: date(Z) });
+      await render({ user: { id: A, name: 'A2' }, selectedDate: date(X) });
+    }
+    const before = snapshot();
+    await invoke(() => staleChange({ target: { value: '99' } }));
+    expect(snapshot()).toEqual(before);
+    expect(mocks.inputs).toHaveLength(0);
   }, 15_000);
 });
