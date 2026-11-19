@@ -4,7 +4,7 @@ import { formatPlannerCountdownLabel } from '../../calendar/plannerCalendarPrese
 import type { PlannerCalendarPresentation } from '../../calendar';
 import type { PlannerMonthViewPayload } from '../../calendar';
 import { MonthCalendarCell } from './MonthCalendarCell';
-import { buildMonthCellDisplayModel, chunkMonthCells } from './monthCalendarPresentation';
+import { buildMonthCellDisplayModels, chunkMonthCells } from './monthCalendarPresentation';
 
 export interface MonthCalendarGridProps {
   month: PlannerMonthViewPayload;
@@ -29,7 +29,10 @@ export function MonthCalendarGrid({
 }: MonthCalendarGridProps) {
   const formatCountdown = (daysUntil: number) =>
     formatPlannerCountdownLabel(daysUntil, presentation?.locale ?? 'en');
-  const weeks = chunkMonthCells(month.cells, 7);
+  const weeks = chunkMonthCells(
+    buildMonthCellDisplayModels(month.cells, countdowns, formatCountdown),
+    7,
+  );
 
   return (
     <div className="h-full min-h-0 flex flex-col" data-planner-month-grid>
@@ -47,19 +50,16 @@ export function MonthCalendarGrid({
 
       <div className="grid grid-cols-7 grid-rows-6 gap-px min-h-0 flex-1 overflow-hidden">
         {weeks.flatMap(week =>
-          week.map(cell => {
-            const model = buildMonthCellDisplayModel(cell, countdowns, formatCountdown);
-            return (
-              <MonthCalendarCell
-                key={cell.dateKey}
-                model={model}
-                theme={theme}
-                onEventNoteClick={onEventNoteClick}
-                onDateSelect={onDateSelect}
-                onScheduleBlockClick={onScheduleBlockClick}
-              />
-            );
-          }),
+          week.map(model => (
+            <MonthCalendarCell
+              key={model.dateKey}
+              model={model}
+              theme={theme}
+              onEventNoteClick={onEventNoteClick}
+              onDateSelect={onDateSelect}
+              onScheduleBlockClick={onScheduleBlockClick}
+            />
+          )),
         )}
       </div>
     </div>

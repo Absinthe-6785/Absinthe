@@ -37,6 +37,43 @@ export function buildMonthCellDisplayModel(
   countdowns: readonly PlannerCountdownRow[] = [],
   formatCountdownLabel: (daysUntil: number) => string = d => `D-${d}`,
 ): MonthCellDisplayModel {
+  const dateCountdowns = countdowns.filter(countdown => countdown.targetDate === cell.dateKey);
+  return buildMonthCellDisplayModelFromDateCandidates(cell, dateCountdowns, formatCountdownLabel);
+}
+
+/** Builds a month in one countdown pass, keeping the temporary index local to this call. */
+export function buildMonthCellDisplayModels(
+  cells: readonly PlannerMonthCellPayload[],
+  countdowns: readonly PlannerCountdownRow[] = [],
+  formatCountdownLabel: (daysUntil: number) => string = d => `D-${d}`,
+): MonthCellDisplayModel[] {
+  const cellDates = new Set(cells.map(cell => cell.dateKey));
+  const countdownsByDate = new Map<string, PlannerCountdownRow[]>();
+
+  for (const countdown of countdowns) {
+    const dateKey = countdown.targetDate;
+    if (!cellDates.has(dateKey)) continue;
+
+    const dateCountdowns = countdownsByDate.get(dateKey);
+    if (dateCountdowns) {
+      dateCountdowns.push(countdown);
+    } else {
+      countdownsByDate.set(dateKey, [countdown]);
+    }
+  }
+
+  return cells.map(cell => buildMonthCellDisplayModelFromDateCandidates(
+    cell,
+    countdownsByDate.get(cell.dateKey) ?? [],
+    formatCountdownLabel,
+  ));
+}
+
+function buildMonthCellDisplayModelFromDateCandidates(
+  cell: PlannerMonthCellPayload,
+  dateCountdowns: readonly PlannerCountdownRow[],
+  formatCountdownLabel: (daysUntil: number) => string,
+): MonthCellDisplayModel {
   const visibleOccurrences = cell.bundle.events.slice(0, MONTH_CELL_MAX_VISIBLE_EVENTS);
   const eventRows: MonthCellEventRow[] = visibleOccurrences.map(occurrence => ({
     occurrence,
@@ -48,8 +85,8 @@ export function buildMonthCellDisplayModel(
     .map(block => ({ block }));
 
   const eventNoteIds = new Set(cell.bundle.events.map(event => event.noteId));
-  const cellCountdowns = countdowns
-    .filter(cd => cd.targetDate === cell.dateKey && !eventNoteIds.has(cd.sourceRefId))
+  const cellCountdowns = dateCountdowns
+    .filter(countdown => !eventNoteIds.has(countdown.sourceRefId))
     .slice(0, MONTH_CELL_MAX_VISIBLE_COUNTDOWNS);
   const countdownRows: MonthCellCountdownRow[] = cellCountdowns.map(countdown => ({
     countdown,
