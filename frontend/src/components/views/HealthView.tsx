@@ -31,7 +31,7 @@ import { WORKSPACE_CARD, WORKSPACE_CARD_RADIUS_CLASS, WORKSPACE_CARD_SURFACE, WO
 import { formatAbsoluteDateKey, formatLongDate } from './k102DateFormat';
 import { buildHealthProjection } from './features/health/buildHealthProjection';
 import type { RangeWorkoutRow } from './features/health/workout/workoutMetrics';
-import { computeWorkoutPrBadgeMap } from './features/health/computeWorkoutPrBadge';
+import { computeWorkoutPrBadge, createWorkoutPrBadgeMapCache } from './features/health/computeWorkoutPrBadge';
 import { HealthBlockLibrary } from './features/health/HealthBlockLibrary';
 import { HealthSupportingPanels } from './features/health/HealthSupportingPanels';
 import type { HealthWorkoutCloudComparisonRequest } from './features/health/HealthWorkoutCloudComparisonPanel';
@@ -73,9 +73,7 @@ import { readHealthSectionPrefs } from './features/health/healthSectionPrefs';
 import { buildSetsFromPlannedCount, buildSetsFromPrevCount } from './features/health/workoutSetCount';
 import { fetchPrevWorkoutForBlocks } from './features/health/prevWorkoutFetch';
 import {
-  formatPreviousBestCue,
-  formatPreviousSetReference,
-  createPreviousSetReferenceMatcher,
+  createWorkoutPreviousCueCache,
 } from './features/health/previousMicroCue';
 import {
   editableWeightValue as editableWeightInput,
@@ -529,6 +527,10 @@ export const HealthView = ({
   const prevData = previousEnabled
     ? previousCurrentness.current ? previousOwner.payloads() : {}
     : legacyPrevData;
+  const workoutPreviousCueCache = useMemo(() => createWorkoutPreviousCueCache(), [
+    user.id, selectedDateDraftKey, previousEnabled, previousOwner, previousParentIdentity,
+    previousRejected, previousCurrentness.current,
+  ]);
   const previousState = (id: string) => previousCurrentness.current
     ? previousOwner.evidence(id).state : 'STALE_OR_SUPPRESSED' as const;
   const workoutAccountOperation = Object.freeze({ accountId: user.id, generation: accountGenerationRef.current });
@@ -1731,10 +1733,14 @@ export const HealthView = ({
     });
   }, [localWorkouts]);
 
-  const prBadgeMap = useMemo(() => {
-    const toDisplay = (kg: number, blockId: string) => parseFloat(displayKg(kg, blockId) || '0');
-    return computeWorkoutPrBadgeMap(localWorkouts, prevData, toDisplay, getUnit);
-  }, [localWorkouts, prevData, weightUnits]);
+  const prBadgeMapCache = useMemo(() => createWorkoutPrBadgeMapCache(computeWorkoutPrBadge), [
+    user.id, selectedDateDraftKey, previousEnabled, previousOwner, previousParentIdentity, previousRejected,
+  ]);
+  const toDisplayPrWeight = useCallback((kg: number, blockId: string) =>
+    parseFloat(formatCanonicalWeight(kg, weightUnits[blockId] === 'lbs' ? 'lbs' : 'kg') || '0'), [weightUnits]);
+  const prBadgeMap = useMemo(() => prBadgeMapCache(
+    localWorkouts, prevData, toDisplayPrWeight, getUnit,
+  ), [prBadgeMapCache, localWorkouts, prevData, toDisplayPrWeight, weightUnits]);
 
   const healthSectionIndex = HEALTH_WORKSPACE_SECTIONS.findIndex(s => s.id === healthSection);
   const openHealthDayLog = useCallback((section: 'workout' | 'nutrition') => {
@@ -2119,16 +2125,13 @@ export const HealthView = ({
               }
 
               /* ── 일반 운동 카드 렌더링 ── */
-              const previousSetMatcher = createPreviousSetReferenceMatcher(
-                prevData[w.block_id]?.prev_sets,
-                w.sets || [],
-                w.exercise_blocks?.type,
-              );
-              const previousBestCue = formatPreviousBestCue(
+              const previousCueProjection = workoutPreviousCueCache(
+                w,
                 prevData[w.block_id]?.prev_sets,
                 getUnit(w.block_id),
                 w.exercise_blocks?.type,
               );
+              const previousBestCue = previousCueProjection.previousBest;
               const previousBestReps = previousBestCue?.assistedReps
                 ? t('healthAssistedBreakdown')
                   .replace('{unassisted}', previousBestCue.reps ?? '')
@@ -2274,12 +2277,7 @@ export const HealthView = ({
                 <div className="space-y-2.5" data-k129c-set-group>
                   {(w.sets || []).map((s: WorkoutSet, sIdx: number) => {
                     const isDS = isStrengthSet(s) && s.is_dropset;
-                    const previousSet = previousSetMatcher.match(s);
-                    const previousSetCue = formatPreviousSetReference(
-                      previousSet,
-                      getUnit(w.block_id),
-                      w.exercise_blocks?.type,
-                    );
+                    const previousSetCue = previousCueProjection.previousSets[sIdx] ?? null;
                     const previousSetReps = previousSetCue?.assistedReps
                       ? t('healthAssistedBreakdown')
                         .replace('{unassisted}', previousSetCue.reps ?? '')

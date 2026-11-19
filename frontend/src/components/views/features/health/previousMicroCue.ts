@@ -1,4 +1,4 @@
-import { isStrengthSet, type StrengthSet, type WorkoutSet } from '../../../../types';
+import { isStrengthSet, type StrengthSet, type Workout, type WorkoutSet } from '../../../../types';
 import {
   getAssistedRepsBreakdown,
   hasAssistedRepsField,
@@ -290,4 +290,49 @@ export function formatPreviousSetReference(
   blockType = 'strength',
 ): PreviousPerformanceCue | null {
   return formatPreviousPerformance(previousSet, displayUnit, blockType);
+}
+
+export interface WorkoutPreviousCueProjection {
+  previousBest: PreviousPerformanceCue | null;
+  previousSets: Array<PreviousPerformanceCue | null>;
+}
+
+type WorkoutPreviousCueCacheEntry = {
+  sourcePreviousSets: readonly WorkoutSet[] | undefined;
+  currentSets: readonly WorkoutSet[];
+  displayUnit: WeightUnit;
+  blockType: string;
+  projection: WorkoutPreviousCueProjection;
+};
+
+/**
+ * Memoizes read-only cues for immutable Workout objects during one owner
+ * lifetime. Callers must create a fresh cache when account/date/source
+ * authority changes; weak keys let replaced draft rows be collected.
+ */
+export function createWorkoutPreviousCueCache() {
+  const entries = new WeakMap<Workout, WorkoutPreviousCueCacheEntry>();
+  return (
+    workout: Workout,
+    sourcePreviousSets: readonly WorkoutSet[] | undefined,
+    displayUnit: WeightUnit,
+    blockType = 'strength',
+  ): WorkoutPreviousCueProjection => {
+    const currentSets = workout.sets ?? [];
+    const cached = entries.get(workout);
+    if (cached && cached.sourcePreviousSets === sourcePreviousSets
+      && cached.currentSets === currentSets
+      && cached.displayUnit === displayUnit
+      && cached.blockType === blockType) return cached.projection;
+
+    const matcher = createPreviousSetReferenceMatcher(sourcePreviousSets, currentSets, blockType);
+    const projection: WorkoutPreviousCueProjection = {
+      previousBest: formatPreviousBestCue(sourcePreviousSets, displayUnit, blockType),
+      previousSets: currentSets.map(set => formatPreviousSetReference(
+        matcher.match(set), displayUnit, blockType,
+      )),
+    };
+    entries.set(workout, { sourcePreviousSets, currentSets, displayUnit, blockType, projection });
+    return projection;
+  };
 }
