@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import type { Theme } from '@/types';
 import type { PlannerCountdownRow } from '../../calendar';
 import { formatPlannerCountdownLabel } from '../../calendar/plannerCalendarPresentation';
@@ -5,6 +6,8 @@ import type { PlannerCalendarPresentation } from '../../calendar';
 import type { PlannerMonthViewPayload } from '../../calendar';
 import { MonthCalendarCell } from './MonthCalendarCell';
 import { buildMonthCellDisplayModels, chunkMonthCells } from './monthCalendarPresentation';
+
+const EMPTY_COUNTDOWNS: readonly PlannerCountdownRow[] = [];
 
 export interface MonthCalendarGridProps {
   month: PlannerMonthViewPayload;
@@ -21,18 +24,21 @@ export function MonthCalendarGrid({
   month,
   weekdayLabels,
   theme,
-  countdowns = [],
+  countdowns = EMPTY_COUNTDOWNS,
   presentation,
   onEventNoteClick,
   onDateSelect,
   onScheduleBlockClick,
 }: MonthCalendarGridProps) {
-  const formatCountdown = (daysUntil: number) =>
-    formatPlannerCountdownLabel(daysUntil, presentation?.locale ?? 'en');
-  const weeks = chunkMonthCells(
-    buildMonthCellDisplayModels(month.cells, countdowns, formatCountdown),
+  const locale = presentation?.locale ?? 'en';
+  const weeks = useMemo(() => chunkMonthCells(
+    buildMonthCellDisplayModels(
+      month.cells,
+      countdowns,
+      daysUntil => formatPlannerCountdownLabel(daysUntil, locale),
+    ),
     7,
-  );
+  ), [month.cells, countdowns, locale]);
 
   return (
     <div className="h-full min-h-0 flex flex-col" data-planner-month-grid>
