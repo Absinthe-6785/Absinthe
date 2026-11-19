@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import type { Theme } from '@/types';
 import {
   formatMonthOverflowLabel,
@@ -14,7 +15,7 @@ export interface MonthCalendarCellProps {
   onScheduleBlockClick?: (blockId: string) => void;
 }
 
-export function MonthCalendarCell({
+export const MonthCalendarCell = memo(function MonthCalendarCell({
   model,
   theme,
   onEventNoteClick,
@@ -150,6 +151,6 @@ export function MonthCalendarCell({
       </div>
     </div>
   );
-}
+});
 
 export type { MonthCellDisplayModel };
