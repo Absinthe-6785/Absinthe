@@ -2,6 +2,7 @@
 // Frozen reverse hunks work in shallow CI; both Git blob identities are mandatory.
 // Only immutable source text is shared. Every call evaluates fresh module exports.
 import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import ts from 'typescript';
 
@@ -657,12 +658,22 @@ function reverseWorkoutInputRenderProjectionCache(source: string): string {
 
 export async function loadExactMainHealthView(importer: (specifier: string) => Promise<unknown>) {
   const blob = (text: string) => createHash('sha1').update('blob ' + Buffer.byteLength(text) + '\0').update(text).digest('hex');
-  let source = readFileSync('src/components/views/HealthView.tsx', 'utf8').replace(/\r\n/g, '\n');
-  source = reverseQuickAddMobileImprovements(source);
-  source = reverseWorkoutInputRenderProjectionCache(source);
-  for (const [index, hunk] of BASELINE_REVERSE_HUNKS.entries()) {
-    if (!source.includes(hunk.candidate)) throw new Error(`Exact-main reconstruction hunk ${index} missing`);
-    source = source.replace(hunk.candidate, hunk.baseline);
+  let source: string;
+  try {
+    source = execFileSync('git', [
+      'show', `${EXACT_MAIN}:frontend/src/components/views/HealthView.tsx`,
+    ], { encoding: 'utf8' }).replace(/\r\n/g, '\n');
+  } catch {
+    // Keep local shallow-checkout support for the previously pinned candidate shape.
+    source = readFileSync('src/components/views/HealthView.tsx', 'utf8').replace(/\r\n/g, '\n');
+    if (blob(source) !== '9a7b9b64727bb2780673b179a4d114e64c8ed08d')
+      throw new Error('EXACT_MAIN_SOURCE_UNAVAILABLE');
+    source = reverseQuickAddMobileImprovements(source);
+    source = reverseWorkoutInputRenderProjectionCache(source);
+    for (const [index, hunk] of BASELINE_REVERSE_HUNKS.entries()) {
+      if (!source.includes(hunk.candidate)) throw new Error(`Exact-main reconstruction hunk ${index} missing`);
+      source = source.replace(hunk.candidate, hunk.baseline);
+    }
   }
   if (blob(source) !== BASELINE_HEALTH_BLOB || blob(BASELINE_SCOPE_SOURCE) !== BASELINE_SCOPE_BLOB)
     throw new Error('EXACT_MAIN_BASELINE_IDENTITY');
@@ -692,7 +703,7 @@ export async function loadExactMainHealthView(importer: (specifier: string) => P
 export async function loadCandidateHealthView(importer: (specifier: string) => Promise<unknown>) {
   const source = readFileSync('src/components/views/HealthView.tsx', 'utf8').replace(/\r\n/g, '\n');
   const healthBlob = createHash('sha1').update('blob ' + Buffer.byteLength(source) + '\0').update(source).digest('hex');
-  if (healthBlob !== '9a7b9b64727bb2780673b179a4d114e64c8ed08d') throw new Error('CANDIDATE_PRODUCTION_BLOB_CHANGED');
+  if (healthBlob !== 'bc84413feb0193ef77ce4dc01d977b01748b60e0') throw new Error('CANDIDATE_PRODUCTION_BLOB_CHANGED');
   const candidateFault: string | null = null; // bounded in-memory child transform only
   let observedSource = source;
   if (candidateFault === 'reset-saving') observedSource = source.replaceAll('setIsSaving(false);', 'setIsSaving(true);');
