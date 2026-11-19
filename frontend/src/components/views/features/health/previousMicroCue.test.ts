@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import type { CardioSet, StrengthSet, WorkoutSet } from '../../../../types';
+import type { CardioSet, StrengthSet, Workout, WorkoutSet } from '../../../../types';
 import {
   createPreviousSetReferenceMatcher,
+  createWorkoutPreviousCueCache,
   formatPreviousBestCue,
   formatPreviousSetReference,
   matchPreviousSetReference,
@@ -66,6 +67,31 @@ const cardio: CardioSet = {
 };
 
 describe('Health previous set references', () => {
+  it('reuses the exact cue projection for unchanged workout/source inputs and invalidates changed dependencies', () => {
+    const current = [strength({ set: 1, reps: '8' }), strength({ set: 2, reps: '6' })];
+    const previous = [strength({ set: 1, kg: '80', reps: '7' }), strength({ set: 2, kg: '70', reps: '6' })];
+    const workout = { id: 'cue-cache', block_id: 'bench', sets: current } as Workout;
+    const cache = createWorkoutPreviousCueCache();
+    const projection = cache(workout, previous, 'kg', 'strength');
+    const matcher = createPreviousSetReferenceMatcher(previous, current, 'strength');
+    expect(projection).toEqual({
+      previousBest: formatPreviousBestCue(previous, 'kg', 'strength'),
+      previousSets: current.map(set => formatPreviousSetReference(matcher.match(set), 'kg', 'strength')),
+    });
+    expect(cache(workout, previous, 'kg', 'strength')).toBe(projection);
+
+    const replacedPrevious = [...previous];
+    expect(cache(workout, replacedPrevious, 'kg', 'strength')).not.toBe(projection);
+    expect(cache(workout, replacedPrevious, 'lbs', 'strength'))
+      .not.toBe(cache(workout, replacedPrevious, 'kg', 'strength'));
+    expect(cache(workout, replacedPrevious, 'lbs', 'bodyweight'))
+      .not.toBe(cache(workout, replacedPrevious, 'lbs', 'strength'));
+    expect(cache({ ...workout, sets: [...current] }, replacedPrevious, 'lbs', 'strength'))
+      .not.toBe(cache(workout, replacedPrevious, 'lbs', 'strength'));
+    expect(createWorkoutPreviousCueCache()(workout, replacedPrevious, 'lbs', 'strength'))
+      .not.toBe(cache(workout, replacedPrevious, 'lbs', 'strength'));
+  });
+
   it('reduces repeated scan work for multi-exercise and large set groups with identical results', () => {
     const baseline = measureMatcher('scan');
     const optimized = measureMatcher('indexed');

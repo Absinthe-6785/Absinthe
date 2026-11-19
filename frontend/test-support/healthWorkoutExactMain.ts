@@ -622,10 +622,44 @@ function reverseQuickAddMobileImprovements(source: string): string {
   return source;
 }
 
+function reverseWorkoutInputRenderProjectionCache(source: string): string {
+  const replace = (candidate: string, baseline: string) => {
+    if (!source.includes(candidate)) throw new Error('Workout input projection cache reconstruction hunk missing');
+    source = source.replace(candidate, baseline);
+  };
+
+  replace(
+    "import { computeWorkoutPrBadge, createWorkoutPrBadgeMapCache } from './features/health/computeWorkoutPrBadge';",
+    "import { computeWorkoutPrBadgeMap } from './features/health/computeWorkoutPrBadge';",
+  );
+  replace(
+    "import {\n  createWorkoutPreviousCueCache,\n} from './features/health/previousMicroCue';",
+    "import {\n  formatPreviousBestCue,\n  formatPreviousSetReference,\n  createPreviousSetReferenceMatcher,\n} from './features/health/previousMicroCue';",
+  );
+  replace(
+    "  const workoutPreviousCueCache = useMemo(() => createWorkoutPreviousCueCache(), [\n    user.id, selectedDateDraftKey, previousEnabled, previousOwner, previousParentIdentity,\n    previousRejected, previousCurrentness.current,\n  ]);\n",
+    '',
+  );
+  replace(
+    "  const prBadgeMapCache = useMemo(() => createWorkoutPrBadgeMapCache(computeWorkoutPrBadge), [\n    user.id, selectedDateDraftKey, previousEnabled, previousOwner, previousParentIdentity, previousRejected,\n  ]);\n  const toDisplayPrWeight = useCallback((kg: number, blockId: string) =>\n    parseFloat(formatCanonicalWeight(kg, weightUnits[blockId] === 'lbs' ? 'lbs' : 'kg') || '0'), [weightUnits]);\n  const prBadgeMap = useMemo(() => prBadgeMapCache(\n    localWorkouts, prevData, toDisplayPrWeight, getUnit,\n  ), [prBadgeMapCache, localWorkouts, prevData, toDisplayPrWeight, weightUnits]);",
+    "  const prBadgeMap = useMemo(() => {\n    const toDisplay = (kg: number, blockId: string) => parseFloat(displayKg(kg, blockId) || '0');\n    return computeWorkoutPrBadgeMap(localWorkouts, prevData, toDisplay, getUnit);\n  }, [localWorkouts, prevData, weightUnits]);",
+  );
+  replace(
+    "              const previousCueProjection = workoutPreviousCueCache(\n                w,\n                prevData[w.block_id]?.prev_sets,\n                getUnit(w.block_id),\n                w.exercise_blocks?.type,\n              );\n              const previousBestCue = previousCueProjection.previousBest;",
+    "              const previousSetMatcher = createPreviousSetReferenceMatcher(\n                prevData[w.block_id]?.prev_sets,\n                w.sets || [],\n                w.exercise_blocks?.type,\n              );\n              const previousBestCue = formatPreviousBestCue(\n                prevData[w.block_id]?.prev_sets,\n                getUnit(w.block_id),\n                w.exercise_blocks?.type,\n              );",
+  );
+  replace(
+    '                    const previousSetCue = previousCueProjection.previousSets[sIdx] ?? null;',
+    "                    const previousSet = previousSetMatcher.match(s);\n                    const previousSetCue = formatPreviousSetReference(\n                      previousSet,\n                      getUnit(w.block_id),\n                      w.exercise_blocks?.type,\n                    );",
+  );
+  return source;
+}
+
 export async function loadExactMainHealthView(importer: (specifier: string) => Promise<unknown>) {
   const blob = (text: string) => createHash('sha1').update('blob ' + Buffer.byteLength(text) + '\0').update(text).digest('hex');
   let source = readFileSync('src/components/views/HealthView.tsx', 'utf8').replace(/\r\n/g, '\n');
   source = reverseQuickAddMobileImprovements(source);
+  source = reverseWorkoutInputRenderProjectionCache(source);
   for (const [index, hunk] of BASELINE_REVERSE_HUNKS.entries()) {
     if (!source.includes(hunk.candidate)) throw new Error(`Exact-main reconstruction hunk ${index} missing`);
     source = source.replace(hunk.candidate, hunk.baseline);
@@ -658,7 +692,7 @@ export async function loadExactMainHealthView(importer: (specifier: string) => P
 export async function loadCandidateHealthView(importer: (specifier: string) => Promise<unknown>) {
   const source = readFileSync('src/components/views/HealthView.tsx', 'utf8').replace(/\r\n/g, '\n');
   const healthBlob = createHash('sha1').update('blob ' + Buffer.byteLength(source) + '\0').update(source).digest('hex');
-  if (healthBlob !== '622a8dbe39f8d05010d8d4af49de21aecd629fab') throw new Error('CANDIDATE_PRODUCTION_BLOB_CHANGED');
+  if (healthBlob !== '9a7b9b64727bb2780673b179a4d114e64c8ed08d') throw new Error('CANDIDATE_PRODUCTION_BLOB_CHANGED');
   const candidateFault: string | null = null; // bounded in-memory child transform only
   let observedSource = source;
   if (candidateFault === 'reset-saving') observedSource = source.replaceAll('setIsSaving(false);', 'setIsSaving(true);');

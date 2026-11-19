@@ -100,6 +100,17 @@ const mocks = vi.hoisted(() => ({
     createNote: vi.fn(),
     updateNote: vi.fn(),
   },
+  weightUnits: {} as Record<string, 'kg' | 'lbs'>,
+  toggleWeightUnit: vi.fn(),
+  perf: {
+    matcherBuilds: 0,
+    matcherLookups: 0,
+    previousBestFormats: 0,
+    previousSetFormats: 0,
+    prBadgeComputations: 0,
+    prCurrentSetVisits: 0,
+    prPreviousSetVisits: 0,
+  },
 }));
 
 vi.mock('../../lib/config', () => ({ API_URL: 'https://example.test' }));
@@ -127,7 +138,7 @@ vi.mock('../../hooks/useEscapeKey', () => ({ useEscapeKey: vi.fn() }));
 vi.mock('../../hooks/useIsMobile', () => ({ useIsMobile: () => mocks.mobile }));
 vi.mock('../../hooks/useSwipeNavigation', () => ({ useSwipeNavigation: () => vi.fn() }));
 vi.mock('../../store/useAppStore', () => ({
-  useAppStore: () => ({ weightUnits: {}, toggleWeightUnit: vi.fn() }),
+  useAppStore: () => ({ weightUnits: mocks.weightUnits, toggleWeightUnit: mocks.toggleWeightUnit }),
 }));
 vi.mock('../../store/useNotesStore', () => ({
   useNotesStore: (selector: (state: typeof mocks.notesState) => unknown) => selector(mocks.notesState),
@@ -212,7 +223,32 @@ vi.mock('./k102DateFormat', () => ({
   formatLongDate: (value: Date) => value.toISOString().slice(0, 10),
 }));
 vi.mock('./features/health/buildHealthProjection', () => ({ buildHealthProjection: () => ({ workoutDates: [] }) }));
-vi.mock('./features/health/computeWorkoutPrBadge', () => ({ computeWorkoutPrBadgeMap: () => ({}) }));
+vi.mock('./features/health/computeWorkoutPrBadge', async importOriginal => {
+  const real = await importOriginal<typeof import('./features/health/computeWorkoutPrBadge')>();
+  return {
+    ...real,
+    computeWorkoutPrBadge: (...args: Parameters<typeof real.computeWorkoutPrBadge>) => {
+      mocks.perf.prBadgeComputations += 1;
+      mocks.perf.prCurrentSetVisits += args[0].sets.length;
+      mocks.perf.prPreviousSetVisits += args[1]?.prev_sets.length ?? 0;
+      return real.computeWorkoutPrBadge(...args);
+    },
+    computeWorkoutPrBadgeMap: (...args: Parameters<typeof real.computeWorkoutPrBadgeMap>) => {
+      const [workouts, prevData, toDisplay, getUnit] = args;
+      const map: Record<string, ReturnType<typeof real.computeWorkoutPrBadge>> = {};
+      for (const workout of workouts) {
+        if (workout.block_id === '__session__') continue;
+        mocks.perf.prBadgeComputations += 1;
+        mocks.perf.prCurrentSetVisits += workout.sets.length;
+        mocks.perf.prPreviousSetVisits += prevData[workout.block_id]?.prev_sets.length ?? 0;
+        map[workout.block_id] = real.computeWorkoutPrBadge(
+          workout, prevData[workout.block_id], toDisplay, getUnit(workout.block_id),
+        );
+      }
+      return map;
+    },
+  };
+});
 vi.mock('./features/health/prevWorkoutFetch', () => ({
   fetchPrevWorkoutForBlocks: (...args: unknown[]) => mocks.fetchPrevious(...args),
 }));
@@ -225,12 +261,43 @@ vi.mock('./features/health/previousWorkoutProjection', () => ({
   buildPreviousWorkoutHistoryProjection: () => mocks.previousProjection
     ?? ({ sessions: [], automaticDate: null, effectiveDate: null, session: null }),
 }));
-vi.mock('./features/health/previousMicroCue', () => ({
-  createPreviousSetReferenceMatcher: () => ({ match: () => null }),
-  formatPreviousBestCue: () => '',
-  formatPreviousSetReference: () => '',
-  matchPreviousSetReference: () => null,
-}));
+vi.mock('./features/health/previousMicroCue', async importOriginal => {
+  const real = await importOriginal<typeof import('./features/health/previousMicroCue')>();
+  return {
+    ...real,
+    createWorkoutPreviousCueCache: () => {
+      const getProjection = real.createWorkoutPreviousCueCache();
+      const projections = new WeakMap<object, object>();
+      return (workout: Parameters<typeof getProjection>[0], ...args: Parameters<typeof getProjection> extends [unknown, ...infer Rest] ? Rest : never) => {
+        const projection = getProjection(workout, ...args);
+        if (projections.get(workout) !== projection) {
+          mocks.perf.matcherBuilds += 1;
+          mocks.perf.matcherLookups += workout.sets.length;
+          mocks.perf.previousBestFormats += 1;
+          mocks.perf.previousSetFormats += workout.sets.length;
+        }
+        projections.set(workout, projection);
+        return projection;
+      };
+    },
+    createPreviousSetReferenceMatcher: (...args: Parameters<typeof real.createPreviousSetReferenceMatcher>) => {
+      mocks.perf.matcherBuilds += 1;
+      const matcher = real.createPreviousSetReferenceMatcher(...args);
+      return { match: (set: Parameters<typeof matcher.match>[0]) => {
+        mocks.perf.matcherLookups += 1;
+        return matcher.match(set);
+      } };
+    },
+    formatPreviousBestCue: (...args: Parameters<typeof real.formatPreviousBestCue>) => {
+      mocks.perf.previousBestFormats += 1;
+      return real.formatPreviousBestCue(...args);
+    },
+    formatPreviousSetReference: (...args: Parameters<typeof real.formatPreviousSetReference>) => {
+      mocks.perf.previousSetFormats += 1;
+      return real.formatPreviousSetReference(...args);
+    },
+  };
+});
 vi.mock('./features/health/healthSectionPrefs', () => ({ readHealthSectionPrefs: () => ({}) }));
 vi.mock('../../lib/i18n', () => ({
   useTranslation: () => ({
@@ -348,6 +415,18 @@ function row(id = '11111111-1111-4111-8111-111111111111', kg = '20', block = blo
   return { id, block_id: block.id, exercise_blocks: { ...block }, local_version: 'v1',
     sets: [{ type: 'strength', set: 1, kg, reps: '5', done: true }] };
 }
+function renderCostFixture(exerciseCount: number, setsPerExercise: number): Workout[] {
+  return Array.from({ length: exerciseCount }, (_, exerciseIndex) => {
+    const blockId = `render-cost-${exerciseIndex}`;
+    const block = { ...blocks[0]!, id: blockId, name: `Render Cost ${exerciseIndex}` };
+    return {
+      ...row(`render-cost-workout-${exerciseIndex}`, '20', block),
+      sets: Array.from({ length: setsPerExercise }, (_, setIndex) => ({
+        type: 'strength' as const, set: setIndex + 1, kg: String(40 + setIndex), reps: '8', done: false,
+      })),
+    };
+  });
+}
 const DRAFT_X = [row()], DRAFT_Y = [row('22222222-2222-4222-8222-222222222222', '45', blocks[1]!)];
 const DRAFT_Z = [row('33333333-3333-4333-8333-333333333333', '70')];
 const HYDRATED = [row('44444444-4444-4444-8444-444444444444', '99')];
@@ -462,6 +541,10 @@ beforeEach(() => {
   mocks.authFetch.mockReset().mockResolvedValue(new Response(null, { status: 201 }));
   mocks.showToast.mockReset(); mocks.mutateDaily.mockReset(); mocks.mutateStatic.mockReset();
   mocks.previousProjection = null; mocks.previousActionCallback = null;
+  Object.assign(mocks.perf, {
+    matcherBuilds: 0, matcherLookups: 0, previousBestFormats: 0, previousSetFormats: 0,
+    prBadgeComputations: 0, prCurrentSetVisits: 0, prPreviousSetVisits: 0,
+  });
   mocks.saveHealthWorkouts.mockReset().mockResolvedValue({ status: 'success', total: 1, succeeded: 1, failed: 0 });
   mocks.deleteHealthWorkout.mockReset().mockResolvedValue({ status: 'success' });
   mocks.repositoryFactory.mockReset().mockImplementation(async (accountId: string) => {
@@ -906,4 +989,162 @@ describe('shared date lifetime real mounted Save/Delete', () => {
     await invoke(removeCallback()); expect(snapshot().rows).toEqual([]); expect(snapshot().bytes).toBeNull();
     expect(mocks.inputs).toHaveLength(0);
   });
+});
+
+describe('Health workout read-only projection cost', () => {
+  it.each([
+    { exercises: 8, sets: 5, label: 'moderate' },
+    { exercises: 40, sets: 8, label: 'stress' },
+  ])('measures repeated card projections on $label fixtures', async ({ exercises, sets }) => {
+    seed();
+    const rows = renderCostFixture(exercises, sets);
+    storage.setItem(localHealthDraftKey(A, X), JSON.stringify(rows));
+    const previousSets = Array.from({ length: sets }, (_, setIndex) => ({
+      type: 'strength' as const, set: setIndex + 1, kg: String(35 + setIndex), reps: '7', done: true,
+    }));
+    mocks.fetchPrevious.mockImplementation(async (ids: string[]) => Object.fromEntries(ids.map(id => [id, {
+      prev_sets: previousSets, prev_date: '2026-01-09', pr_kg: 30,
+    }])));
+
+    await render();
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(mocks.draft.localWorkouts).toHaveLength(exercises);
+    await vi.waitFor(() => expect(host.querySelectorAll('[data-health-previous-micro-cue]')).toHaveLength(exercises));
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+    await render();
+    const previousReadCalls = mocks.fetchPrevious.mock.calls.length;
+    const remoteCalls = mocks.authFetch.mock.calls.length;
+    const persistenceCalls = mocks.inputs.length;
+
+    const firstCard = host.querySelector<HTMLElement>('[data-k126-workout-exercise-card][data-workout-index="0"]');
+    const repsInput = firstCard?.querySelector<HTMLInputElement>('input[inputmode="numeric"]');
+    if (!firstCard || !repsInput) throw new Error('Performance fixture workout input absent');
+    repsInput.focus();
+    Object.assign(mocks.perf, {
+      matcherBuilds: 0, matcherLookups: 0, previousBestFormats: 0, previousSetFormats: 0,
+      prBadgeComputations: 0, prCurrentSetVisits: 0, prPreviousSetVisits: 0,
+    });
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(repsInput, '9');
+      repsInput.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(document.activeElement).toBe(repsInput);
+    expect(repsInput.value).toBe('9');
+    const baselineInputProjectionCalls = 2 * exercises;
+    const baselineInputSetVisits = 2 * exercises * sets;
+    const baselinePrBadgeComputations = exercises;
+    const baselinePrCurrentSetVisits = exercises * sets;
+    const baselinePrPreviousSetVisits = exercises * sets;
+    expect(mocks.perf).toEqual({
+      matcherBuilds: 1,
+      matcherLookups: sets,
+      previousBestFormats: 1,
+      previousSetFormats: sets,
+      prBadgeComputations: 1,
+      prCurrentSetVisits: sets,
+      prPreviousSetVisits: sets,
+    });
+    expect(mocks.perf.matcherBuilds).toBeLessThan(baselineInputProjectionCalls);
+    expect(mocks.perf.matcherLookups).toBeLessThan(baselineInputSetVisits);
+    expect(mocks.perf.previousSetFormats).toBeLessThan(baselineInputSetVisits);
+    expect(mocks.perf.prBadgeComputations).toBeLessThan(baselinePrBadgeComputations);
+    expect(mocks.perf.prCurrentSetVisits).toBeLessThan(baselinePrCurrentSetVisits);
+    expect(mocks.perf.prPreviousSetVisits).toBeLessThan(baselinePrPreviousSetVisits);
+
+    const weightInput = firstCard.querySelector<HTMLInputElement>('input[inputmode="decimal"]');
+    if (!weightInput) throw new Error('Performance fixture weight input absent');
+    await act(async () => weightInput.focus());
+    Object.assign(mocks.perf, {
+      matcherBuilds: 0, matcherLookups: 0, previousBestFormats: 0, previousSetFormats: 0,
+      prBadgeComputations: 0, prCurrentSetVisits: 0, prPreviousSetVisits: 0,
+    });
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(weightInput, '43.5');
+      weightInput.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(document.activeElement).toBe(weightInput);
+    expect(weightInput.value).toBe('43.5');
+    expect(snapshot().rows[0]!.sets[0]!.kg).toBe('43.5');
+    expect(mocks.perf).toEqual({
+      matcherBuilds: 1,
+      matcherLookups: sets,
+      previousBestFormats: 1,
+      previousSetFormats: sets,
+      prBadgeComputations: 1,
+      prCurrentSetVisits: sets,
+      prPreviousSetVisits: sets,
+    });
+
+    const completionButton = firstCard.querySelector<HTMLButtonElement>('button.w-11.h-11');
+    if (!completionButton) throw new Error('Workout completion control absent');
+    Object.assign(mocks.perf, {
+      matcherBuilds: 0, matcherLookups: 0, previousBestFormats: 0, previousSetFormats: 0,
+      prBadgeComputations: 0, prCurrentSetVisits: 0, prPreviousSetVisits: 0,
+    });
+    await act(async () => completionButton.click());
+    expect(mocks.perf).toEqual({
+      matcherBuilds: 1,
+      matcherLookups: sets,
+      previousBestFormats: 1,
+      previousSetFormats: sets,
+      prBadgeComputations: 1,
+      prCurrentSetVisits: sets,
+      prPreviousSetVisits: sets,
+    });
+
+    Object.assign(mocks.perf, {
+      matcherBuilds: 0, matcherLookups: 0, previousBestFormats: 0, previousSetFormats: 0,
+      prBadgeComputations: 0, prCurrentSetVisits: 0, prPreviousSetVisits: 0,
+    });
+    await act(async () => button('healthDoneNextShort').click());
+    expect(mocks.draft.localWorkouts[0]!.sets).toHaveLength(sets + 1);
+    expect(mocks.perf).toEqual({
+      matcherBuilds: 1,
+      matcherLookups: sets + 1,
+      previousBestFormats: 1,
+      previousSetFormats: sets + 1,
+      prBadgeComputations: 1,
+      prCurrentSetVisits: sets + 1,
+      prPreviousSetVisits: sets,
+    });
+
+    const lastSetTrigger = host.querySelector<HTMLButtonElement>(`[data-health-set-actions-trigger="${sets + 1}"]`);
+    if (!lastSetTrigger) throw new Error('New set action trigger absent');
+    await act(async () => lastSetTrigger.click());
+    const deleteAction = document.querySelector<HTMLButtonElement>('[data-health-set-delete-action]');
+    if (!deleteAction) throw new Error('Delete set action absent');
+    Object.assign(mocks.perf, {
+      matcherBuilds: 0, matcherLookups: 0, previousBestFormats: 0, previousSetFormats: 0,
+      prBadgeComputations: 0, prCurrentSetVisits: 0, prPreviousSetVisits: 0,
+    });
+    await act(async () => deleteAction.click());
+    expect(mocks.draft.localWorkouts[0]!.sets).toHaveLength(sets);
+    expect(mocks.perf).toEqual({
+      matcherBuilds: 1,
+      matcherLookups: sets,
+      previousBestFormats: 1,
+      previousSetFormats: sets,
+      prBadgeComputations: 1,
+      prCurrentSetVisits: sets,
+      prPreviousSetVisits: sets,
+    });
+
+    Object.assign(mocks.perf, {
+      matcherBuilds: 0, matcherLookups: 0, previousBestFormats: 0, previousSetFormats: 0,
+      prBadgeComputations: 0, prCurrentSetVisits: 0, prPreviousSetVisits: 0,
+    });
+    await render({ appSettings: { darkMode: true } as HealthProps['appSettings'] });
+    expect(mocks.perf).toEqual({
+      matcherBuilds: 0,
+      matcherLookups: 0,
+      previousBestFormats: 0,
+      previousSetFormats: 0,
+      prBadgeComputations: 0,
+      prCurrentSetVisits: 0,
+      prPreviousSetVisits: 0,
+    });
+    expect(mocks.fetchPrevious).toHaveBeenCalledTimes(previousReadCalls);
+    expect(mocks.authFetch).toHaveBeenCalledTimes(remoteCalls);
+    expect(mocks.inputs).toHaveLength(persistenceCalls);
+  }, 15_000);
 });

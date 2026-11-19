@@ -64,3 +64,44 @@ export function computeWorkoutPrBadgeMap(
   }
   return map;
 }
+
+type WorkoutPrBadgeCacheEntry = {
+  previous: PrevBlockData | undefined;
+  unit: 'kg' | 'lbs';
+  toDisplay: (kg: number, blockId: string) => number;
+  value: WorkoutPrBadgeData | null;
+};
+
+/**
+ * Reuses per-Workout PR projections while immutable draft rows and their
+ * previous-data source remain unchanged. The cache is intended to be scoped
+ * by the owning Health view's account/date/source lifetime.
+ */
+export function createWorkoutPrBadgeMapCache(
+  compute: typeof computeWorkoutPrBadge = computeWorkoutPrBadge,
+) {
+  const entries = new WeakMap<Workout, WorkoutPrBadgeCacheEntry>();
+  return (
+    workouts: readonly Workout[],
+    prevData: Record<string, PrevBlockData>,
+    toDisplay: (kg: number, blockId: string) => number,
+    getUnit: (blockId: string) => 'kg' | 'lbs',
+  ): Record<string, WorkoutPrBadgeData | null> => {
+    const map: Record<string, WorkoutPrBadgeData | null> = {};
+    for (const workout of workouts) {
+      if (workout.block_id === '__session__') continue;
+      const previous = prevData[workout.block_id];
+      const unit = getUnit(workout.block_id);
+      const cached = entries.get(workout);
+      const value = cached && cached.previous === previous && cached.unit === unit
+        && cached.toDisplay === toDisplay
+        ? cached.value
+        : compute(workout, previous, toDisplay, unit);
+      if (!cached || cached.previous !== previous || cached.unit !== unit || cached.toDisplay !== toDisplay) {
+        entries.set(workout, { previous, unit, toDisplay, value });
+      }
+      map[workout.block_id] = value;
+    }
+    return map;
+  };
+}
