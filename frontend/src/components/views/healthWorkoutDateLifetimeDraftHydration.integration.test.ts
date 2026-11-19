@@ -586,6 +586,36 @@ describe('Health mobile Quick Add Exercise sheet', () => {
     expect(mocks.authFetch).toHaveBeenCalledTimes(requestsBefore);
   });
 
+  it('refreshes indexed search results when the account-scoped block source is replaced', async () => {
+    mocks.mobile = true;
+    const source = Array.from({ length: 50 }, (_, index) => ({
+      id: `exercise-${index}`, name: `Exercise ${index}`, type: 'strength', tags: [`tag-${index}`], cardio_mode: 'both' as const,
+    }));
+    await render({ healthBlocks: source });
+    await act(async () => { host.querySelector<HTMLButtonElement>('[data-health-quick-add-exercise]')!.click(); });
+
+    const search = host.querySelector<HTMLInputElement>('[data-health-quick-add-search]')!;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+    await act(async () => {
+      setter.call(search, 'tag-49');
+      search.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(host.querySelector('[data-health-quick-add-block="exercise-49"]')).not.toBeNull();
+    expect(host.querySelector('[data-health-quick-add-block="exercise-4"]')).toBeNull();
+
+    const replacement = [...source.slice(0, 49), {
+      ...source[49]!, name: 'Renamed target', tags: ['fresh-tag'],
+    }];
+    await render({ healthBlocks: replacement });
+    expect(host.querySelector('[data-health-quick-add-block="exercise-49"]')).toBeNull();
+    await act(async () => {
+      setter.call(search, 'fresh-tag');
+      search.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(host.querySelector('[data-health-quick-add-block="exercise-49"]')?.textContent).toContain('Renamed target');
+    expect(host.querySelector('[data-health-quick-add-block="exercise-4"]')).toBeNull();
+  });
+
   it('traps keyboard focus, closes on Escape, and restores focus to the initiating control', async () => {
     mocks.mobile = true;
     await render();

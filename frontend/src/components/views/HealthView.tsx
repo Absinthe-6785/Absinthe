@@ -43,6 +43,7 @@ import { PreviousWorkoutSheet } from './features/health/PreviousWorkoutSheet';
 import { previousWorkoutSWRConfig } from './features/health/previousWorkoutSWR';
 import { HealthMobileSetupNav, type HealthMobileSurface, type HealthSetupSection } from './features/health/HealthMobileSetupNav';
 import { HealthMobileWorkoutActions } from './features/health/HealthMobileWorkoutActions';
+import { createHealthQuickAddSearchIndex, searchHealthQuickAddIndex } from './features/health/healthQuickAddSearch';
 import { HealthAssistedRepsInput } from './features/health/HealthAssistedRepsInput';
 import { HealthSetActions } from './features/health/HealthSetActions';
 import {
@@ -1214,11 +1215,12 @@ export const HealthView = ({
     setActiveDayForm(currentDayNumber >= 1 && currentDayNumber <= nextPreset.splitCount ? activeDayForm : 'Day 1');
   };
 
-  const quickAddBlocks = useMemo(() => {
-    const query = quickAddQuery.trim().toLowerCase();
-    return (healthBlocks ?? []).filter(block => !query
-      || [block.name, ...(block.tags ?? [])].join(' ').toLowerCase().includes(query));
-  }, [healthBlocks, quickAddQuery]);
+  const quickAddSearchIndex = useMemo(() => createHealthQuickAddSearchIndex(healthBlocks ?? []), [
+    healthBlocks, user.id, accountGenerationRef.current,
+  ]);
+  const quickAddMatches = useMemo(() => searchHealthQuickAddIndex(quickAddSearchIndex, quickAddQuery), [
+    quickAddSearchIndex, quickAddQuery,
+  ]);
 
   // ── 세션 구분선 ───────────────────────────────────────────────────
   const SESSION_KEYS = ['sessionMorning', 'sessionAfternoon', 'sessionEvening'] as const;
@@ -2655,9 +2657,9 @@ export const HealthView = ({
               data-health-quick-add-search
             />
             <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain" data-health-quick-add-list>
-              {quickAddBlocks.length === 0 ? (
+              {quickAddMatches.length === 0 ? (
                 <p className={`py-6 text-center text-sm font-semibold ${theme.textMuted}`}>{t('healthExerciseSearchEmpty')}</p>
-              ) : quickAddBlocks.map(block => (
+              ) : quickAddMatches.map(({ block }) => (
                 <button
                   key={block.id}
                   type="button"
