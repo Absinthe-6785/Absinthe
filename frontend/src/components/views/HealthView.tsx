@@ -44,6 +44,7 @@ import { previousWorkoutSWRConfig } from './features/health/previousWorkoutSWR';
 import { HealthMobileSetupNav, type HealthMobileSurface, type HealthSetupSection } from './features/health/HealthMobileSetupNav';
 import { HealthMobileWorkoutActions } from './features/health/HealthMobileWorkoutActions';
 import { createHealthQuickAddSearchIndex, searchHealthQuickAddIndex } from './features/health/healthQuickAddSearch';
+import { createHealthRoutineAssemblyLookup } from './features/health/routineAssemblyLookup';
 import { HealthAssistedRepsInput } from './features/health/HealthAssistedRepsInput';
 import { HealthSetActions } from './features/health/HealthSetActions';
 import {
@@ -2766,6 +2767,8 @@ export const HealthView = ({
 
       {/* ── 루틴 조합 모달 ── */}
       {routinePresetAccountReady && showAssembleModal && assemblyMatchesScope && (() => {
+        // Rebuild per render: preserve first-match behavior without relying on immutable source updates.
+        const { blockById, selectedIndexById } = createHealthRoutineAssemblyLookup(healthBlocks ?? [], tempRoutineBlocks);
         // 태그별 그룹화 — Assemble 모달
         const assembleGroups: Record<string, ExerciseBlock[]> = {};
         (healthBlocks || []).forEach((b: ExerciseBlock) => {
@@ -2795,7 +2798,7 @@ export const HealthView = ({
                   <p className={`text-[11px] font-bold mb-2 ${theme.textMuted}`}>{t('orderDrag')}</p>
                   <div className="flex flex-col gap-1.5">
                     {tempRoutineBlocks.map((id, idx) => {
-                      const b = (healthBlocks || []).find((bk: ExerciseBlock) => bk.id === id);
+                      const b = blockById.get(id);
                       if (!b) return null;
                       const isDraggingThis = routineDragIdx === idx;
                       const isDragOver = routineDragOverIdx === idx && routineDragIdx !== idx;
@@ -2883,8 +2886,8 @@ export const HealthView = ({
                     </p>
                     <div className="flex flex-wrap gap-2">
                       {assembleGroups[tag].map((b: ExerciseBlock) => {
-                        const sel = tempRoutineBlocks.includes(b.id);
-                        const selIdx = tempRoutineBlocks.indexOf(b.id);
+                        const selIdx = selectedIndexById.get(b.id);
+                        const sel = selIdx !== undefined;
                         return (
                           <div key={b.id} onClick={() => toggleBlockInRoutine(b.id)}
                             className={`relative text-sm font-semibold px-4 py-2.5 rounded-xl border-2 cursor-pointer transition-all select-none
