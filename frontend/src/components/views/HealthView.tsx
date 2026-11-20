@@ -635,6 +635,54 @@ export const HealthView = ({
 
   // ── Draft 자동 저장/복원 ──────────────────────────────────────────
   const selectedDateDraftKey = formatDate(selectedDate);
+  const workoutPresentationFramesRef = useRef(new Set<number>());
+  const scheduleWorkoutPresentationFrame = useCallback((callback: FrameRequestCallback) => {
+    let requestId = 0;
+    requestId = requestAnimationFrame(timestamp => {
+      workoutPresentationFramesRef.current.delete(requestId);
+      callback(timestamp);
+    });
+    workoutPresentationFramesRef.current.add(requestId);
+    return requestId;
+  }, []);
+  const cancelWorkoutPresentationFrame = useCallback((requestId: number) => {
+    if (!workoutPresentationFramesRef.current.delete(requestId)) return;
+    cancelAnimationFrame(requestId);
+  }, []);
+  const cancelAllWorkoutPresentationFrames = useCallback(() => {
+    for (const requestId of workoutPresentationFramesRef.current) cancelAnimationFrame(requestId);
+    workoutPresentationFramesRef.current.clear();
+  }, []);
+  const workoutPresentationContext = useMemo(() => ({
+    accountId: user.id,
+    accountGeneration: accountGenerationRef.current,
+    dateKey: selectedDateDraftKey,
+    section: healthSection,
+    mobileSurface: isMobile ? mobileHealthTab : 'desktop',
+  }), [accountGenerationRef.current, healthSection, isMobile, mobileHealthTab, selectedDateDraftKey, user.id]);
+  const workoutPresentationContextRef = useRef(workoutPresentationContext);
+  useLayoutEffect(() => {
+    const previous = workoutPresentationContextRef.current;
+    const changed = previous.accountId !== workoutPresentationContext.accountId
+      || previous.accountGeneration !== workoutPresentationContext.accountGeneration
+      || previous.dateKey !== workoutPresentationContext.dateKey
+      || previous.section !== workoutPresentationContext.section
+      || previous.mobileSurface !== workoutPresentationContext.mobileSurface;
+    if (changed) {
+      cancelAllWorkoutPresentationFrames();
+      pendingLatestWorkoutIndexRef.current = null;
+      pendingFocusSetRef.current = null;
+      pendingAssistedFocusRef.current = null;
+    }
+    workoutPresentationContextRef.current = workoutPresentationContext;
+  }, [cancelAllWorkoutPresentationFrames, workoutPresentationContext]);
+  useLayoutEffect(() => () => cancelAllWorkoutPresentationFrames(), [cancelAllWorkoutPresentationFrames]);
+  const workoutPresentationActive = healthSection === 'workout' && (!isMobile || mobileHealthTab === 'workout');
+  const isWorkoutPresentationActiveNow = useCallback(() => {
+    const context = workoutPresentationContextRef.current;
+    return context.section === 'workout'
+      && (context.mobileSurface === 'desktop' || context.mobileSurface === 'workout');
+  }, []);
   // B1 parent presence is the existing gated Health eligibility boundary.
   // The independent all-prior legacy owner never borrows comparison revisions.
   const previousEnabled = !!selectedDayComposite;
@@ -1558,9 +1606,9 @@ export const HealthView = ({
         setIsWorkoutLocked(true);
         mutateDaily();
         if (localMode) mutateStatic();
-        if (isMobile) {
-          requestAnimationFrame(() => {
-            if (!currentWorkoutOperation(operationScope)) return;
+        if (isMobile && isWorkoutPresentationActiveNow()) {
+          scheduleWorkoutPresentationFrame(() => {
+            if (!currentWorkoutOperation(operationScope) || !isWorkoutPresentationActiveNow()) return;
             inbodyQuickRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
           });
         }
@@ -1570,9 +1618,9 @@ export const HealthView = ({
         setIsWorkoutLocked(true);
         mutateDaily();
         if (localMode) mutateStatic();
-        if (isMobile) {
-          requestAnimationFrame(() => {
-            if (!currentWorkoutOperation(operationScope)) return;
+        if (isMobile && isWorkoutPresentationActiveNow()) {
+          scheduleWorkoutPresentationFrame(() => {
+            if (!currentWorkoutOperation(operationScope) || !isWorkoutPresentationActiveNow()) return;
             inbodyQuickRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
           });
         }
@@ -1935,31 +1983,34 @@ export const HealthView = ({
   }, [localWorkouts]);
 
   useEffect(() => {
-    if (!pendingAssistedFocusRef.current) return;
-    requestAnimationFrame(() => {
+    if (!workoutPresentationActive || !pendingAssistedFocusRef.current) return;
+    const requestId = scheduleWorkoutPresentationFrame(() => {
       assistedInputRef.current?.focus({ preventScroll: true });
       assistedInputRef.current?.select();
       pendingAssistedFocusRef.current = null;
     });
-  }, [localWorkouts]);
+    return () => cancelWorkoutPresentationFrame(requestId);
+  }, [cancelWorkoutPresentationFrame, localWorkouts, scheduleWorkoutPresentationFrame, workoutPresentationActive]);
   const hasWorkoutRecords = workoutSessionSummary.exerciseCount > 0;
 
   useEffect(() => {
-    if (pendingLatestWorkoutIndexRef.current === null) return;
-    requestAnimationFrame(() => {
+    if (!workoutPresentationActive || pendingLatestWorkoutIndexRef.current === null) return;
+    const requestId = scheduleWorkoutPresentationFrame(() => {
       latestWorkoutRecordRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       pendingLatestWorkoutIndexRef.current = null;
     });
-  }, [localWorkouts]);
+    return () => cancelWorkoutPresentationFrame(requestId);
+  }, [cancelWorkoutPresentationFrame, localWorkouts, scheduleWorkoutPresentationFrame, workoutPresentationActive]);
 
   useEffect(() => {
-    if (!pendingFocusSetRef.current) return;
-    requestAnimationFrame(() => {
+    if (!workoutPresentationActive || !pendingFocusSetRef.current) return;
+    const requestId = scheduleWorkoutPresentationFrame(() => {
       quickCaptureInputRef.current?.focus({ preventScroll: true });
       quickCaptureInputRef.current?.select();
       pendingFocusSetRef.current = null;
     });
-  }, [localWorkouts]);
+    return () => cancelWorkoutPresentationFrame(requestId);
+  }, [cancelWorkoutPresentationFrame, localWorkouts, scheduleWorkoutPresentationFrame, workoutPresentationActive]);
 
   const prBadgeMapCache = useMemo(() => createWorkoutPrBadgeMapCache(computeWorkoutPrBadge), [
     user.id, selectedDateDraftKey, previousEnabled, previousOwner, previousParentIdentity, previousRejected,

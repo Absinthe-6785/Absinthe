@@ -433,6 +433,7 @@ function deferred<T = void>() {
 }
 let storage: ByteStorage, root: Root | null, host: HTMLDivElement, props: HealthProps;
 let raf: Array<FrameRequestCallback>;
+let cancelledRaf: Set<number>;
 let strictMode = false;
 const initialInnerWidthDescriptor = Object.getOwnPropertyDescriptor(window, 'innerWidth');
 function healthProps(overrides: Partial<HealthProps> = {}): HealthProps {
@@ -525,11 +526,47 @@ async function editKg(value = '31') {
     input.dispatchEvent(new Event('change', { bubbles: true }));
   });
 }
+function pendingFrameCount() {
+  return raf.reduce((count, _callback, index) => count + (cancelledRaf.has(index + 1) ? 0 : 1), 0);
+}
+async function flushQueuedFrames() {
+  const callbacks = raf, cancelled = cancelledRaf;
+  raf = []; cancelledRaf = new Set();
+  await act(async () => callbacks.forEach((callback, index) => {
+    if (!cancelled.has(index + 1)) callback(16);
+  }));
+}
+async function addSetAndTrackFocus() {
+  const card = host.querySelector<HTMLElement>('[data-k126-workout-exercise-card]');
+  if (!card) throw new Error('Workout exercise card absent');
+  const addSet = [...card.querySelectorAll<HTMLButtonElement>('button')]
+    .find(candidate => candidate.textContent?.trim() === 'addSet');
+  if (!addSet) throw new Error('Add Set control absent');
+  const framesBefore = raf.length;
+  await act(async () => { addSet.click(); });
+  const inputs = card.querySelectorAll<HTMLInputElement>('input[inputmode="decimal"]');
+  const focus = vi.spyOn(inputs[inputs.length - 1]!, 'focus').mockImplementation(() => undefined);
+  return { queuedFrames: raf.length - framesBefore, focus };
+}
+async function completeNextAndTrackFocus() {
+  const card = host.querySelector<HTMLElement>('[data-k126-workout-exercise-card]');
+  if (!card) throw new Error('Workout exercise card absent');
+  const completeNext = [...card.querySelectorAll<HTMLButtonElement>('button')]
+    .find(candidate => candidate.textContent?.trim() === 'healthDoneNextShort');
+  if (!completeNext) throw new Error('Complete & Next control absent');
+  const framesBefore = raf.length;
+  await act(async () => { completeNext.click(); });
+  const inputs = card.querySelectorAll<HTMLInputElement>('input[inputmode="decimal"]');
+  const focus = vi.spyOn(inputs[inputs.length - 1]!, 'focus').mockImplementation(() => undefined);
+  return { queuedFrames: raf.length - framesBefore, focus };
+}
 type SetupSwitchCounts = { blockFindCalls: number; blockFindComparisons: number };
 type SetupSwitchSize = { blocks: number; days: number; blocksPerDay: number; workouts: number };
 
 const HEALTH_SETUP_SWITCH_BASE_SHA = '492fefa962e9748beb98042e71e528d612c728d5';
 const HEALTH_SETUP_SWITCH_BASE_BLOB = '594651864a0c8c6b2ba2bb132e4e677582d6c53a';
+const HEALTH_SCROLL_BASE_SHA = 'bf2e045f5d3d4f7e185acb78f10e51bf995f1953';
+const HEALTH_SCROLL_BASE_BLOB = '0ff1276ab68c006a9a72eb97e13a14bf8f65fa12';
 
 function observeBlockFinds(blocks: ExerciseBlock[], counts: SetupSwitchCounts) {
   return new Proxy(blocks, {
@@ -546,6 +583,40 @@ function observeBlockFinds(blocks: ExerciseBlock[], counts: SetupSwitchCounts) {
       return Reflect.get(target, property, receiver);
     },
   });
+}
+
+async function runWorkoutSurfaceSwitchRafMeasurement(component: typeof HealthView, exerciseCount: number) {
+  if (root) await act(async () => { root!.unmount(); });
+  root = null;
+  host.replaceChildren();
+  props = undefined as unknown as HealthProps;
+  storage = new ByteStorage();
+  vi.stubGlobal('localStorage', storage);
+  raf = []; cancelledRaf = new Set();
+  mocks.mobile = true;
+  mocks.draft = null; mocks.owner = null; mocks.saving = undefined; mocks.locked = undefined;
+  mocks.saveCallback = null;
+  subject = component;
+  const fixtureBlocks = Array.from({ length: exerciseCount }, (_, index) => ({
+    ...blocks[index % blocks.length]!, id: `scroll-measure-${index}`, name: `Scroll measure ${index}`,
+  }));
+  storage.setItem(localHealthDraftKey(A, X), JSON.stringify(fixtureBlocks.map((block, index) => row(
+    `11111111-1111-4111-8111-${String(index + 1).padStart(12, '0')}`, String(20 + index), block,
+  ))));
+  await render();
+  const scrollIntoView = vi.fn();
+  Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: scrollIntoView });
+  const addSet = await addSetAndTrackFocus();
+  const queuedBeforeSwitch = pendingFrameCount();
+  await act(async () => { host.querySelector<HTMLButtonElement>('[data-health-mobile-tab="setup"]')!.click(); });
+  const pendingAfterSwitch = pendingFrameCount();
+  await flushQueuedFrames();
+  return {
+    queuedBeforeSwitch,
+    pendingAfterSwitch,
+    hiddenScrollRequests: scrollIntoView.mock.calls.length,
+    hiddenFocusRequests: addSet.focus.mock.calls.length,
+  };
 }
 
 function makeSetupSwitchFixture(size: SetupSwitchSize, counts: SetupSwitchCounts) {
@@ -712,7 +783,9 @@ function resetFixture() {
   mocks.baselineSavingLine = -1; mocks.baselineLockedLine = -1;
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   storage = new ByteStorage(); vi.stubGlobal('localStorage', storage);
-  raf = []; vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { raf.push(callback); return raf.length; });
+  raf = []; cancelledRaf = new Set();
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { raf.push(callback); return raf.length; });
+  vi.stubGlobal('cancelAnimationFrame', (requestId: number) => { cancelledRaf.add(requestId); });
   mocks.remoteMode = true; mocks.mobile = false; mocks.realPersistence = false; mocks.fault = '';
   mocks.profileQuickAdd = false; mocks.quickAddProfilerCommits = 0;
   mocks.quickAddHealthViewRenders = 0; mocks.quickAddListBodyRenders = 0;
@@ -761,6 +834,193 @@ afterEach(() => {
   if (initialInnerWidthDescriptor) Object.defineProperty(window, 'innerWidth', initialInnerWidthDescriptor);
   else delete (window as Window & { innerWidth: number }).innerWidth;
   vi.unstubAllGlobals();
+});
+
+describe('Health mobile Workout scroll/focus frame measurement', () => {
+  it.each([2, 16])('compares pinned pre-change and candidate callbacks for a %s-exercise list', async exerciseCount => {
+    const { loadCandidateHealthView, loadHealthViewAtCommit } = await import('../../../test-support/healthWorkoutExactMain');
+    const baseline = await loadHealthViewAtCommit(
+      HEALTH_SCROLL_BASE_SHA,
+      HEALTH_SCROLL_BASE_BLOB,
+      specifier => import(/* @vite-ignore */ specifier),
+    );
+    const candidate = await loadCandidateHealthView(specifier => import(/* @vite-ignore */ specifier));
+    const before = await runWorkoutSurfaceSwitchRafMeasurement(baseline.HealthView as typeof HealthView, exerciseCount);
+    const after = await runWorkoutSurfaceSwitchRafMeasurement(candidate.HealthView as typeof HealthView, exerciseCount);
+
+    expect(before).toEqual({ queuedBeforeSwitch: 2, pendingAfterSwitch: 2, hiddenScrollRequests: 1, hiddenFocusRequests: 1 });
+    expect(after).toEqual({ queuedBeforeSwitch: 2, pendingAfterSwitch: 0, hiddenScrollRequests: 0, hiddenFocusRequests: 0 });
+    console.info('[health-mobile-workout-presentation-baseline-candidate]', JSON.stringify({ exerciseCount, before, after }));
+  });
+
+  it.each([2, 16])('preserves active Add Set and cancels hidden work for a %s-exercise list', async exerciseCount => {
+    mocks.mobile = true;
+    const fixtureBlocks = Array.from({ length: exerciseCount }, (_, index) => ({
+      ...blocks[index % blocks.length]!, id: `scroll-exercise-${index}`, name: `Scroll exercise ${index}`,
+    }));
+    const startingRows = fixtureBlocks.map((block, index) => row(
+      `11111111-1111-4111-8111-${String(index + 1).padStart(12, '0')}`,
+      String(20 + index), block,
+    ));
+    storage.setItem(localHealthDraftKey(A, X), JSON.stringify(startingRows));
+    await render();
+    expect(mocks.draft.localWorkouts).toEqual(startingRows);
+
+    const card = host.querySelector<HTMLElement>('[data-k126-workout-exercise-card]')!;
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoView,
+    });
+    const naturalScroll = host.querySelector<HTMLElement>('[data-k134b-health-natural-scroll]')!;
+    naturalScroll.scrollTop = 160;
+    naturalScroll.dispatchEvent(new Event('scroll'));
+    const framesBeforeEdit = raf.length;
+    await editKg('32');
+    const manualEditFrames = raf.length - framesBeforeEdit;
+    expect(manualEditFrames).toBe(0);
+
+    const activeSet = await addSetAndTrackFocus();
+    const activeAddFrames = activeSet.queuedFrames;
+    expect(activeAddFrames).toBe(2);
+    await flushQueuedFrames();
+    const activeAddRequests = { scroll: scrollIntoView.mock.calls.length, focus: activeSet.focus.mock.calls.length };
+    expect(activeAddRequests).toEqual({ scroll: 1, focus: 1 });
+
+    const completeNext = await completeNextAndTrackFocus();
+    expect(completeNext.queuedFrames).toBe(2);
+    await flushQueuedFrames();
+    expect(completeNext.focus).toHaveBeenCalledOnce();
+    expect(scrollIntoView).toHaveBeenCalledTimes(2);
+
+    const lastSetTrigger = host.querySelector<HTMLButtonElement>('[data-health-set-actions-trigger="3"]')!;
+    await act(async () => { lastSetTrigger.click(); });
+    await flushQueuedFrames();
+    const deleteAction = document.querySelector<HTMLButtonElement>('[data-health-set-delete-action]')!;
+    const beforeRemoveScroll = scrollIntoView.mock.calls.length;
+    const beforeRemoveFrames = raf.length;
+    await act(async () => { deleteAction.click(); });
+    const afterRemoveInputs = card.querySelectorAll<HTMLInputElement>('input[inputmode="decimal"]');
+    const removeFocus = vi.spyOn(afterRemoveInputs[afterRemoveInputs.length - 1]!, 'focus').mockImplementation(() => undefined);
+    const removeFrames = raf.length - beforeRemoveFrames;
+    await flushQueuedFrames();
+    expect(removeFocus).toHaveBeenCalledOnce();
+    expect(scrollIntoView).toHaveBeenCalledTimes(beforeRemoveScroll);
+    expect(removeFrames).toBeGreaterThan(0);
+
+    const beforeHiddenAddScroll = scrollIntoView.mock.calls.length;
+    const hiddenSet = await addSetAndTrackFocus();
+    const hiddenAddFrames = hiddenSet.queuedFrames;
+    expect(hiddenAddFrames).toBe(2);
+
+    await act(async () => { host.querySelector<HTMLButtonElement>('[data-health-mobile-tab="setup"]')!.click(); });
+    expect(host.querySelector<HTMLElement>('[data-health-composition-role="execution"]')?.classList.contains('hidden')).toBe(true);
+    const beforeFlush = {
+      pendingRaf: pendingFrameCount(),
+      scrollRequests: scrollIntoView.mock.calls.length - beforeHiddenAddScroll,
+      focusRequests: hiddenSet.focus.mock.calls.length,
+    };
+    await flushQueuedFrames();
+
+    const afterFlush = {
+      scrollRequests: scrollIntoView.mock.calls.length - beforeHiddenAddScroll,
+      focusRequests: hiddenSet.focus.mock.calls.length,
+    };
+    console.info('[health-mobile-workout-presentation-frames]', JSON.stringify({
+      listSize: exerciseCount,
+      optimized: { manualEditFrames, activeAddFrames, activeAddRequests,
+        completeNextFrames: completeNext.queuedFrames,
+        removeFrames, removeFocusRequests: removeFocus.mock.calls.length,
+        hiddenAddFrames,
+        pendingAfterSurfaceSwitch: beforeFlush.pendingRaf, hiddenRequestsAfterFlush: afterFlush },
+    }));
+    expect(beforeFlush).toEqual({ pendingRaf: 0, scrollRequests: 0, focusRequests: 0 });
+    expect(afterFlush).toEqual({ scrollRequests: 0, focusRequests: 0 });
+    expect(host.querySelector('[data-k134b-health-natural-scroll]')).not.toBeNull();
+  });
+
+  it('retains Save scroll while Workout is active and suppresses a completion after leaving it', async () => {
+    mocks.mobile = true;
+    storage.setItem(localHealthDraftKey(A, X), JSON.stringify([row()]));
+    await render();
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: scrollIntoView });
+    await editKg('32');
+    await save();
+    expect(pendingFrameCount()).toBe(1);
+    await flushQueuedFrames();
+    expect(scrollIntoView).toHaveBeenCalledOnce();
+
+    await editKg('33');
+    const gate = deferred<{ status: 'success'; total: number; succeeded: number; failed: number }>();
+    mocks.saveHealthWorkouts.mockReturnValueOnce(gate.promise);
+    let saveTask!: Promise<void>;
+    await act(async () => { saveTask = mocks.saveCallback!(); await Promise.resolve(); });
+    await act(async () => { host.querySelector<HTMLButtonElement>('[data-health-mobile-tab="setup"]')!.click(); });
+    gate.release({ status: 'success', total: 1, succeeded: 1, failed: 0 });
+    await act(async () => { await saveTask; });
+    expect(pendingFrameCount()).toBe(0);
+    await flushQueuedFrames();
+    expect(scrollIntoView).toHaveBeenCalledOnce();
+  });
+
+  it('keeps Add Exercise scroll when Quick Add publishes into the visible Workout', async () => {
+    mocks.mobile = true;
+    storage.setItem(localHealthDraftKey(A, X), JSON.stringify([row()]));
+    await render();
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: scrollIntoView });
+    await act(async () => { host.querySelector<HTMLButtonElement>('[data-health-quick-add-exercise]')!.click(); });
+    await flushQueuedFrames();
+    const result = host.querySelector<HTMLButtonElement>('[data-health-quick-add-block="pull"]')!;
+    await act(async () => {
+      result.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(mocks.draft.localWorkouts).toHaveLength(2);
+    await flushQueuedFrames();
+    expect(scrollIntoView).toHaveBeenCalledOnce();
+    expect(mocks.draft.localWorkouts[1]?.block_id).toBe('pull');
+  });
+
+  it.each(['date A-B-A', 'account A-B-A'] as const)('cancels pending presentation work across %s changes', async transition => {
+    mocks.mobile = true;
+    const startingRows = [row()];
+    storage.setItem(localHealthDraftKey(A, X), JSON.stringify(startingRows));
+    await render();
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: scrollIntoView });
+    const pending = await addSetAndTrackFocus();
+    expect(pending.queuedFrames).toBe(2);
+
+    if (transition === 'date A-B-A') {
+      await render({ selectedDate: date(Y) });
+      await render({ selectedDate: date(X) });
+    } else {
+      await render({ user: { id: B, name: 'B' } });
+      await render({ user: { id: A, name: 'A' } });
+    }
+    expect(pendingFrameCount()).toBe(0);
+    await flushQueuedFrames();
+    expect(scrollIntoView).not.toHaveBeenCalled();
+    expect(pending.focus).not.toHaveBeenCalled();
+  });
+
+  it('cancels pending presentation callbacks on unmount', async () => {
+    mocks.mobile = true;
+    storage.setItem(localHealthDraftKey(A, X), JSON.stringify([row()]));
+    await render();
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: scrollIntoView });
+    const pending = await addSetAndTrackFocus();
+    expect(pending.queuedFrames).toBe(2);
+    await act(async () => { root!.unmount(); root = null; });
+    expect(pendingFrameCount()).toBe(0);
+    await flushQueuedFrames();
+    expect(scrollIntoView).not.toHaveBeenCalled();
+    expect(pending.focus).not.toHaveBeenCalled();
+  });
 });
 
 describe('Health mobile Quick Add Exercise sheet', () => {
