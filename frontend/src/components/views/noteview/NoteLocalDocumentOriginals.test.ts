@@ -494,6 +494,7 @@ describe('NoteLocalDocumentOriginals', () => {
     expect(await file.arrayBuffer()).toEqual(originalBytes);
 
     const downloadButton = host.querySelector<HTMLButtonElement>('[aria-label="Download original Contract.docx"]')!;
+    await vi.waitFor(() => expect(downloadButton.disabled).toBe(false));
     act(() => downloadButton.click());
     await flushAsync();
     expect(services.read).toHaveBeenCalledTimes(2);
