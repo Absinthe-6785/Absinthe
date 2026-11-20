@@ -22,9 +22,18 @@ vi.mock('react', async importOriginal => {
   const savingLine = source.findIndex(line => line.includes('const [isSaving, setIsSaving] = useState')) + 1;
   const lockedLine = source.findIndex(line => line.includes('const [isWorkoutLocked, setIsWorkoutLocked] = useState')) + 1;
   const quickAddQueryLine = source.findIndex(line => line.includes('const [quickAddQuery, setQuickAddQuery] = useState')) + 1;
+  const mobileSurfaceLine = source.findIndex(line => line.includes('const [mobileHealthTab, setMobileHealthTab] = useState')) + 1;
   return { ...real,
     memo: ((Component: any, compare?: any) => {
       const componentName = Component.displayName ?? Component.name ?? '';
+      if (componentName === 'HealthWorkoutExerciseCard') {
+        const CountedCard = (props: any) => {
+          if (mocks.profileSetupSwitch) mocks.setupSwitchWorkoutCardRenders += 1;
+          return real.createElement(Component, props);
+        };
+        CountedCard.displayName = 'CountedHealthWorkoutExerciseCard';
+        return real.memo(CountedCard, compare);
+      }
       if (!componentName.startsWith('HealthQuickAddExerciseResultList')) return real.memo(Component, compare);
       const CountedList = (props: any) => {
         mocks.quickAddListBodyRenders += 1;
@@ -35,13 +44,21 @@ vi.mock('react', async importOriginal => {
     }) as typeof real.memo,
     useState: ((...args: any[]) => {
       const value = (real.useState as any)(...args);
-      const line = new Error().stack?.match(/HealthView\.tsx:(\d+):/)?.[1];
+      const stack = new Error().stack ?? '';
+      const line = stack.match(/HealthView\.tsx:(\d+):/)?.[1];
       if (Number(line) === savingLine) mocks.saving = value[0];
       if (Number(line) === lockedLine) mocks.locked = value[0];
       if (Number(line) === quickAddQueryLine) mocks.quickAddHealthViewRenders += 1;
-      const baselineLine = Number(new Error().stack?.match(/HealthViewBaseline\.js:(\d+):/)?.[1]);
+      if (mocks.profileSetupSwitch && Number(line) === mobileSurfaceLine) mocks.setupSwitchParentRenders += 1;
+      const baselineLine = Number(stack.match(/HealthViewBaseline\.js:(\d+):/)?.[1]);
       if (baselineLine === mocks.baselineSavingLine) mocks.saving = value[0];
       if (baselineLine === mocks.baselineLockedLine) mocks.locked = value[0];
+      const navigationBaselineLine = Number(stack.match(/HealthViewNavigationBaseline\.js:(\d+):/)?.[1]);
+      if (mocks.profileSetupSwitch && navigationBaselineLine === mocks.baselineMobileSurfaceLine)
+        mocks.setupSwitchParentRenders += 1;
+      const candidateLine = Number(stack.match(/HealthViewCandidate\.js:(\d+):/)?.[1]);
+      if (mocks.profileSetupSwitch && candidateLine === mocks.candidateMobileSurfaceLine)
+        mocks.setupSwitchParentRenders += 1;
       return value;
     }) as typeof real.useState,
     useLayoutEffect: ((effect: () => void | (() => void), deps?: readonly unknown[]) => {
@@ -95,6 +112,12 @@ const mocks = vi.hoisted(() => ({
   quickAddProfilerCommits: 0,
   quickAddHealthViewRenders: 0,
   quickAddListBodyRenders: 0,
+  profileSetupSwitch: false,
+  baselineMobileSurfaceLine: -1,
+  candidateMobileSurfaceLine: -1,
+  setupSwitchParentRenders: 0,
+  setupSwitchWorkoutCardRenders: 0,
+  setupSwitchProfilerCommits: 0,
   authFetch: vi.fn(),
   showToast: vi.fn(),
   mutateDaily: vi.fn(),
@@ -322,12 +345,13 @@ vi.mock('./features/health/HealthWorkspaceNav', () => ({
 }));
 vi.mock('./features/health/nutrition', () => ({ ProteinTracker: () => null }));
 vi.mock('./features/health/HealthBlockLibrary', () => ({
-  HealthBlockLibrary: ({ blocks, onAddToToday }: {
+  HealthBlockLibrary: ({ blocks, onAddToToday, mobileVisible }: {
     blocks: Array<{ id: string; name: string }>;
     onAddToToday: (block: { id: string; name: string }) => void;
+    mobileVisible: boolean;
   }) => createElement(
     'section',
-    { 'data-health-test-region': 'library' },
+    { 'data-health-test-region': 'library', 'data-health-mobile-visible': String(mobileVisible) },
     ...blocks.map(block => createElement('button', {
       key: block.id,
       type: 'button',
@@ -367,7 +391,7 @@ vi.mock('./features/health/HealthMobileWorkoutActions', () => ({
 
 import { HealthView } from './HealthView';
 let subject = HealthView;
-import type { HealthProps, Workout, ExerciseBlock } from '../../types';
+import type { HealthProps, Workout, ExerciseBlock, HealthRoutine } from '../../types';
 import { localHealthDraftKey } from '../../lib/healthBackfillUiSafety';
 
 const A = 'account-a', B = 'account-b', X = '2026-01-10', Y = '2026-01-11', Z = '2026-01-12';
@@ -426,8 +450,11 @@ async function render(overrides: Partial<HealthProps> = {}) {
   if (!root) root = createRoot(host);
   await act(async () => {
     const tree = createElement(subject, props);
-    const measured = mocks.profileQuickAdd
-      ? createElement(Profiler, { id: 'health-quick-add-profile', onRender: () => { mocks.quickAddProfilerCommits += 1; } }, tree)
+    const measured = mocks.profileQuickAdd || mocks.profileSetupSwitch
+      ? createElement(Profiler, { id: 'health-profile', onRender: () => {
+        if (mocks.profileQuickAdd) mocks.quickAddProfilerCommits += 1;
+        if (mocks.profileSetupSwitch) mocks.setupSwitchProfilerCommits += 1;
+      } }, tree)
       : tree;
     root!.render(strictMode ? createElement(StrictMode, null, measured) : measured);
   });
@@ -498,6 +525,174 @@ async function editKg(value = '31') {
     input.dispatchEvent(new Event('change', { bubbles: true }));
   });
 }
+type SetupSwitchCounts = { blockFindCalls: number; blockFindComparisons: number };
+type SetupSwitchSize = { blocks: number; days: number; blocksPerDay: number; workouts: number };
+
+const HEALTH_SETUP_SWITCH_BASE_SHA = '492fefa962e9748beb98042e71e528d612c728d5';
+const HEALTH_SETUP_SWITCH_BASE_BLOB = '594651864a0c8c6b2ba2bb132e4e677582d6c53a';
+
+function observeBlockFinds(blocks: ExerciseBlock[], counts: SetupSwitchCounts) {
+  return new Proxy(blocks, {
+    get(target, property, receiver) {
+      if (property === 'find') {
+        return (predicate: (value: ExerciseBlock, index: number, source: ExerciseBlock[]) => unknown, thisArg?: unknown) => {
+          counts.blockFindCalls += 1;
+          return target.find((value, index, source) => {
+            counts.blockFindComparisons += 1;
+            return predicate.call(thisArg, value, index, source);
+          }, thisArg);
+        };
+      }
+      return Reflect.get(target, property, receiver);
+    },
+  });
+}
+
+function makeSetupSwitchFixture(size: SetupSwitchSize, counts: SetupSwitchCounts) {
+  const rawBlocks: ExerciseBlock[] = Array.from({ length: size.blocks }, (_, index) => ({
+    id: `setup-switch-block-${String(index).padStart(4, '0')}`,
+    name: `Setup switch exercise ${index}`,
+    type: 'strength',
+    tags: [`group-${index % 8}`],
+    cardio_mode: 'both',
+  }));
+  const selectedCount = size.days * size.blocksPerDay;
+  const routines: HealthRoutine[] = Array.from({ length: size.days }, (_, dayIndex) => ({
+    id: `setup-switch-routine-${dayIndex + 1}`,
+    day_name: `Day ${dayIndex + 1}`,
+    blocks: Array.from({ length: size.blocksPerDay }, (_, blockIndex) => {
+      const index = size.blocks - selectedCount + dayIndex * size.blocksPerDay + blockIndex;
+      return rawBlocks[index]!.id;
+    }),
+  }));
+  const observedBlocks = observeBlockFinds(rawBlocks, counts);
+  const workouts = Array.from({ length: size.workouts }, (_, index) => row(
+    `aaaaaaaa-aaaa-4aaa-8aaa-${String(index + 1).padStart(12, '0')}`,
+    String(20 + index),
+    rawBlocks[index]!,
+  ));
+  return { blocks: observedBlocks, routines, workouts };
+}
+
+function setupSwitchDomSnapshot() {
+  const execution = host.querySelector<HTMLElement>('[data-health-composition-role="execution"]')!;
+  const routine = host.querySelector<HTMLElement>('[data-health-composition-role="setup-routine"]')!;
+  const library = host.querySelector<HTMLElement>('[data-health-test-region="library"]')!;
+  const selected = (selector: string) => host.querySelector<HTMLElement>(selector)?.getAttribute('aria-selected');
+  return {
+    elementCount: host.querySelectorAll('*').length,
+    workoutCardCount: host.querySelectorAll('[data-k126-workout-exercise-card]').length,
+    workoutText: [...host.querySelectorAll('[data-k126-workout-exercise-card]')]
+      .map(node => node.textContent?.replace(/\s+/g, ' ').trim()),
+    workoutInputValues: [...host.querySelectorAll<HTMLInputElement>('[data-k126-workout-exercise-card] input')]
+      .map(input => input.value),
+    routineDays: [...routine.querySelectorAll('h3')].map(node => node.textContent?.trim()),
+    routineText: routine.textContent?.replace(/\s+/g, ' ').trim(),
+    libraryButtonCount: library.querySelectorAll('button').length,
+    libraryMobileVisible: library.getAttribute('data-health-mobile-visible'),
+    executionHidden: execution.classList.contains('hidden'),
+    routineHidden: routine.classList.contains('hidden'),
+    workoutTabSelected: selected('[data-health-mobile-tab="workout"]'),
+    setupTabSelected: selected('[data-health-mobile-tab="setup"]'),
+    routineTabSelected: selected('[data-health-setup-section="routine"]'),
+    blocksTabSelected: selected('[data-health-setup-section="blocks"]'),
+  };
+}
+
+async function runSetupSwitchMeasurement(component: typeof HealthView, size: SetupSwitchSize) {
+  if (root) act(() => root!.unmount());
+  root = null;
+  host.replaceChildren();
+  props = undefined as unknown as HealthProps;
+  storage = new ByteStorage();
+  vi.stubGlobal('localStorage', storage);
+  mocks.mobile = true;
+  mocks.profileSetupSwitch = true;
+  mocks.setupSwitchParentRenders = 0;
+  mocks.setupSwitchWorkoutCardRenders = 0;
+  mocks.setupSwitchProfilerCommits = 0;
+  mocks.authFetch.mockClear();
+  mocks.dispatches.length = 0; mocks.commits.length = 0; mocks.inputs.length = 0;
+  const counts: SetupSwitchCounts = { blockFindCalls: 0, blockFindComparisons: 0 };
+  const fixture = makeSetupSwitchFixture(size, counts);
+  subject = component;
+  await render({ healthBlocks: fixture.blocks, healthRoutines: fixture.routines, workouts: fixture.workouts });
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  await editKg('33');
+  if (!mocks.draft) throw new Error('Workout draft observer absent during Setup navigation measurement');
+  const editedRows = structuredClone(mocks.draft.localWorkouts) as Workout[];
+  expect(mocks.draft.isDirty).toBe(true);
+  const inputBeforeNavigation = host.querySelector<HTMLInputElement>('[data-k126-workout-exercise-card] input[inputmode="decimal"]')?.value;
+  const writesBeforeNavigation = storage.history.filter(event => event.op !== 'get');
+  const requestsBeforeNavigation = mocks.authFetch.mock.calls.length;
+  const dispatchesBeforeNavigation = mocks.dispatches.length;
+  const commitsBeforeNavigation = mocks.commits.length;
+  const inputsBeforeNavigation = mocks.inputs.length;
+
+  counts.blockFindCalls = 0; counts.blockFindComparisons = 0;
+  mocks.setupSwitchParentRenders = 0; mocks.setupSwitchWorkoutCardRenders = 0; mocks.setupSwitchProfilerCommits = 0;
+  const actions = [
+    ['Workout→Setup', '[data-health-mobile-tab="setup"]'],
+    ['Routine→Blocks', '[data-health-setup-section="blocks"]'],
+    ['Blocks→Routine', '[data-health-setup-section="routine"]'],
+    ['Setup→Workout', '[data-health-mobile-tab="workout"]'],
+    ['Workout→Setup (repeat)', '[data-health-mobile-tab="setup"]'],
+    ['Routine→Blocks (repeat)', '[data-health-setup-section="blocks"]'],
+    ['Blocks→Routine (repeat)', '[data-health-setup-section="routine"]'],
+    ['Setup→Workout (repeat)', '[data-health-mobile-tab="workout"]'],
+  ] as const;
+  const measurements: Array<{
+    action: string;
+    parentRenders: number;
+    workoutCardRenders: number;
+    profilerCommits: number;
+    blockFindCalls: number;
+    blockFindComparisons: number;
+  }> = [];
+  const outputs = [] as ReturnType<typeof setupSwitchDomSnapshot>[];
+  for (const [action, selector] of actions) {
+    const target = host.querySelector<HTMLButtonElement>(selector);
+    if (!target) throw new Error(`Setup switch control missing: ${selector}`);
+    await act(async () => { target.click(); });
+    measurements.push({
+      action,
+      parentRenders: mocks.setupSwitchParentRenders,
+      workoutCardRenders: mocks.setupSwitchWorkoutCardRenders,
+      profilerCommits: mocks.setupSwitchProfilerCommits,
+      blockFindCalls: counts.blockFindCalls,
+      blockFindComparisons: counts.blockFindComparisons,
+    });
+    outputs.push(setupSwitchDomSnapshot());
+    counts.blockFindCalls = 0; counts.blockFindComparisons = 0;
+    mocks.setupSwitchParentRenders = 0; mocks.setupSwitchWorkoutCardRenders = 0; mocks.setupSwitchProfilerCommits = 0;
+  }
+
+  expect(mocks.draft.localWorkouts).toEqual(editedRows);
+  expect(mocks.draft.isDirty).toBe(true);
+  expect(host.querySelector<HTMLInputElement>('[data-k126-workout-exercise-card] input[inputmode="decimal"]')?.value)
+    .toBe(inputBeforeNavigation);
+  expect(storage.history.filter(event => event.op !== 'get')).toEqual(writesBeforeNavigation);
+  expect(mocks.authFetch).toHaveBeenCalledTimes(requestsBeforeNavigation);
+  expect(mocks.dispatches).toHaveLength(dispatchesBeforeNavigation);
+  expect(mocks.commits).toHaveLength(commitsBeforeNavigation);
+  expect(mocks.inputs).toHaveLength(inputsBeforeNavigation);
+
+  counts.blockFindCalls = 0; counts.blockFindComparisons = 0;
+  const replacementBlocks = observeBlockFinds(
+    fixture.blocks.map(block => ({ ...block, name: `Updated ${block.name}` })),
+    counts,
+  );
+  const writesBeforeReplacement = storage.history.filter(event => event.op !== 'get');
+  await render({ healthBlocks: replacementBlocks });
+  const replacementOutput = setupSwitchDomSnapshot();
+  const replacementMeasurements = {
+    blockFindCalls: counts.blockFindCalls,
+    blockFindComparisons: counts.blockFindComparisons,
+  };
+  expect(replacementOutput.routineText).toContain('Updated Setup switch exercise');
+  expect(storage.history.filter(event => event.op !== 'get')).toEqual(writesBeforeReplacement);
+  return { measurements, outputs, editedRows, inputBeforeNavigation, replacementOutput, replacementMeasurements };
+}
 function removeCallback() {
   const node = host.querySelector<HTMLButtonElement>('[data-k126-workout-exercise-card] button.absolute');
   if (!node) throw new Error('Real Delete button absent');
@@ -521,6 +716,9 @@ function resetFixture() {
   mocks.remoteMode = true; mocks.mobile = false; mocks.realPersistence = false; mocks.fault = '';
   mocks.profileQuickAdd = false; mocks.quickAddProfilerCommits = 0;
   mocks.quickAddHealthViewRenders = 0; mocks.quickAddListBodyRenders = 0;
+  mocks.profileSetupSwitch = false; mocks.baselineMobileSurfaceLine = -1; mocks.candidateMobileSurfaceLine = -1;
+  mocks.setupSwitchParentRenders = 0; mocks.setupSwitchWorkoutCardRenders = 0;
+  mocks.setupSwitchProfilerCommits = 0;
   mocks.draft = null; mocks.owner = null; mocks.saving = undefined; mocks.locked = undefined; mocks.saveCallback = null;
   mocks.invokeBeforePublication = false; mocks.events.length = 0; mocks.inputs.length = 0;
   mocks.dispatches.length = 0; mocks.commits.length = 0; mocks.factoryGate = null; mocks.commitGate = null;
@@ -948,6 +1146,70 @@ describe('Health Workout cloud comparison header entry', () => {
     expect(oldProps.isComparisonRequestCurrent(oldRequest)).toBe(false);
     expect(mocks.supportingProps.comparisonRequest).toBeNull();
     expect(host.querySelector<HTMLButtonElement>('[data-health-workout-cloud-check]')?.disabled).toBe(false);
+  });
+});
+
+describe('Health mobile Workout/Setup navigation render measurement', () => {
+  it.each([
+    { blocks: 50, days: 3, blocksPerDay: 4, workouts: 3 },
+    { blocks: 500, days: 7, blocksPerDay: 10, workouts: 16 },
+  ])('compares exact-main and candidate navigation work for $blocks blocks and $days routine days', async size => {
+    mocks.mobile = true;
+    const { loadCandidateHealthView, loadHealthViewAtCommit } = await import('../../../test-support/healthWorkoutExactMain');
+    const baseline = await loadHealthViewAtCommit(
+      HEALTH_SETUP_SWITCH_BASE_SHA,
+      HEALTH_SETUP_SWITCH_BASE_BLOB,
+      specifier => import(/* @vite-ignore */ specifier),
+    );
+    mocks.baselineSavingLine = baseline.savingLine;
+    mocks.baselineLockedLine = baseline.lockedLine;
+    mocks.baselineMobileSurfaceLine = baseline.mobileSurfaceLine;
+    const candidate = await loadCandidateHealthView(specifier => import(/* @vite-ignore */ specifier));
+    mocks.candidateMobileSurfaceLine = candidate.mobileSurfaceLine;
+    const before = await runSetupSwitchMeasurement(baseline.HealthView as typeof HealthView, size);
+    const after = await runSetupSwitchMeasurement(candidate.HealthView as typeof HealthView, size);
+
+    expect(after.outputs).toEqual(before.outputs);
+    expect(after.replacementOutput).toEqual(before.replacementOutput);
+    expect(after.replacementMeasurements).toEqual(before.replacementMeasurements);
+    expect(before.replacementMeasurements.blockFindCalls).toBeGreaterThan(0);
+    expect(after.measurements.map(item => item.action)).toEqual(before.measurements.map(item => item.action));
+    expect(after.measurements.map(item => ({
+      parentRenders: item.parentRenders,
+      workoutCardRenders: item.workoutCardRenders,
+      profilerCommits: item.profilerCommits,
+    }))).toEqual(before.measurements.map(item => ({
+      parentRenders: item.parentRenders,
+      workoutCardRenders: item.workoutCardRenders,
+      profilerCommits: item.profilerCommits,
+    })));
+    expect(before.measurements.every(item => item.parentRenders > 0)).toBe(true);
+    expect(before.measurements.every(item => item.blockFindCalls > 0 && item.blockFindComparisons > 0)).toBe(true);
+    expect(after.measurements.every(item => item.blockFindCalls === 0 && item.blockFindComparisons === 0)).toBe(true);
+    console.info('[health-mobile-setup-switch-measurement]', JSON.stringify({
+      size,
+      actions: before.measurements.map((item, index) => ({
+        action: item.action,
+        baseline: {
+          parentRenders: item.parentRenders,
+          workoutCardRenders: item.workoutCardRenders,
+          profilerCommits: item.profilerCommits,
+          blockFindCalls: item.blockFindCalls,
+          blockFindComparisons: item.blockFindComparisons,
+        },
+        candidate: {
+          parentRenders: after.measurements[index]!.parentRenders,
+          workoutCardRenders: after.measurements[index]!.workoutCardRenders,
+          profilerCommits: after.measurements[index]!.profilerCommits,
+          blockFindCalls: after.measurements[index]!.blockFindCalls,
+          blockFindComparisons: after.measurements[index]!.blockFindComparisons,
+        },
+      })),
+      domElementCount: before.outputs[0]?.elementCount,
+      replacement: { baseline: before.replacementMeasurements, candidate: after.replacementMeasurements },
+      draftPreserved: JSON.stringify(before.editedRows) === JSON.stringify(after.editedRows),
+      inputValue: before.inputBeforeNavigation,
+    }));
   });
 });
 
