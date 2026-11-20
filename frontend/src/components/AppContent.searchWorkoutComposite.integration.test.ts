@@ -158,7 +158,12 @@ async function render(account = 'a') {
   await flush();
 }
 async function flush() { await act(async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); }); }
-async function open() { h.persisted = { query: 'Bench', filter: 'all' }; await act(async () => h.opener?.()); await flush(); }
+async function open() {
+  h.persisted = { query: 'Bench', filter: 'all' };
+  await act(async () => h.opener?.());
+  await act(async () => { await vi.dynamicImportSettled(); });
+  await flush();
+}
 const latestHost = () => h.hosts.at(-1)!;
 const evidence = () => h.palette!.projection.results.find(r => r.workoutPreview?.source === 'canonical')!.workoutPreview!;
 const durable = () => (h.view as ViewProps & { onLocalWorkoutCommitted: (account: string) => void }).onLocalWorkoutCommitted;

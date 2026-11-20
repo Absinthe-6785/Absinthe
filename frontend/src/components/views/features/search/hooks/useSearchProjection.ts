@@ -1,9 +1,13 @@
 import { useMemo } from 'react';
-import { buildSearchProjection, type SearchProjectionInput } from '../buildSearchProjection';
+import type { SearchProjectionInput } from '../buildSearchProjection';
 import type { SearchProjection } from '../searchProjectionModels';
+import { buildSearchRecentGroups } from '../searchRecentStorage';
 
-// Keep the palette mounted for its existing interaction lifecycle, without
-// retaining the previous account/query's projection after close.
+export function loadSearchProjectionRuntime() {
+  return import('../searchProjectionRuntime');
+}
+
+// Never retain the previous account/query's results when closed or loading.
 const CLOSED_PROJECTION: SearchProjection = {
   query: '',
   results: [],
@@ -18,13 +22,34 @@ const CLOSED_PROJECTION: SearchProjection = {
 
 export function useSearchProjection(
   input: Omit<SearchProjectionInput, 'now'> & { now?: Date; revision?: number },
-  enabled = true,
+  open: boolean,
+  buildSearchProjection?: (input: SearchProjectionInput) => SearchProjection,
 ): SearchProjection {
-  const now = enabled ? (input.now ?? new Date()) : undefined;
+  const now = open ? (input.now ?? new Date()) : undefined;
   const revision = input.revision ?? 0;
 
   return useMemo(
-    () => now === undefined ? CLOSED_PROJECTION : buildSearchProjection({ ...input, now }),
+    () => {
+      if (!now) return CLOSED_PROJECTION;
+      if (buildSearchProjection) return buildSearchProjection({ ...input, now });
+
+      // Local recents can be used before the result builders arrive, or if
+      // the chunk is unavailable. Use the same groups as the full projection.
+      const query = input.query.trim();
+      const recentSearches = query
+        ? CLOSED_PROJECTION.recentSearches
+        : buildSearchRecentGroups(input.recentSearches, now);
+      return {
+        ...CLOSED_PROJECTION,
+        query,
+        recentSearches,
+        empty: {
+          noQuery: !query,
+          noResults: false,
+          noRecent: !recentSearches.today.length && !recentSearches.earlier.length,
+        },
+      };
+    },
     [
       input.query,
       input.filter,
@@ -45,6 +70,7 @@ export function useSearchProjection(
       input.service,
       input.discoveryFeed,
       input.language,
+      buildSearchProjection,
       now,
       revision,
     ],
