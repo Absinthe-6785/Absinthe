@@ -48,6 +48,25 @@ describe('Health exercise catalog ordering', () => {
       expect(onAddToToday).toHaveBeenCalledTimes(1);
     } finally { act(() => root.unmount()); host.remove(); }
   });
+  it('uses refreshed account-scoped action callbacks after the source remains stable', async () => {
+    const { HealthBlockLibrary } = await import('./HealthBlockLibrary');
+    const host = document.createElement('div'); document.body.appendChild(host); const root = createRoot(host);
+    const firstAccountAdd = vi.fn();
+    const nextAccountAdd = vi.fn();
+    const props = {
+      blocks: catalog.slice(0, 1), activeTagFilter: null, setActiveTagFilter: vi.fn(),
+      theme: { card: 'card', input: 'input', border: 'border', text: 'text', textMuted: 'muted', hoverBg: 'hover' },
+      darkMode: false, onAddToToday: firstAccountAdd, onEditBlock: vi.fn(), onDeleteBlock: vi.fn(),
+      onNewBlock: vi.fn(), mobileVisible: true,
+    };
+    try {
+      act(() => root.render(createElement(HealthBlockLibrary, props)));
+      act(() => root.render(createElement(HealthBlockLibrary, { ...props, onAddToToday: nextAccountAdd })));
+      act(() => host.querySelector<HTMLButtonElement>('button[aria-label="addExercise: Press"]')!.click());
+      expect(firstAccountAdd).not.toHaveBeenCalled();
+      expect(nextAccountAdd).toHaveBeenCalledWith(catalog[0]);
+    } finally { act(() => root.unmount()); host.remove(); }
+  });
   it('uses deterministic name then ID order without mutating static source data', () => {
     const sourceBefore = structuredClone(catalog);
 
