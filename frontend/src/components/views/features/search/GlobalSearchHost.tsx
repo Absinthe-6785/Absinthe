@@ -143,8 +143,8 @@ export function GlobalSearchHost({
   }, [query]);
 
   const discoveryFeed = useMemo(
-    () => buildDiscoveryFeed(notes, knowledgeIndexService),
-    [notes],
+    () => open ? buildDiscoveryFeed(notes, knowledgeIndexService) : undefined,
+    [open, notes, accountId],
   );
 
   const recentSearches = useMemo(
@@ -175,7 +175,7 @@ export function GlobalSearchHost({
     discoveryFeed,
     language: resolveAppLanguage(appSettings.language),
     revision: recentRevision,
-  });
+  }, open);
 
   const colors = useMemo(() => buildNoteChrome(appSettings.darkMode, appSettings), [appSettings]);
 

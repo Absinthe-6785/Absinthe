@@ -22,11 +22,13 @@ describe('LEAN_04B Search source characterization', () => {
     expect(host).toContain('<SearchWorkspacePalette');
   });
 
-  it('pins that closed Search still builds discovery and projection work while the palette subtree returns null', () => {
+  it('keeps the palette lifecycle mounted but gates Search builders on open', () => {
     const host = source('components/views/features/search/GlobalSearchHost.tsx');
+    const projection = source('components/views/features/search/hooks/useSearchProjection.ts');
     const palette = source('components/views/features/search/components/SearchWorkspacePalette.tsx');
-    expect(host).toContain('buildDiscoveryFeed(notes, knowledgeIndexService)');
-    expect(host).toContain('const projection = useSearchProjection({');
+    expect(host).toContain('() => open ? buildDiscoveryFeed(notes, knowledgeIndexService) : undefined');
+    expect(host).toMatch(/const projection = useSearchProjection\(\{[\s\S]*?\}, open\);/);
+    expect(projection).toContain('now === undefined ? CLOSED_PROJECTION : buildSearchProjection');
     expect(host).not.toContain('if (!open) return null');
     expect(palette).toContain('if (!open) return null;');
     expect(palette).toContain('isSearching ?');
