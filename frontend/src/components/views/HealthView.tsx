@@ -201,6 +201,28 @@ type HealthWorkoutExerciseCardProps = {
   pendingAssistedFocusRef: RefObject<{ wIdx: number; sIdx: number } | null>;
 };
 
+const EMPTY_RAW_WEIGHT_VALUES = '[]';
+
+function buildRawWeightValuesByWorkoutIndex(
+  workouts: readonly Workout[],
+  rawWeightValues: Readonly<Record<string, string>>,
+): ReadonlyMap<number, string> {
+  const workoutIndexesWithRawValues = new Set<number>();
+  for (const key of Object.keys(rawWeightValues)) {
+    const match = /^(\d+)-\d+$/.exec(key);
+    if (match) workoutIndexesWithRawValues.add(Number(match[1]));
+  }
+
+  const serializedByWorkoutIndex = new Map<number, string>();
+  for (const workoutIndex of workoutIndexesWithRawValues) {
+    const workout = workouts[workoutIndex];
+    if (!workout) continue;
+    serializedByWorkoutIndex.set(workoutIndex, JSON.stringify(workout.sets.map((_, setIndex) =>
+      rawWeightValues[`${workoutIndex}-${setIndex}`] ?? null)));
+  }
+  return serializedByWorkoutIndex;
+}
+
 type HealthQuickAddSearchMatch = ReturnType<typeof searchHealthQuickAddIndex>[number];
 
 type HealthQuickAddExerciseResultListProps = {
@@ -2015,6 +2037,14 @@ export const HealthView = ({
     return { dayName, blocks };
   }), [user.id, accountGenerationRef.current, splitCount, selectedHealthRoutines, healthBlocks]);
 
+  // Raw numeric input is sparse and belongs only to the currently edited workout row(s).
+  // Serialize those rows once per render; unchanged rows use the inert empty payload.
+  let rawWeightValuesByWorkoutIndex: ReadonlyMap<number, string> | undefined;
+  const rawWeightValuesForWorkout = (workoutIndex: number) => {
+    rawWeightValuesByWorkoutIndex ??= buildRawWeightValuesByWorkoutIndex(localWorkouts, rawKgInput);
+    return rawWeightValuesByWorkoutIndex.get(workoutIndex) ?? EMPTY_RAW_WEIGHT_VALUES;
+  };
+
   return (
     <WorkspaceErrorBoundary workspace="health">
     <div className={`${WORKSPACE_PANE_ROOT_CLASS} abs-cosmos-health flex flex-col animate-in fade-in duration-300 ${WORKSPACE_GAP_CLASS}`} data-workspace="health" data-workspace-scroll-mode={WORKSPACE_SCROLL_MODE.pane}>
@@ -2382,7 +2412,7 @@ export const HealthView = ({
                   dragOver={dragOverIndex === wIdx && dragIndex !== wIdx}
                   overflowOpen={workoutOverflowIndex === wIdx}
                   weightUnit={getUnit(w.block_id)}
-                  rawWeightValues={JSON.stringify(w.sets.map((_, sIdx) => rawKgInput[`${wIdx}-${sIdx}`] ?? null))}
+                  rawWeightValues={rawWeightValuesForWorkout(wIdx)}
                   previousCueProjection={previousCueProjection}
                   previousBestLabel={previousBestLabel}
                   previousEnabled={previousEnabled}

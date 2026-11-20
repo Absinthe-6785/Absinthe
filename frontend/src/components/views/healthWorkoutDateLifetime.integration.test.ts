@@ -26,7 +26,18 @@ vi.mock('react', async importOriginal => {
       if (!Component.name.startsWith('HealthWorkoutExerciseCard')) return real.memo(Component, compare);
       const CountedCard = (props: any) => {
         mocks.renderMeasurements.exerciseCardRenders += 1;
-        return real.createElement(Component, props);
+        const countedProps = mocks.renderMeasurements.measureActionDispatches
+          ? {
+            ...props,
+            dispatchAction: (...args: any[]) => {
+              if (mocks.renderMeasurements.measureActionDispatches) {
+                mocks.renderMeasurements.actionDispatches += 1;
+              }
+              return props.dispatchAction(...args);
+            },
+          }
+          : props;
+        return real.createElement(Component, countedProps);
       };
       CountedCard.displayName = 'CountedHealthWorkoutExerciseCard';
       return real.memo(CountedCard, compare);
@@ -123,6 +134,9 @@ const mocks = vi.hoisted(() => ({
   renderMeasurements: {
     exerciseCardRenders: 0,
     profilerCommits: 0,
+    healthViewRenders: 0,
+    actionDispatches: 0,
+    measureActionDispatches: false,
   },
 }));
 
@@ -473,6 +487,10 @@ function deferred<T = void>() {
 }
 let storage: ByteStorage, root: Root | null, host: HTMLDivElement, props: HealthProps;
 let raf: Array<FrameRequestCallback>;
+function CountedHealthView(value: HealthProps) {
+  mocks.renderMeasurements.healthViewRenders += 1;
+  return HealthView(value);
+}
 function healthProps(overrides: Partial<HealthProps> = {}): HealthProps {
   return { now: {} as HealthProps['now'], currentDate: date(X), selectedDate: date(X),
     setCurrentDate: vi.fn(), setSelectedDate: vi.fn(),
@@ -490,7 +508,7 @@ async function render(overrides: Partial<HealthProps> = {}) {
     root!.render(createElement(Profiler, {
       id: 'health-workout',
       onRender: () => { mocks.renderMeasurements.profilerCommits += 1; },
-    }, createElement(HealthView, props)));
+    }, createElement(CountedHealthView, props)));
   });
 }
 function seed() {
@@ -568,7 +586,10 @@ beforeEach(() => {
     matcherBuilds: 0, matcherLookups: 0, previousBestFormats: 0, previousSetFormats: 0,
     prBadgeComputations: 0, prCurrentSetVisits: 0, prPreviousSetVisits: 0,
   });
-  Object.assign(mocks.renderMeasurements, { exerciseCardRenders: 0, profilerCommits: 0 });
+  Object.assign(mocks.renderMeasurements, {
+    exerciseCardRenders: 0, profilerCommits: 0, healthViewRenders: 0,
+    actionDispatches: 0, measureActionDispatches: false,
+  });
   mocks.saveHealthWorkouts.mockReset().mockResolvedValue({ status: 'success', total: 1, succeeded: 1, failed: 0 });
   mocks.deleteHealthWorkout.mockReset().mockResolvedValue({ status: 'success' });
   mocks.repositoryFactory.mockReset().mockImplementation(async (accountId: string) => {
@@ -1185,6 +1206,12 @@ const HEALTH_WORKOUT_CARD_RENDER_BASELINE = {
   ],
 } as const;
 
+// Raw-input presentation baseline captured on a9a1f23d51e1e57cd82847bd685f729e8f62bb12:
+// a weight event produced 2 parent renders/Profiler commits and serialized all sets in every
+// workout (24 / 80 / 640 entries in the fixtures below). Reps/completion each serialized 80;
+// a unit-only rerender serialized 40. These are test-only counts, not runtime telemetry.
+const HEALTH_SET_INPUT_BASELINE_SHA = 'a9a1f23d51e1e57cd82847bd685f729e8f62bb12';
+
 describe('Health workout memoized exercise-card rendering', () => {
   async function mountFixture(exerciseCount: number, setsPerExercise: number, mobile = false) {
     seed();
@@ -1204,7 +1231,137 @@ describe('Health workout memoized exercise-card rendering', () => {
   function resetCounts() {
     mocks.renderMeasurements.exerciseCardRenders = 0;
     mocks.renderMeasurements.profilerCommits = 0;
+    mocks.renderMeasurements.healthViewRenders = 0;
+    mocks.renderMeasurements.actionDispatches = 0;
   }
+
+  it.each([
+    { exercises: 3, sets: 4, label: 'small mobile' },
+    { exercises: 8, sets: 5, label: 'moderate mobile' },
+    { exercises: 40, sets: 8, label: 'stress mobile' },
+  ])(`separates weight input events, React work, commits, and serialized presentation data on the $label fixture (baseline ${HEALTH_SET_INPUT_BASELINE_SHA})`, async ({ exercises, sets }) => {
+    mocks.renderMeasurements.measureActionDispatches = true;
+    await mountFixture(exercises, sets, true);
+    mocks.renderMeasurements.measureActionDispatches = false;
+    const input = host.querySelector<HTMLInputElement>('[data-workout-index="0"] input[inputmode="decimal"]')!;
+    mocks.renderMeasurements.measureActionDispatches = true;
+    await act(async () => input.focus());
+    resetCounts();
+
+    const stringify = vi.spyOn(JSON, 'stringify');
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '42.5');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    mocks.renderMeasurements.measureActionDispatches = false;
+
+    const serializedRawWeightArrays = stringify.mock.calls
+      .map(([value]) => value)
+      .filter((value): value is (string | null)[] => Array.isArray(value)
+        && value.length === sets
+        && value.every(entry => entry === null || typeof entry === 'string'));
+    const serializedRawWeightEntries = serializedRawWeightArrays.reduce((total, values) => total + values.length, 0);
+    stringify.mockRestore();
+
+    expect(input.value).toBe('42.5');
+    expect(document.activeElement).toBe(input);
+    expect(snapshot().rows[0]!.sets[0]!.kg).toBe('42.5');
+    expect({
+      actionDispatches: mocks.renderMeasurements.actionDispatches,
+      healthViewRenders: mocks.renderMeasurements.healthViewRenders,
+      exerciseCardRenders: mocks.renderMeasurements.exerciseCardRenders,
+      profilerCommits: mocks.renderMeasurements.profilerCommits,
+      serializedRawWeightArrays: serializedRawWeightArrays.length,
+      serializedRawWeightEntries,
+    }).toEqual({
+      actionDispatches: 2,
+      healthViewRenders: 2,
+      exerciseCardRenders: 1,
+      profilerCommits: 2,
+      serializedRawWeightArrays: 2,
+      serializedRawWeightEntries: sets * 2,
+    });
+  }, 15_000);
+
+  it('measures repetitions and completion input separately from card renders and commits', async () => {
+    const exercises = 8, sets = 5;
+    mocks.renderMeasurements.measureActionDispatches = true;
+    await mountFixture(exercises, sets, true);
+    mocks.renderMeasurements.measureActionDispatches = false;
+    const card = host.querySelector<HTMLElement>('[data-workout-index="0"]')!;
+    const repsInput = card.querySelector<HTMLInputElement>('input[inputmode="numeric"]')!;
+    await act(async () => repsInput.focus());
+    const stringify = vi.spyOn(JSON, 'stringify');
+    resetCounts();
+
+    mocks.renderMeasurements.measureActionDispatches = true;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(repsInput, '9');
+      repsInput.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    mocks.renderMeasurements.measureActionDispatches = false;
+    const repsRawArrays = stringify.mock.calls.map(([value]) => value).filter((value): value is unknown[] =>
+      Array.isArray(value) && value.length === sets && value.every(entry => entry === null || typeof entry === 'string'));
+    expect(repsInput.value).toBe('9');
+    expect(document.activeElement).toBe(repsInput);
+    expect(mocks.renderMeasurements.actionDispatches).toBe(1);
+    expect(mocks.renderMeasurements.healthViewRenders).toBe(2);
+    expect(mocks.renderMeasurements.exerciseCardRenders).toBe(1);
+    expect(mocks.renderMeasurements.profilerCommits).toBe(2);
+    expect(repsRawArrays.length).toBe(0);
+
+    stringify.mockClear();
+    resetCounts();
+    const complete = card.querySelector<HTMLButtonElement>('button.w-11.h-11')!;
+    mocks.renderMeasurements.measureActionDispatches = true;
+    await act(async () => complete.click());
+    mocks.renderMeasurements.measureActionDispatches = false;
+    const completionRawArrays = stringify.mock.calls.map(([value]) => value).filter((value): value is unknown[] =>
+      Array.isArray(value) && value.length === sets && value.every(entry => entry === null || typeof entry === 'string'));
+    expect(snapshot().rows[0]!.sets[0]!.done).toBe(true);
+    expect(mocks.renderMeasurements.actionDispatches).toBe(1);
+    expect(mocks.renderMeasurements.healthViewRenders).toBe(2);
+    expect(mocks.renderMeasurements.exerciseCardRenders).toBe(1);
+    expect(mocks.renderMeasurements.profilerCommits).toBe(2);
+    expect(completionRawArrays.length).toBe(0);
+    stringify.mockRestore();
+  }, 15_000);
+
+  it('preserves repeated and partial decimal weight edits and empty input', async () => {
+    mocks.renderMeasurements.measureActionDispatches = true;
+    await mountFixture(3, 4, true);
+    mocks.renderMeasurements.measureActionDispatches = false;
+    const input = host.querySelector<HTMLInputElement>('[data-workout-index="0"] input[inputmode="decimal"]')!;
+    await act(async () => input.focus());
+    resetCounts();
+    const stringify = vi.spyOn(JSON, 'stringify');
+    for (const value of ['4', '42', '42.5']) {
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      expect(document.activeElement).toBe(input);
+    }
+    expect(snapshot().rows[0]!.sets[0]!.kg).toBe('42.5');
+    const repeatedRawArrays = stringify.mock.calls.map(([value]) => value).filter((value): value is unknown[] =>
+      Array.isArray(value) && value.length === 4 && value.every(entry => entry === null || typeof entry === 'string'));
+    expect(mocks.renderMeasurements.healthViewRenders).toBe(6);
+    expect(mocks.renderMeasurements.exerciseCardRenders).toBe(3);
+    expect(mocks.renderMeasurements.profilerCommits).toBe(6);
+    expect(repeatedRawArrays.length).toBe(6);
+    expect(repeatedRawArrays.reduce((total, values) => total + values.length, 0)).toBe(24);
+    stringify.mockRestore();
+
+    const reactPropsKey = Object.keys(input).find(key => key.startsWith('__reactProps$'))!;
+    const onChange = (input as unknown as Record<string, { onChange: (event: unknown) => void }>)[reactPropsKey]!.onChange;
+    await act(async () => onChange({ target: { value: '42.' } }));
+    expect(snapshot().rows[0]!.sets[0]!.weight_input_raw).toBe('42.');
+    const currentReactPropsKey = Object.keys(input).find(key => key.startsWith('__reactProps$'))!;
+    const currentOnChange = (input as unknown as Record<string, { onChange: (event: unknown) => void }>)[currentReactPropsKey]!.onChange;
+    await act(async () => currentOnChange({ target: { value: '' } }));
+    expect(snapshot().rows[0]!.sets[0]!.weight_input_raw).toBe('');
+    expect(document.activeElement).toBe(input);
+  }, 15_000);
 
   it.each(HEALTH_WORKOUT_CARD_RENDER_BASELINE.repsEdit)(
     'edits one reps field without rendering unchanged cards in the $label fixture (baseline $cardRenders at ${HEALTH_WORKOUT_CARD_RENDER_BASELINE.sourceSha})',
@@ -1281,12 +1438,18 @@ describe('Health workout memoized exercise-card rendering', () => {
   it('updates only the matching exercise card when its unit or previous-history source changes', async () => {
     const rows = await mountFixture(8, 5);
     mocks.weightUnits = { [rows[3]!.block_id]: 'lbs' };
+    const stringify = vi.spyOn(JSON, 'stringify');
     resetCounts();
     await render();
+    const unitRawArrays = stringify.mock.calls.map(([value]) => value).filter((value): value is unknown[] =>
+      Array.isArray(value) && value.length === 5 && value.every(entry => entry === null || typeof entry === 'string'));
     expect(mocks.renderMeasurements.exerciseCardRenders).toBe(1);
     expect(mocks.renderMeasurements.profilerCommits).toBe(1);
+    expect(mocks.renderMeasurements.healthViewRenders).toBe(1);
+    expect(unitRawArrays.length).toBe(0);
     const thirdCardButtons = [...host.querySelectorAll<HTMLButtonElement>('[data-workout-index="3"] button')];
     expect(thirdCardButtons.some(button => button.textContent?.includes('lbs'))).toBe(true);
+    stringify.mockRestore();
 
     await act(async () => { root!.unmount(); });
     root = null;
