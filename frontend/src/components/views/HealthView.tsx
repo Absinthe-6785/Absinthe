@@ -201,6 +201,43 @@ type HealthWorkoutExerciseCardProps = {
   pendingAssistedFocusRef: RefObject<{ wIdx: number; sIdx: number } | null>;
 };
 
+type HealthQuickAddSearchMatch = ReturnType<typeof searchHealthQuickAddIndex>[number];
+
+type HealthQuickAddExerciseResultListProps = {
+  matches: HealthQuickAddSearchMatch[];
+  onSelect: (block: ExerciseBlock) => void;
+  emptyMessage: string;
+  emptyMessageClassName: string;
+  resultButtonClassName: string;
+};
+
+const HealthQuickAddExerciseResultList = memo(function HealthQuickAddExerciseResultList({
+  matches,
+  onSelect,
+  emptyMessage,
+  emptyMessageClassName,
+  resultButtonClassName,
+}: HealthQuickAddExerciseResultListProps) {
+  return (
+    <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain" data-health-quick-add-list>
+      {matches.length === 0 ? (
+        <p className={emptyMessageClassName}>{emptyMessage}</p>
+      ) : matches.map(({ block }) => (
+        <button
+          key={block.id}
+          type="button"
+          onClick={() => onSelect(block)}
+          className={resultButtonClassName}
+          data-health-quick-add-block={block.id}
+        >
+          <span className="min-w-0 whitespace-normal break-words text-sm font-bold leading-snug [overflow-wrap:anywhere]">{block.name}</span>
+          <Plus size={16} className="mt-0.5 shrink-0 text-primary" aria-hidden />
+        </button>
+      ))}
+    </div>
+  );
+});
+
 export const HealthView = ({
   currentDate, setCurrentDate, selectedDate, setSelectedDate,
   formatDate, isToday, showToast, mutateDaily, mutateStatic,
@@ -1202,6 +1239,15 @@ export const HealthView = ({
     });
     setIsDirty(current => currentAddition() ? true : current);
   };
+
+  const quickAddSelectRef = useRef<(block: ExerciseBlock) => void>(() => undefined);
+  useLayoutEffect(() => {
+    quickAddSelectRef.current = block => {
+      void handleAddWorkoutToToday(block);
+      closeQuickAddExercise();
+    };
+  }, [handleAddWorkoutToToday, closeQuickAddExercise]);
+  const handleQuickAddSelect = useCallback((block: ExerciseBlock) => quickAddSelectRef.current(block), []);
 
   const handleQuickPresetChange = async (presetId: string) => {
     routineLoadIntentRef.current = null;
@@ -2657,25 +2703,13 @@ export const HealthView = ({
               className={`mb-3 min-h-11 w-full shrink-0 rounded-xl border px-3 py-2.5 text-sm font-semibold outline-none ${theme.input} ${theme.border}`}
               data-health-quick-add-search
             />
-            <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain" data-health-quick-add-list>
-              {quickAddMatches.length === 0 ? (
-                <p className={`py-6 text-center text-sm font-semibold ${theme.textMuted}`}>{t('healthExerciseSearchEmpty')}</p>
-              ) : quickAddMatches.map(({ block }) => (
-                <button
-                  key={block.id}
-                  type="button"
-                  onClick={() => {
-                    void handleAddWorkoutToToday(block);
-                    closeQuickAddExercise();
-                  }}
-                  className={`flex min-h-[48px] w-full items-start justify-between gap-3 rounded-xl border px-3 py-2.5 text-left ${theme.border} ${theme.hoverBg}`}
-                  data-health-quick-add-block={block.id}
-                >
-                  <span className="min-w-0 whitespace-normal break-words text-sm font-bold leading-snug [overflow-wrap:anywhere]">{block.name}</span>
-                  <Plus size={16} className="mt-0.5 shrink-0 text-primary" aria-hidden />
-                </button>
-              ))}
-            </div>
+            <HealthQuickAddExerciseResultList
+              matches={quickAddMatches}
+              onSelect={handleQuickAddSelect}
+              emptyMessage={t('healthExerciseSearchEmpty')}
+              emptyMessageClassName={`py-6 text-center text-sm font-semibold ${theme.textMuted}`}
+              resultButtonClassName={`flex min-h-[48px] w-full items-start justify-between gap-3 rounded-xl border px-3 py-2.5 text-left ${theme.border} ${theme.hoverBg}`}
+            />
           </div>
         </div>
       )}
