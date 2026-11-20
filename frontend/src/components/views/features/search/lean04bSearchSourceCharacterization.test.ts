@@ -22,16 +22,25 @@ describe('LEAN_04B Search source characterization', () => {
     expect(host).toContain('<SearchWorkspacePalette');
   });
 
-  it('keeps the palette lifecycle mounted but gates Search builders on open', () => {
+  it('keeps the interactive palette eager and imports result builders only from the open effect', () => {
     const host = source('components/views/features/search/GlobalSearchHost.tsx');
     const projection = source('components/views/features/search/hooks/useSearchProjection.ts');
+    const runtime = source('components/views/features/search/searchProjectionRuntime.ts');
     const palette = source('components/views/features/search/components/SearchWorkspacePalette.tsx');
-    expect(host).toContain('() => open ? buildDiscoveryFeed(notes, knowledgeIndexService) : undefined');
-    expect(host).toMatch(/const projection = useSearchProjection\(\{[\s\S]*?\}, open\);/);
-    expect(projection).toContain('now === undefined ? CLOSED_PROJECTION : buildSearchProjection');
+    expect(host).toMatch(/if \(!open \|\| projectionRuntime !== undefined\) return;[\s\S]*?void loadSearchProjectionRuntime\(\)/);
+    expect(host).not.toMatch(/^import .* from .*searchProjectionRuntime/m);
+    expect(projection).toContain("return import('../searchProjectionRuntime');");
+    expect(projection).not.toMatch(/^import (?!type ).* from .*buildSearchProjection/m);
+    expect(host).toContain('() => open ? builders?.buildDiscoveryFeed(notes, knowledgeIndexService) : undefined');
+    expect(host).toMatch(/const projection = useSearchProjection\(\{[\s\S]*?\}, open, builders\?\.buildSearchProjection\);/);
+    expect(runtime).toContain("export { buildSearchProjection } from './buildSearchProjection';");
+    expect(runtime).toContain("export { buildDiscoveryFeed } from '../knowledge/discovery';");
+    expect(projection).toContain('if (!now) return CLOSED_PROJECTION;');
+    expect(projection).toContain('if (buildSearchProjection) return buildSearchProjection({ ...input, now });');
+    expect(projection).toContain('buildSearchRecentGroups(input.recentSearches, now)');
     expect(host).not.toContain('if (!open) return null');
     expect(palette).toContain('if (!open) return null;');
-    expect(palette).toContain('isSearching ?');
+    expect(palette).toContain("projectionStatus === 'loading' || isSearching");
     expect(palette).toContain('projection.empty.noResults');
   });
 

@@ -19,6 +19,7 @@ type PaletteProps = {
   open: boolean;
   query: string;
   projection: SearchProjection;
+  projectionStatus?: 'loading' | 'unavailable';
   onQueryChange: (query: string) => void;
   onClose: () => void;
 };
@@ -252,6 +253,10 @@ async function flush(): Promise<void> {
   }
 }
 
+async function settlePresentation(): Promise<void> {
+  await act(async () => { await vi.dynamicImportSettled(); });
+}
+
 function deferred(): { promise: Promise<unknown>; resolve: (value: unknown) => void } {
   let resolve!: (value: unknown) => void;
   const promise = new Promise<unknown>(nextResolve => { resolve = nextResolve; });
@@ -314,6 +319,7 @@ async function renderScenario(kind: TargetKind, status: TargetStatus, query: str
   await flush();
   expect(harness.openers).toHaveLength(1);
   act(() => harness.openers[0]!());
+  await settlePresentation();
   await flush();
 
   const projection = harness.palette?.projection;
@@ -345,9 +351,9 @@ describe('LEAN_04B production-plumbing Search characterization', () => {
       id: `note-${prefix}-${i}`, title: `${prefix} note ${i}`, body: 'Fixture body',
     }));
     const work: Record<string, [discovery: number, projection: number]> = {};
-    const measure = (phase: string, action: () => void) => {
+    const measure = async (phase: string, action: () => void | Promise<void>) => {
       const { discoveryCalls, projectionCalls } = harness;
-      action();
+      await action();
       work[phase] = [harness.discoveryCalls - discoveryCalls, harness.projectionCalls - projectionCalls];
     };
     const open = () => {
@@ -364,38 +370,44 @@ describe('LEAN_04B production-plumbing Search characterization', () => {
     const expectOnlyCurrentNotes = (prefix: string, since: number) => {
       const snapshots = harness.paletteSnapshots.slice(since).filter(snapshot => snapshot.open);
       expect(snapshots.length).toBeGreaterThan(0);
+      expect(snapshots.some(snapshot => snapshot.projectionStatus === undefined)).toBe(true);
       for (const snapshot of snapshots) {
         const results = snapshot.projection.results.filter(result => result.kind === 'note');
+        if (snapshot.projectionStatus === 'loading') {
+          expect(snapshot.projection.results).toEqual([]);
+          continue;
+        }
+        expect(snapshot.projectionStatus).toBeUndefined();
         expect(results.length).toBeGreaterThan(0);
         expect(results.every(result => result.title?.startsWith(`${prefix} note `))).toBe(true);
       }
     };
     try {
       harness.notes = notes('Initial');
-      measure('mountClosed', () => render());
+      await measure('mountClosed', () => render());
       await flush();
       expectNoBuilds();
       harness.notes = notes('Latest');
-      measure('notesChangeClosed', () => render());
-      measure('unrelatedRenderClosed', () => render());
-      measure('workspaceNavigationClosed', () => {
+      await measure('notesChangeClosed', () => render());
+      await measure('unrelatedRenderClosed', () => render());
+      await measure('workspaceNavigationClosed', () => {
         for (const tab of ['planner', 'health', 'recipe', 'analytics', 'note', 'home']) {
           act(() => host.querySelector<HTMLButtonElement>(`[data-shell-tab="${tab}"]`)!.click());
         }
       });
       await flush();
       expectNoBuilds();
-      measure('open', open);
-      measure('query', () => act(() => harness.palette!.onQueryChange('Latest')));
+      await measure('open', async () => { open(); await settlePresentation(); });
+      await measure('query', () => act(() => harness.palette!.onQueryChange('Latest')));
       expectNote('Latest note 0');
       harness.notes = notes('Latest Edited');
-      measure('notesChangeOpen', () => render());
+      await measure('notesChangeOpen', () => render());
       expectNote('Latest Edited note 0');
-      measure('close', () => act(() => harness.palette!.onClose()));
+      await measure('close', () => act(() => harness.palette!.onClose()));
       expect(harness.palette?.projection.results).toEqual([]);
       harness.notes = notes('Latest Reopened');
-      measure('notesChangeAfterClose', () => render());
-      measure('reopen', open);
+      await measure('notesChangeAfterClose', () => render());
+      await measure('reopen', open);
       expect(harness.palette?.query).toBe('Latest');
       expectNote('Latest Reopened note 0');
       expect(harness.palette?.projection.results.some(result => result.title === 'Latest Edited note 0')).toBe(false);
@@ -405,6 +417,7 @@ describe('LEAN_04B production-plumbing Search characterization', () => {
       render('account-b');
       expect(harness.palette?.open).toBe(false);
       open();
+      await settlePresentation();
       expectNote('Latest B note 0');
       expectOnlyCurrentNotes('Latest B', bStart);
       harness.notes = notes('Latest A2');
@@ -416,6 +429,7 @@ describe('LEAN_04B production-plumbing Search characterization', () => {
       act(() => window.dispatchEvent(new KeyboardEvent('keydown', {
         key: 'F', ctrlKey: true, metaKey: true, shiftKey: true, cancelable: true,
       })));
+      await settlePresentation();
       expectNote('Latest A2 note 0');
       expectOnlyCurrentNotes('Latest A2', a2Start);
 

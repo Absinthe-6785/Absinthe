@@ -45,6 +45,7 @@ export interface SearchWorkspacePaletteProps {
   onClose: () => void;
   onRecentRevision: () => void;
   isSearching?: boolean;
+  projectionStatus?: 'loading' | 'unavailable';
   onOpenWorkoutPreview?: (evidence: SearchWorkoutPreviewEvidence) => boolean;
   onRetryWorkoutPreview?: () => void;
 }
@@ -134,6 +135,7 @@ export function SearchWorkspacePalette({
   onClose,
   onRecentRevision,
   isSearching = false,
+  projectionStatus,
   onOpenWorkoutPreview,
   onRetryWorkoutPreview,
 }: SearchWorkspacePaletteProps) {
@@ -227,6 +229,8 @@ export function SearchWorkspacePalette({
   );
 
   const activeDescendantId = flatResults.length > 0 ? `k111-search-opt-${activeIndex}` : undefined;
+  // Module loading affects results, not the eager no-query recents panel.
+  const hideResults = projectionStatus ? !projection.empty.noQuery : isSearching;
   const groupStates = projection.groupStates ?? {};
   const hasStatefulGroups = projection.groupedResults.some(group => group.state !== undefined);
 
@@ -337,11 +341,16 @@ export function SearchWorkspacePalette({
           data-k111-search-results
           data-k120-scroll-search
         >
-          {isSearching ? (
-            <div role="status" className="k101-skeleton-pulse" style={{ padding: '14px', fontSize: 12, color: c.textFaint, textAlign: 'center' }} data-k111-search-loading>
-              {t('k101SearchLoading')}
+          {projectionStatus === 'unavailable' ? (
+            <div role="alert" style={{ padding: '14px', fontSize: 12, color: c.textMuted, textAlign: 'center' }}>
+              {t('k111GroupError')}
             </div>
-          ) : projection.empty.noQuery ? (
+          ) : (projectionStatus === 'loading' || isSearching) ? (
+            <div role="status" className="k101-skeleton-pulse" style={{ padding: '14px', fontSize: 12, color: c.textFaint, textAlign: 'center' }} data-k111-search-loading>
+              {t(projectionStatus === 'loading' ? 'loading' : 'k101SearchLoading')}
+            </div>
+          ) : null}
+          {hideResults ? null : projection.empty.noQuery ? (
             <div data-k111-search-recent>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 10px' }}>
                 <span style={{ fontSize: 10, fontWeight: 700, color: c.textMuted, textTransform: 'uppercase' }}>

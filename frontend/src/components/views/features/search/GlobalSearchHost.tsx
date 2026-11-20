@@ -9,9 +9,8 @@ import type { Recipe } from '../recipe/recipeTypes';
 import { registerWorkspaceSearchOpener } from '../../../../lib/noteNavigation';
 import { resolveAppLanguage } from '../../../../lib/i18n';
 import { knowledgeIndexService } from '../knowledge/KnowledgeIndexService';
-import { buildDiscoveryFeed } from '../knowledge/discovery';
 import { readWorkspaceSearchState, writeWorkspaceSearchState } from '../../k101WorkspaceSearchState';
-import { useSearchProjection } from './hooks/useSearchProjection';
+import { loadSearchProjectionRuntime, useSearchProjection } from './hooks/useSearchProjection';
 import { SearchWorkspacePalette } from './components/SearchWorkspacePalette';
 import { loadSearchRecent } from './searchRecentStorage';
 import { resolveSearchDatasetState, type SearchDatasetState } from '../../../../lib/searchReadiness';
@@ -60,6 +59,7 @@ export function GlobalSearchHost({
   const notes = useNotesStore(s => s.notes);
   const folders = useNotesStore(s => s.folders);
   const [open, setOpen] = useState(false);
+  const [projectionRuntime, setProjectionRuntime] = useState<typeof import('./searchProjectionRuntime') | 'unavailable'>();
   const persisted = useMemo(() => readWorkspaceSearchState(), []);
   const [query, setQuery] = useState(persisted.query);
   const [recentRevision, setRecentRevision] = useState(0);
@@ -102,6 +102,7 @@ export function GlobalSearchHost({
       if (searchHostLifetime && !searchHostLifetime.mounted) return;
       const saved = readWorkspaceSearchState();
       reportPresence(true, Boolean(saved.query.trim()));
+      setProjectionRuntime(runtime => runtime === 'unavailable' ? undefined : runtime);
       setQuery(saved.query);
       setOpen(true);
     });
@@ -114,6 +115,18 @@ export function GlobalSearchHost({
       }
     };
   }, [searchHostLifetime, reportPresence]);
+
+  useEffect(() => {
+    if (!open || projectionRuntime !== undefined) return;
+    // Only code can arrive here; inputs still come from the current host render.
+    // Keep the eager palette interactive, even if the first import is slow.
+    let current = true;
+    void loadSearchProjectionRuntime().then(
+      runtime => { if (current) setProjectionRuntime(runtime); },
+      () => { if (current) setProjectionRuntime('unavailable'); },
+    );
+    return () => { current = false; };
+  }, [open, projectionRuntime]);
 
   useEffect(() => {
     onSearchHasQueryChange?.(open && Boolean(query.trim()));
@@ -142,9 +155,10 @@ export function GlobalSearchHost({
     return () => window.clearTimeout(timer);
   }, [query]);
 
+  const builders = projectionRuntime === 'unavailable' ? undefined : projectionRuntime;
   const discoveryFeed = useMemo(
-    () => open ? buildDiscoveryFeed(notes, knowledgeIndexService) : undefined,
-    [open, notes, accountId],
+    () => open ? builders?.buildDiscoveryFeed(notes, knowledgeIndexService) : undefined,
+    [open, notes, accountId, builders],
   );
 
   const recentSearches = useMemo(
@@ -175,7 +189,7 @@ export function GlobalSearchHost({
     discoveryFeed,
     language: resolveAppLanguage(appSettings.language),
     revision: recentRevision,
-  }, open);
+  }, open, builders?.buildSearchProjection);
 
   const colors = useMemo(() => buildNoteChrome(appSettings.darkMode, appSettings), [appSettings]);
 
@@ -212,6 +226,7 @@ export function GlobalSearchHost({
       onClose={handleClose}
       onRecentRevision={bumpRecent}
       isSearching={isSearching}
+      projectionStatus={projectionRuntime === 'unavailable' ? 'unavailable' : !builders ? 'loading' : undefined}
       onOpenWorkoutPreview={handleOpenWorkoutPreview}
       onRetryWorkoutPreview={handleRetryWorkoutPreview}
     />
