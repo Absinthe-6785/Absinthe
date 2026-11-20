@@ -19,6 +19,8 @@ type PaletteProps = {
   open: boolean;
   query: string;
   projection: SearchProjection;
+  onQueryChange: (query: string) => void;
+  onClose: () => void;
 };
 
 const harness = vi.hoisted(() => ({
@@ -34,6 +36,8 @@ const harness = vi.hoisted(() => ({
   persisted: { query: '', filter: 'all' as const },
   plannerInputs: [] as Array<{ schedules: unknown[]; todos: unknown[] }>,
   healthInputs: [] as Array<{ workouts: unknown[]; healthBlocks: unknown[] }>,
+  discoveryCalls: 0,
+  projectionCalls: 0,
   notes: [] as unknown[],
   folders: [] as unknown[],
   updateSetting: () => undefined,
@@ -50,7 +54,7 @@ vi.mock('../lib/supabase', () => ({
 vi.mock('../lib/noteNavigation', () => ({
   registerNotesTabSwitcher: () => () => undefined,
   registerAppTabSwitcher: () => () => undefined,
-  openWorkspaceSearch: () => undefined,
+  openWorkspaceSearch: () => harness.openers.at(-1)?.(),
   registerWorkspaceSearchOpener: (opener: () => void) => {
     harness.openers.push(opener);
     return () => {
@@ -143,7 +147,13 @@ vi.mock('../lib/i18n', () => ({
 }));
 
 vi.mock('../theme', () => ({ buildThemeClasses: () => ({}) }));
-vi.mock('./common/Sidebar', () => ({ Sidebar: () => null }));
+vi.mock('./common/Sidebar', () => ({
+  Sidebar: ({ setActiveTab }: { setActiveTab: (tab: string) => void }) => createElement(
+    'nav', {},
+    ...['home', 'planner', 'health', 'recipe', 'analytics', 'note'].map(tab =>
+      createElement('button', { key: tab, 'data-shell-tab': tab, onClick: () => setActiveTab(tab) }, tab)),
+  ),
+}));
 vi.mock('./common/ViewLoadingFallback', () => ({ ViewLoadingFallback: () => null }));
 vi.mock('./views/NoteView', () => ({ NoteView: () => null }));
 vi.mock('./views/HomeView', () => ({ HomeView: () => null }));
@@ -166,12 +176,26 @@ vi.mock('../lib/startupBootstrapCoordinator', () => ({
   startIndependentStartup: () => ({ cancel: () => undefined, retry: () => undefined }),
 }));
 
-vi.mock('./views/features/knowledge/KnowledgeIndexService', () => ({
-  knowledgeIndexService: {},
-}));
-vi.mock('./views/features/knowledge/discovery', () => ({
-  buildDiscoveryFeed: () => ({ items: [], sections: {}, summary: {} }),
-}));
+vi.mock('./views/features/knowledge/discovery', async importOriginal => {
+  const actual = await importOriginal<typeof import('./views/features/knowledge/discovery')>();
+  return {
+    ...actual,
+    buildDiscoveryFeed: (...args: Parameters<typeof actual.buildDiscoveryFeed>) => {
+      harness.discoveryCalls += 1;
+      return actual.buildDiscoveryFeed(...args);
+    },
+  };
+});
+vi.mock('./views/features/search/buildSearchProjection', async importOriginal => {
+  const actual = await importOriginal<typeof import('./views/features/search/buildSearchProjection')>();
+  return {
+    ...actual,
+    buildSearchProjection: (...args: Parameters<typeof actual.buildSearchProjection>) => {
+      harness.projectionCalls += 1;
+      return actual.buildSearchProjection(...args);
+    },
+  };
+});
 vi.mock('./views/k101WorkspaceSearchState', () => ({
   readWorkspaceSearchState: () => harness.persisted,
   writeWorkspaceSearchState: (state: { query: string; filter: string }) => {
@@ -247,6 +271,8 @@ function resetHarness(kind: TargetKind, status: TargetStatus, query: string): vo
   harness.persisted = { query, filter: 'all' };
   harness.plannerInputs.length = 0;
   harness.healthInputs.length = 0;
+  harness.discoveryCalls = 0;
+  harness.projectionCalls = 0;
   harness.notes = [];
   harness.folders = [];
 
@@ -305,6 +331,112 @@ async function renderScenario(kind: TargetKind, status: TargetStatus, query: str
 describe('LEAN_04B production-plumbing Search characterization', () => {
   afterEach(() => {
     document.body.replaceChildren();
+  });
+
+  it.each([20, 500])('measures real shell Search builders with %i Notes and opens with fresh results', async count => {
+    resetHarness('todos', 'empty', '');
+    const host = document.body.appendChild(document.createElement('div'));
+    const root = createRoot(host);
+    const config = { provider: () => new Map(), dedupingInterval: 0, revalidateOnFocus: false };
+    const render = (account = 'account-a') => act(() => root.render(createElement(
+      SWRConfig, { value: config }, createElement(AppContent, { authUser: accountUser(account) }),
+    )));
+    const notes = (prefix: string) => Array.from({ length: count }, (_, i) => ({
+      id: `note-${prefix}-${i}`, title: `${prefix} note ${i}`, body: 'Fixture body',
+    }));
+    const work: Record<string, [discovery: number, projection: number]> = {};
+    const measure = (phase: string, action: () => void) => {
+      const { discoveryCalls, projectionCalls } = harness;
+      action();
+      work[phase] = [harness.discoveryCalls - discoveryCalls, harness.projectionCalls - projectionCalls];
+    };
+    const open = () => {
+      expect(harness.openers).toHaveLength(1);
+      act(() => harness.openers[0]!());
+    };
+    const expectNote = (title: string) => {
+      expect(harness.palette?.open).toBe(true);
+      expect(harness.palette?.projection.results.some(result => result.kind === 'note' && result.title === title)).toBe(true);
+    };
+    const expectNoBuilds = () => {
+      expect([harness.discoveryCalls, harness.projectionCalls]).toEqual([0, 0]);
+    };
+    const expectOnlyCurrentNotes = (prefix: string, since: number) => {
+      const snapshots = harness.paletteSnapshots.slice(since).filter(snapshot => snapshot.open);
+      expect(snapshots.length).toBeGreaterThan(0);
+      for (const snapshot of snapshots) {
+        const results = snapshot.projection.results.filter(result => result.kind === 'note');
+        expect(results.length).toBeGreaterThan(0);
+        expect(results.every(result => result.title?.startsWith(`${prefix} note `))).toBe(true);
+      }
+    };
+    try {
+      harness.notes = notes('Initial');
+      measure('mountClosed', () => render());
+      await flush();
+      expectNoBuilds();
+      harness.notes = notes('Latest');
+      measure('notesChangeClosed', () => render());
+      measure('unrelatedRenderClosed', () => render());
+      measure('workspaceNavigationClosed', () => {
+        for (const tab of ['planner', 'health', 'recipe', 'analytics', 'note', 'home']) {
+          act(() => host.querySelector<HTMLButtonElement>(`[data-shell-tab="${tab}"]`)!.click());
+        }
+      });
+      await flush();
+      expectNoBuilds();
+      measure('open', open);
+      measure('query', () => act(() => harness.palette!.onQueryChange('Latest')));
+      expectNote('Latest note 0');
+      harness.notes = notes('Latest Edited');
+      measure('notesChangeOpen', () => render());
+      expectNote('Latest Edited note 0');
+      measure('close', () => act(() => harness.palette!.onClose()));
+      expect(harness.palette?.projection.results).toEqual([]);
+      harness.notes = notes('Latest Reopened');
+      measure('notesChangeAfterClose', () => render());
+      measure('reopen', open);
+      expect(harness.palette?.query).toBe('Latest');
+      expectNote('Latest Reopened note 0');
+      expect(harness.palette?.projection.results.some(result => result.title === 'Latest Edited note 0')).toBe(false);
+
+      harness.notes = notes('Latest B');
+      const bStart = harness.paletteSnapshots.length;
+      render('account-b');
+      expect(harness.palette?.open).toBe(false);
+      open();
+      expectNote('Latest B note 0');
+      expectOnlyCurrentNotes('Latest B', bStart);
+      harness.notes = notes('Latest A2');
+      const a2Start = harness.paletteSnapshots.length;
+      render();
+      expect(harness.palette?.open).toBe(false);
+      expect(harness.openers).toHaveLength(1);
+      // Exercise the AppContent shortcut as well as the direct opener above.
+      act(() => window.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'F', ctrlKey: true, metaKey: true, shiftKey: true, cancelable: true,
+      })));
+      expectNote('Latest A2 note 0');
+      expectOnlyCurrentNotes('Latest A2', a2Start);
+
+      expect(work).toMatchObject({
+        mountClosed: [0, 0], notesChangeClosed: [0, 0], unrelatedRenderClosed: [0, 0],
+        workspaceNavigationClosed: [0, 0], close: [0, 0], notesChangeAfterClose: [0, 0],
+      });
+      expect(work.open?.[0]).toBe(1);
+      expect(work.reopen?.[0]).toBe(1);
+      // Captured on 44d03864e with this same mounted fixture/action sequence,
+      // before gating the builders. Both fixture sizes yielded these counts.
+      const baseline = {
+        mountClosed: [1, 2], notesChangeClosed: [1, 1], unrelatedRenderClosed: [0, 1],
+        workspaceNavigationClosed: [0, 6], open: [0, 2], query: [0, 2],
+        notesChangeOpen: [1, 1], close: [0, 2], notesChangeAfterClose: [1, 1], reopen: [0, 2],
+      };
+      console.info('[search-builders: discovery, projection]', count, { baseline, optimized: work });
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+    }
   });
 
   it('traces useDailyData todos through AppContent and GlobalSearchHost into real projection semantics', async () => {

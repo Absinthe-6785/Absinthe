@@ -3,6 +3,8 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { SWRConfig } from 'swr';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { SearchWorkspacePaletteProps } from './components/SearchWorkspacePalette';
+import { pushSearchRecent } from './searchRecentStorage';
 
 type PaletteProps = {
   open: boolean;
@@ -28,6 +30,7 @@ const harness = vi.hoisted(() => ({
   writes: [] as Array<{ query: string; filter: string }>,
   activationSignals: [] as boolean[],
   discoveryCalls: 0,
+  useRealPalette: false,
 }));
 
 vi.mock('../../../../store/useNotesStore', () => ({
@@ -54,7 +57,8 @@ vi.mock('../../../../lib/fetcher', () => ({
   },
 }));
 
-vi.mock('../../../../lib/i18n', () => ({
+vi.mock('../../../../lib/i18n', async importOriginal => ({
+  ...await importOriginal<typeof import('../../../../lib/i18n')>(),
   resolveAppLanguage: () => 'en',
 }));
 
@@ -66,10 +70,6 @@ vi.mock('../../../../lib/noteNavigation', () => ({
       if (index >= 0) harness.openers.splice(index, 1);
     };
   },
-}));
-
-vi.mock('../knowledge/KnowledgeIndexService', () => ({
-  knowledgeIndexService: {},
 }));
 
 vi.mock('../knowledge/discovery', () => ({
@@ -87,36 +87,32 @@ vi.mock('../../k101WorkspaceSearchState', () => ({
   },
 }));
 
-vi.mock('./hooks/useSearchProjection', () => ({
-  useSearchProjection: (input: Record<string, unknown>) => {
-    harness.projectionInputs.push(input);
-    return {
-      results: [],
-      groupedResults: [],
-      counts: { notes: 0, planner: 0, health: 0, recipe: 0, archive: 0, total: 0 },
-      highlights: new Map(),
-      recentSearches: { today: [], earlier: [] },
-      empty: { noQuery: !String(input.query ?? '').trim(), noResults: false, noRecent: true },
-      query: String(input.query ?? ''),
-      generatedAt: '2026-08-26T00:00:00.000Z',
-    };
-  },
-}));
+vi.mock('./buildSearchProjection', async importOriginal => {
+  const actual = await importOriginal<typeof import('./buildSearchProjection')>();
+  return {
+    ...actual,
+    buildSearchProjection: (input: Parameters<typeof actual.buildSearchProjection>[0]) => {
+      harness.projectionInputs.push({ ...input });
+      return actual.buildSearchProjection(input);
+    },
+  };
+});
 
-vi.mock('./components/SearchWorkspacePalette', () => ({
-  SearchWorkspacePalette: (props: PaletteProps) => {
-    harness.palette = props;
-    return createElement('output', {
-      'data-open': String(props.open),
-      'data-query': props.query,
-      'data-searching': String(Boolean(props.isSearching)),
-    });
-  },
-}));
-
-vi.mock('./searchRecentStorage', () => ({
-  loadSearchRecent: () => [],
-}));
+vi.mock('./components/SearchWorkspacePalette', async importOriginal => {
+  const actual = await importOriginal<typeof import('./components/SearchWorkspacePalette')>();
+  return {
+    SearchWorkspacePalette: (props: SearchWorkspacePaletteProps) => {
+      harness.palette = props;
+      return harness.useRealPalette
+        ? createElement(actual.SearchWorkspacePalette, props)
+        : createElement('output', {
+          'data-open': String(props.open),
+          'data-query': props.query,
+          'data-searching': String(Boolean(props.isSearching)),
+        });
+    },
+  };
+});
 
 async function flush(): Promise<void> {
   for (let i = 0; i < 6; i += 1) {
@@ -193,7 +189,9 @@ describe('LEAN_04B GlobalSearchHost lifecycle characterization', () => {
     harness.writes.length = 0;
     harness.activationSignals.length = 0;
     harness.discoveryCalls = 0;
+    harness.useRealPalette = false;
     sessionStorage.clear();
+    localStorage.clear();
   });
 
   afterEach(() => {
@@ -202,14 +200,15 @@ describe('LEAN_04B GlobalSearchHost lifecycle characterization', () => {
     mounted = null;
   });
 
-  it('keeps the host and projection hooks mounted while the palette is closed', () => {
+  it('keeps the global opener registered without building discovery or projection while closed', () => {
     mounted = mount();
 
     expect(harness.palette?.open).toBe(false);
+    expect(harness.openers).toHaveLength(1);
+    expect(harness.writes).toHaveLength(0);
     expect(harness.recipeRequests).toHaveLength(0);
-    expect(harness.projectionInputs).toHaveLength(1);
-    expect(harness.projectionInputs[0]?.query).toBe('');
-    expect(harness.discoveryCalls).toBe(1);
+    expect(harness.projectionInputs).toHaveLength(0);
+    expect(harness.discoveryCalls).toBe(0);
   });
 
   it('opens through the registered global path, fetches recipes on open, and enters query without moving data ownership', async () => {
@@ -308,20 +307,56 @@ describe('LEAN_04B GlobalSearchHost lifecycle characterization', () => {
     expect(harness.activationSignals).toContain(true);
   });
 
-  it('recomputes the closed projection when shell data changes, even though no result filtering runs for an empty query', () => {
+  it('focuses the real palette, restores opener focus, and displays current recents on reopen', async () => {
+    harness.useRealPalette = true;
     mounted = mount();
-    const before = harness.projectionInputs.length;
+    const opener = mounted.host.appendChild(document.createElement('button'));
+    opener.addEventListener('click', openSearch);
+    opener.focus();
+    pushSearchRecent({ domain: 'recipe', kind: 'recipe', id: 'recipe-a', title: 'First recent recipe' }, 'account-a');
+    pushSearchRecent({ domain: 'recipe', kind: 'recipe', id: 'recipe-b', title: 'Foreign recent recipe' }, 'account-b');
+    const expectOpen = () => {
+      const input = mounted!.host.querySelector('[data-k111-search-input]');
+      expect(input).not.toBeNull();
+      expect(document.activeElement).toBe(input);
+      expect(mounted!.host.querySelector('[data-k111-search-recent]')?.textContent).toContain('First recent recipe');
+      expect(mounted!.host.textContent).not.toContain('Foreign recent recipe');
+    };
+
+    opener.click();
+    await flush();
+    expectOpen();
+    act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true })));
+    expect(mounted.host.querySelector('[data-k111-search-modal]')).toBeNull();
+    expect(document.activeElement).toBe(opener);
+
+    pushSearchRecent({ domain: 'recipe', kind: 'recipe', id: 'recipe-new', title: 'New recent recipe' }, 'account-a');
+    opener.click();
+    await flush();
+    expectOpen();
+    expect(mounted.host.querySelector('[data-k111-search-recent]')?.textContent).toContain('New recent recipe');
+  });
+
+  it('keeps closed updates idle and uses the latest sources on open', async () => {
+    mounted = mount();
+    harness.notes = [{ id: 'new-note', title: 'Latest', body: '' }];
+    harness.folders = [{ id: 'new-folder', name: 'Latest folder' }];
     act(() => {
       mounted?.root.render(createElement(
         SWRConfig,
         { value: { provider: () => new Map(), dedupingInterval: 0, revalidateOnFocus: false, shouldRetryOnError: false } },
         createElement(GlobalSearchHost, {
+          accountId: 'account-a',
           appSettings: settings(), schedules: [], todos: [], routines: [], workouts: [], healthBlocks: [], weeklySchedules: [],
         }),
       ));
     });
-    expect(harness.projectionInputs.length).toBeGreaterThan(before);
-    expect(harness.projectionInputs.at(-1)?.query).toBe('');
+    expect(harness.projectionInputs).toHaveLength(0);
+    expect(harness.discoveryCalls).toBe(0);
+    openSearch();
+    expect(harness.projectionInputs[0]).toMatchObject({ notes: harness.notes, folders: harness.folders, todos: [] });
+    expect(harness.discoveryCalls).toBe(1);
+    await flush();
   });
 
   it('passes an unavailable Health group as empty data without exposing a Health readiness state to Search', async () => {
