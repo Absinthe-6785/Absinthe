@@ -697,13 +697,44 @@ export async function loadExactMainHealthView(importer: (specifier: string) => P
     identity: { main: EXACT_MAIN, healthBlob: blob(source), scopeBlob: blob(BASELINE_SCOPE_SOURCE) } };
 }
 
+/** Load one exact Git-pinned HealthView for bounded mounted comparisons. */
+export async function loadHealthViewAtCommit(
+  commitSha: string,
+  expectedBlob: string,
+  importer: (specifier: string) => Promise<unknown>,
+) {
+  const source = execFileSync('git', [
+    'show', `${commitSha}:frontend/src/components/views/HealthView.tsx`,
+  ], { encoding: 'utf8' }).replace(/\r\n/g, '\n');
+  const healthBlob = createHash('sha1').update('blob ' + Buffer.byteLength(source) + '\0').update(source).digest('hex');
+  if (healthBlob !== expectedBlob) throw new Error('PINNED_HEALTH_VIEW_IDENTITY');
+  const code = ts.transpileModule(source, { compilerOptions: {
+    module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2022,
+  } }).outputText;
+  const modules = new Map<string, unknown>();
+  for (const match of code.matchAll(/require\("([^\"]+)"\)/g)) {
+    const specifier = match[1];
+    modules.set(specifier, await importer(specifier));
+  }
+  const lines = code.split('\n'), exports: any = {};
+  new Function('require', 'exports', code + '\n//# sourceURL=HealthViewNavigationBaseline.js')(
+    (specifier: string) => modules.get(specifier), exports);
+  return {
+    HealthView: exports.HealthView,
+    savingLine: lines.findIndex(line => line.includes('const [isSaving, setIsSaving]')) + 3,
+    lockedLine: lines.findIndex(line => line.includes('const [isWorkoutLocked, setIsWorkoutLocked]')) + 3,
+    mobileSurfaceLine: lines.findIndex(line => line.includes('const [mobileHealthTab, setMobileHealthTab]')) + 3,
+    healthBlob,
+  };
+}
+
 // Same compiler/dependency resolution as exact main, but the unmodified
 // candidate bytes. A named sourceURL permits reliable read-only state
 // observation even when Vitest's resetModules retires Vite source maps.
 export async function loadCandidateHealthView(importer: (specifier: string) => Promise<unknown>) {
   const source = readFileSync('src/components/views/HealthView.tsx', 'utf8').replace(/\r\n/g, '\n');
   const healthBlob = createHash('sha1').update('blob ' + Buffer.byteLength(source) + '\0').update(source).digest('hex');
-  if (healthBlob !== '594651864a0c8c6b2ba2bb132e4e677582d6c53a') throw new Error('CANDIDATE_PRODUCTION_BLOB_CHANGED');
+  if (healthBlob !== 'f93e4cb56fc9f8f109b3bd5d2171c7072055ce30') throw new Error('CANDIDATE_PRODUCTION_BLOB_CHANGED');
   const candidateFault: string | null = null; // bounded in-memory child transform only
   let observedSource = source;
   if (candidateFault === 'reset-saving') observedSource = source.replaceAll('setIsSaving(false);', 'setIsSaving(true);');
@@ -728,5 +759,6 @@ export async function loadCandidateHealthView(importer: (specifier: string) => P
   return { HealthView: exports.HealthView, healthBlob, fault: candidateFault,
     faultApplied: candidateFault !== null && observedSource !== source,
     savingLine: lines.findIndex(line => line.includes('const [isSaving, setIsSaving]')) + 3,
-    lockedLine: lines.findIndex(line => line.includes('const [isWorkoutLocked, setIsWorkoutLocked]')) + 3 };
+    lockedLine: lines.findIndex(line => line.includes('const [isWorkoutLocked, setIsWorkoutLocked]')) + 3,
+    mobileSurfaceLine: lines.findIndex(line => line.includes('const [mobileHealthTab, setMobileHealthTab]')) + 3 };
 }

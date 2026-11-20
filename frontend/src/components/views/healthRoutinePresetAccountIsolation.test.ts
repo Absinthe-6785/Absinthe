@@ -130,7 +130,8 @@ vi.mock('./features/health/healthSectionPrefs', () => ({ readHealthSectionPrefs:
 vi.mock('../../lib/i18n', () => ({
   resolveIntlLocale: () => 'en-US',
   useTranslation: () => ({
-    t: (key: string) => key === 'healthPresetDeleteConfirm' ? 'Delete {name}' : key,
+    t: (key: string) => key === 'healthPresetDeleteConfirm' ? 'Delete {name}'
+      : key === 'k76SetCount' ? '{count} sets' : key,
     lang: 'en',
   }),
 }));
@@ -287,6 +288,15 @@ function presetSelect(): HTMLSelectElement {
   return container!.querySelector('select[aria-label="healthPresetLabel"]') as HTMLSelectElement;
 }
 
+function routinePreviewRows() {
+  return Array.from(container!.querySelectorAll<HTMLElement>(
+    '[data-health-composition-role="setup-routine"] span.truncate',
+  )).map(name => ({
+    name: name.textContent?.trim(),
+    detail: name.nextElementSibling?.textContent?.trim() ?? '',
+  }));
+}
+
 async function openPresetDeleteConfirmation(): Promise<NonNullable<typeof mocks.confirmModal.current>> {
   const actionsButton = container!.querySelector('button[aria-label="healthPresetActions"]') as HTMLButtonElement;
   await act(async () => actionsButton.click());
@@ -414,29 +424,62 @@ describe('UI-06 production Health composition hierarchy', () => {
 });
 
 describe('HEALTH_10D account transition isolation', () => {
-  it('does not expose A during the synchronous A -> B frame and immediately uses B state', async () => {
+  it('does not expose A during the synchronous A -> B frame and refreshes routine preview through A -> B -> A', async () => {
     const accountA = createRoutinePresetState({ routines: [routine('a-day-1', 'Day 1', ['push'])], splitCount: 1 });
-    accountA.presets.push(createEmptyRoutinePreset(ACCOUNT_A_CUSTOM_ID, 'A Custom', 1));
+    const customA = createEmptyRoutinePreset(ACCOUNT_A_CUSTOM_ID, 'A Custom', 1);
+    customA.days[0]!.blocks = ['push'];
+    customA.days[0]!.plannedSets = { push: 6 };
+    accountA.presets.push(customA);
     accountA.activePresetId = ACCOUNT_A_CUSTOM_ID;
     const accountB = createRoutinePresetState({ routines: [routine('b-day-1', 'Day 1', ['pull'])], splitCount: 1 });
-    accountB.presets.push(createEmptyRoutinePreset(ACCOUNT_B_CUSTOM_ID, 'B Custom', 1));
+    const customB = createEmptyRoutinePreset(ACCOUNT_B_CUSTOM_ID, 'B Custom', 1);
+    customB.days[0]!.blocks = ['pull'];
+    customB.days[0]!.plannedSets = { pull: 8 };
+    accountB.presets.push(customB);
     accountB.activePresetId = ACCOUNT_B_CUSTOM_ID;
     writeRoutinePresetState(localStorage, 'account-a', accountA);
     writeRoutinePresetState(localStorage, 'account-b', accountB);
 
     await mount(healthProps({ healthRoutines: [routine('a-day-1', 'Day 1', ['push'])] }));
     expect(presetSelect().value).toBe(ACCOUNT_A_CUSTOM_ID);
+    expect(routinePreviewRows()).toEqual([{ name: 'Push', detail: '6 sets' }]);
 
-    flushSync(() => root?.render(createElement(HealthView, healthProps({
-      user: { id: 'account-b', name: 'Account B' },
-      healthRoutines: [routine('b-day-1', 'Day 1', ['pull'])],
-    }))));
+    await act(async () => {
+      flushSync(() => root?.render(createElement(HealthView, healthProps({
+        user: { id: 'account-b', name: 'Account B' },
+        healthRoutines: [routine('b-day-1', 'Day 1', ['pull'])],
+      }))));
+      await settle();
+    });
 
     expect(presetSelect().value).toBe(ACCOUNT_B_CUSTOM_ID);
     expect(presetSelect().value).not.toBe(ACCOUNT_A_CUSTOM_ID);
-    await settle();
+    expect(routinePreviewRows()).toEqual([{ name: 'Pull', detail: '8 sets' }]);
     expect(readRoutinePresetState(localStorage, 'account-a')?.activePresetId).toBe(ACCOUNT_A_CUSTOM_ID);
     expect(readRoutinePresetState(localStorage, 'account-b')?.activePresetId).toBe(ACCOUNT_B_CUSTOM_ID);
+
+    await act(async () => {
+      flushSync(() => root?.render(createElement(HealthView, healthProps({
+        user: { id: 'account-a', name: 'Account A' },
+        healthRoutines: [routine('a-day-1', 'Day 1', ['push'])],
+      }))));
+      await settle();
+    });
+    expect(routinePreviewRows()).toEqual([{ name: 'Push', detail: '6 sets' }]);
+
+    const splitInput = container!.querySelector<HTMLInputElement>(
+      '[data-health-composition-role="setup-routine"] input[type="number"]',
+    )!;
+    await act(async () => {
+      splitInput.focus();
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(splitInput, '2');
+      splitInput.dispatchEvent(new Event('input', { bubbles: true }));
+      splitInput.dispatchEvent(new Event('change', { bubbles: true }));
+      splitInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      await settle();
+    });
+    expect(container!.querySelectorAll('[data-health-composition-role="setup-routine"] h3')).toHaveLength(2);
+    expect(routinePreviewRows().map(row => row.name)).toEqual(['Push']);
   });
 
   it('uses B initialization semantics without reusing A when B has no scoped state', async () => {

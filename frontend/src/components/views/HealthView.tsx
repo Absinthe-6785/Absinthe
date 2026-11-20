@@ -2006,6 +2006,15 @@ export const HealthView = ({
     { enabled: isMobile },
   );
 
+  const routinePreviewRows = useMemo(() => Array.from({ length: splitCount }, (_, index) => {
+    const dayName = 'Day ' + (index + 1);
+    const routine = selectedHealthRoutines.find((item: HealthRoutine) => item.day_name === dayName);
+    const blocks = (routine?.blocks ?? [])
+      .map((id: string) => healthBlocks?.find((block: ExerciseBlock) => block.id === id))
+      .filter((block): block is ExerciseBlock => !!block);
+    return { dayName, blocks };
+  }), [user.id, accountGenerationRef.current, splitCount, selectedHealthRoutines, healthBlocks]);
+
   return (
     <WorkspaceErrorBoundary workspace="health">
     <div className={`${WORKSPACE_PANE_ROOT_CLASS} abs-cosmos-health flex flex-col animate-in fade-in duration-300 ${WORKSPACE_GAP_CLASS}`} data-workspace="health" data-workspace-scroll-mode={WORKSPACE_SCROLL_MODE.pane}>
@@ -2568,12 +2577,7 @@ export const HealthView = ({
             </div>
           </div>
           <div className="grid flex-1 grid-cols-1 2xl:grid-cols-2 gap-2 lg:gap-2.5 min-h-0 overflow-visible xl:overflow-y-auto xl:overscroll-contain xl:pr-1" data-k136b-routine-scroll data-health-scroll-owner="wide-routine">
-            {Array.from({ length: splitCount }).map((_, i) => {
-              const dayName = `Day ${i + 1}`;
-              const routine = selectedHealthRoutines.find((r: HealthRoutine) => r.day_name === dayName);
-              const blocks = (routine?.blocks ?? [])
-                .map((id: string) => healthBlocks?.find((b: ExerciseBlock) => b.id === id))
-                .filter((b): b is ExerciseBlock => !!b);
+            {routinePreviewRows.map(({ dayName, blocks }) => {
               return (
                 <div key={dayName} className={`rounded-xl p-3 border ${theme.border}`}>
                   <div className="flex justify-between items-center mb-2">

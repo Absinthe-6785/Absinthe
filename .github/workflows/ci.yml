@@ -78,8 +78,8 @@ jobs:
         working-directory: frontend
     steps:
       - uses: actions/checkout@v4
-      - name: Fetch pinned Health exact-main regression source
-        run: git fetch --no-tags --depth=1 origin cef60e40ee16e2b4677280c86a9b1ebb2896656b
+      - name: Fetch pinned Health regression sources
+        run: git fetch --no-tags --depth=1 origin cef60e40ee16e2b4677280c86a9b1ebb2896656b 492fefa962e9748beb98042e71e528d612c728d5
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
