@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { createElement, StrictMode, useEffect, useLayoutEffect } from 'react';
+import { createElement, Profiler, StrictMode, useEffect, useLayoutEffect } from 'react';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { flushSync } from 'react-dom';
@@ -21,12 +21,24 @@ vi.mock('react', async importOriginal => {
   const source = fs.readFileSync('src/components/views/HealthView.tsx', 'utf8').split(/\r?\n/);
   const savingLine = source.findIndex(line => line.includes('const [isSaving, setIsSaving] = useState')) + 1;
   const lockedLine = source.findIndex(line => line.includes('const [isWorkoutLocked, setIsWorkoutLocked] = useState')) + 1;
+  const quickAddQueryLine = source.findIndex(line => line.includes('const [quickAddQuery, setQuickAddQuery] = useState')) + 1;
   return { ...real,
+    memo: ((Component: any, compare?: any) => {
+      const componentName = Component.displayName ?? Component.name ?? '';
+      if (!componentName.startsWith('HealthQuickAddExerciseResultList')) return real.memo(Component, compare);
+      const CountedList = (props: any) => {
+        mocks.quickAddListBodyRenders += 1;
+        return real.createElement(Component, props);
+      };
+      CountedList.displayName = 'CountedHealthQuickAddExerciseResultList';
+      return real.memo(CountedList, compare);
+    }) as typeof real.memo,
     useState: ((...args: any[]) => {
       const value = (real.useState as any)(...args);
       const line = new Error().stack?.match(/HealthView\.tsx:(\d+):/)?.[1];
       if (Number(line) === savingLine) mocks.saving = value[0];
       if (Number(line) === lockedLine) mocks.locked = value[0];
+      if (Number(line) === quickAddQueryLine) mocks.quickAddHealthViewRenders += 1;
       const baselineLine = Number(new Error().stack?.match(/HealthViewBaseline\.js:(\d+):/)?.[1]);
       if (baselineLine === mocks.baselineSavingLine) mocks.saving = value[0];
       if (baselineLine === mocks.baselineLockedLine) mocks.locked = value[0];
@@ -79,6 +91,10 @@ const mocks = vi.hoisted(() => ({
   commitGate: null as null | { promise: Promise<void>; release: () => void },
   repositoryFactory: vi.fn(),
   mobile: false,
+  profileQuickAdd: false,
+  quickAddProfilerCommits: 0,
+  quickAddHealthViewRenders: 0,
+  quickAddListBodyRenders: 0,
   authFetch: vi.fn(),
   showToast: vi.fn(),
   mutateDaily: vi.fn(),
@@ -410,7 +426,10 @@ async function render(overrides: Partial<HealthProps> = {}) {
   if (!root) root = createRoot(host);
   await act(async () => {
     const tree = createElement(subject, props);
-    root!.render(strictMode ? createElement(StrictMode, null, tree) : tree);
+    const measured = mocks.profileQuickAdd
+      ? createElement(Profiler, { id: 'health-quick-add-profile', onRender: () => { mocks.quickAddProfilerCommits += 1; } }, tree)
+      : tree;
+    root!.render(strictMode ? createElement(StrictMode, null, measured) : measured);
   });
 }
 function seed() {
@@ -500,6 +519,8 @@ function resetFixture() {
   storage = new ByteStorage(); vi.stubGlobal('localStorage', storage);
   raf = []; vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { raf.push(callback); return raf.length; });
   mocks.remoteMode = true; mocks.mobile = false; mocks.realPersistence = false; mocks.fault = '';
+  mocks.profileQuickAdd = false; mocks.quickAddProfilerCommits = 0;
+  mocks.quickAddHealthViewRenders = 0; mocks.quickAddListBodyRenders = 0;
   mocks.draft = null; mocks.owner = null; mocks.saving = undefined; mocks.locked = undefined; mocks.saveCallback = null;
   mocks.invokeBeforePublication = false; mocks.events.length = 0; mocks.inputs.length = 0;
   mocks.dispatches.length = 0; mocks.commits.length = 0; mocks.factoryGate = null; mocks.commitGate = null;
@@ -689,6 +710,11 @@ describe('Health mobile Quick Add Exercise sheet', () => {
 
   it('adapts its fixed sheet to visual viewport resize and removes listeners on close', async () => {
     mocks.mobile = true;
+    mocks.profileQuickAdd = true;
+    const source = Array.from({ length: 500 }, (_, index) => ({
+      id: `viewport-exercise-${index}`, name: `Viewport exercise ${index}`,
+      type: 'strength', tags: [], cardio_mode: 'both' as const,
+    }));
     const originalDescriptor = Object.getOwnPropertyDescriptor(window, 'visualViewport');
     const listeners = new Map<string, EventListener>();
     let viewportHeight = 700;
@@ -701,17 +727,39 @@ describe('Health mobile Quick Add Exercise sheet', () => {
     } as unknown as VisualViewport;
     Object.defineProperty(window, 'visualViewport', { configurable: true, value: viewport });
     try {
-      await render();
+      await render({ healthBlocks: source });
       await act(async () => { host.querySelector<HTMLButtonElement>('[data-health-quick-add-exercise]')!.click(); });
+      const openListBodyRenders = mocks.quickAddListBodyRenders;
+
+      mocks.quickAddHealthViewRenders = 0; mocks.quickAddListBodyRenders = 0;
       viewportHeight = 260;
       viewportOffsetTop = 44;
       await act(async () => { listeners.get('resize')?.(new Event('resize')); });
+      const resizeParentRenders = mocks.quickAddHealthViewRenders;
+      const resizeListBodyRenders = mocks.quickAddListBodyRenders;
+      const resizeRowBuilds = resizeListBodyRenders * source.length;
       expect(host.querySelector<HTMLElement>('[data-health-quick-add-overlay]')!.style.height).toBe('260px');
       expect(host.querySelector<HTMLElement>('[data-health-quick-add-overlay]')!.style.top).toBe('44px');
       expect(host.querySelector<HTMLElement>('[role="dialog"]')!.style.maxHeight).toBe('236px');
+      expect(openListBodyRenders).toBe(1);
+
+      mocks.quickAddHealthViewRenders = 0; mocks.quickAddListBodyRenders = 0;
       viewportOffsetTop = 80;
       await act(async () => { listeners.get('scroll')?.(new Event('scroll')); });
+      const scrollParentRenders = mocks.quickAddHealthViewRenders;
+      const scrollListBodyRenders = mocks.quickAddListBodyRenders;
+      const scrollRowBuilds = scrollListBodyRenders * source.length;
       expect(host.querySelector<HTMLElement>('[data-health-quick-add-overlay]')!.style.top).toBe('80px');
+      expect(resizeParentRenders).toBeGreaterThan(0);
+      expect(scrollParentRenders).toBeGreaterThan(0);
+      // Before the memo boundary, each viewport state update rebuilt all 500 rows.
+      expect(resizeRowBuilds).toBe(0);
+      expect(scrollRowBuilds).toBe(0);
+      console.info('[quick-add-viewport-measurement]', JSON.stringify({
+        rows: source.length, openListBodyRenders,
+        resizeParentRenders, resizeListBodyRenders, resizeRowBuilds,
+        scrollParentRenders, scrollListBodyRenders, scrollRowBuilds,
+      }));
       await act(async () => { host.querySelector<HTMLButtonElement>('button[aria-label="close"]')!.click(); });
       expect(listeners.size).toBe(0);
     } finally {
@@ -719,6 +767,111 @@ describe('Health mobile Quick Add Exercise sheet', () => {
       else delete (window as Window & { visualViewport?: VisualViewport }).visualViewport;
     }
   });
+
+  it.each([[50, 320], [250, 375], [500, 430]])(
+    'measures mounted Quick Add list work for %i results at %i CSS px', async (count, width) => {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: width });
+      mocks.mobile = true;
+      mocks.profileQuickAdd = true;
+      const source = Array.from({ length: count }, (_, index) => ({
+        id: `quick-add-${index}`,
+        name: `Exercise ${index} movement`,
+        type: 'strength',
+        tags: [`group-${index % 10}`],
+        cardio_mode: 'both' as const,
+      }));
+      await render({ healthBlocks: source });
+      expect(host.querySelector('[data-health-quick-add-overlay]')).toBeNull();
+
+      mocks.quickAddHealthViewRenders = 0; mocks.quickAddListBodyRenders = 0;
+      mocks.quickAddProfilerCommits = 0;
+      const trigger = host.querySelector<HTMLButtonElement>('[data-health-quick-add-exercise]')!;
+      await act(async () => trigger.click());
+      const list = host.querySelector<HTMLElement>('[data-health-quick-add-list]')!;
+      const initialRows = list.querySelectorAll('[data-health-quick-add-block]').length;
+      const listDomNodes = list.querySelectorAll('*').length + 1;
+      const openParentRenders = mocks.quickAddHealthViewRenders;
+      const openListBodyRenders = mocks.quickAddListBodyRenders;
+      const openCommits = mocks.quickAddProfilerCommits;
+
+      mocks.quickAddHealthViewRenders = 0; mocks.quickAddListBodyRenders = 0;
+      mocks.quickAddProfilerCommits = 0;
+      await render({ now: {} as HealthProps['now'] });
+      const unrelatedParentRenders = mocks.quickAddHealthViewRenders;
+      const unrelatedListBodyRenders = mocks.quickAddListBodyRenders;
+      const unrelatedParentCommits = mocks.quickAddProfilerCommits;
+
+      const search = host.querySelector<HTMLInputElement>('[data-health-quick-add-search]')!;
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+      mocks.quickAddHealthViewRenders = 0; mocks.quickAddListBodyRenders = 0;
+      mocks.quickAddProfilerCommits = 0;
+      await act(async () => {
+        setter.call(search, `Exercise ${count - 1} movement`);
+        search.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      const narrowSearchRows = host.querySelectorAll('[data-health-quick-add-block]').length;
+      const narrowSearchParentRenders = mocks.quickAddHealthViewRenders;
+      const narrowSearchListBodyRenders = mocks.quickAddListBodyRenders;
+
+      mocks.quickAddHealthViewRenders = 0; mocks.quickAddListBodyRenders = 0;
+      await act(async () => {
+        setter.call(search, '');
+        search.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      const clearSearchParentRenders = mocks.quickAddHealthViewRenders;
+      const clearSearchListBodyRenders = mocks.quickAddListBodyRenders;
+
+      mocks.quickAddHealthViewRenders = 0; mocks.quickAddListBodyRenders = 0;
+      await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="close"]')!.click());
+      const rowsAfterClose = host.querySelectorAll('[data-health-quick-add-block]').length;
+      mocks.quickAddHealthViewRenders = 0; mocks.quickAddListBodyRenders = 0;
+      await act(async () => trigger.click());
+      const reopenParentRenders = mocks.quickAddHealthViewRenders;
+      const reopenListBodyRenders = mocks.quickAddListBodyRenders;
+
+      const openRowBuilds = openListBodyRenders * count;
+      const unrelatedParentRowBuilds = unrelatedListBodyRenders * count;
+      const narrowSearchBuilds = narrowSearchListBodyRenders * narrowSearchRows;
+      const clearSearchBuilds = clearSearchListBodyRenders * count;
+      const reopenBuilds = reopenListBodyRenders * count;
+
+      // The counts intentionally measure row JSX construction and DOM size,
+      // not browser paint time or real-device input latency.
+      expect(initialRows).toBe(count);
+      expect(narrowSearchRows).toBe(1);
+      expect(rowsAfterClose).toBe(0);
+      expect(openListBodyRenders).toBe(1);
+      expect(openRowBuilds).toBe(count);
+      // Baseline: opening and reopening each rendered the HealthView 3 times;
+      // each pass mapped the whole list. A normal parent update rendered it once.
+      expect(openRowBuilds).toBeLessThan(3 * count);
+      expect(unrelatedParentRenders).toBeGreaterThan(0);
+      expect(unrelatedListBodyRenders).toBe(0);
+      expect(unrelatedParentRowBuilds).toBe(0);
+      expect(unrelatedParentRowBuilds).toBeLessThan(count);
+      expect(openCommits).toBeGreaterThan(0);
+      expect(unrelatedParentCommits).toBeGreaterThan(0);
+      expect(narrowSearchListBodyRenders).toBe(1);
+      expect(narrowSearchBuilds).toBe(1);
+      expect(narrowSearchBuilds).toBeLessThan(2 * narrowSearchRows);
+      expect(clearSearchListBodyRenders).toBe(1);
+      expect(clearSearchBuilds).toBe(count);
+      expect(clearSearchBuilds).toBeLessThan(2 * count);
+      expect(reopenListBodyRenders).toBe(1);
+      expect(reopenBuilds).toBe(count);
+      expect(reopenBuilds).toBeLessThan(3 * count);
+      expect(listDomNodes).toBeGreaterThan(count);
+      expect(listDomNodes).toBe(5 * count + 1);
+
+      console.info('[quick-add-list-measurement]', JSON.stringify({
+        count, width, openParentRenders, openListBodyRenders, openRowBuilds, openCommits, listDomNodes,
+        unrelatedParentRenders, unrelatedListBodyRenders, unrelatedParentRowBuilds, unrelatedParentCommits,
+        narrowSearchRows, narrowSearchParentRenders, narrowSearchListBodyRenders, narrowSearchBuilds,
+        clearSearchParentRenders, clearSearchListBodyRenders, clearSearchBuilds,
+        reopenParentRenders, reopenListBodyRenders, reopenBuilds,
+      }));
+    },
+  );
 
   it('keeps the desktop layout free of the mobile Quick Add sheet', async () => {
     mocks.mobile = false;
