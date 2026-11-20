@@ -548,7 +548,7 @@ export function ProteinTracker({
             ) : null}
 
             {PROTEIN_CATEGORY_KEYS.map(cat => {
-              const catSources = sources.filter(s => normalizeProteinCategory(s.category || 'Other') === cat);
+              const catSources = sourcesByCategory.get(cat) ?? [];
               if (catSources.length === 0) return null;
               return (
                 <div key={cat} className="mb-1">
