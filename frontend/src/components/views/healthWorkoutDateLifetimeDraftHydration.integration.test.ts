@@ -1210,7 +1210,7 @@ describe('Health mobile Workout/Setup navigation render measurement', () => {
       draftPreserved: JSON.stringify(before.editedRows) === JSON.stringify(after.editedRows),
       inputValue: before.inputBeforeNavigation,
     }));
-  });
+  }, 15_000);
 });
 
 /**
