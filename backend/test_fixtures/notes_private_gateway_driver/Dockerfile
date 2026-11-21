@@ -1,7 +1,7 @@
 # TEST ONLY. Build may retrieve dependencies; the test runtime has no network.
 FROM postgres:15.19-alpine3.23@sha256:e4c48893f7771538194643b602387deb2fa6b5e2e751f1b923d04766c5f0b394
 LABEL absinthe.test="notes-private-driver-image"
-RUN apk add --no-cache python3=3.12.16-r0 py3-pip=25.1.1-r1 \
+RUN apk add --no-cache python3=3.12.16-r0 py3-pip=25.1.1-r2 \
     && python3 -m venv --without-pip /opt/driver
 COPY test_fixtures/notes_private_gateway_driver/requirements.txt /tmp/driver-requirements.txt
 RUN python3 -m pip --python /opt/driver install --no-cache-dir --only-binary=:all: \
