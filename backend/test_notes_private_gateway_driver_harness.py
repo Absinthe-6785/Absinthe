@@ -58,7 +58,7 @@ def assert_isolated(info):
 def test_driver_image_is_pinned_and_build_context_is_allowlisted():
     dockerfile = (IMAGE / "Dockerfile").read_text(encoding="utf-8")
     assert "postgres:15.19-alpine3.23@sha256:" in dockerfile
-    assert "python3=3.12.16-r0 py3-pip=25.1.1-r1" in dockerfile
+    assert "python3=3.12.16-r0 py3-pip=25.1.1-r2" in dockerfile
     assert "--require-hashes" in dockerfile and "--only-binary=:all:" in dockerfile
     assert "COPY . " not in dockerfile and "notes_private_gateway.py" in dockerfile
     ignore = (IMAGE / "Dockerfile.dockerignore").read_text(encoding="utf-8").splitlines()
