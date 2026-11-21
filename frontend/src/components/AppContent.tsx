@@ -161,8 +161,14 @@ export function AppContent({ authUser }: { authUser: User }) {
   const [startupState, setStartupState] = useState<StartupState>(() => pendingStartupState(healthBootstrapRequired));
   const [healthStartupAccountId, setHealthStartupAccountId] = useState(authUser.id);
 
-  // ── 1. now / formatDate / isToday ────────────────────────────────
-  const { now, formatDate, isToday } = useNow();
+  const [activeTab, setActiveTab] = useState<TabId>('home');
+  const [searchActivation, setSearchActivation] = useState<SearchActivation | null>(null);
+  const searchOpen = searchActivation?.open && searchActivation.host.mounted
+    && searchActivation.host.accountId === authUser.id && searchActivation.host.current === searchActivation;
+  // Schedule and Health only need calendar-day changes; Recipe has no shell
+  // clock consumer. Other views and open Search keep the existing minute cadence.
+  const dateOnly = !searchOpen && (activeTab === 'planner' || activeTab === 'health' || activeTab === 'recipe');
+  const { now, formatDate, isToday } = useNow(dateOnly ? 'day' : 'minute');
 
   // ── 2. Toast — must be declared before effects that call showToast ─
   const { toast, showToast } = useToast();
@@ -171,7 +177,6 @@ export function AppContent({ authUser }: { authUser: User }) {
   const [currentDate, setCurrentDate] = useState(now.toJSDate());
   const [selectedDate, setSelectedDate] = useState(now.toJSDate());
 
-  const [activeTab, setActiveTab] = useState<TabId>('home');
   const [recipeNavigationRequest, setRecipeNavigationRequest] = useState<RecipeNavigationRequest | null>(null);
   const recipeNavigationRequestIdRef = useRef(0);
   const recipeNavigationAccountRef = useRef({ accountId: authUser.id, generation: 0 });
@@ -250,7 +255,6 @@ export function AppContent({ authUser }: { authUser: User }) {
     searchHostRef.current = { accountId: authUser.id, mounted: false, current: null };
   }
   const searchHost = searchHostRef.current;
-  const [searchActivation, setSearchActivation] = useState<SearchActivation | null>(null);
   const onSearchActivationChange = useCallback((signal: SearchActivation) => {
     if (signal.host !== searchHostRef.current || !signal.host.mounted || signal.host.current !== signal) return;
     setSearchActivation(signal);
@@ -435,8 +439,7 @@ export function AppContent({ authUser }: { authUser: User }) {
   } = useDailyData(dateStr, showToast, authUser.id,
     legacyDailyActive, todosSearchActive, inbodyActive);
 
-  // useNow가 1분마다 now를 갱신 → AppContent 리렌더 → monthStart/monthEnd 매번 재계산.
-  // currentDate가 바뀔 때만 실제로 값이 달라지므로 useMemo로 명시적 메모이제이션.
+  // The read range follows the workspace's month anchor, not the live clock.
   const { monthStart, monthEnd } = useMemo(() => ({
     monthStart: formatDate(new Date(currentDate.getFullYear(), currentDate.getMonth(), 1)),
     monthEnd:   formatDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0)),

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useSyncExternalStore } from 'react';
 import { DateTime } from 'luxon';
 
 const getUserTimezone = () => {
@@ -9,24 +9,53 @@ const getUserTimezone = () => {
   }
 };
 
-/**
- * useNow — 1분마다 갱신되는 현재 시각을 격리된 훅으로 분리.
- *
- * 기존: now가 AppContent에서 관리되어 매 분마다 AppContent 전체(+모든 자식)가 리렌더.
- * 변경 후: 이 훅을 사용하는 컴포넌트만 1분마다 갱신됩니다.
- * ViewProps.now는 여전히 전달되지만, AppContent의 다른 무거운 렌더는 영향 없음.
- */
-export const useNow = () => {
-  const userTimezone = useMemo(() => getUserTimezone(), []);
-  const [now, setNow] = useState(() => DateTime.now().setZone(userTimezone));
+const browserDateOf = (time: DateTime) => time.toJSDate().toDateString();
+
+function createClock() {
+  const userTimezone = getUserTimezone();
+  const readTime = () => DateTime.now().setZone(userTimezone);
+  let minute = readTime();
+  let day = minute;
+  let browserDate = browserDateOf(minute);
+  const listeners = new Set<() => void>();
+
+  return {
+    userTimezone,
+    getMinute: () => minute,
+    getDay() {
+      // A render can follow a browser timezone change before the next tick.
+      // Match the last sample's native day without reading the clock again.
+      return day === minute || browserDateOf(day) === browserDateOf(minute) ? day : minute;
+    },
+    subscribe(listener: () => void) {
+      listeners.add(listener);
+      return () => { listeners.delete(listener); };
+    },
+    tick() {
+      minute = readTime();
+      // Shared helpers use the captured zone, but calendars also read native
+      // local dates. After a zone switch the retained instant can land on the
+      // wrong native date even when the last published date key is unchanged.
+      const nextBrowserDate = browserDateOf(minute);
+      if (!minute.hasSame(day, 'day') || nextBrowserDate !== browserDate || nextBrowserDate !== browserDateOf(day)) {
+        day = minute;
+        browserDate = nextBrowserDate;
+      }
+      listeners.forEach(listener => listener());
+    },
+  };
+}
+
+/** One minute sampler per mounted owner; date-only views ignore same-day samples. */
+export const useNow = (resolution: 'minute' | 'day' = 'minute') => {
+  const [clock] = useState(createClock);
+  const { userTimezone } = clock;
+  const now = useSyncExternalStore(clock.subscribe, resolution === 'minute' ? clock.getMinute : clock.getDay);
 
   useEffect(() => {
-    const interval = setInterval(
-      () => setNow(DateTime.now().setZone(userTimezone)),
-      60_000
-    );
+    const interval = setInterval(clock.tick, 60_000);
     return () => clearInterval(interval);
-  }, [userTimezone]);
+  }, [clock]);
 
   const formatDate = useCallback(
     (date: Date | DateTime) => {
