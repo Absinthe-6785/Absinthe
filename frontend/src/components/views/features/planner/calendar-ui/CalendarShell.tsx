@@ -12,6 +12,7 @@ import { toDateKey } from '../../knowledge/databaseViews/parseDatabaseDate';
 import { buildPlannerProjection } from '../calendar/buildPlannerProjection';
 import { resolveUpcomingRelativeLabel } from './agenda/buildUpcomingTierGroups';
 import { useCountdownReviewed } from '../hooks/useCountdownReviewed';
+import type { SearchDatasetState } from '../../../../../lib/searchReadiness';
 
 export interface CalendarShellProps {
   now: DateTime;
@@ -23,6 +24,7 @@ export interface CalendarShellProps {
   todos?: readonly Todo[];
   ddaySchedules?: readonly (Schedule & { date: string })[];
   weeklySchedules: readonly WeeklySchedule[];
+  weeklySchedulesState?: SearchDatasetState;
   appSettings: AppSettings;
   theme: Theme;
   onEventNoteClick?: (noteId: string) => void;
@@ -48,6 +50,7 @@ export function CalendarShell({
   todos = [],
   ddaySchedules = [],
   weeklySchedules,
+  weeklySchedulesState,
   appSettings,
   theme,
   onEventNoteClick,
@@ -116,6 +119,7 @@ export function CalendarShell({
         ddaySchedules={ddaySchedules}
         eventActions={eventActions}
         weeklySchedules={weeklySchedules}
+        weeklySchedulesState={weeklySchedulesState}
         appSettings={appSettings}
         THEME_COLORS={THEME_COLORS}
         mutateStatic={mutateStatic}

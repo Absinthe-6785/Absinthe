@@ -57,16 +57,21 @@ vi.mock('swr', () => ({
       isLoading: false,
     };
   },
-  useSWRConfig: () => ({ mutate: () => undefined }),
+  unstable_serialize: keyId,
+  useSWRConfig: () => ({ cache: harness.cache, mutate: () => undefined }),
 }));
 
 vi.mock('../lib/syncAuthority', () => ({
   domainUsesLocalWorkingCopy: () => harness.localMode,
 }));
 
-vi.mock('../lib/remoteBoundary', () => ({
-  remoteSWRKey: (key: string) => harness.localMode ? null : key,
-}));
+vi.mock('../lib/remoteBoundary', () => {
+  const signal = new AbortController().signal;
+  return {
+    remoteSWRKey: (key: string) => harness.localMode ? null : key,
+    runtimeSessionReadOwner: () => ({ accountId: harness.currentAccount, signal }),
+  };
+});
 
 vi.mock('../lib/fetcher', () => ({
   fetcher: (input: unknown) => {

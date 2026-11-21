@@ -124,4 +124,24 @@ describe('LEAN_04B production Search readiness projection', () => {
     expect(result.empty.noResults).toBe(true);
     expect(result.groupedResults.some(group => group.domain === 'planner')).toBe(false);
   });
+
+  it.each(['NOT_READY', 'LOADING', 'ERROR'] as const)(
+    'does not project unverified weekly rows or claim no matches when the weekly source is %s', status => {
+      const readiness = { status, validating: status === 'LOADING' };
+      const weeklySchedules = [{ id: 'old-slot', title: 'Morning old slot', day: 0, start_time: '09:00', end_time: '10:00' }];
+      const input = { weeklySchedules, weeklySchedulesState: readiness, todosState: { status: 'READY_EMPTY', validating: false } };
+      const noOtherMatches = projection(input);
+      expect(noOtherMatches.results).toEqual([]);
+      expect(noOtherMatches.empty.noResults).toBe(false);
+      expect(noOtherMatches.groupedResults.find(group => group.domain === 'planner')?.state?.status).toBe(status);
+      const withDailyMatch = projection({ ...input, schedules: [schedule] });
+      expect(withDailyMatch.results.map(item => item.id)).toEqual(['schedule-schedule-a']);
+    },
+  );
+
+  it('reports no matches after the weekly source is verified empty', () => {
+    const result = projection({ weeklySchedulesState: { status: 'READY_EMPTY', validating: false } });
+    expect(result.empty.noResults).toBe(true);
+    expect(result.groupStates.planner?.status).toBe('READY_EMPTY');
+  });
 });

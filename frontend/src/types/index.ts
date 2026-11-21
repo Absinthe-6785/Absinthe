@@ -168,6 +168,7 @@ export interface PlannerProps extends BaseViewProps, DateProps, MutateProps, Opt
   routines: Routine[];
   markedDates: string[];
   weeklySchedules: WeeklySchedule[];
+  weeklySchedulesState?: import('../lib/searchReadiness').SearchDatasetState;
   isDailyLoading?: boolean;
 }
 
@@ -220,5 +221,6 @@ export interface ViewProps
   healthBlocks: ExerciseBlock[];
   healthRoutines: HealthRoutine[];
   weeklySchedules: WeeklySchedule[];
+  weeklySchedulesState?: import('../lib/searchReadiness').SearchDatasetState;
   isDailyLoading?: boolean;
 }

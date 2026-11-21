@@ -45,10 +45,10 @@ function seed(eventDate?: unknown, itemId = 'schedule-1') {
   localStorage.setItem(key, JSON.stringify(entries));
   return localStorage.getItem(key);
 }
-async function renderHome(isDailyLoading = true) {
+async function renderHome(isDailyLoading = true, weeklySchedulesState?: HomeViewProps['weeklySchedulesState']) {
   const props = { user: { id: 'account-a', name: 'A' }, now: DateTime.local(2026, 6, 12, 12),
     selectedDate: new Date(2026, 5, 12), formatDate: () => '2026-06-12', schedules: [], routines: [], workouts: [], weeklySchedules: [],
-    appSettings: { darkMode: false, language: state.lang }, theme: {}, isDailyLoading,
+    appSettings: { darkMode: false, language: state.lang }, theme: {}, isDailyLoading, weeklySchedulesState,
     onOpenRecipe: state.openRecipe, onOpenScheduleTarget: state.openSchedule } as HomeViewProps;
   await act(async () => root.render(createElement(HomeView, props)));
 }
@@ -65,6 +65,23 @@ beforeEach(() => {
 afterEach(() => { act(() => root.unmount()); host.remove(); localStorage.clear(); });
 
 describe('Home Schedule target navigation through real storage and projections', () => {
+  it.each(['en', 'ko', 'ja'] as const)('distinguishes unavailable weekly data from an empty Today card in %s', async lang => {
+    state.lang = lang;
+    const t = getTranslator(lang);
+    const today = () => host.querySelector('[data-k132a-home-section="today"]')!;
+    await renderHome(false, { status: 'LOADING', validating: true });
+    expect(today().querySelector('[data-home-weekly-read-status]')?.textContent).toContain(t('k111GroupLoading'));
+    expect(today().textContent).not.toContain(t('homeTodayEmpty'));
+
+    await renderHome(false, { status: 'ERROR', validating: false });
+    expect(today().querySelector('[data-home-weekly-read-status]')?.textContent).toContain(t('k111GroupError'));
+    expect(today().textContent).not.toContain(t('homeTodayEmpty'));
+
+    await renderHome(false, { status: 'READY_EMPTY', validating: false });
+    expect(today().querySelector('[data-home-weekly-read-status]')).toBeNull();
+    expect(today().textContent).toContain(t('homeTodayEmpty'));
+  });
+
   it.each(['en', 'ko', 'ja'] as const)('shows a separately labeled verified date in %s and opens its exact ID/date', async lang => {
     state.lang = lang;
     const raw = seed('2020-01-02');

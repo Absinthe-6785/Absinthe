@@ -38,9 +38,13 @@ const harness = vi.hoisted(() => ({
 vi.mock('../lib/syncAuthority', () => ({
   domainUsesLocalWorkingCopy: () => harness.localMode,
 }));
-vi.mock('../lib/remoteBoundary', () => ({
-  remoteSWRKey: (key: string) => harness.localMode ? null : key,
-}));
+vi.mock('../lib/remoteBoundary', () => {
+  const signal = new AbortController().signal;
+  return {
+    remoteSWRKey: (key: string) => harness.localMode ? null : key,
+    runtimeSessionReadOwner: () => ({ accountId: harness.currentAccount, signal }),
+  };
+});
 vi.mock('../lib/config', () => ({ API_URL: 'https://example.invalid' }));
 vi.mock('../lib/fetcher', () => ({
   fetcher: (input: unknown) => {

@@ -23,9 +23,13 @@ const productionHarness = vi.hoisted(() => ({
 }));
 
 vi.mock('../lib/syncAuthority', () => ({ domainUsesLocalWorkingCopy: () => false }));
-vi.mock('../lib/remoteBoundary', () => ({
-  remoteSWRKey: (key: string) => productionHarness.remoteActive ? key : null,
-}));
+vi.mock('../lib/remoteBoundary', () => {
+  const signal = new AbortController().signal;
+  return {
+    remoteSWRKey: (key: string) => productionHarness.remoteActive ? key : null,
+    runtimeSessionReadOwner: () => ({ accountId: productionHarness.currentAccount, signal }),
+  };
+});
 vi.mock('../lib/config', () => ({ API_URL: 'https://example.invalid' }));
 vi.mock('../lib/fetcher', () => ({
   fetcher: (input: unknown) => {
