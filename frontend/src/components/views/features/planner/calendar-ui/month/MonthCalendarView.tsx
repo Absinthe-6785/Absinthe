@@ -12,6 +12,7 @@ import { useTranslation } from '@/lib/i18n';
 import { WorkspaceCardSkeleton } from '@/components/common/WorkspaceCardSkeleton';
 import { WORKSPACE_CARD_VISUAL_CLASS } from '@/components/common/workspaceCardSizes';
 import { PLANNER_HIERARCHY } from '../plannerHierarchyLayout';
+import type { SearchDatasetState } from '@/lib/searchReadiness';
 
 type ScheduleDday = Schedule & { date: string };
 
@@ -26,6 +27,7 @@ export interface MonthCalendarViewProps {
   ddaySchedules?: readonly ScheduleDday[];
   eventActions?: AgendaEventActions;
   weeklySchedules?: readonly import('@/types').WeeklySchedule[];
+  weeklySchedulesState?: SearchDatasetState;
   appSettings?: AppSettings;
   THEME_COLORS?: ThemeColor[];
   mutateStatic?: () => void;
@@ -47,6 +49,7 @@ export function MonthCalendarView({
   scheduleActions,
   ddaySchedules = [],
   weeklySchedules = [],
+  weeklySchedulesState,
   appSettings,
   THEME_COLORS,
   mutateStatic,
@@ -156,6 +159,7 @@ export function MonthCalendarView({
           >
             <WeeklyTimetableSection
               weeklySchedules={[...weeklySchedules]}
+              weeklySchedulesState={weeklySchedulesState}
               theme={theme}
               appSettings={appSettings!}
               THEME_COLORS={THEME_COLORS!}

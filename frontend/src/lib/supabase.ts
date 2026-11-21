@@ -1,7 +1,10 @@
 import { createClient } from '@supabase/supabase-js';
 import {
   assertRemoteUrlAllowed,
+  assertRuntimeSessionReadOwner,
+  authorizeRuntimeSessionRead,
   remotePersistenceDomainForUrl,
+  type RuntimeSessionReadOwner,
 } from './remoteBoundary';
 
 export const supabase = createClient(
@@ -12,6 +15,8 @@ export const supabase = createClient(
 export interface AuthenticatedFetchControl {
   /** Runs after auth succeeds and immediately before the network request starts. */
   onRequestStart?: () => void;
+  /** Optional exact-session admission for a GET. */
+  readOwner?: RuntimeSessionReadOwner;
 }
 
 /**
@@ -24,6 +29,19 @@ export const authFetch = async (
   options: RequestInit = {},
   control: AuthenticatedFetchControl = {},
 ): Promise<Response> => {
+  const { readOwner } = control;
+  if (readOwner) {
+    if ((options.method ?? 'GET').toUpperCase() !== 'GET') throw new Error('Session-scoped read requires GET');
+    assertRemoteUrlAllowed(url);
+    // Use the exact credential already published by App's auth boundary.
+    // Looking up the mutable SDK session here can cause an implicit refresh.
+    const headers = new Headers(options.headers);
+    if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+    authorizeRuntimeSessionRead(readOwner, headers);
+    control.onRequestStart?.();
+    assertRuntimeSessionReadOwner(readOwner);
+    return fetch(url, { ...options, method: 'GET', headers, signal: readOwner.signal });
+  }
   assertRemoteUrlAllowed(url);
 
   const { data: { session } } = await supabase.auth.getSession();

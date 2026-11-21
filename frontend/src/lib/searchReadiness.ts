@@ -63,3 +63,12 @@ export function searchDatasetStateFromData<T>(data: readonly T[]): SearchDataset
     validating: false,
   };
 }
+
+/** An unresolved weekly source must not be described as an empty timetable. */
+export function weeklyScheduleReadNotice(state?: SearchDatasetState) {
+  if (!state) return undefined;
+  if (state.status === 'ERROR' || state.error !== undefined) return 'k111GroupError';
+  if (state.status === 'NOT_READY') return 'k111GroupNotReady';
+  if (state.status === 'LOADING' || state.validating) return 'k111GroupLoading';
+  return undefined;
+}

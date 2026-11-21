@@ -16,6 +16,27 @@ export class LocalOnlyRemoteMutationPausedError extends Error {
 
 let runtimeAccountId: string | null = null;
 
+type AuthorizeSessionRead = (headers: Headers) => void;
+
+/** A read can use the current session, but cannot follow it across replacement. */
+export interface RuntimeSessionReadOwner {
+  readonly accountId: string;
+  readonly signal: AbortSignal;
+}
+
+export class SessionReadOwnerChangedError extends Error {
+  constructor() {
+    super('Read session is no longer current');
+    this.name = 'SessionReadOwnerChangedError';
+  }
+}
+
+let runtimeReadOwner: {
+  owner: RuntimeSessionReadOwner;
+  controller: AbortController;
+  authorize: AuthorizeSessionRead;
+} | null = null;
+
 function runtimeCapabilityEnabled(): boolean {
   const disabled = import.meta.env.VITE_ABSINTHE_ACCOUNT_SYNC_DISABLED;
   return disabled !== true && disabled !== 'true' && disabled !== '1';
@@ -26,8 +47,38 @@ function runtimeOnline(): boolean {
 }
 
 /** Updated synchronously by the authenticated app shell on every auth event. */
-export function setRuntimeAccountSyncAccount(accountId: string | null | undefined): void {
-  runtimeAccountId = accountId?.trim() || null;
+export function setRuntimeAccountSyncAccount(
+  accountId: string | null | undefined,
+  /** Omitted for an unchanged session; null revokes read ownership. */
+  authorizeRead?: AuthorizeSessionRead | null,
+): void {
+  const nextId = accountId?.trim() || null;
+  if (nextId === runtimeAccountId && authorizeRead === undefined) return;
+  const previous = runtimeReadOwner;
+  runtimeAccountId = nextId;
+  if (nextId && authorizeRead) {
+    const controller = new AbortController();
+    runtimeReadOwner = { owner: { accountId: nextId, signal: controller.signal }, controller, authorize: authorizeRead };
+  } else {
+    runtimeReadOwner = null;
+  }
+  previous?.controller.abort();
+}
+
+export function runtimeSessionReadOwner(): RuntimeSessionReadOwner | null {
+  return runtimeReadOwner?.owner ?? null;
+}
+
+export function assertRuntimeSessionReadOwner(owner: RuntimeSessionReadOwner): void {
+  if (owner.signal.aborted || runtimeSessionReadOwner() !== owner) {
+    throw new SessionReadOwnerChangedError();
+  }
+}
+
+export function authorizeRuntimeSessionRead(owner: RuntimeSessionReadOwner, headers: Headers): void {
+  const current = runtimeReadOwner;
+  if (current?.owner !== owner || owner.signal.aborted) throw new SessionReadOwnerChangedError();
+  current.authorize(headers);
 }
 
 /** Synchronous auth-event fence for dormant control-plane IDB transactions. */

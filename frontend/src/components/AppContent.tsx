@@ -46,7 +46,7 @@ import { isHealthWorkoutRangeCompositeEnabled } from './views/features/health/he
 import { useHealthWorkoutRangeSnapshot } from './views/features/health/useHealthWorkoutRangeSnapshot';
 import { isHealthExerciseComparisonPreviewEnabled } from './views/features/health/healthExerciseComparisonPreviewConfig';
 import { previousWorkoutRange } from './views/features/health/previousWorkoutSession';
-import { isSearchWorkoutCompositeEnabled, type SearchActivation, type SearchHostLifetime } from './views/features/search/searchWorkoutCompositeConfig';
+import { isCurrentSearchActivation, isSearchWorkoutCompositeEnabled, type SearchActivation, type SearchHostLifetime } from './views/features/search/searchWorkoutCompositeConfig';
 import type { SearchWorkoutPreviewEvidence } from './views/features/search/searchWorkoutCompositeProjection';
 import {
   startIndependentStartup,
@@ -495,13 +495,17 @@ export function AppContent({ authUser }: { authUser: User }) {
   const markedDatesActive = false;
   const healthRoutinesActive = activeTab === 'health'
     && (healthRuntimeReady || (selectedDayReaderEnabled && domainUsesLocalWorkingCopy('health_routine_presets')));
+  const weeklySchedulesActive = activeTab === 'home' || activeTab === 'planner' || activeTab === 'health'
+    || isCurrentSearchActivation(searchHost, searchActivation, authUser.id);
   const {
     markedDates, healthBlocks, healthBlocksState, healthRoutines, healthRoutinesState, weeklySchedules,
+    weeklySchedulesState,
     mutate: mutateStatic,
   // AppContent owns static lifecycle; activation flags follow real consumers.
   // useStaticData(monthStart, monthEnd, showToast, authUser.id, healthRuntimeReady, healthBlocksSearchActive, markedDatesActive, healthRoutinesActive)
   } = useStaticData(monthStart, monthEnd, showToast, authUser.id,
-    healthRuntimeReady || selectedDayReaderEnabled, healthBlocksSearchActive, markedDatesActive, healthRoutinesActive);
+    healthRuntimeReady || selectedDayReaderEnabled, healthBlocksSearchActive, markedDatesActive, healthRoutinesActive,
+    weeklySchedulesActive);
 
   const { mutate: globalMutate } = useSWRConfig();
 
@@ -617,6 +621,7 @@ export function AppContent({ authUser }: { authUser: User }) {
     mutateTodos, mutateRoutines,
     appSettings, updateSetting, theme, THEME_COLORS,
     schedules, todos, routines, workouts, inbody, weeklySchedules,
+    weeklySchedulesState,
     markedDates, healthBlocks, healthRoutines,
     isDailyLoading,
     onSignOut: handleSignOut,
@@ -626,6 +631,7 @@ export function AppContent({ authUser }: { authUser: User }) {
     mutateDaily, mutateStatic, mutateTodos, mutateRoutines,
     appSettings, updateSetting, theme,
     schedules, todos, routines, workouts, inbody, weeklySchedules,
+    weeklySchedulesState,
     markedDates, healthBlocks, healthRoutines,
     isDailyLoading,
     handleSignOut,
@@ -805,6 +811,7 @@ export function AppContent({ authUser }: { authUser: User }) {
         healthBlocks={healthBlocks}
         healthBlocksState={healthBlocksState}
         weeklySchedules={weeklySchedules}
+        weeklySchedulesState={weeklySchedulesState}
       />
     </div>
   );

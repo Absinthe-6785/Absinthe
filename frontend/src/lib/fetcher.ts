@@ -1,5 +1,9 @@
 import { authFetch, supabase } from './supabase';
-import { isLocalOnlyRemoteMutationPausedError } from './remoteBoundary';
+import {
+  assertRuntimeSessionReadOwner,
+  isLocalOnlyRemoteMutationPausedError,
+  type RuntimeSessionReadOwner,
+} from './remoteBoundary';
 
 /**
  * SWR용 공통 fetcher — 인증 헤더 포함, HTTP 오류 시 throw.
@@ -19,6 +23,13 @@ export class LocalOnlyRemotePausedError extends Error {
   constructor() {
     super('Remote sync paused in local-only mode');
     this.name = 'LocalOnlyRemotePausedError';
+  }
+}
+
+export class SessionReadUnauthorizedError extends Error {
+  constructor() {
+    super('[401] Current session is not authorized for this read');
+    this.name = 'SessionReadUnauthorizedError';
   }
 }
 
@@ -50,19 +61,30 @@ async function refreshToken(): Promise<boolean> {
   return refreshPromise;
 }
 
-export const fetcher = async <T = unknown>(url: string): Promise<T> => {
+export const fetcher = async <T = unknown>(
+  url: string,
+  readOwner?: RuntimeSessionReadOwner,
+  assertReadNeeded?: () => void,
+): Promise<T> => {
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     try {
-      const res = await authFetch(url);
+      // A scoped caller may drop demand while a transient retry is waiting.
+      if (readOwner) assertReadNeeded?.();
+      const res = readOwner ? await authFetch(url, {}, { readOwner }) : await authFetch(url);
+      if (readOwner) assertRuntimeSessionReadOwner(readOwner);
 
       if (!res.ok) {
+        if (readOwner && res.status === 401) throw new SessionReadUnauthorizedError();
         const body = await res.text().catch(() => '');
+        if (readOwner) assertRuntimeSessionReadOwner(readOwner);
         const path = url.replace(/^https?:\/\/[^/]+/, '');
 
         // 401: 토큰 갱신 후 즉시 재시도 (1회만)
-        if (res.status === 401 && attempt === 0) {
+        // A scoped GET cannot take over the app's mutable refresh/logout path.
+        // The SDK's normal auth events publish a new owner when tokens rotate.
+        if (!readOwner && res.status === 401 && attempt === 0) {
           const refreshed = await refreshToken();
           if (refreshed) continue; // 갱신 성공 → 재시도
           throw new Error(`[401] Session expired`);
@@ -79,9 +101,20 @@ export const fetcher = async <T = unknown>(url: string): Promise<T> => {
         throw err;
       }
 
-      return res.json() as Promise<T>;
+      const decoded = res.json() as Promise<T>;
+      return readOwner ? decoded.then(
+        value => {
+          assertRuntimeSessionReadOwner(readOwner);
+          return value;
+        },
+        error => {
+          assertRuntimeSessionReadOwner(readOwner);
+          throw error;
+        },
+      ) : decoded;
 
     } catch (e) {
+      if (readOwner) assertRuntimeSessionReadOwner(readOwner);
       // 네트워크 오류 — 재시도
       if (e instanceof TypeError && attempt < MAX_RETRIES - 1) {
         lastError = e;
