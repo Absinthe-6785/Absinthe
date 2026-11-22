@@ -90,7 +90,7 @@ vi.mock('../lib/healthLocalRuntime', async importOriginal => {
 vi.mock('../lib/syncAuthority', () => ({ domainUsesLocalWorkingCopy: () => true }));
 vi.mock('../lib/config', () => ({ API_URL: 'https://example.test' }));
 vi.mock('../lib/supabase', () => ({ supabase: { auth: { signOut: vi.fn() } }, authFetch: vi.fn() }));
-vi.mock('../lib/remoteBoundary', () => ({ remoteSWRKey: () => null }));
+vi.mock('../lib/remoteBoundary', () => ({ remoteSWRKey: () => null, runtimeSessionReadOwner: () => null }));
 vi.mock('../lib/fetcher', () => ({ fetcher: vi.fn(async () => []), isLocalOnlyRemotePausedError: () => false }));
 vi.mock('../lib/noteNavigation', () => ({ registerNotesTabSwitcher: () => () => undefined,
   registerAppTabSwitcher: () => () => undefined, openWorkspaceSearch: vi.fn(), openHealthDayNote: vi.fn(), openNote: vi.fn(), switchToTab: vi.fn() }));
@@ -231,7 +231,7 @@ async function parentExperiment(side: 'baseline' | 'candidate', dirty: boolean, 
   }
   initial.forEach(([key, value]) => values.set(key, value));
   const input = { main: EXACT_MAIN, account: 'account-a', dates: [X, Y], initial, dirty, strict,
-    cache: 'NEW_EMPTY_MAP', scheduling: 'explicit-act/deferred-read', source: ['X:91', 'Y:92', 'refresh:93'] };
+    cache: 'NEW_EMPTY_MAP', scheduling: 'explicit-act/deferred-read', source: ['X1:91', 'Y:92', 'X2:94', 'refresh:93'] };
   const checkpoints: any[] = [];
   const capture = (label: string) => {
     if (mocks.saving === undefined || mocks.locked === undefined) throw new Error('parent state observer absent');
@@ -255,8 +255,11 @@ async function parentExperiment(side: 'baseline' | 'candidate', dirty: boolean, 
     await deliver(Y, '92'); capture('Y-qualified');
     expect(mocks.latestDraft.localWorkouts[0].sets[0].kg).toBe(dirty ? '41' : '92');
     expect(checkpoints.at(-1)).toMatchObject({ dirty, dirtyRef: dirty, saving: false, locked: !dirty });
-    await act(async () => mocks.selectDate!(new Date(X + 'T12:00:00Z'))); capture('X2-cache-owned');
-    expect(mocks.latestDraft.localWorkouts[0].sets[0].kg).toBe(dirty ? '31' : '91');
+    await act(async () => mocks.selectDate!(new Date(X + 'T12:00:00Z'))); capture('X2-awaiting-current-read');
+    expect(mocks.latestDraft.localWorkouts).toEqual(dirty ? DX : []);
+    expect(mocks.dailyReads.filter(read => read.date === X)).toHaveLength(2);
+    await deliver(X, '94'); capture('X2-qualified');
+    expect(mocks.latestDraft.localWorkouts[0].sets[0].kg).toBe(dirty ? '31' : '94');
     initial.forEach(([key, bytes]) => {
       expect(values.get(key)).toBe(bytes);
       expect(history.filter(write => write.key === key).every(write => write.value === bytes)).toBe(true);
@@ -324,7 +327,7 @@ function source(date: string, kg: string) {
   }, date);
 }
 async function deliver(date: string, kg: string) {
-  const read = mocks.dailyReads.find(read => read.accountId === 'account-a' && read.date === date);
+  const read = mocks.dailyReads.filter(read => read.accountId === 'account-a' && read.date === date).at(-1);
   expect(read, 'real useDailyData must request the account/date key').toBeDefined();
   await act(async () => read!.resolve(source(date, kg)));
 }
@@ -381,7 +384,10 @@ describe('gate-OFF real AppContent/useDailyData/SWR date ownership', () => {
     expect(mocks.latestDraft.localWorkouts[0].sets[0].kg).toBe(dirty ? '41' : '92');
     expect(mocks.latestDraft.isDirty).toBe(dirty); expect(mocks.latestDraft.isDirtyRef.current).toBe(dirty); checkBytes();
     await act(async () => mocks.selectDate!(new Date(X + 'T12:00:00Z'))); checkBytes();
-    expect(mocks.latestDraft.localWorkouts[0].sets[0].kg).toBe(dirty ? '31' : '91');
+    expect(mocks.latestDraft.localWorkouts).toEqual(dirty ? DX : []);
+    expect(mocks.dailyReads.filter(read => read.date === X)).toHaveLength(2);
+    await deliver(X, '94');
+    expect(mocks.latestDraft.localWorkouts[0].sets[0].kg).toBe(dirty ? '31' : '94');
     expect(mocks.latestDraft.isDirty).toBe(dirty);
     expect(mocks.dailyReads.every(read => read.accountId === 'account-a' && [X, Y].includes(read.date))).toBe(true);
     expect(mocks.showToast.mock.calls.some(call => String(call[0]).startsWith('Fetch failed'))).toBe(false);

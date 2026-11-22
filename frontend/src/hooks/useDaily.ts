@@ -1,15 +1,15 @@
-import { useCallback, useMemo, useRef } from 'react';
-import useSWR, { useSWRConfig } from 'swr';
+import { useCallback, useLayoutEffect, useMemo, useRef } from 'react';
+import useSWR, { unstable_serialize, useSWRConfig } from 'swr';
 import { isLocalOnlyRemotePausedError } from '../lib/fetcher';
 import { API_URL } from '../lib/config';
-import { remoteSWRKey, runtimeAccountSyncAccountId } from '../lib/remoteBoundary';
+import { remoteSWRKey, runtimeAccountSyncAccountId, runtimeSessionReadOwner } from '../lib/remoteBoundary';
 import {
   accountBoundRemoteFetcher,
   accountBoundRemoteKey,
   type AccountBoundRemoteKey,
 } from '../lib/accountBoundRemote';
 import { domainUsesLocalWorkingCopy } from '../lib/syncAuthority';
-import { readLocalHealthDaily } from '../lib/healthLocalRuntime';
+import { readLocalHealthDaily, type LocalHealthDailyProjection } from '../lib/healthLocalRuntime';
 import { resolveSearchDatasetState, type SearchDatasetState } from '../lib/searchReadiness';
 import { Schedule, Todo, Routine, Workout, Inbody } from '../types';
 
@@ -43,6 +43,35 @@ export type SelectedDayScheduleRevalidator = (
 export type AccountBoundTodoKey = AccountBoundRemoteKey;
 
 export type AccountBoundInbodyKey = AccountBoundRemoteKey;
+
+type LocalHealthDailyKey = readonly ['local-health-daily', string, string];
+const DISCARDED_LOCAL_DAILY_READ = Symbol('discarded local daily read');
+type LocalDailyReadLifetime = {
+  key: LocalHealthDailyKey;
+  session: AbortSignal | undefined;
+  retired: boolean;
+  detached: boolean;
+  interrupted: boolean;
+  attempt?: LocalDailyReadAttempt;
+};
+
+type LocalDailyReadAttempt = { lifetime: LocalDailyReadLifetime; pending: boolean };
+
+function reserveLocalDailyRead(lifetime: LocalDailyReadLifetime): LocalDailyReadAttempt {
+  const attempt = { lifetime, pending: true };
+  lifetime.attempt = attempt;
+  return attempt;
+}
+
+class LocalDailyReadFailure extends Error {
+  constructor(readonly attempt: LocalDailyReadAttempt, readonly reason: unknown) {
+    super('Local daily Health read failed');
+  }
+}
+
+function matchesLocalDailyKey(lifetime: LocalDailyReadLifetime | null, key: LocalHealthDailyKey) {
+  return lifetime?.key[1] === key[1] && lifetime.key[2] === key[2];
+}
 
 /**
  * Keep the request URL unchanged while giving each account its own SWR cache
@@ -125,7 +154,8 @@ export const useDailyData = (
     };
   }
 
-  const { mutate: globalMutate } = useSWRConfig();
+  const swrConfig = useSWRConfig();
+  const { cache, mutate: globalMutate } = swrConfig;
 
   // onError 콜백만 useMemo로 메모이제이션 (showToast는 useCallback으로 안정됨)
   // DAILY_SWR_BASE = {} 는 SWR 기본값과 동일해 실질 효과가 없으므로 제거.
@@ -189,18 +219,158 @@ export const useDailyData = (
   const { data: inbodyRaw, mutate: mutateInbody, isLoading: l5 } =
     useSWR<Inbody[], AccountBoundInbodyKey | null>(inbodyKey, fetchAccountBoundInbody, swrOpts);
 
-  const localHealthCacheKey = localMode && accountId
+  const localHealthCacheKey = useMemo<LocalHealthDailyKey | null>(() => localMode && accountId
     ? ['local-health-daily', accountId, dateStr] as const
-    : null;
+    : null, [localMode, accountId, dateStr]);
   // Existing local readiness remains account-bound:
   // localMode && accountId && healthReady ? ['local-health-daily', accountId, dateStr]
-  const localHealthKey = localHealthCacheKey && healthReady ? localHealthCacheKey : null;
-  const { data: localHealth, mutate: mutateLocalHealth, isLoading: l6 } =
-    useSWR(
+  const session = localHealthCacheKey ? runtimeSessionReadOwner() : null;
+  const sessionSignal = session?.signal;
+  const localHealthKey = healthReady && (!session || session.accountId === accountId) ? localHealthCacheKey : null;
+  const localLifetime = useRef<LocalDailyReadLifetime | null>(null);
+  const localPublications = useMemo(() => new WeakMap<LocalHealthDailyProjection, LocalDailyReadAttempt>(), []);
+  const invalidatingLocalHealth = useRef(false);
+  const isCurrentLifetime = (lifetime: LocalDailyReadLifetime) =>
+    localLifetime.current === lifetime && !lifetime.retired && !lifetime.session?.aborted;
+  const isCurrentAttempt = (attempt: LocalDailyReadAttempt) =>
+    isCurrentLifetime(attempt.lifetime) && attempt.lifetime.attempt === attempt;
+  const isCurrentLocalFailure = (error: unknown): error is LocalDailyReadFailure =>
+    error instanceof LocalDailyReadFailure && isCurrentAttempt(error.attempt);
+  const invalidateLocalHealthRead = useCallback((key: LocalHealthDailyKey, clearData = false) => {
+    // Retire SWR's pending/deduped request for this exact key without
+    // triggering a new read or dropping an already accepted snapshot.
+    invalidatingLocalHealth.current = true;
+    try {
+      // A custom SWR provider may already be disposed during parent unmount.
+      void Promise.resolve(globalMutate(key, undefined, { populateCache: clearData, revalidate: true })).catch(() => {});
+    } finally {
+      invalidatingLocalHealth.current = false;
+    }
+  }, [globalMutate]);
+
+  // Install the current date/session lifetime before SWR subscribes to it.
+  useLayoutEffect(() => {
+    const previous = localLifetime.current;
+    if (!localHealthKey) {
+      localLifetime.current = null;
+      return;
+    }
+    const lifetime: LocalDailyReadLifetime = {
+      key: localHealthKey, session: sessionSignal, retired: false, detached: false, interrupted: false,
+    };
+    localLifetime.current = lifetime;
+    const serialized = unstable_serialize(localHealthKey);
+    const retire = () => {
+      lifetime.retired = true;
+      if (lifetime.attempt?.pending || cache?.get(serialized)?.isValidating) {
+        lifetime.interrupted = true;
+        invalidateLocalHealthRead(lifetime.key);
+      }
+    };
+    if (sessionSignal?.aborted) retire();
+    else sessionSignal?.addEventListener('abort', retire, { once: true });
+
+    // The same SWR key can survive token rotation or StrictMode cleanup.
+    // Start a replacement through the committed subscription, not the old
+    // request: a custom provider can have replaced its request registry.
+    if (previous && matchesLocalDailyKey(previous, localHealthKey)
+      && (previous.session !== sessionSignal || previous.interrupted)) {
+      const cached = cache?.get(serialized);
+      lifetime.interrupted = Boolean(previous?.interrupted || cached?.data === undefined);
+      if (lifetime.interrupted) {
+        queueMicrotask(() => {
+          if (!lifetime.retired && !sessionSignal?.aborted && !lifetime.attempt) void globalMutate(localHealthKey);
+        });
+      }
+    }
+    return () => {
+      lifetime.detached = true;
+      sessionSignal?.removeEventListener('abort', retire);
+      retire();
+    };
+  }, [cache, globalMutate, invalidateLocalHealthRead, localHealthKey, sessionSignal]);
+
+  const { data: localHealthResult, mutate: mutateLocalHealth, isLoading: localHealthLoading, error: localHealthError } =
+    useSWR<LocalHealthDailyProjection | typeof DISCARDED_LOCAL_DAILY_READ | undefined, LocalHealthDailyKey | null>(
       localHealthKey,
-      ([, ownerId, selectedDate]) => readLocalHealthDaily(ownerId, selectedDate),
-      swrOpts,
+      async (key: LocalHealthDailyKey) => {
+        const startedIn = localLifetime.current;
+        // Reserve ownership before yielding so a superseded rejection can't
+        // hide this request from retirement by clearing SWR's loading flags.
+        const reservation = startedIn && matchesLocalDailyKey(startedIn, key)
+          ? reserveLocalDailyRead(startedIn) : null;
+        // SWR installs its request marker after calling the fetcher. Give
+        // StrictMode replay a chance to retire that marker before any I/O.
+        await Promise.resolve();
+        const lifetime = localLifetime.current;
+        if (reservation && startedIn !== lifetime) return DISCARDED_LOCAL_DAILY_READ;
+        if (!lifetime || !matchesLocalDailyKey(lifetime, key)) {
+          // A delayed warm revalidation may still hold the previous key.
+          if (!startedIn?.detached && !matchesLocalDailyKey(startedIn, key)) invalidateLocalHealthRead(key);
+          return DISCARDED_LOCAL_DAILY_READ;
+        }
+        if (!isCurrentLifetime(lifetime)) {
+          // A scheduled revalidation can start between auth revocation and
+          // the React commit. Retire its marker as well, with no local I/O.
+          if (!lifetime.detached) invalidateLocalHealthRead(key);
+          return DISCARDED_LOCAL_DAILY_READ;
+        }
+        const attempt = reservation?.lifetime === lifetime ? reservation : reserveLocalDailyRead(lifetime);
+        if (!isCurrentAttempt(attempt)) return DISCARDED_LOCAL_DAILY_READ;
+        lifetime.interrupted = false;
+        try {
+          const snapshot = await readLocalHealthDaily(key[1], key[2]);
+          if (!isCurrentAttempt(attempt)) return DISCARDED_LOCAL_DAILY_READ;
+          if (snapshot) localPublications.set(snapshot, attempt);
+          return snapshot;
+        } catch (error) {
+          if (isCurrentAttempt(attempt)) throw new LocalDailyReadFailure(attempt, error);
+          return DISCARDED_LOCAL_DAILY_READ;
+        }
+      },
+      {
+        ...swrOpts,
+        compare: (previous, next) => {
+          // A provider can lose or replace its mutation registry before an
+          // old SWR continuation settles. Never publish a retired snapshot
+          // or let a discarded read replace verified cache data with empty.
+          if (next === DISCARDED_LOCAL_DAILY_READ) return true;
+          const attempt = next && localPublications.get(next);
+          return Boolean(attempt && !isCurrentAttempt(attempt)) || swrConfig.compare(previous, next);
+        },
+        isPaused: () => invalidatingLocalHealth.current || Boolean(swrConfig.isPaused?.()),
+        onSuccess: (data, key) => {
+          if (!data || data === DISCARDED_LOCAL_DAILY_READ) return;
+          const attempt = localPublications.get(data);
+          if (!attempt || !isCurrentAttempt(attempt) || unstable_serialize(attempt.lifetime.key) !== key) return;
+          // The reader promise can resolve before SWR admits the result.
+          attempt.pending = false;
+          localPublications.delete(data);
+          queueMicrotask(() => { if (isCurrentAttempt(attempt)) swrConfig.onSuccess(data, key, swrConfig); });
+        },
+        onError: (error: unknown) => {
+          if (isCurrentLocalFailure(error)) {
+            error.attempt.pending = false;
+            swrOpts.onError(error.reason);
+          }
+        },
+        shouldRetryOnError: (error: unknown) => isCurrentLocalFailure(error)
+          && (typeof swrConfig.shouldRetryOnError === 'function'
+            ? swrConfig.shouldRetryOnError(error.reason) : swrConfig.shouldRetryOnError),
+        onErrorRetry: (error, key, _config, revalidate, options) => {
+          if (!isCurrentLocalFailure(error)) return;
+          swrConfig.onErrorRetry(error.reason, key, swrConfig, retry => {
+            if (isCurrentLocalFailure(error)) revalidate(retry);
+          }, options);
+        },
+      },
     );
+  const localHealth = localHealthResult === DISCARDED_LOCAL_DAILY_READ ? undefined : localHealthResult;
+  // Settlement from an obsolete attempt must not turn off the current cold-read spinner.
+  const displayedLifetime = localLifetime.current;
+  const l6 = localHealthLoading || Boolean(localHealthKey && !localHealth && displayedLifetime?.attempt?.pending
+    && !isCurrentLocalFailure(localHealthError) && isCurrentAttempt(displayedLifetime.attempt)
+    && matchesLocalDailyKey(displayedLifetime, localHealthKey));
 
   /** todos optimistic mutate — updater 함수로 현재 캐시를 즉시 수정 */
   const mutateTodos = useCallback(
@@ -250,10 +420,10 @@ export const useDailyData = (
     if (localMode) {
       if (localHealthKey !== null) mutateLocalHealth();
       else if (localHealthCacheKey !== null) {
-        void globalMutate(localHealthCacheKey, undefined, { revalidate: false });
+        invalidateLocalHealthRead(localHealthCacheKey, true);
       }
     }
-  }, [globalMutate, inbodyCacheKey, inbodyKey, localHealthCacheKey, localHealthKey, localMode, mutateInbody, mutateLocalHealth, mutateRoutinesRaw, mutateSchedules, mutateTodosRaw, mutateWorkouts, todoCacheKey, todoKey]);
+  }, [globalMutate, inbodyCacheKey, inbodyKey, invalidateLocalHealthRead, localHealthCacheKey, localHealthKey, localMode, mutateInbody, mutateLocalHealth, mutateRoutinesRaw, mutateSchedules, mutateTodosRaw, mutateWorkouts, todoCacheKey, todoKey]);
 
   const todosState = resolveSearchDatasetState({
     enabled: todoKey !== null,

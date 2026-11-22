@@ -224,7 +224,7 @@ describe('LEAN_04A request activation characterization', () => {
     expect(harness.fetchCalls.length).toBe(firstFetchCount + 6);
   });
 
-  it('records local-mode null keys, readiness pause, and latest account/date inputs', () => {
+  it('records local-mode null keys, readiness pause, and latest account/date inputs', async () => {
     harness.localMode = true;
     mounted = mount({
       account: 'account-a',
@@ -244,7 +244,7 @@ describe('LEAN_04A request activation characterization', () => {
     expect(harness.localDailyReads).toHaveLength(0);
     expect(harness.localStaticReads).toHaveLength(0);
 
-    act(() => {
+    await act(async () => {
       mounted?.root.render(createElement(Probe, {
         account: 'account-a',
         date: '2026-08-18',
@@ -258,7 +258,7 @@ describe('LEAN_04A request activation characterization', () => {
     expect(harness.keys).toContainEqual(['local-health-daily', 'account-a', '2026-08-18']);
     expect(harness.keys).toContainEqual(['local-health-static', 'account-a']);
 
-    act(() => {
+    await act(async () => {
       mounted?.root.render(createElement(Probe, {
         account: 'account-b',
         date: '2026-08-19',

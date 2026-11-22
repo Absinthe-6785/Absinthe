@@ -13,7 +13,8 @@ const mocks = vi.hoisted(() => ({
   fetchedKeys: new Set<string>(),
 }));
 
-vi.mock('swr', () => ({
+vi.mock('swr', async importOriginal => ({
+  unstable_serialize: (await importOriginal<typeof import('swr')>()).unstable_serialize,
   default: (key: unknown, fetcher?: (arg: unknown) => unknown) => {
     const isLocalKey = Array.isArray(key) && (
       key[0] === 'local-health-daily' || key[0] === 'local-health-static'
