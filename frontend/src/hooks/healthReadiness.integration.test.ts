@@ -47,7 +47,7 @@ vi.mock('swr', () => ({
 }));
 
 vi.mock('../lib/localAuth', () => ({ isLocalOnlyRuntime: () => true }));
-vi.mock('../lib/remoteBoundary', () => ({ remoteSWRKey: () => null }));
+vi.mock('../lib/remoteBoundary', () => ({ remoteSWRKey: () => null, runtimeSessionReadOwner: () => null }));
 vi.mock('../lib/fetcher', () => ({
   fetcher: vi.fn(),
   isLocalOnlyRemotePausedError: () => false,

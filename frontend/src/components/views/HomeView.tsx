@@ -38,6 +38,7 @@ import { API_URL } from '../../lib/config';
 import { accountBoundRemoteFetcher, accountBoundRemoteKey } from '../../lib/accountBoundRemote';
 import type { Schedule } from '../../types';
 import { formatLongDate } from './k102DateFormat';
+import { weeklyScheduleReadNotice } from '../../lib/searchReadiness';
 
 type ScheduleDday = Schedule & { date: string };
 const EMPTY_CONTINUE_NOTES = [] as const;
@@ -159,6 +160,7 @@ export const HomeView = ({
   schedules,
   workouts,
   weeklySchedules,
+  weeklySchedulesState,
   appSettings,
   theme,
   isDailyLoading,
@@ -169,6 +171,7 @@ export const HomeView = ({
   onOpenScheduleTarget,
 }: HomeViewProps) => {
   const { t, lang } = useTranslation();
+  const weeklyNotice = weeklyScheduleReadNotice(weeklySchedulesState);
   // Subscribe to publication invalidation as well as Notes edits/replacements.
   const notesState = useNotesStore(s => s);
   const { vaultStructureVersion, createNote } = notesState;
@@ -397,9 +400,9 @@ export const HomeView = ({
                     />
                   ))}
                 </div>
-              ) : (
+              ) : !weeklyNotice ? (
                 <p className={`text-sm mb-3 ${theme.textMuted}`}>{t('homeTodayEmpty')}</p>
-              )}
+              ) : null}
               {timetablePreview.length > 0 ? (
                 <div className="flex flex-col gap-1.5">
                   {timetablePreview.map(slot => (
@@ -414,6 +417,11 @@ export const HomeView = ({
                   ))}
                 </div>
               ) : null}
+              {weeklyNotice && (
+                <p role="status" className={`text-xs mt-2 ${theme.textMuted}`} data-home-weekly-read-status>
+                  {t('weeklyTimetable')}: {t(weeklyNotice)}
+                </p>
+              )}
             </HomeSection>
 
             {upcomingDdays.length > 0 ? (

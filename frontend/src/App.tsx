@@ -42,13 +42,6 @@ export default function App() {
     replaceGoogleDriveRuntimeAccount(null);
 
     const applySession = (session: { user: User; access_token?: string; refresh_token?: string } | null) => {
-      setRuntimeAccountSyncAccount(session?.user.id ?? null);
-      const nextOwner = session?.access_token
-        ? { accountId: session.user.id, token: session.access_token } : null;
-      if (!nextOwner || !driveOwner || nextOwner.accountId !== driveOwner.accountId || nextOwner.token !== driveOwner.token) {
-        replaceGoogleDriveRuntimeAccount(nextOwner?.accountId ?? null);
-      }
-      driveOwner = nextOwner;
       const nextReadOnlyOwner = session?.access_token
         ? { accountId: session.user.id, accessToken: session.access_token, refreshToken: session.refresh_token ?? '' } : null;
       const sameReadOnlyOwner = nextReadOnlyOwner === null
@@ -56,6 +49,18 @@ export default function App() {
         : readOnlyOwner !== null && nextReadOnlyOwner.accountId === readOnlyOwner.accountId
           && nextReadOnlyOwner.accessToken === readOnlyOwner.accessToken
           && nextReadOnlyOwner.refreshToken === readOnlyOwner.refreshToken;
+      // Reuse the existing exact session comparison. Never expose the tokens
+      // in cache keys, React props, or diagnostics.
+      setRuntimeAccountSyncAccount(session?.user.id ?? null,
+        sameReadOnlyOwner ? undefined : nextReadOnlyOwner
+          ? headers => { headers.set('Authorization', `Bearer ${nextReadOnlyOwner.accessToken}`); }
+          : null);
+      const nextOwner = session?.access_token
+        ? { accountId: session.user.id, token: session.access_token } : null;
+      if (!nextOwner || !driveOwner || nextOwner.accountId !== driveOwner.accountId || nextOwner.token !== driveOwner.token) {
+        replaceGoogleDriveRuntimeAccount(nextOwner?.accountId ?? null);
+      }
+      driveOwner = nextOwner;
       if (!sameReadOnlyOwner) {
         const generation = authOwnerRef.current.generation + 1;
         authOwnerRef.current = { accountId: nextReadOnlyOwner?.accountId ?? null, generation };

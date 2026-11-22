@@ -13,6 +13,7 @@ type SearchProjection = {
   query: string;
   results: Array<{ kind: string; title?: string }>;
   empty: { noQuery: boolean; noResults: boolean; noRecent: boolean };
+  groupStates?: { planner?: { status: string } };
 };
 
 type PaletteProps = {
@@ -30,6 +31,8 @@ const harness = vi.hoisted(() => ({
   todoPromise: null as Promise<unknown> | null,
   blockPromise: null as Promise<unknown> | null,
   emptyPromise: null as Promise<unknown> | null,
+  weeklyOwner: null as { accountId: string; signal: AbortSignal } | null,
+  weeklyReply: null as Promise<unknown> | null,
   fetches: [] as string[],
   palette: null as PaletteProps | null,
   paletteSnapshots: [] as PaletteProps[],
@@ -107,6 +110,7 @@ vi.mock('../lib/config', () => ({ API_URL: 'https://example.invalid' }));
 vi.mock('../lib/remoteBoundary', () => ({
   shouldUseRemoteData: () => true,
   remoteSWRKey: (key: string) => key,
+  runtimeSessionReadOwner: () => harness.weeklyOwner,
 }));
 
 vi.mock('../lib/workoutRuntimeAuthority', () => ({
@@ -136,6 +140,7 @@ vi.mock('../lib/fetcher', () => ({
         ? harness.blockPromise ?? harness.emptyPromise
         : harness.emptyPromise;
     }
+    if (url.endsWith('/weekly_schedules')) return harness.weeklyReply ?? harness.emptyPromise;
     return harness.emptyPromise;
   },
   isLocalOnlyRemotePausedError: () => false,
@@ -151,7 +156,7 @@ vi.mock('../theme', () => ({ buildThemeClasses: () => ({}) }));
 vi.mock('./common/Sidebar', () => ({
   Sidebar: ({ setActiveTab }: { setActiveTab: (tab: string) => void }) => createElement(
     'nav', {},
-    ...['home', 'planner', 'health', 'recipe', 'analytics', 'note'].map(tab =>
+    ...['home', 'planner', 'health', 'recipe', 'analytics', 'note', 'settings'].map(tab =>
       createElement('button', { key: tab, 'data-shell-tab': tab, onClick: () => setActiveTab(tab) }, tab)),
   ),
 }));
@@ -160,7 +165,10 @@ vi.mock('./views/NoteView', () => ({ NoteView: () => null }));
 vi.mock('./views/HomeView', () => ({ HomeView: () => null }));
 vi.mock('./views/PlannerView', () => ({ PlannerView: () => null }));
 vi.mock('./views/HealthView', () => ({ HealthView: () => null }));
-vi.mock('./views/AnalyticsView', () => ({ AnalyticsView: () => null }));
+vi.mock('./views/AnalyticsView', () => ({
+  AnalyticsView: ({ onPlannerRestoreComplete }: { onPlannerRestoreComplete?: () => void }) =>
+    createElement('button', { 'data-completed-restore': true, onClick: onPlannerRestoreComplete }, 'Restore completed'),
+}));
 vi.mock('./views/SettingsView', () => ({ SettingsView: () => null }));
 vi.mock('./views/RecipeView', () => ({ RecipeView: () => null }));
 
@@ -269,6 +277,8 @@ function resetHarness(kind: TargetKind, status: TargetStatus, query: string): vo
   harness.todoPromise = Promise.resolve([]);
   harness.blockPromise = Promise.resolve([]);
   harness.emptyPromise = Promise.resolve([]);
+  harness.weeklyOwner = null;
+  harness.weeklyReply = null;
   harness.fetches.length = 0;
   harness.palette = null;
   harness.paletteSnapshots.length = 0;
@@ -305,6 +315,8 @@ type ScenarioResult = {
 
 async function renderScenario(kind: TargetKind, status: TargetStatus, query: string): Promise<ScenarioResult> {
   resetHarness(kind, status, query);
+  // Exercise one unresolved source at a time; weekly data is verified empty.
+  harness.weeklyOwner = { accountId: 'account-a', signal: new AbortController().signal };
   const host = document.createElement('div');
   document.body.appendChild(host);
   const root: Root = createRoot(host);
@@ -338,6 +350,81 @@ describe('LEAN_04B production-plumbing Search characterization', () => {
   afterEach(() => {
     document.body.replaceChildren();
   });
+
+  it('measures weekly requests across workspaces, inactive invalidation, and persisted Search reopening', async () => {
+    resetHarness('todos', 'empty', '');
+    harness.weeklyOwner = { accountId: 'account-a', signal: new AbortController().signal };
+    const row = (title: string) => [{ id: 'slot-a', day: 0, title, start_time: '09:00', end_time: '10:00', color: 'blue' }];
+    harness.weeklyReply = Promise.resolve(row('Weekly original'));
+    const host = document.body.appendChild(document.createElement('div'));
+    const root = createRoot(host);
+    const config = { provider: () => new Map(), dedupingInterval: 0, revalidateOnFocus: false };
+    const counts: Record<string, number> = {};
+    const total = () => harness.fetches.filter(url => url.endsWith('/weekly_schedules')).length;
+    const frame = () => act(async () => { await new Promise<void>(resolve => requestAnimationFrame(() => resolve())); });
+    const measure = async (name: string, action: () => void | Promise<void>) => {
+      const before = total();
+      await action();
+      await frame();
+      await flush();
+      counts[name] = total() - before;
+    };
+    const select = (tab: string) => act(async () => {
+      host.querySelector<HTMLButtonElement>(`[data-shell-tab="${tab}"]`)!.click();
+    });
+    const open = async () => {
+      await act(async () => { harness.openers[0]!(); });
+      await settlePresentation();
+    };
+    const close = () => act(async () => { harness.palette?.onClose(); });
+    const bootstrapComplete = () => act(async () => { window.dispatchEvent(new Event('lean04b-health-bootstrap-complete')); });
+    try {
+      await measure('home', () => act(async () => root.render(createElement(
+        SWRConfig, { value: config }, createElement(AppContent, { authUser: accountUser('account-a') }),
+      ))));
+      await measure('warmPlannerAndHealth', async () => { await select('planner'); await flush(); await select('health'); });
+      for (const tab of ['note', 'recipe', 'settings', 'analytics']) {
+        await measure(`enter:${tab}`, () => select(tab));
+        // Count what the existing static invalidator does in each inactive
+        // surface. Archive exercises the actual successful-restore callback.
+        await measure(`invalidate:${tab}`, tab === 'analytics'
+          ? () => act(async () => { host.querySelector<HTMLButtonElement>('[data-completed-restore]')!.click(); })
+          : bootstrapComplete);
+      }
+      await measure('openWithoutQuery', open);
+      await close();
+      harness.persisted = { query: 'Weekly', filter: 'all' };
+      const response = deferred();
+      harness.weeklyReply = response.promise;
+      await measure('openPersistedQuery', open);
+      const stateBeforeResponse = harness.palette?.projection.groupStates?.planner?.status;
+      const titlesBeforeResponse = harness.palette?.projection.results.map(result => result.title);
+      const emptyBeforeResponse = harness.palette?.projection.empty.noResults;
+      await act(async () => response.resolve(row('Weekly current')));
+      await flush();
+      const resultTitles = harness.palette?.projection.results.map(result => result.title);
+      await close();
+      await measure('warmSearchReopen', open);
+
+      console.info('[weekly Schedule GET counts]', counts);
+      expect(counts).toEqual({
+        home: 1, warmPlannerAndHealth: 0,
+        'enter:note': 0, 'invalidate:note': 0,
+        'enter:recipe': 0, 'invalidate:recipe': 0,
+        'enter:settings': 0, 'invalidate:settings': 0,
+        'enter:analytics': 0, 'invalidate:analytics': 0,
+        openWithoutQuery: 0, openPersistedQuery: 1, warmSearchReopen: 0,
+      });
+      expect(stateBeforeResponse).toBe('LOADING');
+      expect(titlesBeforeResponse).not.toContain('Weekly original');
+      expect(emptyBeforeResponse).toBe(false);
+      expect(resultTitles).toContain('Weekly current');
+      expect(harness.palette?.projection.results.map(result => result.title)).toContain('Weekly current');
+    } finally {
+      await act(async () => { root.unmount(); });
+      host.remove();
+    }
+  }, 15_000);
 
   it.each([20, 500])('measures real shell Search builders with %i Notes and opens with fresh results', async count => {
     resetHarness('todos', 'empty', '');

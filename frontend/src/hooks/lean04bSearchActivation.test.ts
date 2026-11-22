@@ -15,6 +15,7 @@ const harness = vi.hoisted(() => ({
 vi.mock('../lib/syncAuthority', () => ({ domainUsesLocalWorkingCopy: () => false }));
 vi.mock('../lib/remoteBoundary', () => ({
   remoteSWRKey: (key: string) => key,
+  runtimeSessionReadOwner: () => null,
 }));
 vi.mock('../lib/config', () => ({ API_URL: 'https://example.invalid' }));
 vi.mock('../lib/fetcher', () => ({

@@ -29,6 +29,7 @@ export interface GlobalSearchHostProps {
   healthBlocks: readonly ExerciseBlock[];
   healthBlocksState?: SearchDatasetState;
   weeklySchedules: readonly WeeklySchedule[];
+  weeklySchedulesState?: SearchDatasetState;
   onSearchHasQueryChange?: (hasQuery: boolean) => void;
   searchHostLifetime?: SearchHostLifetime;
   onSearchActivationChange?: (activation: SearchActivation) => void;
@@ -50,6 +51,7 @@ export function GlobalSearchHost({
   healthBlocks,
   healthBlocksState,
   weeklySchedules,
+  weeklySchedulesState,
   searchHostLifetime,
   onSearchActivationChange,
   workoutPreviewRead,
@@ -182,6 +184,7 @@ export function GlobalSearchHost({
     healthBlocks,
     healthBlocksState,
     weeklySchedules,
+    weeklySchedulesState,
     recipes: recipeData ?? [],
     recipeState,
     recentSearches,

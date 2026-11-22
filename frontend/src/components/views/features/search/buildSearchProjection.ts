@@ -27,7 +27,7 @@ import {
 } from './buildSearchDomainResults';
 import { buildHighlightsForResults } from './searchHighlight';
 import { buildSearchRecentGroups } from './searchRecentStorage';
-import type { SearchDatasetState } from '../../../../lib/searchReadiness';
+import { weeklyScheduleReadNotice, type SearchDatasetState } from '../../../../lib/searchReadiness';
 import type { WorkoutRangePreviewRead } from '../health/useHealthWorkoutRangeSnapshot';
 import { buildSearchWorkoutPreview } from './searchWorkoutCompositeProjection';
 
@@ -44,6 +44,7 @@ export interface SearchProjectionInput {
   healthBlocks: readonly ExerciseBlock[];
   healthBlocksState?: SearchDatasetState;
   weeklySchedules: readonly WeeklySchedule[];
+  weeklySchedulesState?: SearchDatasetState;
   recipes: readonly Recipe[];
   recipeState?: SearchDatasetState;
   recentSearches: readonly SearchRecentEntry[];
@@ -141,8 +142,11 @@ export function buildSearchProjection(input: SearchProjectionInput): SearchProje
 
   const noteResults = noteGroups.flatMap(g => g.results.map(mapWorkspaceResult));
 
+  const weeklyState = input.weeklySchedulesState;
+  const weeklyReadable = !weeklyState || weeklyState.status === 'READY_WITH_RESULTS' || weeklyState.status === 'READY_EMPTY';
   const plannerResults = trimmed
-    ? buildPlannerSearchResults(trimmed, input.schedules, input.todos, input.routines, input.weeklySchedules, now)
+    ? buildPlannerSearchResults(trimmed, input.schedules, input.todos, input.routines,
+      weeklyReadable ? input.weeklySchedules : [], now)
     : [];
 
   const workoutPreview = input.workoutPreviewRead
@@ -162,7 +166,13 @@ export function buildSearchProjection(input: SearchProjectionInput): SearchProje
 
   const results = [...noteResults, ...plannerResults, ...healthResults, ...recipeResults, ...archiveResults];
   const groupStates: Partial<Record<SearchDomain, SearchDatasetState>> = {};
-  const plannerState = alignStateToResults(input.todosState, plannerResults.length);
+  const weeklyPending = Boolean(trimmed && weeklyScheduleReadNotice(weeklyState));
+  const plannerDataset = weeklyPending && weeklyState
+    ? weeklyState.status === 'READY_WITH_RESULTS' && weeklyState.validating && !plannerResults.length
+      ? { ...weeklyState, status: 'LOADING' as const }
+      : weeklyState
+    : input.todosState ?? weeklyState;
+  const plannerState = alignStateToResults(plannerDataset, plannerResults.length);
   const healthState = alignStateToResults(input.healthBlocksState, healthResults.length);
   const recipeState = alignStateToResults(input.recipeState, recipeResults.length);
   if (plannerState) groupStates.planner = plannerState;
@@ -175,7 +185,7 @@ export function buildSearchProjection(input: SearchProjectionInput): SearchProje
 
   const empty = {
     noQuery: !trimmed,
-    noResults: trimmed.length > 0 && results.length === 0
+    noResults: trimmed.length > 0 && results.length === 0 && !weeklyPending
       && (!workoutPreview || workoutPreview.state === 'verified_no_match'),
     noRecent: recentSearchesGrouped.today.length + recentSearchesGrouped.earlier.length === 0,
   };

@@ -178,9 +178,35 @@ describe('WeeklyTimetableSection', () => {
     expect(html).toContain('data-planner-weekly-timetable-add');
     expect(html).toContain('data-k139-timetable-add-local');
   });
+  it('does not offer a verified-empty timetable when the weekly source is still loading', () => {
+    const render = (status: 'LOADING' | 'READY_EMPTY') => renderToStaticMarkup(createElement(WeeklyTimetableSection, {
+      weeklySchedules: [],
+      weeklySchedulesState: { status, validating: status === 'LOADING' },
+      theme, appSettings, THEME_COLORS, mutateStatic: vi.fn(), showToast: vi.fn(),
+    }));
+    const loading = render('LOADING');
+    expect(loading).toContain('data-planner-weekly-read-status');
+    expect(loading).toContain('k111GroupLoading');
+    expect(loading).not.toContain('data-planner-weekly-timetable-collapsed-empty');
+    expect(loading).toContain('data-planner-weekly-timetable-add');
+    const empty = render('READY_EMPTY');
+    expect(empty).toContain('data-planner-weekly-timetable-collapsed-empty');
+    expect(empty).not.toContain('data-planner-weekly-read-status');
+  });
 });
 
 describe('PlannerView timetable integration', () => {
+  it('carries weekly readiness to the embedded timetable without replacing the calendar', async () => {
+    const { PlannerView } = await import('./PlannerView');
+    const html = renderToStaticMarkup(createElement(PlannerView, plannerProps({
+      weeklySchedules: [], weeklySchedulesState: { status: 'NOT_READY', validating: false },
+    })));
+    expect(html).toContain('data-planner-calendar-shell');
+    expect(html).toContain('data-planner-weekly-read-status');
+    expect(html).toContain('k111GroupNotReady');
+    expect(html).toContain('data-planner-weekly-timetable-add');
+  });
+
   it('mounts the planning-first Schedule workspace with calendar-owned add event', async () => {
     const { PlannerView } = await import('./PlannerView');
     const html = renderToStaticMarkup(

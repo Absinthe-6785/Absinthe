@@ -142,6 +142,7 @@ export const PlannerView = ({
   now, currentDate, setCurrentDate, selectedDate, setSelectedDate,
   formatDate, isToday, showToast,   mutateDaily, mutateStatic,
   appSettings, schedules, todos, weeklySchedules, theme, THEME_COLORS,
+  weeklySchedulesState,
   user,
   isScheduleLoading = false,
   revalidateSelectedDaySchedules,
@@ -848,6 +849,7 @@ export const PlannerView = ({
         todos={todos}
         ddaySchedules={ddaySchedules}
         weeklySchedules={weeklySchedules}
+        weeklySchedulesState={weeklySchedulesState}
         appSettings={appSettings}
         theme={theme}
         onEventNoteClick={openPlannerNote}

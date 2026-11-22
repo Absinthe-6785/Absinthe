@@ -4,6 +4,7 @@ import { useConfirm } from '../../../../hooks/useConfirm';
 import { useEscapeKey } from '../../../../hooks/useEscapeKey';
 import { useApiMutation } from '../../../../hooks/useApiMutation';
 import { useTranslation } from '../../../../lib/i18n';
+import { weeklyScheduleReadNotice, type SearchDatasetState } from '../../../../lib/searchReadiness';
 import { useIsMobile } from '../../../../hooks/useIsMobile';
 import type { AppSettings, Theme, ThemeColor, WeeklySchedule } from '../../../../types';
 import { ConfirmModal } from '../../../common/ConfirmModal';
@@ -24,6 +25,7 @@ const formatDayList = (days: readonly number[], labels: readonly string[]) =>
 
 export interface WeeklyTimetableSectionProps {
   weeklySchedules: WeeklySchedule[];
+  weeklySchedulesState?: SearchDatasetState;
   theme: Theme;
   appSettings: AppSettings;
   THEME_COLORS: ThemeColor[];
@@ -37,6 +39,7 @@ export interface WeeklyTimetableSectionProps {
 
 export function WeeklyTimetableSection({
   weeklySchedules,
+  weeklySchedulesState,
   theme,
   appSettings,
   THEME_COLORS,
@@ -71,6 +74,7 @@ export function WeeklyTimetableSection({
 
   const weekdays = WEEKDAY_KEYS.map(key => t(key));
   const hasActivities = weeklySchedules.length > 0;
+  const readNotice = weeklyScheduleReadNotice(weeklySchedulesState);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const HOURS = Array.from({ length: 24 }, (_, i) => i);
   const ROW_H = 48;
@@ -251,7 +255,12 @@ export function WeeklyTimetableSection({
             <h2 className="font-heading text-base lg:text-lg font-bold flex items-center gap-2">
               <CalendarDays size={16} className="text-primary" strokeWidth={2.25}/>{t('weeklyTimetable')}
             </h2>
-            {!standalone && !sectionEmbedded && !expanded && !hasActivities && (
+            {readNotice && (
+              <p role="status" className={`text-xs mt-1 ${theme.textMuted}`} data-planner-weekly-read-status>
+                {t(readNotice)}
+              </p>
+            )}
+            {!standalone && !sectionEmbedded && !expanded && !hasActivities && !readNotice && (
               <p className={`text-xs mt-1 ${theme.textMuted}`}>{t('plannerWeeklyTimetableEmptyHint')}</p>
             )}
             {(standalone || sectionEmbedded) && (hasActivities || !sectionEmbedded) ? (
@@ -282,7 +291,7 @@ export function WeeklyTimetableSection({
           </div>
         </div>
 
-        {!standalone && !sectionEmbedded && !expanded && !hasActivities && (
+        {!standalone && !sectionEmbedded && !expanded && !hasActivities && !readNotice && (
           <div className="py-3" data-k121-empty-state="planner-timetable-collapsed" data-planner-weekly-timetable-collapsed-empty="true">
             <ProductEmptyState
               variant="tailwind"
@@ -296,7 +305,7 @@ export function WeeklyTimetableSection({
           </div>
         )}
 
-        {showMobileList && (
+        {showMobileList && (hasActivities || !readNotice) && (
           <div className={`${sectionEmbedded ? 'grid gap-2 lg:grid-cols-2 xl:grid-cols-3' : 'flex flex-col gap-5'}`} data-planner-weekly-timetable-mobile data-k134b-timetable-compact={sectionEmbedded ? 'true' : undefined}>
             {!hasActivities ? (
               <ProductEmptyState
