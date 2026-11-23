@@ -147,4 +147,27 @@ describe('AnalyticsView legacy rollback path', () => {
     expect(html).not.toContain('weeklyTimetable');
     expect(html).not.toContain('data-planner-weekly-timetable-add');
   });
+
+  it.each([
+    [{ status: 'NOT_READY', validating: false }, 'k111GroupNotReady'],
+    [{ status: 'LOADING', validating: true }, 'k111GroupLoading'],
+    [{ status: 'READY_EMPTY', validating: true }, 'k111GroupLoading'],
+    [{ status: 'ERROR', validating: false }, 'k111GroupError'],
+  ] as const)('distinguishes %j Routine rows from verified empty', async (routinesState, notice) => {
+    const { AnalyticsView } = await import('./AnalyticsView');
+    const html = renderToStaticMarkup(createElement(AnalyticsView, { ...analyticsProps(), routinesState }));
+    expect(html).toContain(notice);
+    expect(html).not.toContain('No routines');
+  });
+
+  it('preserves the verified empty message and existing marks display', async () => {
+    const { AnalyticsView } = await import('./AnalyticsView');
+    const render = (inputs: Partial<AnalyticsProps>) =>
+      renderToStaticMarkup(createElement(AnalyticsView, { ...analyticsProps(), ...inputs }));
+    expect(render({ routinesState: { status: 'READY_EMPTY', validating: false } })).toContain('No routines');
+    expect(render({
+      routinesState: { status: 'READY_WITH_RESULTS', validating: true },
+      routines: [{ id: 'r', text: 'routine', is_active: true, done: true }],
+    })).toContain('1 of 1');
+  });
 });

@@ -48,9 +48,8 @@ export function plannerCacheDomainForKey(
 }
 
 /**
- * SWR's filter mutate revalidates every matching key, including inactive
- * entries retained by the provider. Keep the predicate account- and
- * endpoint-scoped so other accounts and unrelated domains remain untouched.
+ * SWR's filter mutate targets current-account Planner keys, including entries
+ * retained by the provider without a live reader.
  */
 export function isCurrentAccountPlannerCacheKey(
   key: Arguments,
@@ -64,5 +63,11 @@ export function revalidatePlannerAccountCache(
   accountId?: string,
 ): void {
   if (!accountId) return;
-  void globalMutate(key => isCurrentAccountPlannerCacheKey(key, accountId));
+  void globalMutate(key => {
+    const domain = plannerCacheDomainForKey(key, accountId);
+    return domain !== null && domain !== 'routine';
+  });
+  // Restore invalidates the old Routine snapshot for every cached date.
+  // An active reader revalidates; an inactive key stays cold without a GET.
+  void globalMutate(key => plannerCacheDomainForKey(key, accountId) === 'routine', undefined);
 }

@@ -144,4 +144,43 @@ describe('LEAN_04B production Search readiness projection', () => {
     expect(result.empty.noResults).toBe(true);
     expect(result.groupStates.planner?.status).toBe('READY_EMPTY');
   });
+
+  it.each(['NOT_READY', 'LOADING', 'ERROR'] as const)(
+    'does not show stale Routine IDs or claim no matches while Routine is %s', status => {
+      const result = projection({
+        routines: [{ id: 'old-routine', text: 'Morning old routine', done: false }],
+        routinesState: { status, validating: status === 'LOADING' },
+        todosState: { status: 'READY_EMPTY', validating: false },
+        weeklySchedulesState: { status: 'READY_EMPTY', validating: false },
+      });
+      expect(result.results).toEqual([]);
+      expect(result.empty.noResults).toBe(false);
+      expect(result.groupedResults.find(group => group.domain === 'planner')?.state?.status).toBe(status);
+    },
+  );
+
+  it('keeps the exact Routine navigation result on a warm refresh error and preserves Schedule matches', () => {
+    const error = new Error('routine refresh failed');
+    const result = projection({
+      schedules: [schedule],
+      routines: [{ id: 'original-routine-id', text: 'Morning routine', done: false }],
+      routinesState: { status: 'READY_WITH_RESULTS', validating: false, error },
+    });
+    expect(result.results.map(row => [row.kind, row.plannerItemId])).toEqual([
+      ['schedule', 'schedule-a'], ['routine', 'original-routine-id'],
+    ]);
+    expect(result.groupStates.planner?.error).toBe(error);
+    expect(projection({ routinesState: { status: 'READY_EMPTY', validating: false } }).empty.noResults).toBe(true);
+  });
+
+  it('does not hide an existing Todo error while Routine is still loading', () => {
+    const error = new Error('todo read failed');
+    const result = projection({
+      todosState: { status: 'ERROR', validating: false, error },
+      weeklySchedulesState: { status: 'READY_EMPTY', validating: false },
+      routinesState: { status: 'LOADING', validating: true },
+    });
+    expect(result.groupStates.planner).toEqual({ status: 'ERROR', validating: false, error });
+    expect(result.empty.noResults).toBe(false);
+  });
 });
