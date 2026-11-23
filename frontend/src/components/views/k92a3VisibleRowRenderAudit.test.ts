@@ -181,6 +181,49 @@ vi.mock('./features/block-editor/performance/VirtualBlockScrollHost', async (imp
 });
 
 describe('K-92A3 visible row render audit', () => {
+  it('cancels pending scroll-reset timers when the audit unmounts', () => {
+    // The locked TanStack Virtualizer debounces its scroll reset by 150 ms.
+    const scrollResetDelayMs = 150;
+    const view: Window = document.defaultView!;
+    const schedule = vi.spyOn(view, 'setTimeout');
+    const cancel = vi.spyOn(view, 'clearTimeout');
+    let unrelatedTimeout: number | undefined;
+    try {
+      const report = runVisibleRowRenderAudit(auditState.counters, {
+        blockCount: 40,
+        scrollDurationMs: 30,
+        scrollFps: 100,
+        onScrollPhaseStart: () => {
+          unrelatedTimeout = view.setTimeout(() => {}, scrollResetDelayMs);
+        },
+      });
+
+      const scrollResets = schedule.mock.calls.flatMap(([, delay], index) => {
+        const result = schedule.mock.results[index];
+        return delay === scrollResetDelayMs && result.type === 'return' && result.value !== unrelatedTimeout
+          ? [result.value]
+          : [];
+      });
+      expect(report.scrollEventCount).toBe(3);
+      expect(scrollResets).toHaveLength(report.scrollEventCount);
+      expect(unrelatedTimeout).toBeDefined();
+      const cancelled = new Set(cancel.mock.calls.map(([timer]) => timer));
+      expect(cancelled.has(unrelatedTimeout)).toBe(false);
+      expect(scrollResets.filter(timer => !cancelled.has(timer)).length).toBe(0);
+      expect(view.setTimeout).toBe(schedule);
+      expect(view.clearTimeout).toBe(cancel);
+      expect(document.querySelector('.editor-drop-zone > div')?.childElementCount).toBe(0);
+    } finally {
+      const scheduled = [...schedule.mock.results];
+      schedule.mockRestore();
+      cancel.mockRestore();
+      // Do not leak this probe's timers even if a regression makes it fail.
+      for (const result of scheduled) {
+        if (result.type === 'return') view.clearTimeout(result.value);
+      }
+    }
+  });
+
   it('attributes scroll-phase visible row render cost @ 1000 blocks', () => {
     resetAuditState();
     const report = runVisibleRowRenderAudit(auditState.counters, {
