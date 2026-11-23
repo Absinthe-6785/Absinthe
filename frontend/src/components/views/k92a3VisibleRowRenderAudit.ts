@@ -77,6 +77,43 @@ function emptyCounter(): ComponentRenderCounter {
   return { renders: 0, rerenders: 0, mounts: 0, totalDurationMs: 0 };
 }
 
+function trackAuditScrollTimers(scrollZone: HTMLElement) {
+  const view: Window = scrollZone.ownerDocument.defaultView!;
+  const { setTimeout, clearTimeout } = view;
+  const pending = new Set<number>();
+  let dispatchingScroll = false;
+
+  // Keep real timers and benchmark clocks. Only timers started by this
+  // synchronous synthetic scroll dispatch are owned by the audit.
+  view.setTimeout = (...args) => {
+    const timer = setTimeout.apply(view, args);
+    if (dispatchingScroll) pending.add(timer);
+    return timer;
+  };
+  view.clearTimeout = (timer) => {
+    if (timer !== undefined) pending.delete(timer);
+    clearTimeout.call(view, timer);
+  };
+
+  return {
+    dispatch() {
+      dispatchingScroll = true;
+      try {
+        scrollZone.dispatchEvent(new Event('scroll', { bubbles: true }));
+      } finally {
+        dispatchingScroll = false;
+      }
+    },
+    dispose() {
+      view.setTimeout = setTimeout;
+      view.clearTimeout = clearTimeout;
+      // TanStack detaches the scroll listener on unmount but leaves its
+      // queued scroll reset; do not let it outlive the test DOM.
+      for (const timer of pending) clearTimeout.call(view, timer);
+    },
+  };
+}
+
 export function runVisibleRowRenderAudit(
   counters: Map<string, ComponentRenderCounter>,
   options: VisibleRowRenderAuditOptions = {},
@@ -113,105 +150,116 @@ export function runVisibleRowRenderAudit(
   scrollZone.appendChild(host);
   const virtualScrollParentRef = { current: scrollZone };
 
+  const scrollTimers = trackAuditScrollTimers(scrollZone);
   let root: Root | null = null;
-  act(() => {
-    root = createRoot(host);
-    root.render(createElement(
-      Profiler,
-      { id: 'VisibleRowAuditRoot', onRender: onRootRender },
-      createElement(BlockEditor, {
-        blocks,
-        onChange: () => {},
-        colors: AUDIT_COLORS,
-        readOnly: false,
-        virtualBlocksPoc: true,
-        virtualScrollParentRef,
-      }),
-    ));
-  });
-  act(() => {});
-  act(() => {});
-
-  const virtualListEl = scrollZone.querySelector('.be-virtual-block-list') as HTMLElement | null;
-  const listContentHeight = virtualListEl
-    ? Number.parseFloat(virtualListEl.style.height)
-    : 0;
-  if (listContentHeight > viewportHeightPx) {
-    Object.defineProperty(scrollZone, 'scrollHeight', {
-      configurable: true,
-      get: () => listContentHeight,
-    });
-    Object.defineProperty(scrollZone, 'clientHeight', {
-      configurable: true,
-      get: () => viewportHeightPx,
-    });
-  }
-
-  const mountedVirtualRows = scrollZone.querySelectorAll('.be-virtual-block-row').length;
-  const maxScrollTop = Math.max(0, scrollZone.scrollHeight - scrollZone.clientHeight);
-
-  counters.clear();
-  totalReactRenderMs = 0;
-  instrumentation.reset?.();
-  options.onScrollPhaseStart?.();
-
-  const frameCount = Math.max(1, Math.round((scrollDurationMs / 1000) * scrollFps));
-  const frameIntervalMs = scrollDurationMs / frameCount;
+  let mountedVirtualRows: number;
   let scrollEventCount = 0;
-  const scrollStart = performance.now();
-
-  for (let frame = 0; frame < frameCount; frame++) {
-    const progress = frame / Math.max(1, frameCount - 1);
+  let measuredScrollDurationMs: number;
+  let selectionPhaseSingleBlockRerenders: number;
+  try {
     act(() => {
-      scrollZone.scrollTop = Math.round(maxScrollTop * progress);
-      scrollZone.dispatchEvent(new Event('scroll', { bubbles: true }));
-      scrollEventCount += 1;
+      root = createRoot(host);
+      root.render(createElement(
+        Profiler,
+        { id: 'VisibleRowAuditRoot', onRender: onRootRender },
+        createElement(BlockEditor, {
+          blocks,
+          onChange: () => {},
+          colors: AUDIT_COLORS,
+          readOnly: false,
+          virtualBlocksPoc: true,
+          virtualScrollParentRef,
+        }),
+      ));
     });
     act(() => {});
+    act(() => {});
 
-    const targetElapsed = (frame + 1) * frameIntervalMs;
-    const elapsed = performance.now() - scrollStart;
-    const waitMs = targetElapsed - elapsed;
-    if (waitMs > 0) {
-      const deadline = performance.now() + waitMs;
-      while (performance.now() < deadline) { /* pace 5s window */ }
+    const virtualListEl = scrollZone.querySelector('.be-virtual-block-list') as HTMLElement | null;
+    const listContentHeight = virtualListEl
+      ? Number.parseFloat(virtualListEl.style.height)
+      : 0;
+    if (listContentHeight > viewportHeightPx) {
+      Object.defineProperty(scrollZone, 'scrollHeight', {
+        configurable: true,
+        get: () => listContentHeight,
+      });
+      Object.defineProperty(scrollZone, 'clientHeight', {
+        configurable: true,
+        get: () => viewportHeightPx,
+      });
+    }
+
+    mountedVirtualRows = scrollZone.querySelectorAll('.be-virtual-block-row').length;
+    const maxScrollTop = Math.max(0, scrollZone.scrollHeight - scrollZone.clientHeight);
+
+    counters.clear();
+    totalReactRenderMs = 0;
+    instrumentation.reset?.();
+    options.onScrollPhaseStart?.();
+
+    const frameCount = Math.max(1, Math.round((scrollDurationMs / 1000) * scrollFps));
+    const frameIntervalMs = scrollDurationMs / frameCount;
+    const scrollStart = performance.now();
+
+    for (let frame = 0; frame < frameCount; frame++) {
+      const progress = frame / Math.max(1, frameCount - 1);
+      act(() => {
+        scrollZone.scrollTop = Math.round(maxScrollTop * progress);
+        scrollTimers.dispatch();
+        scrollEventCount += 1;
+      });
+      act(() => {});
+
+      const targetElapsed = (frame + 1) * frameIntervalMs;
+      const elapsed = performance.now() - scrollStart;
+      const waitMs = targetElapsed - elapsed;
+      if (waitMs > 0) {
+        const deadline = performance.now() + waitMs;
+        while (performance.now() < deadline) { /* pace 5s window */ }
+      }
+    }
+
+    act(() => {});
+    measuredScrollDurationMs = performance.now() - scrollStart;
+
+    // Selection phase — gutter click on first mounted block
+    const beforeSelection = counters.get('SingleBlock')?.rerenders ?? 0;
+    const firstStrip = scrollZone.querySelector('.be-gutter-strip') as HTMLElement | null;
+    if (firstStrip) {
+      act(() => {
+        firstStrip.dispatchEvent(new PointerEvent('pointerdown', {
+          bubbles: true,
+          cancelable: true,
+          clientX: 22,
+          clientY: 30,
+          pointerId: 2,
+          button: 0,
+          buttons: 1,
+          pointerType: 'mouse',
+        }));
+        firstStrip.dispatchEvent(new PointerEvent('pointerup', {
+          bubbles: true,
+          cancelable: true,
+          clientX: 22,
+          clientY: 30,
+          pointerId: 2,
+          button: 0,
+          buttons: 0,
+          pointerType: 'mouse',
+        }));
+      });
+      act(() => {});
+    }
+    const afterSelection = counters.get('SingleBlock')?.rerenders ?? 0;
+    selectionPhaseSingleBlockRerenders = Math.max(0, afterSelection - beforeSelection);
+  } finally {
+    try {
+      act(() => { root?.unmount(); });
+    } finally {
+      scrollTimers.dispose();
     }
   }
-
-  act(() => {});
-  const measuredScrollDurationMs = performance.now() - scrollStart;
-
-  // Selection phase — gutter click on first mounted block
-  const beforeSelection = counters.get('SingleBlock')?.rerenders ?? 0;
-  const firstStrip = scrollZone.querySelector('.be-gutter-strip') as HTMLElement | null;
-  if (firstStrip) {
-    act(() => {
-      firstStrip.dispatchEvent(new PointerEvent('pointerdown', {
-        bubbles: true,
-        cancelable: true,
-        clientX: 22,
-        clientY: 30,
-        pointerId: 2,
-        button: 0,
-        buttons: 1,
-        pointerType: 'mouse',
-      }));
-      firstStrip.dispatchEvent(new PointerEvent('pointerup', {
-        bubbles: true,
-        cancelable: true,
-        clientX: 22,
-        clientY: 30,
-        pointerId: 2,
-        button: 0,
-        buttons: 0,
-        pointerType: 'mouse',
-      }));
-    });
-    act(() => {});
-  }
-  const afterSelection = counters.get('SingleBlock')?.rerenders ?? 0;
-
-  act(() => { root?.unmount(); });
 
   const metrics = instrumentation.getMetrics?.() ?? {
     renderBlockCalls: 0,
@@ -230,7 +278,7 @@ export function runVisibleRowRenderAudit(
     components: Object.fromEntries(counters.entries()),
     propInstability: metrics.propInstability,
     totalReactRenderMs,
-    selectionPhaseSingleBlockRerenders: Math.max(0, afterSelection - beforeSelection),
+    selectionPhaseSingleBlockRerenders,
     dragPhaseDragOverlayRerenders: 0,
   };
 }
