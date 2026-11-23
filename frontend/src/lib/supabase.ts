@@ -32,6 +32,13 @@ export const authFetch = async (
   const { readOwner } = control;
   if (readOwner) {
     if ((options.method ?? 'GET').toUpperCase() !== 'GET') throw new Error('Session-scoped read requires GET');
+    if (readOwner.renewal) {
+      const target = new URL(url, 'https://absinthe.invalid');
+      if (target.pathname !== '/api/schedules' || [...target.searchParams].length !== 1
+        || !/^\d{4}-\d{2}-\d{2}$/.test(target.searchParams.get('date') ?? '')) {
+        throw new Error('Renewable read owner requires an exact selected-day Schedule GET');
+      }
+    }
     assertRemoteUrlAllowed(url);
     // Use the exact credential already published by App's auth boundary.
     // Looking up the mutable SDK session here can cause an implicit refresh.

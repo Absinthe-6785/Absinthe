@@ -108,6 +108,7 @@ async function readCompleteScheduleMonth(
 export type PlannerViewProps = PlannerProps & Readonly<{
   isScheduleLoading?: boolean;
   revalidateSelectedDaySchedules?: SelectedDayScheduleRevalidator;
+  onScheduleMutationCommitted?: (dates: readonly string[] | null) => void;
   scheduleNavigationRequest?: ScheduleNavigationRequest;
   scheduleNavigationGeneration?: number;
   onScheduleNavigationConsumed?: (requestId: number) => void;
@@ -146,6 +147,7 @@ export const PlannerView = ({
   user,
   isScheduleLoading = false,
   revalidateSelectedDaySchedules,
+  onScheduleMutationCommitted,
   scheduleNavigationRequest,
   scheduleNavigationGeneration = 0,
   onScheduleNavigationConsumed,
@@ -244,6 +246,7 @@ export const PlannerView = ({
   const [scheduleDetailTarget, setScheduleDetailTarget] = useState<ScheduleDetailTarget | null>(null);
   const handledScheduleNavigationRef = useRef<number | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const editingSourceDate = useRef<string | null>(null);
   const [newSch, setNewSch] = useState<Partial<Schedule>>({
     text: '', start_time: '10:00', end_time: '11:00',
     is_dday: false, color: 'purple', category: 'Personal',
@@ -584,6 +587,7 @@ export const PlannerView = ({
     resetScheduleSession();
     setNewSch(sch ?? { text: '', start_time: '10:00', end_time: '11:00', is_dday: false, color: 'purple', category: 'Personal' });
     setEditingId(sch?.id ?? null);
+    editingSourceDate.current = sch ? validPlannerEventDate(date) ?? null : null;
     setEndNextDay(sch?.end_next_day ?? false);
     setScheduleDateStr(date);
     setShowForm(true);
@@ -608,6 +612,10 @@ export const PlannerView = ({
     };
     const session = formSessionRef.current;
     const accountGeneration = accountGenerationRef.current;
+    // ScheduleUpdate does not persist date on PUT. Only POST uses the form's
+    // date as the write date; never evict another day's unrelated rows.
+    const writeDate = editingId ? editingSourceDate.current : validPlannerEventDate(scheduleDateStr);
+    const changedDates = writeDate ? [writeDate] : null;
     const isCurrentSession = () => session === formSessionRef.current
       && accountId === accountIdRef.current
       && accountGeneration === accountGenerationRef.current;
@@ -620,8 +628,9 @@ export const PlannerView = ({
           editingId ? 'PUT' : 'POST',
           editingId ? `/api/schedules/${editingId}` : '/api/schedules',
           { ...payload, date: scheduleDateStr, end_next_day: isDday ? false : endNextDay },
-          { revalidate: 'both', successMsg: t('scheduleSaved') },
+          { revalidate: onScheduleMutationCommitted ? 'static' : 'both', successMsg: t('scheduleSaved') },
         );
+        if (ok) onScheduleMutationCommitted?.(changedDates);
         if (ok && isCurrentSession()) {
           void mutateDdaySchedules();
           void refreshMonthAfterScheduleMutation(accountId, accountGeneration);
@@ -637,11 +646,18 @@ export const PlannerView = ({
     if (isOverlap) { showConfirm(t('overlapMsg'), doSave, { confirmLabel: t('saveLabel'), variant: 'primary' }); return; }
     doSave();
   };
-  const handleDeleteSchedule = (id: string) =>
+  const handleDeleteSchedule = (id: string) => {
+    // Capture origin before the confirmation or an intervening date change.
+    const deletedDate = validPlannerEventDate(monthSchedules?.find(row => row.id === id)?.date)
+      ?? validPlannerEventDate(ddaySchedules.find(row => row.id === id)?.date)
+      ?? (schedules.some(row => row.id === id) ? validPlannerEventDate(formatDate(selectedDate))
+        : prevSchedules.some(row => row.id === id) ? validPlannerEventDate(prevDateStr) : null);
     showConfirm(t('deleteSchedule'), async () => {
       const expectedAccountId = accountIdRef.current;
       const expectedAccountGeneration = accountGenerationRef.current;
-      const ok = await api('DELETE', `/api/schedules/${id}`, undefined, { revalidate: 'both', successMsg: t('deleted') });
+      const ok = await api('DELETE', `/api/schedules/${id}`, undefined,
+        { revalidate: onScheduleMutationCommitted ? 'static' : 'both', successMsg: t('deleted') });
+      if (ok) onScheduleMutationCommitted?.(deletedDate ? [deletedDate] : null);
       if (ok && monthScheduleMountedRef.current
         && accountIdRef.current === expectedAccountId
         && accountGenerationRef.current === expectedAccountGeneration
@@ -652,6 +668,7 @@ export const PlannerView = ({
     },
       { confirmLabel: t('deleteLabel') },
     );
+  };
 
   const handleDuplicateSchedule = useCallback((id: string) => {
     const sch = schedules.find(s => s.id === id)
@@ -796,7 +813,8 @@ export const PlannerView = ({
       handleDeleteSchedule(id);
     },
     onDuplicate: handleDuplicateSchedule,
-  }), [schedules, monthSchedules, selectedDate, formatDate, openScheduleDetail, handleDeleteSchedule, handleDuplicateSchedule]);
+  }), [schedules, monthSchedules, ddaySchedules, prevSchedules, prevDateStr, selectedDate, formatDate,
+    openScheduleDetail, onScheduleMutationCommitted, handleDeleteSchedule, handleDuplicateSchedule]);
 
   return (
     <div className={`${WORKSPACE_PANE_ROOT_CLASS} abs-cosmos-planner flex flex-col animate-in fade-in duration-300 ${WORKSPACE_GAP_CLASS}`} data-workspace="planner" data-workspace-scroll-mode={WORKSPACE_SCROLL_MODE.pane} data-k134b-workspace-scroll>

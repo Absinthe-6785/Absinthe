@@ -183,4 +183,32 @@ describe('LEAN_04B production Search readiness projection', () => {
     expect(result.groupStates.planner).toEqual({ status: 'ERROR', validating: false, error });
     expect(result.empty.noResults).toBe(false);
   });
+
+  it.each(['NOT_READY', 'LOADING', 'ERROR'] as const)(
+    'does not show unverified selected-day rows or claim no matches when Schedule is %s', status => {
+      const result = projection({
+        schedules: [schedule],
+        schedulesState: { status, validating: status === 'LOADING' },
+        todosState: { status: 'READY_EMPTY', validating: false },
+        routinesState: { status: 'READY_EMPTY', validating: false },
+        weeklySchedulesState: { status: 'READY_EMPTY', validating: false },
+      });
+      expect(result.results).toEqual([]);
+      expect(result.empty.noResults).toBe(false);
+      expect(result.groupedResults.find(group => group.domain === 'planner')?.state?.status).toBe(status);
+    },
+  );
+
+  it('preserves exact Schedule IDs from verified warm data and reports failed reads separately from no matches', () => {
+    const error = new Error('Schedule refresh failed');
+    const active = projection({
+      schedules: [schedule],
+      schedulesState: { status: 'READY_WITH_RESULTS', validating: false, error },
+      todosState: { status: 'LOADING', validating: true },
+    });
+    expect(active.results.map(result => [result.kind, result.plannerItemId])).toEqual([['schedule', 'schedule-a']]);
+    expect(active.groupStates.planner?.error).toBe(error);
+    expect(projection({ schedulesState: { status: 'READY_EMPTY', validating: true } }).empty.noResults).toBe(false);
+    expect(projection({ schedulesState: { status: 'READY_EMPTY', validating: false } }).empty.noResults).toBe(true);
+  });
 });

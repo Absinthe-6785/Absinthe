@@ -13,10 +13,12 @@ import { domainUsesLocalWorkingCopy } from '../lib/syncAuthority';
 import { readLocalHealthDaily, type LocalHealthDailyProjection } from '../lib/healthLocalRuntime';
 import { resolveSearchDatasetState, type SearchDatasetState } from '../lib/searchReadiness';
 import { Schedule, Todo, Routine, Workout, Inbody } from '../types';
+import { useDailyPlannerRows } from './useDailyPlannerRows';
 import { useDailyRoutineReads } from './useDailyRoutineReads';
 
 export interface UseDailyDataResult {
   schedules: Schedule[];
+  schedulesState: SearchDatasetState;
   todos: Todo[];
   /** Readiness for the Search-deferred todo source. */
   todosState: SearchDatasetState;
@@ -31,6 +33,7 @@ export interface UseDailyDataResult {
   isScheduleLoading: boolean;
   /** Explicit, account/date-fenced refresh of the selected-day Schedule snapshot. */
   revalidateSelectedDaySchedules: SelectedDayScheduleRevalidator;
+  onScheduleMutationCommitted?: (dates: readonly string[] | null) => void;
   /** todos만 optimistic 업데이트용 */
   mutateTodos: (updater: (cur: Todo[]) => Todo[], revalidate?: boolean) => void;
   /** routines만 optimistic 업데이트용 */
@@ -49,6 +52,7 @@ export type AccountBoundTodoKey = AccountBoundRemoteKey;
 export type AccountBoundInbodyKey = AccountBoundRemoteKey;
 
 type LocalHealthDailyKey = readonly ['local-health-daily', string, string];
+const EMPTY_SCHEDULES: Schedule[] = [];
 const EMPTY_ROUTINES: Routine[] = [];
 const DISCARDED_LOCAL_DAILY_READ = Symbol('discarded local daily read');
 type LocalDailyReadLifetime = {
@@ -127,6 +131,8 @@ export const useDailyData = (
   todosEnabled?: boolean,
   inbodyEnabled = true,
   routinesEnabled?: boolean,
+  schedulesEnabled?: boolean,
+  scheduleSearchDemand?: () => boolean,
 ): UseDailyDataResult => {
   const base = `${API_URL}/api`;
   const localMode = domainUsesLocalWorkingCopy('health_workouts');
@@ -177,8 +183,12 @@ export const useDailyData = (
     [onError],
   );
 
-  const { data: schedules = [], mutate: mutateSchedules, isLoading: l1 } =
-    useSWR<Schedule[], AccountBoundRemoteKey | null>(schedulesKey, accountBoundRemoteFetcher, swrOpts);
+  const {
+    response: schedules, state: schedulesState, isLoading: l1,
+    refresh: refreshSchedules, readFresh: readFreshSchedules, invalidateChangedDates,
+  } = useDailyPlannerRows<Schedule>('Schedule', schedulesKey,
+    accountBoundCacheKey(`${base}/schedules?date=${dateStr}`, accountId), accountId, schedulesEnabled, swrOpts,
+    scheduleSearchDemand);
 
   const revalidateSelectedDaySchedules = useCallback<SelectedDayScheduleRevalidator>(async (
     expectedAccountId,
@@ -194,18 +204,9 @@ export const useDailyData = (
       throw new Error('Selected-day Schedule refresh is no longer available.');
     }
 
-    const freshSchedules = await accountBoundRemoteFetcher<Schedule[]>(requestContext.key);
-    if (!Array.isArray(freshSchedules)) throw new Error('Invalid selected-day Schedule response.');
-    if (scheduleContextRef.current !== requestContext
-      || runtimeAccountSyncAccountId() !== expectedAccountId
-      || !isStillCurrent()) {
-      throw new Error('Selected-day Schedule refresh became stale.');
-    }
-
-    // Publish only to this hook's account/date-bound SWR key after an
-    // authoritative GET succeeds; a failed or stale response leaves cache intact.
-    await mutateSchedules(freshSchedules, { revalidate: false });
-  }, [mutateSchedules]);
+    await readFreshSchedules(() => scheduleContextRef.current === requestContext
+      && runtimeAccountSyncAccountId() === expectedAccountId && isStillCurrent());
+  }, [readFreshSchedules]);
 
   const {
     data: todosData,
@@ -400,8 +401,7 @@ export const useDailyData = (
   );
 
   const refreshRoutines = remoteRoutines.refresh;
-  const mutate = useCallback(() => {
-    mutateSchedules();
+  const refreshOtherDaily = useCallback(() => {
     if (todoKey !== null) mutateTodosRaw();
     else if (todoCacheKey !== null) {
       // The inactive hook has no bound revalidator. Clear its stable cache
@@ -421,7 +421,14 @@ export const useDailyData = (
         invalidateLocalHealthRead(localHealthCacheKey, true);
       }
     }
-  }, [globalMutate, inbodyCacheKey, inbodyKey, invalidateLocalHealthRead, localHealthCacheKey, localHealthKey, localMode, mutateInbody, mutateLocalHealth, refreshRoutines, mutateSchedules, mutateTodosRaw, mutateWorkouts, todoCacheKey, todoKey]);
+  }, [globalMutate, inbodyCacheKey, inbodyKey, invalidateLocalHealthRead, localHealthCacheKey, localHealthKey, localMode, mutateInbody, mutateLocalHealth, refreshRoutines, mutateTodosRaw, mutateWorkouts, todoCacheKey, todoKey]);
+  const mutate = useCallback(() => {
+    refreshSchedules();
+    refreshOtherDaily();
+  }, [refreshSchedules, refreshOtherDaily]);
+  const onScheduleMutationCommitted = useCallback((dates: readonly string[] | null) => {
+    if (invalidateChangedDates(dates)) refreshOtherDaily();
+  }, [invalidateChangedDates, refreshOtherDaily]);
 
   const todosState = resolveSearchDatasetState({
     enabled: todoKey !== null,
@@ -441,7 +448,8 @@ export const useDailyData = (
   }), [localRoutinesEnabled, localRoutines, l6, localRoutinesError, localRoutinesValidating]);
 
   return {
-    schedules,
+    schedules: schedules ?? EMPTY_SCHEDULES,
+    schedulesState,
     todos,
     todosState,
     routines: (localMode ? localRoutines : remoteRoutines.response) ?? EMPTY_ROUTINES,
@@ -449,8 +457,9 @@ export const useDailyData = (
     workouts: localMode ? localHealth?.workouts ?? [] : workouts,
     inbody: localMode ? localHealth?.inbody ?? { weight: 0, smm: 0, pbf: 0 } : inbodyRaw?.[0] ?? { weight: 0, smm: 0, pbf: 0 },
     mutate,
-    isScheduleLoading: l1,
+    isScheduleLoading: schedulesEnabled === undefined ? l1 : schedulesState.status === 'LOADING',
     revalidateSelectedDaySchedules,
+    onScheduleMutationCommitted: schedulesEnabled === undefined ? undefined : onScheduleMutationCommitted,
     mutateTodos,
     mutateRoutines: remoteRoutines.mutateRoutines,
     // Search-deferred Todo and Routine loading belongs to Search, not the
