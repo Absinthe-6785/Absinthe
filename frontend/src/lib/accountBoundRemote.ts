@@ -10,6 +10,11 @@ export const ACCOUNT_BOUND_REMOTE_SEPARATOR = '\u0000';
 
 export type AccountBoundRemoteKey = string;
 
+/** Cache identity is also needed to invalidate a source with no live subscription. */
+export function accountBoundCacheKey(url: string, accountId?: string): AccountBoundRemoteKey | null {
+  return accountId ? `${url}${ACCOUNT_BOUND_REMOTE_SEPARATOR}absinthe-account=${encodeURIComponent(accountId)}` : null;
+}
+
 export function accountBoundRemoteKey(
   url: string,
   accountId: string | undefined,
@@ -17,9 +22,7 @@ export function accountBoundRemoteKey(
   enabled = true,
 ): AccountBoundRemoteKey | null {
   const remoteKey = remoteSWRKey(url, domain);
-  return enabled && accountId && remoteKey
-    ? `${remoteKey}${ACCOUNT_BOUND_REMOTE_SEPARATOR}absinthe-account=${encodeURIComponent(accountId)}`
-    : null;
+  return enabled && remoteKey ? accountBoundCacheKey(remoteKey, accountId) : null;
 }
 
 export function accountBoundRemoteUrl(key: AccountBoundRemoteKey): string {

@@ -25,6 +25,7 @@ export interface GlobalSearchHostProps {
   todos: readonly Todo[];
   todosState?: SearchDatasetState;
   routines: readonly Routine[];
+  routinesState?: SearchDatasetState;
   workouts: readonly Workout[];
   healthBlocks: readonly ExerciseBlock[];
   healthBlocksState?: SearchDatasetState;
@@ -47,6 +48,7 @@ export function GlobalSearchHost({
   todos,
   todosState,
   routines,
+  routinesState,
   workouts,
   healthBlocks,
   healthBlocksState,
@@ -177,6 +179,7 @@ export function GlobalSearchHost({
     todos,
     todosState,
     routines,
+    routinesState,
     workouts,
     workoutPreviewRead: open && Boolean(query.trim()) && activation
       && searchHostLifetime?.current === activation

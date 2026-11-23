@@ -7,6 +7,7 @@ import { remoteSWRKey } from '../../lib/remoteBoundary';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useEscapeKey } from '../../hooks/useEscapeKey';
 import { useTranslation } from '../../lib/i18n';
+import { weeklyScheduleReadNotice as routineReadNotice } from '../../lib/searchReadiness';
 import { AnalyticsProps, Schedule, Routine } from '../../types';
 import { ConfirmModal } from '../common/ConfirmModal';
 
@@ -48,7 +49,7 @@ const formatHeatmapTooltip = (d: HeatmapDay): string => {
 
 export function LegacyAnalyticsView({
   now, showToast, schedules,
-  appSettings, theme, routines, formatDate,
+  appSettings, theme, routines, routinesState, formatDate,
 }: AnalyticsProps) {
   const { t } = useTranslation();
   const { confirm, clearConfirm, handleConfirm } = useConfirm();
@@ -158,6 +159,7 @@ export function LegacyAnalyticsView({
   );
   const routinesMarkedToday = routines?.filter((r: Routine) => r.done).length ?? 0;
   const routinesTotalToday = routines?.length ?? 0;
+  const routineNotice = routineReadNotice(routinesState);
 
   const computedStats = useMemo(() => {
     if (!analyticsSchedules?.length) return [];
@@ -494,7 +496,9 @@ export function LegacyAnalyticsView({
                     ? <span className={`text-xs font-bold px-2 py-0.5 rounded-lg ${appSettings.darkMode ? 'bg-blue-900/50 text-blue-300' : 'bg-blue-50 text-blue-500'}`}>{t('exception')}</span>
                     : routinesTotalToday > 0
                       ? <span className="text-sm font-bold tabular-nums">{routinesMarkedToday} of {routinesTotalToday}</span>
-                      : <span className={`text-sm font-semibold ${theme.textMuted}`}>No routines</span>
+                      : <span role={routineNotice ? 'status' : undefined} className={`text-sm font-semibold ${theme.textMuted}`}>
+                          {routineNotice ? t(routineNotice) : 'No routines'}
+                        </span>
                   }
                 </div>
                 {!isExceptionDay && routinesTotalToday > 0 && (

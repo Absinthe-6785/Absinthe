@@ -33,6 +33,10 @@ const harness = vi.hoisted(() => ({
   emptyPromise: null as Promise<unknown> | null,
   weeklyOwner: null as { accountId: string; signal: AbortSignal } | null,
   weeklyReply: null as Promise<unknown> | null,
+  routineReply: null as Promise<unknown> | null,
+  localAuthority: false,
+  localDailyReply: undefined as Promise<import('../lib/healthLocalRuntime').LocalHealthDailyProjection> | undefined,
+  archiveEnabled: true,
   fetches: [] as string[],
   palette: null as PaletteProps | null,
   paletteSnapshots: [] as PaletteProps[],
@@ -119,10 +123,12 @@ vi.mock('../lib/workoutRuntimeAuthority', () => ({
   }),
 }));
 
-vi.mock('../lib/syncAuthority', () => ({ domainUsesLocalWorkingCopy: () => false }));
+vi.mock('../lib/syncAuthority', () => ({
+  domainUsesLocalWorkingCopy: (domain: string) => domain === 'health_workouts' && harness.localAuthority,
+}));
 
 vi.mock('../lib/healthLocalRuntime', () => ({
-  readLocalHealthDaily: async () => undefined,
+  readLocalHealthDaily: async () => harness.localDailyReply,
   readLocalHealthStatic: async () => undefined,
 }));
 
@@ -141,6 +147,7 @@ vi.mock('../lib/fetcher', () => ({
         : harness.emptyPromise;
     }
     if (url.endsWith('/weekly_schedules')) return harness.weeklyReply ?? harness.emptyPromise;
+    if (url.includes('/routines_with_logs?')) return harness.routineReply ?? harness.emptyPromise;
     return harness.emptyPromise;
   },
   isLocalOnlyRemotePausedError: () => false,
@@ -165,9 +172,16 @@ vi.mock('./views/NoteView', () => ({ NoteView: () => null }));
 vi.mock('./views/HomeView', () => ({ HomeView: () => null }));
 vi.mock('./views/PlannerView', () => ({ PlannerView: () => null }));
 vi.mock('./views/HealthView', () => ({ HealthView: () => null }));
+vi.mock('./views/features/archive/archiveShellConfig', () => ({
+  get ARCHIVE_SHELL_ENABLED() { return harness.archiveEnabled; },
+}));
 vi.mock('./views/AnalyticsView', () => ({
-  AnalyticsView: ({ onPlannerRestoreComplete }: { onPlannerRestoreComplete?: () => void }) =>
-    createElement('button', { 'data-completed-restore': true, onClick: onPlannerRestoreComplete }, 'Restore completed'),
+  AnalyticsView: ({ onPlannerRestoreComplete, routines, routinesState }: import('../types').AnalyticsProps) =>
+    createElement('button', {
+      'data-completed-restore': true, onClick: onPlannerRestoreComplete,
+      'data-analytics-routine-ids': routines.map(row => row.id).join(','),
+      'data-analytics-routine-status': routinesState?.status,
+    }, 'Restore completed'),
 }));
 vi.mock('./views/SettingsView', () => ({ SettingsView: () => null }));
 vi.mock('./views/RecipeView', () => ({ RecipeView: () => null }));
@@ -182,7 +196,10 @@ vi.mock('../lib/healthBootstrapSingleFlight', () => ({
   runHealthBootstrapSingleFlight: async (_accountId: string, start: () => Promise<unknown>) => start(),
 }));
 vi.mock('../lib/startupBootstrapCoordinator', () => ({
-  startIndependentStartup: () => ({ cancel: () => undefined, retry: () => undefined }),
+  startIndependentStartup: (input: Parameters<typeof import('../lib/startupBootstrapCoordinator').startIndependentStartup>[0]) => {
+    if (harness.localAuthority) input.onStateChange('health', { status: 'ready', error: null });
+    return { cancel: () => undefined, retry: () => undefined };
+  },
 }));
 
 vi.mock('./views/features/knowledge/discovery', async importOriginal => {
@@ -265,9 +282,9 @@ async function settlePresentation(): Promise<void> {
   await act(async () => { await vi.dynamicImportSettled(); });
 }
 
-function deferred(): { promise: Promise<unknown>; resolve: (value: unknown) => void } {
-  let resolve!: (value: unknown) => void;
-  const promise = new Promise<unknown>(nextResolve => { resolve = nextResolve; });
+function deferred<T = unknown>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(nextResolve => { resolve = nextResolve; });
   return { promise, resolve };
 }
 
@@ -279,6 +296,10 @@ function resetHarness(kind: TargetKind, status: TargetStatus, query: string): vo
   harness.emptyPromise = Promise.resolve([]);
   harness.weeklyOwner = null;
   harness.weeklyReply = null;
+  harness.routineReply = null;
+  harness.localAuthority = false;
+  harness.localDailyReply = undefined;
+  harness.archiveEnabled = true;
   harness.fetches.length = 0;
   harness.palette = null;
   harness.paletteSnapshots.length = 0;
@@ -349,6 +370,138 @@ async function renderScenario(kind: TargetKind, status: TargetStatus, query: str
 describe('LEAN_04B production-plumbing Search characterization', () => {
   afterEach(() => {
     document.body.replaceChildren();
+  });
+
+  it.each(['local', 'legacy-remote'] as const)('measures daily Routine GETs across tabs and Search (%s authority)', async source => {
+    resetHarness('todos', 'empty', '');
+    harness.weeklyOwner = { accountId: 'account-a', signal: new AbortController().signal };
+    if (source === 'local') {
+      harness.localAuthority = true;
+      harness.localDailyReply = Promise.resolve({
+        routines: [{ id: 'local-a', text: 'Routine local', done: false, is_active: true }],
+        workouts: [], inbody: { weight: 0, smm: 0, pbf: 0 },
+      });
+    }
+    const rows = [{ id: 'remote-a', text: 'Routine remote', done: true, is_active: true }];
+    harness.routineReply = Promise.resolve(rows);
+    const host = document.body.appendChild(document.createElement('div'));
+    const root = createRoot(host);
+    const counts: Record<string, number> = {};
+    const total = () => harness.fetches.filter(url => url.includes('/routines_with_logs?')).length;
+    const measure = async (label: string, action: () => void | Promise<void>) => {
+      const before = total();
+      await action();
+      await act(async () => { await new Promise<void>(resolve => requestAnimationFrame(() => resolve())); });
+      await flush();
+      counts[label] = total() - before;
+    };
+    const click = (selector: string) => act(async () => { host.querySelector<HTMLButtonElement>(selector)!.click(); });
+    const open = async () => {
+      await act(async () => { harness.openers[0]!(); });
+      await settlePresentation();
+    };
+    const close = () => act(async () => { harness.palette!.onClose(); });
+    try {
+      await measure('home', () => act(async () => {
+        root.render(createElement(SWRConfig, {
+          value: { provider: () => new Map(), dedupingInterval: 0, revalidateOnFocus: false },
+        }, createElement(AppContent, { authUser: accountUser('account-a') })));
+      }));
+      for (const tab of ['planner', 'health', 'note', 'recipe', 'settings', 'analytics']) {
+        await measure(tab, () => click(`[data-shell-tab="${tab}"]`));
+      }
+      await measure('restoreWhileClosed', () => click('[data-completed-restore]'));
+      await measure('blankSearch', open);
+      const reply = deferred();
+      harness.routineReply = reply.promise;
+      await measure('firstQuery', () => act(async () => { harness.palette!.onQueryChange('Routine'); }));
+      const whilePending = harness.palette!.projection;
+      await act(async () => reply.resolve(rows));
+      await flush();
+      const results = () => harness.palette!.projection.results.filter(result => result.kind === 'routine');
+      const afterQuery = results();
+      await close();
+      await measure('persistedQueryReopen', open);
+      const onReopen = results();
+      await close();
+      await measure('refreshWhileClosed', () => act(async () => {
+        window.dispatchEvent(new Event('lean04b-health-bootstrap-complete'));
+      }));
+
+      console.info('[daily Routine GET counts]', source, counts);
+      const remote = Number(source === 'legacy-remote');
+      expect(counts).toEqual({
+        home: 0, planner: 0, health: 0, note: 0, recipe: 0, settings: 0, analytics: 0,
+        restoreWhileClosed: 0, blankSearch: 0, firstQuery: remote,
+        persistedQueryReopen: remote, refreshWhileClosed: 0,
+      });
+      if (remote) {
+        expect(whilePending.groupStates?.planner?.status).toBe('LOADING');
+        expect(whilePending.empty.noResults).toBe(false);
+      }
+      const expectedTitle = source === 'local' ? 'Routine local' : 'Routine remote';
+      expect(afterQuery).toMatchObject([{ kind: 'routine', title: expectedTitle, plannerItemId: remote ? 'remote-a' : 'local-a' }]);
+      expect(onReopen).toEqual(afterQuery);
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  }, 15_000);
+
+  it('keeps the Routine read live on the legacy Analytics rollback path, without opening Search', async () => {
+    resetHarness('todos', 'empty', '');
+    harness.archiveEnabled = false;
+    harness.weeklyOwner = { accountId: 'account-a', signal: new AbortController().signal };
+    harness.routineReply = Promise.resolve([{ id: 'legacy-analytics', text: 'Routine legacy', done: true, is_active: true }]);
+    const host = document.body.appendChild(document.createElement('div'));
+    const root = createRoot(host);
+    const routineGets = () => harness.fetches.filter(url => url.includes('/routines_with_logs?'));
+    try {
+      await act(async () => root.render(createElement(SWRConfig, { value: { provider: () => new Map() } },
+        createElement(AppContent, { authUser: accountUser('account-a') }))));
+      expect(routineGets()).toHaveLength(0);
+      await act(async () => host.querySelector<HTMLButtonElement>('[data-shell-tab="analytics"]')!.click());
+      await settlePresentation();
+      await flush();
+      expect(routineGets()).toHaveLength(1);
+      expect(host.querySelector('[data-completed-restore]')?.getAttribute('data-analytics-routine-ids')).toBe('legacy-analytics');
+      expect(host.querySelector('[data-completed-restore]')?.getAttribute('data-analytics-routine-status')).toBe('READY_WITH_RESULTS');
+      expect(harness.palette?.open).toBe(false);
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
+  it('does not report no matches while a warm empty local Routine snapshot refreshes', async () => {
+    resetHarness('todos', 'empty', 'Routine');
+    harness.weeklyOwner = { accountId: 'account-a', signal: new AbortController().signal };
+    harness.localAuthority = true;
+    const empty = { routines: [], workouts: [], inbody: { weight: 0, smm: 0, pbf: 0 } };
+    harness.localDailyReply = Promise.resolve(empty);
+    const host = document.body.appendChild(document.createElement('div'));
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(createElement(SWRConfig, { value: { provider: () => new Map() } },
+        createElement(AppContent, { authUser: accountUser('account-a') }))));
+      await act(async () => harness.openers[0]!());
+      await settlePresentation();
+      await flush();
+      expect(harness.palette!.projection.empty.noResults).toBe(true);
+
+      const reply = deferred<import('../lib/healthLocalRuntime').LocalHealthDailyProjection>();
+      harness.localDailyReply = reply.promise;
+      await act(async () => window.dispatchEvent(new Event('lean04b-health-bootstrap-complete')));
+      expect(harness.palette!.projection.empty.noResults).toBe(false);
+      expect(harness.palette!.projection.groupStates?.planner).toMatchObject({ status: 'READY_EMPTY', validating: true });
+      const row = { id: 'new-local-routine', text: 'Routine added locally', is_active: true, done: false };
+      await act(async () => reply.resolve({ ...empty, routines: [row] }));
+      expect(harness.palette!.projection.results).toMatchObject([{ kind: 'routine', plannerItemId: row.id }]);
+      expect(harness.fetches.filter(url => url.includes('/routines_with_logs?'))).toEqual([]);
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
   });
 
   it('measures weekly requests across workspaces, inactive invalidation, and persisted Search reopening', async () => {

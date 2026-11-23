@@ -59,6 +59,7 @@ export function useSearchProjection(
       input.todos,
       input.todosState,
       input.routines,
+      input.routinesState,
       input.workouts,
       input.workoutPreviewRead,
       input.healthBlocks,

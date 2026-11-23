@@ -5,6 +5,7 @@ import { API_URL } from '../lib/config';
 import { remoteSWRKey, runtimeAccountSyncAccountId, runtimeSessionReadOwner } from '../lib/remoteBoundary';
 import {
   accountBoundRemoteFetcher,
+  accountBoundCacheKey,
   accountBoundRemoteKey,
   type AccountBoundRemoteKey,
 } from '../lib/accountBoundRemote';
@@ -12,6 +13,7 @@ import { domainUsesLocalWorkingCopy } from '../lib/syncAuthority';
 import { readLocalHealthDaily, type LocalHealthDailyProjection } from '../lib/healthLocalRuntime';
 import { resolveSearchDatasetState, type SearchDatasetState } from '../lib/searchReadiness';
 import { Schedule, Todo, Routine, Workout, Inbody } from '../types';
+import { useDailyRoutineReads } from './useDailyRoutineReads';
 
 export interface UseDailyDataResult {
   schedules: Schedule[];
@@ -19,6 +21,8 @@ export interface UseDailyDataResult {
   /** Readiness for the Search-deferred todo source. */
   todosState: SearchDatasetState;
   routines: Routine[];
+  /** Readiness of the Routine list from its existing local or remote authority. */
+  routinesState: SearchDatasetState;
   workouts: Workout[];
   inbody: Inbody;
   /** 전체 재검증 */
@@ -45,6 +49,7 @@ export type AccountBoundTodoKey = AccountBoundRemoteKey;
 export type AccountBoundInbodyKey = AccountBoundRemoteKey;
 
 type LocalHealthDailyKey = readonly ['local-health-daily', string, string];
+const EMPTY_ROUTINES: Routine[] = [];
 const DISCARDED_LOCAL_DAILY_READ = Symbol('discarded local daily read');
 type LocalDailyReadLifetime = {
   key: LocalHealthDailyKey;
@@ -121,6 +126,7 @@ export const useDailyData = (
   healthReady = true,
   todosEnabled?: boolean,
   inbodyEnabled = true,
+  routinesEnabled?: boolean,
 ): UseDailyDataResult => {
   const base = `${API_URL}/api`;
   const localMode = domainUsesLocalWorkingCopy('health_workouts');
@@ -210,8 +216,9 @@ export const useDailyData = (
   } = useSWR<Todo[], AccountBoundTodoKey | null>(todoKey, fetchAccountBoundTodo, swrOpts);
   const todos = todosData ?? [];
 
-  const { data: routines = [], mutate: mutateRoutinesRaw, isLoading: l3 } =
-    useSWR<Routine[], AccountBoundRemoteKey | null>(routinesKey, accountBoundRemoteFetcher, swrOpts);
+  const remoteRoutines = useDailyRoutineReads(routinesKey,
+    accountBoundCacheKey(`${base}/routines_with_logs?date=${dateStr}`, accountId),
+    accountId, routinesEnabled === undefined ? undefined : routinesEnabled && !localMode, swrOpts);
 
   const { data: workouts = [], mutate: mutateWorkouts, isLoading: l4 } =
     useSWR<Workout[], AccountBoundRemoteKey | null>(workoutsKey, accountBoundRemoteFetcher, swrOpts);
@@ -290,7 +297,7 @@ export const useDailyData = (
     };
   }, [cache, globalMutate, invalidateLocalHealthRead, localHealthKey, sessionSignal]);
 
-  const { data: localHealthResult, mutate: mutateLocalHealth, isLoading: localHealthLoading, error: localHealthError } =
+  const localHealthRead =
     useSWR<LocalHealthDailyProjection | typeof DISCARDED_LOCAL_DAILY_READ | undefined, LocalHealthDailyKey | null>(
       localHealthKey,
       async (key: LocalHealthDailyKey) => {
@@ -365,6 +372,7 @@ export const useDailyData = (
         },
       },
     );
+  const { data: localHealthResult, mutate: mutateLocalHealth, isLoading: localHealthLoading, error: localHealthError } = localHealthRead;
   const localHealth = localHealthResult === DISCARDED_LOCAL_DAILY_READ ? undefined : localHealthResult;
   // Settlement from an obsolete attempt must not turn off the current cold-read spinner.
   const displayedLifetime = localLifetime.current;
@@ -391,17 +399,7 @@ export const useDailyData = (
     [globalMutate, mutateTodosRaw, todoCacheKey, todoKey],
   );
 
-  /** routines optimistic mutate */
-  const mutateRoutines = useCallback(
-    (updater: (cur: Routine[]) => Routine[], revalidate = true) => {
-      mutateRoutinesRaw(
-        (cur) => updater(cur ?? []),
-        { revalidate },
-      );
-    },
-    [mutateRoutinesRaw],
-  );
-
+  const refreshRoutines = remoteRoutines.refresh;
   const mutate = useCallback(() => {
     mutateSchedules();
     if (todoKey !== null) mutateTodosRaw();
@@ -410,7 +408,7 @@ export const useDailyData = (
       // entry so reset/bootstrap cannot surface stale data on reactivation.
       void globalMutate(todoCacheKey, undefined, { revalidate: false });
     }
-    mutateRoutinesRaw();
+    refreshRoutines();
     mutateWorkouts();
     if (inbodyKey !== null) mutateInbody();
     else if (inbodyCacheKey !== null) {
@@ -423,7 +421,7 @@ export const useDailyData = (
         invalidateLocalHealthRead(localHealthCacheKey, true);
       }
     }
-  }, [globalMutate, inbodyCacheKey, inbodyKey, invalidateLocalHealthRead, localHealthCacheKey, localHealthKey, localMode, mutateInbody, mutateLocalHealth, mutateRoutinesRaw, mutateSchedules, mutateTodosRaw, mutateWorkouts, todoCacheKey, todoKey]);
+  }, [globalMutate, inbodyCacheKey, inbodyKey, invalidateLocalHealthRead, localHealthCacheKey, localHealthKey, localMode, mutateInbody, mutateLocalHealth, refreshRoutines, mutateSchedules, mutateTodosRaw, mutateWorkouts, todoCacheKey, todoKey]);
 
   const todosState = resolveSearchDatasetState({
     enabled: todoKey !== null,
@@ -433,20 +431,30 @@ export const useDailyData = (
     error: todosError,
   });
 
+  const localRoutinesEnabled = localHealthKey !== null && routinesEnabled !== false;
+  const localRoutines = routinesEnabled === false ? undefined : localHealth?.routines;
+  const localRoutinesError = isCurrentLocalFailure(localHealthError) ? localHealthError.reason : undefined;
+  const localRoutinesValidating = localRoutinesEnabled && localHealthRead.isValidating;
+  const localRoutinesState = useMemo(() => resolveSearchDatasetState({
+    enabled: localRoutinesEnabled, data: localRoutines, isLoading: l6, error: localRoutinesError,
+    isValidating: localRoutinesValidating,
+  }), [localRoutinesEnabled, localRoutines, l6, localRoutinesError, localRoutinesValidating]);
+
   return {
     schedules,
     todos,
     todosState,
-    routines: localMode ? localHealth?.routines ?? [] : routines,
+    routines: (localMode ? localRoutines : remoteRoutines.response) ?? EMPTY_ROUTINES,
+    routinesState: localMode ? localRoutinesState : remoteRoutines.state,
     workouts: localMode ? localHealth?.workouts ?? [] : workouts,
     inbody: localMode ? localHealth?.inbody ?? { weight: 0, smm: 0, pbf: 0 } : inbodyRaw?.[0] ?? { weight: 0, smm: 0, pbf: 0 },
     mutate,
     isScheduleLoading: l1,
     revalidateSelectedDaySchedules,
     mutateTodos,
-    mutateRoutines,
-    // Search-deferred todo loading is intentionally excluded from the global
-    // daily spinner; Search owns that group's pending state.
-    isLoading: getDailyDataLoading(localMode, l6, [l1, false, l3, l4, l5]),
+    mutateRoutines: remoteRoutines.mutateRoutines,
+    // Search-deferred Todo and Routine loading belongs to Search, not the
+    // global spinner. Omitted activation retains legacy loading semantics.
+    isLoading: getDailyDataLoading(localMode, l6, [l1, false, routinesEnabled === undefined && remoteRoutines.isLoading, l4, l5]),
   };
 };

@@ -199,6 +199,7 @@ export interface AnalyticsProps extends BaseViewProps {
   formatDate: (d: Date | DateTime) => string;
   schedules: Schedule[];
   routines: Routine[];
+  routinesState?: import('../lib/searchReadiness').SearchDatasetState;
 }
 
 export interface SettingsProps extends BaseViewProps, MutateProps {

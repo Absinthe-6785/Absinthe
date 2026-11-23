@@ -27,7 +27,7 @@ import {
 } from './buildSearchDomainResults';
 import { buildHighlightsForResults } from './searchHighlight';
 import { buildSearchRecentGroups } from './searchRecentStorage';
-import { weeklyScheduleReadNotice, type SearchDatasetState } from '../../../../lib/searchReadiness';
+import { weeklyScheduleReadNotice as sourceReadNotice, type SearchDatasetState } from '../../../../lib/searchReadiness';
 import type { WorkoutRangePreviewRead } from '../health/useHealthWorkoutRangeSnapshot';
 import { buildSearchWorkoutPreview } from './searchWorkoutCompositeProjection';
 
@@ -40,6 +40,7 @@ export interface SearchProjectionInput {
   todos: readonly Todo[];
   todosState?: SearchDatasetState;
   routines: readonly Routine[];
+  routinesState?: SearchDatasetState;
   workouts: readonly Workout[];
   healthBlocks: readonly ExerciseBlock[];
   healthBlocksState?: SearchDatasetState;
@@ -144,8 +145,10 @@ export function buildSearchProjection(input: SearchProjectionInput): SearchProje
 
   const weeklyState = input.weeklySchedulesState;
   const weeklyReadable = !weeklyState || weeklyState.status === 'READY_WITH_RESULTS' || weeklyState.status === 'READY_EMPTY';
+  const routineState = input.routinesState;
+  const routinesReadable = !routineState || routineState.status === 'READY_WITH_RESULTS' || routineState.status === 'READY_EMPTY';
   const plannerResults = trimmed
-    ? buildPlannerSearchResults(trimmed, input.schedules, input.todos, input.routines,
+    ? buildPlannerSearchResults(trimmed, input.schedules, input.todos, routinesReadable ? input.routines : [],
       weeklyReadable ? input.weeklySchedules : [], now)
     : [];
 
@@ -166,12 +169,19 @@ export function buildSearchProjection(input: SearchProjectionInput): SearchProje
 
   const results = [...noteResults, ...plannerResults, ...healthResults, ...recipeResults, ...archiveResults];
   const groupStates: Partial<Record<SearchDomain, SearchDatasetState>> = {};
-  const weeklyPending = Boolean(trimmed && weeklyScheduleReadNotice(weeklyState));
-  const plannerDataset = weeklyPending && weeklyState
-    ? weeklyState.status === 'READY_WITH_RESULTS' && weeklyState.validating && !plannerResults.length
-      ? { ...weeklyState, status: 'LOADING' as const }
-      : weeklyState
-    : input.todosState ?? weeklyState;
+  const weeklyPending = Boolean(trimmed && sourceReadNotice(weeklyState));
+  const routinePending = Boolean(trimmed && sourceReadNotice(routineState));
+  const existingPlannerSource = weeklyPending ? weeklyState : input.todosState ?? weeklyState;
+  const existingPlannerError = existingPlannerSource?.status === 'ERROR' || existingPlannerSource?.error !== undefined;
+  const routineError = routineState?.status === 'ERROR' || routineState?.error !== undefined;
+  const pendingPlannerSource = routinePending && !existingPlannerError && (!weeklyPending || routineError)
+    ? routineState
+    : weeklyPending ? weeklyState : undefined;
+  const plannerDataset = pendingPlannerSource
+    ? pendingPlannerSource.status === 'READY_WITH_RESULTS' && pendingPlannerSource.validating && !plannerResults.length
+      ? { ...pendingPlannerSource, status: 'LOADING' as const }
+      : pendingPlannerSource
+    : existingPlannerSource ?? routineState;
   const plannerState = alignStateToResults(plannerDataset, plannerResults.length);
   const healthState = alignStateToResults(input.healthBlocksState, healthResults.length);
   const recipeState = alignStateToResults(input.recipeState, recipeResults.length);
@@ -185,7 +195,7 @@ export function buildSearchProjection(input: SearchProjectionInput): SearchProje
 
   const empty = {
     noQuery: !trimmed,
-    noResults: trimmed.length > 0 && results.length === 0 && !weeklyPending
+    noResults: trimmed.length > 0 && results.length === 0 && !weeklyPending && !routinePending
       && (!workoutPreview || workoutPreview.state === 'verified_no_match'),
     noRecent: recentSearchesGrouped.today.length + recentSearchesGrouped.earlier.length === 0,
   };

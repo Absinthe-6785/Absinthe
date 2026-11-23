@@ -36,6 +36,7 @@ import { bootstrapHealthFromSupabase, HEALTH_LOCAL_BOOTSTRAP_COMPLETE_EVENT } fr
 import { runHealthBootstrapSingleFlight } from '../lib/healthBootstrapSingleFlight';
 import { domainUsesLocalWorkingCopy } from '../lib/syncAuthority';
 import { revalidatePlannerAccountCache } from '../lib/plannerCacheRevalidation';
+import { ARCHIVE_SHELL_ENABLED } from './views/features/archive/archiveShellConfig';
 import { notesStartupRequiresRecovery } from '../lib/notesStartupAuthority';
 import { createProductionWorkoutRuntimeAuthorityController } from '../lib/workoutRuntimeAuthority';
 import { WORKSPACE_SCROLL_MODE, WORKSPACE_VIEWPORT_CLASS } from './common/workspaceLayout';
@@ -428,8 +429,10 @@ export function AppContent({ authUser }: { authUser: User }) {
   const legacyDailyActive = (healthRuntimeReady && !selectedDayReaderEnabled)
     || (selectedDayReaderEnabled && searchHasQuery);
   const inbodyActive = activeTab === 'health' && healthRuntimeReady;
+  const dailyRoutinesActive = isCurrentSearchActivation(searchHost, searchActivation, authUser.id)
+    || (activeTab === 'analytics' && !ARCHIVE_SHELL_ENABLED);
   const {
-    schedules, isScheduleLoading, todos, todosState, routines, workouts, inbody,
+    schedules, isScheduleLoading, todos, todosState, routines, routinesState, workouts, inbody,
     mutate: mutateDaily,
     revalidateSelectedDaySchedules,
     mutateTodos, mutateRoutines,
@@ -437,7 +440,7 @@ export function AppContent({ authUser }: { authUser: User }) {
   // AppContent owns the shell hook; only consumer-driven candidates are gated.
   // useDailyData(dateStr, showToast, authUser.id, healthRuntimeReady, todosSearchActive, inbodyActive)
   } = useDailyData(dateStr, showToast, authUser.id,
-    legacyDailyActive, todosSearchActive, inbodyActive);
+    legacyDailyActive, todosSearchActive, inbodyActive, dailyRoutinesActive);
 
   // The read range follows the workspace's month anchor, not the live clock.
   const { monthStart, monthEnd } = useMemo(() => ({
@@ -722,6 +725,7 @@ export function AppContent({ authUser }: { authUser: User }) {
             <AnalyticsView
               {...globalProps}
               accountId={authUser.id}
+              routinesState={routinesState}
               onPlannerRestoreComplete={revalidatePlannerAfterRestore}
             />
           )}
@@ -807,6 +811,7 @@ export function AppContent({ authUser }: { authUser: User }) {
         todos={todos}
         todosState={todosState}
         routines={routines}
+        routinesState={routinesState}
         workouts={workouts}
         healthBlocks={healthBlocks}
         healthBlocksState={healthBlocksState}
