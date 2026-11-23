@@ -34,6 +34,7 @@ const harness = vi.hoisted(() => ({
   weeklyOwner: null as { accountId: string; signal: AbortSignal } | null,
   weeklyReply: null as Promise<unknown> | null,
   routineReply: null as Promise<unknown> | null,
+  scheduleReply: null as ((date: string) => Promise<unknown>) | null,
   localAuthority: false,
   localDailyReply: undefined as Promise<import('../lib/healthLocalRuntime').LocalHealthDailyProjection> | undefined,
   archiveEnabled: true,
@@ -148,6 +149,9 @@ vi.mock('../lib/fetcher', () => ({
     }
     if (url.endsWith('/weekly_schedules')) return harness.weeklyReply ?? harness.emptyPromise;
     if (url.includes('/routines_with_logs?')) return harness.routineReply ?? harness.emptyPromise;
+    if (url.includes('/schedules?date=')) {
+      return harness.scheduleReply?.(new URL(url).searchParams.get('date')!) ?? harness.emptyPromise;
+    }
     return harness.emptyPromise;
   },
   isLocalOnlyRemotePausedError: () => false,
@@ -170,8 +174,18 @@ vi.mock('./common/Sidebar', () => ({
 vi.mock('./common/ViewLoadingFallback', () => ({ ViewLoadingFallback: () => null }));
 vi.mock('./views/NoteView', () => ({ NoteView: () => null }));
 vi.mock('./views/HomeView', () => ({ HomeView: () => null }));
-vi.mock('./views/PlannerView', () => ({ PlannerView: () => null }));
-vi.mock('./views/HealthView', () => ({ HealthView: () => null }));
+vi.mock('./views/PlannerView', () => ({
+  PlannerView: ({ setSelectedDate }: import('../types').ViewProps) => createElement('button', {
+    'data-select-planner-date': true,
+    onClick: () => setSelectedDate(new Date('2026-08-21T12:00:00Z')),
+  }, 'Select Planner date'),
+}));
+vi.mock('./views/HealthView', () => ({
+  HealthView: ({ setSelectedDate }: import('../types').ViewProps) => createElement('button', {
+    'data-select-health-date': true,
+    onClick: () => setSelectedDate(new Date('2026-08-22T12:00:00Z')),
+  }, 'Select Health date'),
+}));
 vi.mock('./views/features/archive/archiveShellConfig', () => ({
   get ARCHIVE_SHELL_ENABLED() { return harness.archiveEnabled; },
 }));
@@ -297,6 +311,7 @@ function resetHarness(kind: TargetKind, status: TargetStatus, query: string): vo
   harness.weeklyOwner = null;
   harness.weeklyReply = null;
   harness.routineReply = null;
+  harness.scheduleReply = null;
   harness.localAuthority = false;
   harness.localDailyReply = undefined;
   harness.archiveEnabled = true;
@@ -370,6 +385,114 @@ async function renderScenario(kind: TargetKind, status: TargetStatus, query: str
 describe('LEAN_04B production-plumbing Search characterization', () => {
   afterEach(() => {
     document.body.replaceChildren();
+  });
+
+  it('counts shared selected-day Schedule GETs across the same tab, date, restore and Search transitions', async () => {
+    resetHarness('todos', 'empty', '');
+    harness.weeklyOwner = { accountId: 'account-a', signal: new AbortController().signal };
+    harness.localAuthority = true;
+    harness.localDailyReply = Promise.resolve({
+      routines: [], workouts: [], inbody: { weight: 0, smm: 0, pbf: 0 },
+    });
+    const rows = (date: string) => [{
+      id: `schedule-${date}`, text: `Schedule for ${date}`, start_time: '09:00', end_time: '10:00',
+      category: 'Study', color: 'purple', is_dday: false, date,
+    }];
+    harness.scheduleReply = date => Promise.resolve(rows(date));
+    const host = document.body.appendChild(document.createElement('div'));
+    const root = createRoot(host);
+    const counts: Record<string, number> = {};
+    const scheduleGets = () => harness.fetches.filter(url => url.includes('/api/schedules?date='));
+    const measure = async (label: string, action: () => void | Promise<void>) => {
+      const before = scheduleGets().length;
+      await action();
+      await settlePresentation();
+      await act(async () => { await new Promise<void>(resolve => requestAnimationFrame(() => resolve())); });
+      await flush();
+      counts[label] = scheduleGets().length - before;
+    };
+    const click = (selector: string) => act(async () => { host.querySelector<HTMLButtonElement>(selector)!.click(); });
+    const open = () => act(async () => harness.openers[0]!());
+    const close = () => act(async () => harness.palette!.onClose());
+    const results = () => harness.palette!.projection.results.filter(row => row.kind === 'schedule');
+    try {
+      await measure('home', () => act(async () => root.render(createElement(SWRConfig, {
+        value: { provider: () => new Map(), dedupingInterval: 0, revalidateOnFocus: false },
+      }, createElement(AppContent, { authUser: accountUser('account-a') })))));
+      await measure('planner', () => click('[data-shell-tab="planner"]'));
+      await measure('plannerDate', () => click('[data-select-planner-date]'));
+      await measure('health', () => click('[data-shell-tab="health"]'));
+      await measure('healthDate', () => click('[data-select-health-date]'));
+      for (const tab of ['note', 'recipe', 'settings', 'analytics']) {
+        await measure(tab, () => click(`[data-shell-tab="${tab}"]`));
+      }
+      await measure('restoreWhileClosed', () => click('[data-completed-restore]'));
+      await measure('blankSearch', open);
+      await measure('firstQuery', () => act(async () => harness.palette!.onQueryChange('Schedule')));
+      const expected = { title: 'Schedule for 2026-08-22', plannerItemId: 'schedule-2026-08-22' };
+      expect(results()).toMatchObject([expected]);
+      await close();
+      await measure('persistedQueryReopen', open);
+      expect(results()).toMatchObject([expected]);
+      await close();
+      await measure('refreshWhileClosed', () => act(async () => {
+        window.dispatchEvent(new Event('lean04b-health-bootstrap-complete'));
+      }));
+      console.info('[daily Schedule GET counts]', JSON.stringify(counts));
+      expect(counts).toEqual({
+        home: 1, planner: 0, plannerDate: 1, health: 0, healthDate: 0, note: 0, recipe: 0, settings: 0, analytics: 0,
+        restoreWhileClosed: 0, blankSearch: 0, firstQuery: 1, persistedQueryReopen: 0, refreshWhileClosed: 0,
+      });
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  }, 15_000);
+
+  it('discards a pending selected-day GET when the only consumer closes and reopens Search in one batch', async () => {
+    resetHarness('todos', 'empty', 'Schedule');
+    harness.weeklyOwner = { accountId: 'account-a', signal: new AbortController().signal };
+    // Home needs the initial date, then bump the date in Health while the
+    // shared list has no consumer so Search starts with a cold key.
+    harness.localAuthority = true;
+    harness.localDailyReply = Promise.resolve({ routines: [], workouts: [], inbody: { weight: 0, smm: 0, pbf: 0 } });
+    const host = document.body.appendChild(document.createElement('div'));
+    const root = createRoot(host);
+    const old = deferred();
+    const current = deferred();
+    let started = 0;
+    const scheduleRow = (id: string) => ({
+      id, text: `Schedule ${id}`, start_time: '09:00', end_time: '10:00', is_dday: false,
+      category: 'Study', color: 'purple', date: '2026-08-22',
+    });
+    harness.scheduleReply = date => date === '2026-08-22'
+      ? (++started === 1 ? old.promise : current.promise) : Promise.resolve([]);
+    try {
+      await act(async () => root.render(createElement(SWRConfig, {
+        value: { provider: () => new Map(), shouldRetryOnError: false },
+      }, createElement(AppContent, { authUser: accountUser('account-a') }))));
+      await settlePresentation();
+      await act(async () => host.querySelector<HTMLButtonElement>('[data-shell-tab="health"]')!.click());
+      await settlePresentation();
+      await act(async () => host.querySelector<HTMLButtonElement>('[data-select-health-date]')!.click());
+      expect(started).toBe(0);
+      await act(async () => harness.openers[0]!());
+      await settlePresentation();
+      expect(started).toBe(1);
+      await act(async () => {
+        harness.palette!.onClose();
+        harness.openers[0]!();
+        old.resolve([scheduleRow('obsolete')]);
+      });
+      expect(started).toBe(2);
+      expect(harness.palette!.projection.results).toEqual([]);
+      expect(harness.palette!.projection.empty.noResults).toBe(false);
+      await act(async () => current.resolve([scheduleRow('current')]));
+      expect(harness.palette!.projection.results).toMatchObject([{ kind: 'schedule', plannerItemId: 'current' }]);
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
   });
 
   it.each(['local', 'legacy-remote'] as const)('measures daily Routine GETs across tabs and Search (%s authority)', async source => {
@@ -456,14 +579,20 @@ describe('LEAN_04B production-plumbing Search characterization', () => {
     const host = document.body.appendChild(document.createElement('div'));
     const root = createRoot(host);
     const routineGets = () => harness.fetches.filter(url => url.includes('/routines_with_logs?'));
+    const scheduleGets = () => harness.fetches.filter(url => url.includes('/api/schedules?date='));
     try {
       await act(async () => root.render(createElement(SWRConfig, { value: { provider: () => new Map() } },
         createElement(AppContent, { authUser: accountUser('account-a') }))));
       expect(routineGets()).toHaveLength(0);
+      expect(scheduleGets()).toHaveLength(1); // Home consumes the same date.
+      await act(async () => host.querySelector<HTMLButtonElement>('[data-shell-tab="recipe"]')!.click());
+      await settlePresentation();
+      await act(async () => window.dispatchEvent(new Event('lean04b-health-bootstrap-complete')));
       await act(async () => host.querySelector<HTMLButtonElement>('[data-shell-tab="analytics"]')!.click());
       await settlePresentation();
       await flush();
       expect(routineGets()).toHaveLength(1);
+      expect(scheduleGets()).toHaveLength(1); // Unrelated Health refresh did not invalidate the verified date.
       expect(host.querySelector('[data-completed-restore]')?.getAttribute('data-analytics-routine-ids')).toBe('legacy-analytics');
       expect(host.querySelector('[data-completed-restore]')?.getAttribute('data-analytics-routine-status')).toBe('READY_WITH_RESULTS');
       expect(harness.palette?.open).toBe(false);

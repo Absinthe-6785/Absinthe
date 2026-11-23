@@ -59,7 +59,7 @@ describe('Planner account cache revalidation', () => {
     }
   });
 
-  it('revalidates the same Planner key families and clears only restored-account Routine rows', () => {
+  it('clears only restored-account Routine and daily Schedule rows while revalidating the same key families', () => {
     const mutate = vi.fn<(filter: (key?: Arguments) => boolean, ...args: unknown[]) => Promise<unknown>>(
       async () => [],
     );
@@ -68,20 +68,23 @@ describe('Planner account cache revalidation', () => {
 
     expect(mutate).toHaveBeenCalledTimes(2);
     const [filter, ...otherArgs] = mutate.mock.calls[0]!;
-    const [routineFilter, ...routineArgs] = mutate.mock.calls[1]!;
+    const [invalidate, ...invalidateArgs] = mutate.mock.calls[1]!;
     expect(otherArgs).toEqual([]); // Other active sources revalidate without clearing data.
-    expect(routineArgs).toEqual([undefined]); // An inactive Routine key has no revalidator.
-    expect(filter(key('/schedules?date=2026-08-17', accountA))).toBe(true);
+    expect(invalidateArgs).toEqual([undefined]); // Inactive keys have no revalidator.
+    expect(filter(key('/schedules?date=2026-08-17', accountA))).toBe(false);
     expect(filter(key('/schedules/ddays', accountA))).toBe(true);
     expect(filter(key('/routines_with_logs?date=2026-08-17', accountA))).toBe(false);
-    expect(routineFilter(key('/routines_with_logs?date=2026-08-17', accountA))).toBe(true);
-    expect(routineFilter(key('/routines_with_logs?date=2026-08-18', accountA))).toBe(true);
-    expect(routineFilter(key('/routines_with_logs?date=2026-08-17', accountB))).toBe(false);
-    expect(routineFilter(key('/schedules?date=2026-08-17', accountA))).toBe(false);
-    expect(routineFilter(key('/schedules/ddays', accountA))).toBe(false);
-    expect(routineFilter(key('/workouts?date=2026-08-17', accountA))).toBe(false);
-    expect(routineFilter(key('/todos?date=2026-08-17', accountA))).toBe(false);
-    expect(routineFilter(weeklyKey(accountA))).toBe(false);
+    expect(invalidate(key('/routines_with_logs?date=2026-08-17', accountA))).toBe(true);
+    expect(invalidate(key('/routines_with_logs?date=2026-08-18', accountA))).toBe(true);
+    expect(invalidate(key('/routines_with_logs?date=2026-08-17', accountB))).toBe(false);
+    expect(invalidate(key('/schedules?date=2026-08-17', accountA))).toBe(true);
+    expect(invalidate(key('/schedules?date=2026-08-18', accountA))).toBe(true);
+    expect(invalidate(key('/schedules?date=2026-08-17', accountB))).toBe(false);
+    expect(invalidate(key('/schedules/ddays', accountA))).toBe(false);
+    expect(invalidate(key('/schedules/range?start_date=2026-08-01&end_date=2026-08-31', accountA))).toBe(false);
+    expect(invalidate(key('/workouts?date=2026-08-17', accountA))).toBe(false);
+    expect(invalidate(key('/todos?date=2026-08-17', accountA))).toBe(false);
+    expect(invalidate(weeklyKey(accountA))).toBe(false);
     expect(filter(key('/workouts?date=2026-08-17', accountA))).toBe(true);
     expect(filter(key('/schedules?date=2026-08-17', accountB))).toBe(false);
     expect(filter(key('/schedules/ddays', accountB))).toBe(false);

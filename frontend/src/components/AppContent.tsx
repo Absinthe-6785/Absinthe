@@ -429,18 +429,28 @@ export function AppContent({ authUser }: { authUser: User }) {
   const legacyDailyActive = (healthRuntimeReady && !selectedDayReaderEnabled)
     || (selectedDayReaderEnabled && searchHasQuery);
   const inbodyActive = activeTab === 'health' && healthRuntimeReady;
-  const dailyRoutinesActive = isCurrentSearchActivation(searchHost, searchActivation, authUser.id)
-    || (activeTab === 'analytics' && !ARCHIVE_SHELL_ENABLED);
+  const currentSearchActive = isCurrentSearchActivation(searchHost, searchActivation, authUser.id);
+  const legacyAnalyticsActive = activeTab === 'analytics' && !ARCHIVE_SHELL_ENABLED;
+  const dailyRoutinesActive = currentSearchActive || legacyAnalyticsActive;
+  // Only the selected-day list is deferred; previous-day, D-day and month
+  // readers retain their existing owners and their own request lifetimes.
+  const scheduleWorkspaceActive = activeTab === 'home' || activeTab === 'planner' || legacyAnalyticsActive;
+  const dailySchedulesActive = scheduleWorkspaceActive || currentSearchActive;
+  const scheduleSearchDemand = useMemo(() => scheduleWorkspaceActive || !currentSearchActive
+    ? undefined
+    : () => isCurrentSearchActivation(searchHost, searchActivation, authUser.id),
+  [scheduleWorkspaceActive, currentSearchActive, searchHost, searchActivation, authUser.id]);
   const {
-    schedules, isScheduleLoading, todos, todosState, routines, routinesState, workouts, inbody,
+    schedules, schedulesState, isScheduleLoading, todos, todosState, routines, routinesState, workouts, inbody,
     mutate: mutateDaily,
     revalidateSelectedDaySchedules,
+    onScheduleMutationCommitted,
     mutateTodos, mutateRoutines,
     isLoading: isDailyLoading,
   // AppContent owns the shell hook; only consumer-driven candidates are gated.
   // useDailyData(dateStr, showToast, authUser.id, healthRuntimeReady, todosSearchActive, inbodyActive)
   } = useDailyData(dateStr, showToast, authUser.id,
-    legacyDailyActive, todosSearchActive, inbodyActive, dailyRoutinesActive);
+    legacyDailyActive, todosSearchActive, inbodyActive, dailyRoutinesActive, dailySchedulesActive, scheduleSearchDemand);
 
   // The read range follows the workspace's month anchor, not the live clock.
   const { monthStart, monthEnd } = useMemo(() => ({
@@ -499,7 +509,7 @@ export function AppContent({ authUser }: { authUser: User }) {
   const healthRoutinesActive = activeTab === 'health'
     && (healthRuntimeReady || (selectedDayReaderEnabled && domainUsesLocalWorkingCopy('health_routine_presets')));
   const weeklySchedulesActive = activeTab === 'home' || activeTab === 'planner' || activeTab === 'health'
-    || isCurrentSearchActivation(searchHost, searchActivation, authUser.id);
+    || currentSearchActive;
   const {
     markedDates, healthBlocks, healthBlocksState, healthRoutines, healthRoutinesState, weeklySchedules,
     weeklySchedulesState,
@@ -671,6 +681,7 @@ export function AppContent({ authUser }: { authUser: User }) {
           {activeTab === 'planner'   && <PlannerView key={authUser.id} {...globalProps}
             isScheduleLoading={isScheduleLoading}
             revalidateSelectedDaySchedules={revalidateSelectedDaySchedules}
+            onScheduleMutationCommitted={onScheduleMutationCommitted}
             scheduleNavigationRequest={
               scheduleNavigationRequest?.accountId === authUser.id
                 && scheduleNavigationRequest.accountGeneration === scheduleNavigationGeneration
@@ -725,6 +736,7 @@ export function AppContent({ authUser }: { authUser: User }) {
             <AnalyticsView
               {...globalProps}
               accountId={authUser.id}
+              schedulesState={schedulesState}
               routinesState={routinesState}
               onPlannerRestoreComplete={revalidatePlannerAfterRestore}
             />
@@ -808,6 +820,7 @@ export function AppContent({ authUser }: { authUser: User }) {
         onOpenWorkoutPreview={openSearchWorkoutPreview}
         onRetryWorkoutPreview={retrySearchWorkoutPreview}
         schedules={schedules}
+        schedulesState={schedulesState}
         todos={todos}
         todosState={todosState}
         routines={routines}

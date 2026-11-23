@@ -122,6 +122,38 @@ describe('App local-only auth gate', () => {
         + '&scope=' + encodeURIComponent(GOOGLE_DRIVE_APP_DATA_SCOPE),
     )).toMatchObject({ status: 'connected', connectionStatus: { canUpload: false, canRecover: false } });
   });
+
+  it('confirms only SDK TOKEN_REFRESHED successors of the same Schedule session without extending exact-read owners', async () => {
+    const { default: App } = await import('./App');
+    const { runtimeSessionReadOwner } = await import('./lib/remoteBoundary');
+    await act(async () => { root?.render(createElement(App)); });
+    const notify = onAuthStateChangeMock.mock.calls[0][0];
+    const first = '11111111-1111-4111-8111-111111111111';
+    const other = '22222222-2222-4222-8222-222222222222';
+    const session = (session_id: string, version: number, id = 'A') => ({
+      user: { id }, access_token: `fixture.${btoa(JSON.stringify({ sub: id, session_id, version }))}.fixture`,
+    });
+    await act(async () => notify('SIGNED_IN', session(first, 1)));
+    const schedule = runtimeSessionReadOwner('schedule')!;
+    const exact = runtimeSessionReadOwner()!;
+    const renewal = schedule.renewal!.wait(schedule.renewal!.revision()!, () => {});
+    await act(async () => notify('TOKEN_REFRESHED', session(first, 2)));
+    expect(await renewal).toBe(true);
+    expect(runtimeSessionReadOwner('schedule')).toBe(schedule);
+    expect(schedule.signal.aborted).toBe(false);
+    expect(exact.signal.aborted).toBe(true);
+    await act(async () => notify('TOKEN_REFRESHED', session(other, 1)));
+    expect(schedule.signal.aborted).toBe(true);
+    const replacement = runtimeSessionReadOwner('schedule')!;
+    await act(async () => notify('SIGNED_IN', session(other, 2)));
+    expect(replacement.signal.aborted).toBe(true);
+    const sameIdNewOwner = runtimeSessionReadOwner('schedule')!;
+    await act(async () => {
+      notify('SIGNED_IN', session(first, 1, 'B'));
+      notify('TOKEN_REFRESHED', session(other, 3));
+    });
+    expect(sameIdNewOwner.signal.aborted).toBe(true);
+  });
   let root: Root | null = null;
   let container: HTMLDivElement | null = null;
 

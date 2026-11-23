@@ -58,6 +58,25 @@ export function isCurrentAccountPlannerCacheKey(
   return plannerCacheDomainForKey(key, accountId) !== null;
 }
 
+type ScheduleInvalidationListener = (matches: (key: Arguments) => boolean) => void;
+// Only live selected-day readers register. No rows or inactive keys are tracked.
+const scheduleInvalidation = new WeakMap<ScopedMutator, Set<ScheduleInvalidationListener>>();
+
+export function observeScheduleInvalidation(mutate: ScopedMutator, listener: ScheduleInvalidationListener) {
+  const listeners = scheduleInvalidation.get(mutate) ?? new Set<ScheduleInvalidationListener>();
+  scheduleInvalidation.set(mutate, listeners);
+  listeners.add(listener);
+  return () => { listeners.delete(listener); };
+}
+
+export function invalidateChangedScheduleDates(mutate: ScopedMutator, accountId: string, dates: readonly string[] | null) {
+  const matches = (key: Arguments) => typeof key === 'string' && plannerCacheDomainForKey(key, accountId) === 'schedule'
+    && (dates === null || dates.includes(new URL(accountBoundRemoteUrl(key), 'http://absinthe.local')
+      .searchParams.get('date') ?? ''));
+  scheduleInvalidation.get(mutate)?.forEach(listener => listener(matches));
+  void mutate(matches, undefined);
+}
+
 export function revalidatePlannerAccountCache(
   globalMutate: ScopedMutator,
   accountId?: string,
@@ -65,9 +84,14 @@ export function revalidatePlannerAccountCache(
   if (!accountId) return;
   void globalMutate(key => {
     const domain = plannerCacheDomainForKey(key, accountId);
-    return domain !== null && domain !== 'routine';
+    return domain !== null && domain !== 'routine' && domain !== 'schedule';
   });
-  // Restore invalidates the old Routine snapshot for every cached date.
+  // Restore invalidates old Routine and daily Schedule snapshots on every date.
   // An active reader revalidates; an inactive key stays cold without a GET.
-  void globalMutate(key => plannerCacheDomainForKey(key, accountId) === 'routine', undefined);
+  scheduleInvalidation.get(globalMutate)?.forEach(listener =>
+    listener(key => plannerCacheDomainForKey(key, accountId) === 'schedule'));
+  void globalMutate(key => {
+    const domain = plannerCacheDomainForKey(key, accountId);
+    return domain === 'routine' || domain === 'schedule';
+  }, undefined);
 }

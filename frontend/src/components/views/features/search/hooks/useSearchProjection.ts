@@ -56,6 +56,7 @@ export function useSearchProjection(
       input.notes,
       input.folders,
       input.schedules,
+      input.schedulesState,
       input.todos,
       input.todosState,
       input.routines,

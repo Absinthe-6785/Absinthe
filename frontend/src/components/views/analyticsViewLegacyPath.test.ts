@@ -170,4 +170,13 @@ describe('AnalyticsView legacy rollback path', () => {
       routines: [{ id: 'r', text: 'routine', is_active: true, done: true }],
     })).toContain('1 of 1');
   });
+
+  it('does not claim the Schedule fallback is empty while deferred or failed', async () => {
+    const { AnalyticsView } = await import('./AnalyticsView');
+    const render = (schedulesState: AnalyticsProps['schedulesState']) =>
+      renderToStaticMarkup(createElement(AnalyticsView, { ...analyticsProps(), schedulesState }));
+    expect(render({ status: 'LOADING', validating: true })).toContain('k111GroupLoading');
+    expect(render({ status: 'ERROR', validating: false })).not.toContain('No schedules in this period.');
+    expect(render({ status: 'READY_EMPTY', validating: false })).toContain('No schedules in this period.');
+  });
 });

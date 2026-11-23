@@ -72,11 +72,32 @@ export const fetcher = async <T = unknown>(
     try {
       // A scoped caller may drop demand while a transient retry is waiting.
       if (readOwner) assertReadNeeded?.();
+      const revision = readOwner?.renewal?.revision();
       const res = readOwner ? await authFetch(url, {}, { readOwner }) : await authFetch(url);
       if (readOwner) assertRuntimeSessionReadOwner(readOwner);
 
       if (!res.ok) {
-        if (readOwner && res.status === 401) throw new SessionReadUnauthorizedError();
+        if (readOwner && res.status === 401) {
+          const needed = () => { assertReadNeeded?.(); assertRuntimeSessionReadOwner(readOwner); };
+          needed();
+          if (revision && await readOwner.renewal?.wait(revision, needed)) {
+            needed();
+            // One dispatch only: do not reenter the transient retry loop.
+            try {
+              const retry = await authFetch(url, {}, { readOwner, onRequestStart: needed });
+              needed();
+              if (!retry.ok) throw new SessionReadUnauthorizedError();
+              const value = await retry.json() as T;
+              needed();
+              return value;
+            } catch {
+              needed();
+              throw new SessionReadUnauthorizedError();
+            }
+          }
+          needed();
+          throw new SessionReadUnauthorizedError();
+        }
         const body = await res.text().catch(() => '');
         if (readOwner) assertRuntimeSessionReadOwner(readOwner);
         const path = url.replace(/^https?:\/\/[^/]+/, '');

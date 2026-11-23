@@ -3,7 +3,8 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { SWRConfig } from 'swr';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { setRuntimeAccountSyncAccount } from '../../lib/remoteBoundary';
+import { runtimeSessionReadOwner, setRuntimeAccountSyncAccount } from '../../lib/remoteBoundary';
+import { accountBoundCacheKey } from '../../lib/accountBoundRemote';
 import { useDailyData } from '../../hooks/useDaily';
 import type { PlannerViewProps } from './PlannerView';
 import { PlannerView } from './PlannerView';
@@ -38,6 +39,7 @@ vi.mock('../../lib/fetcher', () => ({
     return Promise.resolve(structuredClone(response) as T);
   },
   isLocalOnlyRemotePausedError: () => false,
+  SessionReadUnauthorizedError: class extends Error {},
 }));
 vi.mock('../../hooks/useApiMutation', () => ({
   useApiMutation: () => ({ mutate: harness.apiMutation }),
@@ -193,8 +195,8 @@ const formatDate = (value: Date) => {
   return `${year}-${month}-${day}`;
 };
 
-function RefreshHarness({ account, date }: { account: string | null; date: string }) {
-  const daily = useDailyData(date, undefined, account ?? undefined, false, false, false);
+function RefreshHarness({ account, date, consumerActive }: { account: string | null; date: string; consumerActive?: boolean }) {
+  const daily = useDailyData(date, undefined, account ?? undefined, false, false, false, undefined, consumerActive);
   const selectedDate = localDate(date);
   const props: PlannerViewProps = {
     now: { toFormat: () => date } as never,
@@ -221,6 +223,7 @@ function RefreshHarness({ account, date }: { account: string | null; date: strin
     mutateRoutines: daily.mutateRoutines,
     isScheduleLoading: daily.isScheduleLoading,
     revalidateSelectedDaySchedules: daily.revalidateSelectedDaySchedules,
+    onScheduleMutationCommitted: daily.onScheduleMutationCommitted,
   } as PlannerViewProps;
   return createElement(PlannerView, props);
 }
@@ -246,11 +249,12 @@ const swrConfig = {
   revalidateOnReconnect: false,
 };
 
-async function render(account: string | null, date = '2026-09-18') {
+async function render(account: string | null, date = '2026-09-18', consumerActive?: boolean) {
   harness.activeAccount = account;
-  setRuntimeAccountSyncAccount(account);
+  setRuntimeAccountSyncAccount(account,
+    consumerActive && runtimeSessionReadOwner('schedule')?.accountId !== account ? () => undefined : undefined);
   await act(async () => root.render(createElement(SWRConfig, { value: swrConfig },
-    createElement(RefreshHarness, { key: account ?? 'anonymous', account, date }))));
+    createElement(RefreshHarness, { key: account ?? 'anonymous', account, date, consumerActive }))));
 }
 
 async function flush(): Promise<void> {
@@ -431,6 +435,41 @@ describe('Schedule explicit cross-device refresh', () => {
     expect(host.querySelector('[data-testid="month-source"]')?.textContent).toBe('');
     expect(host.textContent).not.toContain('Moving Schedule');
     expect(host.querySelector('[data-schedule-month-mutation-status]')?.getAttribute('data-schedule-month-mutation-status')).toBe('success');
+  });
+
+  it('invalidates only the original date after PUT; the form date is not persisted', async () => {
+    const account = 'account-a', visible = '2026-09-26', origin = '2026-09-23';
+    const cachedRows = (date: string) =>
+      (cache.get(accountBoundCacheKey(`https://example.invalid${datePath(date)}`, account)!) as { data?: ScheduleRow[] })?.data;
+    for (const date of [origin, visible]) {
+      initialServerState(account, date);
+      if (date === visible) harness.server[serverKey(account, datePath(date))] =
+        [{ ...schedule('unrelated-visible', 'Unrelated visible', date), start_time: '14:00', end_time: '15:00' }];
+      harness.server[serverKey(account, monthRangePath(date))] =
+        monthPage([schedule('moving-off-date', 'Moving off-date', origin)], date);
+      await render(account, date, true);
+      await flush();
+      expect(cachedRows(date)).toHaveLength(1);
+    }
+    await click('[data-month-schedule-id="moving-off-date"]');
+    await click('[data-testid="edit-month-schedule"]');
+    await setInputValue('input[type="date"]', visible);
+    harness.apiMutation.mockResolvedValue(false);
+    await clickSaveSchedule();
+    expect(cachedRows(origin)).toHaveLength(1);
+    expect(cachedRows(visible)).toHaveLength(1);
+    harness.apiMutation.mockResolvedValue(true);
+    harness.failNextPath = datePath(visible);
+    harness.requests = [];
+    await clickSaveSchedule();
+    await flush();
+    expect(harness.apiMutation).toHaveBeenLastCalledWith('PUT', '/api/schedules/moving-off-date',
+      expect.objectContaining({ date: visible }), expect.objectContaining({ revalidate: 'static' }));
+    expect(cachedRows(origin)).toBeUndefined();
+    expect(cachedRows(visible)).toHaveLength(1);
+    expect(host.querySelector('[data-testid="selected-source"]')?.textContent).toBe('Unrelated visible');
+    expect(harness.requests.some(request => request.path === datePath(origin)
+      || request.path === datePath(visible))).toBe(false);
   });
 
   it('refreshes the displayed month after a confirmed delete', async () => {
@@ -889,10 +928,10 @@ describe('Schedule explicit cross-device refresh', () => {
     expect(previousA).toBe('2026-09-17');
   });
 
-  it('refreshes visible Schedule sources only after a 60-second foreground return and leaves manual refresh unrestricted', async () => {
+  it.each(['legacy', 'active consumer'] as const)('%s: refreshes visible Schedule sources only after a 60-second foreground return and leaves manual refresh unrestricted', async mode => {
     const date = '2026-09-18';
     const previousDate = initialServerState('account-a', date);
-    await render('account-a', date);
+    await render('account-a', date, mode === 'active consumer' ? true : undefined);
     await flush();
     harness.server[serverKey('account-a', datePath(date))] = [schedule('foreground-selected', 'Foreground selected', date)];
     harness.server[serverKey('account-a', datePath(previousDate))] = [schedule('foreground-previous', 'Foreground previous', previousDate)];

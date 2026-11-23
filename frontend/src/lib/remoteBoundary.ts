@@ -22,6 +22,11 @@ type AuthorizeSessionRead = (headers: Headers) => void;
 export interface RuntimeSessionReadOwner {
   readonly accountId: string;
   readonly signal: AbortSignal;
+  /** Issued only to the selected-day Schedule reader by the auth boundary. */
+  readonly renewal?: {
+    revision: () => object | null;
+    wait: (issued: object, stillNeeded: () => void) => Promise<boolean>;
+  };
 }
 
 export class SessionReadOwnerChangedError extends Error {
@@ -37,6 +42,45 @@ let runtimeReadOwner: {
   authorize: AuthorizeSessionRead;
 } | null = null;
 
+let scheduleReadOwner: {
+  owner: RuntimeSessionReadOwner;
+  controller: AbortController;
+  renewed: EventTarget;
+} | null = null;
+
+function createScheduleReadOwner(accountId: string): NonNullable<typeof scheduleReadOwner> {
+  const controller = new AbortController();
+  const renewed = new EventTarget();
+  const revision = (): object | null => scheduleReadOwner?.owner === owner ? runtimeReadOwner?.owner ?? null : null;
+  const owner: RuntimeSessionReadOwner = {
+    accountId,
+    signal: controller.signal,
+    renewal: {
+      revision,
+      wait: (issued, stillNeeded) => {
+        stillNeeded();
+        if (controller.signal.aborted) return Promise.resolve(false);
+        if (revision() !== issued) return Promise.resolve(revision() !== null);
+        // Observe the auth owner; this read never refreshes/clears the SDK's
+        // mutable session. Keep a failed manual refresh bounded.
+        return new Promise<boolean>(resolve => {
+          const finish = () => {
+            clearTimeout(timer);
+            renewed.removeEventListener('renewed', finish);
+            controller.signal.removeEventListener('abort', finish);
+            const next = revision();
+            resolve(next !== null && next !== issued && !controller.signal.aborted);
+          };
+          const timer = setTimeout(finish, 1_500);
+          renewed.addEventListener('renewed', finish, { once: true });
+          controller.signal.addEventListener('abort', finish, { once: true });
+        });
+      },
+    },
+  };
+  return { owner, controller, renewed };
+}
+
 function runtimeCapabilityEnabled(): boolean {
   const disabled = import.meta.env.VITE_ABSINTHE_ACCOUNT_SYNC_DISABLED;
   return disabled !== true && disabled !== 'true' && disabled !== '1';
@@ -51,33 +95,42 @@ export function setRuntimeAccountSyncAccount(
   accountId: string | null | undefined,
   /** Omitted for an unchanged session; null revokes read ownership. */
   authorizeRead?: AuthorizeSessionRead | null,
+  /** Only the App auth owner may attest a TOKEN_REFRESHED successor. */
+  confirmedScheduleRenewal = false,
 ): void {
   const nextId = accountId?.trim() || null;
   if (nextId === runtimeAccountId && authorizeRead === undefined) return;
   const previous = runtimeReadOwner;
+  const previousSchedule = scheduleReadOwner;
+  const continues = confirmedScheduleRenewal && previousSchedule?.owner.accountId === nextId;
   runtimeAccountId = nextId;
   if (nextId && authorizeRead) {
     const controller = new AbortController();
     runtimeReadOwner = { owner: { accountId: nextId, signal: controller.signal }, controller, authorize: authorizeRead };
+    scheduleReadOwner = continues ? previousSchedule : createScheduleReadOwner(nextId);
   } else {
     runtimeReadOwner = null;
+    scheduleReadOwner = null;
   }
+  if (scheduleReadOwner === previousSchedule) scheduleReadOwner?.renewed.dispatchEvent(new Event('renewed'));
+  else previousSchedule?.controller.abort();
   previous?.controller.abort();
 }
 
-export function runtimeSessionReadOwner(): RuntimeSessionReadOwner | null {
-  return runtimeReadOwner?.owner ?? null;
+export function runtimeSessionReadOwner(source?: 'schedule'): RuntimeSessionReadOwner | null {
+  return (source === 'schedule' ? scheduleReadOwner : runtimeReadOwner)?.owner ?? null;
 }
 
 export function assertRuntimeSessionReadOwner(owner: RuntimeSessionReadOwner): void {
-  if (owner.signal.aborted || runtimeSessionReadOwner() !== owner) {
+  if (owner.signal.aborted || (runtimeReadOwner?.owner !== owner && scheduleReadOwner?.owner !== owner)) {
     throw new SessionReadOwnerChangedError();
   }
 }
 
 export function authorizeRuntimeSessionRead(owner: RuntimeSessionReadOwner, headers: Headers): void {
   const current = runtimeReadOwner;
-  if (current?.owner !== owner || owner.signal.aborted) throw new SessionReadOwnerChangedError();
+  if (!current) throw new SessionReadOwnerChangedError();
+  assertRuntimeSessionReadOwner(owner);
   current.authorize(headers);
 }
 

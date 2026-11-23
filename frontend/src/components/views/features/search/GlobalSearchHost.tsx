@@ -22,6 +22,7 @@ export interface GlobalSearchHostProps {
   accountId?: string;
   appSettings: AppSettings;
   schedules: readonly Schedule[];
+  schedulesState?: SearchDatasetState;
   todos: readonly Todo[];
   todosState?: SearchDatasetState;
   routines: readonly Routine[];
@@ -45,6 +46,7 @@ export function GlobalSearchHost({
   appSettings,
   onSearchHasQueryChange,
   schedules,
+  schedulesState,
   todos,
   todosState,
   routines,
@@ -176,6 +178,7 @@ export function GlobalSearchHost({
     notes,
     folders,
     schedules,
+    schedulesState,
     todos,
     todosState,
     routines,

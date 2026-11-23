@@ -7,7 +7,7 @@ import { remoteSWRKey } from '../../lib/remoteBoundary';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useEscapeKey } from '../../hooks/useEscapeKey';
 import { useTranslation } from '../../lib/i18n';
-import { weeklyScheduleReadNotice as routineReadNotice } from '../../lib/searchReadiness';
+import { weeklyScheduleReadNotice as sourceReadNotice } from '../../lib/searchReadiness';
 import { AnalyticsProps, Schedule, Routine } from '../../types';
 import { ConfirmModal } from '../common/ConfirmModal';
 
@@ -48,7 +48,7 @@ const formatHeatmapTooltip = (d: HeatmapDay): string => {
 };
 
 export function LegacyAnalyticsView({
-  now, showToast, schedules,
+  now, showToast, schedules, schedulesState,
   appSettings, theme, routines, routinesState, formatDate,
 }: AnalyticsProps) {
   const { t } = useTranslation();
@@ -101,6 +101,7 @@ export function LegacyAnalyticsView({
   );
 
   const analyticsSchedules: Schedule[] = rangeSchedules ?? schedules;
+  const scheduleNotice = rangeSchedules === undefined ? sourceReadNotice(schedulesState) : undefined;
 
   const thisWeekDates = useMemo(() => {
     const today = now.toJSDate();
@@ -159,7 +160,7 @@ export function LegacyAnalyticsView({
   );
   const routinesMarkedToday = routines?.filter((r: Routine) => r.done).length ?? 0;
   const routinesTotalToday = routines?.length ?? 0;
-  const routineNotice = routineReadNotice(routinesState);
+  const routineNotice = sourceReadNotice(routinesState);
 
   const computedStats = useMemo(() => {
     if (!analyticsSchedules?.length) return [];
@@ -323,7 +324,11 @@ export function LegacyAnalyticsView({
             </h2>
             <div className="flex flex-col space-y-4 max-h-[320px] lg:max-h-[400px] overflow-y-auto pr-1">
               {isRangeLoading && <p className={`text-sm ${theme.textMuted} text-center`}>Loading…</p>}
-              {!isRangeLoading && computedStats.length === 0 && <p className={`text-sm ${theme.textMuted} text-center`}>No schedules in this period.</p>}
+              {!isRangeLoading && computedStats.length === 0 && (
+                <p role={scheduleNotice ? 'status' : undefined} className={`text-sm ${theme.textMuted} text-center`}>
+                  {scheduleNotice ? t(scheduleNotice) : 'No schedules in this period.'}
+                </p>
+              )}
               {computedStats.map((stat) => (
                 <div key={stat.cat}>
                   <div className="flex justify-between items-end mb-1.5">
@@ -513,12 +518,16 @@ export function LegacyAnalyticsView({
                 <h2 className="font-heading text-base font-bold flex items-center gap-2">
                   <Clock size={18} className="text-primary"/> Today&apos;s Schedule
                 </h2>
-                <span className={`text-xs font-bold px-3 py-1 rounded-xl ${appSettings.darkMode ? 'bg-primary/10 text-primary' : 'bg-yellow-50 text-yellow-700'}`}>
-                  {dailyStats.totalHrs}h total
-                </span>
+                {(!scheduleNotice || dailyStats.items.length > 0) && (
+                  <span className={`text-xs font-bold px-3 py-1 rounded-xl ${appSettings.darkMode ? 'bg-primary/10 text-primary' : 'bg-yellow-50 text-yellow-700'}`}>
+                    {dailyStats.totalHrs}h total
+                  </span>
+                )}
               </div>
               {dailyStats.items.length === 0 ? (
-                <p className={`text-sm text-center py-4 ${theme.textMuted}`}>No schedules today.</p>
+                <p role={scheduleNotice ? 'status' : undefined} className={`text-sm text-center py-4 ${theme.textMuted}`}>
+                  {scheduleNotice ? t(scheduleNotice) : 'No schedules today.'}
+                </p>
               ) : (
                 <div className="space-y-2 max-h-[280px] overflow-y-auto pr-1">
                   {dailyStats.items.map((item, i) => {

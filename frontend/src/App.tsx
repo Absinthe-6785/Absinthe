@@ -5,7 +5,7 @@
  * 비즈니스 로직은 모두 hooks / components로 이전.
  */
 import { lazy, Suspense, useState, useEffect, useRef } from 'react';
-import { User } from '@supabase/supabase-js';
+import type { AuthChangeEvent, User } from '@supabase/supabase-js';
 import { Loader2 } from 'lucide-react';
 import { supabase } from './lib/supabase';
 import { LoginScreen } from './components/views/LoginScreen';
@@ -14,6 +14,20 @@ import { setRuntimeAccountSyncAccount } from './lib/remoteBoundary';
 import { replaceGoogleDriveRuntimeAccount } from './lib/googleDriveSessionRuntime';
 
 const AppContent = lazy(() => import('./components/AppContent').then(module => ({ default: module.AppContent })));
+
+/** Compare lineage only for tokens delivered by the SDK auth boundary. */
+function sdkSessionId(session: { accountId: string; accessToken: string } | null): string | null {
+  try {
+    const payload = session?.accessToken.split('.')[1];
+    if (!payload) return null;
+    const { sub, session_id } = JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')));
+    return sub === session?.accountId && typeof session_id === 'string'
+      && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(session_id)
+      ? session_id : null;
+  } catch {
+    return null;
+  }
+}
 
 // ─── 폰트 글로벌 스타일 ────────────────────────────────────────────
 const GlobalStyle = () => (
@@ -41,7 +55,7 @@ export default function App() {
     setRuntimeAccountSyncAccount(null);
     replaceGoogleDriveRuntimeAccount(null);
 
-    const applySession = (session: { user: User; access_token?: string; refresh_token?: string } | null) => {
+    const applySession = (session: { user: User; access_token?: string; refresh_token?: string } | null, event?: AuthChangeEvent) => {
       const nextReadOnlyOwner = session?.access_token
         ? { accountId: session.user.id, accessToken: session.access_token, refreshToken: session.refresh_token ?? '' } : null;
       const sameReadOnlyOwner = nextReadOnlyOwner === null
@@ -51,10 +65,14 @@ export default function App() {
           && nextReadOnlyOwner.refreshToken === readOnlyOwner.refreshToken;
       // Reuse the existing exact session comparison. Never expose the tokens
       // in cache keys, React props, or diagnostics.
+      const renewedId = event === 'TOKEN_REFRESHED' ? sdkSessionId(nextReadOnlyOwner) : null;
+      const confirmedRenewal = !!renewedId && nextReadOnlyOwner?.accountId === readOnlyOwner?.accountId
+        && renewedId === sdkSessionId(readOnlyOwner)
+        && nextReadOnlyOwner?.accessToken !== readOnlyOwner?.accessToken;
       setRuntimeAccountSyncAccount(session?.user.id ?? null,
         sameReadOnlyOwner ? undefined : nextReadOnlyOwner
           ? headers => { headers.set('Authorization', `Bearer ${nextReadOnlyOwner.accessToken}`); }
-          : null);
+          : null, confirmedRenewal);
       const nextOwner = session?.access_token
         ? { accountId: session.user.id, token: session.access_token } : null;
       if (!nextOwner || !driveOwner || nextOwner.accountId !== driveOwner.accountId || nextOwner.token !== driveOwner.token) {
@@ -71,9 +89,9 @@ export default function App() {
     };
 
     const initialRevision = authRevision;
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       authRevision += 1;
-      if (!disposed) applySession(session);
+      if (!disposed) applySession(session, event);
     });
 
     supabase.auth.getSession()
