@@ -30,7 +30,6 @@ import { getRecoveryEntry } from './features/health/recovery/recoveryNotes';
 import { useWorkoutSummaryCopy } from './features/health/useWorkoutSummaryCopy';
 import { WORKSPACE_CARD, WORKSPACE_CARD_RADIUS_CLASS, WORKSPACE_CARD_SURFACE, WORKSPACE_MODAL_SURFACE } from '../common/workspaceCardSizes';
 import { formatAbsoluteDateKey, formatLongDate } from './k102DateFormat';
-import { buildHealthProjection } from './features/health/buildHealthProjection';
 import type { RangeWorkoutRow } from './features/health/workout/workoutMetrics';
 import { computeWorkoutPrBadge, createWorkoutPrBadgeMapCache } from './features/health/computeWorkoutPrBadge';
 import { HealthBlockLibrary } from './features/health/HealthBlockLibrary';
@@ -1821,7 +1820,7 @@ export const HealthView = ({
     : localMode
       ? ['local-health-workout-range', user.id, monthStart, monthEnd] as const
       : remoteSWRKey(`${API_URL}/api/workouts/range?start_date=${monthStart}&end_date=${monthEnd}`, 'health_workouts');
-  const { data: monthWorkoutRows = [], mutate: mutateMonthWorkoutRows } = useSWR<RangeWorkoutRow[]>(
+  const { data: monthWorkoutRows, mutate: mutateMonthWorkoutRows } = useSWR<RangeWorkoutRow[]>(
     rangeKey,
     localMode
       ? ([, accountId, startDate, endDate]) => readLocalHealthWorkoutRange(accountId, startDate, endDate)
@@ -1953,13 +1952,15 @@ export const HealthView = ({
     ? () => openPreviousDay('composite', compositePreviousProjection.effectiveDate!)
     : undefined;
 
-  const healthProjection = useMemo(() => buildHealthProjection({
-    rangeWorkouts: monthWorkoutRows,
-    selectedDateKey,
-    weightUnits,
-  }), [monthWorkoutRows, selectedDateKey, weightUnits]);
-
-  const workoutDates = healthProjection.workoutDates;
+  // The legacy calendar only needs date markers, not history, charts or PRs.
+  const workoutDates = useMemo(() => {
+    const dates = new Set<string>();
+    for (const row of monthWorkoutRows ?? []) {
+      const date = row.date;
+      if (date) dates.add(date);
+    }
+    return dates;
+  }, [monthWorkoutRows]);
   const workoutCalendarActivity = useMemo(() => workoutRangeComposite
     ? buildWorkoutCalendarActivity({
       phase: workoutRangeComposite.phase === 'settled' ? 'settled' : 'loading',
