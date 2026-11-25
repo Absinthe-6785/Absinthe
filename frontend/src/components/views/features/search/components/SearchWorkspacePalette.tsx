@@ -160,13 +160,13 @@ export function SearchWorkspacePalette({
   }, [activeIndex]);
 
   useEffect(() => {
-    if (open) {
-      setActiveIndex(0);
-      requestAnimationFrame(() => {
-        inputRef.current?.focus();
-        inputRef.current?.select();
-      });
-    }
+    if (!open) return;
+    setActiveIndex(0);
+    const frame = requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    });
+    return () => cancelAnimationFrame(frame);
   }, [open]);
 
   const flatResults = projection.results;
