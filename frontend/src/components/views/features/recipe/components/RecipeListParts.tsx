@@ -185,11 +185,11 @@ export function RecipeFormModal({
 
         {conflict && (
           <div className="abs-recipe-warning-panel mb-4 rounded-2xl border px-4 py-3" data-recipe-draft-conflict={conflict}>
-            <div className="flex items-start gap-2 text-sm">
+            <div className="flex items-start gap-2 text-sm" role="status">
               <AlertTriangle size={16} className="mt-0.5 shrink-0" />
               <span>{t(
                 conflict === 'remote-changed'
-                  ? 'recipeDraftConflict'
+                  ? 'recipeDraftReplaceEntireConflict'
                   : conflict === 'remote-missing'
                     ? 'recipeDraftUnavailable'
                     : 'recipeDraftRemoteUnavailable',

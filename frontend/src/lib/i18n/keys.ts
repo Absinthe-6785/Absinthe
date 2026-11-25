@@ -2422,6 +2422,7 @@ const translationKeys = [
   "recipeManualRefreshUnavailable",
   "healthCloudHeaderCheck",
   "healthCloudHeaderChecking",
+  "recipeDraftReplaceEntireConflict",
 ] as const;
 
 export type TranslationKey = (typeof translationKeys)[number];

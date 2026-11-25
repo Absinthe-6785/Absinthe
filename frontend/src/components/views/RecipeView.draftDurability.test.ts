@@ -14,6 +14,7 @@ const harness = vi.hoisted(() => ({
   account: 'account-a',
   server: {} as Record<string, { active: any[]; trash: any[] }>,
   authFetch: vi.fn(),
+  remoteRead: vi.fn(),
   mutateActive: vi.fn(),
   mutateTrash: vi.fn(),
   showToast: vi.fn(),
@@ -36,6 +37,11 @@ vi.mock('swr', () => ({
   },
 }));
 vi.mock('../../lib/supabase', () => ({ authFetch: harness.authFetch }));
+vi.mock('../../lib/remoteBoundary', () => ({ remoteSWRKey: (url: string) => url }));
+vi.mock('../../lib/accountBoundRemote', async (original) => ({
+  ...await original<typeof import('../../lib/accountBoundRemote')>(),
+  accountBoundRemoteFetcher: harness.remoteRead,
+}));
 vi.mock('../../lib/config', () => ({ API_URL: 'https://api.example.test' }));
 vi.mock('../../lib/i18n', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -90,11 +96,13 @@ import { RecipeView } from './RecipeView';
 
 const emptyForm = { title: '', category: 'Korean', ingredients: '', steps: '', memo: '', starred: false };
 const draftForm = { title: 'Local soup', category: 'Other', ingredients: 'water', steps: 'boil', memo: 'warm', starred: true };
+const revision = '00000000-0000-4000-8000-000000000001';
+const nextRevision = '00000000-0000-4000-8000-000000000002';
 
 function recipe(id: string, title = 'Saved soup') {
   return {
     id, title, category: 'Other', ingredients: 'water', steps: 'boil', memo: '', starred: false,
-    created_at: '2026-09-01T00:00:00Z', deleted_at: null,
+    created_at: '2026-09-01T00:00:00Z', deleted_at: null, edit_revision: revision,
   };
 }
 
@@ -136,6 +144,7 @@ beforeEach(() => {
   harness.account = 'account-a';
   harness.server = { 'account-a': { active: [recipe('recipe-a')], trash: [] }, 'account-b': { active: [recipe('recipe-b', 'B soup')], trash: [] } };
   harness.authFetch.mockReset();
+  harness.remoteRead.mockReset();
   harness.mutateActive.mockReset();
   harness.mutateTrash.mockReset();
   harness.showToast.mockReset();
@@ -212,6 +221,7 @@ describe('Recipe draft durability production path', () => {
     const stored = readRecipeDraft('account-a').draft;
     expect(stored).toEqual(expect.objectContaining({
       mode: 'edit', recipeId: 'recipe-a', baseSnapshot: expect.objectContaining({ title: 'Saved soup' }),
+      baseRevision: revision,
     }));
 
     act(() => root.render(null)); await flush();
@@ -412,7 +422,9 @@ describe('Recipe draft durability production path', () => {
     await act(async () => { await harness.formProps?.onSave(); }); await flush();
     expect(readRecipeDraft('account-a').draft).not.toBeNull();
 
-    harness.authFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ ...edited, id: 'recipe-a', created_at: '2026-09-01', deleted_at: null }) } as Response);
+    harness.authFetch.mockResolvedValueOnce({ ok: true, json: async () => ({
+      ...edited, id: 'recipe-a', created_at: '2026-09-01', deleted_at: null, edit_revision: nextRevision,
+    }) } as Response);
     await act(async () => { await harness.formProps?.onSave(); }); await flush();
     expect(readRecipeDraft('account-a').draft).toBeNull();
   });
@@ -429,7 +441,7 @@ describe('Recipe draft durability production path', () => {
     restoreStorageSpies.push(() => removeItemSpy.mockRestore());
     harness.authFetch.mockResolvedValue({
       ok: true,
-      json: async () => ({ ...edited, id: remote.id, created_at: remote.created_at, deleted_at: null }),
+      json: async () => ({ ...edited, id: remote.id, created_at: remote.created_at, deleted_at: null, edit_revision: nextRevision }),
     } as Response);
 
     await act(async () => { await staleSave(); }); await flush();
@@ -446,6 +458,136 @@ describe('Recipe draft durability production path', () => {
     await flush();
     expect(harness.authFetch).toHaveBeenCalledTimes(1);
     expect(readRecipeDraft('account-a').draft).toBeNull();
+  });
+
+  it('preserves an open draft on an atomic conflict and only uses the winner revision after explicit review', async () => {
+    const remote = recipe('recipe-a');
+    render('account-a'); await flush();
+    act(() => harness.studioProps?.onEdit(remote)); await flush();
+    const edited = { ...draftForm, title: 'Laptop title' };
+    await setForm(edited);
+    const draftBefore = readRecipeDraft('account-a').draft;
+    const winner = { ...remote, user_id: 'account-a', memo: 'Phone memo', edit_revision: nextRevision };
+    harness.authFetch.mockResolvedValueOnce(new Response(JSON.stringify({
+      detail: { code: 'RECIPE_EDIT_CONFLICT', current: winner },
+    }), { status: 409 }));
+    await act(async () => { await harness.formProps?.onSave(); }); await flush();
+    expect(harness.authFetch).toHaveBeenCalledWith(expect.stringMatching(/\/recipe-a$/), {
+      method: 'PATCH', body: JSON.stringify({ ...edited, expected_revision: revision }),
+    });
+    expect(harness.formProps?.conflict).toBe('remote-changed');
+    expect(harness.formProps?.form).toEqual(edited);
+    expect(readRecipeDraft('account-a').draft).toEqual(draftBefore);
+    expect(harness.showToast).not.toHaveBeenCalledWith('recipeUpdated');
+    const editedDuringConflict = { ...edited, steps: 'Still typing after conflict' };
+    await setForm(editedDuringConflict);
+    expect(harness.formProps?.conflict).toBe('remote-changed');
+    expect(readRecipeDraft('account-a').draft?.form).toEqual(editedDuringConflict);
+    await act(async () => { await harness.formProps?.onSave(); });
+    expect(harness.authFetch).toHaveBeenCalledTimes(1);
+    act(() => harness.formProps?.onUseLocal()); await flush();
+    expect(harness.authFetch).toHaveBeenCalledTimes(1);
+    expect(readRecipeDraft('account-a').draft?.baseRevision).toBe(nextRevision);
+    expect(harness.formProps?.form).toEqual(editedDuringConflict);
+    const editedAfterRebase = { ...editedDuringConflict, steps: 'Still typing after explicit review' };
+    await setForm(editedAfterRebase);
+    expect(harness.formProps?.conflict).toBeNull();
+    expect(readRecipeDraft('account-a').draft?.baseRevision).toBe(nextRevision);
+    harness.authFetch.mockResolvedValueOnce(new Response(null, { status: 503 }));
+    await act(async () => { await harness.formProps?.onSave(); });
+    expect(harness.authFetch).toHaveBeenLastCalledWith(expect.stringMatching(/\/recipe-a$/), {
+      method: 'PATCH', body: JSON.stringify({ ...editedAfterRebase, expected_revision: nextRevision }),
+    });
+    expect(readRecipeDraft('account-a').draft?.form).toEqual(editedAfterRebase);
+  });
+
+  it('makes a legacy draft review the current version even when its original content still matches', async () => {
+    const remote = recipe('recipe-a');
+    writeRecipeDraft(envelope({ mode: 'edit', recipeId: remote.id, baseSnapshot: remote }));
+    render('account-a'); await flush();
+    expect(harness.formProps?.conflict).toBe('remote-changed');
+    await act(async () => { await harness.formProps?.onSave(); });
+    expect(harness.authFetch).not.toHaveBeenCalled();
+    expect(readRecipeDraft('account-a').draft?.form).toEqual(draftForm);
+  });
+
+  it('leaves a closed conflicted draft closed and keeps its conflict when explicitly reopened', async () => {
+    const remote = recipe('recipe-a');
+    render('account-a'); await flush();
+    act(() => harness.studioProps?.onEdit(remote)); await flush();
+    await setForm(draftForm);
+    harness.authFetch.mockResolvedValueOnce(new Response(JSON.stringify({
+      detail: { code: 'RECIPE_EDIT_CONFLICT', current: {
+        ...remote, user_id: 'account-a', memo: 'Phone memo', edit_revision: nextRevision,
+      } },
+    }), { status: 409 }));
+    await act(async () => { await harness.formProps?.onSave(); }); await flush();
+    act(() => harness.formProps?.onClose()); await flush();
+    expect(harness.formProps?.show).toBe(false);
+    expect(readRecipeDraft('account-a').draft?.form).toEqual(draftForm);
+    act(() => harness.studioProps?.onEdit(remote)); await flush();
+    expect(harness.formProps?.conflict).toBe('remote-changed');
+    await act(async () => { await harness.formProps?.onSave(); });
+    expect(harness.authFetch).toHaveBeenCalledTimes(1);
+    act(() => harness.formProps?.onUseLocal()); await flush();
+    expect(readRecipeDraft('account-a').draft?.baseRevision).toBe(nextRevision);
+    act(() => harness.formProps?.onClose()); await flush();
+    act(() => harness.studioProps?.onEdit(remote)); await flush();
+    expect(harness.formProps?.conflict).toBeNull();
+    expect(readRecipeDraft('account-a').draft?.baseRevision).toBe(nextRevision);
+  });
+
+  it('uses a fresh account read to recover an unconfirmed conflict without rebasing a changed version', async () => {
+    const remote = recipe('recipe-a');
+    render('account-a'); await flush();
+    act(() => harness.studioProps?.onEdit(remote)); await flush();
+    await setForm(draftForm);
+    harness.authFetch.mockResolvedValueOnce(new Response('{}', { status: 409 }));
+    await act(async () => { await harness.formProps?.onSave(); }); await flush();
+    expect(harness.formProps?.conflict).toBe('remote-unavailable');
+    harness.remoteRead.mockRejectedValueOnce(new Error('offline'));
+    await act(async () => { await harness.formProps?.onRetryAuthority(); });
+    expect(harness.formProps?.conflict).toBe('remote-unavailable');
+    harness.remoteRead.mockResolvedValueOnce([{ ...remote, memo: 'Latest', edit_revision: nextRevision }]);
+    await act(async () => { await harness.formProps?.onRetryAuthority(); }); await flush();
+    expect(harness.remoteRead).toHaveBeenLastCalledWith(expect.stringContaining('absinthe-account=account-a'));
+    expect(harness.formProps?.conflict).toBe('remote-changed');
+    expect(readRecipeDraft('account-a').draft?.baseRevision).toBe(revision);
+    expect(harness.authFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses the verified retry revision on the first edit despite a revisionless cached row', async () => {
+    const remote = recipe('recipe-a');
+    const revisionless = { ...remote, edit_revision: undefined };
+    harness.server['account-a'].active = [revisionless];
+    render('account-a'); await flush();
+    act(() => harness.studioProps?.onEdit(revisionless)); await flush();
+    expect(harness.formProps?.conflict).toBe('remote-unavailable');
+    harness.remoteRead.mockResolvedValueOnce([remote]);
+    await act(async () => { await harness.formProps?.onRetryAuthority(); }); await flush();
+    expect(harness.formProps?.conflict).toBeNull();
+    await setForm(draftForm);
+    expect(harness.formProps?.conflict).toBeNull();
+    harness.authFetch.mockResolvedValueOnce(new Response(null, { status: 503 }));
+    await act(async () => { await harness.formProps?.onSave(); }); await flush();
+    expect(harness.authFetch).toHaveBeenCalledWith(expect.stringMatching(/\/recipe-a$/), {
+      method: 'PATCH', body: JSON.stringify({ ...draftForm, expected_revision: revision }),
+    });
+    expect(readRecipeDraft('account-a').draft?.baseRevision).toBe(revision);
+  });
+
+  it('does not offer a nonexistent local draft on an untouched edit conflict', async () => {
+    const remote = recipe('recipe-a');
+    render('account-a'); await flush();
+    act(() => harness.studioProps?.onEdit(remote)); await flush();
+    harness.authFetch.mockResolvedValueOnce(new Response(JSON.stringify({
+      detail: { code: 'RECIPE_EDIT_CONFLICT', current: {
+        ...remote, user_id: 'account-a', memo: 'Updated', edit_revision: nextRevision,
+      } },
+    }), { status: 409 }));
+    await act(async () => { await harness.formProps?.onSave(); }); await flush();
+    expect(harness.formProps?.conflict).toBe('remote-changed');
+    expect(harness.formProps?.onUseLocal).toBeUndefined();
   });
 
   it('blocks duplicate Create and Update submissions while one save is in flight', async () => {

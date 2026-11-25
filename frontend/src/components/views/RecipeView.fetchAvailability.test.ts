@@ -106,13 +106,13 @@ const theme = { card: '', input: '', border: '', text: '', textMuted: '', hoverB
 const draftForm = { title: 'Local soup', category: 'Other', ingredients: 'water', steps: 'boil', memo: 'draft', starred: false };
 
 function recipe(id = 'recipe-a', title = 'Saved soup') {
-  return { id, title, category: 'Other', ingredients: 'water', steps: 'boil', memo: '', starred: false, created_at: '2026-09-01T00:00:00Z', deleted_at: null };
+  return { id, title, category: 'Other', ingredients: 'water', steps: 'boil', memo: '', starred: false, created_at: '2026-09-01T00:00:00Z', deleted_at: null, edit_revision: '00000000-0000-4000-8000-000000000001' };
 }
 
 function editDraft(remote: ReturnType<typeof recipe>): RecipeDraftEnvelope {
   return {
     version: 1, accountId: 'account-a', mode: 'edit', recipeId: remote.id,
-    form: draftForm, baseSnapshot: recipeToDraftForm(remote), generation: 1,
+    form: draftForm, baseSnapshot: recipeToDraftForm(remote), baseRevision: remote.edit_revision, generation: 1,
   };
 }
 

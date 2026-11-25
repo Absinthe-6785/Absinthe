@@ -2422,6 +2422,7 @@ const enTranslations = [
   "Recipe refresh is unavailable right now. Existing data was kept.",
   "Check cloud changes",
   "Checking cloud changes…",
+  "This draft is not based on the current saved recipe. Use local draft does not save anything. If you then select Update, it replaces the entire saved recipe with this draft.",
 ] as const;
 
 export default enTranslations;

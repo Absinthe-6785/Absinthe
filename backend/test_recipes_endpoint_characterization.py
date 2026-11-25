@@ -21,6 +21,8 @@ import main
 
 USER_ID = "recipes-user"
 OTHER_USER_ID = "other-user"
+EDIT_REVISION = "00000000-0000-4000-8000-000000000001"
+NEXT_REVISION = "00000000-0000-4000-8000-000000000002"
 _UNSET = object()
 
 
@@ -91,7 +93,7 @@ class FakeRecipeQuery:
         self.operation = "delete"
         return self
 
-    def execute(self) -> SimpleNamespace:
+    def execute(self) -> SimpleNamespace | None:
         def _matches(row: dict[str, Any]) -> bool:
             for item in self.filters:
                 if len(item) == 2:
@@ -122,6 +124,8 @@ class FakeRecipeQuery:
         if self.operation == "select":
             if self.single:
                 row = matches[0] if matches else None
+                if row is None and self.client.empty_maybe_single_response:
+                    return None
                 if row is not None and self.columns == "user_id":
                     row = {"user_id": row.get("user_id")}
                 return SimpleNamespace(data=deepcopy(row))
@@ -204,6 +208,7 @@ class FakeSupabase:
         self.update_data = update_data
         self.delete_data = delete_data
         self.before_write = before_write
+        self.empty_maybe_single_response = False
         self.executed: list[FakeRecipeQuery] = []
         self.write_queries: list[FakeRecipeQuery] = []
         self.inserted_payloads: list[dict[str, Any]] = []
@@ -348,22 +353,24 @@ def test_recipe_create_schema_and_invalid_body_contract(recipes_client):
     assert response.status_code == 422
 
 
-def test_put_success_uses_full_payload_and_returns_first_updated_row(recipes_client):
+def test_patch_success_uses_version_in_atomic_update_and_returns_confirmed_row(recipes_client):
     client, fake = recipes_client
     recipe_id = "recipe-update"
-    fake.rows[:] = [{"id": recipe_id, "user_id": USER_ID, "title": "Before"}]
+    fake.rows[:] = [{"id": recipe_id, "user_id": USER_ID, "title": "Before", "edit_revision": EDIT_REVISION}]
     raw_updated = {
         "id": recipe_id,
         "user_id": USER_ID,
         **recipe_body(title="After"),
         "created_at": "2026-08-02T00:00:00Z",
+        "deleted_at": None,
+        "edit_revision": NEXT_REVISION,
         "server_only": {"kept": True},
     }
-    fake.update_data = [raw_updated, {"id": "ignored"}]
+    fake.update_data = [raw_updated]
 
-    response = client.put(
+    response = client.patch(
         f"/api/recipes/{recipe_id}",
-        json=recipe_body(title="After"),
+        json=recipe_body(title="After", expected_revision=EDIT_REVISION),
     )
 
     assert response.status_code == 200
@@ -375,7 +382,10 @@ def test_put_success_uses_full_payload_and_returns_first_updated_row(recipes_cli
     assert lookup.filters == [("id", recipe_id)]
     assert lookup.single is True
     assert update.operation == "update"
-    assert update.filters == [("id", recipe_id), ("user_id", USER_ID), ("is", "deleted_at", "null")]
+    assert update.filters == [
+        ("id", recipe_id), ("user_id", USER_ID), ("is", "deleted_at", "null"),
+        ("edit_revision", EDIT_REVISION),
+    ]
     assert fake.updated_payloads == [
         {
             "title": "After",
@@ -388,33 +398,36 @@ def test_put_success_uses_full_payload_and_returns_first_updated_row(recipes_cli
     ]
 
 
-def test_put_missing_row_returns_404_without_write(recipes_client):
+def test_patch_missing_row_returns_404_without_write(recipes_client):
     client, fake = recipes_client
+    fake.empty_maybe_single_response = True
 
-    response = client.put("/api/recipes/missing", json=recipe_body())
+    response = client.patch("/api/recipes/missing", json=recipe_body(expected_revision=EDIT_REVISION))
 
     assert response.status_code == 404
     assert response.json() == {"detail": "Not found"}
     assert fake.write_queries == []
 
 
-def test_put_owner_mismatch_returns_403_without_write(recipes_client):
+def test_patch_owner_mismatch_returns_403_without_write(recipes_client):
     client, fake = recipes_client
     fake.rows[:] = [{"id": "recipe-other", "user_id": OTHER_USER_ID}]
 
-    response = client.put("/api/recipes/recipe-other", json=recipe_body())
+    response = client.patch("/api/recipes/recipe-other", json=recipe_body(expected_revision=EDIT_REVISION))
 
     assert response.status_code == 403
     assert response.json() == {"detail": "Forbidden"}
     assert fake.write_queries == []
 
 
-def test_put_deleted_recipe_fails_closed_without_reactivating_it(recipes_client):
+def test_patch_deleted_recipe_fails_closed_without_reactivating_it(recipes_client):
     client, fake = recipes_client
     recipe_id = "recipe-deleted-update"
     fake.rows[:] = [{"id": recipe_id, "user_id": USER_ID, "title": "Deleted", "deleted_at": "2026-08-01T00:00:00Z"}]
 
-    response = client.put(f"/api/recipes/{recipe_id}", json=recipe_body(title="Must stay deleted"))
+    response = client.patch(f"/api/recipes/{recipe_id}", json=recipe_body(
+        title="Must stay deleted", expected_revision=EDIT_REVISION,
+    ))
 
     assert response.status_code == 404
     assert response.json() == {"detail": "Not found"}
@@ -423,30 +436,31 @@ def test_put_deleted_recipe_fails_closed_without_reactivating_it(recipes_client)
     assert fake.rows[0]["deleted_at"] == "2026-08-01T00:00:00Z"
 
 
-def test_put_ownership_race_fails_closed_without_foreign_update(recipes_client):
+def test_patch_ownership_race_fails_closed_without_foreign_update(recipes_client):
     client, fake = recipes_client
     recipe_id = "recipe-race-update"
-    fake.rows[:] = [{"id": recipe_id, "user_id": USER_ID, "title": "Before"}]
+    fake.rows[:] = [{"id": recipe_id, "user_id": USER_ID, "title": "Before", "edit_revision": EDIT_REVISION}]
 
     def change_owner_before_final_update(_query):
         fake.rows[0]["user_id"] = OTHER_USER_ID
 
     fake.before_write = change_owner_before_final_update
 
-    response = client.put(
+    response = client.patch(
         f"/api/recipes/{recipe_id}",
-        json=recipe_body(title="Should not apply"),
+        json=recipe_body(title="Should not apply", expected_revision=EDIT_REVISION),
     )
 
     assert response.status_code == 404
     assert response.json() == {"detail": "Not found"}
     assert fake.rows == [
-        {"id": recipe_id, "user_id": OTHER_USER_ID, "title": "Before"}
+        {"id": recipe_id, "user_id": OTHER_USER_ID, "title": "Before", "edit_revision": EDIT_REVISION}
     ]
 
 
-def test_put_zero_row_after_owner_preread_fails_closed(recipes_client):
+def test_patch_zero_row_after_owner_preread_fails_closed(recipes_client):
     client, fake = recipes_client
+    fake.empty_maybe_single_response = True
     recipe_id = "recipe-zero-update"
     fake.rows[:] = [{"id": recipe_id, "user_id": USER_ID, "title": "Before"}]
 
@@ -455,11 +469,47 @@ def test_put_zero_row_after_owner_preread_fails_closed(recipes_client):
 
     fake.before_write = remove_before_final_update
 
-    response = client.put(f"/api/recipes/{recipe_id}", json=recipe_body())
+    response = client.patch(f"/api/recipes/{recipe_id}", json=recipe_body(expected_revision=EDIT_REVISION))
 
     assert response.status_code == 404
     assert response.json() == {"detail": "Not found"}
     assert fake.rows == []
+
+
+def test_patch_rejects_version_change_after_owner_check_and_preserves_winner(recipes_client):
+    client, fake = recipes_client
+    original = {**recipe_body(), "id": "row", "user_id": USER_ID,
+                "edit_revision": EDIT_REVISION, "deleted_at": None}
+    fake.rows[:] = [original.copy()]
+    winner = {**original, "edit_revision": NEXT_REVISION, "memo": "Phone won"}
+
+    def race(_query):
+        fake.rows[0].update(winner)
+
+    fake.before_write = race
+    payload = recipe_body(title="Stale laptop title", expected_revision=EDIT_REVISION)
+    for _ in range(2):  # The same stale base remains rejected.
+        response = client.patch("/api/recipes/row", json=payload)
+        assert response.status_code == 409
+        assert response.json()["detail"] == {"code": "RECIPE_EDIT_CONFLICT", "current": winner}
+        assert fake.rows == [winner]
+
+
+def test_patch_cannot_confirm_an_update_without_a_new_revision(recipes_client):
+    client, fake = recipes_client
+    fake.rows[:] = [{**recipe_body(), "id": "row", "user_id": USER_ID,
+                    "edit_revision": EDIT_REVISION, "deleted_at": None}]
+    assert client.patch("/api/recipes/row", json=recipe_body(
+        expected_revision=EDIT_REVISION,
+    )).status_code == 503
+
+
+def test_legacy_put_and_patch_without_valid_precondition_do_not_write(recipes_client):
+    client, fake = recipes_client
+    assert client.put("/api/recipes/row", json=recipe_body()).status_code == 428
+    assert client.patch("/api/recipes/row", json=recipe_body()).status_code == 422
+    assert client.patch("/api/recipes/row", json=recipe_body(expected_revision="invalid")).status_code == 422
+    assert not fake.executed and not fake.write_queries
 
 
 @pytest.mark.parametrize("target", [True, False])
@@ -505,7 +555,7 @@ def test_recipe_star_schema_requires_only_starred(recipes_client):
     fields = main.RecipeStarUpdate.model_fields
     assert set(fields) == {"starred"}
     assert fields["starred"].is_required()
-    assert client.put("/api/recipes/recipe", json={}).status_code == 422
+    assert client.patch("/api/recipes/recipe", json={}).status_code == 422
 
 
 def test_put_star_missing_recipe_returns_404_without_write(recipes_client):
@@ -757,7 +807,7 @@ def test_active_backup_recipe_fetch_excludes_soft_deleted_rows(recipes_client):
         "id": "a0000000-0000-0000-0000-000000000002",
         "deleted_at": "2026-08-03T00:00:00Z",
     }
-    fake.rows[:] = [active, deleted]
+    fake.rows[:] = [{**active, "edit_revision": EDIT_REVISION}, deleted]
 
     result = main._fetch_user_table(USER_ID, "recipes", "created_at")
     restore_payload = main.RestorePayload.model_validate({"recipes": result})

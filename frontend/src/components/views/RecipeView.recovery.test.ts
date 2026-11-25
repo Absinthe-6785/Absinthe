@@ -99,6 +99,7 @@ const activeRecipe = {
   memo: '',
   starred: false,
   created_at: '2026-08-01T00:00:00Z',
+  edit_revision: '00000000-0000-4000-8000-000000000001',
 };
 
 const deletedRecipe = {
@@ -185,11 +186,11 @@ describe('RecipeView delete and recovery production path', () => {
 
     mocks.authFetch.mockResolvedValue({
       ok: true,
-      json: async () => activeRecipe,
+      json: async () => ({ ...activeRecipe, edit_revision: '00000000-0000-4000-8000-000000000002' }),
     } as Response);
     await act(async () => { await mocks.formModalProps?.onSave(); });
 
-    expect(mocks.authFetch).toHaveBeenCalledWith('https://api.example.test/api/recipes/recipe-active', expect.objectContaining({ method: 'PUT' }));
+    expect(mocks.authFetch).toHaveBeenCalledWith('https://api.example.test/api/recipes/recipe-active', expect.objectContaining({ method: 'PATCH' }));
     expect(mocks.recordRecipeView).not.toHaveBeenCalled();
     expect(mocks.recordRecipeCook).not.toHaveBeenCalled();
     expect(mocks.recordRecipeEdit).not.toHaveBeenCalled();

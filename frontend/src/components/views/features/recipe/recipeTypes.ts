@@ -9,6 +9,7 @@ export interface Recipe {
   starred: boolean;
   created_at: string;
   deleted_at?: string | null;
+  edit_revision?: string;
 }
 
 export const RECIPE_CATEGORIES = [
