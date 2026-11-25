@@ -50,7 +50,6 @@ import {
   parseQuery,
   BacklinkPanel,
   ReferenceExplorerPanel,
-  buildKnowledgeMaintenanceData,
   buildStudyNote,
   buildConceptHub,
   buildLearningPath,
@@ -197,6 +196,7 @@ import {
 import { useTocScrollSpy } from './useTocScrollSpy';
 import { resetTocScrollStore, setTocScrollActiveIdx, getTocScrollActiveIdx } from './noteview/tocScrollStore';
 import { useRenderDiagnostic } from './noteview/renderDiagnostics';
+import { buildKnowledgeMaintenanceData, buildKnowledgeMaintenanceQueue } from './features/knowledge/review/buildKnowledgeMaintenance';
 import { projectNoteSyncPresentation } from './noteview/notesSyncPresentation';
 import type { VirtualScrollApiRef } from './features/block-editor/performance';
 import { footnoteAnchorId } from './footnoteUtils';
@@ -964,9 +964,15 @@ export const NoteView = ({ showToast = () => {}, accountId }: NoteViewProps) => 
     [activeNote?.id, indexContentVersion, vaultStructureVersion],
   );
 
-  const knowledgeMaintenance = useMemo(
-    () => buildKnowledgeMaintenanceData(useNotesStore.getState().notes),
+  // Keep the editor badge on the same vault-versioned ranking. Only the
+  // dashboard needs the other maintenance scans.
+  const reviewQueue = useMemo(
+    () => buildKnowledgeMaintenanceQueue(useNotesStore.getState().notes),
     [vaultStructureVersion],
+  );
+  const knowledgeMaintenance = useMemo(
+    () => isDashboardMode ? buildKnowledgeMaintenanceData(useNotesStore.getState().notes, { reviewQueue }) : null,
+    [isDashboardMode, reviewQueue],
   );
 
   const {
@@ -1030,9 +1036,9 @@ export const NoteView = ({ showToast = () => {}, accountId }: NoteViewProps) => 
 
   const noteContextReviewEntry = useMemo(
     () => (activeNote
-      ? knowledgeMaintenance.queue.find(entry => entry.noteId === activeNote.id) ?? null
+      ? reviewQueue.find(entry => entry.noteId === activeNote.id) ?? null
       : null),
-    [activeNote, knowledgeMaintenance.queue],
+    [activeNote, reviewQueue],
   );
 
   const noteLinkedProjectId = useMemo(() => {

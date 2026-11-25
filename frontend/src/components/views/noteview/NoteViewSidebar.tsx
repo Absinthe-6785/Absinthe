@@ -160,7 +160,7 @@ export interface NoteViewSidebarData {
   focusWorkspaceOptions: NonNullable<WorkspaceDashboardViewProps['focus']>['workspaceOptions'];
   taskTemplates: NonNullable<WorkspaceDashboardViewProps['quickCapture']>['taskTemplates'];
   journalTemplates: NonNullable<WorkspaceDashboardViewProps['productivity']>['journalTemplates'];
-  knowledgeMaintenance: NonNullable<WorkspaceDashboardViewProps['maintenance']>['data'];
+  knowledgeMaintenance: NonNullable<WorkspaceDashboardViewProps['maintenance']>['data'] | null;
   unifiedWorkspaceDashboard: NonNullable<WorkspaceDashboardViewProps['unified']>['data'];
   subjectWorkspaces: NonNullable<WorkspaceDashboardViewProps['subjectWorkspaces']>['subjects'];
   learningPathOverview: NonNullable<WorkspaceDashboardViewProps['learningPath']>['data'];
@@ -1288,13 +1288,13 @@ export function NoteViewSidebar({ layout, data, handlers }: NoteViewSidebarProps
               onCreateTaskDatabase: handleCreateTaskDatabase,
               onCreateJournalDatabase: handleCreateJournalDatabase,
             }}
-            maintenance={{
+            maintenance={knowledgeMaintenance ? {
               data: knowledgeMaintenance,
               onSelectNote: noteId => {
                 handleLeaveDashboardForNote(noteId);
                 setActiveNoteId(noteId);
               },
-            }}
+            } : undefined}
             unified={{
               data: unifiedWorkspaceDashboard,
               onSelectNote: noteId => {

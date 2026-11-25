@@ -74,7 +74,7 @@ const THEME_COLORS: ThemeColor[] = [
 ];
 
 type StartupState = {
-  notes: StartupDomainState;
+  notes: StartupDomainState & { accountId: string };
   health: StartupDomainState;
 };
 
@@ -96,9 +96,9 @@ function safeStartupDiagnosticCode(error: string | null): string {
     : 'startup_domain_failed';
 }
 
-function pendingStartupState(healthBootstrapRequired: boolean): StartupState {
+function pendingStartupState(accountId: string, healthBootstrapRequired: boolean): StartupState {
   return {
-    notes: { status: 'pending', error: null },
+    notes: { accountId, status: 'pending', error: null },
     health: healthBootstrapRequired
       ? { status: 'pending', error: null }
       : { status: 'ready', error: null },
@@ -159,8 +159,12 @@ export function AppContent({ authUser }: { authUser: User }) {
   const workoutAuthorityRef = useRef<ReturnType<typeof createProductionWorkoutRuntimeAuthorityController> | null>(null);
   const healthBootstrapRequired = domainUsesLocalWorkingCopy('health_workouts') && authUser.id !== 'local-user';
   const shouldBootstrapHealth = authUser.id !== 'local-user';
-  const [startupState, setStartupState] = useState<StartupState>(() => pendingStartupState(healthBootstrapRequired));
+  const [startupState, setStartupState] = useState<StartupState>(() => pendingStartupState(authUser.id, healthBootstrapRequired));
   const [healthStartupAccountId, setHealthStartupAccountId] = useState(authUser.id);
+  // Do not reuse the previous owner's ready or failed state before the startup effect resets it.
+  const notesStartupStatus = startupState.notes.accountId === authUser.id
+    ? startupState.notes.status
+    : 'pending';
 
   const [activeTab, setActiveTab] = useState<TabId>('home');
   const [searchActivation, setSearchActivation] = useState<SearchActivation | null>(null);
@@ -267,7 +271,7 @@ export function AppContent({ authUser }: { authUser: User }) {
   // the other domain's startup or the unrelated shell.
   useEffect(() => {
     let cancelled = false;
-    setStartupState(pendingStartupState(healthBootstrapRequired));
+    setStartupState(pendingStartupState(authUser.id, healthBootstrapRequired));
     setHealthStartupAccountId(authUser.id);
     const run = startIndependentStartup({
       startNotes: async () => {
@@ -302,7 +306,9 @@ export function AppContent({ authUser }: { authUser: User }) {
         }
         : null,
       onStateChange: (domain, state) => {
-        setStartupState(previous => ({ ...previous, [domain]: state }));
+        setStartupState(previous => domain === 'notes'
+          ? { ...previous, notes: { ...state, accountId: authUser.id } }
+          : { ...previous, health: state });
         if (import.meta.env.DEV && state.status === 'failed') {
           console.error(`[${domain}-startup] ${safeStartupDiagnosticCode(state.error)}`);
         }
@@ -765,16 +771,16 @@ export function AppContent({ authUser }: { authUser: User }) {
             THEME_COLORS={THEME_COLORS}
           />}
         </Suspense>
-        {activeTab === 'note' && startupState.notes.status === 'pending' && (
+        {activeTab === 'note' && notesStartupStatus === 'pending' && (
           <ViewLoadingFallback label={t('startupNotesLoading')} />
         )}
-        {activeTab === 'note' && startupState.notes.status === 'failed' && (
+        {activeTab === 'note' && notesStartupStatus === 'failed' && (
           <StartupFailureBoundary
             message={t('startupNotesFailed')}
             onRetry={() => startupRunRef.current?.retry('notes')}
           />
         )}
-        {startupState.notes.status === 'ready' && (
+        {notesStartupStatus === 'ready' && (
           <NotesRouteBoundary active={activeTab === 'note'} showToast={showToast} accountId={authUser.id} />
         )}
       </div>
