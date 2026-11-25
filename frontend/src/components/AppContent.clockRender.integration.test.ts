@@ -6,6 +6,9 @@ import { getNoteReturnTab, openNote, openWorkspaceSearch, returnFromNote, switch
 import type { TabId } from './common/Sidebar';
 import type { ToastType } from '../hooks/useToast';
 import { pushSearchRecent } from './views/features/search/searchRecentStorage';
+import { recordPlannerActivity } from './views/features/planner/plannerActivityStorage';
+import { recordRecipeView } from './views/features/recipe/recipeActivityStorage';
+import type { NotesAuthorityRequest } from '../lib/notesAccountAuthority';
 
 const fixture = vi.hoisted(() => {
   const empty: never[] = [];
@@ -31,6 +34,7 @@ const fixture = vi.hoisted(() => {
     empty, mutate, counts: {} as Record<string, number>,
     lastRead: null as { accountId: string; date: string } | null,
     homeClockMs: null as number | null,
+    homePublication: null as NotesAuthorityRequest | null,
     toast: null as ((message: string, type?: ToastType) => void) | null,
     authFetch: vi.fn(async () => { throw new Error('Unexpected authenticated I/O in clock fixture'); }),
     daily: {
@@ -97,7 +101,9 @@ vi.mock('../store/useNotesStore', async importOriginal => {
     bootstrapFromSupabase: vi.fn(async () => undefined),
     detachNotesStorage: vi.fn(),
   });
-  return actual;
+  return { ...actual, observePublishedNotesHydration: () => fixture.homePublication
+    ? { status: 'CURRENT', request: fixture.homePublication }
+    : actual.observePublishedNotesHydration() };
 });
 vi.mock('../hooks/useElementVisible', () => ({ useElementVisible: () => ({ ref: { current: null }, visible: true }) }));
 vi.mock('./views/features/health/prevWorkoutFetch', () => ({ fetchPrevWorkoutForBlocks: vi.fn(async () => ({})) }));
@@ -155,11 +161,26 @@ vi.mock('./views/buildRecentActivityProjection', async importOriginal => {
   const actual = await importOriginal<typeof import('./views/buildRecentActivityProjection')>();
   return {
     ...actual,
-    buildRecentActivityProjection: (...args: Parameters<typeof actual.buildRecentActivityProjection>) => {
+    buildRecentActivityGroups: (...args: Parameters<typeof actual.buildRecentActivityGroups>) => {
       count('recentActivity.projection');
-      return actual.buildRecentActivityProjection(...args);
+      fixture.counts['recentActivity.notesScanned'] = (fixture.counts['recentActivity.notesScanned'] ?? 0) + args[0].notes.length;
+      return actual.buildRecentActivityGroups(...args);
     },
   };
+});
+vi.mock('./views/k102DateFormat', async importOriginal => {
+  const actual = await importOriginal<typeof import('./views/k102DateFormat')>();
+  return { ...actual, formatActivityTimestamp: (...args: Parameters<typeof actual.formatActivityTimestamp>) => {
+    count('recentActivity.formatted');
+    return actual.formatActivityTimestamp(...args);
+  } };
+});
+vi.mock('./views/features/home/buildHomeFoundationProjection', async importOriginal => {
+  const actual = await importOriginal<typeof import('./views/features/home/buildHomeFoundationProjection')>();
+  return { ...actual, buildHomeFoundationProjection: (...args: Parameters<typeof actual.buildHomeFoundationProjection>) => {
+    count('home.foundation');
+    return actual.buildHomeFoundationProjection(...args);
+  } };
 });
 vi.mock('./views/features/health/buildHealthProjection', async importOriginal => {
   const actual = await importOriginal<typeof import('./views/features/health/buildHealthProjection')>();
@@ -231,8 +252,128 @@ beforeEach(() => {
 
 afterEach(() => {
   act(() => root.unmount());
+  fixture.homePublication = null;
   host.remove();
   vi.useRealTimers();
+});
+
+it.each([250, 1000])('measures Home projection work on the same mounted actions with %i Notes', async size => {
+  const { useNotesStore } = await import('../store/useNotesStore');
+  const initialNotes = useNotesStore.getState().notes;
+  const at = new Date(2026, 10, 14, 22).getTime();
+  const notes = Array.from({ length: size }, (_, i) => ({
+    ...fixture.note, id: `measure-${i}`, title: `Measured Note ${i}`, updatedAt: at - i * 1000,
+    ...(i === 0 ? { lastOpenedAt: at + 1 } : {}),
+  }));
+  fixture.homePublication = Object.freeze({ accountId: 'clock-a', generation: 1 });
+  const trace = (domain: string) => host.querySelector(`[data-k132a-home-row="trace-${domain}"]`)?.textContent;
+  const report: Record<string, Record<string, number>> = {};
+  try {
+    useNotesStore.setState({ notes });
+    vi.setSystemTime(new Date(2026, 10, 14, 23, 57, 30));
+    fixture.counts = {};
+    await render();
+    report.mount = { ...fixture.counts };
+    const initialTrace = trace('notes');
+    expect(initialTrace).toContain('Measured Note 0');
+    report.minute1 = await sample(tick);
+    report.minute2 = await sample(tick);
+    report.toast = await sample(() => fixture.toast!('Unrelated shell update'));
+    report.store = await sample(() => useNotesStore.setState({ activeNoteId: 'measure-1' }));
+    expect(trace('notes')).toBe(initialTrace);
+    report.midnight = await sample(tick);
+    expect(trace('notes')).not.toBe(initialTrace);
+    expect(trace('notes')).toContain('Measured Note 0');
+
+    report.notes = await sample(() => useNotesStore.setState({
+      notes: [{ ...notes[0]!, title: 'Edited Note', updatedAt: Date.now() }, ...notes.slice(1)],
+    }));
+    expect(trace('notes')).toContain('Edited Note');
+    report.planner = await sample(() => {
+      recordPlannerActivity('clock-a', 'schedule', 'local-event', 'New Planner activity', Date.now(), '2026-11-16');
+      fixture.toast!('Planner cache updated');
+    });
+    expect(trace('planner')).toContain('New Planner activity');
+    report.recipe = await sample(() => {
+      recordRecipeView('local-recipe', 'New Recipe activity', 'clock-a');
+      tick();
+    });
+    expect(trace('recipe')).toContain('New Recipe activity');
+
+    report.departure = await sample(() => select('recipe'));
+    expect(host.querySelector(viewSelectors.home)).toBeNull();
+    recordRecipeView('local-recipe', 'Updated while Home was closed', 'clock-a');
+    report.reentry = await sample(() => select('home'));
+    expect(trace('recipe')).toContain('Updated while Home was closed');
+    const resume = host.querySelector<HTMLButtonElement>('[data-k132a-home-row="continue-primary"]')!;
+    expect(resume.textContent).toContain('Edited Note');
+    await perform(() => resume.click());
+    expect(useNotesStore.getState().activeNoteId).toBe('measure-0');
+    expect(getNoteReturnTab()).toBe('home');
+    expect(fixture.authFetch).not.toHaveBeenCalled();
+    console.info('HOME_PROJECTION_WORK', JSON.stringify({ size, report }));
+    for (const phase of ['minute1', 'minute2', 'toast', 'store', 'departure']) {
+      expect(report[phase]?.['recentActivity.projection'] ?? 0, phase).toBe(0);
+    }
+    for (const phase of ['midnight', 'notes', 'planner', 'recipe', 'reentry']) {
+      expect(report[phase]?.['recentActivity.projection'], phase).toBe(1);
+      expect(report[phase]?.['recentActivity.notesScanned'], phase).toBe(size);
+    }
+    expect(report.mount?.['recentActivity.projection']).toBeGreaterThan(0);
+  } finally {
+    fixture.homePublication = null;
+    await act(async () => useNotesStore.setState({ notes: initialNotes, activeNoteId: null }));
+  }
+});
+
+it('refreshes Home trace labels for a same-day, same-offset timezone change and a locale change', async () => {
+  const { useAppStore } = await import('../store/useAppStore');
+  const initialSettings = useAppStore.getState().appSettings;
+  const trace = () => host.querySelector('[data-k132a-home-row="trace-planner"]')?.textContent;
+  vi.stubEnv('TZ', 'UTC');
+  try {
+    vi.setSystemTime(new Date('2026-11-14T12:00:00Z'));
+    useAppStore.getState().updateSetting('language', 'en');
+    recordPlannerActivity('clock-a', 'schedule', 'event', 'Summer trace',
+      Date.parse('2026-07-01T23:30:00Z'), '2026-07-01');
+    await render();
+    expect(trace()).toContain('Jul 1');
+    expect(new Date().getTimezoneOffset()).toBe(0);
+    vi.stubEnv('TZ', 'Europe/London');
+    expect(new Date().getTimezoneOffset()).toBe(0);
+    const zoneChange = await sample(() => fixture.toast!('Timezone changed'));
+    expect(zoneChange['recentActivity.projection']).toBe(1);
+    expect(trace()).toContain('Jul 2');
+    expect(trace()).toContain('2026-07-01'); // The exact Schedule target did not change.
+    const localeChange = await sample(() => useAppStore.getState().updateSetting('language', 'ja'));
+    expect(localeChange['recentActivity.projection']).toBeGreaterThan(0);
+    expect(trace()).toContain('7月2日');
+  } finally {
+    vi.unstubAllEnvs();
+    await act(async () => useAppStore.setState({ appSettings: initialSettings }));
+  }
+});
+
+it('retains the record time and local day across the repeated DST hour on Home', async () => {
+  vi.stubEnv('TZ', 'America/New_York');
+  try {
+    vi.setSystemTime(new Date('2026-11-01T05:59:30Z')); // 01:59 EDT
+    recordRecipeView('dst-recipe', 'DST trace', 'clock-a');
+    await render();
+    const trace = () => host.querySelector('[data-k132a-home-row="trace-recipe"]')?.textContent;
+    const before = trace();
+    expect(before).toContain('DST trace');
+    expect(new Date().getTimezoneOffset()).toBe(240);
+    const fallback = await sample(tick); // 01:00 EST
+    expect(new Date().getTimezoneOffset()).toBe(300);
+    expect(fallback['recentActivity.projection']).toBe(1);
+    expect(trace()).toBe(before);
+    const ordinary = await sample(tick);
+    expect(ordinary['recentActivity.projection'] ?? 0).toBe(0);
+    expect(trace()).toBe(before);
+  } finally {
+    vi.unstubAllEnvs();
+  }
 });
 
 describe('AppContent clock render measurement', () => {

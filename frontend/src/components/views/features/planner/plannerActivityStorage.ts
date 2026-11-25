@@ -30,9 +30,13 @@ function accountScopedKey(accountId: string | null | undefined): string | null {
     : null;
 }
 
-function readEntries(key: string): PlannerActivityEntry[] {
+function readSnapshot(key: string | null): string | null {
+  try { return key ? localStorage.getItem(key) : null; }
+  catch { return null; }
+}
+
+function parseEntries(raw: string | null): PlannerActivityEntry[] {
   try {
-    const raw = localStorage.getItem(key);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as PlannerActivityEntry[];
     if (!Array.isArray(parsed)) return [];
@@ -53,11 +57,18 @@ function writeEntries(key: string, entries: PlannerActivityEntry[]): void {
 }
 
 export function readPlannerActivityRecents(accountId: string | null | undefined): PlannerActivityEntry[] {
-  const key = accountScopedKey(accountId);
-  return key ? readEntries(key).map(({ eventDate, ...entry }) => {
+  return parsePlannerActivityRecents(readPlannerActivitySnapshot(accountId));
+}
+
+export function readPlannerActivitySnapshot(accountId: string | null | undefined): string | null {
+  return readSnapshot(accountScopedKey(accountId));
+}
+
+export function parsePlannerActivityRecents(snapshot: string | null): PlannerActivityEntry[] {
+  return parseEntries(snapshot).map(({ eventDate, ...entry }) => {
     const date = validPlannerEventDate(eventDate);
     return date ? { ...entry, eventDate: date } : entry;
-  }) : [];
+  });
 }
 
 export function recordPlannerActivity(
@@ -74,7 +85,7 @@ export function recordPlannerActivity(
   const date = validPlannerEventDate(eventDate);
   const next = [
     { kind, itemId, title, at, ...(date ? { eventDate: date } : {}) },
-    ...readEntries(storageKey).filter(e => `${e.kind}:${e.itemId}` !== key),
+    ...parseEntries(readSnapshot(storageKey)).filter(e => `${e.kind}:${e.itemId}` !== key),
   ];
   writeEntries(storageKey, next);
 }
