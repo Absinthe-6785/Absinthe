@@ -32,6 +32,7 @@ type RecipeFixture = {
   starred: boolean;
   created_at: string;
   deleted_at?: string | null;
+  edit_revision: string;
 };
 
 const harness = vi.hoisted(() => ({
@@ -126,6 +127,7 @@ function recipe(id: string, title: string, deletedAt?: string): RecipeFixture {
     memo: '',
     starred: false,
     created_at: '2026-08-01T00:00:00Z',
+    edit_revision: '00000000-0000-4000-8000-000000000001',
     ...(deletedAt ? { deleted_at: deletedAt } : {}),
   };
 }
@@ -350,6 +352,7 @@ describe('Recipe account isolation production paths', () => {
       ok: true,
       json: async () => ({
         ...recipe('recipe-a', 'Updated recipe'),
+        edit_revision: '00000000-0000-4000-8000-000000000002',
         ingredients: '', steps: '', memo: '',
       }),
     } as Response);

@@ -26,6 +26,8 @@ import {
   clearRecipeDraftAfterRemoteCommit,
   writeRecipeDraft,
   isValidSavedRecipe,
+  readRecipeEditConflict,
+  readRecipeEditRevision,
   type RecipeDraftEnvelope,
   type RecipeDraftForm,
 } from './features/recipe/recipeDraftStorage';
@@ -100,6 +102,7 @@ export const RecipeView = ({
   const [form, setForm] = useState<RecipeFormState>({ ...EMPTY_RECIPE_FORM });
   const [draft, setDraft] = useState<RecipeDraftEnvelope | null>(null);
   const [baseSnapshot, setBaseSnapshot] = useState<RecipeDraftForm | null>(null);
+  const [baseRevision, setBaseRevision] = useState<string>();
   const [draftConflict, setDraftConflict] = useState<DraftConflict | null>(null);
   const [draftStorageWarning, setDraftStorageWarning] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -123,6 +126,10 @@ export const RecipeView = ({
   const activeEditingRecipeIdRef = useRef<string | null>(null);
   const savingRef = useRef(false);
   const recoveredDraftRef = useRef<string | null>(null);
+  const pinnedEditSessionRef = useRef<number | null>(null);
+  const dismissedEditDraftRef = useRef(false);
+  const closedPinnedEditRef = useRef(false);
+  const editRetrySessionRef = useRef<number | null>(null);
   const handledNavigationRequestRef = useRef<number | null>(null);
   const pendingStarMutationKeysRef = useRef(new Set<string>());
   const unresolvedStarMutationKeysRef = useRef(new Set<string>());
@@ -280,6 +287,8 @@ export const RecipeView = ({
   }, [isCurrentAccountGeneration, t]);
 
   const beginFormSession = useCallback(() => {
+    dismissedEditDraftRef.current = false;
+    closedPinnedEditRef.current = false;
     const generation = formSessionGenerationRef.current + 1;
     formSessionGenerationRef.current = generation;
     activeFormSessionRef.current = generation;
@@ -325,13 +334,14 @@ export const RecipeView = ({
       recipeId: editingId,
       form: normalized,
       baseSnapshot: editingId ? currentBaseline() : null,
+      baseRevision: editingId ? baseRevision : undefined,
       generation,
     };
     setDraft(nextDraft);
     const written = writeRecipeDraft(nextDraft);
     setDraftStorageWarning(!written);
     return written;
-  }, [accountId, currentBaseline, editingId]);
+  }, [accountId, baseRevision, currentBaseline, editingId]);
 
   const updateFormSession = formSession;
   const updateForm = useCallback<React.Dispatch<React.SetStateAction<RecipeFormState>>>((update) => {
@@ -359,13 +369,14 @@ export const RecipeView = ({
     const snapshot = recipeToDraftForm(recipe);
     setForm(snapshot);
     setBaseSnapshot(snapshot);
+    setBaseRevision(readRecipeEditRevision(recipe.edit_revision));
     setEditingId(recipe.id);
-    setDraftConflict(null);
+    setDraftConflict(readRecipeEditRevision(recipe.edit_revision) ? null : { kind: 'remote-unavailable' });
     setDraftStorageWarning(false);
     setShowForm(true);
   }, [beginFormSession]);
 
-  const applyRecoveredDraft = useCallback((candidate: RecipeDraftEnvelope) => {
+  const applyRecoveredDraft = useCallback((candidate: RecipeDraftEnvelope, retainedConflict?: DraftConflict | null) => {
     beginFormSession();
     activeEditingRecipeIdRef.current = candidate.mode === 'edit' ? candidate.recipeId : null;
     draftGenerationRef.current = Math.max(draftGenerationRef.current, candidate.generation);
@@ -373,8 +384,17 @@ export const RecipeView = ({
     setForm(candidate.form);
     setEditingId(candidate.recipeId);
     setBaseSnapshot(candidate.baseSnapshot);
+    const candidateRevision = readRecipeEditRevision(candidate.baseRevision);
+    setBaseRevision(candidateRevision);
     if (candidate.mode === 'new') {
       setDraftConflict(null);
+      setShowForm(true);
+      return;
+    }
+
+    if (retainedConflict !== undefined) {
+      pinnedEditSessionRef.current = activeFormSessionRef.current;
+      setDraftConflict(retainedConflict);
       setShowForm(true);
       return;
     }
@@ -388,7 +408,10 @@ export const RecipeView = ({
     const remote = recipes.find(recipe => recipe.id === candidate.recipeId);
     if (!remote) {
       setDraftConflict({ kind: 'remote-missing' });
-    } else if (candidate.baseSnapshot && recipeDraftFormsEqual(recipeToDraftForm(remote), candidate.baseSnapshot)) {
+    } else if (!readRecipeEditRevision(remote.edit_revision)) {
+      setDraftConflict({ kind: 'remote-unavailable' });
+    } else if (candidateRevision === remote.edit_revision && candidate.baseSnapshot
+      && recipeDraftFormsEqual(recipeToDraftForm(remote), candidate.baseSnapshot)) {
       setDraftConflict(null);
     } else {
       setDraftConflict({ kind: 'remote-changed', remote });
@@ -398,6 +421,8 @@ export const RecipeView = ({
 
   useEffect(() => {
     invalidateFormSession();
+    dismissedEditDraftRef.current = false;
+    closedPinnedEditRef.current = false;
     recoveredDraftRef.current = null;
     draftGenerationRef.current = 0;
     savingRef.current = false;
@@ -449,7 +474,11 @@ export const RecipeView = ({
   }, [accountId, activeAuthorityReady, pendingStarRecipeIds]);
 
   useEffect(() => {
-    if (!draft || draft.mode !== 'edit' || activeAvailability === 'LOADING' || !accountId) return;
+    if (!draft || draft.mode !== 'edit' || activeAvailability === 'LOADING' || !accountId
+      || dismissedEditDraftRef.current) return;
+    // Let a fresh form recover from the list, but never let a cached row erase
+    // a server conflict or supersede the revision explicitly chosen in it.
+    if (pinnedEditSessionRef.current !== null && pinnedEditSessionRef.current === activeFormSessionRef.current) return;
     const recoveryKey = `${accountId}:${draft.generation}:${activeAvailability}`;
     if (recoveredDraftRef.current === recoveryKey) return;
     recoveredDraftRef.current = recoveryKey;
@@ -459,6 +488,43 @@ export const RecipeView = ({
   const retryActiveRecipes = useCallback(() => {
     void mutateRecipes().catch(() => undefined);
   }, [mutateRecipes]);
+
+  const retryEditAuthority = useCallback(async () => {
+    if (draftConflict?.kind !== 'remote-unavailable' || !activeRecipeKey
+      || formSession === null || activeFormSessionRef.current !== formSession
+      || !editingId || editRetrySessionRef.current === formSession) return;
+    const account = captureAccountGeneration();
+    const generation = draftGenerationRef.current;
+    const mutationGeneration = recipeMutationGenerationRef.current;
+    editRetrySessionRef.current = formSession;
+    try {
+      // A failed SWR revalidation can return its cached value. Require an
+      // actual account-bound response to resolve an editor's conflict.
+      const rows = await accountBoundRemoteFetcher<Recipe[]>(activeRecipeKey);
+      if (!isCurrentAccountGeneration(account) || activeFormSessionRef.current !== formSession
+        || draftGenerationRef.current !== generation || recipeMutationGenerationRef.current !== mutationGeneration
+        || pendingRecipeMutationCountRef.current !== 0 || !Array.isArray(rows)) return;
+      const matches = rows.filter(row => row?.id === editingId);
+      const remote = matches[0];
+      const revision = readRecipeEditRevision(remote?.edit_revision);
+      if (matches.length !== 1 || !revision || remote.deleted_at != null) return;
+      // With no local changes, a newly verified row can reopen as a fresh edit.
+      if (!draft && !isCurrentFormDirty()) {
+        openFreshEdit(remote);
+        pinnedEditSessionRef.current = activeFormSessionRef.current;
+        return;
+      }
+      pinnedEditSessionRef.current = formSession;
+      const stillSameBase = revision === baseRevision && baseSnapshot
+        && recipeDraftFormsEqual(recipeToDraftForm(remote), baseSnapshot);
+      setDraftConflict(stillSameBase ? null : { kind: 'remote-changed', remote });
+    } catch {
+      // Keep the draft and unresolved status.
+    } finally {
+      if (editRetrySessionRef.current === formSession) editRetrySessionRef.current = null;
+    }
+  }, [activeRecipeKey, baseRevision, baseSnapshot, captureAccountGeneration, draft, draftConflict, editingId,
+    formSession, isCurrentAccountGeneration, isCurrentFormDirty, openFreshEdit]);
 
   const retryDeletedRecipes = useCallback(() => {
     void mutateDeletedRecipes().catch(() => undefined);
@@ -580,7 +646,8 @@ export const RecipeView = ({
 
   const handleSave = useCallback(async () => {
     const submittedFormSession = activeFormSessionRef.current;
-    if (savingRef.current || draftConflict || submittedFormSession === null || !recipeAuthorityIsReady(activeAvailabilityRef.current)) return;
+    if (savingRef.current || draftConflict || submittedFormSession === null
+      || submittedFormSession !== formSession || !recipeAuthorityIsReady(activeAvailabilityRef.current)) return;
     const activeEditingRecipeId = activeEditingRecipeIdRef.current;
     const activeAccountId = accountIdRef.current;
     if (
@@ -594,6 +661,8 @@ export const RecipeView = ({
     if (!accountSnapshot.accountId) return;
     const submittedGeneration = draftGenerationRef.current;
     const submittedEditingId = editingId;
+    const submittedRevision = baseRevision;
+    if (submittedEditingId && !submittedRevision) return;
     const payload = normalizeRecipeDraftForm({ ...form, title: form.title.trim() });
     const finishRecipeMutation = beginRecipeMutation();
     savingRef.current = true;
@@ -603,15 +672,28 @@ export const RecipeView = ({
         ? `${API_URL}/api/recipes/${submittedEditingId}`
         : `${API_URL}/api/recipes`;
       const res = await authFetch(url, {
-        method: submittedEditingId ? 'PUT' : 'POST',
-        body: JSON.stringify(payload),
+        method: submittedEditingId ? 'PATCH' : 'POST',
+        body: JSON.stringify(submittedEditingId ? { ...payload, expected_revision: submittedRevision } : payload),
       });
+      if (submittedEditingId && (res.status === 409 || res.status === 404)) {
+        const current = res.status === 409
+          ? readRecipeEditConflict(await res.json().catch(() => null), submittedEditingId, accountSnapshot.accountId)
+          : undefined;
+        if (!isCurrentAccountGeneration(accountSnapshot) || activeFormSessionRef.current !== submittedFormSession) return;
+        // No cache publication, draft cleanup, or automatic retry on conflict.
+        pinnedEditSessionRef.current = submittedFormSession;
+        setDraftConflict(current ? { kind: 'remote-changed', remote: current }
+          : { kind: res.status === 404 ? 'remote-missing' : 'remote-unavailable' });
+        return;
+      }
       if (!res.ok) throw new Error();
       const saved: unknown = await res.json();
       if (!isCurrentAccountGeneration(accountSnapshot)) return;
       if (activeFormSessionRef.current !== submittedFormSession) return;
       if (draftGenerationRef.current !== submittedGeneration) throw new Error();
       if (!isValidSavedRecipe(saved, payload, submittedEditingId ?? undefined)) throw new Error();
+      if (submittedEditingId && (!readRecipeEditRevision(saved.edit_revision)
+        || saved.edit_revision === submittedRevision)) throw new Error();
 
       const committedGeneration = draftGenerationRef.current + 1;
       draftGenerationRef.current = committedGeneration;
@@ -650,7 +732,7 @@ export const RecipeView = ({
         setSaving(false);
       }
     }
-  }, [beginRecipeMutation, captureAccountGeneration, draftConflict, editingId, form, invalidateFormSession, isCurrentAccountGeneration, mutateRecipes, showToast, t]);
+  }, [baseRevision, beginRecipeMutation, captureAccountGeneration, draftConflict, editingId, form, formSession, invalidateFormSession, isCurrentAccountGeneration, mutateRecipes, showToast, t]);
 
   const handleDelete = useCallback((id: string) => {
     if (!recipeAuthorityIsReady(activeAvailabilityRef.current)) return;
@@ -812,11 +894,14 @@ export const RecipeView = ({
       return;
     }
     if (draft.mode === 'edit' && draft.recipeId === recipe.id) {
-      applyRecoveredDraft(draft);
+      const retainedConflict = dismissedEditDraftRef.current && editingId === recipe.id
+        && draft.accountId === currentAccountId && (closedPinnedEditRef.current || draftConflict !== null)
+        ? draftConflict : undefined;
+      applyRecoveredDraft(draft, retainedConflict);
       return;
     }
     requestReplaceDraft(() => openFreshEdit(recipe));
-  }, [applyRecoveredDraft, draft, openFreshEdit, requestReplaceDraft]);
+  }, [applyRecoveredDraft, draft, draftConflict, editingId, openFreshEdit, requestReplaceDraft]);
 
   const openNew = useCallback(() => {
     if (!recipeAuthorityIsReady(activeAvailabilityRef.current)) return;
@@ -832,6 +917,10 @@ export const RecipeView = ({
   }, [applyRecoveredDraft, draft, openFreshNew, requestReplaceDraft]);
 
   const closeFormNow = useCallback(() => {
+    if (activeEditingRecipeIdRef.current !== null) {
+      dismissedEditDraftRef.current = true;
+      closedPinnedEditRef.current = pinnedEditSessionRef.current === activeFormSessionRef.current;
+    }
     invalidateFormSession();
     activeEditingRecipeIdRef.current = null;
     setShowForm(false);
@@ -871,15 +960,22 @@ export const RecipeView = ({
 
   const handleUseLocalDraft = useCallback(() => {
     if (!draft || draftConflict?.kind !== 'remote-changed') return;
+    if (draft.accountId !== accountIdRef.current || formSession === null
+      || activeFormSessionRef.current !== formSession || activeEditingRecipeIdRef.current !== draft.recipeId) return;
+    const revision = readRecipeEditRevision(draftConflict.remote.edit_revision);
+    if (!revision) return;
     const nextBase = recipeToDraftForm(draftConflict.remote);
     const generation = draftGenerationRef.current + 1;
     draftGenerationRef.current = generation;
     const nextDraft: RecipeDraftEnvelope = {
       ...draft,
       baseSnapshot: nextBase,
+      baseRevision: revision,
       generation,
     };
+    pinnedEditSessionRef.current = activeFormSessionRef.current;
     setBaseSnapshot(nextBase);
+    setBaseRevision(revision);
     setDraft(nextDraft);
     if (!writeRecipeDraft(nextDraft)) {
       setDraftStorageWarning(true);
@@ -887,7 +983,7 @@ export const RecipeView = ({
       setDraftStorageWarning(false);
     }
     setDraftConflict(null);
-  }, [draft, draftConflict]);
+  }, [draft, draftConflict, formSession]);
 
   const handleDiscardLocalConflict = useCallback(() => {
     if (draftConflict?.kind !== 'remote-changed') {
@@ -956,14 +1052,14 @@ export const RecipeView = ({
         confirmationOpen={Boolean(confirm)}
         onSave={handleSave}
         onDiscard={draftConflict ? handleDiscardLocalConflict : handleDiscardDraft}
-        onUseLocal={draftConflict?.kind === 'remote-changed' ? handleUseLocalDraft : undefined}
+        onUseLocal={draftConflict?.kind === 'remote-changed' && draft ? handleUseLocalDraft : undefined}
         saving={saving}
         conflict={draftConflict?.kind ?? null}
         storageWarning={draftStorageWarning}
         authorityReady={activeAuthorityReady}
         authorityUnavailable={recipeAuthorityIsUnavailable(activeAvailability)}
         authorityValidating={activeRecipeValidating}
-        onRetryAuthority={retryActiveRecipes}
+        onRetryAuthority={draftConflict?.kind === 'remote-unavailable' ? retryEditAuthority : retryActiveRecipes}
       />
 
       {confirm && (

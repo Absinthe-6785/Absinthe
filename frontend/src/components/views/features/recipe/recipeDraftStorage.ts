@@ -19,6 +19,8 @@ export interface RecipeDraftEnvelope {
   recipeId: string | null;
   form: RecipeDraftForm;
   baseSnapshot: RecipeDraftForm | null;
+  /** Missing on legacy drafts, which need explicit review before saving. */
+  baseRevision?: string;
   generation: number;
 }
 
@@ -72,6 +74,24 @@ export const recipeDraftFormsEqual = (
   && left.memo === right.memo
   && left.starred === right.starred
 );
+
+export const readRecipeEditRevision = (value: unknown): string | undefined => (
+  typeof value === 'string' && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(value)
+    ? value : undefined
+);
+
+export function readRecipeEditConflict(value: unknown, recipeId: string, accountId: string): Recipe | undefined {
+  if (!value || typeof value !== 'object') return;
+  const detail = (value as { detail?: unknown }).detail;
+  if (!detail || typeof detail !== 'object') return;
+  const { code, current } = detail as { code?: unknown; current?: unknown };
+  if (code !== 'RECIPE_EDIT_CONFLICT' || !current || typeof current !== 'object') return;
+  const row = current as Record<string, unknown>;
+  if (row.id !== recipeId || row.user_id !== accountId || row.deleted_at !== null
+    || typeof row.created_at !== 'string' || !row.created_at
+    || !readRecipeEditRevision(row.edit_revision) || !isDraftForm(row)) return;
+  return row as unknown as Recipe;
+}
 
 const isDraftForm = (value: unknown): value is RecipeDraftForm => {
   if (!value || typeof value !== 'object') return false;

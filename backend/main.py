@@ -12,6 +12,7 @@ import os
 import re
 from contextlib import asynccontextmanager
 from datetime import date as date_type, datetime, timezone
+from uuid import UUID
 from dotenv import load_dotenv
 from jwt.exceptions import InvalidTokenError
 from supabase import create_client, Client
@@ -1528,6 +1529,10 @@ class RecipeCreate(BaseModel):
 class RecipeStarUpdate(BaseModel):
     starred: bool
 
+
+class RecipeConditionalUpdate(RecipeCreate):
+    expected_revision: UUID
+
 class RoutineExceptionCreate(BaseModel):
     start_date: str
     end_date: str
@@ -1583,23 +1588,45 @@ async def create_recipe(recipe: RecipeCreate, user_id: str = Depends(get_current
     return data[0] if data else {}
 
 @app.put("/api/recipes/{recipe_id}")
-async def update_recipe(recipe_id: str, recipe: RecipeCreate, user_id: str = Depends(get_current_user)):
-    row = supabase.table("recipes").select("user_id, deleted_at").eq("id", recipe_id).maybe_single().execute().data
+async def reject_unconditional_recipe_update(recipe_id: str, user_id: str = Depends(get_current_user)):
+    raise HTTPException(status_code=428, detail="Reload the app before editing Recipes")
+
+
+# A distinct method fails closed if a new editor reaches an old backend that
+# would ignore an unknown field in the previous PUT body.
+@app.patch("/api/recipes/{recipe_id}")
+async def update_recipe(recipe_id: str, recipe: RecipeConditionalUpdate, user_id: str = Depends(get_current_user)):
+    lookup = supabase.table("recipes").select("user_id, deleted_at").eq("id", recipe_id).maybe_single().execute()
+    row = getattr(lookup, "data", None)
     if not row: raise HTTPException(status_code=404, detail="Not found")
     verify_owner(row["user_id"], user_id)
     if row.get("deleted_at") is not None:
         raise HTTPException(status_code=404, detail="Not found")
-    data = supabase.table("recipes").update({
-        "title": recipe.title,
-        "category": recipe.category,
-        "ingredients": recipe.ingredients,
-        "steps": recipe.steps,
-        "memo": recipe.memo,
-        "starred": recipe.starred,
-    }).eq("id", recipe_id).eq("user_id", user_id).is_("deleted_at", "null").execute().data or []
-    if not data:
+    revision = str(recipe.expected_revision)
+    data = (
+        supabase.table("recipes").update(recipe.model_dump(exclude={"expected_revision"}))
+        .eq("id", recipe_id).eq("user_id", user_id).is_("deleted_at", "null")
+        .eq("edit_revision", revision).execute().data
+    )
+    if isinstance(data, list) and len(data) == 1:
+        saved = data[0]
+        if (
+            isinstance(saved, dict) and saved.get("id") == recipe_id
+            and saved.get("user_id") == user_id and "deleted_at" in saved
+            and saved["deleted_at"] is None and saved.get("edit_revision") != revision
+            and isinstance(saved.get("edit_revision"), str)
+        ):
+            return saved
+    if data != []:
+        raise HTTPException(status_code=503, detail="Recipe update not confirmed")
+    lookup = (
+        supabase.table("recipes").select("*").eq("id", recipe_id)
+        .eq("user_id", user_id).is_("deleted_at", "null").maybe_single().execute()
+    )
+    current = getattr(lookup, "data", None)
+    if not current:
         raise HTTPException(status_code=404, detail="Not found")
-    return data[0]
+    raise HTTPException(status_code=409, detail={"code": "RECIPE_EDIT_CONFLICT", "current": current})
 
 @app.put("/api/recipes/{recipe_id}/star")
 async def update_recipe_star(recipe_id: str, update: RecipeStarUpdate, user_id: str = Depends(get_current_user)):
@@ -1726,7 +1753,10 @@ def _fetch_user_table(user_id: str, table: str, order: str | None = None):
         q = q.is_("deleted_at", "null")
     if order:
         q = q.order(order)
-    return q.execute().data or []
+    rows = q.execute().data or []
+    if table == "recipes":
+        return [{key: value for key, value in row.items() if key != "edit_revision"} for row in rows]
+    return rows
 
 
 NOTE_AUTHORITATIVE_COLUMNS = (
@@ -2303,8 +2333,8 @@ def restore_recipe_rows(
 ) -> dict[str, int]:
     """Restore only Recipe rows that cannot collide with current same-user IDs.
 
-    Recipe currently has no server-authoritative revision/freshness field.  An
-    existing same-user ID is therefore preserved regardless of payload content;
+    A live edit precondition is not backup freshness evidence. An existing
+    same-user ID is preserved regardless of payload content;
     only IDs absent from the preflight read are inserted.  ``insert`` is used so
     a row that appears after preflight cannot be overwritten by a race.
     """
@@ -2323,7 +2353,7 @@ def restore_recipe_rows(
                 conflicts += 1
             continue
         to_insert.append({
-            **{key: value for key, value in row.items() if key != "user_id"},
+            **{key: value for key, value in row.items() if key not in {"user_id", "edit_revision"}},
             "user_id": user_id,
         })
 

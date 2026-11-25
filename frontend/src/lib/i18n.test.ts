@@ -8,7 +8,7 @@ import translationKeys, { buildLocaleDictionary } from './i18n/keys';
 import type { TranslationKey } from './i18n';
 
 const PLANNER_STORAGE_KEY = 'planner-storage';
-const EXPECTED_KEY_COUNT = 2_422;
+const EXPECTED_KEY_COUNT = 2_423;
 type Locale = 'en' | 'ko' | 'ja';
 
 // Current independent canonical authority, including append-only Notes UI, Wiki-link accessibility, cloud comparison and search, Cloud Copy status readback, local document downloads, PDF/DOCX preview, Recipe filter reset, local-original integrity preflight, cloud Note previews, and single-Note cloud text export.
@@ -16,6 +16,12 @@ type Locale = 'en' | 'ko' | 'ja';
 // translationKeys order, so it detects insertion, omission, reordering, and
 // substitution without using buildLocaleDictionary.
 const EXPECTED_LOCALE_INTEGRITY_SHA256: Record<Locale, string> = {
+  en: '650832d5c4ecff88859bb157cb1134265a8b7cb1733be32b851d52b3239e0fcc',
+  ko: '6c76656caf3ecaec3800e91fb3c9bb6a1793e4cf8fa85552298628aa0a487808',
+  ja: '12c56b017d74f6028b569f77d588d269ec21f0f672f656e072a86235993cb9a9',
+};
+
+const PRE_RECIPE_CONFLICT_LOCALE_SHA256: Record<Locale, string> = {
   en: '9520b945a76f28a75cf9241c5750e978b3405137ea7b48b038816d7a3e58b6a2',
   ko: 'a2456cf29e401ece67fc1edc99cbd86b9347679b9759b6f2824b2b9c6fe7852e',
   ja: 'bec5ba598e1965ebcb2c1b78faac7b815697c345f7c89a7deda6e0533584f909',
@@ -420,10 +426,22 @@ describe('i18n locale dictionaries', () => {
     expect(() => assertLocaleValuesIntegrity('ja', jaLocaleValues)).not.toThrow();
   });
 
+  it('appends the full Recipe replacement warning without changing any existing translations', () => {
+    const previousKeyCount = 2_422;
+    expect(translationKeys.slice(previousKeyCount)).toEqual(['recipeDraftReplaceEntireConflict']);
+    for (const [locale, values] of [['en', enLocaleValues], ['ko', koLocaleValues], ['ja', jaLocaleValues]] as const) {
+      expect(localeIntegrityDigest(values.slice(0, previousKeyCount), translationKeys.slice(0, previousKeyCount)))
+        .toBe(PRE_RECIPE_CONFLICT_LOCALE_SHA256[locale]);
+    }
+    expect(enTranslations.recipeDraftReplaceEntireConflict).toBe("This draft is not based on the current saved recipe. Use local draft does not save anything. If you then select Update, it replaces the entire saved recipe with this draft.");
+    expect(koTranslations.recipeDraftReplaceEntireConflict).toBe("이 초안은 현재 저장된 레시피 버전을 기준으로 하지 않습니다. 로컬 초안 사용을 눌러도 저장되지 않습니다. 그다음 업데이트를 누르면 저장된 레시피 전체가 이 초안으로 교체됩니다.");
+    expect(jaTranslations.recipeDraftReplaceEntireConflict).toBe("この下書きは現在保存されているレシピの版に基づいていません。ローカル下書きを使用しても保存されません。その後に更新すると、保存済みレシピ全体がこの下書きに置き換わります。");
+  });
+
   it('appends localized Health Workout cloud comparison entry labels without changing prior translations', () => {
     const previousKeyCount = 2_420;
     const keys = ['healthCloudHeaderCheck', 'healthCloudHeaderChecking'];
-    expect(translationKeys.slice(previousKeyCount)).toEqual(keys);
+    expect(translationKeys.slice(previousKeyCount, 2_422)).toEqual(keys);
     for (const [locale, values] of [['en', enLocaleValues], ['ko', koLocaleValues], ['ja', jaLocaleValues]] as const) {
       expect(localeIntegrityDigest(values.slice(0, previousKeyCount), translationKeys.slice(0, previousKeyCount)))
         .toBe(PRE_HEALTH_MANUAL_CLOUD_ENTRY_LOCALE_SHA256[locale]);
