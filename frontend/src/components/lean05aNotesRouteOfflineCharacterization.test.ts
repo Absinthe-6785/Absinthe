@@ -330,12 +330,14 @@ describe('LEAN_05A Notes route offline-first characterization', () => {
     expect(appContent).toContain('await bootstrapFromSupabase();');
     expect(appContent).toContain('<Suspense fallback={<ViewLoadingFallback />}>');
     expect(appContent).toContain("startupRunRef.current?.retry('notes')");
-    expect(appContent).toContain("activeTab === 'note' && startupState.notes.status === 'pending'");
-    expect(appContent).toContain("activeTab === 'note' && startupState.notes.status === 'failed'");
+    expect(appContent).toContain('notes: { ...state, accountId: authUser.id }');
+    expect(appContent).toMatch(/const notesStartupStatus = startupState\.notes\.accountId === authUser\.id\s+\? startupState\.notes\.status\s+: 'pending';/);
+    expect(appContent).toContain("activeTab === 'note' && notesStartupStatus === 'pending'");
+    expect(appContent).toContain("activeTab === 'note' && notesStartupStatus === 'failed'");
 
     const suspenseStart = appContent.indexOf('<Suspense fallback={<ViewLoadingFallback />}>');
     const suspenseEnd = appContent.indexOf('</Suspense>', suspenseStart);
-    const notesReadyRender = appContent.indexOf("startupState.notes.status === 'ready'");
+    const notesReadyRender = appContent.indexOf("notesStartupStatus === 'ready'");
     expect(suspenseStart).toBeGreaterThanOrEqual(0);
     expect(suspenseEnd).toBeGreaterThan(suspenseStart);
     expect(notesReadyRender).toBeGreaterThan(suspenseEnd);
