@@ -1,4 +1,4 @@
-import { Component, lazy, Suspense, useCallback, useMemo, useState, type ErrorInfo, type ReactNode } from 'react';
+import { Component, lazy, memo, Suspense, useCallback, useMemo, useState, type ErrorInfo, type ReactNode } from 'react';
 
 import type { ToastType } from '../hooks/useToast';
 import { useTranslation } from '../lib/i18n';
@@ -11,6 +11,8 @@ type NotesRouteViewProps = {
 
 type NotesRouteBoundaryProps = NotesRouteViewProps & {
   active: boolean;
+  /** Memo invalidation only; the Notes UI still reads live local time when rendered. */
+  clockRevision?: string;
 };
 
 type NotesRouteErrorBoundaryProps = {
@@ -71,7 +73,7 @@ class NotesRouteErrorBoundary extends Component<
 }
 
 /** Keeps Notes authority in AppContent while isolating only the NoteView UI. */
-export function NotesRouteBoundary({ active, showToast, accountId }: NotesRouteBoundaryProps) {
+export const NotesRouteBoundary = memo(function NotesRouteBoundary({ active, showToast, accountId }: NotesRouteBoundaryProps) {
   const { t } = useTranslation();
   const [retryKey, setRetryKey] = useState(0);
   const LazyNoteView = useMemo(() => createLazyNoteView(), [retryKey]);
@@ -91,4 +93,4 @@ export function NotesRouteBoundary({ active, showToast, accountId }: NotesRouteB
       </Suspense>
     </NotesRouteErrorBoundary>
   );
-}
+});

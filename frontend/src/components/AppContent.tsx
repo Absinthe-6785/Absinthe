@@ -17,6 +17,7 @@ import { Sidebar, TabId, type SettingsSectionId } from './common/Sidebar';
 import { ViewLoadingFallback } from './common/ViewLoadingFallback';
 
 import { NotesRouteBoundary } from './NotesRouteBoundary';
+import { NotesDashboardAgeRefresh } from './NotesDashboardAgeRefresh';
 import type { RecipeNavigationRequest } from './views/RecipeView';
 import type { ScheduleNavigationRequest } from './views/PlannerView';
 import { validPlannerEventDate } from './views/features/planner/plannerActivityStorage';
@@ -103,6 +104,19 @@ function pendingStartupState(accountId: string, healthBootstrapRequired: boolean
       ? { status: 'pending', error: null }
       : { status: 'ready', error: null },
   };
+}
+
+function getNotesClockRevision(sample: Date): string {
+  // Preserve minute ticks and calendar/zone changes seen between samples.
+  // NoteView continues to read actual local time for Trace and date labels.
+  const localNow = new Date();
+  let zone = '';
+  try {
+    zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  } catch {
+    // The native calendar day and offset still cover local clock changes.
+  }
+  return `${sample.getTime()}|${localNow.toDateString()}|${localNow.getTimezoneOffset()}|${zone}`;
 }
 
 function StartupFailureBoundary({
@@ -781,7 +795,14 @@ export function AppContent({ authUser }: { authUser: User }) {
           />
         )}
         {notesStartupStatus === 'ready' && (
-          <NotesRouteBoundary active={activeTab === 'note'} showToast={showToast} accountId={authUser.id} />
+          <NotesDashboardAgeRefresh.Provider value={activeTab === 'note' ? Date.now() : null}>
+            <NotesRouteBoundary
+              active={activeTab === 'note'}
+              showToast={showToast}
+              accountId={authUser.id}
+              clockRevision={activeTab === 'note' ? getNotesClockRevision(now.toJSDate()) : undefined}
+            />
+          </NotesDashboardAgeRefresh.Provider>
         )}
       </div>
 

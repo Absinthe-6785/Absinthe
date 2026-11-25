@@ -139,6 +139,42 @@ vi.mock('./views/NoteView', async importOriginal => {
   const actual = await importOriginal<typeof import('./views/NoteView')>();
   return { ...actual, NoteView: measured('note', actual.NoteView) };
 });
+vi.mock('../lib/i18n', async importOriginal => {
+  const actual = await importOriginal<typeof import('../lib/i18n')>();
+  type Translator = ReturnType<typeof actual.useTranslation>['t'];
+  const wrapped = new WeakMap<Translator, Translator>();
+  return { ...actual, useTranslation: () => {
+    const { t, lang } = actual.useTranslation();
+    let measuredTranslator = wrapped.get(t);
+    if (!measuredTranslator) {
+      measuredTranslator = key => {
+        // The active Notes route calls this private label exactly once per render.
+        if (key === 'notesRouteLoadFailed') count('notesBoundary.render');
+        return t(key);
+      };
+      wrapped.set(t, measuredTranslator);
+    }
+    return { t: measuredTranslator, lang };
+  } };
+});
+vi.mock('./views/noteview/renderDiagnostics', async importOriginal => {
+  const actual = await importOriginal<typeof import('./views/noteview/renderDiagnostics')>();
+  return { ...actual, useRenderDiagnostic: (label: string) => {
+    if (label === 'NoteView') count('note.actualRender');
+    actual.useRenderDiagnostic(label);
+  } };
+});
+vi.mock('./views/noteview/NoteViewEditorArea', async importOriginal => {
+  const actual = await importOriginal<typeof import('./views/noteview/NoteViewEditorArea')>();
+  return { ...actual, NoteViewEditorArea: measured('noteEditor', actual.NoteViewEditorArea) };
+});
+vi.mock('./views/traceSidebarCounts', async importOriginal => {
+  const actual = await importOriginal<typeof import('./views/traceSidebarCounts')>();
+  return { ...actual, countTraceMonth: (...args: Parameters<typeof actual.countTraceMonth>) => {
+    count('notesTraceMonth.scan');
+    return actual.countTraceMonth(...args);
+  } };
+});
 vi.mock('./views/features/planner/calendar-ui/CalendarShell', async importOriginal => {
   const actual = await importOriginal<typeof import('./views/features/planner/calendar-ui/CalendarShell')>();
   return { ...actual, CalendarShell: measured('plannerCalendar', actual.CalendarShell) };
@@ -515,6 +551,226 @@ it('retains the record time and local day across the repeated DST hour on Home',
 });
 
 describe('AppContent clock render measurement', () => {
+  it.each([250, 1000])('measures unrelated Notes shell renders with %i synthetic Notes', async size => {
+    const { useNotesStore } = await import('../store/useNotesStore');
+    const previous = useNotesStore.getState();
+    const notes = Array.from({ length: size }, (_, i) => ({
+      ...fixture.note,
+      id: `notes-shell-${i}`,
+      title: `Shell fixture ${i}`,
+      body: `Synthetic body ${i}`,
+      updatedAt: Date.now() - i * 60_000,
+    }));
+    const titleInput = () => host.querySelector<HTMLInputElement>('[data-note-header-title-row] input')!;
+    const report: Record<string, Record<string, number>> = {};
+    try {
+      useNotesStore.setState({ notes, folders: [], activeNoteId: notes[0]!.id });
+      await render();
+      await perform(() => openNote(notes[0]!.id));
+      const title = titleInput();
+      expect(title.value).toBe(notes[0]!.title);
+
+      await perform(() => {
+        title.focus();
+        title.setSelectionRange(1, 4);
+      });
+      report.toast1 = await sample(() => fixture.toast!('First unrelated toast'));
+      expect(host.textContent).toContain('First unrelated toast');
+      report.toast2 = await sample(() => fixture.toast!('Second unrelated toast'));
+      expect(host.textContent).toContain('Second unrelated toast');
+      expect(titleInput()).toBe(title);
+      expect(document.activeElement).toBe(title);
+      expect([title.selectionStart, title.selectionEnd]).toEqual([1, 4]);
+
+      report.searchOpen = await sample(openWorkspaceSearch);
+      expect(host.querySelector('[data-k111-search-modal]')).not.toBeNull();
+      report.searchClose = await sample(() =>
+        host.querySelector<HTMLButtonElement>('[data-k111-search-modal] button[aria-label]')!.click());
+      expect(host.querySelector('[data-k111-search-modal]')).toBeNull();
+      expect(titleInput()).toBe(title);
+
+      report.sameDayMinute = await sample(tick);
+      expect(titleInput()).toBe(title);
+      report.midnight = await sample(tick);
+      expect(titleInput()).toBe(title);
+
+      report.sourceEdit = await sample(() => useNotesStore.setState({
+        notes: [{ ...notes[0]!, title: 'Updated shell fixture', body: 'Updated body' }, ...notes.slice(1)],
+        folders: [{ id: 'notes-shell-folder', name: 'New test folder' }] as never,
+      }));
+      expect(titleInput().value).toBe('Updated shell fixture');
+      expect(host.textContent).toContain('Updated body');
+      expect(titleInput().closest('[data-note-header-title-row]')?.textContent).toContain('New test folder');
+      expect(fixture.authFetch).not.toHaveBeenCalled();
+      expect(fixture.mutate).not.toHaveBeenCalled();
+      console.info('NOTES_SHELL_RENDER_WORK', JSON.stringify({ size, report }));
+      for (const phase of ['toast1', 'toast2', 'searchOpen', 'searchClose']) {
+        expect(report[phase]?.['shell.render'], phase).toBeGreaterThan(0);
+        for (const counter of ['notesBoundary.render', 'note.actualRender', 'note.commit', 'notesTraceMonth.scan', 'noteEditor.commit']) {
+          expect(report[phase]?.[counter] ?? 0, `${phase} ${counter}`).toBe(0);
+        }
+      }
+      for (const phase of ['sameDayMinute', 'midnight', 'sourceEdit']) {
+        expect(report[phase]?.['note.actualRender'], phase).toBeGreaterThan(0);
+        expect(report[phase]?.['note.commit'], phase).toBeGreaterThan(0);
+      }
+    } finally {
+      await perform(() => root.render(null));
+      useNotesStore.setState({ notes: previous.notes, folders: previous.folders, activeNoteId: previous.activeNoteId });
+    }
+  });
+
+  it('preserves an in-progress Notes title edit and selection during a shell toast', async () => {
+    const { useNotesStore } = await import('../store/useNotesStore');
+    const previous = useNotesStore.getState();
+    const save = vi.fn<typeof previous.updateNote>();
+    const note = { ...fixture.note, id: 'notes-draft-fixture', title: 'Original title' };
+    try {
+      useNotesStore.setState({ notes: [note], activeNoteId: note.id, updateNote: save });
+      await render();
+      await perform(() => openNote(note.id));
+      const selector = '[data-note-header-title-row] input';
+      const input = host.querySelector<HTMLInputElement>(selector)!;
+      await perform(() => {
+        input.focus();
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'Draft title');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.setSelectionRange(1, 5);
+      });
+      expect(save).toHaveBeenCalledWith(note.id, { title: 'Draft title' });
+      const calls = save.mock.calls.length;
+      const toast = await sample(() => fixture.toast!('Do not disturb the editor'));
+      expect(toast['note.actualRender'] ?? 0).toBe(0);
+      expect(host.querySelector(selector)).toBe(input);
+      expect(document.activeElement).toBe(input);
+      expect(input.value).toBe('Draft title');
+      expect([input.selectionStart, input.selectionEnd]).toEqual([1, 5]);
+      expect(save).toHaveBeenCalledTimes(calls);
+    } finally {
+      await perform(() => root.render(null));
+      useNotesStore.setState({ notes: previous.notes, activeNoteId: previous.activeNoteId, updateNote: previous.updateNote });
+    }
+  });
+
+  it('keeps the Trace day, month, quarter and year current before the next shell clock sample', async () => {
+    vi.stubEnv('TZ', 'UTC');
+    try {
+      vi.setSystemTime(new Date('2026-12-31T23:59:55Z'));
+      await render();
+      await perform(() => select('note'));
+      const click = (selector: string) => perform(() => host.querySelector<HTMLElement>(selector)!.click());
+      const value = (label: string) => host.querySelector<HTMLInputElement>(`[aria-label="${label}"]`)?.value;
+      await click('[data-trace-quick-nav-toggle]');
+      await click('[data-k108-timeline-today]');
+      expect(value('Select date')).toBe('2026-12-31');
+
+      // A shell update arrives after midnight, but before the clock's interval fires.
+      vi.setSystemTime(new Date('2027-01-01T00:00:05Z'));
+      const rollover = await sample(() => fixture.toast!('Midnight between clock samples'));
+      expect(rollover['notesBoundary.render']).toBe(1);
+      expect(value('Select date')).toBe('2026-12-31'); // No automatic selection change.
+      await click('[data-k108-timeline-today]');
+      expect(value('Select date')).toBe('2027-01-01');
+      await click('[data-k108-timeline-month]');
+      expect(value('Select month')).toBe('2027-01');
+      await click('[data-k108-timeline-quarter]');
+      expect(value('Select quarter')).toBe('1');
+      expect(value('Select year')).toBe('2027');
+      await click('[data-k108-timeline-year]');
+      expect(value('Select year')).toBe('2027');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('keeps Trace current through a DST tick, timezone change and locale update', async () => {
+    const { useAppStore } = await import('../store/useAppStore');
+    const { getTranslator } = await import('../lib/i18n');
+    const { appSettings } = useAppStore.getState();
+    const currentDay = () => host.querySelector<HTMLElement>('[data-k108-timeline-today]')!;
+    vi.stubEnv('TZ', 'America/New_York');
+    try {
+      vi.setSystemTime(new Date('2026-03-08T06:59:30Z'));
+      expect(new Date().getTimezoneOffset()).toBe(300);
+      await render();
+      await perform(() => select('note'));
+      await perform(() => host.querySelector<HTMLElement>('[data-trace-quick-nav-toggle]')!.click());
+      const dst = await sample(tick);
+      expect(new Date().getTimezoneOffset()).toBe(240);
+      expect(dst['notesBoundary.render']).toBe(1);
+      await perform(() => currentDay().click());
+      const traceDate = () => host.querySelector<HTMLInputElement>('[aria-label="Select date"]')?.value;
+      expect(traceDate()).toBe('2026-03-08');
+
+      vi.stubEnv('TZ', 'Pacific/Honolulu');
+      const zone = await sample(() => fixture.toast!('Zone changed between samples'));
+      expect(zone['notesBoundary.render']).toBe(1);
+      expect(traceDate()).toBe('2026-03-08');
+      await perform(() => currentDay().click());
+      expect(traceDate()).toBe('2026-03-07');
+
+      const switchedLanguage = appSettings.language === 'ja' ? 'en' : 'ja';
+      await perform(() => useAppStore.setState({ appSettings: { ...appSettings, language: switchedLanguage } }));
+      expect(currentDay().textContent).toContain(getTranslator(switchedLanguage)('nvToday'));
+      expect(traceDate()).toBe('2026-03-07');
+    } finally {
+      await perform(() => root.render(null));
+      useAppStore.setState({ appSettings });
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('keeps Notes available when the default timezone lookup fails', async () => {
+    await render();
+    await perform(() => select('note'));
+    const zone = vi.spyOn(Intl, 'DateTimeFormat')
+      .mockImplementationOnce(() => { throw new Error('Default timezone unavailable'); });
+    try {
+      await perform(() => fixture.toast!('Timezone fallback'));
+      expect(zone).toHaveBeenCalled();
+      expect(host.textContent).toContain('Timezone fallback');
+      expect(host.querySelector('[data-workspace="notes"]')).not.toBeNull();
+      expect(host.querySelector('[data-testid="notes-route-load-error"]')).toBeNull();
+    } finally {
+      zone.mockRestore();
+    }
+  });
+
+  it('refreshes dashboard relative ages between clock samples without rendering NoteView', async () => {
+    const { useNotesStore } = await import('../store/useNotesStore');
+    const { getTranslator } = await import('../lib/i18n');
+    const { useAppStore } = await import('../store/useAppStore');
+    const previous = useNotesStore.getState();
+    const t = getTranslator(useAppStore.getState().appSettings.language);
+    const note = { ...fixture.note, id: 'recent-age-fixture', title: 'Recent age fixture', updatedAt: Date.now() - 59_000 };
+    try {
+      useNotesStore.setState({ notes: [note], activeNoteId: note.id });
+      await render();
+      await perform(() => openNote(note.id));
+      const toggle = host.querySelector<HTMLElement>('[data-notes-advanced-organization-toggle]');
+      if (toggle?.getAttribute('aria-expanded') === 'false') await perform(() => toggle.click());
+      const dashboard = [...host.querySelectorAll<HTMLElement>('[data-notes-advanced-organization-content] .bfi > span')]
+        .find(item => item.textContent === t('wsDashboard'));
+      expect(dashboard).toBeDefined();
+      await perform(() => dashboard!.click());
+      const recent = () => [...host.querySelectorAll('button')].find(button =>
+        button.firstElementChild?.textContent === note.title && button.children.length === 2);
+      const row = recent();
+      expect(row?.textContent).toContain(t('wsEdited').replace('{time}', '방금'));
+
+      vi.setSystemTime(new Date(Date.now() + 5_000));
+      const shell = await sample(() => fixture.toast!('Dashboard age crossed a threshold'));
+      expect(shell['shell.render']).toBe(1);
+      expect(shell['notesBoundary.render'] ?? 0).toBe(0);
+      expect(shell['note.actualRender'] ?? 0).toBe(0);
+      expect(recent()).toBe(row);
+      expect(row?.textContent).toContain(t('wsEdited').replace('{time}', '1분 전'));
+    } finally {
+      await perform(() => root.render(null));
+      useNotesStore.setState({ notes: previous.notes, activeNoteId: previous.activeNoteId });
+    }
+  });
+
   it.each(tabs)('records the same tick, rollover and shell-update scenarios on %s', async tab => {
     await render();
     const navigation = tab === 'home' ? await sample(() => {}) : await sample(() => select(tab));
@@ -530,7 +786,11 @@ describe('AppContent clock render measurement', () => {
     expect(fixture.lastRead).toEqual(readDay);
     expect(midnight['shell.render']).toBeGreaterThan(0);
     expect(midnight[`${tab}.commit`]).toBeGreaterThan(0);
-    expect(toast[`${tab}.commit`]).toBeGreaterThan(0);
+    if (tab === 'note') {
+      expect(toast['note.commit'] ?? 0).toBe(0);
+    } else {
+      expect(toast[`${tab}.commit`]).toBeGreaterThan(0);
+    }
     expect(host.textContent).toContain('Unrelated shell toast');
     expect(host.querySelector('[data-k120-workspace-error]')).toBeNull();
     expect(fixture.authFetch).not.toHaveBeenCalled();
