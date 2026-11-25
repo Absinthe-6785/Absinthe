@@ -8,6 +8,7 @@ import type { ToastType } from '../hooks/useToast';
 import { pushSearchRecent } from './views/features/search/searchRecentStorage';
 import { recordPlannerActivity } from './views/features/planner/plannerActivityStorage';
 import { recordRecipeView } from './views/features/recipe/recipeActivityStorage';
+import { resetWorkspaceSearchStateForTests, writeWorkspaceSearchState } from './views/k101WorkspaceSearchState';
 import type { NotesAuthorityRequest } from '../lib/notesAccountAuthority';
 
 const fixture = vi.hoisted(() => {
@@ -32,6 +33,9 @@ const fixture = vi.hoisted(() => {
   }));
   return {
     empty, mutate, counts: {} as Record<string, number>,
+    searchProjectionFirstTitle: null as string | null,
+    searchProjectionGeneratedAt: null as string | null,
+    searchHostPreviousProps: null as Record<string, unknown> | null,
     lastRead: null as { accountId: string; date: string } | null,
     homeClockMs: null as number | null,
     homePublication: null as NotesAuthorityRequest | null,
@@ -182,6 +186,60 @@ vi.mock('./views/features/home/buildHomeFoundationProjection', async importOrigi
     return actual.buildHomeFoundationProjection(...args);
   } };
 });
+
+vi.mock('./views/features/search/GlobalSearchHost', async importOriginal => {
+  const actual = await importOriginal<typeof import('./views/features/search/GlobalSearchHost')>();
+  return {
+    ...actual,
+    GlobalSearchHost: (props: import('./views/features/search/GlobalSearchHost').GlobalSearchHostProps) => {
+      const next = props as unknown as Record<string, unknown>;
+      const previous = fixture.searchHostPreviousProps;
+      if (previous) {
+        for (const [key, value] of Object.entries(next)) {
+          if (!Object.is(previous[key], value)) count(`searchHost.propChanged.${key}`);
+        }
+      }
+      fixture.searchHostPreviousProps = next;
+      return createElement(actual.GlobalSearchHost, props);
+    },
+  };
+});
+
+vi.mock('./views/features/search/hooks/useSearchProjection', async importOriginal => {
+  const actual = await importOriginal<typeof import('./views/features/search/hooks/useSearchProjection')>();
+  return { ...actual, useSearchProjection: (...args: Parameters<typeof actual.useSearchProjection>) => {
+    count('searchHost.render');
+    return actual.useSearchProjection(...args);
+  } };
+});
+vi.mock('./views/features/search/components/SearchWorkspacePalette', async importOriginal => {
+  const actual = await importOriginal<typeof import('./views/features/search/components/SearchWorkspacePalette')>();
+  return {
+    ...actual,
+    SearchWorkspacePalette: (props: import('./views/features/search/components/SearchWorkspacePalette').SearchWorkspacePaletteProps) => {
+      count('searchPalette.render');
+      fixture.searchProjectionGeneratedAt = props.projection.generatedAt;
+      return createElement(Profiler, { id: 'searchPalette', onRender: () => count('searchPalette.commit') },
+        createElement(actual.SearchWorkspacePalette, props));
+    },
+  };
+});
+vi.mock('./views/features/search/searchProjectionRuntime', async importOriginal => {
+  const actual = await importOriginal<typeof import('./views/features/search/searchProjectionRuntime')>();
+  return {
+    ...actual,
+    buildDiscoveryFeed: (...args: Parameters<typeof actual.buildDiscoveryFeed>) => {
+      count('search.discovery');
+      return actual.buildDiscoveryFeed(...args);
+    },
+    buildSearchProjection: (...args: Parameters<typeof actual.buildSearchProjection>) => {
+      count('search.projectionBuild');
+      fixture.searchProjectionFirstTitle = args[0].notes[0]?.title ?? null;
+      return actual.buildSearchProjection(...args);
+    },
+  };
+});
+
 vi.mock('./views/features/health/buildHealthProjection', async importOriginal => {
   const actual = await importOriginal<typeof import('./views/features/health/buildHealthProjection')>();
   return {
@@ -242,7 +300,11 @@ beforeEach(() => {
   vi.setSystemTime(new Date(2026, 10, 14, 23, 58, 30));
   localStorage.clear();
   sessionStorage.clear();
+  resetWorkspaceSearchStateForTests();
   fixture.counts = {};
+  fixture.searchProjectionFirstTitle = null;
+  fixture.searchProjectionGeneratedAt = null;
+  fixture.searchHostPreviousProps = null;
   fixture.lastRead = null;
   vi.clearAllMocks();
   host = document.createElement('div');
@@ -253,8 +315,84 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   fixture.homePublication = null;
+  resetWorkspaceSearchStateForTests();
   host.remove();
   vi.useRealTimers();
+});
+
+it.each([250, 1000])('measures closed Global Search work with %i Notes and checks fresh reopen data', async size => {
+  const { useNotesStore } = await import('../store/useNotesStore');
+  const { notes: previousNotes, folders: previousFolders } = useNotesStore.getState();
+  const notes = Array.from({ length: size }, (_, index) => ({
+    ...fixture.note,
+    id: `search-measure-${index}`,
+    title: index === 0 ? 'Initial Search Target' : `Search Fixture ${index}`,
+    body: `Body ${index}`,
+    folderId: null,
+    updatedAt: Date.now() - index,
+  }));
+  const report: Record<string, Record<string, number>> = {};
+  const latestTitle = () => fixture.searchProjectionFirstTitle;
+  const updateFirstNote = (patch: Record<string, unknown>) => {
+    const current = useNotesStore.getState().notes;
+    useNotesStore.setState({ notes: [{ ...current[0]!, ...patch }, ...current.slice(1)] });
+  };
+
+  try {
+    useNotesStore.setState({ notes, folders: [] });
+    await render('clock-a');
+    report.mountClosed = { ...fixture.counts };
+
+    report.closedBodyEdit = await sample(() => updateFirstNote({ body: 'Changed while closed' }));
+    report.closedTitleFolderChange = await sample(() => {
+      updateFirstNote({ title: 'Fresh Search Target', folderId: 'search-measure-folder' });
+      useNotesStore.setState({ folders: [{ id: 'search-measure-folder', name: 'Updated Folder' }] as never });
+    });
+    report.unrelatedShellToast = await sample(() => fixture.toast!('Unrelated shell update'));
+
+    writeWorkspaceSearchState({ query: 'Fresh Search Target', filter: 'all' });
+    report.open = await sample(openWorkspaceSearch);
+    expect(latestTitle()).toBe('Fresh Search Target');
+
+    report.noteEditWhileOpen = await sample(() => updateFirstNote({ title: 'Live Search Target' }));
+    expect(latestTitle()).toBe('Live Search Target');
+    report.close = await sample(() => host.querySelector<HTMLButtonElement>('[data-k111-search-modal] button[aria-label]')!.click());
+    expect(host.querySelector('[data-k111-search-modal]')).toBeNull();
+    report.reopenPersistedQuery = await sample(openWorkspaceSearch);
+    expect(host.querySelector<HTMLInputElement>('[data-k111-search-input]')?.value).toBe('Fresh Search Target');
+    expect(latestTitle()).toBe('Live Search Target');
+    report.closeAfterReopen = await sample(() => host.querySelector<HTMLButtonElement>('[data-k111-search-modal] button[aria-label]')!.click());
+
+    report.closedEditAfterClose = await sample(() => updateFirstNote({ body: 'Updated after closing' }));
+    report.unrelatedShellAfterClose = await sample(() => fixture.toast!('Another unrelated update'));
+    expect(fixture.authFetch).not.toHaveBeenCalled();
+    for (const phase of ['closedBodyEdit', 'closedTitleFolderChange', 'unrelatedShellToast', 'closedEditAfterClose', 'unrelatedShellAfterClose']) {
+      expect(report[phase]?.['searchHost.render'] ?? 0, `${phase} host renders at ${size} Notes`).toBe(0);
+      expect(report[phase]?.['searchPalette.render'] ?? 0, `${phase} palette renders at ${size} Notes`).toBe(0);
+      expect(report[phase]?.['searchPalette.commit'] ?? 0, `${phase} palette commits at ${size} Notes`).toBe(0);
+    }
+    expect(report.open?.['search.discovery']).toBe(1);
+    expect(report.open?.['search.projectionBuild']).toBe(1);
+    expect(report.noteEditWhileOpen?.['searchHost.render']).toBe(1);
+    expect(report.noteEditWhileOpen?.['search.projectionBuild']).toBe(1);
+    console.info('GLOBAL_SEARCH_CLOSED_RENDER_WORK', JSON.stringify({ size, report }));
+  } finally {
+    await perform(() => root.render(null));
+    useNotesStore.setState({ notes: previousNotes, folders: previousFolders });
+  }
+});
+
+it('keeps a persisted query dormant while Search is closed and restores it on open', async () => {
+  writeWorkspaceSearchState({ query: 'Persisted while closed', filter: 'all' });
+  await render('clock-a');
+  const closedTimer = await sample(() => vi.advanceTimersByTime(100));
+  console.info('GLOBAL_SEARCH_PERSISTED_CLOSED_TIMER', JSON.stringify(closedTimer));
+  expect(closedTimer['searchHost.render'] ?? 0).toBe(0);
+  expect(closedTimer['searchPalette.render'] ?? 0).toBe(0);
+  expect(closedTimer['searchPalette.commit'] ?? 0).toBe(0);
+  await perform(openWorkspaceSearch);
+  expect(host.querySelector<HTMLInputElement>('[data-k111-search-input]')?.value).toBe('Persisted while closed');
+  expect(fixture.authFetch).not.toHaveBeenCalled();
 });
 
 it.each([250, 1000])('measures Home projection work on the same mounted actions with %i Notes', async size => {
@@ -501,6 +639,53 @@ describe('AppContent clock render measurement', () => {
     expect(host.querySelector('[data-k111-recent-row]')).toBeNull();
     expect((await sample(tick))['shell.render'] ?? 0).toBe(0);
   });
+
+it('uses render-time clock when results change between shell clock samples', async () => {
+  vi.setSystemTime(new Date(2026, 10, 14, 23, 58, 30));
+  const { useNotesStore } = await import('../store/useNotesStore');
+  const { notes: previousNotes, folders: previousFolders } = useNotesStore.getState();
+  const matchingNotes = [
+    { ...fixture.note, id: 'search-result-a', title: 'Target Alpha', updatedAt: Date.now() },
+    { ...fixture.note, id: 'search-result-b', title: 'Target Beta', updatedAt: Date.now() - 1 },
+  ];
+
+  try {
+    useNotesStore.setState({ notes: matchingNotes, folders: [] });
+    writeWorkspaceSearchState({ query: 'Target', filter: 'all' });
+    await render('clock-a');
+    await perform(openWorkspaceSearch);
+    const sampledClockMs = fixture.searchHostPreviousProps?.searchNowMs;
+    const input = host.querySelector<HTMLInputElement>('[data-k111-search-input]')!;
+    expect(input.getAttribute('aria-activedescendant')).toBe('k111-search-opt-0');
+    await perform(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })));
+    expect(input.getAttribute('aria-activedescendant')).toBe('k111-search-opt-1');
+    const previousGeneratedAt = fixture.searchProjectionGeneratedAt;
+
+    // Change the actual instant without advancing AppContent's minute sample.
+    vi.setSystemTime(new Date(Date.now() + 5_000));
+    await perform(() => useNotesStore.setState({ notes: [{ ...matchingNotes[0]!, title: 'Target Updated' }] }));
+
+    expect(fixture.searchHostPreviousProps?.searchNowMs).toBe(sampledClockMs);
+    expect(fixture.searchProjectionGeneratedAt).not.toBe(previousGeneratedAt);
+    expect(input.getAttribute('aria-activedescendant')).toBe('k111-search-opt-0');
+  } finally {
+    await perform(() => root.render(null));
+    useNotesStore.setState({ notes: previousNotes, folders: previousFolders });
+  }
+});
+
+it('uses the current local day when Search opens between shell clock samples', async () => {
+  vi.setSystemTime(new Date(2026, 10, 14, 23, 59, 55));
+  pushSearchRecent({ domain: 'recipe', kind: 'recipe', id: 'midnight-recent', title: 'Previous day recent' }, 'clock-a');
+  await render('clock-a');
+
+  vi.setSystemTime(new Date(2026, 10, 15, 0, 0, 5));
+  await perform(openWorkspaceSearch);
+
+  expect(host.querySelector('[data-k111-recent-bucket="today"]')).toBeNull();
+  expect(host.querySelector('[data-k111-recent-bucket="earlier"]')).not.toBeNull();
+  expect(host.querySelector('[data-k111-recent-row]')?.textContent).toContain('now');
+});
 
   it('uses the last sampled instant on return to Home, without resetting the clock cadence', async () => {
     vi.setSystemTime(new Date(2026, 10, 14, 12));

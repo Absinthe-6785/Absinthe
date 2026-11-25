@@ -821,6 +821,7 @@ export function AppContent({ authUser }: { authUser: User }) {
         appSettings={appSettings}
         onSearchHasQueryChange={setSearchHasQuery}
         searchHostLifetime={searchHost}
+        searchNowMs={searchHost.current?.open ? now.toJSDate().getTime() : undefined}
         onSearchActivationChange={onSearchActivationChange}
         workoutPreviewRead={searchCompositeEnabled ? workoutRangeReadSource.previewRead : undefined}
         onOpenWorkoutPreview={openSearchWorkoutPreview}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import useSWR from 'swr';
 import { useNotesStore } from '../../../../store/useNotesStore';
 import { buildNoteChrome } from '../../noteEditorTheme';
@@ -34,14 +34,42 @@ export interface GlobalSearchHostProps {
   weeklySchedulesState?: SearchDatasetState;
   onSearchHasQueryChange?: (hasQuery: boolean) => void;
   searchHostLifetime?: SearchHostLifetime;
+  /** Memo invalidation signal for open-palette clock refreshes; projection uses render-time now. */
+  searchNowMs?: number;
   onSearchActivationChange?: (activation: SearchActivation) => void;
   workoutPreviewRead?: WorkoutRangePreviewRead;
   onOpenWorkoutPreview?: (evidence: SearchWorkoutPreviewEvidence) => boolean;
   onRetryWorkoutPreview?: () => void;
 }
 
+type NotesSnapshot = ReturnType<typeof useNotesStore.getState>['notes'];
+type FoldersSnapshot = ReturnType<typeof useNotesStore.getState>['folders'];
+const EMPTY_NOTES = Object.freeze([]) as unknown as NotesSnapshot;
+const EMPTY_FOLDERS = Object.freeze([]) as unknown as FoldersSnapshot;
+const noSearchSourceSubscription = () => () => {};
+const readSearchNotes = () => useNotesStore.getState().notes;
+const readSearchFolders = () => useNotesStore.getState().folders;
+const readEmptySearchNotes = () => EMPTY_NOTES;
+const readEmptySearchFolders = () => EMPTY_FOLDERS;
+
+function useSearchNotes(open: boolean): NotesSnapshot {
+  return useSyncExternalStore(
+    open ? useNotesStore.subscribe : noSearchSourceSubscription,
+    open ? readSearchNotes : readEmptySearchNotes,
+    readEmptySearchNotes,
+  );
+}
+
+function useSearchFolders(open: boolean): FoldersSnapshot {
+  return useSyncExternalStore(
+    open ? useNotesStore.subscribe : noSearchSourceSubscription,
+    open ? readSearchFolders : readEmptySearchFolders,
+    readEmptySearchFolders,
+  );
+}
+
 /** K-111 — App-level cross-domain search host. */
-export function GlobalSearchHost({
+export const GlobalSearchHost = memo(function GlobalSearchHost({
   accountId,
   appSettings,
   onSearchHasQueryChange,
@@ -62,9 +90,12 @@ export function GlobalSearchHost({
   onOpenWorkoutPreview,
   onRetryWorkoutPreview,
 }: GlobalSearchHostProps) {
-  const notes = useNotesStore(s => s.notes);
-  const folders = useNotesStore(s => s.folders);
   const [open, setOpen] = useState(false);
+  const notes = useSearchNotes(open);
+  const folders = useSearchFolders(open);
+  // searchNowMs stays opaque so memo observes open clock ticks; each actual render
+  // uses the current instant for generatedAt and local-day/relative labels.
+  const projectionNow = open ? new Date() : undefined;
   const [projectionRuntime, setProjectionRuntime] = useState<typeof import('./searchProjectionRuntime') | 'unavailable'>();
   const persisted = useMemo(() => readWorkspaceSearchState(), []);
   const [query, setQuery] = useState(persisted.query);
@@ -152,14 +183,14 @@ export function GlobalSearchHost({
   }, [open, query]);
 
   useEffect(() => {
-    if (!query.trim()) {
+    if (!open || !query.trim()) {
       setIsSearching(false);
       return;
     }
     setIsSearching(true);
     const timer = window.setTimeout(() => setIsSearching(false), 80);
     return () => window.clearTimeout(timer);
-  }, [query]);
+  }, [open, query]);
 
   const builders = projectionRuntime === 'unavailable' ? undefined : projectionRuntime;
   const discoveryFeed = useMemo(
@@ -173,6 +204,7 @@ export function GlobalSearchHost({
   );
 
   const projection = useSearchProjection({
+    now: projectionNow,
     query,
     filter: 'all',
     notes,
@@ -240,4 +272,4 @@ export function GlobalSearchHost({
       onRetryWorkoutPreview={handleRetryWorkoutPreview}
     />
   );
-}
+});

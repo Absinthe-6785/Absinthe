@@ -23,14 +23,26 @@ const harness = vi.hoisted(() => ({
   writes: [] as Array<{ query: string; filter: string }>,
   activationSignals: [] as boolean[],
   discoveryCalls: 0,
+  storeListeners: new Set<() => void>(),
   useRealPalette: false,
   loadPresentation: undefined as (() => Promise<ProjectionRuntime>) | undefined,
 }));
 
-vi.mock('../../../../store/useNotesStore', () => ({
-  useNotesStore: (selector: (state: { notes: unknown[]; folders: unknown[] }) => unknown) =>
-    selector({ notes: harness.notes, folders: harness.folders }),
-}));
+vi.mock('../../../../store/useNotesStore', () => {
+  const store = {
+    getState: () => ({ notes: harness.notes, folders: harness.folders }),
+    subscribe: (listener: () => void) => {
+      harness.storeListeners.add(listener);
+      return () => { harness.storeListeners.delete(listener); };
+    },
+  };
+  return {
+    useNotesStore: Object.assign(
+      (selector: (state: { notes: unknown[]; folders: unknown[] }) => unknown) => selector(store.getState()),
+      store,
+    ),
+  };
+});
 
 vi.mock('../../noteEditorTheme', () => ({
   buildNoteChrome: () => ({
@@ -201,6 +213,14 @@ function openSearch(): void {
   act(() => harness.openers[0]!());
 }
 
+function updateSources(notes: unknown[], folders: unknown[] = harness.folders): void {
+  act(() => {
+    harness.notes = notes;
+    harness.folders = folders;
+    for (const listener of [...harness.storeListeners]) listener();
+  });
+}
+
 import { GlobalSearchHost } from './GlobalSearchHost';
 
 describe('LEAN_04B GlobalSearchHost lifecycle characterization', () => {
@@ -219,6 +239,7 @@ describe('LEAN_04B GlobalSearchHost lifecycle characterization', () => {
     harness.writes.length = 0;
     harness.activationSignals.length = 0;
     harness.discoveryCalls = 0;
+    expect(harness.storeListeners.size).toBe(0);
     harness.useRealPalette = false;
     harness.loadPresentation = undefined;
     sessionStorage.clear();
@@ -227,6 +248,7 @@ describe('LEAN_04B GlobalSearchHost lifecycle characterization', () => {
 
   afterEach(() => {
     if (mounted) act(() => mounted?.root.unmount());
+    expect(harness.storeListeners.size).toBe(0);
     mounted?.host.remove();
     mounted = null;
   });
@@ -243,6 +265,7 @@ describe('LEAN_04B GlobalSearchHost lifecycle characterization', () => {
     expect(harness.recipeRequests).toHaveLength(0);
     expect(harness.projectionInputs).toHaveLength(0);
     expect(harness.discoveryCalls).toBe(0);
+    expect(harness.storeListeners.size).toBe(0);
   });
 
   it('keeps cold typing and focus intact, uses current data on arrival, and reopens warm', async () => {
@@ -253,6 +276,7 @@ describe('LEAN_04B GlobalSearchHost lifecycle characterization', () => {
     const opener = mounted.host.appendChild(document.createElement('button'));
     opener.focus();
     openSearch();
+    expect(harness.storeListeners.size).toBe(2);
     expect(heldImport.started).toHaveBeenCalledTimes(1);
     await act(async () => { await new Promise<void>(resolve => requestAnimationFrame(() => resolve())); });
     const input = mounted.host.querySelector<HTMLInputElement>('[data-k111-search-input]')!;
@@ -268,8 +292,7 @@ describe('LEAN_04B GlobalSearchHost lifecycle characterization', () => {
       input.setSelectionRange(7, 7);
     });
     expect(harness.persisted.query).toBe('current target');
-    harness.notes = [{ id: 'live-note', title: 'Current target', body: 'Fixture body' }];
-    mounted.render();
+    updateSources([{ id: 'live-note', title: 'Current target', body: 'Fixture body' }]);
 
     await heldImport.complete();
     expect(harness.palette?.projectionStatus).toBeUndefined();
@@ -282,6 +305,7 @@ describe('LEAN_04B GlobalSearchHost lifecycle characterization', () => {
     escape();
     expect(input.value).toBe('');
     escape();
+    expect(harness.storeListeners.size).toBe(0);
     expect(document.activeElement).toBe(opener);
     openSearch();
     expect(harness.palette?.projectionStatus).toBeUndefined();
@@ -325,13 +349,16 @@ describe('LEAN_04B GlobalSearchHost lifecycle characterization', () => {
 
     harness.notes = [{ id: 'old-b', title: 'Target B', body: '' }];
     mounted.render('account-b');
+    expect(harness.storeListeners.size).toBe(0);
     expect(harness.palette?.open).toBe(false);
     openSearch();
+    expect(harness.storeListeners.size).toBe(2);
     expect(harness.palette?.projectionStatus).toBe('loading');
     expect(heldImport.started).toHaveBeenCalledTimes(2);
 
     harness.notes = [{ id: 'new-a', title: 'Target A2', body: '' }];
     mounted.render();
+    expect(harness.storeListeners.size).toBe(0);
     await heldImport.complete();
     expect(harness.palette?.open).toBe(false);
     expect(harness.projectionInputs).toHaveLength(0);
