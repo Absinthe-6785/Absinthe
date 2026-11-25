@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { NotesDashboardAgeRefresh } from '../../../../NotesDashboardAgeRefresh';
 import { useTranslation } from '../../../../../lib/i18n';
 import { displayNoteTitle } from '../../../noteDisplayTitle';
 import { useViewportLayout } from '../../../../../hooks/useViewportLayout';
@@ -372,13 +373,16 @@ export function WorkspaceDashboardView({
         {recent.length === 0 ? (
           <div style={{ fontSize: 11, color: c.textFaint }}>{t('wsRecentWorkEmpty')}</div>
         ) : recent.map(entry => (
-          <WorkspaceRow
-            key={`${entry.workspace.kind}:${entry.workspace.id}`}
-            colors={c}
-            workspaceRef={entry.workspace}
-            meta={formatRecentTimestamp(entry.lastOpenedAt)}
-            onClick={() => onActivateWorkspace(entry.workspace)}
-          />
+          <NotesDashboardAgeRefresh.Consumer key={`${entry.workspace.kind}:${entry.workspace.id}`}>
+            {() => (
+              <WorkspaceRow
+                colors={c}
+                workspaceRef={entry.workspace}
+                meta={formatRecentTimestamp(entry.lastOpenedAt)}
+                onClick={() => onActivateWorkspace(entry.workspace)}
+              />
+            )}
+          </NotesDashboardAgeRefresh.Consumer>
         ))}
       </Card>
 
@@ -416,7 +420,9 @@ export function WorkspaceDashboardView({
           >
             <div style={{ fontSize: 12, fontWeight: 600 }}>{displayNoteTitle(note.title)}</div>
             <div style={{ fontSize: 10, color: c.textMuted, marginTop: 2 }}>
-              {t('wsEdited').replace('{time}', formatRecentTimestamp(note.updatedAt))}
+              <NotesDashboardAgeRefresh.Consumer>
+                {() => t('wsEdited').replace('{time}', formatRecentTimestamp(note.updatedAt))}
+              </NotesDashboardAgeRefresh.Consumer>
             </div>
           </button>
         ))}
