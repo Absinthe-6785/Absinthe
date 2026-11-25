@@ -70,15 +70,32 @@ function emptyGroups(): RecentActivityGroup[] {
   return RECENT_ACTIVITY_BUCKETS.map(bucket => ({ bucket, items: [] }));
 }
 
+type RecentActivitySeen = Map<RecentActivityBucket, Map<RecentActivityDomain, Set<string>>>;
+
 function pushToBucket(
   groups: RecentActivityGroup[],
+  seen: RecentActivitySeen,
   bucket: RecentActivityBucket,
-  item: RecentActivityItem,
+  domain: RecentActivityDomain,
+  id: string,
+  createItem: () => RecentActivityItem,
 ): void {
   const group = groups.find(g => g.bucket === bucket);
   if (!group) return;
-  if (group.items.some(x => x.domain === item.domain && x.id === item.id)) return;
-  group.items.push(item);
+
+  let bucketSeen = seen.get(bucket);
+  if (!bucketSeen) {
+    bucketSeen = new Map();
+    seen.set(bucket, bucketSeen);
+  }
+  let domainSeen = bucketSeen.get(domain);
+  if (!domainSeen) {
+    domainSeen = new Set();
+    bucketSeen.set(domain, domainSeen);
+  }
+  if (domainSeen.has(id)) return;
+  domainSeen.add(id);
+  group.items.push(createItem());
 }
 
 export function buildRecentActivityProjection(
@@ -89,6 +106,7 @@ export function buildRecentActivityProjection(
   const locale = input.locale;
   const limit = Math.max(0, input.limitPerBucket ?? 6);
   const groups = emptyGroups();
+  const seen: RecentActivitySeen = new Map();
   const labels = input.labels;
 
   const rel = (ts: number) => formatActivityTimestamp(ts, todayKey, locale, labels);
@@ -99,22 +117,24 @@ export function buildRecentActivityProjection(
     if (!ts) continue;
     const bucket = classifyRecentActivityBucket(ts, todayKey);
     const kind = note.updatedAt && note.updatedAt >= (note.lastOpenedAt ?? 0) ? 'edited' : 'opened';
-    pushToBucket(groups, bucket, {
-      id: `notes:${note.id}:${kind}`,
+    const id = `notes:${note.id}:${kind}`;
+    pushToBucket(groups, seen, bucket, 'notes', id, () => ({
+      id,
       domain: 'notes',
       kind,
       title: displayNoteTitleForLocale(note.title, locale ?? undefined),
       timestamp: ts,
       relativeLabel: rel(ts),
       noteId: note.id,
-    });
+    }));
   }
 
   for (const entry of input.plannerRecents) {
     const bucket = classifyRecentActivityBucket(entry.at, todayKey);
     const eventDate = entry.kind === 'schedule' ? validPlannerEventDate(entry.eventDate) : undefined;
-    pushToBucket(groups, bucket, {
-      id: `planner:${entry.kind}:${entry.itemId}`,
+    const id = `planner:${entry.kind}:${entry.itemId}`;
+    pushToBucket(groups, seen, bucket, 'planner', id, () => ({
+      id,
       domain: 'planner',
       kind: entry.kind,
       title: entry.title,
@@ -122,36 +142,37 @@ export function buildRecentActivityProjection(
       relativeLabel: rel(entry.at),
       plannerItemId: entry.itemId,
       ...(eventDate ? { eventDate } : {}),
-    });
+    }));
   }
 
   for (const entry of input.recipeRecents) {
     const bucket = classifyRecentActivityBucket(entry.at, todayKey);
-    pushToBucket(groups, bucket, {
-      id: `recipe:${entry.recipeId}`,
+    const id = `recipe:${entry.recipeId}`;
+    pushToBucket(groups, seen, bucket, 'recipe', id, () => ({
+      id,
       domain: 'recipe',
       kind: 'viewed',
       title: entry.title?.trim() || entry.recipeId,
       timestamp: entry.at,
       relativeLabel: rel(entry.at),
       recipeId: entry.recipeId,
-    });
+    }));
   }
 
   for (const entry of input.archiveRestoreRecents) {
-    const note = input.notes.find(n => n.id === entry.noteId);
-    const title = note
-      ? displayNoteTitleForLocale(note.title, locale ?? undefined)
-      : entry.noteId;
     const bucket = classifyRecentActivityBucket(entry.restoredAt, todayKey);
-    pushToBucket(groups, bucket, {
-      id: `archive:restore:${entry.noteId}`,
-      domain: 'archive',
-      kind: 'restored',
-      title,
-      timestamp: entry.restoredAt,
-      relativeLabel: rel(entry.restoredAt),
-      noteId: entry.noteId,
+    const id = `archive:restore:${entry.noteId}`;
+    pushToBucket(groups, seen, bucket, 'archive', id, () => {
+      const note = input.notes.find(n => n.id === entry.noteId);
+      return {
+        id,
+        domain: 'archive',
+        kind: 'restored',
+        title: note ? displayNoteTitleForLocale(note.title, locale ?? undefined) : entry.noteId,
+        timestamp: entry.restoredAt,
+        relativeLabel: rel(entry.restoredAt),
+        noteId: entry.noteId,
+      };
     });
   }
 

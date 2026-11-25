@@ -101,6 +101,30 @@ describe('buildRecentActivityProjection', () => {
     ]);
   });
 
+  it('keeps the first same-bucket identity while allowing distinct kinds and buckets', () => {
+    const projection = buildRecentActivityProjection({
+      notes: [
+        note('repeat', todayAt(12), { title: 'First title' }),
+        note('repeat', todayAt(12), { title: 'Later duplicate' }),
+        note('repeat', todayAt(11), { lastOpenedAt: todayAt(13), title: 'Different kind' }),
+        note('repeat', daysAgoAt(1, 12), { title: 'Different bucket' }),
+      ],
+      plannerRecents: [],
+      recipeRecents: [],
+      archiveRestoreRecents: [],
+      labels,
+      now,
+    });
+
+    expect(projection.groups.find(group => group.bucket === 'today')?.items.map(item => [item.id, item.title])).toEqual([
+      ['notes:repeat:opened', 'Different kind'],
+      ['notes:repeat:edited', 'First title'],
+    ]);
+    expect(projection.groups.find(group => group.bucket === 'yesterday')?.items.map(item => item.title)).toEqual([
+      'Different bucket',
+    ]);
+  });
+
   it('preserves date buckets, configured limits, metadata, deleted-note exclusion, and frozen inputs', () => {
     const notes = Object.freeze([
       Object.freeze(note('deleted', todayAt(30), { deletedAt: todayAt(31) })),
