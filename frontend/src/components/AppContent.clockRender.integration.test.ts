@@ -369,8 +369,9 @@ describe('AppContent clock render measurement', () => {
     await perform(() => select('recipe'));
     await perform(tick);
     await perform(() => vi.advanceTimersByTime(30_000));
-    await perform(() => select('home'));
+    const homeReturn = await sample(() => select('home'));
     expect(fixture.homeClockMs).toBe(initial + 60_000);
+    expect(homeReturn['recentActivity.projection']).toBe(1);
     await perform(() => vi.advanceTimersByTime(30_000));
     expect(fixture.homeClockMs).toBe(initial + 120_000);
   });
