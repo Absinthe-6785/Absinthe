@@ -93,7 +93,7 @@ vi.mock('../store/useNotesStore', () => {
   };
   const useNotesStore = Object.assign(
     (selector: (value: typeof state) => unknown) => selector(state),
-    { getState: () => state },
+    { getState: () => state, subscribe: () => () => undefined },
   );
   return { useNotesStore };
 });

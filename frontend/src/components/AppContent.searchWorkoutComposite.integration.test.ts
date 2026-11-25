@@ -97,7 +97,10 @@ vi.mock('../store/useAppStore', () => ({ useAppStore: () => ({ appSettings: { la
 vi.mock('../store/useNotesStore', () => {
   const state = { ...h.notes, notes: [], folders: [], notesAuthorityState: 'LOADED_EMPTY', foldersAuthorityState: 'LOADED_EMPTY', syncError: null,
     initNotesStorage: vi.fn(async () => undefined), detachNotesStorage: vi.fn(), bootstrapFromSupabase: vi.fn(async () => undefined) };
-  return { useNotesStore: Object.assign((select: (value: typeof state) => unknown) => select(state), { getState: () => state }) };
+  return { useNotesStore: Object.assign((select: (value: typeof state) => unknown) => select(state), {
+    getState: () => state,
+    subscribe: () => () => undefined,
+  }) };
 });
 vi.mock('../hooks/useNow', () => ({ useNow: () => ({ now: { toJSDate: () => new Date(2026, 8, 30, 12) },
   formatDate: (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`, isToday: () => true }) }));
