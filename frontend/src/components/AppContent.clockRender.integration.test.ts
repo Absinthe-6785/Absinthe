@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { act, createElement, Profiler, StrictMode, useLayoutEffect, type ComponentType } from 'react';
+import type { StateCreator } from 'zustand';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getNoteReturnTab, openNote, openWorkspaceSearch, returnFromNote, switchToTab } from '../lib/noteNavigation';
@@ -50,6 +51,8 @@ const fixture = vi.hoisted(() => {
     swr: { data: empty, mutate, isLoading: false, isValidating: false },
     protein: { profile: null, sources: empty, intakeLogs: empty, rangeLogs: empty },
     recipes,
+    liveMounts: null as Map<string, number> | null,
+    subscriptions: new Map<unknown, Set<unknown>>(),
     note: { id: 'fixture-note', title: 'Fixture note', body: '', updatedAt: 1, folderId: null, deletedAt: null },
   };
 });
@@ -61,9 +64,39 @@ function count(name: string) { fixture.counts[name] = (fixture.counts[name] ?? 0
 function measured<P extends object>(name: string, View: ComponentType<P>) {
   return function MeasuredView(props: P) {
     count(`${name}.render`);
+    useLayoutEffect(() => {
+      const mounts = fixture.liveMounts;
+      if (!mounts) return;
+      mounts.set(name, (mounts.get(name) ?? 0) + 1);
+      return () => {
+        const remaining = (mounts.get(name) ?? 1) - 1;
+        if (remaining) mounts.set(name, remaining);
+        else mounts.delete(name);
+      };
+    }, []);
     return createElement(Profiler, { id: name, onRender: () => count(`${name}.commit`) }, createElement(View, props));
   };
 }
+
+vi.mock('zustand', async importOriginal => {
+  const actual = await importOriginal<typeof import('zustand')>();
+  // Track the API subscription used by the real bound hook, not merely calls
+  // to the exported .subscribe property. The original store still owns data.
+  function createMeasured<T>(initializer: StateCreator<T>) {
+    return actual.create<T>((set, get, api) => {
+      const active = new Set<unknown>();
+      fixture.subscriptions.set(api.getState, active);
+      const subscribe = api.subscribe;
+      api.subscribe = listener => {
+        const unsubscribe = subscribe(listener);
+        active.add(listener);
+        return () => { active.delete(listener); unsubscribe(); };
+      };
+      return initializer(set, get, api);
+    });
+  }
+  return { ...actual, create: (initializer?: StateCreator<unknown>) => initializer ? createMeasured(initializer) : createMeasured };
+});
 
 vi.mock('../lib/supabase', () => ({
   supabase: { auth: { signOut: vi.fn() } },
@@ -551,6 +584,172 @@ it('retains the record time and local day across the repeated DST hour on Home',
 });
 
 describe('AppContent clock render measurement', () => {
+  it('releases workspace and Search resources through a 30-cycle StrictMode session', async () => {
+    const { useNotesStore } = await import('../store/useNotesStore');
+    const notesListeners = fixture.subscriptions.get(useNotesStore.getState)!;
+    const previous = useNotesStore.getState();
+    const mounts = new Map<string, number>();
+    fixture.liveMounts = mounts;
+    const outstanding = new Map<number, { callback: FrameRequestCallback; owner: string }>();
+    let nextFrame = 0;
+    const request = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => {
+      const owner = new Error().stack?.includes('SearchWorkspacePalette.tsx') ? 'search' : 'other';
+      outstanding.set(++nextFrame, { callback, owner });
+      return nextFrame;
+    });
+    const cancel = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(id => { outstanding.delete(id); });
+    const intervals = vi.spyOn(globalThis, 'setInterval');
+    const clearIntervals = vi.spyOn(globalThis, 'clearInterval');
+    function trackListeners(target: EventTarget, eventTypes: string[]) {
+      const active = new Map<string, Set<EventListenerOrEventListenerObject>>();
+      const add = target.addEventListener.bind(target);
+      const remove = target.removeEventListener.bind(target);
+      const key = (type: string, options?: boolean | EventListenerOptions) =>
+        type + ':' + (typeof options === 'boolean' ? options : Boolean(options?.capture));
+      const adding = vi.spyOn(target, 'addEventListener').mockImplementation((type, listener, options) => {
+        if (listener && eventTypes.includes(type)) {
+          const k = key(type, options);
+          if (!active.has(k)) active.set(k, new Set());
+          active.get(k)!.add(listener);
+        }
+        add(type, listener, options);
+      });
+      const removing = vi.spyOn(target, 'removeEventListener').mockImplementation((type, listener, options) => {
+        if (listener) active.get(key(type, options))?.delete(listener);
+        remove(type, listener, options);
+      });
+      return {
+        count: () => [...active.values()].reduce((sum, entries) => sum + entries.size, 0),
+        restore: () => { adding.mockRestore(); removing.mockRestore(); },
+      };
+    }
+    const windowListeners = trackListeners(window, ['keydown', 'focus', 'resize', 'copy', 'scroll', 'health-bootstrap-complete']);
+    const documentListeners = trackListeners(document, ['keydown', 'keyup', 'pointerdown', 'mousedown', 'selectionchange', 'visibilitychange']);
+    const floor = { timers: vi.getTimerCount(), notesListeners: notesListeners.size };
+    const report: Record<string, ReturnType<typeof sampleResources>> = {};
+    function sampleResources() {
+      const liveIntervals = new Set(intervals.mock.results.map(r => r.value));
+      for (const [id] of clearIntervals.mock.calls) liveIntervals.delete(id);
+      return {
+        intervals: liveIntervals.size,
+        timeouts: vi.getTimerCount() - floor.timers - liveIntervals.size,
+        frames: outstanding.size,
+        searchFrames: [...outstanding.values()].filter(frame => frame.owner === 'search').length,
+        windowListeners: windowListeners.count(),
+        documentListeners: documentListeners.count(),
+        notesSubscriptions: notesListeners.size - floor.notesListeners,
+        mounts: Object.fromEntries(mounts),
+        searchDialog: Number(Boolean(host.querySelector('[data-k111-search-modal]'))),
+      };
+    }
+    const openSearch = () => perform(openWorkspaceSearch);
+    const closeSearch = () => perform(() =>
+      host.querySelector<HTMLButtonElement>('[data-k111-search-modal] button[aria-label]')!.click());
+    async function flushPaint() {
+      await perform(() => {
+        for (const [id, frame] of [...outstanding]) {
+          if (outstanding.delete(id)) frame.callback(performance.now());
+        }
+      });
+    }
+    async function cycle(probe = false) {
+      await perform(() => openNote(fixture.note.id));
+      const title = host.querySelector<HTMLInputElement>('[data-note-header-title-row] input')!;
+      expect(title.value).toBe(fixture.note.title);
+      if (probe) {
+        await perform(() => { title.focus(); title.setSelectionRange(1, 4); });
+        expect(document.activeElement).toBe(title);
+        report.notes = sampleResources();
+      }
+      await perform(() => select('health'));
+      const calendar = host.querySelector<HTMLElement>(viewSelectors.health)!;
+      expect(calendar).not.toBeNull();
+      if (probe) {
+        await perform(() => calendar.querySelector<HTMLButtonElement>('button[aria-label]')!.click());
+        report.health = sampleResources();
+      }
+      await openSearch();
+      expect(host.querySelector('[data-k111-search-input]')).not.toBeNull();
+      if (probe) report.searchOpen = sampleResources();
+      await closeSearch();
+      if (probe) report.searchClosedBeforePaint = sampleResources();
+      await perform(() => select('home'));
+      await flushPaint();
+      await perform(() => vi.advanceTimersByTime(20));
+      expect(host.querySelector(viewSelectors.home)).not.toBeNull();
+    }
+    try {
+      useNotesStore.setState({ notes: [fixture.note], folders: [], activeNoteId: fixture.note.id });
+      await render('clock-a', true);
+      await cycle(true);
+      // Verify that a frame that is still owned by an open palette retains
+      // focus and selection behavior, and that Close releases the query timer.
+      writeWorkspaceSearchState({ query: 'fixture', filter: 'all' });
+      await openSearch();
+      report.queryOpen = sampleResources();
+      await flushPaint();
+      const searchInput = host.querySelector<HTMLInputElement>('[data-k111-search-input]')!;
+      expect(document.activeElement).toBe(searchInput);
+      expect(searchInput.value).toBe('fixture');
+      expect([searchInput.selectionStart, searchInput.selectionEnd]).toEqual([0, 'fixture'.length]);
+      await closeSearch();
+      resetWorkspaceSearchStateForTests();
+      report.warm = sampleResources();
+      for (let i = 1; i <= 30; i += 1) {
+        await cycle();
+        if (i === 10 || i === 30) report[String(i)] = sampleResources();
+      }
+      // Separate deterministic burst: simulate no visible paint between closes
+      // and reopens, instead of conflating completed frames with pending work.
+      for (let i = 0; i < 3; i += 1) { await openSearch(); await closeSearch(); }
+      report.rapidClosed = sampleResources();
+      await openSearch();
+      await render('clock-b', true);
+      report.accountB = sampleResources();
+      expect(fixture.lastRead?.accountId).toBe('clock-b');
+      await render('clock-a', true);
+      report.accountA = sampleResources();
+      expect(fixture.lastRead?.accountId).toBe('clock-a');
+      await openSearch();
+      await perform(() => root.render(null));
+      report.unmounted = sampleResources();
+      await flushPaint();
+      expect(host.childElementCount).toBe(0);
+      expect(fixture.authFetch).not.toHaveBeenCalled();
+      expect(fixture.mutate).not.toHaveBeenCalled();
+      console.info('APP_LONG_SESSION_LIFECYCLE', JSON.stringify(report));
+
+      expect(report.notes?.mounts).toEqual({ note: 1, noteEditor: 1 });
+      expect(report.health?.mounts).toEqual({ health: 1, healthCalendar: 1 });
+      expect(report.searchOpen?.searchDialog).toBe(1);
+      expect(report.searchOpen?.searchFrames).toBe(1);
+      expect(report.queryOpen?.timeouts).toBe(1);
+      expect(report.warm?.timeouts).toBe(0);
+      expect(report.warm).toEqual(report['10']);
+      expect(report.warm).toEqual(report['30']);
+      expect(report.warm?.intervals).toBe(1);
+      for (const phase of ['searchClosedBeforePaint', 'rapidClosed', 'accountB', 'accountA', 'unmounted']) {
+        expect(report[phase]?.searchFrames, phase).toBe(0);
+        expect(report[phase]?.searchDialog, phase).toBe(0);
+      }
+      expect(report.unmounted).toEqual({
+        intervals: 0, timeouts: 0, frames: 0, searchFrames: 0,
+        windowListeners: 0, documentListeners: 0, notesSubscriptions: 0, mounts: {}, searchDialog: 0,
+      });
+    } finally {
+      // Unmount while the resource owners still have their instrumented APIs.
+      await perform(() => root.render(null));
+      fixture.liveMounts = null;
+      useNotesStore.setState({ notes: previous.notes, folders: previous.folders, activeNoteId: previous.activeNoteId });
+      windowListeners.restore();
+      documentListeners.restore();
+      intervals.mockRestore();
+      clearIntervals.mockRestore();
+      request.mockRestore();
+      cancel.mockRestore();
+    }
+  }, 90_000);
+
   it.each([250, 1000])('measures unrelated Notes shell renders with %i synthetic Notes', async size => {
     const { useNotesStore } = await import('../store/useNotesStore');
     const previous = useNotesStore.getState();
