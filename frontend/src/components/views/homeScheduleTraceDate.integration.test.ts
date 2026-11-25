@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getTranslator, type Language } from '../../lib/i18n';
 import { HomeView, type HomeViewProps } from './HomeView';
 import { PLANNER_ACTIVITY_KEY } from './features/planner/plannerActivityStorage';
+import { RECIPE_VIEW_RECENTS_KEY } from './features/recipe/recipeActivityStorage';
 import { ARCHIVE_RESTORE_RECENTS_KEY } from './features/knowledge/archive/archiveRestoreRecents';
 
 const state = vi.hoisted(() => ({ lang: 'en' as Language, openNote: vi.fn(), switchToTab: vi.fn(), openRecipe: vi.fn(),
@@ -29,9 +30,6 @@ vi.mock('../../lib/i18n', async importOriginal => {
 vi.mock('./features/planner/calendar-ui/usePlannerCalendarProjection', () => ({ usePlannerCalendarProjection: () => ({ projection: {}, presentation: {} }) }));
 vi.mock('./features/planner/calendar/buildPlannerProjection', () => ({ buildPlannerProjection: () => ({ todayItems: state.todayItems, timetableToday: [] }) }));
 vi.mock('./features/planner/hooks/useCountdownReviewed', () => ({ useCountdownReviewed: () => ({ isReviewed: () => false }) }));
-vi.mock('./features/recipe/recipeActivityStorage', () => ({ readRecipeViewRecents: () => [
-  { recipeId: 'recipe-1', title: 'Recipe trace', at: new Date(2026, 5, 12, 8).getTime() },
-] }));
 vi.mock('../common/WorkspacePageHeader', () => ({ WorkspacePageHeader: () => null }));
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -60,6 +58,9 @@ function row(title: string) {
 }
 beforeEach(() => {
   localStorage.clear(); vi.clearAllMocks(); state.lang = 'en'; state.todayItems = []; state.ddays = [];
+  localStorage.setItem(`${RECIPE_VIEW_RECENTS_KEY}:account:account-a`, JSON.stringify([
+    { recipeId: 'recipe-1', title: 'Recipe trace', at: new Date(2026, 5, 12, 8).getTime() },
+  ]));
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
 });
 afterEach(() => { act(() => root.unmount()); host.remove(); localStorage.clear(); });

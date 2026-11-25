@@ -20,10 +20,10 @@ import { WORKSPACE_GAP_CLASS } from '../../lib/uiSpacingTokens';
 import { WORKSPACE_CARD_SURFACE } from '../common/workspaceCardSizes';
 import { WORKSPACE_PAGE_SCROLL_CLASS, WORKSPACE_SCROLL_MODE } from '../common/workspaceLayout';
 import { openNote, switchToTab } from '../../lib/noteNavigation';
-import { buildRecentActivityProjection } from './buildRecentActivityProjection';
+import { buildRecentActivityGroups, stampRecentActivityProjection } from './buildRecentActivityProjection';
 import { buildRelativeDateLabels } from './k102RelativeDateLabels';
-import { readPlannerActivityRecents, validPlannerEventDate } from './features/planner/plannerActivityStorage';
-import { readRecipeViewRecents } from './features/recipe/recipeActivityStorage';
+import { parsePlannerActivityRecents, readPlannerActivitySnapshot, validPlannerEventDate } from './features/planner/plannerActivityStorage';
+import { parseRecipeViewRecents, readRecipeViewSnapshot } from './features/recipe/recipeActivityStorage';
 import { usePlannerCalendarProjection } from './features/planner/calendar-ui/usePlannerCalendarProjection';
 import { buildPlannerProjection } from './features/planner/calendar/buildPlannerProjection';
 import { resolveUpcomingRelativeLabel } from './features/planner/calendar-ui/agenda/buildUpcomingTierGroups';
@@ -42,6 +42,15 @@ import { weeklyScheduleReadNotice } from '../../lib/searchReadiness';
 
 type ScheduleDday = Schedule & { date: string };
 const EMPTY_CONTINUE_NOTES = [] as const;
+
+function getActivityTimeZone(date: Date): string | Date {
+  try {
+    // Formatters use native local dates, not the zone captured by useNow.
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (zone) return `${zone}:${date.getTimezoneOffset()}`;
+  } catch { /* Do not reuse when the zone cannot be established. */ }
+  return date;
+}
 
 export type HomeViewProps = ViewProps & Readonly<{
   homeWorkoutComposite?: HealthSelectedDayReadModel;
@@ -180,8 +189,9 @@ export const HomeView = ({
     ? notesPublication.request : null;
   const continueNotes = continueRequest && notesState === useNotesStore.getState()
     ? notesState.notes : EMPTY_CONTINUE_NOTES;
-  const todayKey = toDateKey(now.toJSDate()) ?? formatDate(homeWorkoutComposite ? now.toJSDate() : selectedDate);
   const todayDate = now.toJSDate();
+  const activityDay = toDateKey(todayDate);
+  const todayKey = activityDay ?? formatDate(homeWorkoutComposite ? todayDate : selectedDate);
 
   const prevDate = useMemo(() => {
     const d = new Date(selectedDate);
@@ -228,17 +238,24 @@ export const HomeView = ({
     [calendarProjection, presentation, todayKey, isReviewed, relativeLabel, t],
   );
 
-  const recentActivity = useMemo(() => buildRecentActivityProjection({
+  // Keep the existing next-render freshness for local and cross-tab writers:
+  // sample both account-scoped values on every render, but only parse on a miss.
+  const plannerActivitySnapshot = readPlannerActivitySnapshot(user.id);
+  const recipeActivitySnapshot = readRecipeViewSnapshot(user.id);
+  const activityTimeZone = getActivityTimeZone(todayDate);
+  const recentGroups = useMemo(() => buildRecentActivityGroups({
     notes: continueNotes,
-    plannerRecents: readPlannerActivityRecents(user.id),
-    recipeRecents: readRecipeViewRecents(user.id),
+    plannerRecents: parsePlannerActivityRecents(plannerActivitySnapshot),
+    recipeRecents: parseRecipeViewRecents(recipeActivitySnapshot),
     // Global Archive restore recents have no account provenance for Home.
     archiveRestoreRecents: [],
     labels: buildRelativeDateLabels(t),
     locale: lang,
-    now: todayDate,
     limitPerBucket: 6,
-  }), [continueNotes, vaultStructureVersion, t, lang, todayDate, user.id]);
+  }, activityDay), [continueNotes, continueRequest, vaultStructureVersion, t, lang,
+    activityDay, activityTimeZone, user.id, plannerActivitySnapshot, recipeActivitySnapshot]);
+  // Keep the exact timestamp and the foundation's independent Workout draft read cadence.
+  const recentActivity = stampRecentActivityProjection(recentGroups, todayDate);
 
   const homeDraft = useMemo<HomeWorkoutDraftRead | null>(() => {
     if (!homeWorkoutComposite) return null;

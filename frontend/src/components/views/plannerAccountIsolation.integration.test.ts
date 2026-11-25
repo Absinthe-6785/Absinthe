@@ -139,12 +139,12 @@ vi.mock('./features/planner/calendar-ui', () => ({
   }, 'Open schedule'),
 }));
 vi.mock('../../lib/noteNavigation', () => ({ openNote: vi.fn(), switchToTab: vi.fn() }));
-vi.mock('./buildRecentActivityProjection', () => ({
-  buildRecentActivityProjection: ({ recipeRecents, plannerRecents }: {
+vi.mock('./buildRecentActivityProjection', async importOriginal => ({
+  ...await importOriginal<typeof import('./buildRecentActivityProjection')>(),
+  buildRecentActivityGroups: ({ recipeRecents, plannerRecents }: {
     recipeRecents: Array<{ recipeId: string; title: string; at: number }>;
     plannerRecents: Array<{ kind: string; itemId: string; title: string; at: number }>;
-  }) => ({
-    groups: [{
+  }) => [{
       bucket: 'today',
       items: [...plannerRecents.map(entry => ({
         id: `planner:${entry.kind}:${entry.itemId}`,
@@ -160,11 +160,11 @@ vi.mock('./buildRecentActivityProjection', () => ({
         recipeId: entry.recipeId,
       }))],
     }],
-  }),
 }));
 vi.mock('./k102RelativeDateLabels', () => ({ buildRelativeDateLabels: () => ({}) }));
-vi.mock('./features/recipe/recipeActivityStorage', () => ({
-  readRecipeViewRecents: (accountId?: string) => harness.recipeRecents[accountId ?? ''] ?? [],
+vi.mock('./features/recipe/recipeActivityStorage', async importOriginal => ({
+  ...await importOriginal<typeof import('./features/recipe/recipeActivityStorage')>(),
+  readRecipeViewSnapshot: (accountId?: string) => JSON.stringify(harness.recipeRecents[accountId ?? ''] ?? []),
 }));
 vi.mock('./features/knowledge/archive/archiveRestoreRecents', () => ({ readArchiveRestoreRecents: () => [] }));
 vi.mock('./features/planner/calendar-ui/usePlannerCalendarProjection', () => ({

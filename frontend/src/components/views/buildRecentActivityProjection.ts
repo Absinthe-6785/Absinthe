@@ -98,11 +98,10 @@ function pushToBucket(
   group.items.push(createItem());
 }
 
-export function buildRecentActivityProjection(
-  input: RecentActivityProjectionInput,
-): RecentActivityProjection {
-  const now = input.now ?? new Date();
-  const todayKey = toDateKey(now);
+export function buildRecentActivityGroups(
+  input: Omit<RecentActivityProjectionInput, 'now'>,
+  todayKey: string,
+): RecentActivityGroup[] {
   const locale = input.locale;
   const limit = Math.max(0, input.limitPerBucket ?? 6);
   const groups = emptyGroups();
@@ -184,12 +183,20 @@ export function buildRecentActivityProjection(
       .map(({ item }) => item);
   }
 
-  const isEmpty = groups.every(g => g.items.length === 0);
+  return groups;
+}
+
+export function stampRecentActivityProjection(groups: RecentActivityGroup[], now: Date): RecentActivityProjection {
   return {
     groups,
-    isEmpty,
+    isEmpty: groups.every(g => g.items.length === 0),
     generatedAt: now.toISOString(),
   };
+}
+
+export function buildRecentActivityProjection(input: RecentActivityProjectionInput): RecentActivityProjection {
+  const now = input.now ?? new Date();
+  return stampRecentActivityProjection(buildRecentActivityGroups(input, toDateKey(now)), now);
 }
 
 export function clearRecentActivityForTest(): void {

@@ -20,10 +20,17 @@ function accountScopedKey(baseKey: string, accountId?: string): string | null {
     : null;
 }
 
+function readSnapshot(key: string | null): string | null {
+  try { return key ? localStorage.getItem(key) : null; }
+  catch { return null; }
+}
+
 function readEntries(key: string | null): RecipeActivityEntry[] {
-  if (!key) return [];
+  return parseRecipeViewRecents(readSnapshot(key));
+}
+
+export function parseRecipeViewRecents(raw: string | null): RecipeActivityEntry[] {
   try {
-    const raw = localStorage.getItem(key);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as RecipeActivityEntry[];
     if (!Array.isArray(parsed)) return [];
@@ -47,7 +54,11 @@ function pushEntry(baseKey: string, recipeId: string, accountId?: string, at = D
 }
 
 export function readRecipeViewRecents(accountId?: string): RecipeActivityEntry[] {
-  return readEntries(accountScopedKey(RECIPE_VIEW_RECENTS_KEY, accountId));
+  return parseRecipeViewRecents(readRecipeViewSnapshot(accountId));
+}
+
+export function readRecipeViewSnapshot(accountId?: string): string | null {
+  return readSnapshot(accountScopedKey(RECIPE_VIEW_RECENTS_KEY, accountId));
 }
 
 export function readRecipeCookHistory(accountId?: string): RecipeActivityEntry[] {

@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NoteBase } from './noteUtils';
 import type { HomeViewProps } from './HomeView';
 import type { NotesPersistenceInitResult } from '../../lib/notePersistence';
-import type { RecipeActivityEntry } from './features/recipe/recipeActivityStorage';
+import { RECIPE_VIEW_RECENTS_KEY } from './features/recipe/recipeActivityStorage';
 import { PLANNER_ACTIVITY_KEY } from './features/planner/plannerActivityStorage';
 import { ARCHIVE_RESTORE_RECENTS_KEY, readArchiveRestoreRecents } from './features/knowledge/archive/archiveRestoreRecents';
 import { buildArchiveProjectionForHook } from './features/archive/hooks/useArchiveProjection';
@@ -15,8 +15,7 @@ import {
   type NotesAuthorityDomainState, type NotesAuthorityRequest,
 } from '../../lib/notesAccountAuthority';
 
-const mocks = vi.hoisted(() => ({ initialize: vi.fn(), openNote: vi.fn(), switchToTab: vi.fn(), openRecipe: vi.fn(),
-  recipeRecents: [] as RecipeActivityEntry[] }));
+const mocks = vi.hoisted(() => ({ initialize: vi.fn(), openNote: vi.fn(), switchToTab: vi.fn(), openRecipe: vi.fn() }));
 vi.mock('../../lib/notePersistence', async importOriginal => ({
   ...await importOriginal<typeof import('../../lib/notePersistence')>(), initNotesPersistence: mocks.initialize,
 }));
@@ -32,7 +31,6 @@ vi.mock('../../lib/i18n', async importOriginal => {
 vi.mock('./features/planner/calendar-ui/usePlannerCalendarProjection', () => ({ usePlannerCalendarProjection: () => ({ projection: {}, presentation: {} }) }));
 vi.mock('./features/planner/calendar/buildPlannerProjection', () => ({ buildPlannerProjection: () => ({ todayItems: [], timetableToday: [] }) }));
 vi.mock('./features/planner/hooks/useCountdownReviewed', () => ({ useCountdownReviewed: () => ({ isReviewed: () => false }) }));
-vi.mock('./features/recipe/recipeActivityStorage', () => ({ readRecipeViewRecents: () => mocks.recipeRecents }));
 vi.mock('../common/WorkspacePageHeader', () => ({ WorkspacePageHeader: () => null }));
 
 const { useNotesStore, observePublishedNotesHydration } = await import('../../store/useNotesStore');
@@ -91,7 +89,6 @@ beforeEach(() => {
   localStorage.clear();
   vi.clearAllMocks();
   mocks.initialize.mockReset();
-  mocks.recipeRecents = [];
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
 });
 afterEach(() => {
@@ -217,6 +214,24 @@ describe('Home Note-only Continue with actual Notes publication provenance', () 
 });
 
 describe('Home Notes-domain trace provenance', () => {
+  it('updates the mounted trace and exact Continue target after a current owned Note is opened and renamed', async () => {
+    await publish('A', [note('first', 10), note('second', 20)]);
+    await render('A');
+    expectNoteTraces('Note second', 'Note first');
+    const request = getActiveNotesAuthorityRequest();
+    await act(async () => useNotesStore.getState().setActiveNoteId('first'));
+    expectNoteTraces('Note first', 'Note second');
+    expect(button()?.textContent).toContain('Note first');
+    await act(async () => useNotesStore.getState().updateNote('first', {
+      title: 'Renamed first', folderId: 'fixture-folder',
+    }));
+    expectNoteTraces('Renamed first', 'Note second');
+    expect(button()?.textContent).toContain('Renamed first');
+    expect(observePublishedNotesHydration()).toEqual({ status: 'CURRENT', request });
+    act(() => button()!.click());
+    expect(mocks.openNote).toHaveBeenCalledExactlyOnceWith('first', { returnTab: 'home' });
+  });
+
   it('excludes deleted Notes and preserves published Notes, ordering, authority and storage during projection/navigation', async () => {
     const notes = [note('older', 10), { ...note('deleted', 50), deletedAt: 60 }, note('newest', 30)];
     await publish('A', notes);
@@ -283,7 +298,8 @@ describe('Home Notes-domain trace provenance', () => {
     const plannerKey = `${PLANNER_ACTIVITY_KEY}:account:A`;
     const plannerRaw = JSON.stringify([{ kind: 'schedule', itemId: 'schedule-1', title: 'Schedule trace', at, eventDate: '2026-06-13' }]);
     localStorage.setItem(plannerKey, plannerRaw);
-    mocks.recipeRecents = [{ recipeId: 'recipe-1', title: 'Recipe trace', at: at - 1 }];
+    localStorage.setItem(`${RECIPE_VIEW_RECENTS_KEY}:account:A`,
+      JSON.stringify([{ recipeId: 'recipe-1', title: 'Recipe trace', at: at - 1 }]));
     await render('A');
     expectNoteTraces();
     const planner = host.querySelector<HTMLButtonElement>('[data-k132a-home-row="trace-planner"]')!;
@@ -305,7 +321,8 @@ describe('Home Archive trace account boundary', () => {
     const raw = JSON.stringify([{ noteId: 'foreign', restoredAt: at + 1 }]);
     localStorage.setItem(ARCHIVE_RESTORE_RECENTS_KEY, raw);
     await publish('A', [note('current', at)]);
-    mocks.recipeRecents = [{ recipeId: 'recipe-1', title: 'Recipe trace', at: at - 1 }];
+    localStorage.setItem(`${RECIPE_VIEW_RECENTS_KEY}:account:A`,
+      JSON.stringify([{ recipeId: 'recipe-1', title: 'Recipe trace', at: at - 1 }]));
     localStorage.setItem(`${PLANNER_ACTIVITY_KEY}:account:A`, JSON.stringify([
       { kind: 'schedule', itemId: 'schedule-1', title: 'Schedule trace', at: at - 2, eventDate: '2026-06-13' },
     ]));
