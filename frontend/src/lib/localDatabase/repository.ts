@@ -822,21 +822,32 @@ export class LocalDatabaseRepository {
   }
 
   async getWorkoutRemoteIdsByWire(wireEntityId: string): Promise<WorkoutRemoteIdRecordV1[]> {
-    this.assertOpen('get_workout_remote_ids_by_wire');
+    const operation = 'get_workout_remote_ids_by_wire';
+    this.assertOpen(operation);
     const canonical = canonicalWorkoutUuid(wireEntityId);
     const transaction = this.db.transaction(LOCAL_DATABASE_STORES.workoutRemoteIds, 'readonly');
-    const done = transactionCompletion(transaction, 'get_workout_remote_ids_by_wire');
+    const done = transactionCompletion(transaction, operation);
+    try {
+      const values = await this.readWorkoutRemoteIdsByWire(transaction, canonical, operation);
+      await done;
+      return values;
+    } catch (error) {
+      await done.catch(() => undefined);
+      throw error;
+    }
+  }
+
+  private async readWorkoutRemoteIdsByWire(transaction: IDBTransaction, canonical: string, operation: string) {
     const values = await requestResult(transaction.objectStore(LOCAL_DATABASE_STORES.workoutRemoteIds)
       .index('by_wire_id').getAll(IDBKeyRange.only([
         this.namespace.userId.toLowerCase(), this.namespaceKey, this.namespace.generationId,
         WORKOUT_REMOTE_DOMAIN, canonical,
       ]))) as WorkoutRemoteIdRecordV1[];
-    await done;
     if (values.length > 1 || values.some(value => !validWorkoutRemoteIdRecord(value)
       || value.accountId !== this.namespace.userId.toLowerCase()
       || value.namespaceKey !== this.namespaceKey || value.generationId !== this.namespace.generationId
       || value.wireEntityId !== canonical)) {
-      throw new LocalDatabaseError('INVALID_RESERVED_RECORD', 'get_workout_remote_ids_by_wire');
+      throw new LocalDatabaseError('INVALID_RESERVED_RECORD', operation);
     }
     return values;
   }
@@ -2006,6 +2017,53 @@ export class LocalDatabaseRepository {
     await this.ensureActive(transaction);
     await done;
     return value ?? null;
+  }
+
+  /** Active-generation evidence only. Edit lookup resolves mappings; receipt lookup uses exact keys. */
+  async readWorkoutDraftEvidence(sessionId: string, lookup: { kind: 'edit_base' } | {
+    kind: 'submission'; mutationId: string;
+  }): Promise<{
+    entity: LocalEntityEnvelope | null;
+    outbox: OutboxRecord | null;
+  }> {
+    const operation = 'read_workout_draft_evidence';
+    this.assertOpen(operation);
+    const canonical = canonicalWorkoutUuid(sessionId);
+    const stores: string[] = [LOCAL_DATABASE_STORES.databaseMeta, LOCAL_DATABASE_STORES.generations, LOCAL_DATABASE_STORES.entities];
+    if (lookup.kind === 'edit_base') stores.push(LOCAL_DATABASE_STORES.workoutRemoteIds);
+    else {
+      validateSafeIdentifier(lookup.mutationId, operation);
+      stores.push(LOCAL_DATABASE_STORES.outbox, LOCAL_DATABASE_STORES.restoreSessions);
+    }
+    const transaction = this.db.transaction(stores, 'readonly');
+    const done = transactionCompletion(transaction, operation);
+    try {
+      await this.ensureActive(transaction);
+      const entities = transaction.objectStore(LOCAL_DATABASE_STORES.entities);
+      const readEntity = (id: string) => requestResult(entities
+        .get(entityKey(this.namespaceKey, this.namespace.generationId, WORKOUT_REMOTE_DOMAIN, id))) as Promise<LocalEntityEnvelope | undefined>;
+      let localId = sessionId;
+      if (lookup.kind === 'edit_base') {
+        const [mapping] = await this.readWorkoutRemoteIdsByWire(transaction, canonical, operation);
+        localId = mapping?.localEntityId ?? sessionId;
+        if (localId !== sessionId && await readEntity(sessionId)) {
+          throw new LocalDatabaseError('INVALID_ENTITY', operation);
+        }
+      }
+      const [entity, outbox] = await Promise.all([
+        readEntity(localId),
+        lookup.kind === 'edit_base' ? undefined : requestResult(transaction.objectStore(LOCAL_DATABASE_STORES.outbox)
+          .get([this.namespaceKey, this.namespace.generationId, lookup.mutationId])) as Promise<OutboxRecord | undefined>,
+      ]);
+      if (entity) this.validatePersistedEntity(entity, operation);
+      if (outbox) this.validatePersistedOutbox(outbox, operation);
+      if (outbox) await this.validateRestoreBoundaryGraphs(transaction, [outbox]);
+      await done;
+      return { entity: entity ?? null, outbox: outbox ?? null };
+    } catch (error) {
+      await done.catch(() => undefined);
+      throw localDatabaseError(error, operation);
+    }
   }
 
   private async validateRestoreBoundaryGraphs(transaction: IDBTransaction, values: OutboxRecord[]): Promise<void> {
@@ -4496,6 +4554,7 @@ export async function openLocalDatabase(
     indexedDBFactory?: IDBFactory;
     mutationIdFactory?: () => string;
     clock?: () => string;
+    requireExistingSchema?: boolean;
   },
 ): Promise<LocalDatabaseRepository> {
   if (options?.capability?.marker !== capabilityMarker) throw new LocalDatabaseError('CAPABILITY_REQUIRED', 'open_database');
@@ -4507,6 +4566,7 @@ export async function openLocalDatabase(
     const request = factory.open(LOCAL_DATABASE_NAME, LOCAL_DATABASE_VERSION);
     let settled = false;
     request.onupgradeneeded = event => {
+      if (options.requireExistingSchema) { request.transaction?.abort(); return; }
       try { createLocalDatabaseSchema(request.result, event.oldVersion, request.transaction!); }
       catch { request.transaction?.abort(); }
     };

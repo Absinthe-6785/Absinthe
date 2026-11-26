@@ -46,6 +46,8 @@ import { createHealthQuickAddSearchIndex, searchHealthQuickAddIndex } from './fe
 import { createHealthRoutineAssemblyLookup } from './features/health/routineAssemblyLookup';
 import { HealthAssistedRepsInput } from './features/health/HealthAssistedRepsInput';
 import { HealthSetActions } from './features/health/HealthSetActions';
+import { HealthCanonicalWorkoutPanel } from './features/health/HealthCanonicalWorkoutPanel';
+import { HEALTH_CANONICAL_LOCAL_SAVE_ENABLED } from './features/health/healthCanonicalLocalSaveConfig';
 import {
   HealthExecutionColumn,
   HealthSetupColumn,
@@ -2198,6 +2200,15 @@ export const HealthView = ({
                   </span>
                 )}
               </div>
+              {HEALTH_CANONICAL_LOCAL_SAVE_ENABLED && localMode
+                && workoutPresentationActive && !isDesktopPrevious && (
+                  <HealthCanonicalWorkoutPanel key={JSON.stringify([user.id, selectedDateDraftKey])}
+                    accountId={user.id} date={selectedDateDraftKey} blocks={healthBlocks}
+                    captureCurrent={() => {
+                      const operation = captureWorkoutOperation();
+                      return operation ? () => currentWorkoutOperation(operation) : null;
+                    }} />
+                )}
               {!isDesktopPrevious && (
                 <>
                   <p className={`text-xs font-medium mt-1 ${theme.textMuted}`}>

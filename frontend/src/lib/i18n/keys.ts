@@ -2423,6 +2423,12 @@ const translationKeys = [
   "healthCloudHeaderCheck",
   "healthCloudHeaderChecking",
   "recipeDraftReplaceEntireConflict",
+  "healthCanonicalNewLocal",
+  "healthCanonicalSaveLocal",
+  "healthCanonicalLocalCommitted",
+  "healthCanonicalLocalUncertain",
+  "healthCanonicalSetDone",
+  "healthCanonicalWeight",
 ] as const;
 
 export type TranslationKey = (typeof translationKeys)[number];

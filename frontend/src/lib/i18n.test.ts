@@ -8,7 +8,7 @@ import translationKeys, { buildLocaleDictionary } from './i18n/keys';
 import type { TranslationKey } from './i18n';
 
 const PLANNER_STORAGE_KEY = 'planner-storage';
-const EXPECTED_KEY_COUNT = 2_423;
+const EXPECTED_KEY_COUNT = 2_429;
 type Locale = 'en' | 'ko' | 'ja';
 
 // Current independent canonical authority, including append-only Notes UI, Wiki-link accessibility, cloud comparison and search, Cloud Copy status readback, local document downloads, PDF/DOCX preview, Recipe filter reset, local-original integrity preflight, cloud Note previews, and single-Note cloud text export.
@@ -16,6 +16,12 @@ type Locale = 'en' | 'ko' | 'ja';
 // translationKeys order, so it detects insertion, omission, reordering, and
 // substitution without using buildLocaleDictionary.
 const EXPECTED_LOCALE_INTEGRITY_SHA256: Record<Locale, string> = {
+  en: 'a3bf11a1ae36b83f290bf13e74a8ae91adf478eaa32f8242278b0a449b38fe1a',
+  ko: '23376bf1457e3a7d8a56f491d23a86313eee444fa0bc556809a4fed12cc455ac',
+  ja: '6d2bf62a7426c4fa04225c5c1f5ae9a80320642bb2b7ada92510dce89bcf0e76',
+};
+
+const PRE_CANONICAL_LOCAL_SAVE_LOCALE_SHA256: Record<Locale, string> = {
   en: '650832d5c4ecff88859bb157cb1134265a8b7cb1733be32b851d52b3239e0fcc',
   ko: '6c76656caf3ecaec3800e91fb3c9bb6a1793e4cf8fa85552298628aa0a487808',
   ja: '12c56b017d74f6028b569f77d588d269ec21f0f672f656e072a86235993cb9a9',
@@ -428,7 +434,7 @@ describe('i18n locale dictionaries', () => {
 
   it('appends the full Recipe replacement warning without changing any existing translations', () => {
     const previousKeyCount = 2_422;
-    expect(translationKeys.slice(previousKeyCount)).toEqual(['recipeDraftReplaceEntireConflict']);
+    expect(translationKeys.slice(previousKeyCount, 2_423)).toEqual(['recipeDraftReplaceEntireConflict']);
     for (const [locale, values] of [['en', enLocaleValues], ['ko', koLocaleValues], ['ja', jaLocaleValues]] as const) {
       expect(localeIntegrityDigest(values.slice(0, previousKeyCount), translationKeys.slice(0, previousKeyCount)))
         .toBe(PRE_RECIPE_CONFLICT_LOCALE_SHA256[locale]);
@@ -436,6 +442,18 @@ describe('i18n locale dictionaries', () => {
     expect(enTranslations.recipeDraftReplaceEntireConflict).toBe("This draft is not based on the current saved recipe. Use local draft does not save anything. If you then select Update, it replaces the entire saved recipe with this draft.");
     expect(koTranslations.recipeDraftReplaceEntireConflict).toBe("이 초안은 현재 저장된 레시피 버전을 기준으로 하지 않습니다. 로컬 초안 사용을 눌러도 저장되지 않습니다. 그다음 업데이트를 누르면 저장된 레시피 전체가 이 초안으로 교체됩니다.");
     expect(jaTranslations.recipeDraftReplaceEntireConflict).toBe("この下書きは現在保存されているレシピの版に基づいていません。ローカル下書きを使用しても保存されません。その後に更新すると、保存済みレシピ全体がこの下書きに置き換わります。");
+  });
+
+  it('appends the local-only Health Save copy without changing any previous translation', () => {
+    const previousKeyCount = 2_423;
+    expect(translationKeys.slice(previousKeyCount)).toEqual([
+      'healthCanonicalNewLocal', 'healthCanonicalSaveLocal', 'healthCanonicalLocalCommitted',
+      'healthCanonicalLocalUncertain', 'healthCanonicalSetDone', 'healthCanonicalWeight',
+    ]);
+    for (const [locale, values] of [['en', enLocaleValues], ['ko', koLocaleValues], ['ja', jaLocaleValues]] as const) {
+      expect(localeIntegrityDigest(values.slice(0, previousKeyCount), translationKeys.slice(0, previousKeyCount)))
+        .toBe(PRE_CANONICAL_LOCAL_SAVE_LOCALE_SHA256[locale]);
+    }
   });
 
   it('appends localized Health Workout cloud comparison entry labels without changing prior translations', () => {

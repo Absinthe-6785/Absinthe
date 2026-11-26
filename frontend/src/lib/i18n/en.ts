@@ -2423,6 +2423,12 @@ const enTranslations = [
   "Check cloud changes",
   "Checking cloud changes…",
   "This draft is not based on the current saved recipe. Use local draft does not save anything. If you then select Update, it replaces the entire saved recipe with this draft.",
+  "New local-only workout",
+  "Save workout on this device",
+  "Workout saved on this device. No cloud sync was performed.",
+  "Local save could not be confirmed. Your draft was kept. The app will not retry this save.",
+  "Completed",
+  "Weight",
 ] as const;
 
 export default enTranslations;

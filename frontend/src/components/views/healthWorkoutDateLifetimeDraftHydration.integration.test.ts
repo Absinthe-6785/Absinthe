@@ -14,6 +14,7 @@ import {
 import { getRoutinePlannedSetsForDay } from './features/health/routinePlannedSets';
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
 import { closeLocalDatabase, createDormantLocalDatabaseCapability, openLocalDatabase } from '../../lib/localDatabase';
+import { LocalDatabaseRepository } from '../../lib/localDatabase/repository';
 import { createLocalHealthDriver, HealthRepository, HEALTH_LOCAL_DATABASE_NAME, HEALTH_LOCAL_IMPORT_STATE_STORE } from '../../lib/healthLocalRepository';
 import { HEALTH_RECOVERY_DATASETS } from '../../lib/healthRecoveryExport';
 import { createWorkoutRemoteControlClient } from '../../lib/workoutRemoteClient';
@@ -21,6 +22,7 @@ import { runWorkoutPushIteration } from '../../lib/workoutRemotePush';
 import { runWorkoutPullIteration } from '../../lib/workoutRemotePull';
 import { HEALTH_ROUTINE_DEVICE_ID_KEY, HEALTH_ROUTINE_GENERATION_ID, HEALTH_ROUTINE_PROJECT_REF } from '../../lib/workoutLocalReaderAuthority';
 import { WorkoutSessionRepository, WORKOUT_SESSION_DOMAIN } from '../../lib/workoutSessionRepository';
+import { ISOLATED_CANONICAL_WORKOUT_PROJECT, openHealthCanonicalLocalSave } from './features/health/healthCanonicalLocalSave';
 import { useHealthSelectedDayComposite, type HealthSelectedDayReadModel } from './features/health/useHealthSelectedDayComposite';
 import type { WorkoutSessionV1 } from '../../lib/workoutSessionV1';
 import {
@@ -104,6 +106,8 @@ vi.mock('react', async importOriginal => {
 });
 
 const mocks = vi.hoisted(() => ({
+  canonicalSaveEnabled: false,
+  canonicalOwner: null as { accountId: string; signal: AbortSignal } | null,
   remoteMode: true,
   baselineSavingLine: -1,
   baselineLockedLine: -1,
@@ -168,6 +172,10 @@ vi.mock('../../lib/supabase', () => ({
 vi.mock('../../lib/remoteBoundary', () => ({
   shouldUseRemoteData: () => mocks.remoteMode,
   remoteSWRKey: (url: string) => url,
+  runtimeSessionReadOwner: () => mocks.canonicalOwner,
+}));
+vi.mock('./features/health/healthCanonicalLocalSaveConfig', () => ({
+  get HEALTH_CANONICAL_LOCAL_SAVE_ENABLED() { return mocks.canonicalSaveEnabled; },
 }));
 vi.mock('../../lib/fetcher', () => ({ fetcher: vi.fn(async () => []) }));
 vi.mock('swr', () => ({
@@ -338,13 +346,13 @@ vi.mock('../common/WorkspaceErrorBoundary', () => ({
   WorkspaceErrorBoundary: ({ children }: { children: unknown }) => children,
 }));
 vi.mock('../common/WorkspacePageHeader', () => ({ WorkspacePageHeader: () => null }));
-vi.mock('../common/WorkspaceToolbar', () => ({
+vi.mock('../common/WorkspaceToolbar', async importOriginal => {
+  const real = await importOriginal<typeof import('../common/WorkspaceToolbar')>();
+  return {
   WorkspaceToolbar: ({ children }: { children: unknown }) => createElement('div', {}, children),
-  WorkspaceToolbarPrimary: ({ label, onClick, disabled }: {
-    label: string;
-    onClick: () => void;
-    disabled?: boolean;
-  }) => {
+  WorkspaceToolbarPrimary: (props: Parameters<typeof real.WorkspaceToolbarPrimary>[0]) => {
+    if (props.dataHook === 'data-health-canonical-save') return createElement(real.WorkspaceToolbarPrimary, props);
+    const { label, onClick, disabled } = props;
     mocks.saveCallback = onClick as () => Promise<void>;
     return createElement('button', {
     type: 'button',
@@ -353,7 +361,8 @@ vi.mock('../common/WorkspaceToolbar', () => ({
     'data-testid': 'health-save-workout',
   }, label);
   },
-}));
+  };
+});
 vi.mock('./features/health/HealthWorkspaceNav', () => ({
   HEALTH_WORKSPACE_SECTIONS: [{ id: 'workout' }, { id: 'nutrition' }],
   HealthWorkspaceNav: ({ onChange }: { onChange: (section: 'workout' | 'nutrition') => void }) => {
@@ -796,6 +805,8 @@ async function navigateABA() {
   await render({ selectedDate: date(Y) }); await render({ selectedDate: date(X) });
 }
 function resetFixture() {
+  mocks.canonicalSaveEnabled = false;
+  mocks.canonicalOwner = null;
   strictMode = false;
   subject = HealthView;
   mocks.baselineSavingLine = -1; mocks.baselineLockedLine = -1;
@@ -853,6 +864,230 @@ afterEach(() => {
   if (initialInnerWidthDescriptor) Object.defineProperty(window, 'innerWidth', initialInnerWidthDescriptor);
   else delete (window as Window & { innerWidth: number }).innerWidth;
   vi.unstubAllGlobals();
+});
+
+describe('default-off product canonical local Save', () => {
+  const user = { id: PILOT_OWNER, name: 'Synthetic owner' };
+  const device = '33333333-3333-4333-8333-333333333333';
+  const catalog: HealthProps['healthBlocks'] = [
+    { id: 'local-pull-up', name: 'Local pull-up', type: 'bodyweight', tags: ['test'], cardio_mode: 'both' },
+    { id: 'local-curl', name: 'Local curl', type: 'strength', tags: [], cardio_mode: 'both' },
+    { id: 'local-run', name: 'Local run', type: 'cardio' },
+  ];
+  const panel = () => host.querySelector<HTMLElement>('[data-health-canonical-draft]')!;
+  const open = () => host.querySelector<HTMLButtonElement>('[data-health-canonical-open]')!;
+  const save = () => panel().querySelector<HTMLButtonElement>('[data-health-canonical-save]')!;
+  async function press(button: HTMLButtonElement) { await act(async () => { button.click(); }); }
+  async function ready(predicate: () => unknown) {
+    await vi.waitFor(async () => {
+      await act(async () => { await new Promise(resolve => setTimeout(resolve, 5)); });
+      expect(predicate()).toBeTruthy();
+    });
+  }
+  async function setup() {
+    const factory = new IDBFactory();
+    vi.stubGlobal('indexedDB', factory);
+    vi.stubGlobal('IDBKeyRange', IDBKeyRange);
+    vi.stubGlobal('location', { hostname: 'localhost' });
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('unexpected network')));
+    let tail: Promise<unknown> = Promise.resolve();
+    vi.stubGlobal('navigator', { onLine: false, locks: { request: (_: string, cb: () => unknown) => {
+      const task = tail.then(cb);
+      tail = task.catch(() => undefined);
+      return task;
+    } } });
+    const controller = new AbortController();
+    mocks.canonicalOwner = { accountId: user.id, signal: controller.signal };
+    mocks.canonicalSaveEnabled = true;
+    mocks.remoteMode = false;
+    storage.setItem(HEALTH_ROUTINE_DEVICE_ID_KEY, device);
+    const db = await openLocalDatabase({
+      userId: user.id, deviceId: device, projectRef: ISOLATED_CANONICAL_WORKOUT_PROJECT,
+      generationId: HEALTH_ROUTINE_GENERATION_ID, schemaVersion: 1,
+    }, { capability: createDormantLocalDatabaseCapability('test') });
+    await db.initializeNamespace();
+    const repository = new WorkoutSessionRepository(db);
+    const existingLegacy = [{ ...row(), id: 'legacy-preserved', local_version: 'legacy-v1' }];
+    const legacyDraftKey = localHealthDraftKey(user.id, X);
+    storage.setItem(legacyDraftKey, JSON.stringify(existingLegacy));
+    await render({ user, workouts: existingLegacy, healthBlocks: catalog });
+    return { db, repository, controller, existingLegacy, legacyDraftKey };
+  }
+  async function enter() {
+    await press(open());
+    await ready(() => panel()?.querySelector('select[name="exercise"]'));
+  }
+  async function addExercise(index: number) {
+    const select = panel().querySelector<HTMLSelectElement>('select[name="exercise"]')!;
+    select.value = catalog[index].id;
+    await press(select.closest('form')!.querySelector('button[type="submit"]')!);
+    await ready(() => panel().querySelectorAll('h3').length === index + 1);
+  }
+  async function addSet(index: number, values: Record<string, string>, count: number) {
+    const element = panel().querySelectorAll('h3')[index].parentElement!;
+    await press(element.querySelector('button[type="button"]')!);
+    const form = element.querySelector('form')!;
+    for (const [field, value] of Object.entries(values)) {
+      form.querySelector<HTMLInputElement>(`[name="${field}"]`)!.value = value;
+    }
+    form.querySelector<HTMLInputElement>('[name="done"]')!.checked = true;
+    await press(form.querySelector('button[type="submit"]')!);
+    await ready(() => element.querySelectorAll('ol > li').length === count && !element.querySelector('form'));
+  }
+
+  it('is OFF in the real config and the existing Save handler still runs', async () => {
+    const config = await vi.importActual<typeof import('./features/health/healthCanonicalLocalSaveConfig')>(
+      './features/health/healthCanonicalLocalSaveConfig',
+    );
+    expect(config.HEALTH_CANONICAL_LOCAL_SAVE_ENABLED).toBe(false);
+    storage.setItem(localHealthDraftKey(A, X), JSON.stringify([row()]));
+    await render();
+    expect(open()).toBeNull();
+    await press(host.querySelector<HTMLButtonElement>('[data-testid="health-save-workout"]')!);
+    expect(mocks.saveHealthWorkouts).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['direct', 'lost acknowledgement'])('persists one multi-exercise session and outbox (%s), restores exact IDs, and does not dispatch twice', async outcome => {
+    const { db, repository, legacyDraftKey, existingLegacy } = await setup();
+    const commit = LocalDatabaseRepository.prototype.commitLocalMutation;
+    const write = vi.spyOn(LocalDatabaseRepository.prototype, 'commitLocalMutation');
+    if (outcome === 'lost acknowledgement') write.mockImplementationOnce(async function (this: LocalDatabaseRepository, input) {
+      await commit.call(this, input);
+      throw new Error('synthetic acknowledgement lost after commit');
+    });
+    try {
+      await enter();
+      for (let i = 0; i < catalog.length; ++i) await addExercise(i);
+      await addSet(0, { reps: '8', assisted: '2' }, 1);
+      await addSet(0, { reps: '6' }, 2);
+      await addSet(1, { weight: '20', unit: 'lbs', reps: '10' }, 1);
+      await addSet(2, { duration: '10:30', distance: '2.5' }, 1);
+      const button = save();
+      await act(async () => { button.click(); button.click(); });
+      await ready(() => panel().textContent?.includes('healthCanonicalLocalCommitted'));
+      expect(write).toHaveBeenCalledTimes(1);
+      const [entity] = await repository.listWorkoutSessions();
+      expect(entity.record.entries).toMatchObject([
+        { exercise: { cardioMode: null }, sets: [{ reps: 8, assistedReps: 2, done: true }, { reps: 6 }] },
+        { exercise: { cardioMode: null }, sets: [{ sourceValue: '20', sourceUnit: 'lbs', reps: 10 }] },
+        { exercise: { cardioMode: 'both' }, sets: [{ durationSeconds: 630, distanceMeters: '2500' }] },
+      ]);
+      const outbox = await db.listOutboxMutations({ domain: WORKOUT_SESSION_DOMAIN, entityId: entity.entityId, limit: 10 });
+      expect(outbox).toHaveLength(1);
+      expect(outbox[0]).toMatchObject({ attemptCount: 0, deliveryBinding: { state: 'unbound' }, payload: { record: entity.record } });
+      await render({ selectedDate: date(Y) });
+      await render({ selectedDate: date(X) });
+      await press(open());
+      await ready(() => panel().textContent?.includes('healthCanonicalLocalCommitted'));
+      expect(save()).toBeNull();
+      expect(await repository.listWorkoutSessions()).toEqual([entity]);
+      expect(write).toHaveBeenCalledTimes(1);
+      expect(storage.getItem(legacyDraftKey)).toBe(JSON.stringify(existingLegacy));
+      expect(mocks.saveHealthWorkouts).not.toHaveBeenCalled();
+      expect(mocks.authFetch).not.toHaveBeenCalled();
+      expect(fetch).not.toHaveBeenCalled();
+    } finally { write.mockRestore(); closeLocalDatabase(db); }
+  });
+
+  it('refuses to initialize a missing local schema and does not submit any workout', async () => {
+    const { db } = await setup();
+    const write = vi.spyOn(LocalDatabaseRepository.prototype, 'commitLocalMutation');
+    try {
+      const missing = new IDBFactory();
+      vi.stubGlobal('indexedDB', missing);
+      const before = [...storage.bytes.entries()];
+      await expect(openHealthCanonicalLocalSave(user.id, X, () => true)).rejects.toThrow();
+      expect(await missing.databases()).toEqual([]);
+      expect([...storage.bytes.entries()]).toEqual(before);
+      expect(write).not.toHaveBeenCalled();
+    } finally { write.mockRestore(); closeLocalDatabase(db); }
+  });
+
+  it('preserves the draft on uncertain completion and re-entry never retries', async () => {
+    const { db, repository } = await setup();
+    const write = vi.spyOn(LocalDatabaseRepository.prototype, 'commitLocalMutation')
+      .mockRejectedValueOnce(new Error('completion unavailable'));
+    try {
+      await enter();
+      await addExercise(0);
+      await addSet(0, { reps: '9' }, 1);
+      await press(save());
+      await ready(() => panel().textContent?.includes('healthCanonicalLocalUncertain'));
+      expect(panel().textContent).toContain('Local pull-up');
+      expect(save()).toBeNull();
+      await render({ selectedDate: date(Y) });
+      await render({ selectedDate: date(X) });
+      await press(open());
+      await ready(() => panel().textContent?.includes('healthCanonicalLocalUncertain'));
+      expect(save()).toBeNull();
+      expect(await repository.listWorkoutSessions()).toEqual([]);
+      expect(write).toHaveBeenCalledTimes(1);
+      expect(mocks.saveHealthWorkouts).not.toHaveBeenCalled();
+      expect(fetch).not.toHaveBeenCalled();
+    } finally { write.mockRestore(); closeLocalDatabase(db); }
+  });
+
+  it('clears in-memory evidence on session revocation and admits no stale save', async () => {
+    const { db, controller } = await setup();
+    const write = vi.spyOn(LocalDatabaseRepository.prototype, 'commitLocalMutation');
+    try {
+      await enter();
+      await addExercise(0);
+      await addSet(0, { reps: '8' }, 1);
+      const staleButton = save();
+      const release = deferred();
+      const started = deferred();
+      const getActive = LocalDatabaseRepository.prototype.getActiveGeneration;
+      const check = vi.spyOn(LocalDatabaseRepository.prototype, 'getActiveGeneration').mockImplementationOnce(async function (this: LocalDatabaseRepository) {
+        started.release();
+        await release.promise;
+        return getActive.call(this);
+      });
+      try {
+        await press(staleButton);
+        await started.promise;
+        await act(async () => { controller.abort(); });
+        await render({ user: { id: PILOT_FOREIGN, name: 'Other test account' } });
+        await render({ user, selectedDate: date(X) });
+        await act(async () => { release.release(); });
+        expect(panel()).toBeNull();
+        expect(write).not.toHaveBeenCalled();
+      } finally { release.release(); check.mockRestore(); }
+    } finally { write.mockRestore(); closeLocalDatabase(db); }
+  });
+
+  it('keeps a provably undispatched draft editable after leaving during the final admission check', async () => {
+    const { db } = await setup();
+    const write = vi.spyOn(LocalDatabaseRepository.prototype, 'commitLocalMutation');
+    try {
+      await enter();
+      await addExercise(0);
+      await addSet(0, { reps: '8' }, 1);
+      const raw = [...storage.bytes.entries()].find(([key]) => key.startsWith('healthCanonicalDraft:'))!;
+      const release = deferred();
+      const started = deferred();
+      const getActive = LocalDatabaseRepository.prototype.getActiveGeneration;
+      const check = vi.spyOn(LocalDatabaseRepository.prototype, 'getActiveGeneration').mockImplementationOnce(async function (this: LocalDatabaseRepository) {
+        started.release();
+        await release.promise;
+        return getActive.call(this);
+      });
+      try {
+        await press(save());
+        await started.promise;
+        expect(storage.getItem(raw[0])).toBe(raw[1]);
+        await act(async () => { mocks.changeHealthSection?.('nutrition'); });
+        expect(panel()).toBeNull();
+        await act(async () => { release.release(); });
+        expect(write).not.toHaveBeenCalled();
+        expect(storage.getItem(raw[0])).toBe(raw[1]);
+        await act(async () => { mocks.changeHealthSection?.('workout'); });
+        await enter();
+        expect(save()).not.toBeNull();
+        expect(panel().textContent).toContain('Local pull-up');
+      } finally { release.release(); check.mockRestore(); }
+    } finally { write.mockRestore(); closeLocalDatabase(db); }
+  });
 });
 
 describe('isolated product workout writer pilot', () => {
