@@ -12,6 +12,21 @@ import {
   writeRoutinePresetState,
 } from './features/health/routinePresets';
 import { getRoutinePlannedSetsForDay } from './features/health/routinePlannedSets';
+import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
+import { closeLocalDatabase, createDormantLocalDatabaseCapability, openLocalDatabase } from '../../lib/localDatabase';
+import { createLocalHealthDriver, HealthRepository, HEALTH_LOCAL_DATABASE_NAME, HEALTH_LOCAL_IMPORT_STATE_STORE } from '../../lib/healthLocalRepository';
+import { HEALTH_RECOVERY_DATASETS } from '../../lib/healthRecoveryExport';
+import { createWorkoutRemoteControlClient } from '../../lib/workoutRemoteClient';
+import { runWorkoutPushIteration } from '../../lib/workoutRemotePush';
+import { runWorkoutPullIteration } from '../../lib/workoutRemotePull';
+import { HEALTH_ROUTINE_DEVICE_ID_KEY, HEALTH_ROUTINE_GENERATION_ID, HEALTH_ROUTINE_PROJECT_REF } from '../../lib/workoutLocalReaderAuthority';
+import { WorkoutSessionRepository, WORKOUT_SESSION_DOMAIN } from '../../lib/workoutSessionRepository';
+import { useHealthSelectedDayComposite, type HealthSelectedDayReadModel } from './features/health/useHealthSelectedDayComposite';
+import type { WorkoutSessionV1 } from '../../lib/workoutSessionV1';
+import {
+  isolatedWorkoutPilotBackend, PILOT_FOREIGN, PILOT_ORIGIN, PILOT_OWNER, PILOT_PGLITE_PACKAGE,
+  singleNewWorkoutPilot,
+} from './features/health/workoutPilotTestFixture';
 
 
 // Read actual named React state and effect boundaries; never replace state results/setters.
@@ -107,6 +122,7 @@ const mocks = vi.hoisted(() => ({
   factoryGate: null as null | { promise: Promise<void>; release: () => void },
   commitGate: null as null | { promise: Promise<void>; release: () => void },
   repositoryFactory: vi.fn(),
+  pilotLegacyReader: null as HealthRepository | null,
   mobile: false,
   profileQuickAdd: false,
   quickAddProfilerCommits: 0,
@@ -202,8 +218,10 @@ vi.mock('./features/health/healthWorkoutPersistence', async importOriginal => {
   };
 });
 vi.mock('../../lib/syncAuthority', () => ({ domainUsesLocalWorkingCopy: () => !mocks.remoteMode }));
-vi.mock('../../lib/healthLocalRuntime', () => ({
-  createLocalHealthRepository: vi.fn(async () => ({ saveRoutine: vi.fn() })),
+vi.mock('../../lib/healthLocalRuntime', async importOriginal => ({
+  projectLocalHealthDaily: (await importOriginal<typeof import('../../lib/healthLocalRuntime')>()).projectLocalHealthDaily,
+  createLocalHealthRepository: vi.fn(async (accountId: string) =>
+    mocks.pilotLegacyReader?.accountId === accountId ? mocks.pilotLegacyReader : { saveRoutine: vi.fn() }),
   readLocalHealthWorkoutRange: vi.fn(async () => []),
   readLocalPreviousWorkoutRows: vi.fn(async () => []),
 }));
@@ -795,6 +813,7 @@ function resetFixture() {
   mocks.draft = null; mocks.owner = null; mocks.saving = undefined; mocks.locked = undefined; mocks.saveCallback = null;
   mocks.invokeBeforePublication = false; mocks.events.length = 0; mocks.inputs.length = 0;
   mocks.dispatches.length = 0; mocks.commits.length = 0; mocks.factoryGate = null; mocks.commitGate = null;
+  mocks.pilotLegacyReader = null;
   mocks.authFetch.mockReset().mockResolvedValue(new Response(null, { status: 201 }));
   mocks.showToast.mockReset(); mocks.mutateDaily.mockReset(); mocks.mutateStatic.mockReset();
   mocks.supportingProps = null; mocks.changeHealthSection = null;
@@ -834,6 +853,315 @@ afterEach(() => {
   if (initialInnerWidthDescriptor) Object.defineProperty(window, 'innerWidth', initialInnerWidthDescriptor);
   else delete (window as Window & { innerWidth: number }).innerWidth;
   vi.unstubAllGlobals();
+});
+
+describe('isolated product workout writer pilot', () => {
+  beforeEach(() => { vi.stubGlobal('IDBKeyRange', IDBKeyRange); });
+  const block = { id: 'pilot-push-up', name: 'Pilot push-up', type: 'bodyweight', tags: ['pilot'] };
+  const desktop = '33333333-3333-4333-8333-333333333333';
+  const mobile = '44444444-4444-4444-8444-444444444444';
+  const open = (factory: IDBFactory, deviceId: string, userId = PILOT_OWNER) => openLocalDatabase({
+    userId, deviceId, projectRef: HEALTH_ROUTINE_PROJECT_REF,
+    generationId: HEALTH_ROUTINE_GENERATION_ID, schemaVersion: 1,
+  }, { capability: createDormantLocalDatabaseCapability('test'), indexedDBFactory: factory });
+
+  async function enterWorkout() {
+    await act(async () => { host.querySelector<HTMLButtonElement>('[data-health-quick-add-exercise]')!.click(); });
+    await act(async () => { host.querySelector<HTMLButtonElement>('[data-health-quick-add-block="pilot-push-up"]')!.click(); });
+    const reps = host.querySelector<HTMLInputElement>('[data-k126-workout-exercise-card] input[inputmode="numeric"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(reps, '9');
+      reps.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    const completion = reps.parentElement!.querySelector<HTMLButtonElement>('button:has(polyline)')!;
+    await act(async () => { completion.click(); });
+    expect(mocks.draft.localWorkouts[0].sets[0]).toMatchObject({ type: 'bodyweight', set: 1, reps: '9', done: true });
+  }
+
+  async function clickSave(settleCommit?: () => Promise<void>) {
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('[data-testid="health-save-workout"]')!.click();
+      await settleCommit?.();
+    });
+  }
+
+  it('does not fall back to legacy on rejected pilot admission and keeps the workout draft', async () => {
+    const repository = await open(new IDBFactory(), desktop);
+    try {
+      await repository.initializeNamespace();
+      const commit = singleNewWorkoutPilot(repository, X);
+      mocks.remoteMode = false; mocks.mobile = true;
+      // An account other than the namespace owner must not write either store.
+      await render({ healthBlocks: [block], testOnlyCommitNewWorkout: commit });
+      await enterWorkout();
+      const draft = structuredClone(mocks.draft.localWorkouts);
+      const before = storage.getItem(localHealthDraftKey(A, X));
+      const sent = mocks.authFetch.mock.calls.length;
+      await clickSave();
+      expect(mocks.showToast).toHaveBeenCalledWith('failedSave', 'error');
+      expect(mocks.draft.localWorkouts).toEqual(draft);
+      expect(storage.getItem(localHealthDraftKey(A, X))).toBe(before);
+      expect(mocks.inputs).toEqual([]);
+      expect(mocks.authFetch).toHaveBeenCalledTimes(sent);
+      expect(await repository.listOutboxMutations({ limit: 10 })).toEqual([]);
+    } finally { closeLocalDatabase(repository); }
+  });
+
+  it('rejects an A-to-B-to-A save admission after the original operation becomes stale', async () => {
+    const repository = await open(new IDBFactory(), desktop);
+    try {
+      await repository.initializeNamespace();
+      const commit = singleNewWorkoutPilot(repository, X);
+      const hold = deferred();
+      const heldCommit = vi.fn<NonNullable<HealthProps['testOnlyCommitNewWorkout']>>(async input => {
+        await hold.promise;
+        await commit(input);
+      });
+      mocks.remoteMode = false; mocks.mobile = true;
+      const user = { id: PILOT_OWNER, name: 'Pilot A' };
+      await render({ user, healthBlocks: [block], testOnlyCommitNewWorkout: heldCommit });
+      await enterWorkout();
+      await clickSave();
+      expect(heldCommit).toHaveBeenCalledOnce();
+      await render({ user: { id: B, name: 'Other' } });
+      await render({ user });
+      await act(async () => { hold.release(); });
+      expect(await repository.listOutboxMutations({ limit: 10 })).toEqual([]);
+      expect(await new WorkoutSessionRepository(repository).listWorkoutSessions()).toEqual([]);
+      expect(mocks.inputs).toEqual([]);
+      expect(mocks.showToast).not.toHaveBeenCalledWith('workoutSaved');
+    } finally { closeLocalDatabase(repository); }
+  });
+
+  it('preserves the draft on a confirmed IDB rollback and retries with the same identities', async () => {
+    const repository = await open(new IDBFactory(), desktop);
+    try {
+      await repository.initializeNamespace();
+      const ids: string[] = [];
+      const commit = singleNewWorkoutPilot(repository, X, { abortFirstTransaction: true, idFactory: () => {
+        const id = crypto.randomUUID(); ids.push(id); return id;
+      } });
+      const attempt = vi.fn(commit);
+      mocks.remoteMode = false; mocks.mobile = true;
+      await render({ user: { id: PILOT_OWNER, name: 'Pilot A' }, healthBlocks: [block], testOnlyCommitNewWorkout: attempt });
+      await enterWorkout();
+      const draft = storage.getItem(localHealthDraftKey(PILOT_OWNER, X));
+      expect(draft).not.toBeNull();
+      await clickSave(() => expect(attempt.mock.results[0].value).rejects.toMatchObject({ code: 'TRANSACTION_ABORTED' }));
+      expect(storage.getItem(localHealthDraftKey(PILOT_OWNER, X))).toBe(draft);
+      expect(mocks.showToast).toHaveBeenCalledWith('failedSave', 'error');
+      expect(await new WorkoutSessionRepository(repository).listWorkoutSessions()).toEqual([]);
+      expect(await repository.listOutboxMutations({ limit: 10 })).toEqual([]);
+      await clickSave(() => attempt.mock.results[1].value);
+      expect(ids).toHaveLength(3);
+      const [sessionId, entryId, setId] = ids;
+      expect(await new WorkoutSessionRepository(repository).listWorkoutSessions()).toMatchObject([
+        { entityId: sessionId, record: { id: sessionId, entries: [{ id: entryId, sets: [{ id: setId }] }] } },
+      ]);
+      expect(await repository.listOutboxMutations({ limit: 10 })).toMatchObject([{ entityId: sessionId }]);
+      expect(mocks.inputs).toEqual([]);
+    } finally { closeLocalDatabase(repository); }
+  });
+
+  async function markSyntheticLegacyVerified(factory: IDBFactory) {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = factory.open(HEALTH_LOCAL_DATABASE_NAME);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction(HEALTH_LOCAL_IMPORT_STATE_STORE, 'readwrite');
+        tx.oncomplete = () => resolve();
+        tx.onabort = tx.onerror = () => reject(tx.error);
+        tx.objectStore(HEALTH_LOCAL_IMPORT_STATE_STORE).put({
+          accountId: PILOT_OWNER, status: 'VERIFIED_IMPORT_COMPLETE', importedAt: '', sourceFileSha256: '',
+          sourceContentSha256: '', sourceExportedAt: '', totalRowCount: 2, diagnostics: {},
+          datasetCounts: Object.fromEntries(HEALTH_RECOVERY_DATASETS.map(key =>
+            [key, key === 'workout_logs' || key === 'exercise_blocks' ? 1 : 0])),
+        });
+      });
+    } finally { db.close(); }
+  }
+
+  // Explicit opt-in only; normal frontend CI does not need the PoC database dependency.
+  // Set ABSINTHE_WORKOUT_TEST_PGLITE_PACKAGE to the installed Recipe PoC's package.json.
+  it.skipIf(!PILOT_PGLITE_PACKAGE)('saves one real UI draft, replays a lost SQL receipt and displays the pulled session on B', async ({ onTestFinished }) => {
+    const server = await isolatedWorkoutPilotBackend(PILOT_PGLITE_PACKAGE!);
+    onTestFinished(() => server.db.close());
+    const factoryA = new IDBFactory(), factoryB = new IDBFactory();
+    const laptop = await open(factoryA, desktop);
+    onTestFinished(() => closeLocalDatabase(laptop));
+    const phone = await open(factoryB, mobile);
+    onTestFinished(() => closeLocalDatabase(phone));
+    const legacy = await createLocalHealthDriver({ indexedDBFactory: factoryA });
+    onTestFinished(() => legacy.close());
+    {
+      await laptop.initializeNamespace();
+      await phone.initializeNamespace();
+      await legacy.putRecord('workout_logs', PILOT_OWNER, {
+        id: '55555555-5555-4555-8555-555555555555', user_id: PILOT_OWNER,
+        block_id: 'old-exercise', date: Y, sets: [{ type: 'bodyweight', set: 1, kg: '', reps: 2, done: true }], sort_order: 0,
+      });
+      const legacyBefore = await legacy.readDatasets(PILOT_OWNER);
+      const remote = (deviceId: string) => ({
+        baseUrl: PILOT_ORIGIN, getSession: async () => ({ accountId: PILOT_OWNER, accessToken: 'synthetic-a' }),
+        currentAccountId: () => PILOT_OWNER, currentDeviceId: () => deviceId, fetchImpl: server.fetch,
+      });
+      const a = remote(desktop), b = remote(mobile);
+      const proof = await createWorkoutRemoteControlClient(a).discoverAndPersist(laptop);
+      await createWorkoutRemoteControlClient(b).discoverAndPersist(phone);
+      const setupRequests = server.calls.length;
+      expect(setupRequests).toBe(6);
+
+      // Real Quick Add, controlled reps input, set completion and Complete Workout button.
+      mocks.remoteMode = false; mocks.mobile = true;
+      const commit = vi.fn(singleNewWorkoutPilot(laptop, X));
+      await render({ healthBlocks: [block], user: { id: PILOT_OWNER, name: 'Pilot A' }, testOnlyCommitNewWorkout: commit });
+      await enterWorkout();
+      const legacyRequests = mocks.authFetch.mock.calls.length;
+      await clickSave(() => commit.mock.results[0].value);
+      expect(mocks.showToast).toHaveBeenCalledWith('workoutSaved');
+      expect(commit).toHaveBeenCalledOnce();
+      expect(mocks.inputs).toEqual([]);
+      expect(mocks.authFetch).toHaveBeenCalledTimes(legacyRequests);
+      expect(await legacy.readDatasets(PILOT_OWNER)).toEqual(legacyBefore);
+      expect(server.calls).toHaveLength(setupRequests);
+      expect(storage.getItem(localHealthDraftKey(PILOT_OWNER, X))).toBeNull();
+      const workouts = new WorkoutSessionRepository(laptop);
+      const [saved] = await workouts.listWorkoutSessions();
+      expect(await workouts.listWorkoutSessions()).toHaveLength(1);
+      const session = saved.record as WorkoutSessionV1;
+      expect(session).toMatchObject({ id: saved.entityId, localDate: X, entries: [{
+        exercise: { id: block.id, name: block.name, type: 'bodyweight' },
+        sets: [{ ordinal: 1, kind: 'bodyweight', reps: 9, done: true }],
+      }] });
+      const outbox = await laptop.listOutboxMutations({ limit: 10 });
+      expect(outbox).toHaveLength(1);
+      const [{ mutationId }] = outbox;
+      expect(outbox[0]).toMatchObject({ entityId: session.id, deliveryBinding: { state: 'unbound' } });
+
+      // Explicit delivery only: binding, lost reply after genuine server commit, exact replay.
+      expect(await runWorkoutPushIteration(laptop, { ...a, limit: 1 })).toMatchObject({ claimed: 0 });
+      await laptop.bindWorkoutMutation({ mutationId, expectedVerificationId: proof.verificationId,
+        currentAuthenticatedAccount: a.currentAccountId, currentDeviceId: a.currentDeviceId });
+      const sentAt = Date.now();
+      let now = () => new Date(sentAt).toISOString();
+      const push = { ...a, limit: 1, now: () => now(), retryBaseDelayMs: 1, retryMaxDelayMs: 10 };
+      server.loseNextMutationResponse();
+      expect(await runWorkoutPushIteration(laptop, push)).toMatchObject({ retryable: 1, success: 0 });
+      expect(await laptop.getOutboxRecord(mutationId)).toMatchObject({ status: 'retry_wait' });
+      expect(await workouts.listWorkoutSessions()).toEqual([saved]);
+      now = () => new Date(sentAt + 1000).toISOString();
+      expect(await runWorkoutPushIteration(laptop, push)).toMatchObject({ exactReplay: 1, success: 0 });
+      expect(await runWorkoutPushIteration(laptop, push)).toMatchObject({ claimed: 0 });
+      const receipts = server.calls.filter(call => call.path.endsWith('/mutations'));
+      expect(receipts).toHaveLength(2);
+      expect(receipts[1].wire).toBe(receipts[0].wire);
+      expect(receipts[1].result).toEqual({ ...receipts[0].result, outcome: 'exact_replay' });
+      const receipt = receipts[0].result;
+      expect(receipt).toMatchObject({ outcome: 'success', entityId: session.id, mutationId, serverRevision: 1 });
+      expect(await laptop.getOutboxRecord(mutationId)).toMatchObject({
+        status: 'acknowledged', acknowledgedRevision: 1, remoteMutationRef: receipt.remoteMutationRef,
+        serverCommittedAt: receipt.serverCommittedAt,
+      });
+
+      const received = await runWorkoutPullIteration(phone, b);
+      expect(received).toEqual({ kind: 'applied', nextCursor: receipt.changeSequence, applied: 1, conflicts: 0, ownEchoes: 0 });
+      expect(await runWorkoutPullIteration(phone, b)).toEqual({ kind: 'empty', nextCursor: receipt.changeSequence });
+      expect(await phone.listOutboxMutations({ limit: 10 })).toEqual([]);
+      expect((await phone.getEntity(WORKOUT_SESSION_DOMAIN, session.id))?.record).toEqual(session);
+      expect((await laptop.getEntity(WORKOUT_SESSION_DOMAIN, session.id))?.record).toEqual(session);
+      expect(await legacy.readDatasets(PILOT_OWNER)).toEqual(legacyBefore);
+      expect(server.calls.slice(setupRequests)).toHaveLength(4);
+      const pulls = server.calls.filter(call => call.path.endsWith('/changes'));
+      expect(pulls.map(call => new URL(call.url).searchParams.get('cursor'))).toEqual(['0', String(receipt.changeSequence)]);
+      const foreign = await server.fetch(pulls[0].url, { headers: { authorization: 'Bearer synthetic-b' } });
+      expect(foreign.status).toBe(409);
+      const denial = await foreign.json();
+      expect(denial).toMatchObject({ status: 'rejected', errorCode: 'STALE_GENERATION_BINDING' });
+      expect(denial).not.toHaveProperty('changes');
+      const otherDevice = '66666666-6666-4666-8666-666666666666';
+      const other = await open(new IDBFactory(), otherDevice, PILOT_FOREIGN);
+      onTestFinished(() => closeLocalDatabase(other));
+      await other.initializeNamespace();
+      const otherOptions = { ...remote(otherDevice), currentAccountId: () => PILOT_FOREIGN,
+        getSession: async () => ({ accountId: PILOT_FOREIGN, accessToken: 'synthetic-b' }) };
+      const beforeForeign = server.calls.length;
+      const otherProof = await createWorkoutRemoteControlClient(otherOptions).discoverAndPersist(other);
+      expect(otherProof.accountId).toBe(PILOT_FOREIGN);
+      expect(otherProof.generationBindingId).not.toBe(proof.generationBindingId);
+      expect(await runWorkoutPullIteration(other, otherOptions)).toEqual({ kind: 'empty', nextCursor: 0 });
+      expect(server.calls.slice(beforeForeign)).toHaveLength(4);
+      expect(server.calls.at(-1)?.result.changes).toEqual([]);
+      expect(await other.getEntity(WORKOUT_SESSION_DOMAIN, session.id)).toBeNull();
+      expect(await new WorkoutSessionRepository(other).listWorkoutSessions()).toEqual([]);
+      await server.db.exec('reset role');
+      const counts = await server.db.query<{ workouts: number; receipts: number; changes: number; legacy: number }>(
+        `select (select count(*)::int from public.health_workout_sessions_v2) as workouts,
+          (select count(*)::int from public.remote_mutation_receipts) as receipts,
+          (select count(*)::int from public.remote_reference_changes_v2) as changes,
+          (select count(*)::int from public.workout_logs) as legacy`);
+      expect(counts.rows).toEqual([{ workouts: 1, receipts: 1, changes: 1, legacy: 1 }]);
+      const persisted = await server.db.query<{ response_payload: unknown }>(
+        'select response_payload from public.remote_mutation_receipts where mutation_id = $1', [mutationId]);
+      expect(persisted.rows).toEqual([{ response_payload: receipt }]);
+
+      // B has a separate verified legacy record on the same date. Exercise the real
+      // selected-day hook and editor together; a source failure cannot mask mixing.
+      act(() => root!.unmount()); root = null; closeLocalDatabase(phone);
+      const phoneLegacy = await createLocalHealthDriver({ indexedDBFactory: factoryB });
+      onTestFinished(() => phoneLegacy.close());
+      const phoneLegacyRowId = '77777777-7777-4777-8777-777777777777';
+      const phoneLegacyBlockId = '88888888-8888-4888-8888-888888888888';
+      await phoneLegacy.putRecord('exercise_blocks', PILOT_OWNER, {
+        id: phoneLegacyBlockId, user_id: PILOT_OWNER, name: 'Existing phone exercise',
+        type: 'bodyweight', tags: [], cardio_mode: null,
+      });
+      await phoneLegacy.putRecord('workout_logs', PILOT_OWNER, {
+        id: phoneLegacyRowId, user_id: PILOT_OWNER, block_id: phoneLegacyBlockId, date: X, sort_order: 0,
+        sets: [{ type: 'bodyweight', set: 1, kg: '', reps: 2, done: true }],
+      });
+      await markSyntheticLegacyVerified(factoryB);
+      const verifiedLegacyBefore = await phoneLegacy.readAuthoritativeDatasets(PILOT_OWNER);
+      mocks.pilotLegacyReader = new HealthRepository(phoneLegacy, PILOT_OWNER);
+      storage = new ByteStorage();
+      storage.setItem(HEALTH_ROUTINE_DEVICE_ID_KEY, mobile);
+      vi.stubGlobal('localStorage', storage);
+      vi.stubGlobal('indexedDB', factoryB);
+      props = healthProps({ user: { id: PILOT_OWNER, name: 'Pilot B' } });
+      let latest: HealthSelectedDayReadModel | undefined;
+      function PhoneWorkspace() {
+        const selectedDayComposite = useHealthSelectedDayComposite(true, PILOT_OWNER, X, { managedLifecycle: true });
+        latest = selectedDayComposite;
+        return createElement(HealthView, { ...props,
+          workouts: selectedDayComposite.legacyDaily?.workouts ?? [],
+          selectedDayComposite });
+      }
+      await act(async () => { root = createRoot(host); root.render(createElement(PhoneWorkspace)); });
+      await vi.waitFor(async () => {
+        await act(async () => { await new Promise(resolve => setTimeout(resolve, 5)); });
+        expect(latest?.result).toMatchObject({ status: 'complete', legacyStatus: 'success', canonicalStatus: 'success' });
+      });
+      const preview = host.querySelector('[data-canonical-session]')!;
+      expect(preview.textContent).toContain(`Session ${session.id} · ${X}`);
+      expect(preview.textContent).toContain('Pilot push-up · bodyweight');
+      expect(preview.textContent).toContain(`Exercise ID: ${block.id}`);
+      expect(preview.textContent).toContain('Set 1 · bodyweight · done · 9 reps');
+      expect(preview.querySelector('input, button, [contenteditable]')).toBeNull();
+      expect(mocks.draft.localWorkouts).toMatchObject([{ id: phoneLegacyRowId, sets: [{ reps: 2 }] }]);
+      await act(async () => { button('editBtn').click(); });
+      expect(host.querySelector<HTMLInputElement>('[data-k126-workout-exercise-card] input[inputmode="numeric"]')?.value).toBe('2');
+      expect(host.querySelectorAll('[data-k126-workout-exercise-card]')).toHaveLength(1);
+      expect(mocks.inputs).toEqual([]);
+      expect(await phoneLegacy.readAuthoritativeDatasets(PILOT_OWNER)).toEqual(verifiedLegacyBefore);
+      act(() => root!.unmount()); root = null;
+      const { rows: [engine] } = await server.db.query<{ version: string }>('select version()');
+      console.info('[workout-pilot]', JSON.stringify({ engine: engine.version, setupRequests, saveRequests: 0,
+        pushRequests: 2, pullRequests: 2, deniedRequests: 1, foreignValidRequests: 4,
+        changedRecords: received.kind === 'applied' ? received.applied : null, ...counts.rows[0] }));
+    }
+  }, 45_000);
 });
 
 describe('Health mobile Workout scroll/focus frame measurement', () => {

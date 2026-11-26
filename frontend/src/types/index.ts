@@ -187,6 +187,13 @@ export interface HealthProps extends BaseViewProps, DateProps, MutateProps {
   workoutRangeComposite?: import('../components/views/features/health/useHealthWorkoutRangeSnapshot').HealthWorkoutRangeReadModel;
   /** Payload-free durability notification tagged with the original mutation account. */
   onLocalWorkoutCommitted?: (committedAccountId: string) => void;
+  /** Isolated test harness only; ignored in every non-test build. */
+  testOnlyCommitNewWorkout?: (input: {
+    accountId: string;
+    date: string;
+    workouts: readonly Workout[];
+    isCurrent: () => boolean;
+  }) => Promise<void>;
   /** Gated local routine source readiness; [] alone is not verified empty. */
   healthRoutinesState?: import('../lib/searchReadiness').SearchDatasetState;
 }

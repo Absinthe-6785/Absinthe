@@ -14,6 +14,9 @@ import {
 
 type LocalWorkoutRepository = Pick<HealthRepository, 'saveWorkouts' | 'deleteWorkout'>;
 
+// Build-time-only; there is no application setting or remote activation path.
+export const ISOLATED_WORKOUT_PILOT_TEST_BUILD = import.meta.env.MODE === 'test' && !import.meta.env.PROD;
+
 export type HealthWorkoutPersistenceMode = 'local' | 'remote';
 export type HealthWorkoutPersistenceStatus = 'success' | 'partial' | 'failure' | 'aborted';
 

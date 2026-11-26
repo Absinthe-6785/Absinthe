@@ -52,7 +52,7 @@ import {
   HealthSupportRegion,
   HealthWorkoutComposition,
 } from './features/health/HealthCompositionLayout';
-import { deleteHealthWorkout, saveHealthWorkouts } from './features/health/healthWorkoutPersistence';
+import { deleteHealthWorkout, ISOLATED_WORKOUT_PILOT_TEST_BUILD, saveHealthWorkouts } from './features/health/healthWorkoutPersistence';
 import { HealthSelectedDayCompositePanel } from './features/health/HealthSelectedDayCompositePanel';
 import { CompositePreviousWorkoutView } from './features/health/CompositePreviousWorkoutView';
 import { buildCompositePreviousWorkoutProjection } from './features/health/compositePreviousWorkoutProjection';
@@ -265,7 +265,7 @@ export const HealthView = ({
   schedules, weeklySchedules,
   workouts, healthBlocks, healthRoutines, inbody, theme, appSettings,
   THEME_COLORS, isDailyLoading, user, selectedDayComposite, workoutRangeComposite,
-  onLocalWorkoutCommitted,
+  onLocalWorkoutCommitted, testOnlyCommitNewWorkout,
   healthRoutinesState,
 }: HealthProps) => {
   const { t, lang } = useTranslation();
@@ -1560,6 +1560,23 @@ export const HealthView = ({
     setIsSaving(true);
 
     try {
+      if (ISOLATED_WORKOUT_PILOT_TEST_BUILD && testOnlyCommitNewWorkout) {
+        // The isolated pilot replaces this save; never fall back to the legacy writer.
+        if (!localMode || isDailyLoading || workouts.length !== 0 || isWorkoutLocked
+          || !currentWorkoutOperation(operationScope)) throw new Error('workout_pilot_not_new');
+        await testOnlyCommitNewWorkout({
+          accountId: operationScope.accountOperation.accountId,
+          date: formatDate(selectedDate),
+          workouts: localWorkouts,
+          isCurrent: () => currentWorkoutOperation(operationScope),
+        });
+        if (!currentWorkoutOperation(operationScope)) return;
+        clearDirtyAfterSave();
+        // A canonical session must not enter the legacy editor as an editable saved row.
+        setWorkoutRows([]);
+        showToast(t('workoutSaved'));
+        return;
+      }
       const normalizedWorkouts = localWorkouts.map(workout => ({
         ...workout,
         sets: workout.sets.map(set => {
