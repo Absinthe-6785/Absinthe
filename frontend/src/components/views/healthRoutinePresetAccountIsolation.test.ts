@@ -69,6 +69,7 @@ vi.mock('./features/search/searchDomainNavigation', () => ({ registerSearchDomai
 vi.mock('./features/health/healthWorkoutPersistence', () => ({
   deleteHealthWorkout: (...args: unknown[]) => mocks.deleteHealthWorkout(...args),
   saveHealthWorkouts: (...args: unknown[]) => mocks.saveHealthWorkouts(...args),
+  ISOLATED_WORKOUT_PILOT_TEST_BUILD: false,
 }));
 vi.mock('../../lib/healthLocalRuntime', () => ({
   createLocalHealthRepository: vi.fn(async () => ({ saveRoutine: vi.fn() })),
