@@ -11,7 +11,7 @@ const listPg = 'SELECT * FROM recipes WHERE user_id=$1 AND deleted_at IS NULL OR
 const lookupPg = 'SELECT * FROM recipes WHERE id=$1 AND user_id=$2 AND deleted_at IS NULL';
 const ids = i => `a2222222-2222-4222-8222-${String(i).padStart(12, '0')}`;
 const indexes = await readFile(new URL('./schema.sql', import.meta.url), 'utf8');
-const indexD1 = indexes.slice(indexes.indexOf('CREATE INDEX')).trim();
+const indexD1 = indexes.split(';').find(sql => sql.trimStart().startsWith('CREATE INDEX recipes_owner_active_order '));
 const source = await readFile(new URL('./worker.mjs', import.meta.url));
 const bytes = obj => Buffer.byteLength(JSON.stringify(obj));
 const ms = start => Number((performance.now() - start).toFixed(3));

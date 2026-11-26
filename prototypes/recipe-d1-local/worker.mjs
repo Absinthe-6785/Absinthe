@@ -25,6 +25,13 @@ function apiRow(row) {
   return { ...row, starred: row.starred === 1 };
 }
 
+function isRecipeRow(row) {
+  return row && [row.id, row.user_id, row.edit_revision].every(value => typeof value === 'string' && uuid.test(value))
+    && fields.slice(0, -1).every(key => typeof row[key] === 'string')
+    && typeof row.created_at === 'string'
+    && (row.starred === 0 || row.starred === 1);
+}
+
 function fixtureHeaders(stats) {
   return {
     'x-fixture-queries': String(stats.queries),
@@ -45,20 +52,29 @@ export async function handleRecipeRequest(request, env, user, measure = false) {
     });
 
     const collection = url.pathname === '/api/recipes';
-    const match = /^\/api\/recipes\/([0-9a-f-]+)$/i.exec(url.pathname);
+    const trash = url.pathname === '/api/recipes/trash';
+    const match = /^\/api\/recipes\/([0-9a-f-]+)(\/star)?$/i.exec(url.pathname);
     const id = match && uuid.test(match[1]) ? match[1].toLowerCase() : null;
+    const star = id && match[2] === '/star';
     const method = request.method;
     const missing = () => respond({ detail: 'Not found' }, 404);
-    if (!collection && !id) return missing();
-    if (id && method === 'PUT') return respond({ detail: 'Reload the app before editing Recipes' }, 428);
+    if (trash && method !== 'GET') return missing();
+    if (!trash && match?.[2] && (!star || method !== 'PUT')) return missing();
+    if (!collection && !trash && !id) return missing();
+    if (id && !star && method === 'PUT') return respond({ detail: 'Reload the app before editing Recipes' }, 428);
 
     async function query(sql, values, mutation = false) {
       stats.queries++;
       const statement = env.DB.prepare(sql);
       const result = await (values.length ? statement.bind(...values) : statement).all();
-      if (!result.success || !Array.isArray(result.results)) throw new Error('Unconfirmed database result');
-      if (mutation && (result.meta.changes !== result.results.length || result.meta.changes > 1)) {
-        throw new Error('Contradictory write acknowledgement');
+      if (result.success !== true || !Array.isArray(result.results)) throw new Error('Unconfirmed database result');
+      if (mutation) {
+        const { changes, changed_db, rows_written } = result.meta;
+        if (changes !== result.results.length || changes > 1 ||
+            changed_db !== (changes === 1) || !Number.isSafeInteger(rows_written) ||
+            (changes === 0 ? rows_written !== 0 : rows_written < 1)) {
+          throw new Error('Contradictory write acknowledgement');
+        }
       }
       stats.reads += result.meta.rows_read;
       stats.writes += result.meta.rows_written;
@@ -66,6 +82,29 @@ export async function handleRecipeRequest(request, env, user, measure = false) {
     }
 
     try {
+      if (trash) {
+        const rows = await query(`SELECT ${columns} FROM recipes
+          WHERE user_id = ? AND deleted_at IS NOT NULL ORDER BY deleted_at DESC, id`, [user]);
+        if (!rows.every(row => isRecipeRow(row) && row.user_id === user && typeof row.deleted_at === 'string')) {
+          throw new Error('Unconfirmed trash result');
+        }
+        return respond(rows.map(apiRow));
+      }
+      if (star) {
+        const body = await request.json().catch(() => null);
+        if (!body || typeof body.starred !== 'boolean') return respond({ detail: 'Invalid favorite target' }, 422);
+        const target = Number(body.starred);
+        const next = crypto.randomUUID();
+        const saved = await query(`UPDATE recipes SET starred=?, edit_revision=?
+          WHERE id=? AND user_id=? AND deleted_at IS NULL RETURNING ${columns}`, [target, next, id, user], true);
+        if (saved.length === 0) return missing();
+        const [row] = saved;
+        if (!isRecipeRow(row) || row.id !== id || row.user_id !== user || row.deleted_at !== null ||
+            row.starred !== target || row.edit_revision !== next) {
+          throw new Error('Unconfirmed favorite update');
+        }
+        return respond(apiRow(row));
+      }
       if (collection && method === 'GET') {
         return respond((await query(`SELECT ${columns} FROM recipes
           WHERE user_id = ? AND deleted_at IS NULL ORDER BY created_at DESC, id`, [user])).map(apiRow));

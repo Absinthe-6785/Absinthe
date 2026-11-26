@@ -112,7 +112,10 @@ test('contradictory D1 acknowledgements are indeterminate, never a success or a 
   const id = '22222222-2222-4222-8222-222222222222';
   const revision = '33333333-3333-4333-8333-333333333333';
   // Intentionally mock only the adapter reply; real D1 cases above use Miniflare.
-  for (const [method, returnsRow] of [['PATCH', true], ['PATCH', false], ['POST', true]]) {
+  for (const [method, returnsRow, changes, rowsWritten] of [
+    ['PATCH', true, 0, 0], ['PATCH', false, 1, 1], ['POST', true, 0, 0],
+    ['PATCH', true, 1, 0], ['PATCH', false, 0, 1], ['POST', true, 1, 0],
+  ]) {
     let statements = 0;
     const DB = {
       prepare(sql) {
@@ -127,7 +130,7 @@ test('contradictory D1 acknowledgements are indeterminate, never a success or a 
           };
           return { all: async () => ({
             success: true, results: returnsRow ? [row] : [],
-            meta: { changes: returnsRow ? 0 : 1, rows_read: 0, rows_written: 0 },
+            meta: { changes, changed_db: changes === 1, rows_read: 0, rows_written: rowsWritten },
           }) };
         } };
       },
