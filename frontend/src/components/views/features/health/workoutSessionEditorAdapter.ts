@@ -5,6 +5,7 @@ import {
   normalizeRepetitionInput,
   normalizeWeightInput,
   snapshotWorkoutSessionV1,
+  validateWorkoutSessionDraftShape,
   validateWorkoutSessionV1,
   type WorkoutBodyweightSetV1,
   type WorkoutCardioSetV1,
@@ -227,7 +228,10 @@ export function editWorkoutEditorCardioSet(set: WorkoutEditorCardioSet, input: C
 /** Hydration copies a validated persisted V1 snapshot and allocates no IDs. */
 export function hydrateWorkoutSessionEditor(session: WorkoutSessionV1, expectedLocalRevision: number): WorkoutSessionEditor {
   if (!Number.isSafeInteger(expectedLocalRevision) || expectedLocalRevision < 1) invalid('expectedLocalRevision');
-  const snapshot = withCanonicalErrors(() => snapshotWorkoutSessionV1(session));
+  return editorFromSnapshot(withCanonicalErrors(() => snapshotWorkoutSessionV1(session)), expectedLocalRevision);
+}
+
+function editorFromSnapshot(snapshot: WorkoutSessionV1, expectedLocalRevision: number | null): WorkoutSessionEditor {
   return {
     sessionId: snapshot.id,
     localDate: snapshot.localDate,
@@ -243,8 +247,7 @@ export function hydrateWorkoutSessionEditor(session: WorkoutSessionV1, expectedL
   };
 }
 
-/** Validate unknown editor data before picking any V1 fields; then validate the V1 output independently. */
-export function projectWorkoutSessionEditor(input: unknown): WorkoutSessionV1 {
+function projectEditorShape(input: unknown): { canonical: WorkoutSessionV1; revision: number | null } {
   const session = record(input, 'session');
   exactKeys(session, SESSION_KEYS, 'session');
   if (session.expectedLocalRevision !== null && (!Number.isSafeInteger(session.expectedLocalRevision) || (session.expectedLocalRevision as number) < 1)) {
@@ -280,9 +283,24 @@ export function projectWorkoutSessionEditor(input: unknown): WorkoutSessionV1 {
       sets,
     };
   });
-  const canonical = { version: 1, id: session.sessionId, localDate: session.localDate, entries };
+  return {
+    canonical: { version: 1, id: session.sessionId, localDate: session.localDate, entries } as WorkoutSessionV1,
+    revision: session.expectedLocalRevision as number | null,
+  };
+}
+
+/** Validate unknown editor data before picking any V1 fields; then validate the V1 output independently. */
+export function projectWorkoutSessionEditor(input: unknown): WorkoutSessionV1 {
+  const { canonical } = projectEditorShape(input);
   return withCanonicalErrors(() => {
     validateWorkoutSessionV1(canonical);
     return canonical;
   });
+}
+
+/** Copies a local draft without allocating new IDs; incomplete drafts still cannot be submitted. */
+export function snapshotWorkoutSessionEditorDraft(input: unknown): WorkoutSessionEditor {
+  const { canonical, revision } = projectEditorShape(input);
+  withCanonicalErrors(() => validateWorkoutSessionDraftShape(canonical));
+  return editorFromSnapshot(canonical, revision);
 }

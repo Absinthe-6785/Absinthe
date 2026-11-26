@@ -294,17 +294,16 @@ function validateSet(value: unknown, expectedKind: WorkoutExerciseTypeV1, ordina
     && validNullableDecimal(value.distanceMeters, 3);
 }
 
-/** Strictly validate canonical WorkoutSessionV1 and enforce its UTF-8 byte budget. */
-export function validateWorkoutSessionV1(value: unknown): asserts value is WorkoutSessionV1 {
+function validateWorkoutSessionShape(value: unknown, allowEmptyDraft: boolean): void {
   if (!isRecord(value) || !hasExactKeys(value, ['version', 'id', 'localDate', 'entries'])
     || value.version !== 1 || !validUuid(value.id) || !validLocalDate(value.localDate)
-    || !Array.isArray(value.entries) || value.entries.length === 0) fail();
+    || !Array.isArray(value.entries) || (!allowEmptyDraft && value.entries.length === 0)) fail();
   // UUID equality is value-based; retain each original spelling in the payload.
   const identities = new Set<string>([value.id.toLowerCase()]);
   for (const entry of value.entries) {
     if (!isRecord(entry) || !hasExactKeys(entry, ['id', 'exercise', 'sets'])
       || !validUuid(entry.id) || !validateExercise(entry.exercise)
-      || !Array.isArray(entry.sets) || entry.sets.length === 0) fail();
+      || !Array.isArray(entry.sets) || (!allowEmptyDraft && entry.sets.length === 0)) fail();
     if (identities.has(entry.id.toLowerCase())) fail();
     identities.add(entry.id.toLowerCase());
     for (let index = 0; index < entry.sets.length; index += 1) {
@@ -316,6 +315,16 @@ export function validateWorkoutSessionV1(value: unknown): asserts value is Worko
   }
   const byteLength = new TextEncoder().encode(canonicalPayloadJson(value)).byteLength;
   if (byteLength > WORKOUT_SESSION_V1_MAX_BYTES) fail();
+}
+
+/** Strictly validate a persistable V1 session; empty drafts are not sessions. */
+export function validateWorkoutSessionV1(value: unknown): asserts value is WorkoutSessionV1 {
+  validateWorkoutSessionShape(value, false);
+}
+
+/** Only for the local editor draft. Allows empty sessions/entries before Save. */
+export function validateWorkoutSessionDraftShape(value: unknown): void {
+  validateWorkoutSessionShape(value, true);
 }
 
 export function snapshotWorkoutSessionV1(value: unknown): WorkoutSessionV1 {
