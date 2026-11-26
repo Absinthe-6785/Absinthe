@@ -2021,10 +2021,12 @@ export class LocalDatabaseRepository {
 
   /** Active-generation evidence only. Edit lookup resolves mappings; receipt lookup uses exact keys. */
   async readWorkoutDraftEvidence(sessionId: string, lookup: { kind: 'edit_base' } | {
-    kind: 'submission'; mutationId: string;
+    kind: 'submission'; mutationId: string; observeDelivery?: boolean;
   }): Promise<{
     entity: LocalEntityEnvelope | null;
     outbox: OutboxRecord | null;
+    deliveryAuthorityCurrent?: boolean;
+    historicalCreateUnambiguous?: boolean;
   }> {
     const operation = 'read_workout_draft_evidence';
     this.assertOpen(operation);
@@ -2034,6 +2036,9 @@ export class LocalDatabaseRepository {
     else {
       validateSafeIdentifier(lookup.mutationId, operation);
       stores.push(LOCAL_DATABASE_STORES.outbox, LOCAL_DATABASE_STORES.restoreSessions);
+      if (lookup.observeDelivery) stores.push(
+        LOCAL_DATABASE_STORES.workoutRemoteAuthority, LOCAL_DATABASE_STORES.workoutAdoptionSessions,
+      );
     }
     const transaction = this.db.transaction(stores, 'readonly');
     const done = transactionCompletion(transaction, operation);
@@ -2058,8 +2063,39 @@ export class LocalDatabaseRepository {
       if (entity) this.validatePersistedEntity(entity, operation);
       if (outbox) this.validatePersistedOutbox(outbox, operation);
       if (outbox) await this.validateRestoreBoundaryGraphs(transaction, [outbox]);
+      const binding = outbox?.deliveryBinding;
+      let deliveryAuthorityCurrent: boolean | undefined;
+      let historicalCreateUnambiguous: boolean | undefined;
+      if (lookup.kind === 'submission' && lookup.observeDelivery) {
+        if (outbox?.baseRevision === null && entity?.localRevision !== undefined
+          && entity.localRevision > outbox.localRevision) {
+          // Adoption can generate the same first mutation and a later edit can
+          // replace its entity source. With any retained manifest, the existing
+          // indexes cannot qualify that historical create by exact mutation ID.
+          const manifest = await requestResult(transaction.objectStore(LOCAL_DATABASE_STORES.workoutAdoptionSessions)
+            .index('by_namespace_generation').getKey(IDBKeyRange.only([this.namespaceKey, this.namespace.generationId])));
+          historicalCreateUnambiguous = manifest === undefined && !entity.migrationProvenance && !entity.restoreProvenance;
+        }
+        if (binding?.state === 'bound') {
+          const store = transaction.objectStore(LOCAL_DATABASE_STORES.workoutRemoteAuthority);
+          const [owner, namespace, generation] = [this.namespace.userId.toLowerCase(), this.namespaceKey, this.namespace.generationId];
+          const key = [owner, namespace, generation];
+          const [authority, reset, discovery] = await Promise.all([
+            requestResult(store.get([...key, WORKOUT_REMOTE_DOMAIN])) as Promise<WorkoutRemoteAuthorityRecordV1 | undefined>,
+            requestResult(store.get([...key, WORKOUT_RESET_DOMAIN])),
+            requestResult(store.get([...key, WORKOUT_DISCOVERY_DOMAIN])) as Promise<WorkoutDiscoveryReservation | undefined>,
+          ]);
+          deliveryAuthorityCurrent = reset === undefined && !!authority && validWorkoutAuthorityRecord(authority)
+            && authority.accountId === owner && authority.namespaceKey === namespace && authority.generationId === generation
+            && authority.deviceId === this.namespace.deviceId && authority.projectScope === binding.projectScope
+            && authority.generationBindingId === binding.generationBindingId && authority.authorityEpoch === binding.authorityEpoch
+            && discovery?.domain === WORKOUT_DISCOVERY_DOMAIN && discovery.accountId === owner
+            && discovery.namespaceKey === namespace && discovery.generationId === generation
+            && discovery.sequence === authority.discoverySequence;
+        }
+      }
       await done;
-      return { entity: entity ?? null, outbox: outbox ?? null };
+      return { entity: entity ?? null, outbox: outbox ?? null, deliveryAuthorityCurrent, historicalCreateUnambiguous };
     } catch (error) {
       await done.catch(() => undefined);
       throw localDatabaseError(error, operation);
@@ -2897,6 +2933,9 @@ export class LocalDatabaseRepository {
       ]) as [OutboxRecord | undefined, OutboxRecord | undefined];
       if (!older || !newer) throw new LocalDatabaseError('OUTBOX_NOT_FOUND', 'supersede_outbox');
       this.validatePersistedOutbox(older, 'supersede_outbox'); this.validatePersistedOutbox(newer, 'supersede_outbox');
+      if (older.deliveryBinding !== undefined || newer.deliveryBinding !== undefined) {
+        throw new LocalDatabaseError('INVALID_OUTBOX_TRANSITION', 'supersede_outbox');
+      }
       const updated = supersedeOutboxRecord(older, newer, timestamp);
       validateOutboxRecord(updated);
       store.put(updated);

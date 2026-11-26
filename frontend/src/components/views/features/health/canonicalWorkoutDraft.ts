@@ -2,7 +2,8 @@ import {
   deriveOutboxIdempotencyKey, deriveOutboxMutationId, hashCanonicalPayload, sha256Hex,
   type LocalDatabaseRepository,
 } from '../../../../lib/localDatabase';
-import { canonicalWorkoutUuid } from '../../../../lib/workoutRemoteContract';
+import { validTimestamp } from '../../../../lib/localDatabase/validation';
+import { canonicalWorkoutUuid, WORKOUT_WIRE_UUID } from '../../../../lib/workoutRemoteContract';
 import { WORKOUT_SESSION_DOMAIN } from '../../../../lib/workoutSessionRepository';
 import { validateWorkoutSessionV1, type WorkoutSessionV1 } from '../../../../lib/workoutSessionV1';
 import {
@@ -26,11 +27,16 @@ type Draft = {
 };
 
 type DraftSnapshot = { token: string; editor: WorkoutSessionEditor };
+type DraftDelivery =
+  | { kind: 'not_synchronized' | 'pending' | 'conflict' | 'uncertain' }
+  | { kind: 'acknowledged'; serverRevision: number };
 export type CanonicalWorkoutDraftResume =
   | { kind: 'missing' | 'unavailable' }
   | (DraftSnapshot & { kind: 'editing' })
   | (DraftSnapshot & { kind: 'uncertain'; submission: Submission })
-  | (DraftSnapshot & { kind: 'committed_locally'; submission: Submission; localRevision: number });
+  | (DraftSnapshot & {
+    kind: 'committed_locally'; submission: Submission; localRevision: number; delivery: DraftDelivery;
+  });
 
 interface Options {
   storage: Pick<Storage, 'getItem' | 'setItem'>;
@@ -97,9 +103,9 @@ function parseDraft(raw: string, scope: CanonicalWorkoutDraftScope): Draft {
 }
 
 /**
- * One canonical draft slot per account/namespace/generation/day. No product Save or
- * synchronization path calls this yet. Staging marks completion uncertain before a
- * caller could dispatch; reopening never clears the marker or retries a write.
+ * One canonical draft slot per account/namespace/generation/day. Staging marks
+ * completion uncertain before dispatch; reopening never modifies the marker or
+ * retries a write. Only callers with an existing delivery owner observe settlement.
  */
 export function createCanonicalWorkoutDraftStore(options: Options) {
   const scope = { ...options.scope };
@@ -214,7 +220,8 @@ export function createCanonicalWorkoutDraftStore(options: Options) {
     });
   }
 
-  async function resume(database?: LocalDatabaseRepository): Promise<CanonicalWorkoutDraftResume> {
+  async function resume(database?: LocalDatabaseRepository,
+    { observeDelivery = false }: { observeDelivery?: boolean } = {}): Promise<CanonicalWorkoutDraftResume> {
     try {
       const saved = read();
       if (!saved) return { kind: 'missing' };
@@ -227,28 +234,59 @@ export function createCanonicalWorkoutDraftStore(options: Options) {
       const record = projectWorkoutSessionEditor(editor);
       const { identity } = submittedIdentity(scope, editor, record, submission.entityId);
       try {
-        const { entity, outbox } = await database.readWorkoutDraftEvidence(submission.entityId, {
-          kind: 'submission', mutationId: submission.mutationId,
+        const { entity, outbox, deliveryAuthorityCurrent, historicalCreateUnambiguous } = await database.readWorkoutDraftEvidence(submission.entityId, {
+          kind: 'submission', mutationId: submission.mutationId, observeDelivery,
         });
         if (!isCurrent() || storage.getItem(key) !== saved.raw) return { kind: 'unavailable' };
         const inScope = (value: typeof entity | typeof outbox) => value
           && value.accountId === scope.accountId && value.namespaceKey === scope.namespaceKey
           && value.generationId === scope.generationId && value.domain === identity.domain
-          && value.entityId === identity.entityId && value.localRevision === identity.localRevision;
-        if (!entity || !outbox || !inScope(entity) || !inScope(outbox)
-          || entity.revision !== identity.localRevision || entity.isDeleted || entity.deletionState !== 'active'
-          || entity.deletedAt !== null || entity.ownerId !== scope.accountId || entity.pendingMutationId !== submission.mutationId
-          || entity.source?.kind !== 'local' || entity.source.reference !== 'workout_session_v1'
+          && value.entityId === identity.entityId;
+        if (!entity || !outbox || !inScope(entity) || !inScope(outbox) || entity.ownerId !== scope.accountId
+          || entity.localRevision === undefined || entity.localRevision < identity.localRevision
+          || outbox.localRevision !== identity.localRevision
           || outbox.mutationId !== submission.mutationId || outbox.deviceId !== database.namespace.deviceId
           || outbox.operation !== identity.operation || outbox.baseRevision !== editor.expectedLocalRevision
-          || outbox.status !== 'pending' || outbox.attemptCount !== 0 || outbox.deliveryBinding?.state !== 'unbound'
+          || outbox.generationBoundary != null
           || outbox.idempotencyKey !== deriveOutboxIdempotencyKey(identity)
           || outbox.payloadHash !== submission.payloadHash || outbox.payload.kind !== 'entity_snapshot'
           || hashCanonicalPayload(outbox.payload) !== submission.payloadHash) return uncertain;
-        validateWorkoutSessionV1(entity.record);
-        const contentHash = hashCanonicalPayload(record);
-        if (entity.contentHash !== contentHash || hashCanonicalPayload(entity.record) !== contentHash) return uncertain;
-        return { ...snapshot, kind: 'committed_locally', submission, localRevision: identity.localRevision };
+        const unbound = outbox.deliveryBinding?.state === 'unbound' && outbox.status === 'pending'
+          && outbox.attemptCount === 0 && outbox.lastAttemptAt === null;
+        const isLatest = entity.localRevision === identity.localRevision;
+        if (!observeDelivery && (!isLatest || !unbound)) return uncertain;
+        if (outbox.baseRevision === null && (entity.migrationProvenance || entity.restoreProvenance
+          || !isLatest && historicalCreateUnambiguous !== true)) return uncertain;
+        if (isLatest) {
+          if (entity.revision !== identity.localRevision || entity.isDeleted || entity.deletionState !== 'active'
+            || entity.deletedAt !== null || entity.source?.kind !== 'local'
+            || entity.source.reference !== 'workout_session_v1'
+            || (outbox.status === 'acknowledged' ? entity.pendingMutationId !== null
+              : entity.pendingMutationId !== submission.mutationId)) return uncertain;
+          validateWorkoutSessionV1(entity.record);
+          const contentHash = hashCanonicalPayload(record);
+          if (entity.contentHash !== contentHash || hashCanonicalPayload(entity.record) !== contentHash) return uncertain;
+        }
+
+        // The immutable payload on the exact prior mutation, not M2's mutable current
+        // content, is evidence for M1. Resume only reads; it never settles or clears M2.
+        let delivery: DraftDelivery = { kind: unbound && outbox.deliveryBlockCode == null ? 'not_synchronized' : 'uncertain' };
+        const binding = outbox.deliveryBinding;
+        if (observeDelivery && binding?.state === 'bound' && deliveryAuthorityCurrent && outbox.deliveryBlockCode == null) {
+          if (outbox.status === 'pending' || outbox.status === 'claimed' || outbox.status === 'retry_wait') {
+            delivery = { kind: 'pending' };
+          } else if (outbox.status === 'conflict') {
+            delivery = { kind: 'conflict' };
+          } else if (outbox.status === 'acknowledged' && outbox.acknowledgedRevision != null
+            && outbox.acknowledgedRevision === (binding.remoteCasBaseRevision ?? 0) + 1
+            && outbox.remoteMutationRef !== null && WORKOUT_WIRE_UUID.test(outbox.remoteMutationRef)
+            && validTimestamp(outbox.serverCommittedAt) && /T.+(?:Z|[+-]\d{2}:\d{2})$/.test(outbox.serverCommittedAt)
+            && (!isLatest || (entity.serverRevision === outbox.acknowledgedRevision
+              && entity.lastRemoteMutationRef === outbox.remoteMutationRef && entity.remoteState === 'active'))) {
+            delivery = { kind: 'acknowledged', serverRevision: outbox.acknowledgedRevision };
+          }
+        }
+        return { ...snapshot, kind: 'committed_locally', submission, localRevision: identity.localRevision, delivery };
       } catch {
         return isCurrent() && storage.getItem(key) === saved.raw ? uncertain : { kind: 'unavailable' };
       }

@@ -1,13 +1,20 @@
 import 'fake-indexeddb/auto';
-import { IDBDatabase, IDBFactory } from 'fake-indexeddb';
+import { IDBDatabase, IDBFactory, IDBIndex, IDBObjectStore } from 'fake-indexeddb';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { localHealthDraftKey, readLocalHealthWorkoutDraft } from '../../../../lib/healthBackfillUiSafety';
 import {
   closeLocalDatabase, createDormantLocalDatabaseCapability, LOCAL_DATABASE_NAME, LOCAL_DATABASE_STORES,
   openLocalDatabase, type LocalDatabaseRepository,
 } from '../../../../lib/localDatabase';
-import { WorkoutSessionRepository } from '../../../../lib/workoutSessionRepository';
+import { createWorkoutRemoteControlClient } from '../../../../lib/workoutRemoteClient';
+import { runWorkoutPullIteration } from '../../../../lib/workoutRemotePull';
+import { runWorkoutPushIteration } from '../../../../lib/workoutRemotePush';
+import { WorkoutSessionRepository, WORKOUT_SESSION_DOMAIN } from '../../../../lib/workoutSessionRepository';
+import { WorkoutSelectedDayReader } from '../../../../lib/workoutSelectedDayReader';
+import { HEALTH_ROUTINE_DEVICE_ID_KEY, HEALTH_ROUTINE_GENERATION_ID, HEALTH_ROUTINE_PROJECT_REF } from '../../../../lib/workoutLocalReaderAuthority';
 import { canonicalWorkoutDraftKey, createCanonicalWorkoutDraftStore } from './canonicalWorkoutDraft';
+import { projectCompositeWorkoutRead } from './compositeWorkoutReadProjection';
+import { isolatedWorkoutPilotBackend, PILOT_ORIGIN, PILOT_OWNER, PILOT_PGLITE_PACKAGE } from './workoutPilotTestFixture';
 import {
   createWorkoutEditorBodyweightSet, createWorkoutEditorCardioSet, createWorkoutEditorEntry,
   createWorkoutEditorStrengthSet, createWorkoutSessionEditor, hydrateWorkoutSessionEditor,
@@ -42,13 +49,13 @@ function editorFixture() {
   return editor;
 }
 
-async function fixture() {
+async function fixture(local = namespace) {
   const factory = new IDBFactory();
-  const database = await openLocalDatabase(namespace, { capability, indexedDBFactory: factory });
+  const database = await openLocalDatabase(local, { capability, indexedDBFactory: factory });
   opened.push(database);
   await database.initializeNamespace();
   const sessions = new WorkoutSessionRepository(database);
-  const scope = { accountId: namespace.userId, namespaceKey: database.namespaceKey, generationId: namespace.generationId, localDate: day };
+  const scope = { accountId: local.userId, namespaceKey: database.namespaceKey, generationId: local.generationId, localDate: day };
   const data = new Map<string, string>();
   const storage = {
     getItem: vi.fn((key: string) => data.get(key) ?? null),
@@ -69,6 +76,40 @@ async function fixture() {
     return createCanonicalWorkoutDraftStore({ storage, locks, scope, isCurrent: () => captured === lifetime, ...overrides });
   }
   return { database, factory, sessions, scope, data, storage, mount, replaceLifetime: () => { lifetime += 1; } };
+}
+
+const observe = { observeDelivery: true };
+const instant = (second: number) => new Date(Date.UTC(2026, 10, 26, 0, 0, second)).toISOString();
+
+async function submit(f: Awaited<ReturnType<typeof fixture>>) {
+  const editor = editorFixture();
+  const draft = f.mount();
+  const saved = await draft.saveEditor(editor, null);
+  let receives = 0;
+  await draft.submitNewSession(saved.token, async () => {}, async record => {
+    receives += 1;
+    return f.sessions.createWorkoutSession(record, { now: instant(0) });
+  });
+  expect(receives).toBe(1);
+  return { editor, record: projectWorkoutSessionEditor(editor) };
+}
+
+function identity(db: LocalDatabaseRepository) {
+  return { currentAccountId: () => db.namespace.userId, currentDeviceId: () => db.namespace.deviceId };
+}
+
+async function testAuthority(db: LocalDatabaseRepository, epoch: number) {
+  const { currentAccountId, currentDeviceId } = identity(db);
+  const discoverySequence = await db.reserveWorkoutRemoteDiscovery();
+  const verificationId = uuid(100 + epoch);
+  await db.persistWorkoutRemoteAuthority({
+    accountId: currentAccountId(), deviceId: currentDeviceId(), namespaceKey: db.namespaceKey,
+    generationId: db.namespace.generationId, domain: WORKOUT_SESSION_DOMAIN, protocolVersion: 2,
+    capability: 'FOUNDATION_READY', authorityState: 'OPEN', bindingState: 'bound',
+    projectScope: 'workout-draft-synthetic', authorityEpoch: epoch, generationBindingId: uuid(50 + epoch),
+    serverEpoch: uuid(80 + epoch), verifiedAt: instant(0), verificationId, discoverySequence,
+  }, currentAccountId, currentDeviceId);
+  return verificationId;
 }
 
 afterEach(() => {
@@ -252,7 +293,7 @@ describe('versioned canonical workout drafts (not product enabled)', () => {
     const read = vi.spyOn(f.database, 'readWorkoutDraftEvidence').mockImplementationOnce(
       () => new Promise(resolve => { release = () => resolve({ entity, outbox }); }),
     );
-    const pending = f.mount().resume(f.database);
+    const pending = f.mount().resume(f.database, observe);
     const raw = f.data.get(canonicalWorkoutDraftKey(f.scope));
     f.replaceLifetime();
     const other = { ...f.scope, ...(scopeKind === 'account' ? { accountId: 'account-b' } : { localDate: '2026-11-27' }) };
@@ -330,4 +371,206 @@ describe('versioned canonical workout drafts (not product enabled)', () => {
       expect(f.data.get(key)).toBe(raw);
     }
   });
+});
+
+describe('receipt-aware workout draft re-entry (synthetic delivery owner only)', () => {
+  it.each(['acknowledged', 'conflicted'])('keeps exact local evidence through %s settlement', async outcome => {
+    const f = await fixture();
+    const { editor, record } = await submit(f);
+    const resume = () => f.mount().resume(f.database, observe);
+    const before = await resume();
+    expect(before).toMatchObject({ kind: 'committed_locally', delivery: { kind: 'not_synchronized' } });
+    if (before.kind !== 'committed_locally') throw new Error('missing local submission');
+    const { mutationId } = before.submission;
+    const raw = f.data.get(canonicalWorkoutDraftKey(f.scope));
+    const expectedVerificationId = await testAuthority(f.database, 1);
+    const current = identity(f.database);
+    await f.database.bindWorkoutMutation({ mutationId, expectedVerificationId, ...current, currentAuthenticatedAccount: current.currentAccountId });
+    expect(await resume()).toMatchObject({ kind: 'committed_locally', delivery: { kind: 'pending' } });
+    expect(await f.mount().resume(f.database)).toMatchObject({ kind: 'uncertain' }); // #959 local-only caller
+    const workerId = 'draft-synthetic';
+    const [claimed] = await f.database.claimNextBoundWorkoutMutations({
+      workerId, now: instant(1), leaseDurationMs: 30_000, limit: 1, ...current,
+    });
+    expect(await resume()).toMatchObject({ delivery: { kind: 'pending' } });
+    const receipt = { remoteMutationRef: uuid(72), serverCommittedAt: instant(1) };
+    await expect(f.database.acknowledgeMutationAndEntity({
+      mutationId, workerId, now: instant(2), acknowledgedRevision: 1, ...receipt,
+    })).rejects.toMatchObject({ code: 'INVALID_OUTBOX_TRANSITION' });
+    const conflict = outcome === 'conflicted';
+    await f.database.settleBoundWorkoutMutation({
+      claimed, workerId, now: instant(2), ...current,
+      settlement: conflict
+        ? { kind: 'conflict', errorCode: 'ENTITY_ALREADY_EXISTS', remoteEvidence: { currentServerRevision: 1 } }
+        : { kind: 'success', serverRevision: 1, ...receipt },
+    });
+    expect(await resume()).toMatchObject({ kind: 'committed_locally', localRevision: 1, editor,
+      delivery: conflict ? { kind: 'conflict' } : { kind: 'acknowledged', serverRevision: 1 } });
+    const durable = await f.sessions.getWorkoutSession(record.id);
+    expect(durable).toMatchObject({ record, pendingMutationId: conflict ? mutationId : null });
+    expect(await f.database.listConflicts(WORKOUT_SESSION_DOMAIN, record.id)).toHaveLength(conflict ? 1 : 0);
+
+    if (!conflict) {
+      const lookup = { kind: 'submission' as const, mutationId, ...observe };
+      const evidence = await f.database.readWorkoutDraftEvidence(record.id, lookup);
+      const outbox = evidence.outbox!;
+      const read = vi.spyOn(f.database, 'readWorkoutDraftEvidence');
+      for (const candidate of [
+        { ...outbox, remoteMutationRef: 'invalid' }, { ...outbox, serverCommittedAt: null },
+        { ...outbox, acknowledgedRevision: 9 },
+      ]) {
+        read.mockResolvedValueOnce({ ...evidence, outbox: candidate });
+        expect(await resume()).toMatchObject({ kind: 'committed_locally', delivery: { kind: 'uncertain' } });
+      }
+      read.mockResolvedValueOnce({ ...evidence, outbox: { ...outbox, idempotencyKey: 'different' } });
+      expect(await resume()).toMatchObject({ kind: 'uncertain' });
+      await f.database.reserveWorkoutRemoteDiscovery();
+      expect(await resume()).toMatchObject({ kind: 'committed_locally', delivery: { kind: 'uncertain' } });
+      await testAuthority(f.database, 2);
+      expect(await resume()).toMatchObject({ kind: 'committed_locally', delivery: { kind: 'uncertain' } });
+      await f.database.createGeneration('gen-b', 'test');
+      await f.database.activateGeneration('gen-b');
+      expect(await resume()).toMatchObject({ kind: 'uncertain' });
+    }
+    expect(f.data.get(canonicalWorkoutDraftKey(f.scope))).toBe(raw);
+    await expect(f.mount().submitNewSession(before.token, async () => {}, vi.fn()))
+      .rejects.toThrow('CANONICAL_DRAFT_SUBMISSION_UNCERTAIN');
+  });
+
+  it('does not let the generic outbox supersede M1 or reorder the Workout lineage', async () => {
+    const f = await fixture();
+    const { record } = await submit(f);
+    const m1 = (await f.sessions.getWorkoutSession(record.id))!.pendingMutationId!;
+    const expectedVerificationId = await testAuthority(f.database, 1);
+    const current = identity(f.database);
+    const bound = await f.database.bindWorkoutMutation({ mutationId: m1, expectedVerificationId,
+      ...current, currentAuthenticatedAccount: current.currentAccountId });
+    const later = structuredClone(record);
+    later.entries[0].exercise.name = 'Successor';
+    const m2 = await f.sessions.updateWorkoutSession(record.id, 1, later, { now: instant(1) });
+    await expect(f.database.supersedePendingMutation(m1, m2.outbox.mutationId, instant(2)))
+      .rejects.toMatchObject({ code: 'INVALID_OUTBOX_TRANSITION' });
+    expect(await f.database.getOutboxRecord(m1)).toEqual(bound);
+    expect(await f.database.getOutboxRecord(m2.outbox.mutationId)).toEqual(m2.outbox);
+  });
+
+  it('keeps a historical create uncertain when a retained adoption manifest leaves its origin ambiguous', async () => {
+    const f = await fixture();
+    const editor = editorFixture();
+    const saved = await f.mount().saveEditor(editor, null);
+    const record = projectWorkoutSessionEditor(editor);
+    // Existing fixtures model pre-correction adoption records whose first outbox
+    // matches a normal create byte-for-byte. Seed that shape in synthetic IDB only.
+    const simulated = await f.sessions.createWorkoutSession(record, { now: instant(0) });
+    const raw = await new Promise<IDBDatabase>((resolve, reject) => {
+      const req = f.factory.open(LOCAL_DATABASE_NAME);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    const manifestId = 'synthetic-adoption-manifest';
+    try {
+      const tx = raw.transaction([LOCAL_DATABASE_STORES.workoutAdoptionSessions, LOCAL_DATABASE_STORES.entities], 'readwrite');
+      tx.objectStore(LOCAL_DATABASE_STORES.workoutAdoptionSessions).add({
+        namespaceKey: f.scope.namespaceKey, generationId: f.scope.generationId, manifestId,
+      }); // A possible manifest is enough to withhold historical origin; no adoption runs.
+      tx.objectStore(LOCAL_DATABASE_STORES.entities).put({
+        ...simulated.entity, source: { kind: 'legacy_migration', reference: manifestId },
+      });
+      await new Promise<void>((resolve, reject) => {
+        tx.oncomplete = () => resolve(); tx.onabort = () => reject(tx.error);
+      });
+    } finally { raw.close(); }
+    await expect(f.mount().submitNewSession(saved.token, async () => {}, candidate =>
+      f.sessions.createWorkoutSession(candidate, { now: instant(1) })))
+      .rejects.toMatchObject({ code: 'ENTITY_ALREADY_EXISTS' });
+    const before = await f.mount().resume(f.database, observe);
+    expect(before).toMatchObject({ kind: 'uncertain', submission: { mutationId: simulated.outbox.mutationId } });
+    const later = structuredClone(record);
+    later.entries[0].exercise.name = 'Later edit over imported session';
+    await f.sessions.updateWorkoutSession(record.id, 1, later, { now: instant(2) });
+    expect(await f.mount().resume(f.database, observe)).toEqual(before);
+    expect((await f.sessions.getWorkoutSession(record.id))?.record).toEqual(later);
+  });
+
+  it.skipIf(!PILOT_PGLITE_PACKAGE)('reconciles the same multi-exercise draft after SQL lost-reply replay and exact pull', async ({ onTestFinished }) => {
+    const server = await isolatedWorkoutPilotBackend(PILOT_PGLITE_PACKAGE!);
+    onTestFinished(() => server.db.close());
+    // These are the existing #958 synthetic transport namespaces, never the #959 QA namespace.
+    const local = { userId: PILOT_OWNER, projectRef: HEALTH_ROUTINE_PROJECT_REF,
+      generationId: HEALTH_ROUTINE_GENERATION_ID, schemaVersion: 1 };
+    const a = await fixture({ ...local, deviceId: uuid(110) });
+    const b = await fixture({ ...local, deviceId: uuid(111) });
+    const remote = (f: typeof a) => ({
+      ...identity(f.database), baseUrl: PILOT_ORIGIN, fetchImpl: server.fetch,
+      getSession: async () => ({ accountId: PILOT_OWNER, accessToken: 'synthetic-a' }),
+    });
+    const proof = await createWorkoutRemoteControlClient(remote(a)).discoverAndPersist(a.database);
+    await createWorkoutRemoteControlClient(remote(b)).discoverAndPersist(b.database);
+    expect(server.calls).toHaveLength(6);
+    const { record, editor } = await submit(a);
+    const before = await a.mount().resume(a.database, observe);
+    if (before.kind !== 'committed_locally') throw new Error('missing local submission');
+    const { mutationId } = before.submission;
+    expect(before.delivery).toEqual({ kind: 'not_synchronized' });
+    expect((await a.sessions.getWorkoutSession(record.id))?.record).toEqual(record);
+    expect(server.calls).toHaveLength(6);
+    const raw = a.data.get(canonicalWorkoutDraftKey(a.scope));
+    await a.database.bindWorkoutMutation({ mutationId, expectedVerificationId: proof.verificationId,
+      ...identity(a.database), currentAuthenticatedAccount: () => PILOT_OWNER });
+    server.loseNextMutationResponse();
+    let now = instant(1);
+    const push = { ...remote(a), limit: 1, now: () => now, retryBaseDelayMs: 1, retryMaxDelayMs: 10 };
+    expect(await runWorkoutPushIteration(a.database, push)).toMatchObject({ retryable: 1, success: 0 });
+    expect(await a.mount().resume(a.database, observe)).toMatchObject({ delivery: { kind: 'pending' } });
+    expect((await a.database.getOutboxRecord(mutationId))?.status).toBe('retry_wait');
+
+    // M2 is intentionally unbound and differs from the historical M1 payload.
+    const later = structuredClone(record);
+    later.entries[0].exercise.name = 'Newer draft';
+    const m2 = await a.sessions.updateWorkoutSession(record.id, 1, later, { now: instant(2) });
+    now = instant(3);
+    expect(await runWorkoutPushIteration(a.database, push)).toMatchObject({ exactReplay: 1, claimed: 1 });
+    const [first, replay] = server.calls.slice(6);
+    expect(first.result).toMatchObject({ outcome: 'success', mutationId, entityId: record.id, serverRevision: 1 });
+    expect(replay.wire).toBe(first.wire);
+    expect(replay.result).toEqual({ ...first.result, outcome: 'exact_replay' });
+
+    const tx = vi.spyOn(IDBDatabase.prototype, 'transaction');
+    const gets = vi.spyOn(IDBObjectStore.prototype, 'get');
+    const indexKey = vi.spyOn(IDBIndex.prototype, 'getKey');
+    const scan = vi.spyOn(IDBObjectStore.prototype, 'getAll');
+    const indexScan = vi.spyOn(IDBIndex.prototype, 'getAll');
+    const resumed = await a.mount().resume(a.database, observe);
+    const operations = { transactions: tx.mock.calls.length, gets: gets.mock.calls.length + indexKey.mock.calls.length,
+      scans: scan.mock.calls.length + indexScan.mock.calls.length, remoteRequests: server.calls.length - 8 };
+    tx.mockRestore(); gets.mockRestore(); indexKey.mockRestore(); scan.mockRestore(); indexScan.mockRestore();
+    expect(operations).toEqual({ transactions: 1, gets: 8, scans: 0, remoteRequests: 0 });
+    expect(resumed).toMatchObject({ kind: 'committed_locally', editor, localRevision: 1,
+      delivery: { kind: 'acknowledged', serverRevision: 1 } });
+    expect((await a.sessions.getWorkoutSession(record.id))?.record).toEqual(later);
+    expect(await a.database.getOutboxRecord(m2.outbox.mutationId)).toEqual(m2.outbox);
+    expect(a.data.get(canonicalWorkoutDraftKey(a.scope))).toBe(raw);
+    expect(await runWorkoutPushIteration(a.database, push)).toMatchObject({ claimed: 0 });
+
+    expect(await runWorkoutPullIteration(b.database, remote(b))).toMatchObject({ kind: 'applied', applied: 1, conflicts: 0 });
+    vi.stubGlobal('indexedDB', b.factory);
+    try {
+      const reader = await WorkoutSelectedDayReader.open(PILOT_OWNER, {
+        getItem: (key: string) => key === HEALTH_ROUTINE_DEVICE_ID_KEY ? b.database.namespace.deviceId : null,
+      } as Storage);
+      try {
+        const projected = projectCompositeWorkoutRead({
+          context: reader.scope,
+          canonical: { status: 'success', records: await reader.read(day) },
+          legacy: { status: 'success', records: [] },
+        });
+        expect(projected.status).toBe('complete');
+        expect(projected.records).toHaveLength(1);
+        expect(projected.records[0]).toMatchObject({ source: 'canonical', capability: 'read_only_in_G5B2',
+          canonical: { entityId: record.id, session: record } });
+      } finally { reader.close(); }
+    } finally { vi.unstubAllGlobals(); }
+    expect(server.calls).toHaveLength(9); // six setup, two exact sends, one pull
+    expect(await b.database.listOutboxMutations({ limit: 10 })).toEqual([]);
+  }, 20_000);
 });
