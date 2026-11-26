@@ -1,0 +1,14 @@
+{
+  "name": "absinthe-recipe-d1-local",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "test": "node --test recipe.test.mjs",
+    "measure": "node measure.mjs"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.6.0",
+    "miniflare": "4.20260730.0"
+  }
+}
