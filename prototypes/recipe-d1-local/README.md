@@ -1,4 +1,97 @@
-# Local Recipe Workers/D1 feasibility — INFRA-FREE-TIER-TRANSITION-01
+# Local Recipe Workers/D1 — integration preparation
+
+## Product-path QA (CLOUDFLARE-INTEGRATION-PREP-01)
+
+`integration-worker.mjs` is a Workers module entry point. It reuses the Recipe
+handler and `schema.sql` from #957, but accepts only synthetic ES256 tokens.
+The token issuer is reserved for the fixture; audience/role must be
+`authenticated`, the subject must be a canonical UUID, and the Worker verifies
+the signature and token lifetime against the configured fixture public key.
+The initiating QA account header can only veto a mismatch with the signed
+subject. Reads and writes also check the initiating app session at dispatch
+and after the response is decoded, without changing production account
+authority. QA requests reject redirects rather than following another origin.
+It is loopback-only even with the test binding; no hosted verifier or
+production resource bindings are present. The historical `worker.mjs`
+entry remains the separate, synthetic measurement runner.
+
+To run the supported local QA on Node 22.12+ (verified with Node 24):
+
+```text
+cd prototypes/recipe-d1-local
+npm ci
+npm test
+npm run measure
+cd ../../frontend
+npm ci
+npm test -- --mode recipe-worker-qa
+```
+
+The mounted QA starts Vite at `127.0.0.1:5177` and Workerd/D1 at
+`127.0.0.1:8787`. It generates its own key and tokens and uses an ephemeral
+D1 database. The test substitutes only synthetic session/presentation seams
+and drives the actual RecipeView, authenticated request helper, SWR, draft
+storage and Vite HTTP proxy. Ports must be free. This is not a browser sign-in
+or a real-device test.
+
+Normal dev and production builds do not route to this Worker. An explicit
+`vite --mode recipe-worker-qa` run binds only to the separate QA origin and
+forwards only `/api/recipes` and its children; every other API path has no
+backend proxy. Normal `.env` files and `VITE_*` variables are not used in that
+mode. Do not point a browser session at a real account: interactive QA would
+need a separate local Auth fixture at `127.0.0.1:54321` signing the fixture
+issuer and a matching synthetic public key in the Worker. No such sign-in
+service is installed by these commands. The QA mode cannot be built or used
+as a preview build.
+
+`wrangler.jsonc` is for local tooling only. With an existing Wrangler
+installation, initialize its local D1 using
+`wrangler d1 execute DB --local --file schema.sql` once, and use
+`wrangler dev --local` with `RECIPE_QA_PUBLIC_JWK` in an ignored local
+`.dev.vars` file. Configure the exact key ID of the synthetic signer. No
+Cloudflare login, hosted resource ID, production secret or `--remote` is
+needed for this workflow. The checked-in binding ID is a placeholder, not
+a hosted database. The automated evidence uses Miniflare, not a hosted
+Worker. [Cloudflare D1 local mode](https://developers.cloudflare.com/d1/best-practices/local-development/)
+· [Supabase JWT contract](https://supabase.com/docs/guides/auth/jwts).
+
+The minimum compatible routes are list, exact-ID retrieval, create and
+conditional PATCH. Legacy PUT remains 428; stale edits return 409 with the
+winning row only to its owner; foreign identities return 404. Unsupported
+star-only updates, trash, delete and restore fail closed; the UI is not
+evidence of compatibility for those features. Confirmed saves and conflict
+drafts use the unchanged Recipe product path. An unknown write response is
+not retried automatically; inspect readback before a manual retry. In
+particular, create has no idempotency receipt. History, recovery, pagination,
+and existing backups are not qualified for cutover.
+
+### Matched measurements
+
+Rerun of the existing #957 synthetic harness on the shared handler:
+
+| Operation | Before | With the shared D1 path | Requests and JSON |
+| --- | --- | --- | --- |
+| Active list, 100 seeded rows | 145 D1 reads without index | 46 D1 reads with index | 1 API, 1 query; 17,797 B unchanged |
+| Active list, 500 seeded rows | 725 D1 reads without index | 226 D1 reads with index | 1 API, 1 query; 89,152 B unchanged |
+| Confirmed PATCH | 2 PostgreSQL reference queries | 1 D1 query | 1 API; 321 B unchanged |
+| Stale PATCH | 3 PostgreSQL reference queries | 2 D1 queries | 1 API; 374 B unchanged |
+
+These are measured benefits carried forward, not new savings beyond #957.
+The list and save JSON shapes are unchanged; fixture metrics headers are not
+on the signed QA entry. With matched esbuild 0.25.12 Vite-toolchain options
+(bundle, minify, ESM, ES2022), the #957 Worker was 3,337 B (1,624 B gzip);
+the signed entry is 4,632 B (2,243 B gzip). The increase is the local auth
+boundary; there are zero runtime package dependencies. Neither the counter
+results nor local timings establish hosted performance.
+
+The next separately approved step is a **synthetic staging-only connection
+with the existing Auth provider contract**, including issuer/key rotation and
+session lifetime tests, bounded list/body size and explicit staging binding.
+Do not move product writes or production records until unsupported Recipe
+features, independently verified backup/restore, and a single-authority
+cutover/reconciliation exercise have passed.
+
+## Historical scope — INFRA-FREE-TIER-TRANSITION-01
 
 Recommendation: keep the existing PostgreSQL product path for near-term recovery. If a database move becomes necessary, evaluate a PostgreSQL-preserving route first. D1 passed the representative local contract, not production compatibility or migration readiness.
 
@@ -12,7 +105,7 @@ npm test
 npm run measure
 ```
 
-`npm ci` retrieves packages from the registry; after that, tests and measurement run locally, with Miniflare's Cloudflare request-metadata fetch disabled. Miniflare runs the Worker on loopback, uses an ephemeral D1 binding, and dispatches only synthetic identities to a reserved `.invalid` fixture origin. There is no deploy configuration, real auth, remote binding, or production data access. One fixture uses two distinct client tokens sharing one owner and a third token with a different owner. Tests cover an explicit stale draft, racing CAS, lost response after a real commit, a real SQLite trigger abort and injected contradictory write acknowledgements. The HTTP client in the test retains its draft; the production React/IndexedDB client was not wired to this worker.
+`npm ci` retrieves packages from the registry; after that, tests and measurement run locally, with Miniflare's Cloudflare request-metadata fetch disabled. The original prototype uses an ephemeral D1 binding and dispatches synthetic identities to a reserved `.invalid` fixture origin. Its HTTP-only tests cover an explicit stale draft, racing CAS, lost response after a real commit, a real SQLite trigger abort and injected contradictory write acknowledgements. That prototype alone did not wire the React client.
 
 ## Measurements
 

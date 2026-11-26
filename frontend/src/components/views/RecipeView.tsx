@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import useSWR from 'swr';
-import { authFetch } from '../../lib/supabase';
+import { recipeAccountFetch } from '../../lib/recipeWorkerQa';
 import { API_URL } from '../../lib/config';
 import { accountBoundRemoteFetcher, accountBoundRemoteKey } from '../../lib/accountBoundRemote';
 import { useConfirm } from '../../hooks/useConfirm';
@@ -671,14 +671,15 @@ export const RecipeView = ({
       const url = submittedEditingId
         ? `${API_URL}/api/recipes/${submittedEditingId}`
         : `${API_URL}/api/recipes`;
-      const res = await authFetch(url, {
+      const { response: res, requireCurrentSession } = await recipeAccountFetch(url, {
         method: submittedEditingId ? 'PATCH' : 'POST',
         body: JSON.stringify(submittedEditingId ? { ...payload, expected_revision: submittedRevision } : payload),
-      });
+      }, accountSnapshot.accountId);
       if (submittedEditingId && (res.status === 409 || res.status === 404)) {
         const current = res.status === 409
           ? readRecipeEditConflict(await res.json().catch(() => null), submittedEditingId, accountSnapshot.accountId)
           : undefined;
+        requireCurrentSession();
         if (!isCurrentAccountGeneration(accountSnapshot) || activeFormSessionRef.current !== submittedFormSession) return;
         // No cache publication, draft cleanup, or automatic retry on conflict.
         pinnedEditSessionRef.current = submittedFormSession;
@@ -688,6 +689,7 @@ export const RecipeView = ({
       }
       if (!res.ok) throw new Error();
       const saved: unknown = await res.json();
+      requireCurrentSession();
       if (!isCurrentAccountGeneration(accountSnapshot)) return;
       if (activeFormSessionRef.current !== submittedFormSession) return;
       if (draftGenerationRef.current !== submittedGeneration) throw new Error();
@@ -742,8 +744,11 @@ export const RecipeView = ({
       if (!accountSnapshot.accountId) return;
       const finishRecipeMutation = beginRecipeMutation();
       try {
-        const res = await authFetch(`${API_URL}/api/recipes/${id}`, { method: 'DELETE' });
+        const { response: res, requireCurrentSession } = await recipeAccountFetch(
+          `${API_URL}/api/recipes/${id}`, { method: 'DELETE' }, accountSnapshot.accountId,
+        );
         if (!res.ok) throw new Error();
+        requireCurrentSession();
         if (!isCurrentAccountGeneration(accountSnapshot)) return;
         mutateRecipes(prev => (prev ?? []).filter(r => r.id !== id), false);
         void mutateRecipes();
@@ -765,9 +770,12 @@ export const RecipeView = ({
     if (!accountSnapshot.accountId) return;
     const finishRecipeMutation = beginRecipeMutation();
     try {
-      const res = await authFetch(`${API_URL}/api/recipes/${id}/restore`, { method: 'POST' });
+      const { response: res, requireCurrentSession } = await recipeAccountFetch(
+        `${API_URL}/api/recipes/${id}/restore`, { method: 'POST' }, accountSnapshot.accountId,
+      );
       if (!res.ok) throw new Error();
       const restoredPayload = await res.json() as Partial<Recipe>;
+      requireCurrentSession();
       if (!isCurrentAccountGeneration(accountSnapshot)) return;
       const deleted = deletedRecipes.find(recipe => recipe.id === id);
       const restored = restoredPayload.id
@@ -812,12 +820,13 @@ export const RecipeView = ({
       let confirmed = false;
       let retainPendingUntilAuthorityChanges = false;
       try {
-        const res = await authFetch(`${API_URL}/api/recipes/${recipe.id}/star`, {
+        const { response: res, requireCurrentSession } = await recipeAccountFetch(`${API_URL}/api/recipes/${recipe.id}/star`, {
           method: 'PUT',
           body: JSON.stringify({ starred: target }),
-        });
+        }, accountSnapshot.accountId);
         if (!res.ok) throw new Error();
         const updated: unknown = await res.json();
+        requireCurrentSession();
         if (!isCurrentAccountGeneration(accountSnapshot)) return;
         if (!isConfirmedRecipeStarResponse(updated, recipe.id, accountSnapshot.accountId, target)) {
           throw new Error();

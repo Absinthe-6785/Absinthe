@@ -25,26 +25,24 @@ function apiRow(row) {
   return { ...row, starred: row.starred === 1 };
 }
 
-export default {
-  async fetch(request, env) {
+function fixtureHeaders(stats) {
+  return {
+    'x-fixture-queries': String(stats.queries),
+    'x-fixture-rows-read': String(stats.reads),
+    'x-fixture-rows-written': String(stats.writes),
+  };
+}
+
+export async function handleRecipeRequest(request, env, user, measure = false) {
     const url = new URL(request.url);
     const stats = { queries: 0, reads: 0, writes: 0 };
     const respond = (body, status = 200) => Response.json(body, {
       status,
       headers: {
         'cache-control': 'no-store',
-        'x-fixture-queries': String(stats.queries),
-        'x-fixture-rows-read': String(stats.reads),
-        'x-fixture-rows-written': String(stats.writes),
+        ...(measure && fixtureHeaders(stats)),
       },
     });
-    if (env.RECIPE_FIXTURE_ONLY !== 'miniflare' || url.hostname !== 'recipe-fixture.invalid') {
-      return respond({ detail: 'Not found' }, 404);
-    }
-    const auth = request.headers.get('authorization') ?? '';
-    const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
-    const user = token && env.ACTORS && Object.hasOwn(env.ACTORS, token) ? env.ACTORS[token] : null;
-    if (typeof user !== 'string') return respond({ detail: 'Unauthorized' }, 401);
 
     const collection = url.pathname === '/api/recipes';
     const match = /^\/api\/recipes\/([0-9a-f-]+)$/i.exec(url.pathname);
@@ -108,5 +106,19 @@ export default {
       // Do not claim rollback or repeat a write when its outcome is unknown.
       return respond({ detail: 'Recipe operation not confirmed' }, 503);
     }
+}
+
+export default {
+  fetch(request, env) {
+    const fail = (detail, status) => Response.json({ detail }, {
+      status, headers: { 'cache-control': 'no-store', ...fixtureHeaders({ queries: 0, reads: 0, writes: 0 }) },
+    });
+    if (env.RECIPE_FIXTURE_ONLY !== 'miniflare' || new URL(request.url).hostname !== 'recipe-fixture.invalid') {
+      return fail('Not found', 404);
+    }
+    const auth = request.headers.get('authorization') ?? '';
+    const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+    const user = token && env.ACTORS && Object.hasOwn(env.ACTORS, token) ? env.ACTORS[token] : null;
+    return typeof user === 'string' ? handleRecipeRequest(request, env, user, true) : fail('Unauthorized', 401);
   },
 };
