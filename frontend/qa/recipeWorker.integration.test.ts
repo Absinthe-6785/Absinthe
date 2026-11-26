@@ -59,6 +59,7 @@ let worker: Awaited<ReturnType<typeof openSignedFixture>> | undefined;
 let root: Root | undefined;
 let host: HTMLDivElement | undefined;
 let dropPatchResponse = false;
+let dropStarResponse = false;
 let holdPatchJson: ((json: () => Promise<unknown>) => Promise<unknown>) | undefined;
 let redirectSave = false;
 let redirectMode: RequestRedirect | undefined;
@@ -96,6 +97,7 @@ const localFetch = vi.fn(async (input: string | URL, init?: RequestInit) => {
   const response = await localHttp(target, init);
   calls.push({ method, path: target.pathname, status: response.status });
   if (method === 'PATCH' && dropPatchResponse && response.ok) throw new TypeError('Synthetic response loss after commit');
+  if (method === 'PUT' && dropStarResponse && response.ok) throw new TypeError('Synthetic favorite response loss after commit');
   if (method === 'PATCH' && holdPatchJson) {
     const hold = holdPatchJson;
     const json = response.json.bind(response);
@@ -145,6 +147,7 @@ afterEach(async () => {
   host?.remove();
   localStorage.clear();
   dropPatchResponse = false;
+  dropStarResponse = false;
   holdPatchJson = undefined;
   redirectSave = false;
   expect(blockedTargets).toEqual([]);
@@ -330,4 +333,72 @@ it('does not follow a loopback 307 on Save or clear the draft', async () => {
   expect(redirectReplies).toBe(1);
   expect(redirectTargetHits).toBe(0);
   expect(readRecipeDraft(alice).draft?.form.title).toBe('Draft must not follow a redirect');
+}, 15_000);
+
+it('loads account-owned trash and confirms a favorite through the mounted workspace and second client', async () => {
+  const b = signedClient(worker!.mf, await worker!.token(alice, { session_id: 'favorite-second-client' }));
+  const other = signedClient(worker!.mf, await worker!.token(eve), eve);
+  const create = async (client: typeof b, title: string) => {
+    const response = await client('POST', collection, { ...firstDraft, title });
+    expect(response.status).toBe(200);
+    return response.json();
+  };
+  const active = await create(b, 'Synthetic favorite');
+  const newer = await create(b, 'Mine newer');
+  const older = await create(b, 'Mine older');
+  const foreign = await create(other, 'Hidden foreign trash');
+  const deletionA = '2025-01-04T00:00:00.000Z';
+  const deletionB = '2025-01-02T00:00:00.000Z';
+  for (const [row, when] of [[newer, deletionA], [older, deletionB], [foreign, deletionA]]) {
+    await worker!.db!.prepare('UPDATE recipes SET deleted_at=? WHERE id=?').bind(when, row.id).run();
+  }
+  await mount();
+  await until(() => expect(test.studio?.trashAvailability).toBe('READY_WITH_DATA'));
+  expect(test.studio?.deletedRecipes).toEqual([
+    { ...newer, deleted_at: deletionA }, { ...older, deleted_at: deletionB },
+  ]);
+  expect(calls).toContainEqual({ method: 'GET', path: collection + '/trash', status: 200 });
+  expect(test.studio?.recipes.some((row: { id: string }) => row.id === newer.id)).toBe(false);
+
+  const readActive = () => test.studio?.recipes.find((row: { id: string }) => row.id === active.id);
+  const path = collection + '/' + active.id;
+  const favorites = () => calls.filter(c => c.method === 'PUT' && c.path === path + '/star');
+  const start = calls.length;
+  await act(async () => { await test.studio?.onToggleStar(readActive()); });
+  const saved = await (await b('GET', path)).json();
+  expect(saved.edit_revision).not.toBe(active.edit_revision);
+  expect(saved).toEqual({ ...active, starred: true, edit_revision: saved.edit_revision });
+  await until(() => expect(readActive()).toEqual(saved));
+  expect(favorites()).toEqual([{ method: 'PUT', path: path + '/star', status: 200 }]);
+
+  // The revalidation reconciles a committed favorite with a lost reply without another PUT.
+  dropStarResponse = true;
+  toast.mockClear();
+  await act(async () => { await test.studio?.onToggleStar(readActive()); });
+  expect(toast).toHaveBeenCalledWith('failSaveRecipe', 'error');
+  const reconciled = await (await b('GET', path)).json();
+  expect(reconciled.edit_revision).not.toBe(saved.edit_revision);
+  expect(reconciled).toEqual({ ...saved, starred: false, edit_revision: reconciled.edit_revision });
+  await until(() => expect(readActive()).toEqual(reconciled));
+  expect(favorites()).toHaveLength(2);
+  expect(calls.slice(start).filter(c => c.method !== 'GET')).toEqual(favorites());
+}, 20_000);
+
+it('preserves a mounted editor draft after a second device changes only the favorite', async () => {
+  const b = signedClient(worker!.mf, await worker!.token(alice, { session_id: 'second-client-star-conflict' }));
+  const seeded = await b('POST', collection, { ...firstDraft, title: 'Synthetic favorite conflict' });
+  expect(seeded.status).toBe(200);
+  const initial = await seeded.json();
+  const path = collection + '/' + initial.id;
+  await mount();
+  await act(async () => test.studio?.onEdit(test.studio.recipes.find((row: { id: string }) => row.id === initial.id)));
+  await setTitle('Draft before another device starred');
+  const result = await b('PUT', path + '/star', { starred: true });
+  expect(result.status).toBe(200);
+  const starred = await result.json();
+  await save();
+  expect(calls.at(-1)).toEqual({ method: 'PATCH', path, status: 409 });
+  expect(test.form?.conflict).toBe('remote-changed');
+  expect(readRecipeDraft(alice).draft?.form.title).toBe('Draft before another device starred');
+  expect((await (await b('GET', path)).json())).toEqual(starred);
 }, 15_000);
