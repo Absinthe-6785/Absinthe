@@ -3,6 +3,7 @@ import { request } from 'node:http';
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import { act, createElement } from 'react';
+import { flushSync } from 'react-dom';
 import { createRoot, type Root } from 'react-dom/client';
 import { SWRConfig } from 'swr';
 import { createServer, resolveConfig, type ViteDevServer } from 'vite';
@@ -52,6 +53,7 @@ const origin = 'http://127.0.0.1:5177';
 const collection = '/api/recipes';
 const firstDraft = { title: 'Synthetic base', category: 'Other', ingredients: 'rice', steps: '', memo: '', starred: false };
 const calls: Array<{ method: string; path: string; status: number }> = [];
+const requestsStarted: Array<{ method: string; path: string }> = [];
 const blockedTargets: string[] = [];
 const toast = vi.fn();
 let dev: ViteDevServer | undefined;
@@ -60,6 +62,8 @@ let root: Root | undefined;
 let host: HTMLDivElement | undefined;
 let dropPatchResponse = false;
 let dropStarResponse = false;
+let dropLifecycleResponse = false;
+let holdLifecycleResponse: (() => Promise<void>) | undefined;
 let holdPatchJson: ((json: () => Promise<unknown>) => Promise<unknown>) | undefined;
 let redirectSave = false;
 let redirectMode: RequestRedirect | undefined;
@@ -90,6 +94,7 @@ const localFetch = vi.fn(async (input: string | URL, init?: RequestInit) => {
     throw new Error('Non-QA request denied');
   }
   const method = init?.method ?? 'GET';
+  requestsStarted.push({ method, path: target.pathname });
   if (redirectSave && method === 'POST') {
     redirectMode = init?.redirect;
     return await nodeFetch(target.href, init);
@@ -98,6 +103,10 @@ const localFetch = vi.fn(async (input: string | URL, init?: RequestInit) => {
   calls.push({ method, path: target.pathname, status: response.status });
   if (method === 'PATCH' && dropPatchResponse && response.ok) throw new TypeError('Synthetic response loss after commit');
   if (method === 'PUT' && dropStarResponse && response.ok) throw new TypeError('Synthetic favorite response loss after commit');
+  if (method === 'DELETE' || (method === 'POST' && target.pathname.endsWith('/restore'))) {
+    await holdLifecycleResponse?.();
+    if (dropLifecycleResponse && response.ok) throw new TypeError('Synthetic lifecycle response loss after commit');
+  }
   if (method === 'PATCH' && holdPatchJson) {
     const hold = holdPatchJson;
     const json = response.json.bind(response);
@@ -148,6 +157,8 @@ afterEach(async () => {
   localStorage.clear();
   dropPatchResponse = false;
   dropStarResponse = false;
+  dropLifecycleResponse = false;
+  holdLifecycleResponse = undefined;
   holdPatchJson = undefined;
   redirectSave = false;
   expect(blockedTargets).toEqual([]);
@@ -166,18 +177,27 @@ async function until(check: () => void) {
   }, { timeout: 5_000 });
 }
 
+const cacheProvider = () => new Map();
+function accountView(accountId: string) {
+  return createElement(SWRConfig, {
+    value: { provider: cacheProvider, shouldRetryOnError: false, revalidateOnFocus: false },
+  }, createElement(RecipeView, {
+    accountId, appSettings: { darkMode: true, defaultCategory: 'Other', defaultColor: 'blue', language: 'en' },
+    updateSetting: vi.fn(), showToast: toast, THEME_COLORS: [],
+    theme: { card: '', input: '', border: '', text: '', textMuted: '', hoverBg: '' },
+  }));
+}
+
+async function renderAccount(accountId: string) {
+  await act(async () => root?.render(accountView(accountId)));
+  await until(() => expect(test.studio?.activeAvailability).toMatch(/^READY_/));
+}
+
 async function mount() {
   host = document.createElement('div');
   document.body.appendChild(host);
   root = createRoot(host);
-  await act(async () => root?.render(createElement(SWRConfig, {
-    value: { provider: () => new Map(), shouldRetryOnError: false, revalidateOnFocus: false },
-  }, createElement(RecipeView, {
-    accountId: alice, appSettings: { darkMode: true, defaultCategory: 'Other', defaultColor: 'blue', language: 'en' },
-    updateSetting: vi.fn(), showToast: toast, THEME_COLORS: [],
-    theme: { card: '', input: '', border: '', text: '', textMuted: '', hoverBg: '' },
-  }))));
-  await until(() => expect(test.studio?.activeAvailability).toMatch(/^READY_/));
+  await renderAccount(alice);
 }
 
 const setTitle = (title: string) => act(async () => test.form?.setForm({ ...firstDraft, title }));
@@ -402,3 +422,204 @@ it('preserves a mounted editor draft after a second device changes only the favo
   expect(readRecipeDraft(alice).draft?.form.title).toBe('Draft before another device starred');
   expect((await (await b('GET', path)).json())).toEqual(starred);
 }, 15_000);
+
+const activeRow = (id: string) => test.studio?.recipes.find((row: { id: string }) => row.id === id);
+const trashedRow = (id: string) => test.studio?.deletedRecipes.find((row: { id: string }) => row.id === id);
+const restoreFromStudio = (id: string) => act(async () => { await test.studio?.onRestore(id); });
+async function prepareDelete(id: string) {
+  const before = requestsStarted.length;
+  await act(async () => test.studio?.onDelete(id));
+  expect(requestsStarted.slice(before).filter(call => call.method !== 'GET')).toEqual([]);
+  const dialog = document.querySelector('[role="alertdialog"], [role="dialog"]');
+  const button = [...(dialog?.querySelectorAll('button') ?? [])].find(el => el.textContent?.trim() === 'Delete');
+  if (!button) throw new Error('Missing Recipe delete confirmation');
+  return button;
+}
+
+async function confirmDelete(id: string) {
+  const button = await prepareDelete(id);
+  await act(async () => button.click());
+}
+
+it('runs create, edit, favorite, confirmed soft delete, trash, restore and exact-ID readback through the mounted app', async () => {
+  const b = signedClient(worker!.mf, await worker!.token(alice, { session_id: 'lifecycle-readback' }));
+  await mount();
+  const start = calls.length;
+  const read = async (path: string) => {
+    const response = await b('GET', path);
+    expect(response.status).toBe(200);
+    return response.json();
+  };
+  await act(async () => test.studio?.onNewRecipe());
+  const title = 'Synthetic full lifecycle';
+  const content = { ...firstDraft, title, steps: 'Simmer', memo: 'Retain me' };
+  await act(async () => test.form?.setForm(content));
+  await save();
+  const id: string = test.studio?.expandedId;
+  expect(id).toEqual(expect.any(String));
+  const path = collection + '/' + id;
+  const created = await read(path);
+  expect(created).toMatchObject(content);
+  await until(() => expect(activeRow(id)).toEqual(created));
+  await act(async () => test.studio?.onEdit(activeRow(id)));
+  const editedFields = { ...content, title: 'Edited before lifecycle', category: 'Dinner' };
+  await act(async () => test.form?.setForm(editedFields));
+  await save();
+  const edited = await read(path);
+  expect(edited.edit_revision).not.toBe(created.edit_revision);
+  expect(edited).toEqual({ ...created, ...editedFields, edit_revision: edited.edit_revision });
+  await until(() => expect(activeRow(id)).toEqual(edited));
+  await act(async () => { await test.studio?.onToggleStar(activeRow(id)); });
+  const starred = await read(path);
+  expect(starred.edit_revision).not.toBe(edited.edit_revision);
+  expect(starred).toEqual({ ...edited, starred: true, edit_revision: starred.edit_revision });
+
+  toast.mockClear();
+  await confirmDelete(id);
+  await until(() => expect(toast).toHaveBeenCalledWith('recipeDeleted'));
+  const trashed = (await read(collection + '/trash')).find((row: { id: string }) => row.id === id);
+  expect(trashed.deleted_at).toEqual(expect.any(String));
+  expect(trashed.edit_revision).not.toBe(starred.edit_revision);
+  expect(trashed).toEqual({ ...starred, deleted_at: trashed.deleted_at, edit_revision: trashed.edit_revision });
+  await until(() => {
+    expect(trashedRow(id)).toEqual(trashed);
+    expect(activeRow(id)).toBeUndefined();
+  });
+  expect((await b('GET', path)).status).toBe(404);
+  await restoreFromStudio(id);
+  expect(toast).toHaveBeenCalledWith('recipeRestored');
+  const restored = await read(path);
+  expect(new Set([starred.edit_revision, trashed.edit_revision, restored.edit_revision]).size).toBe(3);
+  expect(restored).toEqual({ ...starred, edit_revision: restored.edit_revision });
+  await until(() => {
+    expect(trashedRow(id)).toBeUndefined();
+    expect(activeRow(id)).toEqual(restored);
+  });
+  expect(calls.slice(start).filter(c => c.method !== 'GET')).toEqual([
+    { method: 'POST', path: collection, status: 200 },
+    { method: 'PATCH', path, status: 200 },
+    { method: 'PUT', path: path + '/star', status: 200 },
+    { method: 'DELETE', path, status: 200 },
+    { method: 'POST', path: path + '/restore', status: 200 },
+  ]);
+  expect(readRecipeDraft(alice).draft).toBeNull();
+}, 25_000);
+
+it('keeps a stale open draft after another device deletes and restores its Recipe', async () => {
+  const b = signedClient(worker!.mf, await worker!.token(alice, { session_id: 'lifecycle-draft-other-device' }));
+  const initial = await (await b('POST', collection, { ...firstDraft, title: 'Lifecycle draft base' })).json();
+  const path = collection + '/' + initial.id;
+  await mount();
+  await act(async () => test.studio?.onEdit(activeRow(initial.id)));
+  await setTitle('Unsaved before remote delete and restore');
+  expect((await b('DELETE', path)).status).toBe(200);
+  const response = await b('POST', path + '/restore');
+  expect(response.status).toBe(200);
+  const restored = await response.json();
+  await save();
+  expect(calls.at(-1)).toEqual({ method: 'PATCH', path, status: 409 });
+  expect(test.form?.conflict).toBe('remote-changed');
+  expect(readRecipeDraft(alice).draft?.form.title).toBe('Unsaved before remote delete and restore');
+  expect(await (await b('GET', path)).json()).toEqual(restored);
+}, 15_000);
+
+it('reconciles committed lifecycle operations with lost replies by explicit reads, never by retry', async () => {
+  const b = signedClient(worker!.mf, await worker!.token(alice));
+  const initial = await (await b('POST', collection, { ...firstDraft, title: 'Lifecycle response loss' })).json();
+  const path = collection + '/' + initial.id;
+  await mount();
+  await until(() => {
+    expect(activeRow(initial.id)).toEqual(initial);
+    expect(test.studio?.trashAvailability).toMatch(/^READY_/);
+  });
+  const start = calls.length;
+  const startedAt = requestsStarted.length;
+  dropLifecycleResponse = true;
+  toast.mockClear();
+  await confirmDelete(initial.id);
+  await until(() => expect(toast).toHaveBeenCalledWith('failDeleteRecipe', 'error'));
+  expect(toast).not.toHaveBeenCalledWith('recipeDeleted');
+  expect(activeRow(initial.id)).toEqual(initial);
+  expect(trashedRow(initial.id)).toBeUndefined();
+  expect((await b('GET', path)).status).toBe(404);
+  await act(async () => { await test.studio?.onManualRefresh(true); });
+  await until(() => expect(trashedRow(initial.id)?.deleted_at).toEqual(expect.any(String)));
+  const cachedTombstone = { ...trashedRow(initial.id) };
+
+  await restoreFromStudio(initial.id);
+  expect(toast).toHaveBeenCalledWith('failRestoreRecipe', 'error');
+  expect(toast).not.toHaveBeenCalledWith('recipeRestored');
+  expect(activeRow(initial.id)).toBeUndefined();
+  expect(trashedRow(initial.id)).toEqual(cachedTombstone);
+  const restored = await (await b('GET', path)).json();
+  expect(restored).toEqual({ ...initial, edit_revision: restored.edit_revision });
+  await act(async () => { await test.studio?.onManualRefresh(true); });
+  await until(() => {
+    expect(activeRow(initial.id)).toEqual(restored);
+    expect(trashedRow(initial.id)).toBeUndefined();
+  });
+  expect(calls.slice(start).filter(c => c.method !== 'GET')).toEqual([
+    { method: 'DELETE', path, status: 200 },
+    { method: 'POST', path: path + '/restore', status: 200 },
+  ]);
+  expect(requestsStarted.slice(startedAt).filter(c => c.method !== 'GET')).toEqual([
+    { method: 'DELETE', path }, { method: 'POST', path: path + '/restore' },
+  ]);
+}, 20_000);
+
+it.each(['delete', 'restore'] as const)('suppresses a delayed %s response after switching away from the dispatch account', async kind => {
+  const aToken = test.token;
+  const b = signedClient(worker!.mf, await worker!.token(alice));
+  const eToken = await worker!.token(eve);
+  const e = signedClient(worker!.mf, eToken, eve);
+  const expectedBTrash = await (await e('GET', collection + '/trash')).json();
+  const initial = await (await b('POST', collection, { ...firstDraft, title: 'Lifecycle account A only' })).json();
+  const path = collection + '/' + initial.id;
+  if (kind === 'restore') expect((await b('DELETE', path)).status).toBe(200);
+  await mount();
+  if (kind === 'restore') await until(() => expect(trashedRow(initial.id)).toBeDefined());
+  const start = calls.length;
+  const held = Promise.withResolvers<void>();
+  let entered = false;
+  holdLifecycleResponse = () => { entered = true; return held.promise; };
+  toast.mockClear();
+  const confirmButton = kind === 'delete' ? await prepareDelete(initial.id) : undefined;
+  try {
+    await act(async () => {
+      const restoring = confirmButton ? confirmButton.click() : test.studio?.onRestore(initial.id);
+      try {
+        await vi.waitFor(() => expect(entered).toBe(true), { timeout: 5_000 });
+        test.token = eToken;
+        setRuntimeAccountSyncAccount(eve, headers => headers.set('Authorization', `Bearer ${eToken}`));
+        flushSync(() => root?.render(accountView(eve)));
+      } finally {
+        held.resolve();
+        await restoring;
+      }
+    });
+    await until(() => {
+      expect(test.studio?.activeAvailability).toBe('READY_EMPTY');
+      expect(test.studio?.trashAvailability).toBe(expectedBTrash.length ? 'READY_WITH_DATA' : 'READY_EMPTY');
+      expect(test.studio?.deletedRecipes).toEqual(expectedBTrash);
+      expect(activeRow(initial.id)).toBeUndefined();
+      expect(trashedRow(initial.id)).toBeUndefined();
+    });
+  } finally {
+    await act(async () => {
+      test.token = aToken;
+      setRuntimeAccountSyncAccount(alice, headers => headers.set('Authorization', `Bearer ${aToken}`));
+    });
+  }
+  expect(toast).not.toHaveBeenCalledWith('recipeDeleted');
+  expect(toast).not.toHaveBeenCalledWith('recipeRestored');
+  expect(toast).not.toHaveBeenCalledWith('failDeleteRecipe', 'error');
+  expect(toast).not.toHaveBeenCalledWith('failRestoreRecipe', 'error');
+  expect(await (await e('GET')).json()).toEqual([]);
+  expect(await (await e('GET', collection + '/trash')).json()).toEqual(expect.not.arrayContaining([
+    expect.objectContaining({ id: initial.id }),
+  ]));
+  expect((await b('GET', path)).status).toBe(kind === 'delete' ? 404 : 200);
+  expect(calls.slice(start).filter(c => c.method !== 'GET')).toEqual([
+    kind === 'delete' ? { method: 'DELETE', path, status: 200 } : { method: 'POST', path: path + '/restore', status: 200 },
+  ]);
+}, 20_000);

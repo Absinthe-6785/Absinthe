@@ -56,9 +56,9 @@ Worker. [Cloudflare D1 local mode](https://developers.cloudflare.com/d1/best-pra
 · [Supabase JWT contract](https://supabase.com/docs/guides/auth/jwts).
 
 The compatible routes are active list, exact-ID retrieval, create, conditional
-PATCH, read-only trash and favorite-only PUT. Legacy content PUT remains 428;
+PATCH, trash reads, favorite-only PUT, soft delete and individual restore. Legacy content PUT remains 428;
 stale edits return 409 with the winning row only to its owner; foreign
-identities return 404. Soft-delete and restore remain unsupported. Confirmed saves and conflict
+identities return 404. Confirmed saves and conflict
 drafts use the unchanged Recipe product path. An unknown write response is
 not retried automatically; inspect readback before a manual retry. In
 particular, create has no idempotency receipt. History, recovery, pagination,
@@ -78,12 +78,12 @@ Trash is read-only: it returns the full deleted rows for the signed account,
 newest deletion first. The local fixture uses canonical UTC ISO timestamps
 (fixed-width milliseconds); equal timestamps use an ID tie-break for stable
 output, while the PostgreSQL API does not specify tie order. There is no
-import or deletion writer here. Timestamp conversion and precision for real
+import writer here. Timestamp conversion and precision for real
 data still need qualification.
 
 Run `node measure-compatibility.mjs` from this directory after the frontend
-and prototype installs above (it uses the pinned frontend esbuild and #961
-merge-base source). Results for identical synthetic rows:
+and prototype installs above (it uses the pinned frontend esbuild and
+includes both the #961 and #962 bundle baselines). Results for identical synthetic rows:
 
 | Operation | Reference | Candidate | JSON bytes |
 | --- | --- | --- | --- |
@@ -95,8 +95,7 @@ The favorite reference is the two-statement ownership pre-read plus update
 on the same local D1, not a PostgreSQL row-metering comparison. One HTTP
 request is still sufficient in each path. With the partial trash index,
 SQLite searches by owner and returns in deletion order without the full
-scan or temporary sort. The index stores one entry per deleted row; future
-delete/restore operations would have to maintain it. Favorite writes
+scan or temporary sort. The index stores one entry per deleted row. Favorite writes
 remained at one metered row on both fixture sizes. The signed Worker bundle
 grew from 4,632 to 5,815 bytes (gzip: 2,243 to 2,605), same esbuild 0.25.12
 configuration. These are local operation and size measurements, not hosted
@@ -105,6 +104,48 @@ latency or workload predictions.
 The signed Worker suite and the opt-in mounted `recipe-worker-qa` suite
 are local checks; default hosted CI does not run either. No CI workflow or
 production frontend files were changed for this compatibility work.
+
+### Soft delete and individual restoration (CLOUDFLARE-RECIPE-LIFECYCLE-01)
+
+- `DELETE /api/recipes/{id}` updates the authenticated owner's exact active
+  Recipe. It sets a canonical UTC deletion timestamp and rotates the edit
+  revision. The confirmed receipt is `{ deleted: true, recipe_id, account_id, deleted_at }`.
+- `POST /api/recipes/{id}/restore` clears the timestamp only on an owned
+  tombstone and rotates the revision again. It returns the confirmed full
+  restored row. Neither operation writes content, favorites, owner, identity,
+  or creation time; there is no physical delete or replacement insert.
+- Foreign and absent IDs return 404 (unlike the backend's possible 403 for
+  foreign ownership). Repeated delete returns 404. On a restore miss, an
+  owner-bound diagnostic read returns 409 if it sees an active row, otherwise
+  404. This observation can race another transition and never grants write authority.
+  Database failure, response loss, or a contradictory acknowledgement does not
+  produce a success receipt or cause a second write. The app can reconcile via
+  explicit active/trash refresh; an unknown outcome does not establish rollback.
+- Content saves remain revision-fenced. Lifecycle requests themselves carry
+  no generation or revision: if delayed across a complete cycle, an old
+  delete can act on a restored row, and an old restore can act on a newly
+  deleted row. The regression suite reproduces both; this is not a new
+  cross-generation guarantee or an idempotency contract.
+
+The same `node measure-compatibility.mjs` script runs both transitions on
+identical 100- and 500-row synthetic stores. The reference models FastAPI's
+ownership pre-read plus guarded update **on local D1**, not PostgreSQL or hosted
+metering. Excluding post-write UI revalidation reads:
+
+| Successful transition | API requests | SQL queries | D1 rows read / written | JSON bytes |
+| --- | ---: | ---: | ---: | ---: |
+| DELETE | 1 → 1 | 2 → 1 | 3 / 2 → 2 / 2 | 159 → 159 |
+| POST restore | 1 → 1 | 2 → 1 | 3 / 2 → 2 / 2 | 336 → 336 |
+
+The original partial indexes remain in both query plans. In the 500-row
+fixture, deletion changes the indexed active/trash membership from 225/25 to
+224/26 and list read counts from 226/26 to 225/27; restoration reverses this.
+The local write counters include the measured transition cost and do not
+break it down per index. The signed bundle grows from 5,815 to 6,509 bytes
+(gzip 2,605 to 2,800). No new indexes or dependencies; no hosted latency/CPU
+claim. The mounted lifecycle run uses exactly five mutation requests (create,
+edit, favorite, delete, restore) plus the existing GET/readback path. Hosted
+CI does not execute this dedicated Worker or mounted QA suite.
 
 ### Matched measurements
 
@@ -173,5 +214,5 @@ The main savings are a partial active-list index (499 fewer D1 reads at 500 rows
 
 1. First obtain a complete source export and verify restore in isolation. A hosted Time Travel claim is not a substitute for a portable recovery copy. No production export or restore was attempted here.
 2. Use existing Auth initially; preserve verified account UUIDs and the current issuer, expiration, signing mode and session checks. A hosted adapter must validate provider credentials with the appropriate asymmetric JWKS or server-side provider validation for legacy signing, and never trust ownership from request bodies. Scope all reads and writes independently; D1 does not inherit PostgreSQL RLS. [Supabase JWT guide](https://supabase.com/docs/guides/auth/jwts)
-3. Prove lossless mapping for exact IDs, owners/FKs, date semantics, booleans, uniqueness, tombstones/restores, history and backups. The prototype uses ISO text timestamps, UUID text, and integer booleans, has strict fixture validation (not the full Pydantic coercion/error format), and adds an exact-ID read endpoint. It does not provide delete/restore mutations or legacy backup import/export; every mutation that can change the live row must rotate revisions. D1 row/text limits and list pagination must be qualified without silently truncating client results.
+3. Prove lossless mapping for exact IDs, owners/FKs, date semantics, booleans, uniqueness, tombstones/restores, history and backups. The prototype uses ISO text timestamps, UUID text, and integer booleans, has strict fixture validation (not the full Pydantic coercion/error format), and adds an exact-ID read endpoint. Individual soft delete and restore are exercised with synthetic data only; bulk lifecycle operations and legacy backup import/export are not implemented. D1 row/text limits and list pagination must be qualified without silently truncating client results.
 4. Rehearse one-authority cutover and reversible routing with a stop-write window, exact source-to-target reconciliation, old client/draft handling, and independent backups. Do not send writes to both stores. Once writes are accepted in the target, fail back only after reconciling those writes; never silently resume on a stale source. Validate authenticated two-device readback on the primary before considering replicas. Health, Notes, and frontend authority are untouched and have no migration result from this prototype.

@@ -53,13 +53,14 @@ export async function handleRecipeRequest(request, env, user, measure = false) {
 
     const collection = url.pathname === '/api/recipes';
     const trash = url.pathname === '/api/recipes/trash';
-    const match = /^\/api\/recipes\/([0-9a-f-]+)(\/star)?$/i.exec(url.pathname);
+    const match = /^\/api\/recipes\/([0-9a-f-]+)(\/star|\/restore)?$/i.exec(url.pathname);
     const id = match && uuid.test(match[1]) ? match[1].toLowerCase() : null;
     const star = id && match[2] === '/star';
+    const restore = id && match[2] === '/restore';
     const method = request.method;
     const missing = () => respond({ detail: 'Not found' }, 404);
     if (trash && method !== 'GET') return missing();
-    if (!trash && match?.[2] && (!star || method !== 'PUT')) return missing();
+    if (match?.[2] && !(star && method === 'PUT') && !(restore && method === 'POST')) return missing();
     if (!collection && !trash && !id) return missing();
     if (id && !star && method === 'PUT') return respond({ detail: 'Reload the app before editing Recipes' }, 428);
 
@@ -89,6 +90,31 @@ export async function handleRecipeRequest(request, env, user, measure = false) {
           throw new Error('Unconfirmed trash result');
         }
         return respond(rows.map(apiRow));
+      }
+      if (restore || (id && method === 'DELETE')) {
+        const deletedAt = restore ? null : new Date().toISOString();
+        const next = crypto.randomUUID();
+        // Only lifecycle columns change. The state predicate is not a revision
+        // fence: a delayed request can still act in a subsequent lifecycle.
+        const saved = await query(`UPDATE recipes SET deleted_at=?, edit_revision=?
+          WHERE id=? AND user_id=? AND deleted_at IS ${restore ? 'NOT NULL' : 'NULL'} RETURNING ${columns}`,
+          [deletedAt, next, id, user], true);
+        if (saved.length === 0) {
+          if (restore) {
+            const [active] = await query(
+              'SELECT id FROM recipes WHERE id=? AND user_id=? AND deleted_at IS NULL', [id, user]);
+            if (active?.id === id) return respond({ detail: 'Recipe is not deleted' }, 409);
+          }
+          return missing();
+        }
+        const [row] = saved;
+        if (!isRecipeRow(row) || row.id !== id || row.user_id !== user ||
+            row.deleted_at !== deletedAt || row.edit_revision !== next) {
+          throw new Error('Unconfirmed Recipe lifecycle transition');
+        }
+        return restore
+          ? respond(apiRow(row))
+          : respond({ deleted: true, recipe_id: id, account_id: user, deleted_at: deletedAt });
       }
       if (star) {
         const body = await request.json().catch(() => null);
