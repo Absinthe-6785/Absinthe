@@ -16,6 +16,52 @@ export async function openFixture(fixturesEnabled = true) {
     d1Databases: { DB: 'synthetic-recipe-only' },
     bindings: { ...(fixturesEnabled && { RECIPE_FIXTURE_ONLY: 'miniflare' }), ACTORS: actors },
   });
+  return initialize(mf);
+}
+
+export async function openSignedFixture({ enabled = true, withDatabase = true, port } = {}) {
+  const keys = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
+  const publicJwk = { ...await crypto.subtle.exportKey('jwk', keys.publicKey), kid: 'recipe-local-test' };
+  const mf = new Miniflare({
+    modules: true,
+    scriptPath: fileURLToPath(new URL('./integration-worker.mjs', import.meta.url)),
+    modulesRoot: fileURLToPath(new URL('.', import.meta.url)),
+    compatibilityDate: '2026-07-30',
+    host: '127.0.0.1',
+    port,
+    cf: false,
+    ...(withDatabase && { d1Databases: { DB: 'synthetic-recipe-integration' } }),
+    bindings: {
+      ...(enabled && { RECIPE_WORKER_MODE: 'synthetic-local' }),
+      RECIPE_QA_PUBLIC_JWK: JSON.stringify(publicJwk),
+    },
+  });
+  async function token(subject, claims = {}, header = {}, signingKey = keys.privateKey) {
+    const encode = obj => Buffer.from(JSON.stringify(obj)).toString('base64url');
+    const message = `${encode({ alg: 'ES256', kid: publicJwk.kid, ...header })}.${encode({
+      iss: 'https://recipe-auth.invalid/auth/v1',
+      aud: 'authenticated', role: 'authenticated', sub: subject,
+      exp: Math.floor(Date.now() / 1000) + 600, ...claims,
+    })}`;
+    const signature = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, signingKey, new TextEncoder().encode(message));
+    return `${message}.${Buffer.from(signature).toString('base64url')}`;
+  }
+  const start = withDatabase ? await initialize(mf) : { mf };
+  return { ...start, token };
+}
+
+export const signedClient = (mf, token, accountId = alice, origin = 'http://127.0.0.1:8787') =>
+  (method, path = '/api/recipes', body) => mf.dispatchFetch(`${origin}${path}`, {
+    method,
+    headers: {
+      authorization: `Bearer ${token}`,
+      'X-Recipe-QA-Expected-Account': accountId,
+      ...(body !== undefined && { 'content-type': 'application/json' }),
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+
+async function initialize(mf) {
   try {
     const db = await mf.getD1Database('DB');
     const schema = await readFile(new URL('./schema.sql', import.meta.url), 'utf8');

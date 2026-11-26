@@ -4,7 +4,7 @@
   "type": "module",
   "engines": { "node": ">=22" },
   "scripts": {
-    "test": "node --test recipe.test.mjs",
+    "test": "node --test recipe.test.mjs integration-worker.test.mjs",
     "measure": "node measure.mjs"
   },
   "devDependencies": {
