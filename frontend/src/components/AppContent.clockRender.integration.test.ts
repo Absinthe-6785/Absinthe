@@ -360,6 +360,9 @@ beforeAll(async () => {
     import('./views/NoteView'),
     import('./views/RecipeView'),
     import('./views/SettingsView'),
+    // The measured scenarios exclude cold module loading; warm Search's lazy
+    // projection chunk too, so its first-open assertion observes completed data.
+    import('./views/features/search/searchProjectionRuntime'),
   ]);
 }, 30_000);
 
