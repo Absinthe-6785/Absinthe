@@ -1,5 +1,8 @@
 # Local Recipe Workers/D1 — integration preparation
 
+The same local test package runs the [shared Worker Auth qualification](./CORE-AUTH.md).
+That fixture does not access Recipe or any other database.
+
 ## Product-path QA (CLOUDFLARE-INTEGRATION-PREP-01)
 
 `integration-worker.mjs` is a Workers module entry point. It reuses the Recipe
