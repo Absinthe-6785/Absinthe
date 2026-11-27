@@ -9,6 +9,10 @@ const recipeQaRoutes = '^/api/recipes(?:[/?]|$)'
 
 export default defineConfig(({ mode, command, isPreview }) => {
   const recipeWorkerQa = mode === 'recipe-worker-qa'
+  const healthWorkerQa = mode === 'health-worker-qa'
+  if (healthWorkerQa && (command !== 'serve' || isPreview)) {
+    throw new Error('Health Worker QA is test only')
+  }
   if (recipeWorkerQa && (command !== 'serve' || isPreview)) {
     throw new Error('Recipe Worker QA is local dev only')
   }
@@ -54,6 +58,7 @@ export default defineConfig(({ mode, command, isPreview }) => {
         },
       },
     }),
+    ...(healthWorkerQa && { envDir: false as const, envPrefix: [] }),
     resolve: {
       alias: {
         '@': path.resolve(__dirname, './src'),
@@ -61,8 +66,9 @@ export default defineConfig(({ mode, command, isPreview }) => {
     },
     test: {
       environment: 'node',
-      include: recipeWorkerQa ? ['qa/recipeWorker.integration.test.ts'] : ['src/**/*.test.ts'],
-      setupFiles: recipeWorkerQa ? [] : ['./src/test/setup.ts'],
+      include: healthWorkerQa ? ['qa/healthWorker.integration.test.ts']
+        : recipeWorkerQa ? ['qa/recipeWorker.integration.test.ts'] : ['src/**/*.test.ts'],
+      setupFiles: recipeWorkerQa || healthWorkerQa ? [] : ['./src/test/setup.ts'],
     },
   }
 })

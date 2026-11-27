@@ -121,6 +121,9 @@ jobs:
       - name: Test mounted Recipe application against local Worker
         working-directory: frontend
         run: npm test -- --mode recipe-worker-qa
+      - name: Test canonical Health transport against isolated local Worker and D1
+        working-directory: frontend
+        run: npm test -- --mode health-worker-qa
 
   build:
     name: ${{ github.event_name == 'push' && github.ref != 'refs/heads/main' && 'build (push)' || 'build' }}
