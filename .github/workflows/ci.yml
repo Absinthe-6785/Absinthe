@@ -90,6 +90,38 @@ jobs:
       - name: Isolated PATH A fixture invariant tests (not physical qualification)
         run: node --test qualification/rel05g-patha/fixture.test.mjs
 
+  recipe-worker-qa:
+    name: ${{ github.event_name == 'push' && github.ref != 'refs/heads/main' && 'recipe-worker-qa (push)' || 'recipe-worker-qa' }}
+    needs: [push-pr-gate]
+    if: ${{ !cancelled() && (github.event_name != 'push' || github.ref == 'refs/heads/main' || needs.push-pr-gate.result != 'success' || needs.push-pr-gate.outputs.skip-duplicate-push != '1') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      # Miniflare requires Node 22+; leave the existing Node 20 checks unchanged.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            prototypes/recipe-d1-local/package-lock.json
+      - name: Install local Worker dependencies
+        working-directory: prototypes/recipe-d1-local
+        run: npm ci
+      - name: Test local Recipe Worker and D1
+        working-directory: prototypes/recipe-d1-local
+        run: npm test
+      - name: Install frontend QA dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Test mounted Recipe application against local Worker
+        working-directory: frontend
+        run: npm test -- --mode recipe-worker-qa
+
   build:
     name: ${{ github.event_name == 'push' && github.ref != 'refs/heads/main' && 'build (push)' || 'build' }}
     needs: [push-pr-gate]

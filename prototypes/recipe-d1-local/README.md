@@ -15,17 +15,25 @@ It is loopback-only even with the test binding; no hosted verifier or
 production resource bindings are present. The historical `worker.mjs`
 entry remains the separate, synthetic measurement runner.
 
-To run the supported local QA on Node 22.12+ (verified with Node 24):
+To reproduce the hosted Recipe QA commands locally, use Node 24 and start
+at the repository root:
 
-```text
+```sh
 cd prototypes/recipe-d1-local
 npm ci
 npm test
-npm run measure
 cd ../../frontend
 npm ci
 npm test -- --mode recipe-worker-qa
 ```
+
+The `recipe-worker-qa` job in `.github/workflows/ci.yml` runs these commands
+on pull requests and pushes to `main`. Other branch pushes run
+`recipe-worker-qa (push)` unless the existing event gate confirms that an
+open PR targeting `main` covers the exact push SHA. It installs each
+lockfile once per job and caches npm downloads using both lockfiles.
+The existing Node 20 checks and production build stay separate. No
+performance measurement, cloud credentials, or deployment are part of this job.
 
 The mounted QA starts Vite at `127.0.0.1:5177` and Workerd/D1 at
 `127.0.0.1:8787`. It generates its own key and tokens and uses an ephemeral
@@ -101,10 +109,6 @@ grew from 4,632 to 5,815 bytes (gzip: 2,243 to 2,605), same esbuild 0.25.12
 configuration. These are local operation and size measurements, not hosted
 latency or workload predictions.
 
-The signed Worker suite and the opt-in mounted `recipe-worker-qa` suite
-are local checks; default hosted CI does not run either. No CI workflow or
-production frontend files were changed for this compatibility work.
-
 ### Soft delete and individual restoration (CLOUDFLARE-RECIPE-LIFECYCLE-01)
 
 - `DELETE /api/recipes/{id}` updates the authenticated owner's exact active
@@ -144,8 +148,7 @@ The local write counters include the measured transition cost and do not
 break it down per index. The signed bundle grows from 5,815 to 6,509 bytes
 (gzip 2,605 to 2,800). No new indexes or dependencies; no hosted latency/CPU
 claim. The mounted lifecycle run uses exactly five mutation requests (create,
-edit, favorite, delete, restore) plus the existing GET/readback path. Hosted
-CI does not execute this dedicated Worker or mounted QA suite.
+edit, favorite, delete, restore) plus the existing GET/readback path.
 
 ### Matched measurements
 
