@@ -141,11 +141,11 @@ function digest(f: Fixture, body: any) {
   return workoutRequestDigest({ ...body, authenticatedOwnerId: f.accountId, projectScope, generationBindingId: body.bindingId,
     wireEntityId: body.entityId });
 }
-function wire(f: Fixture, record = workout(), id = 100) {
+function wire(f: Fixture, record = workout(), id = 100, remoteCasBaseRevision: number | null = null) {
   const payload = { kind: 'entity_snapshot', record };
   const request = { protocolVersion: 2, ...f.wire, domain: WORKOUT_REMOTE_DOMAIN, entityId: record.id.toLowerCase(),
     mutationId: 'mut.' + uuid(id), idempotencyKey: 'k322.' + id.toString(16).padStart(64, '0'), operation: 'upsert',
-    remoteCasBaseRevision: null, localRevision: 1, payload, payloadHash: hashCanonicalPayload(payload) };
+    remoteCasBaseRevision, localRevision: (remoteCasBaseRevision ?? 0) + 1, payload, payloadHash: hashCanonicalPayload(payload) };
   return { ...request, requestDigest: digest(f, request) };
 }
 const post = (h: Harness, f: Fixture, body: unknown) => h.fetchImpl(origin + base + '/workouts/mutations', {
@@ -160,6 +160,26 @@ async function counts(db: DB) {
   return db.prepare(`SELECT (SELECT COUNT(*) FROM workout_entities) AS sessions,
     (SELECT COUNT(*) FROM workout_receipts) AS receipts, (SELECT COUNT(*) FROM workout_changes) AS events`).first();
 }
+
+function edited(record: WorkoutSessionV1, weight: string, reps: number, addSet = false) {
+  const next = structuredClone(record);
+  const strength = next.entries[0]!.sets[0]!;
+  if (strength.kind !== 'strength') throw new Error('Expected a strength fixture');
+  Object.assign(strength, { weightKg: weight, sourceValue: weight, sourceUnit: 'kg', reps });
+  const bodyweight = next.entries[1]!.sets[0]!;
+  bodyweight.done = true;
+  if (addSet) next.entries[1]!.sets.push({ ...bodyweight, id: uuid(114), ordinal: 2, done: false });
+  return next;
+}
+
+function bind(f: Fixture, mutationId: string, verificationId: string) {
+  return f.database.bindWorkoutMutation({ mutationId, expectedVerificationId: verificationId,
+    currentAuthenticatedAccount: f.opts.currentAccountId, currentDeviceId: f.opts.currentDeviceId });
+}
+
+const pushAt = (f: Fixture, seconds: number) => runWorkoutPushIteration(f.database, {
+  ...f.opts, now: () => now(seconds), limit: 1, retryBaseDelayMs: 1, retryMaxDelayMs: 5,
+});
 
 it('delivers one multi-exercise canonical create, loses its receipt, pulls without acknowledging, then replays and reads the same session on a second client', async () => {
   const h = await harness();
@@ -249,6 +269,119 @@ it('serializes concurrent identical deliveries and rejects conflicting mutation,
   expect(await counts(h.db)).toEqual({ sessions: 1, receipts: 1, events: 1 });
 });
 
+it('synchronizes real repository updates both ways and preserves earlier events and receipts', async () => {
+  const h = await harness(), a = await client(h, alice, 10), b = await client(h, alice, 11);
+  const ax = await a.discover(), bx = await b.discover();
+  const record = workout(), v2 = edited(record, '77.5', 9, true), v3 = edited(v2, '80', 10);
+  const m1 = await a.sessions.createWorkoutSession(record, { now: now(0) });
+  await bind(a, m1.outbox.mutationId, ax.verificationId);
+  expect(await pushAt(a, 1)).toMatchObject({ success: 1 });
+  const create = h.calls.at(-1)!;
+  expect(await runWorkoutPullIteration(b.database, b.opts)).toMatchObject({ applied: 1, nextCursor: 1 });
+  const event1 = h.calls.at(-1)!.reply.changes[0];
+  const m2 = await b.sessions.updateWorkoutSession(record.id, 1, v2, { now: now(2) });
+  expect((await bind(b, m2.outbox.mutationId, bx.verificationId)).deliveryBinding)
+    .toMatchObject({ remoteCasBaseRevision: 1 });
+  expect(await pushAt(b, 3)).toMatchObject({ success: 1 });
+  const update = h.calls.at(-1)!;
+  expect(update.reply).toMatchObject({ serverRevision: 2, changeSequence: 2, contentHash: hashCanonicalPayload(v2),
+    bindingId: b.wire.bindingId, authorityEpoch: 1, payloadHash: m2.outbox.payloadHash });
+  expect(await b.database.getOutboxRecord(m2.outbox.mutationId)).toMatchObject({
+    status: 'acknowledged', acknowledgedRevision: 2, remoteMutationRef: update.reply.remoteMutationRef,
+  });
+  expect(await (await post(h, a, JSON.parse(create.body!))).json()).toEqual({ ...create.reply, outcome: 'exact_replay' });
+  expect(await runWorkoutPullIteration(a.database, a.opts)).toEqual({
+    kind: 'applied', applied: 1, conflicts: 0, ownEchoes: 1, nextCursor: 2,
+  });
+  const page = h.calls.at(-1)!;
+  expect(page.reply.changes).toEqual([event1, { ...event1, record: v2, contentHash: update.reply.contentHash,
+    sequence: 2, serverRevision: 2, remoteMutationRef: update.reply.remoteMutationRef,
+    serverCommittedAt: update.reply.serverCommittedAt }]);
+  expect(await a.sessions.getWorkoutSession(record.id)).toMatchObject({ record: v2, serverRevision: 2 });
+
+  const m3 = await a.sessions.updateWorkoutSession(record.id, 2, v3, { now: now(4) });
+  expect((await bind(a, m3.outbox.mutationId, ax.verificationId)).deliveryBinding)
+    .toMatchObject({ remoteCasBaseRevision: 2 });
+  expect(await pushAt(a, 5)).toMatchObject({ success: 1 });
+  expect(h.calls.at(-1)!.reply).toMatchObject({ serverRevision: 3, changeSequence: 3 });
+  expect(await runWorkoutPullIteration(b.database, b.opts)).toMatchObject({ applied: 1, ownEchoes: 1, nextCursor: 3 });
+  expect(await b.sessions.getWorkoutSession(record.id)).toMatchObject({ record: v3, serverRevision: 3 });
+  expect(await (await post(h, b, JSON.parse(update.body!))).json()).toEqual({ ...update.reply, outcome: 'exact_replay' });
+  const replay = h.calls.at(-1)!;
+  expect(replay.metrics).toMatchObject({ statements: 2, rowsWritten: 0 });
+  expect(await (await get(h, b, { limit: '2' })).json()).toMatchObject({ changes: page.reply.changes, nextCursor: 2 });
+  expect(await counts(h.db)).toEqual({ sessions: 1, receipts: 3, events: 3 });
+  const snapshots = await h.db.prepare(`SELECT revision, length(CAST(record AS BLOB)) AS recordBytes
+    FROM workout_changes ORDER BY sequence`).all();
+  const measure = (call: Call) => ({ ...call.metrics, requestBytes: call.body ? Buffer.byteLength(call.body) : null,
+    responseBytes: call.bytes });
+  console.info('health-worker-update-measurement', JSON.stringify({
+    create: measure(create), update: measure(update), replay: measure(replay), twoRevisionPull: measure(page),
+    storedSnapshots: snapshots.results,
+  }));
+});
+
+it('admits one concurrent CAS winner and preserves the losing repository edit and conflict evidence', async () => {
+  const h = await harness(), a = await client(h, alice, 10), b = await client(h, alice, 11);
+  const ax = await a.discover(), bx = await b.discover(), record = workout();
+  expect((await post(h, a, wire(a))).status).toBe(200);
+  for (const f of [a, b]) await runWorkoutPullIteration(f.database, f.opts);
+  const attempts = await Promise.all([
+    { f: a, proof: ax, value: edited(record, '76', 8) },
+    { f: b, proof: bx, value: edited(record, '79', 9) },
+  ].map(async ({ f, proof, value }) => {
+      const change = await f.sessions.updateWorkoutSession(record.id, 1, value, { now: now(2) });
+      expect((await bind(f, change.outbox.mutationId, proof.verificationId)).deliveryBinding)
+        .toMatchObject({ remoteCasBaseRevision: 1 });
+      return { f, value, mutation: change.outbox.mutationId };
+    }));
+  const results = await Promise.all(attempts.map(({ f }) => pushAt(f, 3)));
+  expect(results.map(x => x.success).sort()).toEqual([0, 1]);
+  expect(results.map(x => x.conflict).sort()).toEqual([0, 1]);
+  const winner = attempts[results.findIndex(x => x.success === 1)]!;
+  const loser = attempts.find(x => x !== winner)!;
+  const win = h.calls.find(x => x.reply.serverRevision === 2)!.reply;
+  const conflict = h.calls.find(x => x.reply.errorCode === 'CAS_CONFLICT')!;
+  expect(conflict.status).toBe(409);
+  expect(conflict.metrics).toMatchObject({ statements: 2, rowsWritten: 0 });
+  expect(conflict.reply).toEqual({ outcome: 'rejected', errorCode: 'CAS_CONFLICT', currentIsDeleted: false,
+    currentServerRevision: 2, currentContentHash: hashCanonicalPayload(winner.value), currentRemoteMutationRef: win.remoteMutationRef });
+  expect(await loser.f.database.getOutboxRecord(loser.mutation)).toMatchObject({ status: 'conflict', lastErrorCode: 'CAS_CONFLICT' });
+  expect(await runWorkoutPullIteration(loser.f.database, loser.f.opts)).toMatchObject({ applied: 0, conflicts: 1, nextCursor: 2 });
+  expect(await loser.f.sessions.getWorkoutSession(record.id)).toMatchObject({
+    record: loser.value, serverRevision: 1, pendingMutationId: loser.mutation,
+  });
+  expect(await winner.f.sessions.getWorkoutSession(record.id)).toMatchObject({ record: winner.value, serverRevision: 2 });
+  expect(await counts(h.db)).toEqual({ sessions: 1, receipts: 2, events: 2 });
+});
+
+it('replays a lost update response without replacing a newer pending edit or acknowledging it from pull', async () => {
+  const h = await harness(), f = await client(h, alice, 10);
+  const proof = await f.discover(), record = workout();
+  expect((await post(h, f, wire(f))).status).toBe(200);
+  await runWorkoutPullIteration(f.database, f.opts);
+  const updated = edited(record, '77.5', 9), newer = edited(updated, '78.5', 11, true);
+  const prev = await f.sessions.updateWorkoutSession(record.id, 1, updated, { now: now(2) });
+  await bind(f, prev.outbox.mutationId, proof.verificationId);
+  h.loseNextResponse();
+  expect(await pushAt(f, 3)).toMatchObject({ retryable: 1, success: 0 });
+  const committed = h.calls.at(-1)!;
+  expect(committed.reply).toMatchObject({ outcome: 'success', serverRevision: 2, changeSequence: 2 });
+  const next = await f.sessions.updateWorkoutSession(record.id, 2, newer, { now: now(4) });
+  const pending = await f.database.getOutboxRecord(next.outbox.mutationId);
+  const retry = await f.database.getOutboxRecord(prev.outbox.mutationId);
+  expect(retry?.status).toBe('retry_wait');
+  expect(await runWorkoutPullIteration(f.database, f.opts)).toMatchObject({ applied: 0, conflicts: 1, nextCursor: 2 });
+  expect(await f.database.getOutboxRecord(prev.outbox.mutationId)).toEqual(retry);
+  expect(await pushAt(f, 5)).toMatchObject({ exactReplay: 1 });
+  expect(h.calls.at(-1)).toMatchObject({ body: committed.body, reply: { ...committed.reply, outcome: 'exact_replay' } });
+  expect(await f.database.getOutboxRecord(prev.outbox.mutationId)).toMatchObject({ status: 'acknowledged', acknowledgedRevision: 2 });
+  expect(await f.database.getOutboxRecord(next.outbox.mutationId)).toEqual(pending);
+  expect(await f.sessions.getWorkoutSession(record.id)).toMatchObject({ record: newer, localRevision: 3,
+    pendingMutationId: next.outbox.mutationId, serverRevision: 1 });
+  expect(await counts(h.db)).toEqual({ sessions: 1, receipts: 2, events: 2 });
+});
+
 it.each(['workout_changes', 'workout_receipts'])('rolls the entire create back when %s fails, then admits the exact first create', async table => {
   const h = await harness(), f = await client(h, alice, 10);
   await h.db.prepare(`CREATE TRIGGER abort_fixture BEFORE INSERT ON ${table} BEGIN SELECT RAISE(ABORT, 'synthetic rollback'); END`).run();
@@ -259,6 +392,101 @@ it.each(['workout_changes', 'workout_receipts'])('rolls the entire create back w
   await h.db.prepare('DROP TRIGGER abort_fixture').run();
   expect(await (await post(h, f, candidate)).json()).toMatchObject({ outcome: 'success', changeSequence: 1 });
   expect(await counts(h.db)).toEqual({ sessions: 1, receipts: 1, events: 1 });
+});
+
+it.each(['workout_changes', 'workout_receipts'])('rolls back the update and leaves historical evidence intact when %s fails', async table => {
+  const h = await harness(), f = await client(h, alice, 10), first = wire(f);
+  const created = await (await post(h, f, first)).json();
+  const initialPage = await (await get(h, f)).json();
+  await h.db.prepare(`CREATE TRIGGER abort_fixture BEFORE INSERT ON ${table} BEGIN SELECT RAISE(ABORT, 'synthetic rollback'); END`).run();
+  const second = wire(f, edited(workout(), '78', 9), 101, 1);
+  expect((await post(h, f, second)).status).toBe(503);
+  expect(await counts(h.db)).toEqual({ sessions: 1, receipts: 1, events: 1 });
+  expect(await h.db.prepare('SELECT revision, sequence FROM workout_entities').first()).toEqual({ revision: 1, sequence: 1 });
+  expect(await (await get(h, f)).json()).toEqual(initialPage);
+  expect(await (await post(h, f, first)).json()).toEqual({ ...created, outcome: 'exact_replay' });
+  await h.db.prepare('DROP TRIGGER abort_fixture').run();
+  expect(await (await post(h, f, second)).json()).toMatchObject({ outcome: 'success', serverRevision: 2, changeSequence: 2 });
+  expect(await counts(h.db)).toEqual({ sessions: 1, receipts: 2, events: 2 });
+});
+
+it('isolates update authority, rejects missing identities and preserves history on mutation and idempotency reuse', async () => {
+  const h = await harness(), a = await client(h, alice, 10), b = await client(h, bob, 11);
+  const original = wire(a), second = wire(a, edited(workout(), '78', 9), 101, 1);
+  expect(await (await post(h, a, second)).json()).toEqual({ outcome: 'rejected', errorCode: 'NOT_FOUND' });
+  expect((await post(h, a, original)).status).toBe(200);
+  expect(await (await post(h, b, wire(b, workout(), 101, 1))).json()).toEqual({ outcome: 'rejected', errorCode: 'NOT_FOUND' });
+  const denied = async (overrides: Partial<typeof second>, actor = a, code = 'STALE_GENERATION_BINDING') => {
+    const input = { ...second, ...overrides };
+    expect(await (await post(h, actor, { ...input, requestDigest: digest(actor, input) })).json()).toMatchObject({ errorCode: code });
+  };
+  await denied({}, b);
+  await denied({ deviceId: b.wire.deviceId });
+  await denied({ bindingId: b.wire.bindingId });
+  const applied = await (await post(h, a, second)).json();
+  expect(applied).toMatchObject({ outcome: 'success', serverRevision: 2 });
+  const changed = wire(a, edited(workout(), '79', 9), 101, 2);
+  expect(await (await post(h, a, changed)).json()).toMatchObject({ errorCode: 'MUTATION_ID_CONFLICT' });
+  const reused = { ...wire(a, edited(workout(), '79', 9), 102, 2), idempotencyKey: second.idempotencyKey };
+  expect(await (await post(h, a, { ...reused, requestDigest: digest(a, reused) })).json())
+    .toMatchObject({ errorCode: 'IDEMPOTENCY_CONFLICT' });
+  expect(await (await post(h, a, second)).json()).toEqual({ ...applied, outcome: 'exact_replay' });
+  await h.db.prepare('UPDATE workout_bindings SET is_active = 0 WHERE binding = ?').bind(a.wire.bindingId).run();
+  await denied({});
+  await h.db.prepare('UPDATE workout_authority SET epoch = 2 WHERE owner = ? AND project = ?').bind(alice, projectScope).run();
+  await denied({}, a, 'STALE_AUTHORITY_EPOCH');
+  expect(await counts(h.db)).toEqual({ sessions: 1, receipts: 2, events: 2 });
+});
+
+it.each(['server', 'authority'])('denies a fresh exact-base update after a stream %s epoch change', async kind => {
+  const h = await harness(), a = await client(h, alice, 10);
+  expect((await post(h, a, wire(a))).status).toBe(200);
+  const second = wire(a, edited(workout(), '78', 9), 101, 1);
+  expect((await post(h, a, second)).status).toBe(200);
+  const head = () => h.db.prepare('SELECT revision, sequence FROM workout_entities').first();
+  expect(await head()).toEqual({ revision: 2, sequence: 2 });
+  if (kind === 'server') {
+    await h.db.prepare('UPDATE workout_authority SET server_epoch = ? WHERE owner = ?').bind(uuid(701), alice).run();
+  } else {
+    await h.db.batch([
+      h.db.prepare('UPDATE workout_authority SET epoch = 2 WHERE owner = ?').bind(alice),
+      h.db.prepare('UPDATE workout_bindings SET binding = ?, epoch = 2 WHERE binding = ?').bind(uuid(703), a.wire.bindingId),
+    ]);
+    a.wire.bindingId = uuid(703);
+    a.wire.authorityEpoch = 2;
+  }
+  const candidate = wire(a, edited(workout(), '79', 10), 102, 2);
+  const reply = await post(h, a, candidate);
+  expect(reply.status).toBe(409);
+  expect(await reply.json()).toEqual({ outcome: 'rejected', errorCode: 'AUTHORITY_EVIDENCE_MISSING' });
+  expect(h.calls.at(-1)!.metrics).toMatchObject({ statements: 2, rowsWritten: 0 });
+  expect(await head()).toEqual({ revision: 2, sequence: 2 });
+  expect(await counts(h.db)).toEqual({ sessions: 1, receipts: 2, events: 2 });
+});
+
+it('paginates through revisions of the same entity without rescanning its history for a write', async () => {
+  const h = await harness(), a = await client(h, alice, 10), b = await client(h, alice, 11), record = workout();
+  await b.discover();
+  expect((await post(h, a, wire(a))).status).toBe(200);
+  const versions = [record];
+  const reads: number[] = [];
+  for (let revision = 2; revision <= 17; revision++) {
+    const updated = edited(record, '78', revision);
+    versions.push(updated);
+    expect(await (await post(h, a, wire(a, updated, 100 + revision, revision - 1))).json())
+      .toMatchObject({ outcome: 'success', serverRevision: revision, changeSequence: revision });
+    const metrics = h.calls.at(-1)!.metrics!;
+    expect(metrics.statements).toBe(2);
+    reads.push(metrics.rowsRead);
+  }
+  expect(new Set(reads).size).toBe(1);
+  expect(await runWorkoutPullIteration(b.database, b.opts)).toMatchObject({ applied: 16, conflicts: 0, nextCursor: 16 });
+  expect(h.calls.at(-1)!.reply.changes.map((change: { record: WorkoutSessionV1 }) => change.record)).toEqual(versions.slice(0, 16));
+  expect(await b.sessions.getWorkoutSession(record.id)).toMatchObject({ serverRevision: 16, record: versions[15] });
+  expect(await runWorkoutPullIteration(b.database, b.opts)).toMatchObject({ applied: 1, conflicts: 0, nextCursor: 17 });
+  expect(await b.sessions.getWorkoutSession(record.id)).toMatchObject({ serverRevision: 17, record: versions[16] });
+  expect(await runWorkoutPullIteration(b.database, b.opts)).toEqual({ kind: 'empty', nextCursor: 17 });
+  expect(await counts(h.db)).toEqual({ sessions: 1, receipts: 17, events: 17 });
 });
 
 it('keeps authority and the stream scoped to the verified account and rejects stale authority before replay', async () => {
@@ -289,12 +517,12 @@ it('rejects invalid hashes, request digests, Workout fields, coercions and unsup
   for (const candidate of [{ ...input, payloadHash: '0'.repeat(64) }, wire(f, invalid),
     { ...mutationAsArray, requestDigest: digest(f, mutationAsArray) },
     { ...idempotencyAsArray, requestDigest: digest(f, idempotencyAsArray) },
-    { ...input, createdAt: '2026-02-30T00:00:00Z' }]) {
+    { ...input, createdAt: '2026-02-30T00:00:00Z' },
+    { ...input, remoteCasBaseRevision: 0 }, { ...input, remoteCasBaseRevision: '1' }]) {
     expect(await (await post(h, f, candidate)).json()).toEqual({ detail: 'INVALID_PAYLOAD' });
   }
   expect(await (await post(h, f, { ...input, requestDigest: '0'.repeat(64) })).json()).toMatchObject({ errorCode: 'REQUEST_DIGEST_MISMATCH' });
-  for (const candidate of [{ ...input, operation: 'tombstone' }, { ...input, operation: 'restore' },
-    { ...input, remoteCasBaseRevision: 1 }]) {
+  for (const candidate of [{ ...input, operation: 'tombstone' }, { ...input, operation: 'restore' }]) {
     expect(await (await post(h, f, candidate)).json()).toMatchObject({ errorCode: 'UNSUPPORTED_OPERATION' });
   }
   const path = origin + base + '/workouts/mutations';
