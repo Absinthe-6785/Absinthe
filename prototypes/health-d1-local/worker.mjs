@@ -94,18 +94,18 @@ function identity(owner, input, bound = false) {
 
 // Trusted project and JWT owner are always parameters 2 and 1. The request
 // cannot select either. Device, generation and binding lookups are exact.
-const scope = `FROM workout_authority a LEFT JOIN workout_bindings b
+const authorityJoin = `FROM workout_authority a LEFT JOIN workout_bindings b
   ON b.owner = a.owner AND b.project = a.project AND b.namespace = ?3
-  AND b.generation = ?4 AND b.device = ?5 AND b.epoch = a.epoch AND b.is_active = 1
-  WHERE a.owner = ?1 AND a.project = ?2`;
+  AND b.generation = ?4 AND b.device = ?5 AND b.epoch = a.epoch AND b.is_active = 1`;
+const authorityKey = 'WHERE a.owner = ?1 AND a.project = ?2';
+const scope = `${authorityJoin} ${authorityKey}`;
 const current = 'a.is_open = 1 AND a.epoch = ?7 AND b.binding = ?6';
 const context = `SELECT a.epoch, a.server_epoch, a.is_open, b.binding ${scope}`;
 // With no reset/rollover/pruning, the immutable first event anchors the
 // entire stream. Its indexed head proves continuity without scanning a tail.
 const continuous = `COALESCE((
-  SELECT e.epoch = a.epoch AND e.server_epoch = a.server_epoch
-    FROM workout_changes c JOIN workout_entities e
-      ON e.owner = c.owner AND e.project = c.project AND e.entity = c.entity
+  SELECT c.epoch = a.epoch AND c.server_epoch = a.server_epoch
+    FROM workout_changes c
     WHERE c.owner = a.owner AND c.project = a.project ORDER BY c.sequence LIMIT 1
 ), 1)`;
 const stmt = (db, sql, values) => db.prepare(sql).bind(...values);
@@ -152,7 +152,7 @@ async function push(db, owner, request) {
       || input.createdAt != null && !validCreatedAt(input.createdAt)
       || typeof input.mutationId !== 'string' || typeof input.idempotencyKey !== 'string'
       || !(values = identity(owner, input, true))) throw new Error('Invalid request');
-    if (input.operation !== 'upsert' || input.remoteCasBaseRevision !== null) {
+    if (input.operation !== 'upsert') {
       return reject('UNSUPPORTED_OPERATION', [], true, 400);
     }
     if (!exact(input.payload, ['kind', 'record']) || input.payload.kind !== 'entity_snapshot') throw new Error('Invalid payload');
@@ -167,31 +167,39 @@ async function push(db, owner, request) {
   } catch { return json({ detail: 'INVALID_PAYLOAD' }, 400); }
   if (computed !== input.requestDigest) return reject('REQUEST_DIGEST_MISMATCH', [], true, 400);
   const ref = crypto.randomUUID();
+  const base = input.remoteCasBaseRevision;
+  // D1 serializes the guarded append and its trigger with receipt readback in
+  // one batch. A replay never reaches the append, even if its CAS is now stale.
   const dbResults = await db.batch([
-    stmt(db, `INSERT INTO workout_entities
+    stmt(db, `INSERT INTO workout_changes
       (owner, project, entity, mutation, idempotency, payload_hash, digest, record, content_hash, remote_ref, committed_at,
-        epoch, server_epoch, binding, revision)
-      SELECT ?1, ?2, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?7, a.server_epoch, ?6, 1 ${scope} AND ${current}
+        epoch, server_epoch, binding, revision, sequence)
+      SELECT ?1, ?2, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?7, a.server_epoch, ?6,
+        COALESCE(head.revision, 0) + 1,
+        COALESCE((SELECT MAX(sequence) FROM workout_changes WHERE owner = ?1 AND project = ?2), 0) + 1
+      ${authorityJoin} LEFT JOIN workout_entities head
+        ON head.owner = a.owner AND head.project = a.project AND head.entity = ?8
+      ${authorityKey} AND ${current}
       AND ${continuous}
       AND NOT EXISTS (SELECT 1 FROM workout_receipts WHERE owner = ?1 AND project = ?2 AND mutation = ?9)
       AND NOT EXISTS (SELECT 1 FROM workout_receipts WHERE owner = ?1 AND project = ?2 AND idempotency = ?10)
-      AND NOT EXISTS (SELECT 1 FROM workout_entities WHERE owner = ?1 AND project = ?2 AND entity = ?8)`,
+      AND head.revision IS ?17 AND (?17 IS NULL OR ?17 < 9007199254740991)`,
     [...values, input.entityId, input.mutationId, input.idempotencyKey, input.payloadHash, computed,
-      canonicalPayloadJson(input.payload.record), hashCanonicalPayload(input.payload.record), ref, new Date().toISOString()]),
+      canonicalPayloadJson(input.payload.record), hashCanonicalPayload(input.payload.record), ref, new Date().toISOString(), base]),
     stmt(db, `SELECT a.epoch, a.server_epoch, a.is_open, b.binding, r.idempotency, r.sequence,
       CASE WHEN ${current} THEN ${continuous} ELSE 0 END AS stream_current,
       e.entity, e.remote_ref, e.committed_at, e.revision, e.content_hash, e.payload_hash, e.digest,
       e.epoch AS receipt_epoch, e.server_epoch AS receipt_server_epoch, e.binding AS receipt_binding, i.mutation AS idem_hit,
-      existing.revision AS existing_revision, existing.content_hash AS existing_hash, existing.remote_ref AS existing_ref
-      FROM workout_authority a LEFT JOIN workout_bindings b
-        ON b.owner = a.owner AND b.project = a.project AND b.namespace = ?3
-        AND b.generation = ?4 AND b.device = ?5 AND b.epoch = a.epoch AND b.is_active = 1
+      head.revision AS existing_revision, existing.content_hash AS existing_hash, existing.remote_ref AS existing_ref
+      ${authorityJoin}
       LEFT JOIN workout_receipts r ON r.owner = a.owner AND r.project = a.project AND r.mutation = ?9 AND ${current}
-      LEFT JOIN workout_entities e ON e.owner = r.owner AND e.project = r.project AND e.entity = r.entity
+      LEFT JOIN workout_changes e ON e.owner = r.owner AND e.project = r.project AND e.sequence = r.sequence
       LEFT JOIN workout_receipts i ON i.owner = a.owner AND i.project = a.project AND i.idempotency = ?10 AND ${current}
-      LEFT JOIN workout_entities existing ON existing.owner = a.owner AND existing.project = a.project
-        AND existing.entity = ?8 AND ${current}
-      WHERE a.owner = ?1 AND a.project = ?2`, [...values, input.entityId, input.mutationId, input.idempotencyKey]),
+      LEFT JOIN workout_entities head ON head.owner = a.owner AND head.project = a.project
+        AND head.entity = ?8 AND ${current} AND r.sequence IS NULL AND i.mutation IS NULL
+      LEFT JOIN workout_changes existing ON existing.owner = head.owner AND existing.project = head.project
+        AND existing.sequence = head.sequence
+      ${authorityKey}`, [...values, input.entityId, input.mutationId, input.idempotencyKey]),
   ]);
   const row = dbResults[1].results[0];
   const denied = admission(row, input);
@@ -212,9 +220,10 @@ async function push(db, owner, request) {
   }
   if (row.idem_hit != null) return reject('IDEMPOTENCY_CONFLICT', dbResults, true);
   if (row.existing_ref != null) return json({
-    outcome: 'rejected', errorCode: 'ENTITY_ALREADY_EXISTS', currentIsDeleted: false,
+    outcome: 'rejected', errorCode: base === null ? 'ENTITY_ALREADY_EXISTS' : 'CAS_CONFLICT', currentIsDeleted: false,
     currentServerRevision: row.existing_revision, currentContentHash: row.existing_hash, currentRemoteMutationRef: row.existing_ref,
   }, 409, dbResults);
+  if (base !== null && row.existing_revision === null) return reject('NOT_FOUND', dbResults, true);
   throw new Error('Unproven commit');
 }
 
@@ -235,9 +244,9 @@ async function pull(db, owner, url) {
       ${scope}`, [...values, input.serverEpoch ?? null]),
     // Evaluate admission once as the lower bound of the indexed range. Denial
     // seeks beyond every representable sequence instead of filtering its rows.
-    stmt(db, `SELECT c.sequence, e.entity, e.revision, e.record, e.content_hash, e.remote_ref, e.committed_at,
-      e.epoch, e.server_epoch
-      FROM workout_changes c JOIN workout_entities e ON e.owner = c.owner AND e.project = c.project AND e.entity = c.entity
+    stmt(db, `SELECT c.sequence, c.entity, c.revision, c.record, c.content_hash, c.remote_ref, c.committed_at,
+      c.epoch, c.server_epoch
+      FROM workout_changes c
       WHERE c.owner = ?1 AND c.project = ?2 AND c.sequence > CASE WHEN EXISTS
         (SELECT 1 ${scope} AND ${current} AND (?10 IS NULL OR a.server_epoch = ?10) AND ${continuous})
         THEN ?8 ELSE 9007199254740991 END
