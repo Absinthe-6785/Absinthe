@@ -489,6 +489,8 @@ export interface EntityListOptions {
 export interface CommitLocalMutationInput<T = unknown> {
   mutation: EntityMutationInput<T>;
   now: string;
+  /** Optional caller lifetime checked inside the atomic transaction before any write. */
+  shouldContinue?: () => boolean;
   dependsOnMutationId?: string | null;
   deliveryBinding?: UnboundDeliveryBindingV1;
   testOnlyAbortAt?: 'before_entity' | 'before_outbox' | 'after_writes';

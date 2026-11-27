@@ -3,11 +3,13 @@ import {
   type LocalDatabaseRepository,
 } from '../../../../lib/localDatabase';
 import { validTimestamp } from '../../../../lib/localDatabase/validation';
+import { LocalDatabaseError } from '../../../../lib/localDatabase/errors';
 import { canonicalWorkoutUuid, WORKOUT_WIRE_UUID } from '../../../../lib/workoutRemoteContract';
 import { WORKOUT_SESSION_DOMAIN } from '../../../../lib/workoutSessionRepository';
+import { WORKOUT_PULL_PROVIDER } from '../../../../lib/workoutRemotePullProtocol';
 import { validateWorkoutSessionV1, type WorkoutSessionV1 } from '../../../../lib/workoutSessionV1';
 import {
-  projectWorkoutSessionEditor, snapshotWorkoutSessionEditorDraft, type WorkoutSessionEditor,
+  hydrateWorkoutSessionEditor, projectWorkoutSessionEditor, snapshotWorkoutSessionEditorDraft, type WorkoutSessionEditor,
 } from './workoutSessionEditorAdapter';
 
 export type CanonicalWorkoutDraftScope = Readonly<{
@@ -171,6 +173,78 @@ export function createCanonicalWorkoutDraftStore(options: Options) {
     return { ...submission, record };
   }
 
+  // Only the isolated worker editor may reopen canonical, committed pull evidence.
+  // The local-only submit path below remains create-only.
+  async function readWorkerEditBase(database: LocalDatabaseRepository, id: string, revision: number, exact: boolean) {
+    if (!inRepositoryScope(database)) throw new Error('CANONICAL_DRAFT_EDIT_BASE_UNAVAILABLE');
+    const { entity } = await database.readWorkoutDraftEvidence(id, { kind: 'edit_base' });
+    current();
+    const canonicalSource = entity?.source?.kind === 'local' && entity.source.reference === 'workout_session_v1'
+      || entity?.source?.kind === 'remote' && entity.source.reference === WORKOUT_PULL_PROVIDER;
+    if (!entity || entity.isDeleted || entity.deletionState !== 'active' || entity.deletedAt !== null
+      || entity.accountId !== scope.accountId || entity.ownerId !== scope.accountId
+      || entity.namespaceKey !== scope.namespaceKey || entity.generationId !== scope.generationId
+      || entity.domain !== WORKOUT_SESSION_DOMAIN || (exact ? entity.entityId !== id
+        : canonicalWorkoutUuid(entity.entityId) !== canonicalWorkoutUuid(id))
+      || entity.revision !== revision || entity.localRevision !== revision || entity.pendingMutationId !== null
+      || entity.remoteState !== 'active' || !entity.serverRevision || !canonicalSource
+      || entity.migrationProvenance || entity.restoreProvenance) {
+      throw new Error('CANONICAL_DRAFT_EDIT_BASE_UNAVAILABLE');
+    }
+    validateWorkoutSessionV1(entity.record);
+    if (entity.record.localDate !== scope.localDate || canonicalWorkoutUuid(entity.record.id) !== canonicalWorkoutUuid(id)) {
+      throw new Error('CANONICAL_DRAFT_EDIT_BASE_UNAVAILABLE');
+    }
+    return { record: entity.record, entityId: entity.entityId };
+  }
+
+  function reopenWorkerSession(database: LocalDatabaseRepository, entityId: string, revision: number, expectedToken: string | null) {
+    return change(async () => {
+      const prior = read();
+      if ((prior?.token ?? null) !== expectedToken) throw new Error('STALE_CANONICAL_DRAFT');
+      if (prior) {
+        const previous = await resume(database, { observeDelivery: true, observeWorkerDeliveryHistory: true });
+        if (previous.kind !== 'committed_locally' || previous.delivery.kind !== 'acknowledged'
+          || previous.submission.entityId !== entityId || previous.token !== prior.token) {
+          throw new Error('CANONICAL_DRAFT_STILL_OWNED');
+        }
+      }
+      const base = await readWorkerEditBase(database, entityId, revision, true);
+      if ((read()?.raw ?? null) !== (prior?.raw ?? null)) throw new Error('STALE_CANONICAL_DRAFT');
+      return write({ version: 1, scope, editor: hydrateWorkoutSessionEditor(base.record, revision), submission: null });
+    });
+  }
+
+  function submitWorkerEdit(
+    expectedToken: string,
+    database: LocalDatabaseRepository,
+    dispatch: (record: WorkoutSessionV1, entityId: string, expectedRevision: number) => Promise<unknown>,
+  ) {
+    return change(async () => {
+      const prior = pendingDraft(expectedToken);
+      const { editor } = prior.draft;
+      const revision = editor.expectedLocalRevision;
+      if (revision === null) throw new Error('CANONICAL_DRAFT_EDIT_BASE_UNAVAILABLE');
+      const record = projectWorkoutSessionEditor(editor);
+      const base = await readWorkerEditBase(database, editor.sessionId, revision, false);
+      if (base.record.id !== editor.sessionId || storage.getItem(key) !== prior.raw) throw new Error('STALE_CANONICAL_DRAFT');
+      markSubmission(prior.draft, record, base.entityId);
+      const marked = storage.getItem(key);
+      try {
+        return await dispatch(record, base.entityId, revision);
+      } catch (error) {
+        // This exact repository error is issued before either atomic write.
+        // Restore the editable bytes, not a rebased draft; every ambiguous
+        // failure retains the marker and cannot cause an automatic retry.
+        if (error instanceof LocalDatabaseError && error.code === 'STALE_REVISION'
+          && error.operation === 'commit_local_mutation' && isCurrent() && storage.getItem(key) === marked) {
+          storage.setItem(key, prior.raw);
+        }
+        throw error;
+      }
+    });
+  }
+
   function stageSubmission(expectedToken: string, database?: LocalDatabaseRepository): Promise<Submission & { record: WorkoutSessionV1 }> {
     return change(async () => {
       const prior = pendingDraft(expectedToken);
@@ -221,7 +295,9 @@ export function createCanonicalWorkoutDraftStore(options: Options) {
   }
 
   async function resume(database?: LocalDatabaseRepository,
-    { observeDelivery = false }: { observeDelivery?: boolean } = {}): Promise<CanonicalWorkoutDraftResume> {
+    { observeDelivery = false, observeWorkerDeliveryHistory = false }: {
+      observeDelivery?: boolean; observeWorkerDeliveryHistory?: boolean;
+    } = {}): Promise<CanonicalWorkoutDraftResume> {
     try {
       const saved = read();
       if (!saved) return { kind: 'missing' };
@@ -234,7 +310,8 @@ export function createCanonicalWorkoutDraftStore(options: Options) {
       const record = projectWorkoutSessionEditor(editor);
       const { identity } = submittedIdentity(scope, editor, record, submission.entityId);
       try {
-        const { entity, outbox, deliveryAuthorityCurrent, historicalCreateUnambiguous } = await database.readWorkoutDraftEvidence(submission.entityId, {
+        const { entity, outbox, deliveryAuthorityCurrent, deliveryAuthorityMatchesBinding,
+          historicalCreateUnambiguous } = await database.readWorkoutDraftEvidence(submission.entityId, {
           kind: 'submission', mutationId: submission.mutationId, observeDelivery,
         });
         if (!isCurrent() || storage.getItem(key) !== saved.raw) return { kind: 'unavailable' };
@@ -272,12 +349,16 @@ export function createCanonicalWorkoutDraftStore(options: Options) {
         // content, is evidence for M1. Resume only reads; it never settles or clears M2.
         let delivery: DraftDelivery = { kind: unbound && outbox.deliveryBlockCode == null ? 'not_synchronized' : 'uncertain' };
         const binding = outbox.deliveryBinding;
-        if (observeDelivery && binding?.state === 'bound' && deliveryAuthorityCurrent && outbox.deliveryBlockCode == null) {
-          if (outbox.status === 'pending' || outbox.status === 'claimed' || outbox.status === 'retry_wait') {
+        if (observeDelivery && binding?.state === 'bound' && outbox.deliveryBlockCode == null) {
+          if (observeWorkerDeliveryHistory && (outbox.status === 'claimed' || outbox.status === 'retry_wait')) {
+            delivery = { kind: 'uncertain' };
+          } else if (deliveryAuthorityCurrent && (outbox.status === 'pending' || outbox.status === 'claimed' || outbox.status === 'retry_wait')) {
             delivery = { kind: 'pending' };
-          } else if (outbox.status === 'conflict') {
+          } else if (outbox.status === 'conflict' && (deliveryAuthorityCurrent
+            || observeWorkerDeliveryHistory && deliveryAuthorityMatchesBinding)) {
             delivery = { kind: 'conflict' };
           } else if (outbox.status === 'acknowledged' && outbox.acknowledgedRevision != null
+            && (deliveryAuthorityCurrent || observeWorkerDeliveryHistory && deliveryAuthorityMatchesBinding)
             && outbox.acknowledgedRevision === (binding.remoteCasBaseRevision ?? 0) + 1
             && outbox.remoteMutationRef !== null && WORKOUT_WIRE_UUID.test(outbox.remoteMutationRef)
             && validTimestamp(outbox.serverCommittedAt) && /T.+(?:Z|[+-]\d{2}:\d{2})$/.test(outbox.serverCommittedAt)
@@ -296,5 +377,5 @@ export function createCanonicalWorkoutDraftStore(options: Options) {
     }
   }
 
-  return { saveEditor, stageSubmission, submitNewSession, resume };
+  return { saveEditor, stageSubmission, submitNewSession, resume, reopenWorkerSession, submitWorkerEdit };
 }

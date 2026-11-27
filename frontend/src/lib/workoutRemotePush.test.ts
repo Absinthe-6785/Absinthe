@@ -100,6 +100,21 @@ function server(handler: (request: Record<string, any>) => Response | Promise<Re
 afterEach(() => { for (const repo of opened.splice(0)) closeLocalDatabase(repo); });
 
 describe('REL-05G4B2 dormant bound workout push', () => {
+  it('claims only the requested bound mutation, leaving an unrelated eligible row unchanged', async () => {
+    const { repo, workouts, created } = await setup();
+    const target = await workouts.createWorkoutSession(session(10, OTHER));
+    await bind(repo, target.outbox.mutationId);
+    const unrelated = await repo.getOutboxRecord(created.outbox.mutationId);
+    const sent: string[] = [];
+    const result = await runWorkoutPushIteration(repo, {
+      ...options(server(request => { sent.push(request.mutationId); return Response.json(receipt(request)); })),
+      onlyMutationId: target.outbox.mutationId,
+    });
+    expect(result).toMatchObject({ claimed: 1, success: 1 });
+    expect(sent).toEqual([target.outbox.mutationId]);
+    expect(await repo.getOutboxRecord(created.outbox.mutationId)).toEqual(unrelated);
+  });
+
   it('never claims an unbound Workout row', async () => {
     const { repo, created } = await setup(ID, false);
     let sent = 0;

@@ -53,6 +53,22 @@ afterEach(() => {
 });
 
 describe('REL-05G2 dormant workout local repository', () => {
+  it('rejects revoked create and update lifetimes at the transaction write boundary', async () => {
+    const { workouts, database } = await makeRepository();
+    const id = '11111111-1111-4111-8111-111111111111';
+    await expect(workouts.createWorkoutSession(session(id), { shouldContinue: () => false }))
+      .rejects.toMatchObject({ code: 'STALE_CONNECTION', operation: 'commit_local_mutation' });
+    expect(await workouts.getWorkoutSession(id)).toBeNull();
+    expect(await database.listOutboxMutations({ limit: 10 })).toEqual([]);
+    const committed = await workouts.createWorkoutSession(session(id));
+    let checks = 0;
+    await expect(workouts.updateWorkoutSession(id, 1, session(id, 9), { shouldContinue: () => ++checks === 1 }))
+      .rejects.toMatchObject({ code: 'STALE_CONNECTION', operation: 'commit_local_mutation' });
+    expect(checks).toBe(2);
+    expect(await workouts.getWorkoutSession(id)).toEqual(committed.entity);
+    expect(await database.listOutboxMutations({ limit: 10 })).toEqual([committed.outbox]);
+  });
+
   it('commits create, update, tombstone, and restore as distinct local mutations', async () => {
     const { workouts: repository, database } = await makeRepository();
     const id = '11111111-1111-4111-8111-111111111111';

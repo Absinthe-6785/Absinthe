@@ -98,6 +98,15 @@ describe('REL-05G2 dormant workout delivery binding', () => {
     });
     db.close();
 
+    const unrelated = await database.getOutboxRecord(created.outbox.mutationId);
+    expect(unrelated?.deliveryBlockCode).toBeUndefined();
+    await expect(database.claimNextBoundWorkoutMutations({
+      workerId: 'worker-g2', now: T1, leaseDurationMs: 30_000, limit: 1,
+      currentAccountId: () => scope.userId, currentDeviceId: () => scope.deviceId,
+      onlyMutationId: 'another-mutation',
+    })).resolves.toEqual([]);
+    expect(await database.getOutboxRecord(created.outbox.mutationId)).toEqual(unrelated);
+
     await expect(database.resetPermanentFailure({ mutationId: created.outbox.mutationId, now: T1 }))
       .rejects.toMatchObject({ code: 'INVALID_OUTBOX_TRANSITION' });
     expect(await database.listNextDeliverableMutations({ now: T1, limit: 10 })).toEqual([]);

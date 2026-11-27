@@ -8,6 +8,7 @@ import {
   HEALTH_ROUTINE_GENERATION_ID, HEALTH_ROUTINE_PROJECT_REF, readEstablishedWorkoutDeviceId,
 } from './workoutLocalReaderAuthority';
 import { WorkoutSessionRepository, WORKOUT_SESSION_DOMAIN } from './workoutSessionRepository';
+import { HEALTH_WORKER_PRODUCT_PROJECT, ISOLATED_WORKOUT_WORKER_QA } from './workoutWorkerQaScope';
 import { CompositeWorkoutReadIsolationError,
   type ActiveCanonicalWorkoutReadInput } from '../components/views/features/health/compositeWorkoutReadProjection';
 
@@ -65,6 +66,14 @@ export class WorkoutSelectedDayReader {
     }
   }
 
+  /** Reuse the exact reader validation with the isolated runner's existing DB handle. */
+  static forWorkerQa(repository: LocalDatabaseRepository): WorkoutSelectedDayReader {
+    if (!ISOLATED_WORKOUT_WORKER_QA || repository.namespace.projectRef !== HEALTH_WORKER_PRODUCT_PROJECT) {
+      throw new Error('workout_worker_qa_reader_disabled');
+    }
+    return new WorkoutSelectedDayReader(repository, repository.namespace.userId, repository.namespace.deviceId);
+  }
+
   get scope(): SelectedDayCanonicalScope {
     return {
       accountId: this.accountId, deviceId: this.deviceId,
@@ -81,12 +90,20 @@ export class WorkoutSelectedDayReader {
     }
   }
 
-  async read(localDate: string): Promise<readonly ActiveCanonicalWorkoutReadInput[]> {
+  async read(localDate: string, onlyEntityId?: string): Promise<readonly ActiveCanonicalWorkoutReadInput[]> {
     if (this.closed) throw new Error('workout_selected_day_reader_closed');
     await this.verifyCurrentScope();
     let entities: Awaited<ReturnType<WorkoutSessionRepository['queryWorkoutSessionsByLocalDate']>>;
     try {
-      entities = await new WorkoutSessionRepository(this.repository).queryWorkoutSessionsByLocalDate(localDate);
+      const sessions = new WorkoutSessionRepository(this.repository);
+      if (onlyEntityId === undefined) entities = await sessions.queryWorkoutSessionsByLocalDate(localDate);
+      else {
+        const row = await sessions.getWorkoutSession(onlyEntityId);
+        if (!row || row.entityId !== onlyEntityId || row.record.localDate !== localDate) {
+          throw new Error('workout_selected_day_exact_evidence_unavailable');
+        }
+        entities = [row];
+      }
     } catch (error) {
       // Match the range reader's durable trust boundary, before any returned-row checks.
       if (error instanceof LocalDatabaseError && error.code === 'CORRUPT_PERSISTED_RECORD') {
