@@ -194,6 +194,8 @@ export interface HealthProps extends BaseViewProps, DateProps, MutateProps {
     workouts: readonly Workout[];
     isCurrent: () => boolean;
   }) => Promise<void>;
+  /** Supplied only by the isolated mounted Worker suite. */
+  testOnlyOpenCanonicalWorkerProduct?: import('../components/views/features/health/healthCanonicalWorkerProduct').OpenHealthCanonicalWorkerProduct;
   /** Gated local routine source readiness; [] alone is not verified empty. */
   healthRoutinesState?: import('../lib/searchReadiness').SearchDatasetState;
 }

@@ -48,6 +48,7 @@ import { HealthAssistedRepsInput } from './features/health/HealthAssistedRepsInp
 import { HealthSetActions } from './features/health/HealthSetActions';
 import { HealthCanonicalWorkoutPanel } from './features/health/HealthCanonicalWorkoutPanel';
 import { HEALTH_CANONICAL_LOCAL_SAVE_ENABLED } from './features/health/healthCanonicalLocalSaveConfig';
+import { ISOLATED_WORKOUT_WORKER_QA } from '../../lib/workoutWorkerQaScope';
 import {
   HealthExecutionColumn,
   HealthSetupColumn,
@@ -267,7 +268,7 @@ export const HealthView = ({
   schedules, weeklySchedules,
   workouts, healthBlocks, healthRoutines, inbody, theme, appSettings,
   THEME_COLORS, isDailyLoading, user, selectedDayComposite, workoutRangeComposite,
-  onLocalWorkoutCommitted, testOnlyCommitNewWorkout,
+  onLocalWorkoutCommitted, testOnlyCommitNewWorkout, testOnlyOpenCanonicalWorkerProduct,
   healthRoutinesState,
 }: HealthProps) => {
   const { t, lang } = useTranslation();
@@ -279,6 +280,7 @@ export const HealthView = ({
   const { weightUnits, toggleWeightUnit } = useAppStore();
   const { confirm, showConfirm, clearConfirm, handleConfirm } = useConfirm();
   const localMode = domainUsesLocalWorkingCopy('health_workouts');
+  const workerProduct = ISOLATED_WORKOUT_WORKER_QA ? testOnlyOpenCanonicalWorkerProduct : undefined;
   const mountedRef = useRef(true);
   useEffect(() => {
     mountedRef.current = true;
@@ -2175,6 +2177,14 @@ export const HealthView = ({
 
       {/* ── Primary execution: Today's Workout ── */}
       <HealthExecutionColumn showOnCompact={mobileHealthTab === 'workout' || isDesktopPrevious}>
+      {workerProduct ? localMode && workoutPresentationActive && !isDesktopPrevious && !isDailyLoading && (
+        <HealthCanonicalWorkoutPanel key={JSON.stringify([user.id, selectedDateDraftKey])}
+          accountId={user.id} date={selectedDateDraftKey} blocks={healthBlocks} openWorkerProduct={workerProduct}
+          captureCurrent={() => {
+            const operation = captureWorkoutOperation();
+            return operation ? () => currentWorkoutOperation(operation) && isWorkoutPresentationActiveNow() : null;
+          }} />
+      ) : (
       <fieldset disabled={workoutSavePending} aria-busy={workoutSavePending} className="min-w-0 min-h-0 xl:h-full m-0 border-0 p-0">
         <div
           className={`${WORKSPACE_CARD_SURFACE} abs-cosmos-health-today flex min-h-0 flex-col overflow-visible xl:overflow-hidden transition-colors ${WORKSPACE_CARD.workoutHero} lg:min-h-[280px] xl:min-h-0 xl:h-full`}
@@ -2595,6 +2605,7 @@ export const HealthView = ({
         </div>
 
       </fieldset>
+      )}
       </HealthExecutionColumn>
 
       {/* ── Setup support: Routine + Blocks ── */}

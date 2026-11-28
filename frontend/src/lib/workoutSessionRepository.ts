@@ -16,6 +16,8 @@ function sameWorkoutId(left: string, right: string): boolean {
 export interface WorkoutMutationOptions {
   now?: string;
   testOnlyAbortAt?: 'before_entity' | 'before_outbox' | 'after_writes';
+  /** Fence the caller's lifetime after asynchronous lookup and before atomic writes. */
+  shouldContinue?: () => boolean;
 }
 
 export class WorkoutSessionRepository {
@@ -56,6 +58,7 @@ export class WorkoutSessionRepository {
       },
       now: options.now ?? this.clock(),
       deliveryBinding: { version: 1, state: 'unbound' },
+      shouldContinue: options.shouldContinue,
       testOnlyAbortAt: options.testOnlyAbortAt,
     });
   }
@@ -69,6 +72,7 @@ export class WorkoutSessionRepository {
     const session = snapshotWorkoutSessionV1(sessionInput);
     if (!sameWorkoutId(session.id, id)) throw new Error('workout_session_id_mismatch');
     const entityId = await this.localEntityId(id);
+    if (options.shouldContinue && !options.shouldContinue()) throw new Error('STALE_WORKOUT_UPDATE');
     return this.database.commitLocalMutation({
       mutation: {
         mode: 'update',
@@ -80,6 +84,7 @@ export class WorkoutSessionRepository {
       },
       now: options.now ?? this.clock(),
       deliveryBinding: { version: 1, state: 'unbound' },
+      shouldContinue: options.shouldContinue,
       testOnlyAbortAt: options.testOnlyAbortAt,
     });
   }

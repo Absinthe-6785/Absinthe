@@ -1262,7 +1262,6 @@ export class LocalDatabaseRepository {
       }
       envelope.pendingMutationId = mutationId;
       validateEntityEnvelope(envelope);
-      entityStore.put(envelope);
       const outbox: OutboxRecord = {
         namespaceKey: this.namespaceKey, generationId: this.namespace.generationId,
         accountId: this.namespace.userId, deviceId: this.namespace.deviceId,
@@ -1302,6 +1301,10 @@ export class LocalDatabaseRepository {
           : {}),
       };
       validateOutboxRecord(outbox);
+      if (input.shouldContinue && !input.shouldContinue()) {
+        throw new LocalDatabaseError('STALE_CONNECTION', 'commit_local_mutation');
+      }
+      entityStore.put(envelope);
       outboxStore.add(outbox);
       if (input.testOnlyAbortAt === 'after_writes') {
         transaction.abort(); throw new LocalDatabaseError('TRANSACTION_ABORTED', 'entity_mutation');
@@ -2026,6 +2029,7 @@ export class LocalDatabaseRepository {
     entity: LocalEntityEnvelope | null;
     outbox: OutboxRecord | null;
     deliveryAuthorityCurrent?: boolean;
+    deliveryAuthorityMatchesBinding?: boolean;
     historicalCreateUnambiguous?: boolean;
   }> {
     const operation = 'read_workout_draft_evidence';
@@ -2065,6 +2069,7 @@ export class LocalDatabaseRepository {
       if (outbox) await this.validateRestoreBoundaryGraphs(transaction, [outbox]);
       const binding = outbox?.deliveryBinding;
       let deliveryAuthorityCurrent: boolean | undefined;
+      let deliveryAuthorityMatchesBinding: boolean | undefined;
       let historicalCreateUnambiguous: boolean | undefined;
       if (lookup.kind === 'submission' && lookup.observeDelivery) {
         if (outbox?.baseRevision === null && entity?.localRevision !== undefined
@@ -2085,17 +2090,18 @@ export class LocalDatabaseRepository {
             requestResult(store.get([...key, WORKOUT_RESET_DOMAIN])),
             requestResult(store.get([...key, WORKOUT_DISCOVERY_DOMAIN])) as Promise<WorkoutDiscoveryReservation | undefined>,
           ]);
-          deliveryAuthorityCurrent = reset === undefined && !!authority && validWorkoutAuthorityRecord(authority)
+          deliveryAuthorityMatchesBinding = reset === undefined && !!authority && validWorkoutAuthorityRecord(authority)
             && authority.accountId === owner && authority.namespaceKey === namespace && authority.generationId === generation
             && authority.deviceId === this.namespace.deviceId && authority.projectScope === binding.projectScope
-            && authority.generationBindingId === binding.generationBindingId && authority.authorityEpoch === binding.authorityEpoch
+            && authority.generationBindingId === binding.generationBindingId && authority.authorityEpoch === binding.authorityEpoch;
+          deliveryAuthorityCurrent = deliveryAuthorityMatchesBinding
             && discovery?.domain === WORKOUT_DISCOVERY_DOMAIN && discovery.accountId === owner
             && discovery.namespaceKey === namespace && discovery.generationId === generation
-            && discovery.sequence === authority.discoverySequence;
+            && discovery.sequence === authority!.discoverySequence;
         }
       }
       await done;
-      return { entity: entity ?? null, outbox: outbox ?? null, deliveryAuthorityCurrent, historicalCreateUnambiguous };
+      return { entity: entity ?? null, outbox: outbox ?? null, deliveryAuthorityCurrent, deliveryAuthorityMatchesBinding, historicalCreateUnambiguous };
     } catch (error) {
       await done.catch(() => undefined);
       throw localDatabaseError(error, operation);
@@ -2452,9 +2458,11 @@ export class LocalDatabaseRepository {
   async claimNextBoundWorkoutMutations(input: ClaimOutboxInput & {
     currentAccountId: () => string | null;
     currentDeviceId: () => string | null;
+    onlyMutationId?: string;
   }): Promise<OutboxRecord[]> {
     const operation = 'claim_bound_workout';
     this.assertOpen(operation); validateSafeIdentifier(input.workerId, operation);
+    if (input.onlyMutationId !== undefined) validateSafeIdentifier(input.onlyMutationId, operation);
     const timestamp = now(input.now);
     if (!Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 100
       || !Number.isSafeInteger(input.leaseDurationMs) || input.leaseDurationMs < 1
@@ -2470,9 +2478,10 @@ export class LocalDatabaseRepository {
       await this.ensureActive(transaction);
       this.assertWorkoutPushIdentity(input.currentAccountId, input.currentDeviceId, operation);
       const store = transaction.objectStore(LOCAL_DATABASE_STORES.outbox);
-      const safe = this.quarantineAttemptedUnbound(transaction, values);
-      const candidates = this.nextDeliverable(safe, timestamp, input.recoverExpiredClaims === true, 'bound_workout')
-        .slice(0, input.limit);
+      const safe = this.quarantineAttemptedUnbound(transaction, values, input.onlyMutationId);
+      const deliverable = this.nextDeliverable(safe, timestamp, input.recoverExpiredClaims === true, 'bound_workout');
+      const candidates = (input.onlyMutationId === undefined ? deliverable
+        : deliverable.filter(value => value.mutationId === input.onlyMutationId)).slice(0, input.limit);
       const claimed = candidates.map(value => {
         if (!Number.isSafeInteger(value.attemptCount + 1)
           || value.accountId?.toLowerCase() !== this.namespace.userId.toLowerCase()
@@ -3983,10 +3992,10 @@ export class LocalDatabaseRepository {
     }
   }
 
-  private quarantineAttemptedUnbound(transaction: IDBTransaction, values: OutboxRecord[]): OutboxRecord[] {
+  private quarantineAttemptedUnbound(transaction: IDBTransaction, values: OutboxRecord[], onlyMutationId?: string): OutboxRecord[] {
     const store = transaction.objectStore(LOCAL_DATABASE_STORES.outbox);
     return values.map(value => {
-      if (value.deliveryBinding?.state !== 'unbound'
+      if (onlyMutationId !== undefined && value.mutationId !== onlyMutationId || value.deliveryBinding?.state !== 'unbound'
         || value.attemptCount === 0 && value.lastAttemptAt === null
         || value.deliveryBlockCode === 'UNBOUND_ATTEMPT_QUARANTINED') return value;
       const updated: OutboxRecord = { ...value, deliveryBlockCode: 'UNBOUND_ATTEMPT_QUARANTINED' };

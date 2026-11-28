@@ -22,6 +22,8 @@ type MutationRequest = {
 };
 
 export interface WorkoutPushOptions {
+  /** An explicit per-session Sync must not claim another session's ready mutation. */
+  onlyMutationId?: string;
   baseUrl: string;
   getSession: () => Promise<Session | null>;
   currentAccountId: () => string | null;
@@ -179,6 +181,7 @@ export async function runWorkoutPushIteration(repository: LocalDatabaseRepositor
   for (let index = 0; index < limit; index += 1) {
     const [claimed] = await repository.claimNextBoundWorkoutMutations({
       workerId, now: now(), leaseDurationMs, limit: 1, recoverExpiredClaims: true,
+      onlyMutationId: options.onlyMutationId,
       currentAccountId: options.currentAccountId, currentDeviceId: options.currentDeviceId,
     });
     if (!claimed) break;

@@ -1,12 +1,15 @@
+// @vitest-environment happy-dom
 import 'fake-indexeddb/auto';
-import { IDBFactory } from 'fake-indexeddb';
+import { IDBDatabase, IDBFactory } from 'fake-indexeddb';
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { gzipSync } from 'node:zlib';
 import { build } from 'esbuild';
+import { act, createElement, StrictMode } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeAll, expect, it, vi } from 'vitest';
 import {
-  closeLocalDatabase, createDormantLocalDatabaseCapability, openLocalDatabase, type LocalDatabaseRepository,
+  closeLocalDatabase, createDormantLocalDatabaseCapability, openLocalDatabase, LocalDatabaseRepository,
 } from '../src/lib/localDatabase';
 import { hashCanonicalPayload } from '../src/lib/localDatabase/canonicalPayload';
 import { HEALTH_ROUTINE_DEVICE_ID_KEY, HEALTH_ROUTINE_GENERATION_ID, HEALTH_ROUTINE_PROJECT_REF } from '../src/lib/workoutLocalReaderAuthority';
@@ -15,12 +18,20 @@ import { WORKOUT_REMOTE_DOMAIN, workoutRequestDigest } from '../src/lib/workoutR
 import { runWorkoutPullIteration } from '../src/lib/workoutRemotePull';
 import { runWorkoutPushIteration } from '../src/lib/workoutRemotePush';
 import { WorkoutSelectedDayReader } from '../src/lib/workoutSelectedDayReader';
-import { WorkoutSessionRepository } from '../src/lib/workoutSessionRepository';
+import { WORKOUT_SESSION_DOMAIN, WorkoutSessionRepository } from '../src/lib/workoutSessionRepository';
 import type { WorkoutSessionV1 } from '../src/lib/workoutSessionV1';
+import { HealthView } from '../src/components/views/HealthView';
+import { openHealthCanonicalWorkerProduct } from '../src/components/views/features/health/healthCanonicalWorkerProduct';
+import { HEALTH_WORKER_PRODUCT_PROJECT } from '../src/lib/workoutWorkerQaScope';
+import { setRuntimeAccountSyncAccount } from '../src/lib/remoteBoundary';
+import type { HealthProps } from '../src/types';
 import vectors from '../../protocol/rel05g4a-workout-vectors.json';
 
 // No real Auth configuration or client can be loaded in this suite.
-vi.mock('../src/lib/supabase', () => ({ supabase: {} }));
+vi.mock('../src/lib/supabase', () => ({
+  supabase: { auth: { getSession: async () => ({ data: { session: null } }) } },
+  authFetch: (...args: Parameters<typeof fetch>) => fetch(...args),
+}));
 
 const { Miniflare } = createRequire(import.meta.url)('../../prototypes/recipe-d1-local/node_modules/miniflare');
 const origin = 'http://127.0.0.1:8789';
@@ -61,6 +72,9 @@ beforeAll(async () => {
 }, 30_000);
 
 afterEach(async () => {
+  await unmountProduct();
+  setRuntimeAccountSyncAccount(null);
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   for (const store of stores.splice(0)) closeLocalDatabase(store);
   await Promise.all(runners.splice(0).map(runner => runner.dispose()));
@@ -100,12 +114,12 @@ const auth = (user: string) => ({ 'content-type': 'application/json', authorizat
 const now = (seconds: number) => new Date(Date.UTC(2026, 8, 23, 0, 0, seconds)).toISOString();
 type Harness = Awaited<ReturnType<typeof harness>>;
 type Fixture = Awaited<ReturnType<typeof client>>;
-async function client(h: Harness, accountId: string, n: number, seed = true) {
+async function client(h: Harness, accountId: string, n: number, seed = true, projectRef = HEALTH_ROUTINE_PROJECT_REF) {
   const factory = new IDBFactory();
   const deviceId = uuid(n), bindingId = uuid(n + 1000);
   // A separate IDBFactory, synthetic owner/device and a distinct trusted remote
   // project. This does not reuse or opt in the canonical local-save QA namespace.
-  const database = await openLocalDatabase({ userId: accountId, deviceId, projectRef: HEALTH_ROUTINE_PROJECT_REF,
+  const database = await openLocalDatabase({ userId: accountId, deviceId, projectRef,
     generationId: HEALTH_ROUTINE_GENERATION_ID, schemaVersion: 1 }, {
     capability: createDormantLocalDatabaseCapability('test'), indexedDBFactory: factory,
   });
@@ -180,6 +194,395 @@ function bind(f: Fixture, mutationId: string, verificationId: string) {
 const pushAt = (f: Fixture, seconds: number) => runWorkoutPushIteration(f.database, {
   ...f.opts, now: () => now(seconds), limit: 1, retryBaseDelayMs: 1, retryMaxDelayMs: 5,
 });
+
+type ProductClient = Awaited<ReturnType<typeof productClient>>;
+let productRoot: Root | null = null;
+let productHost: HTMLDivElement | null = null;
+const exercises: HealthProps['healthBlocks'] = [
+  { id: 'qa-press', name: 'Synthetic press', type: 'strength', tags: ['QA'] },
+  { id: 'qa-pull', name: 'Synthetic pull-up', type: 'bodyweight', tags: ['QA'] },
+];
+
+async function productClient(h: Harness, device: number, accountId = alice, seed = true) {
+  const f = await client(h, accountId, device, seed, HEALTH_WORKER_PRODUCT_PROJECT);
+  const data = new Map<string, string>();
+  const storage: Storage = {
+    get length() { return data.size; }, clear: () => data.clear(), key: n => [...data.keys()][n] ?? null,
+    getItem: key => data.get(key) ?? null, setItem: (key, value) => { data.set(key, value); },
+    removeItem: key => { data.delete(key); },
+  };
+  storage.setItem(HEALTH_ROUTINE_DEVICE_ID_KEY, f.wire.deviceId);
+  let tail: Promise<unknown> = Promise.resolve();
+  const locks = { request: (_: string, callback: () => unknown) => {
+    const next = tail.then(callback);
+    tail = next.catch(() => undefined);
+    return next;
+  } } as Pick<LockManager, 'request'>;
+  const state = { offline: false, at: 1, afterFetch: null as null | ((target: URL) => Promise<void>) };
+  let deviceOwner = new AbortController();
+  const selectDevice = (id: string) => {
+    const old = deviceOwner;
+    deviceOwner = new AbortController();
+    storage.setItem(HEALTH_ROUTINE_DEVICE_ID_KEY, id);
+    old.abort();
+  };
+  const open: NonNullable<HealthProps['testOnlyOpenCanonicalWorkerProduct']> = (account, when, current) =>
+    openHealthCanonicalWorkerProduct({
+      localStorage: storage, locks, indexedDBFactory: f.factory, now: () => now(state.at), deviceLifetime: deviceOwner.signal,
+      getSession: f.opts.getSession,
+      fetchImpl: async (...args) => {
+        if (state.offline) throw new TypeError('Synthetic offline');
+        const response = await h.fetchImpl(...args);
+        await state.afterFetch?.(new URL(String(args[0])));
+        return response;
+      },
+    }, account, when, current);
+  return { ...f, storage, state, open, selectDevice };
+}
+
+function setupProduct() {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  Object.defineProperty(window, 'innerWidth', { configurable: true, value: 375 });
+  vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('Non-fixture request denied'); }));
+}
+
+async function unmountProduct() {
+  if (productRoot) await act(async () => productRoot?.unmount());
+  productRoot = null;
+  productHost?.remove();
+  productHost = null;
+}
+
+async function mountProduct(client: ProductClient, date = day, replaceOwner = true) {
+  if (replaceOwner) setRuntimeAccountSyncAccount(client.accountId, headers =>
+    headers.set('Authorization', `Bearer ${tokens.get(client.accountId)}`));
+  if (!productRoot) {
+    productHost = document.createElement('div');
+    document.body.append(productHost);
+    productRoot = createRoot(productHost);
+  }
+  const dateValue = new Date(date + 'T12:00:00');
+  const props: HealthProps = {
+    now: {} as HealthProps['now'], currentDate: dateValue, selectedDate: dateValue,
+    setCurrentDate: vi.fn(), setSelectedDate: vi.fn(),
+    formatDate: value => value instanceof Date
+      ? [value.getFullYear(), String(value.getMonth() + 1).padStart(2, '0'), String(value.getDate()).padStart(2, '0')].join('-')
+      : date,
+    isToday: () => true,
+    showToast: vi.fn(), appSettings: { darkMode: false } as HealthProps['appSettings'], updateSetting: vi.fn(),
+    theme: { card: 'card', input: 'input', border: 'border', text: 'text', textMuted: 'muted', hoverBg: 'hover' },
+    THEME_COLORS: [], mutateDaily: vi.fn(), mutateStatic: vi.fn(), user: { id: client.accountId, name: 'Synthetic account' },
+    schedules: [], weeklySchedules: [], workouts: [], healthBlocks: exercises, healthRoutines: [],
+    inbody: {} as HealthProps['inbody'], testOnlyOpenCanonicalWorkerProduct: client.open,
+  };
+  await act(async () => productRoot!.render(createElement(StrictMode, null, createElement(HealthView, props))));
+}
+
+const element = <T extends HTMLElement = HTMLElement>(selector: string) => productHost?.querySelector<T>(selector);
+const controls = (suffix: string) => `[data-health-canonical-${suffix}]`;
+const visible = async (selector: string) => await vi.waitFor(async () => {
+  await act(async () => {});
+  expect(element(selector)).toBeTruthy();
+});
+async function click(selector: string, twice = false) {
+  const node = element<HTMLButtonElement>(selector);
+  expect(node?.disabled).toBe(false);
+  await act(async () => { node!.click(); if (twice) node!.click(); });
+}
+async function openProduct() {
+  await click(controls('open'));
+  await visible(`${controls('sync')}:not(:disabled)`);
+}
+async function addExercise(index: number) {
+  const select = `${controls('draft')} select[name="exercise"]`;
+  element<HTMLSelectElement>(select)!.value = exercises[index]!.id;
+  await click(`${controls('draft')} form:has(select[name="exercise"]) button[type="submit"]`);
+  await vi.waitFor(async () => {
+    await act(async () => {});
+    expect(element(controls('draft'))?.querySelectorAll('h3')).toHaveLength(index + 1);
+  });
+}
+async function enterSet(selector: string, values: Record<string, string>) {
+  await click(selector);
+  const form = `${controls('draft')} form:has(input[name="done"])`;
+  for (const [name, value] of Object.entries(values)) element<HTMLInputElement>(`${form} [name="${name}"]`)!.value = value;
+  element<HTMLInputElement>(`${form} [name="done"]`)!.checked = true;
+  await click(`${form} button[type="submit"]`);
+  await vi.waitFor(async () => { await act(async () => {}); expect(element(form)).toBeNull(); });
+}
+async function recordProductWorkout() {
+  await visible(`${controls('new')}:not(:disabled)`);
+  await click(controls('new'));
+  await visible(`${controls('draft')} select[name="exercise"]`);
+  await addExercise(0); await addExercise(1);
+  await enterSet(`li:has(> h3):nth-child(1) > ${controls('add-set')}`, { weight: '40', reps: '8' });
+  await enterSet(`li:has(> h3):nth-child(1) > ${controls('add-set')}`, { weight: '35', reps: '10' });
+  await enterSet(`li:has(> h3):nth-child(2) > ${controls('add-set')}`, { reps: '6', assisted: '2' });
+  await click(controls('save'), true);
+  await visible('[data-health-canonical-state="not_synchronized"]');
+}
+async function syncProduct(state?: string, twice = false) {
+  await visible(`${controls('sync')}:not(:disabled)`);
+  await click(controls('sync'), twice);
+  await visible(`${controls('sync')}:not(:disabled)`);
+  if (state) await visible(`[data-health-canonical-state="${state}"]`);
+}
+
+it('mounts actual mobile Health Save, Sync, exact-ID readback and Edit across two isolated clients', async () => {
+  const h = await harness();
+  const a = await productClient(h, 201), b = await productClient(h, 202);
+  setupProduct();
+  const transactions = vi.spyOn(IDBDatabase.prototype, 'transaction');
+  const observations: Array<{ action: string; requests: number; transactions: number; writes: number;
+    d1Statements: number; d1RowsRead: number; d1RowsWritten: number }> = [];
+  const measure = async (action: string, work: () => Promise<void>) => {
+    const start = h.calls.length, transactionsStart = transactions.mock.calls.length;
+    await work();
+    const local = transactions.mock.calls.slice(transactionsStart);
+    const requests = h.calls.slice(start), metrics = requests.flatMap(call => call.metrics ? [call.metrics] : []);
+    observations.push({ action, requests: requests.length, transactions: local.length,
+      writes: local.filter(([, mode]) => mode === 'readwrite').length,
+      d1Statements: metrics.reduce((total, m) => total + m.statements, 0),
+      d1RowsRead: metrics.reduce((total, m) => total + m.rowsRead, 0),
+      d1RowsWritten: metrics.reduce((total, m) => total + m.rowsWritten, 0) });
+  };
+
+  await mountProduct(a); await openProduct();
+  await measure('A record and Save', recordProductWorkout);
+  expect(h.calls).toHaveLength(0);
+  const [created] = await a.sessions.listWorkoutSessions();
+  const id = created!.entityId;
+  expect(created!.record.entries.map(e => e.sets.length)).toEqual([2, 1]);
+  expect(await a.database.listOutboxMutations({ domain: WORKOUT_SESSION_DOMAIN, entityId: id, limit: 10 })).toHaveLength(1);
+  await measure('A Sync create', () => syncProduct('acknowledged', true));
+  expect(element('[data-health-canonical-state="acknowledged"]')?.textContent).toContain('revision 1');
+
+  await unmountProduct();
+  await mountProduct(b); await openProduct();
+  await measure('B Sync receive', syncProduct);
+  await visible(`[data-health-canonical-session="${id}"]`);
+  expect(element(`[data-health-canonical-session="${id}"]`)?.textContent).toContain('40 kg');
+  expect((await b.sessions.getWorkoutSession(id))?.record).toEqual(created!.record);
+  await click(controls('reopen'));
+  await visible(`${controls('draft')} h3`);
+  await measure('B edit and Save', async () => {
+    await enterSet(`li:has(> h3):nth-child(1) > ol > li:first-child ${controls('edit-set')}`, { weight: '45', reps: '9' });
+    await enterSet(`li:has(> h3):nth-child(2) > ${controls('add-set')}`, { reps: '5' });
+    await click(controls('save'), true);
+    await visible('[data-health-canonical-state="not_synchronized"]');
+  });
+  const edited = (await b.sessions.getWorkoutSession(id))!.record;
+  expect(edited).toMatchObject({ id, entries: [
+    { id: created!.record.entries[0]!.id, sets: [
+      { id: created!.record.entries[0]!.sets[0]!.id, sourceValue: '45', reps: 9 },
+      created!.record.entries[0]!.sets[1],
+    ] },
+    { id: created!.record.entries[1]!.id, sets: [created!.record.entries[1]!.sets[0], { reps: 5 }] },
+  ] });
+  await measure('B Sync update', () => syncProduct('acknowledged', true));
+  expect(element('[data-health-canonical-state="acknowledged"]')?.textContent).toContain('revision 2');
+  await unmountProduct();
+  await mountProduct(a); await openProduct();
+  await visible('[data-health-canonical-state="acknowledged"]');
+  await measure('A Sync readback', () => syncProduct('acknowledged'));
+  expect(element(`[data-health-canonical-session="${id}"]`)?.textContent).toContain('45 kg');
+  expect((await a.sessions.getWorkoutSession(id))?.record).toEqual(edited);
+  expect(await counts(h.db)).toEqual({ sessions: 1, receipts: 2, events: 2 });
+  expect(observations.map(x => x.requests)).toEqual([0, 4, 3, 0, 2, 3]);
+  expect(observations.filter(x => x.action.includes('and Save')).map(x => x.writes)).toEqual([1, 1]);
+  expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+  console.info('mounted Health QA operation counts', JSON.stringify(observations));
+}, 30_000);
+
+it('keeps offline local Save and lost-response replay distinct from confirmed acknowledgement', async () => {
+  const h = await harness();
+  const a = await productClient(h, 203);
+  setupProduct(); a.state.offline = true;
+  await mountProduct(a); await openProduct(); await recordProductWorkout();
+  await syncProduct('not_synchronized');
+  await visible('[data-health-canonical-sync-issue="unavailable"]');
+  expect(h.calls).toHaveLength(0);
+  await unmountProduct();
+  await mountProduct(a); await openProduct();
+  await visible('[data-health-canonical-state="not_synchronized"]');
+  a.state.offline = false;
+  h.loseNextResponse();
+  await syncProduct('uncertain', true);
+  await visible('[data-health-canonical-sync-issue="uncertain"]');
+  expect(element('[data-health-canonical-state="acknowledged"]')).toBeFalsy();
+  await unmountProduct();
+  await mountProduct(a); await openProduct();
+  await visible('[data-health-canonical-state="uncertain"]');
+  a.state.at += 5;
+  await syncProduct('acknowledged', true);
+  const payloads = h.calls.filter(call => call.path.endsWith('/mutations')).map(call => call.body);
+  expect(payloads).toHaveLength(2);
+  expect(payloads[0]).toBe(payloads[1]);
+  expect(await counts(h.db)).toEqual({ sessions: 1, receipts: 1, events: 1 });
+  await unmountProduct();
+  a.state.offline = true;
+  await mountProduct(a); await openProduct(); await syncProduct('acknowledged');
+  await visible('[data-health-canonical-sync-issue="unavailable"]');
+  expect(h.calls.filter(call => call.path.endsWith('/mutations'))).toHaveLength(2);
+  expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+}, 30_000);
+
+async function editPress(value: string) {
+  await click(controls('reopen'));
+  const edit = `li:has(> h3):nth-child(1) > ol > li:first-child ${controls('edit-set')}`;
+  await visible(`${edit}:not(:disabled)`);
+  await enterSet(edit, { weight: value, reps: '9' });
+  await visible('[data-health-canonical-state="draft"]');
+}
+
+it('preserves the losing locally saved edit and does not turn a stale CAS into a second write', async () => {
+  const h = await harness();
+  const a = await productClient(h, 204), b = await productClient(h, 205);
+  setupProduct();
+  await mountProduct(a); await openProduct(); await recordProductWorkout(); await syncProduct('acknowledged');
+  const [created] = await a.sessions.listWorkoutSessions();
+  await unmountProduct();
+  await mountProduct(b); await openProduct(); await syncProduct(); await editPress('42');
+  await click(controls('save')); await visible('[data-health-canonical-state="not_synchronized"]');
+  await unmountProduct();
+  await mountProduct(a); await openProduct(); await editPress('55');
+  await click(controls('save')); await visible('[data-health-canonical-state="not_synchronized"]');
+  await syncProduct('acknowledged');
+  await unmountProduct();
+  await mountProduct(b); await openProduct(); await syncProduct('conflict');
+  const losing = (await b.sessions.getWorkoutSession(created!.entityId))!;
+  expect(losing.record.entries[0]!.sets[0]).toMatchObject({ sourceValue: '42', reps: 9 });
+  expect(losing.pendingMutationId).not.toBeNull();
+  const remoteWrites = h.calls.filter(c => c.path.endsWith('/mutations'));
+  expect(remoteWrites.map(c => c.status)).toEqual([200, 200, 409]);
+  await syncProduct('conflict');
+  expect(h.calls.filter(c => c.path.endsWith('/mutations'))).toHaveLength(remoteWrites.length);
+  expect(await counts(h.db)).toEqual({ sessions: 1, receipts: 2, events: 2 });
+  expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+}, 30_000);
+
+it('keeps a durable unsaved editor across pull and fences selected-date and A→B→A completion', async () => {
+  const h = await harness();
+  const a = await productClient(h, 206), b = await productClient(h, 207), foreign = await productClient(h, 208, bob);
+  setupProduct();
+  await mountProduct(a); await openProduct(); await recordProductWorkout(); await syncProduct('acknowledged');
+  const [created] = await a.sessions.listWorkoutSessions();
+  await unmountProduct();
+  await mountProduct(b); await openProduct(); await syncProduct(); await editPress('42');
+  const bytes = b.storage.getItem(b.storage.key(1)!);
+  expect(bytes).toContain('"sourceValue":"42"');
+  await unmountProduct();
+  await mountProduct(a); await openProduct(); await editPress('55');
+  await click(controls('save')); await visible('[data-health-canonical-state="not_synchronized"]');
+  await syncProduct('acknowledged');
+  await unmountProduct();
+  await mountProduct(b); await openProduct(); await syncProduct('draft');
+  expect(b.storage.getItem(b.storage.key(1)!)).toBe(bytes);
+  expect(element(`[data-health-canonical-session="${created!.entityId}"]`)?.textContent).toContain('55 kg');
+  await click(controls('save')); await visible(`${controls('sync')}:not(:disabled)`);
+  await visible('[data-health-canonical-state="draft"]');
+  expect(b.storage.getItem(b.storage.key(1)!)).toBe(bytes);
+  expect(await b.database.listOutboxMutations({ domain: WORKOUT_SESSION_DOMAIN, entityId: created!.entityId, limit: 10 })).toHaveLength(0);
+
+  let reached!: () => void, release!: () => void;
+  const started = new Promise<void>(resolve => { reached = resolve; });
+  const held = new Promise<void>(resolve => { release = resolve; });
+  b.state.afterFetch = async () => { reached(); await held; };
+  try {
+    await click(controls('sync'));
+    await started;
+    await mountProduct(b, '2026-09-24', false);
+    expect(element(controls('draft'))).toBeNull();
+    await mountProduct(foreign);
+    await openProduct();
+    expect(element(controls('session'))).toBeNull();
+    await mountProduct(b);
+    expect(element(controls('draft'))).toBeNull();
+  } finally {
+    b.state.afterFetch = null;
+    await act(async () => { release(); await held; });
+  }
+  await openProduct();
+  await visible('[data-health-canonical-state="draft"]');
+  expect(b.storage.getItem(b.storage.key(1)!)).toBe(bytes);
+  expect(element('[data-health-canonical-sync-issue]')).toBeNull();
+  expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+}, 30_000);
+
+it('keeps a staged edit editable after an atomic local CAS rejection, not uncertain', async () => {
+  const h = await harness(), a = await productClient(h, 209);
+  setupProduct();
+  await mountProduct(a); await openProduct(); await recordProductWorkout(); await syncProduct('acknowledged');
+  const [created] = await a.sessions.listWorkoutSessions();
+  const id = created!.entityId;
+  await editPress('42');
+  const key = a.storage.key(1)!;
+  const bytes = a.storage.getItem(key);
+  const winner = structuredClone(created!.record);
+  Object.assign(winner.entries[0]!.sets[0]!, { weightKg: '54', sourceValue: '54' });
+  const commit = LocalDatabaseRepository.prototype.commitLocalMutation;
+  vi.spyOn(LocalDatabaseRepository.prototype, 'commitLocalMutation').mockImplementationOnce(async function (this: LocalDatabaseRepository, input) {
+    // A competing device-local commit lands after the Save stages the draft
+    // marker but before its actual revision-checked transaction opens.
+    expect(a.storage.getItem(key)).toContain('"status":"uncertain"');
+    await a.sessions.updateWorkoutSession(id, 1, winner);
+    return commit.call(this, input);
+  });
+  await click(controls('save'));
+  await visible(`${controls('sync')}:not(:disabled)`);
+  await visible('[data-health-canonical-state="draft"]');
+  expect(a.storage.getItem(key)).toBe(bytes);
+  expect((await a.sessions.getWorkoutSession(id))?.record).toEqual(winner);
+  expect(await a.database.listOutboxMutations({ domain: WORKOUT_SESSION_DOMAIN, entityId: id, limit: 10 })).toHaveLength(2);
+  await unmountProduct();
+  await mountProduct(a); await openProduct();
+  await visible('[data-health-canonical-state="draft"]');
+  expect(a.storage.getItem(key)).toBe(bytes);
+}, 30_000);
+
+it('revokes same-owner device changes and replays the exact unsettled claim after device A→B→A', async () => {
+  const h = await harness(), a = await productClient(h, 210), b = await productClient(h, 211);
+  setupProduct();
+  await mountProduct(a); await openProduct(); await recordProductWorkout();
+  let reached!: () => void, release!: () => void;
+  const started = new Promise<void>(resolve => { reached = resolve; });
+  const held = new Promise<void>(resolve => { release = resolve; });
+  a.state.afterFetch = async target => {
+    if (target.pathname.endsWith('/mutations')) { reached(); await held; }
+  };
+  try {
+    await click(controls('sync'));
+    await started;
+    expect(await counts(h.db)).toEqual({ sessions: 1, receipts: 1, events: 1 });
+    await act(async () => {
+      a.selectDevice(b.wire.deviceId);
+      a.selectDevice(a.wire.deviceId);
+    });
+    expect(element(controls('sync'))).toBeTruthy();
+    expect(element<HTMLButtonElement>(controls('sync'))?.disabled).toBe(true);
+    await mountProduct(b, day, false);
+    expect(element(controls('draft'))).toBeNull();
+    await openProduct();
+    expect(element(controls('session'))).toBeNull();
+    await mountProduct(a, day, false);
+    expect(element(controls('draft'))).toBeNull();
+  } finally {
+    a.state.afterFetch = null;
+    await act(async () => { release(); await held; });
+  }
+  await openProduct();
+  await visible('[data-health-canonical-state="uncertain"]');
+  const claimed = await a.database.listOutboxMutations({ limit: 10 });
+  expect(claimed).toHaveLength(1);
+  expect(claimed[0]?.status).toBe('claimed');
+  a.state.at += 35;
+  await syncProduct('acknowledged', true);
+  const payloads = h.calls.filter(call => call.path.endsWith('/mutations')).map(call => call.body);
+  expect(payloads).toHaveLength(2);
+  expect(payloads[0]).toBe(payloads[1]);
+  expect(await counts(h.db)).toEqual({ sessions: 1, receipts: 1, events: 1 });
+  expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+}, 30_000);
 
 it('delivers one multi-exercise canonical create, loses its receipt, pulls without acknowledging, then replays and reads the same session on a second client', async () => {
   const h = await harness();
