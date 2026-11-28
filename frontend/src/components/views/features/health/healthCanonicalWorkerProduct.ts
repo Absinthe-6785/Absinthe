@@ -16,7 +16,7 @@ const origin = 'http://127.0.0.1:8789';
 const projectScope = 'health-worker-transport-fixture-v1';
 
 type Fixture = {
-  storage: Storage;
+  localStorage: Storage;
   locks: Pick<LockManager, 'request'>;
   indexedDBFactory: IDBFactory;
   fetchImpl: typeof fetch;
@@ -31,14 +31,14 @@ export async function openHealthCanonicalWorkerProduct(
 ) {
   if (!ISOLATED_WORKOUT_WORKER_QA) throw new Error('WORKER_PRODUCT_QA_DISABLED');
   const owner = runtimeSessionReadOwner();
-  const deviceId = fixture.storage.getItem(HEALTH_ROUTINE_DEVICE_ID_KEY);
+  const deviceId = fixture.localStorage.getItem(HEALTH_ROUTINE_DEVICE_ID_KEY);
   if (!owner || owner.accountId !== accountId || !deviceId || !WORKOUT_WIRE_UUID_V4.test(deviceId)
     || !WORKOUT_WIRE_UUID_V4.test(accountId)) throw new Error('WORKER_PRODUCT_QA_IDENTITY_REQUIRED');
   const signal = AbortSignal.any([owner.signal, fixture.deviceLifetime]);
 
   let closed = false;
   const isCurrent = () => !closed && isCurrentWorkout() && !signal.aborted && runtimeSessionReadOwner() === owner
-    && fixture.storage.getItem(HEALTH_ROUTINE_DEVICE_ID_KEY) === deviceId;
+    && fixture.localStorage.getItem(HEALTH_ROUTINE_DEVICE_ID_KEY) === deviceId;
   const current = () => {
     if (!isCurrent()) throw new Error('STALE_WORKER_PRODUCT');
   };
@@ -60,7 +60,7 @@ export async function openHealthCanonicalWorkerProduct(
     await verifyLocal();
     const drafts = createCanonicalWorkoutDraftStore({
       scope: { accountId, localDate, namespaceKey: database.namespaceKey, generationId: database.namespace.generationId },
-      storage: fixture.storage, locks: fixture.locks, isCurrent,
+      storage: fixture.localStorage, locks: fixture.locks, isCurrent,
     });
     const sessions = new WorkoutSessionRepository(database, fixture.now);
     const reader = WorkoutSelectedDayReader.forWorkerQa(database);

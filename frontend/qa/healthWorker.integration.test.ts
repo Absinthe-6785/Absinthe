@@ -228,7 +228,7 @@ async function productClient(h: Harness, device: number, accountId = alice, seed
   };
   const open: NonNullable<HealthProps['testOnlyOpenCanonicalWorkerProduct']> = (account, when, current) =>
     openHealthCanonicalWorkerProduct({
-      storage, locks, indexedDBFactory: f.factory, now: () => now(state.at), deviceLifetime: deviceOwner.signal,
+      localStorage: storage, locks, indexedDBFactory: f.factory, now: () => now(state.at), deviceLifetime: deviceOwner.signal,
       getSession: f.opts.getSession,
       fetchImpl: async (...args) => {
         if (state.offline) throw new TypeError('Synthetic offline');
